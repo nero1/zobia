@@ -1114,7 +1114,7 @@ A fixed, non-scrolling banner pinned at the top of every screen, used for persis
 
 ### Supported Languages at Launch
 
-English, French, Arabic, Kiswahili, IsiZulu, Portuguese.
+English, French, Arabic, Hausa, Kiswahili, Amharic, IsiZulu, Portuguese
 
 The i18n architecture must support adding additional languages without code changes — new language files are added to the translations directory and picked up automatically.
 
@@ -1598,7 +1598,7 @@ The MVP Build Sequence follows a phased approach. Each phase ends with a stable,
 - Deep links fully verified: all defined deep link routes tested (profiles, Rooms, Guilds, referrals, notification tap targets). Android App Links verified working with HTTPS domain association file.
 - Database provider switch tested: a full regression run executed with `DATABASE_PROVIDER=railway` and `DATABASE_PROVIDER=digitalocean` to confirm zero Supabase dependencies leak in non-Supabase modes.
 - Storage provider switch tested: Cloudflare R2 storage adapter verified working as a Supabase Storage replacement.
-- Full i18n wiring: all six launch languages (English, French, Arabic, Kiswahili, IsiZulu, Portuguese) with translations. RTL layout for Arabic.
+- Full i18n wiring: all eight launch languages (English, French, Arabic, Hausa, Kiswahili, Amharic, IsiZulu, Portuguese) with translations. RTL layout for Arabic.
 - APK build configuration from x_manifest (AdMob IDs, payment provider selection, feature flags).
 - Performance audit: Lighthouse scores, low-bandwidth simulation tests.
 - Accessibility audit (screen reader compatibility, contrast ratios, touch target sizes).
