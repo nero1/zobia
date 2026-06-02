@@ -1,0 +1,90 @@
+{
+  "common": {
+    "comingSoon": "Za a zo nan gaba…",
+    "loading": "Ana loda…",
+    "error": "Wani abu ya faru",
+    "retry": "Sake Gwadawa",
+    "cancel": "Soke",
+    "save": "Adana",
+    "next": "Na Gaba",
+    "back": "Koma Baya",
+    "skip": "Tsallake",
+    "done": "An Gama",
+    "continue": "Ci Gaba",
+    "offline": "Ba ka da haɗin intanet",
+    "offlineMessage": "Wasu fasaloli na iya zama ba su da amfani"
+  },
+  "auth": {
+    "loginTitle": "Barka da zuwa Zobia",
+    "loginSubtitle": "Shiga don haɗuwa da al'ummarku",
+    "loginWithGoogle": "Ci gaba da Google",
+    "loginWithTelegram": "Ci gaba da Telegram",
+    "loggingIn": "Ana shiga…",
+    "logoutConfirm": "Shin kana tabbata kana son fita?"
+  },
+  "onboarding": {
+    "step1Title": "Saita bayananka",
+    "step1Subtitle": "Zaɓi sunan mai amfani, zabi hotona, ka faɗa mana inda ka fito.",
+    "usernamePlaceholder": "sunan mai amfani",
+    "usernameLabel": "Sunan Mai Amfani",
+    "avatarLabel": "Emoji na avatar",
+    "cityLabel": "Birninka",
+    "cityPlaceholder": "misali Lagos, Nairobi, London…",
+    "step2Title": "Menene salon ka?",
+    "step2Subtitle": "Amsa tambayoyi 4 cikin sauri don mu iya dacewa da ɗakuna masu dacewa.",
+    "q1": "Yaya kake son ciyar da yammacinku?",
+    "q1a": "Hutawa da kiɗa",
+    "q1b": "Binciken ra'ayoyi",
+    "q1c": "Kasancewa tare da abokai",
+    "q1d": "Kammala abubuwa",
+    "q2": "Ƙarshen makon ku na arziki shine…",
+    "q2a": "Ranar nutsuwa a gida",
+    "q2b": "Babban tafiya",
+    "q2c": "Taron jama'a",
+    "q2d": "Aiki akan aiki",
+    "q3": "Zaɓi kalma da ke bayyana ka:",
+    "q3a": "Ƙirƙira",
+    "q3b": "Nazari",
+    "q3c": "Zamantakewa",
+    "q3d": "Mai himma",
+    "q4": "Kana son zama tattaunawar da…",
+    "q4a": "Zurfi da ma'ana",
+    "q4b": "Haske da nishaɗi",
+    "q4c": "Aiki da amfani",
+    "q4d": "Ba zato ba tsammani",
+    "step3Title": "Kana ciki! 🎉",
+    "step3Subtitle": "Barka da zuwa Zobia Social",
+    "xpEarned": "+500 XP",
+    "xpDescription": "Don kammala shigarwa",
+    "getStarted": "Fara bincike"
+  },
+  "home": {
+    "title": "Zobia Social",
+    "subtitle": "Shafinka yana loda…"
+  },
+  "rooms": {
+    "title": "Ɗakuna",
+    "empty": "Babu ɗakuna masu aiki a yanzu",
+    "join": "Shiga",
+    "create": "Ƙirƙiri Ɗaki"
+  },
+  "messages": {
+    "title": "Saƙonni",
+    "empty": "Babu saƙonni tukuna",
+    "typeMessage": "Rubuta saƙo…"
+  },
+  "guild": {
+    "title": "Ƙungiya",
+    "noGuild": "Ba ka cikin ƙungiya tukuna",
+    "join": "Shiga Ƙungiya",
+    "xp": "XP",
+    "rank": "Matsayi",
+    "members": "Mambobi"
+  },
+  "profile": {
+    "title": "Bayanan Kai",
+    "editProfile": "Gyara Bayanan Kai",
+    "settings": "Saituna",
+    "signOut": "Fita"
+  }
+}
