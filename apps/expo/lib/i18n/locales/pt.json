@@ -1,0 +1,90 @@
+{
+  "common": {
+    "comingSoon": "Em breve…",
+    "loading": "Carregando…",
+    "error": "Algo deu errado",
+    "retry": "Tentar novamente",
+    "cancel": "Cancelar",
+    "save": "Salvar",
+    "next": "Próximo",
+    "back": "Voltar",
+    "skip": "Pular",
+    "done": "Concluído",
+    "continue": "Continuar",
+    "offline": "Você está offline",
+    "offlineMessage": "Alguns recursos podem não estar disponíveis"
+  },
+  "auth": {
+    "loginTitle": "Bem-vindo ao Zobia",
+    "loginSubtitle": "Entre para se conectar com sua comunidade",
+    "loginWithGoogle": "Continuar com Google",
+    "loginWithTelegram": "Continuar com Telegram",
+    "loggingIn": "Entrando…",
+    "logoutConfirm": "Tem certeza que quer sair?"
+  },
+  "onboarding": {
+    "step1Title": "Configure seu perfil",
+    "step1Subtitle": "Escolha um nome de usuário, selecione seu avatar e nos diga de onde você é.",
+    "usernamePlaceholder": "nome de usuário",
+    "usernameLabel": "Nome de usuário",
+    "avatarLabel": "Emoji do avatar",
+    "cityLabel": "Sua cidade",
+    "cityPlaceholder": "ex. Lagos, Nairóbi, Londres…",
+    "step2Title": "Qual é o seu estilo?",
+    "step2Subtitle": "Responda 4 perguntas rápidas para que possamos combiná-lo com as salas certas.",
+    "q1": "Como você gosta de passar suas noites?",
+    "q1a": "Relaxando com música",
+    "q1b": "Explorando ideias",
+    "q1c": "Saindo com amigos",
+    "q1d": "Fazendo as coisas",
+    "q2": "O seu fim de semana ideal é…",
+    "q2a": "Um dia tranquilo em casa",
+    "q2b": "Uma aventura ao ar livre",
+    "q2c": "Um encontro social",
+    "q2d": "Trabalhando em um projeto",
+    "q3": "Escolha uma palavra que te descreve:",
+    "q3a": "Criativo",
+    "q3b": "Analítico",
+    "q3c": "Social",
+    "q3d": "Determinado",
+    "q4": "Você prefere conversas que são…",
+    "q4a": "Profundas e significativas",
+    "q4b": "Leves e divertidas",
+    "q4c": "Práticas e úteis",
+    "q4d": "Espontâneas",
+    "step3Title": "Você está dentro! 🎉",
+    "step3Subtitle": "Bem-vindo ao Zobia Social",
+    "xpEarned": "+500 XP",
+    "xpDescription": "Por completar a integração",
+    "getStarted": "Começar a explorar"
+  },
+  "home": {
+    "title": "Zobia Social",
+    "subtitle": "Seu feed está carregando…"
+  },
+  "rooms": {
+    "title": "Salas",
+    "empty": "Sem salas ativas agora",
+    "join": "Entrar",
+    "create": "Criar Sala"
+  },
+  "messages": {
+    "title": "Mensagens",
+    "empty": "Sem mensagens ainda",
+    "typeMessage": "Digite uma mensagem…"
+  },
+  "guild": {
+    "title": "Guilda",
+    "noGuild": "Você ainda não está em uma guilda",
+    "join": "Entrar em uma Guilda",
+    "xp": "XP",
+    "rank": "Classificação",
+    "members": "Membros"
+  },
+  "profile": {
+    "title": "Perfil",
+    "editProfile": "Editar Perfil",
+    "settings": "Configurações",
+    "signOut": "Sair"
+  }
+}

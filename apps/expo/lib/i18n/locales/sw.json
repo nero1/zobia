@@ -1,0 +1,90 @@
+{
+  "common": {
+    "comingSoon": "Inakuja hivi karibuni…",
+    "loading": "Inapakia…",
+    "error": "Kitu kimekwenda vibaya",
+    "retry": "Jaribu tena",
+    "cancel": "Ghairi",
+    "save": "Hifadhi",
+    "next": "Ifuatayo",
+    "back": "Rudi",
+    "skip": "Ruka",
+    "done": "Imekamilika",
+    "continue": "Endelea",
+    "offline": "Uko nje ya mtandao",
+    "offlineMessage": "Baadhi ya vipengele vinaweza kukosekana"
+  },
+  "auth": {
+    "loginTitle": "Karibu Zobia",
+    "loginSubtitle": "Ingia ili kuungana na jumuiya yako",
+    "loginWithGoogle": "Endelea na Google",
+    "loginWithTelegram": "Endelea na Telegram",
+    "loggingIn": "Inaingia…",
+    "logoutConfirm": "Je, una uhakika unataka kutoka?"
+  },
+  "onboarding": {
+    "step1Title": "Weka wasifu wako",
+    "step1Subtitle": "Chagua jina la mtumiaji, picha yako, na tuambie unatoka wapi.",
+    "usernamePlaceholder": "jina la mtumiaji",
+    "usernameLabel": "Jina la Mtumiaji",
+    "avatarLabel": "Emoji ya picha",
+    "cityLabel": "Mji wako",
+    "cityPlaceholder": "mf. Lagos, Nairobi, London…",
+    "step2Title": "Mtindo wako ni upi?",
+    "step2Subtitle": "Jibu maswali 4 ya haraka ili tuweze kukupanga kwenye vyumba sahihi.",
+    "q1": "Unapenda jinsi gani kutumia jioni zako?",
+    "q1a": "Kupumzika na muziki",
+    "q1b": "Kuchunguza mawazo",
+    "q1c": "Kuwa na marafiki",
+    "q1d": "Kukamilisha mambo",
+    "q2": "Wikendi yako bora ni…",
+    "q2a": "Siku ya utulivu nyumbani",
+    "q2b": "Matukio nje",
+    "q2c": "Mkutano wa kijamii",
+    "q2d": "Kufanya kazi kwenye mradi",
+    "q3": "Chagua neno linaloelezea wewe:",
+    "q3a": "Mbunifu",
+    "q3b": "Mchambuzi",
+    "q3c": "Mwanajamii",
+    "q3d": "Mwenye nguvu",
+    "q4": "Unapendelea mazungumzo ambayo ni…",
+    "q4a": "Mazito na ya maana",
+    "q4b": "Mepesi na ya kufurahisha",
+    "q4c": "Ya vitendo na ya manufaa",
+    "q4d": "Ya haraka haraka",
+    "step3Title": "Umefanikiwa! 🎉",
+    "step3Subtitle": "Karibu Zobia Social",
+    "xpEarned": "+500 XP",
+    "xpDescription": "Kwa kukamilisha mwongozo",
+    "getStarted": "Anza kuchunguza"
+  },
+  "home": {
+    "title": "Zobia Social",
+    "subtitle": "Ukurasa wako unapakia…"
+  },
+  "rooms": {
+    "title": "Vyumba",
+    "empty": "Hakuna vyumba vinavyofanya kazi sasa",
+    "join": "Jiunge",
+    "create": "Unda Chumba"
+  },
+  "messages": {
+    "title": "Ujumbe",
+    "empty": "Hakuna ujumbe bado",
+    "typeMessage": "Andika ujumbe…"
+  },
+  "guild": {
+    "title": "Chama",
+    "noGuild": "Bado hujajiunga na chama",
+    "join": "Jiunge na Chama",
+    "xp": "XP",
+    "rank": "Ngazi",
+    "members": "Wanachama"
+  },
+  "profile": {
+    "title": "Wasifu",
+    "editProfile": "Hariri Wasifu",
+    "settings": "Mipangilio",
+    "signOut": "Toka"
+  }
+}

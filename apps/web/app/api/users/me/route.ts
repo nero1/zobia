@@ -3,8 +3,10 @@
  *
  * Authenticated user's own profile endpoints.
  *
- * GET  /api/users/me  – Returns the full profile of the authenticated user
- * PUT  /api/users/me  – Updates display_name, bio, and/or locale
+ * GET  /api/users/me  – Returns the full profile including all XP tracks,
+ *                       rank info, and coin balance.
+ * PUT  /api/users/me  – Updates display_name, bio, locale, avatar_emoji,
+ *                       and/or push_token.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -18,7 +20,7 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 // Types
 // ---------------------------------------------------------------------------
 
-interface UserProfile {
+interface UserFullProfile {
   id: string;
   email: string | null;
   username: string | null;
@@ -27,17 +29,66 @@ interface UserProfile {
   avatar_url: string | null;
   avatar_emoji: string | null;
   city: string | null;
+  country: string | null;
   locale: string | null;
-  xp_total: number;
-  coin_balance: number;
+  plan: string;
   is_admin: boolean;
+  is_creator: boolean;
+  is_verified: boolean;
   onboarding_completed: boolean;
+
+  // Economy
+  coin_balance: number;
+  star_balance: number;
+
+  // Main XP & rank
+  xp_total: number;
+  legacy_score: number;
+  rank_name: string;
+  rank_level: number;
+  rank_sublevel: number;
+  prestige_count: number;
+
+  // Track XP
+  xp_social: number;
+  xp_creator: number;
+  xp_competitor: number;
+  xp_generosity: number;
+  xp_knowledge: number;
+  xp_explorer: number;
+
+  // Track levels
+  level_social: number;
+  level_creator: number;
+  level_competitor: number;
+  level_generosity: number;
+  level_knowledge: number;
+  level_explorer: number;
+
+  // Streaks
+  login_streak: number;
+  longest_streak: number;
+  last_login_at: string | null;
+  last_active_at: string | null;
+
+  // Guild
+  guild_id: string | null;
+
+  // Referral
+  referral_code: string | null;
+
+  // Push
+  push_token: string | null;
+  dm_notifications: boolean;
+  guild_notifications: boolean;
+  streak_notifications: boolean;
+
   created_at: string;
   updated_at: string;
 }
 
 // ---------------------------------------------------------------------------
-// Schemas
+// Schema
 // ---------------------------------------------------------------------------
 
 const updateProfileSchema = z.object({
@@ -53,29 +104,59 @@ const updateProfileSchema = z.object({
     .optional(),
   locale: z
     .string()
-    .regex(/^[a-z]{2}(-[A-Z]{2})?$/, "locale must be a valid BCP-47 language tag (e.g. 'en' or 'en-US')")
+    .regex(
+      /^[a-z]{2}(-[A-Z]{2})?$/,
+      "locale must be a valid BCP-47 language tag (e.g. 'en' or 'en-US')"
+    )
     .optional(),
+  avatar_emoji: z
+    .string()
+    .min(1)
+    .max(8, "avatar_emoji too long")
+    .optional(),
+  push_token: z
+    .string()
+    .max(500, "push_token too long")
+    .nullable()
+    .optional(),
+  dm_notifications: z.boolean().optional(),
+  guild_notifications: z.boolean().optional(),
+  streak_notifications: z.boolean().optional(),
 });
+
+// ---------------------------------------------------------------------------
+// SELECT clause (reused for both GET and PUT RETURNING)
+// ---------------------------------------------------------------------------
+
+const SELECT_COLUMNS = `
+  id, email, username, display_name, bio, avatar_url, avatar_emoji,
+  city, country, locale, plan, is_admin, is_creator, is_verified,
+  onboarding_completed, coin_balance, star_balance,
+  xp_total, legacy_score, rank_name, rank_level, rank_sublevel, prestige_count,
+  xp_social, xp_creator, xp_competitor, xp_generosity, xp_knowledge, xp_explorer,
+  level_social, level_creator, level_competitor, level_generosity, level_knowledge, level_explorer,
+  login_streak, longest_streak, last_login_at, last_active_at,
+  guild_id, referral_code, push_token,
+  dm_notifications, guild_notifications, streak_notifications,
+  created_at, updated_at
+`;
 
 // ---------------------------------------------------------------------------
 // GET /api/users/me
 // ---------------------------------------------------------------------------
 
 /**
- * Return the authenticated user's full profile.
+ * Return the authenticated user's full profile, including all XP tracks,
+ * rank information, and coin balance.
  *
- * @returns JSON UserProfile
+ * @returns JSON { user: UserFullProfile }
  */
-export const GET = withAuth(async (req, { auth }) => {
+export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 
-    const { rows } = await db.query<UserProfile>(
-      `SELECT
-         id, email, username, display_name, bio,
-         avatar_url, avatar_emoji, city, locale,
-         xp_total, coin_balance, is_admin,
-         onboarding_completed, created_at, updated_at
+    const { rows } = await db.query<UserFullProfile>(
+      `SELECT ${SELECT_COLUMNS}
        FROM users
        WHERE id = $1 AND deleted_at IS NULL
        LIMIT 1`,
@@ -96,11 +177,12 @@ export const GET = withAuth(async (req, { auth }) => {
 
 /**
  * Update the authenticated user's mutable profile fields.
- * Only display_name, bio, and locale may be changed via this endpoint.
+ * Accepted fields: display_name, bio, locale, avatar_emoji, push_token,
+ * dm_notifications, guild_notifications, streak_notifications.
  *
- * @returns JSON { user: UserProfile }
+ * @returns JSON { user: UserFullProfile }
  */
-export const PUT = withAuth(async (req, { auth }) => {
+export const PUT = withAuth(async (req: NextRequest, { auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 
@@ -108,8 +190,8 @@ export const PUT = withAuth(async (req, { auth }) => {
 
     // Build SET clause dynamically from provided fields
     const updates: string[] = [];
-    const params: (string | null)[] = [];
-    let paramIdx = 1;
+    const params: unknown[] = [auth.user.sub];
+    let paramIdx = 2;
 
     if (body.display_name !== undefined) {
       updates.push(`display_name = $${paramIdx++}`);
@@ -123,30 +205,44 @@ export const PUT = withAuth(async (req, { auth }) => {
       updates.push(`locale = $${paramIdx++}`);
       params.push(body.locale);
     }
+    if (body.avatar_emoji !== undefined) {
+      updates.push(`avatar_emoji = $${paramIdx++}`);
+      params.push(body.avatar_emoji);
+    }
+    if (body.push_token !== undefined) {
+      updates.push(`push_token = $${paramIdx++}`);
+      params.push(body.push_token);
+    }
+    if (body.dm_notifications !== undefined) {
+      updates.push(`dm_notifications = $${paramIdx++}`);
+      params.push(body.dm_notifications);
+    }
+    if (body.guild_notifications !== undefined) {
+      updates.push(`guild_notifications = $${paramIdx++}`);
+      params.push(body.guild_notifications);
+    }
+    if (body.streak_notifications !== undefined) {
+      updates.push(`streak_notifications = $${paramIdx++}`);
+      params.push(body.streak_notifications);
+    }
 
     if (updates.length === 0) {
       // Nothing to update – return current profile
-      const { rows } = await db.query<UserProfile>(
-        `SELECT id, email, username, display_name, bio, avatar_url, avatar_emoji,
-                city, locale, xp_total, coin_balance, is_admin,
-                onboarding_completed, created_at, updated_at
-         FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+      const { rows } = await db.query<UserFullProfile>(
+        `SELECT ${SELECT_COLUMNS} FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
         [auth.user.sub]
       );
       if (!rows[0]) throw notFound("User profile not found");
       return NextResponse.json({ user: rows[0] }, { status: 200 });
     }
 
-    updates.push(`updated_at = NOW()`);
-    params.push(auth.user.sub); // for WHERE clause
+    updates.push("updated_at = NOW()");
 
-    const { rows } = await db.query<UserProfile>(
+    const { rows } = await db.query<UserFullProfile>(
       `UPDATE users
        SET ${updates.join(", ")}
-       WHERE id = $${paramIdx} AND deleted_at IS NULL
-       RETURNING id, email, username, display_name, bio, avatar_url, avatar_emoji,
-                 city, locale, xp_total, coin_balance, is_admin,
-                 onboarding_completed, created_at, updated_at`,
+       WHERE id = $1 AND deleted_at IS NULL
+       RETURNING ${SELECT_COLUMNS}`,
       params
     );
 
