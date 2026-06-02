@@ -1,0 +1,90 @@
+{
+  "common": {
+    "comingSoon": "Kuzofika maduze…",
+    "loading": "Iyalayisha…",
+    "error": "Kukhona okungahambanga kahle",
+    "retry": "Zama futhi",
+    "cancel": "Khansela",
+    "save": "Gcina",
+    "next": "Okulandelayo",
+    "back": "Buyela",
+    "skip": "Yeqa",
+    "done": "Kuqedile",
+    "continue": "Qhubeka",
+    "offline": "Awuxhunyiwe",
+    "offlineMessage": "Ezinye izici zingase zingasetshenziswa"
+  },
+  "auth": {
+    "loginTitle": "Wamukelekile ku-Zobia",
+    "loginSubtitle": "Ngena ukuze uxhumane nomphakathi wakho",
+    "loginWithGoogle": "Qhubeka nge-Google",
+    "loginWithTelegram": "Qhubeka ne-Telegram",
+    "loggingIn": "Iyangena…",
+    "logoutConfirm": "Uqinisekile ukuthi ufuna ukuphuma?"
+  },
+  "onboarding": {
+    "step1Title": "Lungisa iphrofayili yakho",
+    "step1Subtitle": "Khetha igama lomsebenzisi, khetha i-avatar yakho, usixelele ukuthi uvela kuphi.",
+    "usernamePlaceholder": "igama lomsebenzisi",
+    "usernameLabel": "Igama Lomsebenzisi",
+    "avatarLabel": "I-emoji ye-avatar",
+    "cityLabel": "Idolobha lakho",
+    "cityPlaceholder": "isb. iLagos, iNairobi, iLondon…",
+    "step2Title": "Ungumuntu muni?",
+    "step2Subtitle": "Phendula imibuzo emi-4 eisheshayo ukuze sikufanise namakamelo afanele.",
+    "q1": "Kanjani uthanda ukuchitha izihlandla zakho?",
+    "q1a": "Phumula nomculo",
+    "q1b": "Hlola imibono",
+    "q1c": "Hlala nabangani",
+    "q1d": "Qeda izinto",
+    "q2": "Igumbi lakho eliphefumulayo ngesonto kuyi…",
+    "q2a": "Usuku oluzolile ekhaya",
+    "q2b": "Umdlalo phandle",
+    "q2c": "Ukuhlangana kwabantu",
+    "q2d": "Ukusebenza kwiphrojekthi",
+    "q3": "Khetha igama elikuchazayo:",
+    "q3a": "Omdali",
+    "q3b": "Ohlaziyayo",
+    "q3c": "Owenhlalo",
+    "q3d": "Oshisekayo",
+    "q4": "Uzithanda izingxoxo eziyi…",
+    "q4a": "Nzulu futhi zinentelekelelo",
+    "q4b": "Zihle futhi zijabulisayo",
+    "q4c": "Ziyasebenza futhi ziyasiza",
+    "q4d": "Zenziwa ngokuzayo",
+    "step3Title": "Usungene! 🎉",
+    "step3Subtitle": "Wamukelekile ku-Zobia Social",
+    "xpEarned": "+500 XP",
+    "xpDescription": "Ngokulungisa ukufakela",
+    "getStarted": "Qala ukuhlola"
+  },
+  "home": {
+    "title": "Zobia Social",
+    "subtitle": "Ukudla kwakho kuyalayisha…"
+  },
+  "rooms": {
+    "title": "Amakamelo",
+    "empty": "Awekho amakamelo asebenzayo manje",
+    "join": "Joyina",
+    "create": "Dala Ikamelo"
+  },
+  "messages": {
+    "title": "Imilayezo",
+    "empty": "Awekho imilayezo",
+    "typeMessage": "Thayipha umlayezo…"
+  },
+  "guild": {
+    "title": "Iqembu",
+    "noGuild": "Awukho eqenjini",
+    "join": "Joyina Iqembu",
+    "xp": "XP",
+    "rank": "Izinga",
+    "members": "Amalungu"
+  },
+  "profile": {
+    "title": "Iphrofayili",
+    "editProfile": "Hlela Iphrofayili",
+    "settings": "Izilungiselelo",
+    "signOut": "Phuma"
+  }
+}

@@ -1,0 +1,367 @@
+/**
+ * lib/guilds/warEngine.ts
+ *
+ * Guild War calculation engine.
+ *
+ * Responsibilities:
+ *  - Calculating war points for activities (doubled in the Final Hour)
+ *  - Resolving completed wars and distributing XP + coin rewards
+ *  - Finding a suitable war opponent within ±15% of the declaring guild's XP
+ *  - Distributing coins by contribution rank among winners
+ *
+ * Constants:
+ *  - WAR_DURATION_HOURS     = 48  (total war length)
+ *  - FINAL_HOUR_MULTIPLIER  = 2   (war points doubled in the last 60 min)
+ *  - WAR_COOLDOWN_HOURS     = 72  (minimum gap between wars for a guild)
+ *  - OPPONENT_XP_TOLERANCE  = 0.15 (±15% XP band for matchmaking)
+ */
+
+import type { DatabaseAdapter, TransactionClient } from "@/lib/db/interface";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Multiplier applied to all war-point-earning activities during the Final Hour. */
+export const FINAL_HOUR_MULTIPLIER = 2;
+
+/** Total war duration in hours. */
+export const WAR_DURATION_HOURS = 48;
+
+/** Minimum hours between wars for a single guild. */
+export const WAR_COOLDOWN_HOURS = 72;
+
+/** Acceptable XP deviation (fraction) when finding a war opponent. */
+const OPPONENT_XP_TOLERANCE = 0.15;
+
+/** Base XP awarded to each winning guild member. Scales by rank. */
+const WAR_WIN_XP_PER_MEMBER_BASE = 300;
+
+/** Bonus XP for the top individual war contributor. */
+const TOP_CONTRIBUTOR_BONUS_XP = 1_000;
+
+/** Total coins distributed to the winning guild's treasury (split by rank). */
+const WAR_WIN_TREASURY_COINS = 2_000;
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export type WarActivity =
+  | "send_message"
+  | "react_to_message"
+  | "join_room"
+  | "host_room"
+  | "send_gift"
+  | "complete_quest"
+  | "refer_user";
+
+interface WarActivityPoints {
+  [key: string]: number;
+}
+
+const BASE_WAR_POINTS: WarActivityPoints = {
+  send_message: 1,
+  react_to_message: 2,
+  join_room: 5,
+  host_room: 20,
+  send_gift: 15,
+  complete_quest: 30,
+  refer_user: 50,
+};
+
+interface GuildWarRow {
+  id: string;
+  challenger_guild_id: string;
+  defender_guild_id: string;
+  status: "active" | "final_hour" | "completed" | "cancelled";
+  challenger_points: number;
+  defender_points: number;
+  winner_guild_id: string | null;
+  starts_at: string;
+  ends_at: string;
+  final_hour_starts_at: string;
+}
+
+interface GuildRow {
+  id: string;
+  guild_xp: number;
+  city: string | null;
+  last_war_ended_at: string | null;
+}
+
+interface MemberContributionRow {
+  user_id: string;
+  guild_id: string;
+  war_points: number;
+  username: string;
+}
+
+// ---------------------------------------------------------------------------
+// calculateWarPoints
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the war points earned for a given activity type.
+ * In the Final Hour, all points are doubled per the FINAL_HOUR_MULTIPLIER.
+ *
+ * @param activity     - The activity type being performed.
+ * @param isFinalHour  - Whether the war is currently in its final hour.
+ * @returns Integer war points for the activity.
+ */
+export function calculateWarPoints(activity: WarActivity, isFinalHour: boolean): number {
+  const base = BASE_WAR_POINTS[activity] ?? 1;
+  return isFinalHour ? base * FINAL_HOUR_MULTIPLIER : base;
+}
+
+// ---------------------------------------------------------------------------
+// findWarOpponent
+// ---------------------------------------------------------------------------
+
+/**
+ * Finds a suitable guild to declare war on.
+ *
+ * Selection criteria (in priority order):
+ *  1. Guild XP within ±15% of the declaring guild's XP
+ *  2. Not the same guild
+ *  3. Not currently at war
+ *  4. Passed the 72-hour cooldown since their last war
+ *  5. Prefers same city (if available)
+ *
+ * @param guildId - The UUID of the guild declaring war.
+ * @param db      - Active database adapter.
+ * @returns The UUID of a suitable opponent guild, or null if none found.
+ */
+export async function findWarOpponent(
+  guildId: string,
+  db: DatabaseAdapter
+): Promise<string | null> {
+  const selfResult = await db.query<GuildRow>(
+    `SELECT id, guild_xp, city FROM guilds WHERE id = $1 AND is_active = TRUE`,
+    [guildId]
+  );
+  const self = selfResult.rows[0];
+  if (!self) return null;
+
+  const minXP = Math.floor(self.guild_xp * (1 - OPPONENT_XP_TOLERANCE));
+  const maxXP = Math.ceil(self.guild_xp * (1 + OPPONENT_XP_TOLERANCE));
+
+  // Guilds currently involved in an active war
+  const activeWarResult = await db.query<{ guild_id: string }>(
+    `SELECT DISTINCT unnest(ARRAY[challenger_guild_id, defender_guild_id]) AS guild_id
+     FROM guild_wars
+     WHERE status IN ('active', 'final_hour')`,
+    []
+  );
+  const busyGuilds = new Set(activeWarResult.rows.map((r) => r.guild_id));
+  busyGuilds.add(guildId);
+
+  const cooldownCutoff = new Date(
+    Date.now() - WAR_COOLDOWN_HOURS * 60 * 60 * 1000
+  ).toISOString();
+
+  // Try same-city first, then any city
+  for (const cityFilter of [true, false]) {
+    const conditions = [
+      `g.is_active = TRUE`,
+      `g.guild_xp BETWEEN $1 AND $2`,
+      `(g.last_war_ended_at IS NULL OR g.last_war_ended_at < $3)`,
+    ];
+    const params: (string | number)[] = [minXP, maxXP, cooldownCutoff];
+    let paramIdx = 4;
+
+    if (cityFilter && self.city) {
+      conditions.push(`g.city = $${paramIdx++}`);
+      params.push(self.city);
+    }
+
+    const candidateResult = await db.query<{ id: string }>(
+      `SELECT g.id FROM guilds g
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY ABS(g.guild_xp - $${paramIdx}) ASC
+       LIMIT 20`,
+      [...params, self.guild_xp]
+    );
+
+    const candidates = candidateResult.rows.filter((r) => !busyGuilds.has(r.id));
+    if (candidates.length > 0) {
+      return candidates[0].id;
+    }
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// distributeWarRewards
+// ---------------------------------------------------------------------------
+
+/**
+ * Distributes coins to winning guild members by contribution rank.
+ *
+ * Top contributor receives 30% of the pool.
+ * Second contributor receives 20%.
+ * Remaining members share the remaining 50% equally.
+ *
+ * @param warId          - UUID of the resolved war.
+ * @param winnerGuildId  - UUID of the winning guild.
+ * @param db             - Active database adapter.
+ */
+export async function distributeWarRewards(
+  warId: string,
+  winnerGuildId: string,
+  db: DatabaseAdapter
+): Promise<void> {
+  await db.transaction(async (client) => {
+    // Fetch member contributions for the winning guild in this war, sorted desc
+    const contribResult = await client.query<MemberContributionRow>(
+      `SELECT wc.user_id, wc.guild_id, wc.war_points, u.username
+       FROM war_contributions wc
+       JOIN users u ON u.id = wc.user_id
+       WHERE wc.war_id = $1 AND wc.guild_id = $2
+       ORDER BY wc.war_points DESC`,
+      [warId, winnerGuildId]
+    );
+
+    const members = contribResult.rows;
+    if (members.length === 0) return;
+
+    const pool = WAR_WIN_TREASURY_COINS;
+    const topShare = Math.floor(pool * 0.3);
+    const secondShare = members.length >= 2 ? Math.floor(pool * 0.2) : 0;
+    const remainderPool = pool - topShare - secondShare;
+    const remainingMembers = Math.max(members.length - 2, 0);
+    const equalShare =
+      remainingMembers > 0 ? Math.floor(remainderPool / remainingMembers) : 0;
+
+    for (let i = 0; i < members.length; i++) {
+      const { user_id } = members[i];
+      let coins = 0;
+      if (i === 0) coins = topShare;
+      else if (i === 1) coins = secondShare;
+      else coins = equalShare;
+
+      if (coins <= 0) continue;
+
+      await client.query(
+        `UPDATE users SET coin_balance = coin_balance + $1, updated_at = NOW() WHERE id = $2`,
+        [coins, user_id]
+      );
+      await client.query(
+        `INSERT INTO coin_ledger (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description, created_at)
+         SELECT $1, $2, coin_balance - $2, coin_balance, 'war_reward', $3, 'Guild war win reward', NOW()
+         FROM users WHERE id = $1`,
+        [user_id, coins, warId]
+      );
+    }
+
+    // Top contributor bonus XP
+    if (members[0]) {
+      await client.query(
+        `UPDATE users SET xp_total = xp_total + $1, updated_at = NOW() WHERE id = $2`,
+        [TOP_CONTRIBUTOR_BONUS_XP, members[0].user_id]
+      );
+      await client.query(
+        `INSERT INTO xp_ledger (user_id, action, xp_amount, multiplier, xp_net, metadata, created_at)
+         VALUES ($1, 'top_contributor_war', $2, 1, $2, $3, NOW())`,
+        [
+          members[0].user_id,
+          TOP_CONTRIBUTOR_BONUS_XP,
+          JSON.stringify({ war_id: warId, guild_id: winnerGuildId }),
+        ]
+      );
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// resolveWar
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolves a completed war.
+ *
+ * Steps:
+ *  1. Confirms the war is in an end-eligible state.
+ *  2. Determines the winner by point total (draw goes to challenger).
+ *  3. Awards base XP to all winning guild members.
+ *  4. Calls distributeWarRewards for coin distribution.
+ *  5. Updates guild stats (wars_won, wars_lost, last_war_ended_at).
+ *  6. Sets guild_wars.status = 'completed'.
+ *
+ * @param warId - UUID of the war to resolve.
+ * @param db    - Active database adapter.
+ * @returns Object with the winner and loser guild IDs.
+ */
+export async function resolveWar(
+  warId: string,
+  db: DatabaseAdapter
+): Promise<{ winnerGuildId: string; loserGuildId: string }> {
+  const warResult = await db.query<GuildWarRow>(
+    `SELECT * FROM guild_wars WHERE id = $1 FOR UPDATE`,
+    [warId]
+  );
+  const war = warResult.rows[0];
+  if (!war) throw new Error(`[warEngine] War not found: ${warId}`);
+  if (war.status === "completed" || war.status === "cancelled") {
+    throw new Error(`[warEngine] War ${warId} is already resolved`);
+  }
+
+  const winnerGuildId =
+    war.challenger_points >= war.defender_points
+      ? war.challenger_guild_id
+      : war.defender_guild_id;
+  const loserGuildId =
+    winnerGuildId === war.challenger_guild_id
+      ? war.defender_guild_id
+      : war.challenger_guild_id;
+
+  await db.transaction(async (client) => {
+    // Mark war as completed
+    await client.query(
+      `UPDATE guild_wars
+       SET status = 'completed', winner_guild_id = $1, updated_at = NOW()
+       WHERE id = $2`,
+      [winnerGuildId, warId]
+    );
+
+    // Update guild stats
+    await client.query(
+      `UPDATE guilds SET wars_won = wars_won + 1, last_war_ended_at = NOW(), updated_at = NOW()
+       WHERE id = $1`,
+      [winnerGuildId]
+    );
+    await client.query(
+      `UPDATE guilds SET wars_lost = wars_lost + 1, last_war_ended_at = NOW(), updated_at = NOW()
+       WHERE id = $1`,
+      [loserGuildId]
+    );
+
+    // Award base win XP to all winning members
+    const winnerMembers = await client.query<{ user_id: string }>(
+      `SELECT user_id FROM guild_members WHERE guild_id = $1`,
+      [winnerGuildId]
+    );
+
+    for (const { user_id } of winnerMembers.rows) {
+      await client.query(
+        `UPDATE users SET xp_total = xp_total + $1, updated_at = NOW() WHERE id = $2`,
+        [WAR_WIN_XP_PER_MEMBER_BASE, user_id]
+      );
+      await client.query(
+        `INSERT INTO xp_ledger (user_id, action, xp_amount, multiplier, xp_net, metadata, created_at)
+         VALUES ($1, 'win_guild_war', $2, 1, $2, $3, NOW())`,
+        [
+          user_id,
+          WAR_WIN_XP_PER_MEMBER_BASE,
+          JSON.stringify({ war_id: warId, guild_id: winnerGuildId }),
+        ]
+      );
+    }
+  });
+
+  // Distribute coins by contribution rank
+  await distributeWarRewards(warId, winnerGuildId, db);
+
+  return { winnerGuildId, loserGuildId };
+}

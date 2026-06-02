@@ -1,0 +1,566 @@
+/**
+ * app/(tabs)/rooms.tsx
+ *
+ * Rooms discovery tab — Phase 4.
+ *
+ * Features:
+ *  - Discovery feed with room cards
+ *  - Three tabs: Trending, Near Me (city), Friends In Room
+ *  - Search bar (filters by name/category)
+ *  - Room type filter chips (free_open, vip, drop, tipping, classroom)
+ *  - Pull-to-refresh
+ *  - Skeleton loaders on initial load
+ *  - Cursor-based pagination with load-more on scroll end
+ *  - Navigates to /rooms/[roomId] on card press
+ *  - Create Room FAB (creators only)
+ */
+
+import React, {
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+} from 'react';
+import {
+  View,
+  Text,
+  FlatList,
+  TextInput,
+  Pressable,
+  StyleSheet,
+  ActivityIndicator,
+  RefreshControl,
+} from 'react-native';
+import { useRouter } from 'expo-router';
+import { Screen } from '@/components/ui/Screen';
+import { RoomCard, type RoomCardData } from '@/components/rooms/RoomCard';
+import { colors } from '@/lib/theme/colors';
+import { apiClient } from '@/lib/api/client';
+import { useAuth } from '@/lib/auth/hooks';
+import type { RoomType } from '@zobia/types';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+type DiscoveryTab = 'trending' | 'nearby' | 'friends';
+
+type FilterChip = RoomType | 'all';
+
+interface DiscoveryTabConfig {
+  key: DiscoveryTab;
+  label: string;
+}
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const TABS: DiscoveryTabConfig[] = [
+  { key: 'trending', label: 'Trending' },
+  { key: 'nearby', label: 'Near Me' },
+  { key: 'friends', label: 'Friends In' },
+];
+
+const FILTER_CHIPS: Array<{ key: FilterChip; label: string }> = [
+  { key: 'all', label: 'All' },
+  { key: 'free_open', label: 'Free' },
+  { key: 'vip', label: 'VIP' },
+  { key: 'drop', label: 'Drop' },
+  { key: 'tipping', label: 'Tipping' },
+  { key: 'classroom', label: 'Class' },
+];
+
+const ROOM_TYPE_FILTER_COLOR: Record<FilterChip, string> = {
+  all: colors.neutral[700],
+  free_open: colors.brand.blue,
+  vip: colors.brand.gold,
+  drop: colors.semantic.error,
+  tipping: colors.brand.green,
+  classroom: '#0D9488',
+};
+
+// ---------------------------------------------------------------------------
+// Skeleton loader
+// ---------------------------------------------------------------------------
+
+function SkeletonCard() {
+  return (
+    <View style={styles.skeletonCard}>
+      <View style={styles.skeletonCover} />
+      <View style={styles.skeletonBody}>
+        <View style={styles.skeletonLine} />
+        <View style={[styles.skeletonLine, { width: '60%' }]} />
+        <View style={styles.skeletonPulse} />
+      </View>
+    </View>
+  );
+}
+
+function SkeletonList() {
+  return (
+    <>
+      {[0, 1, 2, 3].map((i) => (
+        <SkeletonCard key={i} />
+      ))}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Hook: fetch rooms
+// ---------------------------------------------------------------------------
+
+function useRoomsQuery(
+  tab: DiscoveryTab,
+  typeFilter: FilterChip,
+  searchQuery: string,
+  userCity?: string
+) {
+  const [rooms, setRooms] = useState<RoomCardData[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const buildParams = useCallback(
+    (cursor?: string) => {
+      const params: Record<string, string> = {};
+      if (tab === 'trending') params.trending = '1';
+      if (tab === 'nearby' && userCity) params.city = userCity;
+      if (tab === 'friends') params.friends_in_room = '1';
+      if (typeFilter !== 'all') params.type = typeFilter;
+      if (searchQuery.trim()) params.category = searchQuery.trim();
+      if (cursor) params.cursor = cursor;
+      return params;
+    },
+    [tab, typeFilter, searchQuery, userCity]
+  );
+
+  const fetchRooms = useCallback(
+    async (cursor?: string, isRefresh = false) => {
+      if (loading) return;
+      try {
+        isRefresh ? setRefreshing(true) : setLoading(true);
+        setError(null);
+
+        const params = buildParams(cursor);
+        const qs = new URLSearchParams(params).toString();
+        const { data } = await apiClient.get<{
+          items: RoomCardData[];
+          nextCursor: string | null;
+          hasMore: boolean;
+        }>(`/api/rooms?${qs}`);
+
+        if (isRefresh || !cursor) {
+          setRooms(data.items);
+        } else {
+          setRooms((prev) => [...prev, ...data.items]);
+        }
+        setNextCursor(data.nextCursor);
+        setHasMore(data.hasMore);
+      } catch {
+        setError('Failed to load rooms. Pull to refresh.');
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [buildParams, loading]
+  );
+
+  useEffect(() => {
+    setRooms([]);
+    setNextCursor(null);
+    setHasMore(true);
+    fetchRooms(undefined, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, typeFilter, searchQuery]);
+
+  const refresh = useCallback(() => fetchRooms(undefined, true), [fetchRooms]);
+  const loadMore = useCallback(() => {
+    if (hasMore && nextCursor && !loading) {
+      fetchRooms(nextCursor);
+    }
+  }, [hasMore, nextCursor, loading, fetchRooms]);
+
+  return { rooms, loading, refreshing, error, refresh, loadMore, hasMore };
+}
+
+// ---------------------------------------------------------------------------
+// Main screen
+// ---------------------------------------------------------------------------
+
+/**
+ * Rooms discovery tab — main entry point for finding and joining rooms.
+ */
+export default function RoomsScreen() {
+  const router = useRouter();
+  const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState<DiscoveryTab>('trending');
+  const [typeFilter, setTypeFilter] = useState<FilterChip>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchInputRef = useRef<TextInput>(null);
+
+  const { rooms, loading, refreshing, error, refresh, loadMore, hasMore } =
+    useRoomsQuery(activeTab, typeFilter, searchQuery, user?.city);
+
+  const handleRoomPress = useCallback(
+    (room: RoomCardData) => {
+      router.push(`/rooms/${room.id}` as never);
+    },
+    [router]
+  );
+
+  const handleCreateRoom = useCallback(() => {
+    router.push('/rooms/create' as never);
+  }, [router]);
+
+  const renderItem = useCallback(
+    ({ item }: { item: RoomCardData }) => (
+      <RoomCard room={item} onPress={handleRoomPress} style={styles.cardItem} />
+    ),
+    [handleRoomPress]
+  );
+
+  const renderFooter = () => {
+    if (!hasMore) return null;
+    return (
+      <View style={styles.footerLoader}>
+        <ActivityIndicator size="small" color={colors.brand.blue} />
+      </View>
+    );
+  };
+
+  const renderEmpty = () => {
+    if (loading) return <SkeletonList />;
+    if (error) {
+      return (
+        <View style={styles.centered}>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      );
+    }
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.emptyText}>No rooms found.</Text>
+        <Text style={styles.emptySubText}>Try a different filter or search.</Text>
+      </View>
+    );
+  };
+
+  return (
+    <Screen>
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.title}>Rooms</Text>
+        {user?.isCreator && (
+          <Pressable
+            style={styles.createBtn}
+            onPress={handleCreateRoom}
+            accessibilityRole="button"
+            accessibilityLabel="Create a room"
+          >
+            <Text style={styles.createBtnText}>+ Create</Text>
+          </Pressable>
+        )}
+      </View>
+
+      {/* Search bar */}
+      <View style={styles.searchRow}>
+        <View style={styles.searchInputWrapper}>
+          <Text style={styles.searchIcon}>🔍</Text>
+          <TextInput
+            ref={searchInputRef}
+            style={styles.searchInput}
+            placeholder="Search rooms..."
+            placeholderTextColor={colors.neutral[400]}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            returnKeyType="search"
+            clearButtonMode="while-editing"
+          />
+        </View>
+        <Pressable
+          style={styles.filterBtn}
+          onPress={() => router.push('/rooms/discover' as never)}
+          accessibilityLabel="Advanced filters"
+        >
+          <Text style={styles.filterBtnText}>Filters</Text>
+        </Pressable>
+      </View>
+
+      {/* Discovery tabs */}
+      <View style={styles.tabRow}>
+        {TABS.map((tab) => (
+          <Pressable
+            key={tab.key}
+            style={[styles.tab, activeTab === tab.key && styles.tabActive]}
+            onPress={() => setActiveTab(tab.key)}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: activeTab === tab.key }}
+          >
+            <Text
+              style={[
+                styles.tabText,
+                activeTab === tab.key && styles.tabTextActive,
+              ]}
+            >
+              {tab.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {/* Type filter chips */}
+      <FlatList
+        horizontal
+        data={FILTER_CHIPS}
+        keyExtractor={(item) => item.key}
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.chipsRow}
+        renderItem={({ item }) => (
+          <Pressable
+            style={[
+              styles.chip,
+              typeFilter === item.key && {
+                backgroundColor: ROOM_TYPE_FILTER_COLOR[item.key],
+                borderColor: ROOM_TYPE_FILTER_COLOR[item.key],
+              },
+            ]}
+            onPress={() => setTypeFilter(item.key)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: typeFilter === item.key }}
+          >
+            <Text
+              style={[
+                styles.chipText,
+                typeFilter === item.key && styles.chipTextActive,
+              ]}
+            >
+              {item.label}
+            </Text>
+          </Pressable>
+        )}
+        style={styles.chipsList}
+      />
+
+      {/* Room feed */}
+      <FlatList
+        data={rooms}
+        keyExtractor={(item) => item.id}
+        renderItem={renderItem}
+        ListEmptyComponent={renderEmpty}
+        ListFooterComponent={renderFooter}
+        onEndReached={loadMore}
+        onEndReachedThreshold={0.3}
+        contentContainerStyle={styles.feedContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={refresh}
+            tintColor={colors.brand.blue}
+          />
+        }
+        showsVerticalScrollIndicator={false}
+      />
+    </Screen>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Styles
+// ---------------------------------------------------------------------------
+
+const styles = StyleSheet.create({
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: colors.neutral[900],
+  },
+  createBtn: {
+    backgroundColor: colors.brand.blue,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    minHeight: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  createBtnText: {
+    color: colors.neutral[0],
+    fontSize: 14,
+    fontWeight: '700',
+  },
+
+  // Search
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+    gap: 8,
+  },
+  searchInputWrapper: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.neutral[100],
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    height: 40,
+    gap: 6,
+  },
+  searchIcon: {
+    fontSize: 14,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: colors.neutral[900],
+    height: 40,
+  },
+  filterBtn: {
+    backgroundColor: colors.neutral[100],
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.neutral[700],
+  },
+
+  // Tabs
+  tabRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: colors.neutral[200],
+    paddingHorizontal: 16,
+  },
+  tab: {
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    marginRight: 20,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  tabActive: {
+    borderBottomColor: colors.brand.blue,
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.neutral[500],
+  },
+  tabTextActive: {
+    color: colors.brand.blue,
+  },
+
+  // Filter chips
+  chipsList: {
+    marginTop: 10,
+  },
+  chipsRow: {
+    paddingHorizontal: 16,
+    gap: 8,
+    paddingRight: 16,
+  },
+  chip: {
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: colors.neutral[300],
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    minHeight: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.neutral[600],
+  },
+  chipTextActive: {
+    color: colors.neutral[0],
+  },
+
+  // Feed
+  feedContent: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 32,
+  },
+  cardItem: {
+    // marginBottom handled by RoomCard styles
+  },
+
+  // Footer loader
+  footerLoader: {
+    paddingVertical: 20,
+    alignItems: 'center',
+  },
+
+  // Empty / error
+  centered: {
+    flex: 1,
+    paddingTop: 60,
+    alignItems: 'center',
+    gap: 8,
+  },
+  emptyText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.neutral[600],
+  },
+  emptySubText: {
+    fontSize: 13,
+    color: colors.neutral[400],
+  },
+  errorText: {
+    fontSize: 14,
+    color: colors.semantic.error,
+    textAlign: 'center',
+  },
+
+  // Skeleton
+  skeletonCard: {
+    backgroundColor: colors.neutral[0],
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.neutral[200],
+    marginBottom: 12,
+  },
+  skeletonCover: {
+    height: 72,
+    backgroundColor: colors.neutral[100],
+  },
+  skeletonBody: {
+    padding: 12,
+    gap: 8,
+  },
+  skeletonLine: {
+    height: 14,
+    backgroundColor: colors.neutral[200],
+    borderRadius: 7,
+    width: '80%',
+  },
+  skeletonPulse: {
+    height: 4,
+    backgroundColor: colors.neutral[100],
+    borderRadius: 2,
+  },
+});

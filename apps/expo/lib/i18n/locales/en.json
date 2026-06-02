@@ -1,0 +1,90 @@
+{
+  "common": {
+    "comingSoon": "Coming soon…",
+    "loading": "Loading…",
+    "error": "Something went wrong",
+    "retry": "Retry",
+    "cancel": "Cancel",
+    "save": "Save",
+    "next": "Next",
+    "back": "Back",
+    "skip": "Skip",
+    "done": "Done",
+    "continue": "Continue",
+    "offline": "You're offline",
+    "offlineMessage": "Some features may be unavailable"
+  },
+  "auth": {
+    "loginTitle": "Welcome to Zobia",
+    "loginSubtitle": "Sign in to connect with your community",
+    "loginWithGoogle": "Continue with Google",
+    "loginWithTelegram": "Continue with Telegram",
+    "loggingIn": "Signing in…",
+    "logoutConfirm": "Are you sure you want to sign out?"
+  },
+  "onboarding": {
+    "step1Title": "Set up your profile",
+    "step1Subtitle": "Choose a username, pick your avatar, and tell us where you're from.",
+    "usernamePlaceholder": "username",
+    "usernameLabel": "Username",
+    "avatarLabel": "Avatar emoji",
+    "cityLabel": "Your city",
+    "cityPlaceholder": "e.g. Lagos, Nairobi, London…",
+    "step2Title": "What's your vibe?",
+    "step2Subtitle": "Answer 4 quick questions so we can match you with the right rooms.",
+    "q1": "How do you like to spend your evenings?",
+    "q1a": "Chilling with music",
+    "q1b": "Exploring ideas",
+    "q1c": "Hanging with friends",
+    "q1d": "Getting things done",
+    "q2": "Your ideal weekend is…",
+    "q2a": "A quiet day at home",
+    "q2b": "An adventure outside",
+    "q2c": "A social gathering",
+    "q2d": "Working on a project",
+    "q3": "Pick a word that describes you:",
+    "q3a": "Creative",
+    "q3b": "Analytical",
+    "q3c": "Social",
+    "q3d": "Driven",
+    "q4": "You prefer conversations that are…",
+    "q4a": "Deep and meaningful",
+    "q4b": "Light and fun",
+    "q4c": "Practical and useful",
+    "q4d": "Spontaneous",
+    "step3Title": "You're in! 🎉",
+    "step3Subtitle": "Welcome to Zobia Social",
+    "xpEarned": "+500 XP",
+    "xpDescription": "For completing onboarding",
+    "getStarted": "Start exploring"
+  },
+  "home": {
+    "title": "Zobia Social",
+    "subtitle": "Your feed is loading…"
+  },
+  "rooms": {
+    "title": "Rooms",
+    "empty": "No active rooms right now",
+    "join": "Join",
+    "create": "Create Room"
+  },
+  "messages": {
+    "title": "Messages",
+    "empty": "No messages yet",
+    "typeMessage": "Type a message…"
+  },
+  "guild": {
+    "title": "Guild",
+    "noGuild": "You're not in a guild yet",
+    "join": "Join a Guild",
+    "xp": "XP",
+    "rank": "Rank",
+    "members": "Members"
+  },
+  "profile": {
+    "title": "Profile",
+    "editProfile": "Edit Profile",
+    "settings": "Settings",
+    "signOut": "Sign Out"
+  }
+}

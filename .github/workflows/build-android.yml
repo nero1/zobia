@@ -1,0 +1,61 @@
+name: Build Android APK (Expo EAS)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/expo/**'
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'EAS build profile'
+        required: true
+        default: 'preview'
+        type: choice
+        options:
+          - development
+          - preview
+          - production
+
+jobs:
+  build:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: apps/expo/package-lock.json
+
+      - name: Install Expo CLI and EAS CLI
+        run: npm install -g expo-cli eas-cli
+
+      - name: Install dependencies
+        working-directory: apps/expo
+        run: npm install
+
+      - name: Setup EAS credentials
+        working-directory: apps/expo
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: eas whoami
+
+      - name: Build Android APK
+        working-directory: apps/expo
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          PROFILE="${{ github.event.inputs.profile || 'preview' }}"
+          eas build --platform android --profile $PROFILE --non-interactive
+
+      - name: Notify build complete
+        if: success()
+        run: |
+          echo "✅ Android APK build complete. Download from: https://expo.dev/accounts/[your-account]/projects/zobia-social/builds"

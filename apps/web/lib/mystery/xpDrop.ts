@@ -1,0 +1,123 @@
+/**
+ * lib/mystery/xpDrop.ts
+ *
+ * Mystery XP Drop engine.
+ *
+ * Randomly selects a batch of active users and awards each a random XP amount
+ * between 100 and 1 000 XP. Intended to be triggered by a CRON job at random
+ * intervals within a week to create surprise and delight.
+ *
+ * Rules:
+ *  - Only users who have been active in the last 7 days are eligible.
+ *  - Each award is recorded in xp_ledger with source 'mystery_drop'.
+ *  - A user can receive at most one mystery drop per 24-hour window.
+ */
+
+import type { DatabaseAdapter } from "@/lib/db/interface";
+import { XP_VALUES } from "@/lib/xp/engine";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Default number of users to receive the drop in one invocation. */
+const DEFAULT_BATCH_SIZE = 50;
+
+/** Users active within this many days are eligible. */
+const ACTIVE_WITHIN_DAYS = 7;
+
+/** Minimum XP per drop. */
+const MIN_XP = XP_VALUES.mystery_xp_drop_min;
+
+/** Maximum XP per drop. */
+const MAX_XP = XP_VALUES.mystery_xp_drop_max;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Generates a cryptographically-safe random integer in [min, max] (inclusive).
+ */
+function randomInt(min: number, max: number): number {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+// ---------------------------------------------------------------------------
+// triggerMysteryXPDrop
+// ---------------------------------------------------------------------------
+
+/**
+ * Selects a random batch of recently active users and awards each a
+ * random XP amount between MIN_XP and MAX_XP.
+ *
+ * Each award is recorded in xp_ledger with action = 'mystery_drop'.
+ * Users who already received a mystery drop in the last 24 hours are skipped.
+ *
+ * @param db        - Active database adapter.
+ * @param batchSize - How many users to award (default 50).
+ * @returns Summary of awards made.
+ */
+export async function triggerMysteryXPDrop(
+  db: DatabaseAdapter,
+  batchSize: number = DEFAULT_BATCH_SIZE
+): Promise<{ totalAwarded: number; totalXP: number; recipients: string[] }> {
+  const activeSince = new Date(
+    Date.now() - ACTIVE_WITHIN_DAYS * 24 * 60 * 60 * 1000
+  ).toISOString();
+
+  // Find eligible users: active recently, no mystery drop in last 24h
+  const eligibleResult = await db.query<{ id: string }>(
+    `SELECT u.id
+     FROM users u
+     WHERE u.deleted_at IS NULL
+       AND u.last_active_at >= $1
+       AND u.id NOT IN (
+         SELECT user_id FROM xp_ledger
+         WHERE action = 'mystery_drop'
+           AND created_at >= NOW() - INTERVAL '24 hours'
+       )
+     ORDER BY RANDOM()
+     LIMIT $2`,
+    [activeSince, batchSize]
+  );
+
+  const recipients: string[] = [];
+  let totalXP = 0;
+
+  for (const { id } of eligibleResult.rows) {
+    const xpAmount = randomInt(MIN_XP, MAX_XP);
+
+    try {
+      await db.transaction(async (client) => {
+        // Update user's XP total
+        await client.query(
+          `UPDATE users SET xp_total = xp_total + $1, updated_at = NOW() WHERE id = $2`,
+          [xpAmount, id]
+        );
+
+        // Insert xp_ledger entry
+        await client.query(
+          `INSERT INTO xp_ledger (user_id, action, xp_amount, multiplier, xp_net, metadata, created_at)
+           VALUES ($1, 'mystery_drop', $2, 1, $2, $3, NOW())`,
+          [
+            id,
+            xpAmount,
+            JSON.stringify({ source: "mystery_drop", awarded_at: new Date().toISOString() }),
+          ]
+        );
+      });
+
+      recipients.push(id);
+      totalXP += xpAmount;
+    } catch {
+      // Individual failures don't abort the whole batch
+    }
+  }
+
+  return {
+    totalAwarded: recipients.length,
+    totalXP,
+    recipients,
+  };
+}
