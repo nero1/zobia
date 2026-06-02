@@ -1,0 +1,244 @@
+/**
+ * app/api/onboarding/complete/route.ts
+ *
+ * Onboarding completion endpoint.
+ *
+ * POST /api/onboarding/complete
+ *   - Validates username uniqueness in real-time
+ *   - Saves: username, display_name, avatar_emoji, city, vibe_quiz_responses, date_of_birth
+ *   - Checks minimum age against x_manifest value (default 13)
+ *   - Awards 500 XP welcome drop
+ *   - Credits coin_ledger for welcome XP event
+ *   - Creates a referral code for the user
+ *   - Marks onboarding_completed = true
+ *   - All writes occur in a single database transaction
+ */
+
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { db } from "@/lib/db";
+import { withAuth, validateBody } from "@/lib/api/middleware";
+import { handleApiError, badRequest, conflict } from "@/lib/api/errors";
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { loadManifest } from "@/lib/manifest";
+import { randomBytes } from "crypto";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const WELCOME_XP = 500;
+const WELCOME_COINS = 100;
+const USERNAME_REGEX = /^[a-z0-9_-]{3,30}$/;
+
+// ---------------------------------------------------------------------------
+// Schema
+// ---------------------------------------------------------------------------
+
+const onboardingSchema = z.object({
+  username: z
+    .string()
+    .min(3, "Username must be at least 3 characters")
+    .max(30, "Username cannot exceed 30 characters")
+    .regex(
+      USERNAME_REGEX,
+      "Username may only contain lowercase letters, numbers, underscores, and hyphens"
+    )
+    .transform((v) => v.toLowerCase()),
+  display_name: z
+    .string()
+    .min(1, "Display name is required")
+    .max(50, "Display name cannot exceed 50 characters"),
+  avatar_emoji: z
+    .string()
+    .max(8, "Avatar emoji is too long")
+    .optional()
+    .nullable(),
+  city: z.string().max(100).optional().nullable(),
+  vibe_quiz_responses: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .nullable(),
+  date_of_birth: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "date_of_birth must be in YYYY-MM-DD format"),
+  referral_code: z.string().max(20).optional().nullable(),
+});
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Calculate age in full years from a YYYY-MM-DD string.
+ *
+ * @param dob - ISO date string (YYYY-MM-DD)
+ * @returns Age in years
+ */
+function calculateAge(dob: string): number {
+  const birth = new Date(dob);
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const monthDiff = today.getMonth() - birth.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+    age--;
+  }
+  return age;
+}
+
+/**
+ * Generate a unique referral code for a user.
+ * Format: 8 uppercase alphanumeric characters.
+ *
+ * @returns Referral code string
+ */
+function generateReferralCode(): string {
+  return randomBytes(5)
+    .toString("base64url")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 8)
+    .padEnd(8, "Z");
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/onboarding/complete
+// ---------------------------------------------------------------------------
+
+/**
+ * Complete user onboarding.
+ *
+ * Validates input, enforces minimum age, persists profile data,
+ * awards welcome XP + coins, creates referral code, and marks the user
+ * as onboarded – all within a single database transaction.
+ *
+ * @returns JSON { success: true, xpAwarded: number, referralCode: string }
+ */
+export const POST = withAuth(async (req, { auth }) => {
+  try {
+    await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.onboarding);
+
+    const body = await validateBody(req, onboardingSchema);
+
+    // Load manifest to get minimum age setting
+    const manifest = await loadManifest();
+    // @ts-ignore – minimum_age may exist as a custom manifest key
+    const minimumAge: number = (manifest as Record<string, unknown>).minimum_age ?? 13;
+
+    // Check age requirement
+    const age = calculateAge(body.date_of_birth);
+    if (age < minimumAge) {
+      throw badRequest(
+        `You must be at least ${minimumAge} years old to use Zobia Social`,
+        "AGE_REQUIREMENT_NOT_MET"
+      );
+    }
+
+    // Execute all writes in a single transaction
+    const result = await db.transaction(async (client) => {
+      // 1. Re-check username uniqueness inside the transaction (TOCTOU protection)
+      const usernameCheck = await client.query<{ exists: boolean }>(
+        `SELECT EXISTS(
+           SELECT 1 FROM users
+           WHERE LOWER(username) = $1 AND deleted_at IS NULL AND id != $2
+         ) AS exists`,
+        [body.username, auth.user.sub]
+      );
+
+      if (usernameCheck.rows[0]?.exists) {
+        throw conflict("This username is already taken", "USERNAME_TAKEN");
+      }
+
+      // 2. Generate referral code (ensure uniqueness with retry)
+      let referralCode = generateReferralCode();
+      const codeCheck = await client.query<{ exists: boolean }>(
+        `SELECT EXISTS(SELECT 1 FROM users WHERE referral_code = $1) AS exists`,
+        [referralCode]
+      );
+      if (codeCheck.rows[0]?.exists) {
+        referralCode = generateReferralCode() + "X"; // simple collision avoidance
+      }
+
+      // 3. Update user profile + mark onboarding complete
+      await client.query(
+        `UPDATE users SET
+           username             = $1,
+           display_name         = $2,
+           avatar_emoji         = $3,
+           city                 = $4,
+           vibe_quiz_responses  = $5,
+           date_of_birth        = $6,
+           referral_code        = $7,
+           onboarding_completed = true,
+           updated_at           = NOW()
+         WHERE id = $8 AND deleted_at IS NULL`,
+        [
+          body.username,
+          body.display_name,
+          body.avatar_emoji ?? null,
+          body.city ?? null,
+          body.vibe_quiz_responses ? JSON.stringify(body.vibe_quiz_responses) : null,
+          body.date_of_birth,
+          referralCode,
+          auth.user.sub,
+        ]
+      );
+
+      // 4. Award XP – write to xp_ledger
+      await client.query(
+        `INSERT INTO xp_ledger (user_id, action, xp_amount, multiplier, xp_net, metadata, created_at)
+         VALUES ($1, 'welcome_drop', $2, 1.0, $2, '{"source":"onboarding"}', NOW())`,
+        [auth.user.sub, WELCOME_XP]
+      );
+
+      // 5. Update user's xp_total
+      await client.query(
+        `UPDATE users SET xp_total = COALESCE(xp_total, 0) + $1 WHERE id = $2`,
+        [WELCOME_XP, auth.user.sub]
+      );
+
+      // 6. Credit coin_ledger for welcome XP event
+      await client.query(
+        `INSERT INTO coin_ledger (user_id, amount, type, reference, created_at)
+         VALUES ($1, $2, 'welcome_bonus', 'onboarding_welcome', NOW())`,
+        [auth.user.sub, WELCOME_COINS]
+      );
+
+      // 7. Update coin balance
+      await client.query(
+        `UPDATE users SET coin_balance = COALESCE(coin_balance, 0) + $1 WHERE id = $2`,
+        [WELCOME_COINS, auth.user.sub]
+      );
+
+      // 8. Track referral if a code was supplied
+      if (body.referral_code) {
+        const referrer = await client.query<{ id: string }>(
+          `SELECT id FROM users WHERE referral_code = $1 AND deleted_at IS NULL LIMIT 1`,
+          [body.referral_code.toUpperCase()]
+        );
+        if (referrer.rows[0]) {
+          await client.query(
+            `INSERT INTO referrals (referrer_id, referred_id, code, created_at)
+             VALUES ($1, $2, $3, NOW())
+             ON CONFLICT DO NOTHING`,
+            [referrer.rows[0].id, auth.user.sub, body.referral_code.toUpperCase()]
+          );
+        }
+      }
+
+      return { referralCode };
+    });
+
+    return NextResponse.json(
+      {
+        success: true,
+        xpAwarded: WELCOME_XP,
+        coinsAwarded: WELCOME_COINS,
+        referralCode: result.referralCode,
+      },
+      { status: 200 }
+    );
+  } catch (err) {
+    return handleApiError(err);
+  }
+});

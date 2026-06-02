@@ -1,0 +1,186 @@
+/**
+ * lib/auth/jwt.ts
+ *
+ * JWT creation and validation using `jose`.
+ *
+ * Two token types are issued:
+ *   - Access token  (short-lived, 15 min) – carries user identity claims
+ *   - Refresh token (long-lived, 30 days) – used only to obtain new access tokens
+ *
+ * Auth is ALWAYS platform-managed. No @supabase/supabase-js is used here.
+ */
+
+import {
+  SignJWT,
+  jwtVerify,
+  type JWTPayload,
+  errors as JoseErrors,
+} from "jose";
+import { env } from "@/lib/env";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;       // 15 minutes
+const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 3600; // 30 days
+const ISSUER = "zobia-social";
+const AUDIENCE = "zobia-web";
+
+// ---------------------------------------------------------------------------
+// Key helpers
+// ---------------------------------------------------------------------------
+
+/** Encode a string secret as a Uint8Array for jose. */
+function encodeSecret(secret: string): Uint8Array {
+  return new TextEncoder().encode(secret);
+}
+
+const accessSecret = () => encodeSecret(env.JWT_SECRET);
+const refreshSecret = () => encodeSecret(env.JWT_REFRESH_SECRET);
+
+// ---------------------------------------------------------------------------
+// Payload types
+// ---------------------------------------------------------------------------
+
+/** Claims embedded in every access token. */
+export interface AccessTokenPayload extends JWTPayload {
+  sub: string;       // user UUID
+  email: string;
+  username: string;
+  is_admin: boolean;
+  /** Session ID (matches Redis key for invalidation). */
+  sid: string;
+}
+
+/** Claims embedded in every refresh token. */
+export interface RefreshTokenPayload extends JWTPayload {
+  sub: string;       // user UUID
+  /** Session ID – must match the access token's `sid`. */
+  sid: string;
+}
+
+// ---------------------------------------------------------------------------
+// Token creation
+// ---------------------------------------------------------------------------
+
+/**
+ * Issue a signed JWT access token for the given user.
+ *
+ * @param payload - User identity claims (sub, email, username, is_admin, sid)
+ * @returns Signed JWT string
+ */
+export async function signAccessToken(
+  payload: Omit<AccessTokenPayload, "iss" | "aud" | "iat" | "exp">
+): Promise<string> {
+  return new SignJWT({ ...payload })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setIssuer(ISSUER)
+    .setAudience(AUDIENCE)
+    .setExpirationTime(`${ACCESS_TOKEN_TTL_SECONDS}s`)
+    .sign(accessSecret());
+}
+
+/**
+ * Issue a signed JWT refresh token for the given user / session.
+ *
+ * @param sub - User UUID
+ * @param sid - Session ID
+ * @returns Signed JWT string
+ */
+export async function signRefreshToken(sub: string, sid: string): Promise<string> {
+  return new SignJWT({ sub, sid })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setIssuer(ISSUER)
+    .setAudience(AUDIENCE)
+    .setExpirationTime(`${REFRESH_TOKEN_TTL_SECONDS}s`)
+    .sign(refreshSecret());
+}
+
+// ---------------------------------------------------------------------------
+// Token verification
+// ---------------------------------------------------------------------------
+
+/** Structured error returned when token verification fails. */
+export class JwtVerificationError extends Error {
+  constructor(
+    message: string,
+    public readonly code: "EXPIRED" | "INVALID" | "MISSING"
+  ) {
+    super(message);
+    this.name = "JwtVerificationError";
+  }
+}
+
+/**
+ * Verify and decode a JWT access token.
+ *
+ * @param token - Raw JWT string
+ * @returns Decoded payload
+ * @throws {JwtVerificationError} if the token is missing, expired, or invalid
+ */
+export async function verifyAccessToken(token: string): Promise<AccessTokenPayload> {
+  if (!token) throw new JwtVerificationError("No token provided", "MISSING");
+
+  try {
+    const { payload } = await jwtVerify(token, accessSecret(), {
+      issuer: ISSUER,
+      audience: AUDIENCE,
+    });
+    return payload as AccessTokenPayload;
+  } catch (err) {
+    if (err instanceof JoseErrors.JWTExpired) {
+      throw new JwtVerificationError("Access token expired", "EXPIRED");
+    }
+    throw new JwtVerificationError(
+      `Invalid access token: ${(err as Error).message}`,
+      "INVALID"
+    );
+  }
+}
+
+/**
+ * Verify and decode a JWT refresh token.
+ *
+ * @param token - Raw JWT string
+ * @returns Decoded payload
+ * @throws {JwtVerificationError} if the token is missing, expired, or invalid
+ */
+export async function verifyRefreshToken(token: string): Promise<RefreshTokenPayload> {
+  if (!token) throw new JwtVerificationError("No token provided", "MISSING");
+
+  try {
+    const { payload } = await jwtVerify(token, refreshSecret(), {
+      issuer: ISSUER,
+      audience: AUDIENCE,
+    });
+    return payload as RefreshTokenPayload;
+  } catch (err) {
+    if (err instanceof JoseErrors.JWTExpired) {
+      throw new JwtVerificationError("Refresh token expired", "EXPIRED");
+    }
+    throw new JwtVerificationError(
+      `Invalid refresh token: ${(err as Error).message}`,
+      "INVALID"
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the raw bearer token string from an Authorization header.
+ *
+ * @param authHeader - Value of the Authorization header
+ * @returns Raw token or null
+ */
+export function extractBearerToken(authHeader: string | null): string | null {
+  if (!authHeader?.startsWith("Bearer ")) return null;
+  return authHeader.slice(7).trim() || null;
+}
+
+export { ACCESS_TOKEN_TTL_SECONDS, REFRESH_TOKEN_TTL_SECONDS };

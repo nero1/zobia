@@ -1,0 +1,181 @@
+/**
+ * app/api/messages/dm/[conversationId]/route.ts
+ *
+ * GET /api/messages/dm/[conversationId]
+ *
+ * Returns messages in a specific DM conversation, paginated via
+ * cursor-based pagination (cursor = created_at of oldest message returned).
+ *
+ * Only participants in the conversation may access it.
+ */
+
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { db } from "@/lib/db";
+import { withAuth, validateSearchParams } from "@/lib/api/middleware";
+import { handleApiError, forbidden, notFound } from "@/lib/api/errors";
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+
+// ---------------------------------------------------------------------------
+// Schemas
+// ---------------------------------------------------------------------------
+
+const querySchema = z.object({
+  limit: z
+    .string()
+    .optional()
+    .transform((v) => (v ? Math.min(parseInt(v, 10), 100) : 30)),
+  /** Cursor: ISO-8601 timestamp of the oldest message from the previous page. */
+  before: z.string().optional(),
+});
+
+// ---------------------------------------------------------------------------
+// DB row types
+// ---------------------------------------------------------------------------
+
+interface ConversationParticipantRow {
+  user_id_1: string;
+  user_id_2: string;
+}
+
+interface MessageRow {
+  id: string;
+  sender_id: string;
+  sender_username: string;
+  sender_display_name: string;
+  sender_avatar_emoji: string;
+  recipient_id: string;
+  message_type: string;
+  content: string | null;
+  media_url: string | null;
+  coin_cost: number;
+  is_deleted: boolean;
+  reactions: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// GET handler
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch messages in a DM conversation (newest-first, cursor-based).
+ *
+ * Results are returned in descending order so FlatList (inverted) renders
+ * the most recent message at the bottom without reversing the array.
+ *
+ * @param req  - Incoming Next.js request
+ * @param ctx  - Route context with conversationId param and auth
+ */
+export const GET = withAuth(
+  async (
+    req: NextRequest,
+    { params, auth }: { params: { conversationId: string }; auth: { user: { sub: string } } }
+  ) => {
+    try {
+      await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
+
+      const { conversationId } = params;
+
+      // 1. Verify the conversation exists and the user is a participant
+      const { rows: convRows } = await db.query<ConversationParticipantRow>(
+        `SELECT user_id_1, user_id_2
+         FROM dm_conversations
+         WHERE id = $1
+         LIMIT 1`,
+        [conversationId]
+      );
+
+      const conv = convRows[0];
+      if (!conv) throw notFound("Conversation not found");
+
+      const isParticipant =
+        conv.user_id_1 === auth.user.sub ||
+        conv.user_id_2 === auth.user.sub;
+
+      if (!isParticipant) {
+        throw forbidden("You are not a participant in this conversation");
+      }
+
+      // 2. Parse query params
+      const { limit, before } = validateSearchParams(
+        req.nextUrl.searchParams,
+        querySchema
+      );
+
+      const cursorClause = before ? `AND m.created_at < $3` : "";
+      const params2: (string | number)[] = [conversationId, limit];
+      if (before) params2.push(before);
+
+      // 3. Fetch messages with sender profile and reactions
+      const { rows } = await db.query<MessageRow>(
+        `SELECT
+           m.id,
+           m.sender_id,
+           u.username AS sender_username,
+           u.display_name AS sender_display_name,
+           u.avatar_emoji AS sender_avatar_emoji,
+           m.recipient_id,
+           m.message_type,
+           CASE WHEN m.is_deleted THEN NULL ELSE m.content END AS content,
+           CASE WHEN m.is_deleted THEN NULL ELSE m.media_url END AS media_url,
+           m.coin_cost,
+           m.is_deleted,
+           (
+             SELECT json_agg(json_build_object(
+               'id', r.id,
+               'userId', r.user_id,
+               'emoji', r.emoji,
+               'isCustom', r.is_custom,
+               'createdAt', r.created_at
+             ))
+             FROM message_reactions r
+             WHERE r.message_id = m.id
+           ) AS reactions,
+           m.created_at,
+           m.updated_at
+         FROM messages m
+         JOIN users u ON u.id = m.sender_id
+         WHERE m.conversation_id = $1
+           ${cursorClause}
+         ORDER BY m.created_at DESC
+         LIMIT $2`,
+        params2
+      );
+
+      // 4. Mark messages as read (best-effort, async)
+      db.query(
+        `UPDATE messages
+         SET is_read = TRUE, updated_at = NOW()
+         WHERE conversation_id = $1
+           AND recipient_id = $2
+           AND is_read = FALSE
+           AND is_deleted = FALSE`,
+        [conversationId, auth.user.sub]
+      ).catch((err) =>
+        console.error("[dm/[conversationId]:GET] Mark read failed", err)
+      );
+
+      const nextCursor =
+        rows.length === limit
+          ? rows[rows.length - 1]?.created_at ?? null
+          : null;
+
+      return NextResponse.json(
+        {
+          items: rows.map((row) => ({
+            ...row,
+            reactions: row.reactions ? JSON.parse(row.reactions) : [],
+          })),
+          nextCursor,
+          hasMore: nextCursor !== null,
+          total: rows.length,
+        },
+        { status: 200 }
+      );
+    } catch (err) {
+      return handleApiError(err);
+    }
+  }
+);

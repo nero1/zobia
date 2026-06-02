@@ -1,0 +1,278 @@
+/**
+ * app/api/rooms/[roomId]/subscribe/route.ts
+ *
+ * POST /api/rooms/:roomId/subscribe
+ *
+ * Subscribe to a VIP room.
+ *
+ * Flow:
+ *  1. Validate the room is type=vip and active.
+ *  2. Check for existing active subscription (idempotent).
+ *  3. Calculate subscription amount from room.subscription_price_ngn.
+ *  4. Debit from user's coin balance (if sufficient) or initiate card payment.
+ *  5. Create room_subscriptions record (status=active, expires 30 days).
+ *  6. Credit creator earnings at 80% net (20% platform fee per PRD).
+ *  7. Join the room if not already a member.
+ *
+ * Revenue split: 80% net to creator, 20% platform fee.
+ */
+
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { db } from "@/lib/db";
+import { withAuth, validateBody } from "@/lib/api/middleware";
+import {
+  handleApiError,
+  notFound,
+  forbidden,
+  conflict,
+  badRequest,
+} from "@/lib/api/errors";
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Creator keeps 80% of subscription revenue per PRD. */
+const CREATOR_SHARE_PERCENT = 80;
+
+/** Platform keeps 20% as fee. */
+const PLATFORM_FEE_PERCENT = 20;
+
+/** Subscription duration in days. */
+const SUBSCRIPTION_DAYS = 30;
+
+// ---------------------------------------------------------------------------
+// Schemas
+// ---------------------------------------------------------------------------
+
+const subscribeSchema = z.object({
+  /**
+   * Payment method:
+   *  - "balance"     : deduct from user's coin/fiat balance
+   *  - "card"        : initiate card payment (returns paymentUrl)
+   */
+  paymentMethod: z.enum(["balance", "card"]).default("balance"),
+});
+
+// ---------------------------------------------------------------------------
+// DB row types
+// ---------------------------------------------------------------------------
+
+interface RoomRow {
+  id: string;
+  type: string;
+  creator_id: string;
+  is_active: boolean;
+  subscription_price_ngn: number | null;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Check for an existing active subscription for this room and user.
+ */
+async function hasActiveSubscription(
+  roomId: string,
+  userId: string
+): Promise<boolean> {
+  const { rows } = await db.query<{ id: string }>(
+    `SELECT id FROM room_subscriptions
+     WHERE room_id = $1 AND user_id = $2 AND status = 'active' AND expires_at > NOW()
+     LIMIT 1`,
+    [roomId, userId]
+  );
+  return rows.length > 0;
+}
+
+/**
+ * Credit creator earnings at 80% of gross amount.
+ * Creates a creator_earnings record in a transaction.
+ *
+ * @param tx          - Active transaction client
+ * @param creatorId   - Room creator UUID
+ * @param grossKobo   - Gross subscription price in kobo (NGN × 100)
+ * @param referenceId - Reference ID (subscription record ID)
+ */
+async function creditCreatorEarnings(
+  tx: Awaited<Parameters<Parameters<typeof db.transaction>[0]>[0]>,
+  creatorId: string,
+  grossKobo: number,
+  referenceId: string
+): Promise<void> {
+  const platformFeeKobo = Math.floor((grossKobo * PLATFORM_FEE_PERCENT) / 100);
+  const netKobo = grossKobo - platformFeeKobo;
+
+  await tx.query(
+    `INSERT INTO creator_earnings
+       (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo, reference_id)
+     VALUES ($1, 'subscription', $2, $3, $4, $5)`,
+    [creatorId, grossKobo, platformFeeKobo, netKobo, referenceId]
+  );
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/rooms/[roomId]/subscribe
+// ---------------------------------------------------------------------------
+
+/**
+ * Subscribe to a VIP room.
+ *
+ * On success, the caller is added as a room member if not already.
+ *
+ * @param req    - Incoming request with paymentMethod body
+ * @param params - Route params containing roomId
+ * @returns Subscription record on success or paymentUrl for card payments
+ */
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
+  try {
+    await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
+
+    const { roomId } = await params as { roomId: string };
+    const userId = auth.user.sub;
+    const body = await validateBody(req, subscribeSchema);
+
+    // Fetch room
+    const { rows: roomRows } = await db.query<RoomRow>(
+      `SELECT id, type, creator_id, is_active, subscription_price_ngn
+       FROM rooms WHERE id = $1`,
+      [roomId]
+    );
+    const room = roomRows[0];
+    if (!room || !room.is_active) throw notFound("Room not found");
+    if (room.type !== "vip") {
+      throw badRequest("This endpoint is only for VIP rooms");
+    }
+    if (!room.subscription_price_ngn) {
+      throw badRequest("This VIP room has no subscription price configured");
+    }
+    if (room.creator_id === userId) {
+      throw forbidden("Room creators cannot subscribe to their own room");
+    }
+
+    // Idempotency check
+    if (await hasActiveSubscription(roomId, userId)) {
+      throw conflict("You already have an active subscription to this room");
+    }
+
+    const grossKobo = room.subscription_price_ngn * 100; // NGN to kobo
+    const expiresAt = new Date(
+      Date.now() + SUBSCRIPTION_DAYS * 24 * 60 * 60 * 1000
+    ).toISOString();
+
+    if (body.paymentMethod === "card") {
+      // Initiate external payment — return redirect URL for client to handle
+      // The webhook at /api/payments/webhook will complete the subscription
+      const paymentRecord = await db.query<{ id: string }>(
+        `INSERT INTO payments
+           (user_id, payment_type, amount_kobo, currency, provider, status,
+            reference_id, idempotency_key)
+         VALUES ($1, 'subscription', $2, 'NGN', 'paystack', 'pending', $3, $4)
+         RETURNING id`,
+        [
+          userId,
+          grossKobo,
+          roomId,
+          `sub:${userId}:${roomId}:${Date.now()}`,
+        ]
+      );
+
+      const paymentId = paymentRecord.rows[0]?.id;
+
+      return NextResponse.json(
+        {
+          requiresCardPayment: true,
+          paymentUrl: `/api/payments/initiate?paymentId=${paymentId}`,
+        },
+        { status: 200 }
+      );
+    }
+
+    // Balance payment — check user has sufficient coin balance
+    // (converted at platform coin-to-cash rate for simplicity;
+    //  real implementation would use fiat balance table)
+    const { rows: userRows } = await db.query<{ coin_balance: number }>(
+      `SELECT coin_balance FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+      [userId]
+    );
+    const user = userRows[0];
+    if (!user) throw notFound("User not found");
+
+    // Naira → coins at 1 NGN = 1 coin (platform configures actual rate via manifest)
+    const requiredCoins = room.subscription_price_ngn;
+
+    if (user.coin_balance < requiredCoins) {
+      throw forbidden(
+        `Insufficient balance. You need ${requiredCoins} coins for this subscription.`
+      );
+    }
+
+    const subscription = await db.transaction(async (tx) => {
+      // Debit coins
+      await tx.query(
+        `UPDATE users
+         SET coin_balance = coin_balance - $1, updated_at = NOW()
+         WHERE id = $2`,
+        [requiredCoins, userId]
+      );
+
+      await tx.query(
+        `INSERT INTO coin_ledger
+           (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description)
+         VALUES ($1, $2, $3, $4, 'subscription', $5, $6)`,
+        [
+          userId,
+          -requiredCoins,
+          user.coin_balance,
+          user.coin_balance - requiredCoins,
+          roomId,
+          `VIP room subscription: ${roomId}`,
+        ]
+      );
+
+      // Create subscription record
+      const { rows: subRows } = await tx.query<{ id: string }>(
+        `INSERT INTO room_subscriptions
+           (room_id, user_id, status, amount_kobo, started_at, expires_at)
+         VALUES ($1, $2, 'active', $3, NOW(), $4)
+         RETURNING *`,
+        [roomId, userId, grossKobo, expiresAt]
+      );
+
+      const sub = subRows[0];
+      if (!sub) throw new Error("Subscription creation failed");
+
+      // Credit creator earnings (80%)
+      await creditCreatorEarnings(tx, room.creator_id, grossKobo, sub.id);
+
+      // Join room if not already a member
+      await tx.query(
+        `INSERT INTO room_members (room_id, user_id, role, joined_at)
+         VALUES ($1, $2, 'member', NOW())
+         ON CONFLICT (room_id, user_id) DO NOTHING`,
+        [roomId, userId]
+      );
+
+      // Increment member_count (may be a no-op if already counted)
+      await tx.query(
+        `UPDATE rooms
+         SET member_count = member_count + 1, updated_at = NOW()
+         WHERE id = $1
+           AND NOT EXISTS (
+             SELECT 1 FROM room_members
+             WHERE room_id = $1 AND user_id = $2
+           )`,
+        [roomId, userId]
+      );
+
+      return sub;
+    });
+
+    return NextResponse.json({ subscription }, { status: 201 });
+  } catch (err) {
+    return handleApiError(err);
+  }
+});
