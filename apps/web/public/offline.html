@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zobia — You're offline</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #ffffff;
+      color: #111827;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 24px;
+      text-align: center;
+    }
+
+    .logo {
+      width: 64px;
+      height: 64px;
+      background-color: #2563EB;
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 32px;
+    }
+
+    .logo-letter {
+      color: #ffffff;
+      font-size: 32px;
+      font-weight: 700;
+      line-height: 1;
+      letter-spacing: -1px;
+    }
+
+    .icon-wrap {
+      margin-bottom: 24px;
+    }
+
+    .icon-wrap svg {
+      width: 56px;
+      height: 56px;
+      color: #9CA3AF;
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 700;
+      color: #111827;
+      margin-bottom: 12px;
+    }
+
+    p {
+      font-size: 16px;
+      color: #6B7280;
+      max-width: 320px;
+      line-height: 1.6;
+    }
+
+    .status {
+      margin-top: 32px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      border-radius: 9999px;
+      background-color: #F3F4F6;
+      font-size: 14px;
+      color: #6B7280;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: #9CA3AF;
+    }
+
+    .status-dot.reconnecting {
+      background-color: #F59E0B;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+  </style>
+</head>
+<body>
+  <div class="logo">
+    <span class="logo-letter">Z</span>
+  </div>
+
+  <div class="icon-wrap" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M8.288 15.038a5.25 5.25 0 0 1 7.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 0 1 1.06 0Z" />
+    </svg>
+  </div>
+
+  <h1>You're offline</h1>
+  <p>Your recent activity is saved. Reconnect to continue.</p>
+
+  <div class="status" id="status-badge">
+    <span class="status-dot reconnecting" id="status-dot"></span>
+    <span id="status-text">Waiting for connection&hellip;</span>
+  </div>
+
+  <script>
+    var statusBadge = document.getElementById('status-badge');
+    var statusDot   = document.getElementById('status-dot');
+    var statusText  = document.getElementById('status-text');
+
+    function onOnline() {
+      statusDot.className = 'status-dot';
+      statusDot.style.backgroundColor = '#10B981';
+      statusText.textContent = 'Back online — reloading…';
+      statusBadge.style.backgroundColor = '#ECFDF5';
+
+      // Give the user a moment to see the confirmation before reloading.
+      setTimeout(function () {
+        window.location.reload();
+      }, 800);
+    }
+
+    function onOffline() {
+      statusDot.className = 'status-dot reconnecting';
+      statusDot.style.backgroundColor = '';
+      statusText.textContent = 'Waiting for connection…';
+      statusBadge.style.backgroundColor = '';
+    }
+
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+
+    // If the browser already thinks we're online when this page loads,
+    // reload immediately (can happen with service worker fallback timing).
+    if (navigator.onLine) {
+      onOnline();
+    }
+  </script>
+</body>
+</html>
