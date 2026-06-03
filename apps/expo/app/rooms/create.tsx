@@ -36,7 +36,7 @@ import { apiClient } from '@/lib/api/client';
 
 const TEAL = '#0D9488';
 
-type RoomType = 'public' | 'private' | 'vip' | 'drop' | 'classroom' | 'crew';
+type RoomType = 'free_open' | 'vip' | 'drop' | 'tipping' | 'classroom' | 'guild';
 
 interface RoomTypeOption {
   type: RoomType;
@@ -50,20 +50,11 @@ interface RoomTypeOption {
 
 const ROOM_TYPES: RoomTypeOption[] = [
   {
-    type: 'public',
-    label: 'Public',
+    type: 'free_open',
+    label: 'Free & Open',
     emoji: '🌐',
     description: 'Open to everyone. Free to join.',
     color: colors.brand.blue,
-    hasPricing: false,
-    hasCurriculum: false,
-  },
-  {
-    type: 'private',
-    label: 'Private',
-    emoji: '🔒',
-    description: 'Invite-only. You control membership.',
-    color: colors.neutral[600],
     hasPricing: false,
     hasCurriculum: false,
   },
@@ -86,6 +77,15 @@ const ROOM_TYPES: RoomTypeOption[] = [
     hasCurriculum: false,
   },
   {
+    type: 'tipping',
+    label: 'Tipping',
+    emoji: '🎙️',
+    description: 'Live room where viewers tip the creator.',
+    color: colors.brand.green,
+    hasPricing: false,
+    hasCurriculum: false,
+  },
+  {
     type: 'classroom',
     label: 'ClassRoom',
     emoji: '📚',
@@ -95,10 +95,10 @@ const ROOM_TYPES: RoomTypeOption[] = [
     hasCurriculum: true,
   },
   {
-    type: 'crew',
-    label: 'Crew',
+    type: 'guild',
+    label: 'Guild',
     emoji: '🤝',
-    description: 'Small private group, up to 20 members.',
+    description: 'Private guild room for guild members only.',
     color: colors.brand.green,
     hasPricing: false,
     hasCurriculum: false,
@@ -298,7 +298,7 @@ export default function CreateRoomScreen() {
   const router = useRouter();
   const { colors: themeColors, isDark } = useTheme();
 
-  const [selectedType, setSelectedType] = useState<RoomType>('public');
+  const [selectedType, setSelectedType] = useState<RoomType>('free_open');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');

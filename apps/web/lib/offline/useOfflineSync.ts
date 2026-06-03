@@ -1,0 +1,123 @@
+/**
+ * lib/offline/useOfflineSync.ts
+ *
+ * React hook that monitors network status and replays the offline message queue
+ * when connectivity is restored.
+ *
+ * Usage:
+ *   useOfflineSync()  // Mount once in the root layout — fires-and-forgets
+ */
+
+"use client";
+
+import { useEffect, useRef, useCallback } from "react";
+import {
+  getPendingMessages,
+  updateMessageStatus,
+  dequeueMessage,
+} from "./messageQueue";
+
+const MAX_ATTEMPTS = 5;
+const RETRY_DELAY_MS = 2_000;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async function sendMessage(msg: {
+  recipientId: string;
+  conversationId: string | null;
+  content: string;
+  messageType: "text" | "gif" | "moment";
+  mediaUrl?: string;
+  idempotencyKey: string;
+}): Promise<void> {
+  const body: Record<string, unknown> = {
+    recipientId: msg.recipientId,
+    content: msg.content,
+    messageType: msg.messageType,
+    idempotencyKey: msg.idempotencyKey,
+  };
+  if (msg.mediaUrl) body.mediaUrl = msg.mediaUrl;
+
+  const res = await fetch("/api/messages/dm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    credentials: "include",
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`HTTP ${res.status}: ${text}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Hook
+// ---------------------------------------------------------------------------
+
+export function useOfflineSync(): void {
+  const isRunning = useRef(false);
+
+  const flushQueue = useCallback(async () => {
+    if (isRunning.current) return;
+    isRunning.current = true;
+
+    try {
+      const pending = await getPendingMessages();
+      const toSend = pending.filter(
+        (m) => m.status !== "sending" && m.attempts < MAX_ATTEMPTS
+      );
+
+      for (const msg of toSend) {
+        try {
+          await updateMessageStatus(msg.id, {
+            status: "sending",
+            attempts: msg.attempts + 1,
+            lastAttemptAt: Date.now(),
+          });
+
+          await sendMessage(msg);
+          await dequeueMessage(msg.id);
+        } catch {
+          const nextAttempts = msg.attempts + 1;
+          if (nextAttempts >= MAX_ATTEMPTS) {
+            await updateMessageStatus(msg.id, {
+              status: "failed",
+              attempts: nextAttempts,
+              lastAttemptAt: Date.now(),
+            });
+          } else {
+            await updateMessageStatus(msg.id, {
+              status: "pending",
+              attempts: nextAttempts,
+              lastAttemptAt: Date.now(),
+            });
+          }
+          // Brief pause between retries to avoid hammering
+          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+        }
+      }
+    } finally {
+      isRunning.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      void flushQueue();
+    };
+
+    window.addEventListener("online", handleOnline);
+
+    // Also flush on mount if already online
+    if (navigator.onLine) {
+      void flushQueue();
+    }
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [flushQueue]);
+}

@@ -51,7 +51,7 @@ const sendDMSchema = z.object({
     .string()
     .min(1, "Message content cannot be empty")
     .max(2000, "Message content cannot exceed 2000 characters"),
-  messageType: z.enum(["text", "gif"]).default("text"),
+  messageType: z.enum(["text", "gif", "moment"]).default("text"),
   mediaUrl: z.string().url("mediaUrl must be a valid URL").optional(),
   /** Client-generated idempotency key to prevent duplicate sends. */
   idempotencyKey: z.string().max(128).optional(),
@@ -145,9 +145,11 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       id: string;
       is_suspended: boolean;
       dm_privacy: string;
+      dm_opt_out: boolean;
     }>(
       `SELECT id, COALESCE(is_suspended, false) AS is_suspended,
-              COALESCE(dm_privacy, 'everyone') AS dm_privacy
+              COALESCE(dm_privacy, 'everyone') AS dm_privacy,
+              COALESCE(dm_opt_out, false) AS dm_opt_out
        FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
       [body.recipientId]
     );
@@ -157,6 +159,14 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     if (recipientRows[0].is_suspended) {
       throw badRequest(
         "This account is temporarily unavailable.",
+        "RECIPIENT_UNAVAILABLE"
+      );
+    }
+
+    // dm_opt_out: user has globally opted out of receiving DMs
+    if (recipientRows[0].dm_opt_out && !sender.is_admin) {
+      throw badRequest(
+        "This account is not accepting direct messages.",
         "RECIPIENT_UNAVAILABLE"
       );
     }

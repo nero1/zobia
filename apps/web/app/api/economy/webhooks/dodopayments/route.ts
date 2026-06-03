@@ -21,6 +21,7 @@ import { verifyWebhookSignature } from "@/lib/payments/dodopayments";
 import { db } from "@/lib/db";
 import { creditCoins } from "@/lib/economy/coins";
 import { creditStars } from "@/lib/economy/stars";
+import { awardReferralCommissions } from "@/lib/referrals/commissions";
 
 // ---------------------------------------------------------------------------
 // DodoPayments webhook event types
@@ -118,6 +119,11 @@ async function processPaymentSucceeded(
         `Purchased ${metadata.packName}`,
         { packId: metadata.packId, amountSmallestUnit: amount, currency: data.currency },
         tx
+      );
+
+      // Award referral commissions for coin purchases
+      await awardReferralCommissions(tx, userId, coinsGranted).catch((err) =>
+        console.error("[webhook/dodo] Referral commission error:", err)
       );
     }
   });

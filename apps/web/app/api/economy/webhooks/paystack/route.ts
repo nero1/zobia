@@ -19,6 +19,7 @@ import { verifyWebhookSignature } from "@/lib/payments/paystack";
 import { db } from "@/lib/db";
 import { creditCoins } from "@/lib/economy/coins";
 import { creditStars } from "@/lib/economy/stars";
+import { awardReferralCommissions } from "@/lib/referrals/commissions";
 
 // ---------------------------------------------------------------------------
 // Paystack webhook event types (subset)
@@ -115,6 +116,11 @@ async function processChargeSuccess(
         `Purchased ${metadata.packName}`,
         { packId: metadata.packId, amountKobo: amount },
         tx
+      );
+
+      // Award referral commissions (Tier 1 + Tier 2) for coin purchases
+      await awardReferralCommissions(tx, userId, coinsGranted).catch((err) =>
+        console.error("[webhook/paystack] Referral commission error:", err)
       );
     }
   });

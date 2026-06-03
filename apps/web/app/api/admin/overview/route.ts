@@ -47,6 +47,9 @@ interface OverviewStats {
   guilds: {
     active: number;
   };
+  guild_wars: {
+    active: number;
+  };
   moderation: {
     pending_reports: number;
   };
@@ -176,6 +179,13 @@ export const GET = withAdminAuth(async (req, { auth }) => {
               WHERE is_active = true AND deleted_at IS NULL`,
       },
 
+      // Active guild wars
+      {
+        label: "active_guild_wars",
+        sql: `SELECT COUNT(*)::text AS value FROM guild_wars
+              WHERE status IN ('active', 'final_hour')`,
+      },
+
       // Moderation queue
       {
         label: "pending_reports",
@@ -205,6 +215,9 @@ export const GET = withAdminAuth(async (req, { auth }) => {
       },
       guilds: {
         active: stats.get("active_guilds") ?? 0,
+      },
+      guild_wars: {
+        active: stats.get("active_guild_wars") ?? 0,
       },
       moderation: {
         pending_reports: stats.get("pending_reports") ?? 0,

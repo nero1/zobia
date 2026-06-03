@@ -46,8 +46,8 @@ interface TrackLevel {
 interface PastSeason {
   id: string;
   name: string;
-  themeEmoji: string;
-  year: number;
+  theme: string;
+  starts_at: string;
   finalRank: number | null;
 }
 
@@ -62,6 +62,7 @@ interface UserProfile {
   rankLabel: string;
   subLevel: number;
   prestigeStars: number;
+  legacyScore: number;
   trackLevels: TrackLevel[];
   guildName: string | null;
   guildCrest: string | null;
@@ -254,6 +255,11 @@ export default function PublicProfileScreen() {
             {profile.rankLabel} · Sub {profile.subLevel}
           </Text>
         </View>
+        {profile.legacyScore > 0 && (
+          <Text style={[styles.legacyScore, { color: colors.brand.gold }]}>
+            ⚜️ {profile.legacyScore.toLocaleString()}
+          </Text>
+        )}
       </View>
 
       {/* Guild badge */}
@@ -339,9 +345,11 @@ export default function PublicProfileScreen() {
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.seasonsScroll}>
             {profile.pastSeasons.map((s) => (
               <View key={s.id} style={[styles.seasonCard, { backgroundColor: themeColors.surface, borderColor: themeColors.border }]}>
-                <Text style={styles.seasonEmoji}>{s.themeEmoji}</Text>
+                <Text style={styles.seasonEmoji}>{s.theme}</Text>
                 <Text style={[styles.seasonName, { color: themeColors.text }]} numberOfLines={1}>{s.name}</Text>
-                <Text style={[styles.seasonYear, { color: themeColors.textMuted }]}>{s.year}</Text>
+                <Text style={[styles.seasonYear, { color: themeColors.textMuted }]}>
+                  {new Date(s.starts_at).getFullYear()}
+                </Text>
                 {s.finalRank !== null && (
                   <Text style={styles.seasonRank}>#{s.finalRank}</Text>
                 )}
@@ -388,9 +396,10 @@ const styles = StyleSheet.create({
   metaRow: { flexDirection: 'row', gap: 12, flexWrap: 'wrap', justifyContent: 'center' },
   metaText: { fontSize: 13 },
 
-  rankSection: { alignItems: 'center', paddingTop: 4 },
+  rankSection: { alignItems: 'center', paddingTop: 4, gap: 4 },
   rankBadge: { borderRadius: 20, paddingHorizontal: 16, paddingVertical: 5 },
   rankBadgeText: { color: colors.neutral[0], fontSize: 13, fontWeight: '700' },
+  legacyScore: { fontSize: 13, fontWeight: '700' },
 
   guildBadge: {
     flexDirection: 'row',

@@ -17,6 +17,7 @@ import { cookies } from "next/headers";
 import { Navbar } from "@/components/layout/Navbar";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { OfflineBanner } from "@/components/offline/OfflineBanner";
+import { OfflineSyncProvider } from "@/components/offline/OfflineSyncProvider";
 import { AnnouncementBanner, type BannerData } from "@/components/announcements/AnnouncementBanner";
 import { AnnouncementModal, type AnnouncementData } from "@/components/announcements/AnnouncementModal";
 import { NudgeBanner } from "@/components/NudgeBanner";
@@ -91,8 +92,9 @@ export default async function AppLayout({ children }: AppLayoutProps) {
 
   return (
     <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
-      {/* Offline indicator */}
+      {/* Offline indicator and queue sync */}
       <OfflineBanner />
+      <OfflineSyncProvider />
       {/* Announcement banner (admin-managed, fixed top) */}
       <AnnouncementBanner banner={banner} />
       {/* Login-event announcement modal */}

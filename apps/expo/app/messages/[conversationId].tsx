@@ -20,6 +20,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -27,10 +28,12 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { Screen } from '@/components/ui/Screen';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
+import { getPidginSuggestions } from '@/lib/i18n/pidgin';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -200,9 +203,17 @@ export default function DMConversationScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { colors: themeColors, isDark } = useTheme();
+  const { i18n } = useTranslation();
 
   const [inputText, setInputText] = useState('');
+  const [pidginSuggestions, setPidginSuggestions] = useState<string[]>([]);
   const [pendingMessages, setPendingMessages] = useState<DM[]>([]);
+
+  const handleInputChange = useCallback((text: string) => {
+    setInputText(text);
+    const suggestions = getPidginSuggestions(text, i18n.language);
+    setPidginSuggestions(suggestions);
+  }, [i18n.language]);
 
   const { data: conversation } = useQuery({
     queryKey: ['dm-conversation', conversationId],
@@ -323,6 +334,32 @@ export default function DMConversationScreen() {
           </View>
         )}
 
+        {/* Pidgin suggestion chips */}
+        {pidginSuggestions.length > 0 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.pidginBar}
+            contentContainerStyle={styles.pidginBarContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            {pidginSuggestions.map((s) => (
+              <Pressable
+                key={s}
+                onPress={() => {
+                  setInputText(s);
+                  setPidginSuggestions([]);
+                }}
+                style={[styles.pidginChip, { backgroundColor: themeColors.surface, borderColor: colors.brand.blue }]}
+                accessibilityRole="button"
+                accessibilityLabel={`Use Pidgin suggestion: ${s}`}
+              >
+                <Text style={[styles.pidginChipText, { color: colors.brand.blue }]}>{s}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        )}
+
         {/* Input bar */}
         <View
           style={[
@@ -344,7 +381,7 @@ export default function DMConversationScreen() {
             placeholder="Message…"
             placeholderTextColor={themeColors.textMuted}
             value={inputText}
-            onChangeText={setInputText}
+            onChangeText={handleInputChange}
             multiline
             maxLength={500}
             returnKeyType="send"
@@ -415,6 +452,18 @@ const styles = StyleSheet.create({
   },
   insufficientText: { fontSize: 13 },
   giftLink: { fontSize: 13, color: colors.brand.blue, fontWeight: '700' },
+
+  pidginBar: { maxHeight: 44 },
+  pidginBarContent: { paddingHorizontal: 12, paddingVertical: 6, gap: 8, flexDirection: 'row' },
+  pidginChip: {
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    minHeight: 32,
+    justifyContent: 'center',
+  },
+  pidginChipText: { fontSize: 13, fontWeight: '600' },
 
   inputBar: {
     flexDirection: 'row',
