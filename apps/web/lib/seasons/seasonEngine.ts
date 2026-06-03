@@ -247,5 +247,16 @@ export async function distributeSeasonRewards(
         [user_id, seasonId]
       );
     }
+
+    // Retire all limited-edition gifts that belonged to this season.
+    // Once a season ends, these items are no longer purchasable or giftable.
+    await client.query(
+      `UPDATE gift_items
+       SET is_retired = TRUE
+       WHERE season_id = $1
+         AND is_limited_edition = TRUE
+         AND is_retired = FALSE`,
+      [seasonId]
+    );
   });
 }

@@ -126,6 +126,7 @@ interface RoomRow {
   drop_ends_at: string | null;
   enrolment_fee_ngn: number | null;
   trending_score: number;
+  recent_message_count: number;
   total_messages: number;
   created_at: string;
   updated_at: string;
@@ -255,6 +256,12 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
               AND rm.created_at > NOW() - INTERVAL '2 hours'),
            0
          ) AS trending_score,
+         COALESCE(
+           (SELECT COUNT(*) FROM room_messages rm
+            WHERE rm.room_id = r.id
+              AND rm.created_at > NOW() - INTERVAL '2 hours'),
+           0
+         ) AS recent_message_count,
          r.total_messages,
          r.created_at,
          r.updated_at

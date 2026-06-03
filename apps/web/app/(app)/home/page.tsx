@@ -1,29 +1,456 @@
+"use client";
+
 /**
  * app/(app)/home/page.tsx
  *
- * Home feed page (placeholder).
- * Will display the user's personalised activity feed.
+ * Home feed page (web version).
+ * Sections: Activity Banner, Nemesis Widget, Daily Quest Deck,
+ * Online Friends Row, Leaderboard Position card.
  */
 
-import type { Metadata } from "next";
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import { ActivityBanner } from "@/components/ui/ActivityBanner";
+import { OnlineRing } from "@/components/ui/OnlineRing";
 
-export const metadata: Metadata = {
-  title: "Home",
-};
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface PlatformEvent {
+  name: string;
+  description: string;
+  xp_multiplier: number;
+}
+
+interface NemesisData {
+  rivalUserId: string;
+  rivalUsername: string;
+  rivalAvatarEmoji: string;
+  myXP: number;
+  rivalXP: number;
+}
+
+interface DailyQuest {
+  id: string;
+  title: string;
+  description: string;
+  xpReward: number;
+  progress: number;
+  goal: number;
+  completed: boolean;
+}
+
+interface Friend {
+  userId: string;
+  username: string;
+  avatarEmoji: string;
+}
+
+interface LeaderboardPosition {
+  rank: number;
+  rankDelta: number; // positive = moved up, negative = moved down
+  xp: number;
+}
+
+// ---------------------------------------------------------------------------
+// Skeleton helpers
+// ---------------------------------------------------------------------------
+
+function SkeletonBlock({ className }: { className: string }) {
+  return <div className={`animate-pulse rounded bg-neutral-200 dark:bg-neutral-700 ${className}`} />;
+}
+
+// ---------------------------------------------------------------------------
+// Nemesis Widget
+// ---------------------------------------------------------------------------
+
+function NemesisSkeleton() {
+  return (
+    <div className="animate-pulse rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+      <SkeletonBlock className="mb-3 h-4 w-24" />
+      <div className="flex items-center gap-4">
+        <SkeletonBlock className="h-12 w-12 rounded-full" />
+        <div className="flex-1 space-y-2">
+          <SkeletonBlock className="h-4 w-32" />
+          <SkeletonBlock className="h-2 w-full" />
+        </div>
+        <SkeletonBlock className="h-12 w-12 rounded-full" />
+      </div>
+      <SkeletonBlock className="mt-4 h-9 w-full rounded-xl" />
+    </div>
+  );
+}
+
+interface NemesisWidgetProps {
+  data: NemesisData;
+  onChallenge: () => Promise<void>;
+  challenging: boolean;
+}
+
+function NemesisWidget({ data, onChallenge, challenging }: NemesisWidgetProps) {
+  const total = data.myXP + data.rivalXP;
+  const myPct = total > 0 ? Math.round((data.myXP / total) * 100) : 50;
+  const ahead = data.myXP >= data.rivalXP;
+  const diff = Math.abs(data.myXP - data.rivalXP);
+
+  return (
+    <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-500">Your Nemesis</h2>
+      <div className="flex items-center gap-4">
+        {/* My avatar placeholder */}
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-100 text-2xl dark:bg-blue-900">
+          🧑
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="mb-1 flex items-center justify-between text-xs text-neutral-500">
+            <span className="font-semibold text-blue-600">You</span>
+            <span className="font-semibold text-red-600">@{data.rivalUsername}</span>
+          </div>
+          {/* XP comparison bar */}
+          <div className="h-3 overflow-hidden rounded-full bg-red-100 dark:bg-red-900/30">
+            <div
+              className="h-full rounded-full bg-blue-500 transition-all"
+              style={{ width: `${myPct}%` }}
+            />
+          </div>
+          <p className="mt-1.5 text-center text-xs font-semibold text-neutral-600 dark:text-neutral-400">
+            {ahead ? (
+              <span className="text-teal-600">You&apos;re ahead by {diff.toLocaleString()} XP</span>
+            ) : (
+              <span className="text-red-600">Behind by {diff.toLocaleString()} XP</span>
+            )}
+          </p>
+        </div>
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-100 text-2xl dark:bg-red-900">
+          {data.rivalAvatarEmoji}
+        </div>
+      </div>
+      <button
+        onClick={onChallenge}
+        disabled={challenging}
+        className="mt-4 w-full rounded-xl border border-neutral-300 py-2.5 text-sm font-semibold text-neutral-700 transition-colors hover:bg-neutral-50 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+      >
+        {challenging ? "Challenging…" : "⚔️ Challenge Rival"}
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Daily Quest Deck
+// ---------------------------------------------------------------------------
+
+function QuestDeckSkeleton() {
+  return (
+    <div className="rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+      <div className="border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
+        <SkeletonBlock className="h-4 w-28" />
+      </div>
+      <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="animate-pulse px-5 py-4">
+            <div className="flex items-start gap-3">
+              <SkeletonBlock className="mt-0.5 h-5 w-5 rounded-full" />
+              <div className="flex-1 space-y-2">
+                <SkeletonBlock className="h-4 w-40" />
+                <SkeletonBlock className="h-3 w-full" />
+                <SkeletonBlock className="h-2 w-full rounded-full" />
+              </div>
+              <SkeletonBlock className="h-5 w-14 rounded-full" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+interface QuestDeckProps {
+  quests: DailyQuest[];
+}
+
+function QuestDeck({ quests }: QuestDeckProps) {
+  return (
+    <div className="rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+      <div className="border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
+        <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">Daily Quests</h2>
+      </div>
+      {quests.length === 0 ? (
+        <div className="px-5 py-8 text-center text-sm text-neutral-500">No quests today. Check back soon!</div>
+      ) : (
+        <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
+          {quests.map((q) => {
+            const pct = q.goal > 0 ? Math.min(100, Math.round((q.progress / q.goal) * 100)) : 0;
+            return (
+              <div key={q.id} className="px-5 py-4">
+                <div className="flex items-start gap-3">
+                  {/* Checkbox */}
+                  <div
+                    className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${q.completed ? "border-teal-500 bg-teal-500 text-white" : "border-neutral-300 dark:border-neutral-600"}`}
+                  >
+                    {q.completed && (
+                      <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className={`text-sm font-semibold ${q.completed ? "text-neutral-400 line-through dark:text-neutral-500" : "text-neutral-900 dark:text-neutral-100"}`}>
+                      {q.title}
+                    </p>
+                    {q.description && (
+                      <p className="mt-0.5 text-xs text-neutral-500">{q.description}</p>
+                    )}
+                    {!q.completed && (
+                      <div className="mt-2">
+                        <div className="mb-1 flex items-center justify-between text-xs text-neutral-400">
+                          <span className="tabular-nums">{q.progress} / {q.goal}</span>
+                          <span>{pct}%</span>
+                        </div>
+                        <div className="h-1.5 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700">
+                          <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+                    +{q.xpReward} XP
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Online Friends Row
+// ---------------------------------------------------------------------------
+
+function FriendsSkeleton() {
+  return (
+    <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+      <SkeletonBlock className="mb-3 h-4 w-28" />
+      <div className="flex gap-3">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="animate-pulse flex flex-col items-center gap-1">
+            <SkeletonBlock className="h-11 w-11 rounded-full" />
+            <SkeletonBlock className="h-2.5 w-10 rounded" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+interface FriendsRowProps {
+  friends: Friend[];
+}
+
+function FriendsRow({ friends }: FriendsRowProps) {
+  return (
+    <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+      <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">Online Friends</h2>
+      {friends.length === 0 ? (
+        <p className="text-xs text-neutral-400">No friends online right now.</p>
+      ) : (
+        <div className="flex flex-wrap gap-4">
+          {friends.map((f) => (
+            <Link key={f.userId} href={`/profile/${f.userId}`} className="flex flex-col items-center gap-1 hover:opacity-80">
+              <OnlineRing userId={f.userId} size="md">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100 text-xl dark:bg-neutral-800">
+                  {f.avatarEmoji}
+                </div>
+              </OnlineRing>
+              <span className="max-w-[3rem] truncate text-xs text-neutral-500">@{f.username}</span>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Leaderboard Position Card
+// ---------------------------------------------------------------------------
+
+function LeaderboardSkeleton() {
+  return (
+    <div className="animate-pulse rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+      <SkeletonBlock className="mb-2 h-4 w-24" />
+      <SkeletonBlock className="mb-1 h-8 w-32" />
+      <SkeletonBlock className="h-3 w-20" />
+    </div>
+  );
+}
+
+interface LeaderboardCardProps {
+  position: LeaderboardPosition;
+}
+
+function LeaderboardCard({ position }: LeaderboardCardProps) {
+  const delta = position.rankDelta;
+  return (
+    <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+      <h2 className="mb-1 text-xs font-semibold uppercase tracking-wider text-neutral-500">Your Leaderboard Rank</h2>
+      <div className="flex items-end gap-2">
+        <p className="text-3xl font-bold text-neutral-900 dark:text-neutral-50">
+          #{position.rank.toLocaleString()}
+        </p>
+        {delta !== 0 && (
+          <span className={`mb-1 text-sm font-semibold ${delta > 0 ? "text-teal-600" : "text-red-500"}`}>
+            {delta > 0 ? `+${delta}` : delta} today
+          </span>
+        )}
+        {delta === 0 && (
+          <span className="mb-1 text-sm text-neutral-400">no change today</span>
+        )}
+      </div>
+      <p className="mt-1 text-xs text-neutral-400">{position.xp.toLocaleString()} XP total</p>
+      <Link href="/leaderboards" className="mt-3 block text-xs font-semibold text-blue-600 hover:underline dark:text-blue-400">
+        View full leaderboard →
+      </Link>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Activity count banner (plain, non-dismissible — uses presence endpoint)
+// ---------------------------------------------------------------------------
+
+function ActivityCountBanner({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <div className="rounded-xl border border-teal-200 bg-teal-50 px-4 py-2.5 text-sm font-semibold text-teal-700 dark:border-teal-800 dark:bg-teal-950/30 dark:text-teal-300">
+      {count.toLocaleString()} user{count === 1 ? "" : "s"} earned XP in the last hour
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main page
+// ---------------------------------------------------------------------------
 
 /**
- * Home page placeholder.
+ * Home feed page — nemesis, quests, presence, friends, leaderboard.
  */
 export default function HomePage() {
+  const [platformEvent, setPlatformEvent] = useState<PlatformEvent | null>(null);
+  const [activeCount, setActiveCount] = useState<number>(0);
+  const [nemesis, setNemesis] = useState<NemesisData | null | undefined>(undefined);
+  const [quests, setQuests] = useState<DailyQuest[] | undefined>(undefined);
+  const [friends, setFriends] = useState<Friend[] | undefined>(undefined);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardPosition | undefined>(undefined);
+  const [challenging, setChallenging] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Presence / activity count
+    fetch("/api/presence", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { activeCount?: number; event?: PlatformEvent } | null) => {
+        if (d) {
+          if (typeof d.activeCount === "number") setActiveCount(d.activeCount);
+          if (d.event) setPlatformEvent(d.event);
+        }
+      })
+      .catch(() => {});
+
+    // Nemesis
+    fetch("/api/nemesis", { credentials: "include" })
+      .then((r) => {
+        if (r.status === 401) { window.location.href = "/login"; }
+        return r.ok ? r.json() : null;
+      })
+      .then((d: NemesisData | null) => setNemesis(d))
+      .catch(() => setNemesis(null));
+
+    // Daily quests
+    fetch("/api/quests/daily", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { quests?: DailyQuest[] } | null) => setQuests(d?.quests ?? []))
+      .catch(() => setQuests([]));
+
+    // Online friends
+    fetch("/api/friends", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { friends?: Friend[] } | null) => setFriends(d?.friends ?? []))
+      .catch(() => setFriends([]));
+
+    // Leaderboard position
+    fetch("/api/leaderboards/me", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: LeaderboardPosition | null) => setLeaderboard(d ?? undefined))
+      .catch(() => setLeaderboard(undefined));
+  }, []);
+
+  async function handleChallenge() {
+    setChallenging(true);
+    try {
+      const res = await fetch("/api/nemesis", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "challenge" }),
+      });
+      if (!res.ok) throw new Error("Challenge failed");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to challenge rival");
+    } finally {
+      setChallenging(false);
+    }
+  }
+
   return (
-    <div>
-      <h1 className="mb-6 text-2xl font-bold text-neutral-900 dark:text-neutral-50">
-        Home
-      </h1>
-      <div className="rounded-xl border border-neutral-200 bg-white p-8 text-center shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-        <p className="text-neutral-500 dark:text-neutral-400">
-          Your feed will appear here. Follow people or join rooms to get started.
-        </p>
+    <div className="flex flex-col">
+      {/* Activity Banner (XP multiplier events) */}
+      <ActivityBanner event={platformEvent} />
+
+      <div className="mx-auto w-full max-w-3xl space-y-5 p-4 sm:p-6">
+        <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">Home</h1>
+
+        {/* Error */}
+        {error && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+            {error}
+          </div>
+        )}
+
+        {/* Activity count banner */}
+        <ActivityCountBanner count={activeCount} />
+
+        {/* Leaderboard position */}
+        {leaderboard === undefined ? (
+          <LeaderboardSkeleton />
+        ) : leaderboard ? (
+          <LeaderboardCard position={leaderboard} />
+        ) : null}
+
+        {/* Nemesis widget */}
+        {nemesis === undefined ? (
+          <NemesisSkeleton />
+        ) : nemesis ? (
+          <NemesisWidget data={nemesis} onChallenge={handleChallenge} challenging={challenging} />
+        ) : null}
+
+        {/* Daily Quest Deck */}
+        {quests === undefined ? (
+          <QuestDeckSkeleton />
+        ) : (
+          <QuestDeck quests={quests} />
+        )}
+
+        {/* Online Friends Row */}
+        {friends === undefined ? (
+          <FriendsSkeleton />
+        ) : (
+          <FriendsRow friends={friends} />
+        )}
       </div>
     </div>
   );

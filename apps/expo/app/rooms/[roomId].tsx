@@ -10,7 +10,7 @@
  *  - Drop rooms: countdown timer + entry fee notice
  *  - TopGifters expandable panel
  *  - Input bar: text input + send button + gift button + GIF button
- *  - Real-time updates via 3-second polling
+ *  - Real-time updates via 2-second polling
  *  - XP earned badge flash (+2 XP per message)
  *  - Offline: cached messages displayed
  */
@@ -222,7 +222,7 @@ export default function RoomScreen() {
     queryKey: ['room-messages', roomId],
     queryFn: () => fetchMessages(roomId!),
     enabled: !!roomId,
-    refetchInterval: 3_000,
+    refetchInterval: 2_000,
     placeholderData: (prev) => prev,
   });
 

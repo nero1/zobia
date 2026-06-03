@@ -232,6 +232,72 @@ export const GET = async (req: NextRequest) => {
     errors.push(`seasonTransitions: ${String(err)}`);
   }
 
+  // 7. Expire moments older than 24 hours
+  try {
+    const momentsExpired = await db.query<{ count: string }>(
+      `WITH expired AS (
+         UPDATE moments
+         SET expires_at = expires_at  -- mark row as touched; actual expiry is already set
+         WHERE expires_at < NOW()
+           AND expires_at IS NOT NULL
+         RETURNING 1
+       )
+       SELECT COUNT(*) AS count FROM expired`
+    );
+    // Because the moments table uses expires_at (not is_expired), we simply
+    // delete moments whose expires_at has passed so they are cleaned up.
+    const deletedMoments = await db.query<{ count: string }>(
+      `WITH deleted AS (
+         DELETE FROM moments
+         WHERE expires_at < NOW()
+         RETURNING 1
+       )
+       SELECT COUNT(*) AS count FROM deleted`
+    );
+    results.momentsExpiry = {
+      expired: parseInt(deletedMoments.rows[0]?.count ?? "0"),
+    };
+  } catch (err) {
+    errors.push(`momentsExpiry: ${String(err)}`);
+  }
+
+  // 8. Guild Discovery prompt — notify users who signed up 23–25 hours ago
+  //    and have no guild, and haven't already received this notification.
+  try {
+    const newUsersResult = await db.query<{ id: string }>(
+      `SELECT u.id
+       FROM users u
+       WHERE u.created_at BETWEEN NOW() - INTERVAL '25 hours' AND NOW() - INTERVAL '23 hours'
+         AND u.deleted_at IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM guild_members gm WHERE gm.user_id = u.id
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM notifications n
+           WHERE n.user_id = u.id AND n.type = 'guild_discovery'
+         )`
+    );
+
+    let guildDiscoveryNotified = 0;
+    for (const row of newUsersResult.rows) {
+      await db.query(
+        `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+         VALUES ($1, 'guild_discovery', $2, false, NOW())`,
+        [
+          row.id,
+          JSON.stringify({
+            message: "Crews near you are recruiting! Join a Guild to earn XP boosts.",
+          }),
+        ]
+      );
+      guildDiscoveryNotified++;
+    }
+
+    results.guildDiscoveryPrompts = { notified: guildDiscoveryNotified };
+  } catch (err) {
+    errors.push(`guildDiscoveryPrompts: ${String(err)}`);
+  }
+
   return NextResponse.json({
     success: errors.length === 0,
     results,

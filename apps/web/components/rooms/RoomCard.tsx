@@ -12,6 +12,7 @@
  */
 
 import Link from "next/link";
+import { RoomPulseBar } from "@/components/ui/RoomPulseBar";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -28,6 +29,9 @@ export interface RoomCardData {
   coverImageUrl?: string;
   creatorUsername: string;
   memberCount: number;
+  maxMembers?: number;
+  /** Number of messages sent in this room in the last 2 hours. Used by RoomPulseBar. */
+  recentMessageCount?: number;
   isJoined: boolean;
   entryFee?: number; // coins, for drop rooms
   subscriptionPrice?: number; // coins, for vip rooms

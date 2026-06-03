@@ -145,6 +145,23 @@ export const POST = withAuth(async (req: NextRequest, ctx: AuthContext) => {
          VALUES ($1, $2, $3, $4, 'ad_reward', 'Rewarded ad bonus', NOW())`,
         [userId, coinsAwarded, balanceBefore, balanceAfter]
       );
+
+      // Creator Fund auto-seeding: 5% of this ad reward (in coins, stored as kobo-equivalent)
+      // We record the platform's 5% share into x_manifest as an accumulated balance.
+      // Coins are converted to kobo using the platform rate (1 coin = 1 kobo for fund accounting).
+      const creatorFundContributionCoins = Math.floor(coinsAwarded * 0.05);
+      if (creatorFundContributionCoins > 0) {
+        await client.query(
+          `INSERT INTO x_manifest (key, value, description, updated_at)
+           VALUES ('creator_fund_balance', $1::TEXT::JSONB, 'Creator Fund accumulated balance (coins)', NOW())
+           ON CONFLICT (key) DO UPDATE
+           SET value = (
+             COALESCE(x_manifest.value::TEXT::NUMERIC, 0) + $2
+           )::TEXT::JSONB,
+           updated_at = NOW()`,
+          [creatorFundContributionCoins, creatorFundContributionCoins]
+        );
+      }
     });
 
     const remainingToday = DAILY_AD_REWARD_CAP - newCount;
