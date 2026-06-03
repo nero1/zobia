@@ -142,7 +142,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
     // Insert admin message record
     const { rows: msgRows } = await db.query<{ id: string }>(
       `INSERT INTO admin_messages
-         (sender_id, subject, body, broadcast_type, recipient_count, created_at)
+         (sender_admin_id, subject, body, broadcast_type, recipient_count, created_at)
        VALUES ($1, $2, $3, $4, $5, NOW())
        RETURNING id`,
       [auth.user.sub, subject, msgBody, broadcastType, recipients.length]
@@ -170,9 +170,9 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
 
       await db.query(
         `INSERT INTO admin_message_receipts
-           (message_id, recipient_id, delivered_at)
+           (admin_message_id, user_id, delivered_at)
          VALUES ${values.join(", ")}
-         ON CONFLICT (message_id, recipient_id) DO NOTHING`,
+         ON CONFLICT (admin_message_id, user_id) DO NOTHING`,
         params
       );
     }
@@ -230,7 +230,7 @@ export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
     }>(
       `SELECT
          m.id,
-         m.sender_id,
+         m.sender_admin_id,
          u.username AS sender_username,
          m.subject,
          m.broadcast_type,
@@ -239,8 +239,8 @@ export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
          COUNT(r.id) FILTER (WHERE r.read_at IS NOT NULL)::int      AS read_count,
          m.created_at
        FROM admin_messages m
-       LEFT JOIN users u  ON u.id = m.sender_id
-       LEFT JOIN admin_message_receipts r ON r.message_id = m.id
+       LEFT JOIN users u  ON u.id = m.sender_admin_id
+       LEFT JOIN admin_message_receipts r ON r.admin_message_id = m.id
        GROUP BY m.id, u.username
        ORDER BY m.created_at DESC
        LIMIT $1 OFFSET $2`,
