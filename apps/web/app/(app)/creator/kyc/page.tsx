@@ -9,7 +9,6 @@
  * Step 3: verified — ready to accept payments.
  */
 
-import type { Metadata } from "next";
 import { useState, useEffect } from "react";
 import Link from "next/link";
 
@@ -80,7 +79,7 @@ function FormStep({ onSubmit, submitting, submitError }: FormStepProps) {
     if (fieldErrors[key]) setFieldErrors((prev) => ({ ...prev, [key]: undefined }));
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: { preventDefault: () => void }) {
     e.preventDefault();
     const errors = validate(form);
     if (Object.keys(errors).length > 0) { setFieldErrors(errors); return; }
@@ -334,10 +333,14 @@ function PageSkeleton() {
 // Main page
 // ---------------------------------------------------------------------------
 
-export const metadata: Metadata = {
-  title: "Creator Verification – Zobia",
-  description: "Verify your identity to start accepting payments as a Zobia creator.",
-};
+// NOTE: Metadata is defined here for SEO reference. In Next.js, metadata
+// exports are only honoured by server components. A parent layout or a server
+// wrapper component should export this metadata object for it to be applied.
+//
+// export const metadata = {
+//   title: "Creator Verification – Zobia",
+//   description: "Verify your identity to start accepting payments as a Zobia creator.",
+// };
 
 /**
  * Creator KYC page — handles not_started, pending, verified, and rejected states.
