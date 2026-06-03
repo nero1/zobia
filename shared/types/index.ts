@@ -845,3 +845,112 @@ export interface UserPresence {
   status: PresenceStatus;
   lastActiveAt: string;
 }
+
+// ─── Stickers ────────────────────────────────────────────────────────────────
+
+export interface StickerPack {
+  id: string; name: string; description: string | null; coverEmoji: string;
+  packType: 'free' | 'earnable' | 'premium'; coinPrice: number;
+  unlockCondition: string | null; isActive: boolean; createdAt: string; unlocked?: boolean;
+}
+export interface Sticker { id: string; packId: string; name: string; emoji: string; imageUrl: string | null; position: number; }
+
+// ─── Moments ─────────────────────────────────────────────────────────────────
+
+export interface Moment {
+  id: string; userId: string; username: string; avatarEmoji: string; avatarUrl: string | null;
+  content: string; contentType: 'text' | 'image' | 'video'; mediaUrl: string | null;
+  caption: string | null; viewCount: number; expiresAt: string; createdAt: string; hasViewed?: boolean;
+}
+
+// ─── Guild Alliance ───────────────────────────────────────────────────────────
+
+export interface GuildAlliance {
+  id: string; name: string; description: string | null; foundedBy: string;
+  isActive: boolean; warsWon: number; createdAt: string;
+  memberGuilds?: Array<{ guildId: string; guildName: string; joinedAt: string }>;
+}
+
+// ─── Business Account ─────────────────────────────────────────────────────────
+
+export type BusinessTier = 'starter' | 'growth' | 'enterprise';
+export interface BusinessAccount {
+  id: string; userId: string; businessName: string; businessType: string | null;
+  tier: BusinessTier; verified: boolean; status: 'active' | 'suspended' | 'cancelled'; createdAt: string;
+}
+
+// ─── Community Notes ──────────────────────────────────────────────────────────
+
+export type CommunityNoteStatus = 'needs_review' | 'shown' | 'hidden';
+export type CommunityNoteTargetType = 'message' | 'room' | 'user' | 'guild';
+export interface CommunityNote {
+  id: string; targetType: CommunityNoteTargetType; targetId: string; authorId: string;
+  content: string; helpfulVotes: number; unhelpfulVotes: number; status: CommunityNoteStatus; createdAt: string;
+}
+
+// ─── Platform Council ─────────────────────────────────────────────────────────
+
+export interface CouncilMember {
+  id: string; userId: string; username: string; avatarEmoji: string; cycleMonth: string; legacyScore: number; joinedAt: string;
+}
+export interface CouncilIdea {
+  id: string; authorId: string; title: string; description: string;
+  votes: number; status: 'open' | 'selected' | 'implemented' | 'rejected'; createdAt: string;
+}
+
+// ─── Merch Store ─────────────────────────────────────────────────────────────
+
+export interface MerchStore { id: string; creatorId: string; name: string; description: string | null; isActive: boolean; createdAt: string; }
+export interface MerchProduct {
+  id: string; storeId: string; name: string; description: string | null;
+  productType: 'digital' | 'physical' | 'course_material'; priceKobo: number;
+  imageUrl: string | null; isActive: boolean; stock: number | null; createdAt: string;
+}
+
+// ─── Classroom Quizzes ────────────────────────────────────────────────────────
+
+export interface ClassroomQuiz {
+  id: string; roomId: string; creatorId: string; title: string; description: string | null;
+  xpReward: number; passScore: number; isActive: boolean; createdAt: string;
+}
+export interface ClassroomQuizQuestion {
+  id: string; quizId: string; question: string;
+  optionA: string; optionB: string; optionC: string; optionD: string;
+  correctOption: 'a' | 'b' | 'c' | 'd'; position: number;
+}
+
+// ─── Drop Room Replays ────────────────────────────────────────────────────────
+
+export interface DropRoomReplay {
+  id: string; roomId: string; creatorId: string; title: string;
+  highlights: Array<{ messageId: string; content: string; sender: string; timestamp: string }>;
+  replayFeeKobo: number; isPublished: boolean; publishedAt: string | null; createdAt: string;
+}
+
+// ─── Creator KYC ─────────────────────────────────────────────────────────────
+
+export type KYCStatus = 'unverified' | 'pending' | 'verified' | 'rejected';
+export interface CreatorKYC {
+  id: string; creatorId: string; fullName: string | null; bvnLast4: string | null;
+  bankAccountNumber: string | null; bankCode: string | null; bankName: string | null;
+  kycStatus: KYCStatus; verifiedAt: string | null; rejectionReason: string | null;
+  createdAt: string; updatedAt: string;
+}
+
+// ─── Platform Events ─────────────────────────────────────────────────────────
+
+export type PlatformEventType = 'cultural' | 'season_launch' | 'flash_xp' | 'guild_war_event' | 'mystery_drop' | 'platform';
+export interface PlatformEvent {
+  id: string; name: string; description: string | null; eventType: PlatformEventType;
+  xpMultiplier: number; coinBonusPct: number; startsAt: string; endsAt: string;
+  isActive: boolean; targetCities: string[] | null; metadata: Record<string, unknown> | null; createdAt: string;
+}
+
+// ─── Sponsored Quests ────────────────────────────────────────────────────────
+
+export interface SponsoredQuest {
+  id: string; brandName: string; title: string; description: string;
+  targetAction: string; targetValue: number; rewardCoins: number;
+  creatorPayoutKobo: number; minCreatorTier: string;
+  startsAt: string | null; endsAt: string | null; isActive: boolean; maxCreators: number; createdAt: string;
+}
