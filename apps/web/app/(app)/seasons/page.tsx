@@ -55,6 +55,32 @@ interface SeasonsData {
 }
 
 // ---------------------------------------------------------------------------
+// Milestone types
+// ---------------------------------------------------------------------------
+
+interface MilestoneReward {
+  type: "coins" | "badge" | "title" | "sticker_pack" | string;
+  value: string | number;
+  label: string;
+}
+
+interface SeasonMilestone {
+  id: string;
+  level: number;
+  xpThreshold: number;
+  tier: "free" | "paid";
+  reward: MilestoneReward;
+  claimed: boolean;
+  claimable: boolean;
+}
+
+interface SeasonPassData {
+  milestones: SeasonMilestone[];
+  currentXp: number;
+  hasPaidPass: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -152,17 +178,149 @@ function PassCard({ season, onUpgrade, upgrading }: PassCardProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Milestone reward track
+// ---------------------------------------------------------------------------
+
+function milestoneRewardLabel(reward: MilestoneReward): string {
+  if (reward.label) return reward.label;
+  switch (reward.type) {
+    case "coins": return `${Number(reward.value).toLocaleString()} 🪙`;
+    case "badge": return `Badge: ${reward.value}`;
+    case "title": return `Title: "${reward.value}"`;
+    case "sticker_pack": return `Sticker Pack: ${reward.value}`;
+    default: return String(reward.value);
+  }
+}
+
+interface MilestoneTrackProps {
+  passData: SeasonPassData;
+  onClaim: (milestoneId: string) => Promise<void>;
+  claiming: string | null;
+}
+
+function MilestoneTrack({ passData, onClaim, claiming }: MilestoneTrackProps) {
+  const freeMilestones = passData.milestones.filter((m) => m.tier === "free");
+  const paidMilestones = passData.milestones.filter((m) => m.tier === "paid");
+
+  function MilestoneNode({ m }: { m: SeasonMilestone }) {
+    const reached = passData.currentXp >= m.xpThreshold;
+    return (
+      <div className="flex flex-col items-center gap-1.5 min-w-0">
+        <div
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 text-xs font-bold transition-all ${
+            m.claimed
+              ? "border-teal-500 bg-teal-500 text-white"
+              : reached
+              ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+              : "border-neutral-300 bg-white text-neutral-400 dark:border-neutral-700 dark:bg-neutral-900"
+          }`}
+        >
+          {m.claimed ? "✓" : m.level}
+        </div>
+        <p className="max-w-[5rem] truncate text-center text-xs text-neutral-500">
+          {milestoneRewardLabel(m.reward)}
+        </p>
+        <p className="text-xs font-semibold tabular-nums text-neutral-400">
+          {m.xpThreshold.toLocaleString()} XP
+        </p>
+        {m.claimable && !m.claimed && (
+          <button
+            onClick={() => onClaim(m.id)}
+            disabled={claiming === m.id}
+            className="rounded-lg bg-teal-600 px-2 py-1 text-xs font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
+          >
+            {claiming === m.id ? "…" : "Claim"}
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+      <h2 className="mb-4 text-sm font-semibold text-neutral-700 dark:text-neutral-300">Season Pass Milestones</h2>
+
+      <div className="mb-4 text-xs text-neutral-500">
+        Your XP:{" "}
+        <span className="font-semibold text-neutral-900 dark:text-neutral-100">
+          {passData.currentXp.toLocaleString()}
+        </span>
+      </div>
+
+      {/* Free track */}
+      {freeMilestones.length > 0 && (
+        <div className="mb-5">
+          <div className="mb-2 flex items-center gap-2">
+            <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-semibold text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+              Free Track
+            </span>
+          </div>
+          <div className="flex items-start gap-3 overflow-x-auto pb-2">
+            {freeMilestones.map((m, i) => (
+              <div key={m.id} className="flex items-start gap-0">
+                <MilestoneNode m={m} />
+                {i < freeMilestones.length - 1 && (
+                  <div
+                    className={`mt-4 h-0.5 w-8 shrink-0 self-start ${
+                      passData.currentXp >= freeMilestones[i + 1]?.xpThreshold
+                        ? "bg-blue-400"
+                        : "bg-neutral-200 dark:bg-neutral-700"
+                    }`}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Paid track */}
+      {paidMilestones.length > 0 && (
+        <div>
+          <div className="mb-2 flex items-center gap-2">
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+              Paid Track ⭐
+            </span>
+            {!passData.hasPaidPass && (
+              <span className="text-xs text-neutral-400">(Requires Paid Pass)</span>
+            )}
+          </div>
+          <div className={`flex items-start gap-3 overflow-x-auto pb-2 ${!passData.hasPaidPass ? "opacity-50" : ""}`}>
+            {paidMilestones.map((m, i) => (
+              <div key={m.id} className="flex items-start gap-0">
+                <MilestoneNode m={m} />
+                {i < paidMilestones.length - 1 && (
+                  <div
+                    className={`mt-4 h-0.5 w-8 shrink-0 self-start ${
+                      passData.hasPaidPass && passData.currentXp >= paidMilestones[i + 1]?.xpThreshold
+                        ? "bg-amber-400"
+                        : "bg-neutral-200 dark:bg-neutral-700"
+                    }`}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
 /**
- * Seasons page — active season hero, pass, leaderboard, and history.
+ * Seasons page — active season hero, pass, milestones, leaderboard, and history.
  */
 export default function SeasonsPage() {
   const [data, setData] = useState<SeasonsData | null>(null);
+  const [passData, setPassData] = useState<SeasonPassData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [upgrading, setUpgrading] = useState(false);
+  const [claiming, setClaiming] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -170,7 +328,16 @@ export default function SeasonsPage() {
         const res = await fetch("/api/seasons", { credentials: "include" });
         if (res.status === 401) { window.location.href = "/login"; return; }
         if (!res.ok) throw new Error("Failed to load seasons");
-        setData((await res.json()) as SeasonsData);
+        const seasonsData = (await res.json()) as SeasonsData;
+        setData(seasonsData);
+
+        // Fetch milestones for active season
+        if (seasonsData.activeSeason) {
+          fetch(`/api/seasons/${seasonsData.activeSeason.id}/pass`, { credentials: "include" })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d: SeasonPassData | null) => { if (d) setPassData(d); })
+            .catch(() => {});
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : "Unknown error");
       } finally {
@@ -190,6 +357,32 @@ export default function SeasonsPage() {
       );
     } catch { /* ignore */ }
     setUpgrading(false);
+  }
+
+  async function handleClaimMilestone(milestoneId: string) {
+    setClaiming(milestoneId);
+    try {
+      const seasonId = data?.activeSeason?.id;
+      if (!seasonId) return;
+      const res = await fetch(`/api/seasons/${seasonId}/pass/claim`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ milestoneId }),
+      });
+      if (!res.ok) return;
+      setPassData((prev) =>
+        prev
+          ? {
+              ...prev,
+              milestones: prev.milestones.map((m) =>
+                m.id === milestoneId ? { ...m, claimed: true, claimable: false } : m
+              ),
+            }
+          : prev
+      );
+    } catch { /* ignore */ }
+    setClaiming(null);
   }
 
   if (loading) return <div className="mx-auto max-w-3xl p-4 sm:p-6"><PageSkeleton /></div>;
@@ -250,6 +443,15 @@ export default function SeasonsPage() {
       {/* Season pass */}
       {activeSeason && (
         <PassCard season={activeSeason} onUpgrade={handleUpgrade} upgrading={upgrading} />
+      )}
+
+      {/* Milestone reward track */}
+      {activeSeason && passData && passData.milestones.length > 0 && (
+        <MilestoneTrack
+          passData={passData}
+          onClaim={handleClaimMilestone}
+          claiming={claiming}
+        />
       )}
 
       {/* Season leaderboard */}

@@ -22,6 +22,8 @@ interface UserSettings {
   theme: "light" | "dark" | "system";
   notifications: Record<string, boolean>;
   dmOptOut: boolean;
+  plan?: string | null;
+  chatTheme?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -398,7 +400,7 @@ export default function SettingsPage() {
             Customise the colour theme of your message bubbles.
             Non-default themes require Pro or Max plan.
           </p>
-          <SimpleChatTheme />
+          <SimpleChatTheme plan={settings?.plan ?? null} initialTheme={settings?.chatTheme ?? "default"} />
         </div>
       </Section>
 
@@ -522,35 +524,82 @@ function PinSection({ onToast }: { onToast: (msg: string, type?: "success" | "er
 // Chat theme sub-component
 // ---------------------------------------------------------------------------
 
-function SimpleChatTheme() {
-  const themes = [
-    { key: "default", label: "Default", color: "#3b82f6" },
-    { key: "midnight", label: "Midnight", color: "#0f172a" },
-    { key: "ocean", label: "Ocean", color: "#0891b2" },
-    { key: "forest", label: "Forest", color: "#166534" },
-    { key: "sunset", label: "Sunset", color: "#ea580c" },
-  ] as const;
-  const [selected, setSelected] = useState("default");
-  const [saving, setSaving] = useState(false);
+const CHAT_THEMES = [
+  { key: "default", label: "Default", color: "#3b82f6", proRequired: false },
+  { key: "midnight", label: "Midnight", color: "#0f172a", proRequired: true },
+  { key: "ocean", label: "Ocean", color: "#0891b2", proRequired: true },
+  { key: "forest", label: "Forest", color: "#166534", proRequired: true },
+  { key: "sunset", label: "Sunset", color: "#ea580c", proRequired: true },
+] as const;
 
-  const select = async (key: string) => {
+type ChatThemeKey = typeof CHAT_THEMES[number]["key"];
+
+function isProPlan(plan: string | null | undefined): boolean {
+  if (!plan) return false;
+  const p = plan.toLowerCase();
+  return p === "pro" || p === "max" || p === "premium";
+}
+
+function SimpleChatTheme({
+  plan,
+  initialTheme,
+}: {
+  plan?: string | null;
+  initialTheme?: string;
+}) {
+  const [selected, setSelected] = useState<string>(initialTheme ?? "default");
+  const [saving, setSaving] = useState(false);
+  const [tooltip, setTooltip] = useState<string | null>(null);
+  const hasPro = isProPlan(plan);
+
+  const select = async (key: ChatThemeKey) => {
+    const theme = CHAT_THEMES.find((t) => t.key === key);
+    if (theme?.proRequired && !hasPro) {
+      setTooltip(key);
+      setTimeout(() => setTooltip(null), 2000);
+      return;
+    }
     setSaving(true);
     try {
-      await fetch("/api/users/me/theme", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ theme: key }) });
+      await fetch("/api/users/me/theme", {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ theme: key }),
+      });
       setSelected(key);
     } catch { /* non-fatal */ }
     finally { setSaving(false); }
   };
 
   return (
-    <div className="flex gap-3 flex-wrap">
-      {themes.map(t => (
-        <button key={t.key} onClick={() => select(t.key)} disabled={saving} title={t.label}
-          className={`flex flex-col items-center gap-1 rounded-xl border-2 p-2 transition-all ${selected === t.key ? "border-blue-600" : "border-neutral-200 dark:border-neutral-700"}`}>
-          <div className="h-8 w-12 rounded-lg" style={{ background: t.color }} />
-          <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300">{t.label}</span>
-        </button>
-      ))}
+    <div className="flex flex-wrap gap-3">
+      {CHAT_THEMES.map((t) => {
+        const locked = t.proRequired && !hasPro;
+        return (
+          <div key={t.key} className="relative">
+            <button
+              onClick={() => select(t.key)}
+              disabled={saving}
+              title={locked ? "Pro plan required" : t.label}
+              className={`flex flex-col items-center gap-1 rounded-xl border-2 p-2 transition-all ${
+                selected === t.key ? "border-blue-600" : "border-neutral-200 dark:border-neutral-700"
+              } ${locked ? "opacity-50" : ""}`}
+            >
+              <div className="h-8 w-12 rounded-lg" style={{ background: t.color }} />
+              <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300">{t.label}</span>
+              {locked && (
+                <span className="text-xs text-neutral-400">🔒</span>
+              )}
+            </button>
+            {tooltip === t.key && (
+              <div className="absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-neutral-800 px-2 py-1 text-xs text-white dark:bg-neutral-700">
+                Pro plan required
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

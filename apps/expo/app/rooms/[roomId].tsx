@@ -237,16 +237,24 @@ export default function RoomScreen() {
   // Update navigation header
   useEffect(() => {
     if (room) {
+      const topGifter = gifters[0] ?? null;
       navigation.setOptions({
         title: room.name,
         headerRight: () => (
-          <Text style={styles.memberCountHeader}>
-            👥 {room.memberCount.toLocaleString()}
-          </Text>
+          <View style={styles.headerRightRow}>
+            {topGifter ? (
+              <Text style={styles.topGifterHeader} numberOfLines={1}>
+                👑 {topGifter.username}
+              </Text>
+            ) : null}
+            <Text style={styles.memberCountHeader}>
+              👥 {room.memberCount.toLocaleString()}
+            </Text>
+          </View>
         ),
       });
     }
-  }, [room, navigation]);
+  }, [room, gifters, navigation]);
 
   const sendMutation = useMutation({
     mutationFn: sendMessage,
@@ -430,10 +438,21 @@ export default function RoomScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
 
+  headerRightRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginRight: 12,
+  },
+  topGifterHeader: {
+    fontSize: 13,
+    color: colors.brand.gold,
+    fontWeight: '700',
+    maxWidth: 120,
+  },
   memberCountHeader: {
     fontSize: 13,
     color: colors.neutral[500],
-    marginRight: 12,
   },
 
   dropBanner: {

@@ -13,6 +13,7 @@ import React, { useState } from 'react';
 import {
   Alert,
   FlatList,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -26,6 +27,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
+import { apiClient } from '@/lib/api/client';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -36,6 +38,42 @@ const AVATAR_OPTIONS = [
   '🦅', '🦜', '🐬', '🦋', '🌟', '🔥', '⚡', '🌊',
   '🍀', '🌙', '☀️', '🎯', '🎸', '🎨', '🚀', '💎',
 ];
+
+// ---------------------------------------------------------------------------
+// Contacts helpers (expo-contacts — optional peer dep)
+// ---------------------------------------------------------------------------
+
+type ContactsModule = typeof import('expo-contacts');
+
+/** Lazily require expo-contacts so the app still works without it. */
+function getContacts(): ContactsModule | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require('expo-contacts') as ContactsModule;
+  } catch {
+    return null;
+  }
+}
+
+async function requestAndFetchContacts(): Promise<string[]> {
+  const Contacts = getContacts();
+  if (!Contacts) return [];
+
+  const { status } = await Contacts.requestPermissionsAsync();
+  if (status !== 'granted') throw new Error('permission_denied');
+
+  const { data } = await Contacts.getContactsAsync({
+    fields: [Contacts.Fields.PhoneNumbers],
+  });
+
+  const numbers: string[] = [];
+  for (const contact of data) {
+    for (const phone of contact.phoneNumbers ?? []) {
+      if (phone.number) numbers.push(phone.number.replace(/\s+/g, ''));
+    }
+  }
+  return numbers;
+}
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -67,8 +105,36 @@ export default function OnboardingStep1() {
   const [selectedEmoji, setSelectedEmoji] = useState(AVATAR_OPTIONS[0]);
   const [city, setCity] = useState('');
 
+  // Contacts
+  const [contactsStatus, setContactsStatus] = useState<'idle' | 'loading' | 'done' | 'denied' | 'unavailable'>('idle');
+
   const textColor = isDark ? colors.neutral[100] : colors.neutral[900];
   const subtitleColor = isDark ? colors.neutral[400] : colors.neutral[500];
+
+  async function handleFindFriends() {
+    if (!getContacts()) {
+      setContactsStatus('unavailable');
+      return;
+    }
+    setContactsStatus('loading');
+    try {
+      const numbers = await requestAndFetchContacts();
+      if (numbers.length > 0) {
+        // Fire-and-forget — we just want to notify the server
+        apiClient
+          .post('/api/friends/contacts-check', { phoneNumbers: numbers })
+          .catch(() => {});
+      }
+      setContactsStatus('done');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : '';
+      if (msg === 'permission_denied') {
+        setContactsStatus('denied');
+      } else {
+        setContactsStatus('unavailable');
+      }
+    }
+  }
 
   function handleNext() {
     const err = validateUsername(username);
@@ -159,6 +225,40 @@ export default function OnboardingStep1() {
         />
       </View>
 
+      {/* Find Friends from Contacts (Step 4 / additional) */}
+      <View style={styles.section}>
+        <Text style={[styles.sectionLabel, { color: textColor }]}>
+          Find friends on Zobia
+        </Text>
+        <Text style={[styles.subtitle, { color: subtitleColor }]}>
+          We'll check which of your contacts are already on Zobia — no data is stored.
+        </Text>
+
+        {Platform.OS === 'web' ? null : contactsStatus === 'idle' ? (
+          <Button
+            label="Find Friends from Contacts"
+            variant="secondary"
+            onPress={() => void handleFindFriends()}
+          />
+        ) : contactsStatus === 'loading' ? (
+          <Button label="Checking contacts…" variant="secondary" onPress={() => {}} loading />
+        ) : contactsStatus === 'done' ? (
+          <View style={styles.contactsDone}>
+            <Text style={{ color: colors.semantic.success, fontWeight: '600' }}>
+              ✓ Contacts imported! You can add friends from their profiles.
+            </Text>
+          </View>
+        ) : contactsStatus === 'denied' ? (
+          <Text style={[styles.subtitle, { color: subtitleColor }]}>
+            You can add friends manually from their profiles.
+          </Text>
+        ) : (
+          <Text style={[styles.subtitle, { color: subtitleColor }]}>
+            Contacts access is not available on this device. You can add friends manually from their profiles.
+          </Text>
+        )}
+      </View>
+
       {/* CTA */}
       <Button
         label={t('common.next')}
@@ -226,5 +326,10 @@ const styles = StyleSheet.create({
   },
   cta: {
     marginTop: 8,
+  },
+  contactsDone: {
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: `${colors.semantic.success}14`,
   },
 });

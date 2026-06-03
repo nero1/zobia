@@ -19,17 +19,22 @@ import { Avatar } from "@/components/ui/Avatar";
 // ---------------------------------------------------------------------------
 
 const primaryNavItems = [
-  { href: "/(app)/home", label: "Home" },
-  { href: "/(app)/rooms", label: "Rooms" },
-  { href: "/(app)/messages", label: "Messages" },
-  { href: "/(app)/notifications", label: "Notifications" },
-  { href: "/(app)/rankings", label: "Rankings" },
-  { href: "/(app)/search", label: "Search" },
+  { href: "/home", label: "Home" },
+  { href: "/rooms", label: "Rooms" },
+  { href: "/messages", label: "Messages" },
+  { href: "/notifications", label: "Notifications" },
+  { href: "/events", label: "Events" },
+  { href: "/wallet", label: "Wallet" },
+  { href: "/inbox", label: "Inbox" },
+  { href: "/elder", label: "Elder" },
+  { href: "/referrals", label: "Referrals" },
+  { href: "/classroom", label: "Classroom" },
+  { href: "/leaderboards", label: "Leaderboards" },
 ] as const;
 
 const secondaryNavItems = [
-  { href: "/(app)/profile", label: "Profile" },
-  { href: "/(app)/settings", label: "Settings" },
+  { href: "/profile", label: "Profile" },
+  { href: "/settings", label: "Settings" },
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -71,6 +76,13 @@ function navIcon(label: string): string {
     Rooms: "🚪",
     Messages: "💬",
     Notifications: "🔔",
+    Events: "📅",
+    Wallet: "🪙",
+    Inbox: "📬",
+    Elder: "🎓",
+    Referrals: "🔗",
+    Classroom: "🏫",
+    Leaderboards: "🏆",
     Rankings: "🏆",
     Search: "🔍",
     Profile: "👤",
