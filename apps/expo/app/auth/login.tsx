@@ -1,44 +1,50 @@
 /**
  * Zobia Social — Login screen.
  *
- * Phase 1 implementation:
- *  - Google OAuth button (launches browser-based OAuth flow)
- *  - Telegram Login button (deep-links to Telegram bot)
+ * Implements:
+ *  - Google OAuth via expo-auth-session (browser-based PKCE flow)
+ *  - Telegram Login via deep link to the Zobia Telegram bot
  *
- * No purple, no gradients. Clean blue/green/gold palette only.
+ * Auth flow for Google:
+ *  1. Opens an in-app browser to the backend /api/auth/google?platform=mobile endpoint.
+ *  2. Backend handles OAuth with Google, then redirects to zobia://auth/callback?token=JWT&user=...
+ *  3. App catches the deep link, extracts the JWT and user payload, calls signIn().
+ *
+ * Auth flow for Telegram:
+ *  1. Opens Telegram bot deep link with a random state token.
+ *  2. Backend receives /api/auth/telegram/callback with the user's Telegram data.
+ *  3. App polls /api/auth/telegram/status?state=... until approved, then calls signIn().
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Linking, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { Ionicons } from '@expo/vector-icons';
+import * as WebBrowser from 'expo-web-browser';
+import * as ExpoLinking from 'expo-linking';
+import * as Crypto from 'expo-crypto';
 
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/lib/auth/hooks';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
-import { apiClient } from '@/lib/api/client';
+import { apiClient, API_BASE_URL } from '@/lib/api/client';
 import type { AuthUser } from '@/lib/auth/context';
+
+WebBrowser.maybeCompleteAuthSession();
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Telegram bot username that handles Zobia login. */
 const TELEGRAM_BOT = 'ZobiaSocialBot';
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-/**
- * LoginScreen — entry point for unauthenticated users.
- *
- * After a successful OAuth exchange the backend returns a JWT + user payload
- * which are persisted via `signIn` from the auth context.
- */
 export default function LoginScreen() {
   const { t } = useTranslation();
   const { signIn } = useAuth();
@@ -48,60 +54,142 @@ export default function LoginScreen() {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [telegramLoading, setTelegramLoading] = useState(false);
 
+  // Used for Telegram state polling
+  const telegramStateRef = useRef<string | null>(null);
+  const telegramPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // -------------------------------------------------------------------------
-  // Handlers
+  // Deep link listener — catches the callback from Google OAuth redirect
   // -------------------------------------------------------------------------
 
-  /**
-   * Initiates the Google OAuth flow.
-   *
-   * In Phase 1 this is a stub that shows a placeholder alert.
-   * Phase 2 will integrate `expo-auth-session` with the backend /auth/google endpoint.
-   */
+  useEffect(() => {
+    const subscription = ExpoLinking.addEventListener('url', handleDeepLink);
+    return () => subscription.remove();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleDeepLink(event: { url: string }) {
+    const url = event.url;
+    if (!url.includes('auth/callback')) return;
+
+    try {
+      const parsed = ExpoLinking.parse(url);
+      const token = parsed.queryParams?.token as string | undefined;
+      const userEncoded = parsed.queryParams?.user as string | undefined;
+
+      if (token && userEncoded) {
+        const user: AuthUser = JSON.parse(decodeURIComponent(userEncoded));
+        await signIn(token, user);
+        router.replace('/(tabs)');
+      }
+    } catch (err) {
+      Alert.alert(t('common.error'), 'Authentication callback failed. Please try again.');
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Google OAuth
+  // -------------------------------------------------------------------------
+
   async function handleGoogleLogin() {
     setGoogleLoading(true);
     try {
-      // TODO Phase 2: replace with expo-auth-session OAuth flow.
-      // const result = await promptAsync();
-      // const { data } = await apiClient.post('/auth/google', { code: result.params.code });
-      // await signIn(data.token, data.user);
-      // router.replace('/(tabs)');
+      // The backend /api/auth/google?platform=mobile&redirect=zobia://auth/callback
+      // handles the full OAuth flow and redirects back to the app with a JWT.
+      const redirectUri = ExpoLinking.createURL('auth/callback');
+      const authUrl =
+        `${API_BASE_URL}/api/auth/google?platform=mobile&redirect=${encodeURIComponent(redirectUri)}`;
 
-      Alert.alert(
-        'Google Sign-In',
-        'Google OAuth will be enabled in Phase 2. Stay tuned!',
-      );
+      const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri);
+
+      if (result.type === 'success' && result.url) {
+        await handleDeepLink({ url: result.url });
+      } else if (result.type === 'cancel') {
+        // User cancelled — no error shown
+      } else if (result.type === 'dismiss') {
+        // Dismissed — no error shown
+      }
     } catch (err) {
-      Alert.alert(t('common.error'), String(err));
+      Alert.alert(t('common.error'), 'Google Sign-In failed. Please try again.');
     } finally {
       setGoogleLoading(false);
     }
   }
 
-  /**
-   * Initiates Telegram login by opening the Telegram bot deep link.
-   *
-   * Phase 2 will add the Telegram Login Widget callback via a WebView.
-   */
+  // -------------------------------------------------------------------------
+  // Telegram Login
+  // -------------------------------------------------------------------------
+
   async function handleTelegramLogin() {
     setTelegramLoading(true);
     try {
-      const url = `https://t.me/${TELEGRAM_BOT}?start=login`;
-      const supported = await Linking.canOpenURL(url);
-      if (supported) {
-        await Linking.openURL(url);
-      } else {
+      // Generate a random state token to identify this login session
+      const state = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        `${Date.now()}-${Math.random()}`
+      );
+      const shortState = state.slice(0, 16);
+      telegramStateRef.current = shortState;
+
+      // Open Telegram bot with the state token
+      const telegramUrl = `https://t.me/${TELEGRAM_BOT}?start=login_${shortState}`;
+      const canOpen = await Linking.canOpenURL(telegramUrl);
+
+      if (!canOpen) {
         Alert.alert(
-          'Telegram',
-          'Please install Telegram to use this login method.',
+          'Telegram Required',
+          'Please install Telegram to use this login method, then try again.'
         );
+        setTelegramLoading(false);
+        return;
       }
+
+      await Linking.openURL(telegramUrl);
+
+      // Poll the backend for the Telegram login result
+      startTelegramPoll(shortState);
     } catch (err) {
-      Alert.alert(t('common.error'), String(err));
-    } finally {
+      Alert.alert(t('common.error'), 'Telegram login failed. Please try again.');
       setTelegramLoading(false);
     }
   }
+
+  function startTelegramPoll(state: string) {
+    let attempts = 0;
+    const MAX_ATTEMPTS = 30; // 60 seconds total
+
+    telegramPollRef.current = setInterval(async () => {
+      attempts++;
+      try {
+        const { data } = await apiClient.get(`/api/auth/telegram/status?state=${state}`);
+        if (data.status === 'approved' && data.token && data.user) {
+          stopTelegramPoll();
+          await signIn(data.token, data.user as AuthUser);
+          router.replace('/(tabs)');
+        } else if (data.status === 'expired' || attempts >= MAX_ATTEMPTS) {
+          stopTelegramPoll();
+          Alert.alert(
+            'Login Timeout',
+            'Telegram login timed out. Please try again and complete the login in Telegram.'
+          );
+        }
+      } catch {
+        // Network error — keep polling
+      }
+    }, 2000);
+  }
+
+  function stopTelegramPoll() {
+    if (telegramPollRef.current) {
+      clearInterval(telegramPollRef.current);
+      telegramPollRef.current = null;
+    }
+    setTelegramLoading(false);
+  }
+
+  // Stop polling on unmount
+  useEffect(() => {
+    return () => stopTelegramPoll();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // -------------------------------------------------------------------------
   // Render
@@ -124,7 +212,7 @@ export default function LoginScreen() {
       {/* Auth buttons */}
       <View style={styles.buttons}>
         <Button
-          label={t('auth.loginWithGoogle')}
+          label={googleLoading ? 'Opening Google...' : t('auth.loginWithGoogle')}
           variant="secondary"
           size="lg"
           loading={googleLoading}
@@ -136,7 +224,7 @@ export default function LoginScreen() {
         />
 
         <Button
-          label={t('auth.loginWithTelegram')}
+          label={telegramLoading ? 'Waiting for Telegram...' : t('auth.loginWithTelegram')}
           variant="primary"
           size="lg"
           loading={telegramLoading}
@@ -184,14 +272,14 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
   },
   tagline: {
-    fontSize: 16,
+    fontSize: 15,
     textAlign: 'center',
-    marginTop: 4,
-    lineHeight: 22,
+    marginTop: 8,
+    maxWidth: 280,
   },
   buttons: {
     gap: 12,
-    paddingBottom: 24,
+    width: '100%',
   },
   authButton: {
     width: '100%',
@@ -199,6 +287,7 @@ const styles = StyleSheet.create({
   legal: {
     fontSize: 12,
     textAlign: 'center',
+    marginTop: 20,
     lineHeight: 18,
   },
 });

@@ -184,11 +184,47 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     errors.push(`resolveQuery: ${String(err)}`);
   }
 
+  // -------------------------------------------------------------------------
+  // Step 3: Auto-close Drop Rooms whose closes_at has passed
+  // Drop rooms are time-limited; auto-deactivate them after their window.
+  // -------------------------------------------------------------------------
+  let dropRoomsClosed = 0;
+  try {
+    const closedRooms = await db.query<{ id: string }>(
+      `UPDATE rooms
+       SET is_active = false, updated_at = NOW()
+       WHERE type = 'drop'
+         AND is_active = true
+         AND drop_ends_at IS NOT NULL
+         AND drop_ends_at < $1
+         AND deleted_at IS NULL
+       RETURNING id`,
+      [now.toISOString()]
+    );
+    dropRoomsClosed = closedRooms.rows.length;
+  } catch (err) {
+    errors.push(`dropRoomAutoClose: ${String(err)}`);
+  }
+
+  // -------------------------------------------------------------------------
+  // Step 4: Expire old telegram_login_states (older than 10 minutes)
+  // -------------------------------------------------------------------------
+  try {
+    const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000).toISOString();
+    await db.query(
+      `DELETE FROM telegram_login_states WHERE created_at < $1`,
+      [tenMinutesAgo]
+    );
+  } catch {
+    // Non-critical; ignore
+  }
+
   return NextResponse.json({
     ok: true,
-    processed: finalHourStarted + resolved,
+    processed: finalHourStarted + resolved + dropRoomsClosed,
     finalHourStarted,
     resolved,
+    dropRoomsClosed,
     errors: errors.length > 0 ? errors : undefined,
     timestamp: now.toISOString(),
   });

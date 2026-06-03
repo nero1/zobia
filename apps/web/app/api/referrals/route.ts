@@ -21,6 +21,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { withAuth, type AuthContext } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
+import { getCommissionStats } from "@/lib/referrals/commissions";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -127,6 +128,14 @@ export const GET = withAuth(async (req: NextRequest, ctx: AuthContext) => {
       0
     );
 
+    // Fetch commission stats from purchase-based commission tracking
+    const commissionStats = await getCommissionStats(db, userId).catch(() => ({
+      totalTier1Coins: 0,
+      totalTier2Coins: 0,
+      tier1Count: 0,
+      tier2Count: 0,
+    }));
+
     return NextResponse.json({
       success: true,
       data: {
@@ -137,6 +146,11 @@ export const GET = withAuth(async (req: NextRequest, ctx: AuthContext) => {
         coinsEarned,
         xpEarned,
         referrals,
+        commissions: {
+          tier1CoinsEarned: commissionStats.totalTier1Coins,
+          tier2CoinsEarned: commissionStats.totalTier2Coins,
+          totalCoinsEarned: commissionStats.totalTier1Coins + commissionStats.totalTier2Coins,
+        },
       },
       error: null,
     });

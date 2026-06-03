@@ -46,8 +46,8 @@ interface TrackLevel {
 interface PastSeason {
   id: string;
   name: string;
-  themeEmoji: string;
-  year: number;
+  theme: string;
+  starts_at: string;
   finalRank: number | null;
 }
 
@@ -339,9 +339,11 @@ export default function PublicProfileScreen() {
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.seasonsScroll}>
             {profile.pastSeasons.map((s) => (
               <View key={s.id} style={[styles.seasonCard, { backgroundColor: themeColors.surface, borderColor: themeColors.border }]}>
-                <Text style={styles.seasonEmoji}>{s.themeEmoji}</Text>
+                <Text style={styles.seasonEmoji}>{s.theme}</Text>
                 <Text style={[styles.seasonName, { color: themeColors.text }]} numberOfLines={1}>{s.name}</Text>
-                <Text style={[styles.seasonYear, { color: themeColors.textMuted }]}>{s.year}</Text>
+                <Text style={[styles.seasonYear, { color: themeColors.textMuted }]}>
+                  {new Date(s.starts_at).getFullYear()}
+                </Text>
                 {s.finalRank !== null && (
                   <Text style={styles.seasonRank}>#{s.finalRank}</Text>
                 )}

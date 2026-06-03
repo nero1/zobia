@@ -1165,7 +1165,7 @@ The platform Vitality Calendar incorporates Nigerian, Pan-African, and global cu
 | Row Level Security | Applied at the database level (PostgreSQL RLS policies). Works across all supported providers. |
 | Connection Pooling | PgBouncer — built into Railway and DigitalOcean managed offerings; Supabase uses its built-in connection pooler. All modes use pooled connections. |
 | Auth (see Section 22.2) | Platform-managed JWT auth (not Supabase Auth). Google OAuth + Telegram Login. Same auth available on web, PWA, and Android app. In non-Supabase mode, zero Supabase dependencies. |
-| Realtime | Provider-dependent: Supabase Realtime in Supabase mode; self-managed WebSocket server (e.g., via Ably, Pusher, or a lightweight custom WS layer) in non-Supabase mode. Selected via env var. |
+| Realtime | Provider-dependent: **Supabase Realtime only when `DATABASE_PROVIDER=supabase`**. When using any other database provider (Railway, DigitalOcean, etc.), Supabase Realtime is completely absent. Non-Supabase modes use **Server-Sent Events (SSE)** with periodic DB polling as the equivalent construct — the backend exposes a `/api/sse/rooms/[roomId]` endpoint that polls the database every 1–3 seconds and pushes updates to connected clients via the EventSource API. The web app uses the browser `EventSource` API; the Expo app uses a simple polling loop via `setInterval` on React Query's `refetchInterval`. This approach requires zero additional infrastructure and works on Vercel serverless functions up to the 30-second response streaming limit. |
 | Cache / Sessions | Redis (ioredis native or Upstash — configured via env var) + JWT |
 | Object Storage (see Section 22.3) | Provider-dependent: Supabase Storage in Supabase mode; S3-compatible storage in non-Supabase mode. Default S3-compatible recommendation: Cloudflare R2. Selected via env var. |
 | Email | Mailgun |
@@ -1299,7 +1299,9 @@ The Vercel Hobby Plan allows a maximum of one CRON run per day. This once-daily 
 - Database indexes on all foreign keys, frequently queried columns, and full-text search fields.
 - Leaderboards and aggregated scores materialised at write time (not computed on every read).
 - Thundering herd prevention: cache warm-up on CRON, randomised cache expiry to prevent simultaneous cache misses.
-- Supabase Realtime used for live feeds. Do not poll for updates — subscribe.
+- **Realtime strategy is database-provider-dependent:**
+  - `DATABASE_PROVIDER=supabase`: Use Supabase Realtime subscriptions for live feeds (rooms, notifications, leaderboards). Do not poll — subscribe via `supabase.channel()`.
+  - All other providers (Railway, DigitalOcean, etc.): Use **Server-Sent Events (SSE)** with database polling as the equivalent. The backend exposes `/api/sse/*` endpoints that stream updates to clients using long-lived HTTP connections. The Expo app uses React Query's `refetchInterval` (polling every 2–3 seconds) as its non-Supabase realtime equivalent. No Supabase SDK imports are permitted outside of `DATABASE_PROVIDER=supabase` builds.
 - Background processing for expensive operations (AI moderation, payout processing, leaderboard recalculation) via queued jobs or CRON-triggered batches.
 
 ### Retries and Resilience

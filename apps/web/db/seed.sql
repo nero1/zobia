@@ -444,5 +444,126 @@ INSERT INTO reaction_set_items (set_id, emoji, name, sort_order) VALUES
 ON CONFLICT DO NOTHING;
 
 -- ============================================================
+-- 9. Cultural Vitality Calendar — Recurring Platform Events
+--
+-- These events seed the platform_events table with Africa-focused
+-- cultural celebrations, awareness days, and platform XP events.
+-- Dates use 2025 as the baseline year; the events CRON can clone
+-- them annually.
+-- ============================================================
+
+-- Flash XP events tied to African public holidays / cultural days
+INSERT INTO platform_events (
+  id, title, description, type, starts_at, ends_at,
+  xp_multiplier, is_active, created_by
+) VALUES
+
+-- New Year (global)
+(
+  '00000000-0000-0000-0005-000000000001',
+  'New Year Flash XP',
+  'Double XP to kick off the new year. Go harder.',
+  'flash_xp',
+  '2025-01-01T00:00:00Z',
+  '2025-01-01T23:59:59Z',
+  2,
+  true,
+  '00000000-0000-0000-0000-000000000001'
+),
+
+-- Africa Day (25 May)
+(
+  '00000000-0000-0000-0005-000000000002',
+  'Africa Day 2025',
+  'Celebrating the unity of the African continent. XP tripled all day.',
+  'cultural',
+  '2025-05-25T00:00:00Z',
+  '2025-05-25T23:59:59Z',
+  3,
+  true,
+  '00000000-0000-0000-0000-000000000001'
+),
+
+-- Nigerian Independence Day (1 Oct)
+(
+  '00000000-0000-0000-0005-000000000003',
+  'Nigeria @ 65 — Independence Flash',
+  'Nigeria is 65! XP doubled for all Nigerian users.',
+  'cultural',
+  '2025-10-01T00:00:00Z',
+  '2025-10-01T23:59:59Z',
+  2,
+  true,
+  '00000000-0000-0000-0000-000000000001'
+),
+
+-- Eid al-Fitr Flash (approximate — adjust to lunar calendar)
+(
+  '00000000-0000-0000-0005-000000000004',
+  'Eid Mubarak Flash XP',
+  'Eid Mubarak! Gift drops doubled and XP boosted for 24 hours.',
+  'cultural',
+  '2025-03-30T06:00:00Z',
+  '2025-03-31T06:00:00Z',
+  2,
+  true,
+  '00000000-0000-0000-0000-000000000001'
+),
+
+-- Christmas (25 Dec)
+(
+  '00000000-0000-0000-0005-000000000005',
+  'Christmas Flash XP',
+  'Season''s greetings! XP doubled and free gift drop for all users.',
+  'flash_xp',
+  '2025-12-25T00:00:00Z',
+  '2025-12-25T23:59:59Z',
+  2,
+  true,
+  '00000000-0000-0000-0000-000000000001'
+),
+
+-- Pan-African Women's Day (31 July)
+(
+  '00000000-0000-0000-0005-000000000006',
+  'African Women''s Day',
+  'Celebrating the women of Africa. Social Track XP tripled today.',
+  'cultural',
+  '2025-07-31T00:00:00Z',
+  '2025-07-31T23:59:59Z',
+  3,
+  true,
+  '00000000-0000-0000-0000-000000000001'
+),
+
+-- Mandela Day (18 July)
+(
+  '00000000-0000-0000-0005-000000000007',
+  'Mandela Day Flash',
+  '18 minutes of action, 18x inspiration. Give 18 minutes to someone today.',
+  'cultural',
+  '2025-07-18T00:00:00Z',
+  '2025-07-18T23:59:59Z',
+  2,
+  true,
+  '00000000-0000-0000-0000-000000000001'
+),
+
+-- Season Finale Mystery Drop (last day of each season — symbolic entry)
+(
+  '00000000-0000-0000-0005-000000000008',
+  'Season 1 Grand Finale',
+  'Last day of Season 1. Mystery XP drops every hour. Don''t miss out.',
+  'mystery_drop',
+  '2025-04-06T00:00:00Z',
+  '2025-04-06T23:59:59Z',
+  1,
+  true,
+  '00000000-0000-0000-0000-000000000001'
+)
+
+ON CONFLICT (id) DO NOTHING;
+
+-- ============================================================
 -- Done.  Seed complete.
 -- ============================================================

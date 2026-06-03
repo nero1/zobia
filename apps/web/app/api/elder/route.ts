@@ -25,8 +25,11 @@ import { handleApiError, badRequest, forbidden, notFound, conflict } from "@/lib
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Minimum XP to be eligible as an elder. */
-const ELDER_MIN_XP = 6_000; // Hustler rank
+/** Minimum prestige count to be eligible as an elder (PRD §7). */
+const ELDER_MIN_PRESTIGE = 3;
+
+/** Elder must have been active within this many days. */
+const ELDER_ACTIVITY_DAYS = 30;
 
 /** Maximum concurrent mentees per elder. */
 const MAX_MENTEES = 5;
@@ -78,14 +81,22 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
   try {
     const userId = auth.user.sub;
 
-    const userResult = await db.query<{ xp_total: number; rank_name: string }>(
-      `SELECT xp_total, rank_name FROM users WHERE id = $1 AND deleted_at IS NULL`,
+    const userResult = await db.query<{
+      prestige_count: number;
+      rank_name: string;
+      last_seen_at: string | null;
+    }>(
+      `SELECT prestige_count, rank_name, last_seen_at
+       FROM users WHERE id = $1 AND deleted_at IS NULL`,
       [userId]
     );
     const user = userResult.rows[0];
     if (!user) throw forbidden("User not found");
 
-    const eligible = user.xp_total >= ELDER_MIN_XP;
+    const recentlyActive =
+      user.last_seen_at !== null &&
+      new Date(user.last_seen_at) > new Date(Date.now() - ELDER_ACTIVITY_DAYS * 86400_000);
+    const eligible = user.prestige_count >= ELDER_MIN_PRESTIGE && recentlyActive;
 
     // Current mentees
     const menteeResult = await db.query<MenteeRow>(
@@ -116,9 +127,9 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
       success: true,
       data: {
         eligible,
-        elderXP: user.xp_total,
+        prestigeCount: user.prestige_count,
         rankName: user.rank_name,
-        minXPRequired: ELDER_MIN_XP,
+        minPrestigeRequired: ELDER_MIN_PRESTIGE,
         maxMentees: MAX_MENTEES,
         currentMenteeCount: menteeResult.rows.length,
         mentees: menteeResult.rows,
@@ -145,14 +156,23 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     const body = await validateBody(req, acceptMenteeSchema);
 
     const result = await db.transaction(async (client) => {
-      // 1. Verify elder eligibility
-      const userRow = await client.query<{ xp_total: number }>(
-        `SELECT xp_total FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+      // 1. Verify elder eligibility (prestige >= 3 AND active in past 30 days)
+      const userRow = await client.query<{
+        prestige_count: number;
+        last_seen_at: string | null;
+      }>(
+        `SELECT prestige_count, last_seen_at FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
         [userId]
       );
       if (!userRow.rows[0]) throw forbidden("User not found");
-      if (userRow.rows[0].xp_total < ELDER_MIN_XP) {
-        throw forbidden("You must reach Hustler rank to become an elder");
+      const isActive =
+        userRow.rows[0].last_seen_at !== null &&
+        new Date(userRow.rows[0].last_seen_at) >
+          new Date(Date.now() - ELDER_ACTIVITY_DAYS * 86400_000);
+      if (userRow.rows[0].prestige_count < ELDER_MIN_PRESTIGE || !isActive) {
+        throw forbidden(
+          "You must have Prestiged at least 3 times and been active in the past 30 days to become an Elder"
+        );
       }
 
       // 2. Check mentee cap
