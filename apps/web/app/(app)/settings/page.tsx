@@ -393,6 +393,9 @@ export default function SettingsPage() {
       {/* Security PIN */}
       <PinSection onToast={showToast} />
 
+      {/* Two-Factor Authentication */}
+      <TwoFactorSection onToast={showToast} />
+
       {/* Chat Theme */}
       <Section title="Chat Theme">
         <div className="p-1">
@@ -517,6 +520,262 @@ function PinSection({ onToast }: { onToast: (msg: string, type?: "success" | "er
         )}
       </div>
     </Section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Two-Factor Authentication sub-component
+// ---------------------------------------------------------------------------
+
+function TwoFactorSection({ onToast }: { onToast: (msg: string, type?: "success" | "error") => void }) {
+  const [totpEnabled, setTotpEnabled] = useState(false);
+  const [loadingStatus, setLoadingStatus] = useState(true);
+
+  // Setup modal state
+  const [showSetupModal, setShowSetupModal] = useState(false);
+  const [setupSecret, setSetupSecret] = useState<string | null>(null);
+  const [setupQrUrl, setSetupQrUrl] = useState<string | null>(null);
+  const [setupCode, setSetupCode] = useState("");
+  const [setupLoading, setSetupLoading] = useState(false);
+
+  // Disable modal state
+  const [showDisableModal, setShowDisableModal] = useState(false);
+  const [disableCode, setDisableCode] = useState("");
+  const [disableLoading, setDisableLoading] = useState(false);
+
+  // Fetch current 2FA status
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/me", { credentials: "include" });
+        if (!res.ok) return;
+        const data = (await res.json()) as { totpEnabled?: boolean };
+        setTotpEnabled(data.totpEnabled ?? false);
+      } catch { /* non-fatal */ } finally {
+        setLoadingStatus(false);
+      }
+    })();
+  }, []);
+
+  const handleOpenSetup = async () => {
+    setSetupCode("");
+    setSetupSecret(null);
+    setSetupQrUrl(null);
+    setShowSetupModal(true);
+    try {
+      const res = await fetch("/api/auth/2fa/setup", { credentials: "include" });
+      if (!res.ok) { onToast("Failed to start 2FA setup", "error"); setShowSetupModal(false); return; }
+      const data = (await res.json()) as { secret: string; qrCodeUrl: string };
+      setSetupSecret(data.secret);
+      setSetupQrUrl(data.qrCodeUrl);
+    } catch { onToast("Failed to start 2FA setup", "error"); setShowSetupModal(false); }
+  };
+
+  const handleConfirmSetup = async () => {
+    if (!setupCode.trim()) return;
+    setSetupLoading(true);
+    try {
+      const res = await fetch("/api/auth/2fa/setup", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: setupCode.trim() }),
+      });
+      if (!res.ok) { const d = (await res.json()) as { message?: string }; throw new Error(d.message ?? "Failed"); }
+      setTotpEnabled(true);
+      setShowSetupModal(false);
+      onToast("Two-factor authentication enabled");
+    } catch (e) { onToast(e instanceof Error ? e.message : "Invalid code", "error"); }
+    finally { setSetupLoading(false); }
+  };
+
+  const handleDisable = async () => {
+    if (!disableCode.trim()) return;
+    setDisableLoading(true);
+    try {
+      const res = await fetch("/api/auth/2fa/disable", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: disableCode.trim() }),
+      });
+      if (!res.ok) { const d = (await res.json()) as { message?: string }; throw new Error(d.message ?? "Failed"); }
+      setTotpEnabled(false);
+      setShowDisableModal(false);
+      onToast("Two-factor authentication disabled");
+    } catch (e) { onToast(e instanceof Error ? e.message : "Invalid code", "error"); }
+    finally { setDisableLoading(false); }
+  };
+
+  return (
+    <>
+      <Section title="Two-Factor Authentication">
+        <div className="space-y-3 p-1">
+          {loadingStatus ? (
+            <div className="h-8 w-48 animate-pulse rounded-lg bg-neutral-200 dark:bg-neutral-700" />
+          ) : (
+            <>
+              <div className="flex items-center gap-3">
+                <div className={`flex h-8 w-8 items-center justify-center rounded-full text-base ${totpEnabled ? "bg-teal-100 dark:bg-teal-900" : "bg-neutral-100 dark:bg-neutral-800"}`}>
+                  {totpEnabled ? "✓" : "🔒"}
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                    {totpEnabled ? "2FA is enabled" : "2FA is disabled"}
+                  </p>
+                  <p className="text-xs text-neutral-500">
+                    {totpEnabled
+                      ? "Your account is protected with an authenticator app."
+                      : "Add an extra layer of security to your account."}
+                  </p>
+                </div>
+              </div>
+              {totpEnabled ? (
+                <button
+                  onClick={() => { setDisableCode(""); setShowDisableModal(true); }}
+                  className="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950"
+                >
+                  Disable 2FA
+                </button>
+              ) : (
+                <button
+                  onClick={handleOpenSetup}
+                  className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
+                >
+                  Enable 2FA
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </Section>
+
+      {/* Setup modal */}
+      {showSetupModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowSetupModal(false); }}
+        >
+          <div className="w-full max-w-md overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-modal dark:border-neutral-800 dark:bg-neutral-900">
+            <div className="flex items-center justify-between border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
+              <h2 className="text-base font-bold text-neutral-900 dark:text-neutral-50">Enable Two-Factor Authentication</h2>
+              <button onClick={() => setShowSetupModal(false)} className="flex h-7 w-7 items-center justify-center rounded-full text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800" aria-label="Close">
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="space-y-4 px-5 py-4">
+              {!setupSecret ? (
+                <div className="flex items-center justify-center py-6">
+                  <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+                </div>
+              ) : (
+                <>
+                  <ol className="space-y-3 text-sm text-neutral-700 dark:text-neutral-300">
+                    <li className="flex gap-2"><span className="font-semibold text-neutral-500">1.</span> Install an authenticator app (Google Authenticator, Authy, etc.).</li>
+                    <li className="flex gap-2"><span className="font-semibold text-neutral-500">2.</span> Scan the QR code or enter the secret key manually.</li>
+                    <li className="flex gap-2"><span className="font-semibold text-neutral-500">3.</span> Enter the 6-digit code from the app below.</li>
+                  </ol>
+
+                  <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4 dark:border-neutral-800 dark:bg-neutral-800/50">
+                    <p className="mb-1 text-xs font-semibold text-neutral-600 dark:text-neutral-400">Secret Key (enter manually if needed)</p>
+                    <p className="break-all font-mono text-sm font-medium text-neutral-900 dark:text-neutral-100">{setupSecret}</p>
+                    <p className="mt-2 text-xs text-neutral-400">
+                      Or open this URL in your authenticator:{" "}
+                      <a
+                        href={setupQrUrl ?? "#"}
+                        className="break-all text-blue-600 hover:underline dark:text-blue-400"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Open authenticator link
+                      </a>
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold text-neutral-700 dark:text-neutral-300">
+                      Verification Code
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={setupCode}
+                      onChange={(e) => setSetupCode(e.target.value.replace(/\D/g, ""))}
+                      placeholder="000000"
+                      className="w-full rounded-xl border border-neutral-300 bg-white px-4 py-2.5 text-center font-mono text-lg tracking-widest focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 border-t border-neutral-200 px-5 py-4 dark:border-neutral-800">
+              <button onClick={() => setShowSetupModal(false)} className="rounded-xl border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800">
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmSetup}
+                disabled={setupCode.length !== 6 || setupLoading || !setupSecret}
+                className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {setupLoading ? "Verifying…" : "Enable 2FA"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Disable modal */}
+      {showDisableModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowDisableModal(false); }}
+        >
+          <div className="w-full max-w-sm overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-modal dark:border-neutral-800 dark:bg-neutral-900">
+            <div className="flex items-center justify-between border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
+              <h2 className="text-base font-bold text-neutral-900 dark:text-neutral-50">Disable Two-Factor Authentication</h2>
+              <button onClick={() => setShowDisableModal(false)} className="flex h-7 w-7 items-center justify-center rounded-full text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800" aria-label="Close">
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="space-y-4 px-5 py-4">
+              <p className="text-sm text-neutral-600 dark:text-neutral-400">
+                Enter the current 6-digit code from your authenticator app to confirm.
+              </p>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                value={disableCode}
+                onChange={(e) => setDisableCode(e.target.value.replace(/\D/g, ""))}
+                placeholder="000000"
+                className="w-full rounded-xl border border-neutral-300 bg-white px-4 py-2.5 text-center font-mono text-lg tracking-widest focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+              />
+            </div>
+            <div className="flex justify-end gap-2 border-t border-neutral-200 px-5 py-4 dark:border-neutral-800">
+              <button onClick={() => setShowDisableModal(false)} className="rounded-xl border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800">
+                Cancel
+              </button>
+              <button
+                onClick={handleDisable}
+                disabled={disableCode.length !== 6 || disableLoading}
+                className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {disableLoading ? "Disabling…" : "Disable 2FA"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

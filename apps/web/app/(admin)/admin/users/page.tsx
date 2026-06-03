@@ -15,7 +15,7 @@ import type { Metadata } from "next";
 // Types
 // ---------------------------------------------------------------------------
 
-type Plan = "free" | "basic" | "pro" | "vip";
+type Plan = "free" | "plus" | "pro" | "max";
 type UserStatus = "active" | "suspended" | "banned";
 type SuspendDuration = "1h" | "24h" | "7d" | "30d";
 type ActionType = "suspend" | "ban" | "restore" | "make_mod" | "revoke_mod";
@@ -49,9 +49,9 @@ interface UsersResponse {
 
 const PLAN_BADGE: Record<Plan, { label: string; classes: string }> = {
   free: { label: "Free", classes: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400" },
-  basic: { label: "Basic", classes: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" },
+  plus: { label: "Plus", classes: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" },
   pro: { label: "Pro", classes: "bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300" },
-  vip: { label: "VIP", classes: "bg-gold-100 text-gold-700 dark:bg-gold-900 dark:text-gold-300" },
+  max: { label: "Max", classes: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300" },
 };
 
 const STATUS_BADGE: Record<UserStatus, { label: string; classes: string }> = {

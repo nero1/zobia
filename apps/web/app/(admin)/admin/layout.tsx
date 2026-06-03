@@ -27,14 +27,21 @@ interface AdminLayoutProps {
 // ---------------------------------------------------------------------------
 
 const adminNavItems = [
-  { href: "/(admin)/admin", label: "Dashboard", icon: "◼" },
-  { href: "/(admin)/admin/users", label: "Users", icon: "👥" },
-  { href: "/(admin)/admin/rooms", label: "Rooms", icon: "🏠" },
-  { href: "/(admin)/admin/reports", label: "Reports", icon: "🚩" },
-  { href: "/(admin)/admin/payments", label: "Payments", icon: "💳" },
-  { href: "/(admin)/admin/analytics", label: "Analytics", icon: "📊" },
-  { href: "/(admin)/admin/broadcast", label: "Broadcast", icon: "📢" },
-  { href: "/(admin)/admin/settings", label: "Settings", icon: "⚙️" },
+  { href: "/admin", label: "Dashboard", icon: "◼" },
+  { href: "/admin/users", label: "Users", icon: "👥" },
+  { href: "/admin/moderation", label: "Moderation", icon: "🚩" },
+  { href: "/admin/financial", label: "Financial", icon: "💳" },
+  { href: "/admin/announcements", label: "Announcements", icon: "📢" },
+  { href: "/admin/messages", label: "Messages", icon: "💬" },
+  { href: "/admin/alerts", label: "Alerts", icon: "🔔" },
+  { href: "/admin/config", label: "Config", icon: "⚙️" },
+  { href: "/admin/feature-flags", label: "Feature Flags", icon: "🚀" },
+  { href: "/admin/branded-rooms", label: "Branded Rooms", icon: "🏠" },
+  { href: "/admin/leaderboard-banners", label: "Leaderboard Banners", icon: "🏆" },
+  { href: "/admin/footer-scripts", label: "Footer Scripts", icon: "📄" },
+  { href: "/admin/events", label: "Events", icon: "📅" },
+  { href: "/admin/kyc", label: "KYC", icon: "🪪" },
+  { href: "/admin/actions-log", label: "Actions Log", icon: "📋" },
 ] as const;
 
 /**
