@@ -67,3 +67,38 @@ export const POST = withAuth(async (req: NextRequest, ctx: AuthContext) => {
     return handleApiError(err);
   }
 });
+
+// ---------------------------------------------------------------------------
+// GET /api/presence — platform-wide active user count
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the number of users active in the last 5 minutes and any ongoing
+ * platform event (flash XP, etc.) for display on the home screen activity banner.
+ */
+export const GET = withAuth(async (req: NextRequest, ctx: AuthContext) => {
+  try {
+    // Count users active in the last 5 minutes via DB
+    const { rows } = await db.query<{ count: string }>(
+      `SELECT COUNT(*) AS count FROM users
+       WHERE last_active_at > NOW() - INTERVAL '5 minutes'`
+    );
+    const activeCount = parseInt(rows[0]?.count ?? "0", 10);
+
+    // Optionally return active platform event (flash XP, etc.)
+    const { rows: eventRows } = await db.query<{ id: string; name: string; xp_multiplier: number; ends_at: string }>(
+      `SELECT id, name, xp_multiplier, ends_at FROM platform_events
+       WHERE is_active = true AND starts_at <= NOW() AND ends_at > NOW()
+       LIMIT 1`
+    );
+    const event = eventRows[0] ?? null;
+
+    return NextResponse.json({
+      success: true,
+      data: { activeCount, event },
+      error: null
+    });
+  } catch (err) {
+    return handleApiError(err);
+  }
+});

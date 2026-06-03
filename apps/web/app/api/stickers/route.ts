@@ -167,6 +167,48 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       );
     });
 
+    // Track sticker unlock for badge progression
+    // Check if user has unlocked 3+ packs (earns "Sticker Collector" badge)
+    try {
+      const { rows: packCount } = await db.query<{ count: string }>(
+        `SELECT COUNT(*) AS count FROM user_sticker_packs WHERE user_id = $1`,
+        [userId]
+      );
+      const totalPacks = parseInt(packCount[0]?.count ?? "0", 10);
+
+      // Award badge at milestones: 1, 3, 5, 10 packs
+      const BADGE_MILESTONES: Record<number, string> = {
+        1: 'sticker_collector_1',
+        3: 'sticker_collector_3',
+        5: 'sticker_collector_5',
+        10: 'sticker_collector_10',
+      };
+
+      const badgeType = BADGE_MILESTONES[totalPacks];
+      if (badgeType) {
+        await db.query(
+          `INSERT INTO user_badges (user_id, badge_type, reference_id, awarded_at)
+           VALUES ($1, $2, $1, NOW())
+           ON CONFLICT (user_id, badge_type, reference_id) DO NOTHING`,
+          [userId, badgeType]
+        );
+
+        // Notify user of badge
+        await db.query(
+          `INSERT INTO user_notifications (user_id, type, title, body, metadata, created_at)
+           VALUES ($1, 'badge_unlocked', 'New Badge!', $2, $3, NOW())`,
+          [
+            userId,
+            `You unlocked the Sticker Collector badge for unlocking ${totalPacks} sticker packs!`,
+            JSON.stringify({ badgeType, packCount: totalPacks })
+          ]
+        );
+      }
+    } catch (badgeErr) {
+      // Badge tracking is non-critical — log but don't fail the purchase
+      console.error('[stickers] badge tracking error:', badgeErr);
+    }
+
     return NextResponse.json(
       { success: true, data: { packId, unlocked: true }, error: null },
       { status: 201 }

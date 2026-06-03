@@ -298,6 +298,103 @@ export const GET = async (req: NextRequest) => {
     errors.push(`guildDiscoveryPrompts: ${String(err)}`);
   }
 
+  // 9. Creator Fund distribution (Fridays only)
+  const dayOfWeek = new Date().getUTCDay(); // 0=Sun, 5=Fri
+  if (dayOfWeek === 5) {
+    try {
+      const { distributeCreatorFund } = await import('@/lib/creator/fund');
+      const fundResult = await distributeCreatorFund(db);
+      results.creatorFundDistribution = fundResult;
+    } catch (err) {
+      errors.push(`creatorFund: ${String(err)}`);
+    }
+  }
+
+  // 10. Platform Council invitation (last 7 days of month)
+  try {
+    const now = new Date();
+    const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const isLastWeek = now.getUTCDate() >= lastDayOfMonth - 6;
+
+    if (isLastWeek) {
+      // Find top 50 by legacy_score not already on council
+      const { rows: candidates } = await db.query<{
+        id: string; username: string; legacy_score: number;
+      }>(
+        `SELECT u.id, u.username, u.legacy_score
+         FROM users u
+         LEFT JOIN platform_council_members pcm ON pcm.user_id = u.id
+         WHERE pcm.user_id IS NULL
+           AND u.is_active = true
+           AND u.login_streak_days > 0
+         ORDER BY u.legacy_score DESC
+         LIMIT 50`
+      );
+
+      let invited = 0;
+      for (const candidate of candidates) {
+        // Insert council invitation notification
+        await db.query(
+          `INSERT INTO user_notifications (user_id, type, title, body, metadata, created_at)
+           VALUES ($1, 'council_invitation', 'Platform Council Invitation',
+             'You are among the top contributors on Zobia. You have been invited to join the Platform Council.',
+             $2, NOW())
+           ON CONFLICT DO NOTHING`,
+          [candidate.id, JSON.stringify({ legacyScore: candidate.legacy_score })]
+        );
+        invited++;
+      }
+      results.councilInvitations = { invited };
+    }
+  } catch (err) {
+    errors.push(`councilInvitations: ${String(err)}`);
+  }
+
+  // 11. Re-engagement notification dispatch
+  try {
+    // Find users with inactivity events not yet notified today
+    const { rows: inactiveUsers } = await db.query<{
+      user_id: string;
+      days_inactive: number;
+      email: string | null;
+    }>(
+      `SELECT DISTINCT ON (uie.user_id)
+         uie.user_id, uie.inactive_days AS days_inactive,
+         u.email
+       FROM user_inactivity_events uie
+       JOIN users u ON u.id = uie.user_id
+       WHERE uie.notified = false
+         AND uie.created_at >= NOW() - INTERVAL '25 hours'
+       ORDER BY uie.user_id, uie.inactive_days DESC`
+    );
+
+    const { getReengagementPayload } = await import('@/lib/notifications/reengagement');
+    const { sendPushNotification } = await import('@/lib/notifications/push');
+
+    let dispatched = 0;
+    for (const user of inactiveUsers) {
+      const payload = await getReengagementPayload(user.user_id, user.days_inactive);
+      if (!payload) continue;
+
+      // Send push notification (fire-and-forget)
+      sendPushNotification(user.user_id, payload.title, payload.body, {
+        action: payload.action
+      }).catch(() => {});
+
+      // Mark as notified
+      await db.query(
+        `UPDATE user_inactivity_events
+         SET notified = true
+         WHERE user_id = $1 AND inactive_days = $2 AND notified = false`,
+        [user.user_id, user.days_inactive]
+      );
+      dispatched++;
+    }
+    results.reengagementDispatched = { dispatched };
+  } catch (err) {
+    errors.push(`reengagementDispatch: ${String(err)}`);
+  }
+
   return NextResponse.json({
     success: errors.length === 0,
     results,

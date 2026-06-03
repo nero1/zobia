@@ -260,3 +260,179 @@ export async function distributeSeasonRewards(
     );
   });
 }
+
+// ---------------------------------------------------------------------------
+// seedSeasonPassMilestones
+// ---------------------------------------------------------------------------
+
+/**
+ * Seed default pass milestones for a newly created Season.
+ * Called after a season is created.
+ */
+export async function seedSeasonPassMilestones(
+  seasonId: string,
+  db: DatabaseAdapter
+): Promise<void> {
+  const freeMilestones = [
+    { xp: 500,   type: 'coins',        value: { amount: 50 },    name: '50 Coins',              order: 1 },
+    { xp: 1500,  type: 'sticker_pack', value: { packId: 'seasonal_free' }, name: 'Season Sticker Pack', order: 2 },
+    { xp: 3000,  type: 'coins',        value: { amount: 100 },   name: '100 Coins',             order: 3 },
+    { xp: 6000,  type: 'badge',        value: { badgeType: 'season_participant' }, name: 'Season Badge', order: 4 },
+    { xp: 10000, type: 'coins',        value: { amount: 200 },   name: '200 Coins',             order: 5 },
+  ];
+  const paidMilestones = [
+    { xp: 500,   type: 'coins',        value: { amount: 100 },   name: '100 Coins (Paid)',      order: 1 },
+    { xp: 1500,  type: 'badge',        value: { badgeType: 'season_pass_holder' }, name: 'Pass Holder Badge', order: 2 },
+    { xp: 3000,  type: 'title',        value: { title: 'Season Champion' }, name: 'Title: Season Champion', order: 3 },
+    { xp: 6000,  type: 'xp_bonus',     value: { bonusXP: 500 }, name: '500 Bonus XP',           order: 4 },
+    { xp: 10000, type: 'badge',        value: { badgeType: 'season_elite', animated: true }, name: 'Elite Season Badge', order: 5 },
+    { xp: 15000, type: 'title',        value: { title: 'Legend of the Season' }, name: 'Title: Legend of the Season', order: 6 },
+  ];
+
+  const allMilestones = [
+    ...freeMilestones.map(m => ({ ...m, tier: 'free' })),
+    ...paidMilestones.map(m => ({ ...m, tier: 'paid' })),
+  ];
+
+  for (const m of allMilestones) {
+    await db.query(
+      `INSERT INTO season_pass_milestones
+         (season_id, milestone_xp, tier, reward_type, reward_value, display_name, sort_order)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT DO NOTHING`,
+      [seasonId, m.xp, m.tier, m.type, JSON.stringify(m.value), m.name, m.order]
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// getPassMilestones
+// ---------------------------------------------------------------------------
+
+/**
+ * Get all pass milestones for a season, with claim status for a user.
+ */
+export async function getPassMilestones(
+  seasonId: string,
+  userId: string,
+  db: DatabaseAdapter
+): Promise<Array<{
+  id: string;
+  milestoneXp: number;
+  tier: string;
+  rewardType: string;
+  rewardValue: unknown;
+  displayName: string;
+  sortOrder: number;
+  isClaimed: boolean;
+}>> {
+  const { rows } = await db.query<{
+    id: string; milestone_xp: number; tier: string; reward_type: string;
+    reward_value: unknown; display_name: string; sort_order: number; claimed_at: string | null;
+  }>(
+    `SELECT spm.id, spm.milestone_xp, spm.tier, spm.reward_type, spm.reward_value,
+            spm.display_name, spm.sort_order,
+            uspc.claimed_at
+     FROM season_pass_milestones spm
+     LEFT JOIN user_season_pass_claims uspc
+       ON uspc.milestone_id = spm.id AND uspc.user_id = $2
+     WHERE spm.season_id = $1
+     ORDER BY spm.sort_order ASC, spm.milestone_xp ASC`,
+    [seasonId, userId]
+  );
+  return rows.map(r => ({
+    id: r.id,
+    milestoneXp: r.milestone_xp,
+    tier: r.tier,
+    rewardType: r.reward_type,
+    rewardValue: r.reward_value,
+    displayName: r.display_name,
+    sortOrder: r.sort_order,
+    isClaimed: r.claimed_at !== null,
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// claimPassMilestone
+// ---------------------------------------------------------------------------
+
+/**
+ * Claim a season pass milestone reward for a user.
+ * Checks the user has enough season XP and the milestone isn't already claimed.
+ */
+export async function claimPassMilestone(
+  userId: string,
+  seasonId: string,
+  milestoneId: string,
+  db: DatabaseAdapter
+): Promise<{ success: boolean; rewardType: string; rewardValue: unknown }> {
+  // Get milestone
+  const { rows: milRows } = await db.query<{
+    milestone_xp: number; tier: string; reward_type: string; reward_value: unknown;
+  }>(
+    `SELECT milestone_xp, tier, reward_type, reward_value
+     FROM season_pass_milestones WHERE id = $1 AND season_id = $2`,
+    [milestoneId, seasonId]
+  );
+  const milestone = milRows[0];
+  if (!milestone) throw new Error('Milestone not found');
+
+  // Get user's season XP and pass status
+  const { rows: passRows } = await db.query<{
+    season_xp: number; has_paid_pass: boolean;
+  }>(
+    `SELECT sp.season_xp, sp.is_paid AS has_paid_pass
+     FROM season_passes sp
+     WHERE sp.user_id = $1 AND sp.season_id = $2`,
+    [userId, seasonId]
+  );
+  const pass = passRows[0];
+  if (!pass) throw new Error('User has no season pass');
+
+  // Check tier eligibility
+  if (milestone.tier === 'paid' && !pass.has_paid_pass) {
+    throw new Error('Paid pass required for this milestone');
+  }
+
+  // Check XP threshold
+  if (pass.season_xp < milestone.milestone_xp) {
+    throw new Error('Insufficient season XP');
+  }
+
+  // Claim (idempotent)
+  await db.query(
+    `INSERT INTO user_season_pass_claims (user_id, season_id, milestone_id)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (user_id, milestone_id) DO NOTHING`,
+    [userId, seasonId, milestoneId]
+  );
+
+  // Apply reward
+  if (milestone.reward_type === 'coins') {
+    const val = milestone.reward_value as { amount: number };
+    await db.query(
+      `UPDATE users SET coin_balance = coin_balance + $1 WHERE id = $2`,
+      [val.amount, userId]
+    );
+  } else if (milestone.reward_type === 'badge' || milestone.reward_type === 'title') {
+    const val = milestone.reward_value as { badgeType?: string; title?: string };
+    const badgeType = val.badgeType ?? val.title ?? 'season_reward';
+    await db.query(
+      `INSERT INTO user_badges (user_id, badge_type, reference_id, awarded_at)
+       VALUES ($1, $2, $3, NOW()) ON CONFLICT DO NOTHING`,
+      [userId, badgeType, milestoneId]
+    );
+  } else if (milestone.reward_type === 'xp_bonus') {
+    const val = milestone.reward_value as { bonusXP: number };
+    await db.query(
+      `UPDATE users SET xp_total = xp_total + $1, legacy_score = legacy_score + $1 WHERE id = $2`,
+      [val.bonusXP, userId]
+    );
+  }
+
+  return {
+    success: true,
+    rewardType: milestone.reward_type,
+    rewardValue: milestone.reward_value
+  };
+}

@@ -177,6 +177,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const user = userResult.rows[0];
       if (!user) throw notFound(`User ${body.userId} not found`);
 
+      // Check for active XP booster in DB (overrides caller-provided value)
+      const { rows: boosterRows } = await client.query<{ id: string }>(
+        `SELECT id FROM user_xp_boosters
+         WHERE user_id = $1 AND expires_at > NOW()
+         LIMIT 1`,
+        [body.userId]
+      );
+      const hasActiveXPBooster = boosterRows.length > 0;
+      // Override the multiplier context with the real value
+      body.multiplierContext.hasActiveXPBooster = hasActiveXPBooster;
+
       // 2. Calculate XP using engine
       const ctx: XPMultiplierContext = {
         plan: body.multiplierContext.plan,

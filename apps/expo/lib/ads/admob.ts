@@ -13,6 +13,10 @@ import {
   RewardedAd,
   RewardedAdEventType,
   TestIds,
+  BannerAd,
+  BannerAdSize,
+  InterstitialAd,
+  InterstitialAdEventType,
 } from 'react-native-google-mobile-ads';
 
 // ---------------------------------------------------------------------------
@@ -133,4 +137,104 @@ export async function showRewardedAd(): Promise<RewardedAdResult> {
  */
 export function isRewardedAdLoaded(): boolean {
   return adLoaded;
+}
+
+// ---------------------------------------------------------------------------
+// Banner Ad support
+// ---------------------------------------------------------------------------
+
+export { BannerAd, BannerAdSize };
+
+export const BANNER_AD_UNIT_ID: string = IS_DEV
+  ? TestIds.BANNER
+  : Platform.select({
+      android: process.env.EXPO_PUBLIC_ADMOB_BANNER_ANDROID ?? TestIds.BANNER,
+      ios: process.env.EXPO_PUBLIC_ADMOB_BANNER_IOS ?? TestIds.BANNER,
+      default: TestIds.BANNER,
+    }) ?? TestIds.BANNER;
+
+// ---------------------------------------------------------------------------
+// Interstitial Ad support
+// ---------------------------------------------------------------------------
+
+export const INTERSTITIAL_AD_UNIT_ID: string = IS_DEV
+  ? TestIds.INTERSTITIAL
+  : Platform.select({
+      android: process.env.EXPO_PUBLIC_ADMOB_INTERSTITIAL_ANDROID ?? TestIds.INTERSTITIAL,
+      ios: process.env.EXPO_PUBLIC_ADMOB_INTERSTITIAL_IOS ?? TestIds.INTERSTITIAL,
+      default: TestIds.INTERSTITIAL,
+    }) ?? TestIds.INTERSTITIAL;
+
+let interstitialAd: InterstitialAd | null = null;
+let interstitialLoaded = false;
+
+/** Pre-load an interstitial ad. */
+export async function loadInterstitialAd(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    interstitialAd = InterstitialAd.createForAdRequest(INTERSTITIAL_AD_UNIT_ID, {
+      requestNonPersonalizedAdsOnly: true,
+    });
+
+    const unsubLoaded = interstitialAd.addAdEventListener(
+      InterstitialAdEventType.LOADED,
+      () => {
+        interstitialLoaded = true;
+        unsubLoaded();
+        resolve();
+      }
+    );
+
+    const unsubError = interstitialAd.addAdEventListener(
+      InterstitialAdEventType.ERROR,
+      (error) => {
+        interstitialLoaded = false;
+        unsubError();
+        reject(error);
+      }
+    );
+
+    interstitialAd.load();
+  });
+}
+
+/**
+ * Show the pre-loaded interstitial ad.
+ * Only shown to free-tier users. Returns true if shown.
+ */
+export async function showInterstitialAd(
+  onDismissed?: () => void
+): Promise<boolean> {
+  if (!interstitialAd || !interstitialLoaded) {
+    try {
+      await loadInterstitialAd();
+    } catch {
+      return false;
+    }
+  }
+
+  return new Promise((resolve) => {
+    if (!interstitialAd) {
+      resolve(false);
+      return;
+    }
+
+    const unsubClosed = interstitialAd.addAdEventListener(
+      InterstitialAdEventType.CLOSED,
+      () => {
+        interstitialLoaded = false;
+        interstitialAd = null;
+        unsubClosed();
+        onDismissed?.();
+        resolve(true);
+        // Pre-load next one
+        loadInterstitialAd().catch(() => {});
+      }
+    );
+
+    interstitialAd.show().catch(() => {
+      interstitialLoaded = false;
+      interstitialAd = null;
+      resolve(false);
+    });
+  });
 }

@@ -58,6 +58,8 @@ interface UserProfile {
   isOwnProfile: boolean;
   isFriend: boolean;
   isFollowing: boolean;
+  legacyScore: number;
+  connectionBadge: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -152,8 +154,12 @@ export default function ProfilePage() {
       try {
         const res = await fetch(`/api/users/${userId}/profile`, { credentials: "include" });
         if (!res.ok) throw new Error("Profile not found");
-        const data = (await res.json()) as UserProfile;
-        setProfile(data);
+        const data = await res.json();
+        setProfile({
+          ...data,
+          legacyScore: data.legacy_score ?? 0,
+          connectionBadge: data.connection_badge ?? null,
+        });
         setIsFriend(data.isFriend);
         setIsFollowing(data.isFollowing);
       } catch (e) {
@@ -224,6 +230,19 @@ export default function ProfilePage() {
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
               {profile.city && <span>📍 {profile.city}</span>}
               <span>Playing since {formatYear(profile.joinedAt)}</span>
+            </div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-2">
+              {profile.legacyScore > 0 && (
+                <div className="flex items-center gap-1.5 text-sm text-neutral-500 dark:text-neutral-400">
+                  <span>⚜️</span>
+                  <span>Legacy Score: <span className="font-semibold text-neutral-700 dark:text-neutral-300">{profile.legacyScore.toLocaleString()}</span></span>
+                </div>
+              )}
+              {profile.connectionBadge && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                  🔗 {profile.connectionBadge}
+                </span>
+              )}
             </div>
 
             {/* Rank badge */}

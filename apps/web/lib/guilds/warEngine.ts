@@ -365,3 +365,49 @@ export async function resolveWar(
 
   return { winnerGuildId, loserGuildId };
 }
+
+// ---------------------------------------------------------------------------
+// getRematchDiscount
+// ---------------------------------------------------------------------------
+
+/**
+ * Check if a guild has an unused rematch token and return the discount.
+ * Returns the discount percent (0 if no token).
+ */
+export async function getRematchDiscount(
+  guildId: string,
+  db: DatabaseAdapter
+): Promise<number> {
+  const { rows } = await db.query<{ id: string; discount_percent: number }>(
+    `SELECT id, discount_percent FROM guild_war_rematch_tokens
+     WHERE guild_id = $1 AND is_used = false AND expires_at > NOW()
+     ORDER BY created_at ASC
+     LIMIT 1`,
+    [guildId]
+  );
+  return rows[0]?.discount_percent ?? 0;
+}
+
+// ---------------------------------------------------------------------------
+// consumeRematchToken
+// ---------------------------------------------------------------------------
+
+/**
+ * Mark a rematch token as used after it has been applied.
+ */
+export async function consumeRematchToken(
+  guildId: string,
+  db: DatabaseAdapter
+): Promise<void> {
+  await db.query(
+    `UPDATE guild_war_rematch_tokens
+     SET is_used = true
+     WHERE id = (
+       SELECT id FROM guild_war_rematch_tokens
+       WHERE guild_id = $1 AND is_used = false AND expires_at > NOW()
+       ORDER BY created_at ASC
+       LIMIT 1
+     )`,
+    [guildId]
+  );
+}
