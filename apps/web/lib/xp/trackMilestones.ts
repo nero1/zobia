@@ -255,8 +255,8 @@ export async function checkAndAwardTrackMilestones(
     try {
       await db.query(
         `INSERT INTO user_badges
-           (user_id, badge_key, granted_at, metadata)
-         VALUES ($1, $2, NOW(), $3)
+           (user_id, badge_type, badge_key, granted_at, awarded_at, metadata)
+         VALUES ($1, $2, $2, NOW(), NOW(), $3)
          ON CONFLICT (user_id, badge_key) DO NOTHING`,
         [
           userId,

@@ -37,6 +37,23 @@ const PRESTIGE_COIN_REWARD = 5_000;
 /** Prestige-specific badge/frame type prefix. */
 const PRESTIGE_BADGE_TYPE = "prestige_frame";
 
+/** 3× XP boost duration in days after each prestige (PRD §9). */
+const PRESTIGE_XP_BOOST_DAYS = 7;
+
+/**
+ * Named prestige rewards by milestone prestige count.
+ * Each entry describes the title badge key and human-readable title.
+ */
+const PRESTIGE_MILESTONE_REWARDS: Record<
+  number,
+  { badgeKey: string; title: string; description: string }
+> = {
+  1:  { badgeKey: "prestige_phoenix",           title: "Phoenix",          description: "Arose from the ashes. Prestige 1 achieved." },
+  3:  { badgeKey: "prestige_elder_candidate",   title: "Elder Candidate",  description: "Three times reborn. Elder Candidate status unlocked." },
+  5:  { badgeKey: "prestige_veteran",           title: "Veteran Prestige", description: "Five times the legend. Veteran Prestige badge awarded." },
+  10: { badgeKey: "prestige_hall_of_fame",      title: "Hall of Fame",     description: "Ten prestiges. Inducted into the Zobia Hall of Fame." },
+};
+
 // ---------------------------------------------------------------------------
 // GET /api/prestige
 // ---------------------------------------------------------------------------
@@ -140,15 +157,22 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       const xpBefore = user.xp_total;
       const newCoinBalance = user.coin_balance + PRESTIGE_COIN_REWARD;
 
-      // 3. Reset main XP, increment prestige_count, award coins
+      // Calculate 7-day XP boost window (3× for first 7 days, PRD §9 Prestige 3)
+      // Only applies when newPrestigeCount >= 3
+      const boostExpiresAt = newPrestigeCount >= 3
+        ? new Date(Date.now() + PRESTIGE_XP_BOOST_DAYS * 24 * 60 * 60 * 1000).toISOString()
+        : null;
+
+      // 3. Reset main XP, increment prestige_count, award coins, set boost
       await client.query(
         `UPDATE users
          SET xp_total = 0,
              prestige_count = $1,
              coin_balance = $2,
+             prestige_cycle_boost_expires_at = $3,
              updated_at = NOW()
-         WHERE id = $3`,
-        [newPrestigeCount, newCoinBalance, userId]
+         WHERE id = $4`,
+        [newPrestigeCount, newCoinBalance, boostExpiresAt, userId]
       );
 
       // 4. Record XP reset in xp_ledger
@@ -175,22 +199,78 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
         ]
       );
 
-      // 6. Award prestige frame badge
+      // 6. Award prestige frame badge (numbered, e.g. prestige_frame_1)
       const badgeType = `${PRESTIGE_BADGE_TYPE}_${newPrestigeCount}`;
       await client.query(
-        `INSERT INTO user_badges (user_id, badge_type, reference_id, awarded_at)
-         VALUES ($1, $2, $3, NOW())
-         ON CONFLICT (user_id, badge_type, reference_id) DO NOTHING`,
-        [userId, badgeType, userId]
+        `INSERT INTO user_badges (user_id, badge_type, badge_key, granted_at, awarded_at, metadata)
+         VALUES ($1, $2, $2, NOW(), NOW(), $3)
+         ON CONFLICT (user_id, badge_key) DO NOTHING`,
+        [userId, badgeType, JSON.stringify({ prestigeCount: newPrestigeCount })]
       );
+
+      // 7. Award named milestone rewards (Phoenix, Elder Candidate, Veteran, Hall of Fame)
+      const milestoneReward = PRESTIGE_MILESTONE_REWARDS[newPrestigeCount];
+      const awardsGranted: string[] = [badgeType];
+      if (milestoneReward) {
+        await client.query(
+          `INSERT INTO user_badges (user_id, badge_type, badge_key, granted_at, awarded_at, metadata)
+           VALUES ($1, $2, $2, NOW(), NOW(), $3)
+           ON CONFLICT (user_id, badge_key) DO NOTHING`,
+          [
+            userId,
+            milestoneReward.badgeKey,
+            JSON.stringify({
+              title: milestoneReward.title,
+              description: milestoneReward.description,
+              prestigeCount: newPrestigeCount,
+            }),
+          ]
+        );
+        awardsGranted.push(milestoneReward.badgeKey);
+
+        // For Hall of Fame (Prestige 10), write to the dedicated table
+        if (newPrestigeCount === 10) {
+          // Fetch current legacy_score for the hall of fame record
+          const { rows: legacyRows } = await client.query<{ legacy_score: number }>(
+            `SELECT COALESCE(legacy_score, 0) AS legacy_score FROM users WHERE id = $1`,
+            [userId]
+          );
+          await client.query(
+            `INSERT INTO hall_of_fame (user_id, inducted_at, prestige_count, legacy_score)
+             VALUES ($1, NOW(), $2, $3)
+             ON CONFLICT (user_id) DO UPDATE
+             SET prestige_count = $2, legacy_score = $3, inducted_at = NOW()`,
+            [userId, newPrestigeCount, legacyRows[0]?.legacy_score ?? 0]
+          );
+        }
+      }
+
+      // 8. In-app notification for the prestige achievement
+      await client.query(
+        `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+         VALUES ($1, 'prestige_complete', $2, false, NOW())`,
+        [
+          userId,
+          JSON.stringify({
+            prestigeCount: newPrestigeCount,
+            title: milestoneReward?.title ?? `Prestige ${newPrestigeCount}`,
+            badgesAwarded: awardsGranted,
+            boostActive: boostExpiresAt !== null,
+            boostExpiresAt,
+          }),
+        ]
+      ).catch(() => {}); // notifications table may have different schema — non-fatal
 
       return {
         prestigeCount: newPrestigeCount,
         xpReset: xpBefore,
         coinsAwarded: PRESTIGE_COIN_REWARD,
         newCoinBalance,
-        badgeAwarded: badgeType,
-        title: `Prestige ${newPrestigeCount}`,
+        badgesAwarded: awardsGranted,
+        title: milestoneReward?.title ?? `Prestige ${newPrestigeCount}`,
+        boostActive: boostExpiresAt !== null,
+        boostExpiresAt,
+        milestoneReward: milestoneReward ?? null,
       };
     });
 

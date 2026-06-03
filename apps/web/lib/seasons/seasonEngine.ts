@@ -241,8 +241,8 @@ export async function distributeSeasonRewards(
 
       // Award season badge
       await client.query(
-        `INSERT INTO user_badges (user_id, badge_type, reference_id, awarded_at)
-         VALUES ($1, 'season_top10', $2, NOW())
+        `INSERT INTO user_badges (user_id, badge_type, badge_key, reference_id, granted_at, awarded_at)
+         VALUES ($1, 'season_top10', 'season_top10', $2, NOW(), NOW())
          ON CONFLICT (user_id, badge_type, reference_id) DO NOTHING`,
         [user_id, seasonId]
       );
@@ -418,8 +418,8 @@ export async function claimPassMilestone(
     const val = milestone.reward_value as { badgeType?: string; title?: string };
     const badgeType = val.badgeType ?? val.title ?? 'season_reward';
     await db.query(
-      `INSERT INTO user_badges (user_id, badge_type, reference_id, awarded_at)
-       VALUES ($1, $2, $3, NOW()) ON CONFLICT DO NOTHING`,
+      `INSERT INTO user_badges (user_id, badge_type, badge_key, reference_id, granted_at, awarded_at)
+       VALUES ($1, $2, $2, $3, NOW(), NOW()) ON CONFLICT DO NOTHING`,
       [userId, badgeType, milestoneId]
     );
   } else if (milestone.reward_type === 'xp_bonus') {

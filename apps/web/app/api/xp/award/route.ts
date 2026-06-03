@@ -55,6 +55,7 @@ interface UserRow {
   xp_generosity: number;
   xp_knowledge: number;
   xp_explorer: number;
+  prestige_cycle_boost_expires_at: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -172,7 +173,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       // 1. Lock user row for update
       const userResult = await client.query<UserRow>(
         `SELECT id, xp_total, legacy_score, rank_name, rank_level, rank_sublevel, city,
-                xp_social, xp_creator, xp_competitor, xp_generosity, xp_knowledge, xp_explorer
+                xp_social, xp_creator, xp_competitor, xp_generosity, xp_knowledge, xp_explorer,
+                prestige_cycle_boost_expires_at
          FROM users
          WHERE id = $1 AND deleted_at IS NULL
          FOR UPDATE`,
@@ -199,6 +201,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         guildTier: body.multiplierContext.guildTier,
         hasActiveSeasonPass: body.multiplierContext.hasActiveSeasonPass,
         hasActiveXPBooster: body.multiplierContext.hasActiveXPBooster,
+        prestigeCycleBoostExpiresAt: user.prestige_cycle_boost_expires_at,
       };
 
       const baseXp = calculateXPForAction(body.action, body.options);
@@ -291,9 +294,40 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
            VALUES ($1, $2, $3, $4)
            ON CONFLICT DO NOTHING`,
           [body.userId, rankBefore.rankName, rankAfter.rankName, newXpTotal]
-        ).catch(() => {
-          // rank_up_events table may not exist yet – non-fatal
-        });
+        ).catch(() => {});
+
+        // Notify the user of their rank-up
+        await client.query(
+          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+           VALUES ($1, 'rank_up', $2, false, NOW())`,
+          [body.userId, JSON.stringify({ from: rankBefore.rankName, to: rankAfter.rankName, sublevelTo: rankAfter.sublevel })]
+        ).catch(() => {});
+
+        // Elder mentorship rank-up celebration — notify both parties (PRD §7)
+        const { rows: elderRows } = await client.query<{ elder_id: string }>(
+          `SELECT elder_id FROM elder_mentorships WHERE mentee_id = $1 AND status = 'active' LIMIT 1`,
+          [body.userId]
+        ).catch(() => ({ rows: [] as Array<{ elder_id: string }> }));
+
+        if (elderRows[0]) {
+          const celebPayload = JSON.stringify({
+            menteeId: body.userId,
+            elderId: elderRows[0].elder_id,
+            rankTo: rankAfter.rankName,
+          });
+          await Promise.all([
+            client.query(
+              `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+               VALUES ($1, 'mentee_rank_up', $2, false, NOW())`,
+              [elderRows[0].elder_id, celebPayload]
+            ).catch(() => {}),
+            client.query(
+              `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+               VALUES ($1, 'mentee_rank_up_self', $2, false, NOW())`,
+              [body.userId, celebPayload]
+            ).catch(() => {}),
+          ]);
+        }
       }
 
       // 8. Update leaderboard_snapshots (upsert for main + city scopes)
@@ -418,6 +452,44 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         }
       })();
     }
+
+    // Nemesis overtake check — fire notification if user just surpassed their nemesis (PRD §2.3)
+    void (async () => {
+      try {
+        const { rows: nemesisRows } = await db.query<{ nemesis_user_id: string; nemesis_xp: number }>(
+          `SELECT na.nemesis_user_id, u.xp_total AS nemesis_xp
+           FROM nemesis_assignments na
+           JOIN users u ON u.id = na.nemesis_user_id
+           WHERE na.user_id = $1 AND na.is_active = true
+           LIMIT 1`,
+          [body.userId]
+        );
+        if (!nemesisRows[0]) return;
+
+        const { nemesis_user_id: nemesisId, nemesis_xp: nemesisXP } = nemesisRows[0];
+        const xpBefore = result.newTotal - result.xpAwarded;
+        const xpAfter  = result.newTotal;
+
+        // User just overtook nemesis
+        if (xpBefore < nemesisXP && xpAfter >= nemesisXP) {
+          await db.query(
+            `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+             VALUES ($1, 'nemesis_overtaken', $2, false, NOW())`,
+            [body.userId, JSON.stringify({ nemesisId, userXP: xpAfter, nemesisXP })]
+          ).catch(() => {});
+        }
+        // Nemesis check: if nemesis lost their lead, notify nemesis they were overtaken
+        if (xpBefore < nemesisXP && xpAfter >= nemesisXP) {
+          await db.query(
+            `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+             VALUES ($1, 'nemesis_overtook_you', $2, false, NOW())`,
+            [nemesisId, JSON.stringify({ userId: body.userId, userXP: xpAfter, nemesisXP })]
+          ).catch(() => {});
+        }
+      } catch {
+        // Nemesis check is non-fatal
+      }
+    })();
 
     // Strip internal fields before sending the response
     const { _trackForMilestones: _t, _newTrackLevelForMilestones: _l, ...publicResult } = result;

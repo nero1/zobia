@@ -132,21 +132,30 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       ) {
         rankChanges++;
 
-        // Insert leaderboard ripple notification
-        await db.query(
-          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-           VALUES ($1, 'leaderboard_rank_change', $2, false, NOW())
-           ON CONFLICT DO NOTHING`,
-          [
-            user.user_id,
-            JSON.stringify({
-              previous_rank: previousRank,
-              new_rank: snapshot.rankPosition,
-              track: "main",
-              scope: "global",
-            }),
-          ]
-        );
+        const enteredTop10 = snapshot.rankPosition <= 10 && previousRank > 10;
+        const notifType = enteredTop10 ? "leaderboard_top10_entry" : "leaderboard_rank_change";
+
+        // Always notify on top-10 entry; only notify on general rank change
+        // when moving in the top 50 (avoids flooding low-rank users).
+        const shouldNotify = enteredTop10 || snapshot.rankPosition <= 50;
+        if (shouldNotify) {
+          await db.query(
+            `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+             VALUES ($1, $2, $3, false, NOW())
+             ON CONFLICT DO NOTHING`,
+            [
+              user.user_id,
+              notifType,
+              JSON.stringify({
+                previous_rank: previousRank,
+                new_rank: snapshot.rankPosition,
+                track: "main",
+                scope: "global",
+                entered_top_10: enteredTop10,
+              }),
+            ]
+          );
+        }
       }
     } catch (err) {
       errors.push(`user ${user.user_id}: ${String(err)}`);

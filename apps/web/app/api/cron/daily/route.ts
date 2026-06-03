@@ -426,8 +426,8 @@ export const GET = async (req: NextRequest) => {
     let patronAwarded = 0;
     for (const candidate of patronCandidates) {
       await db.query(
-        `INSERT INTO user_badges (user_id, badge_key, granted_at, metadata)
-         VALUES ($1, 'patron', NOW(), $2)
+        `INSERT INTO user_badges (user_id, badge_type, badge_key, granted_at, awarded_at, metadata)
+         VALUES ($1, 'patron', 'patron', NOW(), NOW(), $2)
          ON CONFLICT (user_id, badge_key) DO UPDATE SET granted_at = NOW(), metadata = $2`,
         [
           candidate.user_id,
@@ -595,6 +595,304 @@ export const GET = async (req: NextRequest) => {
     results.giftDrops = giftDropResult;
   } catch (err) {
     errors.push(`giftDrops: ${String(err)}`);
+  }
+
+  // 16. Mystery XP Drop — fire on a random subset of days each week (PRD §2.1)
+  //     Algorithm: generate a deterministic "should drop today" flag based on
+  //     today's date and the configured drop frequency (default 3 days/week).
+  //     This ensures the drop fires unpredictably but consistently.
+  try {
+    const { rows: dropFlagRows } = await db.query<{ value: string }>(
+      `SELECT value FROM x_manifest WHERE key = 'feature_mystery_xp_drops' LIMIT 1`
+    );
+    const dropEnabled = (dropFlagRows[0]?.value ?? 'true') === 'true';
+
+    if (dropEnabled) {
+      const { rows: batchRows } = await db.query<{ value: string }>(
+        `SELECT value FROM x_manifest WHERE key = 'mystery_drop_batch_size' LIMIT 1`
+      );
+      const { rows: freqRows } = await db.query<{ value: string }>(
+        `SELECT value FROM x_manifest WHERE key = 'mystery_drop_days_per_week' LIMIT 1`
+      );
+      const batchSize = parseInt(batchRows[0]?.value ?? '50', 10);
+      const daysPerWeek = Math.min(7, parseInt(freqRows[0]?.value ?? '3', 10));
+
+      // Pseudo-random daily seed: day-of-year modulo 7, fire if seed < daysPerWeek
+      const now = new Date();
+      const dayOfYear = Math.floor(
+        (now.getTime() - new Date(now.getFullYear(), 0, 0).getTime()) / 86_400_000
+      );
+      const shouldFireToday = (dayOfYear % 7) < daysPerWeek;
+
+      if (shouldFireToday) {
+        const { triggerMysteryXPDrop } = await import('@/lib/mystery/xpDrop');
+        const dropResult = await triggerMysteryXPDrop(db, batchSize);
+
+        // Send push notifications to recipients (fire-and-forget)
+        const { sendPushNotificationBatch } = await import('@/lib/notifications/push');
+        sendPushNotificationBatch(
+          dropResult.recipients.map((userId) => ({
+            userId,
+            title: '⚡ Mystery XP Drop!',
+            body: `You just received a surprise XP boost! Log in now to see your progress.`,
+            data: { action: '/home', type: 'mystery_xp_drop' },
+          }))
+        ).catch(() => {});
+
+        results.mysteryXpDrop = {
+          fired: true,
+          ...dropResult,
+        };
+      } else {
+        results.mysteryXpDrop = { fired: false, reason: 'Not a drop day' };
+      }
+    } else {
+      results.mysteryXpDrop = { fired: false, reason: 'Feature disabled' };
+    }
+  } catch (err) {
+    errors.push(`mysteryXpDrop: ${String(err)}`);
+  }
+
+  // 17. Guild Contribution Score alerts (PRD §13)
+  //     Members below their guild's rolling 2-week average get a push alert.
+  //     If still below average after 2 consecutive weeks, Captain can remove them.
+  try {
+    const { rows: guilds } = await db.query<{ id: string; captain_id: string }>(
+      `SELECT id, captain_id FROM guilds WHERE deleted_at IS NULL AND is_active = TRUE`
+    );
+
+    let alertsSent = 0;
+    for (const guild of guilds) {
+      // Compute average contribution score for this guild's members in the last 14 days
+      const { rows: avgRows } = await db.query<{ avg_score: string }>(
+        `SELECT AVG(COALESCE(contribution_score, 0))::TEXT AS avg_score
+         FROM guild_members
+         WHERE guild_id = $1 AND left_at IS NULL`,
+        [guild.id]
+      );
+      const guildAvg = parseFloat(avgRows[0]?.avg_score ?? '0');
+      if (guildAvg <= 0) continue;
+
+      // Find members below average
+      const { rows: lowScoreMembers } = await db.query<{
+        user_id: string;
+        contribution_score: number;
+      }>(
+        `SELECT user_id, COALESCE(contribution_score, 0) AS contribution_score
+         FROM guild_members
+         WHERE guild_id = $1
+           AND left_at IS NULL
+           AND COALESCE(contribution_score, 0) < $2`,
+        [guild.id, guildAvg * 0.5] // threshold: below 50% of average
+      );
+
+      for (const member of lowScoreMembers) {
+        // Upsert contribution alert record
+        const { rows: alertRows } = await db.query<{ weeks_below: number }>(
+          `INSERT INTO guild_contribution_alerts (guild_id, user_id, weeks_below, alerted_at)
+           VALUES ($1, $2, 1, NOW())
+           ON CONFLICT (guild_id, user_id) DO UPDATE
+             SET weeks_below = guild_contribution_alerts.weeks_below + 1,
+                 alerted_at = NOW()
+           RETURNING weeks_below`,
+          [guild.id, member.user_id]
+        );
+
+        const weeksBelowCount = alertRows[0]?.weeks_below ?? 1;
+
+        // Send notification to the member
+        await db.query(
+          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+           VALUES ($1, 'guild_low_contribution', $2, false, NOW())`,
+          [
+            member.user_id,
+            JSON.stringify({
+              guildId: guild.id,
+              contributionScore: member.contribution_score,
+              guildAverage: Math.round(guildAvg),
+              weeksBelow: weeksBelowCount,
+            }),
+          ]
+        ).catch(() => {});
+
+        alertsSent++;
+      }
+
+      // Reset the alert counter for members who improved
+      await db.query(
+        `DELETE FROM guild_contribution_alerts
+         WHERE guild_id = $1
+           AND user_id NOT IN (
+             SELECT user_id FROM guild_members
+             WHERE guild_id = $1
+               AND left_at IS NULL
+               AND COALESCE(contribution_score, 0) < $2
+           )`,
+        [guild.id, guildAvg * 0.5]
+      ).catch(() => {});
+    }
+
+    results.guildContributionAlerts = { alertsSent };
+  } catch (err) {
+    errors.push(`guildContributionAlerts: ${String(err)}`);
+  }
+
+  // 18. DM Conversation Score sticker unlocks (PRD §5)
+  //     When a conversation score hits a milestone (e.g. 7-day streak = 50 score),
+  //     unlock exclusive DM sticker reactions for both participants.
+  try {
+    const STICKER_UNLOCK_MILESTONES = [50, 100, 200, 365];
+
+    const { rows: conversations } = await db.query<{
+      user_id_1: string;
+      user_id_2: string;
+      score: number;
+    }>(
+      `SELECT user_id_1, user_id_2, score
+       FROM dm_conversation_scores
+       WHERE score >= $1`,
+      [STICKER_UNLOCK_MILESTONES[0]]
+    );
+
+    let stickerUnlocks = 0;
+    for (const convo of conversations) {
+      for (const milestone of STICKER_UNLOCK_MILESTONES) {
+        if (convo.score < milestone) break;
+
+        // Check if this milestone has already been awarded
+        const { rows: existing } = await db.query<{ id: string }>(
+          `SELECT id FROM dm_conversation_score_milestones
+           WHERE user_id_a = $1 AND user_id_b = $2 AND milestone_score = $3
+           LIMIT 1`,
+          [convo.user_id_1, convo.user_id_2, milestone]
+        );
+        if (existing.length > 0) continue;
+
+        // Award — insert milestone record and unlock reaction sets for both users
+        await db.query(
+          `INSERT INTO dm_conversation_score_milestones
+             (user_id_a, user_id_b, milestone_score, awarded_at)
+           VALUES ($1, $2, $3, NOW())
+           ON CONFLICT DO NOTHING`,
+          [convo.user_id_1, convo.user_id_2, milestone]
+        ).catch(() => {});
+
+        // Notify both participants
+        for (const uid of [convo.user_id_1, convo.user_id_2]) {
+          await db.query(
+            `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+             VALUES ($1, 'dm_sticker_unlock', $2, false, NOW())`,
+            [
+              uid,
+              JSON.stringify({
+                milestone,
+                otherUserId: uid === convo.user_id_1 ? convo.user_id_2 : convo.user_id_1,
+                message: `Your ${milestone}-day conversation streak unlocked exclusive sticker reactions!`,
+              }),
+            ]
+          ).catch(() => {});
+        }
+
+        stickerUnlocks++;
+      }
+    }
+
+    results.stickerUnlocks = { unlocked: stickerUnlocks };
+  } catch (err) {
+    errors.push(`stickerUnlocks: ${String(err)}`);
+  }
+
+  // 19. Telegram re-engagement cross-delivery (PRD §20)
+  //     For re-engaged users who have a Telegram account linked, also send
+  //     the re-engagement message via Telegram DM.
+  try {
+    const { rows: telegramUsers } = await db.query<{
+      user_id: string;
+      telegram_id: string;
+      days_inactive: number;
+    }>(
+      `SELECT DISTINCT ON (uie.user_id)
+         uie.user_id,
+         u.telegram_id,
+         uie.inactive_days AS days_inactive
+       FROM user_inactivity_events uie
+       JOIN users u ON u.id = uie.user_id
+       WHERE uie.notified = false
+         AND uie.created_at >= NOW() - INTERVAL '25 hours'
+         AND u.telegram_id IS NOT NULL
+         AND u.deleted_at IS NULL
+       ORDER BY uie.user_id, uie.inactive_days DESC`
+    );
+
+    const { getReengagementPayload } = await import('@/lib/notifications/reengagement');
+    const { sendTelegramMessage } = await import('@/lib/notifications/telegram');
+
+    let telegramSent = 0;
+    for (const user of telegramUsers) {
+      const payload = await getReengagementPayload(user.user_id, user.days_inactive);
+      if (!payload) continue;
+
+      sendTelegramMessage(
+        user.telegram_id,
+        `<b>${payload.title}</b>\n\n${payload.body}`
+      );
+      telegramSent++;
+    }
+
+    results.telegramReengagement = { sent: telegramSent };
+  } catch (err) {
+    errors.push(`telegramReengagement: ${String(err)}`);
+  }
+
+  // 20. Trust Score daily recalculation for active users (PRD §19)
+  //     Recalculate trust scores for users who have had trust-affecting events
+  //     in the last 24 hours (reports received, payments, warnings, bans lifted).
+  try {
+    const { calculateTrustScore } = await import('@/lib/trust/trustScore');
+
+    const { rows: staleUsers } = await db.query<{ id: string }>(
+      `SELECT DISTINCT u.id
+       FROM users u
+       WHERE u.deleted_at IS NULL
+         AND (
+           -- Users with recent reports against them
+           EXISTS (
+             SELECT 1 FROM reports r
+             WHERE r.reported_user_id = u.id
+               AND r.created_at >= NOW() - INTERVAL '24 hours'
+           )
+           OR
+           -- Users with recent payments
+           EXISTS (
+             SELECT 1 FROM payments p
+             WHERE p.user_id = u.id
+               AND p.status = 'success'
+               AND p.created_at >= NOW() - INTERVAL '24 hours'
+           )
+           OR
+           -- Users with recent moderation actions
+           EXISTS (
+             SELECT 1 FROM moderation_actions ma
+             WHERE ma.target_user_id = u.id
+               AND ma.created_at >= NOW() - INTERVAL '24 hours'
+           )
+         )
+       LIMIT 500`
+    );
+
+    let trustUpdated = 0;
+    for (const user of staleUsers) {
+      try {
+        await calculateTrustScore(user.id, db);
+        trustUpdated++;
+      } catch {
+        // Non-fatal
+      }
+    }
+
+    results.trustScoreUpdates = { updated: trustUpdated };
+  } catch (err) {
+    errors.push(`trustScoreUpdates: ${String(err)}`);
   }
 
   return NextResponse.json({

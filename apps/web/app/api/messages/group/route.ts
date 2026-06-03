@@ -21,8 +21,13 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Maximum members in a standard group chat. */
-const MAX_GROUP_MEMBERS = 300;
+/** Plan-based group chat member limits (PRD §3). */
+const PLAN_GROUP_LIMITS: Record<string, number> = {
+  free:  10,
+  plus:  50,
+  pro:   150,
+  max:   300,
+};
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -89,14 +94,22 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 
     const body = await validateBody(req, createGroupSchema);
 
+    // Fetch the creator's plan for group size enforcement
+    const { rows: planRows } = await db.query<{ plan: string }>(
+      `SELECT COALESCE(plan, 'free') AS plan FROM users WHERE id = $1 LIMIT 1`,
+      [auth.user.sub]
+    );
+    const userPlan = planRows[0]?.plan ?? "free";
+    const maxGroupMembers = PLAN_GROUP_LIMITS[userPlan] ?? PLAN_GROUP_LIMITS.free;
+
     // Deduplicate and filter out the creator from memberIds
     const uniqueMembers = [
       ...new Set(body.memberIds.filter((id) => id !== auth.user.sub)),
     ];
 
-    if (uniqueMembers.length + 1 > MAX_GROUP_MEMBERS) {
+    if (uniqueMembers.length + 1 > maxGroupMembers) {
       throw badRequest(
-        `Group chats support a maximum of ${MAX_GROUP_MEMBERS} members`
+        `Your ${userPlan} plan supports groups of up to ${maxGroupMembers} members. Upgrade to add more.`
       );
     }
 
@@ -137,7 +150,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
           body.avatarEmoji,
           body.tag ?? null,
           uniqueMembers.length + 1, // creator + initial members
-          MAX_GROUP_MEMBERS,
+          maxGroupMembers,
         ]
       );
 

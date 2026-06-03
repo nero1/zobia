@@ -191,6 +191,42 @@ export const POST = withAuth<QuestParams>(async (req, { params, auth }) => {
            VALUES ($1, $2, 'quest_reward', $3, NOW())`,
           [auth.user.sub, coinsAwarded, questId]
         );
+
+        // Elder mentorship bonus — award 10% of quest XP to the active elder (PRD §7)
+        const elderBonus = Math.floor(xpAwarded * 0.1);
+        if (elderBonus > 0) {
+          const { rows: elderRows } = await client.query<{ elder_id: string }>(
+            `SELECT elder_id FROM elder_mentorships
+             WHERE mentee_id = $1 AND status = 'active'
+             LIMIT 1`,
+            [auth.user.sub]
+          );
+          if (elderRows[0]) {
+            const elderId = elderRows[0].elder_id;
+            await client.query(
+              `UPDATE users SET xp_total = COALESCE(xp_total, 0) + $1, updated_at = NOW() WHERE id = $2`,
+              [elderBonus, elderId]
+            );
+            await client.query(
+              `INSERT INTO xp_ledger (user_id, action, xp_amount, multiplier, xp_net, metadata, created_at)
+               VALUES ($1, 'mentorship_bonus', $2, 1.0, $2, $3, NOW())`,
+              [
+                elderId,
+                elderBonus,
+                JSON.stringify({ mentee_id: auth.user.sub, quest_id: questId, source_xp: xpAwarded }),
+              ]
+            );
+            // Notify elder of mentorship bonus (fire-and-forget)
+            client.query(
+              `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+               VALUES ($1, 'mentorship_bonus', $2, false, NOW())`,
+              [
+                elderId,
+                JSON.stringify({ menteeId: auth.user.sub, bonusXP: elderBonus }),
+              ]
+            ).catch(() => {});
+          }
+        }
       }
 
       return {
