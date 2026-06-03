@@ -18,7 +18,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest, forbidden, notFound, conflict } from "@/lib/api/errors";
-import { findWarOpponent, WAR_DURATION_HOURS, WAR_COOLDOWN_HOURS } from "@/lib/guilds/warEngine";
+import {
+  findWarOpponent,
+  WAR_DURATION_HOURS,
+  WAR_COOLDOWN_HOURS,
+  WAR_ENTRY_FEE_COINS,
+  getRematchDiscount,
+} from "@/lib/guilds/warEngine";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -135,14 +141,22 @@ export const POST = withAuth(
       const { guildId } = params;
       const userId = auth.user.sub;
 
+      // Check for an active rematch token before entering the transaction
+      // (read-only; token is consumed atomically inside the transaction)
+      const rematchDiscountPercent = await getRematchDiscount(guildId, db);
+      const effectiveFee = Math.floor(
+        WAR_ENTRY_FEE_COINS * (1 - rematchDiscountPercent / 100)
+      );
+
       const result = await db.transaction(async (client) => {
-        // 1. Verify caller is captain
+        // 1. Verify caller is captain and lock guild row
         const guildRow = await client.query<{
           captain_id: string;
           last_war_ended_at: string | null;
           guild_xp: number;
+          treasury_balance: number;
         }>(
-          `SELECT captain_id, last_war_ended_at, guild_xp
+          `SELECT captain_id, last_war_ended_at, guild_xp, treasury_balance
            FROM guilds WHERE id = $1 AND is_active = TRUE FOR UPDATE`,
           [guildId]
         );
@@ -151,7 +165,15 @@ export const POST = withAuth(
           throw forbidden("Only the guild captain can declare war");
         }
 
-        // 2. Check existing active war
+        // 2. Check treasury covers the entry fee
+        if (guildRow.rows[0].treasury_balance < effectiveFee) {
+          throw badRequest(
+            `Insufficient guild treasury. ${effectiveFee} coins required (current: ${guildRow.rows[0].treasury_balance}).`,
+            "INSUFFICIENT_TREASURY"
+          );
+        }
+
+        // 3. Check existing active war
         const activeWar = await client.query<{ id: string }>(
           `SELECT id FROM guild_wars
            WHERE (challenger_guild_id = $1 OR defender_guild_id = $1)
@@ -163,7 +185,7 @@ export const POST = withAuth(
           throw conflict("Guild is already in an active war", "WAR_ALREADY_ACTIVE");
         }
 
-        // 3. Check cooldown
+        // 4. Check cooldown
         const { last_war_ended_at } = guildRow.rows[0];
         if (last_war_ended_at) {
           const cooldownEnd =
@@ -177,7 +199,31 @@ export const POST = withAuth(
           }
         }
 
-        // 4. Find opponent
+        // 5. Deduct entry fee from guild treasury
+        if (effectiveFee > 0) {
+          await client.query(
+            `UPDATE guilds SET treasury_balance = treasury_balance - $1, updated_at = NOW()
+             WHERE id = $2`,
+            [effectiveFee, guildId]
+          );
+        }
+
+        // 6. Consume rematch token if one was used (atomic, inside same transaction)
+        if (rematchDiscountPercent > 0) {
+          await client.query(
+            `UPDATE guild_war_rematch_tokens
+             SET is_used = true
+             WHERE id = (
+               SELECT id FROM guild_war_rematch_tokens
+               WHERE guild_id = $1 AND is_used = false AND expires_at > NOW()
+               ORDER BY created_at ASC
+               LIMIT 1
+             )`,
+            [guildId]
+          );
+        }
+
+        // 7. Find opponent
         const opponentId = await findWarOpponent(guildId, db);
         if (!opponentId) {
           throw badRequest(
@@ -186,7 +232,7 @@ export const POST = withAuth(
           );
         }
 
-        // 5. Create war record
+        // 8. Create war record
         const startsAt = new Date(Date.now() + WAR_START_OFFSET_MS);
         const endsAt = new Date(
           startsAt.getTime() + WAR_DURATION_HOURS * 60 * 60 * 1000
@@ -214,6 +260,8 @@ export const POST = withAuth(
           startsAt: startsAt.toISOString(),
           endsAt: endsAt.toISOString(),
           finalHourStartsAt: finalHourStartsAt.toISOString(),
+          entryFeePaid: effectiveFee,
+          rematchDiscountApplied: rematchDiscountPercent > 0,
         };
       });
 

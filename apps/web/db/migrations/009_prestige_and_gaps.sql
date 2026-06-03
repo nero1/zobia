@@ -102,6 +102,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_user_badges_key ON user_badges(user_id, ba
   WHERE badge_key IS NOT NULL;
 
 -- 10. Room Powers — Message Pin, Room Spotlight, Member Highlight (PRD §11)
+
+-- Rename original 'messages' table to 'room_messages' to match all API route references.
+-- This is a one-time rename; IF NOT EXISTS guard prevents double-execution.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'messages' AND table_schema = 'public')
+     AND NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'room_messages' AND table_schema = 'public')
+  THEN
+    ALTER TABLE messages RENAME TO room_messages;
+  END IF;
+END$$;
+
 --     Message Pin: marks a room message as pinned (visible at top)
 ALTER TABLE room_messages ADD COLUMN IF NOT EXISTS is_pinned      BOOLEAN DEFAULT false;
 ALTER TABLE room_messages ADD COLUMN IF NOT EXISTS pinned_at      TIMESTAMPTZ;
