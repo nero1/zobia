@@ -105,7 +105,41 @@ CREATE INDEX IF NOT EXISTS idx_room_msg_reactions_msg  ON room_message_reactions
 CREATE INDEX IF NOT EXISTS idx_room_msg_reactions_user ON room_message_reactions(user_id);
 
 -- ============================================================
--- 7. DM reply limit tightening — update x_manifest defaults
+-- 7. user_titles — earned titles from prestige, seasons, track milestones
+-- ============================================================
+-- Referenced by season pass milestone claim, prestige route, and track milestones.
+CREATE TABLE IF NOT EXISTS user_titles (
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title       TEXT NOT NULL,
+  source      TEXT,          -- 'prestige' | 'season_pass' | 'track_milestone' | 'admin'
+  is_active   BOOLEAN NOT NULL DEFAULT false,  -- only one title can be displayed at a time
+  awarded_at  TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, title)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_titles_user ON user_titles(user_id);
+
+-- ============================================================
+-- 8. learning_certificates — issued by Knowledge Track L25+ creators
+-- ============================================================
+-- Referenced by /api/classroom/[roomId]/certificate route.
+CREATE TABLE IF NOT EXISTS learning_certificates (
+  id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  classroom_room_id UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+  student_id        UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  issuer_id         UUID NOT NULL REFERENCES users(id) ON DELETE SET NULL,
+  issued_at         TIMESTAMPTZ DEFAULT NOW(),
+  certificate_url   TEXT,
+  metadata          JSONB,
+  UNIQUE(classroom_room_id, student_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_learning_certs_student ON learning_certificates(student_id);
+CREATE INDEX IF NOT EXISTS idx_learning_certs_room    ON learning_certificates(classroom_room_id);
+
+-- ============================================================
+-- 9. DM reply limit tightening — update x_manifest defaults
 -- ============================================================
 -- Free: 25 replies/day, Plus: 50 replies/day (PRD §3 table)
 INSERT INTO x_manifest (key, value, description) VALUES
