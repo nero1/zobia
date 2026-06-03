@@ -18,7 +18,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { resetDailyQuests } from "@/lib/quests/questEngine";
 import { refreshNemesisAssignments } from "@/lib/nemesis/nemesisEngine";
-import { getCurrentSeason, distributeSeasonRewards, resetSeasonRankings } from "@/lib/seasons/seasonEngine";
+import { getCurrentSeason, distributeSeasonRewards, resetSeasonRankings, createSeasonCeremonyRoom } from "@/lib/seasons/seasonEngine";
 import { XP_VALUES } from "@/lib/xp/engine";
 import { processPendingGiftDrops } from "@/lib/events/monthlyGiftDrop";
 
@@ -210,6 +210,7 @@ export const GET = async (req: NextRequest) => {
       try {
         await distributeSeasonRewards(season.id, db);
         await resetSeasonRankings(season.id, db);
+        void createSeasonCeremonyRoom(season.id, season.name, db);
         seasonTransitions.ended = season.id;
       } catch (err) {
         errors.push(`seasonEnd(${season.id}): ${String(err)}`);

@@ -262,6 +262,63 @@ export async function distributeSeasonRewards(
 }
 
 // ---------------------------------------------------------------------------
+// createSeasonCeremonyRoom
+// ---------------------------------------------------------------------------
+
+/**
+ * Creates the Season Closing Ceremony Room when a season ends.
+ *
+ * The room is a public "free_open" type room tied to the ending season.
+ * It stays active for 48 hours so members can celebrate and reflect.
+ * A system/admin user is used as the creator.
+ *
+ * @param seasonId   - UUID of the ended season.
+ * @param seasonName - Display name of the ended season.
+ * @param db         - Active database adapter.
+ */
+export async function createSeasonCeremonyRoom(
+  seasonId: string,
+  seasonName: string,
+  db: DatabaseAdapter
+): Promise<string | null> {
+  try {
+    // Fetch the first admin user to be the room creator
+    const { rows: adminRows } = await db.query<{ id: string }>(
+      `SELECT id FROM users WHERE is_admin = TRUE AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1`
+    );
+    const adminId = adminRows[0]?.id;
+    if (!adminId) return null;
+
+    // Check if a ceremony room already exists for this season
+    const { rows: existing } = await db.query<{ id: string }>(
+      `SELECT id FROM rooms WHERE metadata->>'season_ceremony_id' = $1 LIMIT 1`,
+      [seasonId]
+    );
+    if (existing[0]) return existing[0].id;
+
+    const closesAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+
+    const { rows: roomRows } = await db.query<{ id: string }>(
+      `INSERT INTO rooms
+         (creator_id, name, description, type, is_active, closes_at, metadata)
+       VALUES ($1, $2, $3, 'free_open', TRUE, $4, $5)
+       RETURNING id`,
+      [
+        adminId,
+        `🏆 ${seasonName} Closing Ceremony`,
+        `The official closing ceremony for ${seasonName}. Celebrate, reflect, and look ahead to the next season!`,
+        closesAt,
+        JSON.stringify({ season_ceremony_id: seasonId, is_platform_room: true }),
+      ]
+    );
+
+    return roomRows[0]?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // seedSeasonPassMilestones
 // ---------------------------------------------------------------------------
 

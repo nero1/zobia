@@ -31,7 +31,7 @@ import {
 // Valid values
 // ---------------------------------------------------------------------------
 
-const VALID_SCOPES: LeaderboardScope[] = ["global", "city", "guild", "season"];
+const VALID_SCOPES: LeaderboardScope[] = ["global", "national", "city", "guild", "season"];
 const VALID_TRACKS: LeaderboardTrack[] = [
   "main",
   "social",
