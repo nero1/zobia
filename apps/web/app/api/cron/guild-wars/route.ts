@@ -43,6 +43,8 @@ interface GuildWarRow {
   id: string;
   guild_a_id: string;
   guild_b_id: string;
+  challenger_guild_id: string;
+  defender_guild_id: string;
   status: string;
   ends_at: string;
 }
@@ -144,7 +146,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // -------------------------------------------------------------------------
   try {
     const completedWars = await db.query<GuildWarRow>(
-      `SELECT id, guild_a_id, guild_b_id, status, ends_at
+      `SELECT id, guild_a_id, guild_b_id, challenger_guild_id, defender_guild_id, status, ends_at
        FROM guild_wars
        WHERE status IN ('active', 'final_hour')
          AND ends_at < $1`,
@@ -153,12 +155,24 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     for (const war of completedWars.rows) {
       try {
-        await resolveWar(db, war.id);
+        const result = await resolveWar(war.id, db);
 
         await db.query(
           `UPDATE guild_wars SET status = 'completed', updated_at = NOW()
            WHERE id = $1 AND status != 'completed'`,
           [war.id]
+        );
+
+        // Award rematch token to the losing guild
+        const loserGuildId = result.winnerGuildId === war.challenger_guild_id
+          ? war.defender_guild_id
+          : war.challenger_guild_id;
+        await db.query(
+          `INSERT INTO guild_war_rematch_tokens
+             (guild_id, war_id, discount_percent, is_used, expires_at)
+           VALUES ($1, $2, 50, false, NOW() + INTERVAL '7 days')
+           ON CONFLICT DO NOTHING`,
+          [loserGuildId, war.id]
         );
 
         resolved++;
