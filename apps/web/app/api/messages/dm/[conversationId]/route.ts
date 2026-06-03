@@ -111,6 +111,21 @@ export const GET = withAuth(
         querySchema
       );
 
+      // 2a. Determine message history window based on user's plan
+      //     free: 90 days, plus: 180 days, pro/max: unlimited
+      const { rows: planRows } = await db.query<{ plan: string }>(
+        `SELECT COALESCE(plan, 'free') AS plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+        [auth.user.sub]
+      );
+      const userPlan = planRows[0]?.plan ?? "free";
+      let historyFilter = "";
+      if (userPlan === "free") {
+        historyFilter = `AND m.created_at > NOW() - INTERVAL '90 days'`;
+      } else if (userPlan === "plus") {
+        historyFilter = `AND m.created_at > NOW() - INTERVAL '180 days'`;
+      }
+      // pro and max have no history limit
+
       const cursorClause = before ? `AND m.created_at < $3` : "";
       const params2: (string | number)[] = [conversationId, limit];
       if (before) params2.push(before);
@@ -145,6 +160,7 @@ export const GET = withAuth(
          FROM messages m
          JOIN users u ON u.id = m.sender_id
          WHERE m.conversation_id = $1
+           ${historyFilter}
            ${cursorClause}
          ORDER BY m.created_at DESC
          LIMIT $2`,

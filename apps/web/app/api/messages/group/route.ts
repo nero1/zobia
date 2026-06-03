@@ -5,7 +5,7 @@
  *
  * POST /api/messages/group — Create a new group chat
  *   - Creator becomes the first admin member
- *   - Enforces max 300 members (standard plan)
+ *   - Enforces max 1,000 members (Max plan)
  *
  * GET /api/messages/group — List group chats the current user belongs to
  */
@@ -23,10 +23,10 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 
 /** Plan-based group chat member limits (PRD §3). */
 const PLAN_GROUP_LIMITS: Record<string, number> = {
-  free:  10,
-  plus:  50,
-  pro:   150,
-  max:   300,
+  free:  300,
+  plus:  400,
+  pro:   500,
+  max:   1000,
 };
 
 // ---------------------------------------------------------------------------

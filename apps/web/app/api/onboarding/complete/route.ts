@@ -21,6 +21,7 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { loadManifest } from "@/lib/manifest";
+import { verifyCaptcha } from "@/lib/security/captcha";
 import { randomBytes } from "crypto";
 
 // ---------------------------------------------------------------------------
@@ -63,6 +64,7 @@ const onboardingSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "date_of_birth must be in YYYY-MM-DD format"),
   referral_code: z.string().max(20).optional().nullable(),
+  captcha_token: z.string().optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -119,6 +121,23 @@ export const POST = withAuth(async (req, { auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.onboarding);
 
     const body = await validateBody(req, onboardingSchema);
+
+    // CAPTCHA verification — skip in development if no token provided
+    const isDev = process.env.NODE_ENV !== "production";
+    if (body.captcha_token) {
+      const clientIp = req.headers.get("x-forwarded-for") ?? req.headers.get("x-real-ip") ?? undefined;
+      const captchaOk = await verifyCaptcha(body.captcha_token, clientIp ?? undefined);
+      if (!captchaOk) {
+        throw badRequest("CAPTCHA verification failed. Please try again.", "CAPTCHA_FAILED");
+      }
+    } else if (!isDev) {
+      // In production, require a token unless the manifest says provider=none
+      const { getManifestValue } = await import("@/lib/manifest");
+      const captchaProvider = await getManifestValue("captcha_provider");
+      if (captchaProvider !== "none") {
+        throw badRequest("CAPTCHA token is required.", "CAPTCHA_REQUIRED");
+      }
+    }
 
     // Load manifest to get minimum age setting
     const manifest = await loadManifest();
