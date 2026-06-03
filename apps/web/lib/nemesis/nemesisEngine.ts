@@ -230,15 +230,18 @@ export async function compareNemesisProgress(
   let query: string;
   let params: string[];
 
-  if (track === "main") {
-    query = `SELECT id AS user_id, xp_total AS xp_value FROM users WHERE id = ANY($1::uuid[])`;
-    params = [`{${userId},${nemesisId}}`];
-  } else {
-    query = `SELECT user_id, track_xp AS xp_value
-             FROM user_track_xp
-             WHERE user_id = ANY($1::uuid[]) AND track = $2`;
-    params = [`{${userId},${nemesisId}}`, track];
-  }
+  const trackColumnMap: Record<string, string> = {
+    main: "xp_total",
+    social: "xp_social",
+    creator: "xp_creator",
+    competitor: "xp_competitor",
+    generosity: "xp_generosity",
+    knowledge: "xp_knowledge",
+    explorer: "xp_explorer",
+  };
+  const col = trackColumnMap[track] ?? "xp_total";
+  query = `SELECT id AS user_id, ${col} AS xp_value FROM users WHERE id = ANY($1::uuid[])`;
+  params = [`{${userId},${nemesisId}}`];
 
   const result = await db.query<XPRow>(query, params);
 

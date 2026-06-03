@@ -207,7 +207,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
       conditions.push(`
         EXISTS (
           SELECT 1 FROM room_members rme
-          JOIN user_follows uf ON uf.following_id = rme.user_id
+          JOIN follows uf ON uf.following_id = rme.user_id
           WHERE rme.room_id = r.id
             AND uf.follower_id = $${paramIndex++}
         )

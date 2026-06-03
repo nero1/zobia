@@ -77,7 +77,7 @@ async function fetchCreatorStats(
 ): Promise<{ creator: CreatorRow; stats: StatsRow }> {
   const { rows: creatorRows } = await db.query<CreatorRow>(
     `SELECT is_creator, creator_tier, xp_creator,
-            (SELECT COUNT(*)::int FROM user_follows WHERE following_id = $1) AS follower_count
+            (SELECT COUNT(*)::int FROM follows WHERE following_id = $1) AS follower_count
      FROM users
      WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
     [userId]

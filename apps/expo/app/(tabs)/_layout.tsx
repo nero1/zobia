@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'react-native';
 
 import { colors } from '@/lib/theme/colors';
+import { useAuth } from '@/lib/auth/hooks';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -54,10 +55,15 @@ const TABS: TabConfig[] = [
  * - Active tint: brand blue (#2563EB)
  * - Inactive tint: neutral gray
  * - Respects system dark/light mode
+ *
+ * Admin tab is conditionally shown only when user.is_admin === true.
  */
 export default function TabLayout() {
   const scheme = useColorScheme();
   const isDark = scheme === 'dark';
+  const { user } = useAuth();
+  // is_admin may be present on the user object if the API includes it.
+  const isAdmin = (user as (typeof user & { is_admin?: boolean }) | null)?.is_admin === true;
 
   const tabBarBg = isDark ? colors.neutral[900] : colors.neutral[0];
   const activeTint = colors.brand.blue;
@@ -100,6 +106,22 @@ export default function TabLayout() {
           }}
         />
       ))}
+
+      {/* Admin tab — only visible to users with is_admin === true */}
+      <Tabs.Screen
+        name="admin"
+        options={{
+          title: 'Admin',
+          href: isAdmin ? undefined : null,
+          tabBarIcon: ({ focused, color }) => (
+            <Ionicons
+              name={focused ? 'shield' : 'shield-outline'}
+              size={24}
+              color={color}
+            />
+          ),
+        }}
+      />
     </Tabs>
   );
 }
