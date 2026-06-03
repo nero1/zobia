@@ -139,7 +139,27 @@ CREATE INDEX IF NOT EXISTS idx_learning_certs_student ON learning_certificates(s
 CREATE INDEX IF NOT EXISTS idx_learning_certs_room    ON learning_certificates(classroom_room_id);
 
 -- ============================================================
--- 9. DM reply limit tightening — update x_manifest defaults
+-- 9. xp_events — audit log for individual XP award events
+-- ============================================================
+-- Referenced by gifts/send, coins/transfer, reactions, and other routes
+-- but never defined in any migration. Distinct from xp_ledger (which is
+-- the financial-style append-only ledger) — this table is the event log.
+CREATE TABLE IF NOT EXISTS xp_events (
+  id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  action     TEXT NOT NULL,
+  xp_awarded INTEGER NOT NULL,
+  track      TEXT NOT NULL DEFAULT 'main',
+  metadata   JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_xp_events_user       ON xp_events(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_xp_events_action     ON xp_events(action);
+CREATE INDEX IF NOT EXISTS idx_xp_events_user_action ON xp_events(user_id, action);
+
+-- ============================================================
+-- 10. DM reply limit tightening — update x_manifest defaults
 -- ============================================================
 -- Free: 25 replies/day, Plus: 50 replies/day (PRD §3 table)
 INSERT INTO x_manifest (key, value, description) VALUES
