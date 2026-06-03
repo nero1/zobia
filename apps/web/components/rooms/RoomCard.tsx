@@ -99,6 +99,15 @@ export function RoomCard({ room, onJoin, joining }: RoomCardProps) {
           <span>{room.memberCount.toLocaleString()} members</span>
         </div>
 
+        {/* Activity pulse bar — shows recent message volume vs capacity */}
+        {room.recentMessageCount !== undefined && (
+          <RoomPulseBar
+            activeCount={room.recentMessageCount}
+            maxCapacity={room.maxMembers ?? 10_000}
+            className="mt-2"
+          />
+        )}
+
         {/* Entry cost note */}
         {room.type === "vip" && room.subscriptionPrice && (
           <p className="mt-1 text-xs font-semibold text-amber-600">🔒 {room.subscriptionPrice.toLocaleString()} coins/mo</p>
