@@ -5,12 +5,14 @@
  * Requires the user to have `is_creator = TRUE`.
  *
  * Revenue streams included:
- *   - gifts_received:  coins received as gifts in rooms / DMs
- *   - subscriptions:   subscription plan revenues attributed to this creator
- *   - tips:            explicit tips from followers
+ *   - gifts_received:   coins received as gifts in rooms / DMs
+ *   - subscriptions:    subscription plan revenues attributed to this creator
+ *   - tips:             explicit tips from followers
+ *   - sponsored_quest:  sponsored quest payouts (70/30 split — creator 70%, platform 30%)
  *
  * Amounts are returned in kobo (the stored unit) alongside a human-readable
- * NGN representation. The platform takes 20%; creator receives 80%.
+ * NGN representation. Standard streams take 20% platform fee (creator 80%).
+ * Sponsored quest streams take 30% platform fee (creator 70%).
  *
  * @module app/api/creator/earnings
  */
@@ -79,22 +81,39 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
       [userId]
     );
 
-    // Platform fee: 20%; creator net: 80%
-    const PLATFORM_FEE_PERCENT = 20;
-    const CREATOR_PERCENT = 80;
+    // Standard streams: platform 20%, creator 80%.
+    // Sponsored quest stream: platform 30%, creator 70% (PRD §Sponsored Quests).
+    const STANDARD_PLATFORM_FEE_PERCENT = 20;
+    const STANDARD_CREATOR_PERCENT = 80;
+    const SPONSORED_QUEST_PLATFORM_FEE_PERCENT = 30;
+    const SPONSORED_QUEST_CREATOR_PERCENT = 70;
 
-    function buildPeriodSummary(grossKobo: number) {
-      const platformFeeKobo = Math.floor((grossKobo * PLATFORM_FEE_PERCENT) / 100);
-      const netKobo = Math.floor((grossKobo * CREATOR_PERCENT) / 100);
-      return { grossKobo, netKobo, platformFeeKobo };
+    /** Returns the split percentages for a given earnings stream. */
+    function splitForStream(stream: string): { creatorPct: number; platformPct: number } {
+      if (stream === "sponsored_quest") {
+        return { creatorPct: SPONSORED_QUEST_CREATOR_PERCENT, platformPct: SPONSORED_QUEST_PLATFORM_FEE_PERCENT };
+      }
+      return { creatorPct: STANDARD_CREATOR_PERCENT, platformPct: STANDARD_PLATFORM_FEE_PERCENT };
     }
 
-    // Aggregate per period
-    const periods: Record<string, { grossKobo: number; byStream: Record<string, number> }> = {
-      today: { grossKobo: 0, byStream: {} },
-      week: { grossKobo: 0, byStream: {} },
-      month: { grossKobo: 0, byStream: {} },
-      allTime: { grossKobo: 0, byStream: {} },
+    interface PeriodAccumulator {
+      grossKobo: number;
+      netKobo: number;
+      platformFeeKobo: number;
+      byStream: Record<string, number>;
+      byStreamNet: Record<string, number>;
+    }
+
+    function emptyPeriod(): PeriodAccumulator {
+      return { grossKobo: 0, netKobo: 0, platformFeeKobo: 0, byStream: {}, byStreamNet: {} };
+    }
+
+    // Aggregate per period, applying per-stream splits
+    const periods: Record<string, PeriodAccumulator> = {
+      today: emptyPeriod(),
+      week: emptyPeriod(),
+      month: emptyPeriod(),
+      allTime: emptyPeriod(),
     };
 
     for (const row of rows as unknown as Array<{
@@ -104,31 +123,63 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
       month_gross: string;
       all_time_gross: string;
     }>) {
-      const todayGross = parseInt(row.today_gross ?? "0", 10);
-      const weekGross = parseInt(row.week_gross ?? "0", 10);
-      const monthGross = parseInt(row.month_gross ?? "0", 10);
-      const allTimeGross = parseInt(row.all_time_gross ?? "0", 10);
+      const { creatorPct, platformPct } = splitForStream(row.stream);
 
-      periods.today.grossKobo += todayGross;
-      periods.today.byStream[row.stream] = todayGross;
+      const entries: Array<[keyof typeof periods, string]> = [
+        ["today", row.today_gross],
+        ["week", row.week_gross],
+        ["month", row.month_gross],
+        ["allTime", row.all_time_gross],
+      ];
 
-      periods.week.grossKobo += weekGross;
-      periods.week.byStream[row.stream] = weekGross;
+      for (const [periodKey, rawGross] of entries) {
+        const gross = parseInt(rawGross ?? "0", 10);
+        const net = Math.floor((gross * creatorPct) / 100);
+        const fee = gross - net;
 
-      periods.month.grossKobo += monthGross;
-      periods.month.byStream[row.stream] = monthGross;
-
-      periods.allTime.grossKobo += allTimeGross;
-      periods.allTime.byStream[row.stream] = allTimeGross;
+        periods[periodKey].grossKobo += gross;
+        periods[periodKey].netKobo += net;
+        periods[periodKey].platformFeeKobo += fee;
+        periods[periodKey].byStream[row.stream] = gross;
+        periods[periodKey].byStreamNet[row.stream] = net;
+      }
     }
 
     return NextResponse.json({
-      today: { ...buildPeriodSummary(periods.today.grossKobo), byStream: periods.today.byStream },
-      week: { ...buildPeriodSummary(periods.week.grossKobo), byStream: periods.week.byStream },
-      month: { ...buildPeriodSummary(periods.month.grossKobo), byStream: periods.month.byStream },
-      allTime: { ...buildPeriodSummary(periods.allTime.grossKobo), byStream: periods.allTime.byStream },
-      platformFeePercent: PLATFORM_FEE_PERCENT,
-      creatorSharePercent: CREATOR_PERCENT,
+      today: {
+        grossKobo: periods.today.grossKobo,
+        netKobo: periods.today.netKobo,
+        platformFeeKobo: periods.today.platformFeeKobo,
+        byStream: periods.today.byStream,
+        byStreamNet: periods.today.byStreamNet,
+      },
+      week: {
+        grossKobo: periods.week.grossKobo,
+        netKobo: periods.week.netKobo,
+        platformFeeKobo: periods.week.platformFeeKobo,
+        byStream: periods.week.byStream,
+        byStreamNet: periods.week.byStreamNet,
+      },
+      month: {
+        grossKobo: periods.month.grossKobo,
+        netKobo: periods.month.netKobo,
+        platformFeeKobo: periods.month.platformFeeKobo,
+        byStream: periods.month.byStream,
+        byStreamNet: periods.month.byStreamNet,
+      },
+      allTime: {
+        grossKobo: periods.allTime.grossKobo,
+        netKobo: periods.allTime.netKobo,
+        platformFeeKobo: periods.allTime.platformFeeKobo,
+        byStream: periods.allTime.byStream,
+        byStreamNet: periods.allTime.byStreamNet,
+      },
+      // Standard split (gifts, subscriptions, tips)
+      platformFeePercent: STANDARD_PLATFORM_FEE_PERCENT,
+      creatorSharePercent: STANDARD_CREATOR_PERCENT,
+      // Sponsored quest split
+      sponsoredQuestPlatformFeePercent: SPONSORED_QUEST_PLATFORM_FEE_PERCENT,
+      sponsoredQuestCreatorSharePercent: SPONSORED_QUEST_CREATOR_PERCENT,
     });
   } catch (err) {
     return handleApiError(err);

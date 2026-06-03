@@ -31,6 +31,11 @@ import {
   type XPAction,
   type XPMultiplierContext,
 } from "@/lib/xp/engine";
+import {
+  checkAndAwardTrackMilestones,
+  type TrackMilestone,
+} from "@/lib/xp/trackMilestones";
+import { awardMilestoneStickers } from "@/lib/stickers/milestoneStickers";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -250,7 +255,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       let newTrackXp: number | null = null;
       let newTrackLevel: number | null = null;
       if (track && TRACK_COLUMN[track]) {
-        const currentTrackXp = (user as Record<string, number>)[`xp_${track}`] ?? 0;
+        const currentTrackXp = ((user as unknown) as Record<string, number>)[`xp_${track}`] ?? 0;
         newTrackXp = currentTrackXp + xpAwarded;
         const trackLevelInfo = getTrackLevelForXP(track as Parameters<typeof getTrackLevelForXP>[0], newTrackXp);
         newTrackLevel = trackLevelInfo.level;
@@ -264,7 +269,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       // 6. Atomic update of users row
       await client.query(
         `UPDATE users SET ${setClauses.join(", ")} WHERE id = $1`,
-        params
+        params as import("@/lib/db").SqlParam[]
       );
 
       // 7. Detect rank-up
@@ -319,10 +324,45 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         track: track ?? null,
         newTrackXp,
         newTrackLevel,
+        // newTrackLevel is needed for milestone checking below — pass it through
+        _trackForMilestones: track,
+        _newTrackLevelForMilestones: newTrackLevel,
       };
     });
 
-    return NextResponse.json(result, { status: 200 });
+    // Check and award track milestones outside the transaction (best-effort, non-blocking).
+    // We do this after the transaction commits so that the level write is durable first.
+    let milestoneUnlocks: TrackMilestone[] = [];
+    const stickerPacksAwarded: string[] = [];
+    if (result._trackForMilestones && result._newTrackLevelForMilestones !== null) {
+      const trackLevel = result._newTrackLevelForMilestones as number;
+      try {
+        milestoneUnlocks = await checkAndAwardTrackMilestones(
+          body.userId,
+          result._trackForMilestones,
+          trackLevel,
+          db
+        );
+        // Award sticker packs for each newly unlocked milestone
+        for (const milestone of milestoneUnlocks) {
+          try {
+            const awarded = await awardMilestoneStickers(body.userId, milestone.unlockKey, db);
+            stickerPacksAwarded.push(...awarded);
+          } catch {
+            // Non-fatal — sticker grant failure never breaks XP award
+          }
+        }
+      } catch (err) {
+        // Milestone check failure must never break the XP award response
+        console.error("[xp/award] Milestone check failed (non-fatal):", err);
+      }
+    }
+
+    // Strip internal fields before sending the response
+    const { _trackForMilestones: _t, _newTrackLevelForMilestones: _l, ...publicResult } = result;
+    void _t; void _l; // suppress unused variable warnings
+
+    return NextResponse.json({ ...publicResult, milestoneUnlocks, stickerPacksAwarded }, { status: 200 });
   } catch (err) {
     return handleApiError(err);
   }

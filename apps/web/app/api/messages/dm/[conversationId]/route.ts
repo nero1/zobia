@@ -15,6 +15,8 @@ import { db } from "@/lib/db";
 import { withAuth, validateSearchParams } from "@/lib/api/middleware";
 import { handleApiError, forbidden, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { getDMCost } from "@/lib/messaging/coinCost";
+import type { Plan } from "@zobia/types";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -36,6 +38,11 @@ const querySchema = z.object({
 interface ConversationParticipantRow {
   user_id_1: string;
   user_id_2: string;
+}
+
+interface RecipientInfoRow {
+  coin_balance: number;
+  plan: Plan;
 }
 
 interface MessageRow {
@@ -162,6 +169,24 @@ export const GET = withAuth(
           ? rows[rows.length - 1]?.created_at ?? null
           : null;
 
+      // 5. Check if the OTHER participant can reply (sufficient coins)
+      const otherId =
+        conv.user_id_1 === auth.user.sub ? conv.user_id_2 : conv.user_id_1;
+
+      let recipientCanReply = true;
+      try {
+        const { rows: recipientRows } = await db.query<RecipientInfoRow>(
+          "SELECT coin_balance, plan FROM users WHERE id = $1 LIMIT 1",
+          [otherId]
+        );
+        if (recipientRows[0]) {
+          const replyCost = getDMCost(recipientRows[0].plan as Plan, "reply");
+          recipientCanReply = recipientRows[0].coin_balance >= replyCost;
+        }
+      } catch {
+        // Non-fatal — default to true
+      }
+
       return NextResponse.json(
         {
           items: rows.map((row) => ({
@@ -171,6 +196,8 @@ export const GET = withAuth(
           nextCursor,
           hasMore: nextCursor !== null,
           total: rows.length,
+          recipientCanReply,
+          otherUserId: otherId,
         },
         { status: 200 }
       );

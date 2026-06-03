@@ -147,25 +147,36 @@ const SELECT_COLUMNS = `
 
 /**
  * Return the authenticated user's full profile, including all XP tracks,
- * rank information, and coin balance.
+ * rank information, coin balance, and PIN status.
  *
- * @returns JSON { user: UserFullProfile }
+ * @returns JSON { user: UserFullProfile & { hasPIN: boolean } }
  */
 export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 
-    const { rows } = await db.query<UserFullProfile>(
-      `SELECT ${SELECT_COLUMNS}
-       FROM users
-       WHERE id = $1 AND deleted_at IS NULL
-       LIMIT 1`,
-      [auth.user.sub]
+    const [profileResult, pinResult] = await Promise.all([
+      db.query<UserFullProfile>(
+        `SELECT ${SELECT_COLUMNS}
+         FROM users
+         WHERE id = $1 AND deleted_at IS NULL
+         LIMIT 1`,
+        [auth.user.sub]
+      ),
+      db.query<{ exists: boolean }>(
+        `SELECT EXISTS(SELECT 1 FROM user_pins WHERE user_id = $1) AS exists`,
+        [auth.user.sub]
+      ),
+    ]);
+
+    if (!profileResult.rows[0]) throw notFound("User profile not found");
+
+    const hasPIN = pinResult.rows[0]?.exists ?? false;
+
+    return NextResponse.json(
+      { user: { ...profileResult.rows[0], hasPIN } },
+      { status: 200 }
     );
-
-    if (!rows[0]) throw notFound("User profile not found");
-
-    return NextResponse.json({ user: rows[0] }, { status: 200 });
   } catch (err) {
     return handleApiError(err);
   }

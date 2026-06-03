@@ -388,12 +388,29 @@ export default function SettingsPage() {
         </div>
       </Section>
 
+      {/* Security PIN */}
+      <PinSection onToast={showToast} />
+
+      {/* Chat Theme */}
+      <Section title="Chat Theme">
+        <div className="p-1">
+          <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
+            Customise the colour theme of your message bubbles.
+            Non-default themes require Pro or Max plan.
+          </p>
+          <SimpleChatTheme />
+        </div>
+      </Section>
+
       {/* Danger zone */}
       <div className="rounded-xl border border-red-200 bg-white shadow-card dark:border-red-900 dark:bg-neutral-900">
         <div className="border-b border-red-200 px-5 py-4 dark:border-red-900">
           <h2 className="text-sm font-semibold text-red-700 dark:text-red-400">Danger Zone</h2>
         </div>
         <div className="space-y-4 p-5">
+          {/* Data export */}
+          <DataExport onToast={showToast} />
+
           <button
             onClick={handleLogout}
             className="w-full rounded-xl border border-neutral-300 py-2.5 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
@@ -427,4 +444,154 @@ export default function SettingsPage() {
       </div>
     </div>
   );
+
+// ---------------------------------------------------------------------------
+// PIN sub-component (rendered inline)
+// ---------------------------------------------------------------------------
+
+function PinSection({ onToast }: { onToast: (msg: string, type?: "success" | "error") => void }) {
+  const [hasPin, setHasPin] = useState(false);
+  const [mode, setMode] = useState<"idle" | "set" | "change" | "remove">("idle");
+  const [pin, setPin] = useState(""); const [confirmPin, setConfirmPin] = useState("");
+  const [currentPin, setCurrentPin] = useState(""); const [saving, setSaving] = useState(false);
+
+  const reset = () => { setMode("idle"); setPin(""); setConfirmPin(""); setCurrentPin(""); };
+
+  const handleSet = async () => {
+    if (pin.length !== 4 || !/^\d{4}$/.test(pin)) { onToast("PIN must be exactly 4 digits", "error"); return; }
+    if (pin !== confirmPin) { onToast("PINs do not match", "error"); return; }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/auth/pin/setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin, confirmPin }) });
+      if (!res.ok) { const d = (await res.json()) as { error?: string }; throw new Error(d.error ?? "Failed"); }
+      setHasPin(true); onToast("PIN set successfully"); reset();
+    } catch (e) { onToast(e instanceof Error ? e.message : "Error", "error"); }
+    finally { setSaving(false); }
+  };
+
+  const handleRemove = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch("/api/auth/pin/remove", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ currentPin }) });
+      if (!res.ok) { const d = (await res.json()) as { error?: string }; throw new Error(d.error ?? "Failed"); }
+      setHasPin(false); onToast("PIN removed"); reset();
+    } catch (e) { onToast(e instanceof Error ? e.message : "Error", "error"); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <Section title="Security PIN">
+      <div className="space-y-3 p-1">
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">
+          A 4-digit PIN adds an extra layer of protection to payments and payout requests.
+          {hasPin ? " You currently have a PIN set." : " You don't have a PIN set."}
+        </p>
+        {mode === "idle" && (
+          <div className="flex flex-wrap gap-2">
+            {!hasPin && <button onClick={() => setMode("set")} className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800">Set PIN</button>}
+            {hasPin && <button onClick={() => setMode("change")} className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800">Change PIN</button>}
+            {hasPin && <button onClick={() => setMode("remove")} className="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 dark:border-red-700 dark:hover:bg-red-950">Remove PIN</button>}
+          </div>
+        )}
+        {(mode === "set" || mode === "change") && (
+          <div className="space-y-2">
+            {mode === "change" && <input type="password" inputMode="numeric" maxLength={4} value={currentPin} onChange={e => setCurrentPin(e.target.value.replace(/\D/g, ""))} placeholder="Current PIN" className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800" />}
+            <input type="password" inputMode="numeric" maxLength={4} value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, ""))} placeholder="New 4-digit PIN" className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800" />
+            <input type="password" inputMode="numeric" maxLength={4} value={confirmPin} onChange={e => setConfirmPin(e.target.value.replace(/\D/g, ""))} placeholder="Confirm PIN" className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800" />
+            <div className="flex gap-2">
+              <button onClick={handleSet} disabled={saving} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-40">{saving ? "Saving…" : "Save PIN"}</button>
+              <button onClick={reset} className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold hover:bg-neutral-50 dark:border-neutral-700">Cancel</button>
+            </div>
+          </div>
+        )}
+        {mode === "remove" && (
+          <div className="space-y-2">
+            <input type="password" inputMode="numeric" maxLength={4} value={currentPin} onChange={e => setCurrentPin(e.target.value.replace(/\D/g, ""))} placeholder="Enter current PIN to confirm" className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800" />
+            <div className="flex gap-2">
+              <button onClick={handleRemove} disabled={saving} className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-40">{saving ? "Removing…" : "Remove PIN"}</button>
+              <button onClick={reset} className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold hover:bg-neutral-50 dark:border-neutral-700">Cancel</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Chat theme sub-component
+// ---------------------------------------------------------------------------
+
+function SimpleChatTheme() {
+  const themes = [
+    { key: "default", label: "Default", color: "#3b82f6" },
+    { key: "midnight", label: "Midnight", color: "#0f172a" },
+    { key: "ocean", label: "Ocean", color: "#0891b2" },
+    { key: "forest", label: "Forest", color: "#166534" },
+    { key: "sunset", label: "Sunset", color: "#ea580c" },
+  ] as const;
+  const [selected, setSelected] = useState("default");
+  const [saving, setSaving] = useState(false);
+
+  const select = async (key: string) => {
+    setSaving(true);
+    try {
+      await fetch("/api/users/me/theme", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ theme: key }) });
+      setSelected(key);
+    } catch { /* non-fatal */ }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="flex gap-3 flex-wrap">
+      {themes.map(t => (
+        <button key={t.key} onClick={() => select(t.key)} disabled={saving} title={t.label}
+          className={`flex flex-col items-center gap-1 rounded-xl border-2 p-2 transition-all ${selected === t.key ? "border-blue-600" : "border-neutral-200 dark:border-neutral-700"}`}>
+          <div className="h-8 w-12 rounded-lg" style={{ background: t.color }} />
+          <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300">{t.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Data export sub-component
+// ---------------------------------------------------------------------------
+
+function DataExport({ onToast }: { onToast: (msg: string, type?: "success" | "error") => void }) {
+  const [requesting, setRequesting] = useState(false);
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+
+  const handleExport = async () => {
+    setRequesting(true);
+    try {
+      const res = await fetch("/api/users/me/export", { method: "POST" });
+      const data = (await res.json()) as { data?: { downloadUrl?: string }; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Export failed");
+      setDownloadUrl(data.data?.downloadUrl ?? null);
+      onToast("Your data export is ready");
+    } catch (e) {
+      onToast(e instanceof Error ? e.message : "Export failed", "error");
+    } finally {
+      setRequesting(false);
+    }
+  };
+
+  return (
+    <div>
+      <p className="mb-2 text-sm font-medium text-neutral-700 dark:text-neutral-300">Export My Data</p>
+      <p className="mb-3 text-xs text-neutral-500">Download a copy of your profile, messages, and activity history.</p>
+      {downloadUrl ? (
+        <a href={downloadUrl} download className="inline-block rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700">
+          Download My Data
+        </a>
+      ) : (
+        <button onClick={handleExport} disabled={requesting} className="rounded-lg border border-neutral-300 px-4 py-2 text-xs font-semibold text-neutral-700 hover:bg-neutral-50 disabled:opacity-40 dark:border-neutral-700 dark:text-neutral-300">
+          {requesting ? "Preparing…" : "Request Data Export"}
+        </button>
+      )}
+    </div>
+  );
+}
 }

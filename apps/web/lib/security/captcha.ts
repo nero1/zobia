@@ -18,7 +18,7 @@
  */
 
 import { env } from "@/lib/env";
-import { loadManifest } from "@/lib/manifest";
+import { getManifestValue } from "@/lib/manifest";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -65,18 +65,27 @@ const RECAPTCHA_MIN_SCORE = 0.5;
 
 /**
  * Determine which CAPTCHA provider to use by reading the x_manifest.
- * Falls back to env-based heuristic if manifest is unavailable.
+ * Falls back to env-based heuristic if manifest returns null.
  *
  * @returns Active provider identifier
  */
 async function resolveProvider(): Promise<CaptchaProvider> {
   try {
-    // Future: manifest could expose captcha.provider directly.
-    // For now we derive from which env vars are configured.
+    const manifestValue = await getManifestValue("captcha_provider");
+    if (manifestValue !== null) {
+      if (
+        manifestValue === "recaptcha" ||
+        manifestValue === "turnstile" ||
+        manifestValue === "none"
+      ) {
+        return manifestValue as CaptchaProvider;
+      }
+    }
   } catch {
-    // ignore manifest errors
+    // ignore manifest errors — fall through to env heuristic
   }
 
+  // Env-based fallback: detect from which secret key is configured
   if (env.CLOUDFLARE_TURNSTILE_SECRET_KEY) return "turnstile";
   if (env.RECAPTCHA_SECRET_KEY) return "recaptcha";
   return "none";

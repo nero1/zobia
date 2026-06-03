@@ -22,6 +22,7 @@ import { badRequest, forbidden, handleApiError } from "@/lib/api/errors";
 import { db } from "@/lib/db";
 import { createPayout } from "@/lib/payments";
 import { loadManifest } from "@/lib/manifest";
+import { creditCoins } from "@/lib/economy/coins";
 import { randomUUID } from "crypto";
 import Decimal from "decimal.js";
 
@@ -139,6 +140,12 @@ const PayoutRequestSchema = z.object({
    * Omit to request the full available balance.
    */
   amountKobo: z.number().int().positive().optional(),
+  /**
+   * When true, converts the payout to Coins and credits them directly to the
+   * creator's coin balance instead of initiating a bank transfer.
+   * No minimum threshold applies for coin payouts.
+   */
+  asCoins: z.boolean().optional().default(false),
 });
 
 /**

@@ -33,6 +33,8 @@ export interface ConversationScore {
   /** Whether the pair has unlocked the Connection badge. */
   hasConnectionBadge: boolean;
   updatedAt: string;
+  /** Sticker pack names newly unlocked by this update (only present after updateConversationScore). */
+  newStickerUnlocks?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -41,6 +43,12 @@ export interface ConversationScore {
 
 /** Score threshold to unlock the Connection badge. */
 const CONNECTION_BADGE_THRESHOLD = 50;
+
+/** Score thresholds that unlock exclusive DM sticker reaction packs (PRD §5). */
+export const STICKER_UNLOCK_THRESHOLDS = [
+  { threshold: 100, packName: "Exclusive Reactions Pack 1" },
+  { threshold: 250, packName: "Exclusive Reactions Pack 2" },
+] as const;
 
 /** Points awarded per event type. */
 const EVENT_POINTS: Record<ConversationScoreEvent, number> = {
@@ -157,6 +165,30 @@ export async function updateConversationScore(
     hasConnectionBadge: row.has_connection_badge,
     updatedAt: row.updated_at,
   };
+
+  // Check for newly crossed sticker unlock thresholds
+  const previousScore = result.score - points;
+  const newStickerUnlocks: string[] = [];
+  for (const su of STICKER_UNLOCK_THRESHOLDS) {
+    if (previousScore < su.threshold && result.score >= su.threshold) {
+      newStickerUnlocks.push(su.packName);
+      // Persist the unlock (best-effort)
+      try {
+        await db.query(
+          `INSERT INTO dm_score_sticker_unlocks
+             (user_id_1, user_id_2, pack_name, unlocked_at)
+           VALUES ($1, $2, $3, NOW())
+           ON CONFLICT DO NOTHING`,
+          [u1, u2, su.packName]
+        );
+      } catch {
+        // Non-fatal
+      }
+    }
+  }
+  if (newStickerUnlocks.length > 0) {
+    result.newStickerUnlocks = newStickerUnlocks;
+  }
 
   // Invalidate cache so next read is fresh
   try {

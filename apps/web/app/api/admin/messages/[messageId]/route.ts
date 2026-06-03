@@ -37,7 +37,7 @@ export const GET = withAdminAuth(
       // Message header
       const { rows: msgRows } = await db.query<{
         id: string;
-        sender_id: string;
+        sender_admin_id: string;
         sender_username: string;
         subject: string;
         body: string;
@@ -47,7 +47,7 @@ export const GET = withAdminAuth(
       }>(
         `SELECT
            m.id,
-           m.sender_id,
+           m.sender_admin_id,
            u.username AS sender_username,
            m.subject,
            m.body,
@@ -55,7 +55,7 @@ export const GET = withAdminAuth(
            m.recipient_count,
            m.created_at
          FROM admin_messages m
-         LEFT JOIN users u ON u.id = m.sender_id
+         LEFT JOIN users u ON u.id = m.sender_admin_id
          WHERE m.id = $1`,
         [messageId]
       );
@@ -80,13 +80,13 @@ export const GET = withAdminAuth(
         read_at: string | null;
       }>(
         `SELECT
-           r.recipient_id,
+           r.user_id AS recipient_id,
            u.username,
            r.delivered_at,
            r.read_at
          FROM admin_message_receipts r
-         LEFT JOIN users u ON u.id = r.recipient_id
-         WHERE r.message_id = $1
+         LEFT JOIN users u ON u.id = r.user_id
+         WHERE r.admin_message_id = $1
          ORDER BY r.delivered_at DESC NULLS LAST
          LIMIT $2 OFFSET $3`,
         [messageId, limit, offset]

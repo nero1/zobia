@@ -31,46 +31,49 @@ interface QuizQuestion {
 // ---------------------------------------------------------------------------
 
 function useQuizQuestions(): QuizQuestion[] {
-  const { t } = useTranslation();
   return [
     {
+      // PRD §4: seeds Room recommendations
       key: 'q1',
-      questionKey: t('onboarding.q1'),
+      questionKey: 'What do you do most?',
       options: [
-        { label: t('onboarding.q1a'), value: 'music' },
-        { label: t('onboarding.q1b'), value: 'ideas' },
-        { label: t('onboarding.q1c'), value: 'social' },
-        { label: t('onboarding.q1d'), value: 'productive' },
+        { label: 'Argue 🗣️', value: 'argue' },
+        { label: 'Gist 😂', value: 'gist' },
+        { label: 'Learn 📚', value: 'learn' },
+        { label: 'Flex 💪', value: 'flex' },
       ],
     },
     {
+      // PRD §4: surfaces Guild discovery vs solo track emphasis
       key: 'q2',
-      questionKey: t('onboarding.q2'),
+      questionKey: 'Are you a lone wolf or a crew person?',
       options: [
-        { label: t('onboarding.q2a'), value: 'home' },
-        { label: t('onboarding.q2b'), value: 'adventure' },
-        { label: t('onboarding.q2c'), value: 'social' },
-        { label: t('onboarding.q2d'), value: 'project' },
+        { label: 'Total lone wolf 🐺', value: 'lone_wolf' },
+        { label: 'Mostly solo', value: 'mostly_solo' },
+        { label: 'Mostly with my crew', value: 'mostly_crew' },
+        { label: 'Nothing without my crew 🤝', value: 'crew' },
       ],
     },
     {
+      // PRD §4: adjusts onboarding tone
       key: 'q3',
-      questionKey: t('onboarding.q3'),
+      questionKey: 'What brings you here?',
       options: [
-        { label: t('onboarding.q3a'), value: 'creative' },
-        { label: t('onboarding.q3b'), value: 'analytical' },
-        { label: t('onboarding.q3c'), value: 'social' },
-        { label: t('onboarding.q3d'), value: 'driven' },
+        { label: 'Connect with friends 👥', value: 'friends' },
+        { label: 'Stack coins 💰', value: 'money' },
+        { label: 'Just vibing ✌️', value: 'vibing' },
+        { label: 'All of it 🔥', value: 'all_of_it' },
       ],
     },
     {
+      // PRD §4: seeds social and competitive graph by city vibe
       key: 'q4',
-      questionKey: t('onboarding.q4'),
+      questionKey: "Pick your city's vibe:",
       options: [
-        { label: t('onboarding.q4a'), value: 'deep' },
-        { label: t('onboarding.q4b'), value: 'light' },
-        { label: t('onboarding.q4c'), value: 'practical' },
-        { label: t('onboarding.q4d'), value: 'spontaneous' },
+        { label: 'Competitive — always on top 🏆', value: 'competitive' },
+        { label: 'Social — everyone knows everyone 🤗', value: 'social' },
+        { label: 'Creative — arts, music, culture 🎨', value: 'creative' },
+        { label: 'Chill — low-key and unbothered 😌', value: 'chill' },
       ],
     },
   ];
