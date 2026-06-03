@@ -159,7 +159,108 @@ CREATE INDEX IF NOT EXISTS idx_xp_events_action     ON xp_events(action);
 CREATE INDEX IF NOT EXISTS idx_xp_events_user_action ON xp_events(user_id, action);
 
 -- ============================================================
--- 10. DM reply limit tightening — update x_manifest defaults
+-- 10. user_notifications — in-app notification inbox for users
+-- ============================================================
+-- Used by elder route, nemesis route, stickers, cron/daily, and many others.
+-- Some routes use (user_id, type, payload) and others use
+-- (user_id, type, title, body, metadata). Both variants are supported.
+CREATE TABLE IF NOT EXISTS user_notifications (
+  id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type       TEXT NOT NULL,
+  title      TEXT,
+  body       TEXT,
+  payload    JSONB,
+  metadata   JSONB,
+  is_read    BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_notifications_user    ON user_notifications(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_user_notifications_unread  ON user_notifications(user_id) WHERE is_read = false;
+
+-- ============================================================
+-- 11. user_messages — inbox messages (admin broadcasts, creator broadcasts)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS user_messages (
+  id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  sender_id    UUID REFERENCES users(id) ON DELETE SET NULL,
+  recipient_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content      TEXT NOT NULL,
+  message_type TEXT NOT NULL DEFAULT 'direct'
+    CHECK(message_type IN ('direct', 'broadcast', 'admin', 'system')),
+  reference_id UUID,
+  is_read      BOOLEAN NOT NULL DEFAULT false,
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_messages_recipient ON user_messages(recipient_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_user_messages_unread    ON user_messages(recipient_id) WHERE is_read = false;
+
+-- ============================================================
+-- 12. rank_up_events — audit log for rank tier transitions
+-- ============================================================
+CREATE TABLE IF NOT EXISTS rank_up_events (
+  id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  rank_from  TEXT NOT NULL,
+  rank_to    TEXT NOT NULL,
+  xp_at_event BIGINT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_rank_up_events_user ON rank_up_events(user_id, created_at DESC);
+
+-- ============================================================
+-- 13. admin_actions — log of moderation actions taken by admins
+-- ============================================================
+CREATE TABLE IF NOT EXISTS admin_actions (
+  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  admin_id        UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  target_user_id  UUID REFERENCES users(id) ON DELETE SET NULL,
+  action          TEXT NOT NULL,
+  reason          TEXT,
+  duration_hours  INTEGER,
+  metadata        JSONB,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_actions_admin  ON admin_actions(admin_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_admin_actions_target ON admin_actions(target_user_id) WHERE target_user_id IS NOT NULL;
+
+-- ============================================================
+-- 14. admin_audit_log — log of admin config / setting changes
+-- ============================================================
+CREATE TABLE IF NOT EXISTS admin_audit_log (
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  admin_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  action      TEXT NOT NULL,
+  resource    TEXT,
+  resource_id TEXT,
+  before_val  JSONB,
+  after_val   JSONB,
+  ip_address  TEXT,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_audit_log_admin ON admin_audit_log(admin_id, created_at DESC);
+
+-- ============================================================
+-- 15. user_season_milestone_claims — tracks which pass milestones have been claimed
+-- ============================================================
+CREATE TABLE IF NOT EXISTS user_season_milestone_claims (
+  id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  season_id    UUID NOT NULL REFERENCES seasons(id) ON DELETE CASCADE,
+  milestone_id UUID NOT NULL,
+  claimed_at   TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, season_id, milestone_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_season_milestone_claims ON user_season_milestone_claims(user_id, season_id);
+
+-- ============================================================
+-- 16. DM reply limit tightening — update x_manifest defaults
 -- ============================================================
 -- Free: 25 replies/day, Plus: 50 replies/day (PRD §3 table)
 INSERT INTO x_manifest (key, value, description) VALUES
