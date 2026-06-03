@@ -99,7 +99,7 @@ async function fetchFollowers(
 ): Promise<Array<{ user_id: string; telegram_id: string | null }>> {
   const { rows } = await db.query<{ user_id: string; telegram_id: string | null }>(
     `SELECT uf.follower_id AS user_id, u.telegram_id
-     FROM user_follows uf
+     FROM follows uf
      JOIN users u ON u.id = uf.follower_id
      WHERE uf.following_id = $1
        AND u.deleted_at IS NULL`,

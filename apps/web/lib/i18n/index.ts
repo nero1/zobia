@@ -25,7 +25,7 @@ import resourcesToBackend from "i18next-resources-to-backend";
 // Supported locales
 // ---------------------------------------------------------------------------
 
-export const SUPPORTED_LOCALES = ["en", "ar", "fr", "ha", "yo", "ig"] as const;
+export const SUPPORTED_LOCALES = ["en", "ar", "fr", "ha", "sw", "am", "zu", "pt"] as const;
 export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
 
 export const LOCALE_LABELS: Record<SupportedLocale, string> = {
@@ -33,8 +33,10 @@ export const LOCALE_LABELS: Record<SupportedLocale, string> = {
   ar: "العربية",
   fr: "Français",
   ha: "Hausa",
-  yo: "Yorùbá",
-  ig: "Igbo",
+  sw: "Kiswahili",
+  am: "አማርኛ",
+  zu: "IsiZulu",
+  pt: "Português",
 };
 
 export const DEFAULT_LOCALE: SupportedLocale = "en";
