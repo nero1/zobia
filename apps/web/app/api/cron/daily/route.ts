@@ -20,6 +20,7 @@ import { resetDailyQuests } from "@/lib/quests/questEngine";
 import { refreshNemesisAssignments } from "@/lib/nemesis/nemesisEngine";
 import { getCurrentSeason, distributeSeasonRewards, resetSeasonRankings } from "@/lib/seasons/seasonEngine";
 import { XP_VALUES } from "@/lib/xp/engine";
+import { processPendingGiftDrops } from "@/lib/events/monthlyGiftDrop";
 
 // ---------------------------------------------------------------------------
 // Auth
@@ -303,11 +304,204 @@ export const GET = async (req: NextRequest) => {
   if (dayOfWeek === 5) {
     try {
       const { distributeCreatorFund } = await import('@/lib/creator/fund');
-      const fundResult = await distributeCreatorFund(db);
-      results.creatorFundDistribution = fundResult;
+      // Read the fund pool size from x_manifest (admin-configurable)
+      const { rows: fundRows } = await db.query<{ value: string }>(
+        `SELECT value FROM x_manifest WHERE key = 'creator_fund_balance_kobo' LIMIT 1`
+      );
+      const poolKobo = parseInt(fundRows[0]?.value ?? "0", 10);
+      if (poolKobo > 0) {
+        const fundResult = await distributeCreatorFund(poolKobo);
+        // Reset the pool to 0 after distribution
+        await db.query(
+          `INSERT INTO x_manifest (key, value) VALUES ('creator_fund_balance_kobo', '0')
+           ON CONFLICT (key) DO UPDATE SET value = '0', updated_at = NOW()`
+        );
+        results.creatorFundDistribution = { creatorsRewarded: fundResult, poolKobo };
+      } else {
+        results.creatorFundDistribution = { skipped: true, reason: 'Pool is empty' };
+      }
     } catch (err) {
       errors.push(`creatorFund: ${String(err)}`);
     }
+  }
+
+  // 12. Guild tier demotion — demote guilds below minimum after 7 days
+  try {
+    // Minimum member counts per tier base (bronze_1/2/3 = 5, silver_1/2/3 = 15, etc.)
+    function tierMinMembers(tier: string): number {
+      if (tier.startsWith('legend'))   return 100;
+      if (tier.startsWith('platinum')) return 60;
+      if (tier.startsWith('gold'))     return 30;
+      if (tier.startsWith('silver'))   return 15;
+      return 0; // bronze tiers have no minimum
+    }
+
+    // Demotion map: go down one full tier (e.g. gold_1 → silver_3)
+    function demotedTier(tier: string): string | null {
+      if (tier === 'legend')       return 'platinum_3';
+      if (tier.startsWith('platinum')) return 'gold_3';
+      if (tier.startsWith('gold'))     return 'silver_3';
+      if (tier.startsWith('silver'))   return 'bronze_3';
+      return null; // bronze has no demotion
+    }
+
+    const { rows: guilds } = await db.query<{
+      id: string; captain_id: string; tier: string;
+      member_count: number; below_min_since: string | null;
+    }>(
+      `SELECT g.id, g.captain_id, g.tier, g.member_count, g.below_min_since
+       FROM guilds g
+       WHERE NOT g.tier LIKE 'bronze%'
+         AND g.deleted_at IS NULL`
+    );
+
+    let demoted = 0;
+    let flagged = 0;
+    const now = new Date();
+
+    for (const guild of guilds) {
+      const minMembers = tierMinMembers(guild.tier);
+      const isBelowMin = guild.member_count < minMembers;
+      const newTier = demotedTier(guild.tier);
+
+      if (isBelowMin && !guild.below_min_since) {
+        await db.query(
+          `UPDATE guilds SET below_min_since = NOW(), updated_at = NOW() WHERE id = $1`,
+          [guild.id]
+        );
+        flagged++;
+      } else if (!isBelowMin && guild.below_min_since) {
+        await db.query(
+          `UPDATE guilds SET below_min_since = NULL, updated_at = NOW() WHERE id = $1`,
+          [guild.id]
+        );
+      } else if (isBelowMin && guild.below_min_since && newTier) {
+        const daysBelowMin =
+          (now.getTime() - new Date(guild.below_min_since).getTime()) / 86_400_000;
+        if (daysBelowMin >= 7) {
+          await db.query(
+            `UPDATE guilds SET tier = $2, below_min_since = NULL, updated_at = NOW() WHERE id = $1`,
+            [guild.id, newTier]
+          );
+          await db.query(
+            `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+             VALUES ($1, 'guild_tier_demoted', $2, false, NOW())`,
+            [
+              guild.captain_id,
+              JSON.stringify({ guildId: guild.id, fromTier: guild.tier, toTier: newTier }),
+            ]
+          ).catch(() => {});
+          demoted++;
+        }
+      }
+    }
+
+    results.guildTierDemotion = { demoted, flagged };
+  } catch (err) {
+    errors.push(`guildTierDemotion: ${String(err)}`);
+  }
+
+  // 13. "The Patron" badge — award to users who are top gifter in 3+ rooms in last 24h
+  try {
+    // Find users who are the top gifter (by coin_value) in 3+ rooms in the last 24 hours
+    const { rows: patronCandidates } = await db.query<{ user_id: string; room_count: string }>(
+      `WITH room_totals AS (
+         SELECT room_id, sender_id, SUM(coin_value) AS total_coins
+         FROM gifts
+         WHERE created_at >= NOW() - INTERVAL '24 hours'
+           AND room_id IS NOT NULL
+         GROUP BY room_id, sender_id
+       ),
+       top_gifters AS (
+         SELECT DISTINCT ON (room_id) room_id, sender_id
+         FROM room_totals
+         ORDER BY room_id, total_coins DESC
+       )
+       SELECT sender_id AS user_id, COUNT(*)::text AS room_count
+       FROM top_gifters
+       GROUP BY sender_id
+       HAVING COUNT(*) >= 3`
+    );
+
+    let patronAwarded = 0;
+    for (const candidate of patronCandidates) {
+      await db.query(
+        `INSERT INTO user_badges (user_id, badge_key, granted_at, metadata)
+         VALUES ($1, 'patron', NOW(), $2)
+         ON CONFLICT (user_id, badge_key) DO UPDATE SET granted_at = NOW(), metadata = $2`,
+        [
+          candidate.user_id,
+          JSON.stringify({ roomCount: parseInt(candidate.room_count), awardedAt: new Date().toISOString() }),
+        ]
+      ).catch(() => {});
+      patronAwarded++;
+    }
+
+    results.patronBadge = { awarded: patronAwarded };
+  } catch (err) {
+    errors.push(`patronBadge: ${String(err)}`);
+  }
+
+  // 14. Leaderboard ripple notifications — notify users of passive rank changes
+  try {
+    // Compute current global rankings from leaderboard_snapshots
+    const { rows: currentRanks } = await db.query<{
+      user_id: string; rank: string; xp_value: string;
+    }>(
+      `SELECT user_id,
+              RANK() OVER (ORDER BY xp_value DESC)::text AS rank,
+              xp_value::text
+       FROM leaderboard_snapshots
+       WHERE track = 'main' AND scope = 'global'
+         AND season_id IS NULL`
+    );
+
+    let notified = 0;
+    for (const current of currentRanks) {
+      const currentRank = parseInt(current.rank);
+
+      // Get previous snapshot
+      const { rows: prev } = await db.query<{ rank: number; xp: number }>(
+        `SELECT rank, xp FROM leaderboard_rank_snapshots
+         WHERE user_id = $1 AND scope = 'global'`,
+        [current.user_id]
+      );
+
+      const prevRank = prev[0]?.rank ?? null;
+
+      if (prevRank !== null && prevRank !== currentRank) {
+        const direction = currentRank < prevRank ? 'up' : 'down';
+        // Only notify for meaningful passive changes (moved 5+ positions)
+        if (Math.abs(prevRank - currentRank) >= 5) {
+          await db.query(
+            `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+             VALUES ($1, 'rank_change', $2, false, NOW())`,
+            [
+              current.user_id,
+              JSON.stringify({
+                direction,
+                fromRank: prevRank,
+                toRank: currentRank,
+              }),
+            ]
+          ).catch(() => {});
+          notified++;
+        }
+      }
+
+      // Upsert the new snapshot
+      await db.query(
+        `INSERT INTO leaderboard_rank_snapshots (user_id, scope, rank, xp, snapped_at)
+         VALUES ($1, 'global', $2, $3, NOW())
+         ON CONFLICT (user_id, scope)
+         DO UPDATE SET rank = $2, xp = $3, snapped_at = NOW()`,
+        [current.user_id, currentRank, parseInt(current.xp_value)]
+      ).catch(() => {});
+    }
+
+    results.leaderboardRipple = { notified, snapshotCount: currentRanks.length };
+  } catch (err) {
+    errors.push(`leaderboardRipple: ${String(err)}`);
   }
 
   // 10. Platform Council invitation (last 7 days of month)
@@ -393,6 +587,14 @@ export const GET = async (req: NextRequest) => {
     results.reengagementDispatched = { dispatched };
   } catch (err) {
     errors.push(`reengagementDispatch: ${String(err)}`);
+  }
+
+  // 15. Monthly gift drop processing
+  try {
+    const giftDropResult = await processPendingGiftDrops(db);
+    results.giftDrops = giftDropResult;
+  } catch (err) {
+    errors.push(`giftDrops: ${String(err)}`);
   }
 
   return NextResponse.json({

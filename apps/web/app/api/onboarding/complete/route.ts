@@ -160,24 +160,42 @@ export const POST = withAuth(async (req, { auth }) => {
       }
 
       // 3. Update user profile + mark onboarding complete
+      // Derive personalization tags from quiz answers for Room/Guild seeding
+      const personalization = body.vibe_quiz_responses
+        ? {
+            ...body.vibe_quiz_responses,
+            // PRD §4: q1 seeds Room recommendations
+            roomAffinity: (body.vibe_quiz_responses as Record<string, string>).q1 ?? null,
+            // PRD §4: q2 surfaces Guild vs solo emphasis
+            guildEmphasis: ['crew', 'mostly_crew'].includes(
+              (body.vibe_quiz_responses as Record<string, string>).q2 ?? ''
+            ) ? 'guild' : 'solo',
+            // PRD §4: q3 adjusts onboarding tone
+            intent: (body.vibe_quiz_responses as Record<string, string>).q3 ?? null,
+            // PRD §4: q4 seeds competitive/social graph
+            cityVibe: (body.vibe_quiz_responses as Record<string, string>).q4 ?? null,
+          }
+        : null;
+
       await client.query(
         `UPDATE users SET
-           username             = $1,
-           display_name         = $2,
-           avatar_emoji         = $3,
-           city                 = $4,
-           vibe_quiz_responses  = $5,
-           date_of_birth        = $6,
-           referral_code        = $7,
-           onboarding_completed = true,
-           updated_at           = NOW()
+           username                   = $1,
+           display_name               = $2,
+           avatar_emoji               = $3,
+           city                       = $4,
+           vibe_quiz_responses        = $5,
+           onboarding_personalization = $5,
+           date_of_birth              = $6,
+           referral_code              = $7,
+           onboarding_completed       = true,
+           updated_at                 = NOW()
          WHERE id = $8 AND deleted_at IS NULL`,
         [
           body.username,
           body.display_name,
           body.avatar_emoji ?? null,
           body.city ?? null,
-          body.vibe_quiz_responses ? JSON.stringify(body.vibe_quiz_responses) : null,
+          personalization ? JSON.stringify(personalization) : null,
           body.date_of_birth,
           referralCode,
           auth.user.sub,

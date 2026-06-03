@@ -6,6 +6,11 @@
  * Feature flags panel.
  * Lists all feature_* manifest boolean keys with toggle switches.
  * Auto-saves on toggle. Shows last updated timestamp per flag.
+ *
+ * LABEL_MAP provides human-readable labels and descriptions for every
+ * PRD-required feature flag. The API returns raw key/enabled pairs; the
+ * page enriches them with metadata from this map before rendering.
+ * Unknown keys fall back to a generated label from the key name.
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -21,6 +26,97 @@ interface FeatureFlag {
   enabled: boolean;
   updatedAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// Label map — human-readable label + description for every feature_* key.
+// Covers the original flags and the 11 new PRD flags seeded by migration 008.
+// ---------------------------------------------------------------------------
+
+interface FlagMeta {
+  label: string;
+  description: string;
+}
+
+const LABEL_MAP: Record<string, FlagMeta> = {
+  // Core platform features (pre-existing)
+  feature_rooms: {
+    label: "Rooms",
+    description: "Enable the live audio/video Rooms feature.",
+  },
+  feature_direct_messages: {
+    label: "Direct Messages",
+    description: "Enable one-to-one and group direct messaging.",
+  },
+  feature_gifts: {
+    label: "Virtual Gifts",
+    description: "Allow users to send virtual gifts during live rooms.",
+  },
+  feature_rankings: {
+    label: "Rankings & Leaderboards",
+    description: "Show weekly and all-time XP leaderboards.",
+  },
+
+  // New PRD flags (seeded by migration 008)
+  feature_community_notes: {
+    label: "Community Notes",
+    description:
+      "Enable crowdsourced fact-checking notes on posts (similar to X/Twitter Community Notes).",
+  },
+  feature_star_purchase: {
+    label: "Star Currency Purchase",
+    description:
+      "Allow users to directly purchase Star currency with real money. Disable to use coins-only economy.",
+  },
+  feature_nemesis_system: {
+    label: "Nemesis System",
+    description:
+      "Enable the Nemesis rival assignment system: users are matched with rivals for weekly challenges.",
+  },
+  feature_guild_wars: {
+    label: "Guild Wars",
+    description:
+      "Enable the Guild Wars PvP event where guilds compete for XP and prizes.",
+  },
+  feature_classrooms: {
+    label: "ClassRooms",
+    description:
+      "Enable ClassRoom knowledge rooms where hosts can run structured Q&A sessions.",
+  },
+  feature_business_accounts: {
+    label: "Business Accounts",
+    description:
+      "Enable Business Account tiers with analytics, branded rooms, and API access.",
+  },
+  feature_admob_ads: {
+    label: "AdMob Ads",
+    description: "Show AdMob banner and interstitial ads to free-tier users.",
+  },
+  feature_rewarded_ads: {
+    label: "Rewarded Ads",
+    description:
+      "Allow free-tier users to watch rewarded ads in exchange for coins.",
+  },
+  feature_merch_store: {
+    label: "Creator Merch Store",
+    description:
+      "Enable the Creator Merch Store for Elite-tier creators to sell branded merchandise.",
+  },
+  feature_platform_council: {
+    label: "Platform Council",
+    description:
+      "Enable the Platform Council — the top 50 users by Legacy Score get a vote on platform decisions.",
+  },
+  feature_alliance_system: {
+    label: "Guild Alliance System",
+    description:
+      "Enable Guild Alliances: Platinum+ guilds can form multi-guild alliances for joint wars.",
+  },
+  feature_pin_auth: {
+    label: "PIN Authentication",
+    description:
+      "Allow users to set a 4-digit PIN as a secondary authentication method.",
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -144,11 +240,57 @@ export default function AdminFeatureFlagsPage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/admin/feature-flags", { credentials: "include" });
-        if (res.status === 401 || res.status === 403) { window.location.href = "/admin/login"; return; }
+        // Feature flags are stored as feature_* keys in x_manifest.
+        // We read all manifest entries from the config API and filter client-side.
+        const res = await fetch("/api/admin/config", { credentials: "include" });
+        if (res.status === 401 || res.status === 403) {
+          window.location.href = "/admin/login";
+          return;
+        }
         if (!res.ok) throw new Error("Failed to load flags");
-        const data = (await res.json()) as { flags: FeatureFlag[] };
-        setFlags(data.flags);
+
+        const body = (await res.json()) as {
+          success: boolean;
+          data?: Array<{
+            key: string;
+            value: string;
+            description: string | null;
+            updatedAt: string | null;
+          }>;
+        };
+
+        const allEntries = body.data ?? [];
+
+        // Filter to feature_* keys only, then enrich with LABEL_MAP metadata.
+        const featureEntries = allEntries.filter((e) =>
+          e.key.startsWith("feature_")
+        );
+
+        const enriched: FeatureFlag[] = featureEntries.map((e) => {
+          const meta = LABEL_MAP[e.key];
+          // Fallback: convert snake_case key to Title Case label
+          const fallbackLabel = e.key
+            .replace(/^feature_/, "")
+            .replace(/_/g, " ")
+            .replace(/\b\w/g, (c) => c.toUpperCase());
+          return {
+            key: e.key,
+            label: meta?.label ?? fallbackLabel,
+            description: meta?.description ?? e.description ?? "",
+            enabled: e.value === "true",
+            updatedAt: e.updatedAt ?? new Date().toISOString(),
+          };
+        });
+
+        // Sort: LABEL_MAP keys first (known flags), then unknown alphabetically.
+        enriched.sort((a, b) => {
+          const aKnown = a.key in LABEL_MAP ? 0 : 1;
+          const bKnown = b.key in LABEL_MAP ? 0 : 1;
+          if (aKnown !== bKnown) return aKnown - bKnown;
+          return a.key.localeCompare(b.key);
+        });
+
+        setFlags(enriched);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Unknown error");
       } finally {
@@ -163,7 +305,8 @@ export default function AdminFeatureFlagsPage() {
         method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ value: enabled }),
+        // API expects a string value
+        body: JSON.stringify({ value: String(enabled) }),
       });
       if (!res.ok) throw new Error("Failed to save");
       showToast(`${key} ${enabled ? "enabled" : "disabled"}`);

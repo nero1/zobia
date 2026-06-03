@@ -3,10 +3,16 @@
  *
  * Admin login page.
  *
- * Authentication: email + password + optional TOTP 2FA.
+ * Authentication: email + password + MANDATORY TOTP 2FA (PRD §20).
+ * "Authentication: email + password + mandatory 2FA (authenticator app). No Google OAuth."
+ *
+ * Flow:
+ *  1. Credentials step — email + password
+ *  2. ALWAYS proceeds to TOTP step (2FA is mandatory, never optional)
+ *  3. If admin has not set up 2FA yet → redirected to /admin/setup-2fa
+ *
  * NO Google OAuth – admin auth is credentials-only for security.
- * The server-side handler (POST /api/admin/auth/login) verifies credentials
- * against the database and checks the is_admin flag directly from the DB.
+ * is_admin is verified against the DB on every admin API call.
  */
 
 "use client";
@@ -20,6 +26,7 @@ type Step = "credentials" | "totp";
 
 /**
  * Admin login page component.
+ * 2FA is mandatory — the TOTP step is always shown after valid credentials.
  */
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -31,6 +38,7 @@ export default function AdminLoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Step 1: verify credentials — always proceed to TOTP step
   const handleCredentialsSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -43,9 +51,9 @@ export default function AdminLoginPage() {
         body: JSON.stringify({ email, password }),
       });
 
-      const data = await res.json() as {
+      const data = (await res.json()) as {
         success?: boolean;
-        requireTotp?: boolean;
+        needsSetup?: boolean; // true if admin hasn't configured 2FA yet
         error?: string;
       };
 
@@ -54,12 +62,14 @@ export default function AdminLoginPage() {
         return;
       }
 
-      if (data.requireTotp) {
-        setStep("totp");
-      } else if (data.success) {
-        router.push("/(admin)/admin");
-        router.refresh();
+      if (data.needsSetup) {
+        // Admin hasn't set up 2FA — redirect to setup page
+        router.push("/admin/setup-2fa");
+        return;
       }
+
+      // Always proceed to TOTP regardless — 2FA is mandatory
+      setStep("totp");
     } catch {
       setError("Network error. Please try again.");
     } finally {
@@ -67,6 +77,7 @@ export default function AdminLoginPage() {
     }
   };
 
+  // Step 2: verify TOTP code
   const handleTotpSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -79,7 +90,7 @@ export default function AdminLoginPage() {
         body: JSON.stringify({ email, password, code: totpCode }),
       });
 
-      const data = await res.json() as { success?: boolean; error?: string };
+      const data = (await res.json()) as { success?: boolean; error?: string };
 
       if (!res.ok) {
         setError(data.error ?? "Invalid code. Please try again.");
@@ -87,7 +98,7 @@ export default function AdminLoginPage() {
       }
 
       if (data.success) {
-        router.push("/(admin)/admin");
+        router.push("/admin");
         router.refresh();
       }
     } catch {
@@ -106,27 +117,30 @@ export default function AdminLoginPage() {
             <span className="text-xl font-bold text-neutral-900 dark:text-neutral-50">
               Zobia
             </span>
-            <span className="rounded bg-gold-100 px-1.5 py-0.5 text-xs font-bold text-gold-700 dark:bg-gold-900 dark:text-gold-300">
+            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-bold text-amber-700 dark:bg-amber-900 dark:text-amber-300">
               ADMIN
             </span>
           </div>
           <p className="text-sm text-neutral-500 dark:text-neutral-400">
             {step === "credentials"
               ? "Sign in to the admin panel"
-              : "Enter your two-factor code"}
+              : "Two-factor authentication required"}
           </p>
         </div>
 
         {/* Card */}
-        <div className="rounded-2xl border border-neutral-200 bg-white px-8 py-8 shadow-elevated dark:border-neutral-800 dark:bg-neutral-900">
+        <div className="rounded-2xl border border-neutral-200 bg-white px-8 py-8 shadow-lg dark:border-neutral-800 dark:bg-neutral-900">
           {/* Error */}
           {error && (
-            <div className="mb-5 rounded-lg border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-700 dark:border-danger-800 dark:bg-danger-950 dark:text-danger-300">
+            <div
+              role="alert"
+              className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
+            >
               {error}
             </div>
           )}
 
-          {/* Credentials step */}
+          {/* Step 1: Credentials */}
           {step === "credentials" && (
             <form onSubmit={handleCredentialsSubmit} className="space-y-4">
               <Input
@@ -156,21 +170,20 @@ export default function AdminLoginPage() {
                 fullWidth
                 isLoading={isLoading}
               >
-                Sign in
+                Continue
               </Button>
             </form>
           )}
 
-          {/* TOTP step */}
+          {/* Step 2: TOTP (mandatory) */}
           {step === "totp" && (
             <form onSubmit={handleTotpSubmit} className="space-y-4">
-              <p className="text-sm text-neutral-600 dark:text-neutral-400">
-                Open your authenticator app and enter the 6-digit code for{" "}
-                <strong className="font-medium text-neutral-900 dark:text-neutral-50">
-                  {email}
-                </strong>
-                .
-              </p>
+              {/* 2FA mandatory notice */}
+              <div className="rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                🔐 <strong>2FA is required</strong> for all admin access. Open Google
+                Authenticator or Authy and enter the 6-digit code for{" "}
+                <strong>{email}</strong>.
+              </div>
               <Input
                 id="totp-code"
                 label="Authenticator code"
@@ -191,7 +204,7 @@ export default function AdminLoginPage() {
                 fullWidth
                 isLoading={isLoading}
               >
-                Verify
+                Verify &amp; Sign in
               </Button>
               <button
                 type="button"
@@ -202,7 +215,7 @@ export default function AdminLoginPage() {
                 }}
                 className="mt-2 w-full text-center text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
               >
-                Back to login
+                ← Back to credentials
               </button>
             </form>
           )}
@@ -210,7 +223,7 @@ export default function AdminLoginPage() {
 
         {/* Security notice */}
         <p className="mt-4 text-center text-xs text-neutral-400">
-          Admin access only. Unauthorised attempts are logged.
+          Admin access only. All login attempts are logged.
         </p>
       </div>
     </div>

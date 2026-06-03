@@ -5,7 +5,18 @@
  *
  * Platform configuration page for admin panel.
  * Grouped settings with inline editing, toggle switches for booleans,
- * and per-key save via PUT /api/admin/config/[key].
+ * select dropdowns for enum fields, and per-key save via PUT /api/admin/config/[key].
+ *
+ * Groups covered:
+ *   Auth       - Google OAuth, Telegram login
+ *   CAPTCHA    - provider selector (recaptcha / turnstile / none)
+ *   GIF        - provider selector (giphy / tenor)
+ *   PWA        - web / android / ios toggles
+ *   Payments   - primary provider, paystack, dodopayments
+ *   Economy    - coin-to-cash rate, payout thresholds, season pass, VIP room prices
+ *   Limits     - minimum age
+ *   AdMob      - admob ads, rewarded ads
+ *   Miscellaneous - deep link base URL, and any unknown keys
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -14,7 +25,20 @@ import { useState, useEffect, useCallback } from "react";
 // Types
 // ---------------------------------------------------------------------------
 
-type ConfigValueType = "boolean" | "string" | "number";
+type ConfigValueType = "boolean" | "string" | "number" | "select";
+
+interface SelectOption {
+  value: string;
+  label: string;
+}
+
+interface ConfigMeta {
+  label: string;
+  description: string;
+  type: ConfigValueType;
+  group: string;
+  options?: SelectOption[]; // for type === "select"
+}
 
 interface ConfigItem {
   key: string;
@@ -23,21 +47,181 @@ interface ConfigItem {
   value: boolean | string | number;
   type: ConfigValueType;
   group: string;
+  options?: SelectOption[];
 }
 
 type GroupedConfig = Record<string, ConfigItem[]>;
 
 // ---------------------------------------------------------------------------
-// Constants
+// Metadata map — defines label, description, type, group (and options) for
+// every x_manifest key that should appear in the config panel.
+// Keys not listed here are shown in "Miscellaneous" with a generic string type.
 // ---------------------------------------------------------------------------
 
+const CONFIG_META: Record<string, ConfigMeta> = {
+  // Auth
+  auth_google_enabled: {
+    label: "Google OAuth",
+    description: "Allow users to sign in with their Google account.",
+    type: "boolean",
+    group: "Auth",
+  },
+  auth_telegram_enabled: {
+    label: "Telegram Login",
+    description: "Allow users to sign in via Telegram Login widget.",
+    type: "boolean",
+    group: "Auth",
+  },
+
+  // CAPTCHA
+  captcha_provider: {
+    label: "CAPTCHA Provider",
+    description:
+      "CAPTCHA service used on registration, login, and sensitive forms.",
+    type: "select",
+    group: "CAPTCHA",
+    options: [
+      { value: "recaptcha", label: "Google reCAPTCHA v3" },
+      { value: "turnstile", label: "Cloudflare Turnstile" },
+      { value: "none", label: "None (disable CAPTCHA)" },
+    ],
+  },
+
+  // GIF
+  gif_provider: {
+    label: "GIF Search Provider",
+    description: "Third-party service used to power the GIF picker in chat.",
+    type: "select",
+    group: "GIF",
+    options: [
+      { value: "giphy", label: "Giphy" },
+      { value: "tenor", label: "Tenor (Google)" },
+    ],
+  },
+
+  // PWA
+  pwa_web_enabled: {
+    label: "PWA — Web Browser",
+    description: "Enable Progressive Web App install prompt in desktop/mobile browsers.",
+    type: "boolean",
+    group: "PWA",
+  },
+  pwa_android_enabled: {
+    label: "PWA — Android",
+    description: "Enable PWA install for Android home screen.",
+    type: "boolean",
+    group: "PWA",
+  },
+  pwa_ios_enabled: {
+    label: "PWA — iOS",
+    description: "Enable PWA install for iOS home screen (Safari Add to Home Screen).",
+    type: "boolean",
+    group: "PWA",
+  },
+
+  // Payments
+  payment_primary_provider: {
+    label: "Primary Payment Provider",
+    description: "The default gateway used for deposits and payouts.",
+    type: "select",
+    group: "Payments",
+    options: [
+      { value: "paystack", label: "Paystack" },
+      { value: "dodopayments", label: "Dodo Payments" },
+      { value: "none", label: "None (payments disabled)" },
+    ],
+  },
+  payment_paystack_enabled: {
+    label: "Paystack Enabled",
+    description: "Allow Paystack as a payment method.",
+    type: "boolean",
+    group: "Payments",
+  },
+  payment_dodopayments_enabled: {
+    label: "Dodo Payments Enabled",
+    description: "Allow Dodo Payments as a payment method.",
+    type: "boolean",
+    group: "Payments",
+  },
+
+  // Economy
+  coin_to_cash_rate: {
+    label: "Coin-to-Cash Rate",
+    description: "Number of coins equivalent to ₦1 (e.g. 100 means 100 coins = ₦1).",
+    type: "number",
+    group: "Economy",
+  },
+  payout_threshold_kobo: {
+    label: "Minimum Payout (kobo)",
+    description: "Minimum creator payout amount in kobo. 100 kobo = ₦1.",
+    type: "number",
+    group: "Economy",
+  },
+  payout_large_approval_kobo: {
+    label: "Large Payout Approval Threshold (kobo)",
+    description:
+      "Withdrawals above this kobo amount require manual admin approval.",
+    type: "number",
+    group: "Economy",
+  },
+  season_pass_price_coins: {
+    label: "Season Pass Price (coins)",
+    description: "Default price of a Season Pass in Zobia coins.",
+    type: "number",
+    group: "Economy",
+  },
+  vip_room_min_price_kobo: {
+    label: "VIP Room Min Price (kobo)",
+    description: "Minimum subscription price a creator can set for a VIP Room.",
+    type: "number",
+    group: "Economy",
+  },
+  vip_room_max_price_kobo: {
+    label: "VIP Room Max Price (kobo)",
+    description: "Maximum subscription price a creator can set for a VIP Room.",
+    type: "number",
+    group: "Economy",
+  },
+
+  // Limits
+  minimum_age: {
+    label: "Minimum Registration Age",
+    description: "Minimum age (in years) required to create an account.",
+    type: "number",
+    group: "Limits",
+  },
+
+  // AdMob
+  feature_admob_ads: {
+    label: "AdMob Ads",
+    description: "Show AdMob banner/interstitial ads to free-tier users.",
+    type: "boolean",
+    group: "AdMob",
+  },
+  feature_rewarded_ads: {
+    label: "Rewarded Ads",
+    description: "Allow free-tier users to earn coins by watching rewarded ads.",
+    type: "boolean",
+    group: "AdMob",
+  },
+
+  // Miscellaneous
+  deep_link_base_url: {
+    label: "Deep Link Base URL",
+    description: "Base URL used when generating deep links (e.g. https://zobia.app).",
+    type: "string",
+    group: "Miscellaneous",
+  },
+};
+
+// Groups that should be shown even if they have no items, and in what order.
 const GROUP_ORDER = [
   "Auth",
-  "Features",
+  "CAPTCHA",
+  "GIF",
+  "PWA",
   "Payments",
   "Economy",
-  "Email",
-  "CAPTCHA",
   "AdMob",
   "Limits",
   "Miscellaneous",
@@ -71,15 +255,15 @@ function ToggleSwitch({ checked, onChange, disabled }: ToggleSwitchProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Inline edit field
+// Config row — supports boolean toggle, select dropdown, and inline text/number edit
 // ---------------------------------------------------------------------------
 
-interface InlineEditProps {
+interface ConfigRowProps {
   item: ConfigItem;
   onSave: (key: string, value: boolean | string | number) => Promise<void>;
 }
 
-function ConfigRow({ item, onSave }: InlineEditProps) {
+function ConfigRow({ item, onSave }: ConfigRowProps) {
   const [editing, setEditing] = useState(false);
   const [localValue, setLocalValue] = useState<string>(String(item.value));
   const [saving, setSaving] = useState(false);
@@ -104,14 +288,30 @@ function ConfigRow({ item, onSave }: InlineEditProps) {
     setTimeout(() => setSaved(false), 2000);
   }
 
+  async function handleSelectChange(val: string) {
+    setSaving(true);
+    await onSave(item.key, val);
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
+
   return (
     <div className="flex flex-wrap items-start gap-4 border-b border-neutral-100 py-4 last:border-0 dark:border-neutral-800">
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-mono text-xs text-neutral-500 dark:text-neutral-400">{item.key}</span>
-          {saved && <span className="rounded-full bg-teal-100 px-2 py-0.5 text-xs font-semibold text-teal-700 dark:bg-teal-900 dark:text-teal-300">Saved ✓</span>}
+          <span className="font-mono text-xs text-neutral-500 dark:text-neutral-400">
+            {item.key}
+          </span>
+          {saved && (
+            <span className="rounded-full bg-teal-100 px-2 py-0.5 text-xs font-semibold text-teal-700 dark:bg-teal-900 dark:text-teal-300">
+              Saved ✓
+            </span>
+          )}
         </div>
-        <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{item.label}</p>
+        <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+          {item.label}
+        </p>
         <p className="text-xs text-neutral-500">{item.description}</p>
       </div>
 
@@ -122,6 +322,19 @@ function ConfigRow({ item, onSave }: InlineEditProps) {
             onChange={handleToggle}
             disabled={saving}
           />
+        ) : item.type === "select" ? (
+          <select
+            value={String(item.value)}
+            onChange={(e) => handleSelectChange(e.target.value)}
+            disabled={saving}
+            className="rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-60 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+          >
+            {item.options?.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
         ) : editing ? (
           <div className="flex items-center gap-2">
             <input
@@ -139,7 +352,10 @@ function ConfigRow({ item, onSave }: InlineEditProps) {
               {saving ? "…" : "Save"}
             </button>
             <button
-              onClick={() => { setEditing(false); setLocalValue(String(item.value)); }}
+              onClick={() => {
+                setEditing(false);
+                setLocalValue(String(item.value));
+              }}
               className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold text-neutral-700 dark:border-neutral-700 dark:text-neutral-300"
             >
               Cancel
@@ -164,6 +380,67 @@ function ConfigRow({ item, onSave }: InlineEditProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Raw row returned by GET /api/admin/config */
+interface RawManifestEntry {
+  key: string;
+  value: string;
+  description: string | null;
+  updatedAt: string | null;
+}
+
+/**
+ * Convert a raw x_manifest row into a typed ConfigItem using CONFIG_META for
+ * label/description/type/group, falling back to sensible defaults for unknown keys.
+ */
+function toConfigItem(entry: RawManifestEntry): ConfigItem {
+  const meta = CONFIG_META[entry.key];
+
+  // Skip pure feature_* keys — they are managed by the Feature Flags panel,
+  // EXCEPT admob/rewarded which live in the AdMob group above.
+  if (
+    entry.key.startsWith("feature_") &&
+    entry.key !== "feature_admob_ads" &&
+    entry.key !== "feature_rewarded_ads"
+  ) {
+    return null as unknown as ConfigItem; // filtered out below
+  }
+
+  if (meta) {
+    let parsedValue: boolean | string | number;
+    if (meta.type === "boolean") {
+      parsedValue = entry.value === "true";
+    } else if (meta.type === "number") {
+      parsedValue = parseInt(entry.value, 10) || 0;
+    } else {
+      // string or select
+      parsedValue = entry.value;
+    }
+    return {
+      key: entry.key,
+      label: meta.label,
+      description: meta.description,
+      value: parsedValue,
+      type: meta.type,
+      group: meta.group,
+      options: meta.options,
+    };
+  }
+
+  // Fallback for unknown keys — show as editable string in Miscellaneous
+  return {
+    key: entry.key,
+    label: entry.key,
+    description: entry.description ?? "",
+    value: entry.value,
+    type: "string",
+    group: "Miscellaneous",
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
@@ -175,25 +452,48 @@ export default function AdminConfigPage() {
   const [grouped, setGrouped] = useState<GroupedConfig>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
+  const [toast, setToast] = useState<{
+    msg: string;
+    type: "success" | "error";
+  } | null>(null);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(
     Object.fromEntries(GROUP_ORDER.map((g) => [g, true]))
   );
 
-  const showToast = useCallback((msg: string, type: "success" | "error" = "success") => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 3500);
-  }, []);
+  const showToast = useCallback(
+    (msg: string, type: "success" | "error" = "success") => {
+      setToast({ msg, type });
+      setTimeout(() => setToast(null), 3500);
+    },
+    []
+  );
 
   useEffect(() => {
     (async () => {
       try {
         const res = await fetch("/api/admin/config", { credentials: "include" });
-        if (res.status === 401 || res.status === 403) { window.location.href = "/admin/login"; return; }
+        if (res.status === 401 || res.status === 403) {
+          window.location.href = "/admin/login";
+          return;
+        }
         if (!res.ok) throw new Error("Failed to load config");
-        const data = (await res.json()) as { config: ConfigItem[] };
+
+        // The API returns { success, data: RawManifestEntry[], error }
+        const body = (await res.json()) as {
+          success: boolean;
+          data?: RawManifestEntry[];
+          // legacy shape support
+          config?: RawManifestEntry[];
+        };
+
+        const rawEntries: RawManifestEntry[] = body.data ?? body.config ?? [];
+
+        const items: ConfigItem[] = rawEntries
+          .map(toConfigItem)
+          .filter(Boolean);
+
         const g: GroupedConfig = {};
-        for (const item of data.config) {
+        for (const item of items) {
           const group = item.group || "Miscellaneous";
           if (!g[group]) g[group] = [];
           g[group].push(item);
@@ -209,13 +509,18 @@ export default function AdminConfigPage() {
 
   async function handleSave(key: string, value: boolean | string | number) {
     try {
+      // The API expects string values
+      const stringValue =
+        typeof value === "boolean" ? String(value) : String(value);
+
       const res = await fetch(`/api/admin/config/${key}`, {
         method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ value }),
+        body: JSON.stringify({ value: stringValue }),
       });
       if (!res.ok) throw new Error("Failed to save");
+
       // Update local state
       setGrouped((prev) => {
         const next: GroupedConfig = {};
@@ -241,22 +546,31 @@ export default function AdminConfigPage() {
 
   return (
     <div className="relative space-y-4">
-      <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">Platform Configuration</h1>
+      <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">
+        Platform Configuration
+      </h1>
 
       {toast && (
-        <div className={`fixed bottom-6 right-6 z-50 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-modal ${toast.type === "success" ? "bg-teal-600" : "bg-red-600"}`}>
+        <div
+          className={`fixed bottom-6 right-6 z-50 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-modal ${toast.type === "success" ? "bg-teal-600" : "bg-red-600"}`}
+        >
           {toast.msg}
         </div>
       )}
 
       {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{error}</div>
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+          {error}
+        </div>
       )}
 
       {loading ? (
         <div className="space-y-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="animate-pulse rounded-xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div
+              key={i}
+              className="animate-pulse rounded-xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900"
+            >
               <div className="mb-4 h-5 w-32 rounded bg-neutral-200 dark:bg-neutral-700" />
               {Array.from({ length: 3 }).map((__, j) => (
                 <div key={j} className="mb-3 flex items-center justify-between">
@@ -269,16 +583,25 @@ export default function AdminConfigPage() {
         </div>
       ) : (
         sortedGroups.map((group) => (
-          <div key={group} className="rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+          <div
+            key={group}
+            className="rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900"
+          >
             <button
               onClick={() => toggleGroup(group)}
               className="flex w-full items-center justify-between px-5 py-4 text-left"
             >
               <div>
-                <h2 className="font-semibold text-neutral-900 dark:text-neutral-100">{group}</h2>
-                <p className="text-xs text-neutral-500">{grouped[group]?.length ?? 0} settings</p>
+                <h2 className="font-semibold text-neutral-900 dark:text-neutral-100">
+                  {group}
+                </h2>
+                <p className="text-xs text-neutral-500">
+                  {grouped[group]?.length ?? 0} settings
+                </p>
               </div>
-              <span className="text-neutral-400">{openGroups[group] ? "▲" : "▼"}</span>
+              <span className="text-neutral-400">
+                {openGroups[group] ? "▲" : "▼"}
+              </span>
             </button>
             {openGroups[group] && (
               <div className="border-t border-neutral-100 px-5 dark:border-neutral-800">
