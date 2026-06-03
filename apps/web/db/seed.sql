@@ -388,5 +388,61 @@ INSERT INTO announcement_banners (
 ) ON CONFLICT DO NOTHING;
 
 -- ============================================================
+-- 8. Default Reaction Sets
+--    Three purchasable packs available to all users on launch.
+-- ============================================================
+
+-- 8a. Zobia Fire Pack (100 coins)
+INSERT INTO reaction_sets (id, name, description, coin_price, preview_emoji, is_active)
+VALUES (
+  '00000000-0000-0000-0004-000000000001',
+  'Zobia Fire Pack',
+  'Hot reactions for the hottest takes. The entry-level pack.',
+  100,
+  '🔥',
+  true
+) ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO reaction_set_items (set_id, emoji, name, sort_order) VALUES
+  ('00000000-0000-0000-0004-000000000001', '🔥', 'Fire',     0),
+  ('00000000-0000-0000-0004-000000000001', '💥', 'Explode',  1),
+  ('00000000-0000-0000-0004-000000000001', '⚡', 'Electric', 2)
+ON CONFLICT DO NOTHING;
+
+-- 8b. Golden Pack (200 coins)
+INSERT INTO reaction_sets (id, name, description, coin_price, preview_emoji, is_active)
+VALUES (
+  '00000000-0000-0000-0004-000000000002',
+  'Golden Pack',
+  'Prestige reactions for the elite. Gold standard only.',
+  200,
+  '👑',
+  true
+) ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO reaction_set_items (set_id, emoji, name, sort_order) VALUES
+  ('00000000-0000-0000-0004-000000000002', '👑', 'Crown',   0),
+  ('00000000-0000-0000-0004-000000000002', '💎', 'Diamond', 1),
+  ('00000000-0000-0000-0004-000000000002', '🏆', 'Trophy',  2)
+ON CONFLICT DO NOTHING;
+
+-- 8c. Boss Pack (500 coins)
+INSERT INTO reaction_sets (id, name, description, coin_price, preview_emoji, is_active)
+VALUES (
+  '00000000-0000-0000-0004-000000000003',
+  'Boss Pack',
+  'For those who run the room. Top-tier reactions, boss energy only.',
+  500,
+  '🦁',
+  true
+) ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO reaction_set_items (set_id, emoji, name, sort_order) VALUES
+  ('00000000-0000-0000-0004-000000000003', '🦁', 'Lion',   0),
+  ('00000000-0000-0000-0004-000000000003', '💰', 'Money',  1),
+  ('00000000-0000-0000-0004-000000000003', '🎯', 'Target', 2)
+ON CONFLICT DO NOTHING;
+
+-- ============================================================
 -- Done.  Seed complete.
 -- ============================================================

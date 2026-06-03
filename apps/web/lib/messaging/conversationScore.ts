@@ -75,6 +75,34 @@ function cacheKey(u1: string, u2: string): string {
 // Public API
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Connection Badge
+// ---------------------------------------------------------------------------
+
+/** Streak threshold (in days) required to unlock the Connection Badge. */
+const CONNECTION_BADGE_STREAK_DAYS = 7;
+
+/**
+ * Checks whether the given streak day count meets the Connection Badge threshold.
+ *
+ * Returns true when streakDays >= 7, indicating the badge should be (or has been)
+ * unlocked for this conversation pair.  Callers are responsible for persisting
+ * the badge state; this function is purely a threshold check.
+ *
+ * @param _conversationId - The conversation identifier (reserved for future per-conversation logic)
+ * @param streak          - The current streak in days for the conversation pair
+ */
+export function checkConnectionBadgeUnlock(
+  _conversationId: string,
+  streak: number
+): boolean {
+  return streak >= CONNECTION_BADGE_STREAK_DAYS;
+}
+
+// ---------------------------------------------------------------------------
+// Score updates
+// ---------------------------------------------------------------------------
+
 /**
  * Update the conversation score for a user pair when a scoring event occurs.
  *

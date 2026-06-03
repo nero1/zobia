@@ -6,9 +6,11 @@
  * Room detail page (web version).
  * Two-column layout: main message feed + sidebar (room info, creator, top gifters).
  * Supports VIP subscribe overlay and Drop entry fee notices.
- * Polls for new messages every 3 seconds.
+ * Polls for new messages every 2 seconds.
  *
- * TODO: Replace polling with Supabase Realtime channel subscription:
+ * TODO: Replace polling with Supabase Realtime channel subscription once the
+ * Supabase client is configured in production. The SSE route at
+ * /api/rooms/[roomId]/stream can also be used as a server-push alternative:
  *   const channel = supabase.channel(`room:${roomId}`)
  *     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `room_id=eq.${roomId}` }, handleNewMessage)
  *     .subscribe();
@@ -286,7 +288,8 @@ export default function RoomPage() {
 
   useEffect(() => {
     void fetchMessages();
-    pollRef.current = setInterval(fetchMessages, 3000);
+    // 2-second interval; replace with Supabase Realtime in production
+    pollRef.current = setInterval(fetchMessages, 2000);
     return () => clearInterval(pollRef.current);
   }, [fetchMessages]);
 

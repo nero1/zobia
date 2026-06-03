@@ -12,6 +12,7 @@
  */
 
 import Link from "next/link";
+import { RoomPulseBar } from "@/components/ui/RoomPulseBar";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -28,6 +29,9 @@ export interface RoomCardData {
   coverImageUrl?: string;
   creatorUsername: string;
   memberCount: number;
+  maxMembers?: number;
+  /** Number of messages sent in this room in the last 2 hours. Used by RoomPulseBar. */
+  recentMessageCount?: number;
   isJoined: boolean;
   entryFee?: number; // coins, for drop rooms
   subscriptionPrice?: number; // coins, for vip rooms
@@ -94,6 +98,15 @@ export function RoomCard({ room, onJoin, joining }: RoomCardProps) {
           <span>@{room.creatorUsername}</span>
           <span>{room.memberCount.toLocaleString()} members</span>
         </div>
+
+        {/* Activity pulse bar — shows recent message volume vs capacity */}
+        {room.recentMessageCount !== undefined && (
+          <RoomPulseBar
+            activeCount={room.recentMessageCount}
+            maxCapacity={room.maxMembers ?? 10_000}
+            className="mt-2"
+          />
+        )}
 
         {/* Entry cost note */}
         {room.type === "vip" && room.subscriptionPrice && (
