@@ -62,6 +62,7 @@ interface UserProfile {
   rankLabel: string;
   subLevel: number;
   prestigeStars: number;
+  legacyScore: number;
   trackLevels: TrackLevel[];
   guildName: string | null;
   guildCrest: string | null;
@@ -254,6 +255,11 @@ export default function PublicProfileScreen() {
             {profile.rankLabel} · Sub {profile.subLevel}
           </Text>
         </View>
+        {profile.legacyScore > 0 && (
+          <Text style={[styles.legacyScore, { color: colors.brand.gold }]}>
+            ⚜️ {profile.legacyScore.toLocaleString()}
+          </Text>
+        )}
       </View>
 
       {/* Guild badge */}
@@ -390,9 +396,10 @@ const styles = StyleSheet.create({
   metaRow: { flexDirection: 'row', gap: 12, flexWrap: 'wrap', justifyContent: 'center' },
   metaText: { fontSize: 13 },
 
-  rankSection: { alignItems: 'center', paddingTop: 4 },
+  rankSection: { alignItems: 'center', paddingTop: 4, gap: 4 },
   rankBadge: { borderRadius: 20, paddingHorizontal: 16, paddingVertical: 5 },
   rankBadgeText: { color: colors.neutral[0], fontSize: 13, fontWeight: '700' },
+  legacyScore: { fontSize: 13, fontWeight: '700' },
 
   guildBadge: {
     flexDirection: 'row',

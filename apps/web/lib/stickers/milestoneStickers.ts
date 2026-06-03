@@ -151,10 +151,48 @@ export async function awardMilestoneStickers(
     );
 
     awarded.push(grant.packName);
+
+    // After granting, check if user has hit a collector badge milestone
+    await checkStickerCollectorBadges(userId, db).catch(() => {});
   } catch (err) {
     // Non-fatal — log and continue
     console.error("[milestoneStickers] Failed to award pack", { userId, unlockKey, err });
   }
 
   return awarded;
+}
+
+// ---------------------------------------------------------------------------
+// Sticker Collector Badges
+// ---------------------------------------------------------------------------
+
+const COLLECTOR_BADGE_THRESHOLDS = [1, 3, 5, 10] as const;
+
+/**
+ * Awards sticker_collector_* badges when a user reaches 1/3/5/10 total sticker packs.
+ * Safe to call multiple times — uses ON CONFLICT DO NOTHING.
+ */
+export async function checkStickerCollectorBadges(
+  userId: string,
+  db: DatabaseAdapter
+): Promise<void> {
+  // Count total packs owned by the user
+  const { rows: countRows } = await db.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM user_sticker_packs WHERE user_id = $1`,
+    [userId]
+  );
+  const totalPacks = parseInt(countRows[0]?.count ?? "0");
+  if (totalPacks === 0) return;
+
+  for (const threshold of COLLECTOR_BADGE_THRESHOLDS) {
+    if (totalPacks >= threshold) {
+      const badgeKey = `sticker_collector_${threshold}`;
+      await db.query(
+        `INSERT INTO user_badges (user_id, badge_key, awarded_at)
+         VALUES ($1, $2, NOW())
+         ON CONFLICT (user_id, badge_key) DO NOTHING`,
+        [userId, badgeKey]
+      ).catch(() => {}); // Non-fatal if user_badges table doesn't have this key
+    }
+  }
 }
