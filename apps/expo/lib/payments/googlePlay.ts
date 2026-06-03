@@ -22,12 +22,14 @@ export interface CoinProduct {
   title?: string;
 }
 
-/** Maps Play Store product IDs to coin amounts. */
+/** Maps Play Store product IDs to coin amounts (base + bonus = total). */
 const COIN_PRODUCTS: CoinProduct[] = [
-  { id: 'coins_100',  coins: 100,  price: '₦100' },
-  { id: 'coins_500',  coins: 500,  price: '₦500' },
-  { id: 'coins_1000', coins: 1000, price: '₦1,000' },
-  { id: 'coins_2500', coins: 2500, price: '₦2,500' },
+  { id: 'coins_starter', coins: 100,    price: '₦200' },   // 100 base, no bonus
+  { id: 'coins_regular', coins: 350,    price: '₦500' },   // 300 base + 50 bonus
+  { id: 'coins_big',     coins: 800,    price: '₦1,000' }, // 700 base + 100 bonus
+  { id: 'coins_baller',  coins: 1800,   price: '₦2,000' }, // 1,600 base + 200 bonus
+  { id: 'coins_boss',    coins: 5000,   price: '₦5,000' }, // 4,500 base + 500 bonus
+  { id: 'coins_legend',  coins: 11500,  price: '₦10,000' },// 10,000 base + 1,500 bonus
 ];
 
 const PRODUCT_IDS = COIN_PRODUCTS.map((p) => p.id);
