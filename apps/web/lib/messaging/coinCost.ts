@@ -100,9 +100,9 @@ export function canInitiateDM(plan: Plan): boolean {
 export function getDailyDMLimits(plan: Plan): DailyDMLimits {
   switch (plan) {
     case "free":
-      return { sentLimit: 0, replyLimit: null }; // cannot initiate; replies governed by coin cost
+      return { sentLimit: 0, replyLimit: 25 }; // cannot initiate; 25 replies/day
     case "plus":
-      return { sentLimit: 0, replyLimit: null }; // cannot initiate
+      return { sentLimit: 0, replyLimit: 50 }; // cannot initiate; 50 replies/day
     case "pro":
       return { sentLimit: 25, replyLimit: 100 };
     case "max":

@@ -43,6 +43,9 @@ const TOP_CONTRIBUTOR_BONUS_XP = 1_000;
 /** Total coins distributed to the winning guild's treasury (split by rank). */
 const WAR_WIN_TREASURY_COINS = 2_000;
 
+/** Coins charged from a guild's treasury to declare war. */
+export const WAR_ENTRY_FEE_COINS = 200;
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------

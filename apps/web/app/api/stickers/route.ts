@@ -187,8 +187,8 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       const badgeType = BADGE_MILESTONES[totalPacks];
       if (badgeType) {
         await db.query(
-          `INSERT INTO user_badges (user_id, badge_type, reference_id, awarded_at)
-           VALUES ($1, $2, $1, NOW())
+          `INSERT INTO user_badges (user_id, badge_type, badge_key, reference_id, granted_at, awarded_at)
+           VALUES ($1, $2, $2, $1, NOW(), NOW())
            ON CONFLICT (user_id, badge_type, reference_id) DO NOTHING`,
           [userId, badgeType]
         );

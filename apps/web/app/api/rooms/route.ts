@@ -26,6 +26,7 @@ import { withAuth, validateBody, validateSearchParams } from "@/lib/api/middlewa
 import { handleApiError, badRequest, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { loadManifest } from "@/lib/manifest";
+import { meetsMinimumTrust } from "@/lib/trust/trustScore";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -182,6 +183,33 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
 
     const params = validateSearchParams(req.nextUrl.searchParams, listRoomsQuerySchema);
 
+    // Fetch user's Vibe Quiz personalization to seed category affinity (PRD §4)
+    // The vibe quiz answer for q1 ("argue/gist/learn/flex") maps to room categories.
+    let vibeCategories: string[] = [];
+    try {
+      const { rows: vibeRows } = await db.query<{ onboarding_personalization: unknown }>(
+        `SELECT onboarding_personalization FROM users WHERE id = $1 LIMIT 1`,
+        [auth.user.sub]
+      );
+      const personalization = vibeRows[0]?.onboarding_personalization as Record<string, string> | null;
+      if (personalization) {
+        // roomAffinity is the vibe quiz q1 answer: argue|gist|learn|flex
+        const affinity = personalization.roomAffinity ?? personalization.categoryAffinity ?? null;
+        if (affinity) {
+          // Map vibe quiz answers to room categories
+          const VIBE_CATEGORY_MAP: Record<string, string[]> = {
+            argue:  ["debate", "politics", "sports"],
+            gist:   ["entertainment", "lifestyle", "gossip"],
+            learn:  ["education", "knowledge", "technology"],
+            flex:   ["music", "fashion", "creativity"],
+          };
+          vibeCategories = VIBE_CATEGORY_MAP[affinity] ?? [affinity];
+        }
+      }
+    } catch {
+      // Non-fatal — personalization is a best-effort boost
+    }
+
     const conditions: string[] = [
       "r.is_active = TRUE",
       "r.type != 'guild'", // Guild rooms not discoverable publicly
@@ -226,7 +254,20 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
     queryParams.push(params.limit);
     const limitParam = paramIndex++;
 
-    const orderBy = params.trending ? buildTrendingOrderClause() : "r.updated_at DESC";
+    // Vibe Quiz category affinity boost: rooms matching the user's preferred categories
+    // are surfaced higher in discovery (PRD §4 — quiz results silently configure home feed)
+    const vibeCategoryBoost =
+      vibeCategories.length > 0
+        ? `CASE WHEN r.category = ANY(ARRAY[${vibeCategories.map((_, i) => `$${paramIndex + i}`).join(",")}]::TEXT[]) THEN 100 ELSE 0 END + `
+        : "";
+    if (vibeCategories.length > 0) {
+      vibeCategories.forEach((c) => queryParams.push(c));
+      paramIndex += vibeCategories.length;
+    }
+
+    const orderBy = params.trending
+      ? `(${vibeCategoryBoost}${buildTrendingOrderClause().trim().replace(" DESC", "")}) DESC`
+      : `${vibeCategoryBoost}r.updated_at DESC`;
 
     const { rows } = await db.query<RoomRow>(
       `SELECT
@@ -364,6 +405,16 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       case "classroom":
         if (body.enrolmentFeeNgn === undefined) {
           throw badRequest("enrolmentFeeNgn is required for Classroom rooms (use 0 for free)");
+        }
+        // Trust Score gate: paid ClassRooms require 30-day account age + trust score ≥ 40 (PRD §19)
+        if (body.enrolmentFeeNgn > 0) {
+          const eligible = await meetsMinimumTrust(auth.user.sub, "classroom_creation", db);
+          if (!eligible) {
+            throw forbidden(
+              "Paid ClassRooms require a 30-day account history and a minimum trust score. " +
+              "Your account needs more time on the platform."
+            );
+          }
         }
         break;
 

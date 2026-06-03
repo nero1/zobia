@@ -17,7 +17,7 @@ import type { DatabaseAdapter } from "@/lib/db/interface";
 // Types
 // ---------------------------------------------------------------------------
 
-export type LeaderboardScope = "global" | "city" | "guild" | "season";
+export type LeaderboardScope = "global" | "national" | "city" | "guild" | "season";
 export type LeaderboardTrack =
   | "main"
   | "social"
@@ -86,7 +86,9 @@ export async function getUserRank(
   const params: (string | null)[] = [userId];
   let paramIdx = 2;
 
-  if (scope === "city" && options?.city) {
+  if (scope === "national") {
+    scopeCondition = `AND COALESCE(u.country, '') = 'NG'`;
+  } else if (scope === "city" && options?.city) {
     scopeCondition = `AND u.city = $${paramIdx++}`;
     params.push(options.city);
   } else if (scope === "guild" && options?.guildId) {
@@ -150,7 +152,9 @@ export async function getLeaderboard(
   const params: (string | number | null)[] = [];
   let paramIdx = 1;
 
-  if (scope === "city" && city) {
+  if (scope === "national") {
+    conditions.push(`COALESCE(u.country, '') = 'NG'`);
+  } else if (scope === "city" && city) {
     conditions.push(`u.city = $${paramIdx++}`);
     params.push(city);
   } else if (scope === "guild" && options?.guildId) {

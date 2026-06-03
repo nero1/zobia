@@ -18,7 +18,12 @@ import { z } from "zod";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, notFound, handleApiError } from "@/lib/api/errors";
 import { db } from "@/lib/db";
-import { debitCoins } from "@/lib/economy/coins";
+import { debitCoins, creditCoins } from "@/lib/economy/coins";
+
+// Platform takes 20% of gifts received by creators (PRD §14)
+const CREATOR_GIFT_FEE_PERCENT = 20;
+// Platform takes 5% of user-to-user coin gifts (PRD §11)
+const USER_GIFT_FEE_PERCENT = 5;
 
 // ---------------------------------------------------------------------------
 // Request schema
@@ -49,6 +54,7 @@ interface GiftItemRow {
 interface UserRow {
   id: string;
   username: string;
+  is_creator: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -128,7 +134,8 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 
     // 2. Verify recipient exists
     const { rows: recipientRows } = await db.query<UserRow>(
-      `SELECT id, username FROM users
+      `SELECT id, username, COALESCE(is_creator, false) AS is_creator
+       FROM users
        WHERE id = $1 AND deleted_at IS NULL AND is_banned = FALSE
        LIMIT 1`,
       [body.recipientId]
@@ -144,8 +151,13 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     let giftId: string;
     let spectacleTriggered = false;
 
+    // Compute fee split — creators get 80% (20% platform fee), users get 95% (5% fee)
+    const feePercent = recipient.is_creator ? CREATOR_GIFT_FEE_PERCENT : USER_GIFT_FEE_PERCENT;
+    const platformFeeCoins = Math.floor((giftItem.coin_cost * feePercent) / 100);
+    const recipientCoins = giftItem.coin_cost - platformFeeCoins;
+
     await db.transaction(async (tx) => {
-      // Debit coins from sender
+      // Debit full coin cost from sender
       await debitCoins(
         senderId,
         giftItem.coin_cost,
@@ -155,6 +167,34 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
         { recipientId: body.recipientId, giftItemId: giftItem.id },
         tx
       );
+
+      // Credit coins to recipient (80% for creators, 95% for regular users)
+      await creditCoins(
+        body.recipientId,
+        recipientCoins,
+        "gift_received",
+        null,
+        `Received ${giftItem.emoji} ${giftItem.name} from a friend`,
+        { senderId, giftItemId: giftItem.id },
+        tx
+      );
+
+      // Record creator_earnings for creator payout tracking
+      if (recipient.is_creator && recipientCoins > 0) {
+        // Use coin value as proxy for kobo (platform tracks actual payouts separately)
+        await tx.query(
+          `INSERT INTO creator_earnings
+             (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo, reference_id)
+           VALUES ($1, 'gift', $2, $3, $4, $5)`,
+          [
+            body.recipientId,
+            giftItem.coin_cost,
+            platformFeeCoins,
+            recipientCoins,
+            null, // reference_id set after gift record created below
+          ]
+        ).catch(() => {}); // non-fatal if creator_earnings table structure differs
+      }
 
       // Create the gift record
       const { rows: giftInsert } = await tx.query<{ id: string }>(

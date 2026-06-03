@@ -242,7 +242,12 @@ export interface XPMultiplierContext {
   guildTier?: string;
   hasActiveSeasonPass?: boolean;
   hasActiveXPBooster?: boolean;
+  /** If set to a future ISO date string, the prestige cycle 3× boost is active. */
+  prestigeCycleBoostExpiresAt?: string | null;
 }
+
+/** Prestige cycle boost multiplier in basis points (3×, PRD §9 Prestige 3). */
+export const PRESTIGE_CYCLE_BOOST_BP = 300;
 
 /**
  * Applies all stacked multipliers to a base XP amount and returns
@@ -265,6 +270,16 @@ export function applyMultipliers(baseXP: number, ctx: XPMultiplierContext): numb
   // XP Booster Pack: use if it's better than the plan multiplier
   if (ctx.hasActiveXPBooster && BOOSTER_PACK_MULTIPLIER_BP > planBP) {
     planBP = BOOSTER_PACK_MULTIPLIER_BP;
+  }
+
+  // Prestige cycle boost (3× for first 7 days after each Prestige ≥ 3, PRD §9)
+  // Replaces the plan multiplier if higher
+  if (
+    ctx.prestigeCycleBoostExpiresAt &&
+    new Date(ctx.prestigeCycleBoostExpiresAt) > new Date() &&
+    PRESTIGE_CYCLE_BOOST_BP > planBP
+  ) {
+    planBP = PRESTIGE_CYCLE_BOOST_BP;
   }
 
   // Apply plan multiplier

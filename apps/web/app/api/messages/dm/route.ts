@@ -140,12 +140,52 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     const sender = senderRows[0];
     if (!sender) throw forbidden("Your account is not able to send messages");
 
-    // 2. Verify recipient exists
-    const { rows: recipientRows } = await db.query<{ id: string }>(
-      `SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+    // 2. Verify recipient exists and is reachable
+    const { rows: recipientRows } = await db.query<{
+      id: string;
+      is_suspended: boolean;
+      dm_privacy: string;
+    }>(
+      `SELECT id, COALESCE(is_suspended, false) AS is_suspended,
+              COALESCE(dm_privacy, 'everyone') AS dm_privacy
+       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
       [body.recipientId]
     );
     if (!recipientRows[0]) throw badRequest("Recipient not found");
+
+    // Suspended recipients show a generic unavailable notice (no ban reason disclosed)
+    if (recipientRows[0].is_suspended) {
+      throw badRequest(
+        "This account is temporarily unavailable.",
+        "RECIPIENT_UNAVAILABLE"
+      );
+    }
+
+    // Block check: fail silently with generic error if recipient has blocked sender
+    const { rows: blockRows } = await db.query<{ id: string }>(
+      `SELECT id FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2 LIMIT 1`,
+      [body.recipientId, auth.user.sub]
+    );
+    if (blockRows[0] && !sender.is_admin) {
+      throw badRequest(
+        "This account is temporarily unavailable.",
+        "RECIPIENT_UNAVAILABLE"
+      );
+    }
+
+    // dm_privacy: 'friends_only' — only friends can initiate
+    if (recipientRows[0].dm_privacy === "friends_only" && !sender.is_admin) {
+      const { rows: friendRows } = await db.query<{ id: string }>(
+        `SELECT id FROM friendships
+         WHERE ((requester_id = $1 AND addressee_id = $2)
+             OR (requester_id = $2 AND addressee_id = $1))
+           AND status = 'accepted' LIMIT 1`,
+        [auth.user.sub, body.recipientId]
+      );
+      if (!friendRows[0]) {
+        throw forbidden("This user only accepts DMs from friends.");
+      }
+    }
 
     // 3. Check for an existing conversation between the two users
     const { rows: convRows } = await db.query<ConversationRow>(

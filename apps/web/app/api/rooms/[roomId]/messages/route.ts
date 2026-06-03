@@ -235,11 +235,13 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
          m.metadata,
          m.reply_to_message_id,
          m.is_deleted,
+         COALESCE(m.is_pinned, false) AS is_pinned,
+         m.pinned_at,
          m.created_at
        FROM room_messages m
        JOIN users u ON u.id = m.sender_id
        WHERE ${conditions.join(" AND ")}
-       ORDER BY m.created_at DESC
+       ORDER BY m.is_pinned DESC NULLS LAST, m.created_at DESC
        LIMIT $${limitParam}`,
       queryArgs
     );
