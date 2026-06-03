@@ -119,13 +119,17 @@ export const POST = withAuth(
         throw forbidden("You can only manage your own merch store");
       }
 
-      // Verify caller is a creator
-      const { rows: userRows } = await db.query<{ is_creator: boolean }>(
-        `SELECT is_creator FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+      // Verify caller is an Elite+ creator (per PRD §14: Merch Store is Elite tier+)
+      const { rows: userRows } = await db.query<{ is_creator: boolean; creator_tier: string | null }>(
+        `SELECT is_creator, creator_tier FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
         [userId]
       );
       if (!userRows[0]?.is_creator) {
         throw forbidden("Creator account required");
+      }
+      const tier = userRows[0]?.creator_tier ?? "";
+      if (!["elite", "icon", "zobia_icon"].includes(tier)) {
+        throw forbidden("Merch stores are available to Elite, Icon, and Zobia Icon creators only");
       }
 
       const body = await validateBody(req, upsertStoreSchema);

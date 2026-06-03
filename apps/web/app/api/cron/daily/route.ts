@@ -524,6 +524,7 @@ export const GET = async (req: NextRequest) => {
          WHERE pcm.user_id IS NULL
            AND u.is_active = true
            AND u.login_streak_days > 0
+           AND u.prestige_count >= 5
          ORDER BY u.legacy_score DESC
          LIMIT 50`
       );
