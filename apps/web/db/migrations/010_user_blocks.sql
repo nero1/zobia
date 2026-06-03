@@ -89,7 +89,23 @@ CREATE INDEX IF NOT EXISTS idx_creator_payouts_creator ON creator_payouts(creato
 CREATE INDEX IF NOT EXISTS idx_creator_payouts_status  ON creator_payouts(status) WHERE status NOT IN ('completed', 'failed');
 
 -- ============================================================
--- 6. DM reply limit tightening — update x_manifest defaults
+-- 6. Room message reactions (PRD §11 — custom reaction sets)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS room_message_reactions (
+  id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  message_id UUID NOT NULL REFERENCES room_messages(id) ON DELETE CASCADE,
+  user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  room_id    UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+  emoji      TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(message_id, user_id, emoji)
+);
+
+CREATE INDEX IF NOT EXISTS idx_room_msg_reactions_msg  ON room_message_reactions(message_id);
+CREATE INDEX IF NOT EXISTS idx_room_msg_reactions_user ON room_message_reactions(user_id);
+
+-- ============================================================
+-- 7. DM reply limit tightening — update x_manifest defaults
 -- ============================================================
 -- Free: 25 replies/day, Plus: 50 replies/day (PRD §3 table)
 INSERT INTO x_manifest (key, value, description) VALUES

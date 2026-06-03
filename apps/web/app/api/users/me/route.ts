@@ -122,6 +122,7 @@ const updateProfileSchema = z.object({
   dm_notifications: z.boolean().optional(),
   guild_notifications: z.boolean().optional(),
   streak_notifications: z.boolean().optional(),
+  dm_privacy: z.enum(["everyone", "friends_only", "nobody"]).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -138,6 +139,7 @@ const SELECT_COLUMNS = `
   login_streak, longest_streak, last_login_at, last_active_at,
   guild_id, referral_code, push_token,
   dm_notifications, guild_notifications, streak_notifications,
+  COALESCE(dm_privacy, 'everyone') AS dm_privacy,
   created_at, updated_at
 `;
 
@@ -235,6 +237,10 @@ export const PUT = withAuth(async (req: NextRequest, { auth }) => {
     if (body.streak_notifications !== undefined) {
       updates.push(`streak_notifications = $${paramIdx++}`);
       params.push(body.streak_notifications);
+    }
+    if (body.dm_privacy !== undefined) {
+      updates.push(`dm_privacy = $${paramIdx++}`);
+      params.push(body.dm_privacy);
     }
 
     if (updates.length === 0) {
