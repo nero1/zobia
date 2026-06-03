@@ -1,14 +1,15 @@
 /**
  * k6 load test — Daily login CRON endpoint
  *
- * Tests the scheduled daily login endpoint that processes daily XP awards
- * and streak tracking. This is a low-VU test since it's a CRON endpoint
- * that should only be invoked by the scheduler.
+ * Simulates the thundering herd after midnight reset: 500 concurrent
+ * users hitting the daily CRON endpoint simultaneously.
+ * PRD §28 requires this test to run at 500 VUs.
  *
  * Scenario:
  *  - GET /api/cron/daily
  *  - Authenticated with the CRON_SECRET header
- *  - Low VU count (5) to avoid hammering the endpoint
+ *  - 500 VUs — models the spike immediately after midnight when all
+ *    users attempt to claim their daily login bonus
  *  - Assert response status 200 and acceptable response time
  *
  * Run:
@@ -33,10 +34,11 @@ const cronDuration = new Trend('daily_cron_duration', true);
 // ---------------------------------------------------------------------------
 
 export const options = {
+  // PRD §28: thundering herd simulation requires 500 VUs at midnight reset
   stages: [
-    { duration: '10s', target: 5 },   // ramp up to 5 VUs
-    { duration: '1m', target: 5 },    // sustain 5 VUs for 1 minute
-    { duration: '10s', target: 0 },   // ramp down
+    { duration: '10s', target: 500 },  // ramp up to 500 VUs (simulates midnight rush)
+    { duration: '2m',  target: 500 },  // sustain 500 VUs for 2 minutes
+    { duration: '10s', target: 0 },    // ramp down
   ],
   thresholds: {
     // CRON endpoint can be slightly slower — allow up to 2000ms at p95

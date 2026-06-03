@@ -1,7 +1,8 @@
 /**
  * k6 load test — Room discovery feed
  *
- * Simulates 50 concurrent users fetching the public room feed.
+ * Simulates 1,000 concurrent users fetching the public room feed.
+ * PRD §28 requires this test to run at 1,000 VUs.
  *
  * Scenario:
  *  - GET /api/rooms?limit=20
@@ -31,11 +32,11 @@ const roomFeedDuration = new Trend('room_feed_duration', true);
 
 export const options = {
   ...defaultOptions,
-  // Override stages for room feed — ramp to 50 VUs (same as default)
+  // PRD §28: room feed must sustain 1,000 concurrent VUs
   stages: [
-    { duration: '30s', target: 50 },
-    { duration: '2m', target: 50 },
-    { duration: '30s', target: 0 },
+    { duration: '30s', target: 1000 },  // ramp up to 1,000 VUs over 30 seconds
+    { duration: '2m',  target: 1000 },  // sustain 1,000 VUs for 2 minutes
+    { duration: '30s', target: 0 },     // ramp down to 0 over 30 seconds
   ],
   thresholds: {
     ...defaultOptions.thresholds,

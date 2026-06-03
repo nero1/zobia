@@ -244,6 +244,30 @@ export const POST = withAuth(async (req, { auth }) => {
         }
       }
 
+      // 9. Create the New Member Quest for this user.
+      //    Tracks 5 steps: send_message, join_room, gift_someone, add_friend, daily_login
+      //    Payout on completion: 1,000 Coins + 2,000 XP
+      const newMemberQuestProgress = {
+        steps: [
+          { id: 'send_message', label: 'Send a message', completed: false },
+          { id: 'join_room',    label: 'Join a Room',    completed: false },
+          { id: 'gift_someone', label: 'Gift someone',   completed: false },
+          { id: 'add_friend',   label: 'Add a friend',   completed: false },
+          { id: 'daily_login',  label: 'Complete a daily login', completed: false },
+        ],
+      };
+
+      await client.query(
+        `INSERT INTO user_quests
+           (user_id, quest_type, progress, completed, created_at, updated_at)
+         VALUES ($1, 'new_member', $2, FALSE, NOW(), NOW())
+         ON CONFLICT (user_id, quest_type) DO NOTHING`,
+        [auth.user.sub, JSON.stringify(newMemberQuestProgress)]
+      ).catch(() => {
+        // If user_quests table doesn't exist yet or has a different schema, non-fatal
+        console.warn('[onboarding/complete] Could not insert new_member quest (non-fatal)');
+      });
+
       return { referralCode };
     });
 
