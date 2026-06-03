@@ -75,11 +75,10 @@ export const GET = withAuth(async (req: NextRequest, ctx: AuthContext) => {
     );
     const referralCode = userResult.rows[0]?.referral_code ?? null;
 
-    // Build referral URL using ?r=<userId> format (numeric user IDs per spec).
-    // We use the UUID here — the deep link spec uses the user's UUID sub.
+    // Build referral URL using ?r=<referralCode> format (PRD §15).
+    // Referral codes are 9-digit numeric strings (e.g. ?r=471370973).
     const appUrl =
       process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.social";
-    // Encode as base62 short code is not yet implemented; use referral_code as query param path
     const referralUrl = referralCode
       ? `${appUrl}/?r=${encodeURIComponent(referralCode)}`
       : null;

@@ -74,6 +74,11 @@ interface PurchaseResult {
   paymentReference: string;
 }
 
+interface PurchaseArgs {
+  packId: string;
+  packType: 'coin_pack' | 'star_pack';
+}
+
 // ---------------------------------------------------------------------------
 // API
 // ---------------------------------------------------------------------------
@@ -83,10 +88,11 @@ async function fetchStore(): Promise<StoreData> {
   return data;
 }
 
-async function initiatePurchase(packId: string): Promise<PurchaseResult> {
-  const { data } = await apiClient.post<PurchaseResult>('/economy/coins/purchase', {
-    packId,
-  });
+async function initiatePurchase({ packId, packType }: PurchaseArgs): Promise<PurchaseResult> {
+  const endpoint = packType === 'star_pack'
+    ? '/economy/stars/purchase'
+    : '/economy/coins/purchase';
+  const { data } = await apiClient.post<PurchaseResult>(endpoint, { packId });
   return data;
 }
 
@@ -182,6 +188,7 @@ export default function StoreScreen() {
   const router = useRouter();
   const { colors: themeColors } = useTheme();
   const [purchasingId, setPurchasingId] = useState<string | null>(null);
+  const [purchasingStarId, setPurchasingStarId] = useState<string | null>(null);
 
   const { data, isLoading, isError, refetch } = useQuery<StoreData>({
     queryKey: ['economy', 'store'],
@@ -189,10 +196,11 @@ export default function StoreScreen() {
     staleTime: 5 * 60_000,
   });
 
-  const purchaseMutation = useMutation<PurchaseResult, Error, string>({
+  const purchaseMutation = useMutation<PurchaseResult, Error, PurchaseArgs>({
     mutationFn: initiatePurchase,
-    onMutate: (packId) => {
-      setPurchasingId(packId);
+    onMutate: ({ packId, packType }) => {
+      if (packType === 'star_pack') setPurchasingStarId(packId);
+      else setPurchasingId(packId);
     },
     onSuccess: async (result) => {
       // Open the provider checkout URL in the device browser
@@ -207,11 +215,13 @@ export default function StoreScreen() {
         Alert.alert('Error', 'Failed to open payment page');
       } finally {
         setPurchasingId(null);
+        setPurchasingStarId(null);
       }
     },
     onError: (err) => {
       Alert.alert('Purchase Failed', err.message);
       setPurchasingId(null);
+      setPurchasingStarId(null);
     },
   });
 
@@ -271,7 +281,7 @@ export default function StoreScreen() {
                 bonusLabel={pack.bonusLabel}
                 isFeatured={pack.isFeatured}
                 isPurchasing={purchasingId === pack.id}
-                onBuy={(id) => purchaseMutation.mutate(id)}
+                onBuy={(id) => purchaseMutation.mutate({ packId: id, packType: 'coin_pack' })}
               />
             ))}
           </View>
@@ -296,8 +306,8 @@ export default function StoreScreen() {
                 grantedLabel="Stars"
                 bonusLabel={pack.bonusLabel}
                 isFeatured={pack.isFeatured}
-                isPurchasing={purchasingId === pack.id}
-                onBuy={(id) => purchaseMutation.mutate(id)}
+                isPurchasing={purchasingStarId === pack.id}
+                onBuy={(id) => purchaseMutation.mutate({ packId: id, packType: 'star_pack' })}
               />
             ))}
           </View>

@@ -38,6 +38,16 @@ interface LeaderboardResponse {
   currentUserPage: number;
 }
 
+interface SponsoredBanner {
+  id: string;
+  sponsorName: string;
+  sponsorLogoUrl: string | null;
+  ctaText: string;
+  ctaUrl: string;
+  startsAt: string;
+  endsAt: string;
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -151,6 +161,7 @@ export default function LeaderboardsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [banner, setBanner] = useState<SponsoredBanner | null>(null);
   const perPage = 20;
 
   const fetchData = useCallback(async (s: Scope, t: Track, p: number) => {
@@ -167,6 +178,16 @@ export default function LeaderboardsPage() {
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  // Fetch sponsored banner (once on mount, public endpoint)
+  useEffect(() => {
+    fetch("/api/leaderboards/banner")
+      .then((r) => r.ok ? r.json() : null)
+      .then((json) => {
+        if (json?.data?.banner) setBanner(json.data.banner as SponsoredBanner);
+      })
+      .catch(() => {/* non-fatal */});
   }, []);
 
   useEffect(() => {
@@ -213,6 +234,37 @@ export default function LeaderboardsPage() {
           </button>
         ))}
       </div>
+
+      {/* Sponsored banner */}
+      {banner && (
+        <a
+          href={banner.ctaUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 transition-colors hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/40 dark:hover:bg-amber-900/40"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            {banner.sponsorLogoUrl && (
+              <img
+                src={banner.sponsorLogoUrl}
+                alt={banner.sponsorName}
+                className="h-8 w-8 flex-shrink-0 rounded-md object-contain"
+              />
+            )}
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                Sponsored
+              </p>
+              <p className="truncate text-sm font-semibold text-neutral-800 dark:text-neutral-100">
+                {banner.sponsorName}
+              </p>
+            </div>
+          </div>
+          <span className="flex-shrink-0 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-bold text-white">
+            {banner.ctaText}
+          </span>
+        </a>
+      )}
 
       {/* Error */}
       {error && (

@@ -86,13 +86,15 @@ export const GET = async (req: NextRequest) => {
       [yesterday, today]
     );
 
-    // Reset streaks for users who missed a day
+    // Reset streaks for users who missed a day; preserve last streak for re-engagement gating
     const streakReset = await db.query<{ count: string }>(
       `WITH reset AS (
          UPDATE users
-         SET login_streak_days = 0,
+         SET last_streak_before_break = login_streak_days,
+             login_streak_days = 0,
              updated_at = NOW()
          WHERE last_login_date < $1
+           AND login_streak_days > 0
          RETURNING 1
        )
        SELECT COUNT(*) AS count FROM reset`,
@@ -522,6 +524,7 @@ export const GET = async (req: NextRequest) => {
          WHERE pcm.user_id IS NULL
            AND u.is_active = true
            AND u.login_streak_days > 0
+           AND u.prestige_count >= 5
          ORDER BY u.legacy_score DESC
          LIMIT 50`
       );
@@ -547,15 +550,17 @@ export const GET = async (req: NextRequest) => {
 
   // 11. Re-engagement notification dispatch
   try {
-    // Find users with inactivity events not yet notified today
+    // Find users with inactivity events not yet notified today (include streak for gating)
     const { rows: inactiveUsers } = await db.query<{
       user_id: string;
       days_inactive: number;
       email: string | null;
+      last_streak_before_break: number;
     }>(
       `SELECT DISTINCT ON (uie.user_id)
          uie.user_id, uie.inactive_days AS days_inactive,
-         u.email
+         u.email,
+         COALESCE(u.last_streak_before_break, 0) AS last_streak_before_break
        FROM user_inactivity_events uie
        JOIN users u ON u.id = uie.user_id
        WHERE uie.notified = false
@@ -567,9 +572,41 @@ export const GET = async (req: NextRequest) => {
     const { sendPushNotification } = await import('@/lib/notifications/push');
     const { sendEmail } = await import('@/lib/notifications/email');
 
+    // 11a. Credit 200 comeback coins for users who just hit 90-day inactivity threshold
+    //      Coins are "reserved" — if the user doesn't log in within 7 days they will be
+    //      reversed by the expiry task below.
+    const COMEBACK_COIN_AMOUNT = 200;
+    for (const user of inactiveUsers) {
+      if (user.days_inactive === 90) {
+        try {
+          await db.transaction(async (tx) => {
+            await tx.query(
+              `UPDATE users SET coin_balance = COALESCE(coin_balance, 0) + $1, updated_at = NOW()
+               WHERE id = $2`,
+              [COMEBACK_COIN_AMOUNT, user.user_id]
+            );
+            await tx.query(
+              `INSERT INTO coin_ledger (user_id, amount, type, reference_id, description, created_at)
+               VALUES ($1, $2, 'comeback_bonus_reserved',
+                 gen_random_uuid(),
+                 'Comeback bonus — expires in 7 days if unused',
+                 NOW())`,
+              [user.user_id, COMEBACK_COIN_AMOUNT]
+            );
+          });
+        } catch {
+          // Non-fatal — coin reservation failure must not block notifications
+        }
+      }
+    }
+
     let dispatched = 0;
     for (const user of inactiveUsers) {
-      const payload = await getReengagementPayload(user.user_id, user.days_inactive);
+      const payload = await getReengagementPayload(
+        user.user_id,
+        user.days_inactive,
+        user.last_streak_before_break
+      );
       if (!payload) continue;
 
       // Send push notification (fire-and-forget)
@@ -826,11 +863,13 @@ export const GET = async (req: NextRequest) => {
       user_id: string;
       telegram_id: string;
       days_inactive: number;
+      last_streak_before_break: number;
     }>(
       `SELECT DISTINCT ON (uie.user_id)
          uie.user_id,
          u.telegram_id,
-         uie.inactive_days AS days_inactive
+         uie.inactive_days AS days_inactive,
+         COALESCE(u.last_streak_before_break, 0) AS last_streak_before_break
        FROM user_inactivity_events uie
        JOIN users u ON u.id = uie.user_id
        WHERE uie.notified = false
@@ -845,7 +884,11 @@ export const GET = async (req: NextRequest) => {
 
     let telegramSent = 0;
     for (const user of telegramUsers) {
-      const payload = await getReengagementPayload(user.user_id, user.days_inactive);
+      const payload = await getReengagementPayload(
+        user.user_id,
+        user.days_inactive,
+        user.last_streak_before_break
+      );
       if (!payload) continue;
 
       sendTelegramMessage(
@@ -935,6 +978,65 @@ export const GET = async (req: NextRequest) => {
     }
   } catch (err) {
     errors.push(`monthlyPlanBonus: ${String(err)}`);
+  }
+
+  // 22. Expire unclaimed 90-day comeback coin reservations (7-day window)
+  //     Users who received the comeback bonus but never logged in within 7 days
+  //     have their reserved coins reversed to keep economy consistent.
+  try {
+    const COMEBACK_COIN_AMOUNT = 200;
+
+    // Find users with a comeback_bonus_reserved entry older than 7 days
+    // who have NOT logged in since the bonus was issued
+    const { rows: expiredBonusUsers } = await db.query<{
+      user_id: string;
+      ledger_id: string;
+      bonus_granted_at: string;
+    }>(
+      `SELECT cl.user_id, cl.id AS ledger_id, cl.created_at AS bonus_granted_at
+       FROM coin_ledger cl
+       JOIN users u ON u.id = cl.user_id
+       WHERE cl.type = 'comeback_bonus_reserved'
+         AND cl.created_at < NOW() - INTERVAL '7 days'
+         AND NOT EXISTS (
+           SELECT 1 FROM coin_ledger cl2
+           WHERE cl2.user_id = cl.user_id
+             AND cl2.type = 'comeback_bonus_claimed'
+             AND cl2.created_at > cl.created_at
+         )
+         AND (u.last_active_at IS NULL OR u.last_active_at < cl.created_at)
+         AND u.deleted_at IS NULL`
+    );
+
+    let expiredBonuses = 0;
+    for (const row of expiredBonusUsers) {
+      try {
+        await db.transaction(async (tx) => {
+          await tx.query(
+            `UPDATE users
+             SET coin_balance = GREATEST(COALESCE(coin_balance, 0) - $1, 0),
+                 updated_at = NOW()
+             WHERE id = $2`,
+            [COMEBACK_COIN_AMOUNT, row.user_id]
+          );
+          await tx.query(
+            `INSERT INTO coin_ledger (user_id, amount, type, reference_id, description, created_at)
+             VALUES ($1, $2, 'comeback_bonus_expired',
+               gen_random_uuid(),
+               'Comeback bonus expired (7-day window passed)',
+               NOW())`,
+            [row.user_id, -COMEBACK_COIN_AMOUNT]
+          );
+        });
+        expiredBonuses++;
+      } catch {
+        // Non-fatal
+      }
+    }
+
+    results.comebackBonusExpiry = { expired: expiredBonuses };
+  } catch (err) {
+    errors.push(`comebackBonusExpiry: ${String(err)}`);
   }
 
   return NextResponse.json({

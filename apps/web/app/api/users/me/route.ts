@@ -270,3 +270,59 @@ export const PUT = withAuth(async (req: NextRequest, { auth }) => {
     return handleApiError(err);
   }
 });
+
+// ---------------------------------------------------------------------------
+// DELETE /api/users/me — Account deletion (soft delete + anonymisation)
+// ---------------------------------------------------------------------------
+
+/**
+ * Delete the authenticated user's account.
+ *
+ * Per PRD §23: "User deletion anonymises records rather than hard-deleting
+ * to preserve referential integrity."
+ *
+ * Anonymisation:
+ *   - email → NULL
+ *   - display_name → "Deleted User"
+ *   - username → "deleted_<id_suffix>"
+ *   - bio, avatar_emoji, city → NULL
+ *   - push_token → NULL
+ *   - deleted_at → NOW()
+ *
+ * The user's messages and content remain but are attributed to an
+ * anonymous "Deleted User" to preserve conversation integrity.
+ */
+export const DELETE = withAuth(async (_req: NextRequest, { auth }) => {
+  try {
+    await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
+
+    const userId = auth.user.sub;
+    const shortId = userId.replace(/-/g, "").slice(0, 8);
+
+    await db.query(
+      `UPDATE users
+       SET email           = NULL,
+           display_name    = 'Deleted User',
+           username        = $2,
+           bio             = NULL,
+           avatar_emoji    = '👤',
+           city            = NULL,
+           push_token      = NULL,
+           google_id       = NULL,
+           telegram_id     = NULL,
+           password_hash   = NULL,
+           pin_hash        = NULL,
+           deleted_at      = NOW(),
+           updated_at      = NOW()
+       WHERE id = $1 AND deleted_at IS NULL`,
+      [userId, `deleted_${shortId}`]
+    );
+
+    return NextResponse.json(
+      { success: true, data: { message: "Account deleted. We're sorry to see you go." }, error: null },
+      { status: 200 }
+    );
+  } catch (err) {
+    return handleApiError(err);
+  }
+});
