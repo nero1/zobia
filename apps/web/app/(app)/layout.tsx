@@ -1,40 +1,102 @@
 /**
  * app/(app)/layout.tsx
  *
- * Authenticated application layout.
+ * Authenticated application layout (server component).
  *
  * Wraps all app pages (home, rooms, messages, profile) with:
  *   - Top navigation bar
  *   - Desktop sidebar
  *   - Offline banner
+ *   - Announcement banner & modal (resolved server-side per user)
  *
  * Authentication is enforced at the middleware layer (middleware.ts).
  * This layout assumes the user is already authenticated.
  */
 
+import { cookies } from "next/headers";
 import { Navbar } from "@/components/layout/Navbar";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { OfflineBanner } from "@/components/offline/OfflineBanner";
-import { AnnouncementBanner } from "@/components/announcements/AnnouncementBanner";
-import { AnnouncementModal } from "@/components/announcements/AnnouncementModal";
+import { AnnouncementBanner, type BannerData } from "@/components/announcements/AnnouncementBanner";
+import { AnnouncementModal, type AnnouncementData } from "@/components/announcements/AnnouncementModal";
 import { NudgeBanner } from "@/components/NudgeBanner";
+import { verifyAccessToken } from "@/lib/auth/jwt";
+import {
+  getActiveBannerForUser,
+  getActiveModalForUser,
+  type ResolvedBanner,
+  type ResolvedModal,
+} from "@/lib/announcements/engine";
+import { db } from "@/lib/db";
 
 interface AppLayoutProps {
   children: React.ReactNode;
 }
 
 /**
+ * Resolve the active announcements for the current user.
+ * Returns nulls gracefully if the JWT is missing, invalid, or DB calls fail.
+ */
+async function resolveAnnouncements(cookieHeader: string | null): Promise<{
+  banner: BannerData | null;
+  modal: AnnouncementData | null;
+}> {
+  try {
+    const cookieStore = await cookies();
+    const accessToken = cookieStore.get("zobia_at")?.value;
+    if (!accessToken) return { banner: null, modal: null };
+
+    const payload = await verifyAccessToken(accessToken);
+    const userId = payload.sub;
+    const announcementUser = {
+      id: userId,
+      plan_id: null as string | null,
+      role: null as string | null,
+    };
+
+    const [resolvedBanner, resolvedModal] = await Promise.all([
+      getActiveBannerForUser(userId, announcementUser, db).catch(() => null),
+      getActiveModalForUser(userId, announcementUser, db).catch(() => null),
+    ]);
+
+    const banner: BannerData | null = resolvedBanner
+      ? {
+          id: resolvedBanner.id,
+          content: resolvedBanner.content,
+          severity: "info" as const,
+        }
+      : null;
+
+    const modal: AnnouncementData | null = resolvedModal
+      ? {
+          id: resolvedModal.id,
+          title: resolvedModal.title,
+          content: resolvedModal.content,
+          startAt: resolvedModal.starts_at,
+          endAt: resolvedModal.ends_at,
+        }
+      : null;
+
+    return { banner, modal };
+  } catch {
+    return { banner: null, modal: null };
+  }
+}
+
+/**
  * Authenticated app shell layout.
  */
-export default function AppLayout({ children }: AppLayoutProps) {
+export default async function AppLayout({ children }: AppLayoutProps) {
+  const { banner, modal } = await resolveAnnouncements(null);
+
   return (
     <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
       {/* Offline indicator */}
       <OfflineBanner />
       {/* Announcement banner (admin-managed, fixed top) */}
-      <AnnouncementBanner banner={null} />
+      <AnnouncementBanner banner={banner} />
       {/* Login-event announcement modal */}
-      <AnnouncementModal modal={null} />
+      <AnnouncementModal announcement={modal} />
 
       {/* Top navigation */}
       <Navbar />

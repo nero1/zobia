@@ -358,6 +358,67 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
     }
 
+    // Check and mark New Member Quest step completions (best-effort, non-blocking).
+    // Maps XP action types to the corresponding quest step IDs.
+    const NEW_MEMBER_QUEST_STEP_MAP: Partial<Record<XPAction, string>> = {
+      message_sent:   "send_message",
+      room_joined:    "join_room",
+      gift_sent:      "gift_someone",
+      friend_added:   "add_friend",
+      daily_login:    "daily_login",
+    };
+
+    const questStep = NEW_MEMBER_QUEST_STEP_MAP[body.action];
+    if (questStep) {
+      // Fire-and-forget — must never delay or break the XP award response
+      void (async () => {
+        try {
+          // Load current quest state
+          const { rows: questRows } = await db.query<{
+            id: string;
+            progress: string;
+            completed: boolean;
+          }>(
+            `SELECT id, progress, completed
+             FROM user_quests
+             WHERE user_id = $1 AND quest_type = 'new_member' AND completed = FALSE
+             LIMIT 1`,
+            [body.userId]
+          );
+
+          if (!questRows[0]) return; // quest not found or already complete
+
+          const quest = questRows[0];
+          let progress: { steps: Array<{ id: string; label: string; completed: boolean }> };
+          try {
+            progress =
+              typeof quest.progress === "string"
+                ? JSON.parse(quest.progress)
+                : quest.progress;
+          } catch {
+            return;
+          }
+
+          const step = progress.steps.find((s) => s.id === questStep);
+          if (!step || step.completed) return; // step already done
+
+          step.completed = true;
+
+          const allDone = progress.steps.every((s) => s.completed);
+
+          await db.query(
+            `UPDATE user_quests
+             SET progress = $1, updated_at = NOW()${allDone ? ", completed = TRUE, completed_at = NOW()" : ""}
+             WHERE id = $2`,
+            [JSON.stringify(progress), quest.id]
+          );
+        } catch (err) {
+          // Failure in quest progress tracking must never surface to the caller
+          console.error("[xp/award] New Member Quest step update failed (non-fatal):", err);
+        }
+      })();
+    }
+
     // Strip internal fields before sending the response
     const { _trackForMilestones: _t, _newTrackLevelForMilestones: _l, ...publicResult } = result;
     void _t; void _l; // suppress unused variable warnings

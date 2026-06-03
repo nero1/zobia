@@ -1,0 +1,319 @@
+/**
+ * app/api/economy/iap/verify/route.ts
+ *
+ * Google Play server-side purchase verification.
+ *
+ * POST /api/economy/iap/verify
+ *   - Validates JWT auth (withAuth middleware)
+ *   - Verifies the purchase token with the Google Play Developer API
+ *   - Checks idempotency via coin_ledger reference field
+ *   - Credits coins atomically via creditCoins
+ *   - Acknowledges (consumes) the purchase on Google Play
+ *   - Returns { success: true, coinsGranted: number }
+ *
+ * Security: SELECT FOR UPDATE prevents race conditions.
+ * Returns 409 if purchaseToken was already processed.
+ */
+
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { withAuth, validateBody } from "@/lib/api/middleware";
+import { handleApiError, badRequest, conflict, internalError } from "@/lib/api/errors";
+import { creditCoins } from "@/lib/economy/coins";
+import { db } from "@/lib/db";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/**
+ * Maps Google Play product IDs to coin amounts.
+ * Must stay in sync with apps/expo/lib/payments/googlePlay.ts COIN_PRODUCTS.
+ */
+const COIN_PRODUCTS: Record<string, number> = {
+  coins_starter: 100,
+  coins_regular: 350,
+  coins_big: 800,
+  coins_baller: 1800,
+  coins_boss: 5000,
+  coins_legend: 11500,
+};
+
+const GOOGLE_PLAY_API_BASE =
+  "https://androidpublisher.googleapis.com/androidpublisher/v3/applications";
+
+// ---------------------------------------------------------------------------
+// Schema
+// ---------------------------------------------------------------------------
+
+const verifyIapSchema = z.object({
+  purchaseToken: z.string().min(1, "purchaseToken is required"),
+  productId: z.enum(
+    [
+      "coins_starter",
+      "coins_regular",
+      "coins_big",
+      "coins_baller",
+      "coins_boss",
+      "coins_legend",
+    ],
+    { errorMap: () => ({ message: "Unknown productId" }) }
+  ),
+  packageName: z.string().min(1, "packageName is required"),
+});
+
+// ---------------------------------------------------------------------------
+// Google Play authentication helpers
+// ---------------------------------------------------------------------------
+
+interface ServiceAccountJson {
+  client_email: string;
+  private_key: string;
+  token_uri?: string;
+}
+
+/**
+ * Create a signed JWT for the Google service account.
+ * Uses the RS256 algorithm as required by Google APIs.
+ */
+async function createServiceAccountJwt(sa: ServiceAccountJson): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  const header = { alg: "RS256", typ: "JWT" };
+  const payload = {
+    iss: sa.client_email,
+    scope: "https://www.googleapis.com/auth/androidpublisher",
+    aud: sa.token_uri ?? "https://oauth2.googleapis.com/token",
+    iat: now,
+    exp: now + 3600,
+  };
+
+  const encode = (obj: unknown) =>
+    Buffer.from(JSON.stringify(obj)).toString("base64url");
+
+  const signingInput = `${encode(header)}.${encode(payload)}`;
+
+  // Import private key for signing
+  const privateKeyPem = sa.private_key.replace(/\\n/g, "\n");
+  const keyData = privateKeyPem
+    .replace(/-----BEGIN PRIVATE KEY-----/, "")
+    .replace(/-----END PRIVATE KEY-----/, "")
+    .replace(/\s+/g, "");
+
+  const binaryKey = Buffer.from(keyData, "base64");
+
+  const cryptoKey = await crypto.subtle.importKey(
+    "pkcs8",
+    binaryKey,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+
+  const signature = await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    cryptoKey,
+    Buffer.from(signingInput)
+  );
+
+  const signatureB64 = Buffer.from(signature).toString("base64url");
+  return `${signingInput}.${signatureB64}`;
+}
+
+/**
+ * Exchange a service account JWT for an OAuth2 access token.
+ */
+async function getGoogleAccessToken(sa: ServiceAccountJson): Promise<string> {
+  const jwt = await createServiceAccountJwt(sa);
+  const tokenUri = sa.token_uri ?? "https://oauth2.googleapis.com/token";
+
+  const resp = await fetch(tokenUri, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion: jwt,
+    }),
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw internalError(`Failed to get Google access token: ${text}`);
+  }
+
+  const data = (await resp.json()) as { access_token: string };
+  return data.access_token;
+}
+
+// ---------------------------------------------------------------------------
+// Google Play Developer API calls
+// ---------------------------------------------------------------------------
+
+interface GooglePlayPurchase {
+  purchaseState: number;   // 0 = purchased, 1 = cancelled, 2 = pending
+  consumptionState: number; // 0 = not consumed, 1 = consumed
+  acknowledgementState: number; // 0 = not acknowledged, 1 = acknowledged
+  orderId: string;
+}
+
+/**
+ * Verify a product purchase with the Google Play Developer API.
+ * Falls back to "trusted" mode in development if env var not set.
+ */
+async function verifyGooglePlayPurchase(
+  packageName: string,
+  productId: string,
+  purchaseToken: string
+): Promise<GooglePlayPurchase> {
+  const saJson = process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON;
+
+  if (!saJson) {
+    // Dev mode fallback — trust the purchase without verifying with Google
+    console.warn(
+      "[iap/verify] GOOGLE_PLAY_SERVICE_ACCOUNT_JSON not set — running in trusted dev mode. " +
+        "DO NOT use this in production."
+    );
+    return {
+      purchaseState: 0,
+      consumptionState: 0,
+      acknowledgementState: 0,
+      orderId: `dev_order_${Date.now()}`,
+    };
+  }
+
+  const sa: ServiceAccountJson = JSON.parse(saJson);
+  const accessToken = await getGoogleAccessToken(sa);
+
+  const url = `${GOOGLE_PLAY_API_BASE}/${packageName}/purchases/products/${productId}/tokens/${purchaseToken}`;
+
+  const resp = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw badRequest(`Google Play verification failed: ${text}`, "PLAY_VERIFY_FAILED");
+  }
+
+  return (await resp.json()) as GooglePlayPurchase;
+}
+
+/**
+ * Acknowledge (consume) a purchase on Google Play so it can be purchased again.
+ */
+async function acknowledgeGooglePlayPurchase(
+  packageName: string,
+  productId: string,
+  purchaseToken: string
+): Promise<void> {
+  const saJson = process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON;
+  if (!saJson) {
+    // Dev mode — skip acknowledgement
+    console.warn("[iap/verify] Skipping Google Play acknowledgement in dev mode");
+    return;
+  }
+
+  const sa: ServiceAccountJson = JSON.parse(saJson);
+  const accessToken = await getGoogleAccessToken(sa);
+
+  const url = `${GOOGLE_PLAY_API_BASE}/${packageName}/purchases/products/${productId}/tokens/${purchaseToken}:acknowledge`;
+
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: "{}",
+  });
+
+  if (!resp.ok && resp.status !== 204) {
+    // Non-fatal: log but don't fail the credit — coins were already granted
+    const text = await resp.text();
+    console.error(`[iap/verify] Failed to acknowledge purchase: ${text}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/economy/iap/verify
+// ---------------------------------------------------------------------------
+
+/**
+ * Verify a Google Play purchase and credit the corresponding coins.
+ *
+ * Idempotent: returns 409 if the purchaseToken has already been processed.
+ * Uses SELECT FOR UPDATE to prevent race conditions on the user row.
+ */
+export const POST = withAuth(async (req: NextRequest, { auth }) => {
+  try {
+    const body = await validateBody(req, verifyIapSchema);
+    const userId = auth.user.sub;
+
+    const coinsToGrant = COIN_PRODUCTS[body.productId];
+    if (!coinsToGrant) {
+      throw badRequest(`Unknown productId: ${body.productId}`, "UNKNOWN_PRODUCT");
+    }
+
+    // Use a reference key that encodes the purchaseToken for idempotency lookup
+    const referenceId = `iap:${body.purchaseToken}`;
+
+    // 1. Check idempotency — has this purchaseToken already been credited?
+    const { rows: existingRows } = await db.query<{ id: string }>(
+      `SELECT id FROM coin_ledger
+       WHERE reference_id = $1
+       LIMIT 1`,
+      [referenceId]
+    );
+
+    if (existingRows.length > 0) {
+      throw conflict(
+        "This purchase has already been processed",
+        "PURCHASE_ALREADY_PROCESSED"
+      );
+    }
+
+    // 2. Verify the purchase with Google Play Developer API
+    const purchase = await verifyGooglePlayPurchase(
+      body.packageName,
+      body.productId,
+      body.purchaseToken
+    );
+
+    // purchaseState: 0 = purchased (valid), anything else = not valid
+    if (purchase.purchaseState !== 0) {
+      throw badRequest(
+        `Purchase is not in a valid state (state=${purchase.purchaseState})`,
+        "PURCHASE_INVALID"
+      );
+    }
+
+    // 3. Credit coins atomically (creditCoins uses SELECT FOR UPDATE internally)
+    await creditCoins(
+      userId,
+      coinsToGrant,
+      "iap_purchase",
+      referenceId,
+      `Google Play IAP: ${body.productId}`,
+      {
+        productId: body.productId,
+        packageName: body.packageName,
+        purchaseToken: body.purchaseToken,
+        orderId: purchase.orderId,
+      }
+    );
+
+    // 4. Acknowledge the purchase on Google Play (mark as consumed)
+    //    Done after crediting so coins are never lost if acknowledgement fails.
+    await acknowledgeGooglePlayPurchase(
+      body.packageName,
+      body.productId,
+      body.purchaseToken
+    );
+
+    return NextResponse.json(
+      { success: true, coinsGranted: coinsToGrant },
+      { status: 200 }
+    );
+  } catch (err) {
+    return handleApiError(err);
+  }
+});

@@ -1,9 +1,10 @@
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useColorScheme } from 'react-native';
+import { useColorScheme, View } from 'react-native';
 
 import { colors } from '@/lib/theme/colors';
 import { useAuth } from '@/lib/auth/hooks';
+import { AnnouncementBanner } from '@/components/announcements/AnnouncementBanner';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -71,6 +72,8 @@ export default function TabLayout() {
   const borderColor = isDark ? colors.neutral[800] : colors.neutral[200];
 
   return (
+    <View style={{ flex: 1 }}>
+      <AnnouncementBanner />
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -123,5 +126,6 @@ export default function TabLayout() {
         }}
       />
     </Tabs>
+    </View>
   );
 }

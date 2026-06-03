@@ -104,6 +104,32 @@ interface DailyLoginResponse {
   xpAwarded: number;
 }
 
+interface GuildDiscovery {
+  id: string;
+  name: string;
+  crestEmoji: string;
+  description: string | null;
+  city: string | null;
+  memberCount: number;
+  guildXp: number;
+  tier: string;
+  warWins: number;
+  isRecruiting: boolean;
+  sameCity: boolean;
+}
+
+interface GuildDiscoveryResponse {
+  data: {
+    guilds: GuildDiscovery[];
+    userCity: string | null;
+  };
+}
+
+interface UserProfileResponse {
+  created_at: string;
+  guild_id: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // API fetchers
 // ---------------------------------------------------------------------------
@@ -136,6 +162,86 @@ async function fetchLeaderboardMe(): Promise<LeaderboardMeData> {
 async function postDailyLogin(): Promise<DailyLoginResponse> {
   const { data } = await apiClient.post<DailyLoginResponse>('/api/login/daily');
   return data;
+}
+
+async function fetchGuildDiscovery(): Promise<GuildDiscoveryResponse> {
+  const { data } = await apiClient.get<GuildDiscoveryResponse>('/api/guilds/discovery');
+  return data;
+}
+
+async function fetchUserProfile(): Promise<UserProfileResponse> {
+  const { data } = await apiClient.get<UserProfileResponse>('/api/users/me');
+  return data;
+}
+
+/** Returns true if the user signed up more than 24 hours ago and has no guild. */
+function shouldShowGuildDiscovery(
+  profile: UserProfileResponse | undefined
+): boolean {
+  if (!profile) return false;
+  if (profile.guild_id) return false; // already in a guild
+  const signupMs = new Date(profile.created_at).getTime();
+  const hoursElapsed = (Date.now() - signupMs) / (1000 * 60 * 60);
+  return hoursElapsed >= 24;
+}
+
+// ---------------------------------------------------------------------------
+// Guild Discovery Panel
+// ---------------------------------------------------------------------------
+
+interface GuildDiscoveryPanelProps {
+  guilds: GuildDiscovery[];
+}
+
+function GuildDiscoveryPanel({ guilds }: GuildDiscoveryPanelProps) {
+  const { t } = useTranslation();
+  const router = useRouter();
+
+  if (guilds.length === 0) return null;
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>
+        {t('home.guildDiscovery', 'Crews near you are recruiting')}
+      </Text>
+      {guilds.map((guild) => (
+        <Pressable
+          key={guild.id}
+          style={styles.guildDiscoveryCard}
+          onPress={() => router.push(`/guild/${guild.id}` as never)}
+          accessibilityRole="button"
+          accessibilityLabel={`View ${guild.name} guild`}
+        >
+          <View style={styles.guildDiscoveryLeft}>
+            <Text style={styles.guildCrestEmoji}>{guild.crestEmoji}</Text>
+          </View>
+          <View style={styles.guildDiscoveryBody}>
+            <View style={styles.guildDiscoveryTitleRow}>
+              <Text style={styles.guildDiscoveryName} numberOfLines={1}>
+                {guild.name}
+              </Text>
+              {guild.sameCity && guild.city ? (
+                <View style={styles.sameCityBadge}>
+                  <Text style={styles.sameCityBadgeText}>{guild.city}</Text>
+                </View>
+              ) : null}
+            </View>
+            {guild.description ? (
+              <Text style={styles.guildDiscoveryDesc} numberOfLines={2}>
+                {guild.description}
+              </Text>
+            ) : null}
+            <Text style={styles.guildDiscoveryMeta}>
+              {guild.memberCount} {guild.memberCount === 1 ? 'member' : 'members'}
+              {' · '}Tier {guild.tier}
+              {guild.warWins > 0 ? ` · ${guild.warWins} war wins` : ''}
+            </Text>
+          </View>
+          <Text style={styles.guildDiscoveryChevron}>›</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -603,6 +709,19 @@ export default function HomeScreen() {
     queryFn: fetchLeaderboardMe,
   });
 
+  const userProfileQuery = useQuery({
+    queryKey: ['users', 'me'],
+    queryFn: fetchUserProfile,
+  });
+
+  // Guild discovery: only fetch if user has been signed up for >24h and has no guild
+  const showGuildDiscovery = shouldShowGuildDiscovery(userProfileQuery.data);
+  const guildDiscoveryQuery = useQuery({
+    queryKey: ['guilds', 'discovery'],
+    queryFn: fetchGuildDiscovery,
+    enabled: showGuildDiscovery,
+  });
+
   // -------------------------------------------------------------------------
   // Daily login mutation — fire on mount
   // -------------------------------------------------------------------------
@@ -648,6 +767,8 @@ export default function HomeScreen() {
       queryClient.invalidateQueries({ queryKey: ['nemesis'] }),
       queryClient.invalidateQueries({ queryKey: ['quests', 'daily'] }),
       queryClient.invalidateQueries({ queryKey: ['leaderboard', 'me'] }),
+      queryClient.invalidateQueries({ queryKey: ['users', 'me'] }),
+      queryClient.invalidateQueries({ queryKey: ['guilds', 'discovery'] }),
     ]);
     setRefreshing(false);
   }, [queryClient]);
@@ -714,6 +835,15 @@ export default function HomeScreen() {
     return <LeaderboardCard data={leaderboardMeQuery.data} />;
   };
 
+  const renderGuildDiscovery = () => {
+    // Only show the panel if the user has been around >24h and is guildless
+    if (!showGuildDiscovery) return null;
+    if (guildDiscoveryQuery.isLoading || !guildDiscoveryQuery.data) return null;
+    const guilds = guildDiscoveryQuery.data.data?.guilds ?? [];
+    if (guilds.length === 0) return null;
+    return <GuildDiscoveryPanel guilds={guilds} />;
+  };
+
   // -------------------------------------------------------------------------
   // Screen
   // -------------------------------------------------------------------------
@@ -755,6 +885,9 @@ export default function HomeScreen() {
 
         {/* Leaderboard Position */}
         {renderLeaderboardCard()}
+
+        {/* Guild Discovery Panel — shown after 24h for guildless users */}
+        {renderGuildDiscovery()}
 
         {/* Bottom padding */}
         <View style={styles.bottomPad} />
@@ -1188,5 +1321,68 @@ const styles = StyleSheet.create({
 
   bottomPad: {
     height: 16,
+  },
+
+  // Guild Discovery Panel
+  guildDiscoveryCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.neutral[0],
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.neutral[200],
+    padding: 14,
+    marginBottom: 10,
+    gap: 12,
+  },
+  guildDiscoveryLeft: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.neutral[100],
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  guildCrestEmoji: {
+    fontSize: 24,
+  },
+  guildDiscoveryBody: {
+    flex: 1,
+    gap: 3,
+  },
+  guildDiscoveryTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  guildDiscoveryName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.neutral[800],
+    flex: 1,
+  },
+  sameCityBadge: {
+    backgroundColor: `${colors.brand.blue}18`,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  sameCityBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.brand.blue,
+  },
+  guildDiscoveryDesc: {
+    fontSize: 12,
+    color: colors.neutral[500],
+  },
+  guildDiscoveryMeta: {
+    fontSize: 11,
+    color: colors.neutral[400],
+    fontWeight: '500',
+  },
+  guildDiscoveryChevron: {
+    fontSize: 20,
+    color: colors.neutral[400],
   },
 });
