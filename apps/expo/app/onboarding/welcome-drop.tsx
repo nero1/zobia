@@ -29,6 +29,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { STORE_KEYS, setItem } from '@/lib/offline/store';
+import { apiClient } from '@/lib/api/client';
 
 // ---------------------------------------------------------------------------
 // Component
@@ -49,6 +50,7 @@ export default function WelcomeDrop() {
     emoji: string;
     city: string;
     vibeAnswers: string;
+    dateOfBirth: string;
   }>();
 
   // -------------------------------------------------------------------------
@@ -67,6 +69,20 @@ export default function WelcomeDrop() {
   useEffect(() => {
     // Mark onboarding complete in MMKV.
     setItem(STORE_KEYS.ONBOARDING_COMPLETE, true);
+
+    // Persist onboarding data to the server.
+    const vibeAnswers = params.vibeAnswers ? JSON.parse(params.vibeAnswers) : {};
+    apiClient
+      .post('/api/onboarding/complete', {
+        username: params.username,
+        avatar_emoji: params.emoji,
+        city: params.city,
+        date_of_birth: params.dateOfBirth,
+        vibe_answers: vibeAnswers,
+      })
+      .catch(() => {
+        // Non-blocking: the user is already marked complete locally.
+      });
 
     // Sequence: avatar → XP badge → CTA
     avatarScale.value = withSpring(1, { damping: 12, stiffness: 180 });

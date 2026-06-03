@@ -6,14 +6,8 @@
  * Room detail page (web version).
  * Two-column layout: main message feed + sidebar (room info, creator, top gifters).
  * Supports VIP subscribe overlay and Drop entry fee notices.
- * Polls for new messages every 2 seconds.
- *
- * TODO: Replace polling with Supabase Realtime channel subscription once the
- * Supabase client is configured in production. The SSE route at
- * /api/rooms/[roomId]/stream can also be used as a server-push alternative:
- *   const channel = supabase.channel(`room:${roomId}`)
- *     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `room_id=eq.${roomId}` }, handleNewMessage)
- *     .subscribe();
+ * Uses SSE stream (/api/rooms/[roomId]/stream) for real-time message updates.
+ * Reconnects automatically after 3 seconds on error or close.
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -244,7 +238,9 @@ export default function RoomPage() {
   const [paying, setPaying] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const feedRef = useRef<HTMLDivElement>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval>>();
+  const esRef = useRef<EventSource | null>(null);
+  const reconnectRef = useRef<ReturnType<typeof setTimeout>>();
+  const lastMessageIdRef = useRef<string | undefined>(undefined);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -277,21 +273,68 @@ export default function RoomPage() {
     })();
   }, [roomId, router]);
 
-  // Fetch messages + poll
+  // Fetch initial messages (before SSE connects)
   const fetchMessages = useCallback(async () => {
     const res = await fetch(`/api/rooms/${roomId}/messages`, { credentials: "include" });
     if (!res.ok) return;
     const data = (await res.json()) as { messages: Message[] };
     setMessages(data.messages);
+    if (data.messages.length > 0) {
+      lastMessageIdRef.current = data.messages[data.messages.length - 1].id;
+    }
     setLoadingMessages(false);
   }, [roomId]);
 
+  // Connect to SSE stream
+  const connectSSE = useCallback(() => {
+    if (esRef.current) {
+      esRef.current.close();
+    }
+    const url = lastMessageIdRef.current
+      ? `/api/rooms/${roomId}/stream?lastMessageId=${lastMessageIdRef.current}`
+      : `/api/rooms/${roomId}/stream`;
+    const es = new EventSource(url);
+    esRef.current = es;
+
+    es.onmessage = (event) => {
+      try {
+        const parsed = JSON.parse(event.data as string) as { type: string; payload?: Message };
+        if (parsed.type === "message" && parsed.payload) {
+          const newMsg = parsed.payload;
+          setMessages((prev) => {
+            if (prev.some((m) => m.id === newMsg.id)) return prev;
+            lastMessageIdRef.current = newMsg.id;
+            return [...prev, newMsg];
+          });
+        }
+        // type === "ping": do nothing
+      } catch { /* ignore parse errors */ }
+    };
+
+    es.onerror = () => {
+      es.close();
+      esRef.current = null;
+      // Reconnect after 3 seconds
+      reconnectRef.current = setTimeout(() => {
+        connectSSE();
+      }, 3000);
+    };
+  }, [roomId]);
+
   useEffect(() => {
-    void fetchMessages();
-    // 2-second interval; replace with Supabase Realtime in production
-    pollRef.current = setInterval(fetchMessages, 2000);
-    return () => clearInterval(pollRef.current);
-  }, [fetchMessages]);
+    void fetchMessages().then(() => {
+      connectSSE();
+    });
+    return () => {
+      if (esRef.current) {
+        esRef.current.close();
+        esRef.current = null;
+      }
+      if (reconnectRef.current) {
+        clearTimeout(reconnectRef.current);
+      }
+    };
+  }, [fetchMessages, connectSSE]);
 
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
@@ -306,7 +349,6 @@ export default function RoomPage() {
       });
       if (!res.ok) throw new Error("Failed to send");
       setInput("");
-      await fetchMessages();
     } catch { /* ignore */ }
     setSending(false);
   }

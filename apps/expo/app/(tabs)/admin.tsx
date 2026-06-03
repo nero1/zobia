@@ -192,9 +192,9 @@ export default function AdminDashboardTab() {
         />
         <NavCard
           icon="📨"
-          title="Compose Message"
+          title="Messages"
           subtitle="Broadcast to users"
-          onPress={() => router.push('/admin/messages-compose')}
+          onPress={() => router.push('/admin/messages')}
         />
       </View>
     </Screen>

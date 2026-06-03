@@ -1,11 +1,35 @@
-import React, { useEffect, useState } from "react";
-import {
-  View, Text, ScrollView, FlatList, TouchableOpacity,
-  TextInput, Modal, ActivityIndicator, RefreshControl
-} from "react-native";
-import { storage } from "@/lib/offline/store";
+/**
+ * Zobia Social — Moments Feed Screen.
+ *
+ * Real feed fetched from GET /api/moments.
+ * Features: FlatList of moment cards, pull-to-refresh, empty state,
+ * loading skeleton, "+ Share Moment" FAB.
+ *
+ * Route: /moments
+ */
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "";
+import React, { useCallback } from 'react';
+import {
+  ActivityIndicator,
+  FlatList,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { useRouter } from 'expo-router';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+
+import { Screen } from '@/components/ui/Screen';
+import { Button } from '@/components/ui/Button';
+import { useTheme } from '@/lib/theme';
+import { colors } from '@/lib/theme/colors';
+import { apiClient } from '@/lib/api/client';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 interface Moment {
   id: string;
@@ -19,127 +43,371 @@ interface Moment {
   has_viewed: boolean;
 }
 
+interface MomentsResponse {
+  data: {
+    moments: Moment[];
+  };
+}
+
+// ---------------------------------------------------------------------------
+// API
+// ---------------------------------------------------------------------------
+
+async function fetchMoments(): Promise<Moment[]> {
+  const { data } = await apiClient.get<MomentsResponse>('/api/moments');
+  return data.data?.moments ?? [];
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function timeLeft(expiresAt: string): string {
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  if (ms <= 0) return 'Expired';
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.floor((ms % 3_600_000) / 60_000);
+  return h > 0 ? `${h}h left` : `${m}m left`;
+}
+
+function timeAgo(createdAt: string): string {
+  const ms = Date.now() - new Date(createdAt).getTime();
+  const m = Math.floor(ms / 60_000);
+  if (m < 1) return 'Just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+interface MomentCardProps {
+  moment: Moment;
+  isDark: boolean;
+}
+
+function MomentCard({ moment, isDark }: MomentCardProps) {
+  return (
+    <View
+      style={[
+        styles.card,
+        {
+          backgroundColor: isDark ? colors.neutral[800] : colors.neutral[0],
+          borderColor: moment.has_viewed
+            ? isDark ? colors.neutral[700] : colors.neutral[200]
+            : colors.brand.blue,
+          borderLeftWidth: moment.has_viewed ? 0 : 3,
+        },
+      ]}
+    >
+      <View style={styles.cardHeader}>
+        <View style={styles.authorRow}>
+          <Text style={styles.authorEmoji}>{moment.avatar_emoji}</Text>
+          <Text
+            style={[
+              styles.authorName,
+              { color: isDark ? colors.neutral[100] : colors.neutral[900] },
+            ]}
+          >
+            @{moment.username}
+          </Text>
+        </View>
+        <View style={styles.cardMeta}>
+          <Text
+            style={[
+              styles.timeAgo,
+              { color: isDark ? colors.neutral[500] : colors.neutral[400] },
+            ]}
+          >
+            {timeAgo(moment.created_at)}
+          </Text>
+          <Text
+            style={[
+              styles.timeLeft,
+              { color: isDark ? colors.neutral[500] : colors.neutral[400] },
+            ]}
+          >
+            {timeLeft(moment.expires_at)}
+          </Text>
+        </View>
+      </View>
+
+      <Text
+        style={[
+          styles.content,
+          { color: isDark ? colors.neutral[200] : colors.neutral[700] },
+        ]}
+      >
+        {moment.content}
+      </Text>
+
+      <Text
+        style={[
+          styles.viewCount,
+          { color: isDark ? colors.neutral[500] : colors.neutral[400] },
+        ]}
+      >
+        {moment.view_count.toLocaleString()} {moment.view_count === 1 ? 'view' : 'views'}
+      </Text>
+    </View>
+  );
+}
+
+function SkeletonCard({ isDark }: { isDark: boolean }) {
+  const bg = isDark ? colors.neutral[700] : colors.neutral[200];
+  return (
+    <View
+      style={[
+        styles.card,
+        {
+          backgroundColor: isDark ? colors.neutral[800] : colors.neutral[0],
+          borderColor: isDark ? colors.neutral[700] : colors.neutral[200],
+        },
+      ]}
+    >
+      <View style={styles.cardHeader}>
+        <View style={styles.authorRow}>
+          <View style={[styles.skeletonCircle, { backgroundColor: bg }]} />
+          <View style={[styles.skeletonLine, { width: 80, backgroundColor: bg }]} />
+        </View>
+        <View style={[styles.skeletonLine, { width: 40, backgroundColor: bg }]} />
+      </View>
+      <View style={[styles.skeletonLine, { width: '90%', marginBottom: 6, backgroundColor: bg }]} />
+      <View style={[styles.skeletonLine, { width: '60%', backgroundColor: bg }]} />
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Screen
+// ---------------------------------------------------------------------------
+
+/**
+ * MomentsScreen — live feed of 24-hour moments.
+ */
 export default function MomentsScreen() {
-  const [moments, setMoments] = useState<Moment[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [composing, setComposing] = useState(false);
-  const [newContent, setNewContent] = useState("");
-  const [posting, setPosting] = useState(false);
+  const { isDark } = useTheme();
+  const router = useRouter();
+  const queryClient = useQueryClient();
 
-  async function loadMoments() {
-    const token = storage.getString("authToken");
-    const res = await fetch(`${API_BASE}/api/moments`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    }).catch(() => null);
-    if (!res?.ok) return;
-    setMoments((await res.json()).data?.moments ?? []);
-    setLoading(false);
-    setRefreshing(false);
-  }
+  const { data: moments, isLoading, isError, isFetching, refetch } = useQuery({
+    queryKey: ['moments'],
+    queryFn: fetchMoments,
+    staleTime: 30_000,
+  });
 
-  async function postMoment() {
-    if (!newContent.trim()) return;
-    setPosting(true);
-    const token = storage.getString("authToken");
-    const res = await fetch(`${API_BASE}/api/moments`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({ content: newContent.trim(), content_type: "text" }),
-    });
-    setPosting(false);
-    if (res.ok) {
-      setNewContent("");
-      setComposing(false);
-      void loadMoments();
-    }
-  }
+  const handleRefresh = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ['moments'] });
+  }, [queryClient]);
 
-  function timeLeft(expiresAt: string) {
-    const ms = new Date(expiresAt).getTime() - Date.now();
-    const h = Math.floor(ms / 3600000);
-    const m = Math.floor((ms % 3600000) / 60000);
-    return h > 0 ? `${h}h left` : `${m}m left`;
-  }
-
-  useEffect(() => { void loadMoments(); }, []);
-
-  if (loading) return <View className="flex-1 items-center justify-center"><ActivityIndicator color="#2563EB" /></View>;
+  const bg = isDark ? colors.neutral[900] : colors.neutral[50];
+  const textColor = isDark ? colors.neutral[100] : colors.neutral[900];
+  const subtitleColor = isDark ? colors.neutral[400] : colors.neutral[500];
 
   return (
-    <>
+    <Screen scrollable={false} disableBottomInset>
       <FlatList
-        data={moments}
+        data={isLoading ? undefined : moments}
         keyExtractor={(m) => m.id}
-        className="flex-1 bg-gray-50"
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void loadMoments(); }} />}
+        style={{ backgroundColor: bg }}
+        contentContainerStyle={styles.listContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={isFetching && !isLoading}
+            onRefresh={handleRefresh}
+            tintColor={colors.brand.blue}
+          />
+        }
         ListHeaderComponent={
-          <View className="px-4 pt-4 pb-2">
-            <TouchableOpacity
-              className="bg-white border border-blue-200 rounded-xl px-4 py-3 flex-row items-center"
-              onPress={() => setComposing(true)}
-            >
-              <Text className="text-2xl mr-3">✍️</Text>
-              <Text className="text-gray-400 flex-1">Share a moment... (disappears in 24h)</Text>
-            </TouchableOpacity>
+          <View style={styles.header}>
+            <Text style={[styles.title, { color: textColor }]}>Moments</Text>
+            <Text style={[styles.subtitle, { color: subtitleColor }]}>
+              Disappear after 24 hours
+            </Text>
           </View>
         }
         ListEmptyComponent={
-          <View className="items-center py-10">
-            <Text className="text-5xl mb-3">✨</Text>
-            <Text className="text-gray-500 text-base">No moments yet</Text>
-            <Text className="text-gray-400 text-sm mt-1">Be the first to share one!</Text>
-          </View>
-        }
-        renderItem={({ item }) => (
-          <View className={`bg-white mx-4 mb-3 rounded-xl p-4 shadow-sm ${!item.has_viewed ? "border-l-4 border-blue-500" : ""}`}>
-            <View className="flex-row items-center mb-2">
-              <Text className="text-xl mr-2">{item.avatar_emoji}</Text>
-              <Text className="font-semibold text-gray-900 flex-1">@{item.username}</Text>
-              <Text className="text-xs text-gray-400">{timeLeft(item.expires_at)}</Text>
+          isLoading ? (
+            <View>
+              {[0, 1, 2].map((i) => (
+                <SkeletonCard key={i} isDark={isDark} />
+              ))}
             </View>
-            <Text className="text-gray-700">{item.content}</Text>
-            <Text className="text-xs text-gray-400 mt-2">{item.view_count} views</Text>
-          </View>
-        )}
+          ) : isError ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyEmoji}>⚠️</Text>
+              <Text style={[styles.emptyTitle, { color: textColor }]}>
+                Could not load moments
+              </Text>
+              <Button
+                label="Retry"
+                size="sm"
+                variant="secondary"
+                onPress={() => void refetch()}
+                style={styles.emptyBtn}
+                accessibilityLabel="Retry loading moments"
+              />
+            </View>
+          ) : (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyEmoji}>✨</Text>
+              <Text style={[styles.emptyTitle, { color: textColor }]}>
+                No moments yet. Be the first!
+              </Text>
+              <Button
+                label="Share a Moment"
+                size="sm"
+                onPress={() => router.push('/moments/create')}
+                style={styles.emptyBtn}
+                accessibilityLabel="Share the first moment"
+              />
+            </View>
+          )
+        }
+        renderItem={({ item }) => <MomentCard moment={item} isDark={isDark} />}
       />
 
-      {/* Compose modal */}
-      <Modal visible={composing} animationType="slide" transparent onRequestClose={() => setComposing(false)}>
-        <View className="flex-1 justify-end bg-black/50">
-          <View className="bg-white rounded-t-3xl px-5 pt-5 pb-8">
-            <View className="flex-row items-center justify-between mb-4">
-              <Text className="text-lg font-bold text-gray-900">Share a Moment</Text>
-              <TouchableOpacity onPress={() => setComposing(false)}>
-                <Text className="text-gray-400 text-xl">✕</Text>
-              </TouchableOpacity>
-            </View>
-            <TextInput
-              className="bg-gray-50 rounded-xl p-4 text-gray-800 h-24 mb-4"
-              placeholder="What's on your mind? (disappears in 24 hours)"
-              value={newContent}
-              onChangeText={setNewContent}
-              multiline
-              autoFocus
-              maxLength={500}
-              textAlignVertical="top"
-            />
-            <Text className="text-xs text-gray-400 text-right mb-4">{newContent.length}/500</Text>
-            <TouchableOpacity
-              className={`py-4 rounded-xl items-center ${posting || !newContent.trim() ? "bg-gray-200" : "bg-blue-600"}`}
-              onPress={() => void postMoment()}
-              disabled={posting || !newContent.trim()}
-            >
-              <Text className={`font-bold ${posting || !newContent.trim() ? "text-gray-400" : "text-white"}`}>
-                {posting ? "Posting..." : "Post Moment"}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-    </>
+      {/* Floating Action Button */}
+      {!isLoading && (
+        <Pressable
+          style={[styles.fab, { backgroundColor: colors.brand.blue }]}
+          onPress={() => router.push('/moments/create')}
+          accessibilityRole="button"
+          accessibilityLabel="Share a new moment"
+        >
+          <Text style={styles.fabText}>+ Share Moment</Text>
+        </Pressable>
+      )}
+    </Screen>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Styles
+// ---------------------------------------------------------------------------
+
+const styles = StyleSheet.create({
+  listContent: {
+    paddingBottom: 100,
+  },
+  header: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 12,
+  },
+  title: {
+    fontSize: 26,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+  },
+  subtitle: {
+    fontSize: 13,
+    marginTop: 2,
+  },
+
+  card: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 14,
+    gap: 8,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
+  authorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  authorEmoji: {
+    fontSize: 20,
+  },
+  authorName: {
+    fontSize: 14,
+    fontWeight: '700',
+    flex: 1,
+  },
+  cardMeta: {
+    alignItems: 'flex-end',
+    gap: 2,
+  },
+  timeAgo: {
+    fontSize: 11,
+  },
+  timeLeft: {
+    fontSize: 10,
+    fontWeight: '500',
+  },
+  content: {
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  viewCount: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+
+  // Skeleton
+  skeletonCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+  },
+  skeletonLine: {
+    height: 12,
+    borderRadius: 6,
+    marginBottom: 4,
+  },
+
+  // Empty / error
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 24,
+    gap: 12,
+  },
+  emptyEmoji: {
+    fontSize: 48,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  emptyBtn: {
+    marginTop: 4,
+    minWidth: 160,
+  },
+
+  // FAB
+  fab: {
+    position: 'absolute',
+    bottom: 24,
+    right: 20,
+    borderRadius: 28,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minHeight: 52,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  fabText: {
+    color: colors.neutral[0],
+    fontSize: 15,
+    fontWeight: '700',
+  },
+});

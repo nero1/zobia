@@ -80,11 +80,18 @@ async function requestAndFetchContacts(): Promise<string[]> {
 // ---------------------------------------------------------------------------
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/;
+const DOB_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function validateUsername(value: string): string | undefined {
   if (!value.trim()) return 'Username is required';
   if (!USERNAME_RE.test(value))
     return 'Username must be 3–20 characters: letters, numbers, underscores only';
+  return undefined;
+}
+
+function validateDateOfBirth(value: string): string | undefined {
+  if (!value.trim()) return 'Date of birth is required';
+  if (!DOB_RE.test(value.trim())) return 'Please use YYYY-MM-DD format';
   return undefined;
 }
 
@@ -104,6 +111,8 @@ export default function OnboardingStep1() {
   const [usernameError, setUsernameError] = useState<string | undefined>();
   const [selectedEmoji, setSelectedEmoji] = useState(AVATAR_OPTIONS[0]);
   const [city, setCity] = useState('');
+  const [dateOfBirth, setDateOfBirth] = useState('');
+  const [dobError, setDobError] = useState<string | undefined>();
 
   // Contacts
   const [contactsStatus, setContactsStatus] = useState<'idle' | 'loading' | 'done' | 'denied' | 'unavailable'>('idle');
@@ -137,19 +146,34 @@ export default function OnboardingStep1() {
   }
 
   function handleNext() {
-    const err = validateUsername(username);
-    if (err) {
-      setUsernameError(err);
+    const usernameErr = validateUsername(username);
+    if (usernameErr) {
+      setUsernameError(usernameErr);
       return;
     }
     if (!city.trim()) {
       Alert.alert('City required', 'Please enter your city to continue.');
       return;
     }
+    const dobErr = validateDateOfBirth(dateOfBirth);
+    if (dobErr) {
+      setDobError(dobErr);
+      if (dobErr === 'Date of birth is required') {
+        Alert.alert('Date of birth is required', 'Please enter your date of birth to continue.');
+      } else {
+        Alert.alert('Invalid date format', 'Please use YYYY-MM-DD format');
+      }
+      return;
+    }
     // Navigate to step 2, passing profile data via query params.
     router.push({
       pathname: '/onboarding/vibe-quiz',
-      params: { username: username.trim(), emoji: selectedEmoji, city: city.trim() },
+      params: {
+        username: username.trim(),
+        emoji: selectedEmoji,
+        city: city.trim(),
+        dateOfBirth: dateOfBirth.trim(),
+      },
     });
   }
 
@@ -222,6 +246,24 @@ export default function OnboardingStep1() {
           value={city}
           onChangeText={setCity}
           autoCorrect={false}
+        />
+      </View>
+
+      {/* Date of Birth input */}
+      <View style={styles.section}>
+        <Input
+          label="Date of Birth"
+          placeholder="YYYY-MM-DD"
+          value={dateOfBirth}
+          onChangeText={(v) => {
+            setDateOfBirth(v);
+            if (dobError) setDobError(undefined);
+          }}
+          error={dobError}
+          keyboardType="numeric"
+          maxLength={10}
+          autoCorrect={false}
+          accessibilityLabel="Date of birth in YYYY-MM-DD format"
         />
       </View>
 

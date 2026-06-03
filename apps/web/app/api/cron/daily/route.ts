@@ -565,6 +565,7 @@ export const GET = async (req: NextRequest) => {
 
     const { getReengagementPayload } = await import('@/lib/notifications/reengagement');
     const { sendPushNotification } = await import('@/lib/notifications/push');
+    const { sendEmail } = await import('@/lib/notifications/email');
 
     let dispatched = 0;
     for (const user of inactiveUsers) {
@@ -575,6 +576,20 @@ export const GET = async (req: NextRequest) => {
       sendPushNotification(user.user_id, payload.title, payload.body, {
         action: payload.action
       }).catch(() => {});
+
+      // Send email notification alongside push (fire-and-forget, non-blocking)
+      if (user.email) {
+        try {
+          sendEmail(
+            user.email,
+            payload.title,
+            payload.body,
+            `<p>${payload.body}</p>`
+          ).catch(() => {});
+        } catch {
+          // Non-fatal — email errors must not block other CRON tasks
+        }
+      }
 
       // Mark as notified
       await db.query(
@@ -894,6 +909,32 @@ export const GET = async (req: NextRequest) => {
     results.trustScoreUpdates = { updated: trustUpdated };
   } catch (err) {
     errors.push(`trustScoreUpdates: ${String(err)}`);
+  }
+
+  // 21. Monthly coin bonus for paid plan users (runs on 1st of each month only)
+  try {
+    const today = new Date();
+    if (today.getDate() === 1) {
+      // Plus=50 coins, Pro=200 coins, Max=500 coins
+      const PLAN_MONTHLY_BONUS: Record<string, number> = { plus: 50, pro: 200, max: 500 };
+      for (const [plan, bonus] of Object.entries(PLAN_MONTHLY_BONUS)) {
+        await db.query(
+          `INSERT INTO coin_ledger (user_id, amount, type, reference_id, description, created_at)
+           SELECT id, $1, 'monthly_plan_bonus', gen_random_uuid(), $2, NOW()
+           FROM users WHERE plan = $3 AND is_active = true`,
+          [bonus, `Monthly ${plan} plan bonus`, plan]
+        );
+        await db.query(
+          `UPDATE users SET coin_balance = coin_balance + $1 WHERE plan = $2 AND is_active = true`,
+          [bonus, plan]
+        );
+      }
+      results.monthlyPlanBonus = { ran: true, date: today.toISOString() };
+    } else {
+      results.monthlyPlanBonus = { ran: false, reason: "Not the 1st of the month" };
+    }
+  } catch (err) {
+    errors.push(`monthlyPlanBonus: ${String(err)}`);
   }
 
   return NextResponse.json({

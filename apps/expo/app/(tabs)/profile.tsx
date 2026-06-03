@@ -327,6 +327,22 @@ export default function ProfileScreen() {
           <Text style={styles.walletChevron}>›</Text>
         </View>
       </Pressable>
+
+      {/* ── Creator Dashboard (shown for creators) ─────────────── */}
+      <Pressable
+        onPress={() => router.push('/creator/dashboard')}
+        accessibilityLabel="Open creator dashboard"
+        style={({ pressed }) => [styles.walletCard, pressed && styles.pressed]}
+      >
+        <View style={styles.walletRow}>
+          <Text style={styles.walletIcon}>🎙️</Text>
+          <View style={styles.walletTextGroup}>
+            <Text style={styles.walletTitle}>Creator Dashboard</Text>
+            <Text style={styles.walletSubtitle}>Revenue, members & payouts</Text>
+          </View>
+          <Text style={styles.walletChevron}>›</Text>
+        </View>
+      </Pressable>
     </Screen>
   );
 }

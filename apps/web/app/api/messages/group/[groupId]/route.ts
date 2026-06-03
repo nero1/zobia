@@ -31,6 +31,21 @@ export const GET = withAuth(async (
   );
   if (!membership) return forbidden('Not a member of this group');
 
+  // Determine message history window based on user's plan:
+  // free: 90 days, plus: 180 days, pro/max: unlimited
+  const planRows = await database.query(
+    `SELECT COALESCE(plan, 'free') AS plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+    [userId],
+  );
+  const userPlan: string = planRows[0]?.plan ?? 'free';
+  let historyFilter = '';
+  if (userPlan === 'free') {
+    historyFilter = `AND m.created_at > NOW() - INTERVAL '90 days'`;
+  } else if (userPlan === 'plus') {
+    historyFilter = `AND m.created_at > NOW() - INTERVAL '180 days'`;
+  }
+  // pro and max: no history filter
+
   const rows = await database.query(
     `SELECT m.*, u.username, u.display_name, u.avatar_emoji, u.rank_name
      FROM messages m
@@ -38,6 +53,7 @@ export const GET = withAuth(async (
      WHERE m.group_chat_id = $1
        AND m.is_deleted = false
        AND ($2::uuid IS NULL OR m.id < $2::uuid)
+       ${historyFilter}
      ORDER BY m.created_at DESC
      LIMIT $3`,
     [params.groupId, cursor ?? null, limit + 1],
