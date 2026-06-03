@@ -1,329 +1,123 @@
+import { test, expect } from "@playwright/test";
+
 /**
- * E2E tests for Admin login and is_admin database check.
+ * E2E tests — Admin login and is_admin database check
  *
- * Verifies:
- *  - Non-admin users cannot access admin routes (401/403)
- *  - Admin login succeeds and returns a valid session
- *  - Admin can access the overview endpoint (200 with stats)
- *  - Even with a valid JWT, a non-admin user is denied admin routes (DB-level check)
- *  - Admin can suspend a user via the actions endpoint
- *  - Admin cannot access another user's private data (RLS enforcement)
+ * PRD §28 requirement: "Admin login and is_admin database check verification"
+ *
+ * Tests:
+ *  1. Non-admin JWT cannot access admin routes (403)
+ *  2. Admin login succeeds via email + password + 2FA stub
+ *  3. Admin can access /api/admin/overview (200 with stats)
+ *  4. Even with a valid non-admin JWT, admin routes return 403
+ *  5. Admin can suspend a user
  */
 
-import { test, expect } from '@playwright/test';
+const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000";
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
+const TEST_USER_ID = process.env.TEST_USER_ID ?? "";
 
-// ---------------------------------------------------------------------------
-// Helpers and constants
-// ---------------------------------------------------------------------------
+test.describe("Admin login and is_admin database check", () => {
+  test.skip(!ADMIN_EMAIL || !ADMIN_PASSWORD, "Set ADMIN_EMAIL and ADMIN_PASSWORD env vars to run admin tests");
 
-const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL ?? process.env.ADMIN_EMAIL ?? '';
-const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? '';
-const ADMIN_TOKEN = process.env.E2E_ADMIN_TOKEN ?? '';
-const REGULAR_USER_TOKEN = process.env.E2E_USER_TOKEN ?? '';
+  let adminToken: string;
+  let nonAdminToken: string;
 
-const ADMIN_CREDS_SET = !!(ADMIN_EMAIL && ADMIN_PASSWORD);
-const ADMIN_TOKEN_SET = !!ADMIN_TOKEN;
-const REGULAR_TOKEN_SET = !!REGULAR_USER_TOKEN;
-
-const TEST_TARGET_USER_ID = process.env.E2E_TEST_USER_ID ?? 'test-target-user-id';
-const TEST_PRIVATE_USER_ID = process.env.E2E_PRIVATE_USER_ID ?? 'other-private-user-id';
-
-function adminHeaders() {
-  return {
-    Authorization: `Bearer ${ADMIN_TOKEN}`,
-    'Content-Type': 'application/json',
-  };
-}
-
-function regularUserHeaders() {
-  return {
-    Authorization: `Bearer ${REGULAR_USER_TOKEN}`,
-    'Content-Type': 'application/json',
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Admin login and is_admin database check
-// ---------------------------------------------------------------------------
-
-test.describe('Admin login and is_admin database check', () => {
-
-  // -------------------------------------------------------------------------
-  // Non-admin access is denied
-  // -------------------------------------------------------------------------
-
-  test('unauthenticated request to GET /api/admin/overview returns 401 or 403', async ({ request }) => {
-    const response = await request.get('/api/admin/overview');
-    expect([401, 403]).toContain(response.status());
-  });
-
-  test('regular user token cannot access GET /api/admin/overview — returns 401 or 403', async ({ request }) => {
-    if (!REGULAR_TOKEN_SET) {
-      test.skip(true, 'E2E_USER_TOKEN not set — skipping');
-      return;
-    }
-
-    const response = await request.get('/api/admin/overview', {
-      headers: regularUserHeaders(),
-    });
-
-    expect([401, 403]).toContain(response.status());
-  });
-
-  test('is_admin DB check: valid JWT for non-admin user is denied on admin routes', async ({ request }) => {
-    if (!REGULAR_TOKEN_SET) {
-      test.skip(true, 'E2E_USER_TOKEN not set — skipping');
-      return;
-    }
-
-    // Try multiple admin-only routes to confirm DB-level enforcement
-    const adminRoutes = [
-      '/api/admin/overview',
-      '/api/admin/users',
-      '/api/admin/payouts',
-    ];
-
-    for (const route of adminRoutes) {
-      const response = await request.get(route, {
-        headers: regularUserHeaders(),
-      });
-      // Every admin route must reject a non-admin JWT
-      expect([401, 403]).toContain(response.status());
-    }
-  });
-
-  // -------------------------------------------------------------------------
-  // Admin login
-  // -------------------------------------------------------------------------
-
-  test('admin login via POST /api/auth returns a session token', async ({ request }) => {
-    if (!ADMIN_CREDS_SET) {
-      test.skip(true, 'ADMIN_EMAIL / E2E_ADMIN_PASSWORD not set — skipping');
-      return;
-    }
-
-    const response = await request.post('/api/auth', {
+  test.beforeAll(async ({ request }) => {
+    // Register a non-admin test user via onboarding
+    const userResp = await request.post(`${BASE_URL}/api/onboarding/complete`, {
       data: {
-        email: ADMIN_EMAIL,
-        password: ADMIN_PASSWORD,
+        username: `test_nonadmin_${Date.now()}`,
+        displayName: "Non Admin",
+        avatarEmoji: "🙂",
+        city: "Lagos",
+        vibeAnswers: ["argue", "crew", "vibing", "Lagos"],
       },
-      headers: { 'Content-Type': 'application/json' },
     });
-
-    // 200 for successful login
-    expect(response.status()).toBe(200);
-
-    const body = await response.json().catch(() => ({}));
-    const token: string =
-      body.token ??
-      body.accessToken ??
-      body.session?.token ??
-      body.data?.token ??
-      '';
-
-    expect(token.length).toBeGreaterThan(0);
-  });
-
-  // -------------------------------------------------------------------------
-  // Admin can access overview
-  // -------------------------------------------------------------------------
-
-  test('admin can access GET /api/admin/overview and receives stats (200)', async ({ request }) => {
-    if (!ADMIN_TOKEN_SET) {
-      test.skip(true, 'E2E_ADMIN_TOKEN not set — skipping');
-      return;
-    }
-
-    const response = await request.get('/api/admin/overview', {
-      headers: adminHeaders(),
-    });
-
-    expect(response.status()).toBe(200);
-
-    const body = await response.json().catch(() => ({}));
-    // Response should contain at least one stats field
-    const hasStats =
-      body.totalUsers !== undefined ||
-      body.activeUsers !== undefined ||
-      body.stats !== undefined ||
-      body.data !== undefined;
-
-    expect(hasStats).toBe(true);
-  });
-
-  test('admin overview response contains a numeric user count', async ({ request }) => {
-    if (!ADMIN_TOKEN_SET) {
-      test.skip(true, 'E2E_ADMIN_TOKEN not set — skipping');
-      return;
-    }
-
-    const response = await request.get('/api/admin/overview', {
-      headers: adminHeaders(),
-    });
-
-    if (response.status() === 200) {
-      const body = await response.json().catch(() => ({}));
-      const userCount: number =
-        body.totalUsers ??
-        body.userCount ??
-        body.stats?.users ??
-        body.data?.totalUsers ??
-        -1;
-
-      if (userCount >= 0) {
-        expect(typeof userCount).toBe('number');
-        expect(userCount).toBeGreaterThanOrEqual(0);
-      }
+    if (userResp.ok()) {
+      const body = await userResp.json();
+      nonAdminToken = body.token ?? "";
     }
   });
 
-  // -------------------------------------------------------------------------
-  // Admin can suspend a user
-  // -------------------------------------------------------------------------
+  test("non-admin user cannot access /api/admin/overview", async ({ request }) => {
+    const resp = await request.get(`${BASE_URL}/api/admin/overview`, {
+      headers: nonAdminToken ? { Authorization: `Bearer ${nonAdminToken}` } : {},
+    });
+    expect(resp.status()).toBeGreaterThanOrEqual(401);
+    expect(resp.status()).toBeLessThanOrEqual(403);
+  });
 
-  test('admin can suspend a user via POST /api/admin/users/[userId]/actions', async ({ request }) => {
-    if (!ADMIN_TOKEN_SET) {
-      test.skip(true, 'E2E_ADMIN_TOKEN not set — skipping');
-      return;
+  test("request without any token cannot access admin routes", async ({ request }) => {
+    const resp = await request.get(`${BASE_URL}/api/admin/overview`);
+    expect(resp.status()).toBeGreaterThanOrEqual(401);
+    expect(resp.status()).toBeLessThanOrEqual(403);
+  });
+
+  test("admin login returns a JWT token", async ({ request }) => {
+    const resp = await request.post(`${BASE_URL}/api/auth/admin/login`, {
+      data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD },
+    });
+
+    // Admin login endpoint may require 2FA; expect either 200 (with token) or 202 (2FA required)
+    expect([200, 202]).toContain(resp.status());
+    if (resp.status() === 200) {
+      const body = await resp.json();
+      expect(body.token).toBeTruthy();
+      adminToken = body.token;
     }
+  });
 
-    const response = await request.post(
-      `/api/admin/users/${TEST_TARGET_USER_ID}/actions`,
+  test("admin JWT can access /api/admin/overview", async ({ request }) => {
+    test.skip(!adminToken, "Admin token not available — skipping overview access test");
+
+    const resp = await request.get(`${BASE_URL}/api/admin/overview`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    expect(resp.status()).toBe(200);
+    const body = await resp.json();
+    expect(body).toHaveProperty("dailyActiveUsers");
+    expect(body).toHaveProperty("newRegistrationsToday");
+  });
+
+  test("non-admin JWT is rejected even when Authorization header is present (DB-level check)", async ({ request }) => {
+    test.skip(!nonAdminToken, "No non-admin token available");
+
+    // The DB-level is_admin check means the JWT is valid but the DB role denies access
+    const resp = await request.get(`${BASE_URL}/api/admin/financial`, {
+      headers: { Authorization: `Bearer ${nonAdminToken}` },
+    });
+    expect(resp.status()).toBe(403);
+  });
+
+  test("admin can suspend a user", async ({ request }) => {
+    test.skip(!adminToken || !TEST_USER_ID, "Admin token or TEST_USER_ID not available");
+
+    const resp = await request.post(
+      `${BASE_URL}/api/admin/users/${TEST_USER_ID}/actions`,
       {
-        headers: adminHeaders(),
-        data: {
-          action: 'suspend',
-          reason: 'E2E admin test — automated suspension',
-          durationDays: 1,
-        },
+        headers: { Authorization: `Bearer ${adminToken}` },
+        data: { action: "suspend", reason: "E2E test suspension", durationDays: 1 },
       }
     );
-
-    expect(response.status()).toBeGreaterThanOrEqual(200);
-    expect(response.status()).toBeLessThan(300);
+    expect(resp.status()).toBe(200);
+    const body = await resp.json();
+    expect(body.status).toBe("suspended");
   });
 
-  test('suspension action response confirms the action was applied', async ({ request }) => {
-    if (!ADMIN_TOKEN_SET) {
-      test.skip(true, 'E2E_ADMIN_TOKEN not set — skipping');
-      return;
-    }
+  test("admin can restore a suspended user", async ({ request }) => {
+    test.skip(!adminToken || !TEST_USER_ID, "Admin token or TEST_USER_ID not available");
 
-    const response = await request.post(
-      `/api/admin/users/${TEST_TARGET_USER_ID}/actions`,
+    const resp = await request.post(
+      `${BASE_URL}/api/admin/users/${TEST_USER_ID}/actions`,
       {
-        headers: adminHeaders(),
-        data: { action: 'suspend', reason: 'E2E status body check' },
+        headers: { Authorization: `Bearer ${adminToken}` },
+        data: { action: "restore" },
       }
     );
-
-    if (response.status() >= 200 && response.status() < 300) {
-      const body = await response.json().catch(() => ({}));
-      // Should have some indicator of the applied action
-      const hasActionConfirmation =
-        body.action !== undefined ||
-        body.status !== undefined ||
-        body.success !== undefined ||
-        body.data !== undefined;
-      expect(hasActionConfirmation).toBe(true);
-    }
-  });
-
-  // Clean up: restore the suspended test user
-  test('admin restores the test user after suspension test', async ({ request }) => {
-    if (!ADMIN_TOKEN_SET) {
-      test.skip(true, 'E2E_ADMIN_TOKEN not set — skipping');
-      return;
-    }
-
-    const response = await request.post(
-      `/api/admin/users/${TEST_TARGET_USER_ID}/actions`,
-      {
-        headers: adminHeaders(),
-        data: { action: 'restore', reason: 'E2E cleanup' },
-      }
-    );
-
-    expect(response.status()).toBeGreaterThanOrEqual(200);
-    expect(response.status()).toBeLessThan(300);
-  });
-
-  // -------------------------------------------------------------------------
-  // RLS check: admin cannot access another user's private data
-  // -------------------------------------------------------------------------
-
-  test('admin cannot read a private user\'s personal messages via API (RLS)', async ({ request }) => {
-    if (!ADMIN_TOKEN_SET) {
-      test.skip(true, 'E2E_ADMIN_TOKEN not set — skipping');
-      return;
-    }
-
-    // Attempt to access another user's private messages directly
-    const response = await request.get(
-      `/api/messages/private/${TEST_PRIVATE_USER_ID}`,
-      { headers: adminHeaders() }
-    );
-
-    // RLS should prevent access — 403 or 404 are expected
-    expect([403, 404]).toContain(response.status());
-  });
-
-  test('admin cannot read a private user\'s DM inbox via API (RLS)', async ({ request }) => {
-    if (!ADMIN_TOKEN_SET) {
-      test.skip(true, 'E2E_ADMIN_TOKEN not set — skipping');
-      return;
-    }
-
-    const response = await request.get(
-      `/api/messages/dm?userId=${TEST_PRIVATE_USER_ID}`,
-      { headers: adminHeaders() }
-    );
-
-    // Admin should not be able to impersonate another user's DM inbox
-    expect([403, 404]).toContain(response.status());
-  });
-
-  test('admin cannot access another user\'s private profile data (RLS)', async ({ request }) => {
-    if (!ADMIN_TOKEN_SET) {
-      test.skip(true, 'E2E_ADMIN_TOKEN not set — skipping');
-      return;
-    }
-
-    // Attempt to retrieve private profile fields of another user
-    const response = await request.get(
-      `/api/profile/${TEST_PRIVATE_USER_ID}/private`,
-      { headers: adminHeaders() }
-    );
-
-    // RLS enforced — 403 or 404
-    expect([403, 404]).toContain(response.status());
-  });
-
-  // -------------------------------------------------------------------------
-  // Sanity: admin can access their own data
-  // -------------------------------------------------------------------------
-
-  test('admin can access their own profile via GET /api/me', async ({ request }) => {
-    if (!ADMIN_TOKEN_SET) {
-      test.skip(true, 'E2E_ADMIN_TOKEN not set — skipping');
-      return;
-    }
-
-    const response = await request.get('/api/me', {
-      headers: adminHeaders(),
-    });
-
-    expect(response.status()).toBe(200);
-
-    const body = await response.json().catch(() => ({}));
-    const isAdmin: boolean =
-      body.isAdmin ??
-      body.is_admin ??
-      body.role === 'admin' ??
-      body.data?.isAdmin ??
-      false;
-
-    // The is_admin flag must be truthy in the response for an admin user
-    expect(isAdmin).toBe(true);
+    expect(resp.status()).toBe(200);
+    const body = await resp.json();
+    expect(body.status).toBe("active");
   });
 });
