@@ -97,6 +97,7 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       level_knowledge: number;
       level_explorer: number;
       is_creator: boolean;
+      creator_tier: string | null;
       guild_id: string | null;
       created_at: string;
     }>(
@@ -112,6 +113,7 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
               COALESCE(level_knowledge, 1) AS level_knowledge,
               COALESCE(level_explorer, 1) AS level_explorer,
               COALESCE(is_creator, false) AS is_creator,
+              creator_tier,
               guild_id,
               created_at
        FROM users
@@ -144,20 +146,18 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       }
     }
 
-    // 3. Creator info
-    let creatorBio: string | null = null;
-    let creatorCategory: string | null = null;
-
-    if (user.is_creator) {
-      const { rows: creatorRows } = await db.query<{ bio: string | null; category: string | null }>(
-        `SELECT bio, category FROM creator_profiles WHERE user_id = $1 LIMIT 1`,
-        [userId]
-      ).catch(() => ({ rows: [] as Array<{ bio: string | null; category: string | null }> }));
-      if (creatorRows[0]) {
-        creatorBio = creatorRows[0].bio;
-        creatorCategory = creatorRows[0].category;
-      }
-    }
+    // 3. Creator info — bio is on the users table; category maps from creator_tier
+    const creatorBio: string | null = user.is_creator ? (user.bio ?? null) : null;
+    const CREATOR_TIER_LABELS: Record<string, string> = {
+      rookie:   "Rookie Creator",
+      rising:   "Rising Creator",
+      verified: "Verified Creator",
+      elite:    "Elite Creator",
+      icon:     "Zobia Icon Creator",
+    };
+    const creatorCategory: string | null = user.is_creator && user.creator_tier
+      ? (CREATOR_TIER_LABELS[user.creator_tier] ?? user.creator_tier)
+      : null;
 
     // 4. Social context
     const isOwnProfile = callerId === userId;
@@ -168,7 +168,7 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       const [friendRes, followRes] = await Promise.all([
         db.query<{ id: string }>(
           `SELECT id FROM friendships
-           WHERE ((user_id_a = $1 AND user_id_b = $2) OR (user_id_a = $2 AND user_id_b = $1))
+           WHERE ((requester_id = $1 AND addressee_id = $2) OR (requester_id = $2 AND addressee_id = $1))
              AND status = 'accepted'
            LIMIT 1`,
           [callerId, userId]
@@ -190,10 +190,10 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       ended_at: string | null;
       final_rank: number | null;
     }>(
-      `SELECT s.id, s.name, s.theme_emoji, s.ended_at, usp.final_rank
-       FROM user_season_participation usp
-       JOIN seasons s ON s.id = usp.season_id
-       WHERE usp.user_id = $1 AND s.ended_at IS NOT NULL
+      `SELECT s.id, s.name, s.theme_emoji, s.ended_at, sra.final_rank
+       FROM season_rank_archives sra
+       JOIN seasons s ON s.id = sra.season_id
+       WHERE sra.user_id = $1 AND s.ended_at IS NOT NULL
        ORDER BY s.ended_at DESC
        LIMIT 12`,
       [userId]

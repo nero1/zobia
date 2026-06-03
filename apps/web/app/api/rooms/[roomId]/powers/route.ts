@@ -118,15 +118,15 @@ export const POST = withAuth<RoomParams>(async (req: NextRequest, { params, auth
       // 4. Apply power
       if (body.power === "message_pin") {
         // Only room creator or co-mods can pin messages
-        const { rows: modRows } = await client.query<{ id: string }>(
-          `SELECT id FROM room_moderators WHERE room_id = $1 AND user_id = $2
-           UNION
-           SELECT id FROM rooms WHERE id = $1 AND creator_id = $2`,
-          [roomId, userId]
-        ).catch(() => ({ rows: [] as Array<{ id: string }> }));
-
-        if (!modRows.length && room.creator_id !== userId) {
-          throw forbidden("Only room creators and moderators can pin messages");
+        if (room.creator_id !== userId) {
+          const { rows: modRows } = await client.query<{ id: string }>(
+            `SELECT id FROM room_members
+             WHERE room_id = $1 AND user_id = $2 AND role = 'co_moderator'`,
+            [roomId, userId]
+          );
+          if (!modRows.length) {
+            throw forbidden("Only room creators and moderators can pin messages");
+          }
         }
 
         await client.query(
