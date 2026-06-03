@@ -184,6 +184,37 @@ export const POST = withAuth(async (req: NextRequest, ctx: AuthContext) => {
     // Mark today's login in Redis (idempotency key)
     await redis.set(redisKey, "1", "EX", DAILY_LOGIN_KEY_TTL_SECONDS);
 
+    // Process any unclaimed comeback bonus coins (90-day re-engagement)
+    let comebackBonusClaimed = 0;
+    try {
+      const { rows: pendingBonuses } = await db.query<{ id: string; amount: number }>(
+        `SELECT id, amount FROM coin_ledger
+         WHERE user_id = $1
+           AND type = 'comeback_bonus_reserved'
+           AND created_at > NOW() - INTERVAL '7 days'
+           AND NOT EXISTS (
+             SELECT 1 FROM coin_ledger cl2
+             WHERE cl2.user_id = $1
+               AND cl2.type = 'comeback_bonus_claimed'
+               AND cl2.reference_id = coin_ledger.id::text
+           )
+         ORDER BY created_at ASC
+         LIMIT 5`,
+        [userId]
+      );
+
+      for (const bonus of pendingBonuses) {
+        await db.query(
+          `INSERT INTO coin_ledger (user_id, amount, type, reference_id, description, created_at)
+           VALUES ($1, 0, 'comeback_bonus_claimed', $2, 'Comeback bonus claimed on login', NOW())`,
+          [userId, bonus.id]
+        );
+        comebackBonusClaimed += bonus.amount;
+      }
+    } catch {
+      // Non-fatal — streak/XP already recorded
+    }
+
     return NextResponse.json({
       success: true,
       data: {
@@ -191,6 +222,7 @@ export const POST = withAuth(async (req: NextRequest, ctx: AuthContext) => {
         xpAwarded: result.xpAwarded,
         isPersonalBest: result.isPersonalBest,
         alreadyClaimedToday: false,
+        ...(comebackBonusClaimed > 0 && { comebackBonusClaimed }),
       },
       error: null,
     });

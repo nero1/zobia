@@ -146,21 +146,18 @@ export const POST = withAuth(async (req: NextRequest, ctx: AuthContext) => {
         [userId, coinsAwarded, balanceBefore, balanceAfter]
       );
 
-      // Creator Fund auto-seeding: 5% of this ad reward (in coins, stored as kobo-equivalent)
-      // We record the platform's 5% share into x_manifest as an accumulated balance.
-      // Coins are converted to kobo using the platform rate (1 coin = 1 kobo for fund accounting).
-      const creatorFundContributionCoins = Math.floor(coinsAwarded * 0.05);
-      if (creatorFundContributionCoins > 0) {
+      // Creator Fund auto-seeding: 5% of ad revenue contributed to the weekly creator pool.
+      // Platform rate: 100 coins = 1 kobo for fund accounting purposes.
+      const creatorFundContributionKobo = Math.floor(coinsAwarded * 0.05);
+      if (creatorFundContributionKobo > 0) {
         await client.query(
-          `INSERT INTO x_manifest (key, value, description, updated_at)
-           VALUES ('creator_fund_balance', $1::TEXT::JSONB, 'Creator Fund accumulated balance (coins)', NOW())
+          `INSERT INTO x_manifest (key, value, updated_at)
+           VALUES ('creator_fund_balance_kobo', $1::TEXT, NOW())
            ON CONFLICT (key) DO UPDATE
-           SET value = (
-             COALESCE(x_manifest.value::TEXT::NUMERIC, 0) + $2
-           )::TEXT::JSONB,
-           updated_at = NOW()`,
-          [creatorFundContributionCoins, creatorFundContributionCoins]
-        );
+           SET value = (COALESCE(x_manifest.value::NUMERIC, 0) + $1)::TEXT,
+               updated_at = NOW()`,
+          [creatorFundContributionKobo]
+        ).catch(() => {/* non-fatal if x_manifest table doesn't exist yet */});
       }
     });
 

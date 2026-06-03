@@ -118,6 +118,23 @@ function sleep(ms: number): Promise<void> {
  * @param text    - Plain-text email body
  * @param html    - Optional HTML email body
  */
+/**
+ * Read the platform-wide email_all_enabled flag from x_manifest.
+ * Returns true (enabled) if the flag is not set or set to "true".
+ * This is called lazily per-send to respect real-time admin changes.
+ */
+async function isPlatformEmailEnabled(): Promise<boolean> {
+  try {
+    const { db } = await import("@/lib/db");
+    const { rows } = await db.query<{ value: string }>(
+      `SELECT value FROM x_manifest WHERE key = 'email_all_enabled' LIMIT 1`
+    );
+    return (rows[0]?.value ?? "true") !== "false";
+  } catch {
+    return true; // fail open — don't silence emails if manifest is unavailable
+  }
+}
+
 export async function sendEmail(
   to: string,
   subject: string,
@@ -125,6 +142,7 @@ export async function sendEmail(
   html?: string
 ): Promise<void> {
   if (!hasMailgunConfig()) return;
+  if (!(await isPlatformEmailEnabled())) return;
 
   await postToMailgun({ to, subject, text, html });
 }
@@ -143,6 +161,7 @@ export async function sendEmailBatch(
 ): Promise<void> {
   if (!hasMailgunConfig()) return;
   if (emails.length === 0) return;
+  if (!(await isPlatformEmailEnabled())) return;
 
   for (let i = 0; i < emails.length; i++) {
     const email = emails[i];

@@ -98,12 +98,12 @@ const REENGAGEMENT_BUCKETS: Array<{
     messages: [
       {
         title: "Long time no see 🙏",
-        body: "3 months is a long time. A lot has changed — come see what's new on Zobia.",
-        action: "/home",
+        body: "We saved 200 Coins for you. They expire in 7 days. Coins are real and are actually reserved — log in to claim them.",
+        action: "/economy/coins",
       },
       {
         title: "Your old friends are still here",
-        body: "Don't lose your connections. Log back in and reconnect with your crew.",
+        body: "We reserved 200 Coins just for you — come back within 7 days to claim them and reconnect with your crew.",
         action: "/friends",
       },
     ],
@@ -118,15 +118,21 @@ const REENGAGEMENT_BUCKETS: Array<{
  * Generate a re-engagement notification payload for a user based on how
  * many days they have been inactive.
  *
- * @param userId          - The user's UUID (used for deterministic message selection).
- * @param daysSinceActive - Number of full days since the user last logged in.
- * @returns A notification payload or null if daysSinceActive < 3.
+ * @param userId                 - The user's UUID (used for deterministic message selection).
+ * @param daysSinceActive        - Number of full days since the user last logged in.
+ * @param loginStreakBeforeBreak - The login streak the user had just before going inactive.
+ *                                 Used to gate the 3-day streak-at-risk notification.
+ * @returns A notification payload or null if daysSinceActive < 3 or streak gate not met.
  */
 export async function getReengagementPayload(
   userId: string,
-  daysSinceActive: number
+  daysSinceActive: number,
+  loginStreakBeforeBreak: number = 0
 ): Promise<ReengagementPayload | null> {
   if (daysSinceActive < 3) return null;
+
+  // 3-day bucket is only a streak-at-risk alert — skip if the user had no meaningful streak
+  if (daysSinceActive < 7 && loginStreakBeforeBreak < 5) return null;
 
   // Find the highest applicable bucket
   let selectedBucket = REENGAGEMENT_BUCKETS[0];

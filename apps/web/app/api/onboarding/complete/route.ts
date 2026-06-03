@@ -90,17 +90,17 @@ function calculateAge(dob: string): number {
 
 /**
  * Generate a unique referral code for a user.
- * Format: 8 uppercase alphanumeric characters.
+ * Format: 9-digit numeric string (e.g. 471370973) per PRD §15.
  *
  * @returns Referral code string
  */
 function generateReferralCode(): string {
-  return randomBytes(5)
-    .toString("base64url")
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "")
-    .slice(0, 8)
-    .padEnd(8, "Z");
+  // Produce a random 9-digit number: 100_000_000 – 999_999_999
+  const min = 100_000_000;
+  const max = 999_999_999;
+  const buf = randomBytes(4);
+  const rand = buf.readUInt32BE(0);
+  return String(min + (rand % (max - min + 1)));
 }
 
 // ---------------------------------------------------------------------------
