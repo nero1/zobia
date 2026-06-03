@@ -1,3 +1,6 @@
+# Claude Code agent artifacts
+.claude/
+
 # Expo
 .expo/
 android/
