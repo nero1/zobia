@@ -28,7 +28,8 @@ export type StarTransactionType =
   | "season_pass"
   | "admin_grant"
   | "refund"
-  | "ad_reward";
+  | "ad_reward"
+  | "cosmetic_purchase";
 
 // ---------------------------------------------------------------------------
 // Internal helpers
