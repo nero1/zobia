@@ -580,8 +580,8 @@ export default function DMConversationScreen() {
             <Pressable
               onPress={() =>
                 router.push({
-                  pathname: '/economy/gift-send',
-                  params: { toUserId: conversation!.otherUserId },
+                  pathname: '/economy/wallet',
+                  params: { transfer: conversation!.otherUserId },
                 })
               }
               accessibilityRole="link"

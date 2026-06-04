@@ -726,6 +726,92 @@ function RoomInputBar({
 // Main page
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// SpectacleThresholdPanel — creator gift spectacle settings (PRD §12)
+// ---------------------------------------------------------------------------
+
+/**
+ * Panel shown only to the room creator allowing them to set the minimum
+ * gift value (in coins) required to trigger the full room-wide spectacle
+ * animation. Setting it to 0 or null uses the gift item's own threshold.
+ */
+function SpectacleThresholdPanel({
+  roomId,
+  initialThreshold,
+}: {
+  roomId: string;
+  initialThreshold: number | null;
+}) {
+  const [threshold, setThreshold] = useState<string>(
+    initialThreshold != null ? String(initialThreshold) : ""
+  );
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    const coins = threshold.trim() === "" ? null : parseInt(threshold, 10);
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/spectacle-threshold`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ thresholdCoins: coins }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Failed to save");
+      }
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Error saving");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
+      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+        🎁 Spectacle Threshold
+      </h2>
+      <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
+        Gifts above this value trigger a full room-wide spectacle animation. Leave blank to use
+        each gift item's default.
+      </p>
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400">🪙</span>
+          <input
+            type="number"
+            min="0"
+            max="10000"
+            value={threshold}
+            onChange={(e) => setThreshold(e.target.value)}
+            placeholder="e.g. 50"
+            className="w-full rounded-lg border border-neutral-300 bg-white py-2 pl-8 pr-3 text-sm
+                       dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100
+                       focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="flex-shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white
+                     hover:bg-blue-700 disabled:opacity-60 transition-colors"
+        >
+          {saving ? "Saving…" : saved ? "✓ Saved" : "Save"}
+        </button>
+      </div>
+      {error && <p className="mt-1.5 text-xs text-red-500">{error}</p>}
+    </div>
+  );
+}
+
 /**
  * Room detail page with real-time message feed.
  */
@@ -850,7 +936,7 @@ export default function RoomPage() {
             newMsg.giftEmoji &&
             typeof newMsg.giftAmount === "number"
           ) {
-            const threshold = 50; // default; room.minGiftSpectacleCoin if available
+            const threshold = room?.minGiftSpectacleCoin ?? 50;
             if (newMsg.giftAmount >= threshold) {
               setSpectacle({
                 senderUsername: newMsg.username,
@@ -1149,6 +1235,11 @@ export default function RoomPage() {
 
         {/* Top Gifters */}
         <TopGifters roomId={roomId} />
+
+        {/* Creator Gift Spectacle Threshold (PRD §12) — visible to room creator only */}
+        {currentUserId && room.creatorId === currentUserId && (
+          <SpectacleThresholdPanel roomId={roomId} initialThreshold={room.minGiftSpectacleCoin ?? null} />
+        )}
 
         {/* ClassRoom Curriculum (PRD §10) */}
         {room.type === "classroom" && (
