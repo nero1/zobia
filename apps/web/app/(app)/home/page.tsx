@@ -472,6 +472,18 @@ export default function HomePage() {
   // PRD §2.1: Mystery XP Drop toast — surfaces recent unread mystery drops
   const [mysteryDrop, setMysteryDrop] = useState<MysteryDropNotification | null>(null);
 
+  // PRD §4: New Member Quest progress banner
+  interface MemberQuestStep { id: string; title: string; completed: boolean; }
+  interface MemberQuestState {
+    steps: MemberQuestStep[];
+    totalCoins: number;
+    totalXp: number;
+    isComplete: boolean;
+    completedAt?: string | null;
+  }
+  const [memberQuest, setMemberQuest] = useState<MemberQuestState | null>(null);
+  const [memberQuestDismissed, setMemberQuestDismissed] = useState(false);
+
   useEffect(() => {
     // Presence / XP activity count
     // API returns { success, data: { activeCount, event }, error }
@@ -522,6 +534,15 @@ export default function HomePage() {
       })
       .catch(() => setDiscoveryGuilds([]))
       .finally(() => setLoadingGuilds(false));
+
+    // PRD §4: New Member Quest
+    fetch("/api/quests/new-member", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { quest?: MemberQuestState; data?: MemberQuestState } | null) => {
+        const q = d?.quest ?? (d as { data?: MemberQuestState } | null)?.data ?? null;
+        if (q && !q.isComplete) setMemberQuest(q as MemberQuestState);
+      })
+      .catch(() => {});
 
     // PRD §2.1: Check for unread mystery XP drop notifications
     fetch("/api/notifications?type=mystery_xp_drop&unread=true&limit=1", { credentials: "include" })
@@ -579,6 +600,48 @@ export default function HomePage() {
             drop={mysteryDrop}
             onDismiss={() => setMysteryDrop(null)}
           />
+        )}
+
+        {/* New Member Quest — PRD §4 */}
+        {memberQuest && !memberQuestDismissed && (
+          <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950/40">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🎯</span>
+                <div>
+                  <p className="text-sm font-bold text-blue-900 dark:text-blue-100">New Member Quest</p>
+                  <p className="text-xs text-blue-700 dark:text-blue-300">
+                    Earn {memberQuest.totalCoins.toLocaleString()} Coins + {memberQuest.totalXp.toLocaleString()} XP
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMemberQuestDismissed(true)}
+                className="text-blue-400 hover:text-blue-600 dark:text-blue-500"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex gap-1.5">
+              {(memberQuest.steps ?? []).map((step, idx) => (
+                <div
+                  key={step.id ?? idx}
+                  className={`flex-1 rounded-full py-1 text-center text-xs font-semibold ${
+                    step.completed
+                      ? "bg-blue-600 text-white"
+                      : "bg-blue-100 text-blue-500 dark:bg-blue-900/50 dark:text-blue-400"
+                  }`}
+                  title={step.title}
+                >
+                  {step.completed ? "✓" : idx + 1}
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-blue-600 dark:text-blue-400">
+              {memberQuest.steps.filter((s) => s.completed).length}/{memberQuest.steps.length} steps complete
+            </p>
+          </div>
         )}
 
         {/* Leaderboard position */}
