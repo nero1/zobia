@@ -38,10 +38,13 @@ interface Moment {
   avatar_emoji: string;
   content: string;
   view_count: number;
+  reactions_count: number;
   expires_at: string;
   created_at: string;
   has_viewed: boolean;
 }
+
+const QUICK_REACTIONS = ['❤️', '🔥', '😂', '😮', '👏', '💯'];
 
 interface MomentsResponse {
   data: {
@@ -87,9 +90,11 @@ function timeAgo(createdAt: string): string {
 interface MomentCardProps {
   moment: Moment;
   isDark: boolean;
+  onReact: (momentId: string, emoji: string) => void;
 }
 
-function MomentCard({ moment, isDark }: MomentCardProps) {
+function MomentCard({ moment, isDark, onReact }: MomentCardProps) {
+  const [showReactions, setShowReactions] = React.useState(false);
   return (
     <View
       style={[
@@ -144,14 +149,39 @@ function MomentCard({ moment, isDark }: MomentCardProps) {
         {moment.content}
       </Text>
 
-      <Text
-        style={[
-          styles.viewCount,
-          { color: isDark ? colors.neutral[500] : colors.neutral[400] },
-        ]}
-      >
-        {moment.view_count.toLocaleString()} {moment.view_count === 1 ? 'view' : 'views'}
-      </Text>
+      <View style={styles.cardFooter}>
+        <Text style={[styles.viewCount, { color: isDark ? colors.neutral[500] : colors.neutral[400] }]}>
+          {moment.view_count.toLocaleString()} {moment.view_count === 1 ? 'view' : 'views'}
+        </Text>
+        <View style={styles.reactRow}>
+          <Text style={[styles.reactCount, { color: isDark ? colors.neutral[500] : colors.neutral[400] }]}>
+            {(moment.reactions_count ?? 0).toLocaleString()} reactions
+          </Text>
+          <Pressable
+            onPress={() => setShowReactions((v) => !v)}
+            style={[styles.reactBtn, { backgroundColor: isDark ? colors.neutral[700] : colors.neutral[100] }]}
+            accessibilityRole="button"
+            accessibilityLabel="React to moment"
+          >
+            <Text style={styles.reactBtnText}>😊 React</Text>
+          </Pressable>
+        </View>
+      </View>
+      {showReactions && (
+        <View style={[styles.reactionPicker, { backgroundColor: isDark ? colors.neutral[700] : colors.neutral[50] }]}>
+          {QUICK_REACTIONS.map((emoji) => (
+            <Pressable
+              key={emoji}
+              onPress={() => { onReact(moment.id, emoji); setShowReactions(false); }}
+              style={styles.reactionEmoji}
+              accessibilityRole="button"
+              accessibilityLabel={`React with ${emoji}`}
+            >
+              <Text style={styles.reactionEmojiText}>{emoji}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
@@ -201,6 +231,15 @@ export default function MomentsScreen() {
 
   const handleRefresh = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ['moments'] });
+  }, [queryClient]);
+
+  const handleReact = useCallback(async (momentId: string, emoji: string) => {
+    try {
+      await apiClient.post(`/api/moments/${momentId}/reactions`, { emoji });
+      void queryClient.invalidateQueries({ queryKey: ['moments'] });
+    } catch {
+      // Non-fatal
+    }
   }, [queryClient]);
 
   const bg = isDark ? colors.neutral[900] : colors.neutral[50];
@@ -267,7 +306,7 @@ export default function MomentsScreen() {
             </View>
           )
         }
-        renderItem={({ item }) => <MomentCard moment={item} isDark={isDark} />}
+        renderItem={({ item }) => <MomentCard moment={item} isDark={isDark} onReact={handleReact} />}
       />
 
       {/* Floating Action Button */}
@@ -354,6 +393,35 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 2,
   },
+  cardFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 6,
+  },
+  reactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  reactCount: { fontSize: 11 },
+  reactBtn: {
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  reactBtnText: { fontSize: 12, fontWeight: '600' },
+  reactionPicker: {
+    flexDirection: 'row',
+    gap: 4,
+    borderRadius: 16,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    marginTop: 6,
+    flexWrap: 'wrap',
+  },
+  reactionEmoji: { padding: 4 },
+  reactionEmojiText: { fontSize: 22 },
 
   // Skeleton
   skeletonCircle: {
