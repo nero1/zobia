@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { handleApiError } from "@/lib/api/errors";
+import { requireFeatureEnabled } from "@/lib/manifest";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -42,6 +43,7 @@ interface CouncilIdeaRow {
 
 export async function GET(_req: NextRequest): Promise<NextResponse> {
   try {
+    await requireFeatureEnabled("platformCouncil");
     const [membersResult, ideasResult] = await Promise.all([
       db.query<CouncilMemberRow>(
         `SELECT

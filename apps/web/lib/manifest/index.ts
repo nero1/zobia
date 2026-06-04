@@ -327,6 +327,36 @@ export async function getFeatureFlags(): Promise<ZobiaManifest["features"]> {
 }
 
 // ---------------------------------------------------------------------------
+// Feature guard — throws if the feature is disabled
+// ---------------------------------------------------------------------------
+
+/**
+ * Assert that a named feature is enabled in the current manifest.
+ *
+ * Intended to be called at the top of route handlers that are gated by a
+ * feature flag, e.g.:
+ *
+ * ```ts
+ * await requireFeatureEnabled('guildWars'); // throws 503 if disabled
+ * ```
+ *
+ * @param featureName - Key from ZobiaManifest['features']
+ * @throws Plain Error with code FEATURE_DISABLED if the feature is off.
+ *         Route handlers should catch this and return 503/403.
+ */
+export async function requireFeatureEnabled(
+  featureName: keyof ZobiaManifest["features"]
+): Promise<void> {
+  const manifest = await loadManifest();
+  if (!manifest.features[featureName]) {
+    const err = new Error(`Feature '${featureName}' is currently disabled`) as Error & { code: string; statusCode: number };
+    err.code = "FEATURE_DISABLED";
+    err.statusCode = 503;
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Legacy type alias (kept for backwards compatibility with existing imports)
 // ---------------------------------------------------------------------------
 

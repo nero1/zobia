@@ -40,6 +40,7 @@ import {
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { debitCoins, creditCoins } from "@/lib/economy/coins";
 import { initializePayment } from "@/lib/payments";
+import { requireFeatureEnabled } from "@/lib/manifest";
 import type { TransactionClient } from "@/lib/db/interface";
 
 // ---------------------------------------------------------------------------
@@ -108,6 +109,7 @@ function koboToCoins(kobo: number): number {
  */
 export const POST = withAuth(async (req: NextRequest, { auth }) => {
   try {
+    await requireFeatureEnabled("merchStore");
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 
     const body = await validateBody(req, purchaseSchema);
