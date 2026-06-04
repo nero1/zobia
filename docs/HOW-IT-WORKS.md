@@ -425,3 +425,102 @@ Located in `security-tests/`. Covers OWASP Top 10 and platform-specific threats:
 Prerequisites: running dev server + env vars `SECURITY_TEST_BASE_URL`, `SECURITY_TEST_USER_TOKEN`, `SECURITY_TEST_ADMIN_TOKEN`, `SECURITY_TEST_USER_ID`, `SECURITY_TEST_OTHER_USER_ID`.
 
 Run: `cd apps/web && npx jest --testPathPattern="security" --runInBand`
+
+---
+
+## Push Notification System
+
+### Server-Side Delivery
+
+The server sends push notifications via `apps/web/lib/notifications/push.ts` using the Expo Push API (`https://exp.host/--/api/v2/push/send`).
+
+Notifications are sent:
+- **Guild War Final Hour** — to all guild members when 60 minutes remain.
+- **Mystery XP Drop** — fired when the CRON dispatches a random drop.
+- **Leaderboard ripple** — when a user's rank changes while they are offline.
+- **Nemesis overtake** — when the Nemesis pulls ahead or the user overtakes them.
+- **Friend gift** — when a friend sends a gift.
+- **Season reset (24h)** — reminder before competitive season closes.
+- **Re-engagement sequences** — at 3, 7, 14, 30, and 90 days of inactivity.
+
+Notification priority levels:
+- `high` — sound + banner (Guild War Final Hour, Mystery XP Drop, gifts).
+- `normal` — sound + banner (general social notifications).
+- `low` — silent badge-only (weekly contribution scores, non-urgent nudges).
+- `silent` — no sound or visual interruption (background data updates).
+
+### Client-Side Setup (Expo)
+
+On first authenticated load, the Expo app:
+1. Checks if running on a physical device (`expo-device`).
+2. Requests permission via `expo-notifications.requestPermissionsAsync()`.
+3. Calls `expo-notifications.getExpoPushTokenAsync()` to retrieve the unique device token.
+4. Registers the token with `POST /api/users/push-token` (stored in `user_push_tokens` table).
+
+Notification tap handling routes users to the deep-link `action` field attached to each notification payload (e.g. `/guild/wars/[warId]`, `/leaderboards`, `/profile/[userId]`).
+
+---
+
+## Community Notes
+
+Community Notes is an admin-toggleable crowdsourced fact-checking feature (PRD §19, Layer 2 moderation).
+
+### How It Works
+
+1. Any user can submit a note on flagged content (messages, rooms, profiles, guilds).
+2. The community votes notes as "Helpful" or "Not Helpful."
+3. Notes with a sufficient ratio of helpful votes gain `visible` status and appear alongside the original content.
+4. Admin moderators can review and remove notes via the admin panel.
+
+### Feature Flag
+
+Controlled by `community_notes_enabled` in the x_manifest / admin feature flags panel. Default: enabled.
+
+When disabled, the web page at `/community-notes` shows a "Feature Unavailable" notice. The API returns 403.
+
+### API Routes
+
+| Method | Route | Purpose |
+|---|---|---|
+| GET | `/api/community-notes` | List notes, filterable by status |
+| POST | `/api/community-notes` | Submit a new note |
+| POST | `/api/community-notes/[noteId]/vote` | Vote helpful or unhelpful |
+
+---
+
+## Gift Spectacle Threshold
+
+Each room creator can set a minimum gift value (coins) required to trigger the full room-wide spectacle animation (PRD §12).
+
+- The spectacle animation dims the message feed for 3 seconds and plays the gift emoji prominently.
+- High-value gifts (Tier 2+) always trigger spectacle when no threshold is set.
+- Creators set the threshold via the "🎁 Spectacle Threshold" panel in the room sidebar.
+- Stored in `rooms.spectacle_threshold_coins`. `NULL` = use gift item's default.
+- API: `PUT /api/rooms/[roomId]/spectacle-threshold` with `{ thresholdCoins: number | null }`.
+
+---
+
+## Gift Messages in DMs
+
+When a user sends a gift to another user via `POST /api/economy/gifts/send` (without a `roomId`), the gift:
+
+1. Debits coins from the sender atomically (80/20 or 95/5 split depending on whether recipient is a creator).
+2. Credits the recipient's coin balance.
+3. **Creates a DM message** with `message_type = 'gift'` so it appears in the conversation feed.
+4. Upserts the `dm_conversations` record to ensure the conversation is trackable.
+
+The gift message displays as a special bubble (`🎁 Gift Name (X coins)`) in both sender's and recipient's DM view.
+
+---
+
+## "Gift Them Coins" Flow
+
+When a user does not have enough coins to reply to a DM, the conversation screen shows:
+
+> "Not enough coins to reply. **Gift them coins →**"
+
+Tapping "Gift them coins" opens the **Coin Transfer** flow (not the gift item flow):
+- **Web:** Routes to `/wallet?transfer=[userId]` which opens the CoinTransferPanel.
+- **Expo:** Routes to `/economy/wallet` with `transfer=[userId]` param.
+
+This allows the current user to send raw coins to the recipient so they can reply.

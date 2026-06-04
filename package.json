@@ -16,7 +16,13 @@
     "migrate": "cd apps/web && npx tsx db/migrate.ts",
     "seed": "cd apps/web && npx tsx db/seed.ts",
     "lint": "npm run lint --workspaces",
-    "typecheck": "npm run typecheck --workspaces"
+    "typecheck": "npm run typecheck --workspaces",
+    "test": "cd apps/web && npm run test",
+    "test:unit": "cd apps/web && npm run test:unit",
+    "test:e2e": "cd apps/web && npm run test:e2e",
+    "test:security": "cd apps/web && npm run test:security",
+    "test:load": "cd load-tests && k6 run room-feed.js",
+    "test:all": "cd apps/web && npm run test:all"
   },
   "engines": {
     "node": ">=20.0.0"

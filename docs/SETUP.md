@@ -481,3 +481,145 @@ npx jest --testPathPattern="security-tests" --runInBand
 ```
 
 Each test file covers a distinct OWASP category. Tests are designed to be non-destructive: they probe for vulnerabilities but do not attempt to exploit them destructively. Run against a **staging** environment, not production.
+
+---
+
+## Running Tests
+
+### Unit Tests (Jest)
+
+```bash
+cd apps/web
+npm run test:unit
+```
+
+Covers: XP engine, coin ledger atomicity, financial integrity, concurrency race conditions, payout math, guild war resolution, season engine.
+
+To run with coverage:
+```bash
+npx jest --coverage
+```
+
+### E2E Tests (Playwright)
+
+Install browser binaries (first time only):
+```bash
+cd apps/web
+npx playwright install chromium firefox
+```
+
+Start the dev server in one terminal:
+```bash
+cd apps/web && npm run dev
+```
+
+Run tests in another terminal:
+```bash
+cd apps/web
+npm run test:e2e
+```
+
+Test results + screenshots saved to `playwright-report/`. On CI, `TEST_BASE_URL` env var overrides the default localhost target.
+
+E2E test files cover all 11 PRD §28 scenarios:
+
+| File | Scenarios |
+|---|---|
+| `e2e/onboarding.spec.ts` | Full onboarding flow, age gate, username validation |
+| `e2e/messaging.spec.ts` | DM auth enforcement, SSRF on link preview, group chat caps |
+| `e2e/economy.spec.ts` | Coin purchase, webhook signature validation, gift catalogue |
+| `e2e/rooms.spec.ts` | Room creation, VIP access, spectacle threshold, promotion |
+| `e2e/guilds.spec.ts` | Guild creation, war declaration, CRON protection |
+| `e2e/creator-payouts.spec.ts` | Creator payouts, admin approval, KYC |
+| `e2e/admin.spec.ts` | Admin auth, suspension, season reset, referral flow |
+
+### Load Tests (k6)
+
+Install k6 from https://k6.io/docs/get-started/installation/
+
+```bash
+# Room feed — 1,000 concurrent users
+k6 run load-tests/room-feed.js --env BASE_URL=https://staging.zobia.app
+
+# Guild War Final Hour — 500 concurrent War Point writes
+k6 run load-tests/guild-war-final-hour.js --env BASE_URL=https://staging.zobia.app
+
+# Daily login thundering herd — 500 simultaneous midnight logins
+k6 run load-tests/daily-login.js --env BASE_URL=https://staging.zobia.app
+```
+
+### Security Tests
+
+Requires a running server. Set env vars before running:
+```
+SECURITY_TEST_BASE_URL=http://localhost:3000
+SECURITY_TEST_USER_TOKEN=<jwt>
+SECURITY_TEST_ADMIN_TOKEN=<admin-jwt>
+SECURITY_TEST_USER_ID=<uuid>
+SECURITY_TEST_OTHER_USER_ID=<uuid>
+```
+
+Run:
+```bash
+cd apps/web
+npm run test:security
+```
+
+See `security-tests/pentest-runbook.md` for a full external assessor runbook.
+
+---
+
+## Push Notification Setup (Expo App)
+
+The Expo app uses the Expo Push API (server-side) and `expo-notifications` (client-side).
+
+### Server side
+
+The server sends notifications via `apps/web/lib/notifications/push.ts`. No additional infrastructure is required — the Expo Push API handles delivery.
+
+Set the optional access token for enhanced delivery:
+```
+EXPO_ACCESS_TOKEN=your_expo_access_token
+```
+
+### Client side
+
+When a user logs into the Expo app on a physical device, the app automatically:
+1. Requests notification permission via `expo-notifications`.
+2. Retrieves the Expo Push Token.
+3. Registers the token with the backend via `POST /api/users/push-token`.
+
+No configuration is needed beyond including `expo-notifications` in your Expo SDK (already included in `apps/expo/package.json`).
+
+To test push notifications locally:
+```bash
+# Get a push token from the Expo app (check console logs on device)
+# Then send a test notification:
+curl -X POST https://exp.host/--/api/v2/push/send \
+  -H "Content-Type: application/json" \
+  -d '{"to":"ExponentPushToken[...]","title":"Test","body":"Hello from Zobia"}'
+```
+
+---
+
+## Community Notes Feature
+
+Community Notes is an admin-toggleable crowdsourced fact-checking feature (PRD §19).
+
+- **Toggle:** In the admin panel under Feature Flags, set `community_notes_enabled` to on/off.
+- **User UI:** Available at `/community-notes` in the web app.
+- **API:** `GET/POST /api/community-notes`, `POST /api/community-notes/[noteId]/vote`.
+- **Expo:** Available at `/community-notes` in the Expo app.
+
+When enabled, users can add contextual notes to flagged content and vote notes as helpful or unhelpful. Notes with sufficient helpful votes gain "Visible" status and appear alongside the original content.
+
+---
+
+## Gift Spectacle Threshold (Creator Setting)
+
+Room creators can configure the minimum gift value (in coins) required to trigger the full room-wide spectacle animation (PRD §12).
+
+- **UI:** Visible in the room sidebar when you are the room creator. Look for "🎁 Spectacle Threshold."
+- **API:** `PUT /api/rooms/[roomId]/spectacle-threshold` with body `{ thresholdCoins: number | null }`.
+- Setting to `null` or leaving blank reverts to the gift item's own default threshold.
+- Example: set to 100 so only gifts worth 100+ coins trigger the spectacle.

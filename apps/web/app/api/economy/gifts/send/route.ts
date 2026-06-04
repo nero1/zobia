@@ -250,21 +250,30 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
           spectacleTriggered = giftItem.tier >= 2;
         }
       } else {
-        // DM gift message
+        // DM gift message — upsert the conversation record then insert a
+        // properly typed message so it appears in the DM feed (PRD §5).
+        const { rows: convUpsert } = await tx.query<{ id: string }>(
+          `INSERT INTO dm_conversations (user_id_1, user_id_2)
+           VALUES (
+             LEAST($1::text, $2::text),
+             GREATEST($1::text, $2::text)
+           )
+           ON CONFLICT (user_id_1, user_id_2) DO UPDATE SET updated_at = NOW()
+           RETURNING id`,
+          [senderId, body.recipientId]
+        );
+        const dmConversationId = convUpsert[0]?.id ?? null;
+
         await tx.query(
           `INSERT INTO messages
-             (sender_id, recipient_id, content_type, content, metadata)
-           VALUES ($1, $2, 'gift', $3, $4::jsonb)`,
+             (sender_id, recipient_id, conversation_id, message_type, content,
+              media_url, coin_cost, reply_count_from_recipient)
+           VALUES ($1, $2, $3, 'gift', $4, NULL, 0, 0)`,
           [
             senderId,
             body.recipientId,
-            `${giftItem.emoji} ${giftItem.name}`,
-            JSON.stringify({
-              giftId,
-              giftItemId: giftItem.id,
-              coinCost: giftItem.coin_cost,
-              tier: giftItem.tier,
-            }),
+            dmConversationId,
+            `${giftItem.emoji} ${giftItem.name} (${giftItem.coin_cost} coins)`,
           ]
         );
       }
