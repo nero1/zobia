@@ -1154,6 +1154,107 @@ export const GET = async (req: NextRequest) => {
     errors.push(`guildQuestReset: ${String(err)}`);
   }
 
+  // 24. Flash XP event lifecycle — announce, fire, expire (PRD §2.4)
+  // Events in flash_xp_events have three transitions:
+  //   announced_at reached → send push notifications to all users
+  //   fires_at reached     → set fired=true (XP engine starts applying multiplier)
+  //   ends_at reached      → set is_active=false (multiplier stops)
+  try {
+    interface FlashXpRow {
+      id: string;
+      name: string;
+      multiplier: string;
+      announced_at: string;
+      fires_at: string;
+      ends_at: string;
+      is_active: boolean;
+      fired: boolean;
+    }
+
+    // Fetch all events that are still active or have passed their fires_at
+    const { rows: flashRows } = await db.query<FlashXpRow>(
+      `SELECT id, name, multiplier::TEXT AS multiplier,
+              announced_at, fires_at, ends_at, is_active, fired
+       FROM flash_xp_events
+       WHERE is_active = TRUE OR (is_active = FALSE AND fired = FALSE AND fires_at <= NOW())`
+    );
+
+    let flashAnnounced = 0;
+    let flashFired = 0;
+    let flashExpired = 0;
+
+    for (const evt of flashRows) {
+      const now = Date.now();
+      const announcedAt = new Date(evt.announced_at).getTime();
+      const firesAt = new Date(evt.fires_at).getTime();
+      const endsAt = new Date(evt.ends_at).getTime();
+
+      // Announce: announced_at reached but not yet fired — send notifications once
+      if (now >= announcedAt && !evt.fired && evt.is_active) {
+        // Check if we already sent announcement notifications for this event
+        const { rows: notifCheck } = await db.query<{ count: string }>(
+          `SELECT COUNT(*) AS count FROM notifications
+           WHERE type = 'flash_xp_announced' AND payload->>'eventId' = $1 LIMIT 1`,
+          [evt.id]
+        ).catch(() => ({ rows: [{ count: "1" }] }));
+
+        if (parseInt(notifCheck[0]?.count ?? "1", 10) === 0) {
+          // Notify all active users
+          await db.query(
+            `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+             SELECT id,
+                    'flash_xp_announced',
+                    jsonb_build_object(
+                      'eventId', $1::text,
+                      'eventName', $2::text,
+                      'multiplier', $3::text,
+                      'firesAt', $4::text,
+                      'endsAt', $5::text
+                    ),
+                    false,
+                    NOW()
+             FROM users
+             WHERE deleted_at IS NULL
+               AND last_active_at > NOW() - INTERVAL '7 days'`,
+            [evt.id, evt.name, evt.multiplier, evt.fires_at, evt.ends_at]
+          ).catch(() => {});
+          flashAnnounced++;
+        }
+      }
+
+      // Activate: fires_at reached and not yet fired
+      // Also sync into platform_events so the events calendar shows it
+      if (now >= firesAt && !evt.fired) {
+        await db.query(
+          `UPDATE flash_xp_events SET fired = TRUE, updated_at = NOW() WHERE id = $1`,
+          [evt.id]
+        ).catch(() => {});
+        // Upsert into platform_events so events calendar reflects it
+        await db.query(
+          `INSERT INTO platform_events
+             (name, description, event_type, xp_multiplier, starts_at, ends_at, is_active, metadata, created_at, updated_at)
+           VALUES ($1, 'Double XP event', 'flash_xp', $2::numeric, $3, $4, TRUE, jsonb_build_object('source_flash_xp_id', $5::text), NOW(), NOW())
+           ON CONFLICT DO NOTHING`,
+          [evt.name, evt.multiplier, evt.fires_at, evt.ends_at, evt.id]
+        ).catch(() => {});
+        flashFired++;
+      }
+
+      // Expire: ends_at reached
+      if (now >= endsAt && evt.is_active) {
+        await db.query(
+          `UPDATE flash_xp_events SET is_active = FALSE, updated_at = NOW() WHERE id = $1`,
+          [evt.id]
+        ).catch(() => {});
+        flashExpired++;
+      }
+    }
+
+    results.flashXpLifecycle = { announced: flashAnnounced, fired: flashFired, expired: flashExpired };
+  } catch (err) {
+    errors.push(`flashXpLifecycle: ${String(err)}`);
+  }
+
   return NextResponse.json({
     success: errors.length === 0,
     results,

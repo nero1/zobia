@@ -78,10 +78,10 @@ export const POST = withAuth(async (req: NextRequest, ctx: AuthContext) => {
  */
 export const GET = withAuth(async (req: NextRequest, ctx: AuthContext) => {
   try {
-    // Count users active in the last 5 minutes via DB
+    // Count distinct users who earned XP in the last hour (PRD §2.2: "X people earned XP in the last hour")
     const { rows } = await db.query<{ count: string }>(
-      `SELECT COUNT(*) AS count FROM users
-       WHERE last_active_at > NOW() - INTERVAL '5 minutes'`
+      `SELECT COUNT(DISTINCT user_id) AS count FROM xp_ledger
+       WHERE created_at > NOW() - INTERVAL '1 hour'`
     );
     const activeCount = parseInt(rows[0]?.count ?? "0", 10);
 

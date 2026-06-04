@@ -10,7 +10,7 @@
  *   Create a new flash XP event.
  *   Body: { name, description?, announced_at, fires_at, ends_at, multiplier }
  *   Constraints: announced_at < fires_at, fires_at < ends_at,
- *                fires_at - announced_at >= 1 hour.
+ *                fires_at - announced_at >= 6 hours (PRD §2.4).
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -100,10 +100,11 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
       throw badRequest("fires_at must be before ends_at");
     }
 
-    const ONE_HOUR_MS = 60 * 60 * 1000;
-    if (firesAt.getTime() - announcedAt.getTime() < ONE_HOUR_MS) {
+    // PRD §2.4: Flash events announced 6 hours in advance of firing
+    const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+    if (firesAt.getTime() - announcedAt.getTime() < SIX_HOURS_MS) {
       throw badRequest(
-        "fires_at must be at least 1 hour after announced_at so users have adequate notice"
+        "fires_at must be at least 6 hours after announced_at per platform policy"
       );
     }
 

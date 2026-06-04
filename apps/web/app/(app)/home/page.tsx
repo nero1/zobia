@@ -473,13 +473,15 @@ export default function HomePage() {
   const [mysteryDrop, setMysteryDrop] = useState<MysteryDropNotification | null>(null);
 
   useEffect(() => {
-    // Presence / activity count
+    // Presence / XP activity count
+    // API returns { success, data: { activeCount, event }, error }
     fetch("/api/presence", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: { activeCount?: number; event?: PlatformEvent } | null) => {
-        if (d) {
-          if (typeof d.activeCount === "number") setActiveCount(d.activeCount);
-          if (d.event) setPlatformEvent(d.event);
+      .then((d: { data?: { activeCount?: number; event?: PlatformEvent } } | null) => {
+        const payload = d?.data;
+        if (payload) {
+          if (typeof payload.activeCount === "number") setActiveCount(payload.activeCount);
+          if (payload.event) setPlatformEvent(payload.event);
         }
       })
       .catch(() => {});
