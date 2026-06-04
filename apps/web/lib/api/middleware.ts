@@ -39,6 +39,11 @@ import {
   getClientIp,
   type RateLimitOptions,
 } from "@/lib/security/rateLimit";
+import {
+  isIpAnomalous,
+  recordAndCheckAnomaly,
+} from "@/lib/security/geoAnomaly";
+import { invalidateSession } from "@/lib/auth/session";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -121,6 +126,25 @@ export function withAuth<TParams = Record<string, string>>(
       const session = await getSession(payload.sid);
       if (!session) {
         throw unauthorized("Session has been revoked");
+      }
+
+      // Geolocation anomaly detection (PRD §19, §23)
+      // Compare login IP vs current request IP. After threshold of drastic
+      // IP changes within 1 hour, force session invalidation.
+      const currentIp = getClientIp(req);
+      if (session.ip && isIpAnomalous(session.ip, currentIp)) {
+        const shouldInvalidate = await recordAndCheckAnomaly(
+          payload.sid,
+          payload.sub,
+          session.ip,
+          currentIp
+        );
+        if (shouldInvalidate) {
+          await invalidateSession(payload.sid, payload.sub).catch(() => {});
+          throw unauthorized(
+            "Session invalidated due to suspicious IP activity. Please log in again."
+          );
+        }
       }
 
       return await handler(req, {

@@ -233,12 +233,21 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
           ]
         );
 
-        // Check spectacle threshold
-        if (
-          giftItem.spectacle_threshold_coins != null &&
-          giftItem.coin_cost >= giftItem.spectacle_threshold_coins
-        ) {
+        // Check both gift-item-level and creator-level spectacle thresholds (PRD §12)
+        // Load the room's creator spectacle threshold
+        const { rows: roomRows } = await tx.query<{ spectacle_threshold_coins: number | null }>(
+          `SELECT spectacle_threshold_coins FROM rooms WHERE id = $1 LIMIT 1`,
+          [body.roomId]
+        );
+
+        const roomThreshold = roomRows[0]?.spectacle_threshold_coins ?? null;
+        const effectiveThreshold = roomThreshold ?? giftItem.spectacle_threshold_coins;
+
+        if (effectiveThreshold != null && giftItem.coin_cost >= effectiveThreshold) {
           spectacleTriggered = true;
+        } else if (effectiveThreshold == null) {
+          // No threshold set — always trigger spectacle for tier 2+ gifts
+          spectacleTriggered = giftItem.tier >= 2;
         }
       } else {
         // DM gift message

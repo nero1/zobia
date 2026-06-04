@@ -21,6 +21,40 @@ const EXPO_BATCH_SIZE = 100;
 // Types
 // ---------------------------------------------------------------------------
 
+/**
+ * Notification priority levels.
+ *
+ * - `high`   — time-sensitive alerts (e.g. direct messages, guild wars).
+ *              Uses default sound, Expo priority "high".
+ * - `normal` — standard social notifications (likes, comments, follows).
+ *              Uses default sound, Expo priority "normal".
+ * - `low`    — informational nudges (weekly recaps, non-critical reminders).
+ *              Silent (no sound), Expo priority "normal", badge-only display.
+ * - `silent` — background data updates or invisible analytics pings.
+ *              No sound, Expo priority "normal", no visual interruption.
+ */
+export type NotificationPriority = "high" | "normal" | "low" | "silent";
+
+/**
+ * Options for sending a single push notification.
+ */
+export interface PushNotificationOptions {
+  /** Deep-link action route or URL to open on tap. */
+  action?: string;
+  /** Arbitrary extra data passed through to the app's notification handler. */
+  data?: Record<string, unknown>;
+  /**
+   * Notification priority — controls sound and Expo delivery priority.
+   * Defaults to `"normal"`.
+   */
+  priority?: NotificationPriority;
+  /**
+   * App icon badge count to display after delivering the notification.
+   * Pass 0 to clear the badge. Omit to leave badge unchanged.
+   */
+  badge?: number;
+}
+
 interface PushTokenRow {
   token: string;
 }
@@ -30,7 +64,11 @@ interface ExpoMessage {
   title: string;
   body: string;
   data?: Record<string, unknown>;
-  sound: "default";
+  /** `"default"` plays the system default sound; `null` is silent. */
+  sound: "default" | null;
+  /** Expo delivery priority tier. */
+  priority: "high" | "normal";
+  badge?: number;
 }
 
 interface ExpoTicket {
@@ -47,6 +85,34 @@ interface ExpoPushResponse {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Resolve the Expo `sound` and `priority` fields from our internal
+ * `NotificationPriority` enum.
+ *
+ * | Our priority | Expo sound    | Expo priority |
+ * |--------------|---------------|---------------|
+ * | high         | "default"     | "high"        |
+ * | normal       | "default"     | "normal"      |
+ * | low          | null (silent) | "normal"      |
+ * | silent       | null (silent) | "normal"      |
+ *
+ * @param priority - Internal priority level (defaults to "normal")
+ * @returns Expo-compatible sound and priority fields
+ */
+function resolveExpoPriority(priority: NotificationPriority = "normal"): {
+  sound: "default" | null;
+  priority: "high" | "normal";
+} {
+  if (priority === "high") {
+    return { sound: "default", priority: "high" };
+  }
+  if (priority === "normal") {
+    return { sound: "default", priority: "normal" };
+  }
+  // low and silent: no sound, normal delivery priority (badge-only display)
+  return { sound: null, priority: "normal" };
+}
 
 /**
  * Build the Authorization header for Expo requests.
@@ -124,16 +190,16 @@ async function sendExpoBatch(messages: ExpoMessage[]): Promise<void> {
  * notification via the Expo Push API. Fire-and-forget: errors are
  * logged but never thrown.
  *
- * @param userId - Target user UUID
- * @param title  - Notification title
- * @param body   - Notification body text
- * @param data   - Optional extra data payload
+ * @param userId  - Target user UUID
+ * @param title   - Notification title
+ * @param body    - Notification body text
+ * @param options - Optional delivery options (priority, data, badge, action)
  */
 export async function sendPushNotification(
   userId: string,
   title: string,
   body: string,
-  data?: Record<string, unknown>
+  options?: PushNotificationOptions
 ): Promise<void> {
   try {
     const { rows } = await db.query<PushTokenRow>(
@@ -149,12 +215,21 @@ export async function sendPushNotification(
       return;
     }
 
+    const { sound, priority } = resolveExpoPriority(options?.priority);
+
+    const messageData: Record<string, unknown> = { ...(options?.data ?? {}) };
+    if (options?.action) {
+      messageData.action = options.action;
+    }
+
     const message: ExpoMessage = {
       to: token,
       title,
       body,
-      sound: "default",
-      ...(data ? { data } : {}),
+      sound,
+      priority,
+      ...(Object.keys(messageData).length > 0 ? { data: messageData } : {}),
+      ...(options?.badge !== undefined ? { badge: options.badge } : {}),
     };
 
     await sendExpoBatch([message]);
@@ -170,7 +245,11 @@ export async function sendPushNotification(
  * tokens, and sends up to 100 messages per Expo API request.
  * Errors are logged but never thrown.
  *
- * @param notifications - Array of notification payloads (userId, title, body, optional data)
+ * Each notification entry can specify its own priority and badge. When
+ * priority is `low` or `silent`, the notification is delivered without
+ * sound (badge-only display on device).
+ *
+ * @param notifications - Array of notification payloads per user
  */
 export async function sendPushNotificationBatch(
   notifications: Array<{
@@ -178,6 +257,8 @@ export async function sendPushNotificationBatch(
     title: string;
     body: string;
     data?: Record<string, unknown>;
+    priority?: NotificationPriority;
+    badge?: number;
   }>
 ): Promise<void> {
   if (notifications.length === 0) return;
@@ -205,12 +286,16 @@ export async function sendPushNotificationBatch(
       const token = tokenMap.get(notification.userId);
       if (!token) continue;
 
+      const { sound, priority } = resolveExpoPriority(notification.priority);
+
       messages.push({
         to: token,
         title: notification.title,
         body: notification.body,
-        sound: "default",
+        sound,
+        priority,
         ...(notification.data ? { data: notification.data } : {}),
+        ...(notification.badge !== undefined ? { badge: notification.badge } : {}),
       });
     }
 

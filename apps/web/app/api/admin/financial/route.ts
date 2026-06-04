@@ -31,6 +31,9 @@ interface CoinEconomyRow {
   coins_burned_today: string;
   coins_burned_week: string;
   coins_burned_month: string;
+  coins_earned_today: string;
+  coins_earned_week: string;
+  coins_earned_month: string;
   total_users_with_coins: string;
 }
 
@@ -56,20 +59,41 @@ async function getCoinEconomy() {
        (SELECT COALESCE(ABS(SUM(amount)), 0)::TEXT FROM coin_ledger
         WHERE amount < 0 AND created_at >= CURRENT_DATE - INTERVAL '30 days'
        ) AS coins_burned_month,
+       (SELECT COALESCE(SUM(amount), 0)::TEXT FROM coin_ledger
+        WHERE transaction_type NOT IN ('purchase') AND amount > 0 AND created_at >= CURRENT_DATE
+       ) AS coins_earned_today,
+       (SELECT COALESCE(SUM(amount), 0)::TEXT FROM coin_ledger
+        WHERE transaction_type NOT IN ('purchase') AND amount > 0 AND created_at >= CURRENT_DATE - INTERVAL '7 days'
+       ) AS coins_earned_week,
+       (SELECT COALESCE(SUM(amount), 0)::TEXT FROM coin_ledger
+        WHERE transaction_type NOT IN ('purchase') AND amount > 0 AND created_at >= CURRENT_DATE - INTERVAL '30 days'
+       ) AS coins_earned_month,
        COUNT(*) FILTER (WHERE coin_balance > 0)::TEXT AS total_users_with_coins
      FROM users
      WHERE deleted_at IS NULL`
   );
 
   const row = rows[0];
+  const purchasedToday = parseInt(row?.coins_minted_today ?? "0", 10);
+  const purchasedWeek = parseInt(row?.coins_minted_week ?? "0", 10);
+  const purchasedMonth = parseInt(row?.coins_minted_month ?? "0", 10);
   return {
     totalCoinsInCirculation: parseInt(row?.total_coins_in_circulation ?? "0", 10),
-    mintedToday: parseInt(row?.coins_minted_today ?? "0", 10),
-    mintedWeek: parseInt(row?.coins_minted_week ?? "0", 10),
-    mintedMonth: parseInt(row?.coins_minted_month ?? "0", 10),
+    // "purchased" = coins bought via IAP/payment (formerly "minted")
+    purchasedToday,
+    purchasedWeek,
+    purchasedMonth,
+    // backward-compat aliases
+    mintedToday: purchasedToday,
+    mintedWeek: purchasedWeek,
+    mintedMonth: purchasedMonth,
     burnedToday: parseInt(row?.coins_burned_today ?? "0", 10),
     burnedWeek: parseInt(row?.coins_burned_week ?? "0", 10),
     burnedMonth: parseInt(row?.coins_burned_month ?? "0", 10),
+    // coins earned through platform activities (quests, login bonuses, war wins, referrals, etc.)
+    earnedToday: parseInt(row?.coins_earned_today ?? "0", 10),
+    earnedWeek: parseInt(row?.coins_earned_week ?? "0", 10),
+    earnedMonth: parseInt(row?.coins_earned_month ?? "0", 10),
     usersWithCoins: parseInt(row?.total_users_with_coins ?? "0", 10),
   };
 }

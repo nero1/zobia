@@ -19,6 +19,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
+import { requireFeatureEnabled } from "@/lib/manifest";
 import {
   handleApiError,
   notFound,
@@ -129,6 +130,7 @@ export const POST = withAuth(
     { params, auth }: { params: { guildId: string }; auth: { user: { sub: string } } }
   ) => {
     try {
+      await requireFeatureEnabled("allianceSystem");
       const { guildId } = await params;
       const userId = auth.user.sub;
       await enforceRateLimit(userId, "user", RATE_LIMITS.apiWrite);

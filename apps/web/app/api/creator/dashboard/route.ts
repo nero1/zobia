@@ -73,6 +73,42 @@ interface RoomHealthRow {
 // ---------------------------------------------------------------------------
 
 /**
+ * Estimate average session time in minutes from room_messages activity.
+ * Groups messages by user+room+day into "sessions" and computes avg gap.
+ */
+async function fetchAvgSessionTimeMinutes(creatorId: string): Promise<number | null> {
+  try {
+    const { rows } = await db.query<{ avg_minutes: string }>(
+      `WITH session_bounds AS (
+         SELECT
+           rm.sender_id,
+           rm.room_id,
+           DATE(rm.created_at) AS session_date,
+           MIN(rm.created_at) AS session_start,
+           MAX(rm.created_at) AS session_end,
+           EXTRACT(EPOCH FROM (MAX(rm.created_at) - MIN(rm.created_at))) / 60 AS duration_minutes
+         FROM room_messages rm
+         JOIN rooms r ON r.id = rm.room_id
+         WHERE r.creator_id = $1
+           AND rm.created_at >= NOW() - INTERVAL '30 days'
+           AND rm.deleted_at IS NULL
+         GROUP BY rm.sender_id, rm.room_id, DATE(rm.created_at)
+         HAVING COUNT(*) >= 2
+       )
+       SELECT ROUND(AVG(duration_minutes))::TEXT AS avg_minutes
+       FROM session_bounds`,
+      [creatorId]
+    );
+    const val = rows[0]?.avg_minutes;
+    if (!val) return null;
+    const parsed = parseInt(val, 10);
+    return isNaN(parsed) ? null : parsed;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Build revenue summary by stream for a given time window.
  *
  * @param creatorId - Creator UUID
@@ -152,13 +188,14 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
     const monthStart = new Date(now);
     monthStart.setDate(now.getDate() - 30);
 
-    // Revenue breakdown by stream
-    const [todayRevenue, weekRevenue, monthRevenue, allTimeRevenue] =
+    // Revenue breakdown by stream (+ avg session time in parallel)
+    const [todayRevenue, weekRevenue, monthRevenue, allTimeRevenue, avgSessionTime] =
       await Promise.all([
         fetchRevenueByStream(creatorId, todayStart.toISOString()),
         fetchRevenueByStream(creatorId, weekStart.toISOString()),
         fetchRevenueByStream(creatorId, monthStart.toISOString()),
         fetchRevenueByStream(creatorId, null),
+        fetchAvgSessionTimeMinutes(creatorId),
       ]);
 
     const sumRevenue = (map: Record<string, number>) =>
@@ -259,7 +296,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
         total: memberStats.total_members,
         active: memberStats.active_members_7d,
         churnRate,
-        avgSessionTime: null, // requires analytics event store — placeholder
+        avgSessionTime,
       },
       topGifters,
       questPerformance,

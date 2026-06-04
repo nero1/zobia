@@ -17,6 +17,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { withAuth } from "@/lib/api/middleware";
+import { requireFeatureEnabled } from "@/lib/manifest";
 import { handleApiError, badRequest, forbidden, notFound, conflict } from "@/lib/api/errors";
 import {
   findWarOpponent,
@@ -138,6 +139,7 @@ export const POST = withAuth(
     { params, auth }: { params: { guildId: string }; auth: { user: { sub: string } } }
   ) => {
     try {
+      await requireFeatureEnabled("guildWars");
       const { guildId } = params;
       const userId = auth.user.sub;
 

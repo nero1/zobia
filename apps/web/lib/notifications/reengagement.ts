@@ -6,6 +6,10 @@
  * Different message buckets are used based on how many days the user
  * has been inactive. Returns null if the user has been active within
  * the last 3 days (not worth re-engaging yet).
+ *
+ * Optionally accepts pre-fetched personalised context to substitute
+ * real event data into message bodies (PRD: "highlight real events that
+ * occurred since the user went inactive").
  */
 
 // ---------------------------------------------------------------------------
@@ -19,6 +23,55 @@ export interface ReengagementPayload {
   body: string;
   /** Deep link action / route to open. */
   action: string;
+}
+
+/**
+ * Optional personalised context that callers can pre-fetch and pass in.
+ * When provided, the relevant message variant body is replaced with
+ * real event data rather than static copy.
+ *
+ * Callers are responsible for querying the database before calling
+ * `getReengagementPayload`. Recommended queries:
+ *
+ * Guild war outcome (last 30 days):
+ * ```sql
+ * SELECT gw.result, g.name
+ * FROM guild_wars gw
+ * JOIN guild_members gm ON gm.guild_id = gw.guild_id
+ * WHERE gm.user_id = $userId
+ *   AND gw.ended_at >= NOW() - INTERVAL '30 days'
+ * ORDER BY gw.ended_at DESC
+ * LIMIT 1
+ * ```
+ *
+ * Current season phase:
+ * ```sql
+ * SELECT phase, name FROM seasons WHERE is_active = TRUE LIMIT 1
+ * ```
+ *
+ * Nemesis XP delta:
+ * ```sql
+ * SELECT na.nemesis_id, (nu.xp_total - u.xp_total) AS xp_delta
+ * FROM nemesis_assignments na
+ * JOIN users u  ON u.id  = na.user_id
+ * JOIN users nu ON nu.id = na.nemesis_id
+ * WHERE na.user_id = $userId
+ * LIMIT 1
+ * ```
+ */
+export interface PersonalisedContext {
+  /**
+   * A human-readable description of a recent guild war event.
+   * Replaces the body of the 7-day guild message variant when provided.
+   * Example: "Your guild won a war while you were away!"
+   */
+  guildEvent?: string;
+  /**
+   * A human-readable description of the current season phase.
+   * Replaces the body of the 14-day season message variant when provided.
+   * Example: "The season is in its final week"
+   */
+  seasonPhase?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -61,6 +114,13 @@ const REENGAGEMENT_BUCKETS: Array<{
         body: "Your guild hasn't heard from you in a week. Show up for the team.",
         action: "/guilds",
       },
+      {
+        // Third variant: surfaced when guildEvent context is available.
+        // Body is replaced at runtime by personalContext.guildEvent if provided.
+        title: "Your Guild had big news",
+        body: "Check what happened with your crew while you were away.",
+        action: "/guilds",
+      },
     ],
   },
   {
@@ -75,6 +135,13 @@ const REENGAGEMENT_BUCKETS: Array<{
         title: "Lots has changed",
         body: "New rooms, new drama, new legends — you've been missing everything!",
         action: "/home",
+      },
+      {
+        // Third variant: surfaced when seasonPhase context is available.
+        // Body is replaced at runtime by personalContext.seasonPhase if provided.
+        title: "The season has moved on",
+        body: "Check your Season rank — the competition has been heating up without you.",
+        action: "/seasons",
       },
     ],
   },
@@ -118,16 +185,32 @@ const REENGAGEMENT_BUCKETS: Array<{
  * Generate a re-engagement notification payload for a user based on how
  * many days they have been inactive.
  *
+ * The function selects a message variant deterministically from the
+ * appropriate time bucket using the userId as a seed (so the same user
+ * always gets the same variant within a bucket, but different users see
+ * different messages).
+ *
+ * When `personalContext` is supplied, real event data is substituted into
+ * the relevant message body:
+ *  - `personalContext.guildEvent`  → overrides the body of the 7-day
+ *    "Your Guild had big news" variant.
+ *  - `personalContext.seasonPhase` → overrides the body of the 14-day
+ *    "The season has moved on" variant.
+ *
  * @param userId                 - The user's UUID (used for deterministic message selection).
  * @param daysSinceActive        - Number of full days since the user last logged in.
  * @param loginStreakBeforeBreak - The login streak the user had just before going inactive.
  *                                 Used to gate the 3-day streak-at-risk notification.
+ * @param personalContext        - Optional pre-fetched real-event strings. Callers are
+ *                                 responsible for querying guild war / season / nemesis data
+ *                                 before calling this function (see PersonalisedContext).
  * @returns A notification payload or null if daysSinceActive < 3 or streak gate not met.
  */
 export async function getReengagementPayload(
   userId: string,
   daysSinceActive: number,
-  loginStreakBeforeBreak: number = 0
+  loginStreakBeforeBreak: number = 0,
+  personalContext?: { guildEvent?: string; seasonPhase?: string }
 ): Promise<ReengagementPayload | null> {
   if (daysSinceActive < 3) return null;
 
@@ -148,5 +231,27 @@ export async function getReengagementPayload(
     userId.split("").reduce((acc, ch) => acc + ch.charCodeAt(0), 0) %
     selectedBucket.messages.length;
 
-  return selectedBucket.messages[variantIndex];
+  // Clone the selected message so we can safely mutate it
+  const payload: ReengagementPayload = { ...selectedBucket.messages[variantIndex]! };
+
+  // Substitute real event data into the body when personalContext is available.
+  // The 7-day guild variant is identified by its action route ("/guilds") and title.
+  if (
+    personalContext?.guildEvent &&
+    payload.title === "Your Guild had big news" &&
+    payload.action === "/guilds"
+  ) {
+    payload.body = personalContext.guildEvent;
+  }
+
+  // The 14-day season variant is identified by its action route ("/seasons") and title.
+  if (
+    personalContext?.seasonPhase &&
+    payload.title === "The season has moved on" &&
+    payload.action === "/seasons"
+  ) {
+    payload.body = personalContext.seasonPhase;
+  }
+
+  return payload;
 }

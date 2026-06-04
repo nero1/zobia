@@ -58,19 +58,25 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
   try {
     const userId = auth.user.sub;
 
-    // 1. Fetch the user's current city and guild membership
-    const { rows: userRows } = await db.query<{
-      city: string | null;
-      guild_id: string | null;
-    }>(
-      `SELECT city, guild_id FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+    // PRD §4 Step 5: Guild Discovery is shown only after the user's first 24 hours
+    const { rows: userWithAge } = await db.query<{ city: string | null; guild_id: string | null; created_at: string }>(
+      `SELECT city, guild_id, created_at FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
       [userId]
     );
+    const user = userWithAge[0];
+    const accountAgeHours = user ? (Date.now() - new Date(user.created_at).getTime()) / 3_600_000 : 999;
 
-    const user = userRows[0];
+    if (accountAgeHours < 24) {
+      return NextResponse.json({
+        success: true,
+        data: { guilds: [], userCity: user?.city ?? null, tooNew: true },
+        error: null,
+      }, { status: 200 });
+    }
+
     const userCity = user?.city ?? null;
 
-    // 2. Find guilds the user is already a member of (covers multi-guild edge case)
+    // 1. Find guilds the user is already a member of (covers multi-guild edge case)
     const { rows: membershipRows } = await db.query<{ guild_id: string }>(
       `SELECT guild_id FROM guild_members WHERE user_id = $1`,
       [userId]
@@ -82,7 +88,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
       memberGuildIds.push(user.guild_id);
     }
 
-    // 3. Query recommended guilds
+    // 2. Query recommended guilds
     //    Excludes invite_only and guilds the user is already in.
     //    Orders: same city first, then member_count DESC, then guild_xp DESC.
     const { rows: guilds } = await db.query<GuildDiscoveryRow>(
