@@ -217,12 +217,20 @@ export default function MessagesPage() {
         {/* Header */}
         <div className="mb-4 flex items-center justify-between px-1">
           <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">Messages</h1>
-          <button
-            onClick={() => setShowNewMessage(true)}
-            className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-          >
-            + New Message
-          </button>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/messages/groups"
+              className="rounded-xl border border-neutral-300 bg-white px-4 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            >
+              👥 Groups
+            </Link>
+            <button
+              onClick={() => setShowNewMessage(true)}
+              className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              + New Message
+            </button>
+          </div>
         </div>
 
         {/* Search bar */}
