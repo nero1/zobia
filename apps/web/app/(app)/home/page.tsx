@@ -538,9 +538,12 @@ export default function HomePage() {
     // PRD §4: New Member Quest
     fetch("/api/quests/new-member", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: { quest?: MemberQuestState; data?: MemberQuestState } | null) => {
-        const q = d?.quest ?? (d as { data?: MemberQuestState } | null)?.data ?? null;
-        if (q && !q.isComplete) setMemberQuest(q as MemberQuestState);
+      .then((d: { data?: { steps?: Array<{id:string;label:string;completed:boolean}>; allComplete?: boolean; rewardClaimed?: boolean } } | null) => {
+        const qd = d?.data;
+        if (qd && !qd.allComplete && !qd.rewardClaimed) {
+          const steps = (qd.steps ?? []).map((s) => ({ id: s.id, title: s.label, completed: s.completed }));
+          setMemberQuest({ steps, totalCoins: 1000, totalXp: 2000, isComplete: false });
+        }
       })
       .catch(() => {});
 
