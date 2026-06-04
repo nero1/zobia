@@ -196,13 +196,22 @@ export const POST = withAuth(
           throw conflict("Guild is already in an alliance");
         }
 
-        // Check alliance exists and is active
-        const { rows: allianceRows } = await db.query<{ id: string; is_active: boolean }>(
-          `SELECT id, is_active FROM guild_alliances WHERE id = $1 LIMIT 1`,
+        // Check alliance exists, is active, and has room (max 4 guilds per PRD §13)
+        const { rows: allianceRows } = await db.query<{ id: string; is_active: boolean; member_count: string }>(
+          `SELECT ga.id, ga.is_active,
+                  COUNT(gam2.guild_id)::TEXT AS member_count
+           FROM guild_alliances ga
+           LEFT JOIN guild_alliance_members gam2 ON gam2.alliance_id = ga.id
+           WHERE ga.id = $1
+           GROUP BY ga.id
+           LIMIT 1`,
           [body.allianceId]
         );
         if (!allianceRows[0]) throw notFound("Alliance not found");
         if (!allianceRows[0].is_active) throw badRequest("Alliance is no longer active");
+        if (parseInt(allianceRows[0].member_count, 10) >= 4) {
+          throw conflict("Alliance is full — a maximum of 4 guilds can join an alliance");
+        }
 
         await db.query(
           `INSERT INTO guild_alliance_members (alliance_id, guild_id, joined_at)

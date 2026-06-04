@@ -142,7 +142,7 @@ export const POST = withAuth(async (req, { auth }) => {
     // Load manifest to get minimum age setting
     const manifest = await loadManifest();
     // @ts-ignore – minimum_age may exist as a custom manifest key
-    const minimumAge: number = (manifest as Record<string, unknown>).minimum_age ?? 13;
+    const minimumAge: number = (manifest as Record<string, unknown>).minimum_age ?? 18;
 
     // Check age requirement
     const age = calculateAge(body.date_of_birth);

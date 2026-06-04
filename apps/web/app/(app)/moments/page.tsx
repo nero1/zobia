@@ -6,14 +6,21 @@
  * Moments feed page.
  * Fetches real moments from GET /api/moments and shows them as cards.
  * Each card displays author info, content, time, and reactions count.
+ * Users can react to moments with emoji via POST /api/moments/[id]/reactions.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+interface ReactionSummary {
+  emoji: string;
+  count: number;
+  userReacted: boolean;
+}
 
 interface Moment {
   id: string;
@@ -24,8 +31,11 @@ interface Moment {
   imageUrl?: string | null;
   caption?: string | null;
   reactionsCount: number;
+  reactions?: ReactionSummary[];
   createdAt: string;
 }
+
+const QUICK_REACTIONS = ["❤️", "🔥", "😂", "😮", "👏", "💯"];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -69,7 +79,15 @@ function MomentSkeleton() {
 // Moment card
 // ---------------------------------------------------------------------------
 
-function MomentCard({ moment }: { moment: Moment }) {
+function MomentCard({
+  moment,
+  onReact,
+}: {
+  moment: Moment;
+  onReact: (momentId: string, emoji: string) => void;
+}) {
+  const [showReactions, setShowReactions] = useState(false);
+
   return (
     <div className="rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
       {/* Author header */}
@@ -111,11 +129,53 @@ function MomentCard({ moment }: { moment: Moment }) {
         )}
       </div>
 
-      {/* Footer */}
-      <div className="flex items-center border-t border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
-        <span className="flex items-center gap-1.5 text-xs text-neutral-500">
-          <span>❤️</span>
-          <span>{moment.reactionsCount.toLocaleString()} {moment.reactionsCount === 1 ? "reaction" : "reactions"}</span>
+      {/* Reaction strip */}
+      {moment.reactions && moment.reactions.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 px-4 pb-2">
+          {moment.reactions.map((r) => (
+            <button
+              key={r.emoji}
+              onClick={() => onReact(moment.id, r.emoji)}
+              className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium transition-colors
+                ${r.userReacted
+                  ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
+                  : "border-neutral-200 bg-neutral-50 text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400"
+                }`}
+            >
+              <span>{r.emoji}</span>
+              <span>{r.count}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Footer: react button + count */}
+      <div className="flex items-center gap-3 border-t border-neutral-100 px-4 py-2.5 dark:border-neutral-800">
+        <div className="relative">
+          <button
+            onClick={() => setShowReactions((v) => !v)}
+            className="flex items-center gap-1.5 rounded-full border border-neutral-200 px-3 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
+          >
+            <span>😊</span>
+            <span>React</span>
+          </button>
+          {/* Quick reaction picker */}
+          {showReactions && (
+            <div className="absolute bottom-full left-0 z-20 mb-1 flex gap-1 rounded-xl border border-neutral-200 bg-white p-2 shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
+              {QUICK_REACTIONS.map((emoji) => (
+                <button
+                  key={emoji}
+                  onClick={() => { onReact(moment.id, emoji); setShowReactions(false); }}
+                  className="rounded-lg p-1.5 text-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <span className="text-xs text-neutral-400">
+          {moment.reactionsCount.toLocaleString()} {moment.reactionsCount === 1 ? "reaction" : "reactions"}
         </span>
       </div>
     </div>
@@ -146,6 +206,33 @@ export default function MomentsPage() {
         setMoments([]);
       }
     })();
+  }, []);
+
+  const handleReact = useCallback(async (momentId: string, emoji: string) => {
+    try {
+      const res = await fetch(`/api/moments/${momentId}/reactions`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emoji }),
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as { data?: { reactions?: ReactionSummary[] } };
+      const updatedReactions = data?.data?.reactions ?? [];
+      setMoments((prev) =>
+        prev?.map((m) =>
+          m.id === momentId
+            ? {
+                ...m,
+                reactions: updatedReactions,
+                reactionsCount: updatedReactions.reduce((s, r) => s + r.count, 0),
+              }
+            : m
+        )
+      );
+    } catch {
+      // Non-fatal — reaction UI stays optimistic
+    }
   }, []);
 
   return (
@@ -198,7 +285,7 @@ export default function MomentsPage() {
       ) : (
         <div className="space-y-4">
           {moments.map((moment) => (
-            <MomentCard key={moment.id} moment={moment} />
+            <MomentCard key={moment.id} moment={moment} onReact={handleReact} />
           ))}
         </div>
       )}
