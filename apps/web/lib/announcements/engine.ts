@@ -261,7 +261,36 @@ export async function getActiveBannerForUser(
 
   if (eligible.length === 0) return null;
 
-  const selected = eligible[0];
+  // Read display mode from manifest (default "serial")
+  const { rows: manifestRows } = await db.query<{ value: string }>(
+    `SELECT value FROM x_manifest WHERE key = 'announcement_banner_mode'`
+  );
+  const displayMode =
+    (manifestRows[0]?.value as "serial" | "random") ?? "serial";
+
+  let selected = eligible[0];
+
+  if (displayMode === "serial") {
+    // Find the first banner the user hasn't viewed yet
+    const { rows: viewedRows } = await db.query<{ banner_id: string }>(
+      `SELECT banner_id FROM user_banner_views WHERE user_id = $1`,
+      [userId]
+    );
+    const viewedIds = new Set(viewedRows.map((r) => r.banner_id));
+    const unviewed = eligible.filter((b) => !viewedIds.has(b.id));
+    if (unviewed.length === 0) return null;
+    selected = unviewed[0];
+  } else if (displayMode === "random") {
+    selected = eligible[Math.floor(Math.random() * eligible.length)];
+  }
+
+  // Record the view
+  await db.query(
+    `INSERT INTO user_banner_views (user_id, banner_id, viewed_at)
+     VALUES ($1, $2, NOW())
+     ON CONFLICT (user_id, banner_id) DO UPDATE SET viewed_at = NOW()`,
+    [userId, selected.id]
+  );
 
   return {
     id: selected.id,

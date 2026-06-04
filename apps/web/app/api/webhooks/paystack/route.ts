@@ -42,10 +42,23 @@ interface PaystackWebhookEvent {
       coinsGranted?: number;
       starsGranted?: number;
       itemType?: string;
+      /** "subscription" when this is a plan subscription payment */
+      type?: string;
+      /** Plan name: plus | pro | max */
+      planName?: string;
+      planId?: string;
+      interval?: string;
     };
     paid_at: string;
   };
 }
+
+// Monthly coin bonuses credited on subscription activation (PRD §12)
+const SUBSCRIPTION_MONTHLY_BONUS: Record<string, number> = {
+  plus: 50,
+  pro: 200,
+  max: 500,
+};
 
 // ---------------------------------------------------------------------------
 // POST /api/webhooks/paystack
@@ -128,6 +141,30 @@ export const POST = async (req: NextRequest) => {
           `Paystack purchase: ${metadata.packName ?? "Star Pack"}`,
           tx
         );
+      } else if (metadata.type === "subscription" || itemType === "subscription") {
+        // Subscription activation: credit monthly coin bonus and update subscription status
+        const planName = (metadata.planName ?? "").toLowerCase();
+        const bonusCoins = SUBSCRIPTION_MONTHLY_BONUS[planName] ?? 0;
+
+        // Update subscription status to active
+        await tx.query(
+          `UPDATE subscriptions
+           SET status = 'active', updated_at = NOW()
+           WHERE user_id = $1 AND plan = $2 AND status != 'active'`,
+          [userId, planName]
+        );
+
+        if (bonusCoins > 0) {
+          await creditCoins(
+            userId,
+            bonusCoins,
+            "monthly_plan_bonus",
+            referenceId,
+            `Monthly ${planName} plan bonus`,
+            { plan: planName },
+            tx
+          );
+        }
       } else if (metadata.coinsGranted && metadata.coinsGranted > 0) {
         await creditCoins(
           userId,

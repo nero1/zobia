@@ -14,6 +14,8 @@ import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { db } from "@/lib/db";
 
+const MAX_BANNERS = 5;
+
 // ---------------------------------------------------------------------------
 // Validation
 // ---------------------------------------------------------------------------
@@ -91,6 +93,14 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
       targetRoles,
       displayOrder,
     } = parsed.data;
+
+    // Enforce maximum banner cap
+    const { rows: countRows } = await db.query<{ count: string }>(
+      `SELECT COUNT(*) AS count FROM announcement_banners WHERE deleted_at IS NULL`
+    );
+    if (parseInt(countRows[0].count, 10) >= MAX_BANNERS) {
+      return badRequest(`Cannot create banner: already at maximum of ${MAX_BANNERS} banners. Delete one first.`);
+    }
 
     const { rows } = await db.query(
       `INSERT INTO announcement_banners

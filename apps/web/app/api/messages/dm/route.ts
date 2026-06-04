@@ -268,6 +268,29 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       sender.is_admin
     );
 
+    // PRD §8: If the anti-spam filter stripped all content, silently return 201
+    // without persisting anything — the sender must not know the message was blocked.
+    if (!sender.is_admin && body.content.trim().length > 0 && filteredContent.trim().length === 0) {
+      return NextResponse.json(
+        {
+          message: {
+            id: `blocked-${Date.now()}`,
+            sender_id: auth.user.sub,
+            recipient_id: body.recipientId,
+            message_type: body.messageType,
+            content: body.content,
+            media_url: body.mediaUrl ?? null,
+            coin_cost: 0,
+            reply_count_from_recipient: replyCountFromRecipient,
+            is_deleted: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+        },
+        { status: 201 }
+      );
+    }
+
     // 8. Idempotency check
     if (body.idempotencyKey) {
       const { rows: dupRows } = await db.query<{ id: string }>(

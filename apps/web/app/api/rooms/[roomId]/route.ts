@@ -153,6 +153,21 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const room = roomRows[0];
     if (!room) throw notFound("Room not found");
 
+    // Guild rooms are restricted to Platinum-tier guilds and above
+    if (room.type === "guild") {
+      const { rows: guildTierRows } = await db.query<{ tier: string }>(
+        `SELECT g.tier FROM guilds g
+         JOIN guild_rooms gr ON gr.guild_id = g.id
+         WHERE gr.room_id = $1`,
+        [roomId]
+      );
+      const guildTier = guildTierRows[0]?.tier ?? null;
+      const platinumAndAbove = ["platinum_1", "platinum_2", "platinum_3", "legend"];
+      if (!guildTier || !platinumAndAbove.includes(guildTier)) {
+        throw forbidden("Guild Rooms are only available to Platinum-tier Guilds and above.");
+      }
+    }
+
     const isMember = room.caller_role !== null;
     const isCreator = room.creator_id === auth.user.sub;
 
