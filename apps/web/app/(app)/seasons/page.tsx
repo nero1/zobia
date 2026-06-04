@@ -54,6 +54,175 @@ interface SeasonsData {
   pastSeasons: PastSeason[];
 }
 
+interface UserSearchResult {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarEmoji: string;
+}
+
+// ---------------------------------------------------------------------------
+// Gift Pass modal
+// ---------------------------------------------------------------------------
+
+interface GiftPassModalProps {
+  seasonId: string;
+  passPrice: number;
+  onClose: () => void;
+}
+
+function GiftPassModal({ seasonId, passPrice, onClose }: GiftPassModalProps) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<UserSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [selected, setSelected] = useState<UserSearchResult | null>(null);
+  const [gifting, setGifting] = useState(false);
+  const [giftError, setGiftError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  async function handleSearch(term: string) {
+    setQuery(term);
+    setSelected(null);
+    setGiftError(null);
+    if (term.trim().length < 2) { setResults([]); return; }
+    setSearching(true);
+    try {
+      const res = await fetch(`/api/users/search?q=${encodeURIComponent(term.trim())}`, { credentials: "include" });
+      if (res.ok) {
+        const all = (await res.json()) as UserSearchResult[];
+        setResults(all.slice(0, 5));
+      }
+    } catch { /* ignore */ }
+    setSearching(false);
+  }
+
+  async function handleGift() {
+    if (!selected) return;
+    setGifting(true);
+    setGiftError(null);
+    try {
+      const res = await fetch(`/api/seasons/${seasonId}/pass/gift`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recipientUserId: selected.id }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error ?? "Failed to gift pass");
+      }
+      setSuccess(true);
+    } catch (e) {
+      setGiftError(e instanceof Error ? e.message : "Something went wrong");
+    }
+    setGifting(false);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+      <div
+        className="relative max-w-sm w-full bg-white rounded-2xl p-5 dark:bg-neutral-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={onClose}
+          className="absolute right-4 top-4 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
+          aria-label="Close"
+        >
+          ✕
+        </button>
+
+        <h2 className="text-base font-bold text-neutral-900 dark:text-neutral-50 mb-4">Gift Season Pass 🎁</h2>
+
+        {success ? (
+          <div className="text-center space-y-3 py-4">
+            <p className="text-2xl">🎉</p>
+            <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+              Pass gifted to @{selected?.username}!
+            </p>
+            <button
+              onClick={onClose}
+              className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              Done
+            </button>
+          </div>
+        ) : selected ? (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 rounded-xl border border-neutral-200 p-3 dark:border-neutral-700">
+              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-neutral-100 text-xl dark:bg-neutral-800">
+                {selected.avatarEmoji}
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{selected.displayName}</p>
+                <p className="text-xs text-neutral-400">@{selected.username}</p>
+              </div>
+            </div>
+            <p className="text-sm text-neutral-600 dark:text-neutral-400">
+              Gift pass to <span className="font-semibold">@{selected.username}</span>? This costs{" "}
+              <span className="font-semibold">{passPrice.toLocaleString()} 🪙</span>.
+            </p>
+            {giftError && (
+              <p className="text-xs text-red-600 dark:text-red-400">{giftError}</p>
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setSelected(null); setGiftError(null); }}
+                className="flex-1 rounded-xl border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              >
+                Back
+              </button>
+              <button
+                onClick={handleGift}
+                disabled={gifting}
+                className="flex-1 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+              >
+                {gifting ? "Gifting…" : "Confirm Gift"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => handleSearch(e.target.value)}
+              placeholder="Search by username…"
+              className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 placeholder-neutral-400 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+            />
+            {searching && (
+              <p className="text-xs text-neutral-400">Searching…</p>
+            )}
+            {!searching && results.length > 0 && (
+              <ul className="space-y-1">
+                {results.map((u) => (
+                  <li key={u.id}>
+                    <button
+                      onClick={() => { setSelected(u); setResults([]); }}
+                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left hover:bg-neutral-50 dark:hover:bg-neutral-800"
+                    >
+                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-100 text-lg dark:bg-neutral-800">
+                        {u.avatarEmoji}
+                      </span>
+                      <div>
+                        <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{u.displayName}</p>
+                        <p className="text-xs text-neutral-400">@{u.username}</p>
+                      </div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {!searching && query.trim().length >= 2 && results.length === 0 && (
+              <p className="text-xs text-neutral-400">No users found.</p>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Milestone types
 // ---------------------------------------------------------------------------
@@ -120,9 +289,10 @@ interface PassCardProps {
   season: ActiveSeason;
   onUpgrade: () => void;
   upgrading: boolean;
+  onGift: () => void;
 }
 
-function PassCard({ season, onUpgrade, upgrading }: PassCardProps) {
+function PassCard({ season, onUpgrade, upgrading, onGift }: PassCardProps) {
   const pct = season.freePassXpForNext > 0
     ? Math.min(100, Math.round((season.freePassXp / season.freePassXpForNext) * 100))
     : 100;
@@ -141,15 +311,23 @@ function PassCard({ season, onUpgrade, upgrading }: PassCardProps) {
             )}
           </div>
         </div>
-        {!season.hasPaidPass && (
+        <div className="flex flex-wrap gap-2">
+          {!season.hasPaidPass && (
+            <button
+              onClick={onUpgrade}
+              disabled={upgrading}
+              className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-60"
+            >
+              {upgrading ? "Processing…" : `Upgrade · ${season.passPrice.toLocaleString()} 🪙`}
+            </button>
+          )}
           <button
-            onClick={onUpgrade}
-            disabled={upgrading}
-            className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-60"
+            onClick={onGift}
+            className="rounded-xl border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
           >
-            {upgrading ? "Processing…" : `Upgrade · ${season.passPrice.toLocaleString()} 🪙`}
+            Gift Pass 🎁
           </button>
-        )}
+        </div>
       </div>
 
       <div className="mt-4 space-y-2">
@@ -321,6 +499,7 @@ export default function SeasonsPage() {
   const [error, setError] = useState<string | null>(null);
   const [upgrading, setUpgrading] = useState(false);
   const [claiming, setClaiming] = useState<string | null>(null);
+  const [giftModal, setGiftModal] = useState<{ open: boolean; seasonId: string; passPrice: number }>({ open: false, seasonId: "", passPrice: 0 });
 
   useEffect(() => {
     (async () => {
@@ -440,9 +619,23 @@ export default function SeasonsPage() {
         </div>
       )}
 
+      {/* Gift pass modal */}
+      {giftModal.open && (
+        <GiftPassModal
+          seasonId={giftModal.seasonId}
+          passPrice={giftModal.passPrice}
+          onClose={() => setGiftModal({ open: false, seasonId: "", passPrice: 0 })}
+        />
+      )}
+
       {/* Season pass */}
       {activeSeason && (
-        <PassCard season={activeSeason} onUpgrade={handleUpgrade} upgrading={upgrading} />
+        <PassCard
+          season={activeSeason}
+          onUpgrade={handleUpgrade}
+          upgrading={upgrading}
+          onGift={() => setGiftModal({ open: true, seasonId: activeSeason.id, passPrice: activeSeason.passPrice })}
+        />
       )}
 
       {/* Milestone reward track */}

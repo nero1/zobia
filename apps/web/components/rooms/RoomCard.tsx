@@ -18,7 +18,7 @@ import { RoomPulseBar } from "@/components/ui/RoomPulseBar";
 // Types
 // ---------------------------------------------------------------------------
 
-type RoomType = "public" | "vip" | "drop" | "classroom" | "guild";
+type RoomType = "free_open" | "vip" | "drop" | "tipping" | "classroom" | "guild";
 
 export interface RoomCardData {
   id: string;
@@ -30,11 +30,10 @@ export interface RoomCardData {
   creatorUsername: string;
   memberCount: number;
   maxMembers?: number;
-  /** Number of messages sent in this room in the last 2 hours. Used by RoomPulseBar. */
   recentMessageCount?: number;
   isJoined: boolean;
-  entryFee?: number; // coins, for drop rooms
-  subscriptionPrice?: number; // coins, for vip rooms
+  entryFee?: number;
+  subscriptionPrice?: number;
 }
 
 interface RoomCardProps {
@@ -49,9 +48,10 @@ interface RoomCardProps {
 // ---------------------------------------------------------------------------
 
 const TYPE_BADGE: Record<RoomType, { label: string; classes: string }> = {
-  public: { label: "Public", classes: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400" },
+  free_open: { label: "Free", classes: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400" },
   vip: { label: "VIP", classes: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300" },
   drop: { label: "Drop", classes: "bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300" },
+  tipping: { label: "Tipping", classes: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300" },
   classroom: { label: "ClassRoom", classes: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" },
   guild: { label: "Guild", classes: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300" },
 };
@@ -114,6 +114,9 @@ export function RoomCard({ room, onJoin, joining }: RoomCardProps) {
         )}
         {room.type === "drop" && room.entryFee && (
           <p className="mt-1 text-xs font-semibold text-teal-600">🎟️ {room.entryFee.toLocaleString()} coins entry</p>
+        )}
+        {room.type === "tipping" && (
+          <p className="mt-1 text-xs font-semibold text-green-600">💰 Tipping room</p>
         )}
 
         {/* Join button */}

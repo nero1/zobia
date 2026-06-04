@@ -46,8 +46,9 @@ const sendMessageSchema = z.object({
     .string()
     .min(1, "Message cannot be empty")
     .max(2000, "Message cannot exceed 2000 characters"),
+  // 'moment' = ephemeral 24-hour message (PRD §5 — Zobia Moments)
   messageType: z
-    .enum(["text", "sticker", "gif", "gift", "system"])
+    .enum(["text", "sticker", "gif", "gift", "system", "moment"])
     .default("text"),
   metadata: z.record(z.unknown()).optional(),
   replyToMessageId: z.string().uuid().optional(),
@@ -209,6 +210,8 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const conditions: string[] = [
       "m.room_id = $1",
       "m.is_deleted = FALSE",
+      // Moments expire after 24 hours (PRD §5 — Zobia Moments)
+      "(m.message_type != 'moment' OR m.created_at > NOW() - INTERVAL '24 hours')",
     ];
     const queryArgs: unknown[] = [roomId];
     let paramIdx = 2;

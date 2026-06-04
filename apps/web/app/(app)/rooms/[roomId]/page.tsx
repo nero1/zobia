@@ -19,7 +19,8 @@ import { TopGifters } from "@/components/rooms/TopGifters";
 // Types
 // ---------------------------------------------------------------------------
 
-type RoomType = "public" | "vip" | "drop" | "classroom" | "guild";
+// Canonical room types per PRD §10
+type RoomType = "free_open" | "vip" | "drop" | "tipping" | "classroom" | "guild";
 
 interface RoomInfo {
   id: string;
@@ -36,6 +37,37 @@ interface RoomInfo {
   entryFee: number; // coins
   dropExpiresAt: string | null;
   coverEmoji: string;
+  minGiftSpectacleCoin?: number; // gifts above this value trigger room-wide spectacle
+}
+
+interface TopGifterRow {
+  userId: string;
+  username: string;
+  avatarEmoji: string;
+  totalCoins: number;
+}
+
+interface GiftSpectacleState {
+  senderUsername: string;
+  senderAvatarEmoji: string;
+  giftName: string;
+  giftEmoji: string;
+  coinValue: number;
+}
+
+interface ReplayHighlight {
+  content: string;
+  sender: string;
+  timestamp: string;
+}
+
+interface DropReplay {
+  id: string;
+  title: string;
+  highlights: ReplayHighlight[];
+  replayFeeKobo: number;
+  isPublished: boolean;
+  publishedAt: string | null;
 }
 
 interface Message {
@@ -237,6 +269,16 @@ export default function RoomPage() {
   const [subscribing, setSubscribing] = useState(false);
   const [paying, setPaying] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [topGifter, setTopGifter] = useState<TopGifterRow | null>(null);
+  // Gift spectacle overlay state (null = hidden)
+  const [spectacle, setSpectacle] = useState<GiftSpectacleState | null>(null);
+  // Drop Room replay
+  const [replay, setReplay] = useState<DropReplay | null | "loading">("loading");
+  const [publishingReplay, setPublishingReplay] = useState(false);
+  const [replayTitle, setReplayTitle] = useState("");
+  const [showPublishForm, setShowPublishForm] = useState(false);
+  const spectacleTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const seenMessageIdsRef = useRef<Set<string>>(new Set());
   const feedRef = useRef<HTMLDivElement>(null);
   const esRef = useRef<EventSource | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout>>();
@@ -248,6 +290,24 @@ export default function RoomPage() {
       feedRef.current.scrollTop = feedRef.current.scrollHeight;
     }
   }, [messages]);
+
+  // Poll top gifters every 30 seconds
+  useEffect(() => {
+    let cancelled = false;
+    const fetchTopGifters = async () => {
+      try {
+        const res = await fetch(`/api/rooms/${roomId}/gifts`, { credentials: "include" });
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { gifters?: TopGifterRow[] };
+        if (!cancelled && data.gifters && data.gifters.length > 0) {
+          setTopGifter(data.gifters[0]);
+        }
+      } catch { /* non-fatal */ }
+    };
+    void fetchTopGifters();
+    const id = setInterval(() => void fetchTopGifters(), 30_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [roomId]);
 
   // Fetch current user
   useEffect(() => {
@@ -306,6 +366,26 @@ export default function RoomPage() {
             lastMessageIdRef.current = newMsg.id;
             return [...prev, newMsg];
           });
+          // Trigger gift spectacle for high-value gifts (PRD §12)
+          if (
+            !seenMessageIdsRef.current.has(newMsg.id) &&
+            newMsg.giftEmoji &&
+            typeof newMsg.giftAmount === "number"
+          ) {
+            const threshold = 50; // default; room.minGiftSpectacleCoin if available
+            if (newMsg.giftAmount >= threshold) {
+              setSpectacle({
+                senderUsername: newMsg.username,
+                senderAvatarEmoji: newMsg.avatarEmoji,
+                giftName: "Gift",
+                giftEmoji: newMsg.giftEmoji,
+                coinValue: newMsg.giftAmount,
+              });
+              if (spectacleTimerRef.current) clearTimeout(spectacleTimerRef.current);
+              spectacleTimerRef.current = setTimeout(() => setSpectacle(null), 3_000);
+            }
+          }
+          seenMessageIdsRef.current.add(newMsg.id);
         }
         // type === "ping": do nothing
       } catch { /* ignore parse errors */ }
@@ -333,6 +413,9 @@ export default function RoomPage() {
       if (reconnectRef.current) {
         clearTimeout(reconnectRef.current);
       }
+      if (spectacleTimerRef.current) {
+        clearTimeout(spectacleTimerRef.current);
+      }
     };
   }, [fetchMessages, connectSSE]);
 
@@ -351,6 +434,44 @@ export default function RoomPage() {
       setInput("");
     } catch { /* ignore */ }
     setSending(false);
+  }
+
+  // Fetch Drop Room replay (for drop rooms only)
+  useEffect(() => {
+    if (!room || room.type !== "drop") { setReplay(null); return; }
+    (async () => {
+      try {
+        const res = await fetch(`/api/rooms/${roomId}/replay`, { credentials: "include" });
+        if (res.status === 404) { setReplay(null); return; }
+        if (!res.ok) { setReplay(null); return; }
+        const data = (await res.json()) as { replay?: DropReplay; data?: DropReplay };
+        setReplay(data.replay ?? data.data ?? null);
+      } catch { setReplay(null); }
+    })();
+  }, [room, roomId]);
+
+  async function handlePublishReplay() {
+    if (!replayTitle.trim()) return;
+    setPublishingReplay(true);
+    try {
+      // Use last 20 messages as highlights
+      const highlights = messages.slice(-20).map((m) => ({
+        content: m.content,
+        sender: m.username,
+        timestamp: m.createdAt,
+      }));
+      const res = await fetch(`/api/rooms/${roomId}/replay`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: replayTitle.trim(), highlights, replay_fee_kobo: 0 }),
+      });
+      if (!res.ok) throw new Error("Failed to publish replay");
+      const data = (await res.json()) as { replay?: DropReplay; data?: DropReplay };
+      setReplay(data.replay ?? data.data ?? null);
+      setShowPublishForm(false);
+    } catch { /* ignore */ }
+    setPublishingReplay(false);
   }
 
   async function handleSubscribe() {
@@ -373,7 +494,8 @@ export default function RoomPage() {
 
   const canAccess =
     !room ||
-    room.type === "public" ||
+    room.type === "free_open" ||
+    room.type === "tipping" ||
     room.type === "guild" ||
     room.type === "classroom" ||
     (room.type === "vip" && room.isSubscribed) ||
@@ -399,7 +521,7 @@ export default function RoomPage() {
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden lg:flex-row">
+    <div className="relative flex h-screen flex-col overflow-hidden lg:flex-row">
       {/* Main content */}
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Room header */}
@@ -409,13 +531,29 @@ export default function RoomPage() {
             <div className="flex items-center gap-2">
               <h1 className="truncate text-base font-bold text-neutral-900 dark:text-neutral-50">{room.name}</h1>
               <span className="shrink-0 rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-semibold capitalize text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
-                {room.type}
+                {room.type.replace("_", " ")}
               </span>
             </div>
             <p className="truncate text-xs text-neutral-500">{room.memberCount.toLocaleString()} members</p>
           </div>
+          {/* Top gifter display — PRD §12 */}
+          {topGifter && (
+            <div className="flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 dark:bg-amber-950/40" title={`Top gifter: @${topGifter.username}`}>
+              <span className="text-sm">👑</span>
+              <span className="max-w-[80px] truncate text-xs font-semibold text-amber-700 dark:text-amber-300">
+                @{topGifter.username}
+              </span>
+            </div>
+          )}
           <Link href="/rooms" className="text-xs text-blue-600 hover:underline dark:text-blue-400">← Rooms</Link>
         </div>
+
+        {/* Tipping room banner */}
+        {room.type === "tipping" && (
+          <div className="border-b border-blue-200 bg-blue-50 px-4 py-2.5 text-center dark:border-blue-800 dark:bg-blue-950/30">
+            <p className="text-xs font-semibold text-blue-700 dark:text-blue-300">🎤 Tipping Room — show your support with gifts!</p>
+          </div>
+        )}
 
         {/* Drop notice */}
         {room.type === "drop" && room.dropExpiresAt && !room.entryFeePaid && (
@@ -491,6 +629,34 @@ export default function RoomPage() {
         )}
       </div>
 
+      {/* Gift spectacle overlay — dims feed and shows animation for 3s (PRD §12) */}
+      {spectacle && (
+        <button
+          className="absolute inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={() => setSpectacle(null)}
+          aria-label="Dismiss gift spectacle"
+          type="button"
+        >
+          <div className="mx-6 flex flex-col items-center gap-3 rounded-2xl border-2 border-amber-400 bg-white p-8 text-center shadow-2xl dark:bg-neutral-900">
+            <span className="text-7xl leading-none">{spectacle.giftEmoji}</span>
+            <p className="text-xl font-extrabold text-neutral-900 dark:text-neutral-50">{spectacle.giftName}</p>
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">{spectacle.senderAvatarEmoji}</span>
+              <p className="text-sm text-neutral-600 dark:text-neutral-300">
+                <span className="font-bold text-neutral-900 dark:text-neutral-50">@{spectacle.senderUsername}</span>{" "}sent this gift!
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5 rounded-xl bg-amber-50 px-4 py-2 dark:bg-amber-950/30">
+              <span className="text-lg">🪙</span>
+              <span className="text-lg font-extrabold text-amber-700 dark:text-amber-300">
+                {spectacle.coinValue.toLocaleString()} coins
+              </span>
+            </div>
+            <p className="text-xs text-neutral-400">Tap to dismiss</p>
+          </div>
+        </button>
+      )}
+
       {/* Sidebar */}
       <aside className="hidden w-72 shrink-0 flex-col gap-4 overflow-y-auto border-l border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900 lg:flex">
         {/* Room info */}
@@ -512,6 +678,71 @@ export default function RoomPage() {
 
         {/* Top Gifters */}
         <TopGifters roomId={roomId} />
+
+        {/* Drop Room Replay (PRD §10) */}
+        {room.type === "drop" && replay !== "loading" && (
+          <div className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
+            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-500">📼 Drop Replay</h2>
+            {replay && replay.isPublished ? (
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{replay.title}</p>
+                <p className="text-xs text-neutral-500">{replay.highlights.length} highlights</p>
+                {replay.replayFeeKobo > 0 && (
+                  <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">
+                    🪙 Replay fee: {(replay.replayFeeKobo / 100).toLocaleString()} coins
+                  </p>
+                )}
+                <div className="mt-2 max-h-40 space-y-1.5 overflow-y-auto rounded-lg bg-neutral-50 p-2 text-xs dark:bg-neutral-800">
+                  {replay.highlights.map((h, i) => (
+                    <div key={i} className="text-neutral-600 dark:text-neutral-300">
+                      <span className="font-semibold">{h.sender}:</span> {h.content}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : room.creatorId === currentUserId ? (
+              showPublishForm ? (
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    value={replayTitle}
+                    onChange={(e) => setReplayTitle(e.target.value)}
+                    placeholder="Replay title"
+                    maxLength={100}
+                    className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-xs dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                  />
+                  <p className="text-xs text-neutral-400">Last 20 messages will be published as highlights.</p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowPublishForm(false)}
+                      className="flex-1 rounded-lg border border-neutral-300 py-1.5 text-xs font-semibold text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700"
+                    >Cancel</button>
+                    <button
+                      type="button"
+                      onClick={handlePublishReplay}
+                      disabled={publishingReplay || !replayTitle.trim()}
+                      className="flex-1 rounded-lg bg-blue-600 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                    >{publishingReplay ? "Publishing…" : "Publish"}</button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <p className="mb-2 text-xs text-neutral-500">No replay published yet.</p>
+                  <button
+                    type="button"
+                    onClick={() => setShowPublishForm(true)}
+                    className="w-full rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+                  >
+                    📼 Publish Replay
+                  </button>
+                </div>
+              )
+            ) : (
+              <p className="text-xs text-neutral-400">No replay available for this drop.</p>
+            )}
+          </div>
+        )}
       </aside>
     </div>
   );

@@ -25,6 +25,13 @@ interface ConversationInfo {
   dmCoinCost?: number | null;
 }
 
+interface ConnectionBadge {
+  score: number;
+  streakDays: number;
+  badgeLevel: "bronze" | "silver" | "gold" | "platinum" | null;
+  badgeLabel: string | null;
+}
+
 interface DMMessage {
   id: string;
   senderId: string;
@@ -128,6 +135,8 @@ export default function DMConversationPage() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  // Connection Badge — PRD §5: Conversation Score unlocks exclusive DM badge
+  const [connectionBadge, setConnectionBadge] = useState<ConnectionBadge | null>(null);
 
   const feedRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval>>();
@@ -164,6 +173,21 @@ export default function DMConversationPage() {
     })();
   }, [conversationId, router]);
 
+  // Fetch connection badge (once on mount — refreshes after each message sent)
+  const fetchConnectionBadge = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/messages/dm/${conversationId}/connection-badge`, { credentials: "include" });
+      if (!res.ok) return;
+      const data = (await res.json()) as { badge?: ConnectionBadge; data?: ConnectionBadge };
+      const badge = data.badge ?? data.data ?? null;
+      if (badge) setConnectionBadge(badge);
+    } catch { /* non-fatal */ }
+  }, [conversationId]);
+
+  useEffect(() => {
+    void fetchConnectionBadge();
+  }, [fetchConnectionBadge]);
+
   // Fetch messages + poll every 5 seconds
   const fetchMessages = useCallback(async () => {
     try {
@@ -199,6 +223,7 @@ export default function DMConversationPage() {
       }
       setInput("");
       await fetchMessages();
+      void fetchConnectionBadge();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to send");
       setTimeout(() => setError(null), 3000);
@@ -246,10 +271,34 @@ export default function DMConversationPage() {
               {conversation.participantAvatarEmoji}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-bold text-neutral-900 dark:text-neutral-50">
-                {conversation.participantDisplayName || `@${conversation.participantUsername}`}
+              <div className="flex items-center gap-2">
+                <p className="truncate text-sm font-bold text-neutral-900 dark:text-neutral-50">
+                  {conversation.participantDisplayName || `@${conversation.participantUsername}`}
+                </p>
+                {/* Connection Badge — PRD §5: earned through sustained daily conversation streak */}
+                {connectionBadge?.badgeLabel && (
+                  <span
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${
+                      connectionBadge.badgeLevel === "platinum"
+                        ? "bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-200"
+                        : connectionBadge.badgeLevel === "gold"
+                        ? "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-200"
+                        : connectionBadge.badgeLevel === "silver"
+                        ? "bg-neutral-200 text-neutral-700 dark:bg-neutral-700 dark:text-neutral-200"
+                        : "bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-200"
+                    }`}
+                    title={`Connection score: ${connectionBadge.score} · ${connectionBadge.streakDays}-day streak`}
+                  >
+                    🔗 {connectionBadge.badgeLabel}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-neutral-400">
+                @{conversation.participantUsername}
+                {connectionBadge && connectionBadge.streakDays > 0 && (
+                  <span className="ml-2 text-teal-500">{connectionBadge.streakDays}-day streak</span>
+                )}
               </p>
-              <p className="text-xs text-neutral-400">@{conversation.participantUsername}</p>
             </div>
           </>
         )}

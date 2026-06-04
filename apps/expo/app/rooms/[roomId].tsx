@@ -34,6 +34,7 @@ import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { MessageBubble, type MessageBubbleProps, type MessageReaction } from '@/components/rooms/MessageBubble';
 import { TopGifters, type GifterEntry } from '@/components/rooms/TopGifters';
+import { GiftSpectacle, type GiftSpectacleData } from '@/components/rooms/GiftSpectacle';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
@@ -42,7 +43,8 @@ import { apiClient } from '@/lib/api/client';
 // Types
 // ---------------------------------------------------------------------------
 
-type RoomType = 'public' | 'private' | 'vip' | 'drop' | 'classroom' | 'crew';
+// Canonical room types per PRD §10
+type RoomType = 'free_open' | 'vip' | 'drop' | 'tipping' | 'classroom' | 'guild';
 
 interface Room {
   id: string;
@@ -53,6 +55,8 @@ interface Room {
   entryFeeCoin: number | null;
   isSubscribed: boolean;
   hostDisplayName: string;
+  dropEndsAt?: string | null;
+  minGiftSpectacleCoin?: number; // gifts above this value trigger room-wide spectacle
 }
 
 interface Message {
@@ -209,6 +213,8 @@ export default function RoomScreen() {
   const [inputText, setInputText] = useState('');
   const [showGifters, setShowGifters] = useState(false);
   const [xpFlash, setXpFlash] = useState(false);
+  // Gift spectacle state: holds the active spectacle data (null = not showing)
+  const [spectacle, setSpectacle] = useState<GiftSpectacleData | null>(null);
 
   // Fetch room meta
   const { data: room, isLoading: roomLoading } = useQuery({
@@ -217,13 +223,38 @@ export default function RoomScreen() {
     enabled: !!roomId,
   });
 
-  // Poll messages every 3 seconds
+  // Poll messages every 2 seconds; detect new high-value gift messages for spectacle
+  const prevMessageIdsRef = useRef<Set<string>>(new Set());
   const { data: messages = [], isLoading: messagesLoading } = useQuery({
     queryKey: ['room-messages', roomId],
     queryFn: () => fetchMessages(roomId!),
     enabled: !!roomId,
     refetchInterval: 2_000,
     placeholderData: (prev) => prev,
+    select: (data) => {
+      // Detect newly arrived gift messages above spectacle threshold
+      const minThreshold = room?.minGiftSpectacleCoin ?? 50;
+      for (const msg of data) {
+        if (!prevMessageIdsRef.current.has(msg.id)) {
+          if (
+            msg.messageType === 'gift' &&
+            typeof msg.giftCoinValue === 'number' &&
+            msg.giftCoinValue >= minThreshold &&
+            !spectacle
+          ) {
+            setSpectacle({
+              senderDisplayName: msg.senderDisplayName,
+              senderAvatarEmoji: msg.senderAvatarEmoji,
+              giftName: msg.giftName ?? 'Gift',
+              giftEmoji: msg.giftEmoji ?? '🎁',
+              coinValue: msg.giftCoinValue,
+            });
+          }
+          prevMessageIdsRef.current.add(msg.id);
+        }
+      }
+      return data;
+    },
   });
 
   // Top gifters (refresh every 30s)
@@ -301,6 +332,8 @@ export default function RoomScreen() {
 
   const isVIPLocked =
     room?.roomType === 'vip' && !room.isSubscribed;
+  const isTippingRoom = room?.roomType === 'tipping';
+  const isGuildRoom = room?.roomType === 'guild';
 
   return (
     <Screen hideOfflineBanner disableBottomInset>
@@ -312,7 +345,7 @@ export default function RoomScreen() {
         {/* Drop banner */}
         {room?.roomType === 'drop' && (
           <View>
-            <CountdownTimer endsAt={new Date(Date.now() + 3_600_000).toISOString()} />
+            <CountdownTimer endsAt={room.dropEndsAt ?? new Date(Date.now() + 3_600_000).toISOString()} />
             {room.entryFeeCoin !== null && (
               <View style={styles.entryFee}>
                 <Text style={styles.entryFeeText}>
@@ -359,10 +392,24 @@ export default function RoomScreen() {
           />
         )}
 
+        {/* Tipping room banner */}
+        {isTippingRoom && (
+          <View style={styles.tippingBanner}>
+            <Text style={styles.tippingBannerText}>🎤 Tipping Room — show love with gifts!</Text>
+          </View>
+        )}
+
         {/* VIP overlay */}
         {isVIPLocked && (
           <VIPSubscribeOverlay onSubscribe={() => console.log('Subscribe')} />
         )}
+
+        {/* Gift spectacle overlay — dims feed, shows gift animation for 3s */}
+        <GiftSpectacle
+          data={spectacle}
+          onDismiss={() => setSpectacle(null)}
+          displayDurationMs={3_000}
+        />
 
         {/* Input bar */}
         <View
@@ -464,6 +511,19 @@ const styles = StyleSheet.create({
     color: colors.neutral[0],
     fontSize: 13,
     fontWeight: '700',
+  },
+
+  tippingBanner: {
+    backgroundColor: `${colors.brand.blue}18`,
+    paddingVertical: 6,
+    alignItems: 'center' as const,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.brand.blue,
+  },
+  tippingBannerText: {
+    fontSize: 12,
+    color: colors.brand.blue,
+    fontWeight: '600' as const,
   },
 
   entryFee: {

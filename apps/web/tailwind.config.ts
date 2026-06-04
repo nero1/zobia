@@ -110,6 +110,9 @@ const config: Config = {
         "fade-in": "fadeIn 0.2s ease-in-out",
         "slide-up": "slideUp 0.3s ease-out",
         "pulse-slow": "pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+        // Presence ring animations (PRD §2.2)
+        "ping-fast": "ping 1s cubic-bezier(0, 0, 0.2, 1) infinite",
+        "ping-slow": "ping 2.5s cubic-bezier(0, 0, 0.2, 1) infinite",
       },
       keyframes: {
         fadeIn: {
@@ -119,6 +122,11 @@ const config: Config = {
         slideUp: {
           "0%": { transform: "translateY(8px)", opacity: "0" },
           "100%": { transform: "translateY(0)", opacity: "1" },
+        },
+        // ping is already in Tailwind core, but we define variants here for
+        // different speeds (fast = online now, slow = recently active)
+        ping: {
+          "75%, 100%": { transform: "scale(2)", opacity: "0" },
         },
       },
     },
