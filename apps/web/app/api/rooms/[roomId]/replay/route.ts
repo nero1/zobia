@@ -88,11 +88,9 @@ export const GET = withAuth(
       const isFree = replayFeeKobo <= 0;
       const isCreator = replay.creator_id === userId;
 
-      // If there's a fee and caller is not the creator, check payment
+      // Check if user has purchased access (purchase is done via POST /replay/purchase)
+      let hasPurchased = false;
       if (!isFree && !isCreator) {
-        const replayFeeCoins = Math.ceil(replayFeeKobo / 100);
-
-        // Check if already paid (via replay_access ledger)
         const { rows: accessRows } = await db.query<{ id: string }>(
           `SELECT id FROM coin_ledger
            WHERE user_id = $1
@@ -101,51 +99,29 @@ export const GET = withAuth(
            LIMIT 1`,
           [userId, replay.id]
         );
-
-        if (!accessRows[0]) {
-          // Deduct coins for access
-          const { rows: userRows } = await db.query<{ coin_balance: number }>(
-            `SELECT coin_balance FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
-            [userId]
-          );
-          if (!userRows[0]) throw notFound("User not found");
-          const { coin_balance } = userRows[0];
-
-          if (coin_balance < replayFeeCoins) {
-            throw forbidden(
-              `Insufficient coins. Replay access costs ${replayFeeCoins} coins.`
-            );
-          }
-
-          const newBalance = coin_balance - replayFeeCoins;
-          await db.query(
-            `UPDATE users SET coin_balance = $1, updated_at = NOW() WHERE id = $2`,
-            [newBalance, userId]
-          );
-          await db.query(
-            `INSERT INTO coin_ledger
-               (user_id, amount, balance_before, balance_after, transaction_type, description, reference_id, created_at)
-             VALUES ($1, $2, $3, $4, 'replay_access', $5, $6, NOW())`,
-            [
-              userId,
-              -replayFeeCoins,
-              coin_balance,
-              newBalance,
-              `Replay access: ${replay.title}`,
-              replay.id,
-            ]
-          );
-        }
+        hasPurchased = !!accessRows[0];
       }
+
+      const userHasAccess = isFree || isCreator || hasPurchased;
 
       return NextResponse.json({
         success: true,
+        userHasAccess,
         data: {
           replay: {
             ...replay,
             replayFeeKobo,
             replayFeeCoins: Math.ceil(replayFeeKobo / 100),
+            isPublished: replay.is_published,
+            highlights: replay.highlights,
           },
+        },
+        replay: {
+          ...replay,
+          replayFeeKobo,
+          replayFeeCoins: Math.ceil(replayFeeKobo / 100),
+          isPublished: replay.is_published,
+          highlights: replay.highlights,
         },
         error: null,
       });
