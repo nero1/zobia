@@ -41,8 +41,12 @@ interface ConversationParticipantRow {
 }
 
 interface RecipientInfoRow {
+  id: string;
   coin_balance: number;
   plan: Plan;
+  username: string;
+  display_name: string | null;
+  avatar_emoji: string | null;
 }
 
 interface MessageRow {
@@ -186,18 +190,39 @@ export const GET = withAuth(
           : null;
 
       // 5. Check if the OTHER participant can reply (sufficient coins)
+      //    and fetch their profile for the conversation metadata object
       const otherId =
         conv.user_id_1 === auth.user.sub ? conv.user_id_2 : conv.user_id_1;
 
       let recipientCanReply = true;
+      let conversationMeta = null;
       try {
         const { rows: recipientRows } = await db.query<RecipientInfoRow>(
-          "SELECT coin_balance, plan FROM users WHERE id = $1 LIMIT 1",
+          `SELECT id, coin_balance, plan, username, display_name, avatar_emoji
+           FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
           [otherId]
         );
         if (recipientRows[0]) {
-          const replyCost = getDMCost(recipientRows[0].plan as Plan, "reply");
-          recipientCanReply = recipientRows[0].coin_balance >= replyCost;
+          const r = recipientRows[0];
+          const replyCost = getDMCost(r.plan as Plan, "reply");
+          recipientCanReply = r.coin_balance >= replyCost;
+
+          // Also compute the DM cost for the current user
+          const { rows: senderRows } = await db.query<{ plan: Plan }>(
+            `SELECT COALESCE(plan, 'free') AS plan FROM users WHERE id = $1 LIMIT 1`,
+            [auth.user.sub]
+          );
+          const senderPlan = senderRows[0]?.plan ?? "free";
+          const myDmCost = getDMCost(senderPlan, "reply");
+
+          conversationMeta = {
+            conversationId,
+            participantUserId: r.id,
+            participantUsername: r.username,
+            participantDisplayName: r.display_name ?? r.username,
+            participantAvatarEmoji: r.avatar_emoji ?? "👤",
+            dmCoinCost: myDmCost > 0 ? myDmCost : null,
+          };
         }
       } catch {
         // Non-fatal — default to true
@@ -214,6 +239,8 @@ export const GET = withAuth(
           total: rows.length,
           recipientCanReply,
           otherUserId: otherId,
+          // conversation metadata for one-request page load
+          conversation: conversationMeta,
         },
         { status: 200 }
       );

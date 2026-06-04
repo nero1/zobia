@@ -445,6 +445,9 @@ export default function DMConversationPage() {
   const [sending, setSending] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [connectionBadge, setConnectionBadge] = useState<ConnectionBadge | null>(null);
+  // PRD §3: "Gift them coins" — shown when recipient cannot afford to reply
+  const [recipientCanReply, setRecipientCanReply] = useState(true);
+  const [otherUserId, setOtherUserId] = useState<string | null>(null);
 
   // Rich input panel state
   const [showGifPicker, setShowGifPicker] = useState(false);
@@ -469,17 +472,27 @@ export default function DMConversationPage() {
   }, []);
 
   useEffect(() => {
+    // The messages endpoint now returns conversation metadata too — one fetch does both
     (async () => {
       try {
         const res = await fetch(`/api/messages/dm/${conversationId}`, { credentials: "include" });
         if (res.status === 401) { router.push("/login"); return; }
         if (!res.ok) throw new Error("Conversation not found");
-        const data = (await res.json()) as { conversation: ConversationInfo };
-        setConversation(data.conversation);
+        const data = (await res.json()) as {
+          conversation?: ConversationInfo;
+          items?: DMMessage[];
+          recipientCanReply?: boolean;
+          otherUserId?: string;
+        };
+        if (data.conversation) setConversation(data.conversation);
+        if (data.items) setMessages(data.items);
+        if (typeof data.recipientCanReply === "boolean") setRecipientCanReply(data.recipientCanReply);
+        if (data.otherUserId) setOtherUserId(data.otherUserId);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Error loading conversation");
       } finally {
         setLoadingConversation(false);
+        setLoadingMessages(false);
       }
     })();
   }, [conversationId, router]);
@@ -498,10 +511,24 @@ export default function DMConversationPage() {
 
   const fetchMessages = useCallback(async () => {
     try {
-      const res = await fetch(`/api/messages/dm/${conversationId}/messages`, { credentials: "include" });
+      // Note: the conversation-level GET returns items + recipientCanReply + otherUserId
+      const res = await fetch(`/api/messages/dm/${conversationId}`, { credentials: "include" });
       if (!res.ok) return;
-      const data = (await res.json()) as { messages: DMMessage[] };
-      setMessages(data.messages ?? []);
+      const data = (await res.json()) as {
+        messages?: DMMessage[];
+        items?: DMMessage[];
+        conversation?: ConversationInfo;
+        recipientCanReply?: boolean;
+        otherUserId?: string;
+      };
+      setMessages(data.messages ?? data.items ?? []);
+      // Populate conversation info if this response includes it
+      if (data.conversation) setConversation(data.conversation);
+      // PRD §3: surface when recipient cannot afford to reply
+      if (typeof data.recipientCanReply === "boolean") {
+        setRecipientCanReply(data.recipientCanReply);
+      }
+      if (data.otherUserId) setOtherUserId(data.otherUserId);
     } catch { /* ignore */ } finally {
       setLoadingMessages(false);
     }
@@ -671,6 +698,21 @@ export default function DMConversationPage() {
       {error && conversation && (
         <div className="border-b border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-800 dark:bg-red-950">
           <p className="text-xs text-red-700 dark:text-red-300">{error}</p>
+        </div>
+      )}
+
+      {/* PRD §3: "Gift them coins" — recipient cannot afford to reply */}
+      {!recipientCanReply && otherUserId && (
+        <div className="flex items-center justify-between border-b border-amber-200 bg-amber-50 px-4 py-2.5 dark:border-amber-800 dark:bg-amber-950/40">
+          <p className="text-xs text-amber-700 dark:text-amber-300">
+            This person cannot reply right now — they may not have enough coins.
+          </p>
+          <Link
+            href={`/economy/gifts?recipient=${otherUserId}`}
+            className="ml-3 shrink-0 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600"
+          >
+            🪙 Gift them coins
+          </Link>
         </div>
       )}
 
