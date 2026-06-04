@@ -194,6 +194,23 @@ export const GET = withAuth(
       const otherId =
         conv.user_id_1 === auth.user.sub ? conv.user_id_2 : conv.user_id_1;
 
+      // PRD §5 — Link previews only render after recipient has replied at least twice.
+      // Count messages sent by the OTHER user (the recipient from the current user's POV).
+      let recipientReplyCount = 0;
+      try {
+        const { rows: replyCountRows } = await db.query<{ cnt: string }>(
+          `SELECT COUNT(*)::text AS cnt
+           FROM messages
+           WHERE conversation_id = $1
+             AND sender_id = $2
+             AND is_deleted = FALSE`,
+          [conversationId, otherId]
+        );
+        recipientReplyCount = parseInt(replyCountRows[0]?.cnt ?? "0", 10);
+      } catch {
+        // Non-fatal — default to 0 (link previews disabled)
+      }
+
       let recipientCanReply = true;
       let conversationMeta = null;
       try {
@@ -239,6 +256,9 @@ export const GET = withAuth(
           total: rows.length,
           recipientCanReply,
           otherUserId: otherId,
+          // PRD §5: gate link previews until recipient has replied at least twice
+          recipientReplyCount,
+          linkPreviewsEnabled: recipientReplyCount >= 2,
           // conversation metadata for one-request page load
           conversation: conversationMeta,
         },

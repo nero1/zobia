@@ -51,7 +51,7 @@ const sendDMSchema = z.object({
     .string()
     .min(1, "Message content cannot be empty")
     .max(2000, "Message content cannot exceed 2000 characters"),
-  messageType: z.enum(["text", "gif", "moment"]).default("text"),
+  messageType: z.enum(["text", "gif", "moment", "sticker"]).default("text"),
   mediaUrl: z.string().url("mediaUrl must be a valid URL").optional(),
   /** Client-generated idempotency key to prevent duplicate sends. */
   idempotencyKey: z.string().max(128).optional(),

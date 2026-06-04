@@ -1,18 +1,20 @@
 /**
  * app/(tabs)/messages.tsx
  *
- * Messages tab — DM conversations list.
+ * Messages tab — Direct Messages and Group Chats.
  *
  * Features:
- *  - List of recent DM conversations with avatar emoji, display name,
- *    last message preview (truncated to ~40 chars), relative timestamp,
- *    and unread count badge when > 0
- *  - Skeleton loaders (3 rows) on first load
- *  - Pull-to-refresh
- *  - Empty state with prompt to start a new conversation
- *  - "New Message" FAB navigates to /messages/new
- *  - Tapping a row navigates to /messages/[conversationId]
- *  - Offline-tolerant: shows cached data via staleTime / placeholderData
+ *  - Two sections: "Direct Messages" and "Group Chats"
+ *  - DM conversations list with avatar emoji, display name, last message
+ *    preview, relative timestamp, and unread count badge
+ *  - Group chats list with group name, member count, last message preview
+ *  - Skeleton loaders on first load
+ *  - Pull-to-refresh (both sections)
+ *  - Empty states with prompts
+ *  - "New Message" button navigates to /messages/new
+ *  - "New Group" button navigates to /messages/group/create
+ *  - Tapping a DM row navigates to /messages/[conversationId]
+ *  - Tapping a Group row navigates to /messages/group/[groupId]
  */
 
 import React, { useCallback } from 'react';
@@ -20,6 +22,7 @@ import {
   FlatList,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -44,22 +47,21 @@ interface DMConversation {
   unreadCount: number;
 }
 
-interface DMListResponse {
-  conversations: DMConversation[];
+interface GroupChat {
+  id: string;
+  name: string;
+  tag: string;
+  memberCount: number;
+  lastMessage: string | null;
+  lastMessageAt: string | null;
+  unreadCount: number;
+  avatarEmoji: string;
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Returns a human-readable relative timestamp.
- *  < 60s   → "just now"
- *  < 60m   → "Xm ago"
- *  < 24h   → "Xh ago"
- *  < 48h   → "yesterday"
- *  else    → locale date string
- */
 function relativeTime(iso: string | null): string {
   if (!iso) return '';
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -83,8 +85,13 @@ function truncate(text: string | null, len = 40): string {
 // ---------------------------------------------------------------------------
 
 async function fetchDMList(): Promise<DMConversation[]> {
-  const { data } = await apiClient.get<DMListResponse>('/api/messages/dm');
+  const { data } = await apiClient.get('/api/messages/dm');
   return data.conversations ?? [];
+}
+
+async function fetchGroupChats(): Promise<GroupChat[]> {
+  const { data } = await apiClient.get('/api/messages/group');
+  return data.groups ?? [];
 }
 
 // ---------------------------------------------------------------------------
@@ -103,10 +110,10 @@ function SkeletonRow() {
   );
 }
 
-function SkeletonList() {
+function SkeletonList({ count = 3 }: { count?: number }) {
   return (
     <View style={styles.skeletonContainer}>
-      {[0, 1, 2].map((i) => (
+      {Array.from({ length: count }).map((_, i) => (
         <SkeletonRow key={i} />
       ))}
     </View>
@@ -114,7 +121,7 @@ function SkeletonList() {
 }
 
 // ---------------------------------------------------------------------------
-// Conversation row
+// DM conversation row
 // ---------------------------------------------------------------------------
 
 interface ConvRowProps {
@@ -131,18 +138,12 @@ function ConvRow({ item, onPress }: ConvRowProps) {
       accessibilityRole="button"
       accessibilityLabel={`Conversation with ${item.otherDisplayName}`}
     >
-      {/* Avatar */}
       <View style={styles.avatar}>
         <Text style={styles.avatarEmoji}>{item.otherAvatarEmoji || '👤'}</Text>
       </View>
-
-      {/* Text area */}
       <View style={styles.convBody}>
         <View style={styles.convTopRow}>
-          <Text
-            style={[styles.convName, hasUnread && styles.convNameBold]}
-            numberOfLines={1}
-          >
+          <Text style={[styles.convName, hasUnread && styles.convNameBold]} numberOfLines={1}>
             {item.otherDisplayName}
           </Text>
           {item.lastMessageAt && (
@@ -170,24 +171,111 @@ function ConvRow({ item, onPress }: ConvRowProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Group chat row
+// ---------------------------------------------------------------------------
+
+interface GroupRowProps {
+  item: GroupChat;
+  onPress: (item: GroupChat) => void;
+}
+
+function GroupRow({ item, onPress }: GroupRowProps) {
+  const hasUnread = item.unreadCount > 0;
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.convRow, pressed && styles.convRowPressed]}
+      onPress={() => onPress(item)}
+      accessibilityRole="button"
+      accessibilityLabel={`Group chat: ${item.name}, ${item.memberCount} members`}
+    >
+      <View style={styles.avatar}>
+        <Text style={styles.avatarEmoji}>{item.avatarEmoji || '👥'}</Text>
+      </View>
+      <View style={styles.convBody}>
+        <View style={styles.convTopRow}>
+          <Text style={[styles.convName, hasUnread && styles.convNameBold]} numberOfLines={1}>
+            {item.name}
+          </Text>
+          {item.lastMessageAt && (
+            <Text style={styles.convTime}>{relativeTime(item.lastMessageAt)}</Text>
+          )}
+        </View>
+        <View style={styles.convBottomRow}>
+          <Text style={styles.memberCount}>{item.memberCount} members</Text>
+          <Text
+            style={[styles.convPreview, hasUnread && styles.convPreviewBold]}
+            numberOfLines={1}
+          >
+            {truncate(item.lastMessage) || 'No messages yet'}
+          </Text>
+          {hasUnread && (
+            <View style={styles.unreadBadge}>
+              <Text style={styles.unreadBadgeText}>
+                {item.unreadCount > 99 ? '99+' : item.unreadCount}
+              </Text>
+            </View>
+          )}
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Section header
+// ---------------------------------------------------------------------------
+
+interface SectionHeaderProps {
+  title: string;
+  action?: { label: string; onPress: () => void };
+}
+
+function SectionHeader({ title, action }: SectionHeaderProps) {
+  return (
+    <View style={styles.sectionHeader}>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      {action && (
+        <Pressable
+          onPress={action.onPress}
+          style={styles.sectionAction}
+          accessibilityRole="button"
+        >
+          <Text style={styles.sectionActionText}>{action.label}</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main screen
 // ---------------------------------------------------------------------------
 
-/**
- * MessagesScreen — lists active DM conversations.
- */
 export default function MessagesScreen() {
   const router = useRouter();
 
   const {
     data: conversations = [],
-    isLoading,
-    isError,
-    refetch,
-    isRefetching,
+    isLoading: dmLoading,
+    isError: dmError,
+    refetch: refetchDMs,
+    isRefetching: dmRefreshing,
   } = useQuery({
     queryKey: ['dm-list'],
     queryFn: fetchDMList,
+    staleTime: 30_000,
+    placeholderData: (prev) => prev,
+  });
+
+  const {
+    data: groups = [],
+    isLoading: groupsLoading,
+    isError: groupsError,
+    refetch: refetchGroups,
+    isRefetching: groupsRefreshing,
+  } = useQuery({
+    queryKey: ['group-chats'],
+    queryFn: fetchGroupChats,
     staleTime: 30_000,
     placeholderData: (prev) => prev,
   });
@@ -199,36 +287,27 @@ export default function MessagesScreen() {
     [router],
   );
 
+  const handleGroupPress = useCallback(
+    (item: GroupChat) => {
+      router.push(`/messages/group/${item.id}` as never);
+    },
+    [router],
+  );
+
   const handleNewMessage = useCallback(() => {
     router.push('/messages/new' as never);
   }, [router]);
 
-  const renderItem = useCallback(
-    ({ item }: { item: DMConversation }) => (
-      <ConvRow item={item} onPress={handleConvPress} />
-    ),
-    [handleConvPress],
-  );
+  const handleNewGroup = useCallback(() => {
+    router.push('/messages/group/create' as never);
+  }, [router]);
 
-  const renderEmpty = () => {
-    if (isLoading) return <SkeletonList />;
-    if (isError) {
-      return (
-        <View style={styles.centered}>
-          <Text style={styles.errorText}>
-            Could not load messages. Check your connection.
-          </Text>
-        </View>
-      );
-    }
-    return (
-      <View style={styles.centered}>
-        <Text style={styles.emptyEmoji}>💬</Text>
-        <Text style={styles.emptyTitle}>No conversations yet.</Text>
-        <Text style={styles.emptySubText}>Start a new message.</Text>
-      </View>
-    );
-  };
+  const handleRefresh = useCallback(() => {
+    refetchDMs();
+    refetchGroups();
+  }, [refetchDMs, refetchGroups]);
+
+  const isRefreshing = dmRefreshing || groupsRefreshing;
 
   return (
     <Screen>
@@ -245,34 +324,77 @@ export default function MessagesScreen() {
         </Pressable>
       </View>
 
-      {/* Conversation list */}
-      <FlatList
-        data={conversations}
-        keyExtractor={(item) => item.conversationId}
-        renderItem={renderItem}
-        ListEmptyComponent={renderEmpty}
-        contentContainerStyle={
-          conversations.length === 0 ? styles.emptyContainer : styles.listContent
-        }
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
         refreshControl={
           <RefreshControl
-            refreshing={isRefetching}
-            onRefresh={refetch}
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
             tintColor={colors.brand.blue}
           />
         }
-        showsVerticalScrollIndicator={false}
-      />
-
-      {/* FAB — New Message */}
-      <Pressable
-        style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
-        onPress={handleNewMessage}
-        accessibilityRole="button"
-        accessibilityLabel="New message"
       >
-        <Text style={styles.fabIcon}>✉</Text>
-      </Pressable>
+        {/* Direct Messages section */}
+        <SectionHeader
+          title="Direct Messages"
+          action={{ label: '+ New', onPress: handleNewMessage }}
+        />
+
+        {dmLoading ? (
+          <SkeletonList count={3} />
+        ) : dmError ? (
+          <View style={styles.inlineCentered}>
+            <Text style={styles.errorText}>Could not load DMs.</Text>
+          </View>
+        ) : conversations.length === 0 ? (
+          <View style={styles.inlineCentered}>
+            <Text style={styles.emptyEmoji}>💬</Text>
+            <Text style={styles.emptyText}>No conversations yet.</Text>
+            <Pressable
+              onPress={handleNewMessage}
+              style={styles.emptyAction}
+              accessibilityRole="button"
+            >
+              <Text style={styles.emptyActionText}>Start a conversation →</Text>
+            </Pressable>
+          </View>
+        ) : (
+          conversations.map((item) => (
+            <ConvRow key={item.conversationId} item={item} onPress={handleConvPress} />
+          ))
+        )}
+
+        {/* Group Chats section */}
+        <SectionHeader
+          title="Group Chats"
+          action={{ label: '+ New Group', onPress: handleNewGroup }}
+        />
+
+        {groupsLoading ? (
+          <SkeletonList count={2} />
+        ) : groupsError ? (
+          <View style={styles.inlineCentered}>
+            <Text style={styles.errorText}>Could not load group chats.</Text>
+          </View>
+        ) : groups.length === 0 ? (
+          <View style={styles.inlineCentered}>
+            <Text style={styles.emptyEmoji}>👥</Text>
+            <Text style={styles.emptyText}>No group chats yet.</Text>
+            <Pressable
+              onPress={handleNewGroup}
+              style={styles.emptyAction}
+              accessibilityRole="button"
+            >
+              <Text style={styles.emptyActionText}>Create a group →</Text>
+            </Pressable>
+          </View>
+        ) : (
+          groups.map((item) => (
+            <GroupRow key={item.id} item={item} onPress={handleGroupPress} />
+          ))
+        )}
+      </ScrollView>
     </Screen>
   );
 }
@@ -311,12 +433,36 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  // List
-  listContent: {
+  scrollContent: {
     paddingBottom: 100,
   },
-  emptyContainer: {
-    flexGrow: 1,
+
+  // Section header
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 8,
+  },
+  sectionTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: colors.neutral[800],
+  },
+  sectionAction: {
+    backgroundColor: colors.brand.blue,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    minHeight: 32,
+    justifyContent: 'center',
+  },
+  sectionActionText: {
+    color: colors.neutral[0],
+    fontSize: 12,
+    fontWeight: '700',
   },
 
   // Conversation row
@@ -343,15 +489,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarEmoji: {
-    fontSize: 26,
-  },
+  avatarEmoji: { fontSize: 26 },
 
   // Body
-  convBody: {
-    flex: 1,
-    gap: 3,
-  },
+  convBody: { flex: 1, gap: 3 },
   convTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -364,30 +505,22 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: colors.neutral[800],
   },
-  convNameBold: {
-    fontWeight: '700',
-    color: colors.neutral[900],
-  },
-  convTime: {
-    fontSize: 12,
-    color: colors.neutral[400],
-    flexShrink: 0,
-  },
+  convNameBold: { fontWeight: '700', color: colors.neutral[900] },
+  convTime: { fontSize: 12, color: colors.neutral[400], flexShrink: 0 },
   convBottomRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 8,
   },
-  convPreview: {
-    flex: 1,
-    fontSize: 13,
-    color: colors.neutral[500],
+  memberCount: {
+    fontSize: 11,
+    color: colors.neutral[400],
+    flexShrink: 0,
+    marginRight: 4,
   },
-  convPreviewBold: {
-    color: colors.neutral[700],
-    fontWeight: '600',
-  },
+  convPreview: { flex: 1, fontSize: 13, color: colors.neutral[500] },
+  convPreviewBold: { color: colors.neutral[700], fontWeight: '600' },
 
   // Unread badge
   unreadBadge: {
@@ -400,46 +533,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
     flexShrink: 0,
   },
-  unreadBadgeText: {
-    color: colors.neutral[0],
-    fontSize: 11,
-    fontWeight: '700',
-  },
+  unreadBadgeText: { color: colors.neutral[0], fontSize: 11, fontWeight: '700' },
 
-  // Empty / error
-  centered: {
-    flex: 1,
+  // Empty / error inline
+  inlineCentered: {
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 80,
+    paddingVertical: 24,
     paddingHorizontal: 32,
-    gap: 8,
+    gap: 6,
   },
-  emptyEmoji: {
-    fontSize: 48,
-    marginBottom: 8,
-  },
-  emptyTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: colors.neutral[700],
-    textAlign: 'center',
-  },
-  emptySubText: {
-    fontSize: 14,
-    color: colors.neutral[400],
-    textAlign: 'center',
-  },
-  errorText: {
-    fontSize: 14,
-    color: colors.semantic.error,
-    textAlign: 'center',
-  },
+  emptyEmoji: { fontSize: 36, marginBottom: 4 },
+  emptyText: { fontSize: 14, color: colors.neutral[500], textAlign: 'center' },
+  emptyAction: { marginTop: 6 },
+  emptyActionText: { fontSize: 14, color: colors.brand.blue, fontWeight: '600' },
+  errorText: { fontSize: 14, color: colors.semantic.error, textAlign: 'center' },
 
   // Skeleton
-  skeletonContainer: {
-    paddingTop: 8,
-  },
+  skeletonContainer: { paddingTop: 4 },
   skeletonRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -455,10 +565,7 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     backgroundColor: colors.neutral[200],
   },
-  skeletonBody: {
-    flex: 1,
-    gap: 8,
-  },
+  skeletonBody: { flex: 1, gap: 8 },
   skeletonLineName: {
     height: 14,
     width: '50%',
@@ -470,30 +577,5 @@ const styles = StyleSheet.create({
     width: '80%',
     borderRadius: 6,
     backgroundColor: colors.neutral[100],
-  },
-
-  // FAB
-  fab: {
-    position: 'absolute',
-    bottom: 24,
-    right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: colors.brand.blue,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: colors.neutral[900],
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.18,
-    shadowRadius: 6,
-    elevation: 6,
-  },
-  fabPressed: {
-    backgroundColor: colors.brand.blueDark,
-  },
-  fabIcon: {
-    fontSize: 22,
-    color: colors.neutral[0],
   },
 });

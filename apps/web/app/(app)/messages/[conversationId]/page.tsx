@@ -77,6 +77,69 @@ interface GiftItem {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Extract the first URL from a text string, or null if none. */
+function extractFirstUrl(text: string): string | null {
+  const match = text.match(/https?:\/\/[^\s]+/);
+  return match ? match[0] : null;
+}
+
+// ---------------------------------------------------------------------------
+// LinkPreviewCard — only renders when linkPreviewsEnabled=true (PRD §5)
+// ---------------------------------------------------------------------------
+
+interface LinkPreviewData {
+  url: string;
+  title?: string;
+  description?: string;
+  image?: string;
+  siteName?: string;
+}
+
+function LinkPreviewCard({ url }: { url: string }) {
+  const [data, setData] = useState<LinkPreviewData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`/api/messages/link-preview?url=${encodeURIComponent(url)}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((d: LinkPreviewData | null) => setData(d))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [url]);
+
+  if (loading) {
+    return (
+      <div className="mt-1.5 h-16 w-56 animate-pulse rounded-xl bg-neutral-100 dark:bg-neutral-700" />
+    );
+  }
+  if (!data?.title) return null;
+
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mt-1.5 block max-w-xs overflow-hidden rounded-xl border border-neutral-200 bg-white text-left dark:border-neutral-700 dark:bg-neutral-800"
+    >
+      {data.image && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={data.image} alt="" className="h-28 w-full object-cover" loading="lazy" />
+      )}
+      <div className="p-2.5">
+        {data.siteName && (
+          <p className="mb-0.5 text-xs text-neutral-400">{data.siteName}</p>
+        )}
+        <p className="line-clamp-2 text-xs font-semibold text-neutral-900 dark:text-neutral-100">
+          {data.title}
+        </p>
+        {data.description && (
+          <p className="mt-0.5 line-clamp-2 text-xs text-neutral-500">{data.description}</p>
+        )}
+      </div>
+    </a>
+  );
+}
+
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diff / 60_000);
@@ -113,10 +176,23 @@ function MessageSkeleton() {
 // Message bubble
 // ---------------------------------------------------------------------------
 
-function MessageBubble({ msg, isOwn }: { msg: DMMessage; isOwn: boolean }) {
+function MessageBubble({
+  msg,
+  isOwn,
+  linkPreviewsEnabled,
+}: {
+  msg: DMMessage;
+  isOwn: boolean;
+  /** PRD §5: only show link previews after recipient has replied ≥2 times. */
+  linkPreviewsEnabled: boolean;
+}) {
   const isGif = msg.messageType === "gif";
   const isSticker = msg.messageType === "sticker";
   const isGift = msg.messageType === "gift";
+  const firstUrl =
+    linkPreviewsEnabled && !isGif && !isSticker && !isGift && msg.content
+      ? extractFirstUrl(msg.content)
+      : null;
 
   return (
     <div className={`flex gap-2.5 ${isOwn ? "flex-row-reverse" : ""}`}>
@@ -158,15 +234,19 @@ function MessageBubble({ msg, isOwn }: { msg: DMMessage; isOwn: boolean }) {
             </div>
           </div>
         ) : (
-          <div
-            className={`mt-0.5 rounded-2xl px-3.5 py-2 text-sm ${
-              isOwn
-                ? "rounded-tr-sm bg-blue-600 text-white"
-                : "rounded-tl-sm bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100"
-            }`}
-          >
-            {msg.content}
-          </div>
+          <>
+            <div
+              className={`mt-0.5 rounded-2xl px-3.5 py-2 text-sm ${
+                isOwn
+                  ? "rounded-tr-sm bg-blue-600 text-white"
+                  : "rounded-tl-sm bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100"
+              }`}
+            >
+              {msg.content}
+            </div>
+            {/* PRD §5: link preview — only when recipient has replied ≥2 times */}
+            {firstUrl && <LinkPreviewCard url={firstUrl} />}
+          </>
         )}
       </div>
     </div>
@@ -449,6 +529,8 @@ export default function DMConversationPage() {
   // PRD §3: "Gift them coins" — shown when recipient cannot afford to reply
   const [recipientCanReply, setRecipientCanReply] = useState(true);
   const [otherUserId, setOtherUserId] = useState<string | null>(null);
+  // PRD §5: link previews only shown after recipient has replied at least twice
+  const [linkPreviewsEnabled, setLinkPreviewsEnabled] = useState(false);
   // PRD §5 — Conversation Score
   const [convScore, setConvScore] = useState<number>(0);
   // PRD §5 — Pidgin autocomplete (Nigerian locales)
@@ -494,6 +576,7 @@ export default function DMConversationPage() {
           items?: DMMessage[];
           recipientCanReply?: boolean;
           otherUserId?: string;
+          linkPreviewsEnabled?: boolean;
         };
         if (data.conversation) {
           setConversation(data.conversation);
@@ -502,6 +585,8 @@ export default function DMConversationPage() {
         if (data.items) setMessages(data.items);
         if (typeof data.recipientCanReply === "boolean") setRecipientCanReply(data.recipientCanReply);
         if (data.otherUserId) setOtherUserId(data.otherUserId);
+        // PRD §5: gate link previews until recipient has replied ≥2 times
+        if (typeof data.linkPreviewsEnabled === "boolean") setLinkPreviewsEnabled(data.linkPreviewsEnabled);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Error loading conversation");
       } finally {
@@ -799,6 +884,7 @@ export default function DMConversationPage() {
               key={msg.id}
               msg={msg}
               isOwn={msg.senderId === currentUserId}
+              linkPreviewsEnabled={linkPreviewsEnabled}
             />
           ))
         )}

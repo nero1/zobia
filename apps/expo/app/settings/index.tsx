@@ -47,6 +47,19 @@ interface UserSettings {
   privacyDMOptOut: boolean;
 }
 
+type PlanTier = 'free' | 'plus' | 'pro' | 'max';
+
+interface UserMe {
+  planTier?: PlanTier;
+}
+
+const PLAN_TIER_LABELS: Record<PlanTier, string> = {
+  free: 'Free',
+  plus: 'Plus',
+  pro: 'Pro',
+  max: 'Max',
+};
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -386,6 +399,25 @@ export default function SettingsScreen() {
           value={merged.privacyDMOptOut}
           onChange={(v) => set('privacyDMOptOut', v)}
         />
+      </View>
+
+      {/* Subscription */}
+      <SectionHeader title="SUBSCRIPTION" />
+      <View style={[styles.card, { backgroundColor: themeColors.surface }]}>
+        <Pressable
+          style={[styles.settingsRow, { borderBottomColor: 'transparent' }]}
+          onPress={() => router.push('/settings/subscription')}
+          accessibilityRole="button"
+          accessibilityLabel="Manage subscription plan"
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.settingsRowLabel, { color: themeColors.text }]}>Plan Management</Text>
+            <Text style={[styles.toggleDesc, { color: themeColors.textMuted }]}>
+              Upgrade or manage your current plan
+            </Text>
+          </View>
+          <Text style={[styles.chevron, { color: themeColors.textMuted }]}>›</Text>
+        </Pressable>
       </View>
 
       {/* Danger zone */}
