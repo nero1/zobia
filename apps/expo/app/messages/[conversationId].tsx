@@ -6,18 +6,21 @@
  * Features:
  *  - Inverted FlatList of messages
  *  - Text input + send button
+ *  - GIF picker (search modal with Giphy/Tenor results via /api/messages/gif proxy)
+ *  - Sticker picker (pack tabs + emoji grid)
+ *  - Gift button (routes to /economy/gift-send)
  *  - For Free/Plus users: shows coin cost per reply
  *  - Insufficient coins notice with "Gift them coins" link
- *  - GIF picker (opens search sheet — placeholder)
  *  - Reactions on long-press
  *  - Offline: pending message visual (clock icon)
  */
 
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -26,6 +29,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -40,12 +44,14 @@ import { getPidginSuggestions } from '@/lib/i18n/pidgin';
 // ---------------------------------------------------------------------------
 
 type MessageStatus = 'sent' | 'pending' | 'failed';
+type MessageType = 'text' | 'gif' | 'sticker' | 'gift';
 
 interface DM {
   id: string;
   content: string | null;
   gifUrl: string | null;
-  messageType: 'text' | 'gif';
+  stickerEmoji: string | null;
+  messageType: MessageType;
   senderUserId: string;
   createdAt: string;
   status?: MessageStatus;
@@ -57,13 +63,28 @@ interface ConversationMeta {
   otherUserId: string;
   otherDisplayName: string;
   otherAvatarEmoji: string;
+  otherUsername: string;
   coinCostPerMessage: number;
   isUnlimited: boolean;
   userCoinBalance: number;
 }
 
+interface GifResult {
+  id: string;
+  url: string;
+  previewUrl: string;
+  title: string;
+}
+
+interface StickerPack {
+  id: string;
+  name: string;
+  stickers: { id: string; emoji: string; label: string }[];
+  unlocked: boolean;
+}
+
 // ---------------------------------------------------------------------------
-// API
+// API helpers
 // ---------------------------------------------------------------------------
 
 async function fetchConversation(id: string): Promise<ConversationMeta> {
@@ -76,12 +97,26 @@ async function fetchMessages(id: string): Promise<DM[]> {
   return data.messages ?? [];
 }
 
-async function sendDM(conversationId: string, content: string): Promise<DM> {
+async function sendDM(
+  conversationId: string,
+  content: string,
+  messageType: MessageType = 'text',
+): Promise<DM> {
   const { data } = await apiClient.post(`/messages/conversations/${conversationId}/messages`, {
     content,
-    messageType: 'text',
+    messageType,
   });
   return data.message;
+}
+
+async function searchGifs(query: string): Promise<GifResult[]> {
+  const { data } = await apiClient.get('/messages/gif', { params: { q: query, limit: 15 } });
+  return data.results ?? [];
+}
+
+async function fetchStickerPacks(): Promise<StickerPack[]> {
+  const { data } = await apiClient.get('/stickers');
+  return (data.packs ?? []).filter((p: StickerPack) => p.unlocked);
 }
 
 // ---------------------------------------------------------------------------
@@ -89,12 +124,17 @@ async function sendDM(conversationId: string, content: string): Promise<DM> {
 // ---------------------------------------------------------------------------
 
 let pendingIdCounter = 0;
-function makePendingMessage(content: string, myUserId: string): DM {
+function makePendingMessage(
+  content: string,
+  myUserId: string,
+  messageType: MessageType = 'text',
+): DM {
   return {
     id: `pending-${++pendingIdCounter}`,
-    content,
-    gifUrl: null,
-    messageType: 'text',
+    content: messageType === 'text' ? content : null,
+    gifUrl: messageType === 'gif' ? content : null,
+    stickerEmoji: messageType === 'sticker' ? content : null,
+    messageType,
     senderUserId: myUserId,
     createdAt: new Date().toISOString(),
     status: 'pending',
@@ -120,7 +160,7 @@ function ConvSkeleton() {
 // Message bubble (DM variant)
 // ---------------------------------------------------------------------------
 
-const MY_USER_ID = 'me'; // replaced by auth context in production
+const MY_USER_ID = 'me';
 
 interface DMBubbleProps {
   dm: DM;
@@ -147,17 +187,31 @@ function DMBubble({ dm, isOwn, onLongPress }: DMBubbleProps) {
         style={[
           styles.dmBubble,
           isOwn ? styles.dmBubbleOwn : styles.dmBubbleOther,
+          dm.messageType === 'gif' && styles.dmBubbleMedia,
+          dm.messageType === 'sticker' && styles.dmBubbleSticker,
         ]}
       >
-        {dm.content && (
-          <Text
-            style={[
-              styles.dmText,
-              isOwn ? styles.dmTextOwn : { color: themeColors.text },
-            ]}
-          >
+        {dm.messageType === 'text' && dm.content && (
+          <Text style={[styles.dmText, isOwn ? styles.dmTextOwn : { color: themeColors.text }]}>
             {dm.content}
           </Text>
+        )}
+        {dm.messageType === 'gif' && dm.gifUrl && (
+          <Image
+            source={{ uri: dm.gifUrl }}
+            style={styles.gifImage}
+            contentFit="cover"
+            recyclingKey={dm.id}
+          />
+        )}
+        {dm.messageType === 'sticker' && dm.stickerEmoji && (
+          <Text style={styles.stickerEmoji}>{dm.stickerEmoji}</Text>
+        )}
+        {dm.messageType === 'gift' && dm.content && (
+          <View style={styles.giftBubble}>
+            <Text style={styles.giftEmoji}>🎁</Text>
+            <Text style={styles.giftText}>{dm.content}</Text>
+          </View>
         )}
         <View style={styles.dmMeta}>
           {isPending && (
@@ -165,17 +219,11 @@ function DMBubble({ dm, isOwn, onLongPress }: DMBubbleProps) {
               🕐
             </Text>
           )}
-          <Text
-            style={[
-              styles.dmTime,
-              { color: isOwn ? colors.neutral[200] : themeColors.textMuted },
-            ]}
-          >
+          <Text style={[styles.dmTime, { color: isOwn ? colors.neutral[200] : themeColors.textMuted }]}>
             {time}
           </Text>
         </View>
       </View>
-      {/* Reactions */}
       {dm.reactions.length > 0 && (
         <View style={styles.reactionStrip}>
           {dm.reactions.map((r) => (
@@ -187,6 +235,207 @@ function DMBubble({ dm, isOwn, onLongPress }: DMBubbleProps) {
         </View>
       )}
     </Pressable>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// GIF Picker Modal
+// ---------------------------------------------------------------------------
+
+interface GifPickerProps {
+  visible: boolean;
+  onClose: () => void;
+  onSelect: (gifUrl: string) => void;
+}
+
+function GifPickerModal({ visible, onClose, onSelect }: GifPickerProps) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<GifResult[]>([]);
+  const [loading, setLoading] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { colors: themeColors } = useTheme();
+
+  useEffect(() => {
+    if (!visible) return;
+    // Load trending GIFs on open
+    setLoading(true);
+    searchGifs('trending')
+      .then(setResults)
+      .catch(() => setResults([]))
+      .finally(() => setLoading(false));
+  }, [visible]);
+
+  const handleSearch = useCallback((text: string) => {
+    setQuery(text);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setLoading(true);
+      searchGifs(text || 'trending')
+        .then(setResults)
+        .catch(() => setResults([]))
+        .finally(() => setLoading(false));
+    }, 400);
+  }, []);
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <View style={[styles.pickerContainer, { backgroundColor: themeColors.background }]}>
+        <View style={[styles.pickerHeader, { borderBottomColor: themeColors.border }]}>
+          <Text style={[styles.pickerTitle, { color: themeColors.text }]}>GIFs</Text>
+          <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close GIF picker">
+            <Text style={[styles.pickerClose, { color: themeColors.textMuted }]}>✕</Text>
+          </Pressable>
+        </View>
+        <View style={[styles.searchContainer, { backgroundColor: themeColors.surface }]}>
+          <TextInput
+            style={[styles.searchInput, { color: themeColors.text, backgroundColor: themeColors.background }]}
+            placeholder="Search GIFs…"
+            placeholderTextColor={themeColors.textMuted}
+            value={query}
+            onChangeText={handleSearch}
+            autoFocus
+            returnKeyType="search"
+          />
+        </View>
+        {loading ? (
+          <View style={styles.pickerLoader}>
+            <ActivityIndicator color={colors.brand.blue} />
+          </View>
+        ) : (
+          <FlatList
+            data={results}
+            keyExtractor={(g) => g.id}
+            numColumns={2}
+            contentContainerStyle={styles.gifGrid}
+            renderItem={({ item }) => (
+              <Pressable
+                style={styles.gifCell}
+                onPress={() => { onSelect(item.url); onClose(); }}
+                accessibilityRole="button"
+                accessibilityLabel={`Send GIF: ${item.title}`}
+              >
+                <Image
+                  source={{ uri: item.previewUrl || item.url }}
+                  style={styles.gifPreview}
+                  contentFit="cover"
+                  recyclingKey={item.id}
+                />
+              </Pressable>
+            )}
+            ListEmptyComponent={
+              <Text style={[styles.emptyText, { color: themeColors.textMuted }]}>No GIFs found</Text>
+            }
+          />
+        )}
+      </View>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sticker Picker Modal
+// ---------------------------------------------------------------------------
+
+interface StickerPickerProps {
+  visible: boolean;
+  onClose: () => void;
+  onSelect: (emoji: string) => void;
+}
+
+function StickerPickerModal({ visible, onClose, onSelect }: StickerPickerProps) {
+  const [packs, setPacks] = useState<StickerPack[]>([]);
+  const [activePackIdx, setActivePackIdx] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const { colors: themeColors } = useTheme();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!visible) return;
+    setLoading(true);
+    fetchStickerPacks()
+      .then(setPacks)
+      .catch(() => setPacks([]))
+      .finally(() => setLoading(false));
+  }, [visible]);
+
+  const activePack = packs[activePackIdx];
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <View style={[styles.pickerContainer, { backgroundColor: themeColors.background }]}>
+        <View style={[styles.pickerHeader, { borderBottomColor: themeColors.border }]}>
+          <Text style={[styles.pickerTitle, { color: themeColors.text }]}>Stickers</Text>
+          <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close sticker picker">
+            <Text style={[styles.pickerClose, { color: themeColors.textMuted }]}>✕</Text>
+          </Pressable>
+        </View>
+        {loading ? (
+          <View style={styles.pickerLoader}>
+            <ActivityIndicator color={colors.brand.blue} />
+          </View>
+        ) : packs.length === 0 ? (
+          <View style={styles.pickerLoader}>
+            <Text style={[styles.emptyText, { color: themeColors.textMuted }]}>
+              No sticker packs unlocked yet.
+            </Text>
+            <Pressable
+              onPress={() => { onClose(); router.push('/stickers'); }}
+              style={styles.browseBtn}
+              accessibilityRole="link"
+            >
+              <Text style={styles.browseBtnText}>Browse Sticker Packs</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={[styles.packTabs, { borderBottomColor: themeColors.border }]}
+              contentContainerStyle={styles.packTabsContent}
+            >
+              {packs.map((pack, idx) => (
+                <Pressable
+                  key={pack.id}
+                  onPress={() => setActivePackIdx(idx)}
+                  style={[
+                    styles.packTab,
+                    activePackIdx === idx && styles.packTabActive,
+                    { borderBottomColor: colors.brand.blue },
+                  ]}
+                  accessibilityRole="tab"
+                >
+                  <Text style={[
+                    styles.packTabText,
+                    { color: activePackIdx === idx ? colors.brand.blue : themeColors.textMuted },
+                  ]}>
+                    {pack.name}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+            {activePack && (
+              <FlatList
+                data={activePack.stickers}
+                keyExtractor={(s) => s.id}
+                numColumns={4}
+                contentContainerStyle={styles.stickerGrid}
+                renderItem={({ item }) => (
+                  <Pressable
+                    style={styles.stickerCell}
+                    onPress={() => { onSelect(item.emoji); onClose(); }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Send sticker: ${item.label}`}
+                  >
+                    <Text style={styles.stickerCellEmoji}>{item.emoji}</Text>
+                  </Pressable>
+                )}
+              />
+            )}
+          </>
+        )}
+      </View>
+    </Modal>
   );
 }
 
@@ -208,6 +457,8 @@ export default function DMConversationScreen() {
   const [inputText, setInputText] = useState('');
   const [pidginSuggestions, setPidginSuggestions] = useState<string[]>([]);
   const [pendingMessages, setPendingMessages] = useState<DM[]>([]);
+  const [showGifPicker, setShowGifPicker] = useState(false);
+  const [showStickerPicker, setShowStickerPicker] = useState(false);
 
   const handleInputChange = useCallback((text: string) => {
     setInputText(text);
@@ -220,9 +471,7 @@ export default function DMConversationScreen() {
     queryFn: () => fetchConversation(conversationId!),
     enabled: !!conversationId,
     onSuccess: (data) => {
-      navigation.setOptions({
-        title: data.otherDisplayName,
-      });
+      navigation.setOptions({ title: data.otherDisplayName });
     },
   });
 
@@ -235,9 +484,10 @@ export default function DMConversationScreen() {
   });
 
   const sendMutation = useMutation({
-    mutationFn: (content: string) => sendDM(conversationId!, content),
-    onMutate: (content) => {
-      const optimistic = makePendingMessage(content, MY_USER_ID);
+    mutationFn: ({ content, type }: { content: string; type: MessageType }) =>
+      sendDM(conversationId!, content, type),
+    onMutate: ({ content, type }) => {
+      const optimistic = makePendingMessage(content, MY_USER_ID, type);
       setPendingMessages((prev) => [optimistic, ...prev]);
       return { optimistic };
     },
@@ -258,12 +508,19 @@ export default function DMConversationScreen() {
     const text = inputText.trim();
     if (!text) return;
     setInputText('');
-    sendMutation.mutate(text);
+    sendMutation.mutate({ content: text, type: 'text' });
   }, [inputText, sendMutation]);
 
-  const handleLongPress = useCallback((messageId: string) => {
-    // Reaction picker placeholder
-    console.log('Long press on DM', messageId);
+  const handleGifSelect = useCallback((gifUrl: string) => {
+    sendMutation.mutate({ content: gifUrl, type: 'gif' });
+  }, [sendMutation]);
+
+  const handleStickerSelect = useCallback((emoji: string) => {
+    sendMutation.mutate({ content: emoji, type: 'sticker' });
+  }, [sendMutation]);
+
+  const handleLongPress = useCallback((_messageId: string) => {
+    // Reaction picker — future enhancement
   }, []);
 
   const combinedMessages = [...pendingMessages, ...messages];
@@ -361,15 +618,28 @@ export default function DMConversationScreen() {
         )}
 
         {/* Input bar */}
-        <View
-          style={[
-            styles.inputBar,
-            {
-              backgroundColor: themeColors.surface,
-              borderTopColor: themeColors.border,
-            },
-          ]}
-        >
+        <View style={[styles.inputBar, { backgroundColor: themeColors.surface, borderTopColor: themeColors.border }]}>
+          {/* GIF button */}
+          <Pressable
+            style={[styles.iconBtn, { backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100] }]}
+            onPress={() => setShowGifPicker(true)}
+            accessibilityLabel="Send GIF"
+            accessibilityRole="button"
+          >
+            <Text style={[styles.iconBtnText, { color: isDark ? colors.neutral[200] : colors.neutral[700] }]}>
+              GIF
+            </Text>
+          </Pressable>
+          {/* Sticker button */}
+          <Pressable
+            style={[styles.iconBtn, { backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100] }]}
+            onPress={() => setShowStickerPicker(true)}
+            accessibilityLabel="Send sticker"
+            accessibilityRole="button"
+          >
+            <Text style={styles.iconBtnEmoji}>😊</Text>
+          </Pressable>
+          {/* Text input */}
           <TextInput
             style={[
               styles.textInput,
@@ -388,24 +658,32 @@ export default function DMConversationScreen() {
             onSubmitEditing={handleSend}
             editable={!insufficientCoins}
           />
-          {/* GIF button */}
-          <Pressable
-            style={styles.iconBtn}
-            onPress={() => console.log('GIF picker')}
-            accessibilityLabel="Send GIF"
-            accessibilityRole="button"
-          >
-            <Text style={styles.iconBtnText}>GIF</Text>
-          </Pressable>
+          {/* Gift button */}
+          {conversation && (
+            <Pressable
+              style={[styles.iconBtn, { backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100] }]}
+              onPress={() =>
+                router.push({
+                  pathname: '/economy/gift-send',
+                  params: {
+                    toUserId: conversation.otherUserId,
+                    recipientUsername: conversation.otherUsername ?? conversation.otherDisplayName,
+                  },
+                })
+              }
+              accessibilityLabel="Send gift"
+              accessibilityRole="button"
+            >
+              <Text style={styles.iconBtnEmoji}>🎁</Text>
+            </Pressable>
+          )}
           {/* Send button */}
           <Pressable
             style={[
               styles.sendBtn,
               {
                 backgroundColor:
-                  inputText.trim() && !insufficientCoins
-                    ? colors.brand.blue
-                    : colors.neutral[300],
+                  inputText.trim() && !insufficientCoins ? colors.brand.blue : colors.neutral[300],
               },
             ]}
             onPress={handleSend}
@@ -421,6 +699,20 @@ export default function DMConversationScreen() {
           </Pressable>
         </View>
       </KeyboardAvoidingView>
+
+      {/* GIF Picker Modal */}
+      <GifPickerModal
+        visible={showGifPicker}
+        onClose={() => setShowGifPicker(false)}
+        onSelect={handleGifSelect}
+      />
+
+      {/* Sticker Picker Modal */}
+      <StickerPickerModal
+        visible={showStickerPicker}
+        onClose={() => setShowStickerPicker(false)}
+        onSelect={handleStickerSelect}
+      />
     </Screen>
   );
 }
@@ -483,14 +775,14 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   iconBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.neutral[100],
   },
-  iconBtnText: { fontSize: 13, fontWeight: '700', color: colors.neutral[700] },
+  iconBtnText: { fontSize: 12, fontWeight: '700' },
+  iconBtnEmoji: { fontSize: 20 },
   sendBtn: {
     width: 44,
     height: 44,
@@ -501,10 +793,7 @@ const styles = StyleSheet.create({
   sendBtnText: { fontSize: 20, fontWeight: '800', color: colors.neutral[0] },
 
   // DM bubbles
-  dmRow: {
-    marginVertical: 2,
-    gap: 4,
-  },
+  dmRow: { marginVertical: 2, gap: 4 },
   dmRowOwn: { alignItems: 'flex-end' },
   dmRowOther: { alignItems: 'flex-start' },
   dmBubble: {
@@ -514,26 +803,23 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     gap: 2,
   },
-  dmBubbleOwn: {
-    backgroundColor: colors.brand.blue,
-    borderBottomRightRadius: 4,
-  },
-  dmBubbleOther: {
-    backgroundColor: colors.neutral[100],
-    borderBottomLeftRadius: 4,
-  },
+  dmBubbleOwn: { backgroundColor: colors.brand.blue, borderBottomRightRadius: 4 },
+  dmBubbleOther: { backgroundColor: colors.neutral[100], borderBottomLeftRadius: 4 },
+  dmBubbleMedia: { padding: 2, overflow: 'hidden' },
+  dmBubbleSticker: { backgroundColor: 'transparent', paddingHorizontal: 4 },
   dmText: { fontSize: 15, lineHeight: 20 },
   dmTextOwn: { color: colors.neutral[0] },
   dmMeta: { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-end' },
   dmTime: { fontSize: 10 },
   dmStatus: { fontSize: 12 },
 
-  reactionStrip: {
-    flexDirection: 'row',
-    gap: 4,
-    paddingHorizontal: 4,
-    flexWrap: 'wrap',
-  },
+  gifImage: { width: 200, height: 150, borderRadius: 14 },
+  stickerEmoji: { fontSize: 56, lineHeight: 64 },
+  giftBubble: { alignItems: 'center', gap: 4, paddingVertical: 4 },
+  giftEmoji: { fontSize: 32 },
+  giftText: { fontSize: 13, color: colors.neutral[0], textAlign: 'center' },
+
+  reactionStrip: { flexDirection: 'row', gap: 4, paddingHorizontal: 4, flexWrap: 'wrap' },
   reactionPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -545,10 +831,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     gap: 2,
   },
-  reactionPillActive: {
-    backgroundColor: `${colors.brand.blue}18`,
-    borderColor: colors.brand.blue,
-  },
+  reactionPillActive: { backgroundColor: `${colors.brand.blue}18`, borderColor: colors.brand.blue },
   reactionEmoji: { fontSize: 12 },
   reactionCount: { fontSize: 11, fontWeight: '600', color: colors.neutral[600] },
 
@@ -561,4 +844,58 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   skeletonBubbleRight: { alignSelf: 'flex-end' },
+
+  // Picker modals
+  pickerContainer: { flex: 1 },
+  pickerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  pickerTitle: { fontSize: 17, fontWeight: '700' },
+  pickerClose: { fontSize: 18, fontWeight: '600', paddingHorizontal: 8 },
+  pickerLoader: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16 },
+
+  searchContainer: { paddingHorizontal: 12, paddingVertical: 8 },
+  searchInput: {
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 15,
+  },
+
+  gifGrid: { padding: 8 },
+  gifCell: { flex: 1, margin: 4, borderRadius: 12, overflow: 'hidden', aspectRatio: 1.4 },
+  gifPreview: { width: '100%', height: '100%' },
+
+  packTabs: { borderBottomWidth: StyleSheet.hairlineWidth, maxHeight: 44 },
+  packTabsContent: { paddingHorizontal: 12, flexDirection: 'row' },
+  packTab: { paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 2, borderBottomColor: 'transparent' },
+  packTabActive: {},
+  packTabText: { fontSize: 14, fontWeight: '600' },
+
+  stickerGrid: { padding: 8 },
+  stickerCell: {
+    flex: 1,
+    margin: 4,
+    aspectRatio: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    backgroundColor: colors.neutral[100],
+  },
+  stickerCellEmoji: { fontSize: 32 },
+
+  emptyText: { fontSize: 14, textAlign: 'center' },
+  browseBtn: {
+    marginTop: 12,
+    backgroundColor: colors.brand.blue,
+    borderRadius: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+  },
+  browseBtnText: { color: colors.neutral[0], fontWeight: '700', fontSize: 14 },
 });
