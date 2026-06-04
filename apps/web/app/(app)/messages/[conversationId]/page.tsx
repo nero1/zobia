@@ -10,6 +10,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { getPidginSuggestions, isPidginLocale } from "@/lib/i18n/pidgin";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -445,6 +446,14 @@ export default function DMConversationPage() {
   const [sending, setSending] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [connectionBadge, setConnectionBadge] = useState<ConnectionBadge | null>(null);
+  // PRD §3: "Gift them coins" — shown when recipient cannot afford to reply
+  const [recipientCanReply, setRecipientCanReply] = useState(true);
+  const [otherUserId, setOtherUserId] = useState<string | null>(null);
+  // PRD §5 — Conversation Score
+  const [convScore, setConvScore] = useState<number>(0);
+  // PRD §5 — Pidgin autocomplete (Nigerian locales)
+  const [pidginSuggestions, setPidginSuggestions] = useState<string[]>([]);
+  const [userLocale, setUserLocale] = useState<string>("");
 
   // Rich input panel state
   const [showGifPicker, setShowGifPicker] = useState(false);
@@ -464,22 +473,40 @@ export default function DMConversationPage() {
   useEffect(() => {
     fetch("/api/me", { credentials: "include" })
       .then((r) => r.json())
-      .then((d: { id: string }) => setCurrentUserId(d.id))
+      .then((d: { id: string; locale?: string }) => {
+        setCurrentUserId(d.id);
+        if (d.locale) setUserLocale(d.locale);
+      })
       .catch(() => {});
+    // Fall back to browser locale for Pidgin detection
+    setUserLocale((prev) => prev || navigator.language || "");
   }, []);
 
   useEffect(() => {
+    // The messages endpoint now returns conversation metadata too — one fetch does both
     (async () => {
       try {
         const res = await fetch(`/api/messages/dm/${conversationId}`, { credentials: "include" });
         if (res.status === 401) { router.push("/login"); return; }
         if (!res.ok) throw new Error("Conversation not found");
-        const data = (await res.json()) as { conversation: ConversationInfo };
-        setConversation(data.conversation);
+        const data = (await res.json()) as {
+          conversation?: ConversationInfo & { score?: number };
+          items?: DMMessage[];
+          recipientCanReply?: boolean;
+          otherUserId?: string;
+        };
+        if (data.conversation) {
+          setConversation(data.conversation);
+          if (typeof data.conversation.score === "number") setConvScore(data.conversation.score);
+        }
+        if (data.items) setMessages(data.items);
+        if (typeof data.recipientCanReply === "boolean") setRecipientCanReply(data.recipientCanReply);
+        if (data.otherUserId) setOtherUserId(data.otherUserId);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Error loading conversation");
       } finally {
         setLoadingConversation(false);
+        setLoadingMessages(false);
       }
     })();
   }, [conversationId, router]);
@@ -488,20 +515,54 @@ export default function DMConversationPage() {
     try {
       const res = await fetch(`/api/messages/dm/${conversationId}/connection-badge`, { credentials: "include" });
       if (!res.ok) return;
-      const data = (await res.json()) as { badge?: ConnectionBadge; data?: ConnectionBadge };
+      const data = (await res.json()) as { badge?: ConnectionBadge; data?: ConnectionBadge; score?: number };
       const badge = data.badge ?? data.data ?? null;
-      if (badge) setConnectionBadge(badge);
+      if (badge) {
+        setConnectionBadge(badge);
+        if (typeof badge.score === "number") setConvScore(badge.score);
+      }
+      if (typeof data.score === "number") setConvScore(data.score);
     } catch { /* non-fatal */ }
   }, [conversationId]);
 
+  // Fetch conversation score separately (in case not included in conversation payload)
+  const fetchConvScore = useCallback(async () => {
+    if (!conversation) return;
+    try {
+      const res = await fetch(
+        `/api/messages/dm?other=${conversation.participantUserId}&score=true`,
+        { credentials: "include" }
+      );
+      if (!res.ok) return;
+      const data = (await res.json()) as { score?: number; convScore?: number };
+      const s = data.score ?? data.convScore ?? 0;
+      if (typeof s === "number" && s > 0) setConvScore(s);
+    } catch { /* non-fatal */ }
+  }, [conversation]);
+
   useEffect(() => { void fetchConnectionBadge(); }, [fetchConnectionBadge]);
+  useEffect(() => { void fetchConvScore(); }, [fetchConvScore]);
 
   const fetchMessages = useCallback(async () => {
     try {
-      const res = await fetch(`/api/messages/dm/${conversationId}/messages`, { credentials: "include" });
+      // Note: the conversation-level GET returns items + recipientCanReply + otherUserId
+      const res = await fetch(`/api/messages/dm/${conversationId}`, { credentials: "include" });
       if (!res.ok) return;
-      const data = (await res.json()) as { messages: DMMessage[] };
-      setMessages(data.messages ?? []);
+      const data = (await res.json()) as {
+        messages?: DMMessage[];
+        items?: DMMessage[];
+        conversation?: ConversationInfo;
+        recipientCanReply?: boolean;
+        otherUserId?: string;
+      };
+      setMessages(data.messages ?? data.items ?? []);
+      // Populate conversation info if this response includes it
+      if (data.conversation) setConversation(data.conversation);
+      // PRD §3: surface when recipient cannot afford to reply
+      if (typeof data.recipientCanReply === "boolean") {
+        setRecipientCanReply(data.recipientCanReply);
+      }
+      if (data.otherUserId) setOtherUserId(data.otherUserId);
     } catch { /* ignore */ } finally {
       setLoadingMessages(false);
     }
@@ -553,8 +614,24 @@ export default function DMConversationPage() {
     }
   }
 
+  function handleInputChange(value: string) {
+    setInput(value);
+    if (isPidginLocale(userLocale)) {
+      setPidginSuggestions(getPidginSuggestions(value));
+    }
+  }
+
+  function handlePidginSuggestion(suggestion: string) {
+    const words = input.split(" ");
+    words[words.length - 1] = suggestion;
+    setInput(words.join(" "));
+    setPidginSuggestions([]);
+    inputRef.current?.focus();
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setPidginSuggestions([]);
     await sendMessage(input);
   }
 
@@ -646,6 +723,19 @@ export default function DMConversationPage() {
                     🔗 {connectionBadge.badgeLabel}
                   </span>
                 )}
+                {/* Conversation Score — PRD §5 */}
+                {convScore > 0 && (
+                  <div
+                    className="flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
+                    title="Conversation Score — builds as you message daily"
+                  >
+                    <span>💬</span>
+                    <span>{convScore} pts</span>
+                    {convScore >= 250 && <span className="ml-1">🏆</span>}
+                    {convScore >= 100 && convScore < 250 && <span className="ml-1">⭐</span>}
+                    {convScore >= 50 && convScore < 100 && <span className="ml-1">🔵</span>}
+                  </div>
+                )}
               </div>
               <p className="text-xs text-neutral-400">
                 @{conversation.participantUsername}
@@ -671,6 +761,21 @@ export default function DMConversationPage() {
       {error && conversation && (
         <div className="border-b border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-800 dark:bg-red-950">
           <p className="text-xs text-red-700 dark:text-red-300">{error}</p>
+        </div>
+      )}
+
+      {/* PRD §3: "Gift them coins" — recipient cannot afford to reply */}
+      {!recipientCanReply && otherUserId && (
+        <div className="flex items-center justify-between border-b border-amber-200 bg-amber-50 px-4 py-2.5 dark:border-amber-800 dark:bg-amber-950/40">
+          <p className="text-xs text-amber-700 dark:text-amber-300">
+            This person cannot reply right now — they may not have enough coins.
+          </p>
+          <Link
+            href={`/economy/gifts?recipient=${otherUserId}`}
+            className="ml-3 shrink-0 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600"
+          >
+            🪙 Gift them coins
+          </Link>
         </div>
       )}
 
@@ -736,7 +841,7 @@ export default function DMConversationPage() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="flex items-center gap-1.5 p-3">
+        <form onSubmit={handleSubmit} className="relative flex items-center gap-1.5 p-3">
           {/* GIF button */}
           <button
             type="button"
@@ -777,12 +882,27 @@ export default function DMConversationPage() {
             😊
           </button>
 
+          {/* Pidgin autocomplete suggestions — PRD §5 */}
+          {pidginSuggestions.length > 0 && (
+            <div className="absolute bottom-full left-0 right-0 flex gap-1.5 px-3 pb-1">
+              {pidginSuggestions.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => handlePidginSuggestion(s)}
+                  className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
           {/* Text input */}
           <input
             ref={inputRef}
             type="text"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => handleInputChange(e.target.value)}
             placeholder="Type a message…"
             maxLength={1000}
             className="flex-1 rounded-xl border border-neutral-300 bg-neutral-50 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:placeholder-neutral-500"

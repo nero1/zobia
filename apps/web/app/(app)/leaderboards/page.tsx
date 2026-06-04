@@ -29,6 +29,10 @@ interface LeaderboardEntry {
   xp: number;
   plan: Plan;
   isCurrentUser: boolean;
+  /** Positive = moved up in rank (improved), negative = dropped. */
+  rankChange?: number;
+  rank_change?: number;
+  rankDelta?: number;
 }
 
 interface LeaderboardResponse {
@@ -80,6 +84,29 @@ const PLAN_BADGE: Record<Plan, string> = {
 // Helpers
 // ---------------------------------------------------------------------------
 
+function getRankChange(entry: LeaderboardEntry): number {
+  return entry.rankChange ?? entry.rank_change ?? entry.rankDelta ?? 0;
+}
+
+const RANK_ANIMATION_STYLE = `
+@keyframes ripple-up {
+  0%   { box-shadow: 0 0 0 0 rgba(16,185,129,0.55); background-color: rgba(16,185,129,0.12); }
+  50%  { box-shadow: 0 0 0 6px rgba(16,185,129,0.15); background-color: rgba(16,185,129,0.06); }
+  100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); background-color: transparent; }
+}
+@keyframes ripple-down {
+  0%   { box-shadow: 0 0 0 0 rgba(239,68,68,0.55); background-color: rgba(239,68,68,0.12); }
+  50%  { box-shadow: 0 0 0 6px rgba(239,68,68,0.15); background-color: rgba(239,68,68,0.06); }
+  100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); background-color: transparent; }
+}
+.rank-ripple-up   { animation: ripple-up   1.6s ease-out forwards; }
+.rank-ripple-down { animation: ripple-down 1.6s ease-out forwards; }
+`;
+
+function RankAnimationStyles() {
+  return <style dangerouslySetInnerHTML={{ __html: RANK_ANIMATION_STYLE }} />;
+}
+
 function rankMedal(rank: number): string {
   if (rank === 1) return "🥇";
   if (rank === 2) return "🥈";
@@ -116,12 +143,47 @@ function LeaderboardSkeleton() {
 // Entry row
 // ---------------------------------------------------------------------------
 
-function EntryRow({ entry, highlight }: { entry: LeaderboardEntry; highlight?: boolean }) {
+function EntryRow({
+  entry,
+  highlight,
+  ripple,
+}: {
+  entry: LeaderboardEntry;
+  highlight?: boolean;
+  ripple?: "up" | "down" | null;
+}) {
+  const rankChange = getRankChange(entry);
+  const hasRankUp = rankChange > 0;
+  const hasRankDown = rankChange < 0;
+  const rippleClass = ripple === "up" || hasRankUp
+    ? "rank-ripple-up"
+    : ripple === "down" || hasRankDown
+    ? "rank-ripple-down"
+    : "";
+
   return (
-    <tr className={`transition-colors ${highlight ? "bg-blue-50 dark:bg-blue-950/30" : "hover:bg-neutral-50 dark:hover:bg-neutral-800/50"}`}>
+    <tr
+      className={`transition-colors ${rippleClass} ${
+        highlight ? "bg-blue-50 dark:bg-blue-950/30" : "hover:bg-neutral-50 dark:hover:bg-neutral-800/50"
+      }`}
+    >
       <td className="px-4 py-3 text-sm font-bold tabular-nums text-neutral-700 dark:text-neutral-300">
-        <span>{rankMedal(entry.rank)}</span>
-        <span className={rankMedal(entry.rank) ? "ml-1" : ""}>{entry.rank}</span>
+        <div className="flex items-center gap-1">
+          <span>{rankMedal(entry.rank)}</span>
+          <span className={rankMedal(entry.rank) ? "ml-1" : ""}>{entry.rank}</span>
+          {(ripple === "up" || hasRankUp) && (
+            <span className="ml-1 text-xs font-semibold text-teal-600 dark:text-teal-400"
+                  title={`Moved up ${rankChange} place${rankChange !== 1 ? "s" : ""}`}>
+              ▲{rankChange > 0 ? rankChange : ""}
+            </span>
+          )}
+          {(ripple === "down" || hasRankDown) && (
+            <span className="ml-1 text-xs font-semibold text-red-500 dark:text-red-400"
+                  title={`Dropped ${Math.abs(rankChange)} place${Math.abs(rankChange) !== 1 ? "s" : ""}`}>
+              ▼{Math.abs(rankChange) > 0 ? Math.abs(rankChange) : ""}
+            </span>
+          )}
+        </div>
       </td>
       <td className="px-4 py-3">
         <Link href={`/profile/${entry.userId}`} className="flex items-center gap-2 hover:underline">
@@ -162,6 +224,7 @@ export default function LeaderboardsPage() {
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [banner, setBanner] = useState<SponsoredBanner | null>(null);
+  const [rankRipple, setRankRipple] = useState<"up" | "down" | null>(null);
   const perPage = 20;
 
   const fetchData = useCallback(async (s: Scope, t: Track, p: number) => {
@@ -190,6 +253,19 @@ export default function LeaderboardsPage() {
       .catch(() => {/* non-fatal */});
   }, []);
 
+  // Check for rank-change ripple notification (PRD §5)
+  useEffect(() => {
+    fetch("/api/notifications?type=leaderboard_rank_change&limit=1&unread=true", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((json: { items?: Array<{ payload?: { direction?: string } }> } | null) => {
+        const notif = json?.items?.[0];
+        if (notif?.payload?.direction === "up") setRankRipple("up");
+        else if (notif?.payload?.direction === "down") setRankRipple("down");
+        else if (notif) setRankRipple("up");
+      })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     setPage(1);
     void fetchData(scope, track, 1);
@@ -207,6 +283,7 @@ export default function LeaderboardsPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-4 p-4 sm:p-6">
+      <RankAnimationStyles />
       <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">Leaderboards</h1>
 
       {/* Scope tabs */}
@@ -290,7 +367,7 @@ export default function LeaderboardsPage() {
               </tr>
             ) : (
               data.entries.map((e) => (
-                <EntryRow key={e.userId} entry={e} highlight={e.isCurrentUser} />
+                <EntryRow key={e.userId} entry={e} highlight={e.isCurrentUser} ripple={e.isCurrentUser ? rankRipple : null} />
               ))
             )}
           </tbody>
@@ -327,7 +404,7 @@ export default function LeaderboardsPage() {
           <p className="mb-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400">Your Position</p>
           <table className="w-full">
             <tbody>
-              <EntryRow entry={currentUser} highlight />
+              <EntryRow entry={currentUser} highlight ripple={rankRipple} />
             </tbody>
           </table>
         </div>

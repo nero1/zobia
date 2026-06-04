@@ -107,6 +107,164 @@ function formatCountdown(secs: number): string {
 }
 
 // ---------------------------------------------------------------------------
+// ClassRoom Curriculum component (PRD §10)
+// ---------------------------------------------------------------------------
+
+interface ClassroomModule {
+  id: string;
+  title: string;
+  description?: string;
+  order: number;
+}
+
+interface ClassroomData {
+  courseTitle: string;
+  startDate: string | null;
+  endDate: string | null;
+  modules: ClassroomModule[];
+  isEnrolled: boolean;
+  isGraduate: boolean;
+  graduatesCount: number;
+  completedModuleIds: string[];
+  enrolmentFee: number;
+}
+
+function ClassRoomCurriculum({
+  roomId,
+  isCreator,
+}: {
+  roomId: string;
+  isCreator: boolean;
+}) {
+  const [data, setData] = useState<ClassroomData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [enrolling, setEnrolling] = useState(false);
+  const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`/api/classroom/${roomId}`, { credentials: "include" });
+        if (!res.ok) return;
+        const json = (await res.json()) as { data?: ClassroomData; classroom?: ClassroomData };
+        const cd = json.data ?? json.classroom ?? null;
+        if (cd) {
+          setData(cd);
+          setCompletedIds(new Set(cd.completedModuleIds ?? []));
+        }
+      } catch { /* non-fatal */ } finally {
+        setLoading(false);
+      }
+    })();
+  }, [roomId]);
+
+  async function handleEnroll() {
+    setEnrolling(true);
+    try {
+      const res = await fetch(`/api/classroom/${roomId}/enroll`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paymentMethod: "balance" }),
+      });
+      if (res.ok) setData((d) => (d ? { ...d, isEnrolled: true } : d));
+    } catch { /* ignore */ }
+    setEnrolling(false);
+  }
+
+  function toggleModule(moduleId: string) {
+    setCompletedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(moduleId)) next.delete(moduleId);
+      else next.add(moduleId);
+      return next;
+    });
+  }
+
+  async function handleCertificate() {
+    try {
+      const res = await fetch(`/api/classroom/${roomId}/certificate`, { credentials: "include" });
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        window.open(url, "_blank");
+      }
+    } catch { /* ignore */ }
+  }
+
+  if (loading) {
+    return (
+      <div className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
+        <div className="mb-2 h-3 w-24 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" />
+        <div className="space-y-2">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="h-8 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const isEnded = data.endDate ? new Date(data.endDate) < new Date() : false;
+
+  return (
+    <div className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+        🎓 Curriculum
+      </h2>
+      <p className="mb-1 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+        {data.courseTitle}
+      </p>
+      {(data.startDate || data.endDate) && (
+        <p className="mb-2 text-xs text-neutral-500">
+          {data.startDate ? new Date(data.startDate).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : ""}
+          {data.startDate && data.endDate ? " – " : ""}
+          {data.endDate ? new Date(data.endDate).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : ""}
+        </p>
+      )}
+      {data.modules.length > 0 && (
+        <div className="mb-3 space-y-1.5">
+          {data.modules.slice().sort((a, b) => a.order - b.order).map((mod) => (
+            <label key={mod.id} className="flex cursor-pointer items-start gap-2 rounded-lg p-1.5 hover:bg-neutral-50 dark:hover:bg-neutral-800">
+              <input
+                type="checkbox"
+                checked={completedIds.has(mod.id)}
+                onChange={() => (data.isEnrolled ? toggleModule(mod.id) : undefined)}
+                disabled={!data.isEnrolled && !isCreator}
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border-neutral-400 accent-blue-600"
+              />
+              <span className={`text-xs leading-tight ${completedIds.has(mod.id) ? "text-neutral-400 line-through" : "text-neutral-700 dark:text-neutral-300"}`}>
+                {mod.title}
+              </span>
+            </label>
+          ))}
+        </div>
+      )}
+      {isEnded && data.graduatesCount > 0 && (
+        <p className="mb-2 text-xs text-teal-600 dark:text-teal-400">
+          🎓 {data.graduatesCount.toLocaleString()} graduate{data.graduatesCount !== 1 ? "s" : ""}
+        </p>
+      )}
+      {data.isGraduate && (
+        <button type="button" onClick={handleCertificate} className="mb-2 w-full rounded-lg bg-teal-600 py-2 text-xs font-semibold text-white hover:bg-teal-700">
+          📜 Download Certificate
+        </button>
+      )}
+      {!data.isEnrolled && !isCreator && (
+        <button type="button" onClick={handleEnroll} disabled={enrolling} className="w-full rounded-lg bg-blue-600 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+          {enrolling ? "Enrolling…" : data.enrolmentFee > 0 ? `Enrol · ${data.enrolmentFee.toLocaleString()} coins` : "Enrol (Free)"}
+        </button>
+      )}
+      {data.isEnrolled && !data.isGraduate && (
+        <p className="text-xs text-teal-600 dark:text-teal-400">✓ You are enrolled</p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Skeletons
 // ---------------------------------------------------------------------------
 
@@ -591,8 +749,11 @@ export default function RoomPage() {
   const [spectacle, setSpectacle] = useState<GiftSpectacleState | null>(null);
   // Drop Room replay
   const [replay, setReplay] = useState<DropReplay | null | "loading">("loading");
+  const [replayPurchased, setReplayPurchased] = useState(false);
+  const [purchasingReplay, setPurchasingReplay] = useState(false);
   const [publishingReplay, setPublishingReplay] = useState(false);
   const [replayTitle, setReplayTitle] = useState("");
+  const [replayFeeCoins, setReplayFeeCoins] = useState(0);
   const [showPublishForm, setShowPublishForm] = useState(false);
   const spectacleTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const seenMessageIdsRef = useRef<Set<string>>(new Set());
@@ -761,8 +922,17 @@ export default function RoomPage() {
         const res = await fetch(`/api/rooms/${roomId}/replay`, { credentials: "include" });
         if (res.status === 404) { setReplay(null); return; }
         if (!res.ok) { setReplay(null); return; }
-        const data = (await res.json()) as { replay?: DropReplay; data?: DropReplay };
-        setReplay(data.replay ?? data.data ?? null);
+        const body = (await res.json()) as {
+          replay?: DropReplay;
+          data?: { replay?: DropReplay } & DropReplay;
+          userHasAccess?: boolean;
+        };
+        const replayObj =
+          (body.data as { replay?: DropReplay } | undefined)?.replay ??
+          (body as { replay?: DropReplay }).replay ??
+          null;
+        setReplay(replayObj);
+        if (body.userHasAccess) setReplayPurchased(true);
       } catch { setReplay(null); }
     })();
   }, [room, roomId]);
@@ -781,7 +951,7 @@ export default function RoomPage() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: replayTitle.trim(), highlights, replay_fee_kobo: 0 }),
+        body: JSON.stringify({ title: replayTitle.trim(), highlights, replay_fee_kobo: replayFeeCoins * 100 }),
       });
       if (!res.ok) throw new Error("Failed to publish replay");
       const data = (await res.json()) as { replay?: DropReplay; data?: DropReplay };
@@ -980,6 +1150,11 @@ export default function RoomPage() {
         {/* Top Gifters */}
         <TopGifters roomId={roomId} />
 
+        {/* ClassRoom Curriculum (PRD §10) */}
+        {room.type === "classroom" && (
+          <ClassRoomCurriculum roomId={roomId} isCreator={room.creatorId === currentUserId} />
+        )}
+
         {/* Drop Room Replay (PRD §10) */}
         {room.type === "drop" && replay !== "loading" && (
           <div className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
@@ -987,19 +1162,46 @@ export default function RoomPage() {
             {replay && replay.isPublished ? (
               <div className="space-y-2">
                 <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{replay.title}</p>
-                <p className="text-xs text-neutral-500">{replay.highlights.length} highlights</p>
-                {replay.replayFeeKobo > 0 && (
-                  <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">
-                    🪙 Replay fee: {(replay.replayFeeKobo / 100).toLocaleString()} coins
-                  </p>
-                )}
-                <div className="mt-2 max-h-40 space-y-1.5 overflow-y-auto rounded-lg bg-neutral-50 p-2 text-xs dark:bg-neutral-800">
-                  {replay.highlights.map((h, i) => (
-                    <div key={i} className="text-neutral-600 dark:text-neutral-300">
-                      <span className="font-semibold">{h.sender}:</span> {h.content}
+                {replay.replayFeeKobo > 0 && !replayPurchased && room.creatorId !== currentUserId ? (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40">
+                    <p className="mb-2 text-xs text-amber-800 dark:text-amber-300">
+                      🔒 Replay requires a one-time fee of{" "}
+                      <strong>{(replay.replayFeeKobo / 100).toLocaleString()} coins</strong>
+                    </p>
+                    <button
+                      type="button"
+                      disabled={purchasingReplay}
+                      onClick={async () => {
+                        setPurchasingReplay(true);
+                        try {
+                          const res = await fetch(`/api/rooms/${roomId}/replay/purchase`, {
+                            method: "POST",
+                            credentials: "include",
+                            headers: { "Content-Type": "application/json" },
+                          });
+                          if (res.ok) setReplayPurchased(true);
+                        } catch { /* ignore */ } finally { setPurchasingReplay(false); }
+                      }}
+                      className="w-full rounded-lg bg-amber-500 py-1.5 text-xs font-semibold text-white hover:bg-amber-600 disabled:opacity-60"
+                    >
+                      {purchasingReplay ? "Processing…" : `🪙 Unlock Replay · ${(replay.replayFeeKobo / 100).toLocaleString()} coins`}
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-xs text-neutral-500">{replay.highlights.length} highlights</p>
+                    {replay.replayFeeKobo > 0 && (
+                      <p className="text-xs font-semibold text-teal-600 dark:text-teal-400">✓ Replay unlocked</p>
+                    )}
+                    <div className="mt-2 max-h-40 space-y-1.5 overflow-y-auto rounded-lg bg-neutral-50 p-2 text-xs dark:bg-neutral-800">
+                      {replay.highlights.map((h, i) => (
+                        <div key={i} className="text-neutral-600 dark:text-neutral-300">
+                          <span className="font-semibold">{h.sender}:</span> {h.content}
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  </>
+                )}
               </div>
             ) : room.creatorId === currentUserId ? (
               showPublishForm ? (
@@ -1012,6 +1214,21 @@ export default function RoomPage() {
                     maxLength={100}
                     className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-xs dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
                   />
+                  {/* Replay fee — PRD §10: "published for a smaller replay fee" */}
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-neutral-500 dark:text-neutral-400 whitespace-nowrap">
+                      Replay fee (coins):
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={replayFeeCoins}
+                      onChange={(e) => setReplayFeeCoins(Math.max(0, parseInt(e.target.value) || 0))}
+                      placeholder="0 = free"
+                      className="w-24 rounded-lg border border-neutral-300 bg-white px-2 py-1.5 text-xs dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                    />
+                  </div>
                   <p className="text-xs text-neutral-400">Last 20 messages will be published as highlights.</p>
                   <div className="flex gap-2">
                     <button

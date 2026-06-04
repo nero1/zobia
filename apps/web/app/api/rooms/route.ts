@@ -418,6 +418,31 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
         }
         break;
 
+      case "guild": {
+        // Guild rooms require the guild to be Platinum-tier or above
+        const { rows: guildTierRows } = await db.query<{ tier: string }>(
+          `SELECT g.tier FROM guilds g
+           JOIN guild_members gm ON gm.guild_id = g.id
+           WHERE gm.user_id = $1 AND gm.role IN ('owner', 'admin')
+           ORDER BY
+             CASE g.tier
+               WHEN 'legend'     THEN 1
+               WHEN 'platinum_3' THEN 2
+               WHEN 'platinum_2' THEN 3
+               WHEN 'platinum_1' THEN 4
+               ELSE 99
+             END ASC
+           LIMIT 1`,
+          [auth.user.sub]
+        );
+        const guildTier = guildTierRows[0]?.tier ?? null;
+        const platinumAndAbove = ["platinum_1", "platinum_2", "platinum_3", "legend"];
+        if (!guildTier || !platinumAndAbove.includes(guildTier)) {
+          throw forbidden("Guild Rooms are only available to Platinum-tier Guilds and above.");
+        }
+        break;
+      }
+
       default:
         break;
     }

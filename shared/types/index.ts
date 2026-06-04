@@ -422,7 +422,8 @@ export type CoinTransactionType =
   | 'admin_grant'
   | 'refund'
   | 'ad_reward'
-  | 'booster_pack';
+  | 'booster_pack'
+  | 'monthly_plan_bonus';
 
 export interface CoinLedgerEntry {
   id: string;

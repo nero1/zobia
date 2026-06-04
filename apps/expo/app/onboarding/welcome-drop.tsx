@@ -120,8 +120,8 @@ export default function WelcomeDrop() {
   // -------------------------------------------------------------------------
 
   function handleGetStarted() {
-    // Replace the navigation stack so the user can't swipe back to onboarding.
-    router.replace('/(tabs)');
+    // Step 4: First Contact — invite contacts, explore first room, accept quest
+    router.push('/onboarding/first-contact');
   }
 
   // -------------------------------------------------------------------------
