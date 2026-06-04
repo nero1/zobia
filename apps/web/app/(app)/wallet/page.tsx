@@ -8,9 +8,11 @@
  * - Transaction history (last 20)
  * - Coin packs for purchase (Paystack checkout)
  * - Active booster packs & subscription plan info
+ * - Coin transfer panel (opened via ?transfer=<userId>)
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -241,10 +243,159 @@ function BoosterPacks({ boosters }: { boosters: BoosterPack[] }) {
 }
 
 // ---------------------------------------------------------------------------
+// Coin Transfer Panel
+// ---------------------------------------------------------------------------
+
+interface TransferRecipient {
+  id: string;
+  username: string;
+  display_name?: string;
+}
+
+interface CoinTransferPanelProps {
+  recipientId: string;
+  onSuccess: (msg: string) => void;
+  onClose: () => void;
+}
+
+function CoinTransferPanel({ recipientId, onSuccess, onClose }: CoinTransferPanelProps) {
+  const [recipient, setRecipient] = useState<TransferRecipient | null>(null);
+  const [loadingRecipient, setLoadingRecipient] = useState(true);
+  const [amount, setAmount] = useState<string>("");
+  const [sending, setSending] = useState(false);
+  const [transferError, setTransferError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ fee: number; net: number } | null>(null);
+
+  useEffect(() => {
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_RE.test(recipientId)) {
+      setLoadingRecipient(false);
+      return;
+    }
+    fetch(`/api/users/${recipientId}`, { credentials: "include" })
+      .then(async (r) => {
+        if (!r.ok) return;
+        const d = (await r.json()) as { user?: TransferRecipient; id?: string; username?: string };
+        const u = (d as { user?: TransferRecipient }).user ?? (d as TransferRecipient);
+        if (u?.id) setRecipient(u as TransferRecipient);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingRecipient(false));
+  }, [recipientId]);
+
+  useEffect(() => {
+    const n = parseInt(amount, 10);
+    if (!isNaN(n) && n >= 10) {
+      const fee = Math.floor(n * 0.05);
+      setPreview({ fee, net: n - fee });
+    } else {
+      setPreview(null);
+    }
+  }, [amount]);
+
+  async function handleTransfer() {
+    setTransferError(null);
+    const n = parseInt(amount, 10);
+    if (isNaN(n) || n < 10) {
+      setTransferError("Minimum transfer amount is 10 coins");
+      return;
+    }
+    if (n > 100_000) {
+      setTransferError("Maximum single transfer is 100,000 coins");
+      return;
+    }
+    setSending(true);
+    try {
+      const res = await fetch("/api/economy/coins/transfer", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recipientId, amount: n }),
+      });
+      const data = (await res.json()) as { success?: boolean; message?: string; error?: string; transfer?: { netAmount: number; recipient: { username: string } } };
+      if (!res.ok) throw new Error(data.message ?? data.error ?? "Transfer failed");
+      const label = data.transfer?.recipient?.username ?? "user";
+      onSuccess(`Sent ${n} coins to @${label} (they received ${data.transfer?.netAmount ?? n - Math.floor(n * 0.05)})`);
+      onClose();
+    } catch (e) {
+      setTransferError(e instanceof Error ? e.message : "Transfer failed");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 shadow-card dark:border-amber-800 dark:bg-amber-950">
+      <div className="flex items-center justify-between border-b border-amber-200 px-5 py-4 dark:border-amber-800">
+        <h2 className="text-sm font-semibold text-amber-900 dark:text-amber-100">Send Coins</h2>
+        <button onClick={onClose} className="text-sm text-amber-600 hover:text-amber-800 dark:text-amber-400">
+          ✕
+        </button>
+      </div>
+      <div className="p-5 space-y-4">
+        {loadingRecipient ? (
+          <div className="h-8 w-40 animate-pulse rounded bg-amber-200 dark:bg-amber-800" />
+        ) : recipient ? (
+          <p className="text-sm text-amber-800 dark:text-amber-200">
+            Sending to{" "}
+            <span className="font-semibold">
+              {recipient.display_name ? `${recipient.display_name} (@${recipient.username})` : `@${recipient.username}`}
+            </span>
+          </p>
+        ) : (
+          <p className="text-sm text-red-600 dark:text-red-400">Recipient not found.</p>
+        )}
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-amber-800 dark:text-amber-200">
+            Amount (coins)
+          </label>
+          <input
+            type="number"
+            min={10}
+            max={100000}
+            step={1}
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="e.g. 100"
+            className="w-full rounded-xl border border-amber-300 bg-white px-4 py-2 text-sm text-neutral-900 placeholder-neutral-400 focus:border-amber-500 focus:outline-none dark:border-amber-700 dark:bg-neutral-900 dark:text-neutral-100"
+          />
+        </div>
+
+        {preview && (
+          <div className="rounded-lg bg-white px-4 py-3 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300 space-y-0.5">
+            <div className="flex justify-between"><span>Platform fee (5%)</span><span>−{preview.fee} 🪙</span></div>
+            <div className="flex justify-between font-semibold text-neutral-900 dark:text-neutral-100">
+              <span>Recipient receives</span><span>{preview.net} 🪙</span>
+            </div>
+          </div>
+        )}
+
+        {transferError && (
+          <p className="text-xs text-red-600 dark:text-red-400">{transferError}</p>
+        )}
+
+        <button
+          onClick={handleTransfer}
+          disabled={sending || !recipient || !amount}
+          className="w-full rounded-xl bg-amber-500 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-60"
+        >
+          {sending ? "Sending…" : "Send Coins"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
 export default function WalletPage() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const transferRecipientId = searchParams.get("transfer");
+
   const [data, setData] = useState<StoreData>({
     balance: null,
     transactions: [],
@@ -255,6 +406,12 @@ export default function WalletPage() {
   const [error, setError] = useState<string | null>(null);
   const [purchasing, setPurchasing] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+
+  const dismissTransfer = useCallback(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("transfer");
+    router.replace(url.pathname + (url.search === "?" ? "" : url.search));
+  }, [router]);
 
   function showToast(msg: string) {
     setToast(msg);
@@ -366,6 +523,14 @@ export default function WalletPage() {
       )}
 
       {data.balance && <BalanceCard balance={data.balance} />}
+
+      {transferRecipientId && (
+        <CoinTransferPanel
+          recipientId={transferRecipientId}
+          onSuccess={showToast}
+          onClose={dismissTransfer}
+        />
+      )}
 
       <CoinPacks packs={data.coinPacks} onPurchase={handlePurchase} purchasing={purchasing} />
 

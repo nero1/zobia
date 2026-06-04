@@ -18,7 +18,7 @@ import type { Metadata } from "next";
 type Plan = "free" | "plus" | "pro" | "max";
 type UserStatus = "active" | "suspended" | "banned";
 type SuspendDuration = "1h" | "24h" | "7d" | "30d";
-type ActionType = "suspend" | "ban" | "restore" | "make_mod" | "revoke_mod";
+type ActionType = "suspend" | "ban" | "restore" | "make_mod" | "revoke_mod" | "reset_password" | "force_2fa" | "verify_account";
 
 interface AdminUser {
   id: string;
@@ -254,6 +254,31 @@ function DetailPanel({ user, onClose, onAction }: DetailPanelProps) {
             className="bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-300"
           />
         </div>
+
+        {/* Account security actions — PRD §20 */}
+        <div className="space-y-2 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
+          <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Account Security</p>
+          <div className="grid grid-cols-1 gap-2">
+            <ActionButton
+              label="Reset Password"
+              onClick={() => handleAction("reset_password")}
+              loading={loading === "reset_password"}
+              className="bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900 dark:text-orange-300"
+            />
+            <ActionButton
+              label="Force 2FA Setup"
+              onClick={() => handleAction("force_2fa")}
+              loading={loading === "force_2fa"}
+              className="bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900 dark:text-indigo-300"
+            />
+            <ActionButton
+              label="Verify Account"
+              onClick={() => handleAction("verify_account")}
+              loading={loading === "verify_account"}
+              className="bg-teal-100 text-teal-700 hover:bg-teal-200 dark:bg-teal-900 dark:text-teal-300"
+            />
+          </div>
+        </div>
       </div>
     </aside>
   );
@@ -333,7 +358,7 @@ export default function AdminUsersPage() {
     action: ActionType,
     payload?: Record<string, string>
   ) {
-    const res = await fetch(`/api/admin/users/${userId}/action`, {
+    const res = await fetch(`/api/admin/users/${userId}/actions`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
