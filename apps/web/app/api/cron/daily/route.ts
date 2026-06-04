@@ -1255,6 +1255,45 @@ export const GET = async (req: NextRequest) => {
     errors.push(`flashXpLifecycle: ${String(err)}`);
   }
 
+  // ── Step 23: Enforce plan-based message history limits (PRD §3) ─────────────
+  // Free  = 90 days  |  Plus = 180 days  |  Pro/Max = Unlimited
+  // We hard-delete messages (DMs and group messages) sent by users whose plan
+  // puts a cap on how far back history is retained.  The cutoff is applied to
+  // the SENDER's current plan at the time the CRON runs.
+  try {
+    // DM messages: delete from the messages table rows older than plan limit
+    const freeDeleted = await db.query<{ count: string }>(
+      `WITH deleted AS (
+         DELETE FROM messages m
+         USING users u
+         WHERE m.sender_id = u.id
+           AND u.plan = 'free'
+           AND m.created_at < NOW() - INTERVAL '90 days'
+         RETURNING 1
+       )
+       SELECT COUNT(*)::text AS count FROM deleted`
+    );
+
+    const plusDeleted = await db.query<{ count: string }>(
+      `WITH deleted AS (
+         DELETE FROM messages m
+         USING users u
+         WHERE m.sender_id = u.id
+           AND u.plan = 'plus'
+           AND m.created_at < NOW() - INTERVAL '180 days'
+         RETURNING 1
+       )
+       SELECT COUNT(*)::text AS count FROM deleted`
+    );
+
+    results.messageHistoryCleanup = {
+      freeDeleted: parseInt(freeDeleted.rows[0]?.count ?? "0", 10),
+      plusDeleted: parseInt(plusDeleted.rows[0]?.count ?? "0", 10),
+    };
+  } catch (err) {
+    errors.push(`messageHistoryCleanup: ${String(err)}`);
+  }
+
   return NextResponse.json({
     success: errors.length === 0,
     results,

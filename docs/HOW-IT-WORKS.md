@@ -116,6 +116,21 @@ Transaction volume, creator payout pipeline status, pending payouts awaiting app
 ### User Management (`/api/admin/users`)
 Search, view, suspend, ban, or restore any user. View user's XP history, coin ledger, quest history, guild membership, and reports filed against them.
 
+All moderation actions are performed via `POST /api/admin/users/:userId/actions` and are logged atomically to the `admin_actions` audit table. Supported actions:
+
+| Action | Description |
+|---|---|
+| `suspend` | Temporarily suspend account for `duration_hours` hours. Invalidates all sessions immediately. |
+| `ban` | Permanently ban account. Invalidates all sessions immediately. |
+| `restore` | Lift a suspension or ban. |
+| `upgrade_moderator` | Grant moderator role to account. |
+| `downgrade_moderator` | Revoke moderator role. |
+| `reset_password` | Null out password hash, generate a 1-hour reset token, send reset link to user's email. Invalidates all sessions. |
+| `force_2fa` | Clear existing TOTP secret, set `require_2fa_setup = true` so the user must configure 2FA on next login. Invalidates all sessions. |
+| `verify_account` | Manually mark the account's email as verified. |
+
+Admins cannot action their own account or any other admin account. All actions are append-only in the audit log (no delete or update endpoints exist).
+
 ### Content Moderation (`/api/admin/moderation`)
 View AI-classified reports queue. Accept or reject AI decisions. Bulk-action common violation types. View moderation history per user.
 
@@ -210,6 +225,15 @@ All CRON handlers:
 2. Are idempotent — safe to re-run if a previous run was interrupted.
 3. Log failures to Redis (`cron_failure:<handler>:<date>`) for the admin alert system.
 4. Return structured JSON with counts of actions taken and any errors encountered.
+
+**Message History Enforcement (Step 23 of daily CRON)**
+
+Plan-based message retention limits are enforced nightly:
+- **Free plan**: Messages older than 90 days are permanently deleted.
+- **Plus plan**: Messages older than 180 days are permanently deleted.
+- **Pro / Max plan**: No deletion — unlimited history.
+
+Deletion is batched by joining `messages` against the sender's subscription plan. Results (`freeDeleted`, `plusDeleted`) are included in the CRON response JSON for monitoring.
 
 ### Offline Sync
 
@@ -337,3 +361,67 @@ The onboarding flow generates a referral code and immediately checks for uniquen
 
 **Duplicate daily login claim**
 The Redis key `daily_login:<userId>:<YYYY-MM-DD>` prevents double-awards within the same calendar day. The `/api/login/daily` endpoint is idempotent — if the key exists, it returns the current streak without re-awarding XP and includes `alreadyClaimedToday: true` in the response.
+
+---
+
+## Testing
+
+### E2E Tests (Playwright)
+
+Located in `e2e/`. Covers all 11 PRD-required user journeys:
+- Authentication (register, login, logout, Google OAuth)
+- Direct messages (coin cost, anti-spam, gift-them-coins flow)
+- Economy (coin purchase, transfer, gift items)
+- Rooms (create, join, VIP gate, gift in room)
+- Guilds (create, join, declare war, resolve war)
+- Leaderboards (global, city, track-specific)
+- Referrals (code sharing, tier-1 + tier-2 attribution)
+- Creator payouts (request, auto-approve, manual-approve threshold)
+- Suspension (admin suspend, session invalidation, restore)
+- Season reset (end-of-season competitive reset, track preservation)
+- Admin (user management, moderation, financial dashboard)
+
+Run: `cd apps/web && npx playwright test`
+
+### Unit Tests (Jest)
+
+Located in `apps/web/lib/**/__tests__/`. Covers:
+- XP engine: all action types, multiplier stack, track attribution
+- Coin ledger: credit/debit invariant, `SELECT FOR UPDATE` race guard, append-only
+- Financial integrity: transfer fee math (5% floor), insufficient-balance rejection
+- Concurrency: sequential credit/debit chain integrity, balance roundtrip
+- Creator payouts: 80/20 split, minimum threshold, manual-approval threshold, tier distribution
+- Guild wars: war points calculation, Final Hour multiplier, reward distribution
+- Season engine: phase detection, pass milestones, end-of-season reset
+
+Run: `cd apps/web && npx jest`
+
+### Load Tests (k6)
+
+Located in `load-tests/`. All scenarios target a staging environment.
+
+| File | Scenario | VUs | Duration |
+|---|---|---|---|
+| `room-feed.js` | Room discovery feed under load | 1000 | 5 min |
+| `guild-war-final-hour.js` | Final Hour simultaneous war point submissions | 500 | 10 min |
+| `cron-daily-reset.js` | Daily CRON handler under concurrent requests | 500 | 3 min |
+| `daily-login.js` | Daily login endpoint burst | 500 | 5 min |
+
+Run: `k6 run load-tests/room-feed.js --env BASE_URL=https://staging.zobia.app`
+
+### Security / Penetration Tests
+
+Located in `security-tests/`. Covers OWASP Top 10 and platform-specific threats:
+
+| File | Coverage |
+|---|---|
+| `auth.security.test.ts` | JWT tampering, algorithm confusion (alg:none), brute-force rate limiting |
+| `injection.security.test.ts` | SQL injection, XSS in profile fields, SSRF via URL params, NoSQL operators |
+| `idor.security.test.ts` | Profile/message/payout IDOR, admin route access by regular users |
+| `economy.security.test.ts` | Negative/zero/float/overflow amounts, double-spend race condition |
+| `admin.security.test.ts` | Privilege escalation, self-action protection, audit log immutability |
+| `ratelimit.security.test.ts` | Login/transfer/report burst 429 enforcement, Retry-After header |
+
+Prerequisites: running dev server + env vars `SECURITY_TEST_BASE_URL`, `SECURITY_TEST_USER_TOKEN`, `SECURITY_TEST_ADMIN_TOKEN`, `SECURITY_TEST_USER_ID`, `SECURITY_TEST_OTHER_USER_ID`.
+
+Run: `cd apps/web && npx jest --testPathPattern="security" --runInBand`

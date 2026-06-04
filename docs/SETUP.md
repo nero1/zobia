@@ -113,6 +113,11 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `CRON_SECRET` | Yes | Shared secret for CRON endpoint authentication | `openssl rand -hex 32` |
 | `NEXT_PUBLIC_APP_URL` | Yes | Full public URL of the app (e.g. `https://zobia.social`) | Your domain |
 | `NEXT_PUBLIC_API_URL` | Yes | Full public API URL (e.g. `https://zobia.social/api`) | Your domain |
+| `SECURITY_TEST_BASE_URL` | Testing only | Base URL for security/penetration tests (e.g. `http://localhost:3000`) | Local dev server |
+| `SECURITY_TEST_USER_TOKEN` | Testing only | Valid JWT for a regular (non-admin) test user | Login as test user and copy token |
+| `SECURITY_TEST_ADMIN_TOKEN` | Testing only | Valid JWT for an admin test user | Login as admin and copy token |
+| `SECURITY_TEST_USER_ID` | Testing only | UUID of the regular test user | From `users` table |
+| `SECURITY_TEST_OTHER_USER_ID` | Testing only | UUID of a second test user (for IDOR tests) | From `users` table |
 
 ---
 
@@ -430,3 +435,49 @@ pg_restore --dbname="$DATABASE_URL" backup.dump
 ```
 
 Schedule automated backups with a cron job or your provider's backup feature.
+
+---
+
+## Running Tests
+
+### Unit Tests
+
+```bash
+cd apps/web
+npx jest
+```
+
+Runs all Jest unit tests for the XP engine, coin ledger, financial integrity, concurrency, payout computation, guild wars, and season engine.
+
+### E2E Tests (Playwright)
+
+```bash
+cd apps/web
+npx playwright install  # first time only
+npx playwright test
+```
+
+Runs all 11 PRD-required end-to-end scenarios. A running dev or staging server is required.
+
+### Load Tests (k6)
+
+Install k6: `brew install k6` (macOS) or see [k6 installation docs](https://k6.io/docs/getting-started/installation/).
+
+```bash
+# Room feed under 1000 concurrent users
+k6 run load-tests/room-feed.js --env BASE_URL=https://staging.zobia.app
+
+# Guild War Final Hour
+k6 run load-tests/guild-war-final-hour.js --env BASE_URL=https://staging.zobia.app
+```
+
+### Security / Penetration Tests
+
+Requires a running server and environment variables (see table above).
+
+```bash
+cd apps/web
+npx jest --testPathPattern="security-tests" --runInBand
+```
+
+Each test file covers a distinct OWASP category. Tests are designed to be non-destructive: they probe for vulnerabilities but do not attempt to exploit them destructively. Run against a **staging** environment, not production.
