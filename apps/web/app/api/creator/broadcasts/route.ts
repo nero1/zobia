@@ -38,6 +38,9 @@ const BROADCAST_COST_COINS = 200;
 /** Free broadcast quota for Verified tier per calendar month. */
 const VERIFIED_FREE_QUOTA = 3;
 
+/** Monthly cap for Rising tier (paid per send, max 3/month — PRD §14 Creator Tiers table). */
+const RISING_MONTHLY_CAP = 3;
+
 /** Tiers that get unlimited free broadcasts. */
 const UNLIMITED_BROADCAST_TIERS = ["elite", "icon"] as const;
 
@@ -161,8 +164,18 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
         } else {
           costCoins = BROADCAST_COST_COINS;
         }
+      } else if (tier === "rising") {
+        // Rising tier: 3/month hard cap (paid per send — PRD §14)
+        const monthlyCount = await countMonthlyBroadcasts(creatorId);
+        if (monthlyCount >= RISING_MONTHLY_CAP) {
+          throw forbidden(
+            `Rising tier creators can send a maximum of ${RISING_MONTHLY_CAP} broadcasts per month. ` +
+              `Upgrade to Verified tier to unlock more.`
+          );
+        }
+        costCoins = BROADCAST_COST_COINS;
       } else {
-        // Rising tier: always pay per send
+        // Any other allowed tier not explicitly handled: pay per send
         costCoins = BROADCAST_COST_COINS;
       }
     }

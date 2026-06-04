@@ -593,6 +593,7 @@ export default function RoomPage() {
   const [replay, setReplay] = useState<DropReplay | null | "loading">("loading");
   const [publishingReplay, setPublishingReplay] = useState(false);
   const [replayTitle, setReplayTitle] = useState("");
+  const [replayFeeCoins, setReplayFeeCoins] = useState(0);
   const [showPublishForm, setShowPublishForm] = useState(false);
   const spectacleTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const seenMessageIdsRef = useRef<Set<string>>(new Set());
@@ -781,7 +782,7 @@ export default function RoomPage() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: replayTitle.trim(), highlights, replay_fee_kobo: 0 }),
+        body: JSON.stringify({ title: replayTitle.trim(), highlights, replay_fee_kobo: replayFeeCoins * 100 }),
       });
       if (!res.ok) throw new Error("Failed to publish replay");
       const data = (await res.json()) as { replay?: DropReplay; data?: DropReplay };
@@ -1012,6 +1013,21 @@ export default function RoomPage() {
                     maxLength={100}
                     className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-xs dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
                   />
+                  {/* Replay fee — PRD §10: "published for a smaller replay fee" */}
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-neutral-500 dark:text-neutral-400 whitespace-nowrap">
+                      Replay fee (coins):
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={replayFeeCoins}
+                      onChange={(e) => setReplayFeeCoins(Math.max(0, parseInt(e.target.value) || 0))}
+                      placeholder="0 = free"
+                      className="w-24 rounded-lg border border-neutral-300 bg-white px-2 py-1.5 text-xs dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                    />
+                  </div>
                   <p className="text-xs text-neutral-400">Last 20 messages will be published as highlights.</p>
                   <div className="flex gap-2">
                     <button
