@@ -113,9 +113,19 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
 // ---------------------------------------------------------------------------
 
 const SubscribeSchema = z.object({
-  /** ID of the subscription plan from subscription_plans table. */
-  planId: z.string().uuid("planId must be a valid UUID"),
-});
+  /**
+   * ID of the subscription plan from subscription_plans table.
+   * If billingCycle is provided instead, the API resolves the correct planId.
+   */
+  planId: z.string().uuid("planId must be a valid UUID").optional(),
+  /** PRD §3: alternative to planId — provide plan + billing cycle and we resolve. */
+  plan: z.enum(["plus", "pro", "max"]).optional(),
+  /** PRD §3: 'monthly' or 'annual' (annual = 10×monthly price, 2 months free). */
+  billingCycle: z.enum(["monthly", "annual"]).optional(),
+}).refine(
+  (d) => d.planId !== undefined || (d.plan !== undefined && d.billingCycle !== undefined),
+  { message: "Provide either planId or both plan and billingCycle" }
+);
 
 /**
  * POST /api/economy/subscriptions
@@ -128,13 +138,23 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     const body = await validateBody(req, SubscribeSchema);
     const userId = auth.user.sub;
 
-    // Load the plan
-    const { rows: planRows } = await db.query<SubscriptionPlanRow>(
-      `SELECT id, plan, name, price_kobo, currency, interval, is_active
-       FROM subscription_plans
-       WHERE id = $1 LIMIT 1`,
-      [body.planId]
-    );
+    // Resolve plan — either by planId or by plan+billingCycle
+    let planQuery: string;
+    let planParams: string[];
+    if (body.planId) {
+      planQuery = `SELECT id, plan, name, price_kobo, currency, interval, is_active
+                   FROM subscription_plans WHERE id = $1 LIMIT 1`;
+      planParams = [body.planId];
+    } else {
+      // PRD §3: annual = 10×monthly price (2 months free)
+      planQuery = `SELECT id, plan, name, price_kobo, currency, interval, is_active
+                   FROM subscription_plans
+                   WHERE plan = $1 AND interval = $2 AND is_active = TRUE
+                   LIMIT 1`;
+      planParams = [body.plan!, body.billingCycle!];
+    }
+
+    const { rows: planRows } = await db.query<SubscriptionPlanRow>(planQuery, planParams);
 
     if (!planRows[0]) {
       throw notFound("Subscription plan not found");

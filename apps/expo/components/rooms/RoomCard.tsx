@@ -21,7 +21,7 @@
  * NO purple. NO gradients.
  */
 
-import React, { memo } from 'react';
+import React, { memo, useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -55,6 +55,8 @@ export interface RoomCardData {
   entryFeeNgn?: number | null;
   isActive: boolean;
   isFeatured?: boolean;
+  /** PRD §10: Drop Rooms close at this timestamp; null = no expiry. */
+  dropEndsAt?: string | null;
 }
 
 export interface RoomCardProps {
@@ -102,6 +104,56 @@ const ROOM_TYPE_CONFIG: Record<
     textColor: colors.neutral[0],
   },
 };
+
+// ---------------------------------------------------------------------------
+// DropRoomTimer — countdown or "Closed" badge for Drop Rooms (PRD §10)
+// ---------------------------------------------------------------------------
+
+/**
+ * Formats remaining seconds into "Xh Ym" or "Xs" string.
+ */
+function formatCountdown(secondsLeft: number): string {
+  if (secondsLeft <= 0) return 'Closed';
+  const h = Math.floor(secondsLeft / 3600);
+  const m = Math.floor((secondsLeft % 3600) / 60);
+  const s = secondsLeft % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+interface DropRoomTimerProps {
+  dropEndsAt: string;
+}
+
+function DropRoomTimer({ dropEndsAt }: DropRoomTimerProps) {
+  const [secondsLeft, setSecondsLeft] = useState(() =>
+    Math.max(0, Math.floor((new Date(dropEndsAt).getTime() - Date.now()) / 1000))
+  );
+
+  useEffect(() => {
+    if (secondsLeft <= 0) return;
+    const interval = setInterval(() => {
+      setSecondsLeft((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [secondsLeft]);
+
+  const isClosed = secondsLeft <= 0;
+
+  return (
+    <View
+      style={[
+        styles.dropTimer,
+        isClosed ? styles.dropTimerClosed : styles.dropTimerActive,
+      ]}
+    >
+      <Text style={[styles.dropTimerText, isClosed && styles.dropTimerTextClosed]}>
+        {isClosed ? '🔒 Closed' : `⏱ ${formatCountdown(secondsLeft)}`}
+      </Text>
+    </View>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -183,7 +235,12 @@ export const RoomCard = memo(function RoomCard({
     subscriptionPriceNgn,
     entryFeeNgn,
     isFeatured,
+    dropEndsAt,
   } = room;
+
+  // PRD §10: Drop Rooms that have passed their end time are permanently closed.
+  const isDropClosed =
+    roomType === 'drop' && dropEndsAt != null && new Date(dropEndsAt) <= new Date();
 
   const priceLabel =
     roomType === 'vip' && subscriptionPriceNgn
@@ -204,11 +261,17 @@ export const RoomCard = memo(function RoomCard({
       style={({ pressed }) => [
         styles.card,
         pressed && styles.pressed,
+        isDropClosed && styles.cardClosed,
         style,
       ]}
-      onPress={() => onPress(room)}
+      onPress={() => !isDropClosed && onPress(room)}
+      disabled={isDropClosed}
       accessibilityRole="button"
-      accessibilityLabel={`Room: ${name}. ${memberLabel}. ${priceLabel ?? ''}`}
+      accessibilityLabel={
+        isDropClosed
+          ? `Drop Room: ${name}. Closed.`
+          : `Room: ${name}. ${memberLabel}. ${priceLabel ?? ''}`
+      }
     >
       {/* Cover / Emoji area */}
       <View style={styles.coverArea}>
@@ -219,6 +282,10 @@ export const RoomCard = memo(function RoomCard({
           </View>
         )}
         <TypeBadge type={roomType} />
+        {/* PRD §10: Drop Room countdown / closed state */}
+        {roomType === 'drop' && dropEndsAt && (
+          <DropRoomTimer dropEndsAt={dropEndsAt} />
+        )}
       </View>
 
       {/* Body */}
@@ -389,5 +456,32 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.brand.blue,
     fontWeight: '600',
+  },
+
+  // Drop Room countdown / closed state (PRD §10)
+  cardClosed: {
+    opacity: 0.55,
+  },
+  dropTimer: {
+    position: 'absolute',
+    bottom: 6,
+    left: 8,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  dropTimerActive: {
+    backgroundColor: 'rgba(220,38,38,0.85)', // red — matches drop badge
+  },
+  dropTimerClosed: {
+    backgroundColor: colors.neutral[600],
+  },
+  dropTimerText: {
+    color: colors.neutral[0],
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  dropTimerTextClosed: {
+    color: colors.neutral[200],
   },
 });
