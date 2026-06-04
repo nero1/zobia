@@ -1039,6 +1039,121 @@ export const GET = async (req: NextRequest) => {
     errors.push(`comebackBonusExpiry: ${String(err)}`);
   }
 
+  // 23. Weekly Guild Quest reset (Mondays only — PRD §13)
+  //     Creates a fresh set of collective challenges for every active guild.
+  //     Previous week's quests are marked inactive so historical data is preserved.
+  try {
+    const today = new Date();
+    const isMonday = today.getUTCDay() === 1;
+
+    if (isMonday) {
+      // Calculate the start (today) and end (next Sunday) of the new quest week
+      const weekStart = today.toISOString().slice(0, 10);
+      const weekEndDate = new Date(today);
+      weekEndDate.setUTCDate(weekEndDate.getUTCDate() + 6);
+      const weekEnd = weekEndDate.toISOString().slice(0, 10);
+
+      // Template quests per PRD §13 — admin can extend these via the DB
+      const GUILD_QUEST_TEMPLATES = [
+        {
+          title: "Send 1,000 messages this week",
+          description: "Collectively send a combined 1,000 messages across all Guild members.",
+          quest_type: "total_messages",
+          target_count: 1000,
+          xp_reward: 500,
+          coin_reward: 200,
+        },
+        {
+          title: "10+ members complete daily quests 3 days in a row",
+          description: "Have at least 10 different members each complete their daily quest deck on 3 consecutive days.",
+          quest_type: "daily_quest_streaks",
+          target_count: 10,
+          xp_reward: 750,
+          coin_reward: 300,
+        },
+        {
+          title: "Gift 5,000 coins to non-Guild members",
+          description: "Collectively gift at least 5,000 coins to users outside your Guild.",
+          quest_type: "external_gifts",
+          target_count: 5000,
+          xp_reward: 600,
+          coin_reward: 250,
+        },
+      ];
+
+      // Get all active guilds
+      const { rows: guilds } = await db.query<{ id: string }>(
+        `SELECT id FROM guilds WHERE deleted_at IS NULL AND is_active = TRUE`
+      );
+
+      let guildQuestsCreated = 0;
+
+      for (const guild of guilds) {
+        // Mark last week's quests as inactive (soft-expire without deleting)
+        await db.query(
+          `UPDATE guild_quests
+           SET completed = CASE WHEN completed THEN completed ELSE false END,
+               updated_at = NOW()
+           WHERE guild_id = $1
+             AND week_end < $2
+             AND completed = false`,
+          [guild.id, weekStart]
+        ).catch(() => {});
+
+        // Create the new week's quests for this guild (skip if already created)
+        for (const template of GUILD_QUEST_TEMPLATES) {
+          await db.query(
+            `INSERT INTO guild_quests
+               (guild_id, title, description, quest_type, target_count,
+                current_progress, xp_reward, coin_reward,
+                week_start, week_end, completed, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $8, $9, false, NOW(), NOW())
+             ON CONFLICT DO NOTHING`,
+            [
+              guild.id,
+              template.title,
+              template.description,
+              template.quest_type,
+              template.target_count,
+              template.xp_reward,
+              template.coin_reward,
+              weekStart,
+              weekEnd,
+            ]
+          ).catch(() => {});
+          guildQuestsCreated++;
+        }
+
+        // Notify guild captain + veterans about new weekly quests
+        await db.query(
+          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+           SELECT gm.user_id,
+                  'guild_quests_reset',
+                  jsonb_build_object('guildId', $1::text, 'weekStart', $2::text),
+                  false,
+                  NOW()
+           FROM guild_members gm
+           WHERE gm.guild_id = $1
+             AND gm.left_at IS NULL
+             AND gm.role IN ('captain', 'veteran')`,
+          [guild.id, weekStart]
+        ).catch(() => {});
+      }
+
+      results.guildQuestReset = {
+        ran: true,
+        guildsProcessed: guilds.length,
+        questsCreated: guildQuestsCreated,
+        weekStart,
+        weekEnd,
+      };
+    } else {
+      results.guildQuestReset = { ran: false, reason: "Not Monday" };
+    }
+  } catch (err) {
+    errors.push(`guildQuestReset: ${String(err)}`);
+  }
+
   return NextResponse.json({
     success: errors.length === 0,
     results,

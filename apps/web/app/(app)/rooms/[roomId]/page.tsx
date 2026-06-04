@@ -248,6 +248,323 @@ function DropNotice({ expiresAt, entryFee, onPay, paying, paid }: {
 }
 
 // ---------------------------------------------------------------------------
+// Types for rich input
+// ---------------------------------------------------------------------------
+
+interface GifResult { id: string; url: string; previewUrl: string; title: string; }
+interface StickerPackRoom { id: string; name: string; coverEmoji: string; stickers: Array<{ id: string; emoji: string; name: string }>; isUnlocked: boolean; }
+
+// ---------------------------------------------------------------------------
+// GIF Picker (Room)
+// ---------------------------------------------------------------------------
+
+function RoomGifPicker({ onSelect, onClose }: { onSelect: (url: string) => void; onClose: () => void }) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<GifResult[]>([]);
+  const [loading, setLoading] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+
+  const search = useCallback(async (q: string) => {
+    if (!q.trim()) { setResults([]); return; }
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/messages/gif?q=${encodeURIComponent(q)}&limit=12`, { credentials: "include" });
+      if (!res.ok) return;
+      const data = (await res.json()) as { gifs?: GifResult[] };
+      setResults(data.gifs ?? []);
+    } catch { /* ignore */ } finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => { void search(query || "trending"); }, 400);
+    return () => clearTimeout(debounceRef.current);
+  }, [query, search]);
+
+  return (
+    <div className="absolute bottom-full left-0 z-20 mb-2 w-80 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
+      <div className="flex items-center justify-between border-b border-neutral-200 px-3 py-2 dark:border-neutral-700">
+        <span className="text-xs font-semibold text-neutral-500">GIFs</span>
+        <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label="Close GIF picker">✕</button>
+      </div>
+      <div className="p-2">
+        <input type="text" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search GIFs…"
+          className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-xs focus:border-blue-500 focus:outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100" autoFocus />
+      </div>
+      <div className="grid max-h-52 grid-cols-3 gap-1 overflow-y-auto p-2">
+        {loading ? (
+          Array.from({ length: 9 }).map((_, i) => (
+            <div key={i} className="aspect-square animate-pulse rounded-lg bg-neutral-200 dark:bg-neutral-700" />
+          ))
+        ) : results.length === 0 ? (
+          <div className="col-span-3 py-6 text-center text-xs text-neutral-400">Type to search GIFs</div>
+        ) : results.map((gif) => (
+          <button key={gif.id} onClick={() => onSelect(gif.url)} className="aspect-square overflow-hidden rounded-lg hover:opacity-80" title={gif.title}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={gif.previewUrl || gif.url} alt={gif.title} className="h-full w-full object-cover" loading="lazy" />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sticker Picker (Room)
+// ---------------------------------------------------------------------------
+
+function RoomStickerPicker({ onSelect, onClose }: { onSelect: (emoji: string) => void; onClose: () => void }) {
+  const [packs, setPacks] = useState<StickerPackRoom[]>([]);
+  const [activePack, setActivePack] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/stickers", { credentials: "include" });
+        if (!res.ok) return;
+        const data = (await res.json()) as { packs?: StickerPackRoom[] };
+        const unlocked = (data.packs ?? []).filter((p) => p.isUnlocked);
+        setPacks(unlocked);
+        if (unlocked.length > 0) setActivePack(unlocked[0].id);
+      } catch { /* ignore */ } finally { setLoading(false); }
+    })();
+  }, []);
+
+  const currentPack = packs.find((p) => p.id === activePack);
+  return (
+    <div className="absolute bottom-full left-10 z-20 mb-2 w-72 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
+      <div className="flex items-center justify-between border-b border-neutral-200 px-3 py-2 dark:border-neutral-700">
+        <span className="text-xs font-semibold text-neutral-500">Stickers</span>
+        <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label="Close">✕</button>
+      </div>
+      {loading ? (
+        <div className="flex h-32 items-center justify-center">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+        </div>
+      ) : packs.length === 0 ? (
+        <div className="p-4 text-center text-xs text-neutral-500">No sticker packs unlocked yet.</div>
+      ) : (
+        <>
+          <div className="flex gap-1 overflow-x-auto border-b border-neutral-200 p-1.5 dark:border-neutral-700">
+            {packs.map((pack) => (
+              <button key={pack.id} onClick={() => setActivePack(pack.id)} title={pack.name}
+                className={`shrink-0 rounded-lg px-2 py-1 text-lg ${activePack === pack.id ? "bg-blue-100 dark:bg-blue-900" : "hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}>
+                {pack.coverEmoji}
+              </button>
+            ))}
+          </div>
+          <div className="grid max-h-44 grid-cols-4 gap-1 overflow-y-auto p-2">
+            {(currentPack?.stickers ?? []).map((sticker) => (
+              <button key={sticker.id} onClick={() => onSelect(sticker.emoji)} title={sticker.name}
+                className="flex aspect-square items-center justify-center rounded-lg text-3xl hover:bg-neutral-100 dark:hover:bg-neutral-800">
+                {sticker.emoji}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Room Powers Panel (PRD §11 — Message Pin, Spotlight, Member Highlight)
+// ---------------------------------------------------------------------------
+
+function RoomPowersPanel({
+  roomId,
+  onClose,
+}: { roomId: string; onClose: () => void }) {
+  const [activating, setActivating] = useState<string | null>(null);
+  const [result, setResult] = useState<string | null>(null);
+
+  const POWERS = [
+    { type: "message_pin",      emoji: "📌", label: "Pin Message",       description: "Pin your last message at the top for 1 hour", coins: 100 },
+    { type: "room_spotlight",   emoji: "🔦", label: "Room Spotlight",    description: "Feature this room in discovery for 6 hours",  coins: 500 },
+    { type: "member_highlight", emoji: "⭐", label: "Member Highlight",  description: "Highlight yourself in the room for 1 hour",    coins: 200 },
+  ];
+
+  async function activate(powerType: string) {
+    setActivating(powerType);
+    setResult(null);
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/powers`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ powerType }),
+      });
+      const d = (await res.json()) as { message?: string };
+      setResult(res.ok ? "✅ Power activated!" : `❌ ${d.message ?? "Failed"}`);
+    } catch { setResult("❌ Network error"); }
+    setActivating(null);
+  }
+
+  return (
+    <div className="absolute bottom-full right-0 z-20 mb-2 w-72 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
+      <div className="flex items-center justify-between border-b border-neutral-200 px-3 py-2 dark:border-neutral-700">
+        <span className="text-xs font-semibold text-neutral-500">⚡ Room Powers</span>
+        <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label="Close">✕</button>
+      </div>
+      {result && (
+        <div className="px-3 py-2 text-xs font-medium text-neutral-700 dark:text-neutral-300">{result}</div>
+      )}
+      <div className="p-2">
+        {POWERS.map((power) => (
+          <button
+            key={power.type}
+            onClick={() => void activate(power.type)}
+            disabled={activating === power.type}
+            className="flex w-full items-start gap-3 rounded-xl p-2.5 text-left hover:bg-neutral-50 disabled:opacity-60 dark:hover:bg-neutral-800"
+          >
+            <span className="text-2xl">{power.emoji}</span>
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{power.label}</p>
+              <p className="text-xs text-neutral-500">{power.description}</p>
+            </div>
+            <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700 dark:bg-amber-900 dark:text-amber-200">
+              🪙 {power.coins}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Room Input Bar (composite — text + GIF + stickers + gift + powers)
+// ---------------------------------------------------------------------------
+
+interface RoomInputBarProps {
+  roomId: string;
+  input: string;
+  setInput: (v: string) => void;
+  sending: boolean;
+  canAccess: boolean;
+  currentUserId: string | null;
+  onSend: (e: React.FormEvent) => void;
+  onMessageSent: (msg: Message) => void;
+}
+
+function RoomInputBar({
+  roomId,
+  input,
+  setInput,
+  sending,
+  canAccess,
+  onSend,
+}: RoomInputBarProps) {
+  const [showGif, setShowGif] = useState(false);
+  const [showSticker, setShowSticker] = useState(false);
+  const [showPowers, setShowPowers] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      const t = e.target as HTMLElement;
+      if (!t.closest("[data-roompicker]")) {
+        setShowGif(false);
+        setShowSticker(false);
+        setShowPowers(false);
+      }
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
+
+  async function sendSpecial(content: string, contentType: "gif" | "sticker") {
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/messages`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content, contentType }),
+      });
+      if (!res.ok) return;
+    } catch { /* ignore */ }
+    setShowGif(false);
+    setShowSticker(false);
+    inputRef.current?.focus();
+  }
+
+  function toggle(panel: "gif" | "sticker" | "powers") {
+    setShowGif(panel === "gif" ? (v) => !v : false);
+    setShowSticker(panel === "sticker" ? (v) => !v : false);
+    setShowPowers(panel === "powers" ? (v) => !v : false);
+  }
+
+  return (
+    <div data-roompicker className="relative border-t border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
+      {showGif && (
+        <RoomGifPicker
+          onSelect={(url) => { void sendSpecial(url, "gif"); }}
+          onClose={() => setShowGif(false)}
+        />
+      )}
+      {showSticker && (
+        <RoomStickerPicker
+          onSelect={(emoji) => { void sendSpecial(emoji, "sticker"); }}
+          onClose={() => setShowSticker(false)}
+        />
+      )}
+      {showPowers && (
+        <RoomPowersPanel roomId={roomId} onClose={() => setShowPowers(false)} />
+      )}
+
+      <form onSubmit={onSend} className="flex items-center gap-1.5 p-3">
+        {/* GIF */}
+        <button type="button" onClick={() => toggle("gif")}
+          className={`flex h-9 w-9 items-center justify-center rounded-lg text-xs font-bold transition-colors ${showGif ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200" : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}
+          aria-label="GIF" title="GIF" disabled={!canAccess}>
+          GIF
+        </button>
+
+        {/* Sticker */}
+        <button type="button" onClick={() => toggle("sticker")}
+          className={`flex h-9 w-9 items-center justify-center rounded-lg text-xl transition-colors ${showSticker ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-200" : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}
+          aria-label="Stickers" title="Stickers" disabled={!canAccess}>
+          😊
+        </button>
+
+        {/* Text input */}
+        <input
+          ref={inputRef}
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="Type a message…"
+          maxLength={500}
+          disabled={!canAccess}
+          className="flex-1 rounded-xl border border-neutral-300 bg-neutral-50 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+        />
+
+        {/* Gift */}
+        <Link href={`/rooms/${roomId}/gift`}
+          className="flex h-9 w-9 items-center justify-center rounded-lg text-xl text-neutral-400 hover:bg-amber-100 hover:text-amber-600 dark:hover:bg-amber-900/30"
+          title="Send a gift" aria-label="Send a gift">
+          🎁
+        </Link>
+
+        {/* Room Powers */}
+        <button type="button" onClick={() => toggle("powers")}
+          className={`flex h-9 w-9 items-center justify-center rounded-lg text-xl transition-colors ${showPowers ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200" : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}
+          aria-label="Room Powers" title="Room Powers" disabled={!canAccess}>
+          ⚡
+        </button>
+
+        {/* Send */}
+        <button type="submit" disabled={!input.trim() || sending || !canAccess}
+          className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+          {sending ? "…" : "Send"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
@@ -596,35 +913,19 @@ export default function RoomPage() {
               )}
             </div>
 
-            {/* Input bar */}
-            <form
-              onSubmit={handleSend}
-              className="flex gap-2 border-t border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900"
-            >
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Type a message…"
-                maxLength={500}
-                disabled={!canAccess}
-                className="flex-1 rounded-xl border border-neutral-300 bg-neutral-50 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
-              />
-              <Link
-                href={`/rooms/${roomId}/gift`}
-                className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 text-lg hover:bg-amber-200 dark:bg-amber-900"
-                title="Send a gift"
-              >
-                🎁
-              </Link>
-              <button
-                type="submit"
-                disabled={!input.trim() || sending}
-                className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                {sending ? "…" : "Send"}
-              </button>
-            </form>
+            {/* Rich input bar — text, GIF, stickers, gifts, Room Powers */}
+            <RoomInputBar
+              roomId={roomId}
+              input={input}
+              setInput={setInput}
+              sending={sending}
+              canAccess={canAccess}
+              currentUserId={currentUserId}
+              onSend={handleSend}
+              onMessageSent={(msg) =>
+                setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]))
+              }
+            />
           </>
         )}
       </div>

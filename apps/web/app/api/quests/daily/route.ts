@@ -53,9 +53,21 @@ interface QuestDeckItem extends QuestTemplate {
 // ---------------------------------------------------------------------------
 
 /**
+ * Returns the quest deck size for a given user plan per PRD §7.
+ * Free=3, Plus=4, Pro=5, Max=6
+ */
+function questDeckSizeForPlan(plan: string | null | undefined): number {
+  switch (plan) {
+    case "max":  return 6;
+    case "pro":  return 5;
+    case "plus": return 4;
+    default:     return 3; // free tier
+  }
+}
+
+/**
  * Get or create today's quest deck assignment for the user.
- * The deck is assigned daily and is the same set for all users on a given day
- * (simplifies caching and fairness).
+ * Deck size is gated by subscription plan per PRD §3/§7.
  *
  * @param userId - Authenticated user's UUID
  * @returns Array of quests with progress
@@ -63,7 +75,14 @@ interface QuestDeckItem extends QuestTemplate {
 async function getDailyQuestDeck(userId: string): Promise<QuestDeckItem[]> {
   const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 
-  // Fetch today's active quest templates
+  // Resolve user's current subscription plan for deck-size gating
+  const { rows: planRows } = await db.query<{ plan: string | null }>(
+    `SELECT plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+    [userId]
+  );
+  const deckLimit = questDeckSizeForPlan(planRows[0]?.plan);
+
+  // Fetch today's active quest templates, limited by plan tier
   const { rows: templates } = await db.query<QuestTemplate>(
     `SELECT id, title, description, action_type, target_count,
             xp_reward, coin_reward, category, icon
@@ -71,8 +90,8 @@ async function getDailyQuestDeck(userId: string): Promise<QuestDeckItem[]> {
      WHERE is_active = true
        AND (valid_date IS NULL OR valid_date = $1)
      ORDER BY category, id
-     LIMIT 10`,
-    [today]
+     LIMIT $2`,
+    [today, deckLimit]
   );
 
   if (templates.length === 0) return [];
