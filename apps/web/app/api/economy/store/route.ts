@@ -26,13 +26,16 @@ interface StoreItemRow {
   id: string;
   name: string;
   description: string | null;
-  item_type: "coin_pack" | "star_pack" | "booster";
+  item_type: "coin_pack" | "star_pack" | "booster" | "cosmetic";
   price_kobo: number | null;
   currency: string | null;
-  coins_cost: number | null; // for booster items paid in coins
+  coins_cost: number | null;
+  stars_cost: number | null;
   coins_granted: number | null;
   stars_granted: number | null;
-  bonus_label: string | null; // e.g. "+20% BONUS"
+  bonus_label: string | null;
+  cosmetic_type: string | null;
+  is_exclusive: boolean;
   is_featured: boolean;
   sort_order: number;
   metadata: Record<string, unknown> | null;
@@ -53,7 +56,8 @@ export const GET = withAuth(async (_req: NextRequest, _ctx) => {
       loadManifest(),
       db.query<StoreItemRow>(
         `SELECT id, name, description, item_type, price_kobo, currency,
-                coins_cost, coins_granted, stars_granted, bonus_label,
+                coins_cost, stars_cost, coins_granted, stars_granted, bonus_label,
+                cosmetic_type, COALESCE(is_exclusive, false) AS is_exclusive,
                 is_featured, sort_order, metadata
          FROM store_items
          WHERE is_active = TRUE
@@ -99,10 +103,25 @@ export const GET = withAuth(async (_req: NextRequest, _ctx) => {
         metadata: r.metadata,
       }));
 
+    const cosmetics = rows
+      .filter((r) => r.item_type === "cosmetic")
+      .map((r) => ({
+        id: r.id,
+        name: r.name,
+        description: r.description,
+        cosmeticType: r.cosmetic_type,
+        starsCost: r.stars_cost,
+        coinsCost: r.coins_cost,
+        isExclusive: r.is_exclusive,
+        isFeatured: r.is_featured,
+        metadata: r.metadata,
+      }));
+
     return NextResponse.json({
       coinPacks,
       starPacks,
       boosters,
+      cosmetics,
       paymentEnabled: manifest.payment.primaryProvider !== "none",
       activeProvider: manifest.payment.primaryProvider,
       currenciesAccepted: manifest.payment.currenciesAccepted,

@@ -334,21 +334,22 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
         { status: 200 }
       );
     } catch (paymentErr) {
-      // If payment initialisation fails, mark the order as failed
+      // Mark the pending order as failed so it can be retried or investigated.
       await db.query(
         `UPDATE merch_orders SET status = 'failed', updated_at = NOW() WHERE id = $1`,
         [pendingOrder.id]
-      );
+      ).catch(() => {});
 
-      // TODO: wire to payments provider
+      // Log for monitoring/alerting and surface a clean error to the client.
       console.error("[merch/purchase] Payment initialisation failed:", paymentErr);
+
       return NextResponse.json(
         {
-          paymentUrl: null,
+          success: false,
+          error: "Payment provider unavailable. Please try again or pay with Coins.",
           orderId: pendingOrder.id,
-          message: "Redirect to payment provider not yet configured",
         },
-        { status: 200 }
+        { status: 503 }
       );
     }
   } catch (err) {
