@@ -227,7 +227,46 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     const platformFeeKobo = requestedGrossKobo - netKobo;
 
     const idempotencyKey = `payout:${userId}:${randomUUID()}`;
-    const requiresManualApproval = requestedGrossKobo >= manualApprovalKobo;
+    let requiresManualApproval = requestedGrossKobo >= manualApprovalKobo;
+
+    // Payout fraud monitoring (PRD §18)
+    // Flag creators whose payout patterns are anomalous:
+    // large gift inflows from newly created accounts (< 7 days old) followed by immediate payout request.
+    const SUSPICIOUS_GIFT_THRESHOLD_COINS = 5000; // 5000+ coins from new accounts
+    const NEW_ACCOUNT_AGE_DAYS = 7;
+
+    const { rows: suspiciousGifts } = await db.query<{ total_coins: string; new_account_count: string }>(
+      `SELECT
+         SUM(g.coin_value)::TEXT AS total_coins,
+         COUNT(DISTINCT g.sender_id)::TEXT AS new_account_count
+       FROM gifts g
+       JOIN users sender ON sender.id = g.sender_id
+       JOIN rooms r ON r.id = g.room_id
+       WHERE r.creator_id = $1
+         AND sender.created_at >= NOW() - INTERVAL '${NEW_ACCOUNT_AGE_DAYS} days'
+         AND g.created_at >= NOW() - INTERVAL '7 days'`,
+      [userId]
+    );
+
+    const totalFromNewAccounts = parseInt(suspiciousGifts[0]?.total_coins ?? '0', 10);
+    const newAccountCount = parseInt(suspiciousGifts[0]?.new_account_count ?? '0', 10);
+
+    if (totalFromNewAccounts >= SUSPICIOUS_GIFT_THRESHOLD_COINS && newAccountCount >= 3) {
+      // Flag this creator for fraud review - log alert and force manual approval
+      await db.query(
+        `INSERT INTO admin_alerts (type, severity, title, body, metadata, created_at)
+         VALUES ('payout_fraud_flag', 'critical', 'Suspicious Payout Pattern Detected',
+           $1, $2::jsonb, NOW())
+         ON CONFLICT DO NOTHING`,
+        [
+          `Creator @${userId} requested a payout of ₦${(requestedGrossKobo / 100).toFixed(2)} after receiving ${totalFromNewAccounts} coins from ${newAccountCount} new accounts (< ${NEW_ACCOUNT_AGE_DAYS} days old) in the past 7 days.`,
+          JSON.stringify({ creatorId: userId, totalFromNewAccounts, newAccountCount, requestedGrossKobo }),
+        ]
+      ).catch(() => {});
+
+      // Force manual approval regardless of amount
+      requiresManualApproval = true;
+    }
 
     // Deduct from available earnings atomically before initiating
     await db.transaction(async (tx) => {
