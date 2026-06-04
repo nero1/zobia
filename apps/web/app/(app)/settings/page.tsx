@@ -9,6 +9,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -404,6 +405,24 @@ export default function SettingsPage() {
             Non-default themes require Pro or Max plan.
           </p>
           <SimpleChatTheme plan={settings?.plan ?? null} initialTheme={settings?.chatTheme ?? "default"} />
+        </div>
+      </Section>
+
+      {/* Subscription & Billing */}
+      <Section title="Subscription &amp; Billing">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+              Current plan: <span className="font-semibold capitalize">{settings?.plan ?? "free"}</span>
+            </p>
+            <p className="text-xs text-neutral-500">Manage your plan, billing interval, and payment details.</p>
+          </div>
+          <Link
+            href="/settings/subscription"
+            className="shrink-0 rounded-xl border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+          >
+            Manage →
+          </Link>
         </div>
       </Section>
 

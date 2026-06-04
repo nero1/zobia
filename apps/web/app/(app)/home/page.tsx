@@ -13,6 +13,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { ActivityBanner } from "@/components/ui/ActivityBanner";
 import { OnlineRing } from "@/components/ui/OnlineRing";
+import { CreatorSpotlight } from "@/components/discovery/CreatorSpotlight";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -370,6 +371,84 @@ function MysteryDropToast({
 }
 
 // ---------------------------------------------------------------------------
+// New Member Quest Banner (PRD §4)
+// ---------------------------------------------------------------------------
+
+interface MemberQuestStep { id: string; title: string; completed: boolean; }
+interface MemberQuestState {
+  steps: MemberQuestStep[];
+  totalXp: number;
+  totalCoins: number;
+  isComplete: boolean;
+  completedAt?: string | null;
+}
+
+function MemberQuestBanner({ quest, onDismiss }: { quest: MemberQuestState; onDismiss: () => void }) {
+  if (quest.isComplete) {
+    return (
+      <div className="flex items-start gap-3 rounded-xl border border-teal-300 bg-teal-50 px-4 py-3 shadow-sm dark:border-teal-700 dark:bg-teal-950/40">
+        <span className="mt-0.5 text-2xl">🎉</span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-bold text-teal-900 dark:text-teal-200">New Member Quest Complete!</p>
+          <p className="mt-0.5 text-xs text-teal-700 dark:text-teal-400">
+            You earned <span className="font-semibold">{quest.totalCoins.toLocaleString()} Coins</span>{" "}
+            and <span className="font-semibold">{quest.totalXp.toLocaleString()} XP</span>. Welcome to Zobia!
+          </p>
+        </div>
+        <button onClick={onDismiss} className="shrink-0 text-teal-500 hover:text-teal-700" aria-label="Dismiss">✕</button>
+      </div>
+    );
+  }
+
+  const completedCount = quest.steps.filter((s) => s.completed).length;
+  const totalCount = quest.steps.length;
+  const progressPct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
+  return (
+    <div className="rounded-xl border border-violet-200 bg-white shadow-sm dark:border-violet-800 dark:bg-neutral-900">
+      <div className="flex items-center justify-between border-b border-violet-100 px-4 py-3 dark:border-violet-900">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">🎯</span>
+          <h2 className="text-sm font-bold text-neutral-900 dark:text-neutral-50">New Member Quest</h2>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-xs font-semibold text-neutral-500 tabular-nums">{completedCount}/{totalCount}</span>
+          <button onClick={onDismiss} className="text-neutral-400 hover:text-neutral-600" aria-label="Dismiss">
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div className="px-4 py-3">
+        <div className="mb-3">
+          <div className="h-2 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
+            <div className="h-full rounded-full bg-violet-500 transition-all duration-500" style={{ width: `${progressPct}%` }} />
+          </div>
+          <p className="mt-1 text-right text-xs text-neutral-400">{progressPct}% complete</p>
+        </div>
+        <div className="space-y-2">
+          {quest.steps.map((step) => (
+            <div key={step.id} className="flex items-center gap-2.5">
+              <div className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${step.completed ? "border-teal-500 bg-teal-500 text-white" : "border-neutral-300 dark:border-neutral-600"}`}>
+                {step.completed && <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+              </div>
+              <span className={`text-sm ${step.completed ? "text-neutral-400 line-through" : "text-neutral-700 dark:text-neutral-300"}`}>{step.title}</span>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 dark:bg-amber-950/30">
+          <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">
+            🏆 Complete all steps to earn <span className="font-bold">{quest.totalCoins.toLocaleString()} Coins</span>{" "}
+            + <span className="font-bold">{quest.totalXp.toLocaleString()} XP</span>!
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Guild Discovery Panel (PRD §4 — shows 24h after signup, user has no guild)
 // ---------------------------------------------------------------------------
 
@@ -473,16 +552,8 @@ export default function HomePage() {
   const [mysteryDrop, setMysteryDrop] = useState<MysteryDropNotification | null>(null);
 
   // PRD §4: New Member Quest progress banner
-  interface MemberQuestStep { id: string; title: string; completed: boolean; }
-  interface MemberQuestState {
-    steps: MemberQuestStep[];
-    totalCoins: number;
-    totalXp: number;
-    isComplete: boolean;
-    completedAt?: string | null;
-  }
   const [memberQuest, setMemberQuest] = useState<MemberQuestState | null>(null);
-  const [memberQuestDismissed, setMemberQuestDismissed] = useState(false);
+  const [questBannerDismissed, setQuestBannerDismissed] = useState(false);
 
   useEffect(() => {
     // Presence / XP activity count
@@ -606,45 +677,8 @@ export default function HomePage() {
         )}
 
         {/* New Member Quest — PRD §4 */}
-        {memberQuest && !memberQuestDismissed && (
-          <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950/40">
-            <div className="mb-3 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-lg">🎯</span>
-                <div>
-                  <p className="text-sm font-bold text-blue-900 dark:text-blue-100">New Member Quest</p>
-                  <p className="text-xs text-blue-700 dark:text-blue-300">
-                    Earn {memberQuest.totalCoins.toLocaleString()} Coins + {memberQuest.totalXp.toLocaleString()} XP
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setMemberQuestDismissed(true)}
-                className="text-blue-400 hover:text-blue-600 dark:text-blue-500"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="flex gap-1.5">
-              {(memberQuest.steps ?? []).map((step, idx) => (
-                <div
-                  key={step.id ?? idx}
-                  className={`flex-1 rounded-full py-1 text-center text-xs font-semibold ${
-                    step.completed
-                      ? "bg-blue-600 text-white"
-                      : "bg-blue-100 text-blue-500 dark:bg-blue-900/50 dark:text-blue-400"
-                  }`}
-                  title={step.title}
-                >
-                  {step.completed ? "✓" : idx + 1}
-                </div>
-              ))}
-            </div>
-            <p className="mt-2 text-xs text-blue-600 dark:text-blue-400">
-              {memberQuest.steps.filter((s) => s.completed).length}/{memberQuest.steps.length} steps complete
-            </p>
-          </div>
+        {memberQuest && !questBannerDismissed && (
+          <MemberQuestBanner quest={memberQuest} onDismiss={() => setQuestBannerDismissed(true)} />
         )}
 
         {/* Leaderboard position */}
@@ -681,6 +715,9 @@ export default function HomePage() {
         ) : discoveryGuilds && discoveryGuilds.length > 0 ? (
           <GuildDiscoveryPanel guilds={discoveryGuilds} />
         ) : null}
+
+        {/* Creator of the Month Spotlight — PRD §25 */}
+        <CreatorSpotlight />
       </div>
     </div>
   );
