@@ -12,6 +12,169 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 
 // ---------------------------------------------------------------------------
+// BusinessTierCard
+// ---------------------------------------------------------------------------
+
+type TierKey = "starter" | "growth" | "enterprise";
+
+const TIERS: { key: TierKey; label: string; price: string }[] = [
+  { key: "starter", label: "Starter", price: "₦5,000/mo" },
+  { key: "growth", label: "Growth", price: "₦15,000/mo" },
+  { key: "enterprise", label: "Enterprise", price: "₦50,000+/mo" },
+];
+
+const TIER_ORDER: Record<TierKey, number> = { starter: 0, growth: 1, enterprise: 2 };
+
+const FEATURES: { label: string; tiers: Record<TierKey, boolean> }[] = [
+  { label: "Verified business badge", tiers: { starter: true, growth: true, enterprise: true } },
+  { label: "Broadcast capability",    tiers: { starter: true, growth: true, enterprise: true } },
+  { label: "Basic analytics",         tiers: { starter: true, growth: true, enterprise: true } },
+  { label: "Quest Marketplace",       tiers: { starter: false, growth: true, enterprise: true } },
+  { label: "Room promotion credits",  tiers: { starter: false, growth: true, enterprise: true } },
+  { label: "Custom Room theming",     tiers: { starter: false, growth: false, enterprise: true } },
+  { label: "API access",              tiers: { starter: false, growth: false, enterprise: true } },
+  { label: "Dedicated account manager", tiers: { starter: false, growth: false, enterprise: true } },
+];
+
+function BusinessTierCard({
+  currentTier,
+  onUpgraded,
+}: {
+  currentTier: string;
+  onUpgraded: (tier: TierKey) => void;
+}) {
+  const [upgrading, setUpgrading] = useState<TierKey | null>(null);
+  const [upgradeError, setUpgradeError] = useState<string | null>(null);
+
+  const current = (currentTier.toLowerCase() as TierKey) in TIER_ORDER
+    ? (currentTier.toLowerCase() as TierKey)
+    : "starter";
+
+  async function handleUpgrade(tier: TierKey) {
+    if (tier === "enterprise") return; // handled via mailto
+    setUpgrading(tier);
+    setUpgradeError(null);
+    try {
+      const res = await fetch("/api/business/tier", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tier }),
+      });
+      if (!res.ok) {
+        const body = (await res.json()) as { error?: { message?: string } };
+        throw new Error(body.error?.message ?? "Upgrade failed");
+      }
+      onUpgraded(tier);
+    } catch (e) {
+      setUpgradeError(e instanceof Error ? e.message : "Upgrade failed");
+    } finally {
+      setUpgrading(null);
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
+      <h2 className="mb-4 text-base font-semibold text-neutral-900 dark:text-neutral-100">
+        Business Tiers
+      </h2>
+
+      {upgradeError && (
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+          {upgradeError}
+        </div>
+      )}
+
+      {/* Tier columns */}
+      <div className="grid grid-cols-3 gap-3">
+        {TIERS.map(({ key, label, price }) => {
+          const isCurrent = key === current;
+          const isUpgradable = TIER_ORDER[key] > TIER_ORDER[current];
+          const isEnterprise = key === "enterprise";
+
+          return (
+            <div
+              key={key}
+              className={`flex flex-col rounded-xl border p-3 ${
+                isCurrent
+                  ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30"
+                  : "border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-800/50"
+              }`}
+            >
+              {/* Header */}
+              <div className="mb-2">
+                <div className="flex items-center justify-between gap-1">
+                  <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100">{label}</p>
+                  {isCurrent && (
+                    <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-semibold text-white">
+                      Current
+                    </span>
+                  )}
+                </div>
+                <p className="mt-0.5 text-xs font-semibold text-neutral-500">{price}</p>
+              </div>
+
+              {/* Feature checklist */}
+              <ul className="mb-3 flex-1 space-y-1.5">
+                {FEATURES.map(({ label: feat, tiers }) => {
+                  const included = tiers[key];
+                  return (
+                    <li key={feat} className="flex items-start gap-1.5 text-xs">
+                      {included ? (
+                        <span className="mt-px font-bold text-teal-600">✓</span>
+                      ) : (
+                        <span className="mt-px font-bold text-neutral-300 dark:text-neutral-600">✗</span>
+                      )}
+                      <span
+                        className={
+                          included
+                            ? "text-neutral-700 dark:text-neutral-300"
+                            : "text-neutral-400 dark:text-neutral-600"
+                        }
+                      >
+                        {feat}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+
+              {/* Action button */}
+              {isCurrent ? (
+                <div className="rounded-xl border border-blue-400 py-2 text-center text-xs font-semibold text-blue-600 dark:text-blue-400">
+                  Active Plan
+                </div>
+              ) : isUpgradable ? (
+                isEnterprise ? (
+                  <a
+                    href="mailto:sales@zobia.app?subject=Enterprise%20Plan%20Enquiry"
+                    className="block rounded-xl bg-neutral-900 py-2 text-center text-xs font-semibold text-white hover:bg-neutral-700 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
+                  >
+                    Contact Us
+                  </a>
+                ) : (
+                  <button
+                    onClick={() => handleUpgrade(key)}
+                    disabled={upgrading === key}
+                    className="rounded-xl bg-blue-600 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                  >
+                    {upgrading === key ? "Upgrading…" : "Upgrade"}
+                  </button>
+                )
+              ) : (
+                <div className="rounded-xl border border-neutral-200 py-2 text-center text-xs font-semibold text-neutral-400 dark:border-neutral-700">
+                  Unavailable
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -191,6 +354,14 @@ export default function BusinessSettingsPage() {
             Edit Business Info
           </button>
         </div>
+      )}
+
+      {/* Tier comparison (if business exists and not editing) */}
+      {business && !editing && (
+        <BusinessTierCard
+          currentTier={business.tier}
+          onUpgraded={(tier) => setBusiness((prev) => prev ? { ...prev, tier } : prev)}
+        />
       )}
 
       {/* Form */}

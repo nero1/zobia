@@ -3,7 +3,11 @@
 /**
  * components/ui/OnlineRing.tsx
  *
- * Wraps an avatar with a colored online-status ring.
+ * Wraps an avatar with a presence indicator ring.
+ * - "online"          → steady bright teal ring + pulsing dot (active now, PRD §2.2)
+ * - "recently_active" → amber ring + soft pulsing dot
+ * - "offline"         → neutral ring, no animation
+ *
  * Fetches presence from GET /api/presence/[userId] on mount.
  */
 
@@ -22,7 +26,7 @@ interface OnlineRingProps {
 }
 
 // ---------------------------------------------------------------------------
-// Ring size config
+// Size config
 // ---------------------------------------------------------------------------
 
 const RING_SIZE: Record<string, string> = {
@@ -49,13 +53,20 @@ const STATUS_DOT: Record<PresenceStatus, string> = {
   offline: "bg-neutral-300 dark:bg-neutral-600",
 };
 
+// Pulse animation: "online" uses fast ping, "recently_active" uses slow ping
+const DOT_ANIMATION: Record<PresenceStatus, string> = {
+  online: "animate-ping-fast",
+  recently_active: "animate-ping-slow",
+  offline: "",
+};
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 /**
  * OnlineRing — wraps children (avatar) with a presence indicator ring.
- * Defaults to 'offline' while loading; quietly fetches presence.
+ * Online status pings steadily; recently active pulses softly; offline is static.
  */
 export function OnlineRing({ userId, size = "md", children }: OnlineRingProps) {
   const [status, setStatus] = useState<PresenceStatus>("offline");
@@ -80,10 +91,16 @@ export function OnlineRing({ userId, size = "md", children }: OnlineRingProps) {
       >
         {children}
       </div>
-      {/* Dot indicator */}
-      <span
-        className={`absolute -bottom-0.5 -right-0.5 rounded-full ring-white dark:ring-neutral-900 ${DOT_SIZE[size]} ${STATUS_DOT[status]}`}
-      />
+
+      {/* Animated dot indicator */}
+      <span className={`absolute -bottom-0.5 -right-0.5 rounded-full ring-white dark:ring-neutral-900 ${DOT_SIZE[size]} ${STATUS_DOT[status]}`}>
+        {/* Ping animation layer for online/recently_active */}
+        {status !== "offline" && (
+          <span
+            className={`absolute inset-0 rounded-full opacity-75 ${STATUS_DOT[status]} ${DOT_ANIMATION[status]}`}
+          />
+        )}
+      </span>
     </div>
   );
 }

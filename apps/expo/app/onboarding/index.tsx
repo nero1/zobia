@@ -89,9 +89,22 @@ function validateUsername(value: string): string | undefined {
   return undefined;
 }
 
+const MINIMUM_AGE = 18;
+
+function calculateAge(dob: string): number {
+  const birth = new Date(dob);
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+  return age;
+}
+
 function validateDateOfBirth(value: string): string | undefined {
   if (!value.trim()) return 'Date of birth is required';
   if (!DOB_RE.test(value.trim())) return 'Please use YYYY-MM-DD format';
+  const age = calculateAge(value.trim());
+  if (age < MINIMUM_AGE) return `You must be at least ${MINIMUM_AGE} years old to join`;
   return undefined;
 }
 

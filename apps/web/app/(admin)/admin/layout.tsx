@@ -40,6 +40,7 @@ const adminNavItems = [
   { href: "/admin/leaderboard-banners", label: "Leaderboard Banners", icon: "🏆" },
   { href: "/admin/footer-scripts", label: "Footer Scripts", icon: "📄" },
   { href: "/admin/events", label: "Events", icon: "📅" },
+  { href: "/admin/flash-xp", label: "Flash XP", icon: "⚡" },
   { href: "/admin/kyc", label: "KYC", icon: "🪪" },
   { href: "/admin/actions-log", label: "Actions Log", icon: "📋" },
 ] as const;
