@@ -6,10 +6,11 @@ import { colors } from '@/lib/theme/colors';
 /**
  * Onboarding stack layout.
  *
- * Three steps:
- *   1. index       — username, avatar emoji, city
- *   2. vibe-quiz   — 4-question vibe quiz
- *   3. welcome-drop — 500 XP celebration
+ * Four steps:
+ *   1. index         — username, avatar emoji, city
+ *   2. vibe-quiz     — 4-question vibe quiz
+ *   3. welcome-drop  — 500 XP celebration
+ *   4. first-contact — invite contacts, first room, accept New Member Quest
  *
  * No header is shown; each screen manages its own back affordance if needed.
  */
@@ -30,6 +31,7 @@ export default function OnboardingLayout() {
       <Stack.Screen name="index" />
       <Stack.Screen name="vibe-quiz" />
       <Stack.Screen name="welcome-drop" />
+      <Stack.Screen name="first-contact" />
     </Stack>
   );
 }
