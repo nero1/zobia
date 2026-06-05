@@ -20,6 +20,7 @@ import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, badRequest, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { hasTrackUnlock } from "@/lib/xp/trackMilestones";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -85,9 +86,10 @@ export const POST = withAuth(
       if (!creator?.is_creator) {
         throw forbidden("Creator account required");
       }
-      if (!creator.creator_tier || !ELIGIBLE_TIERS.has(creator.creator_tier)) {
+      const hasL20Unlock = await hasTrackUnlock(userId, "creator_verified_badge_quest_marketplace", db);
+      if (!creator.creator_tier || (!ELIGIBLE_TIERS.has(creator.creator_tier) && !hasL20Unlock)) {
         throw forbidden(
-          "Verified tier or above is required to apply for sponsored quests"
+          "Verified tier or Creator Track Level 20 is required to apply for sponsored quests"
         );
       }
 

@@ -22,6 +22,7 @@ import { verifyWebhookSignature } from "@/lib/payments/paystack";
 import { db } from "@/lib/db";
 import { creditCoins } from "@/lib/economy/coins";
 import { creditStars } from "@/lib/economy/stars";
+import { getCoinPurchaseBonus } from "@/lib/xp/trackMilestones";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -169,13 +170,20 @@ export const POST = async (req: NextRequest) => {
           );
         }
       } else if (metadata.coinsGranted && metadata.coinsGranted > 0) {
+        // Apply Generosity L40 5% coin purchase bonus (PRD §7)
+        const bonusPct = await getCoinPurchaseBonus(userId, db);
+        const bonusCoins = bonusPct > 0 ? Math.floor(metadata.coinsGranted * bonusPct / 100) : 0;
+        const totalCoins = metadata.coinsGranted + bonusCoins;
+
         await creditCoins(
           userId,
-          metadata.coinsGranted,
+          totalCoins,
           "purchase",
           referenceId,
-          `Paystack purchase: ${metadata.packName ?? "Coin Pack"}`,
-          undefined,
+          bonusCoins > 0
+            ? `Paystack purchase: ${metadata.packName ?? "Coin Pack"} (+${bonusCoins} Philanthropist bonus)`
+            : `Paystack purchase: ${metadata.packName ?? "Coin Pack"}`,
+          bonusCoins > 0 ? { bonusPct, bonusCoins } : undefined,
           tx
         );
       }

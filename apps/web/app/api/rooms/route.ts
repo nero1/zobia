@@ -28,7 +28,7 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { loadManifest } from "@/lib/manifest";
 import { meetsMinimumTrust } from "@/lib/trust/trustScore";
 import { sendPushNotificationBatch } from "@/lib/notifications/push";
-import { getTrackXPThreshold } from "@/lib/xp/engine";
+import { getTrackXPThreshold, getTrackLevelForXP } from "@/lib/xp/engine";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -358,8 +358,10 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     const { rows: userRows } = await db.query<{
       creator_role: boolean;
       creator_tier: string | null;
+      xp_creator: number;
     }>(
-      `SELECT creator_role, creator_tier FROM users WHERE id = $1 AND deleted_at IS NULL`,
+      `SELECT creator_role, creator_tier, COALESCE(xp_creator, 0) AS xp_creator
+       FROM users WHERE id = $1 AND deleted_at IS NULL`,
       [auth.user.sub]
     );
 
@@ -376,6 +378,18 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
         "A creator account is required to create rooms. Reach Rising tier or apply for creator status."
       );
     }
+
+    // Creator Track L5/L20 room capacity gates (PRD §7)
+    const creatorLevel = getTrackLevelForXP("creator", user.xp_creator).level;
+    // L5 (Room Opener): non-free rooms can hold up to 100 members
+    // L20+ (Verified Creator+): unlimited capacity
+    // Below L5: restricted to 50 members for non-free_open rooms
+    const MAX_MEMBERS_BY_CREATOR_LEVEL: (type: string) => number | null = (type) => {
+      if (type === "free_open") return FREE_OPEN_MAX_MEMBERS; // always 10,000
+      if (creatorLevel >= 20) return null;   // unlimited for Verified Creator+
+      if (creatorLevel >= 5)  return 100;    // Room Opener
+      return 50;                             // beginner cap
+    };
 
     // Validate type-specific pricing
     const manifest = await loadManifest();
@@ -453,9 +467,8 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
         break;
     }
 
-    // Compute max_members
-    const maxMembers =
-      body.type === "free_open" ? FREE_OPEN_MAX_MEMBERS : null;
+    // Compute max_members (respects Creator Track L5/L20 gates — PRD §7)
+    const maxMembers = MAX_MEMBERS_BY_CREATOR_LEVEL(body.type);
 
     // Compute drop_ends_at
     let dropEndsAt: string | null = null;

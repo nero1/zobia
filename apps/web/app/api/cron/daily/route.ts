@@ -1400,6 +1400,75 @@ export const GET = async (req: NextRequest) => {
     errors.push(`messageHistoryCleanup: ${String(err)}`);
   }
 
+  // 25. Ad revenue share auto-enrolment for Free Open Rooms with 500+ MAU (PRD §10)
+  //     On the 1st of each month: snapshot MAU for all active free_open rooms,
+  //     then auto-enrol any room whose last-month MAU count reaches 500+.
+  try {
+    const today = new Date();
+    if (today.getUTCDate() === 1) {
+      // Last month's window
+      const lastMonthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 1));
+      const lastMonthEnd   = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(),     1));
+      const monthKey       = lastMonthStart.toISOString().slice(0, 10);
+
+      // Count distinct active members (message senders) per free_open room last month
+      const { rows: mauRows } = await db.query<{ room_id: string; mau_count: string }>(
+        `SELECT rm.room_id, COUNT(DISTINCT rm.user_id)::TEXT AS mau_count
+         FROM room_members rm
+         JOIN rooms r ON r.id = rm.room_id
+         WHERE r.room_type = 'free_open'
+           AND r.is_active = TRUE
+           AND rm.joined_at < $2
+           AND (rm.left_at IS NULL OR rm.left_at >= $1)
+         GROUP BY rm.room_id`,
+        [lastMonthStart.toISOString(), lastMonthEnd.toISOString()]
+      ).catch(() => ({ rows: [] as Array<{ room_id: string; mau_count: string }> }));
+
+      let snapshotted = 0;
+      let enrolled = 0;
+
+      for (const row of mauRows) {
+        const mau = parseInt(row.mau_count, 10);
+
+        // Upsert MAU snapshot
+        await db.query(
+          `INSERT INTO room_monthly_active_users (room_id, month, mau_count)
+           VALUES ($1, $2::date, $3)
+           ON CONFLICT (room_id, month) DO UPDATE SET mau_count = $3`,
+          [row.room_id, monthKey, mau]
+        ).catch(() => {});
+        snapshotted++;
+
+        // Auto-enrol in ad revenue share if MAU >= 500
+        if (mau >= 500) {
+          const { rowCount } = await db.query(
+            `UPDATE rooms SET is_ad_enrolled = TRUE, updated_at = NOW()
+             WHERE id = $1 AND is_ad_enrolled = FALSE`,
+            [row.room_id]
+          ).catch(() => ({ rowCount: 0 }));
+          if ((rowCount ?? 0) > 0) {
+            // Notify the creator
+            await db.query(
+              `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+               SELECT creator_id, 'ad_revenue_enrolled',
+                      jsonb_build_object('roomId', $1::text, 'mauCount', $2),
+                      false, NOW()
+               FROM rooms WHERE id = $1`,
+              [row.room_id, mau]
+            ).catch(() => {});
+            enrolled++;
+          }
+        }
+      }
+
+      results.adRevenueEnrolment = { snapshotted, enrolled, month: monthKey };
+    } else {
+      results.adRevenueEnrolment = { ran: false, reason: 'Not the 1st of the month' };
+    }
+  } catch (err) {
+    errors.push(`adRevenueEnrolment: ${String(err)}`);
+  }
+
   // 26. Annual cultural event recurrence (PRD §25)
   //     For each recurring annual event whose current year's instance has ended,
   //     clone it into next year if no future instance already exists.

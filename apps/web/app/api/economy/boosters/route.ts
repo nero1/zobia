@@ -47,6 +47,19 @@ const BOOSTER_CONFIG = {
     durationHours: 24 * 30, // expires after 30 days if war hasn't occurred
     description: "Double personal War Points for next guild war",
   },
+  // Premium Send animation (PRD §11)
+  premium_send: {
+    cost: 50,
+    multiplier: 0,
+    durationHours: 24 * 365, // one-shot; expires after use or 1 year
+    description: "Premium gold-shimmer animation on your next message",
+  },
+  premium_send_7day: {
+    cost: 250,
+    multiplier: 0,
+    durationHours: 24 * 7, // 7-day subscription pass
+    description: "Premium animations on all messages for 7 days",
+  },
 } as const;
 
 type BoosterType = keyof typeof BOOSTER_CONFIG;
@@ -56,12 +69,15 @@ type BoosterType = keyof typeof BOOSTER_CONFIG;
 // ---------------------------------------------------------------------------
 
 const purchaseBoosterSchema = z.object({
-  boosterType: z.enum(["xp_booster", "quest_accelerator", "guild_war_boost"], {
-    errorMap: () => ({
-      message:
-        "boosterType must be one of: xp_booster, quest_accelerator, guild_war_boost",
-    }),
-  }),
+  boosterType: z.enum(
+    ["xp_booster", "quest_accelerator", "guild_war_boost", "premium_send", "premium_send_7day"],
+    {
+      errorMap: () => ({
+        message:
+          "boosterType must be one of: xp_booster, quest_accelerator, guild_war_boost, premium_send, premium_send_7day",
+      }),
+    }
+  ),
 });
 
 // ---------------------------------------------------------------------------
@@ -100,19 +116,22 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       );
     }
 
-    // Check for an already-active booster of the same type
-    const { rows: existingRows } = await db.query<{ id: string }>(
-      `SELECT id FROM user_xp_boosters
-       WHERE user_id = $1 AND booster_type = $2 AND is_active = TRUE AND expires_at > NOW()
-       LIMIT 1`,
-      [userId, boosterType]
-    );
-
-    if (existingRows.length > 0) {
-      throw conflict(
-        `You already have an active ${boosterType} booster. Wait for it to expire before purchasing another.`,
-        "BOOSTER_ALREADY_ACTIVE"
+    // premium_send (one-shot) can stack; all other boosters block duplicates
+    const blocksDuplicates = boosterType !== "premium_send";
+    if (blocksDuplicates) {
+      const { rows: existingRows } = await db.query<{ id: string }>(
+        `SELECT id FROM user_xp_boosters
+         WHERE user_id = $1 AND booster_type = $2 AND is_active = TRUE AND expires_at > NOW()
+         LIMIT 1`,
+        [userId, boosterType]
       );
+
+      if (existingRows.length > 0) {
+        throw conflict(
+          `You already have an active ${boosterType} booster. Wait for it to expire before purchasing another.`,
+          "BOOSTER_ALREADY_ACTIVE"
+        );
+      }
     }
 
     // Compute expiry

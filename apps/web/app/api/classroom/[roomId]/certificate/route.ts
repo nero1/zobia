@@ -7,7 +7,7 @@
  *
  * Requirements:
  *  - Caller must be the room creator.
- *  - Creator must have Knowledge Track Level 25+ (PRD constraint).
+ *  - Creator must have Knowledge Track Level 50+ (PRD §7 — Knowledge L50 "The Scholar").
  *  - Target user must have an enrolment record for this classroom.
  *  - Certificate is idempotent: if one already exists, returns it.
  *
@@ -35,8 +35,8 @@ import { getTrackLevelForXP } from "@/lib/xp/engine";
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Creator must be at this Knowledge Track level to issue certificates. */
-const MIN_KNOWLEDGE_LEVEL = 25;
+/** Creator must be at this Knowledge Track level to issue certificates (PRD §7 — Knowledge L50). */
+const MIN_KNOWLEDGE_LEVEL = 50;
 
 /** XP awarded to the certificate recipient. */
 const CERTIFICATE_RECIPIENT_XP = 100;

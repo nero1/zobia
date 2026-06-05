@@ -182,7 +182,83 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       isFollowing = followRes.rows.length > 0;
     }
 
-    // 5. Past seasons (up to 12 most recent)
+    // 5. Creator card — main room + subscriber count (PRD §15)
+    let creatorRoom: { id: string; name: string; coverEmoji: string } | null = null;
+    let subscriberCount: number | null = null;
+    let totalEarningsKobo: number | null = null;
+
+    if (user.is_creator) {
+      const [roomRes, earningsRes] = await Promise.all([
+        db.query<{ id: string; name: string; cover_emoji: string }>(
+          `SELECT id, name, cover_emoji FROM rooms
+           WHERE creator_id = $1 AND is_active = TRUE
+           ORDER BY member_count DESC LIMIT 1`,
+          [userId]
+        ).catch(() => ({ rows: [] as Array<{ id: string; name: string; cover_emoji: string }> })),
+        db.query<{ subscriber_count: string; total_earnings_kobo: string }>(
+          `SELECT
+             COUNT(DISTINCT rm.user_id)::TEXT AS subscriber_count,
+             COALESCE(SUM(ce.gross_amount_kobo), 0)::TEXT AS total_earnings_kobo
+           FROM rooms r
+           LEFT JOIN room_members rm ON rm.room_id = r.id
+           LEFT JOIN creator_earnings ce ON ce.creator_id = $1
+           WHERE r.creator_id = $1 AND r.is_active = TRUE`,
+          [userId]
+        ).catch(() => ({ rows: [] as Array<{ subscriber_count: string; total_earnings_kobo: string }> })),
+      ]);
+
+      creatorRoom = roomRes.rows[0]
+        ? { id: roomRes.rows[0].id, name: roomRes.rows[0].name, coverEmoji: roomRes.rows[0].cover_emoji }
+        : null;
+      subscriberCount = earningsRes.rows[0] ? parseInt(earningsRes.rows[0].subscriber_count, 10) : 0;
+      // Only expose total earnings to the profile owner (privacy gate)
+      totalEarningsKobo = isOwnProfile && earningsRes.rows[0]
+        ? parseInt(earningsRes.rows[0].total_earnings_kobo, 10)
+        : null;
+    }
+
+    // 5b. Connection badge — check if viewer has an active DM connection badge with this user (PRD §5/§15)
+    let connectionBadge: string | null = null;
+    if (!isOwnProfile) {
+      try {
+        const { rows: badgeRows } = await db.query<{ streak_days: number; tier: string }>(
+          `SELECT conversation_score AS streak_days,
+                  CASE
+                    WHEN conversation_score >= 30 THEN 'Platinum Bond'
+                    WHEN conversation_score >= 14 THEN 'Gold Connection'
+                    WHEN conversation_score >= 7  THEN 'Connected'
+                    ELSE NULL
+                  END AS tier
+           FROM dm_conversations
+           WHERE (user_id_1 = LEAST($1::text,$2::text) AND user_id_2 = GREATEST($1::text,$2::text))
+             AND conversation_score >= 7
+           LIMIT 1`,
+          [callerId, userId]
+        );
+        connectionBadge = badgeRows[0]?.tier ?? null;
+      } catch {
+        // Non-fatal — dm_conversations may not have conversation_score yet
+      }
+    }
+
+    // 5c. Public Achievements Wall — top lifetime milestones (PRD §15)
+    const { rows: achievementRows } = await db.query<{
+      badge_key: string;
+      badge_type: string;
+      granted_at: string;
+      metadata: Record<string, unknown> | null;
+    }>(
+      `SELECT badge_key, badge_type, granted_at, metadata
+       FROM user_badges
+       WHERE user_id = $1
+       ORDER BY granted_at ASC
+       LIMIT 12`,
+      [userId]
+    ).catch(() => ({
+      rows: [] as Array<{ badge_key: string; badge_type: string; granted_at: string; metadata: Record<string, unknown> | null }>,
+    }));
+
+    // 6. Past seasons (up to 12 most recent)
     const { rows: seasonRows } = await db.query<{
       id: string;
       name: string;
@@ -201,10 +277,10 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       rows: [] as Array<{ id: string; name: string; theme_emoji: string | null; ended_at: string | null; final_rank: number | null }>,
     }));
 
-    // 6. Compose rank info
+    // 7. Compose rank info
     const rankInfo = getRankForXP(user.xp_total);
 
-    // 7. Build response
+    // 8. Build response
     const profile = {
       userId: user.id,
       displayName: user.display_name ?? user.username ?? "Zobia User",
@@ -231,6 +307,19 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       isCreator: user.is_creator,
       creatorBio,
       creatorCategory,
+      // Creator card (PRD §15): room link, subscriber count, optional earnings
+      creatorRoom,
+      subscriberCount,
+      totalEarningsKobo,
+      // Connection badge visible on profile (PRD §5/§15)
+      connectionBadge,
+      // Public Achievements Wall (PRD §15)
+      achievements: achievementRows.map((a) => ({
+        key: a.badge_key,
+        type: a.badge_type,
+        grantedAt: a.granted_at,
+        label: (a.metadata as Record<string, string> | null)?.title ?? a.badge_key.replace(/_/g, " "),
+      })),
       isFriend,
       isFollowing,
       isOwnProfile,
