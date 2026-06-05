@@ -1856,6 +1856,98 @@ export const GET = async (req: NextRequest) => {
     errors.push(`nemesisNotifications: ${String(err)}`);
   }
 
+  // 32b. Alliance National Alliance Wars weekly resolution (Sundays — PRD §13)
+  //      Tally each guild alliance's combined XP earned this week, declare winner,
+  //      distribute victory XP to all members of the winning alliance.
+  try {
+    const dayForAlliance = new Date().getUTCDay();
+    if (dayForAlliance === 0) {
+      const ALLIANCE_WAR_VICTORY_XP = 300;
+
+      // Find all active alliance wars
+      const { rows: activeWars } = await db.query<{
+        id: string;
+        alliance_1_id: string;
+        alliance_2_id: string;
+        started_at: string;
+      }>(
+        `SELECT id, alliance_1_id, alliance_2_id, started_at
+         FROM alliance_wars
+         WHERE status = 'active'
+           AND started_at <= NOW() - INTERVAL '7 days'`
+      );
+
+      let warsResolved = 0;
+      for (const war of activeWars) {
+        // Sum XP earned this week by all members of each alliance
+        const { rows: scores } = await db.query<{
+          alliance_id: string; total_xp: string;
+        }>(
+          `SELECT gam.alliance_id, SUM(xl.amount)::TEXT AS total_xp
+           FROM xp_ledger xl
+           JOIN guild_members gm ON gm.user_id = xl.user_id
+           JOIN guild_alliance_members gam ON gam.guild_id = gm.guild_id
+           WHERE gam.alliance_id IN ($1, $2)
+             AND xl.created_at >= $3
+             AND gm.left_at IS NULL
+           GROUP BY gam.alliance_id`,
+          [war.alliance_1_id, war.alliance_2_id, war.started_at]
+        );
+
+        const score1 = parseInt(scores.find(s => s.alliance_id === war.alliance_1_id)?.total_xp ?? "0");
+        const score2 = parseInt(scores.find(s => s.alliance_id === war.alliance_2_id)?.total_xp ?? "0");
+        const winnerId = score1 >= score2 ? war.alliance_1_id : war.alliance_2_id;
+        const loserId  = score1 >= score2 ? war.alliance_2_id : war.alliance_1_id;
+
+        await db.query(
+          `UPDATE alliance_wars
+           SET status = 'completed', winner_alliance_id = $1,
+               alliance_1_xp = $2, alliance_2_xp = $3, ended_at = NOW()
+           WHERE id = $4`,
+          [winnerId, score1, score2, war.id]
+        ).catch(() => {});
+
+        // Award victory XP to all members of winning alliance
+        await db.query(
+          `UPDATE users SET xp_total = xp_total + $1, updated_at = NOW()
+           WHERE id IN (
+             SELECT DISTINCT gm.user_id
+             FROM guild_members gm
+             JOIN guild_alliance_members gam ON gam.guild_id = gm.guild_id
+             WHERE gam.alliance_id = $2 AND gm.left_at IS NULL
+           )`,
+          [ALLIANCE_WAR_VICTORY_XP, winnerId]
+        ).catch(() => {});
+
+        // Notify losing alliance members
+        await db.query(
+          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+           SELECT DISTINCT gm.user_id,
+                  'alliance_war_result',
+                  jsonb_build_object('warId', $1::text, 'won', gam.alliance_id = $2,
+                                     'winnerAllianceId', $2::text),
+                  false, NOW()
+           FROM guild_members gm
+           JOIN guild_alliance_members gam ON gam.guild_id = gm.guild_id
+           WHERE gam.alliance_id IN ($2, $3) AND gm.left_at IS NULL`,
+          [war.id, winnerId, loserId]
+        ).catch(() => {});
+
+        // Create next week's war automatically
+        await db.query(
+          `INSERT INTO alliance_wars (alliance_1_id, alliance_2_id, status, started_at)
+           VALUES ($1, $2, 'active', NOW())`,
+          [war.alliance_1_id, war.alliance_2_id]
+        ).catch(() => {});
+
+        warsResolved++;
+      }
+      results.allianceWarsResolved = { resolved: warsResolved };
+    }
+  } catch (err) {
+    errors.push(`allianceWarsResolved: ${String(err)}`);
+  }
+
   // 32. Weekly automated payouts (Fridays) — auto-initiate bank payouts (PRD §12)
   try {
     const dayForPayouts = new Date().getUTCDay();

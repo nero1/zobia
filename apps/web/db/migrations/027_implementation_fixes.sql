@@ -106,3 +106,40 @@ CREATE TABLE IF NOT EXISTS admin_roles (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (user_id, role)
 );
+
+-- ---------------------------------------------------------------------------
+-- 10. moderation_ai_escalations — store layer-3 AI analysis results
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS moderation_ai_escalations (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  report_id  UUID NOT NULL,
+  admin_id   UUID NOT NULL REFERENCES users(id),
+  provider   TEXT NOT NULL,
+  verdict    TEXT NOT NULL CHECK (verdict IN ('violation', 'borderline', 'no_violation')),
+  confidence NUMERIC(4,3) NOT NULL,
+  reasoning  TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_mod_ai_escalations_report
+  ON moderation_ai_escalations(report_id);
+
+-- ---------------------------------------------------------------------------
+-- 11. alliance_wars — weekly National Alliance War tracking
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS alliance_wars (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  alliance_1_id      UUID NOT NULL,
+  alliance_2_id      UUID NOT NULL,
+  status             TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'completed')),
+  winner_alliance_id UUID,
+  alliance_1_xp      BIGINT NOT NULL DEFAULT 0,
+  alliance_2_xp      BIGINT NOT NULL DEFAULT 0,
+  started_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ended_at           TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_alliance_wars_active
+  ON alliance_wars(status) WHERE status = 'active';
