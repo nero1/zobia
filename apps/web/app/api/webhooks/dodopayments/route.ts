@@ -47,6 +47,10 @@ interface DodoWebhookEvent {
       planName?: string;
       planId?: string;
       interval?: string;
+      /** Business account tier upgrade fields (PRD §17) */
+      businessAccountId?: string;
+      newTier?: string;
+      reference?: string;
     };
     created_at?: string;
   };
@@ -172,6 +176,21 @@ export const POST = async (req: NextRequest) => {
           `DodoPayments purchase: ${metadata.packName ?? "Coin Pack"}`,
           undefined,
           tx
+        );
+      }
+
+      // Business account tier upgrade (PRD §17)
+      if (itemType === "business_upgrade" && metadata.businessAccountId && metadata.newTier) {
+        await tx.query(
+          `UPDATE business_accounts
+           SET tier = $1,
+               pending_tier = NULL,
+               pending_payment_ref = NULL,
+               tier_updated_at = NOW(),
+               updated_at = NOW()
+           WHERE id = $2
+             AND pending_payment_ref = $3`,
+          [metadata.newTier, metadata.businessAccountId, metadata.reference ?? paymentId]
         );
       }
 

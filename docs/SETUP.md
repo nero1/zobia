@@ -113,6 +113,7 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `CRON_SECRET` | Yes | Shared secret for CRON endpoint authentication | `openssl rand -hex 32` |
 | `NEXT_PUBLIC_APP_URL` | Yes | Full public URL of the app (e.g. `https://zobia.social`) | Your domain |
 | `NEXT_PUBLIC_API_URL` | Yes | Full public API URL (e.g. `https://zobia.social/api`) | Your domain |
+| `NEXT_PUBLIC_PWA_WEB_ENABLED` | No | Set to `"false"` to disable PWA/service-worker generation at build time. At runtime the admin can also toggle via x_manifest `pwa_web_enabled`. Default: `"true"` | `"true"` or `"false"` |
 | `SECURITY_TEST_BASE_URL` | Testing only | Base URL for security/penetration tests (e.g. `http://localhost:3000`) | Local dev server |
 | `SECURITY_TEST_USER_TOKEN` | Testing only | Valid JWT for a regular (non-admin) test user | Login as test user and copy token |
 | `SECURITY_TEST_ADMIN_TOKEN` | Testing only | Valid JWT for an admin test user | Login as admin and copy token |
@@ -132,12 +133,15 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 5. Under **Connection string**, copy:
    - **URI** (with `?pgbouncer=true` appended) → this is your `DATABASE_URL`
    - **Direct connection** URI → this is your `DIRECT_URL`
-6. Run migrations:
+6. Run all migrations in order:
    ```bash
-   psql "$DIRECT_URL" < apps/web/db/migrations/001_initial_schema.sql
-   psql "$DIRECT_URL" < apps/web/db/migrations/002_rls_policies.sql
+   for f in apps/web/db/migrations/*.sql; do
+     echo "Applying $f..."
+     psql "$DIRECT_URL" < "$f"
+   done
    ```
-7. Optional seed data is in `apps/web/db/seed.sql`.
+   Migrations are numbered 001–023. Always apply them in order. Each migration is idempotent (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`).
+7. Optional seed data: `psql "$DIRECT_URL" < apps/web/db/seed.sql`
 
 ### Option B: Railway PostgreSQL
 

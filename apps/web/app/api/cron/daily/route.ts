@@ -197,6 +197,59 @@ export const GET = async (req: NextRequest) => {
     errors.push(`nemesisRefresh: ${String(err)}`);
   }
 
+  // 5b. Weekly Season Leaderboard Snapshot (Sundays only — PRD §25)
+  //     "Season Leaderboard snapshot published (every Sunday)."
+  //     Materialises the current season's top-200 standings into
+  //     leaderboard_rank_snapshots with scope='season_weekly'.
+  try {
+    const dayOfWeekForSnapshot = new Date().getUTCDay(); // 0 = Sunday
+    if (dayOfWeekForSnapshot === 0) {
+      // Find the currently active season
+      const { rows: activeSeasons } = await db.query<{ id: string; name: string }>(
+        `SELECT id, name FROM seasons WHERE is_active = TRUE LIMIT 1`
+      );
+
+      if (activeSeasons.length > 0) {
+        const season = activeSeasons[0];
+
+        // Delete last week's snapshot for this season
+        await db.query(
+          `DELETE FROM leaderboard_rank_snapshots
+           WHERE scope = 'season_weekly' AND season_id = $1`,
+          [season.id]
+        );
+
+        // Insert fresh snapshot of top-200 season leaderboard
+        await db.query(
+          `INSERT INTO leaderboard_rank_snapshots
+             (user_id, scope, season_id, rank, xp_total, snapshotted_at)
+           SELECT
+             u.id,
+             'season_weekly',
+             $1,
+             ROW_NUMBER() OVER (ORDER BY sl.season_xp DESC) AS rank,
+             sl.season_xp,
+             NOW()
+           FROM season_leaderboard_entries sl
+           JOIN users u ON u.id = sl.user_id
+           WHERE sl.season_id = $1
+             AND u.deleted_at IS NULL
+           ORDER BY sl.season_xp DESC
+           LIMIT 200`,
+          [season.id]
+        );
+
+        results.weeklySeasonSnapshot = { seasonId: season.id, seasonName: season.name, snapshotted: true };
+      } else {
+        results.weeklySeasonSnapshot = { skipped: true, reason: "No active season" };
+      }
+    } else {
+      results.weeklySeasonSnapshot = { skipped: true, reason: "Not Sunday" };
+    }
+  } catch (err) {
+    errors.push(`weeklySeasonSnapshot: ${String(err)}`);
+  }
+
   // 6. Check season transitions
   try {
     const seasonTransitions: { ended?: string; upcoming?: string } = {};

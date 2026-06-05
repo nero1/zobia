@@ -1,9 +1,17 @@
 /** @type {import('next').NextConfig} */
+// PWA per-platform toggle (PRD §3, §20, §22):
+// Admin controls web/Android/iOS PWA independently from the admin panel
+// via x_manifest keys pwa_web_enabled, pwa_android_enabled, pwa_ios_enabled.
+// At build time we use the NEXT_PUBLIC_PWA_WEB_ENABLED env var (set by CI/CD
+// or Vercel env from admin config). At runtime the app layout also checks the
+// manifest and conditionally renders the <link rel="manifest"> tag.
+const pwaWebEnabled = process.env.NEXT_PUBLIC_PWA_WEB_ENABLED !== "false";
+
 const withPWA = require("next-pwa")({
   dest: "public",
   register: true,
   skipWaiting: true,
-  disable: process.env.NODE_ENV === "development",
+  disable: process.env.NODE_ENV === "development" || !pwaWebEnabled,
   runtimeCaching: [
     {
       urlPattern: /^https:\/\/fonts\.(gstatic|googleapis)\.com\/.*/i,
