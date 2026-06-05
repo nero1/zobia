@@ -11,8 +11,9 @@
  *  - Skeleton loader + offline graceful state
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   FlatList,
   Pressable,
   ScrollView,
@@ -144,6 +145,68 @@ function LeaderboardSkeleton() {
 // Entry row
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Rank change ripple animation
+// ---------------------------------------------------------------------------
+
+function RankChangeRipple({
+  changed,
+  direction,
+  children,
+}: {
+  changed: boolean;
+  direction: 'up' | 'down' | null;
+  children: React.ReactNode;
+}) {
+  const bgAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!changed || direction === null) return;
+
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(bgAnim, {
+          toValue: 1,
+          duration: 400,
+          useNativeDriver: false,
+        }),
+        Animated.timing(bgAnim, {
+          toValue: 0,
+          duration: 400,
+          useNativeDriver: false,
+        }),
+      ]),
+      { iterations: 3 },
+    );
+
+    loop.start(() => {
+      bgAnim.setValue(0);
+    });
+
+    return () => loop.stop();
+  }, [changed, direction]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const targetColor =
+    direction === 'up'
+      ? 'rgba(16, 185, 129, 0.15)'
+      : 'rgba(239, 68, 68, 0.10)';
+
+  const backgroundColor = bgAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['transparent', targetColor],
+  });
+
+  return (
+    <Animated.View style={changed ? { backgroundColor } : undefined}>
+      {children}
+    </Animated.View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Rank delta indicator
+// ---------------------------------------------------------------------------
+
 function RankDelta({ current, previous }: { current: number; previous: number | null }) {
   if (previous === null || previous === current) return null;
   const delta = previous - current; // positive = moved up
@@ -159,46 +222,56 @@ function EntryRow({ entry }: { entry: LeaderboardEntry }) {
   const { colors: themeColors } = useTheme();
   const medal = RANK_MEDALS[entry.rank];
 
+  const rankChanged =
+    entry.previousRank !== null && entry.previousRank !== entry.rank;
+  const rankDirection: 'up' | 'down' | null = rankChanged
+    ? entry.previousRank! > entry.rank
+      ? 'up'
+      : 'down'
+    : null;
+
   return (
-    <View
-      style={[
-        styles.entryRow,
-        { borderBottomColor: themeColors.border },
-        entry.isCurrentUser && styles.entryRowHighlight,
-      ]}
-    >
-      <View style={styles.rankCol}>
-        {medal ? (
-          <Text style={styles.medal}>{medal}</Text>
-        ) : (
-          <Text style={[styles.rankNum, { color: themeColors.textMuted }]}>
-            {entry.rank}
-          </Text>
-        )}
-        <RankDelta current={entry.rank} previous={entry.previousRank} />
-      </View>
-
-      <View style={styles.avatar}>
-        <Text style={styles.avatarEmoji}>{entry.avatarEmoji}</Text>
-      </View>
-
-      <View style={styles.nameCol}>
-        <Text style={[styles.displayName, { color: themeColors.text }]} numberOfLines={1}>
-          {entry.displayName}
-          {entry.isCurrentUser && (
-            <Text style={styles.youLabel}> (You)</Text>
+    <RankChangeRipple changed={rankChanged} direction={rankDirection}>
+      <View
+        style={[
+          styles.entryRow,
+          { borderBottomColor: themeColors.border },
+          entry.isCurrentUser && styles.entryRowHighlight,
+        ]}
+      >
+        <View style={styles.rankCol}>
+          {medal ? (
+            <Text style={styles.medal}>{medal}</Text>
+          ) : (
+            <Text style={[styles.rankNum, { color: themeColors.textMuted }]}>
+              {entry.rank}
+            </Text>
           )}
-        </Text>
-        <Text style={[styles.username, { color: themeColors.textMuted }]} numberOfLines={1}>
-          @{entry.username}
-          {entry.city ? ` · ${entry.city}` : ''}
+          <RankDelta current={entry.rank} previous={entry.previousRank} />
+        </View>
+
+        <View style={styles.avatar}>
+          <Text style={styles.avatarEmoji}>{entry.avatarEmoji}</Text>
+        </View>
+
+        <View style={styles.nameCol}>
+          <Text style={[styles.displayName, { color: themeColors.text }]} numberOfLines={1}>
+            {entry.displayName}
+            {entry.isCurrentUser && (
+              <Text style={styles.youLabel}> (You)</Text>
+            )}
+          </Text>
+          <Text style={[styles.username, { color: themeColors.textMuted }]} numberOfLines={1}>
+            @{entry.username}
+            {entry.city ? ` · ${entry.city}` : ''}
+          </Text>
+        </View>
+
+        <Text style={[styles.score, { color: themeColors.text }]}>
+          {entry.score.toLocaleString()}
         </Text>
       </View>
-
-      <Text style={[styles.score, { color: themeColors.text }]}>
-        {entry.score.toLocaleString()}
-      </Text>
-    </View>
+    </RankChangeRipple>
   );
 }
 

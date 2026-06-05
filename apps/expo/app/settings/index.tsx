@@ -5,18 +5,24 @@
  *
  * Sections:
  *  - Account: display name, bio, email, password, PIN
+ *  - Two-Factor Authentication (2FA)
+ *  - Privacy & Data
  *  - Language picker (8 languages)
  *  - Theme toggle (light/dark)
  *  - Notification preferences (DMs, guild, streak)
  *  - Privacy: DM opt-out toggle
+ *  - Appearance
+ *  - Subscription
  *  - Danger zone: Logout, Delete Account (with confirmation)
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
+  Modal,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Switch,
   Text,
@@ -30,6 +36,7 @@ import { Button } from '@/components/ui/Button';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
+import { storage } from '@/lib/offline/store';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -49,6 +56,7 @@ type PlanTier = 'free' | 'plus' | 'pro' | 'max';
 
 interface UserMe {
   planTier?: PlanTier;
+  totp_enabled?: boolean;
 }
 
 const PLAN_TIER_LABELS: Record<PlanTier, string> = {
@@ -62,15 +70,17 @@ const PLAN_TIER_LABELS: Record<PlanTier, string> = {
 // Constants
 // ---------------------------------------------------------------------------
 
+const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? '';
+
 const LANGUAGES = [
   { code: 'en', label: 'English' },
   { code: 'fr', label: 'Français' },
-  { code: 'es', label: 'Español' },
   { code: 'ar', label: 'العربية' },
-  { code: 'pt', label: 'Português' },
-  { code: 'sw', label: 'Kiswahili' },
-  { code: 'yo', label: 'Yorùbá' },
   { code: 'ha', label: 'Hausa' },
+  { code: 'sw', label: 'Kiswahili' },
+  { code: 'am', label: 'አማርኛ' },
+  { code: 'zu', label: 'IsiZulu' },
+  { code: 'pt', label: 'Português' },
 ];
 
 type ThemeMode = 'light' | 'dark' | 'system';
@@ -164,6 +174,389 @@ function SettingsSkeleton() {
     <View style={styles.skeletonContainer}>
       {[1, 2, 3, 4, 5, 6].map((i) => <View key={i} style={styles.skeletonRow} />)}
     </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// TwoFactorSection
+// ---------------------------------------------------------------------------
+
+function TwoFactorSection() {
+  const { colors: themeColors, isDark } = useTheme();
+
+  const [totpEnabled, setTotpEnabled] = useState(false);
+  const [loadingStatus, setLoadingStatus] = useState(true);
+
+  // Setup modal
+  const [showSetupModal, setShowSetupModal] = useState(false);
+  const [setupSecret, setSetupSecret] = useState<string | null>(null);
+  const [setupQrUrl, setSetupQrUrl] = useState<string | null>(null);
+  const [setupCode, setSetupCode] = useState('');
+  const [setupLoading, setSetupLoading] = useState(false);
+
+  // Disable modal
+  const [showDisableModal, setShowDisableModal] = useState(false);
+  const [disableCode, setDisableCode] = useState('');
+  const [disableLoading, setDisableLoading] = useState(false);
+
+  // Fetch current 2FA status
+  useEffect(() => {
+    (async () => {
+      try {
+        const token = storage.getString('authToken');
+        const res = await fetch(`${API_BASE}/api/users/me`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as { user?: { totp_enabled?: boolean } };
+        setTotpEnabled(data.user?.totp_enabled ?? false);
+      } catch {
+        // non-fatal
+      } finally {
+        setLoadingStatus(false);
+      }
+    })();
+  }, []);
+
+  const handleOpenSetup = async () => {
+    setSetupCode('');
+    setSetupSecret(null);
+    setSetupQrUrl(null);
+    setShowSetupModal(true);
+    try {
+      const token = storage.getString('authToken');
+      const res = await fetch(`${API_BASE}/api/auth/2fa/setup`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        Alert.alert('Error', 'Failed to start 2FA setup. Please try again.');
+        setShowSetupModal(false);
+        return;
+      }
+      const data = (await res.json()) as { secret: string; qrCodeUrl: string };
+      setSetupSecret(data.secret);
+      setSetupQrUrl(data.qrCodeUrl);
+    } catch {
+      Alert.alert('Error', 'Failed to start 2FA setup. Please try again.');
+      setShowSetupModal(false);
+    }
+  };
+
+  const handleConfirmSetup = async () => {
+    if (!setupCode.trim()) return;
+    setSetupLoading(true);
+    try {
+      const token = storage.getString('authToken');
+      const res = await fetch(`${API_BASE}/api/auth/2fa/setup`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ code: setupCode.trim() }),
+      });
+      if (!res.ok) {
+        const d = (await res.json()) as { message?: string };
+        throw new Error(d.message ?? 'Invalid code');
+      }
+      setTotpEnabled(true);
+      setShowSetupModal(false);
+      Alert.alert('Success', 'Two-factor authentication has been enabled.');
+    } catch (e) {
+      Alert.alert('Error', e instanceof Error ? e.message : 'Invalid code. Please try again.');
+    } finally {
+      setSetupLoading(false);
+    }
+  };
+
+  const handleOpenDisable = () => {
+    Alert.alert(
+      'Disable 2FA',
+      'Are you sure you want to disable two-factor authentication? Your account will be less secure.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Continue',
+          style: 'destructive',
+          onPress: () => {
+            setDisableCode('');
+            setShowDisableModal(true);
+          },
+        },
+      ],
+    );
+  };
+
+  const handleConfirmDisable = async () => {
+    if (!disableCode.trim()) return;
+    setDisableLoading(true);
+    try {
+      const token = storage.getString('authToken');
+      const res = await fetch(`${API_BASE}/api/auth/2fa/disable`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ code: disableCode.trim() }),
+      });
+      if (!res.ok) {
+        const d = (await res.json()) as { message?: string };
+        throw new Error(d.message ?? 'Invalid code');
+      }
+      setTotpEnabled(false);
+      setShowDisableModal(false);
+      Alert.alert('Disabled', 'Two-factor authentication has been disabled.');
+    } catch (e) {
+      Alert.alert('Error', e instanceof Error ? e.message : 'Invalid code. Please try again.');
+    } finally {
+      setDisableLoading(false);
+    }
+  };
+
+  const amberBox = {
+    backgroundColor: isDark ? 'rgba(180,120,0,0.15)' : '#fffbeb',
+    borderColor: isDark ? '#92400e' : '#f59e0b',
+  };
+
+  return (
+    <>
+      <SectionHeader title="TWO-FACTOR AUTHENTICATION" />
+      <View style={[styles.card, { backgroundColor: themeColors.surface }]}>
+        {/* Status row */}
+        <View style={[styles.settingsRow, { borderBottomColor: themeColors.border }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.settingsRowLabel, { color: themeColors.text }]}>
+              {loadingStatus ? 'Loading…' : totpEnabled ? '2FA Enabled' : '2FA Disabled'}
+            </Text>
+            <Text style={[styles.toggleDesc, { color: themeColors.textMuted }]}>
+              {totpEnabled
+                ? 'Your account is protected with an authenticator app.'
+                : 'Add an extra layer of security to your account.'}
+            </Text>
+          </View>
+        </View>
+
+        {/* Strongly recommended notice */}
+        {!totpEnabled && !loadingStatus && (
+          <View style={[styles.amberNotice, amberBox]}>
+            <Text style={[styles.amberNoticeText, { color: isDark ? '#fbbf24' : '#92400e' }]}>
+              Strongly recommended — protects your account even if your password is compromised.
+            </Text>
+          </View>
+        )}
+
+        {/* Action button */}
+        {!loadingStatus && (
+          <View style={{ padding: 12 }}>
+            {totpEnabled ? (
+              <Button
+                label="Disable 2FA"
+                variant="danger"
+                onPress={handleOpenDisable}
+              />
+            ) : (
+              <Button
+                label="Enable 2FA"
+                variant="secondary"
+                onPress={handleOpenSetup}
+              />
+            )}
+          </View>
+        )}
+      </View>
+
+      {/* Setup Modal */}
+      <Modal
+        visible={showSetupModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowSetupModal(false)}
+      >
+        <View style={[styles.modalContainer, { backgroundColor: themeColors.background }]}>
+          <View style={styles.modalHeader}>
+            <Text style={[styles.modalTitle, { color: themeColors.text }]}>Enable 2FA</Text>
+            <Pressable onPress={() => setShowSetupModal(false)} hitSlop={12}>
+              <Text style={[styles.modalClose, { color: themeColors.textMuted }]}>✕</Text>
+            </Pressable>
+          </View>
+
+          <ScrollView style={styles.modalBody} contentContainerStyle={{ gap: 16 }}>
+            <Text style={[styles.modalInstruction, { color: themeColors.text }]}>
+              Open Google Authenticator or Authy and scan the QR code below, or manually enter the setup key.
+            </Text>
+
+            {setupSecret ? (
+              <View style={[styles.secretBox, { backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100], borderColor: themeColors.border }]}>
+                <Text style={[styles.secretLabel, { color: themeColors.textMuted }]}>
+                  Setup Key (manually enter in your authenticator app):
+                </Text>
+                <Text
+                  style={[styles.secretText, { color: themeColors.text }]}
+                  selectable
+                >
+                  {setupSecret}
+                </Text>
+                {setupQrUrl && (
+                  <>
+                    <Text style={[styles.secretLabel, { color: themeColors.textMuted, marginTop: 12 }]}>
+                      Or use this otpauth URL:
+                    </Text>
+                    <Text
+                      style={[styles.qrUrlText, { color: themeColors.textMuted }]}
+                      selectable
+                      numberOfLines={4}
+                    >
+                      {setupQrUrl}
+                    </Text>
+                  </>
+                )}
+              </View>
+            ) : (
+              <View style={[styles.secretBox, { backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100], borderColor: themeColors.border }]}>
+                <Text style={[styles.secretLabel, { color: themeColors.textMuted }]}>
+                  Loading setup key…
+                </Text>
+              </View>
+            )}
+
+            <Text style={[styles.modalInstruction, { color: themeColors.text }]}>
+              After adding the account to your authenticator app, enter the 6-digit code it shows:
+            </Text>
+
+            <TextInput
+              style={[
+                styles.codeInput,
+                {
+                  backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100],
+                  color: themeColors.text,
+                  borderColor: themeColors.border,
+                },
+              ]}
+              placeholder="000000"
+              placeholderTextColor={themeColors.textMuted}
+              value={setupCode}
+              onChangeText={setSetupCode}
+              keyboardType="number-pad"
+              maxLength={6}
+              returnKeyType="done"
+            />
+
+            <Button
+              label={setupLoading ? 'Verifying…' : 'Verify & Enable'}
+              variant="primary"
+              onPress={handleConfirmSetup}
+              disabled={setupLoading || setupCode.length !== 6}
+            />
+          </ScrollView>
+        </View>
+      </Modal>
+
+      {/* Disable Modal */}
+      <Modal
+        visible={showDisableModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowDisableModal(false)}
+      >
+        <View style={[styles.modalContainer, { backgroundColor: themeColors.background }]}>
+          <View style={styles.modalHeader}>
+            <Text style={[styles.modalTitle, { color: themeColors.text }]}>Disable 2FA</Text>
+            <Pressable onPress={() => setShowDisableModal(false)} hitSlop={12}>
+              <Text style={[styles.modalClose, { color: themeColors.textMuted }]}>✕</Text>
+            </Pressable>
+          </View>
+
+          <View style={[styles.modalBody, { gap: 16 }]}>
+            <Text style={[styles.modalInstruction, { color: themeColors.text }]}>
+              Enter the 6-digit code from your authenticator app to confirm you want to disable 2FA.
+            </Text>
+
+            <TextInput
+              style={[
+                styles.codeInput,
+                {
+                  backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100],
+                  color: themeColors.text,
+                  borderColor: themeColors.border,
+                },
+              ]}
+              placeholder="000000"
+              placeholderTextColor={themeColors.textMuted}
+              value={disableCode}
+              onChangeText={setDisableCode}
+              keyboardType="number-pad"
+              maxLength={6}
+              returnKeyType="done"
+              autoFocus
+            />
+
+            <Button
+              label={disableLoading ? 'Disabling…' : 'Confirm Disable'}
+              variant="danger"
+              onPress={handleConfirmDisable}
+              disabled={disableLoading || disableCode.length !== 6}
+            />
+          </View>
+        </View>
+      </Modal>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PrivacyDataSection
+// ---------------------------------------------------------------------------
+
+function PrivacyDataSection() {
+  const { colors: themeColors } = useTheme();
+  const [exporting, setExporting] = useState(false);
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const token = storage.getString('authToken');
+      const res = await fetch(`${API_BASE}/api/users/me/export`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        Alert.alert('Error', 'Failed to export data. Please try again.');
+        return;
+      }
+      const data = await res.json();
+      await Share.share({
+        message: JSON.stringify(data, null, 2),
+        title: 'Zobia Data Export',
+      });
+    } catch {
+      Alert.alert('Error', 'Could not export your data. Please try again.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  return (
+    <>
+      <SectionHeader title="PRIVACY & DATA" />
+      <View style={[styles.card, { backgroundColor: themeColors.surface }]}>
+        <View style={[styles.settingsRow, { borderBottomColor: 'transparent' }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.settingsRowLabel, { color: themeColors.text }]}>Export My Data</Text>
+            <Text style={[styles.toggleDesc, { color: themeColors.textMuted }]}>
+              Download a copy of all your Zobia account data
+            </Text>
+          </View>
+        </View>
+        <View style={{ padding: 12, paddingTop: 0 }}>
+          <Button
+            label={exporting ? 'Requesting…' : 'Export My Data'}
+            variant="secondary"
+            onPress={handleExport}
+            disabled={exporting}
+          />
+        </View>
+      </View>
+    </>
   );
 }
 
@@ -329,6 +722,12 @@ export default function SettingsScreen() {
           <Text style={[styles.chevron, { color: themeColors.textMuted }]}>›</Text>
         </Pressable>
       </View>
+
+      {/* Two-Factor Authentication */}
+      <TwoFactorSection />
+
+      {/* Privacy & Data */}
+      <PrivacyDataSection />
 
       {/* Language */}
       <SectionHeader title="LANGUAGE" />
@@ -571,4 +970,80 @@ const styles = StyleSheet.create({
 
   skeletonContainer: { padding: 16, gap: 12 },
   skeletonRow: { height: 52, borderRadius: 10, backgroundColor: colors.neutral[200] },
+
+  // 2FA styles
+  amberNotice: {
+    marginHorizontal: 12,
+    marginBottom: 4,
+    borderRadius: 10,
+    borderWidth: 1,
+    padding: 12,
+  },
+  amberNoticeText: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '500',
+  },
+
+  // Modal styles
+  modalContainer: {
+    flex: 1,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 12,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  modalClose: {
+    fontSize: 18,
+    fontWeight: '400',
+  },
+  modalBody: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 8,
+  },
+  modalInstruction: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  secretBox: {
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 14,
+  },
+  secretLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+    marginBottom: 6,
+  },
+  secretText: {
+    fontSize: 15,
+    fontWeight: '600',
+    letterSpacing: 2,
+    fontVariant: ['tabular-nums'],
+  },
+  qrUrlText: {
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  codeInput: {
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 24,
+    fontWeight: '600',
+    letterSpacing: 8,
+    textAlign: 'center',
+    minHeight: 56,
+  },
 });

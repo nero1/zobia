@@ -58,6 +58,20 @@ export default function AdminFinancialScreen() {
     else Alert.alert("Error", "Approval failed.");
   }
 
+  async function rejectPayout(payoutId: string) {
+    const token = storage.getString("authToken");
+    const res = await fetch(`${API_BASE}/api/admin/payouts/${payoutId}/reject`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ reason: "Rejected by admin" }),
+    });
+    if (res.ok) setPayouts((prev) => prev.filter((p) => p.id !== payoutId));
+    else Alert.alert("Error", "Rejection failed.");
+  }
+
   if (loading) return <View className="flex-1 items-center justify-center"><ActivityIndicator color="#2563EB" /></View>;
 
   return (
@@ -89,15 +103,26 @@ export default function AdminFinancialScreen() {
             <Text className="font-medium text-gray-900">@{p.creator_username}</Text>
             <Text className="text-gray-500 text-sm">{koboToNaira(p.amount_kobo)}</Text>
           </View>
-          <TouchableOpacity
-            className="bg-emerald-600 px-4 py-2 rounded-lg"
-            onPress={() => Alert.alert("Approve payout?", `Pay ${koboToNaira(p.amount_kobo)} to @${p.creator_username}?`, [
-              { text: "Cancel" },
-              { text: "Approve", onPress: () => void approvePayout(p.id) },
-            ])}
-          >
-            <Text className="text-white font-medium text-sm">Approve</Text>
-          </TouchableOpacity>
+          <View className="flex-row gap-2">
+            <TouchableOpacity
+              className="bg-red-600 px-4 py-2 rounded-lg"
+              onPress={() => Alert.alert("Reject payout?", `Reject ${koboToNaira(p.amount_kobo)} for @${p.creator_username}?`, [
+                { text: "Cancel", style: "cancel" },
+                { text: "Reject", style: "destructive", onPress: () => void rejectPayout(p.id) },
+              ])}
+            >
+              <Text className="text-white font-medium text-sm">Reject</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              className="bg-emerald-600 px-4 py-2 rounded-lg"
+              onPress={() => Alert.alert("Approve payout?", `Pay ${koboToNaira(p.amount_kobo)} to @${p.creator_username}?`, [
+                { text: "Cancel" },
+                { text: "Approve", onPress: () => void approvePayout(p.id) },
+              ])}
+            >
+              <Text className="text-white font-medium text-sm">Approve</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       ))}
       {payouts.length === 0 && <Text className="text-center text-gray-400 py-4">No pending payouts</Text>}

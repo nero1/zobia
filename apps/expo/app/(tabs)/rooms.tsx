@@ -32,6 +32,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { Screen } from '@/components/ui/Screen';
 import { RoomCard, type RoomCardData } from '@/components/rooms/RoomCard';
 import { colors } from '@/lib/theme/colors';
@@ -56,19 +57,20 @@ interface DiscoveryTabConfig {
 // Constants
 // ---------------------------------------------------------------------------
 
+// Labels are resolved via t() in the component; keys are used for lookup.
 const TABS: DiscoveryTabConfig[] = [
-  { key: 'trending', label: 'Trending' },
-  { key: 'nearby', label: 'Near Me' },
-  { key: 'friends', label: 'Friends In' },
+  { key: 'trending', label: 'trending' },
+  { key: 'nearby', label: 'nearby' },
+  { key: 'friends', label: 'friends' },
 ];
 
 const FILTER_CHIPS: Array<{ key: FilterChip; label: string }> = [
-  { key: 'all', label: 'All' },
-  { key: 'free_open', label: 'Free' },
-  { key: 'vip', label: 'VIP' },
-  { key: 'drop', label: 'Drop' },
-  { key: 'tipping', label: 'Tipping' },
-  { key: 'classroom', label: 'Class' },
+  { key: 'all', label: 'all' },
+  { key: 'free_open', label: 'free' },
+  { key: 'vip', label: 'vip' },
+  { key: 'drop', label: 'drop' },
+  { key: 'tipping', label: 'tipping' },
+  { key: 'classroom', label: 'class' },
 ];
 
 const ROOM_TYPE_FILTER_COLOR: Record<FilterChip, string> = {
@@ -104,6 +106,52 @@ function SkeletonList() {
         <SkeletonCard key={i} />
       ))}
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Hook: pinned rooms
+// ---------------------------------------------------------------------------
+
+function usePinnedRooms() {
+  const [pinned, setPinned] = useState<RoomCardData[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    apiClient.get<{ rooms: RoomCardData[] }>('/api/rooms/pinned')
+      .then(({ data }) => setPinned(data.rooms ?? []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  return { pinned, loading };
+}
+
+// ---------------------------------------------------------------------------
+// Pinned rooms horizontal strip
+// ---------------------------------------------------------------------------
+
+function PinnedRoomsStrip({ rooms, onPress }: { rooms: RoomCardData[]; onPress: (r: RoomCardData) => void }) {
+  if (rooms.length === 0) return null;
+  return (
+    <View style={styles.pinnedSection}>
+      <Text style={styles.pinnedTitle}>📌 Pinned</Text>
+      <FlatList
+        horizontal
+        data={rooms}
+        keyExtractor={(r) => r.id}
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.pinnedList}
+        renderItem={({ item }) => (
+          <Pressable style={styles.pinnedCard} onPress={() => onPress(item)}>
+            <Text style={styles.pinnedEmoji}>{item.coverEmoji ?? '🏠'}</Text>
+            <Text style={styles.pinnedName} numberOfLines={1}>{item.name}</Text>
+            <Text style={styles.pinnedCount}>{item.memberCount ?? 0} members</Text>
+          </Pressable>
+        )}
+      />
+    </View>
   );
 }
 
@@ -161,7 +209,7 @@ function useRoomsQuery(
         setNextCursor(data.nextCursor);
         setHasMore(data.hasMore);
       } catch {
-        setError('Failed to load rooms. Pull to refresh.');
+        setError('rooms.loadError');
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -197,6 +245,7 @@ function useRoomsQuery(
  */
 export default function RoomsScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<DiscoveryTab>('trending');
   const [typeFilter, setTypeFilter] = useState<FilterChip>('all');
@@ -205,6 +254,7 @@ export default function RoomsScreen() {
 
   const { rooms, loading, refreshing, error, refresh, loadMore, hasMore } =
     useRoomsQuery(activeTab, typeFilter, searchQuery, user?.city);
+  const { pinned } = usePinnedRooms();
 
   const handleRoomPress = useCallback(
     (room: RoomCardData) => {
@@ -266,6 +316,9 @@ export default function RoomsScreen() {
           </Pressable>
         )}
       </View>
+
+      {/* Pinned rooms */}
+      <PinnedRoomsStrip rooms={pinned} onPress={handleRoomPress} />
 
       {/* Search bar */}
       <View style={styles.searchRow}>
@@ -533,6 +586,49 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.semantic.error,
     textAlign: 'center',
+  },
+
+  // Pinned rooms strip
+  pinnedSection: {
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+  },
+  pinnedTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.neutral[500],
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  pinnedList: {
+    gap: 10,
+    paddingRight: 4,
+  },
+  pinnedCard: {
+    backgroundColor: colors.neutral[0],
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.neutral[200],
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    alignItems: 'center',
+    width: 96,
+  },
+  pinnedEmoji: {
+    fontSize: 24,
+    marginBottom: 4,
+  },
+  pinnedName: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.neutral[800],
+    textAlign: 'center',
+    marginBottom: 2,
+  },
+  pinnedCount: {
+    fontSize: 10,
+    color: colors.neutral[400],
   },
 
   // Skeleton

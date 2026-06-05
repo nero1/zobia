@@ -196,6 +196,18 @@ export default function AdminDashboardTab() {
           subtitle="Broadcast to users"
           onPress={() => router.push('/admin/messages')}
         />
+        <NavCard
+          icon="📢"
+          title="Announcements"
+          subtitle="Manage modals and banners"
+          onPress={() => router.push('/admin/announcements')}
+        />
+        <NavCard
+          icon="🪪"
+          title="KYC Review"
+          subtitle="Pending identity verifications"
+          onPress={() => router.push('/admin/kyc')}
+        />
       </View>
     </Screen>
   );

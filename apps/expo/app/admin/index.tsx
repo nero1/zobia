@@ -35,6 +35,7 @@ function StatCard({
 }
 
 export default function AdminOverviewScreen() {
+  const router = useRouter();
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -86,11 +87,13 @@ export default function AdminOverviewScreen() {
           { label: "Financial Overview", route: "/admin/financial", icon: "💰" },
           { label: "System Alerts", route: "/admin/alerts", icon: "🔔" },
           { label: "Compose Message", route: "/admin/messages", icon: "✉️" },
+          { label: "Announcements", route: "/admin/announcements", icon: "📢" },
+          { label: "KYC Review", route: "/admin/kyc", icon: "🪪" },
         ].map((action) => (
           <TouchableOpacity
             key={action.route}
             className="flex-row items-center bg-white rounded-xl px-4 py-3 mb-2 shadow-sm"
-            onPress={() => useRouter().push(action.route as any)}
+            onPress={() => router.push(action.route as any)}
           >
             <Text className="text-xl mr-3">{action.icon}</Text>
             <Text className="text-gray-800 font-medium">{action.label}</Text>

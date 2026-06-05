@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
 import {
   View, Text, FlatList, TextInput, TouchableOpacity,
-  ActivityIndicator, RefreshControl
+  ActivityIndicator, RefreshControl, Alert, Modal, Pressable,
+  StyleSheet,
 } from "react-native";
 import { storage } from "@/lib/offline/store";
 
@@ -18,12 +19,163 @@ interface User {
   created_at: string;
 }
 
+type UserAction = "suspend" | "ban" | "restore" | "upgrade_moderator";
+
+async function performUserAction(
+  userId: string,
+  action: UserAction,
+  reason?: string,
+  durationHours?: number,
+): Promise<void> {
+  const token = storage.getString("authToken");
+  const body: Record<string, unknown> = { action };
+  if (reason) body.reason = reason;
+  if (durationHours !== undefined) body.duration_hours = durationHours;
+
+  const res = await fetch(`${API_BASE}/api/admin/users/${userId}/actions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(data.message ?? "Action failed");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Reason prompt modal
+// ---------------------------------------------------------------------------
+
+interface ReasonModalProps {
+  visible: boolean;
+  title: string;
+  onConfirm: (reason: string) => void;
+  onCancel: () => void;
+}
+
+function ReasonModal({ visible, title, onConfirm, onCancel }: ReasonModalProps) {
+  const [reason, setReason] = useState("");
+
+  const handleConfirm = () => {
+    onConfirm(reason.trim());
+    setReason("");
+  };
+
+  const handleCancel = () => {
+    setReason("");
+    onCancel();
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={handleCancel}
+    >
+      <View style={reasonStyles.container}>
+        <View style={reasonStyles.header}>
+          <Text style={reasonStyles.title}>{title}</Text>
+          <Pressable onPress={handleCancel} hitSlop={12}>
+            <Text style={reasonStyles.closeBtn}>✕</Text>
+          </Pressable>
+        </View>
+
+        <View style={reasonStyles.body}>
+          <Text style={reasonStyles.label}>Reason (optional)</Text>
+          <TextInput
+            style={reasonStyles.input}
+            placeholder="Enter a reason for this action..."
+            placeholderTextColor="#9ca3af"
+            value={reason}
+            onChangeText={setReason}
+            multiline
+            numberOfLines={4}
+            textAlignVertical="top"
+            autoFocus
+          />
+
+          <TouchableOpacity
+            style={reasonStyles.confirmBtn}
+            onPress={handleConfirm}
+          >
+            <Text style={reasonStyles.confirmBtnText}>Confirm</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={reasonStyles.cancelBtn}
+            onPress={handleCancel}
+          >
+            <Text style={reasonStyles.cancelBtnText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const reasonStyles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#fff" },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#e5e7eb",
+  },
+  title: { fontSize: 18, fontWeight: "700", color: "#111827" },
+  closeBtn: { fontSize: 18, color: "#6b7280" },
+  body: { padding: 20, gap: 12 },
+  label: { fontSize: 14, fontWeight: "600", color: "#374151" },
+  input: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    padding: 12,
+    fontSize: 14,
+    color: "#111827",
+    minHeight: 100,
+    backgroundColor: "#f9fafb",
+  },
+  confirmBtn: {
+    backgroundColor: "#2563EB",
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  confirmBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
+  cancelBtn: {
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  cancelBtnText: { color: "#6b7280", fontWeight: "600", fontSize: 15 },
+});
+
+// ---------------------------------------------------------------------------
+// Main screen
+// ---------------------------------------------------------------------------
+
 export default function AdminUsersScreen() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState("");
   const [cursor, setCursor] = useState<string | null>(null);
+
+  // Reason modal state
+  const [reasonModal, setReasonModal] = useState<{
+    visible: boolean;
+    title: string;
+    onConfirm: (reason: string) => void;
+  }>({ visible: false, title: "", onConfirm: () => {} });
 
   async function loadUsers(reset = false) {
     const token = storage.getString("authToken");
@@ -45,6 +197,88 @@ export default function AdminUsersScreen() {
   }
 
   useEffect(() => { void loadUsers(true); }, [search]);
+
+  function promptReason(title: string, onConfirm: (reason: string) => void) {
+    setReasonModal({ visible: true, title, onConfirm });
+  }
+
+  function closeReasonModal() {
+    setReasonModal((prev) => ({ ...prev, visible: false }));
+  }
+
+  async function executeAction(
+    userId: string,
+    username: string,
+    action: UserAction,
+    reason?: string,
+    durationHours?: number,
+  ) {
+    try {
+      await performUserAction(userId, action, reason, durationHours);
+      // Refresh the list to reflect updated state
+      void loadUsers(true);
+      Alert.alert("Done", `Action "${action}" applied to @${username}.`);
+    } catch (e) {
+      Alert.alert("Error", e instanceof Error ? e.message : "Action failed. Please try again.");
+    }
+  }
+
+  function showActionMenu(user: User) {
+    Alert.alert(
+      `@${user.username}`,
+      "Choose an action",
+      [
+        {
+          text: "Suspend (7 days)",
+          onPress: () =>
+            promptReason("Suspend @" + user.username, (reason) => {
+              closeReasonModal();
+              void executeAction(user.id, user.username, "suspend", reason, 168);
+            }),
+        },
+        {
+          text: "Permanent Ban",
+          style: "destructive",
+          onPress: () =>
+            promptReason("Ban @" + user.username, (reason) => {
+              closeReasonModal();
+              void executeAction(user.id, user.username, "ban", reason);
+            }),
+        },
+        {
+          text: "Restore Account",
+          onPress: () =>
+            Alert.alert(
+              "Restore Account",
+              `Remove all suspensions/bans from @${user.username}?`,
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Restore",
+                  onPress: () => void executeAction(user.id, user.username, "restore"),
+                },
+              ],
+            ),
+        },
+        {
+          text: "Make Moderator",
+          onPress: () =>
+            Alert.alert(
+              "Make Moderator",
+              `Grant moderator role to @${user.username}?`,
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Confirm",
+                  onPress: () => void executeAction(user.id, user.username, "upgrade_moderator"),
+                },
+              ],
+            ),
+        },
+        { text: "Cancel", style: "cancel" },
+      ],
+    );
+  }
 
   return (
     <View className="flex-1 bg-gray-50">
@@ -76,8 +310,24 @@ export default function AdminUsersScreen() {
               <Text className="font-semibold text-gray-900">@{item.username}</Text>
               <Text className="text-gray-500 text-xs">{item.rank} • {item.plan} • Trust: {item.trust_score}</Text>
             </View>
+            <TouchableOpacity
+              onPress={() => showActionMenu(item)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityLabel={`Actions for @${item.username}`}
+              accessibilityRole="button"
+              className="w-8 h-8 items-center justify-center rounded-lg bg-gray-100"
+            >
+              <Text className="text-gray-500 text-lg font-bold">⋮</Text>
+            </TouchableOpacity>
           </View>
         )}
+      />
+
+      <ReasonModal
+        visible={reasonModal.visible}
+        title={reasonModal.title}
+        onConfirm={reasonModal.onConfirm}
+        onCancel={closeReasonModal}
       />
     </View>
   );
