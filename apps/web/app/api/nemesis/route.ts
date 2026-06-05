@@ -1,18 +1,13 @@
 /**
  * app/api/nemesis/route.ts
  *
- * Nemesis system endpoints.
+ * GET /api/nemesis
+ *   Returns the calling user's current nemesis assignment with full data
+ *   shaped for the Expo client: me, nemesis, recentActivity, sprintActive.
  *
- * GET  /api/nemesis
- *   - Returns the calling user's current nemesis assignment with XP comparison.
- *
- * POST /api/nemesis/dismiss
- *   - Dismisses the current nemesis and triggers a fresh assignment.
- *
- * POST /api/nemesis/challenge
- *   - Sends a 7-day XP sprint challenge notification to the nemesis.
- *
- * All sub-actions (/dismiss, /challenge) are handled via URL path inspection.
+ * Sub-action routes live in dedicated files (Next.js App Router):
+ *   POST /api/nemesis/challenge → app/api/nemesis/challenge/route.ts
+ *   POST /api/nemesis/dismiss  → app/api/nemesis/dismiss/route.ts
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -105,32 +100,88 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
       rows.push(...refreshedRows.rows);
     }
 
-    const nemesis = rows[0];
+    const nemesisRow = rows[0];
+
+    // Fetch the calling user's own profile data
+    const { rows: myRows } = await db.query<{
+      display_name: string;
+      avatar_emoji: string;
+      xp_total: number;
+    }>(
+      `SELECT display_name, avatar_emoji, COALESCE(xp_total, 0) AS xp_total
+       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+      [userId]
+    );
+    const me = myRows[0];
 
     // XP comparison
-    const comparison = await compareNemesisProgress(userId, nemesis.nemesis_id, "main", db);
+    const comparison = await compareNemesisProgress(userId, nemesisRow.nemesis_id, "main", db);
+
+    // Recent XP activity for both parties (last 20 events combined)
+    const { rows: activityRows } = await db.query<{
+      id: string;
+      user_id: string;
+      action: string;
+      xp_net: number;
+      created_at: string;
+    }>(
+      `(SELECT id, user_id, action, xp_net, created_at
+        FROM xp_ledger
+        WHERE user_id = $1 AND created_at > NOW() - INTERVAL '7 days'
+        ORDER BY created_at DESC LIMIT 10)
+       UNION ALL
+       (SELECT id, user_id, action, xp_net, created_at
+        FROM xp_ledger
+        WHERE user_id = $2 AND created_at > NOW() - INTERVAL '7 days'
+        ORDER BY created_at DESC LIMIT 10)
+       ORDER BY created_at DESC
+       LIMIT 20`,
+      [userId, nemesisRow.nemesis_id]
+    );
+
+    const recentActivity = activityRows.map((a) => ({
+      id: a.id,
+      userId: a.user_id,
+      description: a.action.replace(/_/g, " "),
+      xpEarned: a.xp_net,
+      createdAt: a.created_at,
+    }));
+
+    // Check if there is an active sprint challenge between these two users
+    const { rows: sprintRows } = await db.query<{ id: string; expires_at: string }>(
+      `SELECT id, expires_at FROM nemesis_challenges
+       WHERE ((challenger_id = $1 AND challenged_id = $2)
+           OR (challenger_id = $2 AND challenged_id = $1))
+         AND status = 'pending'
+         AND expires_at > NOW()
+       ORDER BY created_at DESC LIMIT 1`,
+      [userId, nemesisRow.nemesis_id]
+    );
+    const activeSprint = sprintRows[0] ?? null;
 
     return NextResponse.json({
-      success: true,
-      data: {
-        nemesis: {
-          userId: nemesis.nemesis_id,
-          username: nemesis.nemesis_username,
-          displayName: nemesis.nemesis_display_name,
-          avatarEmoji: nemesis.nemesis_avatar_emoji,
-          rankName: nemesis.nemesis_rank_name,
-          xpTotal: nemesis.nemesis_xp_total,
-          city: nemesis.nemesis_city,
-          assignedAt: nemesis.assigned_at,
-        },
-        comparison: {
-          userXP: comparison.userXP,
-          nemesisXP: comparison.nemesisXP,
-          delta: comparison.delta,
-          userIsAhead: comparison.userIsAhead,
-        },
+      me: {
+        userId,
+        displayName: me?.display_name ?? "",
+        avatarEmoji: me?.avatar_emoji ?? "😊",
+        xp: comparison.userXP,
       },
-      error: null,
+      nemesis: {
+        userId: nemesisRow.nemesis_id,
+        displayName: nemesisRow.nemesis_display_name,
+        avatarEmoji: nemesisRow.nemesis_avatar_emoji,
+        xp: comparison.nemesisXP,
+      },
+      recentActivity,
+      sprintActive: activeSprint !== null,
+      sprintEndsAt: activeSprint?.expires_at ?? null,
+      // Legacy fields for web client compatibility
+      comparison: {
+        userXP: comparison.userXP,
+        nemesisXP: comparison.nemesisXP,
+        delta: comparison.delta,
+        userIsAhead: comparison.userIsAhead,
+      },
     });
   } catch (err) {
     return handleApiError(err);
@@ -138,12 +189,16 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/nemesis/dismiss  &  POST /api/nemesis/challenge
+// POST /api/nemesis  — redirects to sub-routes for clarity
+// NOTE: actual POST actions live at:
+//   /api/nemesis/challenge  (challenge/route.ts)
+//   /api/nemesis/dismiss    (dismiss/route.ts)
+// This stub is kept so any stale client calling POST /api/nemesis with an
+// action body still gets a helpful error rather than a 405.
 // ---------------------------------------------------------------------------
 
 /**
- * Dismiss the current nemesis (generates a new one),
- * or send a 7-day XP sprint challenge to the nemesis.
+ * @deprecated Use POST /api/nemesis/challenge or POST /api/nemesis/dismiss.
  */
 export const POST = withAuth(async (req: NextRequest, { auth }) => {
   try {

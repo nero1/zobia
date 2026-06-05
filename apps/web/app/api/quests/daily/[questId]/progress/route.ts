@@ -161,17 +161,37 @@ export const POST = withAuth<QuestParams>(async (req, { params, auth }) => {
       let coinsAwarded = 0;
 
       if (nowCompleted) {
-        xpAwarded = quest.xp_reward;
+        // Check for an active quest_accelerator booster (PRD §3: +50% XP on quest completions for 7 days)
+        const { rows: acceleratorRows } = await client.query<{ id: string }>(
+          `SELECT id FROM user_xp_boosters
+           WHERE user_id = $1
+             AND booster_type = 'quest_accelerator'
+             AND expires_at > NOW()
+             AND is_active = TRUE
+           LIMIT 1`,
+          [auth.user.sub]
+        );
+        const questAcceleratorActive = acceleratorRows.length > 0;
+
+        // Base XP from quest; apply +50% if accelerator is active (integer arithmetic)
+        const baseXP = quest.xp_reward;
+        xpAwarded = questAcceleratorActive
+          ? Math.floor(baseXP * 150 / 100)  // +50% using integer basis-point math
+          : baseXP;
+        const multiplierUsed = questAcceleratorActive ? 1.5 : 1.0;
+
         coinsAwarded = quest.coin_reward;
 
         // Write to xp_ledger
         await client.query(
           `INSERT INTO xp_ledger (user_id, action, xp_amount, multiplier, xp_net, metadata, created_at)
-           VALUES ($1, 'quest_complete', $2, 1.0, $2, $3, NOW())`,
+           VALUES ($1, 'quest_complete', $2, $3, $4, $5, NOW())`,
           [
             auth.user.sub,
+            baseXP,
+            multiplierUsed,
             xpAwarded,
-            JSON.stringify({ quest_id: questId, date: today }),
+            JSON.stringify({ quest_id: questId, date: today, accelerator: questAcceleratorActive }),
           ]
         );
 

@@ -715,7 +715,7 @@ export default function SettingsScreen() {
         </Pressable>
         <Pressable
           style={[styles.settingsRow, { borderBottomColor: 'transparent' }]}
-          onPress={() => Alert.alert('Change PIN', 'PIN change flow would open here.')}
+          onPress={() => router.push('/settings/pin')}
           accessibilityRole="button"
         >
           <Text style={[styles.settingsRowLabel, { color: themeColors.text }]}>Change PIN</Text>
