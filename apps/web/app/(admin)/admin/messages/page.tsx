@@ -48,8 +48,8 @@ interface UserSearchResult {
 // Constants
 // ---------------------------------------------------------------------------
 
-const PLAN_OPTIONS = ["free", "basic", "pro", "vip"];
-const ROLE_OPTIONS = ["user", "creator", "moderator"];
+const PLAN_OPTIONS = ["free", "plus", "pro", "max"];
+const ROLE_OPTIONS = ["user", "creator", "moderator", "guild_captain", "verified_creator"];
 
 // ---------------------------------------------------------------------------
 // Helpers

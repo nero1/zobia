@@ -39,6 +39,32 @@ const TYPE_CHIPS: { key: RoomTypeFilter; label: string }[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Pinned rooms strip
+// ---------------------------------------------------------------------------
+
+function PinnedRoomsStrip({ rooms, onJoin }: { rooms: RoomCardData[]; onJoin: (id: string) => void }) {
+  if (rooms.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-bold uppercase tracking-wider text-neutral-500">📌 Pinned</p>
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {rooms.map((room) => (
+          <button
+            key={room.id}
+            onClick={() => onJoin(room.id)}
+            className="flex min-w-[88px] flex-shrink-0 flex-col items-center rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-center transition-colors hover:border-blue-400 hover:bg-blue-50 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:border-blue-500 dark:hover:bg-blue-950"
+          >
+            <span className="text-2xl">{(room as { coverEmoji?: string }).coverEmoji ?? "🏠"}</span>
+            <span className="mt-1 line-clamp-1 text-xs font-semibold text-neutral-800 dark:text-neutral-100">{room.name}</span>
+            <span className="text-[10px] text-neutral-400">{room.memberCount ?? 0} members</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Skeleton grid
 // ---------------------------------------------------------------------------
 
@@ -73,12 +99,20 @@ export default function RoomsPage() {
   const [typeFilter, setTypeFilter] = useState<RoomTypeFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [rooms, setRooms] = useState<RoomCardData[]>([]);
+  const [pinnedRooms, setPinnedRooms] = useState<RoomCardData[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [joiningId, setJoiningId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/rooms/pinned", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : { rooms: [] })
+      .then((d: { rooms?: RoomCardData[] }) => setPinnedRooms(d.rooms ?? []))
+      .catch(() => {});
+  }, []);
 
   const fetchRooms = useCallback(
     async (opts: { tab: Tab; type: RoomTypeFilter; q: string; cursor?: string; append?: boolean }) => {
@@ -144,6 +178,9 @@ export default function RoomsPage() {
           + Create Room
         </button>
       </div>
+
+      {/* Pinned rooms */}
+      <PinnedRoomsStrip rooms={pinnedRooms} onJoin={(id) => router.push(`/rooms/${id}`)} />
 
       {/* Tab filters */}
       <div className="flex gap-1 rounded-xl border border-neutral-200 bg-neutral-100 p-1 dark:border-neutral-800 dark:bg-neutral-800">

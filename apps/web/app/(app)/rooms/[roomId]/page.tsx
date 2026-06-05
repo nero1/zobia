@@ -79,6 +79,7 @@ interface Message {
   createdAt: string;
   giftEmoji?: string;
   giftAmount?: number;
+  message_type?: "text" | "moment" | "gif" | "sticker";
 }
 
 // ---------------------------------------------------------------------------
@@ -308,7 +309,13 @@ function MessageBubble({ msg, isOwn }: MessageBubbleProps) {
           )}
           <span className="text-xs text-neutral-400">{timeAgo(msg.createdAt)}</span>
         </div>
-        <div className={`mt-0.5 rounded-2xl px-3.5 py-2 text-sm ${isOwn ? "rounded-tr-sm bg-blue-600 text-white" : "rounded-tl-sm bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100"}`}>
+        <div className={`mt-0.5 rounded-2xl px-3.5 py-2 text-sm ${
+          msg.message_type === "moment"
+            ? "border-2 border-purple-400 bg-purple-50 text-purple-900 dark:border-purple-600 dark:bg-purple-950/50 dark:text-purple-100"
+            : isOwn
+              ? "rounded-tr-sm bg-blue-600 text-white"
+              : "rounded-tl-sm bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100"
+        }`}>
           {msg.giftEmoji && (
             <div className="mb-1 flex items-center gap-1 text-xs font-semibold opacity-80">
               <span>{msg.giftEmoji}</span>
@@ -316,6 +323,9 @@ function MessageBubble({ msg, isOwn }: MessageBubbleProps) {
             </div>
           )}
           {msg.content}
+          {msg.message_type === "moment" && (
+            <div className="mt-1 text-xs font-semibold text-purple-500 dark:text-purple-400">⚡ Moment · 24h</div>
+          )}
         </div>
       </div>
     </div>
@@ -602,6 +612,8 @@ interface RoomInputBarProps {
   sending: boolean;
   canAccess: boolean;
   currentUserId: string | null;
+  isMoment: boolean;
+  onMomentToggle: () => void;
   onSend: (e: React.FormEvent) => void;
   onMessageSent: (msg: Message) => void;
 }
@@ -612,6 +624,8 @@ function RoomInputBar({
   setInput,
   sending,
   canAccess,
+  isMoment,
+  onMomentToggle,
   onSend,
 }: RoomInputBarProps) {
   const [showGif, setShowGif] = useState(false);
@@ -671,6 +685,15 @@ function RoomInputBar({
         <RoomPowersPanel roomId={roomId} onClose={() => setShowPowers(false)} />
       )}
 
+      {/* Moment mode indicator */}
+      {isMoment && (
+        <div className="flex items-center gap-1.5 border-b border-purple-200 bg-purple-50 px-3 py-1.5 dark:border-purple-900 dark:bg-purple-950/40">
+          <span className="text-sm">⚡</span>
+          <span className="text-xs font-semibold text-purple-700 dark:text-purple-300">Moment · disappears in 24h</span>
+          <button type="button" onClick={onMomentToggle} className="ml-auto text-xs text-purple-500 hover:text-purple-700 dark:hover:text-purple-300">Cancel</button>
+        </div>
+      )}
+
       <form onSubmit={onSend} className="flex items-center gap-1.5 p-3">
         {/* GIF */}
         <button type="button" onClick={() => toggle("gif")}
@@ -692,11 +715,21 @@ function RoomInputBar({
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Type a message…"
+          placeholder={isMoment ? "Send a moment (24h)…" : "Type a message…"}
           maxLength={500}
           disabled={!canAccess}
-          className="flex-1 rounded-xl border border-neutral-300 bg-neutral-50 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+          className={`flex-1 rounded-xl border bg-neutral-50 px-4 py-2.5 text-sm focus:outline-none focus:ring-1 disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-100 ${
+            isMoment
+              ? "border-purple-400 focus:border-purple-500 focus:ring-purple-500 dark:border-purple-600"
+              : "border-neutral-300 focus:border-blue-500 focus:ring-blue-500 dark:border-neutral-700"
+          }`}
         />
+
+        {/* Moment toggle */}
+        <button type="button" onClick={onMomentToggle} title="Moment (24h)" aria-label="Toggle Moment mode" disabled={!canAccess}
+          className={`flex h-9 w-9 items-center justify-center rounded-lg text-xl transition-colors ${isMoment ? "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-200" : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}>
+          🌟
+        </button>
 
         {/* Gift */}
         <Link href={`/rooms/${roomId}/gift`}
@@ -827,6 +860,7 @@ export default function RoomPage() {
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [isMoment, setIsMoment] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
   const [paying, setPaying] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -987,15 +1021,19 @@ export default function RoomPage() {
     e.preventDefault();
     if (!input.trim() || sending) return;
     setSending(true);
+    const momentFlag = isMoment;
     try {
+      const body: Record<string, unknown> = { content: input.trim() };
+      if (momentFlag) body.message_type = "moment";
       const res = await fetch(`/api/rooms/${roomId}/messages`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: input.trim() }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error("Failed to send");
       setInput("");
+      if (momentFlag) setIsMoment(false);
     } catch { /* ignore */ }
     setSending(false);
   }
@@ -1177,6 +1215,8 @@ export default function RoomPage() {
               sending={sending}
               canAccess={canAccess}
               currentUserId={currentUserId}
+              isMoment={isMoment}
+              onMomentToggle={() => setIsMoment((v) => !v)}
               onSend={handleSend}
               onMessageSent={(msg) =>
                 setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]))

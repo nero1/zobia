@@ -18,6 +18,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   FlatList,
   KeyboardAvoidingView,
@@ -63,7 +64,7 @@ interface Room {
 interface Message {
   id: string;
   content: string | null;
-  messageType: MessageBubbleProps['messageType'];
+  messageType: MessageBubbleProps['messageType'] | 'moment';
   senderUserId: string;
   senderUsername: string;
   senderDisplayName: string;
@@ -76,9 +77,12 @@ interface Message {
   giftEmoji?: string;
 }
 
+type RoomMessageType = 'text' | 'moment';
+
 interface SendMessagePayload {
   roomId: string;
   content: string;
+  message_type?: RoomMessageType;
 }
 
 // ---------------------------------------------------------------------------
@@ -103,6 +107,7 @@ async function fetchTopGifters(roomId: string): Promise<GifterEntry[]> {
 async function sendMessage(payload: SendMessagePayload): Promise<Message> {
   const { data } = await apiClient.post(`/rooms/${payload.roomId}/messages`, {
     content: payload.content,
+    message_type: payload.message_type ?? 'text',
   });
   return data.message;
 }
@@ -214,6 +219,7 @@ export default function RoomScreen() {
   const [inputText, setInputText] = useState('');
   const [showGifters, setShowGifters] = useState(false);
   const [xpFlash, setXpFlash] = useState(false);
+  const [isMoment, setIsMoment] = useState(false);
   // Gift spectacle state: holds the active spectacle data (null = not showing)
   const [spectacle, setSpectacle] = useState<GiftSpectacleData | null>(null);
 
@@ -293,6 +299,7 @@ export default function RoomScreen() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['room-messages', roomId] });
       setInputText('');
+      setIsMoment(false);
       setXpFlash(true);
       setTimeout(() => setXpFlash(false), 1_200);
     },
@@ -301,8 +308,8 @@ export default function RoomScreen() {
   const handleSend = useCallback(() => {
     const text = inputText.trim();
     if (!text || !roomId) return;
-    sendMutation.mutate({ roomId, content: text });
-  }, [inputText, roomId, sendMutation]);
+    sendMutation.mutate({ roomId, content: text, message_type: isMoment ? 'moment' : 'text' });
+  }, [inputText, roomId, isMoment, sendMutation]);
 
   const handleLongPress = useCallback((messageId: string) => {
     // Opens reaction picker — placeholder
@@ -310,24 +317,32 @@ export default function RoomScreen() {
   }, []);
 
   const renderMessage = useCallback(
-    ({ item }: { item: Message }) => (
-      <MessageBubble
-        id={item.id}
-        content={item.content}
-        messageType={item.messageType}
-        senderUsername={item.senderUsername}
-        senderDisplayName={item.senderDisplayName}
-        senderAvatarEmoji={item.senderAvatarEmoji}
-        senderIsCreator={item.senderIsCreator}
-        isOwnMessage={item.senderUserId === CURRENT_USER_ID}
-        reactions={item.reactions}
-        createdAt={item.createdAt}
-        giftCoinValue={item.giftCoinValue}
-        giftName={item.giftName}
-        giftEmoji={item.giftEmoji}
-        onLongPress={handleLongPress}
-      />
-    ),
+    ({ item }: { item: Message }) => {
+      const isMomentMsg = item.messageType === 'moment';
+      return (
+        <View style={isMomentMsg ? styles.momentWrapper : undefined}>
+          <MessageBubble
+            id={item.id}
+            content={item.content}
+            messageType={isMomentMsg ? 'text' : (item.messageType as MessageBubbleProps['messageType'])}
+            senderUsername={item.senderUsername}
+            senderDisplayName={item.senderDisplayName}
+            senderAvatarEmoji={item.senderAvatarEmoji}
+            senderIsCreator={item.senderIsCreator}
+            isOwnMessage={item.senderUserId === CURRENT_USER_ID}
+            reactions={item.reactions}
+            createdAt={item.createdAt}
+            giftCoinValue={item.giftCoinValue}
+            giftName={item.giftName}
+            giftEmoji={item.giftEmoji}
+            onLongPress={handleLongPress}
+          />
+          {isMomentMsg && (
+            <Text style={styles.momentBadge}>⚡ Moment · 24h</Text>
+          )}
+        </View>
+      );
+    },
     [handleLongPress],
   );
 
@@ -423,6 +438,12 @@ export default function RoomScreen() {
           ]}
         >
           <XPBadge visible={xpFlash} />
+          {/* Moment label above input */}
+          {isMoment && (
+            <View style={styles.momentActiveLabel}>
+              <Text style={styles.momentActiveLabelText}>⚡ Moment (24h)</Text>
+            </View>
+          )}
           <TextInput
             style={[
               styles.textInput,
@@ -430,6 +451,7 @@ export default function RoomScreen() {
                 backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100],
                 color: themeColors.text,
               },
+              isMoment && styles.textInputMoment,
             ]}
             placeholder="Say something…"
             placeholderTextColor={themeColors.textMuted}
@@ -441,6 +463,15 @@ export default function RoomScreen() {
             onSubmitEditing={handleSend}
             editable={!isVIPLocked}
           />
+          {/* Zobia Moment button */}
+          <Pressable
+            style={[styles.iconBtn, { backgroundColor: isMoment ? '#7c3aed' : (isDark ? '#7c3aed22' : '#ede9fe') }]}
+            onPress={() => setIsMoment((v) => !v)}
+            accessibilityLabel="Toggle Zobia Moment (disappears in 24h)"
+            accessibilityRole="button"
+          >
+            <Text style={[styles.iconBtnText, { color: isMoment ? '#fff' : '#7c3aed' }]}>⚡</Text>
+          </Pressable>
           <Pressable
             style={styles.iconBtn}
             onPress={() => console.log('GIF')}
@@ -486,7 +517,7 @@ export default function RoomScreen() {
               accessibilityLabel="Room powers"
               accessibilityRole="button"
             >
-              <Text style={styles.iconBtnText}>⚡</Text>
+              <Text style={styles.iconBtnText}>🔮</Text>
             </Pressable>
           )}
           <Pressable
@@ -666,6 +697,46 @@ const styles = StyleSheet.create({
     color: colors.neutral[0],
     fontSize: 13,
     fontWeight: '800',
+  },
+
+  // Moment message wrapper
+  momentWrapper: {
+    borderWidth: 2,
+    borderColor: '#7c3aed',
+    borderRadius: 18,
+    marginHorizontal: 8,
+    marginVertical: 2,
+    overflow: 'hidden',
+  },
+  momentBadge: {
+    fontSize: 10,
+    color: '#7c3aed',
+    fontWeight: '700',
+    textAlign: 'center',
+    paddingVertical: 3,
+    backgroundColor: '#ede9fe',
+  },
+
+  // Moment label above input
+  momentActiveLabel: {
+    position: 'absolute',
+    top: -28,
+    left: 12,
+    backgroundColor: '#7c3aed',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    zIndex: 10,
+  },
+  momentActiveLabelText: {
+    fontSize: 11,
+    color: '#fff',
+    fontWeight: '700',
+  },
+
+  textInputMoment: {
+    borderWidth: 2,
+    borderColor: '#7c3aed',
   },
 
   // Skeleton

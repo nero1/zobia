@@ -83,6 +83,9 @@ interface UserFullProfile {
   guild_notifications: boolean;
   streak_notifications: boolean;
 
+  // Security
+  totp_enabled: boolean;
+
   created_at: string;
   updated_at: string;
 }
@@ -140,6 +143,7 @@ const SELECT_COLUMNS = `
   guild_id, referral_code, push_token,
   dm_notifications, guild_notifications, streak_notifications,
   COALESCE(dm_privacy, 'everyone') AS dm_privacy,
+  COALESCE(totp_enabled, false) AS totp_enabled,
   created_at, updated_at
 `;
 
