@@ -7,7 +7,8 @@
  *
  * Step 1 — Identity creation (username, display name, avatar emoji, city, date of birth).
  * Step 2 — Vibe Quiz (4 questions that silently personalise the feed).
- * Step 3 — Welcome XP Drop (animation + redirect to home).
+ * Step 3 — Welcome XP Drop (500 XP animation).
+ * Step 4 — First Contact: friend search + referral link share (web fallback for expo-contacts).
  *
  * CAPTCHA token is collected via reCAPTCHA v3 / Turnstile (per manifest).
  * Age gate enforced: date_of_birth required; users below minimumAge are blocked.
@@ -22,13 +23,20 @@ import Script from "next/script";
 // Types
 // ---------------------------------------------------------------------------
 
-type Step = 1 | 2 | 3;
+type Step = 1 | 2 | 3 | 4;
 
 interface VibeAnswers {
   activity: string;
   socialStyle: string;
   motivation: string;
   cityVibe: string;
+}
+
+interface FriendSearchResult {
+  userId: string;
+  username: string;
+  displayName: string;
+  avatarEmoji: string;
 }
 
 interface ManifestPublic {
@@ -109,6 +117,14 @@ export default function OnboardingPage() {
   const [error, setError] = useState<string | null>(null);
   const [welcomeXP, setWelcomeXP] = useState(false);
 
+  // Step 4 — First Contact
+  const [friendQuery, setFriendQuery] = useState("");
+  const [friendResults, setFriendResults] = useState<FriendSearchResult[]>([]);
+  const [friendSearching, setFriendSearching] = useState(false);
+  const [addedFriends, setAddedFriends] = useState<Set<string>>(new Set());
+  const [referralUrl, setReferralUrl] = useState<string | null>(null);
+  const [referralCopied, setReferralCopied] = useState(false);
+
   // Captcha refs
   const turnstileWidgetId = useRef<string | null>(null);
   const captchaContainerRef = useRef<HTMLDivElement>(null);
@@ -159,6 +175,22 @@ export default function OnboardingPage() {
     }, 500);
     return () => clearTimeout(t);
   }, [username]);
+
+  // ---------------------------------------------------------------------------
+  // Step 4 — Debounced friend search
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (friendQuery.length < 2) { setFriendResults([]); return; }
+    setFriendSearching(true);
+    const t = setTimeout(() => {
+      fetch(`/api/users/search?q=${encodeURIComponent(friendQuery)}&limit=10`)
+        .then((r) => r.json())
+        .then((d: { users?: FriendSearchResult[] }) => setFriendResults(d.users ?? []))
+        .catch(() => setFriendResults([]))
+        .finally(() => setFriendSearching(false));
+    }, 400);
+    return () => clearTimeout(t);
+  }, [friendQuery]);
 
   // ---------------------------------------------------------------------------
   // Step 1 validation
@@ -256,10 +288,18 @@ export default function OnboardingPage() {
         return;
       }
 
-      // Step 3 — Welcome XP Drop animation
+      // Step 3 — Welcome XP Drop animation, then advance to Step 4
       setWelcomeXP(true);
       setTimeout(() => {
-        router.push("/(app)/home");
+        setWelcomeXP(false);
+        setStep(4);
+        // Fetch referral link for Step 4
+        fetch("/api/referrals")
+          .then((r) => r.json())
+          .then((d: { stats?: { referralUrl?: string } }) => {
+            if (d.stats?.referralUrl) setReferralUrl(d.stats.referralUrl);
+          })
+          .catch(() => {});
       }, 2500);
 
     } catch {
@@ -331,7 +371,7 @@ export default function OnboardingPage() {
         <div className="mx-auto max-w-lg px-4 py-12">
           {/* Progress bar */}
           <div className="mb-8 flex gap-2">
-            {([1, 2, 3] as Step[]).map((s) => (
+            {([1, 2, 3, 4] as Step[]).map((s) => (
               <div
                 key={s}
                 className={`h-1.5 flex-1 rounded-full transition-colors duration-300 ${
@@ -481,6 +521,114 @@ export default function OnboardingPage() {
                 className="w-full rounded-xl bg-amber-400 py-3.5 text-sm font-bold text-neutral-900 hover:bg-amber-500 transition-colors"
               >
                 Continue →
+              </button>
+            </div>
+          )}
+
+          {/* ================================================================
+              STEP 4 — First Contact (friend search + referral link)
+          ================================================================ */}
+          {step === 4 && (
+            <div className="space-y-6">
+              <div>
+                <h1 className="text-2xl font-black text-neutral-900 dark:text-white">
+                  Find your people
+                </h1>
+                <p className="mt-1 text-sm text-neutral-500">
+                  Search for friends already on Zobia, or share your invite link to bring them over.
+                </p>
+              </div>
+
+              {/* Friend search */}
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+                  Search by username or display name
+                </label>
+                <input
+                  type="text"
+                  value={friendQuery}
+                  onChange={(e) => setFriendQuery(e.target.value)}
+                  placeholder="Search friends…"
+                  className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/20 dark:border-neutral-700 dark:bg-neutral-800 dark:text-white"
+                />
+
+                {friendSearching && (
+                  <p className="mt-2 text-xs text-neutral-400">Searching…</p>
+                )}
+
+                {friendResults.length > 0 && (
+                  <ul className="mt-2 divide-y divide-neutral-100 rounded-xl border border-neutral-200 bg-white shadow-sm dark:divide-neutral-800 dark:border-neutral-700 dark:bg-neutral-900">
+                    {friendResults.map((u) => (
+                      <li key={u.userId} className="flex items-center gap-3 px-4 py-3">
+                        <span className="text-2xl">{u.avatarEmoji}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="truncate text-sm font-semibold text-neutral-900 dark:text-white">{u.displayName}</p>
+                          <p className="truncate text-xs text-neutral-500">@{u.username}</p>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={addedFriends.has(u.userId)}
+                          onClick={async () => {
+                            try {
+                              await fetch("/api/friends", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ targetUserId: u.userId }),
+                              });
+                              setAddedFriends((prev) => new Set([...prev, u.userId]));
+                            } catch { /* best-effort */ }
+                          }}
+                          className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+                            addedFriends.has(u.userId)
+                              ? "bg-neutral-100 text-neutral-400 dark:bg-neutral-800"
+                              : "bg-neutral-900 text-white hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-100"
+                          }`}
+                        >
+                          {addedFriends.has(u.userId) ? "Added" : "Add"}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {!friendSearching && friendQuery.length >= 2 && friendResults.length === 0 && (
+                  <p className="mt-2 text-xs text-neutral-400">No results for &ldquo;{friendQuery}&rdquo;</p>
+                )}
+              </div>
+
+              {/* Referral link */}
+              <div>
+                <p className="mb-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+                  Or invite friends via link
+                </p>
+                {referralUrl ? (
+                  <div className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800">
+                    <span className="flex-1 truncate text-xs text-neutral-600 dark:text-neutral-400">
+                      {referralUrl}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(referralUrl).catch(() => {});
+                        setReferralCopied(true);
+                        setTimeout(() => setReferralCopied(false), 2000);
+                      }}
+                      className="shrink-0 rounded-lg bg-amber-400 px-3 py-1.5 text-xs font-bold text-neutral-900 hover:bg-amber-500 transition-colors"
+                    >
+                      {referralCopied ? "Copied!" : "Copy"}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="h-11 animate-pulse rounded-xl bg-neutral-100 dark:bg-neutral-800" />
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => router.push("/(app)/home")}
+                className="w-full rounded-xl bg-amber-400 py-3.5 text-sm font-bold text-neutral-900 hover:bg-amber-500 transition-colors"
+              >
+                {addedFriends.size > 0 ? `Continue (${addedFriends.size} added) →` : "Continue to Zobia →"}
               </button>
             </div>
           )}
