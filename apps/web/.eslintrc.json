@@ -1,0 +1,43 @@
+{
+  "extends": ["next/core-web-vitals"],
+  "plugins": ["no-restricted-imports"],
+  "rules": {
+    "no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          {
+            "name": "@supabase/supabase-js",
+            "message": "Direct Supabase SDK imports are forbidden when DATABASE_PROVIDER != 'supabase'. Use the db abstraction layer at lib/db instead."
+          },
+          {
+            "name": "@supabase/auth-helpers-nextjs",
+            "message": "Supabase auth helpers are forbidden. Auth is platform-managed JWT. See lib/auth/."
+          },
+          {
+            "name": "@supabase/auth-helpers-react",
+            "message": "Supabase auth helpers are forbidden. Auth is platform-managed JWT. See lib/auth/."
+          },
+          {
+            "name": "@supabase/auth-helpers-shared",
+            "message": "Supabase auth helpers are forbidden. Auth is platform-managed JWT."
+          }
+        ],
+        "patterns": [
+          {
+            "group": ["@supabase/auth-helpers-*"],
+            "message": "Supabase auth helper packages are forbidden. Auth is platform-managed JWT. See lib/auth/ for the correct auth abstraction."
+          }
+        ]
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["lib/db/providers/supabase.ts", "lib/storage/providers/supabase-storage.ts"],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    }
+  ]
+}

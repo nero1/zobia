@@ -8,6 +8,9 @@
  *   - ReactQueryProvider with devtools
  *   - i18n initialisation
  *   - Global metadata and viewport settings
+ *   - PWA per-platform toggle (PRD §3, §20, §22): conditionally includes
+ *     <link rel="manifest"> based on x_manifest pwa.webEnabled flag at
+ *     runtime. Uses generateMetadata() so the flag is evaluated per-request.
  */
 
 import type { Metadata, Viewport } from "next";
@@ -16,6 +19,7 @@ import { ThemeProvider } from "next-themes";
 import "./globals.css";
 import { ReactQueryProvider } from "@/components/providers/ReactQueryProvider";
 import { I18nProvider } from "@/components/providers/I18nProvider";
+import { loadManifest } from "@/lib/manifest";
 
 // ---------------------------------------------------------------------------
 // Font
@@ -28,37 +32,56 @@ const inter = Inter({
 });
 
 // ---------------------------------------------------------------------------
-// Metadata
+// Dynamic Metadata (PRD §3 §20 §22 — PWA per-platform toggle)
 // ---------------------------------------------------------------------------
 
-export const metadata: Metadata = {
-  title: {
-    default: "Zobia Social",
-    template: "%s | Zobia Social",
-  },
-  description:
-    "Zobia Social – Connect, engage, and belong. Discover rooms, chat with friends, and build your community.",
-  keywords: ["social", "community", "chat", "rooms", "messaging"],
-  authors: [{ name: "Zobia Social" }],
-  creator: "Zobia Social",
-  manifest: "/manifest.webmanifest",
-  icons: {
-    icon: "/icons/icon-192x192.png",
-    apple: "/icons/apple-touch-icon.png",
-  },
-  openGraph: {
-    type: "website",
-    siteName: "Zobia Social",
-    title: "Zobia Social",
-    description: "Connect, engage, and belong.",
-    images: [{ url: "/og-image.png", width: 1200, height: 630 }],
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "Zobia Social",
-    description: "Connect, engage, and belong.",
-  },
-};
+/**
+ * generateMetadata replaces the static `metadata` export so we can read the
+ * admin-controlled pwa.webEnabled flag from x_manifest at request time and
+ * conditionally include (or omit) the PWA manifest link.
+ *
+ * When pwa.webEnabled = FALSE the <link rel="manifest"> tag is omitted,
+ * which prevents browsers from offering "Add to Home Screen" for the web app.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  let pwaWebEnabled = true;
+  try {
+    const manifest = await loadManifest();
+    pwaWebEnabled = manifest.pwa.webEnabled;
+  } catch {
+    // Manifest unavailable — default to PWA enabled
+  }
+
+  return {
+    title: {
+      default: "Zobia Social",
+      template: "%s | Zobia Social",
+    },
+    description:
+      "Zobia Social – Connect, engage, and belong. Discover rooms, chat with friends, and build your community.",
+    keywords: ["social", "community", "chat", "rooms", "messaging"],
+    authors: [{ name: "Zobia Social" }],
+    creator: "Zobia Social",
+    // Conditionally include manifest link based on admin toggle
+    ...(pwaWebEnabled ? { manifest: "/manifest.webmanifest" } : {}),
+    icons: {
+      icon: "/icons/icon-192x192.png",
+      apple: "/icons/apple-touch-icon.png",
+    },
+    openGraph: {
+      type: "website",
+      siteName: "Zobia Social",
+      title: "Zobia Social",
+      description: "Connect, engage, and belong.",
+      images: [{ url: "/og-image.png", width: 1200, height: 630 }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: "Zobia Social",
+      description: "Connect, engage, and belong.",
+    },
+  };
+}
 
 export const viewport: Viewport = {
   themeColor: [
@@ -79,8 +102,8 @@ interface RootLayoutProps {
 }
 
 /**
- * Root layout component.
- * Wraps the entire application with global providers.
+ * Root layout component. Async Server Component — safe to await at the top
+ * level. PWA manifest presence is controlled per-request by generateMetadata.
  */
 export default function RootLayout({ children }: RootLayoutProps) {
   return (

@@ -195,6 +195,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       // Override the multiplier context with the real value
       body.multiplierContext.hasActiveXPBooster = hasActiveXPBooster;
 
+      // Check for active Flash XP event (PRD §2.4, §8, §25):
+      // When a flash_xp_event has been fired (fired=TRUE) and is still within
+      // its window (fires_at <= NOW() <= ends_at), apply the event's multiplier
+      // on top of all other multipliers. Users benefit automatically — no opt-in needed.
+      const { rows: flashRows } = await client.query<{ multiplier: string }>(
+        `SELECT multiplier::TEXT AS multiplier
+         FROM flash_xp_events
+         WHERE is_active = TRUE
+           AND fired = TRUE
+           AND fires_at <= NOW()
+           AND ends_at > NOW()
+         ORDER BY multiplier DESC
+         LIMIT 1`
+      );
+      const activeFlashMultiplier = flashRows.length > 0 ? parseFloat(flashRows[0].multiplier) : 1.0;
+
       // 2. Calculate XP using engine
       const ctx: XPMultiplierContext = {
         plan: body.multiplierContext.plan,
@@ -205,7 +221,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       };
 
       const baseXp = calculateXPForAction(body.action, body.options);
-      const xpAwarded = applyMultipliers(baseXp, ctx);
+      // Apply base multipliers from plan/guild/season/booster stack
+      const baseAwardedXp = applyMultipliers(baseXp, ctx);
+      // Apply Flash XP event multiplier on top (integer floor to stay precise)
+      const xpAwarded = activeFlashMultiplier > 1.0
+        ? Math.floor(baseAwardedXp * activeFlashMultiplier)
+        : baseAwardedXp;
 
       if (xpAwarded <= 0) {
         return { xpAwarded: 0, newTotal: user.xp_total, rankUp: undefined };

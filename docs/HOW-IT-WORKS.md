@@ -524,3 +524,129 @@ Tapping "Gift them coins" opens the **Coin Transfer** flow (not the gift item fl
 - **Expo:** Routes to `/economy/wallet` with `transfer=[userId]` param.
 
 This allows the current user to send raw coins to the recipient so they can reply.
+
+This allows the current user to send raw coins to the recipient so they can reply.
+
+---
+
+## Flash XP Event Scheduling (PRD §2.4, §8, §25)
+
+Flash XP events follow a two-phase lifecycle managed by the hourly CRON (`GET /api/cron/guild-wars`):
+
+### Phase 1 — Announcement (6-hour advance notice)
+
+When an event's `announced_at` timestamp is reached and `announcement_notification_sent = FALSE`, the CRON:
+
+1. Atomically marks the event as `announcement_notification_sent = TRUE`.
+2. Inserts a `flash_xp_announced` in-app notification for all users active in the last 30 days.
+3. The notification body tells users a Double XP event is happening *sometime before* the window closes — the exact fire time is never disclosed.
+
+**Admin creates events** via `POST /api/admin/flash-xp` with:
+- `announced_at` — when to send the 6-hour advance notification
+- `fires_at` — the actual (secret) fire time (must be ≥ 6 hours after `announced_at`)
+- `ends_at` — when the XP multiplier deactivates
+
+The 6-hour minimum gap is enforced server-side (returns 400 if violated).
+
+### Phase 2 — Firing (unannounced moment within the window)
+
+When `fires_at <= NOW()` and `fired = FALSE`, the CRON:
+
+1. Atomically marks the event as `fired = TRUE`.
+2. Inserts a `flash_xp_live` high-urgency notification for all users active in the last 7 days.
+3. The XP award route (`POST /api/xp/award`) checks `flash_xp_events` for any row where `fired = TRUE AND fires_at <= NOW() AND ends_at > NOW()` and applies the multiplier.
+
+The admin controls the exact fire time — from the user perspective, it fires "at a random moment" within the announced window.
+
+---
+
+## Admin: Sponsored Quest Marketplace (PRD §14)
+
+The Sponsored Quest Marketplace has two separate API surfaces:
+
+### Brand / Admin side — `GET|POST /api/admin/sponsored-quests`
+
+Admin creates quests on behalf of brands. Required fields:
+
+| Field | Description |
+|---|---|
+| `brandName` | Sponsoring brand name |
+| `brandLogoUrl` | Optional brand logo |
+| `title` | Quest title shown to creators |
+| `description` | Full quest brief |
+| `requirements` | What creators must do to earn the reward |
+| `rewardAmountCoins` | Total reward in Coins |
+| `creatorSharePercent` | Creator's share (default 70%) |
+| `platformSharePercent` | Platform's share (default 30%, must sum to 100 with creator share) |
+| `maxApplications` | Max concurrent creator approvals |
+| `deadline` | Application closing date |
+| `minCreatorTier` | Minimum creator tier to apply (default: "verified") |
+
+### Creator side — `GET /api/creator/sponsored-quests` + `POST /api/creator/sponsored-quests/[id]/apply`
+
+Verified+ creators browse active quests and apply. Application status: `pending → approved → completed`.
+
+On completion, the Coin reward is split per `creatorSharePercent`/`platformSharePercent`.
+
+---
+
+## PWA Per-Platform Toggle (PRD §3, §20, §22)
+
+Admin controls PWA availability independently for web, Android, and iOS from the admin config panel. Changes are stored in `x_manifest` and take effect within the Redis cache TTL (60 seconds).
+
+### Web PWA
+
+`generateMetadata()` in `app/layout.tsx` reads `manifest.pwa.webEnabled` at request time. When `FALSE`, the `<link rel="manifest">` tag is omitted from the HTML `<head>`, which prevents browsers from offering "Add to Home Screen" for the web version.
+
+The `next.config.js` also reads `NEXT_PUBLIC_PWA_WEB_ENABLED=false` at build time to disable service worker generation for deployments that should never serve a PWA (e.g. admin-only instances).
+
+### Android / iOS PWA
+
+`manifest.pwa.androidEnabled` and `manifest.pwa.iosEnabled` are checked by the Expo app's service worker registration code and the web app's install prompt component. When disabled, the "Install App" banner and prompt are suppressed.
+
+---
+
+## Business Account Tier Upgrades (PRD §17)
+
+Business accounts start at the free `starter` tier. To upgrade to `growth` (₦15,000/month) or `enterprise` (₦50,000+/month):
+
+1. Client calls `PATCH /api/business/tier` with `{ tier, paymentProvider }`.
+2. Server looks up the tier price from `x_manifest` (admin-configurable; falls back to PRD defaults).
+3. Server stores `pending_tier` and `pending_payment_ref` on the business account record.
+4. Server calls Paystack (`initializePayment`) or DodoPayments (`createPaymentSession`) and returns `{ paymentUrl }`.
+5. Client redirects user to the checkout page.
+6. On `charge.success` (Paystack) or `payment.succeeded` (DodoPayments), the webhook handler:
+   - Matches the `pending_payment_ref` on the business account.
+   - Updates `tier` to the `newTier` from metadata.
+   - Clears `pending_tier` and `pending_payment_ref`.
+   - Records `tier_updated_at`.
+
+Tier prices are admin-configurable via `x_manifest` keys `business_growth_price_kobo` and `business_enterprise_price_kobo`.
+
+---
+
+## Weekly Season Leaderboard Snapshot (PRD §25)
+
+Every Sunday (UTC), the daily CRON publishes an official Season leaderboard snapshot:
+
+1. Finds the currently active season.
+2. Deletes the previous week's `season_weekly` snapshot rows for that season from `leaderboard_rank_snapshots`.
+3. Re-inserts the top 200 users ranked by `season_xp` from `season_leaderboard_entries`.
+
+This snapshot is what powers the "Season Leaderboard snapshot published (every Sunday)" shown in the Platform Vitality Calendar. The live leaderboard continues to update every 15 minutes via the hourly CRON's leaderboard step.
+
+---
+
+## ESLint Supabase Import Restriction (PRD §22.1)
+
+`apps/web/.eslintrc.json` contains a `no-restricted-imports` rule that blocks direct imports from:
+
+- `@supabase/supabase-js`
+- `@supabase/auth-helpers-nextjs`
+- `@supabase/auth-helpers-react`
+- `@supabase/auth-helpers-shared`
+- Any `@supabase/auth-helpers-*` package
+
+**Exception:** `lib/db/providers/supabase.ts` and `lib/storage/providers/supabase-storage.ts` are exempted via the `overrides` config — these are the only two files permitted to use the Supabase SDK directly.
+
+This enforces the PRD §22.1 requirement: when `DATABASE_PROVIDER != 'supabase'`, no Supabase SDK code is reachable through any import path.
