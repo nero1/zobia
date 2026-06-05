@@ -2,16 +2,22 @@
  * lib/payments/googlePlay.ts
  *
  * Google Play Billing integration (Android only).
- * Uses expo-in-app-purchases for coin top-ups.
+ * Uses expo-in-app-purchases for coin top-ups and subscription plans.
  *
  * Product IDs must be created in the Google Play Console.
  * Matching coin amounts are defined below.
  *
- * Purchase flow:
+ * Purchase flow (coins):
  *  1. purchaseCoins() triggers the Google Play billing sheet
  *  2. On success, the purchaseToken is sent to the server for verification
  *  3. Server verifies with Google Play Developer API and credits coins
  *  4. finishTransactionAsync() is called to consume the purchase on the client
+ *
+ * Purchase flow (subscriptions):
+ *  1. purchaseSubscription() triggers the Google Play billing sheet
+ *  2. On success, the purchaseToken is sent to the server for verification
+ *  3. Server verifies with Google Play subscriptions API and activates plan
+ *  4. finishTransactionAsync(purchase, false) acknowledges (does not consume)
  */
 
 import { Platform } from 'react-native';
@@ -29,6 +35,15 @@ export interface CoinProduct {
   title?: string;
 }
 
+export interface SubscriptionProduct {
+  id: string;
+  plan: 'plus' | 'pro' | 'max';
+  label: string;
+  monthlyPrice: string;
+  annualPrice: string;
+  monthlyCoins: number;
+}
+
 /** Maps Play Store product IDs to coin amounts (base + bonus = total). */
 const COIN_PRODUCTS: CoinProduct[] = [
   { id: 'coins_starter', coins: 100,    price: '₦200' },   // 100 base, no bonus
@@ -39,36 +54,63 @@ const COIN_PRODUCTS: CoinProduct[] = [
   { id: 'coins_legend',  coins: 11500,  price: '₦10,000' },// 10,000 base + 1,500 bonus
 ];
 
+/** Subscription plan products — must match PRD §3 prices. */
+export const SUBSCRIPTION_PRODUCTS: SubscriptionProduct[] = [
+  {
+    id: 'sub_plus_monthly',
+    plan: 'plus',
+    label: 'Plus',
+    monthlyPrice: '₦500',
+    annualPrice: '₦5,000',
+    monthlyCoins: 50,
+  },
+  {
+    id: 'sub_pro_monthly',
+    plan: 'pro',
+    label: 'Pro',
+    monthlyPrice: '₦1,500',
+    annualPrice: '₦15,000',
+    monthlyCoins: 200,
+  },
+  {
+    id: 'sub_max_monthly',
+    plan: 'max',
+    label: 'Max',
+    monthlyPrice: '₦3,500',
+    annualPrice: '₦35,000',
+    monthlyCoins: 500,
+  },
+];
+
 const PRODUCT_IDS = COIN_PRODUCTS.map((p) => p.id);
+const SUBSCRIPTION_IDS = SUBSCRIPTION_PRODUCTS.map((p) => p.id);
 
 // ---------------------------------------------------------------------------
 // Server verification
 // ---------------------------------------------------------------------------
 
 /**
- * Verify a completed Google Play purchase server-side and credit coins.
- *
- * Calls POST /api/economy/iap/verify with the purchaseToken and productId.
- * The server verifies with Google Play Developer API, checks idempotency,
- * and credits the coins atomically.
- *
- * @param purchaseToken - Token from the completed purchase
- * @param productId     - Play Store product ID
- * @param packageName   - App package name (e.g. 'com.zobia.app')
- * @returns Number of coins granted, or null on failure
+ * Verify a completed Google Play purchase server-side and credit coins or activate plan.
  */
 async function verifyPurchaseServerSide(
   purchaseToken: string,
   productId: string,
-  packageName: string
-): Promise<number | null> {
+  packageName: string,
+  isSubscription = false
+): Promise<{ coinsGranted: number; plan?: string } | null> {
   try {
-    const response = await apiClient.post<{ success: boolean; coinsGranted: number }>(
-      '/api/economy/iap/verify',
-      { purchaseToken, productId, packageName }
-    );
+    const response = await apiClient.post<{
+      success: boolean;
+      coinsGranted: number;
+      plan?: string;
+    }>('/api/economy/iap/verify', {
+      purchaseToken,
+      productId,
+      packageName,
+      isSubscription,
+    });
     if (response.data.success) {
-      return response.data.coinsGranted;
+      return { coinsGranted: response.data.coinsGranted, plan: response.data.plan };
     }
     return null;
   } catch (err) {
@@ -165,7 +207,7 @@ export async function purchaseCoins(
         const purchase = results.find((r) => r.productId === productId);
         if (purchase && purchase.purchaseToken) {
           // 1. Verify server-side first — this credits the coins
-          const coinsGranted = await verifyPurchaseServerSide(
+          const result = await verifyPurchaseServerSide(
             purchase.purchaseToken,
             productId,
             packageName
@@ -179,10 +221,10 @@ export async function purchaseCoins(
             console.warn('[googlePlay] finishTransactionAsync failed:', finishErr);
           }
 
-          if (coinsGranted !== null) {
+          if (result !== null) {
             resolve({
               success: true,
-              coins: coinsGranted,
+              coins: result.coinsGranted,
               purchaseToken: purchase.purchaseToken,
             });
           } else {
@@ -216,4 +258,111 @@ export async function disconnectGooglePlayBilling(): Promise<void> {
   if (Platform.OS !== 'android' || !initialised) return;
   await InAppPurchases.disconnectAsync();
   initialised = false;
+}
+
+// ---------------------------------------------------------------------------
+// Subscription purchase flow
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch available subscription products from the Play Store.
+ */
+export async function getSubscriptionProducts(): Promise<SubscriptionProduct[]> {
+  if (Platform.OS !== 'android') return [];
+
+  try {
+    const { responseCode, results } = await InAppPurchases.getProductsAsync(SUBSCRIPTION_IDS);
+
+    if (responseCode !== InAppPurchases.IAPResponseCode.OK || !results) {
+      return SUBSCRIPTION_PRODUCTS;
+    }
+
+    return SUBSCRIPTION_PRODUCTS.map((local) => {
+      const store = results.find((r) => r.productId === local.id);
+      return store
+        ? { ...local, monthlyPrice: store.price ?? local.monthlyPrice }
+        : local;
+    });
+  } catch {
+    return SUBSCRIPTION_PRODUCTS;
+  }
+}
+
+/**
+ * Initiate a subscription purchase via Google Play.
+ *
+ * Flow:
+ *  1. Opens the Google Play billing sheet for the subscription product
+ *  2. On success, sends the purchaseToken to the server for verification
+ *  3. Server verifies via purchases.subscriptions API and activates the plan
+ *  4. Client calls finishTransactionAsync(purchase, false) to acknowledge
+ *
+ * @param productId   - Subscription product ID (e.g. 'sub_plus_monthly')
+ * @param packageName - App package name (e.g. 'com.zobia.app')
+ */
+export async function purchaseSubscription(
+  productId: string,
+  packageName = 'com.zobia.app'
+): Promise<{
+  success: boolean;
+  plan?: string;
+  coinsGranted?: number;
+  purchaseToken?: string;
+  error?: string;
+}> {
+  if (Platform.OS !== 'android') {
+    return { success: false, error: 'Google Play only available on Android' };
+  }
+
+  const product = SUBSCRIPTION_PRODUCTS.find((p) => p.id === productId);
+  if (!product) {
+    return { success: false, error: 'Unknown subscription product ID' };
+  }
+
+  return new Promise((resolve) => {
+    InAppPurchases.setPurchaseListener(async ({ responseCode, results, errorCode }) => {
+      if (responseCode === InAppPurchases.IAPResponseCode.OK && results) {
+        const purchase = results.find((r) => r.productId === productId);
+        if (purchase && purchase.purchaseToken) {
+          // Verify and activate plan server-side
+          const result = await verifyPurchaseServerSide(
+            purchase.purchaseToken,
+            productId,
+            packageName,
+            true // isSubscription
+          );
+
+          // Acknowledge (not consume) the subscription on the client
+          try {
+            await InAppPurchases.finishTransactionAsync(purchase, false);
+          } catch (finishErr) {
+            console.warn('[googlePlay] Subscription finishTransactionAsync failed:', finishErr);
+          }
+
+          if (result !== null) {
+            resolve({
+              success: true,
+              plan: result.plan,
+              coinsGranted: result.coinsGranted,
+              purchaseToken: purchase.purchaseToken,
+            });
+          } else {
+            resolve({
+              success: false,
+              purchaseToken: purchase.purchaseToken,
+              error: 'Server verification failed — please contact support',
+            });
+          }
+        }
+      } else if (responseCode === InAppPurchases.IAPResponseCode.USER_CANCELED) {
+        resolve({ success: false, error: 'Purchase cancelled' });
+      } else {
+        resolve({ success: false, error: `Purchase failed (code ${errorCode})` });
+      }
+    });
+
+    InAppPurchases.purchaseItemAsync(productId).catch((err: Error) => {
+      resolve({ success: false, error: err.message });
+    });
+  });
 }

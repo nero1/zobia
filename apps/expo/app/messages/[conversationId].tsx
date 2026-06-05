@@ -38,13 +38,15 @@ import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
 import { getPidginSuggestions } from '@/lib/i18n/pidgin';
+import { CHAT_THEMES } from '@/lib/theme/chatThemes';
+import type { ChatTheme } from '@/lib/theme/chatThemes';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 type MessageStatus = 'sent' | 'pending' | 'failed';
-type MessageType = 'text' | 'gif' | 'sticker' | 'gift';
+type MessageType = 'text' | 'gif' | 'sticker' | 'gift' | 'moment';
 
 interface DM {
   id: string;
@@ -90,6 +92,15 @@ interface StickerPack {
 async function fetchConversation(id: string): Promise<ConversationMeta> {
   const { data } = await apiClient.get(`/messages/conversations/${id}`);
   return data.conversation;
+}
+
+async function fetchChatTheme(): Promise<ChatTheme> {
+  try {
+    const { data } = await apiClient.get('/api/users/me/theme');
+    return (data.data?.theme ?? 'default') as ChatTheme;
+  } catch {
+    return 'default';
+  }
 }
 
 async function fetchMessages(id: string): Promise<DM[]> {
@@ -166,9 +177,11 @@ interface DMBubbleProps {
   dm: DM;
   isOwn: boolean;
   onLongPress: (id: string) => void;
+  bubbleOwnColor: string;
+  bubbleOtherColor: string;
 }
 
-function DMBubble({ dm, isOwn, onLongPress }: DMBubbleProps) {
+function DMBubble({ dm, isOwn, onLongPress, bubbleOwnColor, bubbleOtherColor }: DMBubbleProps) {
   const { colors: themeColors } = useTheme();
   const time = new Date(dm.createdAt).toLocaleTimeString([], {
     hour: '2-digit',
@@ -186,7 +199,9 @@ function DMBubble({ dm, isOwn, onLongPress }: DMBubbleProps) {
       <View
         style={[
           styles.dmBubble,
-          isOwn ? styles.dmBubbleOwn : styles.dmBubbleOther,
+          isOwn
+            ? [styles.dmBubbleOwn, { backgroundColor: bubbleOwnColor }]
+            : [styles.dmBubbleOther, { backgroundColor: bubbleOtherColor }],
           dm.messageType === 'gif' && styles.dmBubbleMedia,
           dm.messageType === 'sticker' && styles.dmBubbleSticker,
         ]}
@@ -211,6 +226,17 @@ function DMBubble({ dm, isOwn, onLongPress }: DMBubbleProps) {
           <View style={styles.giftBubble}>
             <Text style={styles.giftEmoji}>🎁</Text>
             <Text style={styles.giftText}>{dm.content}</Text>
+          </View>
+        )}
+        {dm.messageType === 'moment' && (
+          <View style={styles.momentBubble}>
+            <Text style={styles.momentIcon}>⚡</Text>
+            {dm.content && (
+              <Text style={[styles.dmText, isOwn ? styles.dmTextOwn : { color: '#fff' }]}>
+                {dm.content}
+              </Text>
+            )}
+            <Text style={styles.momentLabel}>Moment · 24h</Text>
           </View>
         )}
         <View style={styles.dmMeta}>
@@ -459,6 +485,14 @@ export default function DMConversationScreen() {
   const [pendingMessages, setPendingMessages] = useState<DM[]>([]);
   const [showGifPicker, setShowGifPicker] = useState(false);
   const [showStickerPicker, setShowStickerPicker] = useState(false);
+  const [showMomentConfirm, setShowMomentConfirm] = useState(false);
+
+  const { data: chatThemeId = 'default' } = useQuery({
+    queryKey: ['chat-theme'],
+    queryFn: fetchChatTheme,
+    staleTime: 5 * 60_000,
+  });
+  const chatTheme = CHAT_THEMES.find((t) => t.id === chatThemeId) ?? CHAT_THEMES[0]!;
 
   const handleInputChange = useCallback((text: string) => {
     setInputText(text);
@@ -523,6 +557,17 @@ export default function DMConversationScreen() {
     // Reaction picker — future enhancement
   }, []);
 
+  const handleSendMoment = useCallback(() => {
+    const text = inputText.trim();
+    if (!text) {
+      // Send a moment without text — prompt user
+      setShowMomentConfirm(true);
+      return;
+    }
+    setInputText('');
+    sendMutation.mutate({ content: text, type: 'moment' });
+  }, [inputText, sendMutation]);
+
   const combinedMessages = [...pendingMessages, ...messages];
   const insufficientCoins =
     conversation &&
@@ -535,9 +580,11 @@ export default function DMConversationScreen() {
         dm={item}
         isOwn={item.senderUserId === MY_USER_ID}
         onLongPress={handleLongPress}
+        bubbleOwnColor={chatTheme.bubbleOwn}
+        bubbleOtherColor={chatTheme.bubbleOther}
       />
     ),
-    [handleLongPress],
+    [handleLongPress, chatTheme],
   );
 
   return (
@@ -639,6 +686,21 @@ export default function DMConversationScreen() {
           >
             <Text style={styles.iconBtnEmoji}>😊</Text>
           </Pressable>
+          {/* Zobia Moment button — ephemeral 24h message */}
+          <Pressable
+            style={[styles.iconBtn, { backgroundColor: isDark ? '#7c3aed22' : '#ede9fe' }]}
+            onPress={() => {
+              if (inputText.trim()) {
+                handleSendMoment();
+              } else {
+                setShowMomentConfirm(true);
+              }
+            }}
+            accessibilityLabel="Send Zobia Moment (disappears in 24h)"
+            accessibilityRole="button"
+          >
+            <Text style={styles.iconBtnEmoji}>⚡</Text>
+          </Pressable>
           {/* Text input */}
           <TextInput
             style={[
@@ -713,6 +775,33 @@ export default function DMConversationScreen() {
         onClose={() => setShowStickerPicker(false)}
         onSelect={handleStickerSelect}
       />
+
+      {/* Zobia Moment confirm dialog */}
+      <Modal
+        visible={showMomentConfirm}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowMomentConfirm(false)}
+      >
+        <View style={styles.momentOverlay}>
+          <View style={[styles.momentDialog, { backgroundColor: themeColors.surface }]}>
+            <Text style={styles.momentDialogIcon}>⚡</Text>
+            <Text style={[styles.momentDialogTitle, { color: themeColors.text }]}>
+              Send a Zobia Moment
+            </Text>
+            <Text style={[styles.momentDialogDesc, { color: themeColors.textMuted }]}>
+              Moments disappear after 24 hours. Type a message above first, then tap ⚡ to send it as a Moment.
+            </Text>
+            <Pressable
+              style={[styles.momentDialogBtn, { backgroundColor: '#7c3aed' }]}
+              onPress={() => setShowMomentConfirm(false)}
+              accessibilityRole="button"
+            >
+              <Text style={styles.momentDialogBtnText}>Got it</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -898,4 +987,45 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   browseBtnText: { color: colors.neutral[0], fontWeight: '700', fontSize: 14 },
+
+  // Zobia Moment bubble
+  momentBubble: {
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    gap: 4,
+    backgroundColor: '#7c3aed',
+    borderRadius: 18,
+  },
+  momentIcon: { fontSize: 22 },
+  momentLabel: { fontSize: 10, color: '#e9d5ff', fontWeight: '600' },
+
+  // Moment confirm dialog
+  momentOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+  },
+  momentDialog: {
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+    gap: 10,
+    maxWidth: 320,
+    width: '100%',
+  },
+  momentDialogIcon: { fontSize: 40 },
+  momentDialogTitle: { fontSize: 18, fontWeight: '800', textAlign: 'center' },
+  momentDialogDesc: { fontSize: 14, lineHeight: 20, textAlign: 'center' },
+  momentDialogBtn: {
+    marginTop: 8,
+    borderRadius: 12,
+    paddingHorizontal: 28,
+    paddingVertical: 12,
+    minWidth: 120,
+    alignItems: 'center',
+  },
+  momentDialogBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
 });
