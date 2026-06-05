@@ -501,12 +501,20 @@ function GuildDiscoveryPanel({ guilds }: { guilds: DiscoveryGuild[] }) {
                 {guild.city && ` · ${guild.city}`}
               </p>
             </div>
-            <Link
-              href={`/guild?join=${guild.id}`}
-              className="shrink-0 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
-            >
-              Join
-            </Link>
+            <div className="flex shrink-0 gap-1.5">
+              <Link
+                href={`/guilds/${guild.id}`}
+                className="rounded-lg border border-neutral-300 px-2.5 py-1.5 text-xs font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300"
+              >
+                View
+              </Link>
+              <Link
+                href={`/guild?join=${guild.id}`}
+                className="rounded-lg bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+              >
+                Join
+              </Link>
+            </div>
           </div>
         ))}
       </div>

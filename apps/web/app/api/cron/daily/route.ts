@@ -608,6 +608,7 @@ export const GET = async (req: NextRequest) => {
          LIMIT 50`
       );
 
+      const { sendPushNotification } = await import('@/lib/notifications/push');
       let invited = 0;
       for (const candidate of candidates) {
         // Insert council invitation notification
@@ -619,6 +620,13 @@ export const GET = async (req: NextRequest) => {
            ON CONFLICT DO NOTHING`,
           [candidate.id, JSON.stringify({ legacyScore: candidate.legacy_score })]
         );
+        // Send push notification to eligible users (fire-and-forget)
+        sendPushNotification(
+          candidate.id,
+          '🏛️ Platform Council Invitation',
+          'You are among the top contributors on Zobia. You have been invited to join the Platform Council.',
+          { action: 'open_council' }
+        ).catch(() => {});
         invited++;
       }
       results.councilInvitations = { invited };
@@ -1548,6 +1556,71 @@ export const GET = async (req: NextRequest) => {
     results.annualEventRecurrence = { eventsCloned, targetYear: nextYear };
   } catch (err) {
     errors.push(`annualEventRecurrence: ${String(err)}`);
+  }
+
+  // 27. Earnable sticker pack auto-unlock (PRD §5)
+  //     Earnable packs have an unlock_condition referencing a track level milestone
+  //     (e.g. "social_level_10"). Daily CRON checks all users whose track XP has
+  //     crossed a milestone and auto-grants the matching earnable pack.
+  try {
+    // Fetch all earnable packs with conditions
+    const { rows: earnablePacks } = await db.query<{
+      id: string; name: string; unlock_condition: string;
+    }>(
+      `SELECT id, name, unlock_condition
+       FROM sticker_packs
+       WHERE pack_type = 'earnable' AND is_active = TRUE AND unlock_condition IS NOT NULL`
+    );
+
+    let earnableUnlocks = 0;
+
+    for (const pack of earnablePacks) {
+      // unlock_condition format: "<track>_level_<N>" e.g. "social_level_10"
+      const match = pack.unlock_condition.match(/^([a-z_]+)_level_(\d+)$/);
+      if (!match) continue;
+
+      const track = match[1];  // e.g. "social"
+      const level = parseInt(match[2], 10);
+
+      // Find users who have reached this track level but don't have this pack
+      const { rows: eligible } = await db.query<{ user_id: string }>(
+        `SELECT uxp.user_id
+         FROM user_xp_tracks uxp
+         WHERE uxp.track = $1
+           AND uxp.current_level >= $2
+           AND NOT EXISTS (
+             SELECT 1 FROM user_sticker_packs usp
+             WHERE usp.user_id = uxp.user_id AND usp.pack_id = $3
+           )`,
+        [track, level, pack.id]
+      );
+
+      for (const row of eligible) {
+        await db.query(
+          `INSERT INTO user_sticker_packs (user_id, pack_id, unlocked_at)
+           VALUES ($1, $2, NOW())
+           ON CONFLICT DO NOTHING`,
+          [row.user_id, pack.id]
+        ).catch(() => {});
+
+        // Notify user
+        await db.query(
+          `INSERT INTO user_notifications (user_id, type, title, body, metadata, created_at)
+           VALUES ($1, 'sticker_pack_unlocked', 'New Sticker Pack!', $2, $3, NOW())`,
+          [
+            row.user_id,
+            `You unlocked the "${pack.name}" sticker pack through your progression!`,
+            JSON.stringify({ packId: pack.id, track, level }),
+          ]
+        ).catch(() => {});
+
+        earnableUnlocks++;
+      }
+    }
+
+    results.earnableStickerUnlocks = { unlocked: earnableUnlocks };
+  } catch (err) {
+    errors.push(`earnableStickerUnlocks: ${String(err)}`);
   }
 
   return NextResponse.json({
