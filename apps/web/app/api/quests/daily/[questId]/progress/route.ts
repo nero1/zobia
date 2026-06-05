@@ -184,14 +184,14 @@ export const POST = withAuth<QuestParams>(async (req, { params, auth }) => {
 
         // Write to xp_ledger
         await client.query(
-          `INSERT INTO xp_ledger (user_id, action, xp_amount, multiplier, xp_net, metadata, created_at)
-           VALUES ($1, 'quest_complete', $2, $3, $4, $5, NOW())`,
+          `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount, created_at)
+           VALUES ($1, $2, 'main', 'quest_complete', $3, $4, $5, NOW())`,
           [
             auth.user.sub,
-            baseXP,
-            multiplierUsed,
             xpAwarded,
-            JSON.stringify({ quest_id: questId, date: today, accelerator: questAcceleratorActive }),
+            questId,
+            multiplierUsed,
+            baseXP,
           ]
         );
 
@@ -228,13 +228,9 @@ export const POST = withAuth<QuestParams>(async (req, { params, auth }) => {
               [elderBonus, elderId]
             );
             await client.query(
-              `INSERT INTO xp_ledger (user_id, action, xp_amount, multiplier, xp_net, metadata, created_at)
-               VALUES ($1, 'mentorship_bonus', $2, 1.0, $2, $3, NOW())`,
-              [
-                elderId,
-                elderBonus,
-                JSON.stringify({ mentee_id: auth.user.sub, quest_id: questId, source_xp: xpAwarded }),
-              ]
+              `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
+               VALUES ($1, $2, 'main', 'mentorship_bonus', $3, $2, NOW())`,
+              [elderId, elderBonus, questId]
             );
             // Notify elder of mentorship bonus (fire-and-forget)
             client.query(

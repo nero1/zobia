@@ -98,13 +98,9 @@ export async function triggerMysteryXPDrop(
 
         // Insert xp_ledger entry
         await client.query(
-          `INSERT INTO xp_ledger (user_id, action, xp_amount, multiplier, xp_net, metadata, created_at)
-           VALUES ($1, 'mystery_drop', $2, 1, $2, $3, NOW())`,
-          [
-            id,
-            xpAmount,
-            JSON.stringify({ source: "mystery_drop", awarded_at: new Date().toISOString() }),
-          ]
+          `INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, created_at)
+           VALUES ($1, $2, 'main', 'mystery_drop', $2, NOW())`,
+          [id, xpAmount]
         );
       });
 

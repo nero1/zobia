@@ -177,13 +177,9 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 
       // 4. Record XP reset in xp_ledger
       await client.query(
-        `INSERT INTO xp_ledger (user_id, action, xp_amount, multiplier, xp_net, metadata, created_at)
-         VALUES ($1, 'prestige_reset', $2, 1, $2, $3, NOW())`,
-        [
-          userId,
-          -xpBefore,
-          JSON.stringify({ prestige_count: newPrestigeCount, xp_reset_from: xpBefore }),
-        ]
+        `INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, created_at)
+         VALUES ($1, $2, 'main', 'prestige_reset', $2, NOW())`,
+        [userId, -xpBefore]
       );
 
       // 5. Record coin award in coin_ledger
