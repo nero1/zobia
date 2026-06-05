@@ -7,7 +7,11 @@
  *  - When XP is awarded, leaderboard_snapshots is updated via upsert.
  *  - Read paths query the snapshot table (never calculate live from xp_ledger).
  *
- * Scopes: global | city | guild | season
+ * Table schema (migration 011):
+ *   leaderboard_snapshots(user_id, track, scope, city, season_id, xp_value, updated_at)
+ *   UNIQUE(user_id, track, scope, city, season_id) — NULLs handled via IS NOT DISTINCT FROM
+ *
+ * Scopes: global | national | city | guild | season
  * Tracks: main | social | creator | competitor | generosity | knowledge | explorer
  */
 
@@ -47,19 +51,6 @@ export interface LeaderboardPage {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Returns the SQL column expression for the given track.
- * All snapshot values are stored in the leaderboard_snapshots table.
- */
-function trackColumn(track: LeaderboardTrack): string {
-  if (track === "main") return "ls.xp_main";
-  return `ls.xp_${track}`;
-}
-
-// ---------------------------------------------------------------------------
 // getUserRank
 // ---------------------------------------------------------------------------
 
@@ -80,39 +71,58 @@ export async function getUserRank(
   db: DatabaseAdapter,
   options?: { city?: string; guildId?: string; seasonId?: string }
 ): Promise<number | null> {
-  const col = trackColumn(track);
+  // Get the user's own xp_value from the snapshot for this track/scope
+  const { rows: userRows } = await db.query<{ xp_value: string }>(
+    `SELECT xp_value FROM leaderboard_snapshots
+     WHERE user_id = $1 AND track = $2 AND scope = $3
+       AND (city IS NOT DISTINCT FROM $4)
+       AND (season_id IS NOT DISTINCT FROM $5)
+     LIMIT 1`,
+    [userId, track, scope === "national" ? "global" : scope,
+     options?.city ?? null, options?.seasonId ?? null]
+  );
 
-  let scopeCondition = "";
-  const params: (string | null)[] = [userId];
-  let paramIdx = 2;
+  if (!userRows[0]) return null;
+  const userXP = parseInt(userRows[0].xp_value);
+
+  // Build scope conditions for the rank count
+  const conditions: string[] = [
+    `ls.track = $1`,
+    `ls.scope = $2`,
+    `u.deleted_at IS NULL`,
+    `ls.xp_value > $3`,
+    `ls.user_id != $4`,
+  ];
+  const params: (string | number | null)[] = [track, scope === "national" ? "global" : scope, userXP, userId];
+  let paramIdx = 5;
 
   if (scope === "national") {
-    scopeCondition = `AND COALESCE(u.country, '') = 'NG'`;
+    conditions.push(`COALESCE(u.country, '') = 'NG'`);
   } else if (scope === "city" && options?.city) {
-    scopeCondition = `AND u.city = $${paramIdx++}`;
+    conditions.push(`ls.city = $${paramIdx++}`);
     params.push(options.city);
   } else if (scope === "guild" && options?.guildId) {
-    scopeCondition = `AND u.guild_id = $${paramIdx++}`;
+    conditions.push(`u.guild_id = $${paramIdx++}`);
     params.push(options.guildId);
-  } else if (scope === "season" && options?.seasonId) {
-    scopeCondition = `AND ls.season_id = $${paramIdx++}`;
+  }
+
+  if (options?.seasonId) {
+    conditions.push(`ls.season_id = $${paramIdx++}`);
     params.push(options.seasonId);
+  } else {
+    conditions.push(`ls.season_id IS NULL`);
   }
 
   const { rows } = await db.query<{ rank: string }>(
     `SELECT COUNT(*) + 1 AS rank
      FROM leaderboard_snapshots ls
      JOIN users u ON u.id = ls.user_id
-     WHERE ls.user_id != $1
-       AND ${col} > (
-         SELECT COALESCE(${col}, 0) FROM leaderboard_snapshots WHERE user_id = $1 LIMIT 1
-       )
-       ${scopeCondition}`,
+     WHERE ${conditions.join(" AND ")}`,
     params
   );
 
-  const rank = parseInt(rows[0]?.rank ?? "0");
-  return rank > 0 ? rank : null;
+  const rank = parseInt(rows[0]?.rank ?? "1");
+  return rank;
 }
 
 // ---------------------------------------------------------------------------
@@ -146,44 +156,59 @@ export async function getLeaderboard(
 ): Promise<LeaderboardPage> {
   const pageSize = Math.min(options?.pageSize ?? 100, 200);
   const offset = (Math.max(page, 1) - 1) * pageSize;
-  const col = trackColumn(track);
 
-  const conditions: string[] = ["ls.user_id IS NOT NULL", "u.deleted_at IS NULL"];
-  const params: (string | number | null)[] = [];
-  let paramIdx = 1;
+  // Map scope to the stored scope value (national uses global rows filtered by country)
+  const dbScope = scope === "national" ? "global" : scope;
+
+  const conditions: string[] = [
+    `ls.track = $1`,
+    `ls.scope = $2`,
+    `u.deleted_at IS NULL`,
+  ];
+  const params: (string | number | null)[] = [track, dbScope];
+  let paramIdx = 3;
 
   if (scope === "national") {
     conditions.push(`COALESCE(u.country, '') = 'NG'`);
   } else if (scope === "city" && city) {
-    conditions.push(`u.city = $${paramIdx++}`);
+    conditions.push(`ls.city = $${paramIdx++}`);
     params.push(city);
   } else if (scope === "guild" && options?.guildId) {
     conditions.push(`u.guild_id = $${paramIdx++}`);
     params.push(options.guildId);
-  } else if (scope === "season" && options?.seasonId) {
-    conditions.push(`ls.season_id = $${paramIdx++}`);
-    params.push(options.seasonId);
   }
 
-  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  if (options?.seasonId) {
+    conditions.push(`ls.season_id = $${paramIdx++}`);
+    params.push(options.seasonId);
+  } else {
+    conditions.push(`ls.season_id IS NULL`);
+  }
+
+  // City filter for city scope
+  if (scope !== "city") {
+    conditions.push(`ls.city IS NULL`);
+  }
+
+  const where = `WHERE ${conditions.join(" AND ")}`;
 
   type RawRow = LeaderboardEntry & { total_count: string };
 
   const { rows } = await db.query<RawRow>(
     `SELECT
-       ROW_NUMBER() OVER (ORDER BY ${col} DESC NULLS LAST) AS rank,
+       ROW_NUMBER() OVER (ORDER BY ls.xp_value DESC NULLS LAST) AS rank,
        ls.user_id,
        u.username,
        u.display_name,
        u.avatar_emoji,
        u.rank_name,
-       COALESCE(${col}, 0) AS xp_value,
+       COALESCE(ls.xp_value, 0) AS xp_value,
        u.city,
        COUNT(*) OVER () AS total_count
      FROM leaderboard_snapshots ls
      JOIN users u ON u.id = ls.user_id
      ${where}
-     ORDER BY ${col} DESC NULLS LAST
+     ORDER BY ls.xp_value DESC NULLS LAST
      LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
     [...params, pageSize, offset]
   );
@@ -217,23 +242,47 @@ export async function getLeaderboard(
  * Materialises (upserts) a user's XP value for a given track in the
  * leaderboard_snapshots table. Should be called every time XP is awarded.
  *
- * @param userId  - UUID of the user receiving XP.
- * @param track   - The track that received the XP.
- * @param xpValue - The user's new total XP value on this track.
- * @param db      - Active database adapter.
+ * Uses IS NOT DISTINCT FROM for NULL-safe comparison since city and season_id
+ * may be NULL and PostgreSQL UNIQUE constraints treat NULLs as distinct.
+ *
+ * @param userId   - UUID of the user receiving XP.
+ * @param track    - The track that received the XP.
+ * @param xpValue  - The user's new total XP value on this track.
+ * @param db       - Active database adapter.
+ * @param options  - Optional scope/city/seasonId overrides.
  */
 export async function upsertLeaderboardSnapshot(
   userId: string,
   track: LeaderboardTrack,
   xpValue: number,
-  db: DatabaseAdapter
+  db: DatabaseAdapter,
+  options?: { scope?: string; city?: string; seasonId?: string }
 ): Promise<void> {
-  const col = trackColumn(track);
-  await db.query(
-    `INSERT INTO leaderboard_snapshots (user_id, ${col}, updated_at)
-     VALUES ($1, $2, NOW())
-     ON CONFLICT (user_id) DO UPDATE
-       SET ${col} = $2, updated_at = NOW()`,
-    [userId, xpValue]
+  const scope = options?.scope ?? "global";
+  const city = options?.city ?? null;
+  const seasonId = options?.seasonId ?? null;
+
+  // Try update first (IS NOT DISTINCT FROM handles NULL equality correctly)
+  const updateResult = await db.query<{ id: string }>(
+    `UPDATE leaderboard_snapshots
+     SET xp_value = $3, updated_at = NOW()
+     WHERE user_id = $1
+       AND track = $2
+       AND scope = $4
+       AND (city IS NOT DISTINCT FROM $5)
+       AND (season_id IS NOT DISTINCT FROM $6)
+     RETURNING id`,
+    [userId, track, xpValue, scope, city, seasonId]
   );
+
+  // Insert if no row was updated
+  if (updateResult.rows.length === 0) {
+    await db.query(
+      `INSERT INTO leaderboard_snapshots
+         (user_id, track, scope, city, season_id, xp_value, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())
+       ON CONFLICT DO NOTHING`,
+      [userId, track, scope, city, seasonId, xpValue]
+    );
+  }
 }

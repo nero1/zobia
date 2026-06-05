@@ -92,7 +92,7 @@ export async function calculateFundDistributions(
             ON xl.user_id = u.id
            AND xl.created_at >= NOW() - INTERVAL '30 days'
      LEFT JOIN follows f
-            ON f.followed_id = u.id
+            ON f.following_id = u.id
            AND f.created_at  >= NOW() - INTERVAL '30 days'
      LEFT JOIN sponsored_quest_applications qa
             ON qa.creator_id = u.id

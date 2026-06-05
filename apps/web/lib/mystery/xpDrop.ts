@@ -96,10 +96,10 @@ export async function triggerMysteryXPDrop(
           [xpAmount, id]
         );
 
-        // Insert xp_ledger entry
+        // Insert xp_ledger entry (action mirrors source for dedup queries)
         await client.query(
-          `INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, created_at)
-           VALUES ($1, $2, 'main', 'mystery_drop', $2, NOW())`,
+          `INSERT INTO xp_ledger (user_id, amount, track, source, action, base_amount, created_at)
+           VALUES ($1, $2, 'main', 'mystery_drop', 'mystery_drop', $2, NOW())`,
           [id, xpAmount]
         );
       });

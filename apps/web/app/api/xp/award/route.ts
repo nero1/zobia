@@ -326,7 +326,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
         // Elder mentorship rank-up celebration — notify both parties (PRD §7)
         const { rows: elderRows } = await client.query<{ elder_id: string }>(
-          `SELECT elder_id FROM elder_mentorships WHERE mentee_id = $1 AND status = 'active' LIMIT 1`,
+          `SELECT elder_id FROM elder_mentorships WHERE mentee_id = $1 AND ended_at IS NULL LIMIT 1`,
           [body.userId]
         ).catch(() => ({ rows: [] as Array<{ elder_id: string }> }));
 
