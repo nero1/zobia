@@ -263,10 +263,8 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     if (totalFromNewAccounts >= SUSPICIOUS_GIFT_THRESHOLD_COINS && newAccountCount >= 3) {
       // Flag this creator for fraud review - log alert and force manual approval
       await db.query(
-        `INSERT INTO admin_alerts (type, severity, title, body, metadata, created_at)
-         VALUES ('payout_fraud_flag', 'critical', 'Suspicious Payout Pattern Detected',
-           $1, $2::jsonb, NOW())
-         ON CONFLICT DO NOTHING`,
+        `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
+         VALUES ('payout_fraud_flag', 'critical', $1, $2::jsonb, NOW())`,
         [
           `Creator @${userId} requested a payout of ₦${(requestedGrossKobo / 100).toFixed(2)} after receiving ${totalFromNewAccounts} coins from ${newAccountCount} new accounts (< ${NEW_ACCOUNT_AGE_DAYS} days old) in the past 7 days.`,
           JSON.stringify({ creatorId: userId, totalFromNewAccounts, newAccountCount, requestedGrossKobo }),

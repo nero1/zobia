@@ -54,7 +54,19 @@ interface PaystackTransferEvent {
   };
 }
 
-type PaystackEvent = PaystackChargeEvent | PaystackTransferEvent;
+interface PaystackSubscriptionEvent {
+  event: "subscription.create" | "subscription.not_renew" | "subscription.disable";
+  data: {
+    subscription_code: string;
+    status: "active" | "non-renewing" | "cancelled" | "attention" | "completed";
+    plan: { plan_code: string; name: string };
+    customer: { email: string; customer_code: string; metadata?: { userId?: string } };
+    next_payment_date?: string;
+    cancelledAt?: string;
+  };
+}
+
+type PaystackEvent = PaystackChargeEvent | PaystackTransferEvent | PaystackSubscriptionEvent;
 
 // ---------------------------------------------------------------------------
 // Helper: process a successful charge
@@ -164,6 +176,84 @@ async function processTransferEvent(
 }
 
 // ---------------------------------------------------------------------------
+// Helper: process subscription lifecycle events
+// ---------------------------------------------------------------------------
+
+async function processSubscriptionEvent(
+  event: PaystackSubscriptionEvent
+): Promise<void> {
+  const { subscription_code, status, customer, next_payment_date } = event.data;
+  const userId = customer.metadata?.userId ?? null;
+
+  if (!userId) {
+    // Try to look up user by email
+    const { rows } = await db.query<{ id: string }>(
+      `SELECT id FROM users WHERE email = $1 AND deleted_at IS NULL LIMIT 1`,
+      [customer.email]
+    );
+    if (!rows[0]) {
+      console.warn(`[webhook/paystack] Subscription event: no user for email ${customer.email}`);
+      return;
+    }
+  }
+
+  const resolvedUserId = userId ?? (await db.query<{ id: string }>(
+    `SELECT id FROM users WHERE email = $1 AND deleted_at IS NULL LIMIT 1`,
+    [customer.email]
+  )).rows[0]?.id;
+
+  if (!resolvedUserId) return;
+
+  // Map Paystack status to internal plan status
+  const isActive = status === "active";
+  const isCancelled = status === "cancelled" || status === "non-renewing" || status === "completed";
+
+  if (event.event === "subscription.create") {
+    // New subscription — update or insert user subscription record
+    await db.query(
+      `INSERT INTO user_subscriptions
+         (user_id, provider, provider_subscription_id, status, next_renewal_at, updated_at)
+       VALUES ($1, 'paystack', $2, $3, $4, NOW())
+       ON CONFLICT (user_id) DO UPDATE
+         SET provider_subscription_id = $2, status = $3, next_renewal_at = $4, updated_at = NOW()`,
+      [resolvedUserId, subscription_code, isActive ? "active" : status, next_payment_date ?? null]
+    ).catch(() => {});
+
+    // Set plan to 'pro' on subscription create
+    await db.query(
+      `UPDATE users SET plan = 'pro', updated_at = NOW() WHERE id = $1`,
+      [resolvedUserId]
+    ).catch(() => {});
+
+  } else if (isCancelled || event.event === "subscription.disable") {
+    // Subscription cancelled / not renewing
+    await db.query(
+      `UPDATE user_subscriptions
+       SET status = 'cancelled', cancelled_at = NOW(), updated_at = NOW()
+       WHERE user_id = $1`,
+      [resolvedUserId]
+    ).catch(() => {});
+
+    // Downgrade plan to free
+    await db.query(
+      `UPDATE users SET plan = 'free', updated_at = NOW() WHERE id = $1`,
+      [resolvedUserId]
+    ).catch(() => {});
+  }
+
+  // Write notification to user
+  await db.query(
+    `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+     VALUES ($1, $2, $3, false, NOW())`,
+    [
+      resolvedUserId,
+      event.event === "subscription.create" ? "subscription_activated" : "subscription_cancelled",
+      JSON.stringify({ subscriptionCode: subscription_code, status, nextPaymentDate: next_payment_date }),
+    ]
+  ).catch(() => {});
+}
+
+// ---------------------------------------------------------------------------
 // Route handler
 // ---------------------------------------------------------------------------
 
@@ -204,6 +294,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       case "transfer.failed":
       case "transfer.reversed":
         await processTransferEvent(event as PaystackTransferEvent);
+        break;
+
+      case "subscription.create":
+      case "subscription.not_renew":
+      case "subscription.disable":
+        await processSubscriptionEvent(event as PaystackSubscriptionEvent);
         break;
 
       default:

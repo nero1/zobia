@@ -54,6 +54,15 @@ export const POST = withAdminAuth(
         throw badRequest(`Cannot approve a payout in status: ${payout.status}`);
       }
 
+      // Block payouts for banned users (PRD §12)
+      const { rows: userRows } = await db.query<{ is_banned: boolean }>(
+        `SELECT COALESCE(is_banned, false) AS is_banned FROM users WHERE id = $1`,
+        [payout.creator_id]
+      );
+      if (userRows[0]?.is_banned) {
+        throw badRequest("Cannot approve payout for a banned user");
+      }
+
       if (!payout.payout_recipient_code) {
         throw badRequest("Creator has no payout account configured");
       }

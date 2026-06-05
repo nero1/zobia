@@ -213,12 +213,12 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
           if (target.email) {
             const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.app";
             const resetUrl = `${baseUrl}/auth/reset-password?token=${resetToken}`;
-            sendEmail({
-              to: target.email,
-              subject: "Your Zobia password has been reset by an administrator",
-              text: `An administrator has reset your Zobia account password.\n\nClick the link below to set a new password (expires in 1 hour):\n${resetUrl}\n\nIf you did not request this, contact Zobia support immediately.`,
-              html: `<p>An administrator has reset your Zobia account password.</p><p><a href="${resetUrl}">Set a new password</a> (expires in 1 hour)</p><p>If you did not request this, contact Zobia support immediately.</p>`,
-            }).catch(() => {});
+            sendEmail(
+              target.email,
+              "Your Zobia password has been reset by an administrator",
+              `An administrator has reset your Zobia account password.\n\nClick the link below to set a new password (expires in 1 hour):\n${resetUrl}\n\nIf you did not request this, contact Zobia support immediately.`,
+              `<p>An administrator has reset your Zobia account password.</p><p><a href="${resetUrl}">Set a new password</a> (expires in 1 hour)</p><p>If you did not request this, contact Zobia support immediately.</p>`
+            ).catch(() => {});
           }
           break;
         }

@@ -31,12 +31,137 @@ const ActionBodySchema = z.object({
     "remove_content",
     "suspend_user",
     "ban_user",
+    "escalate_ai",  // Layer-3: re-escalate to DeepSeek/Gemini for AI re-analysis
   ]),
   /** Optional moderator note, visible in audit log. */
   note: z.string().max(500).optional(),
   /** Duration in hours — required for suspend_user. */
   duration_hours: z.number().int().positive().optional(),
 });
+
+// ---------------------------------------------------------------------------
+// Layer-3 AI Escalation — re-analyze with DeepSeek/Gemini for appeals
+// ---------------------------------------------------------------------------
+
+interface AiEscalationResult {
+  provider: string;
+  verdict: "violation" | "borderline" | "no_violation";
+  confidence: number;
+  reasoning: string;
+}
+
+/**
+ * Triggers a secondary AI model (DeepSeek via OpenAI-compatible API, fallback Gemini)
+ * to re-analyze contested moderation decisions. Used for appeals processing.
+ */
+async function triggerAiEscalation(
+  reportId: string,
+  adminId: string
+): Promise<AiEscalationResult | null> {
+  // Load report + original message content for context
+  const { rows } = await db.query<{
+    reason: string; content: string | null; status: string;
+  }>(
+    `SELECT mr.reason,
+            m.content,
+            mr.status
+     FROM moderation_reports mr
+     LEFT JOIN messages m ON m.id = mr.reported_message_id
+     WHERE mr.id = $1 LIMIT 1`,
+    [reportId]
+  );
+  const report = rows[0];
+  if (!report) return null;
+
+  const prompt = `You are a content moderation AI. Review the following reported content and determine if it violates community guidelines.
+
+Report reason: ${report.reason}
+Content: ${report.content ?? "(no content attached)"}
+
+Respond with JSON: { "verdict": "violation"|"borderline"|"no_violation", "confidence": 0-1, "reasoning": "brief explanation" }`;
+
+  // Try DeepSeek first (OpenAI-compatible API)
+  const deepseekKey = process.env.DEEPSEEK_API_KEY;
+  if (deepseekKey) {
+    try {
+      const res = await fetch("https://api.deepseek.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${deepseekKey}`,
+        },
+        body: JSON.stringify({
+          model: "deepseek-chat",
+          messages: [{ role: "user", content: prompt }],
+          response_format: { type: "json_object" },
+          temperature: 0.2,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const parsed = JSON.parse(data.choices?.[0]?.message?.content ?? "{}");
+        const result: AiEscalationResult = {
+          provider: "deepseek",
+          verdict: parsed.verdict ?? "borderline",
+          confidence: parsed.confidence ?? 0.5,
+          reasoning: parsed.reasoning ?? "",
+        };
+        // Save escalation result to DB
+        await db.query(
+          `INSERT INTO moderation_ai_escalations
+             (report_id, admin_id, provider, verdict, confidence, reasoning, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, NOW())
+           ON CONFLICT DO NOTHING`,
+          [reportId, adminId, result.provider, result.verdict, result.confidence, result.reasoning]
+        ).catch(() => {});
+        return result;
+      }
+    } catch {
+      // Fall through to Gemini
+    }
+  }
+
+  // Fallback: Google Gemini
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (geminiKey) {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${geminiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.2 },
+          }),
+        }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
+        const parsed = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? "{}");
+        const result: AiEscalationResult = {
+          provider: "gemini",
+          verdict: parsed.verdict ?? "borderline",
+          confidence: parsed.confidence ?? 0.5,
+          reasoning: parsed.reasoning ?? "",
+        };
+        await db.query(
+          `INSERT INTO moderation_ai_escalations
+             (report_id, admin_id, provider, verdict, confidence, reasoning, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, NOW())
+           ON CONFLICT DO NOTHING`,
+          [reportId, adminId, result.provider, result.verdict, result.confidence, result.reasoning]
+        ).catch(() => {});
+        return result;
+      }
+    } catch {
+      // Both providers failed
+    }
+  }
+
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // POST /api/admin/moderation/[reportId]/action
@@ -97,8 +222,24 @@ export const POST = withAdminAuth(
         return notFound("Report not found");
       }
 
-      if (report.status !== "pending") {
+      if (report.status !== "pending" && action !== "escalate_ai") {
         return badRequest(`Report is already ${report.status}`);
+      }
+
+      // escalate_ai bypasses the normal action flow — handle immediately
+      if (action === "escalate_ai") {
+        const aiAnalysis = await triggerAiEscalation(reportId, auth.user.sub).catch(() => null);
+        await db.query(
+          `UPDATE moderation_reports SET status = 'escalated', updated_at = NOW() WHERE id = $1`,
+          [reportId]
+        ).catch(() => {});
+        return NextResponse.json({
+          ok: true,
+          reportId,
+          action,
+          applied_at: new Date().toISOString(),
+          aiEscalation: aiAnalysis,
+        });
       }
 
       // Execute within a transaction

@@ -13,6 +13,7 @@
 
 import type { DatabaseClient } from "@/lib/db/types";
 import Decimal from "decimal.js";
+import { XP_VALUES } from "@/lib/xp/engine";
 
 // ---------------------------------------------------------------------------
 // Commission rates
@@ -68,6 +69,27 @@ export async function awardReferralCommissions(
 
   const tier1Id = tier1Rows[0]?.referred_by_user_id ?? null;
   if (!tier1Id) return result;
+
+  // Mark referral as qualified on first purchase and award 500 XP to referrer (PRD §referrals)
+  const { rows: qualifyRows } = await db.query<{ id: string }>(
+    `UPDATE referrals SET qualified = true, qualified_at = NOW()
+     WHERE referee_id = $1 AND referrer_id = $2 AND qualified = false
+     RETURNING id`,
+    [buyerId, tier1Id]
+  );
+  if (qualifyRows[0]) {
+    // First qualifying purchase — award 500 XP bonus to referrer
+    const xpBonus = XP_VALUES.refer_new_user_who_completes_onboarding;
+    await db.query(
+      `UPDATE users SET xp_total = xp_total + $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL`,
+      [xpBonus, tier1Id]
+    );
+    await db.query(
+      `INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, created_at)
+       VALUES ($1, $2, 'social', 'referral_qualified', $2, NOW())`,
+      [tier1Id, xpBonus]
+    );
+  }
 
   result.tier1ReferrerId = tier1Id;
 

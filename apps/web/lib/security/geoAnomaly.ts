@@ -119,10 +119,10 @@ export async function recordAndCheckAnomaly(
 
     // Log admin alert (fire-and-forget, non-blocking)
     db.query(
-      `INSERT INTO admin_alerts
-         (type, severity, title, body, metadata, created_at)
+      `INSERT INTO system_alerts
+         (type, severity, message, metadata, created_at)
        VALUES
-         ('geo_anomaly', $1, 'IP Geolocation Anomaly Detected', $2, $3::jsonb, NOW())`,
+         ('geo_anomaly', $1, $2, $3::jsonb, NOW())`,
       [
         count >= ANOMALY_THRESHOLD ? "warning" : "info",
         `User ${userId} session IP changed from ${loginIp} to ${currentIp} (anomaly #${count} in the last hour).`,

@@ -31,8 +31,14 @@ const PRESTIGE_REQUIRED_RANK = "Zobia Icon";
 /** Prestige is only available at sublevel III. */
 const PRESTIGE_REQUIRED_SUBLEVEL = 3;
 
-/** Coins awarded for each prestige. */
-const PRESTIGE_COIN_REWARD = 5_000;
+/**
+ * Coins awarded at Prestige 1 only (PRD §9).
+ * Subsequent prestiges award stars, not coins.
+ */
+const PRESTIGE_P1_COIN_REWARD = 500;
+
+/** Stars awarded per prestige after P1 (PRD §11). */
+const PRESTIGE_STAR_REWARD = 1;
 
 /** Prestige-specific badge/frame type prefix. */
 const PRESTIGE_BADGE_TYPE = "prestige_frame";
@@ -93,7 +99,8 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
           xpRequired: rank.rankName === PRESTIGE_REQUIRED_RANK ? "Already at required rank" : `${rank.nextRankXp} XP needed`,
         },
         rewards: {
-          coins: PRESTIGE_COIN_REWARD,
+          coins: user.prestige_count === 0 ? PRESTIGE_P1_COIN_REWARD : 0,
+          stars: user.prestige_count > 0 ? PRESTIGE_STAR_REWARD : 0,
           frame: `${PRESTIGE_BADGE_TYPE}_${(user.prestige_count + 1)}`,
           title: `Prestige ${user.prestige_count + 1}`,
         },
@@ -155,7 +162,9 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 
       const newPrestigeCount = user.prestige_count + 1;
       const xpBefore = user.xp_total;
-      const newCoinBalance = user.coin_balance + PRESTIGE_COIN_REWARD;
+      const coinReward = user.prestige_count === 0 ? PRESTIGE_P1_COIN_REWARD : 0;
+      const starReward = user.prestige_count > 0 ? PRESTIGE_STAR_REWARD : 0;
+      const newCoinBalance = user.coin_balance + coinReward;
 
       // Calculate 7-day XP boost window (3× for first 7 days, PRD §9 Prestige 3)
       // Only applies when newPrestigeCount >= 3
@@ -169,10 +178,11 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
          SET xp_total = 0,
              prestige_count = $1,
              coin_balance = $2,
-             prestige_cycle_boost_expires_at = $3,
+             star_balance = COALESCE(star_balance, 0) + $3,
+             prestige_cycle_boost_expires_at = $4,
              updated_at = NOW()
-         WHERE id = $4`,
-        [newPrestigeCount, newCoinBalance, boostExpiresAt, userId]
+         WHERE id = $5`,
+        [newPrestigeCount, newCoinBalance, starReward, boostExpiresAt, userId]
       );
 
       // 4. Record XP reset in xp_ledger
@@ -182,18 +192,29 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
         [userId, -xpBefore]
       );
 
-      // 5. Record coin award in coin_ledger
-      await client.query(
-        `INSERT INTO coin_ledger (user_id, amount, balance_before, balance_after, transaction_type, description, created_at)
-         VALUES ($1, $2, $3, $4, 'prestige_reward', $5, NOW())`,
-        [
-          userId,
-          PRESTIGE_COIN_REWARD,
-          user.coin_balance,
-          newCoinBalance,
-          `Prestige ${newPrestigeCount} reward`,
-        ]
-      );
+      // 5. Record coin award in coin_ledger (P1 only)
+      if (coinReward > 0) {
+        await client.query(
+          `INSERT INTO coin_ledger (user_id, amount, balance_before, balance_after, transaction_type, description, created_at)
+           VALUES ($1, $2, $3, $4, 'prestige_reward', $5, NOW())`,
+          [
+            userId,
+            coinReward,
+            user.coin_balance,
+            newCoinBalance,
+            `Prestige ${newPrestigeCount} coin reward`,
+          ]
+        );
+      }
+
+      // 5b. Record star award in star_ledger (P2+)
+      if (starReward > 0) {
+        await client.query(
+          `INSERT INTO star_ledger (user_id, amount, transaction_type, description, created_at)
+           VALUES ($1, $2, 'prestige_reward', $3, NOW())`,
+          [userId, starReward, `Prestige ${newPrestigeCount} star reward`]
+        ).catch(() => {}); // non-fatal if star_ledger doesn't exist yet
+      }
 
       // 6. Award prestige frame badge (numbered, e.g. prestige_frame_1)
       const badgeType = `${PRESTIGE_BADGE_TYPE}_${newPrestigeCount}`;
@@ -260,7 +281,8 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       return {
         prestigeCount: newPrestigeCount,
         xpReset: xpBefore,
-        coinsAwarded: PRESTIGE_COIN_REWARD,
+        coinsAwarded: coinReward,
+        starsAwarded: starReward,
         newCoinBalance,
         badgesAwarded: awardsGranted,
         title: milestoneReward?.title ?? `Prestige ${newPrestigeCount}`,
