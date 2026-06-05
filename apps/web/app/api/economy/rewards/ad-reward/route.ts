@@ -19,7 +19,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
-import { withAuth, type AuthContext } from "@/lib/api/middleware";
+import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, forbidden } from "@/lib/api/errors";
 
 // ---------------------------------------------------------------------------
@@ -74,9 +74,9 @@ function adRewardRedisKey(userId: string): string {
  * Claim a rewarded ad coin bonus.
  * Only callable by authenticated free-plan users.
  */
-export const POST = withAuth(async (req: NextRequest, ctx: AuthContext) => {
+export const POST = withAuth(async (req: NextRequest, { auth }) => {
   try {
-    const userId = ctx.user.sub;
+    const userId = auth.user.sub;
 
     // 1. Verify user is on the free plan (fetch from DB for accuracy)
     const userResult = await db.query<{ plan: string; coin_balance: number }>(

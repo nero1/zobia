@@ -30,6 +30,7 @@ export interface ConversationScore {
   userId1: string;
   userId2: string;
   score: number;
+  streakDays: number;
   /** Whether the pair has unlocked the Connection badge. */
   hasConnectionBadge: boolean;
   updatedAt: string;
@@ -134,23 +135,50 @@ export async function updateConversationScore(
     user_id_1: string;
     user_id_2: string;
     score: number;
+    streak_days: number;
     has_connection_badge: boolean;
     updated_at: string;
   }
 
   const { rows } = await db.query<ScoreRow>(
-    `INSERT INTO conversation_scores (user_id_1, user_id_2, score, has_connection_badge, updated_at)
-     VALUES ($1, $2, $3, $4, NOW())
+    `INSERT INTO conversation_scores
+       (user_id_1, user_id_2, score, streak_days, has_connection_badge, updated_at)
+     VALUES ($1, $2, $3, 1, $4, NOW())
      ON CONFLICT (user_id_1, user_id_2)
      DO UPDATE SET
        score = conversation_scores.score + EXCLUDED.score,
+       streak_days = CASE
+         WHEN conversation_scores.updated_at::date = NOW()::date THEN
+           conversation_scores.streak_days
+         WHEN conversation_scores.updated_at::date = (NOW() - INTERVAL '1 day')::date THEN
+           conversation_scores.streak_days + 1
+         ELSE 1
+       END,
        has_connection_badge = CASE
-         WHEN conversation_scores.score + EXCLUDED.score >= $5 THEN TRUE
-         ELSE conversation_scores.has_connection_badge
+         WHEN conversation_scores.has_connection_badge THEN TRUE
+         WHEN CASE
+               WHEN conversation_scores.updated_at::date = NOW()::date THEN
+                 conversation_scores.streak_days
+               WHEN conversation_scores.updated_at::date = (NOW() - INTERVAL '1 day')::date THEN
+                 conversation_scores.streak_days + 1
+               ELSE 1
+             END >= $5 THEN TRUE
+         ELSE FALSE
+       END,
+       badge_unlocked_at = CASE
+         WHEN conversation_scores.has_connection_badge THEN conversation_scores.badge_unlocked_at
+         WHEN CASE
+               WHEN conversation_scores.updated_at::date = NOW()::date THEN
+                 conversation_scores.streak_days
+               WHEN conversation_scores.updated_at::date = (NOW() - INTERVAL '1 day')::date THEN
+                 conversation_scores.streak_days + 1
+               ELSE 1
+             END >= $5 THEN NOW()
+         ELSE NULL
        END,
        updated_at = NOW()
-     RETURNING user_id_1, user_id_2, score, has_connection_badge, updated_at`,
-    [u1, u2, points, false, CONNECTION_BADGE_THRESHOLD]
+     RETURNING user_id_1, user_id_2, score, streak_days, has_connection_badge, updated_at`,
+    [u1, u2, points, false, CONNECTION_BADGE_STREAK_DAYS]
   );
 
   const row = rows[0];
@@ -162,6 +190,7 @@ export async function updateConversationScore(
     userId1: row.user_id_1,
     userId2: row.user_id_2,
     score: row.score,
+    streakDays: row.streak_days,
     hasConnectionBadge: row.has_connection_badge,
     updatedAt: row.updated_at,
   };
@@ -232,12 +261,13 @@ export async function getConversationScore(
     user_id_1: string;
     user_id_2: string;
     score: number;
+    streak_days: number;
     has_connection_badge: boolean;
     updated_at: string;
   }
 
   const { rows } = await db.query<ScoreRow>(
-    `SELECT user_id_1, user_id_2, score, has_connection_badge, updated_at
+    `SELECT user_id_1, user_id_2, score, streak_days, has_connection_badge, updated_at
      FROM conversation_scores
      WHERE user_id_1 = $1 AND user_id_2 = $2
      LIMIT 1`,
@@ -249,6 +279,7 @@ export async function getConversationScore(
         userId1: rows[0].user_id_1,
         userId2: rows[0].user_id_2,
         score: rows[0].score,
+        streakDays: rows[0].streak_days,
         hasConnectionBadge: rows[0].has_connection_badge,
         updatedAt: rows[0].updated_at,
       }
@@ -256,6 +287,7 @@ export async function getConversationScore(
         userId1: u1,
         userId2: u2,
         score: 0,
+        streakDays: 0,
         hasConnectionBadge: false,
         updatedAt: new Date().toISOString(),
       };

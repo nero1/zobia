@@ -70,13 +70,15 @@ export async function assignNemesis(
   const minXP = Math.floor(user.xp_total * (1 - NEMESIS_XP_TOLERANCE));
   const maxXP = Math.ceil(user.xp_total * (1 + NEMESIS_XP_TOLERANCE));
 
-  // Mutual friends (bidirectional friendship)
+  // Mutual friends (bidirectional friendship using the friendships table)
   const friendResult = await db.query<{ friend_id: string }>(
-    `SELECT friend_id FROM friends
-     WHERE user_id = $1
-       AND friend_id IN (
-         SELECT user_id FROM friends WHERE friend_id = $1
-       )`,
+    `SELECT addressee_id AS friend_id
+     FROM friendships
+     WHERE requester_id = $1 AND status = 'accepted'
+     UNION
+     SELECT requester_id AS friend_id
+     FROM friendships
+     WHERE addressee_id = $1 AND status = 'accepted'`,
     [userId]
   );
   const mutualFriendIds = new Set(friendResult.rows.map((r) => r.friend_id));

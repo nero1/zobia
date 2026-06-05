@@ -38,9 +38,13 @@ const SCORE_UNLOCKS: { threshold: number; packName: string; packDescription: str
   },
 ];
 
-export const GET = withAuth(async (req: NextRequest, ctx) => {
+export const GET = withAuth(async (
+  req: NextRequest,
+  { params, auth }: { params: { conversationId: string }; auth: { user: { sub: string } } }
+) => {
   try {
-    const conversationId = req.nextUrl.pathname.split("/").at(-2) ?? "";
+    const conversationId = (await params).conversationId;
+    const userId = auth.user.sub;
 
     // Verify user is a participant in this conversation
     const { rows: convRows } = await db.query<{
@@ -59,14 +63,14 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     }
 
     const conv = convRows[0];
-    if (conv.user_id_1 !== ctx.userId && conv.user_id_2 !== ctx.userId) {
+    if (conv.user_id_1 !== userId && conv.user_id_2 !== userId) {
       throw forbidden("Not a participant in this conversation");
     }
 
     const otherId =
-      conv.user_id_1 === ctx.userId ? conv.user_id_2 : conv.user_id_1;
+      conv.user_id_1 === userId ? conv.user_id_2 : conv.user_id_1;
 
-    const score = await getConversationScore(ctx.userId, otherId);
+    const score = await getConversationScore(userId, otherId);
 
     // Fetch persisted unlock timestamps from dm_score_sticker_unlocks
     const { rows: unlockRows } = await db.query<{

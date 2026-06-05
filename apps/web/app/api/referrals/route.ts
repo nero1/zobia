@@ -19,7 +19,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { withAuth, type AuthContext } from "@/lib/api/middleware";
+import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { getCommissionStats } from "@/lib/referrals/commissions";
 
@@ -64,9 +64,9 @@ interface UserRow {
 /**
  * Referral stats for the authenticated user.
  */
-export const GET = withAuth(async (req: NextRequest, ctx: AuthContext) => {
+export const GET = withAuth(async (req: NextRequest, { auth }) => {
   try {
-    const userId = ctx.user.sub;
+    const userId = auth.user.sub;
 
     // Fetch user's referral code and numeric ID (used in referral URL)
     const userResult = await db.query<UserRow>(

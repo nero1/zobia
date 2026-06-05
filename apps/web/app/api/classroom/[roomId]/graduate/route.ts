@@ -117,7 +117,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const { rows: existingRows } = await db.query<{ id: string }>(
       `SELECT id
        FROM rooms
-       WHERE room_type = 'drop'
+       WHERE type = 'drop'
          AND deleted_at IS NULL
          AND metadata->>'graduation_for' = $1
        LIMIT 1`,
@@ -174,7 +174,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
       const { rows: newRoomRows } = await tx.query<NewRoomRow>(
         `INSERT INTO rooms
-           (name, room_type, creator_id, is_active, metadata, drop_ends_at)
+           (name, type, creator_id, is_active, metadata, drop_ends_at)
          VALUES ($1, 'drop', $2, TRUE, $3::jsonb, $4::timestamptz)
          RETURNING id`,
         [

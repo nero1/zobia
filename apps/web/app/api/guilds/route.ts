@@ -16,7 +16,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { withAuth, validateBody, type AuthContext } from "@/lib/api/middleware";
+import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, forbidden } from "@/lib/api/errors";
 
 // ---------------------------------------------------------------------------
@@ -66,7 +66,7 @@ interface GuildRow {
  * Browse guilds with optional filters.
  * Supports city, tier, and open_only query params.
  */
-export const GET = withAuth(async (req: NextRequest, ctx: AuthContext) => {
+export const GET = withAuth(async (req: NextRequest, { auth }) => {
   try {
     const { searchParams } = new URL(req.url);
     const city = searchParams.get("city");
@@ -134,10 +134,10 @@ export const GET = withAuth(async (req: NextRequest, ctx: AuthContext) => {
  * Atomically deducts 500 Coins from the creator and creates the guild
  * plus a guild_member record with the captain role.
  */
-export const POST = withAuth(async (req: NextRequest, ctx: AuthContext) => {
+export const POST = withAuth(async (req: NextRequest, { auth }) => {
   try {
     const body = await validateBody(req, createGuildSchema);
-    const userId = ctx.user.sub;
+    const userId = auth.user.sub;
 
     const result = await db.transaction(async (client) => {
       // 1. Check user doesn't already belong to a guild

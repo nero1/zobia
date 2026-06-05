@@ -19,7 +19,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { withAuth, validateBody, type AuthContext } from "@/lib/api/middleware";
+import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, badRequest } from "@/lib/api/errors";
 
 // ---------------------------------------------------------------------------
@@ -63,8 +63,8 @@ interface MemberRow {
 export const GET = withAuth(
   async (
     req: NextRequest,
-    ctx: AuthContext,
-    { params }: { params: { guildId: string } }
+    
+    { params, auth }: { params: { guildId: string ; auth: { user: { sub: string } } }
   ) => {
     try {
       const { guildId } = params;
@@ -108,12 +108,12 @@ export const GET = withAuth(
 export const PUT = withAuth(
   async (
     req: NextRequest,
-    ctx: AuthContext,
-    { params }: { params: { guildId: string } }
+    
+    { params, auth }: { params: { guildId: string ; auth: { user: { sub: string } } }
   ) => {
     try {
       const { guildId } = params;
-      const captainId = ctx.user.sub;
+      const captainId = auth.user.sub;
       const body = await validateBody(req, updateRoleSchema);
 
       // Verify caller is captain
@@ -155,12 +155,12 @@ export const PUT = withAuth(
 export const DELETE = withAuth(
   async (
     req: NextRequest,
-    ctx: AuthContext,
-    { params }: { params: { guildId: string } }
+    
+    { params, auth }: { params: { guildId: string ; auth: { user: { sub: string } } }
   ) => {
     try {
       const { guildId } = params;
-      const captainId = ctx.user.sub;
+      const captainId = auth.user.sub;
       const body = await validateBody(req, removeMemberSchema);
 
       const captainCheck = await db.query<{ captain_id: string }>(

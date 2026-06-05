@@ -11,7 +11,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { withAuth, type AuthContext } from "@/lib/api/middleware";
+import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 
 // ---------------------------------------------------------------------------
@@ -48,9 +48,9 @@ interface Notification {
 /**
  * Returns the latest notifications for the authenticated user.
  */
-export const GET = withAuth(async (req: NextRequest, ctx: AuthContext) => {
+export const GET = withAuth(async (req: NextRequest, { auth }) => {
   try {
-    const userId = ctx.user.sub;
+    const userId = auth.user.sub;
 
     const result = await db.query<NotificationRow>(
       `SELECT id, type, payload, is_read, created_at

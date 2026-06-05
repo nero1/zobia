@@ -439,7 +439,7 @@ export async function claimPassMilestone(
     season_xp: number; has_paid_pass: boolean;
   }>(
     `SELECT sp.season_xp, sp.is_paid AS has_paid_pass
-     FROM season_passes sp
+     FROM user_season_passes sp
      WHERE sp.user_id = $1 AND sp.season_id = $2`,
     [userId, seasonId]
   );

@@ -11,15 +11,15 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { withAuth, type AuthContext } from "@/lib/api/middleware";
+import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 
 /**
  * Mark all notifications as read for the authenticated user.
  */
-export const POST = withAuth(async (req: NextRequest, ctx: AuthContext) => {
+export const POST = withAuth(async (req: NextRequest, { auth }) => {
   try {
-    const userId = ctx.user.sub;
+    const userId = auth.user.sub;
 
     const result = await db.query<{ count: string }>(
       `WITH updated AS (

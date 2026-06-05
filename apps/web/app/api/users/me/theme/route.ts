@@ -31,11 +31,11 @@ const themeSchema = z.object({
 // GET
 // ---------------------------------------------------------------------------
 
-export const GET = withAuth(async (_req: NextRequest, ctx) => {
+export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     const { rows } = await db.query<{ chat_theme: string | null }>(
       "SELECT chat_theme FROM users WHERE id = $1 LIMIT 1",
-      [ctx.userId]
+      [auth.user.sub]
     );
 
     return NextResponse.json({
@@ -52,7 +52,7 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
 // PUT
 // ---------------------------------------------------------------------------
 
-export const PUT = withAuth(async (req: NextRequest, ctx) => {
+export const PUT = withAuth(async (req: NextRequest, { auth }) => {
   try {
     const body = await validateBody(req, themeSchema);
 
@@ -60,7 +60,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     if (PAID_THEMES.includes(body.theme)) {
       const { rows } = await db.query<{ plan: string }>(
         "SELECT plan FROM users WHERE id = $1 LIMIT 1",
-        [ctx.userId]
+        [auth.user.sub]
       );
       const plan = rows[0]?.plan ?? "free";
       if (plan !== "pro" && plan !== "max") {
@@ -72,7 +72,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
 
     await db.query(
       "UPDATE users SET chat_theme = $1, updated_at = NOW() WHERE id = $2",
-      [body.theme, ctx.userId]
+      [body.theme, auth.user.sub]
     );
 
     return NextResponse.json({

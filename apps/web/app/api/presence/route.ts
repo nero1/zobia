@@ -16,7 +16,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
-import { withAuth, type AuthContext } from "@/lib/api/middleware";
+import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 
 // ---------------------------------------------------------------------------
@@ -48,9 +48,9 @@ export function presenceRedisKey(userId: string): string {
  * Record a presence heartbeat for the authenticated user.
  * Should be called periodically by the client (e.g. every 3–4 minutes).
  */
-export const POST = withAuth(async (req: NextRequest, ctx: AuthContext) => {
+export const POST = withAuth(async (req: NextRequest, { auth }) => {
   try {
-    const userId = ctx.user.sub;
+    const userId = auth.user.sub;
     const now = new Date().toISOString();
 
     // Update last_active_at in the database
@@ -76,7 +76,7 @@ export const POST = withAuth(async (req: NextRequest, ctx: AuthContext) => {
  * Returns the number of users active in the last 5 minutes and any ongoing
  * platform event (flash XP, etc.) for display on the home screen activity banner.
  */
-export const GET = withAuth(async (req: NextRequest, ctx: AuthContext) => {
+export const GET = withAuth(async (req: NextRequest, { auth }) => {
   try {
     // Count distinct users who earned XP in the last hour (PRD §2.2: "X people earned XP in the last hour")
     const { rows } = await db.query<{ count: string }>(

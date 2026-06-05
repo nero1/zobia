@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { withAuth, validateBody, type AuthContext } from "@/lib/api/middleware";
+import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, forbidden, notFound } from "@/lib/api/errors";
 
 // ---------------------------------------------------------------------------
@@ -50,12 +50,12 @@ interface InviteRow {
 export const POST = withAuth(
   async (
     req: NextRequest,
-    ctx: AuthContext,
-    { params }: { params: { guildId: string } }
+    
+    { params, auth }: { params: { guildId: string ; auth: { user: { sub: string } } }
   ) => {
     try {
       const { guildId } = params;
-      const userId = ctx.user.sub;
+      const userId = auth.user.sub;
       const body = await validateBody(req, joinGuildSchema);
 
       const result = await db.transaction(async (client) => {

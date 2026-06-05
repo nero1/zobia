@@ -37,8 +37,8 @@ import { getTrackXPThreshold, getTrackLevelForXP } from "@/lib/xp/engine";
 /** Maximum members in a free_open room. */
 const FREE_OPEN_MAX_MEMBERS = 10_000;
 
-/** Creator tiers that are allowed to create rooms (ordered ascending). */
-const CREATOR_TIERS_ALLOWED = ["Rising", "Verified", "Pro", "Elite"] as const;
+/** Creator tiers that are allowed to create rooms (lowercase, matching DB constraint). */
+const CREATOR_TIERS_ALLOWED = ["rising", "verified", "elite", "icon"] as const;
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -157,9 +157,10 @@ function buildTrendingOrderClause(): string {
       + r.member_count * 0.5
       + CASE WHEN r.is_featured THEN 200 ELSE 0 END
       + CASE
-          WHEN u.creator_tier = 'Elite' THEN 50
-          WHEN u.creator_tier = 'Pro'   THEN 30
-          WHEN u.creator_tier = 'Verified' THEN 20
+          WHEN u.creator_tier = 'icon'     THEN 60
+          WHEN u.creator_tier = 'elite'    THEN 50
+          WHEN u.creator_tier = 'verified' THEN 20
+          WHEN u.creator_tier = 'rising'   THEN 10
           ELSE 0
         END
       + (COALESCE(r.health_score, 100) - 50)
@@ -310,12 +311,18 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
          ) AS recent_message_count,
          r.total_messages,
          COALESCE(r.health_score, 100) AS health_score,
+         -- Paid promotion boost: rooms with an active promotion appear higher
+         (rp.id IS NOT NULL AND rp.ends_at > NOW()) AS is_promoted,
          r.created_at,
          r.updated_at
        FROM rooms r
        JOIN users u ON u.id = r.creator_id
+       LEFT JOIN room_promotions rp ON rp.room_id = r.id AND rp.is_active = TRUE AND rp.ends_at > NOW()
        WHERE ${conditions.join(" AND ")}
-       ORDER BY ${orderBy}
+       ORDER BY
+         -- Promoted rooms always surface first in non-trending view
+         CASE WHEN rp.id IS NOT NULL AND rp.ends_at > NOW() THEN 0 ELSE 1 END ASC,
+         ${orderBy}
        LIMIT $${limitParam}`,
       queryParams
     );
