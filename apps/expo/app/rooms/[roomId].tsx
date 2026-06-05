@@ -54,6 +54,7 @@ interface Room {
   memberCount: number;
   entryFeeCoin: number | null;
   isSubscribed: boolean;
+  isCreator: boolean;
   hostDisplayName: string;
   dropEndsAt?: string | null;
   minGiftSpectacleCoin?: number; // gifts above this value trigger room-wide spectacle
@@ -456,6 +457,38 @@ export default function RoomScreen() {
           >
             <Text style={styles.iconBtnText}>🎁</Text>
           </Pressable>
+          {/* Room Powers button — only for room creator */}
+          {room?.isCreator && (
+            <Pressable
+              style={[styles.iconBtn, { backgroundColor: isDark ? colors.neutral[700] : '#f3f0ff' }]}
+              onPress={() => {
+                Alert.alert(
+                  'Room Powers',
+                  'Choose a power to activate:',
+                  [
+                    {
+                      text: '⚡ Spotlight Room (500 🪙)',
+                      onPress: () => {
+                        apiClient
+                          .post(`/api/rooms/${roomId}/powers`, { power: 'room_spotlight', durationHours: 24 })
+                          .then(() => Alert.alert('Activated!', 'Your room is now spotlighted on discovery for 24 hours.'))
+                          .catch((e: Error) => Alert.alert('Error', e.message));
+                      },
+                    },
+                    {
+                      text: '👑 Highlight Member (200 🪙)',
+                      onPress: () => Alert.alert('Coming soon', 'Enter a username to highlight.'),
+                    },
+                    { text: 'Cancel', style: 'cancel' },
+                  ]
+                );
+              }}
+              accessibilityLabel="Room powers"
+              accessibilityRole="button"
+            >
+              <Text style={styles.iconBtnText}>⚡</Text>
+            </Pressable>
+          )}
           <Pressable
             style={[
               styles.sendBtn,

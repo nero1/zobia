@@ -130,6 +130,25 @@ interface UserProfileResponse {
   guild_id: string | null;
 }
 
+interface NewMemberQuestProgress {
+  step: number;
+  steps: { id: string; label: string; completed: boolean }[];
+  allComplete: boolean;
+  rewardClaimed: boolean;
+}
+
+interface SpotlightCreator {
+  username: string;
+  display_name: string | null;
+  avatar_emoji: string | null;
+}
+
+interface SpotlightData {
+  month_year: string;
+  blurb: string | null;
+  creator: SpotlightCreator;
+}
+
 // ---------------------------------------------------------------------------
 // API fetchers
 // ---------------------------------------------------------------------------
@@ -174,6 +193,20 @@ async function fetchUserProfile(): Promise<UserProfileResponse> {
   return data;
 }
 
+async function fetchNewMemberQuest(): Promise<NewMemberQuestProgress> {
+  const { data } = await apiClient.get('/api/quests/new-member');
+  return data.data ?? data;
+}
+
+async function fetchCreatorSpotlight(): Promise<SpotlightData | null> {
+  try {
+    const { data } = await apiClient.get('/api/creator-spotlight');
+    return data.spotlight ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Returns true if the user signed up more than 24 hours ago and has no guild. */
 function shouldShowGuildDiscovery(
   profile: UserProfileResponse | undefined
@@ -183,6 +216,92 @@ function shouldShowGuildDiscovery(
   const signupMs = new Date(profile.created_at).getTime();
   const hoursElapsed = (Date.now() - signupMs) / (1000 * 60 * 60);
   return hoursElapsed >= 24;
+}
+
+// ---------------------------------------------------------------------------
+// Member Quest Banner
+// ---------------------------------------------------------------------------
+
+function MemberQuestBanner({ quest }: { quest: NewMemberQuestProgress }) {
+  const router = useRouter();
+  const { colors: themeColors } = useTheme();
+  if (quest.rewardClaimed) return null;
+
+  const completedCount = quest.steps.filter((s) => s.completed).length;
+  const totalCount = quest.steps.length;
+  const pct = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
+
+  return (
+    <Pressable
+      style={[styles.memberQuestBanner, { backgroundColor: themeColors.surface, borderColor: colors.brand.blue }]}
+      onPress={() => router.push('/quests/new-member' as never)}
+      accessibilityRole="button"
+      accessibilityLabel="View New Member Quest"
+    >
+      <View style={styles.memberQuestHeader}>
+        <Text style={styles.memberQuestEmoji}>⭐</Text>
+        <View style={styles.memberQuestInfo}>
+          <Text style={[styles.memberQuestTitle, { color: themeColors.text }]}>
+            New Member Quest
+          </Text>
+          <Text style={[styles.memberQuestSubtitle, { color: themeColors.textMuted }]}>
+            {completedCount}/{totalCount} steps · Earn 1,000 coins + 2,000 XP
+          </Text>
+        </View>
+        <Text style={[styles.memberQuestChevron, { color: colors.brand.blue }]}>›</Text>
+      </View>
+      <View style={styles.memberQuestProgressOuter}>
+        <View style={[styles.memberQuestProgressInner, { width: `${pct}%` }]} />
+      </View>
+    </Pressable>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Creator Spotlight
+// ---------------------------------------------------------------------------
+
+function CreatorSpotlightCard({ spotlight }: { spotlight: SpotlightData }) {
+  const router = useRouter();
+  const { colors: themeColors } = useTheme();
+  const displayName = spotlight.creator.display_name ?? spotlight.creator.username;
+
+  const [year, month] = spotlight.month_year.split('-');
+  const date = new Date(Number(year), Number(month) - 1, 1);
+  const monthLabel = date.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+
+  return (
+    <Pressable
+      style={[styles.spotlightCard, { backgroundColor: themeColors.surface, borderColor: '#f59e0b' }]}
+      onPress={() => router.push(`/profile/${spotlight.creator.username}` as never)}
+      accessibilityRole="button"
+      accessibilityLabel={`View creator ${displayName}`}
+    >
+      <View style={styles.spotlightBadge}>
+        <Text style={styles.spotlightBadgeText}>⭐ Creator of the Month — {monthLabel}</Text>
+      </View>
+      <View style={styles.spotlightBody}>
+        <View style={styles.spotlightAvatar}>
+          <Text style={styles.spotlightAvatarEmoji}>
+            {spotlight.creator.avatar_emoji ?? '🧑'}
+          </Text>
+        </View>
+        <View style={styles.spotlightInfo}>
+          <Text style={[styles.spotlightName, { color: themeColors.text }]} numberOfLines={1}>
+            {displayName}
+          </Text>
+          <Text style={[styles.spotlightUsername, { color: themeColors.textMuted }]}>
+            @{spotlight.creator.username}
+          </Text>
+          {spotlight.blurb ? (
+            <Text style={[styles.spotlightBlurb, { color: themeColors.textMuted }]} numberOfLines={2}>
+              {spotlight.blurb}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+    </Pressable>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -722,6 +841,26 @@ export default function HomeScreen() {
     enabled: showGuildDiscovery,
   });
 
+  // New member quest — only fetch for users signed up <7 days ago
+  const isNewUser = (() => {
+    if (!userProfileQuery.data) return false;
+    const signupMs = new Date(userProfileQuery.data.created_at).getTime();
+    const daysElapsed = (Date.now() - signupMs) / (1000 * 60 * 60 * 24);
+    return daysElapsed < 7;
+  })();
+  const newMemberQuestQuery = useQuery({
+    queryKey: ['new-member-quest'],
+    queryFn: fetchNewMemberQuest,
+    enabled: isNewUser,
+    staleTime: 30_000,
+  });
+
+  const creatorSpotlightQuery = useQuery({
+    queryKey: ['creator-spotlight'],
+    queryFn: fetchCreatorSpotlight,
+    staleTime: 5 * 60_000,
+  });
+
   // -------------------------------------------------------------------------
   // Daily login mutation — fire on mount
   // -------------------------------------------------------------------------
@@ -769,6 +908,8 @@ export default function HomeScreen() {
       queryClient.invalidateQueries({ queryKey: ['leaderboard', 'me'] }),
       queryClient.invalidateQueries({ queryKey: ['users', 'me'] }),
       queryClient.invalidateQueries({ queryKey: ['guilds', 'discovery'] }),
+      queryClient.invalidateQueries({ queryKey: ['new-member-quest'] }),
+      queryClient.invalidateQueries({ queryKey: ['creator-spotlight'] }),
     ]);
     setRefreshing(false);
   }, [queryClient]);
@@ -873,6 +1014,16 @@ export default function HomeScreen() {
 
         {/* Activity Banner */}
         {renderActivityBanner()}
+
+        {/* New Member Quest Banner — shown to users signed up <7 days ago */}
+        {isNewUser && newMemberQuestQuery.data && !newMemberQuestQuery.data.rewardClaimed && (
+          <MemberQuestBanner quest={newMemberQuestQuery.data} />
+        )}
+
+        {/* Creator Spotlight */}
+        {creatorSpotlightQuery.data && (
+          <CreatorSpotlightCard spotlight={creatorSpotlightQuery.data} />
+        )}
 
         {/* Online Friends */}
         {renderFriendsRow()}
@@ -1385,4 +1536,71 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: colors.neutral[400],
   },
+
+  // Member Quest Banner
+  memberQuestBanner: {
+    borderRadius: 14,
+    borderWidth: 1.5,
+    padding: 14,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    gap: 10,
+  },
+  memberQuestHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  memberQuestEmoji: { fontSize: 24 },
+  memberQuestInfo: { flex: 1 },
+  memberQuestTitle: { fontSize: 15, fontWeight: '700' },
+  memberQuestSubtitle: { fontSize: 12, marginTop: 1 },
+  memberQuestChevron: { fontSize: 20, fontWeight: '600' },
+  memberQuestProgressOuter: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.neutral[200],
+    overflow: 'hidden',
+  },
+  memberQuestProgressInner: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.brand.blue,
+  },
+
+  // Creator Spotlight
+  spotlightCard: {
+    borderRadius: 14,
+    borderWidth: 1.5,
+    padding: 14,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    gap: 10,
+  },
+  spotlightBadge: {
+    backgroundColor: '#fef3c7',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    alignSelf: 'flex-start',
+  },
+  spotlightBadgeText: { fontSize: 12, fontWeight: '700', color: '#92400e' },
+  spotlightBody: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  spotlightAvatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#fef3c7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  spotlightAvatarEmoji: { fontSize: 28 },
+  spotlightInfo: { flex: 1, gap: 2 },
+  spotlightName: { fontSize: 15, fontWeight: '700' },
+  spotlightUsername: { fontSize: 12 },
+  spotlightBlurb: { fontSize: 12, marginTop: 2, lineHeight: 16 },
 });

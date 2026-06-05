@@ -194,7 +194,7 @@ function PlanCard({ plan, interval, isCurrent, currentPlanRank, onUpgrade, onMan
                 <p className="mt-0.5 text-xs text-neutral-500">
                   {formatPrice(price)} billed annually
                   <span className="ml-1.5 rounded-full bg-teal-100 px-1.5 py-0.5 text-xs font-semibold text-teal-700 dark:bg-teal-900 dark:text-teal-300">
-                    Save 10%
+                    2 months free
                   </span>
                 </p>
               )}
@@ -446,7 +446,7 @@ export default function SubscriptionPage() {
       <div className="flex items-center justify-between gap-4 rounded-xl border border-neutral-200 bg-white px-5 py-4 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
         <div>
           <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Billing Period</p>
-          <p className="text-xs text-neutral-500">Annual billing saves you 10% compared to monthly.</p>
+          <p className="text-xs text-neutral-500">Annual billing gives you 2 months free (pay for 10, get 12).</p>
         </div>
         <div className="flex rounded-xl border border-neutral-200 bg-neutral-100 p-1 dark:border-neutral-700 dark:bg-neutral-800">
           <button
@@ -461,7 +461,7 @@ export default function SubscriptionPage() {
           >
             Annual
             <span className="rounded-full bg-teal-100 px-1.5 py-0.5 text-xs font-bold text-teal-700 dark:bg-teal-900 dark:text-teal-300">
-              -10%
+              2 free
             </span>
           </button>
         </div>

@@ -419,6 +419,25 @@ export default function SettingsScreen() {
         />
       </View>
 
+      {/* Appearance */}
+      <SectionHeader title="APPEARANCE" />
+      <View style={[styles.card, { backgroundColor: themeColors.surface }]}>
+        <Pressable
+          style={[styles.settingsRow, { borderBottomColor: 'transparent' }]}
+          onPress={() => router.push('/settings/chat-theme' as never)}
+          accessibilityRole="button"
+          accessibilityLabel="Chat theme"
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.settingsRowLabel, { color: themeColors.text }]}>Chat Themes</Text>
+            <Text style={[styles.toggleDesc, { color: themeColors.textMuted }]}>
+              Customise DM bubble colours (Pro/Max)
+            </Text>
+          </View>
+          <Text style={[styles.chevron, { color: themeColors.textMuted }]}>›</Text>
+        </Pressable>
+      </View>
+
       {/* Subscription */}
       <SectionHeader title="SUBSCRIPTION" />
       <View style={[styles.card, { backgroundColor: themeColors.surface }]}>

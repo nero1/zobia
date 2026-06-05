@@ -314,6 +314,20 @@ export const GET = async (req: NextRequest) => {
     results.momentsExpiry = {
       expired: parseInt(deletedMoments.rows[0]?.count ?? "0"),
     };
+
+    // PRD §5: Also delete Zobia Moment-type DM messages older than 24 hours.
+    const deletedDmMoments = await db.query<{ count: string }>(
+      `WITH deleted AS (
+         DELETE FROM messages
+         WHERE message_type = 'moment'
+           AND created_at < NOW() - INTERVAL '24 hours'
+         RETURNING 1
+       )
+       SELECT COUNT(*) AS count FROM deleted`
+    );
+    results.dmMomentsExpiry = {
+      expired: parseInt(deletedDmMoments.rows[0]?.count ?? "0"),
+    };
   } catch (err) {
     errors.push(`momentsExpiry: ${String(err)}`);
   }

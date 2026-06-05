@@ -21,6 +21,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   View,
 } from 'react-native';
@@ -31,7 +32,7 @@ import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
 import {
   initGooglePlayBilling,
-  purchaseCoins,
+  purchaseSubscription,
 } from '@/lib/payments/googlePlay';
 
 // ---------------------------------------------------------------------------
@@ -57,6 +58,7 @@ interface PlanConfig {
   tier: PlanTier;
   label: string;
   price: string;
+  annualPrice: string;
   priceNote: string;
   emoji: string;
   accentColor: string;
@@ -75,6 +77,7 @@ const PLANS: PlanConfig[] = [
     tier: 'free',
     label: 'Free',
     price: '₦0',
+    annualPrice: '₦0',
     priceNote: 'Forever free',
     emoji: '🆓',
     accentColor: colors.neutral[500],
@@ -92,17 +95,19 @@ const PLANS: PlanConfig[] = [
     tier: 'plus',
     label: 'Plus',
     price: '₦500',
+    annualPrice: '₦5,000',
     priceNote: 'per month',
     emoji: '⭐',
     accentColor: colors.brand.blue,
-    monthlyCoins: 200,
+    monthlyCoins: 50,
     xpMultiplier: 1.25,
     features: [
       { label: 'Unlimited DMs' },
       { label: 'Join up to 10 guilds' },
       { label: 'VIP rooms access' },
-      { label: '200 coins/month bonus' },
+      { label: '50 coins/month bonus' },
       { label: '1.25× XP multiplier' },
+      { label: '180-day message history' },
     ],
     productId: 'sub_plus_monthly',
   },
@@ -110,17 +115,19 @@ const PLANS: PlanConfig[] = [
     tier: 'pro',
     label: 'Pro',
     price: '₦1,500',
+    annualPrice: '₦15,000',
     priceNote: 'per month',
     emoji: '🔥',
     accentColor: colors.brand.gold,
-    monthlyCoins: 600,
+    monthlyCoins: 200,
     xpMultiplier: 1.5,
     features: [
-      { label: 'Unlimited DMs (free)' },
+      { label: 'Unlimited DMs (free to send)' },
       { label: 'Join up to 30 guilds' },
       { label: 'All rooms + Drop rooms' },
-      { label: '600 coins/month bonus' },
+      { label: '200 coins/month bonus' },
       { label: '1.5× XP multiplier' },
+      { label: 'Unlimited message history' },
       { label: 'Priority support' },
     ],
     productId: 'sub_pro_monthly',
@@ -128,20 +135,22 @@ const PLANS: PlanConfig[] = [
   {
     tier: 'max',
     label: 'Max',
-    price: '₦4,000',
+    price: '₦3,500',
+    annualPrice: '₦35,000',
     priceNote: 'per month',
     emoji: '👑',
     accentColor: colors.brand.green,
-    monthlyCoins: 2000,
-    xpMultiplier: 2.0,
+    monthlyCoins: 500,
+    xpMultiplier: 5.0,
     features: [
       { label: 'Everything in Pro' },
-      { label: 'Unlimited guilds' },
-      { label: 'Group chats up to 300 members' },
-      { label: '2,000 coins/month bonus' },
-      { label: '2× XP multiplier' },
-      { label: 'Creator tools unlocked' },
-      { label: 'Exclusive Max badge' },
+      { label: 'Group chats up to 1,000 members' },
+      { label: '500 coins/month bonus' },
+      { label: '5× XP multiplier' },
+      { label: 'Unlimited DMs (free, 250/day)' },
+      { label: 'Early feature access (2 weeks)' },
+      { label: 'Custom chat themes' },
+      { label: 'Dedicated customer support' },
     ],
     productId: 'sub_max_monthly',
   },
@@ -165,10 +174,17 @@ interface PlanCardProps {
   isActive: boolean;
   onSubscribe: (plan: PlanConfig) => void;
   subscribing: boolean;
+  isAnnual: boolean;
 }
 
-function PlanCard({ plan, isActive, onSubscribe, subscribing }: PlanCardProps) {
+function PlanCard({ plan, isActive, onSubscribe, subscribing, isAnnual }: PlanCardProps) {
   const { colors: themeColors } = useTheme();
+  const displayPrice = plan.tier === 'free'
+    ? plan.price
+    : isAnnual ? plan.annualPrice : plan.price;
+  const displayNote = plan.tier === 'free'
+    ? plan.priceNote
+    : isAnnual ? 'per year (2 months free)' : plan.priceNote;
 
   return (
     <View
@@ -184,11 +200,16 @@ function PlanCard({ plan, isActive, onSubscribe, subscribing }: PlanCardProps) {
           <Text style={styles.planEmoji}>{plan.emoji}</Text>
           <View>
             <Text style={[styles.planName, { color: plan.accentColor }]}>{plan.label}</Text>
-            <Text style={[styles.planPrice, { color: themeColors.text }]}>{plan.price}</Text>
+            <Text style={[styles.planPrice, { color: themeColors.text }]}>{displayPrice}</Text>
           </View>
+          {isAnnual && plan.tier !== 'free' && (
+            <View style={[styles.savingsBadge, { backgroundColor: colors.semantic.success ?? colors.brand.green }]}>
+              <Text style={styles.savingsBadgeText}>2 free</Text>
+            </View>
+          )}
         </View>
         <Text style={[styles.planPriceNote, { color: themeColors.textMuted }]}>
-          {plan.priceNote}
+          {displayNote}
         </Text>
         {isActive && (
           <View style={[styles.activeBadge, { backgroundColor: plan.accentColor }]}>
@@ -238,7 +259,9 @@ function PlanCard({ plan, isActive, onSubscribe, subscribing }: PlanCardProps) {
           {subscribing ? (
             <ActivityIndicator size="small" color={colors.neutral[0]} />
           ) : (
-            <Text style={styles.subscribeBtnText}>Subscribe — {plan.price}/mo</Text>
+            <Text style={styles.subscribeBtnText}>
+              Subscribe — {isAnnual ? `${plan.annualPrice}/yr` : `${plan.price}/mo`}
+            </Text>
           )}
         </Pressable>
       )}
@@ -274,6 +297,7 @@ export default function SubscriptionScreen() {
   const { colors: themeColors } = useTheme();
   const queryClient = useQueryClient();
   const [subscribingTier, setSubscribingTier] = useState<PlanTier | null>(null);
+  const [isAnnual, setIsAnnual] = useState(false);
 
   const { data: me, isLoading, isError } = useQuery({
     queryKey: ['user-me'],
@@ -301,8 +325,7 @@ export default function SubscriptionScreen() {
       try {
         await initGooglePlayBilling();
 
-        // Use purchaseCoins flow for the subscription product ID
-        const result = await purchaseCoins(plan.productId);
+        const result = await purchaseSubscription(plan.productId);
 
         if (result.success) {
           Alert.alert(
@@ -377,6 +400,24 @@ export default function SubscriptionScreen() {
       {/* Plan cards */}
       <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Choose a Plan</Text>
 
+      {/* Annual / Monthly toggle */}
+      <View style={[styles.billingToggleRow, { backgroundColor: themeColors.surface, borderColor: themeColors.border }]}>
+        <Text style={[styles.billingToggleLabel, { color: themeColors.text }]}>Monthly</Text>
+        <Switch
+          value={isAnnual}
+          onValueChange={setIsAnnual}
+          trackColor={{ false: colors.neutral[300], true: colors.brand.blue }}
+          thumbColor={colors.neutral[0]}
+          accessibilityLabel="Toggle annual billing"
+        />
+        <Text style={[styles.billingToggleLabel, { color: themeColors.text }]}>
+          Annual
+        </Text>
+        <View style={[styles.annualSavingsBadge, { backgroundColor: colors.brand.green }]}>
+          <Text style={styles.annualSavingsText}>2 months free</Text>
+        </View>
+      </View>
+
       {PLANS.map((plan) => (
         <PlanCard
           key={plan.tier}
@@ -384,6 +425,7 @@ export default function SubscriptionScreen() {
           isActive={plan.tier === currentTier}
           onSubscribe={handleSubscribe}
           subscribing={subscribingTier === plan.tier}
+          isAnnual={isAnnual}
         />
       ))}
 
@@ -465,6 +507,34 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   activeBadgeText: { color: colors.neutral[0], fontSize: 11, fontWeight: '700' },
+
+  savingsBadge: {
+    marginLeft: 'auto',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    alignSelf: 'center',
+  },
+  savingsBadgeText: { color: colors.neutral[0], fontSize: 10, fontWeight: '700' },
+
+  billingToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 4,
+    gap: 10,
+  },
+  billingToggleLabel: { fontSize: 14, fontWeight: '600' },
+  annualSavingsBadge: {
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginLeft: 4,
+  },
+  annualSavingsText: { color: colors.neutral[0], fontSize: 11, fontWeight: '700' },
 
   featureList: {
     paddingHorizontal: 16,

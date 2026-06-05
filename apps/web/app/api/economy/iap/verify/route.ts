@@ -27,7 +27,7 @@ import { db } from "@/lib/db";
 // ---------------------------------------------------------------------------
 
 /**
- * Maps Google Play product IDs to coin amounts.
+ * Maps Google Play one-time product IDs to coin amounts.
  * Must stay in sync with apps/expo/lib/payments/googlePlay.ts COIN_PRODUCTS.
  */
 const COIN_PRODUCTS: Record<string, number> = {
@@ -37,6 +37,16 @@ const COIN_PRODUCTS: Record<string, number> = {
   coins_baller: 1800,
   coins_boss: 5000,
   coins_legend: 11500,
+};
+
+/**
+ * Maps Google Play subscription product IDs to plan tiers and monthly coin bonuses.
+ * Must stay in sync with apps/expo/lib/payments/googlePlay.ts SUBSCRIPTION_PRODUCTS.
+ */
+const SUBSCRIPTION_PRODUCTS: Record<string, { plan: string; monthlyCoins: number }> = {
+  sub_plus_monthly:  { plan: "plus", monthlyCoins: 50 },
+  sub_pro_monthly:   { plan: "pro",  monthlyCoins: 200 },
+  sub_max_monthly:   { plan: "max",  monthlyCoins: 500 },
 };
 
 const GOOGLE_PLAY_API_BASE =
@@ -50,16 +60,23 @@ const verifyIapSchema = z.object({
   purchaseToken: z.string().min(1, "purchaseToken is required"),
   productId: z.enum(
     [
+      // One-time coin purchases
       "coins_starter",
       "coins_regular",
       "coins_big",
       "coins_baller",
       "coins_boss",
       "coins_legend",
+      // Subscription plans
+      "sub_plus_monthly",
+      "sub_pro_monthly",
+      "sub_max_monthly",
     ],
     { errorMap: () => ({ message: "Unknown productId" }) }
   ),
   packageName: z.string().min(1, "packageName is required"),
+  /** Set to true when productId is a subscription (not a one-time purchase). */
+  isSubscription: z.boolean().optional().default(false),
 });
 
 // ---------------------------------------------------------------------------
@@ -238,8 +255,90 @@ async function acknowledgeGooglePlayPurchase(
 // ---------------------------------------------------------------------------
 
 /**
- * Verify a Google Play purchase and credit the corresponding coins.
+ * Verify a Google Play subscription purchase and activate the user's plan.
  *
+ * Uses the purchases.subscriptions API (not purchases.products) for subscriptions.
+ * Idempotent via coin_ledger reference_id keyed on purchaseToken.
+ */
+async function verifyAndActivateSubscription(
+  userId: string,
+  packageName: string,
+  productId: string,
+  purchaseToken: string
+): Promise<{ plan: string; coinsGranted: number }> {
+  const subConfig = SUBSCRIPTION_PRODUCTS[productId];
+  if (!subConfig) throw badRequest(`Unknown subscription productId: ${productId}`);
+
+  const referenceId = `iap:sub:${purchaseToken}`;
+
+  // Idempotency check
+  const { rows: existing } = await db.query<{ id: string }>(
+    `SELECT id FROM coin_ledger WHERE reference_id = $1 LIMIT 1`,
+    [referenceId]
+  );
+  if (existing.length > 0) {
+    // Already processed — return current plan state
+    const { rows: u } = await db.query<{ plan: string }>(
+      `SELECT COALESCE(plan, 'free') AS plan FROM users WHERE id = $1 LIMIT 1`,
+      [userId]
+    );
+    return { plan: u[0]?.plan ?? subConfig.plan, coinsGranted: 0 };
+  }
+
+  // Verify with Google Play subscriptions API (different endpoint from products)
+  const saJson = process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON;
+  if (saJson) {
+    const sa: ServiceAccountJson = JSON.parse(saJson);
+    const accessToken = await getGoogleAccessToken(sa);
+    const url = `${GOOGLE_PLAY_API_BASE}/${packageName}/purchases/subscriptions/${productId}/tokens/${purchaseToken}`;
+    const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw badRequest(`Google Play subscription verification failed: ${text}`, "PLAY_VERIFY_FAILED");
+    }
+    const data = (await resp.json()) as { paymentState?: number; cancelReason?: number };
+    // paymentState: 1 = payment received, 2 = free trial. cancelReason defined means cancelled.
+    if (data.paymentState !== 1 && data.paymentState !== 2) {
+      throw badRequest("Subscription payment not confirmed", "SUBSCRIPTION_NOT_PAID");
+    }
+    // Acknowledge to prevent auto-cancellation after 3 days
+    const ackUrl = `${GOOGLE_PLAY_API_BASE}/${packageName}/purchases/subscriptions/${productId}/tokens/${purchaseToken}:acknowledge`;
+    await fetch(ackUrl, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: "{}",
+    }).catch((e) => console.error("[iap/verify] Subscription ack failed:", e));
+  } else {
+    console.warn("[iap/verify] GOOGLE_PLAY_SERVICE_ACCOUNT_JSON not set — trusting subscription in dev mode");
+  }
+
+  // Activate plan and credit monthly coin bonus atomically
+  await db.query(
+    `UPDATE users SET plan = $1, plan_activated_at = NOW(), updated_at = NOW() WHERE id = $2`,
+    [subConfig.plan, userId]
+  );
+
+  // Credit the monthly coin bonus via the ledger
+  await creditCoins(
+    userId,
+    subConfig.monthlyCoins,
+    "subscription_bonus",
+    referenceId,
+    `Google Play subscription: ${productId} — monthly coin bonus`,
+    { productId, packageName, purchaseToken }
+  );
+
+  return { plan: subConfig.plan, coinsGranted: subConfig.monthlyCoins };
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/economy/iap/verify
+// ---------------------------------------------------------------------------
+
+/**
+ * Verify a Google Play purchase and credit coins, or activate a subscription plan.
+ *
+ * Handles both one-time coin purchases and recurring subscription products.
  * Idempotent: returns 409 if the purchaseToken has already been processed.
  * Uses SELECT FOR UPDATE to prevent race conditions on the user row.
  */
@@ -248,6 +347,22 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     const body = await validateBody(req, verifyIapSchema);
     const userId = auth.user.sub;
 
+    // Route to subscription handler when productId is a subscription product
+    const isSubscription = body.isSubscription || !!SUBSCRIPTION_PRODUCTS[body.productId];
+    if (isSubscription) {
+      const result = await verifyAndActivateSubscription(
+        userId,
+        body.packageName,
+        body.productId,
+        body.purchaseToken
+      );
+      return NextResponse.json(
+        { success: true, coinsGranted: result.coinsGranted, plan: result.plan },
+        { status: 200 }
+      );
+    }
+
+    // --- One-time coin purchase flow ---
     const coinsToGrant = COIN_PRODUCTS[body.productId];
     if (!coinsToGrant) {
       throw badRequest(`Unknown productId: ${body.productId}`, "UNKNOWN_PRODUCT");

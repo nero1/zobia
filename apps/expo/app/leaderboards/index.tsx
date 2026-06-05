@@ -45,6 +45,7 @@ interface SponsoredBanner {
 
 interface LeaderboardEntry {
   rank: number;
+  previousRank: number | null;
   userId: string;
   displayName: string;
   username: string;
@@ -143,6 +144,17 @@ function LeaderboardSkeleton() {
 // Entry row
 // ---------------------------------------------------------------------------
 
+function RankDelta({ current, previous }: { current: number; previous: number | null }) {
+  if (previous === null || previous === current) return null;
+  const delta = previous - current; // positive = moved up
+  const up = delta > 0;
+  return (
+    <Text style={[styles.rankDelta, { color: up ? '#22c55e' : '#ef4444' }]}>
+      {up ? `▲${delta}` : `▼${Math.abs(delta)}`}
+    </Text>
+  );
+}
+
 function EntryRow({ entry }: { entry: LeaderboardEntry }) {
   const { colors: themeColors } = useTheme();
   const medal = RANK_MEDALS[entry.rank];
@@ -163,6 +175,7 @@ function EntryRow({ entry }: { entry: LeaderboardEntry }) {
             {entry.rank}
           </Text>
         )}
+        <RankDelta current={entry.rank} previous={entry.previousRank} />
       </View>
 
       <View style={styles.avatar}>
@@ -394,9 +407,10 @@ const styles = StyleSheet.create({
     backgroundColor: `${colors.brand.blue}08`,
   },
 
-  rankCol: { width: 32, alignItems: 'center' },
+  rankCol: { width: 36, alignItems: 'center' },
   medal: { fontSize: 20 },
   rankNum: { fontSize: 14, fontWeight: '700' },
+  rankDelta: { fontSize: 9, fontWeight: '700', marginTop: 1 },
 
   avatar: {
     width: 38,

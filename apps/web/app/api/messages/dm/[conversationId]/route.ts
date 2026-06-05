@@ -166,6 +166,7 @@ export const GET = withAuth(
          WHERE m.conversation_id = $1
            ${historyFilter}
            ${cursorClause}
+           AND (m.message_type != 'moment' OR m.created_at > NOW() - INTERVAL '24 hours')
          ORDER BY m.created_at DESC
          LIMIT $2`,
         params2
