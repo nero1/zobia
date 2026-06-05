@@ -153,15 +153,15 @@ export const GET = async (req: NextRequest) => {
 
     const loginXpResult = await db.query<{ count: string }>(
       `WITH awarded AS (
-         INSERT INTO xp_ledger (user_id, action, xp_amount, multiplier, xp_net, metadata, created_at)
-         SELECT id, 'daily_login', $1, 1, $1, $2, NOW()
+         INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, created_at)
+         SELECT id, $1, 'main', 'daily_login', $1, NOW()
          FROM users
          WHERE last_active_at::date = NOW()::date
            AND deleted_at IS NULL
            AND NOT EXISTS (
              SELECT 1 FROM xp_ledger
              WHERE user_id = users.id
-               AND action = 'daily_login'
+               AND source = 'daily_login'
                AND created_at::date = NOW()::date
            )
          RETURNING user_id
@@ -173,7 +173,7 @@ export const GET = async (req: NextRequest) => {
          RETURNING 1
        )
        SELECT COUNT(*) AS count FROM awarded`,
-      [XP_VALUES.daily_login, JSON.stringify({ date: today })]
+      [XP_VALUES.daily_login]
     );
 
     results.dailyLoginXP = {
@@ -481,6 +481,62 @@ export const GET = async (req: NextRequest) => {
     results.guildTierDemotion = { demoted, flagged };
   } catch (err) {
     errors.push(`guildTierDemotion: ${String(err)}`);
+  }
+
+  // Guild tier promotion
+  try {
+    const TIER_PROMOTION_THRESHOLDS: Record<string, { next: string; minXP: number }> = {
+      bronze_1:   { next: "bronze_2",   minXP: 1_000 },
+      bronze_2:   { next: "bronze_3",   minXP: 2_500 },
+      bronze_3:   { next: "silver_1",   minXP: 5_000 },
+      silver_1:   { next: "silver_2",   minXP: 10_000 },
+      silver_2:   { next: "silver_3",   minXP: 20_000 },
+      silver_3:   { next: "gold_1",     minXP: 35_000 },
+      gold_1:     { next: "gold_2",     minXP: 50_000 },
+      gold_2:     { next: "gold_3",     minXP: 75_000 },
+      gold_3:     { next: "platinum_1", minXP: 100_000 },
+      platinum_1: { next: "platinum_2", minXP: 150_000 },
+      platinum_2: { next: "platinum_3", minXP: 200_000 },
+      platinum_3: { next: "legend",     minXP: 300_000 },
+    };
+
+    const { rows: promotionCandidates } = await db.query<{
+      id: string; captain_id: string; tier: string; guild_xp: number;
+    }>(
+      `SELECT id, captain_id, tier, guild_xp FROM guilds WHERE tier != 'legend' AND deleted_at IS NULL`
+    );
+
+    let promoted = 0;
+    for (const guild of promotionCandidates) {
+      const threshold = TIER_PROMOTION_THRESHOLDS[guild.tier];
+      if (!threshold) continue;
+      if (guild.guild_xp >= threshold.minXP) {
+        const fromTier = guild.tier;
+        const toTier = threshold.next;
+        await db.query(
+          `UPDATE guilds SET tier = $2, updated_at = NOW() WHERE id = $1`,
+          [guild.id, toTier]
+        );
+        await db.query(
+          `INSERT INTO guild_tier_history (guild_id, from_tier, to_tier, guild_xp_at, changed_at)
+           VALUES ($1, $2, $3, $4, NOW())`,
+          [guild.id, fromTier, toTier, guild.guild_xp]
+        ).catch(() => {});
+        await db.query(
+          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+           VALUES ($1, 'guild_tier_promoted', $2, false, NOW())`,
+          [
+            guild.captain_id,
+            JSON.stringify({ guildId: guild.id, fromTier, toTier, guildXp: guild.guild_xp }),
+          ]
+        ).catch(() => {});
+        promoted++;
+      }
+    }
+
+    results.guildTierPromotions = promoted;
+  } catch (err) {
+    errors.push(`guildTierPromotion: ${String(err)}`);
   }
 
   // 13. "The Patron" badge — award to users who are top gifter in 3+ rooms in last 24h

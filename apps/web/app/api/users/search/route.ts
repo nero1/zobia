@@ -12,7 +12,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { withAuth, type AuthContext } from "@/lib/api/middleware";
+import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 
@@ -23,9 +23,9 @@ interface UserRow {
   avatar_emoji: string;
 }
 
-export const GET = withAuth(async (req: NextRequest, ctx: AuthContext) => {
+export const GET = withAuth(async (req: NextRequest, { auth }) => {
   try {
-    await enforceRateLimit(ctx.user.sub, "user", RATE_LIMITS.apiRead);
+    await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 
     const { searchParams } = new URL(req.url);
     const q = searchParams.get("q")?.trim() ?? "";
@@ -42,7 +42,7 @@ export const GET = withAuth(async (req: NextRequest, ctx: AuthContext) => {
          AND id != $2
        ORDER BY username
        LIMIT 10`,
-      [`${q}%`, ctx.user.sub]
+      [`${q}%`, auth.user.sub]
     );
 
     return NextResponse.json({

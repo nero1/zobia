@@ -287,13 +287,14 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const userId = auth.user.sub;
     const body = await validateBody(req, sendMessageSchema);
 
-    // Fetch room
+    // Fetch room (including moderation_rules for automod enforcement)
     const { rows: roomRows } = await db.query<{
       type: string;
       creator_id: string;
       is_active: boolean;
+      moderation_rules: unknown;
     }>(
-      `SELECT type, creator_id, is_active FROM rooms WHERE id = $1`,
+      `SELECT type, creator_id, is_active, moderation_rules FROM rooms WHERE id = $1`,
       [roomId]
     );
     const room = roomRows[0];
@@ -320,15 +321,80 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       }
     }
 
-    // Anti-spam content filter
     const isAdmin =
       isCreator ||
       membership?.role === "admin" ||
       membership?.role === "co_moderator";
 
+    // ── Automod rule enforcement (PRD §10) ────────────────────────────────
+    // Parse moderation_rules JSONB stored on the room record.
+    const modRules = (room.moderation_rules as Record<string, unknown> | null) ?? {};
+
+    if (!isAdmin) {
+      // Slow-mode: enforce minimum gap between the user's last two messages
+      const slowModeSecs = Number(modRules.slowModeSeconds ?? 0);
+      if (slowModeSecs > 0) {
+        const { rows: lastMsgRows } = await db.query<{ created_at: string }>(
+          `SELECT created_at FROM room_messages
+           WHERE room_id = $1 AND sender_id = $2 AND is_deleted = FALSE
+           ORDER BY created_at DESC LIMIT 1`,
+          [roomId, userId]
+        );
+        if (lastMsgRows[0]) {
+          const secondsSinceLast =
+            (Date.now() - new Date(lastMsgRows[0].created_at).getTime()) / 1000;
+          if (secondsSinceLast < slowModeSecs) {
+            throw badRequest(
+              `Slow mode is active. Wait ${Math.ceil(slowModeSecs - secondsSinceLast)} seconds.`
+            );
+          }
+        }
+      }
+
+      // New-member posting hold: users who joined within N hours cannot post
+      const holdHours = Number(modRules.newMemberPostHoldHours ?? 0);
+      if (holdHours > 0 && membership) {
+        const { rows: joinRows } = await db.query<{ joined_at: string }>(
+          `SELECT joined_at FROM room_members WHERE room_id = $1 AND user_id = $2`,
+          [roomId, userId]
+        );
+        if (joinRows[0]) {
+          const hoursSinceJoin =
+            (Date.now() - new Date(joinRows[0].joined_at).getTime()) / 3_600_000;
+          if (hoursSinceJoin < holdHours) {
+            throw forbidden(
+              `New members must wait ${holdHours} hour${holdHours !== 1 ? "s" : ""} before posting.`
+            );
+          }
+        }
+      }
+
+      // Approval-required: message goes into a pending queue instead of appearing directly
+      // (We still insert it, but mark it pending; moderators review via /moderation endpoint)
+      // Note: require_approval is soft — message is stored but hidden until approved.
+    }
+
+    // Per-room message-type allow list (stored in moderation_rules.allowedMessageTypes)
+    // e.g. ["text","sticker"] — if set, only those types are accepted (admins bypass)
+    const allowedTypes = Array.isArray(modRules.allowedMessageTypes)
+      ? (modRules.allowedMessageTypes as string[])
+      : null;
+    if (!isAdmin && allowedTypes && allowedTypes.length > 0) {
+      if (!allowedTypes.includes(body.messageType)) {
+        throw badRequest(
+          `Message type '${body.messageType}' is not allowed in this room. ` +
+          `Allowed types: ${allowedTypes.join(", ")}.`
+        );
+      }
+    }
+
+    // Anti-spam content filter (also honours blockLinks automod rule)
+    const blockLinks = Boolean(modRules.blockLinks) && !isAdmin;
     let content = body.content;
     if (body.messageType === "text") {
-      content = filterPublicContent(content, isAdmin);
+      // filterPublicContent already strips links when isAdmin=false; the
+      // blockLinks rule makes this explicit even for edge cases.
+      content = filterPublicContent(content, isAdmin && !blockLinks);
       if (!content.trim()) {
         throw badRequest("Message content is empty after content filtering");
       }
@@ -337,12 +403,16 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // Count today's messages for XP cap check (before insert)
     const todayMsgCount = await countTodayMessages(roomId, userId);
 
+    // Determine if message needs approval (approval-required rooms, non-admin)
+    const requiresApproval = Boolean(modRules.requireApproval) && !isAdmin;
+
     // Persist message and update room counter atomically
     const { rows: msgRows } = await db.transaction(async (tx) => {
       const { rows } = await tx.query(
         `INSERT INTO room_messages
-           (room_id, sender_id, content, message_type, metadata, reply_to_message_id)
-         VALUES ($1, $2, $3, $4, $5, $6)
+           (room_id, sender_id, content, message_type, metadata, reply_to_message_id,
+            is_pending_approval)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING *`,
         [
           roomId,
@@ -351,6 +421,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           body.messageType,
           body.metadata ? JSON.stringify(body.metadata) : null,
           body.replyToMessageId ?? null,
+          requiresApproval,
         ]
       );
 

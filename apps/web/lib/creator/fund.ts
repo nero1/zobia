@@ -1,7 +1,13 @@
 /**
  * lib/creator/fund.ts
  *
- * Creator Fund — monthly pool distributed to top-earning creators.
+ * Creator Fund — monthly pool distributed to eligible creators.
+ *
+ * PRD §24: Distribution is based on a weighted score comprising:
+ *   40% — Engagement score (rooms hosted, messages, reactions received)
+ *   25% — Growth       (new followers/members gained in the period)
+ *   20% — Quest completions (sponsored + platform quests completed)
+ *   15% — Consistency  (active days in the 30-day window)
  */
 
 import Decimal from "decimal.js";
@@ -10,52 +16,141 @@ import { db } from "@/lib/db";
 export interface CreatorFundDistribution {
   creatorId: string;
   rank: number;
+  score: number;
   sharePercent: number;
   amountKobo: number;
 }
 
+// ---------------------------------------------------------------------------
+// Score weights (must sum to 1.0)
+// ---------------------------------------------------------------------------
+
+const W_ENGAGEMENT  = 0.40;
+const W_GROWTH      = 0.25;
+const W_QUESTS      = 0.20;
+const W_CONSISTENCY = 0.15;
+
+// ---------------------------------------------------------------------------
+// Distribution tiers (top % of eligible creators per tier, pool share %)
+// ---------------------------------------------------------------------------
+
 const DISTRIBUTION_TIERS = [
-  { topPercent: 1,  poolShare: 30 },
-  { topPercent: 5,  poolShare: 25 },
+  { topPercent:  1, poolShare: 30 },
+  { topPercent:  5, poolShare: 25 },
   { topPercent: 10, poolShare: 20 },
   { topPercent: 25, poolShare: 15 },
   { topPercent: 50, poolShare: 10 },
 ];
 
+// ---------------------------------------------------------------------------
+// Raw metrics row from the DB
+// ---------------------------------------------------------------------------
+
+interface CreatorMetrics {
+  id: string;
+  /** XP earned in the last 30 days (proxy for engagement). */
+  xp_earned_30d: number;
+  /** New followers gained in the last 30 days. */
+  new_followers_30d: number;
+  /** Sponsored + platform quests completed in the last 30 days. */
+  quests_completed_30d: number;
+  /** Distinct calendar days the user was active in the last 30 days. */
+  active_days_30d: number;
+}
+
+// ---------------------------------------------------------------------------
+// Normalisation helper
+// ---------------------------------------------------------------------------
+
+/** Min-max normalise an array of values to [0, 1]. */
+function normalise(values: number[]): number[] {
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  if (max === min) return values.map(() => 1);
+  return values.map((v) => (v - min) / (max - min));
+}
+
+// ---------------------------------------------------------------------------
+// calculateFundDistributions
+// ---------------------------------------------------------------------------
+
 export async function calculateFundDistributions(
   poolKobo: number
 ): Promise<CreatorFundDistribution[]> {
-  const { rows: creators } = await db.query<{ id: string; creator_earnings_30d: string }>(
-    `SELECT u.id,
-            COALESCE(SUM(ce.net_amount_kobo), 0)::text AS creator_earnings_30d
+  // Fetch multi-factor metrics for all active creators in the last 30 days
+  const { rows: creators } = await db.query<CreatorMetrics>(
+    `SELECT
+       u.id,
+       COALESCE(SUM(xl.amount), 0)::INTEGER               AS xp_earned_30d,
+       COUNT(DISTINCT f.follower_id)::INTEGER              AS new_followers_30d,
+       COUNT(DISTINCT qa.id)
+         FILTER (WHERE qa.status IN ('paid', 'approved'))::INTEGER
+                                                           AS quests_completed_30d,
+       COUNT(DISTINCT xl2.created_at::date)::INTEGER       AS active_days_30d
      FROM users u
-     JOIN creator_earnings ce ON ce.creator_id = u.id
-     WHERE u.is_creator = true
+     LEFT JOIN xp_ledger xl
+            ON xl.user_id = u.id
+           AND xl.created_at >= NOW() - INTERVAL '30 days'
+     LEFT JOIN follows f
+            ON f.followed_id = u.id
+           AND f.created_at  >= NOW() - INTERVAL '30 days'
+     LEFT JOIN sponsored_quest_applications qa
+            ON qa.creator_id = u.id
+           AND qa.updated_at >= NOW() - INTERVAL '30 days'
+     LEFT JOIN xp_ledger xl2
+            ON xl2.user_id = u.id
+           AND xl2.created_at >= NOW() - INTERVAL '30 days'
+     WHERE u.is_creator = TRUE
        AND u.deleted_at IS NULL
-       AND ce.created_at >= NOW() - INTERVAL '30 days'
      GROUP BY u.id
-     ORDER BY creator_earnings_30d DESC`
+     HAVING COALESCE(SUM(xl.amount), 0) > 0
+     ORDER BY u.id`
   );
 
   if (creators.length === 0) return [];
 
-  const total = creators.length;
+  // Extract per-dimension arrays for normalisation
+  const engagementRaw  = creators.map((c) => c.xp_earned_30d);
+  const growthRaw      = creators.map((c) => c.new_followers_30d);
+  const questsRaw      = creators.map((c) => c.quests_completed_30d);
+  const consistencyRaw = creators.map((c) => c.active_days_30d);
+
+  const engNorm  = normalise(engagementRaw);
+  const grwNorm  = normalise(growthRaw);
+  const qstNorm  = normalise(questsRaw);
+  const conNorm  = normalise(consistencyRaw);
+
+  // Compute weighted composite score
+  const scored = creators.map((c, i) => ({
+    id: c.id,
+    score:
+      W_ENGAGEMENT  * engNorm[i] +
+      W_GROWTH      * grwNorm[i] +
+      W_QUESTS      * qstNorm[i] +
+      W_CONSISTENCY * conNorm[i],
+  }));
+
+  // Sort descending by composite score
+  scored.sort((a, b) => b.score - a.score);
+
+  const total = scored.length;
   const distributions: CreatorFundDistribution[] = [];
   let prevCutoff = 0;
 
   for (const tier of DISTRIBUTION_TIERS) {
     const cutoff = Math.floor((tier.topPercent / 100) * total);
-    const creatorsInTier = creators.slice(prevCutoff, cutoff);
-    if (creatorsInTier.length === 0) continue;
+    const inTier = scored.slice(prevCutoff, cutoff);
+    if (inTier.length === 0) continue;
 
     const tierPool = new Decimal(poolKobo).mul(tier.poolShare).div(100);
-    const perCreator = tierPool.div(creatorsInTier.length).floor();
+    const perCreator = tierPool.div(inTier.length).floor();
 
-    for (let i = 0; i < creatorsInTier.length; i++) {
+    for (let i = 0; i < inTier.length; i++) {
       distributions.push({
-        creatorId: creatorsInTier[i].id,
+        creatorId: inTier[i].id,
         rank: prevCutoff + i + 1,
-        sharePercent: tier.poolShare / creatorsInTier.length,
+        score: Math.round(inTier[i].score * 10000) / 10000,
+        sharePercent: tier.poolShare / inTier.length,
         amountKobo: perCreator.toNumber(),
       });
     }
@@ -65,9 +160,15 @@ export async function calculateFundDistributions(
   return distributions;
 }
 
+// ---------------------------------------------------------------------------
+// distributeCreatorFund
+// ---------------------------------------------------------------------------
+
 export async function distributeCreatorFund(poolKobo: number): Promise<number> {
   const distributions = await calculateFundDistributions(poolKobo);
   if (distributions.length === 0) return 0;
+
+  const period = new Date().toISOString().slice(0, 7); // YYYY-MM
 
   await db.transaction(async (tx) => {
     for (const dist of distributions) {
@@ -75,7 +176,7 @@ export async function distributeCreatorFund(poolKobo: number): Promise<number> {
         `INSERT INTO creator_earnings
            (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo, reference_id)
          VALUES ($1, 'creator_fund', $2, 0, $2, $3)`,
-        [dist.creatorId, dist.amountKobo, `fund:${new Date().toISOString().slice(0, 7)}`]
+        [dist.creatorId, dist.amountKobo, `fund:${period}:rank${dist.rank}`]
       );
     }
   });

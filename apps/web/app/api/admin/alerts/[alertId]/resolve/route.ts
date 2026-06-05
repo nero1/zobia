@@ -42,11 +42,10 @@ const resolveAlertSchema = z.object({
 export const POST = withAdminAuth(
   async (
     req: NextRequest,
-    ctx: AdminContext,
-    params: { alertId: string }
+    { params, auth }: { params: { alertId: string }; auth: { user: { sub: string }; isAdmin: true } }
   ) => {
     try {
-      const { alertId } = params;
+      const { alertId } = await params as { alertId: string };
 
       // Parse optional body (note field)
       let note: string | undefined;
@@ -68,7 +67,7 @@ export const POST = withAdminAuth(
              updated_at      = NOW()
          WHERE id = $4
          RETURNING id, resolved`,
-        [resolvedAt, ctx.user.sub, note ?? null, alertId]
+        [resolvedAt, auth.user.sub, note ?? null, alertId]
       );
 
       if (result.rows.length === 0) {
@@ -80,7 +79,7 @@ export const POST = withAdminAuth(
         data: {
           alertId,
           resolvedAt,
-          resolvedBy: ctx.user.sub,
+          resolvedBy: auth.user.sub,
         },
         error: null,
       });

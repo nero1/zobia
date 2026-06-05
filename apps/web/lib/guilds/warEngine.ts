@@ -265,12 +265,12 @@ export async function distributeWarRewards(
         [TOP_CONTRIBUTOR_BONUS_XP, members[0].user_id]
       );
       await client.query(
-        `INSERT INTO xp_ledger (user_id, action, xp_amount, multiplier, xp_net, metadata, created_at)
-         VALUES ($1, 'top_contributor_war', $2, 1, $2, $3, NOW())`,
+        `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
+         VALUES ($1, $2, 'competitor', 'top_contributor_war', $3, $2, NOW())`,
         [
           members[0].user_id,
           TOP_CONTRIBUTOR_BONUS_XP,
-          JSON.stringify({ war_id: warId, guild_id: winnerGuildId }),
+          warId,
         ]
       );
     }
@@ -352,12 +352,12 @@ export async function resolveWar(
         [WAR_WIN_XP_PER_MEMBER_BASE, user_id]
       );
       await client.query(
-        `INSERT INTO xp_ledger (user_id, action, xp_amount, multiplier, xp_net, metadata, created_at)
-         VALUES ($1, 'win_guild_war', $2, 1, $2, $3, NOW())`,
+        `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
+         VALUES ($1, $2, 'competitor', 'win_guild_war', $3, $2, NOW())`,
         [
           user_id,
           WAR_WIN_XP_PER_MEMBER_BASE,
-          JSON.stringify({ war_id: warId, guild_id: winnerGuildId }),
+          warId,
         ]
       );
     }

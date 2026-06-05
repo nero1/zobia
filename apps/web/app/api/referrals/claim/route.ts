@@ -26,7 +26,6 @@ import { db } from "@/lib/db";
 import {
   withAuth,
   validateBody,
-  type AuthContext,
 } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 
@@ -59,10 +58,10 @@ interface ExistingReferralRow {
 /**
  * Claim a referral code for the currently authenticated (newly onboarded) user.
  */
-export const POST = withAuth(async (req: NextRequest, ctx: AuthContext) => {
+export const POST = withAuth(async (req: NextRequest, { auth }) => {
   try {
     const body = await validateBody(req, claimSchema);
-    const newUserId = ctx.user.sub;
+    const newUserId = auth.user.sub;
 
     // Resolve the referrer
     const referrerResult = await db.query<ReferrerRow>(

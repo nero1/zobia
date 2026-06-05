@@ -9,7 +9,6 @@ import { storage } from "@/lib/offline/store";
 // Constants
 // ---------------------------------------------------------------------------
 
-const COINS_PER_AD = 5;
 const AD_DAILY_CAP = 5;
 const AD_WATCHED_KEY = "ads_watched_today";
 const AD_DATE_KEY = "ads_last_reset_date";
@@ -82,10 +81,12 @@ export function RewardedAdButton({ onRewarded, disabled }: RewardedAdButtonProps
         });
 
         if (response.ok) {
+          const json = await response.json() as { data?: { coinsAwarded?: number } };
+          const coinsAwarded = json?.data?.coinsAwarded ?? 10;
           const newWatched = adsWatched + 1;
           storage.set(AD_WATCHED_KEY, newWatched);
           setAdsWatched(newWatched);
-          onRewarded(COINS_PER_AD);
+          onRewarded(coinsAwarded);
 
           // Pre-load next ad
           if (newWatched < AD_DAILY_CAP) {
@@ -117,7 +118,7 @@ export function RewardedAdButton({ onRewarded, disabled }: RewardedAdButtonProps
         <Text className={`text-sm font-semibold ${isDisabled ? "text-gray-400" : "text-white"}`}>
           {adsWatched >= AD_DAILY_CAP
             ? "Ad limit reached for today"
-            : `Watch Ad for ${COINS_PER_AD} Coins (${remaining} left)`}
+            : `Watch Ad for Coins (${remaining} left)`}
         </Text>
       )}
     </TouchableOpacity>

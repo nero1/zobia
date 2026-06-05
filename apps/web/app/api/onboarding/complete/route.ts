@@ -223,8 +223,8 @@ export const POST = withAuth(async (req, { auth }) => {
 
       // 4. Award XP – write to xp_ledger
       await client.query(
-        `INSERT INTO xp_ledger (user_id, action, xp_amount, multiplier, xp_net, metadata, created_at)
-         VALUES ($1, 'welcome_drop', $2, 1.0, $2, '{"source":"onboarding"}', NOW())`,
+        `INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, created_at)
+         VALUES ($1, $2, 'main', 'welcome_drop', $2, NOW())`,
         [auth.user.sub, WELCOME_XP]
       );
 

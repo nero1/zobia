@@ -16,6 +16,7 @@ import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { encryptField, decryptField } from "@/lib/security/fieldEncryption";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -53,6 +54,7 @@ interface CreatorKycRow {
   rejection_reason: string | null;
   created_at: string;
   updated_at: string;
+  is_encrypted: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -65,15 +67,22 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
 
     const { rows } = await db.query<CreatorKycRow>(
       `SELECT id, creator_id, full_name, bvn_last4, bank_account_number, bank_code,
-              bank_name, kyc_status, verified_at, rejection_reason, created_at, updated_at
+              bank_name, kyc_status, verified_at, rejection_reason, created_at, updated_at,
+              is_encrypted
        FROM creator_kyc
        WHERE creator_id = $1 LIMIT 1`,
       [userId]
     );
 
+    const kyc = rows[0] ?? null;
+    if (kyc?.is_encrypted) {
+      if (kyc.bvn_last4) kyc.bvn_last4 = decryptField(kyc.bvn_last4);
+      if (kyc.bank_account_number) kyc.bank_account_number = decryptField(kyc.bank_account_number);
+    }
+
     return NextResponse.json({
       success: true,
-      data: { kyc: rows[0] ?? null },
+      data: { kyc },
       error: null,
     });
   } catch (err) {
@@ -110,11 +119,14 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 
     const body = await validateBody(req, submitKycSchema);
 
+    const encryptedBvn = encryptField(body.bvn_last4);
+    const encryptedAccount = encryptField(body.bank_account_number);
+
     const { rows } = await db.query<CreatorKycRow>(
       `INSERT INTO creator_kyc
          (creator_id, full_name, bvn_last4, bank_account_number, bank_code, bank_name,
-          kyc_status, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW(), NOW())
+          kyc_status, is_encrypted, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 'pending', TRUE, NOW(), NOW())
        ON CONFLICT (creator_id) DO UPDATE
          SET full_name = EXCLUDED.full_name,
              bvn_last4 = EXCLUDED.bvn_last4,
@@ -122,22 +134,30 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
              bank_code = EXCLUDED.bank_code,
              bank_name = EXCLUDED.bank_name,
              kyc_status = 'pending',
+             is_encrypted = TRUE,
              rejection_reason = NULL,
              updated_at = NOW()
        RETURNING id, creator_id, full_name, bvn_last4, bank_account_number, bank_code,
-                 bank_name, kyc_status, verified_at, rejection_reason, created_at, updated_at`,
+                 bank_name, kyc_status, verified_at, rejection_reason, created_at, updated_at,
+                 is_encrypted`,
       [
         userId,
         body.full_name,
-        body.bvn_last4,
-        body.bank_account_number,
+        encryptedBvn,
+        encryptedAccount,
         body.bank_code,
         body.bank_name,
       ]
     );
 
+    const savedKyc = rows[0];
+    if (savedKyc?.is_encrypted) {
+      if (savedKyc.bvn_last4) savedKyc.bvn_last4 = decryptField(savedKyc.bvn_last4);
+      if (savedKyc.bank_account_number) savedKyc.bank_account_number = decryptField(savedKyc.bank_account_number);
+    }
+
     return NextResponse.json(
-      { success: true, data: { kyc: rows[0] }, error: null },
+      { success: true, data: { kyc: savedKyc }, error: null },
       { status: 201 }
     );
   } catch (err) {

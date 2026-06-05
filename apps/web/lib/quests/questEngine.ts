@@ -220,9 +220,9 @@ export async function updateQuestProgress(
       );
 
       await client.query(
-        `INSERT INTO xp_ledger (user_id, action, xp_amount, multiplier, xp_net, metadata, created_at)
-         VALUES ($1, 'quest_complete', $2, 1, $2, $3, NOW())`,
-        [userId, xpAwarded, JSON.stringify({ quest_id: questId, date: today })]
+        `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
+         VALUES ($1, $2, 'main', 'quest_complete', $3, $2, NOW())`,
+        [userId, xpAwarded, questId]
       );
 
       if (coinsAwarded > 0) {
@@ -301,9 +301,9 @@ export async function checkDeckCompletion(
       [DECK_COMPLETION_BONUS_XP, userId]
     );
     await client.query(
-      `INSERT INTO xp_ledger (user_id, action, xp_amount, multiplier, xp_net, metadata, created_at)
-       VALUES ($1, 'complete_quest_deck', $2, 1, $2, $3, NOW())`,
-      [userId, DECK_COMPLETION_BONUS_XP, JSON.stringify({ date })]
+      `INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, created_at)
+       VALUES ($1, $2, 'main', 'complete_quest_deck', $2, NOW())`,
+      [userId, DECK_COMPLETION_BONUS_XP]
     );
   });
 

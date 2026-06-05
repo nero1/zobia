@@ -63,7 +63,7 @@ const pinSchema = z.object({
 // GET /api/rooms/pinned
 // ---------------------------------------------------------------------------
 
-export const GET = withAuth(async (_req: NextRequest, ctx) => {
+export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     interface PinnedRoomRow {
       pin_id: string;
@@ -95,7 +95,7 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
        JOIN users u ON u.id = r.creator_id
        WHERE rp.user_id = $1
        ORDER BY rp.created_at DESC`,
-      [ctx.userId]
+      [auth.user.sub]
     );
 
     return NextResponse.json({
@@ -127,7 +127,7 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
 // POST /api/rooms/pinned
 // ---------------------------------------------------------------------------
 
-export const POST = withAuth(async (req: NextRequest, ctx) => {
+export const POST = withAuth(async (req: NextRequest, { auth }) => {
   try {
     const body = await validateBody(req, pinSchema);
 
@@ -141,17 +141,17 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     // Get user plan
     const { rows: userRows } = await db.query<{ plan: Plan }>(
       "SELECT plan FROM users WHERE id = $1 LIMIT 1",
-      [ctx.userId]
+      [auth.user.sub]
     );
     const plan = (userRows[0]?.plan as Plan) ?? "free";
 
     // Count current pins
     const { rows: countRows } = await db.query<{ count: string }>(
       "SELECT COUNT(*) AS count FROM room_pins WHERE user_id = $1",
-      [ctx.userId]
+      [auth.user.sub]
     );
     const currentCount = parseInt(countRows[0]?.count ?? "0", 10);
-    const limit = await getEffectivePinLimit(ctx.userId, plan);
+    const limit = await getEffectivePinLimit(auth.user.sub, plan);
 
     if (currentCount >= limit) {
       throw badRequest(
@@ -162,7 +162,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     // Check not already pinned
     const { rows: existsRows } = await db.query<{ id: string }>(
       "SELECT id FROM room_pins WHERE user_id = $1 AND room_id = $2 LIMIT 1",
-      [ctx.userId, body.roomId]
+      [auth.user.sub, body.roomId]
     );
     if (existsRows.length > 0) {
       throw badRequest("Room is already pinned");
@@ -172,7 +172,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     const { rows: insertRows } = await db.query<{ id: string; created_at: string }>(
       `INSERT INTO room_pins (user_id, room_id) VALUES ($1, $2)
        RETURNING id, created_at`,
-      [ctx.userId, body.roomId]
+      [auth.user.sub, body.roomId]
     );
 
     return NextResponse.json(
@@ -198,13 +198,13 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 // DELETE /api/rooms/pinned
 // ---------------------------------------------------------------------------
 
-export const DELETE = withAuth(async (req: NextRequest, ctx) => {
+export const DELETE = withAuth(async (req: NextRequest, { auth }) => {
   try {
     const body = await validateBody(req, pinSchema);
 
     const { rows } = await db.query<{ id: string }>(
       "DELETE FROM room_pins WHERE user_id = $1 AND room_id = $2 RETURNING id",
-      [ctx.userId, body.roomId]
+      [auth.user.sub, body.roomId]
     );
 
     if (rows.length === 0) throw notFound("Pin not found");

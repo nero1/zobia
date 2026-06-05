@@ -42,11 +42,10 @@ interface UserPresenceRow {
 export const GET = withAuth(
   async (
     req: NextRequest,
-    ctx: AuthContext,
-    params: { userId: string }
+    { params }: { params: { userId: string }; auth: { user: { sub: string } } }
   ) => {
     try {
-      const { userId } = params;
+      const { userId } = await params as { userId: string };
 
       if (!userId) {
         throw badRequest("userId is required", "MISSING_USER_ID");

@@ -19,6 +19,7 @@ import { db } from "@/lib/db";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { decryptField } from "@/lib/security/fieldEncryption";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -47,6 +48,7 @@ interface PendingKycRow {
   kyc_status: string;
   created_at: string;
   updated_at: string;
+  is_encrypted: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -70,7 +72,8 @@ export const GET = withAdminAuth(async (_req: NextRequest, { auth }) => {
          ck.bank_name,
          ck.kyc_status,
          ck.created_at,
-         ck.updated_at
+         ck.updated_at,
+         ck.is_encrypted
        FROM creator_kyc ck
        JOIN users u ON u.id = ck.creator_id
        WHERE ck.kyc_status = 'pending'
@@ -78,9 +81,17 @@ export const GET = withAdminAuth(async (_req: NextRequest, { auth }) => {
        ORDER BY ck.created_at ASC`
     );
 
+    const submissions = rows.map((row) => {
+      if (row.is_encrypted) {
+        if (row.bvn_last4) row.bvn_last4 = decryptField(row.bvn_last4);
+        if (row.bank_account_number) row.bank_account_number = decryptField(row.bank_account_number);
+      }
+      return row;
+    });
+
     return NextResponse.json({
       success: true,
-      data: { submissions: rows },
+      data: { submissions },
       error: null,
     });
   } catch (err) {

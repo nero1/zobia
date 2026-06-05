@@ -116,11 +116,10 @@ function sanitizeManifestValue(key: string, value: string): string {
 export const PUT = withAdminAuth(
   async (
     req: NextRequest,
-    ctx: AdminContext,
-    params: { key: string }
+    { params, auth }: { params: { key: string }; auth: { user: { sub: string }; isAdmin: true } }
   ) => {
     try {
-      const { key } = params;
+      const { key } = await params as { key: string };
       const body = await validateBody(req, updateConfigSchema);
 
       // Verify key exists in x_manifest
@@ -148,7 +147,7 @@ export const PUT = withAdminAuth(
              (admin_user_id, action, entity_type, entity_id, before_value, after_value, created_at)
            VALUES ($1, 'update_manifest', 'x_manifest', $2, $3, $4, NOW())
            ON CONFLICT DO NOTHING`,
-          [ctx.user.sub, key, previousValue, sanitizedValue]
+          [auth.user.sub, key, previousValue, sanitizedValue]
         ).catch(() => {
           // Silently ignore if admin_audit_log table doesn't exist yet
         });

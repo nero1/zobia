@@ -222,7 +222,7 @@ export const GET = withAuth(
         );
         if (recipientRows[0]) {
           const r = recipientRows[0];
-          const replyCost = getDMCost(r.plan as Plan, "reply");
+          const replyCost = getDMCost(r.plan as Plan, false);
           recipientCanReply = r.coin_balance >= replyCost;
 
           // Also compute the DM cost for the current user
@@ -231,7 +231,7 @@ export const GET = withAuth(
             [auth.user.sub]
           );
           const senderPlan = senderRows[0]?.plan ?? "free";
-          const myDmCost = getDMCost(senderPlan, "reply");
+          const myDmCost = getDMCost(senderPlan, false);
 
           conversationMeta = {
             conversationId,
