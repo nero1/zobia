@@ -20,6 +20,7 @@
  */
 
 import { db } from "@/lib/db";
+import type { DatabaseAdapter } from "@/lib/db/interface";
 import { redis } from "@/lib/redis";
 
 // ---------------------------------------------------------------------------
@@ -362,3 +363,81 @@ export async function requireFeatureEnabled(
 
 /** @deprecated Use ZobiaManifest instead */
 export type AppManifest = ZobiaManifest;
+
+// ---------------------------------------------------------------------------
+// Early Feature Access
+// ---------------------------------------------------------------------------
+
+/** The early access window duration in milliseconds (14 days). */
+const EARLY_ACCESS_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+
+/**
+ * Checks whether a feature flag is available to a specific user, taking into
+ * account scheduled release dates and early access plans.
+ *
+ * Logic:
+ *   - If `available_from` is NULL or in the past: feature is available to all.
+ *   - If `available_from` is in the future:
+ *       - If the user's plan is listed in `early_access_plans` OR the user is a
+ *         Platform Council member, AND the current time is within the 14-day
+ *         early access window (i.e. available_from - 14 days <= now): available.
+ *       - Otherwise: not yet available.
+ *
+ * @param featureKey      - The feature flag key (e.g. 'guild_wars')
+ * @param userPlan        - The user's subscription plan slug (e.g. 'max', 'pro')
+ * @param isCouncilMember - Whether the user is a Platform Council member
+ * @param dbClient        - Database adapter (defaults to the shared `db` singleton)
+ * @returns true if the feature is available to this user right now
+ */
+export async function isFeatureAvailableForUser(
+  featureKey: string,
+  userPlan: string,
+  isCouncilMember: boolean,
+  dbClient: DatabaseAdapter = db,
+): Promise<boolean> {
+  let availableFrom: Date | null = null;
+  let earlyAccessPlans: string[] | null = null;
+
+  try {
+    const { rows } = await dbClient.query<{
+      available_from: string | null;
+      early_access_plans: string[] | null;
+    }>(
+      `SELECT available_from, early_access_plans
+       FROM feature_flags
+       WHERE key = $1
+       LIMIT 1`,
+      [featureKey],
+    );
+
+    if (rows.length === 0) {
+      // Feature flag not found — treat as available (fail open)
+      return true;
+    }
+
+    availableFrom = rows[0].available_from ? new Date(rows[0].available_from) : null;
+    earlyAccessPlans = rows[0].early_access_plans ?? null;
+  } catch {
+    // DB error — fail open so a schema issue doesn't block all users
+    return true;
+  }
+
+  const now = new Date();
+
+  // If no scheduled release date, the feature is available to everyone
+  if (availableFrom === null || availableFrom <= now) {
+    return true;
+  }
+
+  // available_from is in the future — check early access eligibility
+  const hasEarlyAccessPlan =
+    Array.isArray(earlyAccessPlans) && earlyAccessPlans.includes(userPlan);
+
+  if (!hasEarlyAccessPlan && !isCouncilMember) {
+    return false;
+  }
+
+  // The user qualifies for early access — check the 14-day window
+  const windowStart = new Date(availableFrom.getTime() - EARLY_ACCESS_WINDOW_MS);
+  return now >= windowStart;
+}

@@ -25,6 +25,8 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 const toggleSchema = z.object({
   key: z.string().min(1).max(128),
   enabled: z.boolean(),
+  available_from: z.string().datetime({ offset: true }).nullable().optional(),
+  early_access_plans: z.array(z.string()).nullable().optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -36,6 +38,8 @@ interface FeatureFlagRow {
   value: string;
   description: string | null;
   updated_at: string;
+  available_from: string | null;
+  early_access_plans: string[] | null;
 }
 
 interface FeatureFlag {
@@ -44,6 +48,8 @@ interface FeatureFlag {
   description: string | null;
   audience: string;
   updatedAt: string;
+  availableFrom: string | null;
+  earlyAccessPlans: string[] | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -63,6 +69,8 @@ function rowToFlag(row: FeatureFlagRow): FeatureFlag {
     description: row.description,
     audience: parseAudience(row.key),
     updatedAt: row.updated_at,
+    availableFrom: row.available_from ?? null,
+    earlyAccessPlans: row.early_access_plans ?? null,
   };
 }
 
@@ -75,10 +83,17 @@ export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
     const { rows } = await db.query<FeatureFlagRow>(
-      `SELECT key, value, description, updated_at
-       FROM x_manifest
-       WHERE key LIKE 'feature_%'
-       ORDER BY key ASC`,
+      `SELECT
+         m.key,
+         m.value,
+         m.description,
+         m.updated_at,
+         ff.available_from,
+         ff.early_access_plans
+       FROM x_manifest m
+       LEFT JOIN feature_flags ff ON ff.key = m.key
+       WHERE m.key LIKE 'feature_%'
+       ORDER BY m.key ASC`,
       []
     );
 
@@ -103,7 +118,7 @@ export const PUT = withAdminAuth(async (req: NextRequest, { auth }) => {
     const body = await validateBody(req, toggleSchema);
     const newValue = body.enabled ? "true" : "false";
 
-    // Upsert the feature flag in x_manifest
+    // Upsert the feature flag toggle in x_manifest
     await db.query(
       `INSERT INTO x_manifest (key, value, updated_at)
        VALUES ($1, $2, NOW())
@@ -112,6 +127,22 @@ export const PUT = withAdminAuth(async (req: NextRequest, { auth }) => {
       [body.key, newValue]
     );
 
+    // Upsert early access settings into feature_flags when provided
+    if (body.available_from !== undefined || body.early_access_plans !== undefined) {
+      await db.query(
+        `INSERT INTO feature_flags (key, available_from, early_access_plans)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (key) DO UPDATE
+           SET available_from    = EXCLUDED.available_from,
+               early_access_plans = EXCLUDED.early_access_plans`,
+        [
+          body.key,
+          body.available_from ?? null,
+          body.early_access_plans ?? null,
+        ]
+      ).catch(() => {}); // Non-fatal if feature_flags table doesn't yet have these columns
+    }
+
     // Audit log
     await db.query(
       `INSERT INTO admin_audit_log (admin_id, action, target_type, target_id, metadata, created_at)
@@ -119,13 +150,23 @@ export const PUT = withAdminAuth(async (req: NextRequest, { auth }) => {
       [
         auth.user.sub,
         body.key,
-        JSON.stringify({ key: body.key, enabled: body.enabled }),
+        JSON.stringify({
+          key: body.key,
+          enabled: body.enabled,
+          available_from: body.available_from ?? null,
+          early_access_plans: body.early_access_plans ?? null,
+        }),
       ]
     ).catch(() => {}); // Non-fatal if audit log table doesn't exist
 
     return NextResponse.json({
       success: true,
-      data: { key: body.key, enabled: body.enabled },
+      data: {
+        key: body.key,
+        enabled: body.enabled,
+        availableFrom: body.available_from ?? null,
+        earlyAccessPlans: body.early_access_plans ?? null,
+      },
     });
   } catch (err) {
     return handleApiError(err);

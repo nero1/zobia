@@ -41,9 +41,7 @@ interface UserSettings {
   email: string;
   language: string;
   theme: 'light' | 'dark' | 'system';
-  notifDMs: boolean;
-  notifGuild: boolean;
-  notifStreak: boolean;
+  notifications: Record<string, boolean>;
   privacyDMOptOut: boolean;
 }
 
@@ -80,6 +78,16 @@ const THEME_OPTIONS: { key: ThemeMode; label: string }[] = [
   { key: 'light', label: '☀️ Light' },
   { key: 'dark', label: '🌙 Dark' },
   { key: 'system', label: '⚙️ System' },
+];
+
+const NOTIFICATION_TYPES: { key: string; label: string; description: string }[] = [
+  { key: 'new_message', label: 'New messages', description: 'Direct messages and room mentions' },
+  { key: 'friend_request', label: 'Friend requests', description: 'Someone wants to add you' },
+  { key: 'gift_received', label: 'Gifts received', description: 'When someone sends you a gift' },
+  { key: 'rank_up', label: 'Rank ups', description: 'When you reach a new rank' },
+  { key: 'war_start', label: 'Guild wars', description: 'Guild war start and end alerts' },
+  { key: 'season_end', label: 'Season end', description: 'Season summary and rewards' },
+  { key: 'announcement', label: 'Announcements', description: 'Platform-wide announcements' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -178,18 +186,32 @@ export default function SettingsScreen() {
 
   const [settings, setSettings] = useState<Partial<UserSettings>>({});
 
+  const defaultNotifications: Record<string, boolean> = {
+    new_message: true,
+    friend_request: true,
+    gift_received: true,
+    rank_up: true,
+    war_start: true,
+    season_end: true,
+    announcement: true,
+  };
+
+  const mergedNotifications: Record<string, boolean> = {
+    ...defaultNotifications,
+    ...(data?.notifications ?? {}),
+    ...(settings.notifications ?? {}),
+  };
+
   const merged: UserSettings = {
     displayName: '',
     bio: '',
     email: '',
     language: 'en',
     theme: 'system',
-    notifDMs: true,
-    notifGuild: true,
-    notifStreak: true,
     privacyDMOptOut: false,
     ...data,
     ...settings,
+    notifications: mergedNotifications,
   };
 
   const patchMutation = useMutation({
@@ -372,22 +394,18 @@ export default function SettingsScreen() {
       {/* Notifications */}
       <SectionHeader title="NOTIFICATIONS" />
       <View style={[styles.card, { backgroundColor: themeColors.surface }]}>
-        <ToggleRow
-          label="Direct Messages"
-          value={merged.notifDMs}
-          onChange={(v) => set('notifDMs', v)}
-        />
-        <ToggleRow
-          label="Guild Activity"
-          value={merged.notifGuild}
-          onChange={(v) => set('notifGuild', v)}
-        />
-        <ToggleRow
-          label="Streak Reminders"
-          description="Daily reminder to maintain your streak"
-          value={merged.notifStreak}
-          onChange={(v) => set('notifStreak', v)}
-        />
+        {NOTIFICATION_TYPES.map(({ key, label, description }) => (
+          <ToggleRow
+            key={key}
+            label={label}
+            description={description}
+            value={merged.notifications[key] ?? true}
+            onChange={(v) => {
+              const updated = { ...merged.notifications, [key]: v };
+              set('notifications', updated);
+            }}
+          />
+        ))}
       </View>
 
       {/* Privacy */}

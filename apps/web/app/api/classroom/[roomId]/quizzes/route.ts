@@ -16,6 +16,13 @@ import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { getTrackLevelForXP } from "@/lib/xp/engine";
+
+// ---------------------------------------------------------------------------
+// Feature gate constants
+// ---------------------------------------------------------------------------
+
+const MIN_KNOWLEDGE_LEVEL_FOR_QUIZZES = 40;
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -124,6 +131,19 @@ export const POST = withAuth(
       }
       if (roomRows[0].room_type !== "classroom") {
         throw forbidden("Quizzes can only be created in classroom rooms");
+      }
+
+      // Enforce Knowledge Track Level 40 gate (PRD §7)
+      const { rows: xpRows } = await db.query<{ xp_knowledge: number }>(
+        `SELECT xp_knowledge FROM users WHERE id = $1`,
+        [userId]
+      );
+      const creatorKnowledgeXP = xpRows[0]?.xp_knowledge ?? 0;
+      const knowledgeTrackInfo = getTrackLevelForXP("knowledge", creatorKnowledgeXP);
+      if (knowledgeTrackInfo.level < MIN_KNOWLEDGE_LEVEL_FOR_QUIZZES) {
+        throw forbidden(
+          `You must reach Knowledge Track Level ${MIN_KNOWLEDGE_LEVEL_FOR_QUIZZES} to create quizzes. Your current Knowledge Track level is ${knowledgeTrackInfo.level}.`
+        );
       }
 
       const body = await validateBody(req, createQuizSchema);

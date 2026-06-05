@@ -3,11 +3,16 @@
  *
  * Season Pass milestone claim endpoint.
  *
+ * GET  /api/seasons/[seasonId]/pass/milestones/[milestoneId]/claim
+ *   - Returns the milestone definition including required_plan, and whether the
+ *     calling user has already claimed it.
+ *
  * POST /api/seasons/[seasonId]/pass/milestones/[milestoneId]/claim
  *   - Verifies the user has enough season XP to unlock the milestone
  *   - Checks the milestone matches the user's pass tier:
  *       · Free milestones: available to all pass holders
  *       · Paid milestones: require a paid (premium) pass
+ *   - Extended rewards (required_plan = 'pro' | 'max'): require Pro or Max plan
  *   - Awards the milestone reward (coins, XP, badge, sticker pack, title) atomically
  *   - Marks the milestone as claimed (idempotent — returns 409 if already claimed)
  *
@@ -42,6 +47,7 @@ interface SeasonMilestoneRow {
   season_id: string;
   xp_required: number;
   is_paid_only: boolean;
+  required_plan: string | null;  // NULL = all paid holders; 'pro' = Pro+; 'max' = Max only
   reward_type: string;           // 'coins' | 'xp' | 'badge' | 'sticker_pack' | 'title'
   reward_value: string | null;   // JSON blob e.g. {"coins":500} or {"badge_id":"..."}
   label: string | null;
@@ -114,7 +120,7 @@ export const POST = withAuth(
 
         // 2. Load the milestone definition
         const { rows: milestoneRows } = await client.query<SeasonMilestoneRow>(
-          `SELECT id, season_id, xp_required, is_paid_only, reward_type,
+          `SELECT id, season_id, xp_required, is_paid_only, required_plan, reward_type,
                   reward_value, label, sort_order
            FROM season_milestones
            WHERE id = $1 AND season_id = $2`,
@@ -140,6 +146,21 @@ export const POST = withAuth(
             "This milestone requires the paid season pass",
             "PAID_PASS_REQUIRED"
           );
+        }
+
+        // 4b. Check Pro/Max plan requirement for extended season pass rewards (PRD §3)
+        if (milestone.required_plan) {
+          const { rows: userPlanRows } = await client.query<{ plan: string }>(
+            `SELECT plan FROM users WHERE id = $1 LIMIT 1`,
+            [userId]
+          );
+          const userPlan = userPlanRows[0]?.plan ?? "free";
+          const planRank: Record<string, number> = { free: 0, plus: 1, pro: 2, max: 3 };
+          const requiredRank = planRank[milestone.required_plan] ?? 0;
+          const userRank = planRank[userPlan] ?? 0;
+          if (userRank < requiredRank) {
+            throw forbidden("This milestone requires the Pro or Max plan");
+          }
         }
 
         // 5. Check XP requirement
@@ -239,6 +260,7 @@ export const POST = withAuth(
         return {
           milestoneId,
           rewardType: milestone.reward_type,
+          requiredPlan: milestone.required_plan,
           awardsGiven,
         };
       });
@@ -251,6 +273,72 @@ export const POST = withAuth(
         },
         { status: 200 }
       );
+    } catch (err) {
+      return handleApiError(err);
+    }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// GET /api/seasons/[seasonId]/pass/milestones/[milestoneId]/claim
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the milestone definition (including required_plan) and whether the
+ * calling user has already claimed it.
+ */
+export const GET = withAuth(
+  async (
+    req: NextRequest,
+    {
+      params,
+      auth,
+    }: {
+      params: { seasonId: string; milestoneId: string };
+      auth: { user: { sub: string } };
+    }
+  ) => {
+    try {
+      const { seasonId, milestoneId } = params;
+      const userId = auth.user.sub;
+
+      // Load milestone definition
+      const { rows: milestoneRows } = await db.query<SeasonMilestoneRow>(
+        `SELECT id, season_id, xp_required, is_paid_only, required_plan,
+                reward_type, reward_value, label, sort_order
+         FROM season_milestones
+         WHERE id = $1 AND season_id = $2`,
+        [milestoneId, seasonId]
+      );
+      const milestone = milestoneRows[0];
+      if (!milestone) throw notFound("Milestone not found");
+
+      // Check if the user has already claimed this milestone
+      const { rows: claimRows } = await db.query<{ id: string }>(
+        `SELECT id FROM user_season_milestone_claims
+         WHERE user_id = $1 AND milestone_id = $2
+         LIMIT 1`,
+        [userId, milestoneId]
+      );
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          milestone: {
+            id: milestone.id,
+            seasonId: milestone.season_id,
+            xpRequired: milestone.xp_required,
+            isPaidOnly: milestone.is_paid_only,
+            required_plan: milestone.required_plan,
+            rewardType: milestone.reward_type,
+            rewardValue: milestone.reward_value ? parseRewardValue(milestone.reward_value) : null,
+            label: milestone.label,
+            sortOrder: milestone.sort_order,
+          },
+          claimed: claimRows.length > 0,
+        },
+        error: null,
+      });
     } catch (err) {
       return handleApiError(err);
     }

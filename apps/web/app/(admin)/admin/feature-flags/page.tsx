@@ -25,6 +25,8 @@ interface FeatureFlag {
   description: string;
   enabled: boolean;
   updatedAt: string;
+  availableFrom: string | null;
+  earlyAccessPlans: string[] | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -203,6 +205,18 @@ function FlagRow({ flag, onToggle }: FlagRowProps) {
         </div>
         <p className="mt-0.5 text-sm font-semibold text-neutral-900 dark:text-neutral-100">{flag.label}</p>
         <p className="text-xs text-neutral-500">{flag.description}</p>
+        {flag.availableFrom && (
+          <p className="mt-1 text-xs text-neutral-400">
+            <span className="font-medium text-neutral-500">General release:</span>{" "}
+            {formatDate(flag.availableFrom)}
+          </p>
+        )}
+        {flag.earlyAccessPlans && flag.earlyAccessPlans.length > 0 && (
+          <p className="mt-0.5 text-xs text-neutral-400">
+            <span className="font-medium text-neutral-500">Early access plans:</span>{" "}
+            {flag.earlyAccessPlans.join(", ")}
+          </p>
+        )}
         <p className="mt-1 text-xs text-neutral-400">Last updated: {formatDate(localUpdatedAt)}</p>
       </div>
       <div className="mt-0.5 shrink-0">
@@ -256,6 +270,8 @@ export default function AdminFeatureFlagsPage() {
             value: string;
             description: string | null;
             updatedAt: string | null;
+            availableFrom?: string | null;
+            earlyAccessPlans?: string[] | null;
           }>;
         };
 
@@ -279,6 +295,8 @@ export default function AdminFeatureFlagsPage() {
             description: meta?.description ?? e.description ?? "",
             enabled: e.value === "true",
             updatedAt: e.updatedAt ?? new Date().toISOString(),
+            availableFrom: e.availableFrom ?? null,
+            earlyAccessPlans: e.earlyAccessPlans ?? null,
           };
         });
 
