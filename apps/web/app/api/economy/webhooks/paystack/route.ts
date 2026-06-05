@@ -123,6 +123,19 @@ async function processChargeSuccess(
         console.error("[webhook/paystack] Referral commission error:", err)
       );
     }
+
+    // Seed 5% of gross revenue into Creator Fund (PRD §14)
+    const creatorFundContributionKobo = Math.floor(amount * 0.05);
+    if (creatorFundContributionKobo > 0) {
+      await tx.query(
+        `INSERT INTO x_manifest (key, value, updated_at)
+         VALUES ('creator_fund_balance_kobo', $1::TEXT, NOW())
+         ON CONFLICT (key) DO UPDATE
+           SET value = (COALESCE(x_manifest.value::NUMERIC, 0) + $1)::TEXT,
+               updated_at = NOW()`,
+        [creatorFundContributionKobo]
+      );
+    }
   });
 }
 

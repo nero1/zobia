@@ -331,12 +331,24 @@ export const GET = async (req: NextRequest) => {
   // 12. Guild tier demotion — demote guilds below minimum after 7 days
   try {
     // Minimum member counts per tier base (bronze_1/2/3 = 5, silver_1/2/3 = 15, etc.)
+    // PRD §13: Bronze 5–10, Silver 10–15, Gold 15–20, Platinum 20–25, Legend 25+
+    // We use the lower bound of each range for demotion — a guild that dips
+    // below the lower bound triggers the 7-day recovery window.
     function tierMinMembers(tier: string): number {
-      if (tier.startsWith('legend'))   return 100;
-      if (tier.startsWith('platinum')) return 60;
-      if (tier.startsWith('gold'))     return 30;
-      if (tier.startsWith('silver'))   return 15;
-      return 0; // bronze tiers have no minimum
+      if (tier === 'legend')              return 25;
+      if (tier.startsWith('platinum_3')) return 24;
+      if (tier.startsWith('platinum_2')) return 22;
+      if (tier.startsWith('platinum_1') || tier === 'platinum') return 20;
+      if (tier.startsWith('gold_3'))     return 19;
+      if (tier.startsWith('gold_2'))     return 17;
+      if (tier.startsWith('gold_1') || tier === 'gold') return 15;
+      if (tier.startsWith('silver_3'))   return 14;
+      if (tier.startsWith('silver_2'))   return 12;
+      if (tier.startsWith('silver_1') || tier === 'silver') return 10;
+      if (tier.startsWith('bronze_3'))   return 9;
+      if (tier.startsWith('bronze_2'))   return 7;
+      if (tier.startsWith('bronze_1') || tier === 'bronze') return 5;
+      return 0; // unknown tier — no minimum
     }
 
     // Demotion map: go down one full tier (e.g. gold_1 → silver_3)
@@ -955,24 +967,51 @@ export const GET = async (req: NextRequest) => {
   }
 
   // 21. Monthly coin bonus for paid plan users (runs on 1st of each month only)
+  // PRD §3: Plus=50 coins, Pro=200 coins, Max=500 coins per month.
+  // Each plan is processed in a single atomic transaction: ledger INSERT +
+  // balance UPDATE happen together so no partial write can occur (PRD §18).
   try {
     const today = new Date();
     if (today.getDate() === 1) {
-      // Plus=50 coins, Pro=200 coins, Max=500 coins
       const PLAN_MONTHLY_BONUS: Record<string, number> = { plus: 50, pro: 200, max: 500 };
+      let totalAwarded = 0;
+
       for (const [plan, bonus] of Object.entries(PLAN_MONTHLY_BONUS)) {
-        await db.query(
-          `INSERT INTO coin_ledger (user_id, amount, type, reference_id, description, created_at)
-           SELECT id, $1, 'monthly_plan_bonus', gen_random_uuid(), $2, NOW()
-           FROM users WHERE plan = $3 AND is_active = true`,
-          [bonus, `Monthly ${plan} plan bonus`, plan]
-        );
-        await db.query(
-          `UPDATE users SET coin_balance = coin_balance + $1 WHERE plan = $2 AND is_active = true`,
-          [bonus, plan]
-        );
+        await db.transaction(async (tx) => {
+          // Credit ledger and balance atomically; skip users already credited today
+          // (idempotency: ON CONFLICT DO NOTHING on the unique ledger reference).
+          await tx.query(
+            `WITH eligible AS (
+               SELECT id FROM users
+               WHERE plan = $1
+                 AND is_active = true
+                 AND deleted_at IS NULL
+                 AND NOT EXISTS (
+                   SELECT 1 FROM coin_ledger
+                   WHERE user_id = users.id
+                     AND type = 'monthly_plan_bonus'
+                     AND created_at::date = CURRENT_DATE
+                 )
+             ),
+             ledger_rows AS (
+               INSERT INTO coin_ledger
+                 (user_id, amount, type, reference_id, description, created_at)
+               SELECT id, $2, 'monthly_plan_bonus', gen_random_uuid(),
+                      $3, NOW()
+               FROM eligible
+               RETURNING user_id
+             )
+             UPDATE users
+             SET coin_balance = coin_balance + $2,
+                 updated_at = NOW()
+             WHERE id IN (SELECT user_id FROM ledger_rows)`,
+            [plan, bonus, `Monthly ${plan} plan bonus`]
+          );
+        });
+        totalAwarded++;
       }
-      results.monthlyPlanBonus = { ran: true, date: today.toISOString() };
+
+      results.monthlyPlanBonus = { ran: true, plansProcessed: totalAwarded, date: today.toISOString() };
     } else {
       results.monthlyPlanBonus = { ran: false, reason: "Not the 1st of the month" };
     }
@@ -1292,6 +1331,87 @@ export const GET = async (req: NextRequest) => {
     };
   } catch (err) {
     errors.push(`messageHistoryCleanup: ${String(err)}`);
+  }
+
+  // 26. Annual cultural event recurrence (PRD §25)
+  //     For each recurring annual event whose current year's instance has ended,
+  //     clone it into next year if no future instance already exists.
+  try {
+    interface RecurringEventRow {
+      id: string;
+      name: string;
+      description: string;
+      event_type: string;
+      xp_multiplier: string;
+      metadata: string;
+      starts_at: string;
+      ends_at: string;
+      recurrence_anchor_month_start: number;
+      recurrence_anchor_day_start: number;
+      recurrence_anchor_month_end: number;
+      recurrence_anchor_day_end: number;
+    }
+
+    const { rows: recurringEvents } = await db.query<RecurringEventRow>(
+      `SELECT id, name, description, event_type, xp_multiplier::TEXT AS xp_multiplier,
+              metadata::TEXT AS metadata, starts_at::TEXT AS starts_at, ends_at::TEXT AS ends_at,
+              recurrence_anchor_month_start, recurrence_anchor_day_start,
+              recurrence_anchor_month_end, recurrence_anchor_day_end
+       FROM platform_events
+       WHERE is_recurring_annual = TRUE
+         AND ends_at < NOW()
+         AND is_active = TRUE`
+    );
+
+    let eventsCloned = 0;
+    const nextYear = new Date().getUTCFullYear() + 1;
+
+    for (const evt of recurringEvents) {
+      // Check if a future clone already exists for next year
+      const { rows: futureCheck } = await db.query<{ count: string }>(
+        `SELECT COUNT(*)::TEXT AS count
+         FROM platform_events
+         WHERE name = $1
+           AND EXTRACT(YEAR FROM starts_at) >= $2`,
+        [evt.name, nextYear]
+      );
+      if (parseInt(futureCheck[0]?.count ?? "0", 10) > 0) continue;
+
+      // Project into next year using anchor month/day
+      const msStart = evt.recurrence_anchor_month_start;
+      const dsStart = evt.recurrence_anchor_day_start;
+      const msEnd   = evt.recurrence_anchor_month_end;
+      const dsEnd   = evt.recurrence_anchor_day_end;
+
+      // If end month is earlier than start month the event crosses a year boundary
+      const endYear = msEnd < msStart ? nextYear + 1 : nextYear;
+
+      const newStartsAt = `${nextYear}-${String(msStart).padStart(2, '0')}-${String(dsStart).padStart(2, '0')} 00:00:00+00`;
+      const newEndsAt   = `${endYear}-${String(msEnd).padStart(2, '0')}-${String(dsEnd).padStart(2, '0')} 23:59:59+00`;
+
+      await db.query(
+        `INSERT INTO platform_events
+           (name, description, event_type, xp_multiplier, starts_at, ends_at,
+            metadata, is_recurring_annual,
+            recurrence_anchor_month_start, recurrence_anchor_day_start,
+            recurrence_anchor_month_end, recurrence_anchor_day_end,
+            is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, TRUE, $8, $9, $10, $11, TRUE)
+         ON CONFLICT DO NOTHING`,
+        [
+          evt.name, evt.description, evt.event_type,
+          parseFloat(evt.xp_multiplier),
+          newStartsAt, newEndsAt,
+          evt.metadata ?? '{}',
+          msStart, dsStart, msEnd, dsEnd,
+        ]
+      );
+      eventsCloned++;
+    }
+
+    results.annualEventRecurrence = { eventsCloned, targetYear: nextYear };
+  } catch (err) {
+    errors.push(`annualEventRecurrence: ${String(err)}`);
   }
 
   return NextResponse.json({

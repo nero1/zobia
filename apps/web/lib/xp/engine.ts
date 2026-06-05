@@ -470,3 +470,23 @@ export function calculateFinalXP(
 
 // ACTION_TRACKS is already exported as a const above — no re-export needed.
 
+// ─── Rank display formatting ─────────────────────────────────────────────────
+
+/** Convert a numeric sub-level (1/2/3) to its Roman numeral equivalent. */
+export function sublevelToRoman(sublevel: 1 | 2 | 3): "I" | "II" | "III" {
+  if (sublevel === 3) return "III";
+  if (sublevel === 2) return "II";
+  return "I";
+}
+
+/**
+ * Returns the display name for a rank + sublevel combination.
+ * Examples: "Boss II", "Legend I", "Zobia Icon III".
+ *
+ * For the final rank (Zobia Icon) the sublevel is always shown.
+ * For all others it is shown as a Roman numeral suffix.
+ */
+export function getRankDisplayName(rankName: RankName, sublevel: 1 | 2 | 3): string {
+  return `${rankName} ${sublevelToRoman(sublevel)}`;
+}
+

@@ -134,28 +134,47 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
       endsAt,
     } = parsed.data;
 
-    const { rows } = await db.query<BrandedRoomRow>(
-      `INSERT INTO branded_rooms
-         (room_id, brand_name, brand_logo_url, sponsor_budget_coins,
-          join_bonus_coins, is_active, starts_at, ends_at, created_by, created_at)
-       VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8, NOW())
-       RETURNING
-         id, room_id, brand_name, brand_logo_url, sponsor_budget_coins,
-         join_bonus_coins, is_active, starts_at, ends_at, created_by, created_at,
-         NULL AS room_name, NULL AS room_type`,
-      [
-        roomId ?? null,
-        brandName,
-        brandLogoUrl ?? null,
-        sponsorBudgetCoins,
-        joinBonusCoins,
-        startsAt ?? null,
-        endsAt ?? null,
-        auth.user.sub,
-      ]
-    );
+    let created: BrandedRoomRow;
 
-    return NextResponse.json(formatBrandedRoom(rows[0]), { status: 201 });
+    await db.transaction(async (tx) => {
+      const { rows } = await tx.query<BrandedRoomRow>(
+        `INSERT INTO branded_rooms
+           (room_id, brand_name, brand_logo_url, sponsor_budget_coins,
+            join_bonus_coins, is_active, starts_at, ends_at, created_by, created_at)
+         VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8, NOW())
+         RETURNING
+           id, room_id, brand_name, brand_logo_url, sponsor_budget_coins,
+           join_bonus_coins, is_active, starts_at, ends_at, created_by, created_at,
+           NULL AS room_name, NULL AS room_type`,
+        [
+          roomId ?? null,
+          brandName,
+          brandLogoUrl ?? null,
+          sponsorBudgetCoins,
+          joinBonusCoins,
+          startsAt ?? null,
+          endsAt ?? null,
+          auth.user.sub,
+        ]
+      );
+
+      created = rows[0];
+
+      // Seed 5% of sponsor budget into Creator Fund (PRD §14)
+      const creatorFundContribution = Math.floor(sponsorBudgetCoins * 0.05);
+      if (creatorFundContribution > 0) {
+        await tx.query(
+          `INSERT INTO x_manifest (key, value, updated_at)
+           VALUES ('creator_fund_balance_kobo', $1::TEXT, NOW())
+           ON CONFLICT (key) DO UPDATE
+             SET value = (COALESCE(x_manifest.value::NUMERIC, 0) + $1)::TEXT,
+                 updated_at = NOW()`,
+          [creatorFundContribution]
+        );
+      }
+    });
+
+    return NextResponse.json(formatBrandedRoom(created!), { status: 201 });
   } catch (err) {
     return handleApiError(err);
   }
