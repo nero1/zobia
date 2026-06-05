@@ -41,6 +41,10 @@ interface SeasonRow {
   ends_at: string;
 }
 
+interface UserPlanRow {
+  plan: string;
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/seasons/[seasonId]/pass
 // ---------------------------------------------------------------------------
@@ -122,22 +126,33 @@ export const POST = withAuth(
           throw conflict("You already own the paid pass for this season", "PASS_ALREADY_OWNED");
         }
 
-        // 3. Check + deduct coins
-        const userRow = await client.query<{ coin_balance: number }>(
-          `SELECT coin_balance FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+        // 3. Read user's plan and coin balance; apply plan discount
+        const userRow = await client.query<{ coin_balance: number } & UserPlanRow>(
+          `SELECT coin_balance, plan FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
           [userId]
         );
         if (!userRow.rows[0]) throw notFound("User not found");
 
-        const { coin_balance } = userRow.rows[0];
-        if (coin_balance < season.pass_price_coins) {
+        const { coin_balance, plan } = userRow.rows[0];
+
+        // Determine discount percentage based on plan (PRD §3)
+        const PLAN_DISCOUNTS: Record<string, number> = {
+          plus: 10,
+          pro: 20,
+          max: 30,
+        };
+        const discountPercent = PLAN_DISCOUNTS[plan] ?? 0;
+        const originalPrice = season.pass_price_coins;
+        const discountedPrice = Math.floor(originalPrice * (1 - discountPercent / 100));
+
+        if (coin_balance < discountedPrice) {
           throw badRequest(
-            `Insufficient coins. Pass costs ${season.pass_price_coins} coins.`,
+            `Insufficient coins. Pass costs ${discountedPrice} coins.`,
             "INSUFFICIENT_BALANCE"
           );
         }
 
-        const newBalance = coin_balance - season.pass_price_coins;
+        const newBalance = coin_balance - discountedPrice;
         await client.query(
           `UPDATE users SET coin_balance = $1, updated_at = NOW() WHERE id = $2`,
           [newBalance, userId]
@@ -148,7 +163,7 @@ export const POST = withAuth(
            VALUES ($1, $2, $3, $4, 'season_pass_purchase', $5, $6, NOW())`,
           [
             userId,
-            -season.pass_price_coins,
+            -discountedPrice,
             coin_balance,
             newBalance,
             seasonId,
@@ -168,8 +183,11 @@ export const POST = withAuth(
 
         return {
           pass: passResult.rows[0],
-          coinsSpent: season.pass_price_coins,
+          coinsSpent: discountedPrice,
           newCoinBalance: newBalance,
+          originalPrice,
+          discountPercent,
+          discountedPrice,
         };
       });
 

@@ -27,6 +27,8 @@ import { handleApiError, badRequest, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { loadManifest } from "@/lib/manifest";
 import { meetsMinimumTrust } from "@/lib/trust/trustScore";
+import { sendPushNotificationBatch } from "@/lib/notifications/push";
+import { getTrackXPThreshold } from "@/lib/xp/engine";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -129,6 +131,7 @@ interface RoomRow {
   trending_score: number;
   recent_message_count: number;
   total_messages: number;
+  health_score: number;
   created_at: string;
   updated_at: string;
 }
@@ -159,6 +162,7 @@ function buildTrendingOrderClause(): string {
           WHEN u.creator_tier = 'Verified' THEN 20
           ELSE 0
         END
+      + (COALESCE(r.health_score, 100) - 50)
     ) DESC
   `;
 }
@@ -265,9 +269,10 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
       paramIndex += vibeCategories.length;
     }
 
+    // In non-trending mode, rooms with health < 40 are sorted last (PRD §10).
     const orderBy = params.trending
       ? `(${vibeCategoryBoost}${buildTrendingOrderClause().trim().replace(" DESC", "")}) DESC`
-      : `${vibeCategoryBoost}r.updated_at DESC`;
+      : `CASE WHEN COALESCE(r.health_score, 100) < 40 THEN 1 ELSE 0 END ASC, r.updated_at DESC`;
 
     const { rows } = await db.query<RoomRow>(
       `SELECT
@@ -304,6 +309,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
            0
          ) AS recent_message_count,
          r.total_messages,
+         COALESCE(r.health_score, 100) AS health_score,
          r.created_at,
          r.updated_at
        FROM rooms r
@@ -512,6 +518,39 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 
       return room;
     });
+
+    // Notify Explorer Track L25+ users in the same city (PRD §7 — Nomad milestone perk).
+    // Fire-and-forget: errors never block the response.
+    if (room.city) {
+      const NOMAD_XP_THRESHOLD = getTrackXPThreshold(25);
+      db.query<{ id: string }>(
+        `SELECT id FROM users
+         WHERE xp_explorer >= $1
+           AND city ILIKE $2
+           AND id != $3
+           AND deleted_at IS NULL
+         LIMIT 500`,
+        [NOMAD_XP_THRESHOLD, `%${room.city}%`, auth.user.sub]
+      ).then(async ({ rows: nomadUsers }) => {
+        if (nomadUsers.length === 0) return;
+        const userIds = nomadUsers.map((u) => u.id);
+        const notifPayload = JSON.stringify({ roomId: room.id, roomName: room.name, city: room.city });
+        await db.query(
+          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+           SELECT unnest($1::uuid[]), 'new_city_room', $2::jsonb, FALSE, NOW()`,
+          [userIds, notifPayload]
+        );
+        sendPushNotificationBatch(
+          nomadUsers.map((u) => ({
+            userId: u.id,
+            title: "New Room in Your City 🌍",
+            body: `${room.name} just opened in ${room.city}. Be first to join!`,
+            data: { action: `/rooms/${room.id}` },
+            priority: "normal" as const,
+          }))
+        ).catch(() => {/* fire-and-forget */});
+      }).catch(() => {/* fire-and-forget */});
+    }
 
     return NextResponse.json({ room }, { status: 201 });
   } catch (err) {

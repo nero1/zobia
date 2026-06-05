@@ -238,6 +238,7 @@ interface SeasonMilestone {
   level: number;
   xpThreshold: number;
   tier: "free" | "paid";
+  required_plan: "pro" | "max" | null;
   reward: MilestoneReward;
   claimed: boolean;
   claimable: boolean;
@@ -285,14 +286,23 @@ function PageSkeleton() {
 // Pass card
 // ---------------------------------------------------------------------------
 
+// Discount percentages per plan (PRD §3)
+const PLAN_DISCOUNTS: Record<string, number> = { plus: 10, pro: 20, max: 30 };
+
+function discountedPassPrice(basePrice: number, plan: string): number {
+  const pct = PLAN_DISCOUNTS[plan] ?? 0;
+  return Math.floor(basePrice * (1 - pct / 100));
+}
+
 interface PassCardProps {
   season: ActiveSeason;
+  userPlan: string;
   onUpgrade: () => void;
   upgrading: boolean;
   onGift: () => void;
 }
 
-function PassCard({ season, onUpgrade, upgrading, onGift }: PassCardProps) {
+function PassCard({ season, userPlan, onUpgrade, upgrading, onGift }: PassCardProps) {
   const pct = season.freePassXpForNext > 0
     ? Math.min(100, Math.round((season.freePassXp / season.freePassXpForNext) * 100))
     : 100;
@@ -313,13 +323,27 @@ function PassCard({ season, onUpgrade, upgrading, onGift }: PassCardProps) {
         </div>
         <div className="flex flex-wrap gap-2">
           {!season.hasPaidPass && (
-            <button
-              onClick={onUpgrade}
-              disabled={upgrading}
-              className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-60"
-            >
-              {upgrading ? "Processing…" : `Upgrade · ${season.passPrice.toLocaleString()} 🪙`}
-            </button>
+            <div className="flex flex-col items-end gap-0.5">
+              <button
+                onClick={onUpgrade}
+                disabled={upgrading}
+                className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-60"
+              >
+                {upgrading
+                  ? "Processing…"
+                  : `Upgrade · ${discountedPassPrice(season.passPrice, userPlan).toLocaleString()} 🪙`}
+              </button>
+              {(PLAN_DISCOUNTS[userPlan] ?? 0) > 0 && (
+                <span className="text-xs text-neutral-400 tabular-nums">
+                  <span className="line-through">{season.passPrice.toLocaleString()}</span>
+                  {" "}→{" "}
+                  <span className="font-semibold text-amber-600">
+                    {discountedPassPrice(season.passPrice, userPlan).toLocaleString()} 🪙
+                  </span>
+                  {" "}({PLAN_DISCOUNTS[userPlan]}% off)
+                </span>
+              )}
+            </div>
           )}
           <button
             onClick={onGift}
@@ -401,6 +425,12 @@ function MilestoneTrack({ passData, onClaim, claiming }: MilestoneTrackProps) {
         <p className="text-xs font-semibold tabular-nums text-neutral-400">
           {m.xpThreshold.toLocaleString()} XP
         </p>
+        {/* Pro/Max extended reward badge (PRD §3) */}
+        {m.required_plan && (
+          <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-xs font-semibold text-violet-700 dark:bg-violet-900 dark:text-violet-300">
+            {m.required_plan === "max" ? "Max" : "Pro/Max"}
+          </span>
+        )}
         {m.claimable && !m.claimed && (
           <button
             onClick={() => onClaim(m.id)}
@@ -500,15 +530,26 @@ export default function SeasonsPage() {
   const [upgrading, setUpgrading] = useState(false);
   const [claiming, setClaiming] = useState<string | null>(null);
   const [giftModal, setGiftModal] = useState<{ open: boolean; seasonId: string; passPrice: number }>({ open: false, seasonId: "", passPrice: 0 });
+  const [userPlan, setUserPlan] = useState<string>("free");
 
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/seasons", { credentials: "include" });
+        const [res, meRes] = await Promise.all([
+          fetch("/api/seasons", { credentials: "include" }),
+          fetch("/api/users/me", { credentials: "include" }),
+        ]);
         if (res.status === 401) { window.location.href = "/login"; return; }
         if (!res.ok) throw new Error("Failed to load seasons");
         const seasonsData = (await res.json()) as SeasonsData;
         setData(seasonsData);
+
+        // Store the user's plan for discount calculation
+        if (meRes.ok) {
+          const meData = (await meRes.json()) as { data?: { plan?: string }; plan?: string };
+          const plan = meData?.data?.plan ?? (meData as { plan?: string })?.plan ?? "free";
+          setUserPlan(plan);
+        }
 
         // Fetch milestones for active season
         if (seasonsData.activeSeason) {
@@ -632,6 +673,7 @@ export default function SeasonsPage() {
       {activeSeason && (
         <PassCard
           season={activeSeason}
+          userPlan={userPlan}
           onUpgrade={handleUpgrade}
           upgrading={upgrading}
           onGift={() => setGiftModal({ open: true, seasonId: activeSeason.id, passPrice: activeSeason.passPrice })}

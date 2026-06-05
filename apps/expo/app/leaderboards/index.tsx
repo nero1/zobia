@@ -33,6 +33,16 @@ import { apiClient } from '@/lib/api/client';
 type LeaderboardTab = 'global' | 'city' | 'guild' | 'season';
 type LeaderboardTrack = 'main' | 'social' | 'creator' | 'competitor' | 'generosity' | 'knowledge' | 'explorer';
 
+interface SponsoredBanner {
+  id: string;
+  sponsorName: string;
+  message: string;
+  ctaUrl: string | null;
+  isActive: boolean;
+  startsAt: string;
+  endsAt: string;
+}
+
 interface LeaderboardEntry {
   rank: number;
   userId: string;
@@ -83,6 +93,36 @@ async function fetchLeaderboard(
 ): Promise<LeaderboardResponse> {
   const { data } = await apiClient.get('/leaderboards', { params: { tab, track } });
   return data;
+}
+
+async function fetchLeaderboardBanner(): Promise<SponsoredBanner | null> {
+  try {
+    const { data } = await apiClient.get('/leaderboards/banner');
+    return data?.data?.banner ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Sponsored banner row
+// ---------------------------------------------------------------------------
+
+function SponsoredBannerRow({ banner }: { banner: SponsoredBanner }) {
+  const { colors: themeColors } = useTheme();
+  return (
+    <View style={[styles.bannerRow, { backgroundColor: themeColors.surface }]}>
+      <Text style={[styles.bannerSponsoredLabel, { color: themeColors.textMuted }]}>
+        Sponsored
+      </Text>
+      <Text style={[styles.bannerSponsorName, { color: themeColors.text }]}>
+        {banner.sponsorName}
+      </Text>
+      <Text style={[styles.bannerMessage, { color: themeColors.textMuted }]}>
+        {banner.message}
+      </Text>
+    </View>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -189,6 +229,12 @@ export default function LeaderboardScreen() {
     placeholderData: (prev) => prev,
   });
 
+  const { data: banner } = useQuery({
+    queryKey: ['leaderboard-banner'],
+    queryFn: fetchLeaderboardBanner,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+
   return (
     <Screen disableBottomInset>
       <View style={[styles.tabBar, { borderBottomColor: themeColors.border }]}>
@@ -267,6 +313,9 @@ export default function LeaderboardScreen() {
             keyExtractor={(e) => e.userId}
             renderItem={({ item }) => <EntryRow entry={item} />}
             showsVerticalScrollIndicator={false}
+            ListHeaderComponent={
+              banner?.isActive ? <SponsoredBannerRow banner={banner} /> : null
+            }
             ListEmptyComponent={() => (
               <View style={styles.emptyState}>
                 <Text style={[styles.emptyText, { color: themeColors.textMuted }]}>
@@ -387,4 +436,29 @@ const styles = StyleSheet.create({
 
   skeletonContainer: { padding: 16, gap: 10 },
   skeletonRow: { height: 60, borderRadius: 10, backgroundColor: colors.neutral[200] },
+
+  bannerRow: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginHorizontal: 12,
+    marginTop: 10,
+    marginBottom: 4,
+    borderRadius: 10,
+    backgroundColor: colors.neutral[100],
+  },
+  bannerSponsoredLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 2,
+  },
+  bannerSponsorName: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  bannerMessage: {
+    fontSize: 12,
+  },
 });

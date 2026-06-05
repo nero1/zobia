@@ -18,8 +18,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { withAuth } from "@/lib/api/middleware";
-import { handleApiError, notFound, conflict } from "@/lib/api/errors";
+import { handleApiError, notFound, conflict, forbidden } from "@/lib/api/errors";
 import { assignNemesis, compareNemesisProgress } from "@/lib/nemesis/nemesisEngine";
+import { getTrackLevelForXP } from "@/lib/xp/engine";
+
+// ---------------------------------------------------------------------------
+// Feature gate constants
+// ---------------------------------------------------------------------------
+
+const MIN_COMPETITOR_LEVEL_FOR_CHALLENGE = 40;
 
 // ---------------------------------------------------------------------------
 // Row types
@@ -175,6 +182,19 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       );
       const nemesisId = nemesisResult.rows[0]?.nemesis_id;
       if (!nemesisId) throw notFound("No active nemesis to challenge");
+
+      // Enforce Competitor Track Level 40 gate (PRD §7)
+      const { rows: xpRows } = await db.query<{ xp_competitor: number }>(
+        `SELECT xp_competitor FROM users WHERE id = $1`,
+        [userId]
+      );
+      const competitorXP = xpRows[0]?.xp_competitor ?? 0;
+      const competitorTrackInfo = getTrackLevelForXP("competitor", competitorXP);
+      if (competitorTrackInfo.level < MIN_COMPETITOR_LEVEL_FOR_CHALLENGE) {
+        throw forbidden(
+          `You must reach Competitor Track Level ${MIN_COMPETITOR_LEVEL_FOR_CHALLENGE} to challenge users to XP sprints.`
+        );
+      }
 
       // Check no challenge already pending
       const existingChallenge = await db.query<{ id: string }>(
