@@ -9,7 +9,7 @@
  * @module app/economy/store
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -19,6 +19,8 @@ import {
   ActivityIndicator,
   Linking,
   Alert,
+  Modal,
+  TextInput,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useQuery, useMutation } from '@tanstack/react-query';
@@ -189,11 +191,24 @@ export default function StoreScreen() {
   const { colors: themeColors } = useTheme();
   const [purchasingId, setPurchasingId] = useState<string | null>(null);
   const [purchasingStarId, setPurchasingStarId] = useState<string | null>(null);
+  const [pinModalVisible, setPinModalVisible] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [pinPending, setPinPending] = useState<PurchaseArgs | null>(null);
+  const [pinError, setPinError] = useState('');
 
   const { data, isLoading, isError, refetch } = useQuery<StoreData>({
     queryKey: ['economy', 'store'],
     queryFn: fetchStore,
     staleTime: 5 * 60_000,
+  });
+
+  const { data: pinStatus } = useQuery<{ hasPinSet: boolean }>({
+    queryKey: ['auth', 'pin', 'status'],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ hasPinSet: boolean }>('/auth/pin/status');
+      return data;
+    },
+    staleTime: 60_000,
   });
 
   const purchaseMutation = useMutation<PurchaseResult, Error, PurchaseArgs>({
@@ -224,6 +239,30 @@ export default function StoreScreen() {
       setPurchasingStarId(null);
     },
   });
+
+  const handleBuy = (packId: string, packType: 'coin_pack' | 'star_pack') => {
+    if (pinStatus?.hasPinSet) {
+      setPinPending({ packId, packType });
+      setPinInput('');
+      setPinError('');
+      setPinModalVisible(true);
+    } else {
+      purchaseMutation.mutate({ packId, packType });
+    }
+  };
+
+  const submitPin = async () => {
+    if (pinInput.length !== 4 || !pinPending) return;
+    try {
+      await apiClient.post('/auth/pin/verify', { pin: pinInput });
+      setPinModalVisible(false);
+      purchaseMutation.mutate(pinPending);
+      setPinPending(null);
+    } catch {
+      setPinError('Incorrect PIN. Please try again.');
+      setPinInput('');
+    }
+  };
 
   if (isLoading) {
     return (
@@ -281,7 +320,7 @@ export default function StoreScreen() {
                 bonusLabel={pack.bonusLabel}
                 isFeatured={pack.isFeatured}
                 isPurchasing={purchasingId === pack.id}
-                onBuy={(id) => purchaseMutation.mutate({ packId: id, packType: 'coin_pack' })}
+                onBuy={(id) => handleBuy(id, 'coin_pack')}
               />
             ))}
           </View>
@@ -307,7 +346,7 @@ export default function StoreScreen() {
                 bonusLabel={pack.bonusLabel}
                 isFeatured={pack.isFeatured}
                 isPurchasing={purchasingStarId === pack.id}
-                onBuy={(id) => purchaseMutation.mutate({ packId: id, packType: 'star_pack' })}
+                onBuy={(id) => handleBuy(id, 'star_pack')}
               />
             ))}
           </View>
@@ -344,6 +383,47 @@ export default function StoreScreen() {
       )}
 
       <View style={styles.bottomSpace} />
+
+      {/* PIN verification modal */}
+      <Modal
+        visible={pinModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPinModalVisible(false)}
+      >
+        <View style={styles.pinOverlay}>
+          <View style={[styles.pinModal, { backgroundColor: themeColors.surface }]}>
+            <Text style={[styles.pinModalTitle, { color: themeColors.text }]}>Enter PIN</Text>
+            <Text style={[styles.pinModalSub, { color: themeColors.textMuted }]}>
+              Enter your 4-digit PIN to authorise this purchase
+            </Text>
+            <TextInput
+              style={[styles.pinInput, { color: themeColors.text, borderColor: colors.neutral[300] }]}
+              value={pinInput}
+              onChangeText={(v) => { setPinInput(v.replace(/\D/g, '').slice(0, 4)); setPinError(''); }}
+              keyboardType="number-pad"
+              secureTextEntry
+              maxLength={4}
+              autoFocus
+              placeholder="••••"
+              placeholderTextColor={colors.neutral[400]}
+            />
+            {pinError ? <Text style={styles.pinError}>{pinError}</Text> : null}
+            <View style={styles.pinBtns}>
+              <Pressable onPress={() => setPinModalVisible(false)} style={styles.pinCancelBtn}>
+                <Text style={styles.pinCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={submitPin}
+                style={[styles.pinConfirmBtn, pinInput.length < 4 && styles.pinConfirmDisabled]}
+                disabled={pinInput.length < 4}
+              >
+                <Text style={styles.pinConfirmText}>Confirm</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -510,5 +590,73 @@ const styles = StyleSheet.create({
   },
   bottomSpace: {
     height: 40,
+  },
+  pinOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pinModal: {
+    width: 300,
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+    gap: 12,
+  },
+  pinModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  pinModalSub: {
+    fontSize: 13,
+    textAlign: 'center',
+  },
+  pinInput: {
+    width: '100%',
+    borderWidth: 1.5,
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 24,
+    textAlign: 'center',
+    letterSpacing: 12,
+    marginTop: 4,
+  },
+  pinError: {
+    fontSize: 12,
+    color: colors.semantic.error,
+  },
+  pinBtns: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+    width: '100%',
+  },
+  pinCancelBtn: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    backgroundColor: colors.neutral[100],
+  },
+  pinCancelText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.neutral[600],
+  },
+  pinConfirmBtn: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    backgroundColor: colors.brand.blue,
+  },
+  pinConfirmDisabled: {
+    opacity: 0.5,
+  },
+  pinConfirmText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
   },
 });

@@ -54,6 +54,7 @@ interface GiftCatalogue {
 
 interface WalletBalance {
   coins: number;
+  stars: number;
 }
 
 interface SendGiftResult {
@@ -78,6 +79,7 @@ async function fetchCatalogue(): Promise<GiftCatalogue> {
 
 async function sendGift(params: {
   giftItemId: string;
+  currency?: 'coins' | 'stars';
   recipientId: string;
   roomId?: string;
 }): Promise<SendGiftResult> {
@@ -113,14 +115,17 @@ interface GiftCardProps {
   item: GiftItem;
   isSelected: boolean;
   canAfford: boolean;
+  currencyMode: 'coins' | 'stars';
   onSelect: (item: GiftItem) => void;
 }
 
-function GiftCard({ item, isSelected, canAfford, onSelect }: GiftCardProps) {
+function GiftCard({ item, isSelected, canAfford, currencyMode, onSelect }: GiftCardProps) {
+  const cost = currencyMode === 'stars' ? (item.starCost ?? 0) : item.coinCost;
+  const icon = currencyMode === 'stars' ? '⭐' : '🪙';
   return (
     <Pressable
       onPress={() => onSelect(item)}
-      accessibilityLabel={`${item.name}, ${item.coinCost} coins`}
+      accessibilityLabel={`${item.name}, ${cost} ${currencyMode}`}
       style={({ pressed }) => [
         styles.giftCard,
         isSelected && styles.giftCardSelected,
@@ -133,9 +138,9 @@ function GiftCard({ item, isSelected, canAfford, onSelect }: GiftCardProps) {
         {item.name}
       </Text>
       <View style={styles.giftCostRow}>
-        <Text style={styles.giftCostIcon}>🪙</Text>
+        <Text style={styles.giftCostIcon}>{icon}</Text>
         <Text style={[styles.giftCost, !canAfford && styles.giftCostAfford]}>
-          {item.coinCost.toLocaleString()}
+          {cost.toLocaleString()}
         </Text>
       </View>
     </Pressable>
@@ -165,6 +170,7 @@ export default function GiftSendScreen() {
   const [showAnimation, setShowAnimation] = useState(false);
   const [sentGiftResult, setSentGiftResult] = useState<SendGiftResult | null>(null);
   const [activeTier, setActiveTier] = useState<number | null>(null);
+  const [currencyMode, setCurrencyMode] = useState<'coins' | 'stars'>('coins');
 
   const { data: catalogue, isLoading: catalogueLoading } = useQuery<GiftCatalogue>({
     queryKey: ['gifts', 'catalogue'],
@@ -181,7 +187,7 @@ export default function GiftSendScreen() {
     staleTime: 30_000,
   });
 
-  const sendMutation = useMutation<SendGiftResult, Error, { giftItemId: string; recipientId: string; roomId?: string }>({
+  const sendMutation = useMutation<SendGiftResult, Error, { giftItemId: string; recipientId: string; roomId?: string; currency?: 'coins' | 'stars' }>({
     mutationFn: sendGift,
     onSuccess: (result) => {
       setSentGiftResult(result);
@@ -196,10 +202,14 @@ export default function GiftSendScreen() {
 
   const handleSend = () => {
     if (!selectedGift || !recipientId) return;
+    const cost =
+      currencyMode === 'stars' ? selectedGift.starCost ?? 0 : selectedGift.coinCost;
+    const costLabel =
+      currencyMode === 'stars' ? `${cost} ⭐ Stars` : `${cost} 🪙 coins`;
 
     Alert.alert(
       'Send Gift?',
-      `Send ${selectedGift.emoji} ${selectedGift.name} to @${recipientUsername ?? 'user'} for ${selectedGift.coinCost} coins?`,
+      `Send ${selectedGift.emoji} ${selectedGift.name} to @${recipientUsername ?? 'user'} for ${costLabel}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -209,6 +219,7 @@ export default function GiftSendScreen() {
               giftItemId: selectedGift.id,
               recipientId,
               roomId,
+              currency: currencyMode,
             });
           },
         },
@@ -218,8 +229,19 @@ export default function GiftSendScreen() {
 
   const tiers = catalogue?.tiers ?? [];
   const displayTier = activeTier ?? tiers[0]?.tier ?? 1;
-  const tierData = tiers.find((t) => t.tier === displayTier);
+  const rawTierData = tiers.find((t) => t.tier === displayTier);
+  const tierData = rawTierData
+    ? {
+        ...rawTierData,
+        gifts:
+          currencyMode === 'stars'
+            ? rawTierData.gifts.filter((g) => g.starCost != null && g.starCost > 0)
+            : rawTierData.gifts,
+      }
+    : undefined;
   const coinsBalance = wallet?.coins ?? 0;
+  const starsBalance = wallet?.stars ?? 0;
+  const activeBalance = currencyMode === 'stars' ? starsBalance : coinsBalance;
 
   return (
     <Screen scrollable={false} disableBottomInset>
@@ -233,10 +255,32 @@ export default function GiftSendScreen() {
         </Text>
       </View>
 
-      {/* Coin balance reminder */}
+      {/* Currency toggle */}
+      <View style={styles.currencyToggleRow}>
+        <Pressable
+          onPress={() => { setCurrencyMode('coins'); setSelectedGift(null); }}
+          style={[styles.currencyToggleBtn, currencyMode === 'coins' && styles.currencyToggleActive]}
+        >
+          <Text style={[styles.currencyToggleText, currencyMode === 'coins' && styles.currencyToggleTextActive]}>
+            🪙 Coins
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={() => { setCurrencyMode('stars'); setSelectedGift(null); }}
+          style={[styles.currencyToggleBtn, currencyMode === 'stars' && styles.currencyToggleActive]}
+        >
+          <Text style={[styles.currencyToggleText, currencyMode === 'stars' && styles.currencyToggleTextActive]}>
+            ⭐ Stars
+          </Text>
+        </Pressable>
+      </View>
+
+      {/* Balance reminder */}
       <View style={styles.balanceBar}>
         <Text style={styles.balanceBarText}>
-          🪙 {coinsBalance.toLocaleString()} coins available
+          {currencyMode === 'stars'
+            ? `⭐ ${starsBalance.toLocaleString()} stars available`
+            : `🪙 ${coinsBalance.toLocaleString()} coins available`}
         </Text>
         <Pressable onPress={() => router.push('/economy/store')}>
           <Text style={styles.addMoreText}>Add more</Text>
@@ -294,28 +338,35 @@ export default function GiftSendScreen() {
           contentContainerStyle={styles.giftGrid}
           showsVerticalScrollIndicator={false}
         >
-          {(tierData?.gifts ?? []).map((item) => (
-            <GiftCard
-              key={item.id}
-              item={item}
-              isSelected={selectedGift?.id === item.id}
-              canAfford={coinsBalance >= item.coinCost}
-              onSelect={(gift) => {
-                if (coinsBalance < gift.coinCost) {
-                  Alert.alert(
-                    'Not Enough Coins',
-                    `You need ${gift.coinCost} coins but only have ${coinsBalance}.`,
-                    [
-                      { text: 'Cancel', style: 'cancel' },
-                      { text: 'Add Coins', onPress: () => router.push('/economy/store') },
-                    ]
-                  );
-                  return;
-                }
-                setSelectedGift(gift);
-              }}
-            />
-          ))}
+          {(tierData?.gifts ?? []).map((item) => {
+            const itemCost = currencyMode === 'stars' ? (item.starCost ?? 0) : item.coinCost;
+            const canAfford = activeBalance >= itemCost;
+            return (
+              <GiftCard
+                key={item.id}
+                item={item}
+                isSelected={selectedGift?.id === item.id}
+                canAfford={canAfford}
+                currencyMode={currencyMode}
+                onSelect={(gift) => {
+                  const cost = currencyMode === 'stars' ? (gift.starCost ?? 0) : gift.coinCost;
+                  if (activeBalance < cost) {
+                    const label = currencyMode === 'stars' ? 'Stars' : 'Coins';
+                    Alert.alert(
+                      `Not Enough ${label}`,
+                      `You need ${cost} ${label.toLowerCase()} but only have ${activeBalance}.`,
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: `Add ${label}`, onPress: () => router.push('/economy/store') },
+                      ]
+                    );
+                    return;
+                  }
+                  setSelectedGift(gift);
+                }}
+              />
+            );
+          })}
         </ScrollView>
       )}
 
@@ -326,7 +377,11 @@ export default function GiftSendScreen() {
             <Text style={styles.selectedEmoji}>{selectedGift.emoji}</Text>
             <View>
               <Text style={styles.selectedName}>{selectedGift.name}</Text>
-              <Text style={styles.selectedCost}>🪙 {selectedGift.coinCost.toLocaleString()}</Text>
+              <Text style={styles.selectedCost}>
+                {currencyMode === 'stars'
+                  ? `⭐ ${(selectedGift.starCost ?? 0).toLocaleString()}`
+                  : `🪙 ${selectedGift.coinCost.toLocaleString()}`}
+              </Text>
             </View>
           </View>
           <Button
@@ -516,5 +571,32 @@ const styles = StyleSheet.create({
   },
   sendBtn: {
     minWidth: 120,
+  },
+  currencyToggleRow: {
+    flexDirection: 'row',
+    marginHorizontal: 20,
+    marginBottom: 8,
+    gap: 8,
+  },
+  currencyToggleBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: colors.neutral[200],
+    alignItems: 'center',
+    backgroundColor: colors.neutral[50],
+  },
+  currencyToggleActive: {
+    borderColor: colors.brand.blue,
+    backgroundColor: '#EFF6FF',
+  },
+  currencyToggleText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.neutral[500],
+  },
+  currencyToggleTextActive: {
+    color: colors.brand.blue,
   },
 });

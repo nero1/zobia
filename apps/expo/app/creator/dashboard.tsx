@@ -7,15 +7,17 @@
  * Route: /creator/dashboard
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Modal,
   Pressable,
   RefreshControl,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -176,6 +178,18 @@ export default function CreatorDashboardScreen() {
   const { isDark } = useTheme();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const [pinModalVisible, setPinModalVisible] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState('');
+
+  const { data: pinStatus } = useQuery<{ hasPinSet: boolean }>({
+    queryKey: ['auth', 'pin', 'status'],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ hasPinSet: boolean }>('/auth/pin/status');
+      return data;
+    },
+    staleTime: 60_000,
+  });
 
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ['creator', 'dashboard'],
@@ -205,18 +219,33 @@ export default function CreatorDashboardScreen() {
       );
       return;
     }
-    Alert.alert(
-      'Request Payout',
-      `Request a payout of ${formatKobo(pending)}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Request',
-          onPress: () => payoutMutation.mutate(),
-        },
-      ]
-    );
+    if (pinStatus?.hasPinSet) {
+      setPinInput('');
+      setPinError('');
+      setPinModalVisible(true);
+    } else {
+      Alert.alert(
+        'Request Payout',
+        `Request a payout of ${formatKobo(pending)}?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Request', onPress: () => payoutMutation.mutate() },
+        ]
+      );
+    }
   }
+
+  const submitPayoutPin = async () => {
+    if (pinInput.length !== 4) return;
+    try {
+      await apiClient.post('/auth/pin/verify', { pin: pinInput });
+      setPinModalVisible(false);
+      payoutMutation.mutate();
+    } catch {
+      setPinError('Incorrect PIN. Please try again.');
+      setPinInput('');
+    }
+  };
 
   const textColor = isDark ? colors.neutral[100] : colors.neutral[900];
   const subtitleColor = isDark ? colors.neutral[400] : colors.neutral[500];
@@ -437,6 +466,47 @@ export default function CreatorDashboardScreen() {
         renderItem={() => <View style={styles.bodyPadding}>{renderContent()}</View>}
         contentContainerStyle={styles.listContent}
       />
+
+      {/* PIN verification modal for payout */}
+      <Modal
+        visible={pinModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPinModalVisible(false)}
+      >
+        <View style={styles.pinOverlay}>
+          <View style={styles.pinModal}>
+            <Text style={styles.pinModalTitle}>Enter PIN</Text>
+            <Text style={styles.pinModalSub}>
+              Enter your 4-digit PIN to authorise this payout request
+            </Text>
+            <TextInput
+              style={styles.pinInput}
+              value={pinInput}
+              onChangeText={(v) => { setPinInput(v.replace(/\D/g, '').slice(0, 4)); setPinError(''); }}
+              keyboardType="number-pad"
+              secureTextEntry
+              maxLength={4}
+              autoFocus
+              placeholder="••••"
+              placeholderTextColor={colors.neutral[400]}
+            />
+            {pinError ? <Text style={styles.pinError}>{pinError}</Text> : null}
+            <View style={styles.pinBtns}>
+              <Pressable onPress={() => setPinModalVisible(false)} style={styles.pinCancelBtn}>
+                <Text style={styles.pinCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={submitPayoutPin}
+                style={[styles.pinConfirmBtn, pinInput.length < 4 && styles.pinConfirmDisabled]}
+                disabled={pinInput.length < 4}
+              >
+                <Text style={styles.pinConfirmText}>Confirm</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -625,5 +695,78 @@ const styles = StyleSheet.create({
   payoutBtn: {
     width: '100%',
     marginTop: 4,
+  },
+  pinOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pinModal: {
+    width: 300,
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: colors.neutral[0],
+  },
+  pinModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.neutral[900],
+  },
+  pinModalSub: {
+    fontSize: 13,
+    textAlign: 'center',
+    color: colors.neutral[500],
+  },
+  pinInput: {
+    width: '100%',
+    borderWidth: 1.5,
+    borderColor: colors.neutral[300],
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 24,
+    textAlign: 'center',
+    letterSpacing: 12,
+    marginTop: 4,
+    color: colors.neutral[900],
+  },
+  pinError: {
+    fontSize: 12,
+    color: colors.semantic.error,
+  },
+  pinBtns: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+    width: '100%',
+  },
+  pinCancelBtn: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    backgroundColor: colors.neutral[100],
+  },
+  pinCancelText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.neutral[600],
+  },
+  pinConfirmBtn: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    backgroundColor: colors.brand.blue,
+  },
+  pinConfirmDisabled: {
+    opacity: 0.5,
+  },
+  pinConfirmText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
   },
 });
