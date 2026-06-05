@@ -352,6 +352,34 @@ export default function CreatorDashboardScreen() {
           )}
         </SectionCard>
 
+        {/* Quick actions */}
+        <View style={styles.quickActions}>
+          <Pressable
+            style={[styles.quickActionBtn, { backgroundColor: isDark ? colors.neutral[800] : colors.neutral[0], borderColor: isDark ? colors.neutral[700] : colors.neutral[200] }]}
+            onPress={() => router.push('/creator/broadcasts' as never)}
+            accessibilityRole="button"
+            accessibilityLabel="Send broadcast to followers"
+          >
+            <Text style={styles.quickActionEmoji}>📢</Text>
+            <Text style={[styles.quickActionLabel, { color: isDark ? colors.neutral[100] : colors.neutral[800] }]}>
+              Broadcasts
+            </Text>
+            <Text style={[styles.quickActionChevron, { color: subtitleColor }]}>›</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.quickActionBtn, { backgroundColor: isDark ? colors.neutral[800] : colors.neutral[0], borderColor: isDark ? colors.neutral[700] : colors.neutral[200] }]}
+            onPress={() => router.push('/creator/marketplace' as never)}
+            accessibilityRole="button"
+            accessibilityLabel="View sponsored quests marketplace"
+          >
+            <Text style={styles.quickActionEmoji}>🎯</Text>
+            <Text style={[styles.quickActionLabel, { color: isDark ? colors.neutral[100] : colors.neutral[800] }]}>
+              Sponsored Quests
+            </Text>
+            <Text style={[styles.quickActionChevron, { color: subtitleColor }]}>›</Text>
+          </Pressable>
+        </View>
+
         {/* Pending Balance + Request Payout */}
         <View
           style={[
@@ -550,6 +578,25 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingVertical: 8,
   },
+
+  quickActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 12,
+  },
+  quickActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    gap: 8,
+    minHeight: 52,
+  },
+  quickActionEmoji: { fontSize: 20 },
+  quickActionLabel: { flex: 1, fontSize: 13, fontWeight: '600' },
+  quickActionChevron: { fontSize: 18, fontWeight: '600' },
 
   payoutCard: {
     borderRadius: 14,
