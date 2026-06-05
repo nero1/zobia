@@ -196,6 +196,41 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
         ).catch(() => {}); // non-fatal if creator_earnings table structure differs
       }
 
+      // Guild Legend tier 5% Room Revenue Share (PRD §13)
+      // If this gift is in a room and the room creator belongs to a Legend-tier guild,
+      // credit 5% of the gift's coin value to that guild's treasury.
+      if (body.roomId && recipient.is_creator) {
+        try {
+          const { rows: legendGuildRows } = await tx.query<{ guild_id: string; treasury_balance: number }>(
+            `SELECT g.id AS guild_id, g.treasury_balance
+             FROM guilds g
+             JOIN guild_members gm ON gm.guild_id = g.id
+             WHERE gm.user_id = $1
+               AND g.tier = 'legend'
+               AND g.deleted_at IS NULL
+             LIMIT 1`,
+            [body.recipientId]
+          );
+          if (legendGuildRows[0]) {
+            const guildShare = Math.floor(giftItem.coin_cost * 5 / 100);
+            if (guildShare > 0) {
+              await tx.query(
+                `UPDATE guilds SET treasury_balance = treasury_balance + $1, updated_at = NOW() WHERE id = $2`,
+                [guildShare, legendGuildRows[0].guild_id]
+              );
+              await tx.query(
+                `INSERT INTO guild_treasury_log (guild_id, amount, source, reference_id, created_at)
+                 VALUES ($1, $2, 'room_revenue_share', $3, NOW())
+                 ON CONFLICT DO NOTHING`,
+                [legendGuildRows[0].guild_id, guildShare, body.roomId]
+              ).catch(() => {}); // non-fatal if table doesn't exist
+            }
+          }
+        } catch {
+          // Non-fatal — guild revenue share is a best-effort bonus
+        }
+      }
+
       // Create the gift record
       const { rows: giftInsert } = await tx.query<{ id: string }>(
         `INSERT INTO gifts

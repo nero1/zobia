@@ -23,6 +23,7 @@ import { db } from "@/lib/db";
 import { createPayout } from "@/lib/payments";
 import { loadManifest } from "@/lib/manifest";
 import { creditCoins } from "@/lib/economy/coins";
+import { hasTrackUnlock } from "@/lib/xp/trackMilestones";
 import { randomUUID } from "crypto";
 import Decimal from "decimal.js";
 
@@ -46,6 +47,7 @@ interface PayoutRow {
 
 interface CreatorProfileRow {
   is_creator: boolean;
+  creator_tier: string | null;
   payout_recipient_code: string | null;
   payout_account_last4: string | null;
   available_earnings_kobo: number;
@@ -72,7 +74,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
     const userId = auth.user.sub;
 
     const { rows: profileRows } = await db.query<CreatorProfileRow>(
-      `SELECT is_creator, payout_recipient_code, payout_account_last4,
+      `SELECT is_creator, creator_tier, payout_recipient_code, payout_account_last4,
               available_earnings_kobo
        FROM users
        WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
@@ -160,7 +162,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     const body = await validateBody(req, PayoutRequestSchema);
 
     const { rows: profileRows } = await db.query<CreatorProfileRow>(
-      `SELECT is_creator, payout_recipient_code, payout_account_last4,
+      `SELECT is_creator, creator_tier, payout_recipient_code, payout_account_last4,
               available_earnings_kobo
        FROM users
        WHERE id = $1 AND deleted_at IS NULL LIMIT 1 FOR UPDATE`,
@@ -173,7 +175,8 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 
     const profile = profileRows[0];
 
-    if (!profile.payout_recipient_code) {
+    // Coin-conversion payouts bypass the bank account requirement (PRD §14 RIZE Coin conversion)
+    if (!body.asCoins && !profile.payout_recipient_code) {
       throw badRequest(
         "No payout account configured. Please add your bank account in settings.",
         "NO_PAYOUT_ACCOUNT"
@@ -196,7 +199,8 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     const availableGrossKobo = profile.available_earnings_kobo ?? 0;
     const requestedGrossKobo = body.amountKobo ?? availableGrossKobo;
 
-    if (requestedGrossKobo < minPayoutKobo) {
+    // Coin conversion: no minimum threshold applies (PRD §14 — RIZE Coin conversion)
+    if (!body.asCoins && requestedGrossKobo < minPayoutKobo) {
       throw badRequest(
         `Minimum payout is ₦${(minPayoutKobo / 100).toFixed(2)}`,
         "BELOW_MINIMUM_PAYOUT"
@@ -222,8 +226,13 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       );
     }
 
-    // Calculate net (creator receives 80%)
-    const netKobo = new Decimal(requestedGrossKobo).times(80).dividedBy(100).floor().toNumber();
+    // Determine revenue share rate: Zobia Icon Creator and Creator Track L50 get 85% (PRD §14/§7)
+    const isIconCreator = profile.creator_tier === "icon";
+    const hasRoomGodUnlock = await hasTrackUnlock(userId, "creator_revenue_share_85_discovery", db);
+    const revenueSharePct = (isIconCreator || hasRoomGodUnlock) ? 85 : 80;
+
+    // Calculate net (creator receives revenueSharePct%)
+    const netKobo = new Decimal(requestedGrossKobo).times(revenueSharePct).dividedBy(100).floor().toNumber();
     const platformFeeKobo = requestedGrossKobo - netKobo;
 
     const idempotencyKey = `payout:${userId}:${randomUUID()}`;
@@ -268,6 +277,53 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       requiresManualApproval = true;
     }
 
+    // ── RIZE Coin Conversion path (PRD §14) ──────────────────────────────────
+    // When asCoins = true, convert net earnings to Coins and credit directly.
+    // Coin rate: 1 kobo = 0.01 Coin (i.e., 100 kobo = 1 Coin). Admin-configurable
+    // via manifest economy.cobToKoboRate (default 100 kobo per Coin).
+    if (body.asCoins) {
+      const manifest2 = await loadManifest();
+      const koboPerCoin = (manifest2 as unknown as Record<string, unknown>).economy
+        ? Number(((manifest2 as unknown as Record<string, unknown>).economy as Record<string, unknown>).koboPerCoin) || 100
+        : 100;
+      const coinsToCredit = Math.floor(netKobo / koboPerCoin);
+
+      if (coinsToCredit <= 0) {
+        throw badRequest("Earnings are too small to convert to Coins at the current rate.", "BELOW_MINIMUM_COIN_CONVERSION");
+      }
+
+      await db.transaction(async (tx) => {
+        await tx.query(
+          `UPDATE users SET available_earnings_kobo = available_earnings_kobo - $1, updated_at = NOW() WHERE id = $2`,
+          [requestedGrossKobo, userId]
+        );
+        await tx.query(
+          `INSERT INTO creator_payouts (creator_id, gross_kobo, net_kobo, platform_fee_kobo, status, idempotency_key, bank_account_last4)
+           VALUES ($1, $2, $3, $4, 'completed', $5, NULL)`,
+          [userId, requestedGrossKobo, netKobo, platformFeeKobo, idempotencyKey]
+        );
+        await creditCoins(
+          userId, coinsToCredit, "creator_coin_conversion", idempotencyKey,
+          `Earnings converted to ${coinsToCredit} Coins`, { grossKobo: requestedGrossKobo }, tx
+        );
+      });
+
+      return NextResponse.json({
+        payout: {
+          idempotencyKey,
+          grossKobo: requestedGrossKobo,
+          netKobo,
+          platformFeeKobo,
+          status: "completed",
+          asCoins: true,
+          coinsAwarded: coinsToCredit,
+        },
+        message: `${coinsToCredit.toLocaleString()} Coins have been added to your wallet.`,
+      });
+    }
+
+    // ── Standard bank transfer path ──────────────────────────────────────────
+
     // Deduct from available earnings atomically before initiating
     await db.transaction(async (tx) => {
       await tx.query(
@@ -309,7 +365,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
         const payoutResult = await createPayout(
           netKobo,
           "NGN",
-          { recipientCode: profile.payout_recipient_code, reason: "Creator payout" },
+          { recipientCode: profile.payout_recipient_code!, reason: "Creator payout" },
           idempotencyKey
         );
 
@@ -348,6 +404,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
         grossKobo: requestedGrossKobo,
         netKobo,
         platformFeeKobo,
+        revenueSharePct,
         status: requiresManualApproval ? "awaiting_approval" : "processing",
         providerReference,
         requiresManualApproval,

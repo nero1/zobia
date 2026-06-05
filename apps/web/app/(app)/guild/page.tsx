@@ -51,6 +51,14 @@ interface ActiveWar {
   endsAt: string;
 }
 
+interface AllianceHistory {
+  id: string;
+  allianceName: string;
+  role: "founder" | "member";
+  joinedAt: string;
+  leftAt: string | null;
+}
+
 interface MyGuild {
   id: string;
   name: string;
@@ -63,6 +71,7 @@ interface MyGuild {
   maxMembers: number;
   members: GuildMember[];
   warHistory: WarHistory[];
+  allianceHistory: AllianceHistory[];
   activeWar: ActiveWar | null;
 }
 
@@ -269,7 +278,7 @@ function GuildDashboard({ guild }: GuildDashboardProps) {
       {guild.warHistory.length > 0 && (
         <div className="rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
           <div className="border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
-            <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">Recent Wars</h2>
+            <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">⚔️ War History</h2>
           </div>
           <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
             {guild.warHistory.map((w) => (
@@ -281,6 +290,32 @@ function GuildDashboard({ guild }: GuildDashboardProps) {
                   <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">vs {w.opponentName}</p>
                   <p className="text-xs text-neutral-500">{w.score} · {formatDate(w.endedAt)}</p>
                 </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Alliance history — PRD §13: "every Alliance formed is permanently visible" */}
+      {guild.allianceHistory && guild.allianceHistory.length > 0 && (
+        <div className="rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+          <div className="border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
+            <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">🤝 Alliance History</h2>
+          </div>
+          <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
+            {guild.allianceHistory.map((a) => (
+              <div key={a.id} className="flex items-center gap-4 px-5 py-3">
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-teal-100 text-sm dark:bg-teal-900">🤝</span>
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{a.allianceName}</p>
+                  <p className="text-xs text-neutral-500">
+                    {a.role === "founder" ? "Founded" : "Joined"} {formatDate(a.joinedAt)}
+                    {a.leftAt ? ` · Left ${formatDate(a.leftAt)}` : " · Active"}
+                  </p>
+                </div>
+                {!a.leftAt && (
+                  <span className="rounded-full bg-teal-100 px-2 py-0.5 text-xs font-semibold text-teal-700 dark:bg-teal-900 dark:text-teal-300">Active</span>
+                )}
               </div>
             ))}
           </div>

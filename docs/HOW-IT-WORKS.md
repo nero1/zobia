@@ -62,16 +62,38 @@ When a user reaches the maximum rank (Zobia Icon), they can Prestige: their rank
 
 Creators (marked `is_creator = true`) earn revenue from:
 - Room entry fees (paid rooms)
-- Gifts received in their rooms (80% to creator, 20% to platform)
+- Gifts received in their rooms (80% to creator, 20% to platform; **85% for Zobia Icon tier** or Creator Track Level 50 unlock)
 - Paid content subscriptions
 
 Revenue accrues to `creator_earnings`. The weekly CRON checks creators above the minimum payout threshold (default: ₦5,000 via Paystack). Creators above the manual-approval threshold (default: ₦100,000) require admin approval before disbursement. Completed payouts record to `creator_payouts`.
+
+**RIZE Coin conversion (PRD §14):** Instead of a bank payout, creators can request `asCoins: true` when calling `POST /api/creator/payouts`. The net earnings are converted to Coins at the admin-configurable `kobo_per_coin` rate (default 100 kobo = 1 Coin) and credited to the creator's wallet in the same atomic transaction.
+
+**Room capacity gates by Creator Track level:** Creators below Level 5 can create rooms with up to 50 members. Reaching Level 5 raises the cap to 100 (Room Opener milestone). Reaching Level 20 removes the cap entirely (rooms can grow to the platform maximum).
 
 ### Social Graph
 
 - **Friends**: Bilateral friendship requests. Stored in `friendships`. Friend list visible on profile.
 - **Follows**: Unilateral following. Stored in `follows`. Used for feed curation and notification preferences.
 - **Mutual follows** appear in suggestions.
+
+### Profile Components (PRD §15)
+
+- **Creator Card**: When `is_creator = true`, the profile shows the creator's primary room (highest-member-count), member count, and total earnings (own profile only, for privacy).
+- **Public Achievements Wall**: Up to 12 lifetime `user_badges` displayed as amber chips with earned-date tooltips.
+- **Connection Badge**: If the viewer and profile user have a `dm_conversations.conversation_score ≥ 7`, a badge appears (Connected = 7 days, Gold Connection = 14 days, Platinum Bond = 30 days).
+- **Legacy Score**: Accumulated across all Prestige cycles; displayed with a ⚜️ icon.
+
+### Guild Treasury (PRD §13)
+
+Legend-tier guilds earn a 5% share of coin gift values sent in rooms where their creator-members are active. Each qualifying gift atomically increments `guilds.treasury_balance` and appends a `guild_treasury_log` row with `source = 'room_revenue_share'`. The treasury balance is visible to guild members and spent via future guild upgrades.
+
+### Ad Revenue Share (PRD §10)
+
+Free Open Rooms with 500+ monthly active users (MAU) are automatically enrolled in the ad revenue share programme on the 1st of each month. The daily CRON:
+1. Counts distinct members active in each room during the prior month and upserts a snapshot into `room_monthly_active_users`.
+2. Sets `rooms.is_ad_enrolled = TRUE` for any room reaching the threshold and sends the creator an `ad_revenue_enrolled` notification.
+Once enrolled, future revenue from the in-room AdMob/ad network is shared with the creator at the admin-configured rate.
 
 ### Nemesis System
 
@@ -198,7 +220,21 @@ Atomicity: every debit operation pairs the `UPDATE users SET coin_balance = ...`
 5. **Above manual-approval threshold**: Record created with status `awaiting_approval`. Admin sees it in the payouts panel and approves manually.
 6. **On approval**: Paystack/DodoPayments transfer API called. On webhook confirmation → status set to `completed`.
 7. **On failure**: Status set to `failed`, admin alerted. Manual retry available.
-8. The 80/20 split (80% to creator, 20% platform) is applied at the `creator_earnings` record level, not at payout time.
+8. The 80/20 split (80% to creator, 20% platform) is applied at the `creator_earnings` record level, not at payout time. Exception: Zobia Icon tier creators and those with the Creator Track L50 `creator_revenue_share_85_discovery` unlock receive an 85% split.
+
+**RIZE Coin Conversion:** Creators can request `asCoins: true` in `POST /api/creator/payouts`. The net earnings are converted using the `kobo_per_coin` rate from `x_manifest` and credited to the wallet atomically — no bank transfer occurs.
+
+### Virtual Economy — Premium Send (PRD §11)
+
+Premium Send is a purchasable booster that adds a gold-shimmer animation to a message. Two tiers:
+- **One-shot** (`premium_send`): 50 Coins. Activates for the next message. Multiple one-shots can be queued (they stack; the next send consumes one activation from `user_xp_boosters`).
+- **7-Day Pass** (`premium_send_7day`): 250 Coins. All messages for 7 days carry the premium animation. Cannot be stacked.
+
+Both are purchasable via `POST /api/economy/boosters` with `boosterType: "premium_send"` or `"premium_send_7day"`. The message send handler checks for an active `premium_send` or `premium_send_7day` booster before attaching the animation metadata.
+
+### Generosity Track L40 Coin Purchase Bonus (PRD §7)
+
+When a user who has reached the Generosity Track L40 Philanthropist milestone purchases coins (via Paystack or DodoPayments), `getCoinPurchaseBonus()` is called and a 5% bonus coin amount is credited in the same transaction. The bonus is recorded as a separate ledger entry with `type = 'philanthropist_bonus'` for auditability.
 
 ### AI Moderation Pipeline
 
