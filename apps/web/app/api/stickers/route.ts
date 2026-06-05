@@ -40,7 +40,9 @@ interface StickerPackRow {
   name: string;
   description: string | null;
   cover_sticker_url: string | null;
+  pack_type: "free" | "earnable" | "premium";
   coin_price: number;
+  unlock_condition: string | null;
   sticker_count: number;
   is_active: boolean;
   created_at: string;
@@ -80,6 +82,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
          sp.name,
          sp.description,
          sp.cover_sticker_url,
+         sp.pack_type,
+         sp.unlock_condition,
          sp.coin_price,
          COUNT(s.id)::int AS sticker_count,
          sp.is_active,

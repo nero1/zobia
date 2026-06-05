@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { RoomCard, type RoomCardData } from "@/components/rooms/RoomCard";
 
 // ---------------------------------------------------------------------------
@@ -59,6 +60,94 @@ function PinnedRoomsStrip({ rooms, onJoin }: { rooms: RoomCardData[]; onJoin: (i
             <span className="text-[10px] text-neutral-400">{room.memberCount ?? 0} members</span>
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Drop Room FOMO strip (PRD §2.1 — "Limited Rooms open for brief windows")
+// ---------------------------------------------------------------------------
+
+interface DropRoomFomo {
+  id: string;
+  name: string;
+  coverEmoji: string;
+  dropEndsAt: string;
+  entryFee: number | null;
+  memberCount: number;
+}
+
+function useCountdown(isoTarget: string): string {
+  const [secs, setSecs] = useState(() => Math.max(0, Math.floor((new Date(isoTarget).getTime() - Date.now()) / 1000)));
+  useEffect(() => {
+    const t = setInterval(() => setSecs(Math.max(0, Math.floor((new Date(isoTarget).getTime() - Date.now()) / 1000))), 1000);
+    return () => clearInterval(t);
+  }, [isoTarget]);
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+function DropRoomCard({ room }: { room: DropRoomFomo }) {
+  const countdown = useCountdown(room.dropEndsAt);
+  const urgentSecs = Math.max(0, Math.floor((new Date(room.dropEndsAt).getTime() - Date.now()) / 1000));
+  const isUrgent = urgentSecs < 3600; // under 1 hour
+
+  return (
+    <Link
+      href={`/rooms/${room.id}`}
+      className={`flex min-w-[200px] shrink-0 flex-col rounded-xl border p-4 transition-colors hover:shadow-md ${isUrgent ? "border-red-300 bg-red-50 dark:border-red-700 dark:bg-red-950/20" : "border-teal-200 bg-teal-50 dark:border-teal-800 dark:bg-teal-950/20"}`}
+    >
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <span className="text-3xl">{room.coverEmoji}</span>
+        <span className={`rounded-full px-2 py-0.5 text-xs font-bold tabular-nums ${isUrgent ? "bg-red-200 text-red-800 dark:bg-red-900 dark:text-red-200" : "bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300"}`}>
+          ⏱ {countdown}
+        </span>
+      </div>
+      <p className="line-clamp-1 text-sm font-bold text-neutral-900 dark:text-neutral-50">{room.name}</p>
+      <div className="mt-1.5 flex items-center gap-2 text-xs text-neutral-500">
+        <span>{room.memberCount} inside</span>
+        {room.entryFee ? <span>· {room.entryFee.toLocaleString()} coins entry</span> : <span>· Free entry</span>}
+      </div>
+    </Link>
+  );
+}
+
+function DropRoomFomoStrip() {
+  const [dropRooms, setDropRooms] = useState<DropRoomFomo[]>([]);
+
+  useEffect(() => {
+    fetch("/api/rooms?type=drop&tab=trending&limit=6", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d: { rooms?: Array<RoomCardData & { dropEndsAt?: string; entryFee?: number }> } | null) => {
+        const drops = (d?.rooms ?? [])
+          .filter((r) => r.type === "drop" && r.dropEndsAt)
+          .map((r) => ({
+            id: r.id,
+            name: r.name,
+            coverEmoji: r.coverEmoji ?? "🎟️",
+            dropEndsAt: (r as { dropEndsAt?: string }).dropEndsAt!,
+            entryFee: r.entryFee ?? null,
+            memberCount: r.memberCount,
+          }));
+        setDropRooms(drops);
+      })
+      .catch(() => {});
+  }, []);
+
+  if (dropRooms.length === 0) return null;
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-bold uppercase tracking-wider text-red-600 dark:text-red-400">
+        🔥 Closing Soon — Don&apos;t Miss Out
+      </p>
+      <div className="flex gap-3 overflow-x-auto pb-2">
+        {dropRooms.map((r) => <DropRoomCard key={r.id} room={r} />)}
       </div>
     </div>
   );
@@ -181,6 +270,9 @@ export default function RoomsPage() {
 
       {/* Pinned rooms */}
       <PinnedRoomsStrip rooms={pinnedRooms} onJoin={(id) => router.push(`/rooms/${id}`)} />
+
+      {/* Drop Room FOMO strip — closing soon (PRD §2.1) */}
+      <DropRoomFomoStrip />
 
       {/* Tab filters */}
       <div className="flex gap-1 rounded-xl border border-neutral-200 bg-neutral-100 p-1 dark:border-neutral-800 dark:bg-neutral-800">

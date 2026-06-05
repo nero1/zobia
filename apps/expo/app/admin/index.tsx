@@ -89,6 +89,12 @@ export default function AdminOverviewScreen() {
           { label: "Compose Message", route: "/admin/messages", icon: "✉️" },
           { label: "Announcements", route: "/admin/announcements", icon: "📢" },
           { label: "KYC Review", route: "/admin/kyc", icon: "🪪" },
+          { label: "Flash XP Events", route: "/admin/flash-xp", icon: "⚡" },
+          { label: "Branded Rooms", route: "/admin/branded-rooms", icon: "🏢" },
+          { label: "Platform Events", route: "/admin/events", icon: "🗓️" },
+          { label: "Sponsored Quests", route: "/admin/sponsored-quests", icon: "🎯" },
+          { label: "Config & Flags", route: "/admin/config", icon: "⚙️" },
+          { label: "Feature Flags", route: "/admin/feature-flags", icon: "🚩" },
         ].map((action) => (
           <TouchableOpacity
             key={action.route}

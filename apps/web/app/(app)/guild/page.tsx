@@ -149,21 +149,30 @@ function GuildDiscovery({ guilds, loading, onJoin, joiningId }: DiscoveryProps) 
           const { classes, label } = TIER_BADGE[g.tier];
           return (
             <div key={g.id} className="flex flex-wrap items-center gap-4 rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-              <span className="flex h-14 w-14 items-center justify-center rounded-full bg-neutral-100 text-3xl dark:bg-neutral-800">{g.emblem}</span>
+              <Link href={`/guilds/${g.id}`}>
+                <span className="flex h-14 w-14 cursor-pointer items-center justify-center rounded-full bg-neutral-100 text-3xl hover:opacity-80 dark:bg-neutral-800">{g.emblem}</span>
+              </Link>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="font-bold text-neutral-900 dark:text-neutral-100">{g.name}</h3>
+                  <Link href={`/guilds/${g.id}`} className="hover:underline">
+                    <h3 className="font-bold text-neutral-900 dark:text-neutral-100">{g.name}</h3>
+                  </Link>
                   <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${classes}`}>{label}</span>
                 </div>
                 <p className="text-xs text-neutral-500">{g.city} · {g.memberCount} members · {g.warsWon} wars won</p>
               </div>
-              <button
-                disabled={joiningId === g.id}
-                onClick={() => onJoin(g.id)}
-                className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-              >
-                {joiningId === g.id ? "Joining…" : "Join"}
-              </button>
+              <div className="flex gap-2">
+                <Link href={`/guilds/${g.id}`} className="rounded-xl border border-neutral-300 px-3 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300">
+                  View
+                </Link>
+                <button
+                  disabled={joiningId === g.id}
+                  onClick={() => onJoin(g.id)}
+                  className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                >
+                  {joiningId === g.id ? "Joining…" : "Join"}
+                </button>
+              </div>
             </div>
           );
         })
