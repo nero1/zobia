@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/middleware';
 import { badRequest, forbidden, notFound } from '@/lib/api/errors';
 import { getDb } from '@/lib/db';
+import { XP_VALUES } from '@/lib/xp/engine';
 
 /** PUT /api/friends/[friendId] — accept, reject, or block */
 export const PUT = withAuth(async (
@@ -21,21 +22,22 @@ export const PUT = withAuth(async (
 
   const db = await getDb();
 
-  const [friendship] = await db.query(
-    `SELECT id, user_id, friend_id, status FROM friendships
+  const { rows: friendshipRows } = await db.query(
+    `SELECT id, requester_id, addressee_id, status FROM friendships
      WHERE id = $1`,
     [params.friendId],
   );
+  const friendship = friendshipRows[0];
   if (!friendship) return notFound('Friendship not found');
 
-  // Only the recipient can accept/reject; either party can block
+  // Only the recipient (addressee) can accept/reject; either party can block
   if (action === 'accept' || action === 'reject') {
-    if (friendship.friend_id !== userId) return forbidden('Not the request recipient');
+    if (friendship.addressee_id !== userId) return forbidden('Not the request recipient');
     if (friendship.status !== 'pending') return badRequest('Request is not pending');
   }
 
   if (action === 'block') {
-    if (friendship.user_id !== userId && friendship.friend_id !== userId) {
+    if (friendship.requester_id !== userId && friendship.addressee_id !== userId) {
       return forbidden('Not part of this friendship');
     }
   }
@@ -48,6 +50,20 @@ export const PUT = withAuth(async (
       'UPDATE friendships SET status = $1, updated_at = NOW() WHERE id = $2',
       [newStatus, params.friendId],
     );
+
+    // Award XP on accept (PRD §6: +5 XP social track to addressee)
+    if (action === 'accept') {
+      const xpAmount = XP_VALUES.accept_friend_request;
+      await db.query(
+        `UPDATE users SET xp_total = xp_total + $1, updated_at = NOW() WHERE id = $2`,
+        [xpAmount, userId],
+      ).catch(() => {});
+      await db.query(
+        `INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, created_at)
+         VALUES ($1, $2, 'social', 'accept_friend_request', $2, NOW())`,
+        [userId, xpAmount],
+      ).catch(() => {});
+    }
   }
 
   return NextResponse.json({ success: true });
@@ -61,11 +77,12 @@ export const DELETE = withAuth(async (
 ) => {
   const db = await getDb();
 
-  const [friendship] = await db.query(
-    `SELECT id, user_id, friend_id FROM friendships
-     WHERE id = $1 AND (user_id = $2 OR friend_id = $2)`,
+  const { rows: dRows } = await db.query(
+    `SELECT id, requester_id, addressee_id FROM friendships
+     WHERE id = $1 AND (requester_id = $2 OR addressee_id = $2)`,
     [params.friendId, userId],
   );
+  const friendship = dRows[0];
   if (!friendship) return notFound('Friendship not found');
 
   await db.query('DELETE FROM friendships WHERE id = $1', [params.friendId]);

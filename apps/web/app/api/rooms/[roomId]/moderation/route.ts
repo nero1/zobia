@@ -71,12 +71,19 @@ const updateRulesSchema = z.object({
   }),
 });
 
+const kickSchema = z.object({
+  action: z.literal("kick"),
+  targetUserId: z.string().uuid(),
+  reason: z.string().max(500).optional(),
+});
+
 const moderationSchema = z.discriminatedUnion("action", [
   muteSchema,
   unmuteSchema,
   coModSchema,
   removeCoModSchema,
   updateRulesSchema,
+  kickSchema,
 ]);
 
 // ---------------------------------------------------------------------------
@@ -317,6 +324,38 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           { action: "update_rules", rules: updatedRules },
           { status: 200 }
         );
+      }
+
+      // -----------------------------------------------------------------------
+      case "kick": {
+        const { targetUserId, reason } = body;
+
+        if (targetUserId === room.creator_id) {
+          throw forbidden("The room creator cannot be kicked");
+        }
+        if (targetUserId === callerId) {
+          throw forbidden("Cannot kick yourself");
+        }
+
+        const { rowCount } = await db.query(
+          `UPDATE room_members
+           SET left_at = NOW(), updated_at = NOW()
+           WHERE room_id = $1 AND user_id = $2 AND left_at IS NULL`,
+          [roomId, targetUserId]
+        );
+        if (!rowCount) throw notFound("Target user is not an active member of this room");
+
+        // Notify kicked user
+        await db.query(
+          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+           VALUES ($1, 'room_kicked', $2, false, NOW())`,
+          [targetUserId, JSON.stringify({ roomId, reason: reason ?? null })]
+        ).catch(() => {});
+
+        await decrementHealthScore(roomId, 3);
+        await logModerationAction(roomId, callerId, "kick", targetUserId, { reason });
+
+        return NextResponse.json({ action: "kick", targetUserId }, { status: 200 });
       }
 
       // -----------------------------------------------------------------------

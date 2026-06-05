@@ -188,8 +188,16 @@ export async function getActiveModalForUser(
     );
     const viewedIds = new Set(viewedRows.map((r) => r.modal_id));
     const unviewed = eligible.filter((m) => !viewedIds.has(m.id));
-    if (unviewed.length === 0) return null;
-    selected = unviewed[0];
+    if (unviewed.length === 0) {
+      // All modals viewed — reset so they show again on next login
+      await db.query(
+        `DELETE FROM user_modal_views WHERE user_id = $1`,
+        [userId]
+      );
+      selected = eligible[0];
+    } else {
+      selected = unviewed[0];
+    }
   } else if (displayMode === "random") {
     selected = eligible[Math.floor(Math.random() * eligible.length)];
   }

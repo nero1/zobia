@@ -135,14 +135,61 @@ async function isPlatformEmailEnabled(): Promise<boolean> {
   }
 }
 
+/**
+ * Email notification type categories for per-type opt-out (PRD §email).
+ * Maps to user_email_preferences.notification_type.
+ */
+export type EmailNotificationType =
+  | "marketing"
+  | "reengagement"
+  | "security"
+  | "transactional"
+  | "guild"
+  | "season"
+  | "moderation"
+  | "referral"
+  | "council";
+
+/**
+ * Check if a user has opted out of a specific email notification type.
+ * Returns true (enabled) if no preference found (opt-in by default).
+ * Security emails cannot be disabled.
+ */
+async function isEmailTypeEnabledForUser(
+  userEmail: string,
+  type?: EmailNotificationType
+): Promise<boolean> {
+  if (!type) return true;
+  if (type === "security") return true; // security emails always sent
+
+  try {
+    const { db } = await import("@/lib/db");
+    const { rows } = await db.query<{ is_enabled: boolean }>(
+      `SELECT uep.is_enabled
+       FROM user_email_preferences uep
+       JOIN users u ON u.id = uep.user_id
+       WHERE u.email = $1
+         AND uep.notification_type = $2
+       LIMIT 1`,
+      [userEmail, type]
+    );
+    if (!rows[0]) return true; // no preference = opted-in
+    return rows[0].is_enabled;
+  } catch {
+    return true;
+  }
+}
+
 export async function sendEmail(
   to: string,
   subject: string,
   text: string,
-  html?: string
+  html?: string,
+  notificationType?: EmailNotificationType
 ): Promise<void> {
   if (!hasMailgunConfig()) return;
   if (!(await isPlatformEmailEnabled())) return;
+  if (!(await isEmailTypeEnabledForUser(to, notificationType))) return;
 
   await postToMailgun({ to, subject, text, html });
 }
@@ -157,7 +204,7 @@ export async function sendEmail(
  * @param emails - Array of email payloads to send in order
  */
 export async function sendEmailBatch(
-  emails: Array<{ to: string; subject: string; text: string; html?: string }>
+  emails: Array<{ to: string; subject: string; text: string; html?: string; notificationType?: EmailNotificationType }>
 ): Promise<void> {
   if (!hasMailgunConfig()) return;
   if (emails.length === 0) return;
@@ -165,6 +212,9 @@ export async function sendEmailBatch(
 
   for (let i = 0; i < emails.length; i++) {
     const email = emails[i];
+    if (!(await isEmailTypeEnabledForUser(email.to, email.notificationType))) {
+      continue;
+    }
     await postToMailgun(email);
 
     // Rate-limit gap between sends (skip after last)

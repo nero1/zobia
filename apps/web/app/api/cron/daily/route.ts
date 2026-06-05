@@ -1679,6 +1679,233 @@ export const GET = async (req: NextRequest) => {
     errors.push(`earnableStickerUnlocks: ${String(err)}`);
   }
 
+  // 28. Creator tier progression — update based on room member counts (PRD §10)
+  //     Rookie: 0–99  |  Rising: 100–499  |  Verified: 500–1999  |  Elite/Icon: 2000+
+  try {
+    const { rows: creatorRooms } = await db.query<{
+      creator_id: string;
+      total_members: string;
+    }>(
+      `SELECT r.creator_id, SUM(rm.member_count)::TEXT AS total_members
+       FROM rooms r
+       JOIN LATERAL (
+         SELECT COUNT(*) AS member_count
+         FROM room_members rmp
+         WHERE rmp.room_id = r.id AND rmp.left_at IS NULL
+       ) rm ON TRUE
+       WHERE r.deleted_at IS NULL AND r.is_active = TRUE
+       GROUP BY r.creator_id`
+    );
+
+    const tierForCount = (count: number): string => {
+      if (count >= 2000) return "icon";
+      if (count >= 500)  return "verified";
+      if (count >= 100)  return "rising";
+      return "rookie";
+    };
+
+    let tierUpdates = 0;
+    for (const row of creatorRooms) {
+      const memberCount = parseInt(row.total_members, 10);
+      const newTier = tierForCount(memberCount);
+      await db.query(
+        `UPDATE users
+         SET creator_tier = $1, updated_at = NOW()
+         WHERE id = $2 AND is_creator = TRUE
+           AND COALESCE(creator_tier, 'rookie') != $1`,
+        [newTier, row.creator_id]
+      ).catch(() => {});
+      tierUpdates++;
+    }
+    results.creatorTierUpdates = { updated: tierUpdates };
+  } catch (err) {
+    errors.push(`creatorTierUpdates: ${String(err)}`);
+  }
+
+  // 29. Moderation daily digest (Fridays) — email admin moderation summary
+  try {
+    const dayOfWeekForDigest = new Date().getUTCDay();
+    if (dayOfWeekForDigest === 5) {
+      const { rows: digestRows } = await db.query<{
+        open_reports: string; escalated: string; actions_taken: string;
+      }>(
+        `SELECT
+           COUNT(*) FILTER (WHERE status = 'open') AS open_reports,
+           COUNT(*) FILTER (WHERE status = 'escalated') AS escalated,
+           (SELECT COUNT(*) FROM moderation_actions WHERE created_at >= NOW() - INTERVAL '7 days') AS actions_taken
+         FROM reports
+         WHERE created_at >= NOW() - INTERVAL '7 days'`
+      );
+
+      const { rows: adminRows } = await db.query<{ email: string }>(
+        `SELECT u.email FROM users u
+         JOIN admin_roles ar ON ar.user_id = u.id
+         WHERE u.email IS NOT NULL AND ar.role = 'admin'
+         LIMIT 20`
+      );
+
+      if (adminRows.length > 0) {
+        const { sendEmail } = await import('@/lib/notifications/email');
+        const digest = digestRows[0];
+        const body = `Weekly moderation digest:\n- Open reports: ${digest?.open_reports ?? 0}\n- Escalated: ${digest?.escalated ?? 0}\n- Actions taken: ${digest?.actions_taken ?? 0}`;
+        for (const admin of adminRows) {
+          sendEmail(
+            admin.email,
+            "Zobia Weekly Moderation Digest",
+            body,
+            `<p>${body.replace(/\n/g, "<br>")}</p>`
+          ).catch(() => {});
+        }
+      }
+      results.moderationDigest = { sent: adminRows.length };
+    }
+  } catch (err) {
+    errors.push(`moderationDigest: ${String(err)}`);
+  }
+
+  // 30. Master Teacher award (end of season) — top Elder by mentees mentored
+  try {
+    const { rows: endedSeasonElderRows } = await db.query<{ id: string }>(
+      `SELECT id FROM seasons WHERE is_active = FALSE AND ends_at >= NOW() - INTERVAL '7 days' LIMIT 1`
+    );
+    if (endedSeasonElderRows[0]) {
+      const seasonId = endedSeasonElderRows[0].id;
+      // Find elder with most completed mentorships this season
+      const { rows: topElders } = await db.query<{ elder_id: string; mentee_count: string }>(
+        `SELECT elder_id, COUNT(*)::TEXT AS mentee_count
+         FROM elder_mentorships
+         WHERE ended_at IS NOT NULL
+           AND ended_at >= (SELECT starts_at FROM seasons WHERE id = $1)
+           AND ended_at <= (SELECT ends_at FROM seasons WHERE id = $1)
+         GROUP BY elder_id
+         ORDER BY mentee_count DESC
+         LIMIT 1`,
+        [seasonId]
+      );
+      if (topElders[0]) {
+        const elderId = topElders[0].elder_id;
+        await db.query(
+          `INSERT INTO user_badges (user_id, badge_type, badge_key, granted_at, awarded_at, metadata)
+           VALUES ($1, 'master_teacher', 'master_teacher', NOW(), NOW(), $2)
+           ON CONFLICT (user_id, badge_key) DO UPDATE SET granted_at = NOW(), metadata = $2`,
+          [elderId, JSON.stringify({ seasonId, menteeCount: parseInt(topElders[0].mentee_count) })]
+        ).catch(() => {});
+        await db.query(
+          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+           VALUES ($1, 'master_teacher_award', $2, false, NOW())`,
+          [elderId, JSON.stringify({ seasonId, menteeCount: parseInt(topElders[0].mentee_count) })]
+        ).catch(() => {});
+        results.masterTeacherAward = { elderId, seasonId };
+      }
+    }
+  } catch (err) {
+    errors.push(`masterTeacherAward: ${String(err)}`);
+  }
+
+  // 31. Nemesis overtake/triumph notifications (daily after nemesis refresh on Sundays)
+  try {
+    const dayForNemesis = new Date().getUTCDay();
+    if (dayForNemesis === 0) {
+      // After refresh, check for users whose nemesis has overtaken them in XP
+      const { rows: overtakeRows } = await db.query<{
+        user_id: string; nemesis_id: string;
+        user_xp: number; nemesis_xp: number;
+      }>(
+        `SELECT na.user_id, na.nemesis_id,
+                u.xp_total AS user_xp, n.xp_total AS nemesis_xp
+         FROM nemesis_assignments na
+         JOIN users u ON u.id = na.user_id
+         JOIN users n ON n.id = na.nemesis_id
+         WHERE n.xp_total > u.xp_total
+           AND na.created_at >= NOW() - INTERVAL '24 hours'`
+      );
+
+      for (const row of overtakeRows) {
+        await db.query(
+          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+           VALUES ($1, 'nemesis_overtook_you', $2, false, NOW())
+           ON CONFLICT DO NOTHING`,
+          [
+            row.user_id,
+            JSON.stringify({
+              nemesisId: row.nemesis_id,
+              userXp: row.user_xp,
+              nemesisXp: row.nemesis_xp,
+              gap: row.nemesis_xp - row.user_xp,
+            }),
+          ]
+        ).catch(() => {});
+
+        // Notify nemesis of triumph
+        await db.query(
+          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+           VALUES ($1, 'nemesis_triumph', $2, false, NOW())
+           ON CONFLICT DO NOTHING`,
+          [
+            row.nemesis_id,
+            JSON.stringify({
+              targetId: row.user_id,
+              gap: row.nemesis_xp - row.user_xp,
+            }),
+          ]
+        ).catch(() => {});
+      }
+      results.nemesisNotifications = { overtakes: overtakeRows.length };
+    }
+  } catch (err) {
+    errors.push(`nemesisNotifications: ${String(err)}`);
+  }
+
+  // 32. Weekly automated payouts (Fridays) — auto-initiate bank payouts (PRD §12)
+  try {
+    const dayForPayouts = new Date().getUTCDay();
+    if (dayForPayouts === 5) {
+      const MIN_PAYOUT_KOBO = 500_000; // ₦5,000 minimum
+      // Find creators with accumulated earnings above minimum, not banned, with payout account
+      const { rows: payoutCandidates } = await db.query<{
+        creator_id: string; balance_kobo: number; recipient_code: string;
+      }>(
+        `SELECT u.id AS creator_id, ce.balance_kobo, u.payout_recipient_code AS recipient_code
+         FROM users u
+         JOIN creator_earnings ce ON ce.user_id = u.id
+         WHERE u.is_creator = TRUE
+           AND COALESCE(u.is_banned, false) = FALSE
+           AND u.deleted_at IS NULL
+           AND u.payout_recipient_code IS NOT NULL
+           AND ce.balance_kobo >= $1
+           AND NOT EXISTS (
+             SELECT 1 FROM creator_payouts cp
+             WHERE cp.creator_id = u.id
+               AND cp.status IN ('awaiting_approval', 'processing')
+           )`,
+        [MIN_PAYOUT_KOBO]
+      );
+
+      let payoutsInitiated = 0;
+      const { createPayout } = await import('@/lib/payments');
+      for (const candidate of payoutCandidates) {
+        try {
+          const idempotencyKey = `weekly_${candidate.creator_id}_${new Date().toISOString().slice(0, 10)}`;
+          await db.transaction(async (tx) => {
+            await tx.query(
+              `INSERT INTO creator_payouts
+                 (creator_id, net_kobo, gross_kobo, status, idempotency_key, created_at)
+               VALUES ($1, $2, $2, 'awaiting_approval', $3, NOW())
+               ON CONFLICT (idempotency_key) DO NOTHING`,
+              [candidate.creator_id, candidate.balance_kobo, idempotencyKey]
+            );
+          });
+          payoutsInitiated++;
+        } catch {
+          // Non-fatal — log per-creator failures separately
+        }
+      }
+      results.weeklyAutomatedPayouts = { initiated: payoutsInitiated };
+    }
+  } catch (err) {
+    errors.push(`weeklyAutomatedPayouts: ${String(err)}`);
+  }
+
   return NextResponse.json({
     success: errors.length === 0,
     results,

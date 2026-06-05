@@ -71,11 +71,11 @@ function buildWordlist(): RegExp[] {
     .map((w) => w.trim().toLowerCase())
     .filter(Boolean);
 
-  // Built-in baseline list (kept minimal — extend via env var)
+  // Built-in baseline list — common severe violations per platform content policy.
+  // Extend via PROFANITY_WORDLIST env var with comma-separated additions.
   const baselineWords = [
-    "slur1",
-    "slur2",
-    // Add your platform's content policy violations here
+    "nigger", "nigga", "faggot", "chink", "spic", "kike", "cunt",
+    "motherfucker", "whore", "retard", "tranny", "dyke", "wetback",
   ];
 
   const allWords = [...new Set([...baselineWords, ...envWords])];

@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/middleware';
 import { badRequest, notFound } from '@/lib/api/errors';
 import { db } from '@/lib/db';
+import { XP_VALUES } from '@/lib/xp/engine';
 
 /** GET /api/friends — list accepted friends */
 export const GET = withAuth(async (req: NextRequest, { auth }) => {
@@ -67,6 +68,18 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
      VALUES ($1, $2, 'pending')`,
     [userId, targetId],
   );
+
+  // Award XP for sending a friend request (PRD §6: +10 XP social track)
+  const xpAmount = XP_VALUES.add_new_friend;
+  await db.query(
+    `UPDATE users SET xp_total = xp_total + $1, updated_at = NOW() WHERE id = $2`,
+    [xpAmount, userId],
+  ).catch(() => {});
+  await db.query(
+    `INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, created_at)
+     VALUES ($1, $2, 'social', 'add_new_friend', $2, NOW())`,
+    [userId, xpAmount],
+  ).catch(() => {});
 
   return NextResponse.json({ success: true }, { status: 201 });
 });
