@@ -126,6 +126,7 @@ const updateProfileSchema = z.object({
   guild_notifications: z.boolean().optional(),
   streak_notifications: z.boolean().optional(),
   dm_privacy: z.enum(["everyone", "friends_only", "nobody"]).optional(),
+  gender: z.enum(["female", "male", "non_binary", "prefer_not_to_say"]).nullable().optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -144,7 +145,7 @@ const SELECT_COLUMNS = `
   dm_notifications, guild_notifications, streak_notifications,
   COALESCE(dm_privacy, 'everyone') AS dm_privacy,
   COALESCE(totp_enabled, false) AS totp_enabled,
-  created_at, updated_at
+  gender, created_at, updated_at
 `;
 
 // ---------------------------------------------------------------------------
@@ -245,6 +246,10 @@ export const PUT = withAuth(async (req: NextRequest, { auth }) => {
     if (body.dm_privacy !== undefined) {
       updates.push(`dm_privacy = $${paramIdx++}`);
       params.push(body.dm_privacy);
+    }
+    if (body.gender !== undefined) {
+      updates.push(`gender = $${paramIdx++}`);
+      params.push(body.gender);
     }
 
     if (updates.length === 0) {

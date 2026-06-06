@@ -320,8 +320,8 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
        LEFT JOIN room_promotions rp ON rp.room_id = r.id AND rp.is_active = TRUE AND rp.ends_at > NOW()
        WHERE ${conditions.join(" AND ")}
        ORDER BY
-         -- Promoted rooms always surface first in non-trending view
-         CASE WHEN rp.id IS NOT NULL AND rp.ends_at > NOW() THEN 0 ELSE 1 END ASC,
+         -- Promoted rooms (via room_promotions or spotlight power) surface first
+         CASE WHEN (rp.id IS NOT NULL AND rp.ends_at > NOW()) OR (r.spotlight_until IS NOT NULL AND r.spotlight_until > NOW()) THEN 0 ELSE 1 END ASC,
          ${orderBy}
        LIMIT $${limitParam}`,
       queryParams
