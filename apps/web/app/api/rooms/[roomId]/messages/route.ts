@@ -79,6 +79,7 @@ interface MemberRow {
   role: string;
   is_muted: boolean;
   muted_until: string | null;
+  left_at: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -94,7 +95,7 @@ async function getCallerMembership(
   userId: string
 ): Promise<MemberRow | null> {
   const { rows } = await db.query<MemberRow>(
-    `SELECT role, is_muted, muted_until
+    `SELECT role, is_muted, muted_until, left_at
      FROM room_members
      WHERE room_id = $1 AND user_id = $2`,
     [roomId, userId]
@@ -307,6 +308,34 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const membership = await getCallerMembership(roomId, userId);
     if (!membership && !isCreator) {
       throw forbidden("You must be a member to send messages in this room");
+    }
+
+    // Kicked members (left_at is set) cannot post
+    if (membership && (membership as unknown as { left_at: string | null }).left_at) {
+      throw forbidden("You have been removed from this room");
+    }
+
+    // Check account-level suspension or ban before allowing any post
+    const { rows: senderStatusRows } = await db.query<{
+      is_suspended: boolean;
+      is_banned: boolean;
+      suspended_until: string | null;
+    }>(
+      `SELECT COALESCE(is_suspended, false) AS is_suspended,
+              COALESCE(is_banned, false) AS is_banned,
+              suspended_until
+       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+      [userId]
+    );
+    const senderStatus = senderStatusRows[0];
+    if (senderStatus?.is_banned) {
+      throw forbidden("Your account has been banned");
+    }
+    if (senderStatus?.is_suspended) {
+      const until = senderStatus.suspended_until ? new Date(senderStatus.suspended_until) : null;
+      if (!until || until > new Date()) {
+        throw forbidden("Your account is currently suspended");
+      }
     }
 
     // Mute check

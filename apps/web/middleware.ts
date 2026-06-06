@@ -91,6 +91,37 @@ function isAppRoute(pathname: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// CSRF helpers
+// ---------------------------------------------------------------------------
+
+const CSRF_SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+/**
+ * Validates the Origin header for state-mutating API requests.
+ * Rejects cross-origin mutations unless they come from the configured app URL
+ * or the same host as the request.
+ */
+function isCsrfSafe(request: NextRequest): boolean {
+  const method = request.method.toUpperCase();
+  if (CSRF_SAFE_METHODS.has(method)) return true;
+
+  const origin = request.headers.get("origin");
+  if (!origin) {
+    // No Origin header — allow server-to-server requests that include service token
+    const hasServiceAuth =
+      request.headers.has("x-cron-secret") ||
+      (request.headers.get("authorization") ?? "").startsWith("Bearer ");
+    return hasServiceAuth;
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
+  const requestOrigin = new URL(request.url).origin;
+
+  // Allow requests from our own origin or configured app URL
+  return origin === requestOrigin || (appUrl !== "" && origin === appUrl);
+}
+
+// ---------------------------------------------------------------------------
 // Middleware
 // ---------------------------------------------------------------------------
 
@@ -101,6 +132,14 @@ function isAppRoute(pathname: string): boolean {
 export async function middleware(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
   const token = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
+
+  // CSRF check for all API mutation endpoints
+  if (pathname.startsWith("/api/") && !isPublicRoute(pathname) && !isCsrfSafe(request)) {
+    return NextResponse.json(
+      { error: "Forbidden", code: "CSRF_ORIGIN_MISMATCH" },
+      { status: 403 }
+    );
+  }
 
   // Allow admin login page without auth
   if (pathname === ADMIN_LOGIN_URL || pathname === "/admin/login") {

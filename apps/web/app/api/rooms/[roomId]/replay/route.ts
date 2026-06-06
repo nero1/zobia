@@ -149,15 +149,15 @@ export const POST = withAuth(
       await enforceRateLimit(userId, "user", RATE_LIMITS.apiWrite);
 
       // Verify caller is the room creator
-      const { rows: roomRows } = await db.query<{ creator_id: string; room_type: string }>(
-        `SELECT creator_id, room_type FROM rooms WHERE id = $1 LIMIT 1`,
+      const { rows: roomRows } = await db.query<{ creator_id: string; type: string }>(
+        `SELECT creator_id, type FROM rooms WHERE id = $1 LIMIT 1`,
         [roomId]
       );
       if (!roomRows[0]) throw notFound("Room not found");
       if (roomRows[0].creator_id !== userId) {
         throw forbidden("Only the room creator can publish a replay");
       }
-      if (roomRows[0].room_type !== "drop") {
+      if (roomRows[0].type !== "drop") {
         throw forbidden("Replays are only available for Drop rooms");
       }
 

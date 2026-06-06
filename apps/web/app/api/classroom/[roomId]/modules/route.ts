@@ -32,7 +32,7 @@ interface CurriculumModule {
 interface RoomRow {
   id: string;
   creator_id: string;
-  room_type: string;
+  type: string;
   curriculum: CurriculumModule[] | null;
 }
 
@@ -63,14 +63,14 @@ async function getClassroomAsCreator(
   userId: string
 ): Promise<RoomRow> {
   const { rows } = await db.query<RoomRow>(
-    `SELECT id, creator_id, room_type,
+    `SELECT id, creator_id, type,
             COALESCE(curriculum->'modules', '[]'::jsonb) AS curriculum
      FROM rooms WHERE id = $1 AND is_active = TRUE LIMIT 1`,
     [roomId]
   );
   const room = rows[0];
   if (!room) throw notFound("Classroom not found");
-  if (room.room_type !== "classroom") {
+  if (room.type !== "classroom") {
     throw badRequest("This endpoint is only for classroom rooms");
   }
   if (room.creator_id !== userId) {

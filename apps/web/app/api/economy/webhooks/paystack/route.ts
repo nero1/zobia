@@ -36,8 +36,9 @@ interface PaystackChargeEvent {
     metadata: {
       userId: string;
       packId: string;
-      coinsGranted: number;
-      itemType: "coin_pack" | "star_pack";
+      coinsGranted?: number;
+      starsGranted?: number;
+      itemType: "coin_pack" | "star_pack" | "subscription";
       packName: string;
     };
     paid_at: string;
@@ -107,13 +108,19 @@ async function processChargeSuccess(
     );
 
     const paymentId = existing[0].id;
-    const { userId, coinsGranted, itemType } = metadata;
+    const { userId, coinsGranted, starsGranted, itemType } = metadata;
+
+    // Subscription charges: plan activation is handled by subscription.create event;
+    // skip coin/star crediting here to avoid double-crediting or NaN errors.
+    if (itemType === "subscription") {
+      return;
+    }
 
     // Credit coins or stars based on pack type
     if (itemType === "star_pack") {
       await creditStars(
         userId,
-        coinsGranted,
+        starsGranted ?? 0,
         "purchase",
         paymentId,
         `Purchased ${metadata.packName}`,

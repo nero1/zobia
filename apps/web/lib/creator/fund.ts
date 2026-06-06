@@ -48,6 +48,7 @@ const DISTRIBUTION_TIERS = [
 
 interface CreatorMetrics {
   id: string;
+  gender: string | null;
   /** XP earned in the last 30 days (proxy for engagement). */
   xp_earned_30d: number;
   /** New followers gained in the last 30 days. */
@@ -77,10 +78,23 @@ function normalise(values: number[]): number[] {
 export async function calculateFundDistributions(
   poolKobo: number
 ): Promise<CreatorFundDistribution[]> {
+  // Check for an active IWD / female-creator cultural event boost
+  const { rows: eventRows } = await db.query<{ multiplier: string }>(
+    `SELECT xp_multiplier::TEXT AS multiplier
+     FROM platform_events
+     WHERE event_type = 'cultural'
+       AND (metadata->>'female_creator_only')::boolean = true
+       AND starts_at <= NOW()
+       AND ends_at > NOW()
+     ORDER BY xp_multiplier DESC LIMIT 1`
+  );
+  const femaleCreatorBoost = eventRows[0] ? parseFloat(eventRows[0].multiplier) : 1.0;
+
   // Fetch multi-factor metrics for all active creators in the last 30 days
   const { rows: creators } = await db.query<CreatorMetrics>(
     `SELECT
        u.id,
+       u.gender,
        COALESCE(SUM(xl.amount), 0)::INTEGER               AS xp_earned_30d,
        COUNT(DISTINCT f.follower_id)::INTEGER              AS new_followers_30d,
        COUNT(DISTINCT qa.id)
@@ -101,6 +115,7 @@ export async function calculateFundDistributions(
             ON xl2.user_id = u.id
            AND xl2.created_at >= NOW() - INTERVAL '30 days'
      WHERE u.is_creator = TRUE
+       AND u.creator_tier IN ('elite', 'icon', 'zobia_icon')
        AND u.deleted_at IS NULL
      GROUP BY u.id
      HAVING COALESCE(SUM(xl.amount), 0) > 0
@@ -120,15 +135,16 @@ export async function calculateFundDistributions(
   const qstNorm  = normalise(questsRaw);
   const conNorm  = normalise(consistencyRaw);
 
-  // Compute weighted composite score
-  const scored = creators.map((c, i) => ({
-    id: c.id,
-    score:
+  // Compute weighted composite score; apply IWD boost to female creators
+  const scored = creators.map((c, i) => {
+    const baseScore =
       W_ENGAGEMENT  * engNorm[i] +
       W_GROWTH      * grwNorm[i] +
       W_QUESTS      * qstNorm[i] +
-      W_CONSISTENCY * conNorm[i],
-  }));
+      W_CONSISTENCY * conNorm[i];
+    const boost = (femaleCreatorBoost > 1.0 && c.gender === "female") ? femaleCreatorBoost : 1.0;
+    return { id: c.id, score: baseScore * boost };
+  });
 
   // Sort descending by composite score
   scored.sort((a, b) => b.score - a.score);
@@ -177,6 +193,13 @@ export async function distributeCreatorFund(poolKobo: number): Promise<number> {
            (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo, reference_id)
          VALUES ($1, 'creator_fund', $2, 0, $2, $3)`,
         [dist.creatorId, dist.amountKobo, `fund:${period}:rank${dist.rank}`]
+      );
+      // Credit net amount to available balance so creator can request payout
+      await tx.query(
+        `UPDATE users SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1,
+                          updated_at = NOW()
+         WHERE id = $2`,
+        [dist.amountKobo, dist.creatorId]
       );
     }
   });

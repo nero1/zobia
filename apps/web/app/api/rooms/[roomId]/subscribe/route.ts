@@ -34,11 +34,9 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Creator keeps 80% of subscription revenue per PRD. */
-const CREATOR_SHARE_PERCENT = 80;
-
-/** Platform keeps 20% as fee. */
-const PLATFORM_FEE_PERCENT = 20;
+/** Default creator share (80%); Icon creators receive 85%. */
+const DEFAULT_CREATOR_SHARE_PERCENT = 80;
+const ICON_CREATOR_SHARE_PERCENT = 85;
 
 /** Subscription duration in days. */
 const SUBSCRIPTION_DAYS = 30;
@@ -64,6 +62,7 @@ interface RoomRow {
   id: string;
   type: string;
   creator_id: string;
+  creator_tier: string | null;
   is_active: boolean;
   subscription_price_ngn: number | null;
 }
@@ -101,10 +100,11 @@ async function creditCreatorEarnings(
   tx: Awaited<Parameters<Parameters<typeof db.transaction>[0]>[0]>,
   creatorId: string,
   grossKobo: number,
-  referenceId: string
+  referenceId: string,
+  creatorSharePercent: number = DEFAULT_CREATOR_SHARE_PERCENT
 ): Promise<void> {
-  const platformFeeKobo = Math.floor((grossKobo * PLATFORM_FEE_PERCENT) / 100);
-  const netKobo = grossKobo - platformFeeKobo;
+  const netKobo = Math.floor((grossKobo * creatorSharePercent) / 100);
+  const platformFeeKobo = grossKobo - netKobo;
 
   await tx.query(
     `INSERT INTO creator_earnings
@@ -143,10 +143,12 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const userId = auth.user.sub;
     const body = await validateBody(req, subscribeSchema);
 
-    // Fetch room
+    // Fetch room (join creator_tier for revenue share calculation)
     const { rows: roomRows } = await db.query<RoomRow>(
-      `SELECT id, type, creator_id, is_active, subscription_price_ngn
-       FROM rooms WHERE id = $1`,
+      `SELECT r.id, r.type, r.creator_id, u.creator_tier, r.is_active, r.subscription_price_ngn
+       FROM rooms r
+       JOIN users u ON u.id = r.creator_id
+       WHERE r.id = $1`,
       [roomId]
     );
     const room = roomRows[0];
@@ -253,8 +255,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       const sub = subRows[0];
       if (!sub) throw new Error("Subscription creation failed");
 
-      // Credit creator earnings (80%)
-      await creditCreatorEarnings(tx, room.creator_id, grossKobo, sub.id);
+      // Credit creator earnings (85% for Icon creators, 80% otherwise)
+      const creatorShare = room.creator_tier === "icon" ? ICON_CREATOR_SHARE_PERCENT : DEFAULT_CREATOR_SHARE_PERCENT;
+      await creditCreatorEarnings(tx, room.creator_id, grossKobo, sub.id, creatorShare);
 
       // Join room if not already a member
       await tx.query(

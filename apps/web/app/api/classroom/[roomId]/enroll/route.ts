@@ -27,6 +27,7 @@ import {
   badRequest,
 } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { requireFeatureEnabled } from "@/lib/manifest";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -72,6 +73,7 @@ interface ClassroomRoomRow {
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
+    await requireFeatureEnabled("classrooms");
 
     const { roomId } = await params as { roomId: string };
     const userId = auth.user.sub;

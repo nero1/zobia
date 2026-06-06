@@ -14,6 +14,7 @@ import { db } from "@/lib/db";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { requireFeatureEnabled } from "@/lib/manifest";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -42,6 +43,7 @@ export const POST = withAuth(
       const { creatorId, productId } = await params;
       const userId = auth.user.sub;
       await enforceRateLimit(userId, "user", RATE_LIMITS.apiWrite);
+      await requireFeatureEnabled("merchStore");
 
       // Cannot buy your own product
       if (userId === creatorId) {
@@ -149,12 +151,12 @@ export const POST = withAuth(
         );
         const orderId = orderRows[0].id;
 
-        // Credit 80% to creator earnings
+        // Credit 80% to creator earnings (use canonical schema column names)
         await tx.query(
           `INSERT INTO creator_earnings
-             (creator_id, stream, gross_kobo, net_kobo, reference_id, created_at)
-           VALUES ($1, 'merch', $2, $3, $4, NOW())`,
-          [creatorId, priceKobo, creatorShareKobo, orderId]
+             (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo, reference_id, created_at)
+           VALUES ($1, 'merch', $2, $3, $4, $5, NOW())`,
+          [creatorId, priceKobo, platformFeeKobo, creatorShareKobo, orderId]
         );
         await tx.query(
           `UPDATE users SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1,
@@ -182,8 +184,8 @@ export const POST = withAuth(
 
         await tx.query(
           `INSERT INTO xp_ledger
-             (user_id, amount, track, action, xp_amount, xp_net, source, reference_id, created_at)
-           VALUES ($1, $2, 'social', 'merch_purchase', $2, $2, 'merch_purchase', $3, NOW())`,
+             (user_id, amount, track, source, base_amount, reference_id, created_at)
+           VALUES ($1, $2, 'social', 'merch_purchase', $2, $3, NOW())`,
           [userId, XP_AWARD_MERCH_PURCHASE, orderId]
         );
 

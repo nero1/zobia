@@ -239,11 +239,11 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
         }
       }
 
-      // Create the gift record
+      // Create the gift record (coin_value is the original NOT NULL column; coin_cost is its alias)
       const { rows: giftInsert } = await tx.query<{ id: string }>(
         `INSERT INTO gifts
-           (sender_id, recipient_id, gift_item_id, coin_cost, room_id, status)
-         VALUES ($1, $2, $3, $4, $5, 'delivered')
+           (sender_id, recipient_id, gift_item_id, coin_value, coin_cost, room_id, status)
+         VALUES ($1, $2, $3, $4, $4, $5, 'delivered')
          RETURNING id`,
         [
           senderId,

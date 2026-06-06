@@ -18,7 +18,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { upsertLeaderboardSnapshot } from "@/lib/leaderboards/engine";
+import { upsertLeaderboardSnapshot, getUserRank } from "@/lib/leaderboards/engine";
 
 // ---------------------------------------------------------------------------
 // Auth
@@ -120,24 +120,27 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       );
       const previousRank = previousSnapshot.rows[0]?.rank_position ?? null;
 
-      // Upsert the snapshot (engine recalculates rank_position via COUNT)
-      const snapshot = await upsertLeaderboardSnapshot(db, user.user_id, "global", "main");
+      // Upsert the snapshot with the user's current XP total
+      await upsertLeaderboardSnapshot(user.user_id, "main", user.xp_total, db);
 
       usersUpdated++;
 
-      // Detect rank change
+      // Detect rank change by querying the live rank position after upsert
+      const newRank = await getUserRank(user.user_id, "main", "global", db);
+
       if (
         previousRank !== null &&
-        snapshot.rankPosition !== previousRank
+        newRank !== null &&
+        newRank !== previousRank
       ) {
         rankChanges++;
 
-        const enteredTop10 = snapshot.rankPosition <= 10 && previousRank > 10;
+        const enteredTop10 = newRank <= 10 && previousRank > 10;
         const notifType = enteredTop10 ? "leaderboard_top10_entry" : "leaderboard_rank_change";
 
         // Always notify on top-10 entry; only notify on general rank change
         // when moving in the top 50 (avoids flooding low-rank users).
-        const shouldNotify = enteredTop10 || snapshot.rankPosition <= 50;
+        const shouldNotify = enteredTop10 || newRank <= 50;
         if (shouldNotify) {
           await db.query(
             `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
@@ -148,7 +151,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
               notifType,
               JSON.stringify({
                 previous_rank: previousRank,
-                new_rank: snapshot.rankPosition,
+                new_rank: newRank,
                 track: "main",
                 scope: "global",
                 entered_top_10: enteredTop10,

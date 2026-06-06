@@ -90,7 +90,7 @@ export async function assignNemesis(
      ORDER BY assigned_at DESC LIMIT 1`,
     [userId]
   );
-  const currentNemesisId = currentNemesisResult.rows[0]?.nemesis_id;
+  const currentNemesisId = currentNemesisResult.rows[0]?.nemesis_user_id;
 
   // Try same-city first, then any city
   for (const useCityFilter of [true, false]) {
@@ -123,19 +123,22 @@ export async function assignNemesis(
 
     const chosenId = candidates[0].id;
 
-    // Dismiss any existing nemesis assignment
+    // Dismiss any existing nemesis assignment (set is_active=false)
     await db.query(
-      `UPDATE nemesis_assignments SET dismissed_at = NOW()
-       WHERE user_id = $1 AND dismissed_at IS NULL`,
+      `UPDATE nemesis_assignments SET is_active = false
+       WHERE user_id = $1 AND is_active = true`,
       [userId]
     );
 
-    // Insert new assignment
+    // expires_at = 7 days from now (weekly refresh cycle)
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Insert new assignment using schema-correct column names
     const insertResult = await db.query<NemesisAssignment>(
-      `INSERT INTO nemesis_assignments (user_id, nemesis_id, assigned_at)
-       VALUES ($1, $2, NOW())
-       RETURNING user_id, nemesis_id, assigned_at, dismissed_at`,
-      [userId, chosenId]
+      `INSERT INTO nemesis_assignments (user_id, nemesis_user_id, assigned_at, expires_at, is_active)
+       VALUES ($1, $2, NOW(), $3, true)
+       RETURNING user_id, nemesis_user_id AS nemesis_id, assigned_at, NULL::timestamptz AS dismissed_at`,
+      [userId, chosenId, expiresAt]
     );
 
     return insertResult.rows[0] ?? null;
@@ -163,7 +166,7 @@ export async function refreshNemesisAssignments(
   db: DatabaseAdapter
 ): Promise<{ updated: number; failed: number }> {
   const usersResult = await db.query<{ user_id: string }>(
-    `SELECT DISTINCT user_id FROM nemesis_assignments WHERE dismissed_at IS NULL`,
+    `SELECT DISTINCT user_id FROM nemesis_assignments WHERE is_active = true`,
     []
   );
 

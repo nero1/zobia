@@ -242,12 +242,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
 
       // 2. Calculate XP using engine
+      const MESSAGING_ACTIONS = new Set<XPAction>([
+        "send_text_message",
+        "send_sticker",
+        "send_gift_message",
+        "receive_gift_and_react",
+        "send_room_message",
+      ]);
       const ctx: XPMultiplierContext = {
         plan: body.multiplierContext.plan,
         guildTier: body.multiplierContext.guildTier,
         hasActiveSeasonPass: body.multiplierContext.hasActiveSeasonPass,
         hasActiveXPBooster: body.multiplierContext.hasActiveXPBooster,
         prestigeCycleBoostExpiresAt: user.prestige_cycle_boost_expires_at,
+        isMessagingAction: MESSAGING_ACTIONS.has(body.action),
       };
 
       const baseXp = calculateXPForAction(body.action, body.options);
