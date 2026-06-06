@@ -213,6 +213,12 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
            VALUES ($1, 'classroom_enrolment', $2, $3, $4, $5)`,
           [room.creator_id, feeKobo, platformFeeKobo, netKobo, enrolRecord.id]
         );
+        // Increment available balance for manual payout
+        await tx.query(
+          `UPDATE users SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1,
+                            updated_at = NOW() WHERE id = $2`,
+          [netKobo, room.creator_id]
+        );
       }
 
       // Award Knowledge Track XP

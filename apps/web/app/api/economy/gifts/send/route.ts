@@ -16,9 +16,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { withAuth, validateBody } from "@/lib/api/middleware";
-import { badRequest, notFound, handleApiError } from "@/lib/api/errors";
+import { badRequest, notFound, forbidden, handleApiError } from "@/lib/api/errors";
 import { db } from "@/lib/db";
 import { debitCoins, creditCoins } from "@/lib/economy/coins";
+import { meetsMinimumTrust } from "@/lib/trust/trustScore";
 
 // Platform takes 20% of gifts received by creators (PRD §14)
 const CREATOR_GIFT_FEE_PERCENT = 20;
@@ -117,6 +118,12 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       throw badRequest("Cannot send a gift to yourself");
     }
 
+    // Trust gate: send_gift requires minimum trust score of 20
+    const trusted = await meetsMinimumTrust(senderId, "send_gift", db);
+    if (!trusted) {
+      throw forbidden("Your account trust score is too low to send gifts. Build your reputation first.", "TRUST_SCORE_TOO_LOW");
+    }
+
     // 1. Load gift item
     const { rows: giftRows } = await db.query<GiftItemRow>(
       `SELECT id, name, emoji, coin_cost, tier, spectacle_threshold_coins
@@ -179,21 +186,22 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
         tx
       );
 
-      // Record creator_earnings for creator payout tracking
+      // Record creator_earnings for creator payout tracking and credit available balance
       if (recipient.is_creator && recipientCoins > 0) {
-        // Use coin value as proxy for kobo (platform tracks actual payouts separately)
+        // coin_cost is treated as kobo-equivalent for payout tracking
         await tx.query(
           `INSERT INTO creator_earnings
-             (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo, reference_id)
-           VALUES ($1, 'gift', $2, $3, $4, $5)`,
-          [
-            body.recipientId,
-            giftItem.coin_cost,
-            platformFeeCoins,
-            recipientCoins,
-            null, // reference_id set after gift record created below
-          ]
-        ).catch(() => {}); // non-fatal if creator_earnings table structure differs
+             (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo)
+           VALUES ($1, 'gift', $2, $3, $4)`,
+          [body.recipientId, giftItem.coin_cost, platformFeeCoins, recipientCoins]
+        ).catch(() => {});
+        // Increment available_earnings_kobo so manual payout route sees the balance
+        await tx.query(
+          `UPDATE users SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1,
+                            updated_at = NOW()
+           WHERE id = $2`,
+          [recipientCoins, body.recipientId]
+        ).catch(() => {});
       }
 
       // Guild Legend tier 5% Room Revenue Share (PRD §13)
@@ -252,7 +260,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       if (body.roomId) {
         await tx.query(
           `INSERT INTO room_messages
-             (room_id, user_id, content_type, content, metadata)
+             (room_id, sender_id, message_type, content, metadata)
            VALUES ($1, $2, 'gift', $3, $4::jsonb)`,
           [
             body.roomId,

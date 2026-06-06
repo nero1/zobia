@@ -369,9 +369,10 @@ export const GET = async (req: NextRequest) => {
     errors.push(`guildDiscoveryPrompts: ${String(err)}`);
   }
 
-  // 9. Creator Fund distribution (Fridays only)
-  const dayOfWeek = new Date().getUTCDay(); // 0=Sun, 5=Fri
-  if (dayOfWeek === 5) {
+  // 9. Creator Fund distribution (first day of each month per PRD)
+  const nowDate = new Date();
+  const isFirstOfMonth = nowDate.getUTCDate() === 1;
+  if (isFirstOfMonth) {
     try {
       const { distributeCreatorFund } = await import('@/lib/creator/fund');
       // Read the fund pool size from x_manifest (admin-configurable)

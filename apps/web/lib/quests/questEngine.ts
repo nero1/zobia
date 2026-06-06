@@ -275,7 +275,7 @@ export async function checkDeckCompletion(
        COUNT(*) FILTER (WHERE uqp.completed = TRUE) AS completed_count,
        EXISTS (
          SELECT 1 FROM xp_ledger
-         WHERE user_id = $1 AND action = 'complete_quest_deck'
+         WHERE user_id = $1 AND source = 'complete_quest_deck'
            AND metadata->>'date' = $2
        ) AS bonus_already_awarded
      FROM user_quest_progress uqp
@@ -301,9 +301,9 @@ export async function checkDeckCompletion(
       [DECK_COMPLETION_BONUS_XP, userId]
     );
     await client.query(
-      `INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, created_at)
-       VALUES ($1, $2, 'main', 'complete_quest_deck', $2, NOW())`,
-      [userId, DECK_COMPLETION_BONUS_XP]
+      `INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, metadata, created_at)
+       VALUES ($1, $2, 'main', 'complete_quest_deck', $2, $3::jsonb, NOW())`,
+      [userId, DECK_COMPLETION_BONUS_XP, JSON.stringify({ date })]
     );
   });
 

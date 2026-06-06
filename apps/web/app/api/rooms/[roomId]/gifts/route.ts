@@ -28,8 +28,8 @@ import { redis } from "@/lib/redis";
 /** Leaderboard cache TTL in seconds. */
 const LEADERBOARD_CACHE_TTL = 30;
 
-/** Number of top gifters to return. */
-const TOP_N = 10;
+/** Number of top gifters to return (PRD §11 — top 5). */
+const TOP_N = 5;
 
 // ---------------------------------------------------------------------------
 // DB row types

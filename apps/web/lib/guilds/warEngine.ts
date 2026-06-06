@@ -34,8 +34,13 @@ export const WAR_COOLDOWN_HOURS = 72;
 /** Acceptable XP deviation (fraction) when finding a war opponent. */
 const OPPONENT_XP_TOLERANCE = 0.15;
 
-/** Base XP awarded to each winning guild member. Scales by rank. */
-const WAR_WIN_XP_PER_MEMBER_BASE = 300;
+/** XP awarded to winning guild members — scales by contribution rank (PRD: 200–500). */
+const WAR_WIN_XP_MIN = 200;
+const WAR_WIN_XP_MAX = 500;
+
+/** Guild XP awarded to the winning guild for tier progression (PRD: 500–5,000). */
+const WAR_WIN_GUILD_XP_MIN = 500;
+const WAR_WIN_GUILD_XP_MAX = 5_000;
 
 /** Bonus XP for the top individual war contributor. */
 const TOP_CONTRIBUTOR_BONUS_XP = 1_000;
@@ -340,27 +345,49 @@ export async function resolveWar(
       [loserGuildId]
     );
 
-    // Award base win XP to all winning members
-    const winnerMembers = await client.query<{ user_id: string }>(
-      `SELECT user_id FROM guild_members WHERE guild_id = $1`,
-      [winnerGuildId]
+    // Award scaled win XP (200–500) to winning members based on contribution rank
+    const winnerMembers = await client.query<{ user_id: string; war_points: number }>(
+      `SELECT gm.user_id, COALESCE(wc.war_points, 0) AS war_points
+       FROM guild_members gm
+       LEFT JOIN war_contributions wc ON wc.user_id = gm.user_id AND wc.war_id = $2
+       WHERE gm.guild_id = $1
+       ORDER BY war_points DESC`,
+      [winnerGuildId, warId]
     );
 
-    for (const { user_id } of winnerMembers.rows) {
+    const memberCount = winnerMembers.rows.length;
+    for (let i = 0; i < memberCount; i++) {
+      const { user_id } = winnerMembers.rows[i];
+      // Scale XP: top contributor gets WAR_WIN_XP_MAX, last gets WAR_WIN_XP_MIN
+      const scale = memberCount > 1 ? 1 - i / (memberCount - 1) : 1;
+      const memberXP = Math.round(WAR_WIN_XP_MIN + scale * (WAR_WIN_XP_MAX - WAR_WIN_XP_MIN));
       await client.query(
         `UPDATE users SET xp_total = xp_total + $1, updated_at = NOW() WHERE id = $2`,
-        [WAR_WIN_XP_PER_MEMBER_BASE, user_id]
+        [memberXP, user_id]
       );
       await client.query(
         `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
          VALUES ($1, $2, 'competitor', 'win_guild_war', $3, $2, NOW())`,
-        [
-          user_id,
-          WAR_WIN_XP_PER_MEMBER_BASE,
-          warId,
-        ]
+        [user_id, memberXP, warId]
       );
     }
+
+    // Award Guild XP (500–5,000 based on opponent strength) for tier progression
+    // Scale by opponent points — bigger upset = more Guild XP
+    const guildXPReward = Math.min(
+      WAR_WIN_GUILD_XP_MAX,
+      Math.max(WAR_WIN_GUILD_XP_MIN, Math.round(war.defender_points + war.challenger_points) * 2)
+    );
+    await client.query(
+      `UPDATE guilds SET guild_xp = guild_xp + $1, updated_at = NOW() WHERE id = $2`,
+      [guildXPReward, winnerGuildId]
+    );
+    await client.query(
+      `INSERT INTO guild_tier_history (guild_id, from_tier, to_tier, guild_xp_at)
+       SELECT $1, tier, tier, guild_xp FROM guilds WHERE id = $1
+       ON CONFLICT DO NOTHING`,
+      [winnerGuildId]
+    ).catch(() => {});
   });
 
   // Distribute coins by contribution rank

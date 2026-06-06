@@ -156,6 +156,11 @@ export const POST = withAuth(
            VALUES ($1, 'merch', $2, $3, $4, NOW())`,
           [creatorId, priceKobo, creatorShareKobo, orderId]
         );
+        await tx.query(
+          `UPDATE users SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1,
+                            updated_at = NOW() WHERE id = $2`,
+          [creatorShareKobo, creatorId]
+        );
 
         // Decrement stock if limited
         if (product.stock !== null) {

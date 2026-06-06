@@ -80,7 +80,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // -------------------------------------------------------------------------
   try {
     const finalHourCandidates = await db.query<GuildWarRow>(
-      `SELECT id, guild_a_id, guild_b_id, status, ends_at
+      `SELECT id, challenger_guild_id, defender_guild_id, status, ends_at
        FROM guild_wars
        WHERE status = 'active'
          AND ends_at <= $1
@@ -101,7 +101,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         const membersResult = await db.query<GuildMemberRow>(
           `SELECT user_id FROM guild_members
            WHERE guild_id = ANY($1::uuid[]) AND left_at IS NULL`,
-          [[war.guild_a_id, war.guild_b_id]]
+          [[war.challenger_guild_id, war.defender_guild_id]]
         );
 
         // Insert in-app notifications for all members
@@ -193,7 +193,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const closedRooms = await db.query<{ id: string }>(
       `UPDATE rooms
        SET is_active = false, updated_at = NOW()
-       WHERE type = 'drop'
+       WHERE (type = 'drop' OR room_type = 'drop')
          AND is_active = true
          AND drop_ends_at IS NOT NULL
          AND drop_ends_at < $1

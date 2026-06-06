@@ -529,10 +529,10 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       const room = roomRows[0];
       if (!room) throw new Error("Room creation failed");
 
-      // Auto-join creator as admin member
+      // Auto-join creator as creator member
       await tx.query(
         `INSERT INTO room_members (room_id, user_id, role, joined_at)
-         VALUES ($1, $2, 'admin', NOW())`,
+         VALUES ($1, $2, 'creator', NOW())`,
         [room.id, auth.user.sub]
       );
 

@@ -219,10 +219,16 @@ async function processSubscriptionEvent(
       [resolvedUserId, subscription_code, isActive ? "active" : status, next_payment_date ?? null]
     ).catch(() => {});
 
-    // Set plan to 'pro' on subscription create
+    // Derive plan tier from Paystack plan name (max → max, plus → plus, else → pro)
+    const planNameLower = (event.data.plan?.name ?? "").toLowerCase();
+    const derivedPlan = planNameLower.includes("max")
+      ? "max"
+      : planNameLower.includes("plus")
+      ? "plus"
+      : "pro";
     await db.query(
-      `UPDATE users SET plan = 'pro', updated_at = NOW() WHERE id = $1`,
-      [resolvedUserId]
+      `UPDATE users SET plan = $1, updated_at = NOW() WHERE id = $2`,
+      [derivedPlan, resolvedUserId]
     ).catch(() => {});
 
   } else if (isCancelled || event.event === "subscription.disable") {

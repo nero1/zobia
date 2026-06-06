@@ -20,6 +20,7 @@ import { z } from "zod";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, forbidden, handleApiError } from "@/lib/api/errors";
 import { db } from "@/lib/db";
+import { meetsMinimumTrust } from "@/lib/trust/trustScore";
 import { createPayout } from "@/lib/payments";
 import { loadManifest } from "@/lib/manifest";
 import { creditCoins } from "@/lib/economy/coins";
@@ -174,6 +175,12 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     }
 
     const profile = profileRows[0];
+
+    // Trust gate: withdraw_coins requires minimum trust score of 50
+    const trusted = await meetsMinimumTrust(userId, "withdraw_coins", db);
+    if (!trusted) {
+      throw forbidden("Your account trust score is too low to request a payout. Build your reputation first.", "TRUST_SCORE_TOO_LOW");
+    }
 
     // Coin-conversion payouts bypass the bank account requirement (PRD §14 RIZE Coin conversion)
     if (!body.asCoins && !profile.payout_recipient_code) {
