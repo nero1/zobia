@@ -220,21 +220,23 @@ export const GET = async (req: NextRequest) => {
         );
 
         // Insert fresh snapshot of top-200 season leaderboard
+        // Uses leaderboard_snapshots (the materialised table) filtered to season scope.
         await db.query(
           `INSERT INTO leaderboard_rank_snapshots
              (user_id, scope, season_id, rank, xp_total, snapshotted_at)
            SELECT
-             u.id,
+             ls.user_id,
              'season_weekly',
              $1,
-             ROW_NUMBER() OVER (ORDER BY sl.season_xp DESC) AS rank,
-             sl.season_xp,
+             ROW_NUMBER() OVER (ORDER BY ls.xp_value DESC) AS rank,
+             ls.xp_value,
              NOW()
-           FROM season_leaderboard_entries sl
-           JOIN users u ON u.id = sl.user_id
-           WHERE sl.season_id = $1
+           FROM leaderboard_snapshots ls
+           JOIN users u ON u.id = ls.user_id
+           WHERE ls.season_id = $1
+             AND ls.scope = 'season'
              AND u.deleted_at IS NULL
-           ORDER BY sl.season_xp DESC
+           ORDER BY ls.xp_value DESC
            LIMIT 200`,
           [season.id]
         );
@@ -388,9 +390,13 @@ export const GET = async (req: NextRequest) => {
       const prevMonthRevenueKobo = parseInt(revenueRows[0]?.value ?? "0", 10);
       const newPoolKobo = Math.floor(prevMonthRevenueKobo * 0.05);
 
+      // Accumulate seed into the existing balance rather than overwriting it —
+      // the webhook handler adds 5% of each payment throughout the month.
       await db.query(
         `INSERT INTO x_manifest (key, value) VALUES ('creator_fund_balance_kobo', $1::text)
-         ON CONFLICT (key) DO UPDATE SET value = $1::text, updated_at = NOW()`,
+         ON CONFLICT (key) DO UPDATE
+           SET value = (COALESCE(x_manifest.value::NUMERIC, 0) + $1)::TEXT,
+               updated_at = NOW()`,
         [String(newPoolKobo)]
       );
 
@@ -1980,19 +1986,20 @@ export const GET = async (req: NextRequest) => {
   try {
     const dayForPayouts = new Date().getUTCDay();
     if (dayForPayouts === 5) {
-      const MIN_PAYOUT_KOBO = 500_000; // ₦5,000 minimum
-      // Find creators with accumulated earnings above minimum, not banned, with payout account
+      const MIN_PAYOUT_KOBO = 100_000; // ₦1,000 minimum (PRD §14)
+      // Find creators with net accumulated earnings above minimum, not banned, with payout account.
+      // available_earnings_kobo is the net (post-platform-fee) amount stored on users.
       const { rows: payoutCandidates } = await db.query<{
         creator_id: string; balance_kobo: number; recipient_code: string;
       }>(
-        `SELECT u.id AS creator_id, ce.balance_kobo, u.payout_recipient_code AS recipient_code
+        `SELECT u.id AS creator_id, u.available_earnings_kobo AS balance_kobo,
+                u.payout_recipient_code AS recipient_code
          FROM users u
-         JOIN creator_earnings ce ON ce.user_id = u.id
          WHERE u.is_creator = TRUE
            AND COALESCE(u.is_banned, false) = FALSE
            AND u.deleted_at IS NULL
            AND u.payout_recipient_code IS NOT NULL
-           AND ce.balance_kobo >= $1
+           AND u.available_earnings_kobo >= $1
            AND NOT EXISTS (
              SELECT 1 FROM creator_payouts cp
              WHERE cp.creator_id = u.id

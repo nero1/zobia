@@ -140,6 +140,18 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
         ]
       );
 
+      // Record creator earnings (coins → kobo: 1 coin = 100 kobo)
+      const grossKobo = quest.reward_amount_coins * 100;
+      const netKobo = payoutCoins * 100;
+      const platformFeeKobo = grossKobo - netKobo;
+      await tx.query(
+        `INSERT INTO creator_earnings
+           (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo,
+            reference_id, created_at)
+         VALUES ($1, 'sponsored_quest', $2, $3, $4, $5, NOW())`,
+        [app.creator_id, grossKobo, platformFeeKobo, netKobo, app.id]
+      );
+
       // Mark application as paid
       await tx.query(
         `UPDATE sponsored_quest_applications

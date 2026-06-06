@@ -73,7 +73,7 @@ export async function awardReferralCommissions(
   // Mark referral as qualified on first purchase and award 500 XP to referrer (PRD §referrals)
   const { rows: qualifyRows } = await db.query<{ id: string }>(
     `UPDATE referrals SET qualified = true, qualified_at = NOW()
-     WHERE referee_id = $1 AND referrer_id = $2 AND qualified = false
+     WHERE referred_id = $1 AND referrer_id = $2 AND qualified = false
      RETURNING id`,
     [buyerId, tier1Id]
   );

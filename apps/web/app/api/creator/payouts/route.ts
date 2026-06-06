@@ -58,8 +58,8 @@ interface CreatorProfileRow {
 // Default manifest values for payout thresholds
 // ---------------------------------------------------------------------------
 
-const DEFAULT_MIN_PAYOUT_KOBO = 5_000;        // ₦50
-const DEFAULT_MANUAL_APPROVAL_KOBO = 500_000;  // ₦5,000
+const DEFAULT_MIN_PAYOUT_KOBO = 100_000;        // ₦1,000 (PRD §14)
+const DEFAULT_MANUAL_APPROVAL_KOBO = 5_000_000; // ₦50,000 (PRD §14)
 
 // ---------------------------------------------------------------------------
 // GET handler
@@ -98,17 +98,12 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
       [userId]
     );
 
-    // Net available (80% of gross available)
-    const grossAvailableKobo = profile.available_earnings_kobo ?? 0;
-    const netAvailableKobo = new Decimal(grossAvailableKobo)
-      .times(80)
-      .dividedBy(100)
-      .floor()
-      .toNumber();
+    // available_earnings_kobo already stores the net (post-platform-fee) amount —
+    // earnings are recorded as net when each transaction occurs.
+    const netAvailableKobo = profile.available_earnings_kobo ?? 0;
 
     return NextResponse.json({
       availableEarnings: {
-        grossKobo: grossAvailableKobo,
         netKobo: netAvailableKobo,
         platformFeePercent: 20,
       },
@@ -233,14 +228,11 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       );
     }
 
-    // Determine revenue share rate: Zobia Icon Creator and Creator Track L50 get 85% (PRD §14/§7)
-    const isIconCreator = profile.creator_tier === "icon";
-    const hasRoomGodUnlock = await hasTrackUnlock(userId, "creator_revenue_share_85_discovery", db);
-    const revenueSharePct = (isIconCreator || hasRoomGodUnlock) ? 85 : 80;
-
-    // Calculate net (creator receives revenueSharePct%)
-    const netKobo = new Decimal(requestedGrossKobo).times(revenueSharePct).dividedBy(100).floor().toNumber();
-    const platformFeeKobo = requestedGrossKobo - netKobo;
+    // available_earnings_kobo already stores the net amount (platform fee was taken
+    // at the time each earning was recorded). Do not deduct again here.
+    const netKobo = requestedGrossKobo;
+    const platformFeeKobo = 0;
+    const revenueSharePct = 100; // reflects that the net is already the creator's share
 
     const idempotencyKey = `payout:${userId}:${randomUUID()}`;
     let requiresManualApproval = requestedGrossKobo >= manualApprovalKobo;

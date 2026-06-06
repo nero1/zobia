@@ -199,6 +199,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       planName: plan.plan,
       interval: plan.interval,
       type: "subscription",
+      itemType: "subscription",
     };
 
     const paymentResult = await initializePayment(

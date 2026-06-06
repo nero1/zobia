@@ -244,6 +244,12 @@ export interface XPMultiplierContext {
   hasActiveXPBooster?: boolean;
   /** If set to a future ISO date string, the prestige cycle 3× boost is active. */
   prestigeCycleBoostExpiresAt?: string | null;
+  /**
+   * Whether this XP award is for a messaging action. Per PRD §6, the plan
+   * tier multiplier (1×/1.5×/3×/5×) only applies to messaging XP.
+   * Guild, season pass, and booster pack boosts apply to all actions.
+   */
+  isMessagingAction?: boolean;
 }
 
 /** Prestige cycle boost multiplier in basis points (3×, PRD §9 Prestige 3). */
@@ -264,26 +270,29 @@ export const PRESTIGE_CYCLE_BOOST_BP = 300;
 export function applyMultipliers(baseXP: number, ctx: XPMultiplierContext): number {
   if (baseXP <= 0) return 0;
 
-  // Plan multiplier in basis points
-  let planBP = PLAN_XP_MULTIPLIERS_BP[ctx.plan];
+  let xp = baseXP;
 
-  // XP Booster Pack: use if it's better than the plan multiplier
-  if (ctx.hasActiveXPBooster && BOOSTER_PACK_MULTIPLIER_BP > planBP) {
-    planBP = BOOSTER_PACK_MULTIPLIER_BP;
+  // Plan multiplier only applies to messaging actions (PRD §6)
+  if (ctx.isMessagingAction === true) {
+    let planBP = PLAN_XP_MULTIPLIERS_BP[ctx.plan];
+
+    // XP Booster Pack: use if it's better than the plan multiplier
+    if (ctx.hasActiveXPBooster && BOOSTER_PACK_MULTIPLIER_BP > planBP) {
+      planBP = BOOSTER_PACK_MULTIPLIER_BP;
+    }
+
+    // Prestige cycle boost (3× for first 7 days after each Prestige ≥ 3, PRD §9)
+    // Replaces the plan multiplier if higher
+    if (
+      ctx.prestigeCycleBoostExpiresAt &&
+      new Date(ctx.prestigeCycleBoostExpiresAt) > new Date() &&
+      PRESTIGE_CYCLE_BOOST_BP > planBP
+    ) {
+      planBP = PRESTIGE_CYCLE_BOOST_BP;
+    }
+
+    xp = Math.floor((baseXP * planBP) / 100);
   }
-
-  // Prestige cycle boost (3× for first 7 days after each Prestige ≥ 3, PRD §9)
-  // Replaces the plan multiplier if higher
-  if (
-    ctx.prestigeCycleBoostExpiresAt &&
-    new Date(ctx.prestigeCycleBoostExpiresAt) > new Date() &&
-    PRESTIGE_CYCLE_BOOST_BP > planBP
-  ) {
-    planBP = PRESTIGE_CYCLE_BOOST_BP;
-  }
-
-  // Apply plan multiplier
-  let xp = Math.floor((baseXP * planBP) / 100);
 
   // Guild tier bonus (additive percentage on the plan-multiplied amount)
   if (ctx.guildTier) {

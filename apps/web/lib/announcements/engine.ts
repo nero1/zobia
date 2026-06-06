@@ -67,24 +67,52 @@ export interface AnnouncementUser {
  * @param content - Raw HTML string from the database
  * @returns Sanitized HTML safe for rendering
  */
+const ALLOWED_TAGS = new Set([
+  "b", "i", "u", "em", "strong", "p", "br", "ul", "ol", "li",
+  "a", "h1", "h2", "h3", "h4", "blockquote", "code", "pre", "span",
+]);
+
+const ALLOWED_ATTRS: Record<string, Set<string>> = {
+  a: new Set(["href", "title", "target", "rel"]),
+  span: new Set(["class"]),
+  p: new Set(["class"]),
+};
+
+const SAFE_URL_RE = /^https?:\/\//i;
+
 export function sanitizeHtmlContent(content: string): string {
-  // Server-side conservative sanitization
-  // Remove script, style, on* attributes, data: URIs
-  let sanitized = content
-    // Strip script tags and contents
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
-    // Strip style tags and contents
-    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
-    // Strip on* event handlers
-    .replace(/\s+on\w+\s*=\s*["'][^"']*["']/gi, "")
-    .replace(/\s+on\w+\s*=\s*[^\s>]*/gi, "")
-    // Strip javascript: and data: hrefs
-    .replace(/href\s*=\s*["']?\s*(javascript|data):[^"'\s>]*/gi, 'href="#"')
-    // Strip iframe, object, embed, form
-    .replace(
-      /<\/?(?:iframe|object|embed|form|input|button|select|textarea)\b[^>]*>/gi,
-      ""
+  // Strip comments
+  let sanitized = content.replace(/<!--[\s\S]*?-->/g, "");
+
+  // Strip script/style tags and their contents entirely
+  sanitized = sanitized.replace(/<script\b[\s\S]*?<\/script>/gi, "");
+  sanitized = sanitized.replace(/<style\b[\s\S]*?<\/style>/gi, "");
+  sanitized = sanitized.replace(/<svg\b[\s\S]*?<\/svg>/gi, "");
+
+  // Process remaining tags: keep only allowlisted tags with allowlisted attributes
+  sanitized = sanitized.replace(/<(\/?)(\w+)([^>]*)>/gi, (_, slash, tag, attrs) => {
+    const lowerTag = tag.toLowerCase();
+    if (!ALLOWED_TAGS.has(lowerTag)) return "";
+
+    if (slash) return `</${lowerTag}>`;
+
+    const allowedAttrsForTag = ALLOWED_ATTRS[lowerTag] ?? new Set<string>();
+    const safeAttrs = attrs.replace(
+      /(\w[\w-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]*)))?/gi,
+      (attrMatch: string, attrName: string, dq: string, sq: string, nq: string) => {
+        const name = attrName.toLowerCase();
+        if (!allowedAttrsForTag.has(name)) return "";
+        const val = dq ?? sq ?? nq ?? "";
+        // Validate URL attributes
+        if (name === "href" || name === "src") {
+          if (!SAFE_URL_RE.test(val.trim()) && val.trim() !== "#") return `${name}="#"`;
+        }
+        return `${name}="${val.replace(/"/g, "&quot;")}"`;
+      }
     );
+
+    return `<${lowerTag}${safeAttrs ? " " + safeAttrs.trim() : ""}>`;
+  });
 
   return sanitized;
 }

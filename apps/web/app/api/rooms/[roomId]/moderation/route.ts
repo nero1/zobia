@@ -65,8 +65,12 @@ const updateRulesSchema = z.object({
     /** Block phone numbers. */
     blockPhones: z.boolean().optional(),
     /** Prevent new members from posting for N hours after joining. */
-    newMemberPostingHoldHours: z.number().int().min(0).max(72).optional(),
-    /** Require manual approval for new messages (slow mode). */
+    newMemberPostHoldHours: z.number().int().min(0).max(72).optional(),
+    /** Require manual approval before new messages appear. */
+    requireApproval: z.boolean().optional(),
+    /** Restrict allowed message types (e.g. ["text","sticker"]). */
+    allowedMessageTypes: z.array(z.string()).optional(),
+    /** Require slow-mode gap between messages (seconds). */
     slowModeSeconds: z.number().int().min(0).max(3600).optional(),
   }),
 });
@@ -344,6 +348,12 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           [roomId, targetUserId]
         );
         if (!rowCount) throw notFound("Target user is not an active member of this room");
+
+        // Decrement member_count (guarded to never go below 0)
+        await db.query(
+          `UPDATE rooms SET member_count = GREATEST(member_count - 1, 0), updated_at = NOW() WHERE id = $1`,
+          [roomId]
+        ).catch(() => {});
 
         // Notify kicked user
         await db.query(

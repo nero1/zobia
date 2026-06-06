@@ -145,11 +145,11 @@ export const POST = withAuth(
         throw badRequest("Room not found or does not belong to your creator account");
       }
 
-      // 5. Insert application
+      // 5. Insert application — use 'applied' so complete route can find it
       const insertResult = await db.query<{ id: string }>(
         `INSERT INTO sponsored_quest_applications
            (quest_id, creator_id, room_id, status, applied_at)
-         VALUES ($1, $2, $3, 'pending', NOW())
+         VALUES ($1, $2, $3, 'applied', NOW())
          RETURNING id`,
         [questId, userId, body.roomId]
       );
@@ -160,7 +160,7 @@ export const POST = withAuth(
           success: true,
           data: {
             applicationId: application.id,
-            status: "pending",
+            status: "applied",
           },
           error: null,
         },

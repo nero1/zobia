@@ -15,6 +15,16 @@
 
 import type { DatabaseAdapter } from "@/lib/db/interface";
 import type { Plan } from "@/types";
+import { ACTION_TRACKS } from "@/lib/xp/engine";
+
+// Maps a ProgressionTrack name to the corresponding users table column
+const TRACK_COLUMN: Record<string, string> = {
+  social: "xp_social",
+  creator: "xp_creator",
+  competitor: "xp_competitor",
+  generosity: "xp_generosity",
+  explorer: "xp_explorer",
+};
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -153,7 +163,7 @@ export async function updateQuestProgress(
 
   return db.transaction(async (client) => {
     const questResult = await client.query<QuestTemplate>(
-      `SELECT id, target_count, xp_reward, coin_reward
+      `SELECT id, target_count, xp_reward, coin_reward, action_type
        FROM quest_templates
        WHERE id = $1 AND is_active = TRUE
          AND (valid_date IS NULL OR valid_date = $2)
@@ -213,16 +223,30 @@ export async function updateQuestProgress(
       xpAwarded = quest.xp_reward;
       coinsAwarded = quest.coin_reward;
 
-      await client.query(
-        `UPDATE users SET xp_total = xp_total + $1, coin_balance = coin_balance + $2, updated_at = NOW()
-         WHERE id = $3`,
-        [xpAwarded, coinsAwarded, userId]
-      );
+      // Determine the parallel track for this quest's action type
+      const parallelTrack =
+        ACTION_TRACKS[quest.action_type as keyof typeof ACTION_TRACKS] ?? null;
+      const trackColumn = parallelTrack ? TRACK_COLUMN[parallelTrack] : null;
+
+      if (trackColumn) {
+        await client.query(
+          `UPDATE users SET xp_total = xp_total + $1, ${trackColumn} = ${trackColumn} + $1,
+                           coin_balance = coin_balance + $2, updated_at = NOW()
+           WHERE id = $3`,
+          [xpAwarded, coinsAwarded, userId]
+        );
+      } else {
+        await client.query(
+          `UPDATE users SET xp_total = xp_total + $1, coin_balance = coin_balance + $2, updated_at = NOW()
+           WHERE id = $3`,
+          [xpAwarded, coinsAwarded, userId]
+        );
+      }
 
       await client.query(
         `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
-         VALUES ($1, $2, 'main', 'quest_complete', $3, $2, NOW())`,
-        [userId, xpAwarded, questId]
+         VALUES ($1, $2, $3, 'quest_complete', $4, $2, NOW())`,
+        [userId, xpAwarded, parallelTrack ?? "main", questId]
       );
 
       if (coinsAwarded > 0) {

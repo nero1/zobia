@@ -84,9 +84,9 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
     const userResult = await db.query<{
       prestige_count: number;
       rank_name: string;
-      last_seen_at: string | null;
+      last_active_at: string | null;
     }>(
-      `SELECT prestige_count, rank_name, last_seen_at
+      `SELECT prestige_count, rank_name, last_active_at
        FROM users WHERE id = $1 AND deleted_at IS NULL`,
       [userId]
     );
@@ -94,8 +94,8 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
     if (!user) throw forbidden("User not found");
 
     const recentlyActive =
-      user.last_seen_at !== null &&
-      new Date(user.last_seen_at) > new Date(Date.now() - ELDER_ACTIVITY_DAYS * 86400_000);
+      user.last_active_at !== null &&
+      new Date(user.last_active_at) > new Date(Date.now() - ELDER_ACTIVITY_DAYS * 86400_000);
     const eligible = user.prestige_count >= ELDER_MIN_PRESTIGE && recentlyActive;
 
     // Current mentees
@@ -159,15 +159,15 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       // 1. Verify elder eligibility (prestige >= 3 AND active in past 30 days)
       const userRow = await client.query<{
         prestige_count: number;
-        last_seen_at: string | null;
+        last_active_at: string | null;
       }>(
-        `SELECT prestige_count, last_seen_at FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+        `SELECT prestige_count, last_active_at FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
         [userId]
       );
       if (!userRow.rows[0]) throw forbidden("User not found");
       const isActive =
-        userRow.rows[0].last_seen_at !== null &&
-        new Date(userRow.rows[0].last_seen_at) >
+        userRow.rows[0].last_active_at !== null &&
+        new Date(userRow.rows[0].last_active_at) >
           new Date(Date.now() - ELDER_ACTIVITY_DAYS * 86400_000);
       if (userRow.rows[0].prestige_count < ELDER_MIN_PRESTIGE || !isActive) {
         throw forbidden(

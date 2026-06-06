@@ -16,6 +16,7 @@ import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, conflict, forbidden } from "@/lib/api/errors";
 import { assignNemesis, compareNemesisProgress } from "@/lib/nemesis/nemesisEngine";
 import { getTrackLevelForXP } from "@/lib/xp/engine";
+import { requireFeatureEnabled } from "@/lib/manifest";
 
 // ---------------------------------------------------------------------------
 // Feature gate constants
@@ -50,9 +51,10 @@ interface NemesisRow {
 export const GET = withAuth(async (req: NextRequest, { auth }) => {
   try {
     const userId = auth.user.sub;
+    await requireFeatureEnabled("nemesisSystem");
 
     const { rows } = await db.query<NemesisRow>(
-      `SELECT na.user_id, na.nemesis_id, na.assigned_at, na.dismissed_at,
+      `SELECT na.user_id, na.nemesis_user_id AS nemesis_id, na.assigned_at,
               u.username AS nemesis_username,
               u.display_name AS nemesis_display_name,
               u.avatar_emoji AS nemesis_avatar_emoji,
@@ -60,8 +62,8 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
               u.xp_total AS nemesis_xp_total,
               u.city AS nemesis_city
        FROM nemesis_assignments na
-       JOIN users u ON u.id = na.nemesis_id
-       WHERE na.user_id = $1 AND na.dismissed_at IS NULL
+       JOIN users u ON u.id = na.nemesis_user_id
+       WHERE na.user_id = $1 AND na.is_active = true
        ORDER BY na.assigned_at DESC
        LIMIT 1`,
       [userId]
@@ -203,13 +205,14 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
 export const POST = withAuth(async (req: NextRequest, { auth }) => {
   try {
     const userId = auth.user.sub;
+    await requireFeatureEnabled("nemesisSystem");
     const action = new URL(req.url).pathname.split("/").at(-1); // 'dismiss' or 'challenge'
 
     if (action === "dismiss") {
       // Dismiss current assignment
       const updateResult = await db.query(
-        `UPDATE nemesis_assignments SET dismissed_at = NOW()
-         WHERE user_id = $1 AND dismissed_at IS NULL`,
+        `UPDATE nemesis_assignments SET is_active = false
+         WHERE user_id = $1 AND is_active = true`,
         [userId]
       );
 
@@ -219,7 +222,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       return NextResponse.json({
         success: true,
         data: {
-          dismissed: updateResult.rowCount > 0,
+          dismissed: (updateResult.rowCount ?? 0) > 0,
           newNemesisAssigned: !!newAssignment,
           newNemesisId: newAssignment?.nemesis_id ?? null,
         },
@@ -229,13 +232,13 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 
     if (action === "challenge") {
       // Get current nemesis
-      const nemesisResult = await db.query<{ nemesis_id: string }>(
-        `SELECT nemesis_id FROM nemesis_assignments
-         WHERE user_id = $1 AND dismissed_at IS NULL
+      const nemesisResult = await db.query<{ nemesis_user_id: string }>(
+        `SELECT nemesis_user_id FROM nemesis_assignments
+         WHERE user_id = $1 AND is_active = true
          ORDER BY assigned_at DESC LIMIT 1`,
         [userId]
       );
-      const nemesisId = nemesisResult.rows[0]?.nemesis_id;
+      const nemesisId = nemesisResult.rows[0]?.nemesis_user_id;
       if (!nemesisId) throw notFound("No active nemesis to challenge");
 
       // Enforce Competitor Track Level 40 gate (PRD §7)

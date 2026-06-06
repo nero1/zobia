@@ -13,11 +13,18 @@ import { initReactI18next } from 'react-i18next';
 import * as Localization from 'expo-localization';
 
 import en from './locales/en.json';
+import fr from './locales/fr.json';
+import ar from './locales/ar.json';
+import ha from './locales/ha.json';
+import sw from './locales/sw.json';
+import am from './locales/am.json';
+import zu from './locales/zu.json';
+import pt from './locales/pt.json';
 
-/** Supported locale codes. Extend as new translations are added. */
-export type SupportedLocale = 'en';
+/** Supported locale codes. */
+export type SupportedLocale = 'en' | 'fr' | 'ar' | 'ha' | 'sw' | 'am' | 'zu' | 'pt';
 
-const SUPPORTED_LOCALES: SupportedLocale[] = ['en'];
+const SUPPORTED_LOCALES: SupportedLocale[] = ['en', 'fr', 'ar', 'ha', 'sw', 'am', 'zu', 'pt'];
 
 /** Derive the best supported locale from the device's preferred locales. */
 function resolveLocale(): SupportedLocale {
@@ -36,11 +43,17 @@ i18n
   .init({
     resources: {
       en: { translation: en },
+      fr: { translation: fr },
+      ar: { translation: ar },
+      ha: { translation: ha },
+      sw: { translation: sw },
+      am: { translation: am },
+      zu: { translation: zu },
+      pt: { translation: pt },
     },
     lng: resolveLocale(),
     fallbackLng: 'en',
     interpolation: {
-      // React already escapes values
       escapeValue: false,
     },
     compatibilityJSON: 'v4',

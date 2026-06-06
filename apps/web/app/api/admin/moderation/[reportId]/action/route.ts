@@ -19,6 +19,7 @@ import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { db } from "@/lib/db";
+import { DEEPSEEK_MODELS, GEMINI_MODELS, GEMINI_CONFIG } from "@/lib/ai/config";
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -60,9 +61,9 @@ async function triggerAiEscalation(
 ): Promise<AiEscalationResult | null> {
   // Load report + original message content for context
   const { rows } = await db.query<{
-    reason: string; content: string | null; status: string;
+    report_type: string; content: string | null; status: string;
   }>(
-    `SELECT mr.reason,
+    `SELECT mr.report_type,
             m.content,
             mr.status
      FROM moderation_reports mr
@@ -75,7 +76,7 @@ async function triggerAiEscalation(
 
   const prompt = `You are a content moderation AI. Review the following reported content and determine if it violates community guidelines.
 
-Report reason: ${report.reason}
+Report reason: ${report.report_type}
 Content: ${report.content ?? "(no content attached)"}
 
 Respond with JSON: { "verdict": "violation"|"borderline"|"no_violation", "confidence": 0-1, "reasoning": "brief explanation" }`;
@@ -91,7 +92,7 @@ Respond with JSON: { "verdict": "violation"|"borderline"|"no_violation", "confid
           Authorization: `Bearer ${deepseekKey}`,
         },
         body: JSON.stringify({
-          model: "deepseek-chat",
+          model: DEEPSEEK_MODELS.CHAT,
           messages: [{ role: "user", content: prompt }],
           response_format: { type: "json_object" },
           temperature: 0.2,
@@ -126,7 +127,7 @@ Respond with JSON: { "verdict": "violation"|"borderline"|"no_violation", "confid
   if (geminiKey) {
     try {
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${geminiKey}`,
+        `${GEMINI_CONFIG.apiBaseUrl}/models/${GEMINI_MODELS.FLASH}:generateContent?key=${geminiKey}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -209,9 +210,10 @@ export const POST = withAdminAuth(
         id: string;
         reported_user_id: string | null;
         reported_message_id: string | null;
+        reporter_id: string | null;
         status: string;
       }>(
-        `SELECT id, reported_user_id, reported_message_id, status
+        `SELECT id, reported_user_id, reported_message_id, reporter_id, status
          FROM moderation_reports
          WHERE id = $1 AND deleted_at IS NULL`,
         [reportId]
@@ -315,6 +317,24 @@ export const POST = withAdminAuth(
           );
         }
       });
+
+      // Notify the reporter of the outcome
+      if (report.reporter_id && action !== "escalate_ai") {
+        const outcomeLabel =
+          action === "dismiss" ? "dismissed" :
+          action === "ban_user" ? "resulted in a ban" :
+          action === "suspend_user" ? "resulted in a suspension" :
+          action === "remove_content" ? "resulted in content removal" :
+          "resolved";
+        await db.query(
+          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+           VALUES ($1, 'report_resolved', $2, false, NOW())`,
+          [
+            report.reporter_id,
+            JSON.stringify({ reportId, outcome: outcomeLabel }),
+          ]
+        ).catch(() => {});
+      }
 
       return NextResponse.json({
         ok: true,
