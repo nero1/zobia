@@ -56,6 +56,9 @@ interface UserRow {
   xp_knowledge: number;
   xp_explorer: number;
   prestige_cycle_boost_expires_at: string | null;
+  gender: string | null;
+  creator_tier: string | null;
+  is_creator: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -174,7 +177,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const userResult = await client.query<UserRow>(
         `SELECT id, xp_total, legacy_score, rank_name, rank_level, rank_sublevel, city,
                 xp_social, xp_creator, xp_competitor, xp_generosity, xp_knowledge, xp_explorer,
-                prestige_cycle_boost_expires_at
+                prestige_cycle_boost_expires_at, gender, creator_tier, is_creator
          FROM users
          WHERE id = $1 AND deleted_at IS NULL
          FOR UPDATE`,
@@ -211,6 +214,33 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
       const activeFlashMultiplier = flashRows.length > 0 ? parseFloat(flashRows[0].multiplier) : 1.0;
 
+      // Check for active cultural platform_events that apply an XP multiplier.
+      // Events with female_creator_only=true in metadata only apply to female creators.
+      const { rows: culturalRows } = await client.query<{
+        xp_multiplier: string;
+        metadata: Record<string, unknown>;
+      }>(
+        `SELECT xp_multiplier::TEXT AS xp_multiplier, metadata
+         FROM platform_events
+         WHERE event_type = 'cultural'
+           AND starts_at <= NOW()
+           AND ends_at > NOW()
+           AND xp_multiplier > 1
+         ORDER BY xp_multiplier DESC
+         LIMIT 5`
+      );
+      let activeCulturalMultiplier = 1.0;
+      for (const evt of culturalRows) {
+        const meta = evt.metadata ?? {};
+        const femaleOnly = meta.female_creator_only === true;
+        if (femaleOnly) {
+          const isFemaleCreator = user.gender === 'female' && user.is_creator;
+          if (!isFemaleCreator) continue;
+        }
+        const multiplier = parseFloat(evt.xp_multiplier);
+        if (multiplier > activeCulturalMultiplier) activeCulturalMultiplier = multiplier;
+      }
+
       // 2. Calculate XP using engine
       const ctx: XPMultiplierContext = {
         plan: body.multiplierContext.plan,
@@ -224,9 +254,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       // Apply base multipliers from plan/guild/season/booster stack
       const baseAwardedXp = applyMultipliers(baseXp, ctx);
       // Apply Flash XP event multiplier on top (integer floor to stay precise)
-      const xpAwarded = activeFlashMultiplier > 1.0
+      const afterFlash = activeFlashMultiplier > 1.0
         ? Math.floor(baseAwardedXp * activeFlashMultiplier)
         : baseAwardedXp;
+      // Apply cultural event multiplier (e.g. Women's Month female creator boost)
+      const xpAwarded = activeCulturalMultiplier > 1.0
+        ? Math.floor(afterFlash * activeCulturalMultiplier)
+        : afterFlash;
 
       if (xpAwarded <= 0) {
         return { xpAwarded: 0, newTotal: user.xp_total, rankUp: undefined };

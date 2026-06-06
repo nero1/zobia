@@ -729,7 +729,7 @@ Every member has a personal Contribution Score within their Guild — a rolling 
 
 5. **ClassRoom Enrolment:** One-time enrolment fees for structured courses. Creator receives 80%. ClassRooms scale without marginal cost once built.
 
-6. **Creator Fund:** Platform-level monthly fund seeded from 5% of platform advertising revenue. Distributed to creators based on Room engagement score, member growth rate, quest completion rates, and content consistency.
+6. **Creator Fund:** Platform-level monthly fund seeded from 5% of the prior month's platform advertising revenue on the **1st of each month**. Funds are distributed to eligible creators (Elite tier+) on the **5th of each month**, based on Room engagement score, member growth rate, quest completion rates, and content consistency. During International Women's Month (first week of March), female creators receive a 1.5× boost to their Creator Fund allocation.
 
 7. **Creator Merch Store (Elite tier+):** Mini storefront inside the Room for digital products, course materials, and (via logistics partner) physical merchandise. Creator receives 80% of Merch Store sales.
 
@@ -1407,12 +1407,12 @@ End of Week 1: User is at Hustler I. Has joined a Guild. Has one active Nemesis.
 **Recurring Weekly:**
 - Guild Wars (every 72 hours, continuous).
 - Season Leaderboard snapshot published (every Sunday).
-- Creator Fund disbursed (every Friday).
 - Weekly Guild Quests reset (every Monday midnight).
 - Nemesis assignments refreshed (every Sunday).
 - Mystery XP Drop (algorithmically triggered at a random point within the week — not announced in advance).
 
 **Recurring Monthly:**
+- Creator Fund: pool seeded on the **1st of each month** from 5% of the prior month's platform advertising revenue; distributed to eligible creators (Elite tier+) on the **5th of each month**.
 - Mystery Gift Drop: platform releases 1 exclusive limited gift available for purchase for 48 hours only, then retired permanently. Announced 24 hours in advance with a countdown.
 - Platform Council applications open (last week of each month).
 - Creator Spotlight: Zobia highlights a Creator of the Month in all users' discovery feeds.

@@ -30,7 +30,10 @@ const adminNavItems = [
   { href: "/admin", label: "Dashboard", icon: "◼" },
   { href: "/admin/users", label: "Users", icon: "👥" },
   { href: "/admin/moderation", label: "Moderation", icon: "🚩" },
+  { href: "/admin/community-notes", label: "Community Notes", icon: "📝" },
   { href: "/admin/financial", label: "Financial", icon: "💳" },
+  { href: "/admin/payouts", label: "Payouts", icon: "💸" },
+  { href: "/admin/refunds", label: "Refunds", icon: "↩️" },
   { href: "/admin/announcements", label: "Announcements", icon: "📢" },
   { href: "/admin/messages", label: "Messages", icon: "💬" },
   { href: "/admin/alerts", label: "Alerts", icon: "🔔" },
@@ -43,7 +46,11 @@ const adminNavItems = [
   { href: "/admin/flash-xp", label: "Flash XP", icon: "⚡" },
   { href: "/admin/kyc", label: "KYC", icon: "🪪" },
   { href: "/admin/actions-log", label: "Actions Log", icon: "📋" },
+  { href: "/admin/automated-actions", label: "Auto Actions", icon: "🤖" },
   { href: "/admin/creator-spotlight", label: "Creator Spotlight", icon: "⭐" },
+  { href: "/admin/gift-drop", label: "Gift Drop", icon: "🎁" },
+  { href: "/admin/seasons", label: "Seasons", icon: "🏅" },
+  { href: "/admin/sponsored-quests", label: "Sponsored Quests", icon: "🎯" },
 ] as const;
 
 /**

@@ -65,7 +65,9 @@ Creators (marked `is_creator = true`) earn revenue from:
 - Gifts received in their rooms (80% to creator, 20% to platform; **85% for Zobia Icon tier** or Creator Track Level 50 unlock)
 - Paid content subscriptions
 
-Revenue accrues to `creator_earnings`. The weekly CRON checks creators above the minimum payout threshold (default: ₦5,000 via Paystack). Creators above the manual-approval threshold (default: ₦100,000) require admin approval before disbursement. Completed payouts record to `creator_payouts`.
+Revenue accrues to `creator_earnings`. The daily CRON (on payout day) checks creators above the minimum payout threshold (default: ₦5,000 via Paystack). Creators above the manual-approval threshold (default: ₦100,000) require admin approval before disbursement. Completed payouts record to `creator_payouts`.
+
+**Creator Fund (monthly):** The platform sets aside 5% of advertising revenue each month into the Creator Fund. On the **1st of each month**, the daily CRON seeds the fund pool by reading `ad_revenue_YYYY_MM_kobo` from `x_manifest` and writing 5% to `creator_fund_balance_kobo`. On the **5th of each month**, the daily CRON distributes the pool to eligible creators (Elite tier+) proportional to their engagement score, then resets the pool to 0. During **International Women's Month** (first week of March), female creators receive a 1.5× boost to their Creator Fund allocation.
 
 **RIZE Coin conversion (PRD §14):** Instead of a bank payout, creators can request `asCoins: true` when calling `POST /api/creator/payouts`. The net earnings are converted to Coins at the admin-configurable `kobo_per_coin` rate (default 100 kobo = 1 Coin) and credited to the creator's wallet in the same atomic transaction.
 

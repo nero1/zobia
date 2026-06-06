@@ -369,20 +369,47 @@ export const GET = async (req: NextRequest) => {
     errors.push(`guildDiscoveryPrompts: ${String(err)}`);
   }
 
-  // 9. Creator Fund distribution (first day of each month per PRD)
+  // 9. Creator Fund — two-step monthly cycle:
+  //    Day 1: Seed the pool from the previous month's ad revenue (5% of earnings).
+  //    Day 5: Distribute the pool to eligible creators and reset to 0.
   const nowDate = new Date();
-  const isFirstOfMonth = nowDate.getUTCDate() === 1;
-  if (isFirstOfMonth) {
+  const utcDay = nowDate.getUTCDate();
+
+  if (utcDay === 1) {
+    // Day 1 — Seed the Creator Fund pool from prior month's ad revenue (5%)
+    try {
+      const prevMonth = new Date(Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth() - 1, 1));
+      const prevMonthKey = `ad_revenue_${prevMonth.getUTCFullYear()}_${String(prevMonth.getUTCMonth() + 1).padStart(2, '0')}_kobo`;
+
+      const { rows: revenueRows } = await db.query<{ value: string }>(
+        `SELECT value FROM x_manifest WHERE key = $1 LIMIT 1`,
+        [prevMonthKey]
+      );
+      const prevMonthRevenueKobo = parseInt(revenueRows[0]?.value ?? "0", 10);
+      const newPoolKobo = Math.floor(prevMonthRevenueKobo * 0.05);
+
+      await db.query(
+        `INSERT INTO x_manifest (key, value) VALUES ('creator_fund_balance_kobo', $1::text)
+         ON CONFLICT (key) DO UPDATE SET value = $1::text, updated_at = NOW()`,
+        [String(newPoolKobo)]
+      );
+
+      results.creatorFundSeed = { seededKobo: newPoolKobo, prevMonthRevenueKobo };
+    } catch (err) {
+      errors.push(`creatorFundSeed: ${String(err)}`);
+    }
+  }
+
+  if (utcDay === 5) {
+    // Day 5 — Distribute the seeded pool to eligible creators and reset to 0
     try {
       const { distributeCreatorFund } = await import('@/lib/creator/fund');
-      // Read the fund pool size from x_manifest (admin-configurable)
       const { rows: fundRows } = await db.query<{ value: string }>(
         `SELECT value FROM x_manifest WHERE key = 'creator_fund_balance_kobo' LIMIT 1`
       );
       const poolKobo = parseInt(fundRows[0]?.value ?? "0", 10);
       if (poolKobo > 0) {
         const fundResult = await distributeCreatorFund(poolKobo);
-        // Reset the pool to 0 after distribution
         await db.query(
           `INSERT INTO x_manifest (key, value) VALUES ('creator_fund_balance_kobo', '0')
            ON CONFLICT (key) DO UPDATE SET value = '0', updated_at = NOW()`
@@ -392,7 +419,7 @@ export const GET = async (req: NextRequest) => {
         results.creatorFundDistribution = { skipped: true, reason: 'Pool is empty' };
       }
     } catch (err) {
-      errors.push(`creatorFund: ${String(err)}`);
+      errors.push(`creatorFundDistribution: ${String(err)}`);
     }
   }
 

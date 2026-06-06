@@ -241,11 +241,20 @@ Both secrets must be different and at least 32 characters long. Keep them privat
 
 Vercel Hobby Plan allows **only one CRON job per day**. Zobia requires multiple CRON frequencies:
 
-| Job | Frequency | Handler |
-|---|---|---|
-| Daily reset | Midnight UTC | `/api/cron/daily` (configured in vercel.json) |
-| Guild war checks | Every 1 hour | `/api/cron/guild-wars` |
-| Leaderboard updates | Every 15 minutes | `/api/cron/leaderboards` |
+| Job | Frequency | Handler | Notes |
+|---|---|---|---|
+| Daily reset | Midnight UTC | `/api/cron/daily` (configured in vercel.json) | Quest reset, login streaks, mystery XP drop, Creator Fund (days 1 & 5), guild tier demotion |
+| Guild war checks | Every 1 hour | `/api/cron/guild-wars` | Final Hour transitions, war resolution, Drop Room auto-close, Flash XP announcements |
+| Leaderboard updates | Every 15 minutes | `/api/cron/leaderboards` | Snapshot upserts, rank-change notifications |
+
+### Daily CRON responsibilities (day-of-month logic)
+
+The daily CRON (`/api/cron/daily`) runs at **midnight UTC** every day. Some steps are conditional on the calendar date:
+
+- **Every day**: Quest deck reset, login streak updates, re-engagement notifications, daily login XP, mystery XP drop (probabilistic), guild discovery prompts, guild tier demotion checks.
+- **Day 1 of month**: Creator Fund pool seeded from 5% of prior month's ad revenue (`ad_revenue_YYYY_MM_kobo` key in `x_manifest` → write to `creator_fund_balance_kobo`).
+- **Day 5 of month**: Creator Fund distributed to eligible creators (Elite tier+) and pool reset to 0.
+- **Sundays**: Nemesis assignments refreshed, season leaderboard snapshot published.
 
 ### Vercel Hobby CRON (daily — already configured)
 
@@ -279,6 +288,10 @@ All sub-daily CRON jobs must be driven by an external scheduler because Vercel H
 - Header: `Authorization: Bearer YOUR_CRON_SECRET`
 
 All CRON handlers verify the `Authorization: Bearer <CRON_SECRET>` header and return 401 if it does not match. Never expose `CRON_SECRET` publicly.
+
+### Creator Fund ad revenue tracking
+
+To ensure the Creator Fund pool is correctly seeded on the 1st of each month, ad revenue must be recorded in `x_manifest` using the key format `ad_revenue_YYYY_MM_kobo` (e.g. `ad_revenue_2026_05_kobo`). The admin financial dashboard records monthly ad revenue totals automatically. If integrating a third-party ad network, ensure the revenue webhook updates this key each month.
 
 ---
 

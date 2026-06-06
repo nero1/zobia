@@ -95,6 +95,16 @@ export default function AdminOverviewScreen() {
           { label: "Sponsored Quests", route: "/admin/sponsored-quests", icon: "🎯" },
           { label: "Config & Flags", route: "/admin/config", icon: "⚙️" },
           { label: "Feature Flags", route: "/admin/feature-flags", icon: "🚩" },
+          { label: "Actions Log", route: "/admin/actions-log", icon: "📋" },
+          { label: "Automated Actions", route: "/admin/automated-actions", icon: "🤖" },
+          { label: "Email Settings", route: "/admin/email-settings", icon: "📧" },
+          { label: "Footer Scripts", route: "/admin/footer-scripts", icon: "🧩" },
+          { label: "Leaderboard Banners", route: "/admin/leaderboard-banners", icon: "🏆" },
+          { label: "Creator Spotlight", route: "/admin/creator-spotlight", icon: "⭐" },
+          { label: "Gift Drops", route: "/admin/gift-drop", icon: "🎁" },
+          { label: "Seasons", route: "/admin/seasons", icon: "🗓️" },
+          { label: "Payouts", route: "/admin/payouts", icon: "💸" },
+          { label: "Community Notes", route: "/admin/community-notes", icon: "📝" },
         ].map((action) => (
           <TouchableOpacity
             key={action.route}
