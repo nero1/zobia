@@ -18,6 +18,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, forbidden } from "@/lib/api/errors";
+import { meetsMinimumTrust } from "@/lib/trust/trustScore";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -138,6 +139,12 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
   try {
     const body = await validateBody(req, createGuildSchema);
     const userId = auth.user.sub;
+
+    // Trust gate: guild_creation requires minimum trust score of 30
+    const trusted = await meetsMinimumTrust(userId, "guild_creation", db);
+    if (!trusted) {
+      throw forbidden("Your account trust score is too low to create a guild. Build your reputation first.", "TRUST_SCORE_TOO_LOW");
+    }
 
     const result = await db.transaction(async (client) => {
       // 1. Check user doesn't already belong to a guild

@@ -205,19 +205,27 @@ export const POST = withAuth<QuestParams>(async (req, { params, auth }) => {
           [xpAwarded, coinsAwarded, auth.user.sub]
         );
 
-        // Write to coin_ledger
-        await client.query(
-          `INSERT INTO coin_ledger (user_id, amount, type, reference, created_at)
-           VALUES ($1, $2, 'quest_reward', $3, NOW())`,
-          [auth.user.sub, coinsAwarded, questId]
-        );
+        // Write to coin_ledger (append-only; requires balance_before/after)
+        if (coinsAwarded > 0) {
+          const { rows: balRows } = await client.query<{ coin_balance: string }>(
+            `SELECT coin_balance FROM users WHERE id = $1`,
+            [auth.user.sub]
+          );
+          const balanceBefore = parseInt(balRows[0]?.coin_balance ?? "0", 10);
+          await client.query(
+            `INSERT INTO coin_ledger
+               (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description, created_at)
+             VALUES ($1, $2, $3, $4, 'quest_reward', $5, 'Quest completion reward', NOW())`,
+            [auth.user.sub, coinsAwarded, balanceBefore, balanceBefore + coinsAwarded, questId]
+          );
+        }
 
         // Elder mentorship bonus — award 10% of quest XP to the active elder (PRD §7)
         const elderBonus = Math.floor(xpAwarded * 0.1);
         if (elderBonus > 0) {
           const { rows: elderRows } = await client.query<{ elder_id: string }>(
             `SELECT elder_id FROM elder_mentorships
-             WHERE mentee_id = $1 AND status = 'active'
+             WHERE mentee_id = $1 AND COALESCE(status, 'active') = 'active'
              LIMIT 1`,
             [auth.user.sub]
           );

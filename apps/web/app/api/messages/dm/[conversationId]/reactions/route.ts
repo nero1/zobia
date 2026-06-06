@@ -150,34 +150,48 @@ export const POST = withAuth(
       const reaction = reactionRows[0];
       if (!reaction) throw new Error("Reaction creation failed");
 
-      // 5. Award 1 XP to the message sender (for receiving a reaction)
-      //    Only award if the reactor is NOT the sender themselves
-      if (message.sender_id !== auth.user.sub) {
-        db.query(
-          `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
-           VALUES ($1, 1, 'social', 'message', $2, 1, 1)`,
-          [message.sender_id, reaction.id]
-        ).catch((err) =>
-          console.error("[reactions:POST] XP award failed", err)
-        );
+      // 5. XP awards (fire-and-forget):
+      //    a) Custom-reaction XP: 1 XP to the REACTOR (PRD §5 — custom reaction set usage)
+      //    b) Social XP: 1 XP to the message SENDER when someone reacts to their message
+      void (async () => {
+        try {
+          // a) Reactor gets 1 XP for using a custom reaction set emoji
+          if (body.isCustom && message.sender_id !== auth.user.sub) {
+            await db.query(
+              `UPDATE users SET xp_total = xp_total + 1, xp_social = xp_social + 1, updated_at = NOW()
+               WHERE id = $1`,
+              [auth.user.sub]
+            );
+            await db.query(
+              `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
+               VALUES ($1, 1, 'social', 'custom_reaction', $2, 1, 1)`,
+              [auth.user.sub, reaction.id]
+            );
+          }
 
-        db.query(
-          `UPDATE users SET xp_total = xp_total + 1, xp_social = xp_social + 1, updated_at = NOW()
-           WHERE id = $1`,
-          [message.sender_id]
-        ).catch((err) =>
-          console.error("[reactions:POST] XP user update failed", err)
-        );
+          // b) Message sender gets 1 social XP for receiving any reaction (not self-reaction)
+          if (message.sender_id !== auth.user.sub) {
+            await db.query(
+              `UPDATE users SET xp_total = xp_total + 1, xp_social = xp_social + 1, updated_at = NOW()
+               WHERE id = $1`,
+              [message.sender_id]
+            );
+            await db.query(
+              `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
+               VALUES ($1, 1, 'social', 'reaction_received', $2, 1, 1)`,
+              [message.sender_id, reaction.id]
+            );
 
-        // Update conversation score for the reactor and sender
-        updateConversationScore(
-          auth.user.sub,
-          message.sender_id,
-          "reaction_sent"
-        ).catch((err) =>
-          console.error("[reactions:POST] Conversation score update failed", err)
-        );
-      }
+            updateConversationScore(
+              auth.user.sub,
+              message.sender_id,
+              "reaction_sent"
+            ).catch(() => {});
+          }
+        } catch (err) {
+          console.error("[reactions:POST] XP award failed", err);
+        }
+      })();
 
       return NextResponse.json({ reaction }, { status: 201 });
     } catch (err) {

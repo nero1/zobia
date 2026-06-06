@@ -80,8 +80,9 @@ export const POST = async (req: NextRequest) => {
   try {
     const ip = getClientIp(req) ?? "unknown";
     await enforceRateLimit(`reset:${ip}`, "ip", {
-      windowSeconds: 3600,
-      maxRequests: 3,
+      name: "auth:password-reset",
+      windowMs: 3600 * 1000,
+      limit: 3,
     });
 
     const body = await validateBody(req, requestResetSchema);

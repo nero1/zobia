@@ -184,7 +184,12 @@ async function verifyGooglePlayPurchase(
   const saJson = process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON;
 
   if (!saJson) {
-    // Dev mode fallback — trust the purchase without verifying with Google
+    if (process.env.NODE_ENV === "production") {
+      throw internalError(
+        "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON is not configured. IAP verification is disabled."
+      );
+    }
+    // Dev/test mode only — trust the purchase without verifying with Google
     console.warn(
       "[iap/verify] GOOGLE_PLAY_SERVICE_ACCOUNT_JSON not set — running in trusted dev mode. " +
         "DO NOT use this in production."
@@ -309,6 +314,11 @@ async function verifyAndActivateSubscription(
       body: "{}",
     }).catch((e) => console.error("[iap/verify] Subscription ack failed:", e));
   } else {
+    if (process.env.NODE_ENV === "production") {
+      throw internalError(
+        "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON is not configured. Subscription verification is disabled."
+      );
+    }
     console.warn("[iap/verify] GOOGLE_PLAY_SERVICE_ACCOUNT_JSON not set — trusting subscription in dev mode");
   }
 

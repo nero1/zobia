@@ -27,6 +27,7 @@ import {
 } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { filterPublicContent } from "@/lib/messaging/antispam";
+import { applyAutoModeration } from "@/lib/moderation/contentFilter";
 import { XP_VALUES, ROOM_MESSAGE_XP_DAILY_CAP } from "@/lib/xp/engine";
 
 // ---------------------------------------------------------------------------
@@ -285,7 +286,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const { roomId } = await params as { roomId: string };
     const userId = auth.user.sub;
-    const body = await validateBody(req, sendMessageSchema);
+    let body = await validateBody(req, sendMessageSchema);
 
     // Fetch room (including moderation_rules for automod enforcement)
     const { rows: roomRows } = await db.query<{
@@ -323,6 +324,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const isAdmin =
       isCreator ||
+      membership?.role === "creator" ||
       membership?.role === "admin" ||
       membership?.role === "co_moderator";
 
@@ -386,6 +388,32 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           `Allowed types: ${allowedTypes.join(", ")}.`
         );
       }
+    }
+
+    // Layer-1 auto-moderation: bot detection, duplicate detection, profanity filter
+    if (!isAdmin && body.messageType === "text") {
+      const { rows: senderRows } = await db.query<{ is_verified: boolean; trust_score: number }>(
+        `SELECT is_verified, COALESCE(trust_score, 50) AS trust_score FROM users WHERE id = $1`,
+        [userId]
+      );
+      const sender = senderRows[0] ?? { is_verified: false, trust_score: 50 };
+      const modResult = await applyAutoModeration(
+        { content: body.content, senderId: userId, roomId },
+        { id: roomId },
+        { id: userId, is_verified: sender.is_verified, trust_score: sender.trust_score },
+        db
+      );
+      if (modResult.blocked) {
+        throw badRequest(
+          modResult.reason === "bot_behavior"
+            ? "Message blocked: unusual sending velocity detected"
+            : modResult.reason === "duplicate_message"
+              ? "Message blocked: duplicate content detected"
+              : "Message blocked by content filter"
+        );
+      }
+      // Use filtered content (profanity replaced with asterisks)
+      body = { ...body, content: modResult.filteredContent };
     }
 
     // Anti-spam content filter (also honours blockLinks automod rule)

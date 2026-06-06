@@ -112,6 +112,14 @@ async function creditCreatorEarnings(
      VALUES ($1, 'subscription', $2, $3, $4, $5)`,
     [creatorId, grossKobo, platformFeeKobo, netKobo, referenceId]
   );
+  // Increment available balance so manual payout route sees the accrual
+  await tx.query(
+    `UPDATE users
+     SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1,
+         updated_at = NOW()
+     WHERE id = $2`,
+    [netKobo, creatorId]
+  );
 }
 
 // ---------------------------------------------------------------------------

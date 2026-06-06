@@ -174,24 +174,36 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       ? rawProvider
       : "paystack";
 
+  // Helper that checks the canonical key first, then legacy fallback keys
+  const feat = (canonical: string, ...legacyKeys: string[]) => {
+    const keys = [canonical, ...legacyKeys];
+    for (const k of keys) {
+      if (k in kv) return parseBool(kv[k], DEFAULT_MANIFEST.features[canonical.replace("feature_", "") as never] as boolean ?? true);
+    }
+    return DEFAULT_MANIFEST.features[canonical.replace("feature_", "") as keyof typeof DEFAULT_MANIFEST.features] as boolean ?? true;
+  };
+
   return {
     features: {
-      rooms:            parseBool(kv["feature_rooms"],             DEFAULT_MANIFEST.features.rooms),
-      directMessages:   parseBool(kv["feature_direct_messages"],   DEFAULT_MANIFEST.features.directMessages),
-      gifts:            parseBool(kv["feature_gifts"],             DEFAULT_MANIFEST.features.gifts),
-      rankings:         parseBool(kv["feature_rankings"],          DEFAULT_MANIFEST.features.rankings),
-      communityNotes:   parseBool(kv["feature_community_notes"],   DEFAULT_MANIFEST.features.communityNotes),
-      starPurchase:     parseBool(kv["feature_star_purchase"],     DEFAULT_MANIFEST.features.starPurchase),
-      nemesisSystem:    parseBool(kv["feature_nemesis_system"],    DEFAULT_MANIFEST.features.nemesisSystem),
-      guildWars:        parseBool(kv["feature_guild_wars"],        DEFAULT_MANIFEST.features.guildWars),
-      classrooms:       parseBool(kv["feature_classrooms"],        DEFAULT_MANIFEST.features.classrooms),
-      businessAccounts: parseBool(kv["feature_business_accounts"], DEFAULT_MANIFEST.features.businessAccounts),
-      admobAds:         parseBool(kv["feature_admob_ads"],         DEFAULT_MANIFEST.features.admobAds),
-      rewardedAds:      parseBool(kv["feature_rewarded_ads"],      DEFAULT_MANIFEST.features.rewardedAds),
-      merchStore:       parseBool(kv["feature_merch_store"],       DEFAULT_MANIFEST.features.merchStore),
-      platformCouncil:  parseBool(kv["feature_platform_council"],  DEFAULT_MANIFEST.features.platformCouncil),
-      allianceSystem:   parseBool(kv["feature_alliance_system"],   DEFAULT_MANIFEST.features.allianceSystem),
-      pinAuth:          parseBool(kv["feature_pin_auth"],          DEFAULT_MANIFEST.features.pinAuth),
+      rooms:            parseBool(kv["feature_rooms"]            ?? "true",  DEFAULT_MANIFEST.features.rooms),
+      directMessages:   parseBool(kv["feature_direct_messages"]  ?? "true",  DEFAULT_MANIFEST.features.directMessages),
+      gifts:            parseBool(kv["feature_gifts"]            ?? "true",  DEFAULT_MANIFEST.features.gifts),
+      rankings:         parseBool(kv["feature_rankings"]         ?? "true",  DEFAULT_MANIFEST.features.rankings),
+      communityNotes:   parseBool(kv["feature_community_notes"],             DEFAULT_MANIFEST.features.communityNotes),
+      // canonical: feature_star_purchase; legacy: feature_star_direct_purchase
+      starPurchase:     parseBool(kv["feature_star_purchase"]    ?? kv["feature_star_direct_purchase"] ?? "false", DEFAULT_MANIFEST.features.starPurchase),
+      // canonical: feature_nemesis_system; legacy: feature_nemesis
+      nemesisSystem:    parseBool(kv["feature_nemesis_system"]   ?? kv["feature_nemesis"] ?? "true",   DEFAULT_MANIFEST.features.nemesisSystem),
+      guildWars:        parseBool(kv["feature_guild_wars"],                  DEFAULT_MANIFEST.features.guildWars),
+      classrooms:       parseBool(kv["feature_classrooms"],                  DEFAULT_MANIFEST.features.classrooms),
+      businessAccounts: parseBool(kv["feature_business_accounts"],           DEFAULT_MANIFEST.features.businessAccounts),
+      admobAds:         parseBool(kv["feature_admob_ads"],                   DEFAULT_MANIFEST.features.admobAds),
+      rewardedAds:      parseBool(kv["feature_rewarded_ads"],                DEFAULT_MANIFEST.features.rewardedAds),
+      // canonical: feature_merch_store; legacy: feature_creator_merch
+      merchStore:       parseBool(kv["feature_merch_store"]      ?? kv["feature_creator_merch"] ?? "false", DEFAULT_MANIFEST.features.merchStore),
+      platformCouncil:  parseBool(kv["feature_platform_council"],            DEFAULT_MANIFEST.features.platformCouncil),
+      allianceSystem:   parseBool(kv["feature_alliance_system"],             DEFAULT_MANIFEST.features.allianceSystem),
+      pinAuth:          parseBool(kv["feature_pin_auth"]         ?? "true",  DEFAULT_MANIFEST.features.pinAuth),
     },
     auth: {
       googleEnabled:   parseBool(kv["auth_google_enabled"],   DEFAULT_MANIFEST.auth.googleEnabled),
@@ -207,7 +219,11 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
     minimumAge:              parseInt10(kv["minimum_age"],               DEFAULT_MANIFEST.minimumAge),
     coinToCashRate:          parseInt10(kv["coin_to_cash_rate"],         DEFAULT_MANIFEST.coinToCashRate),
     payoutThresholdKobo:     parseInt10(kv["payout_threshold_kobo"],     DEFAULT_MANIFEST.payoutThresholdKobo),
-    payoutLargeApprovalKobo: parseInt10(kv["payout_large_approval_kobo"],DEFAULT_MANIFEST.payoutLargeApprovalKobo),
+    // canonical: payout_large_approval_kobo; legacy: payout_manual_approval_threshold_kobo
+    payoutLargeApprovalKobo: parseInt10(
+      kv["payout_large_approval_kobo"] ?? kv["payout_manual_approval_threshold_kobo"],
+      DEFAULT_MANIFEST.payoutLargeApprovalKobo
+    ),
     seasonPassPriceCoins:    parseInt10(kv["season_pass_price_coins"],   DEFAULT_MANIFEST.seasonPassPriceCoins),
     vipRoomMinPriceKobo:     parseInt10(kv["vip_room_min_price_kobo"],   DEFAULT_MANIFEST.vipRoomMinPriceKobo),
     vipRoomMaxPriceKobo:     parseInt10(kv["vip_room_max_price_kobo"],   DEFAULT_MANIFEST.vipRoomMaxPriceKobo),

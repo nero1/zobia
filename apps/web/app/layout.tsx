@@ -20,6 +20,7 @@ import "./globals.css";
 import { ReactQueryProvider } from "@/components/providers/ReactQueryProvider";
 import { I18nProvider } from "@/components/providers/I18nProvider";
 import { loadManifest } from "@/lib/manifest";
+import { db } from "@/lib/db";
 
 // ---------------------------------------------------------------------------
 // Font
@@ -101,11 +102,28 @@ interface RootLayoutProps {
   children: React.ReactNode;
 }
 
+/** Fetch active footer scripts from the database. Fails open (returns []). */
+async function getFooterScripts(): Promise<Array<{ id: string; content: string }>> {
+  try {
+    const { rows } = await db.query<{ id: string; content: string }>(
+      `SELECT id, content FROM footer_scripts
+       WHERE is_active = TRUE
+       ORDER BY position ASC, created_at ASC`
+    );
+    return rows;
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Root layout component. Async Server Component — safe to await at the top
  * level. PWA manifest presence is controlled per-request by generateMetadata.
+ * Footer scripts from the admin panel are injected at the bottom of <body>.
  */
-export default function RootLayout({ children }: RootLayoutProps) {
+export default async function RootLayout({ children }: RootLayoutProps) {
+  const footerScripts = await getFooterScripts();
+
   return (
     <html
       lang="en"
@@ -125,6 +143,12 @@ export default function RootLayout({ children }: RootLayoutProps) {
             </I18nProvider>
           </ReactQueryProvider>
         </ThemeProvider>
+        {footerScripts.map((script) => (
+          <div
+            key={script.id}
+            dangerouslySetInnerHTML={{ __html: script.content }}
+          />
+        ))}
       </body>
     </html>
   );

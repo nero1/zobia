@@ -238,6 +238,11 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
            VALUES ($1, 'merch_sale', $2, $3, $4)`,
           [creatorId, priceKobo, platformFeeKobo, creatorNetKobo]
         );
+        await tx.query(
+          `UPDATE users SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1,
+                            updated_at = NOW() WHERE id = $2`,
+          [creatorNetKobo, creatorId]
+        );
 
         // e. Credit creator's coins
         await creditCoins(
