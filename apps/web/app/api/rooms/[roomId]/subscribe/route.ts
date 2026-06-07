@@ -29,6 +29,8 @@ import {
   badRequest,
 } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { initializePayment } from "@/lib/payments";
+import { env } from "@/lib/env";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -174,28 +176,54 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     ).toISOString();
 
     if (body.paymentMethod === "card") {
-      // Initiate external payment — return redirect URL for client to handle
-      // The webhook at /api/payments/webhook will complete the subscription
-      const paymentRecord = await db.query<{ id: string }>(
+      // Fetch user email for payment provider
+      const { rows: emailRows } = await db.query<{ email: string }>(
+        `SELECT email FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+        [userId]
+      );
+      const email = emailRows[0]?.email;
+      if (!email) throw notFound("User not found");
+
+      const idempotencyKey = `room_sub:${userId}:${roomId}:${Date.now()}`;
+      const returnUrl = `${env.NEXT_PUBLIC_APP_URL}/rooms/${roomId}/subscribe/callback`;
+      const metadata = {
+        itemType: "room_subscription",
+        userId,
+        roomId,
+        grossKobo,
+        subscriptionDays: SUBSCRIPTION_DAYS,
+      };
+
+      const paymentResult = await initializePayment(
+        grossKobo,
+        "NGN",
+        email,
+        idempotencyKey,
+        metadata,
+        returnUrl
+      );
+
+      // Persist the pending payment record so the webhook can activate it
+      await db.query(
         `INSERT INTO payments
-           (user_id, payment_type, amount_kobo, currency, provider, status,
-            reference_id, idempotency_key)
-         VALUES ($1, 'subscription', $2, 'NGN', 'paystack', 'pending', $3, $4)
-         RETURNING id`,
+           (user_id, payment_type, amount_kobo, currency, status,
+            idempotency_key, provider_reference, payment_url, metadata)
+         VALUES ($1, 'room_subscription', $2, 'NGN', 'pending', $3, $4, $5, $6)`,
         [
           userId,
           grossKobo,
-          roomId,
-          `sub:${userId}:${roomId}:${Date.now()}`,
+          idempotencyKey,
+          paymentResult.providerReference,
+          paymentResult.paymentUrl,
+          JSON.stringify(metadata),
         ]
       );
-
-      const paymentId = paymentRecord.rows[0]?.id;
 
       return NextResponse.json(
         {
           requiresCardPayment: true,
-          paymentUrl: `/api/payments/initiate?paymentId=${paymentId}`,
+          paymentUrl: paymentResult.paymentUrl,
+          paymentReference: paymentResult.providerReference,
         },
         { status: 200 }
       );
