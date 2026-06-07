@@ -19,6 +19,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
+  Linking,
   Modal,
   Pressable,
   ScrollView,
@@ -850,6 +851,39 @@ export default function SettingsScreen() {
             <Text style={[styles.settingsRowLabel, { color: themeColors.text }]}>Plan Management</Text>
             <Text style={[styles.toggleDesc, { color: themeColors.textMuted }]}>
               Upgrade or manage your current plan
+            </Text>
+          </View>
+          <Text style={[styles.chevron, { color: themeColors.textMuted }]}>›</Text>
+        </Pressable>
+      </View>
+
+      {/* Legal */}
+      <SectionHeader title="LEGAL" />
+      <View style={[styles.card, { backgroundColor: themeColors.surface }]}>
+        <Pressable
+          style={[styles.settingsRow, { borderBottomColor: themeColors.border }]}
+          onPress={() => Linking.openURL('https://zobia.app/terms')}
+          accessibilityRole="link"
+          accessibilityLabel="Terms of Service"
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.settingsRowLabel, { color: themeColors.text }]}>Terms of Service</Text>
+            <Text style={[styles.toggleDesc, { color: themeColors.textMuted }]}>
+              View our terms and conditions
+            </Text>
+          </View>
+          <Text style={[styles.chevron, { color: themeColors.textMuted }]}>›</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.settingsRow, { borderBottomColor: 'transparent' }]}
+          onPress={() => Linking.openURL('https://zobia.app/privacy')}
+          accessibilityRole="link"
+          accessibilityLabel="Privacy Policy"
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.settingsRowLabel, { color: themeColors.text }]}>Privacy Policy</Text>
+            <Text style={[styles.toggleDesc, { color: themeColors.textMuted }]}>
+              How we collect and use your data
             </Text>
           </View>
           <Text style={[styles.chevron, { color: themeColors.textMuted }]}>›</Text>

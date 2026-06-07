@@ -369,6 +369,15 @@
     "noEntries": "No entries yet for this leaderboard.",
     "loadError": "Could not load leaderboard. Check your connection."
   },
+  "legal": {
+    "agreePrefix": "By continuing you agree to our",
+    "and": "and",
+    "termsOfService": "Terms of Service",
+    "privacyPolicy": "Privacy Policy",
+    "sectionHeader": "LEGAL",
+    "termsSubtitle": "View our terms and conditions",
+    "privacySubtitle": "How we collect and use your data"
+  },
   "publicProfile": {
     "playingSince": "Playing since {{year}}",
     "trackLevels": "Track Levels",

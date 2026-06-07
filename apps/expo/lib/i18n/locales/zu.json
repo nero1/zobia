@@ -967,5 +967,14 @@
     "boosterComingSoonTitle": "Kuzofika Maduze",
     "boosterComingSoonBody": "Ukuthenga okuqinisayo kutholakala esibuyekezo esilandelayo.",
     "buy": "Thenga"
+  },
+  "legal": {
+    "agreePrefix": "Ngokuqhubeka, uyavuma",
+    "and": "kanye",
+    "termsOfService": "Imigomo Yesevisi",
+    "privacyPolicy": "Inqubomgomo Yobumfihlo",
+    "sectionHeader": "EZOMTHETHO",
+    "termsSubtitle": "Buka imigomo nemibandela yethu",
+    "privacySubtitle": "Indlela esiqoqa ngayo futhi sisebenzise idatha yakho"
   }
 }

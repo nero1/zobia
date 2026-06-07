@@ -788,5 +788,24 @@
   "communityNotes.modal.cancel": "ሰርዝ",
   "communityNotes.modal.submit": "ማስታወሻ አቅርቡ",
   "communityNotes.modal.submitting": "እያቀረበ…",
-  "communityNotes.modal.minLength": "ማስታወሻ ቢያንስ 20 ቁምፊ መሆን አለበት።"
+  "communityNotes.modal.minLength": "ማስታወሻ ቢያንስ 20 ቁምፊ መሆን አለበት።",
+
+  "terms.title": "የአገልግሎት ውሎች",
+  "terms.lastUpdated": "የተዘመነ: {{date}}",
+  "terms.backHome": "← ወደ ቤት ተመለስ",
+  "terms.toc": "የይዘት ሰንጠረዥ",
+
+  "privacy.title": "የግላዊነት ፖሊሲ",
+  "privacy.lastUpdated": "የተዘመነ: {{date}}",
+  "privacy.backHome": "← ወደ ቤት ተመለስ",
+  "privacy.toc": "የይዘት ሰንጠረዥ",
+
+  "notFound.title": "ገጹ አልተገኘም",
+  "notFound.description": "እርስዎ የሚፈልጉት ገጽ የለም ወይም ተዛውሯል።",
+  "notFound.backHome": "ወደ ቤት ተመለስ",
+  "notFound.quickLinks": "ወይም ከዚህ ገጾች አንዱን ይሞክሩ:",
+
+  "landing.footer.terms": "የአገልግሎት ውሎች",
+  "landing.footer.privacy": "የግላዊነት ፖሊሲ",
+  "landing.footer.copyright": "© {{year}} ዞቢያ ሶሻል። ሁሉም መብቶች የተጠበቁ ናቸው።"
 }

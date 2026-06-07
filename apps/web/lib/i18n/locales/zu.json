@@ -788,5 +788,24 @@
   "communityNotes.modal.cancel": "Khansela",
   "communityNotes.modal.submit": "Thumela Inothi",
   "communityNotes.modal.submitting": "Ithuma…",
-  "communityNotes.modal.minLength": "Inothi kufanele libe nezinhlamvu ezingama-20 okungenani."
+  "communityNotes.modal.minLength": "Inothi kufanele libe nezinhlamvu ezingama-20 okungenani.",
+
+  "terms.title": "Imigomo Yesevisi",
+  "terms.lastUpdated": "Kubuyekeziwe: {{date}}",
+  "terms.backHome": "← Buyela Ekhaya",
+  "terms.toc": "Uhlu Lwezinhlobo",
+
+  "privacy.title": "Inqubomgomo Yobumfihlo",
+  "privacy.lastUpdated": "Kubuyekeziwe: {{date}}",
+  "privacy.backHome": "← Buyela Ekhaya",
+  "privacy.toc": "Uhlu Lwezinhlobo",
+
+  "notFound.title": "Ikhasi Alitholakali",
+  "notFound.description": "Ikhasi ofuna lona alikhona noma lihanjisiwe.",
+  "notFound.backHome": "Buyela Ekhaya",
+  "notFound.quickLinks": "Noma zama elinye lala makhasi:",
+
+  "landing.footer.terms": "Imigomo Yesevisi",
+  "landing.footer.privacy": "Inqubomgomo Yobumfihlo",
+  "landing.footer.copyright": "© {{year}} Zobia Social. Wonke amalungelo agcinwe."
 }

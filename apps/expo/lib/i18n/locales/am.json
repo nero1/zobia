@@ -1118,6 +1118,15 @@
     "noEntries": "ለዚህ ሊደርቦርድ ገና ምንም ግቤቶች የሉም።",
     "loadError": "ሊደርቦርዱን መጫን አልተቻለም። ግንኙነትዎን ይፈትሹ።"
   },
+  "legal": {
+    "agreePrefix": "በመቀጠልዎ የሚከተሉትን ይስማማሉ",
+    "and": "እና",
+    "termsOfService": "የአገልግሎት ውሎች",
+    "privacyPolicy": "የግላዊነት ፖሊሲ",
+    "sectionHeader": "ህጋዊ",
+    "termsSubtitle": "ውሎቻችንን እና ሁኔታዎቻችንን ይመልከቱ",
+    "privacySubtitle": "ውሂብዎን እንዴት እንሰበስብ እና እንጠቀማለን"
+  },
   "publicProfile": {
     "playingSince": "ከ{{year}} ጀምሮ ይጫወቱ ነበር",
     "trackLevels": "የትራክ ደረጃዎች",

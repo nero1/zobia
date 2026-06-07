@@ -788,5 +788,24 @@
   "communityNotes.modal.cancel": "Annuler",
   "communityNotes.modal.submit": "Soumettre la note",
   "communityNotes.modal.submitting": "Soumission…",
-  "communityNotes.modal.minLength": "La note doit contenir au moins 20 caractères."
+  "communityNotes.modal.minLength": "La note doit contenir au moins 20 caractères.",
+
+  "terms.title": "Conditions d'utilisation",
+  "terms.lastUpdated": "Dernière mise à jour : {{date}}",
+  "terms.backHome": "← Retour à l'accueil",
+  "terms.toc": "Table des matières",
+
+  "privacy.title": "Politique de confidentialité",
+  "privacy.lastUpdated": "Dernière mise à jour : {{date}}",
+  "privacy.backHome": "← Retour à l'accueil",
+  "privacy.toc": "Table des matières",
+
+  "notFound.title": "Page introuvable",
+  "notFound.description": "La page que vous recherchez n'existe pas ou a été déplacée.",
+  "notFound.backHome": "Retourner à l'accueil",
+  "notFound.quickLinks": "Ou essayez l'une de ces pages :",
+
+  "landing.footer.terms": "Conditions d'utilisation",
+  "landing.footer.privacy": "Politique de confidentialité",
+  "landing.footer.copyright": "© {{year}} Zobia Social. Tous droits réservés."
 }

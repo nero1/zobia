@@ -1118,6 +1118,15 @@
     "noEntries": "Babu shigarwa tukuna ga wannan jadawalin.",
     "loadError": "Ba a iya loda jadawalin jagoranci. Duba haɗin intanet ɗinka."
   },
+  "legal": {
+    "agreePrefix": "Ta hanyar ci gaba, kana yarda da",
+    "and": "da",
+    "termsOfService": "Sharuɗɗan Amfani",
+    "privacyPolicy": "Manufar Sirri",
+    "sectionHeader": "DOKA",
+    "termsSubtitle": "Duba sharuɗɗanmu da ƙa'idodi",
+    "privacySubtitle": "Yadda muke tattarawa da amfani da bayananka"
+  },
   "publicProfile": {
     "playingSince": "Yana wasa tun {{year}}",
     "trackLevels": "Matakan Hanya",

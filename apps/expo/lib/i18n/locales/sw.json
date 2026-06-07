@@ -1118,6 +1118,15 @@
     "noEntries": "Bado hakuna maingizo kwa ubao huu.",
     "loadError": "Imeshindwa kupakia ubao wa viongozi. Angalia muunganisho wako."
   },
+  "legal": {
+    "agreePrefix": "Kwa kuendelea unakubali",
+    "and": "na",
+    "termsOfService": "Masharti ya Huduma",
+    "privacyPolicy": "Sera ya Faragha",
+    "sectionHeader": "KISHERIA",
+    "termsSubtitle": "Angalia masharti na hali zetu",
+    "privacySubtitle": "Jinsi tunavyokusanya na kutumia data yako"
+  },
   "publicProfile": {
     "playingSince": "Amecheza tangu {{year}}",
     "trackLevels": "Viwango vya Njia",

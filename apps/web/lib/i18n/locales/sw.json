@@ -788,5 +788,24 @@
   "communityNotes.modal.cancel": "Ghairi",
   "communityNotes.modal.submit": "Wasilisha Maelezo",
   "communityNotes.modal.submitting": "Inawasilisha…",
-  "communityNotes.modal.minLength": "Maelezo lazima yawe na angalau herufi 20."
+  "communityNotes.modal.minLength": "Maelezo lazima yawe na angalau herufi 20.",
+
+  "terms.title": "Masharti ya Huduma",
+  "terms.lastUpdated": "Imesasishwa: {{date}}",
+  "terms.backHome": "← Rudi Nyumbani",
+  "terms.toc": "Jedwali la Yaliyomo",
+
+  "privacy.title": "Sera ya Faragha",
+  "privacy.lastUpdated": "Imesasishwa: {{date}}",
+  "privacy.backHome": "← Rudi Nyumbani",
+  "privacy.toc": "Jedwali la Yaliyomo",
+
+  "notFound.title": "Ukurasa Haupatikani",
+  "notFound.description": "Ukurasa unaotafuta haupo au umehamishwa.",
+  "notFound.backHome": "Rudi Nyumbani",
+  "notFound.quickLinks": "Au jaribu moja ya kurasa hizi:",
+
+  "landing.footer.terms": "Masharti ya Huduma",
+  "landing.footer.privacy": "Sera ya Faragha",
+  "landing.footer.copyright": "© {{year}} Zobia Social. Haki zote zimehifadhiwa."
 }

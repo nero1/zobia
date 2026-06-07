@@ -369,6 +369,15 @@
     "noEntries": "لا توجد إدخالات لهذه اللوحة بعد.",
     "loadError": "تعذر تحميل لوحة المتصدرين. تحقق من اتصالك."
   },
+  "legal": {
+    "agreePrefix": "بالمتابعة، أنت توافق على",
+    "and": "و",
+    "termsOfService": "شروط الخدمة",
+    "privacyPolicy": "سياسة الخصوصية",
+    "sectionHeader": "قانوني",
+    "termsSubtitle": "اعرض شروطنا وأحكامنا",
+    "privacySubtitle": "كيف نجمع بياناتك ونستخدمها"
+  },
   "publicProfile": {
     "playingSince": "يلعب منذ {{year}}",
     "trackLevels": "مستويات المسار",

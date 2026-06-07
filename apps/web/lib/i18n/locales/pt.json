@@ -747,5 +747,24 @@
   "creator.requested": "Requested",
   "creator.processed": "Processed",
   "creator.accessDenied": "Access denied",
-  "creator.payoutRequested": "Payout requested — pending admin approval"
+  "creator.payoutRequested": "Payout requested — pending admin approval",
+
+  "terms.title": "Termos de Serviço",
+  "terms.lastUpdated": "Última atualização: {{date}}",
+  "terms.backHome": "← Voltar ao Início",
+  "terms.toc": "Índice",
+
+  "privacy.title": "Política de Privacidade",
+  "privacy.lastUpdated": "Última atualização: {{date}}",
+  "privacy.backHome": "← Voltar ao Início",
+  "privacy.toc": "Índice",
+
+  "notFound.title": "Página Não Encontrada",
+  "notFound.description": "A página que você está procurando não existe ou foi movida.",
+  "notFound.backHome": "Voltar ao início",
+  "notFound.quickLinks": "Ou experimente uma destas páginas:",
+
+  "landing.footer.terms": "Termos de Serviço",
+  "landing.footer.privacy": "Política de Privacidade",
+  "landing.footer.copyright": "© {{year}} Zobia Social. Todos os direitos reservados."
 }
