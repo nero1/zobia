@@ -62,6 +62,7 @@ export const POST = withAdminAuth(
            SET status = 'rejected',
                rejection_reason = $1,
                rejected_at = NOW(),
+               appeal_status = NULL,
                updated_at = NOW()
            WHERE id = $2`,
           [body.reason, payoutId]
@@ -75,6 +76,21 @@ export const POST = withAdminAuth(
           [payout.gross_kobo, payout.creator_id]
         );
       });
+
+      // Notify creator
+      await db
+        .query(
+          `INSERT INTO notifications
+             (user_id, type, title, body, metadata, created_at)
+           VALUES ($1, 'payout_rejected', 'Payout Rejected',
+             $2, $3::jsonb, NOW())`,
+          [
+            payout.creator_id,
+            `Your payout was rejected. Reason: ${body.reason} You may submit an appeal if you believe this is an error.`,
+            JSON.stringify({ payoutId, reason: body.reason }),
+          ]
+        )
+        .catch(() => {});
 
       return NextResponse.json({
         success: true,

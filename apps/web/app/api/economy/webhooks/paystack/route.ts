@@ -165,21 +165,113 @@ async function processChargeSuccess(
 async function processTransferEvent(
   event: PaystackTransferEvent
 ): Promise<void> {
-  const { reference, status } = event.data;
+  const { reference, status, transfer_code } = event.data;
 
-  const dbStatus =
-    event.event === "transfer.success"
-      ? "completed"
-      : event.event === "transfer.failed"
-      ? "failed"
-      : "reversed";
-
-  await db.query(
-    `UPDATE creator_payouts
-     SET status = $1, provider_status = $2, updated_at = NOW()
-     WHERE provider_reference = $3`,
-    [dbStatus, status, reference]
+  // Look up payout by provider_reference (transfer_code stored at initiation)
+  const { rows } = await db.query<{
+    id: string;
+    creator_id: string;
+    gross_kobo: number;
+    retry_count: number;
+  }>(
+    `SELECT id, creator_id, gross_kobo, retry_count
+     FROM creator_payouts
+     WHERE provider_reference = $1
+     LIMIT 1`,
+    [transfer_code ?? reference]
   );
+
+  if (!rows[0]) {
+    console.warn(`[webhook/paystack] No payout found for transfer reference: ${transfer_code ?? reference}`);
+    return;
+  }
+
+  const payout = rows[0];
+
+  if (event.event === "transfer.success") {
+    await db.transaction(async (tx) => {
+      await tx.query(
+        `UPDATE creator_payouts
+         SET status = 'completed', completed_at = NOW(), updated_at = NOW()
+         WHERE id = $1`,
+        [payout.id]
+      );
+    });
+
+    // Notify creator of successful payout
+    await db.query(
+      `INSERT INTO notifications
+         (user_id, type, title, body, metadata, created_at)
+       VALUES ($1, 'payout_completed', 'Payout Successful',
+         'Your payout has been processed and is on its way to your bank account.',
+         $2::jsonb, NOW())`,
+      [payout.creator_id, JSON.stringify({ payoutId: payout.id, reference })]
+    ).catch(() => {});
+
+  } else if (event.event === "transfer.failed") {
+    // Import retry logic from payouts lib
+    const { moveToDeadLetterQueue, notifyPayoutFailure } = await import("@/lib/payments/payouts");
+    const { loadManifest } = await import("@/lib/manifest");
+
+    const manifest = await loadManifest();
+    const maxRetries = manifest.payouts.maxRetries;
+
+    const newRetryCount = payout.retry_count + 1;
+
+    if (newRetryCount >= maxRetries) {
+      await moveToDeadLetterQueue(
+        payout.id,
+        payout.creator_id,
+        payout.retry_count,
+        `Paystack transfer failed after ${maxRetries} attempts. Status: ${status}`
+      );
+      await notifyPayoutFailure(
+        payout.id,
+        payout.creator_id,
+        `Your payout could not be processed after multiple attempts. Please check your bank account details.`
+      );
+    } else {
+      // Exponential backoff: 5min, 15min, 45min
+      const backoffMinutes = [5, 15, 45][Math.min(newRetryCount - 1, 2)];
+      await db.query(
+        `UPDATE creator_payouts
+         SET status = 'failed',
+             retry_count = $1,
+             last_retry_at = NOW(),
+             next_retry_at = NOW() + ($2 || ' minutes')::INTERVAL,
+             updated_at = NOW()
+         WHERE id = $3`,
+        [newRetryCount, backoffMinutes, payout.id]
+      );
+    }
+
+  } else if (event.event === "transfer.reversed") {
+    // Restore earnings to creator
+    await db.transaction(async (tx) => {
+      await tx.query(
+        `UPDATE creator_payouts
+         SET status = 'reversed', updated_at = NOW()
+         WHERE id = $1`,
+        [payout.id]
+      );
+      await tx.query(
+        `UPDATE users
+         SET available_earnings_kobo = available_earnings_kobo + $1, updated_at = NOW()
+         WHERE id = $2`,
+        [payout.gross_kobo, payout.creator_id]
+      );
+    });
+
+    // Notify creator of reversal
+    await db.query(
+      `INSERT INTO notifications
+         (user_id, type, title, body, metadata, created_at)
+       VALUES ($1, 'payout_reversed', 'Payout Reversed',
+         'Your payout was reversed by the payment network. Your earnings have been restored to your balance. Please verify your bank account details.',
+         $2::jsonb, NOW())`,
+      [payout.creator_id, JSON.stringify({ payoutId: payout.id })]
+    ).catch(() => {});
+  }
 }
 
 // ---------------------------------------------------------------------------

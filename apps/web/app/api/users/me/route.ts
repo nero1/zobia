@@ -308,24 +308,42 @@ export const DELETE = withAuth(async (_req: NextRequest, { auth }) => {
     const userId = auth.user.sub;
     const shortId = userId.replace(/-/g, "").slice(0, 8);
 
-    await db.query(
-      `UPDATE users
-       SET email           = NULL,
-           display_name    = 'Deleted User',
-           username        = $2,
-           bio             = NULL,
-           avatar_emoji    = '👤',
-           city            = NULL,
-           push_token      = NULL,
-           google_id       = NULL,
-           telegram_id     = NULL,
-           password_hash   = NULL,
-           pin_hash        = NULL,
-           deleted_at      = NOW(),
-           updated_at      = NOW()
-       WHERE id = $1 AND deleted_at IS NULL`,
-      [userId, `deleted_${shortId}`]
-    );
+    await db.transaction(async (tx) => {
+      await tx.query(
+        `UPDATE users
+         SET email           = NULL,
+             display_name    = 'Deleted User',
+             username        = $2,
+             bio             = NULL,
+             avatar_emoji    = '👤',
+             city            = NULL,
+             push_token      = NULL,
+             google_id       = NULL,
+             telegram_id     = NULL,
+             password_hash   = NULL,
+             pin_hash        = NULL,
+             deleted_at      = NOW(),
+             updated_at      = NOW()
+         WHERE id = $1 AND deleted_at IS NULL`,
+        [userId, `deleted_${shortId}`]
+      );
+
+      // Hard-delete PII tables — bank accounts and wallet addresses are entirely
+      // PII; payout records preserve the data needed for accounting via snapshots.
+      await tx.query(
+        `DELETE FROM creator_bank_accounts WHERE creator_id = $1`,
+        [userId]
+      );
+      await tx.query(
+        `DELETE FROM creator_wallet_addresses WHERE creator_id = $1`,
+        [userId]
+      );
+      // Remove old KYC records if still present from prior schema
+      await tx.query(
+        `DELETE FROM creator_kyc WHERE creator_id = $1`,
+        [userId]
+      ).catch(() => {}); // table may not exist; ignore
+    });
 
     return NextResponse.json(
       { success: true, data: { message: "Account deleted. We're sorry to see you go." }, error: null },

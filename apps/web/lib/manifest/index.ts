@@ -78,6 +78,31 @@ export interface ZobiaManifest {
     paystackEnabled: boolean;
     dodopaymentsEnabled: boolean;
   };
+  // Payout configuration
+  payouts: {
+    /** Master toggle — when false, all payout routes return 503. */
+    enabled: boolean;
+    nigeria: {
+      cashEnabled: boolean;
+      coinsEnabled: boolean;
+      cryptoEnabled: boolean;
+      /** true = below-threshold payouts process automatically via CRON;
+       *  false = all Nigeria bank transfer payouts require manual admin approval. */
+      autoApprove: boolean;
+    };
+    global: {
+      coinsEnabled: boolean;
+      cryptoEnabled: boolean;
+    };
+    /** Max payouts processed per CRON run. */
+    batchSize: number;
+    /** Max retry attempts before moving to dead-letter queue. */
+    maxRetries: number;
+    /** XP awarded on first bank account addition (main rank). */
+    bankAccountFirstAddXp: number;
+    /** Creator track XP awarded on first bank account addition. */
+    bankAccountFirstAddCreatorXp: number;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -126,6 +151,23 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     primaryProvider: "paystack",
     paystackEnabled: true,
     dodopaymentsEnabled: false,
+  },
+  payouts: {
+    enabled: true,
+    nigeria: {
+      cashEnabled: true,
+      coinsEnabled: true,
+      cryptoEnabled: true,
+      autoApprove: true,
+    },
+    global: {
+      coinsEnabled: true,
+      cryptoEnabled: true,
+    },
+    batchSize: 200,
+    maxRetries: 3,
+    bankAccountFirstAddXp: 5,
+    bankAccountFirstAddCreatorXp: 10,
   },
 };
 
@@ -232,6 +274,23 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       primaryProvider,
       paystackEnabled:     parseBool(kv["payment_paystack_enabled"],     DEFAULT_MANIFEST.payment.paystackEnabled),
       dodopaymentsEnabled: parseBool(kv["payment_dodopayments_enabled"], DEFAULT_MANIFEST.payment.dodopaymentsEnabled),
+    },
+    payouts: {
+      enabled:      parseBool(kv["payouts_enabled"],              DEFAULT_MANIFEST.payouts.enabled),
+      nigeria: {
+        cashEnabled:   parseBool(kv["nigeria_cash_payout_enabled"],   DEFAULT_MANIFEST.payouts.nigeria.cashEnabled),
+        coinsEnabled:  parseBool(kv["nigeria_coins_payout_enabled"],  DEFAULT_MANIFEST.payouts.nigeria.coinsEnabled),
+        cryptoEnabled: parseBool(kv["nigeria_crypto_payout_enabled"], DEFAULT_MANIFEST.payouts.nigeria.cryptoEnabled),
+        autoApprove:   parseBool(kv["nigeria_payout_auto_approve"],   DEFAULT_MANIFEST.payouts.nigeria.autoApprove),
+      },
+      global: {
+        coinsEnabled:  parseBool(kv["global_coins_payout_enabled"],  DEFAULT_MANIFEST.payouts.global.coinsEnabled),
+        cryptoEnabled: parseBool(kv["global_crypto_payout_enabled"], DEFAULT_MANIFEST.payouts.global.cryptoEnabled),
+      },
+      batchSize:                   parseInt10(kv["payout_batch_size"],                   DEFAULT_MANIFEST.payouts.batchSize),
+      maxRetries:                  parseInt10(kv["payout_max_retries"],                  DEFAULT_MANIFEST.payouts.maxRetries),
+      bankAccountFirstAddXp:       parseInt10(kv["bank_account_first_add_xp"],          DEFAULT_MANIFEST.payouts.bankAccountFirstAddXp),
+      bankAccountFirstAddCreatorXp: parseInt10(kv["bank_account_first_add_creator_xp"], DEFAULT_MANIFEST.payouts.bankAccountFirstAddCreatorXp),
     },
   };
 }
