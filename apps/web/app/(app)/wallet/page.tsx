@@ -213,6 +213,48 @@ function TransactionHistory({ transactions }: { transactions: Transaction[] }) {
 // Booster Packs
 // ---------------------------------------------------------------------------
 
+/** Returns a live countdown string for a booster expiry timestamp. */
+function useBoosterCountdown(expiresAt: string): string {
+  const [label, setLabel] = useState(() => computeCountdown(expiresAt));
+
+  useEffect(() => {
+    const t = setInterval(() => setLabel(computeCountdown(expiresAt)), 60_000);
+    return () => clearInterval(t);
+  }, [expiresAt]);
+
+  return label;
+}
+
+function computeCountdown(expiresAt: string): string {
+  const msLeft = new Date(expiresAt).getTime() - Date.now();
+  if (msLeft <= 0) return "Expired";
+  const h = Math.floor(msLeft / 3_600_000);
+  const m = Math.floor((msLeft % 3_600_000) / 60_000);
+  if (h >= 24) {
+    const d = Math.floor(h / 24);
+    return `${d}d ${h % 24}h left`;
+  }
+  if (h > 0) return `${h}h ${m}m left`;
+  return `${m}m left`;
+}
+
+function BoosterRow({ booster }: { booster: BoosterPack }) {
+  const countdown = useBoosterCountdown(booster.expiresAt);
+  const isExpiringSoon = new Date(booster.expiresAt).getTime() - Date.now() < 3_600_000;
+
+  return (
+    <div className="flex items-start justify-between px-5 py-3">
+      <div>
+        <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{booster.name}</p>
+        <p className="text-xs text-neutral-500">{booster.description}</p>
+      </div>
+      <span className={`ml-3 shrink-0 text-xs font-semibold tabular-nums ${isExpiringSoon ? "text-red-500 dark:text-red-400" : "text-neutral-400"}`}>
+        {countdown}
+      </span>
+    </div>
+  );
+}
+
 function BoosterPacks({ boosters }: { boosters: BoosterPack[] }) {
   if (boosters.length === 0) return null;
 
@@ -222,21 +264,7 @@ function BoosterPacks({ boosters }: { boosters: BoosterPack[] }) {
         <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">Active Boosters</h2>
       </div>
       <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
-        {boosters.map((b) => (
-          <div key={b.id} className="flex items-start justify-between px-5 py-3">
-            <div>
-              <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{b.name}</p>
-              <p className="text-xs text-neutral-500">{b.description}</p>
-            </div>
-            <span className="ml-3 shrink-0 text-xs text-neutral-400">
-              Expires{" "}
-              {new Date(b.expiresAt).toLocaleDateString("en-GB", {
-                day: "numeric",
-                month: "short",
-              })}
-            </span>
-          </div>
-        ))}
+        {boosters.map((b) => <BoosterRow key={b.id} booster={b} />)}
       </div>
     </div>
   );

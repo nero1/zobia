@@ -165,20 +165,52 @@ function GuildDetailSkeleton() {
 }
 
 // ---------------------------------------------------------------------------
-// Active War Banner
+// Active War Banner (with live contribution leaderboard)
 // ---------------------------------------------------------------------------
 
-function ActiveWarBanner({ war }: { war: ActiveWar }) {
+interface WarContributor {
+  user_id: string;
+  username: string;
+  display_name: string;
+  avatar_emoji: string;
+  rank_name: string;
+  war_points: number;
+  guild_id: string;
+}
+
+function ActiveWarBanner({ war, guildId }: { war: ActiveWar; guildId: string }) {
   const [secs, setSecs] = useState(secondsUntil(war.endsAt));
+  const [contributors, setContributors] = useState<WarContributor[]>([]);
 
   useEffect(() => {
     const t = setInterval(() => setSecs(secondsUntil(war.endsAt)), 1000);
     return () => clearInterval(t);
   }, [war.endsAt]);
 
+  // Fetch per-member war contribution leaderboard (refreshes every 60 s)
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      fetch(`/api/guilds/wars/${war.id}/leaderboard`, { credentials: "include" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d: { data?: { contributions?: WarContributor[] } } | null) => {
+          if (!cancelled && d?.data?.contributions) setContributors(d.data.contributions);
+        })
+        .catch(() => {});
+    };
+    load();
+    const interval = setInterval(load, 60_000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [war.id]);
+
+  // Split contributors by own guild vs opponent
+  const myContribs = contributors.filter((c) => c.guild_id === guildId)
+    .sort((a, b) => b.war_points - a.war_points)
+    .slice(0, 5);
+
   return (
-    <div className={`rounded-xl border p-5 ${war.finalHour ? "border-red-400 bg-red-50 dark:border-red-700 dark:bg-red-950/30" : "border-orange-300 bg-orange-50 dark:border-orange-700 dark:bg-orange-950/20"}`}>
-      <div className="mb-4 flex items-center justify-between">
+    <div className={`rounded-xl border p-5 space-y-4 ${war.finalHour ? "border-red-400 bg-red-50 dark:border-red-700 dark:bg-red-950/30" : "border-orange-300 bg-orange-50 dark:border-orange-700 dark:bg-orange-950/20"}`}>
+      <div className="flex items-center justify-between">
         <h2 className={`font-bold ${war.finalHour ? "text-red-700 dark:text-red-300" : "text-orange-700 dark:text-orange-300"}`}>
           {war.finalHour ? "🔥 FINAL HOUR — WAR ONGOING" : "⚔️ Active Guild War"}
         </h2>
@@ -186,6 +218,8 @@ function ActiveWarBanner({ war }: { war: ActiveWar }) {
           {formatCountdown(secs)}
         </span>
       </div>
+
+      {/* Score scoreboard */}
       <div className="flex items-center justify-around">
         <div className="text-center">
           <p className="text-4xl font-black tabular-nums text-blue-600">{war.myScore.toLocaleString()}</p>
@@ -203,6 +237,29 @@ function ActiveWarBanner({ war }: { war: ActiveWar }) {
           <p className="mt-1 text-xs text-neutral-500">Their Score</p>
         </div>
       </div>
+
+      {/* Top contributors from our guild */}
+      {myContribs.length > 0 && (
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">Top Contributors</p>
+          <div className="space-y-1">
+            {myContribs.map((c, i) => (
+              <div key={c.user_id} className="flex items-center gap-2 rounded-lg px-3 py-1.5 bg-white/60 dark:bg-neutral-900/40">
+                <span className="w-4 shrink-0 text-xs font-bold text-neutral-400 tabular-nums">{i + 1}</span>
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-base dark:bg-neutral-800">
+                  {c.avatar_emoji}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                  {c.display_name || c.username}
+                </span>
+                <span className="ml-auto shrink-0 text-xs font-bold tabular-nums text-blue-600 dark:text-blue-400">
+                  {c.war_points.toLocaleString()} pts
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -542,7 +599,7 @@ export default function GuildProfilePage() {
       )}
 
       {/* Active war banner */}
-      {guild.activeWar && <ActiveWarBanner war={guild.activeWar} />}
+      {guild.activeWar && <ActiveWarBanner war={guild.activeWar} guildId={guild.id} />}
 
       {/* Active guild quests */}
       {guild.activeQuests.length > 0 && (

@@ -21,6 +21,7 @@ import { refreshNemesisAssignments } from "@/lib/nemesis/nemesisEngine";
 import { getCurrentSeason, distributeSeasonRewards, resetSeasonRankings, createSeasonCeremonyRoom } from "@/lib/seasons/seasonEngine";
 import { XP_VALUES } from "@/lib/xp/engine";
 import { processPendingGiftDrops } from "@/lib/events/monthlyGiftDrop";
+import { sendBulkTelegramMessages } from "@/lib/notifications/telegram";
 
 // ---------------------------------------------------------------------------
 // Auth
@@ -2204,6 +2205,69 @@ export const GET = async (req: NextRequest) => {
     }
   } catch (err) {
     errors.push(`referralStreakQualifying: ${String(err)}`);
+  }
+
+  // -------------------------------------------------------------------------
+  // Step 34: Flush Telegram delivery queue (PRD §20 — Admin In-App Messaging)
+  // Admin broadcast messages enqueue Telegram IDs; this step actually sends them
+  // and marks rows delivered. Batch size 200 to stay within Vercel response budget.
+  // -------------------------------------------------------------------------
+  try {
+    const TELEGRAM_BATCH = 200;
+    const { rows: queueRows } = await db.query<{
+      id: string;
+      broadcast_id: string;
+      telegram_ids: string[];
+      message_text: string | null;
+    }>(
+      `SELECT tdq.id, tdq.broadcast_id,
+              tdq.telegram_ids,
+              am.subject || E'\n\n' || am.body AS message_text
+       FROM telegram_delivery_queue tdq
+       JOIN admin_messages am ON am.id = tdq.broadcast_id
+       WHERE tdq.delivered_at IS NULL
+         AND tdq.failed_attempts < 3
+       ORDER BY tdq.created_at ASC
+       LIMIT $1`,
+      [TELEGRAM_BATCH]
+    );
+
+    let telegramSent = 0;
+    let telegramFailed = 0;
+
+    for (const row of queueRows) {
+      if (!row.telegram_ids?.length || !row.message_text) {
+        // Mark as done so it doesn't block the queue
+        await db.query(
+          `UPDATE telegram_delivery_queue SET delivered_at = NOW() WHERE id = $1`,
+          [row.id]
+        ).catch(() => {});
+        continue;
+      }
+
+      try {
+        sendBulkTelegramMessages(
+          row.telegram_ids.map((tid) => ({ telegramId: tid, text: row.message_text! }))
+        );
+        await db.query(
+          `UPDATE telegram_delivery_queue SET delivered_at = NOW() WHERE id = $1`,
+          [row.id]
+        );
+        telegramSent += row.telegram_ids.length;
+      } catch {
+        await db.query(
+          `UPDATE telegram_delivery_queue
+           SET failed_attempts = COALESCE(failed_attempts, 0) + 1
+           WHERE id = $1`,
+          [row.id]
+        ).catch(() => {});
+        telegramFailed++;
+      }
+    }
+
+    results.telegramDelivery = { sent: telegramSent, failed: telegramFailed, batches: queueRows.length };
+  } catch (err) {
+    errors.push(`telegramDelivery: ${String(err)}`);
   }
 
   return NextResponse.json({

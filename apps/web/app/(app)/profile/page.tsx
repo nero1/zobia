@@ -14,6 +14,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { OnlineRing } from "@/components/ui/OnlineRing";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -212,13 +213,15 @@ export default function MyProfilePage() {
       {/* ── Header card ─────────────────────────────────────────────── */}
       <div className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
         <div className="flex items-start gap-4">
-          {/* Avatar with rank ring */}
-          <div
-            className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full text-4xl"
-            style={{ boxShadow: `0 0 0 3px ${ringColor}` }}
-          >
-            {me.avatar_emoji ?? "🙂"}
-          </div>
+          {/* Avatar with rank ring + presence indicator */}
+          <OnlineRing userId={me.id} size="lg">
+            <div
+              className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full text-4xl"
+              style={{ boxShadow: `0 0 0 3px ${ringColor}` }}
+            >
+              {me.avatar_emoji ?? "🙂"}
+            </div>
+          </OnlineRing>
 
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
