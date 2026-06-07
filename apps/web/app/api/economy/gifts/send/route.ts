@@ -87,14 +87,16 @@ async function awardGiftXP(
       ),
     ]);
 
-    await db.query(
-      `UPDATE users SET xp_total = xp_total + $2, updated_at = NOW() WHERE id = $1`,
-      [senderId, senderXP]
-    );
-    await db.query(
-      `UPDATE users SET xp_total = xp_total + $2, updated_at = NOW() WHERE id = $1`,
-      [recipientId, recipientXP]
-    );
+    await Promise.all([
+      db.query(
+        `UPDATE users SET xp_total = xp_total + $2, xp_generosity = xp_generosity + $2, updated_at = NOW() WHERE id = $1`,
+        [senderId, senderXP]
+      ),
+      db.query(
+        `UPDATE users SET xp_total = xp_total + $2, xp_social = xp_social + $2, updated_at = NOW() WHERE id = $1`,
+        [recipientId, recipientXP]
+      ),
+    ]);
   } catch (err) {
     console.error("[gifts/send] Failed to award XP:", err);
   }
