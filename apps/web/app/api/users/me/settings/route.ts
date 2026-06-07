@@ -13,7 +13,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { db, SqlParam } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -133,7 +133,7 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
     const userId = auth.user.sub;
 
     const setClauses: string[] = [];
-    const values: unknown[] = [];
+    const values: SqlParam[] = [];
     let idx = 1;
 
     const boolFields: (keyof typeof body)[] = [

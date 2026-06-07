@@ -96,14 +96,16 @@ interface RawNotification {
   payload: Record<string, unknown> | null;
   isRead: boolean;
   createdAt: string;
+  readAt?: string | null;
   // May be pre-formatted by the API or derived below
   title?: string;
   body?: string;
 }
 
 function formatNotification(n: RawNotification): Notification {
+  const readAt = n.readAt !== undefined ? n.readAt : (n.isRead ? n.createdAt : null);
   // If API already provides title/body, use them
-  if (n.title) return n as Notification;
+  if (n.title) return { ...n, title: n.title, body: n.body ?? "", readAt };
   const p = n.payload ?? {};
   const str = (key: string, fallback = "") => String(p[key] ?? fallback);
   const num = (key: string, fallback = 0) => Number(p[key] ?? fallback);
@@ -181,7 +183,7 @@ function formatNotification(n: RawNotification): Notification {
       body = str("body", str("message", ""));
   }
 
-  return { ...n, title, body };
+  return { ...n, title, body, readAt };
 }
 
 // ---------------------------------------------------------------------------

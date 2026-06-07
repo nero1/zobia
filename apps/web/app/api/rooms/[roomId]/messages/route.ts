@@ -17,7 +17,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { db, SqlParam } from "@/lib/db";
 import { withAuth, validateBody, validateSearchParams } from "@/lib/api/middleware";
 import {
   handleApiError,
@@ -215,7 +215,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       // Moments expire after 24 hours (PRD §5 — Zobia Moments)
       "(m.message_type != 'moment' OR m.created_at > NOW() - INTERVAL '24 hours')",
     ];
-    const queryArgs: unknown[] = [roomId];
+    const queryArgs: SqlParam[] = [roomId];
     let paramIdx = 2;
 
     if (queryParams.cursor) {
@@ -494,7 +494,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         [roomId]
       );
 
-      return rows;
+      return { rows };
     });
 
     const message = msgRows[0];

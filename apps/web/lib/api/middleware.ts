@@ -19,7 +19,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { z, ZodSchema } from "zod";
+import { z, ZodSchema, ZodType, ZodTypeDef } from "zod";
 import {
   verifyAccessToken,
   extractBearerToken,
@@ -108,7 +108,7 @@ function extractToken(req: NextRequest): string | null {
  * @returns Next.js compatible route handler
  */
 export function withAuth<TParams = Record<string, string>>(
-  handler: AuthHandler<TParams>
+  handler: (req: NextRequest, ctx: { params: TParams; auth: any }) => Promise<NextResponse> // eslint-disable-line
 ): (req: NextRequest, ctx: { params: TParams }) => Promise<NextResponse> {
   return async (req, ctx) => {
     try {
@@ -172,7 +172,7 @@ export function withAuth<TParams = Record<string, string>>(
  * @returns Next.js compatible route handler
  */
 export function withAdminAuth<TParams = Record<string, string>>(
-  handler: AdminHandler<TParams>
+  handler: (req: NextRequest, ctx: { params: TParams; auth: any }) => Promise<NextResponse> // eslint-disable-line
 ): (req: NextRequest, ctx: { params: TParams }) => Promise<NextResponse> {
   return async (req, ctx) => {
     try {
@@ -270,7 +270,7 @@ export function withRateLimit<TParams = Record<string, string>>(
  */
 export async function validateBody<T>(
   req: NextRequest,
-  schema: ZodSchema<T>
+  schema: ZodType<T, ZodTypeDef, unknown>
 ): Promise<T> {
   let raw: unknown;
   try {
@@ -292,7 +292,7 @@ export async function validateBody<T>(
  */
 export function validateSearchParams<T>(
   searchParams: URLSearchParams,
-  schema: ZodSchema<T>
+  schema: ZodType<T, ZodTypeDef, unknown>
 ): T {
   const params = Object.fromEntries(searchParams.entries());
   return schema.parse(params);

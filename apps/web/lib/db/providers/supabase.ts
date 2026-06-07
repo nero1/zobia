@@ -65,8 +65,8 @@ export class SupabaseDatabaseAdapter implements DatabaseAdapter {
     params?: SqlParam[]
   ): Promise<QueryResult<T>> {
     const pool = getPool();
-    const result = await pool.query<T>(sql, params as unknown[]);
-    return { rows: result.rows, rowCount: result.rowCount ?? 0 };
+    const result = await pool.query<T & Record<string, unknown>>(sql, params as unknown[]);
+    return { rows: result.rows as T[], rowCount: result.rowCount ?? 0 };
   }
 
   /** @inheritdoc */
@@ -84,8 +84,8 @@ export class SupabaseDatabaseAdapter implements DatabaseAdapter {
           sql: string,
           params?: SqlParam[]
         ): Promise<QueryResult<R>> => {
-          const res = await client.query<R>(sql, params as unknown[]);
-          return { rows: res.rows, rowCount: res.rowCount ?? 0 };
+          const res = await client.query<R & Record<string, unknown>>(sql, params as unknown[]);
+          return { rows: res.rows as R[], rowCount: res.rowCount ?? 0 };
         },
       };
 

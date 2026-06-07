@@ -181,7 +181,7 @@ function ConfirmScreen({ data, onConfirm, confirming, done }: ConfirmScreenProps
         <ul className="space-y-1.5 text-sm text-amber-700 dark:text-amber-400">
           <li>Prestige star on your profile</li>
           {data.rewardsFrame && <li>Exclusive frame: {data.rewardsFrame}</li>}
-          {data.rewardsTitle && <li>Title: "{data.rewardsTitle}"</li>}
+          {data.rewardsTitle && <li>Title: &quot;{data.rewardsTitle}&quot;</li>}
           <li>{data.rewardsCoins.toLocaleString()} coins</li>
         </ul>
       </div>

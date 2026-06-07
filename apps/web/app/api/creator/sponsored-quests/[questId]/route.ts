@@ -12,7 +12,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { db, SqlParam } from "@/lib/db";
 import { withAuth, withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -151,7 +151,7 @@ export const PATCH = withAdminAuth(
 
       // Build dynamic update
       const updates: string[] = [];
-      const values: unknown[] = [];
+      const values: SqlParam[] = [];
       let idx = 1;
 
       if (body.isActive !== undefined) {

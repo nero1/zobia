@@ -11,7 +11,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { db, SqlParam } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -208,7 +208,7 @@ export const PUT = withAuth(async (req: NextRequest, { auth }) => {
 
     // Build SET clause dynamically from provided fields
     const updates: string[] = [];
-    const params: unknown[] = [auth.user.sub];
+    const params: SqlParam[] = [auth.user.sub];
     let paramIdx = 2;
 
     if (body.display_name !== undefined) {

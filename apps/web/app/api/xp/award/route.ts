@@ -17,7 +17,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { db, SqlParam } from "@/lib/db";
 import { validateBody } from "@/lib/api/middleware";
 import { handleApiError, unauthorized, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -307,7 +307,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         "rank_sublevel = $6",
         "updated_at = NOW()",
       ];
-      const params: unknown[] = [
+      const params: SqlParam[] = [
         body.userId,
         newXpTotal,
         newLegacyScore,
@@ -458,11 +458,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // Check and mark New Member Quest step completions (best-effort, non-blocking).
     // Maps XP action types to the corresponding quest step IDs.
     const NEW_MEMBER_QUEST_STEP_MAP: Partial<Record<XPAction, string>> = {
-      message_sent:   "send_message",
-      room_joined:    "join_room",
-      gift_sent:      "gift_someone",
-      friend_added:   "add_friend",
-      daily_login:    "daily_login",
+      send_text_message:    "send_message",
+      join_new_room:        "join_room",
+      send_gift_message:    "gift_someone",
+      add_new_friend:       "add_friend",
+      daily_login:          "daily_login",
     };
 
     const questStep = NEW_MEMBER_QUEST_STEP_MAP[body.action];

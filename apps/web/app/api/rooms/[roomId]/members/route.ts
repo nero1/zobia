@@ -14,7 +14,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { db, SqlParam } from "@/lib/db";
 import { withAuth, validateSearchParams } from "@/lib/api/middleware";
 import {
   handleApiError,
@@ -105,7 +105,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       listMembersQuerySchema
     );
 
-    const args: unknown[] = [roomId];
+    const args: SqlParam[] = [roomId];
     let paramIdx = 2;
     let cursorClause = "";
 

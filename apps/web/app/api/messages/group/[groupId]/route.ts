@@ -98,7 +98,7 @@ export const GET = withAuth(async (
     'SELECT role FROM group_chat_members WHERE group_chat_id = $1 AND user_id = $2',
     [groupId, userId],
   );
-  if (!memberRows[0]) return forbidden('Not a member of this group');
+  if (!memberRows[0]) throw forbidden('Not a member of this group');
 
   // Determine message history window based on user's plan
   const { rows: planRows } = await db.query<{ plan: string }>(
@@ -151,7 +151,7 @@ export const POST = withAuth(async (
     'SELECT role FROM group_chat_members WHERE group_chat_id = $1 AND user_id = $2',
     [groupId, userId],
   );
-  if (!memberRows[0]) return forbidden('Not a member of this group');
+  if (!memberRows[0]) throw forbidden('Not a member of this group');
 
   const isAdmin = memberRows[0].role === 'admin';
 

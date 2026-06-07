@@ -110,7 +110,7 @@ export async function createPaymentSession(
   returnUrl: string,
   metadata: Record<string, unknown>
 ): Promise<DodoPaymentSession> {
-  const amount = new Decimal(amountSmallestUnit).toInteger().toNumber();
+  const amount = new Decimal(amountSmallestUnit).toDecimalPlaces(0).toNumber();
 
   return dodoRequest<DodoPaymentSession>("POST", "/payment-sessions", {
     amount,
@@ -176,7 +176,7 @@ export async function initiatePayout(
   recipientDetails: Record<string, unknown>,
   reference: string
 ): Promise<DodoPayout> {
-  const amount = new Decimal(amountSmallestUnit).toInteger().toNumber();
+  const amount = new Decimal(amountSmallestUnit).toDecimalPlaces(0).toNumber();
 
   return dodoRequest<DodoPayout>("POST", "/payouts", {
     amount,

@@ -333,6 +333,69 @@ An ESLint rule flags any direct import of `@supabase/supabase-js` or provider-sp
 
 Switching providers requires only changing `DATABASE_PROVIDER` and redeploying. Data migration (pg_dump/restore) is a separate, manual step.
 
+**`db.query<T>` type parameter:** The generic `T` on `DatabaseAdapter.query<T>` (defined in `lib/db/interface.ts`) defaults to `Record<string, unknown>`. Provider implementations use `T & Record<string, unknown>` internally when calling the underlying `pg` driver (which requires `T extends QueryResultRow`), then cast the result back to `T[]`. This means call sites can pass any interface as the type parameter — they are not required to extend `Record<string, unknown>` themselves.
+
+```typescript
+// Correct — interface does not need to extend Record<string, unknown>
+interface UserRow { id: string; username: string; }
+const { rows } = await db.query<UserRow>('SELECT id, username FROM users WHERE id = $1', [userId]);
+```
+
+### Shared Type Package (`@zobia/types`)
+
+Cross-cutting domain types (plans, ranks, XP actions, ledger entries, etc.) live in `shared/types/index.ts` and are imported via the `@zobia/types` alias, which is configured in `apps/web/tsconfig.json`:
+
+```json
+"@zobia/types": ["../../shared/types/index.ts"]
+```
+
+Add new domain-wide types to `shared/types/index.ts`, not to individual feature files. If a type is only used within one feature (e.g. a specific API route's response shape), keep it local.
+
+**`CoinTransactionType`** — the full union of valid coin ledger transaction types is maintained in `shared/types/index.ts`. When adding a new coin operation, add its type string to this union; the TypeScript compiler will catch any call sites that pass a string not in the union.
+
+### Rate Limiting
+
+Rate limit options are specified with `lib/security/rateLimit.ts`'s `RateLimitOptions` interface:
+
+```typescript
+interface RateLimitOptions {
+  limit: number;      // max requests allowed in the window
+  windowMs: number;   // window duration in milliseconds
+  name: string;       // identifier used in Redis key prefix and error messages
+}
+```
+
+Pre-built presets are exported as `RATE_LIMITS` (e.g. `RATE_LIMITS.auth`, `RATE_LIMITS.apiWrite`). For custom limits, construct `RateLimitOptions` directly — use `limit` (not `max`) and `windowMs` (not `windowSeconds`).
+
+### Presence Keys
+
+The Redis key used for user presence (`presence:online:<userId>`) is defined in `lib/presence/keys.ts` and imported from there by both `app/api/presence/route.ts` and `app/api/presence/[userId]/route.ts`.
+
+> **Note:** Next.js route files may only export HTTP method handlers and a small set of route-config constants (`dynamic`, `revalidate`, etc.). Any shared helper used by multiple route files must live in `lib/`, not in a route file, even if logically related.
+
+### `useSearchParams` and Suspense
+
+Pages that call `useSearchParams()` must be wrapped in a `<Suspense>` boundary; otherwise Next.js cannot statically generate the page and the build fails. The pattern used in this project:
+
+```tsx
+// Split into an inner component that uses the hook…
+function PageContent() {
+  const searchParams = useSearchParams();
+  // …
+}
+
+// …and an outer default export that wraps it in Suspense
+export default function Page() {
+  return (
+    <Suspense>
+      <PageContent />
+    </Suspense>
+  );
+}
+```
+
+This applies to any `"use client"` page that reads search params. Examples in this codebase: `app/auth/login/page.tsx`, `app/(app)/wallet/page.tsx`.
+
 ### Auth System
 
 **No Supabase Auth anywhere.** All auth is platform-managed.

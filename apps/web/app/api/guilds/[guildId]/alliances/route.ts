@@ -166,7 +166,7 @@ export const POST = withAuth(
             `INSERT INTO guild_alliances (name, description, founded_by, is_active, wars_won, created_at, updated_at)
              VALUES ($1, $2, $3, TRUE, 0, NOW(), NOW())
              RETURNING id`,
-            [body.name, body.description ?? null, guildId]
+            [body.name!, body.description ?? null, guildId]
           );
           const allianceId = allianceRows[0].id;
 

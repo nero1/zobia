@@ -94,7 +94,7 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
     try {
       const manifest = await loadManifest();
       const manifestKey = `business_${newTier}_price_kobo` as keyof typeof manifest;
-      const manifestPrice = (manifest as Record<string, unknown>)[manifestKey];
+      const manifestPrice = (manifest as unknown as Record<string, unknown>)[manifestKey];
       if (typeof manifestPrice === "number" && manifestPrice > 0) {
         priceKobo = manifestPrice;
       }

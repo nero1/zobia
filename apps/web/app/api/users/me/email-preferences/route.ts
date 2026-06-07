@@ -67,12 +67,12 @@ export const PUT = withAuth(async (req: NextRequest, { auth }) => {
     const body = await req.json().catch(() => ({}));
     const parsed = UpdateSchema.safeParse(body);
     if (!parsed.success) {
-      return badRequest("Invalid preferences payload");
+      throw badRequest("Invalid preferences payload");
     }
 
     const updates = parsed.data;
     if (Object.keys(updates).length === 0) {
-      return badRequest("No preferences to update");
+      throw badRequest("No preferences to update");
     }
 
     for (const [type, enabled] of Object.entries(updates) as [EmailType, boolean][]) {

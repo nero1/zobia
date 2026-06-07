@@ -70,6 +70,16 @@ vercel env pull apps/web/.env.local   # sync env vars from Vercel dashboard
 vercel deploy --prod
 ```
 
+### Building without a full set of env vars (CI / local type-check)
+
+The build validates all required env vars at startup via `lib/env.ts`. In CI environments where secrets aren't available (e.g. for a type-check or lint-only run), set `SKIP_ENV_VALIDATION=1`:
+
+```bash
+SKIP_ENV_VALIDATION=1 npm run build
+```
+
+This skips the Zod validation step and exports an empty `env` object. API routes will still fail at runtime if accessed without valid env vars — `SKIP_ENV_VALIDATION` is only intended for the build/type-check phase.
+
 ---
 
 ## Environment Variables Reference
@@ -110,10 +120,11 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `RECAPTCHA_SECRET_KEY` | No | reCAPTCHA v3 secret key | console.cloud.google.com → reCAPTCHA |
 | `CLOUDFLARE_TURNSTILE_SITE_KEY` | No | Cloudflare Turnstile site key (preferred over reCAPTCHA) | Cloudflare → Turnstile |
 | `CLOUDFLARE_TURNSTILE_SECRET_KEY` | No | Cloudflare Turnstile secret key | Cloudflare → Turnstile |
-| `CRON_SECRET` | Yes | Shared secret for CRON endpoint authentication | `openssl rand -hex 32` |
+| `CRON_SECRET` | No | Shared secret for CRON endpoint authentication. Required in production. | `openssl rand -hex 32` |
 | `NEXT_PUBLIC_APP_URL` | Yes | Full public URL of the app (e.g. `https://zobia.social`) | Your domain |
 | `NEXT_PUBLIC_API_URL` | Yes | Full public API URL (e.g. `https://zobia.social/api`) | Your domain |
 | `NEXT_PUBLIC_PWA_WEB_ENABLED` | No | Set to `"false"` to disable PWA/service-worker generation at build time. At runtime the admin can also toggle via x_manifest `pwa_web_enabled`. Default: `"true"` | `"true"` or `"false"` |
+| `SKIP_ENV_VALIDATION` | Build only | Set to `"1"` to bypass env-var validation at build time (e.g. in CI where secrets aren't available). Never set this in production runtime. | `"1"` |
 | `SECURITY_TEST_BASE_URL` | Testing only | Base URL for security/penetration tests (e.g. `http://localhost:3000`) | Local dev server |
 | `SECURITY_TEST_USER_TOKEN` | Testing only | Valid JWT for a regular (non-admin) test user | Login as test user and copy token |
 | `SECURITY_TEST_ADMIN_TOKEN` | Testing only | Valid JWT for an admin test user | Login as admin and copy token |
@@ -169,9 +180,10 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 
 1. Create a new adapter file at `apps/web/lib/db/providers/yourprovider.ts`.
 2. Implement the `DatabaseAdapter` interface from `apps/web/lib/db/interface.ts`.
-3. Add the provider key to the `DATABASE_PROVIDER` enum/union in `apps/web/lib/env.ts`.
-4. Import and register the new adapter in `apps/web/lib/db/index.ts`.
-5. Add a corresponding ESLint rule if the provider has a client SDK that must not leak into business logic.
+3. The interface's `query<T>` generic defaults to `Record<string, unknown>` without a constraint. If your underlying driver (e.g. `pg`) requires `T extends QueryResultRow`, use `T & Record<string, unknown>` when calling the driver and cast the result back: `result.rows as T[]`. This keeps the public interface flexible for callers.
+4. Add the provider key to the `DATABASE_PROVIDER` enum/union in `apps/web/lib/env.ts`.
+5. Import and register the new adapter in `apps/web/lib/db/index.ts`.
+6. Add a corresponding ESLint rule if the provider has a client SDK that must not leak into business logic.
 
 ---
 

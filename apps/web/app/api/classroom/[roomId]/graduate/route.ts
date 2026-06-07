@@ -17,7 +17,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { db, SqlParam } from "@/lib/db";
 import { withAuth } from "@/lib/api/middleware";
 import {
   handleApiError,
@@ -192,7 +192,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       // Insert notifications for all enrolled students
       if (enrolledUserIds.length > 0) {
         // Build a VALUES list for batch insert
-        const notifValues: unknown[] = [];
+        const notifValues: SqlParam[] = [];
         const placeholders: string[] = [];
         enrolledUserIds.forEach((uid, idx) => {
           const base = idx * 4;
@@ -226,7 +226,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         );
 
         // Insert XP ledger entries
-        const xpValues: unknown[] = [];
+        const xpValues: SqlParam[] = [];
         const xpPlaceholders: string[] = [];
         xpEligibleUserIds.forEach((uid, idx) => {
           const base = idx * 5;

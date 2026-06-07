@@ -47,6 +47,7 @@ export interface ZobiaManifest {
     platformCouncil: boolean;
     allianceSystem: boolean;
     pinAuth: boolean;
+    vipRoomPricing?: { minNgn: number; maxNgn: number };
   };
   // Auth
   auth: {
@@ -72,11 +73,13 @@ export interface ZobiaManifest {
   vipRoomMinPriceKobo: number;
   vipRoomMaxPriceKobo: number;
   deepLinkBaseUrl: string;
+  updatedAt?: number;
   // Payment
   payment: {
     primaryProvider: "paystack" | "dodopayments" | "none";
     paystackEnabled: boolean;
     dodopaymentsEnabled: boolean;
+    currenciesAccepted?: string[];
   };
   // Payout configuration
   payouts: {

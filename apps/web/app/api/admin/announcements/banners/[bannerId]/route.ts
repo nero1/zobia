@@ -10,7 +10,7 @@ import { z } from "zod";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { db } from "@/lib/db";
+import { db, SqlParam } from "@/lib/db";
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -54,16 +54,16 @@ export const PUT = withAdminAuth(
       const body = await req.json().catch(() => ({}));
       const parsed = UpdateBannerSchema.safeParse(body);
       if (!parsed.success) {
-        return badRequest("Invalid update payload", parsed.error.flatten());
+        throw badRequest("Invalid update payload", parsed.error.flatten());
       }
 
       const updates = parsed.data;
       if (Object.keys(updates).length === 0) {
-        return badRequest("No fields to update");
+        throw badRequest("No fields to update");
       }
 
       const setClauses: string[] = ["updated_at = NOW()"];
-      const values: unknown[] = [];
+      const values: SqlParam[] = [];
       let idx = 1;
 
       if (updates.title !== undefined) {
@@ -118,7 +118,7 @@ export const PUT = withAdminAuth(
       );
 
       if (!rows[0]) {
-        return notFound("Banner not found");
+        throw notFound("Banner not found");
       }
 
       return NextResponse.json(rows[0]);
@@ -159,7 +159,7 @@ export const DELETE = withAdminAuth(
       );
 
       if (!rows[0]) {
-        return notFound("Banner not found");
+        throw notFound("Banner not found");
       }
 
       return new NextResponse(null, { status: 204 });

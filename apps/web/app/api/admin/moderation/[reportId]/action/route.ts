@@ -196,13 +196,13 @@ export const POST = withAdminAuth(
       const body = await req.json().catch(() => ({}));
       const parsed = ActionBodySchema.safeParse(body);
       if (!parsed.success) {
-        return badRequest("Invalid action payload", parsed.error.flatten());
+        throw badRequest("Invalid action payload", parsed.error.flatten());
       }
 
       const { action, note, duration_hours } = parsed.data;
 
       if (action === "suspend_user" && !duration_hours) {
-        return badRequest("duration_hours is required for suspend_user");
+        throw badRequest("duration_hours is required for suspend_user");
       }
 
       // Load the report
@@ -221,11 +221,11 @@ export const POST = withAdminAuth(
 
       const report = reportRows[0];
       if (!report) {
-        return notFound("Report not found");
+        throw notFound("Report not found");
       }
 
       if (report.status !== "pending" && action !== "escalate_ai") {
-        return badRequest(`Report is already ${report.status}`);
+        throw badRequest(`Report is already ${report.status}`);
       }
 
       // escalate_ai bypasses the normal action flow — handle immediately
@@ -319,7 +319,7 @@ export const POST = withAdminAuth(
       });
 
       // Notify the reporter of the outcome
-      if (report.reporter_id && action !== "escalate_ai") {
+      if (report.reporter_id) {
         const outcomeLabel =
           action === "dismiss" ? "dismissed" :
           action === "ban_user" ? "resulted in a ban" :

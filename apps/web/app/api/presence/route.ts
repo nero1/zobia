@@ -18,6 +18,7 @@ import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
+import { presenceRedisKey } from "@/lib/presence/keys";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -32,13 +33,6 @@ const RECENTLY_ACTIVE_MS = 60 * 60 * 1000; // 1 hour
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Builds the Redis key that signals a user is currently online.
- */
-function presenceRedisKey(userId: string): string {
-  return `presence:online:${userId}`;
-}
 
 // ---------------------------------------------------------------------------
 // POST /api/presence — update own presence

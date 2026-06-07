@@ -38,7 +38,7 @@ interface PaystackChargeEvent {
       packId: string;
       coinsGranted?: number;
       starsGranted?: number;
-      itemType: "coin_pack" | "star_pack" | "subscription";
+      itemType: "coin_pack" | "star_pack" | "subscription" | "room_subscription";
       packName: string;
     };
     paid_at: string;
@@ -118,7 +118,7 @@ async function processChargeSuccess(
 
     // VIP room subscription — activate room access
     if (itemType === "room_subscription") {
-      const { roomId, grossKobo: subGrossKobo, subscriptionDays = 30 } = metadata as {
+      const { roomId, grossKobo: subGrossKobo, subscriptionDays = 30 } = metadata as unknown as {
         roomId: string;
         grossKobo: number;
         subscriptionDays?: number;
@@ -181,7 +181,7 @@ async function processChargeSuccess(
     } else {
       await creditCoins(
         userId,
-        coinsGranted,
+        coinsGranted ?? 0,
         "purchase",
         paymentId,
         `Purchased ${metadata.packName}`,
@@ -190,7 +190,7 @@ async function processChargeSuccess(
       );
 
       // Award referral commissions (Tier 1 + Tier 2) for coin purchases
-      await awardReferralCommissions(tx, userId, coinsGranted).catch((err) =>
+      await awardReferralCommissions(tx, userId, coinsGranted ?? 0).catch((err) =>
         console.error("[webhook/paystack] Referral commission error:", err)
       );
     }

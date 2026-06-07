@@ -38,7 +38,7 @@ interface DodoPaymentSucceededEvent {
       userId: string;
       packId?: string;
       coinsGranted?: number;
-      itemType: "coin_pack" | "star_pack" | "subscription";
+      itemType: "coin_pack" | "star_pack" | "subscription" | "room_subscription";
       packName?: string;
       idempotencyKey: string;
       planId?: string;
@@ -107,7 +107,7 @@ async function processPaymentSucceeded(
 
     // VIP room subscription — activate room access
     if (itemType === "room_subscription") {
-      const { roomId, grossKobo: subGrossKobo, subscriptionDays = 30 } = metadata as {
+      const { roomId, grossKobo: subGrossKobo, subscriptionDays = 30 } = metadata as unknown as {
         roomId: string;
         grossKobo: number;
         subscriptionDays?: number;

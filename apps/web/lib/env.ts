@@ -79,6 +79,9 @@ const envSchema = z.object({
   CLOUDFLARE_TURNSTILE_SITE_KEY: z.string().optional(),
   CLOUDFLARE_TURNSTILE_SECRET_KEY: z.string().optional(),
 
+  // ---- Cron jobs ----------------------------------------------------------
+  CRON_SECRET: z.string().optional(),
+
   // ---- Public client-side vars --------------------------------------------
   NEXT_PUBLIC_APP_URL: z.string().url().default("http://localhost:3000"),
   NEXT_PUBLIC_API_URL: z
@@ -104,11 +107,11 @@ export type Env = z.infer<typeof envSchema>;
  */
 const _parsed = envSchema.safeParse(process.env);
 
-if (!_parsed.success) {
+if (!_parsed.success && process.env.SKIP_ENV_VALIDATION !== "1") {
   const formatted = _parsed.error.issues
     .map((i) => `  • ${i.path.join(".")}: ${i.message}`)
     .join("\n");
   throw new Error(`Environment validation failed:\n${formatted}`);
 }
 
-export const env: Env = _parsed.data;
+export const env: Env = (_parsed.success ? _parsed.data : {}) as Env;

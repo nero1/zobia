@@ -19,7 +19,7 @@ export const GET = withAuth(async (
     'SELECT role FROM group_chat_members WHERE group_chat_id = $1 AND user_id = $2',
     [groupId, userId],
   );
-  if (!memberRows[0]) return forbidden('Not a member of this group');
+  if (!memberRows[0]) throw forbidden('Not a member of this group');
 
   const { rows: members } = await db.query(
     `SELECT gcm.user_id, gcm.role, gcm.joined_at,
@@ -43,21 +43,21 @@ export const POST = withAuth(async (
   const { groupId } = await params;
   const body = await req.json();
   const targetId: string | undefined = body?.userId;
-  if (!targetId) return badRequest('userId is required');
+  if (!targetId) throw badRequest('userId is required');
 
   // Only admins can add members
   const { rows: memberRows } = await db.query(
     'SELECT role FROM group_chat_members WHERE group_chat_id = $1 AND user_id = $2',
     [groupId, userId],
   );
-  if (!memberRows[0] || memberRows[0].role !== 'admin') return forbidden('Admin only');
+  if (!memberRows[0] || memberRows[0].role !== 'admin') throw forbidden('Admin only');
 
-  const { rows: groupRows } = await db.query(
+  const { rows: groupRows } = await db.query<{ member_count: number; max_members: number }>(
     'SELECT member_count, max_members FROM group_chats WHERE id = $1',
     [groupId],
   );
-  if (!groupRows[0]) return notFound('Group not found');
-  if (groupRows[0].member_count >= groupRows[0].max_members) return badRequest('Group is at capacity');
+  if (!groupRows[0]) throw notFound('Group not found');
+  if (groupRows[0].member_count >= groupRows[0].max_members) throw badRequest('Group is at capacity');
 
   await db.query(
     `INSERT INTO group_chat_members (group_chat_id, user_id, role)
@@ -83,15 +83,15 @@ export const DELETE = withAuth(async (
   const { groupId } = await params;
   const body = await req.json();
   const targetId: string | undefined = body?.userId;
-  if (!targetId) return badRequest('userId is required');
+  if (!targetId) throw badRequest('userId is required');
 
   const { rows: memberRows } = await db.query(
     'SELECT role FROM group_chat_members WHERE group_chat_id = $1 AND user_id = $2',
     [groupId, userId],
   );
   // Allow self-removal or admin removal
-  if (!memberRows[0]) return forbidden('Not a member');
-  if (targetId !== userId && memberRows[0].role !== 'admin') return forbidden('Admin only');
+  if (!memberRows[0]) throw forbidden('Not a member');
+  if (targetId !== userId && memberRows[0].role !== 'admin') throw forbidden('Admin only');
 
   await db.query(
     'DELETE FROM group_chat_members WHERE group_chat_id = $1 AND user_id = $2',

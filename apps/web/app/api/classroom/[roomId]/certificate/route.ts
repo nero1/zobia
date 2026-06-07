@@ -167,7 +167,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const certificate = await db.transaction(async (tx) => {
       // Create certificate record
-      const { rows: certRows } = await tx.query(
+      const { rows: certRows } = await tx.query<{ id: string }>(
         `INSERT INTO learning_certificates
            (room_id, recipient_user_id, issuer_user_id, title, note, issued_at)
          VALUES ($1, $2, $3, $4, $5, NOW())

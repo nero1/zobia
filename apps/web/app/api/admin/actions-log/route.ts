@@ -22,7 +22,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { db, SqlParam } from "@/lib/db";
 import { withAdminAuth, validateBody, validateSearchParams } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -84,9 +84,9 @@ function buildFilters(
     endDate?: string;
     cursor?: string;
   }
-): { clauses: string[]; params: unknown[] } {
+): { clauses: string[]; params: SqlParam[] } {
   const clauses: string[] = [];
-  const params: unknown[] = [];
+  const params: SqlParam[] = [];
   let idx = 1;
 
   if (opts.actionType) {
@@ -213,7 +213,7 @@ export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
     // ------------------------------------------------------------------
     const NOTIF_TYPES = ["mystery_xp_drop", "rank_change", "guild_war_resolved"];
     const notifClauses: string[] = [`n.type = ANY($1::text[])`];
-    const notifParams: unknown[] = [NOTIF_TYPES];
+    const notifParams: SqlParam[] = [NOTIF_TYPES];
     let notifIdx = 2;
 
     // If a specific type filter was requested, only include if it's in our list

@@ -217,7 +217,7 @@ export default function MerchStoreManager() {
                   Edit
                 </Button>
                 <Button
-                  variant="destructive"
+                  variant="danger"
                   className="flex-1"
                   onClick={() => {
                     if (confirm('Delete this product?')) {

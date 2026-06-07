@@ -85,7 +85,7 @@ const disableSchema = z.object({
  */
 export const POST = withAuth(async (req: NextRequest, { auth }) => {
   try {
-    await enforceRateLimit(auth.user.sub, "user", { ...RATE_LIMITS.apiWrite, max: 10 });
+    await enforceRateLimit(auth.user.sub, "user", { ...RATE_LIMITS.apiWrite, limit: 10 });
 
     const { code } = await validateBody(req, disableSchema);
     const userId = auth.user.sub;

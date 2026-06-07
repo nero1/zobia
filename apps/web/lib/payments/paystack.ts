@@ -125,7 +125,7 @@ export async function initializePayment(
   callbackUrl?: string
 ): Promise<PaystackInitializeResponse> {
   // Paystack expects integer kobo; guard against floats
-  const amount = new Decimal(amountKobo).toInteger().toNumber();
+  const amount = new Decimal(amountKobo).toDecimalPlaces(0).toNumber();
 
   return paystackRequest<PaystackInitializeResponse>(
     "POST",
@@ -237,7 +237,7 @@ export async function initiateTransfer(
   reference: string,
   reason: string
 ): Promise<PaystackTransferResponse> {
-  const amount = new Decimal(amountKobo).toInteger().toNumber();
+  const amount = new Decimal(amountKobo).toDecimalPlaces(0).toNumber();
 
   return paystackRequest<PaystackTransferResponse>(
     "POST",

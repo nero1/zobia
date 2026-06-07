@@ -121,7 +121,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
     const body = await req.json().catch(() => ({}));
     const parsed = CreateBrandedRoomSchema.safeParse(body);
     if (!parsed.success) {
-      return badRequest("Invalid branded room payload", parsed.error.flatten());
+      throw badRequest("Invalid branded room payload", parsed.error.flatten());
     }
 
     const {

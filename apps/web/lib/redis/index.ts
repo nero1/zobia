@@ -48,7 +48,9 @@ export interface RedisClient {
   smembers(key: string): Promise<string[]>;
   sismember(key: string, member: string): Promise<number>;
   incr(key: string): Promise<number>;
+  decr(key: string): Promise<number>;
   incrby(key: string, increment: number): Promise<number>;
+  decrby(key: string, decrement: number): Promise<number>;
   ping(): Promise<string>;
   quit(): Promise<"OK">;
 }
@@ -153,7 +155,7 @@ export function getRedisClient(): RedisClient {
 export const redis: RedisClient = new Proxy({} as RedisClient, {
   get(_target, prop) {
     const client = getRedisClient();
-    const value = (client as Record<string | symbol, unknown>)[prop];
+    const value = (client as unknown as Record<string | symbol, unknown>)[prop];
     if (typeof value === "function") {
       return value.bind(client);
     }

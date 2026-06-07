@@ -11,7 +11,7 @@
  * - Coin transfer panel (opened via ?transfer=<userId>)
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { Suspense, useState, useEffect, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 
 // ---------------------------------------------------------------------------
@@ -419,7 +419,7 @@ function CoinTransferPanel({ recipientId, onSuccess, onClose }: CoinTransferPane
 // Main page
 // ---------------------------------------------------------------------------
 
-export default function WalletPage() {
+function WalletContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const transferRecipientId = searchParams.get("transfer");
@@ -566,5 +566,13 @@ export default function WalletPage() {
 
       <TransactionHistory transactions={data.transactions} />
     </div>
+  );
+}
+
+export default function WalletPage() {
+  return (
+    <Suspense>
+      <WalletContent />
+    </Suspense>
   );
 }

@@ -14,7 +14,7 @@
  */
 
 import type { DatabaseAdapter } from "@/lib/db/interface";
-import type { Plan } from "@/types";
+import type { Plan } from "@zobia/types";
 import { ACTION_TRACKS } from "@/lib/xp/engine";
 
 // Maps a ProgressionTrack name to the corresponding users table column

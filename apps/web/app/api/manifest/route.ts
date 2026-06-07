@@ -63,7 +63,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         paystackEnabled: manifest.payment.paystackEnabled,
         dodopaymentsEnabled: manifest.payment.dodopaymentsEnabled,
       },
-      updatedAt: manifest.updatedAt,
+      updatedAt: manifest.updatedAt ?? Date.now(),
     };
 
     return NextResponse.json(publicManifest, {
