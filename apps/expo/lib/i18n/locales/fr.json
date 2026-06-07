@@ -369,6 +369,15 @@
     "noEntries": "Aucune entrée pour ce classement.",
     "loadError": "Impossible de charger le classement. Vérifiez votre connexion."
   },
+  "legal": {
+    "agreePrefix": "En continuant, vous acceptez nos",
+    "and": "et",
+    "termsOfService": "Conditions d'utilisation",
+    "privacyPolicy": "Politique de confidentialité",
+    "sectionHeader": "LÉGAL",
+    "termsSubtitle": "Consultez nos conditions générales",
+    "privacySubtitle": "Comment nous collectons et utilisons vos données"
+  },
   "publicProfile": {
     "playingSince": "Joue depuis {{year}}",
     "trackLevels": "Niveaux de Piste",

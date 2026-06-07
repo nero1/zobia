@@ -967,5 +967,14 @@
     "boosterComingSoonTitle": "Em Breve",
     "boosterComingSoonBody": "As compras de reforço estão disponíveis na próxima atualização.",
     "buy": "Comprar"
+  },
+  "legal": {
+    "agreePrefix": "Ao continuar, você concorda com nossos",
+    "and": "e",
+    "termsOfService": "Termos de Serviço",
+    "privacyPolicy": "Política de Privacidade",
+    "sectionHeader": "LEGAL",
+    "termsSubtitle": "Veja nossos termos e condições",
+    "privacySubtitle": "Como coletamos e usamos seus dados"
   }
 }

@@ -17,7 +17,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Linking, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { Ionicons } from '@expo/vector-icons';
@@ -238,7 +238,23 @@ export default function LoginScreen() {
 
       {/* Legal footnote */}
       <Text style={[styles.legal, { color: subtitleColor }]}>
-        By continuing you agree to our Terms of Service and Privacy Policy.
+        {t('legal.agreePrefix')}{' '}
+        <Text
+          style={[styles.legalLink, { color: colors.brand.blue }]}
+          onPress={() => Linking.openURL('https://zobia.app/terms')}
+          accessibilityRole="link"
+        >
+          {t('legal.termsOfService')}
+        </Text>
+        {' '}{t('legal.and')}{' '}
+        <Text
+          style={[styles.legalLink, { color: colors.brand.blue }]}
+          onPress={() => Linking.openURL('https://zobia.app/privacy')}
+          accessibilityRole="link"
+        >
+          {t('legal.privacyPolicy')}
+        </Text>
+        .
       </Text>
     </Screen>
   );
@@ -289,5 +305,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 20,
     lineHeight: 18,
+  },
+  legalLink: {
+    fontSize: 12,
+    fontWeight: '600',
+    textDecorationLine: 'underline',
   },
 });
