@@ -10,11 +10,14 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { db } from "@/lib/db";
-import { withAuth } from "@/lib/api/middleware";
-import { handleApiError, notFound, forbidden, conflict } from "@/lib/api/errors";
+import { withAuth, validateBody } from "@/lib/api/middleware";
+import { handleApiError, notFound, forbidden, conflict, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { requireFeatureEnabled } from "@/lib/manifest";
+import { sendPushNotification } from "@/lib/notifications/push";
+import { sendEmail } from "@/lib/notifications/email";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -24,13 +27,20 @@ const CREATOR_SHARE_PCT = 80;
 const PLATFORM_FEE_PCT = 20;
 const XP_AWARD_MERCH_PURCHASE = 50;
 
+const purchaseSchema = z.object({
+  shippingName:    z.string().max(200).optional(),
+  shippingAddress: z.string().max(500).optional(),
+  shippingCity:    z.string().max(100).optional(),
+  shippingCountry: z.string().max(100).optional(),
+});
+
 // ---------------------------------------------------------------------------
 // POST /api/merch/:creatorId/products/:productId/purchase
 // ---------------------------------------------------------------------------
 
 export const POST = withAuth(
   async (
-    _req: NextRequest,
+    req: NextRequest,
     {
       params,
       auth,
@@ -49,6 +59,8 @@ export const POST = withAuth(
       if (userId === creatorId) {
         throw forbidden("You cannot purchase your own merch");
       }
+
+      const body = await validateBody(req, purchaseSchema);
 
       // Fetch creator tier for revenue share calculation
       const { rows: creatorRows } = await db.query<{ creator_tier: string | null }>(
@@ -83,6 +95,13 @@ export const POST = withAuth(
         // Check stock
         if (product.stock !== null && product.stock <= 0) {
           throw conflict("Product is out of stock");
+        }
+
+        // Physical products require shipping details
+        if (product.product_type === "physical") {
+          if (!body.shippingName || !body.shippingAddress || !body.shippingCity || !body.shippingCountry) {
+            throw badRequest("Shipping name, address, city, and country are required for physical products");
+          }
         }
 
         // Convert price: kobo / 100 = coins
@@ -141,12 +160,14 @@ export const POST = withAuth(
         const creatorShareKobo = Math.floor((priceKobo * effectiveSharePct) / 100);
         const platformFeeKobo = priceKobo - creatorShareKobo;
 
-        // Create merch order
+        // Create merch order (with optional shipping details for physical products)
         const { rows: orderRows } = await tx.query<{ id: string }>(
           `INSERT INTO merch_orders
              (product_id, buyer_id, creator_id, amount_kobo, creator_share_kobo,
-              platform_fee_kobo, status, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, 'completed', NOW())
+              platform_fee_kobo, status,
+              shipping_name, shipping_address, shipping_city, shipping_country,
+              created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, 'completed', $7, $8, $9, $10, NOW())
            RETURNING id`,
           [
             productId,
@@ -155,6 +176,10 @@ export const POST = withAuth(
             priceKobo,
             creatorShareKobo,
             platformFeeKobo,
+            body.shippingName ?? null,
+            body.shippingAddress ?? null,
+            body.shippingCity ?? null,
+            body.shippingCountry ?? null,
           ]
         );
         const orderId = orderRows[0].id;
@@ -200,6 +225,8 @@ export const POST = withAuth(
         return {
           orderId,
           productId,
+          productName: product.name,
+          productType: product.product_type,
           priceCoins,
           priceKobo,
           creatorShareKobo,
@@ -208,6 +235,50 @@ export const POST = withAuth(
           xpAwarded: XP_AWARD_MERCH_PURCHASE,
         };
       });
+
+      // Notify seller — in-app, push, and email (fire-and-forget, non-blocking)
+      const shippingDesc = result.productType === 'physical' && body.shippingCity
+        ? ` — shipping to ${body.shippingCity}, ${body.shippingCountry}`
+        : '';
+      void (async () => {
+        try {
+          // 1. In-app notification
+          await db.query(
+            `INSERT INTO user_notifications (user_id, type, title, body, metadata, created_at)
+             VALUES ($1, 'new_merch_order', $2, $3, $4, NOW())`,
+            [
+              creatorId,
+              `New order: ${result.productName}`,
+              `You have a new order for "${result.productName}"${shippingDesc}.`,
+              JSON.stringify({ orderId: result.orderId, productId, buyerId: userId }),
+            ]
+          );
+          // 2. Push notification
+          await sendPushNotification(
+            creatorId,
+            'New Merch Order!',
+            `Someone ordered "${result.productName}"${shippingDesc}.`,
+            { action: '/creator/orders', priority: 'high' }
+          );
+          // 3. Email notification
+          const { rows: creatorEmailRows } = await db.query<{ email: string }>(
+            `SELECT email FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+            [creatorId]
+          );
+          const creatorEmail = creatorEmailRows[0]?.email;
+          if (creatorEmail) {
+            await sendEmail(
+              creatorEmail,
+              `New order: ${result.productName}`,
+              `You have a new order for "${result.productName}"${shippingDesc}.\n\nOrder ID: ${result.orderId}\nEarnings: ₦${(result.creatorShareKobo / 100).toFixed(2)}\n\nLog in to Zobia to manage your orders.`,
+              undefined,
+              'transactional'
+            );
+          }
+        } catch {
+          // Non-fatal — seller notification failure must not affect buyer experience
+        }
+      })();
 
       return NextResponse.json(
         { success: true, data: result, error: null },

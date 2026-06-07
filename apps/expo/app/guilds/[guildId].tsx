@@ -13,7 +13,8 @@
  *  - Skeleton loader + offline graceful state
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
+import { Animated } from 'react-native';
 import {
   ActivityIndicator,
   Alert,
@@ -264,6 +265,20 @@ export default function GuildDetailScreen() {
 
   const tierCfg = TIER_CONFIG[guild.tier];
 
+  // Legend tier: pulsing crest animation (Reanimated loop, no gradient per PRD Appendix B)
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (guild.tier !== 'legend') return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.15, duration: 800, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [guild.tier, pulseAnim]);
+
   return (
     <Screen>
       <SectionList
@@ -279,7 +294,7 @@ export default function GuildDetailScreen() {
           <View>
             {/* Guild header */}
             <View style={[styles.header, { backgroundColor: themeColors.surface }]}>
-              <Text style={styles.crestEmoji}>{guild.crestEmoji}</Text>
+              <Animated.Text style={[styles.crestEmoji, guild.tier === 'legend' && { transform: [{ scale: pulseAnim }] }]}>{guild.crestEmoji}</Animated.Text>
               <Text style={[styles.guildName, { color: themeColors.text }]}>{guild.name}</Text>
               <View style={[styles.tierBadge, { backgroundColor: tierCfg.color }]}>
                 <Text style={styles.tierBadgeText}>{tierCfg.label}</Text>

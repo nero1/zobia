@@ -506,8 +506,8 @@ export default function GuildProfilePage() {
       {/* Guild header */}
       <div className="rounded-xl border border-neutral-200 bg-white p-6 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-          {/* Crest */}
-          <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-neutral-100 text-5xl dark:bg-neutral-800">
+          {/* Crest — Legend tier gets a pulse animation (no gradients per PRD Appendix B) */}
+          <div className={`flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-neutral-100 text-5xl dark:bg-neutral-800${guild.tier === 'legend' ? ' animate-pulse' : ''}`}>
             {guild.crestEmoji}
           </div>
 
