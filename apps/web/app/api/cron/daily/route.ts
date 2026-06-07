@@ -2056,6 +2056,90 @@ export const GET = async (req: NextRequest) => {
     errors.push(`weeklyAutomatedPayouts: ${String(err)}`);
   }
 
+  // ============================================================
+  // 33. Referral 7-day streak qualifying — award one-time bonuses
+  //     (PRD §15) when referred users hit 7-day login streak
+  // ============================================================
+
+  try {
+    const { getManifestValue } = await import("@/lib/manifest");
+    const { creditCoins } = await import("@/lib/economy/coins");
+
+    const qualifyingActionStr = await getManifestValue("referral_qualifying_action");
+    const qualifyingAction = qualifyingActionStr ?? "coin_purchase";
+
+    if (qualifyingAction === "login_streak_7" || qualifyingAction === "both") {
+      // Find unqualified Tier 1 referrals where referred user has streak >= 7
+      const { rows: streakReferrals } = await db.query<{
+        id: string;
+        referrer_id: string;
+        referred_id: string;
+      }>(
+        `SELECT r.id, r.referrer_id, r.referred_id
+         FROM referrals r
+         JOIN users u ON u.id = r.referred_id
+         WHERE r.qualified = false
+           AND r.tier = 1
+           AND u.login_streak_days >= 7
+           AND u.deleted_at IS NULL`
+      );
+
+      let streakQualified = 0;
+
+      for (const referral of streakReferrals) {
+        await db.transaction(async (tx) => {
+          // Mark as qualified
+          const xpBonusStr = await getManifestValue("referral_tier1_xp_bonus");
+          const coinBonusStr = await getManifestValue("referral_tier1_coin_bonus");
+
+          const xpBonus = parseInt(xpBonusStr ?? "500", 10) || 500;
+          const coinBonus = parseInt(coinBonusStr ?? "100", 10) || 100;
+
+          // Update referral record
+          await tx.query(
+            `UPDATE referrals SET qualified = true, qualified_at = NOW(),
+                                 coin_reward = $1, xp_reward = $2
+             WHERE id = $3`,
+            [coinBonus, xpBonus, referral.id]
+          );
+
+          // Award XP
+          await tx.query(
+            `UPDATE users SET xp_total = xp_total + $1, updated_at = NOW()
+             WHERE id = $2 AND deleted_at IS NULL`,
+            [xpBonus, referral.referrer_id]
+          );
+          await tx.query(
+            `INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, created_at)
+             VALUES ($1, $2, 'social', 'referral_qualified_streak', $2, NOW())`,
+            [referral.referrer_id, xpBonus]
+          );
+
+          // Award coins
+          if (coinBonus > 0) {
+            await creditCoins(
+              referral.referrer_id,
+              coinBonus,
+              "referral_bonus",
+              referral.id,
+              "One-time referral bonus (7-day streak qualification)",
+              {},
+              tx
+            );
+          }
+
+          streakQualified++;
+        }).catch((err) => {
+          console.error("[cron/33] Referral streak bonus error:", err);
+        });
+      }
+
+      results.referralStreakQualifying = { qualified: streakQualified };
+    }
+  } catch (err) {
+    errors.push(`referralStreakQualifying: ${String(err)}`);
+  }
+
   return NextResponse.json({
     success: errors.length === 0,
     results,

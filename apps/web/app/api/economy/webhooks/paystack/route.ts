@@ -325,10 +325,31 @@ async function processSubscriptionEvent(
       : planNameLower.includes("plus")
       ? "plus"
       : "pro";
-    await db.query(
-      `UPDATE users SET plan = $1, updated_at = NOW() WHERE id = $2`,
-      [derivedPlan, resolvedUserId]
-    ).catch(() => {});
+
+    await db.transaction(async (tx) => {
+      // Update plan
+      await tx.query(
+        `UPDATE users SET plan = $1, updated_at = NOW() WHERE id = $2`,
+        [derivedPlan, resolvedUserId]
+      );
+
+      // Award monthly subscription bonus coins (PRD §3)
+      const MONTHLY_PLAN_BONUS: Record<string, number> = { plus: 50, pro: 200, max: 500 };
+      const bonusCoins = MONTHLY_PLAN_BONUS[derivedPlan];
+      if (bonusCoins && bonusCoins > 0) {
+        await creditCoins(
+          resolvedUserId,
+          bonusCoins,
+          "subscription_bonus",
+          subscription_code,
+          `${derivedPlan} plan subscription — monthly coin bonus`,
+          { plan: derivedPlan },
+          tx
+        );
+      }
+    }).catch((err) => {
+      console.error("[webhook/paystack] Transaction error for subscription bonus:", err);
+    });
 
   } else if (isCancelled || event.event === "subscription.disable") {
     // Subscription cancelled / not renewing
