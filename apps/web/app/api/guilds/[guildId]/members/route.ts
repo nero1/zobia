@@ -64,7 +64,7 @@ export const GET = withAuth(
   async (
     req: NextRequest,
     
-    { params, auth }: { params: { guildId: string ; auth: { user: { sub: string } } }
+    { params, auth }: { params: { guildId: string }; auth: { user: { sub: string } } }
   ) => {
     try {
       const { guildId } = params;
@@ -109,7 +109,7 @@ export const PUT = withAuth(
   async (
     req: NextRequest,
     
-    { params, auth }: { params: { guildId: string ; auth: { user: { sub: string } } }
+    { params, auth }: { params: { guildId: string }; auth: { user: { sub: string } } }
   ) => {
     try {
       const { guildId } = params;
@@ -156,7 +156,7 @@ export const DELETE = withAuth(
   async (
     req: NextRequest,
     
-    { params, auth }: { params: { guildId: string ; auth: { user: { sub: string } } }
+    { params, auth }: { params: { guildId: string }; auth: { user: { sub: string } } }
   ) => {
     try {
       const { guildId } = params;

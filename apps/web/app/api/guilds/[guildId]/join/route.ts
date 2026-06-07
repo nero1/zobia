@@ -51,7 +51,7 @@ export const POST = withAuth(
   async (
     req: NextRequest,
     
-    { params, auth }: { params: { guildId: string ; auth: { user: { sub: string } } }
+    { params, auth }: { params: { guildId: string }; auth: { user: { sub: string } } }
   ) => {
     try {
       const { guildId } = params;

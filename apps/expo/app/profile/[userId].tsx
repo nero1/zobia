@@ -218,7 +218,7 @@ export default function PublicProfileScreen() {
   }
 
   const rankColor = rankColors[profile.rankTier] ?? colors.brand.blue;
-  const joinYear = new Date(profile.joinedAt).getFullYear();
+  const joinYear = new Date(profile.joinedAt).toLocaleDateString('en-NG', { month: 'long', year: 'numeric' });
 
   return (
     <Screen scrollable contentStyle={styles.content}>
