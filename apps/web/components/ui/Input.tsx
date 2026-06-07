@@ -104,6 +104,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             id={id}
             disabled={isDisabled}
             aria-invalid={hasError}
+            aria-required={rest.required}
             aria-describedby={
               hasError ? errorId : helperText ? helperId : undefined
             }
@@ -128,6 +129,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
               // Disabled
               "disabled:cursor-not-allowed disabled:bg-neutral-50 disabled:text-neutral-400",
               "dark:disabled:bg-neutral-900 dark:disabled:text-neutral-500",
+              // Accessibility: minimum touch target size (44×44px per WCAG 2.1)
+              "min-h-11",
               // Padding adjustments for addons
               leftAddon ? "pl-9" : "pl-3",
               rightAddon || isLoading ? "pr-9" : "pr-3",
