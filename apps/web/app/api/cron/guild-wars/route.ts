@@ -3,9 +3,10 @@
  *
  * Hourly CRON handler for guild war lifecycle management.
  *
- * Called every hour via cron-jobs.org:
- *   URL: /api/cron/guild-wars
- *   Header: Authorization: Bearer <CRON_SECRET>
+ * DEPLOYMENT NOTE: Vercel's hobby plan only allows 1 CRON per day.
+ * This route must be triggered externally via cron-jobs.org (or similar service).
+ * Set up hourly calls to: https://zobia.vercel.app/api/cron/guild-wars
+ * with header: Authorization: Bearer <CRON_SECRET>
  *
  * Responsibilities (idempotent — safe to call multiple times):
  *  1. Find wars that should enter Final Hour (ends_at ≤ now + 1 hour, status = 'active')
