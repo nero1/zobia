@@ -45,6 +45,14 @@ export interface BatchResult {
   dlq: number;
 }
 
+/**
+ * Returns the platform fee rate for a creator tier.
+ * Icon creators pay 15% (earn 85%), all others pay 20% (earn 80%).
+ */
+export function getCreatorFeeRate(creatorTier: string | null | undefined): number {
+  return creatorTier === 'icon' ? 0.15 : 0.20;
+}
+
 // ---------------------------------------------------------------------------
 // Retry delay schedule
 // ---------------------------------------------------------------------------

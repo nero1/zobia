@@ -50,6 +50,13 @@ export const POST = withAuth(
         throw forbidden("You cannot purchase your own merch");
       }
 
+      // Fetch creator tier for revenue share calculation
+      const { rows: creatorRows } = await db.query<{ creator_tier: string | null }>(
+        `SELECT creator_tier FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+        [creatorId]
+      );
+      const creatorTier = creatorRows[0]?.creator_tier ?? null;
+
       const result = await db.transaction(async (tx) => {
         // Fetch product with store verification
         const { rows: productRows } = await tx.query<{
@@ -129,8 +136,9 @@ export const POST = withAuth(
           ]
         );
 
-        // Calculate creator share and platform fee
-        const creatorShareKobo = Math.floor((priceKobo * CREATOR_SHARE_PCT) / 100);
+        // Calculate creator share and platform fee (85% for Icon, 80% otherwise)
+        const effectiveSharePct = creatorTier === 'icon' ? 85 : CREATOR_SHARE_PCT;
+        const creatorShareKobo = Math.floor((priceKobo * effectiveSharePct) / 100);
         const platformFeeKobo = priceKobo - creatorShareKobo;
 
         // Create merch order

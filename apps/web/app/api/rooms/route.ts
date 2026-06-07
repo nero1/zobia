@@ -71,7 +71,7 @@ const createRoomSchema = z.object({
     .min(2, "Name must be at least 2 characters")
     .max(80, "Name cannot exceed 80 characters"),
   description: z.string().max(500, "Description cannot exceed 500 characters").optional(),
-  type: z.enum(["free_open", "vip", "drop", "tipping", "classroom", "guild"]),
+  type: z.enum(["free_open", "vip", "drop", "tipping", "classroom", "guild", "limited"]),
   category: z.string().min(1).max(50),
   city: z.string().max(100).optional(),
   coverEmoji: z.string().max(10).default("💬"),
@@ -84,6 +84,8 @@ const createRoomSchema = z.object({
   dropDurationMinutes: z.number().int().min(30).max(1440).optional(),
   /** Drop room scheduled start time (ISO 8601). */
   dropStartsAt: z.string().datetime().optional(),
+  /** Limited room duration in minutes (120–360). Required for limited rooms. */
+  durationMinutes: z.number().int().min(120).max(360).optional(),
   /** Classroom enrolment fee in Naira. 0 = free. */
   enrolmentFeeNgn: z.number().int().min(0).optional(),
   /** Classroom curriculum JSON (array of lesson objects). */
@@ -470,6 +472,12 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
         break;
       }
 
+      case "limited":
+        if (body.durationMinutes === undefined) {
+          throw badRequest("durationMinutes is required for Limited rooms (120–360 minutes)");
+        }
+        break;
+
       default:
         break;
     }
@@ -494,6 +502,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
            max_members, subscription_price_ngn, entry_fee_ngn,
            drop_starts_at, drop_ends_at, enrolment_fee_ngn,
            curriculum, class_start_date, class_end_date,
+           duration_minutes,
            member_count, total_messages, is_active
          )
          VALUES (
@@ -502,6 +511,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
            $9, $10, $11,
            $12, $13, $14,
            $15, $16, $17,
+           $18,
            1, 0, TRUE
          )
          RETURNING *`,
@@ -523,6 +533,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
           body.curriculum ? JSON.stringify(body.curriculum) : null,
           body.classStartDate ?? null,
           body.classEndDate ?? null,
+          body.durationMinutes ?? null,
         ]
       );
 

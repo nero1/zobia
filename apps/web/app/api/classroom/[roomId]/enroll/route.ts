@@ -53,6 +53,7 @@ interface ClassroomRoomRow {
   id: string;
   type: string;
   creator_id: string;
+  creator_tier: string | null;
   is_active: boolean;
   enrolment_fee_ngn: number | null;
   class_start_date: string | null;
@@ -79,11 +80,13 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const userId = auth.user.sub;
     const body = await validateBody(req, enrolSchema);
 
-    // Fetch room
+    // Fetch room (join creator_tier for revenue share calculation)
     const { rows: roomRows } = await db.query<ClassroomRoomRow>(
-      `SELECT id, type, creator_id, is_active, enrolment_fee_ngn,
-              class_start_date, class_end_date
-       FROM rooms WHERE id = $1`,
+      `SELECT r.id, r.type, r.creator_id, u.creator_tier, r.is_active, r.enrolment_fee_ngn,
+              r.class_start_date, r.class_end_date
+       FROM rooms r
+       JOIN users u ON u.id = r.creator_id
+       WHERE r.id = $1`,
       [roomId]
     );
     const room = roomRows[0];
@@ -204,9 +207,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         [roomId, userId]
       );
 
-      // Creator earnings (80% net) for paid enrolment
+      // Creator earnings (85% for Icon, 80% otherwise) for paid enrolment
       if (isPaid) {
-        const platformFeeKobo = Math.floor((feeKobo * (100 - CREATOR_SHARE_PERCENT)) / 100);
+        const effectiveShare = room.creator_tier === 'icon' ? 85 : CREATOR_SHARE_PERCENT;
+        const platformFeeKobo = Math.floor((feeKobo * (100 - effectiveShare)) / 100);
         const netKobo = feeKobo - platformFeeKobo;
 
         await tx.query(
