@@ -205,7 +205,9 @@ export default function MyProfilePage() {
   }
 
   const ringColor = RANK_COLORS[me.rank_name] ?? "#6b7280";
-  const joinedYear = me.created_at ? new Date(me.created_at).getFullYear() : "—";
+  const joinedYear = me.created_at
+    ? new Date(me.created_at).toLocaleDateString("en-NG", { month: "long", year: "numeric" })
+    : "—";
   const subLabel = `${me.rank_name} ${["I", "II", "III"][me.rank_sublevel - 1] ?? "I"}`;
 
   return (

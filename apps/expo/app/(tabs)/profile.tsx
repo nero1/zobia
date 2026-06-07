@@ -210,7 +210,7 @@ export default function ProfileScreen() {
         <View style={styles.rankRow}>
           <View style={[styles.rankBadge, { backgroundColor: rankColor }]}>
             <Text style={styles.rankBadgeText}>
-              {profile.rankLabel} · Sub {profile.subLevel}
+              {profile.rankLabel} {(['I', 'II', 'III'][profile.subLevel - 1] ?? 'I')}
             </Text>
           </View>
           <View style={styles.legacyChip}>

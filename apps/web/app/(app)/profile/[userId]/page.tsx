@@ -87,7 +87,7 @@ interface UserProfile {
 // ---------------------------------------------------------------------------
 
 function formatYear(iso: string): string {
-  return new Date(iso).getFullYear().toString();
+  return new Date(iso).toLocaleDateString("en-NG", { month: "long", year: "numeric" });
 }
 
 // ---------------------------------------------------------------------------

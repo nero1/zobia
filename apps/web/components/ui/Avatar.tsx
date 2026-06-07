@@ -40,6 +40,8 @@ export interface AvatarProps {
   className?: string;
   /** Whether to show the online indicator dot. @default false */
   isOnline?: boolean;
+  /** Prestige count (0–10). Shows star indicators below the avatar. */
+  prestigeCount?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -103,6 +105,7 @@ export function Avatar({
   rankTier = "none",
   className,
   isOnline = false,
+  prestigeCount = 0,
 }: AvatarProps) {
   const { container, image, text } = sizeMap[size];
   const initials = getInitials(name);

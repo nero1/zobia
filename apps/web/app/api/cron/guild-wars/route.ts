@@ -364,14 +364,113 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     errors.push(`flashXpFiring: ${String(err)}`);
   }
 
+  // -------------------------------------------------------------------------
+  // Step 7: Guild tier minimum member enforcement (PRD §13)
+  //
+  // Each guild tier requires a minimum member count. Guilds that fall below
+  // their minimum increment below_minimum_days. After 7 consecutive days,
+  // they are downgraded one tier and the captain is notified.
+  //
+  // Tier minimums: bronze=5, silver=10, gold=15, platinum=20, legend=25
+  // -------------------------------------------------------------------------
+  const TIER_MIN_MEMBERS: Record<string, number> = {
+    bronze: 5,
+    silver: 10,
+    gold: 15,
+    platinum: 20,
+    legend: 25,
+  };
+  const TIER_ORDER_DOWN = ['bronze', 'silver', 'gold', 'platinum', 'legend'];
+  let guildTierDowngrades = 0;
+
+  try {
+    const { rows: guilds } = await db.query<{
+      id: string;
+      tier: string;
+      captain_id: string;
+      below_minimum_days: number;
+      member_count: number;
+    }>(
+      `SELECT g.id, g.tier, g.captain_id, g.below_minimum_days,
+              (SELECT COUNT(*) FROM guild_members gm WHERE gm.guild_id = g.id AND gm.left_at IS NULL)::int AS member_count
+       FROM guilds g
+       WHERE g.deleted_at IS NULL AND g.is_active = TRUE AND g.tier != 'bronze'`
+    );
+
+    for (const guild of guilds) {
+      try {
+        const minMembers = TIER_MIN_MEMBERS[guild.tier] ?? 0;
+        if (guild.member_count >= minMembers) {
+          // Back to healthy — reset counter
+          if (guild.below_minimum_days > 0) {
+            await db.query(
+              `UPDATE guilds SET below_minimum_days = 0, updated_at = NOW() WHERE id = $1`,
+              [guild.id]
+            );
+          }
+        } else {
+          const newDays = guild.below_minimum_days + 1;
+          if (newDays >= 7) {
+            // Downgrade one tier
+            const currentIdx = TIER_ORDER_DOWN.indexOf(guild.tier);
+            const newTier = currentIdx > 0 ? TIER_ORDER_DOWN[currentIdx - 1] : guild.tier;
+            await db.query(
+              `UPDATE guilds SET tier = $1, below_minimum_days = 0, updated_at = NOW() WHERE id = $2`,
+              [newTier, guild.id]
+            );
+            // Notify captain
+            await db.query(
+              `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+               VALUES ($1, 'guild_tier_downgrade', $2::jsonb, false, NOW())`,
+              [guild.captain_id, JSON.stringify({ guildId: guild.id, previousTier: guild.tier, newTier })]
+            );
+            guildTierDowngrades++;
+          } else {
+            await db.query(
+              `UPDATE guilds SET below_minimum_days = $1, updated_at = NOW() WHERE id = $2`,
+              [newDays, guild.id]
+            );
+          }
+        }
+      } catch (err) {
+        errors.push(`guildTierCheck(${guild.id}): ${String(err)}`);
+      }
+    }
+  } catch (err) {
+    errors.push(`guildTierMinimumCheck: ${String(err)}`);
+  }
+
+  // -------------------------------------------------------------------------
+  // Step 8: Auto-close expired Limited rooms (PRD §6 — new room type)
+  // Limited rooms have a duration_minutes and should auto-close after it elapses.
+  // -------------------------------------------------------------------------
+  let limitedRoomsClosed = 0;
+  try {
+    const { rows: closedLimited } = await db.query<{ id: string }>(
+      `UPDATE rooms
+       SET is_active = false, updated_at = NOW()
+       WHERE type = 'limited'
+         AND is_active = true
+         AND created_at + (duration_minutes || ' minutes')::INTERVAL < $1
+         AND deleted_at IS NULL
+       RETURNING id`,
+      [now.toISOString()]
+    );
+    limitedRoomsClosed = closedLimited.length;
+  } catch (err) {
+    errors.push(`limitedRoomAutoClose: ${String(err)}`);
+  }
+
   return NextResponse.json({
     ok: true,
-    processed: finalHourStarted + resolved + dropRoomsClosed + flashXpAnnounced + flashXpFired,
+    processed: finalHourStarted + resolved + dropRoomsClosed + flashXpAnnounced + flashXpFired + guildTierDowngrades + limitedRoomsClosed,
     finalHourStarted,
     resolved,
     dropRoomsClosed,
     flashXpAnnounced,
     flashXpFired,
+    guildTierDowngrades,
+    limitedRoomsClosed,
     errors: errors.length > 0 ? errors : undefined,
     timestamp: now.toISOString(),
   });

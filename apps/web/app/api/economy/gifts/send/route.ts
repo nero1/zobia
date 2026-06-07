@@ -57,6 +57,7 @@ interface UserRow {
   id: string;
   username: string;
   is_creator: boolean;
+  creator_tier: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -144,7 +145,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 
     // 2. Verify recipient exists
     const { rows: recipientRows } = await db.query<UserRow>(
-      `SELECT id, username, COALESCE(is_creator, false) AS is_creator
+      `SELECT id, username, COALESCE(is_creator, false) AS is_creator, creator_tier
        FROM users
        WHERE id = $1 AND deleted_at IS NULL AND is_banned = FALSE
        LIMIT 1`,
@@ -161,8 +162,9 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     let giftId: string;
     let spectacleTriggered = false;
 
-    // Compute fee split — creators get 80% (20% platform fee), users get 95% (5% fee)
-    const feePercent = recipient.is_creator ? CREATOR_GIFT_FEE_PERCENT : USER_GIFT_FEE_PERCENT;
+    // Compute fee split — Icon creators get 85% (15% fee), other creators 80% (20% fee), users 95% (5% fee)
+    const creatorFeePercent = recipient.creator_tier === 'icon' ? 15 : CREATOR_GIFT_FEE_PERCENT;
+    const feePercent = recipient.is_creator ? creatorFeePercent : USER_GIFT_FEE_PERCENT;
     const platformFeeCoins = Math.floor((giftItem.coin_cost * feePercent) / 100);
     const recipientCoins = giftItem.coin_cost - platformFeeCoins;
 

@@ -45,6 +45,37 @@ async function maybeAwardGroupMessageXP(groupId: string, userId: string): Promis
          VALUES ($1, $2, 'social', 'group_message', $3, 100, $2)`,
         [userId, xp, groupId]
       );
+
+      // Award 1 XP to all other active members (active in last 7 days, PRD §10)
+      const { rows: activeMembers } = await tx.query<{ user_id: string }>(
+        `SELECT gcm.user_id
+         FROM group_chat_members gcm
+         JOIN users u ON u.id = gcm.user_id
+         WHERE gcm.group_chat_id = $1
+           AND gcm.user_id != $2
+           AND u.last_active_at > NOW() - INTERVAL '7 days'
+           AND u.deleted_at IS NULL`,
+        [groupId, userId]
+      );
+      if (activeMembers.length > 0) {
+        const memberIds = activeMembers.map((m) => m.user_id);
+        await tx.query(
+          `UPDATE users
+           SET xp_total = xp_total + 1, xp_social = xp_social + 1, updated_at = NOW()
+           WHERE id = ANY($1::uuid[])`,
+          [memberIds]
+        );
+        const ledgerValues = memberIds
+          .map((_, i) => `($${i * 2 + 1}, 1, 'social', 'group_message_member', $${i * 2 + 2}, 100, 1)`)
+          .join(', ');
+        const ledgerParams: (string | number)[] = [];
+        for (const mid of memberIds) ledgerParams.push(mid, groupId);
+        await tx.query(
+          `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
+           VALUES ${ledgerValues}`,
+          ledgerParams
+        );
+      }
     });
   } catch {
     // Non-fatal

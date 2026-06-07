@@ -22,6 +22,15 @@ export const POST = withAuth(async (_req: NextRequest, { auth }) => {
     await requireFeatureEnabled("platformCouncil");
     const userId = auth.user.sub;
 
+    // PRD §15: Council requires Prestige 5 or above
+    const { rows: prestigeRows } = await db.query<{ prestige_count: number }>(
+      `SELECT COALESCE(prestige_count, 0) AS prestige_count FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+      [userId]
+    );
+    if ((prestigeRows[0]?.prestige_count ?? 0) < 5) {
+      throw forbidden("Platform Council membership requires Prestige 5 or above");
+    }
+
     // Verify there is a pending council_invitation notification for this user
     // issued within the last 14 days (covers the invitation + acceptance window)
     const { rows: inviteRows } = await db.query<{ id: string }>(

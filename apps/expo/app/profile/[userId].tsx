@@ -218,7 +218,7 @@ export default function PublicProfileScreen() {
   }
 
   const rankColor = rankColors[profile.rankTier] ?? colors.brand.blue;
-  const joinYear = new Date(profile.joinedAt).getFullYear();
+  const joinYear = new Date(profile.joinedAt).toLocaleDateString('en-NG', { month: 'long', year: 'numeric' });
 
   return (
     <Screen scrollable contentStyle={styles.content}>
@@ -258,7 +258,7 @@ export default function PublicProfileScreen() {
       <View style={styles.rankSection}>
         <View style={[styles.rankBadge, { backgroundColor: rankColor }]}>
           <Text style={styles.rankBadgeText}>
-            {profile.rankLabel} · Sub {profile.subLevel}
+            {profile.rankLabel} {(['I', 'II', 'III'][profile.subLevel - 1] ?? 'I')}
           </Text>
         </View>
         {profile.legacyScore > 0 && (
