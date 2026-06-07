@@ -20,7 +20,6 @@ import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { db } from "@/lib/db";
-import { sendTelegramMessage } from "@/lib/notifications/telegram";
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -177,21 +176,22 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
       );
     }
 
-    // Fire-and-forget Telegram notifications for linked users
+    // Enqueue Telegram delivery — the queue worker picks this up with retry logic
     const telegramRecipients = recipients.filter((r) => r.telegram_id);
     if (telegramRecipients.length > 0) {
-      const telegramText =
-        `<b>${subject}</b>\n\n${msgBody.slice(0, 1000)}` +
-        (msgBody.length > 1000 ? "\n\n<i>Open Zobia to read the full message.</i>" : "");
-
-      // Stagger sends to avoid Telegram rate limits
-      setImmediate(() => {
-        for (const r of telegramRecipients) {
-          if (r.telegram_id) {
-            sendTelegramMessage(r.telegram_id, telegramText);
-          }
-        }
-      });
+      await db
+        .query(
+          `INSERT INTO telegram_delivery_queue
+             (broadcast_id, telegram_ids)
+           VALUES ($1, $2)`,
+          [
+            messageId,
+            JSON.stringify(telegramRecipients.map((r) => r.telegram_id)),
+          ]
+        )
+        .catch((err) =>
+          console.error("[admin/messages] Telegram queue enqueue failed:", err)
+        );
     }
 
     return NextResponse.json({ messageId, recipientCount: recipients.length });

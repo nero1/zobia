@@ -3,10 +3,10 @@
  *
  * POST /api/economy/rewards/ad-reward
  *
- * Claim a rewarded ad coin bonus (free-tier users only).
+ * Claim a rewarded ad coin bonus (free and Plus plan users).
  *
  * Rules:
- *  - Only free-plan users may call this endpoint.
+ *  - Only free and Plus plan users may call this endpoint (PRD §3).
  *  - Maximum 5 rewarded-ad claims per calendar day (UTC), tracked in Redis.
  *  - Each claim awards a random integer between 10 and 20 coins (inclusive).
  *  - The Redis counter key expires at midnight UTC to reset daily.
@@ -72,7 +72,7 @@ function adRewardRedisKey(userId: string): string {
 
 /**
  * Claim a rewarded ad coin bonus.
- * Only callable by authenticated free-plan users.
+ * Only callable by authenticated free or Plus plan users (PRD §3).
  */
 export const POST = withAuth(async (req: NextRequest, { auth }) => {
   try {
@@ -87,9 +87,9 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     const user = userResult.rows[0];
     if (!user) throw forbidden("User not found");
 
-    if (user.plan !== "free") {
+    if (user.plan !== "free" && user.plan !== "plus") {
       throw forbidden(
-        "Rewarded ads are only available for free-plan users. Upgrade to earn coins other ways.",
+        "Rewarded ads are available for free and Plus plan users.",
         "PAID_PLAN_INELIGIBLE"
       );
     }

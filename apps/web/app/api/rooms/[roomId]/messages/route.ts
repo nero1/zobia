@@ -457,6 +457,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       }
     }
 
+    // Strip metadata from non-admin senders to prevent link injection via
+    // structured fields that bypass the body content filter (PRD §5 anti-spam).
+    const safeMetadata = isAdmin ? (body.metadata ?? null) : null;
+
     // Count today's messages for XP cap check (before insert)
     const todayMsgCount = await countTodayMessages(roomId, userId);
 
@@ -476,7 +480,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           userId,
           content,
           body.messageType,
-          body.metadata ? JSON.stringify(body.metadata) : null,
+          safeMetadata ? JSON.stringify(safeMetadata) : null,
           body.replyToMessageId ?? null,
           requiresApproval,
         ]

@@ -88,7 +88,7 @@ export default function AdminOverviewScreen() {
           { label: "System Alerts", route: "/admin/alerts", icon: "🔔" },
           { label: "Compose Message", route: "/admin/messages", icon: "✉️" },
           { label: "Announcements", route: "/admin/announcements", icon: "📢" },
-          { label: "KYC Review", route: "/admin/kyc", icon: "🪪" },
+          { label: "Refunds", route: "/admin/refunds", icon: "↩️" },
           { label: "Flash XP Events", route: "/admin/flash-xp", icon: "⚡" },
           { label: "Branded Rooms", route: "/admin/branded-rooms", icon: "🏢" },
           { label: "Platform Events", route: "/admin/events", icon: "🗓️" },

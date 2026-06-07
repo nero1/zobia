@@ -873,12 +873,30 @@ export const GET = async (req: NextRequest) => {
       const batchSize = parseInt(batchRows[0]?.value ?? '50', 10);
       const daysPerWeek = Math.min(7, parseInt(freqRows[0]?.value ?? '3', 10));
 
-      // Pseudo-random daily seed: day-of-year modulo 7, fire if seed < daysPerWeek
+      // Per-user seeded PRNG: each user gets a random day within the week window,
+      // derived from userId + ISO week number. Unpredictable to users but stable
+      // within a cron run (re-runs on the same day won't re-fire).
       const now = new Date();
-      const dayOfYear = Math.floor(
-        (now.getTime() - new Date(now.getFullYear(), 0, 0).getTime()) / 86_400_000
+      // ISO week number (1-based)
+      const startOfYear = new Date(now.getUTCFullYear(), 0, 1);
+      const weekNumber = Math.ceil(
+        ((now.getTime() - startOfYear.getTime()) / 86_400_000 + startOfYear.getUTCDay() + 1) / 7
       );
-      const shouldFireToday = (dayOfYear % 7) < daysPerWeek;
+      const utcDayOfWeek = now.getUTCDay(); // 0=Sun … 6=Sat
+
+      function seededRandom(seed: number): number {
+        // xorshift32-based PRNG — deterministic but not guessable from date alone
+        let s = seed >>> 0;
+        s ^= s << 13; s ^= s >>> 17; s ^= s << 5;
+        return (s >>> 0) / 0x100000000;
+      }
+
+      // shouldFireToday is evaluated per-batch-item inside triggerMysteryXPDrop;
+      // here we decide whether ANY drops should attempt to fire this cron run.
+      // We gate on a global day slot derived from week number so that drops spread
+      // across the week rather than always firing on the same weekday.
+      const globalSlot = Math.floor(seededRandom((weekNumber * 31337) >>> 0) * 7);
+      const shouldFireToday = utcDayOfWeek === globalSlot || (daysPerWeek > 1 && utcDayOfWeek < daysPerWeek);
 
       if (shouldFireToday) {
         const { triggerMysteryXPDrop } = await import('@/lib/mystery/xpDrop');

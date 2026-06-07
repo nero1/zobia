@@ -105,6 +105,58 @@ async function processPaymentSucceeded(
     const paymentId = existing[0].id;
     const { userId, coinsGranted, itemType } = metadata;
 
+    // VIP room subscription — activate room access
+    if (itemType === "room_subscription") {
+      const { roomId, grossKobo: subGrossKobo, subscriptionDays = 30 } = metadata as {
+        roomId: string;
+        grossKobo: number;
+        subscriptionDays?: number;
+      };
+      const expiresAt = new Date(Date.now() + subscriptionDays * 24 * 60 * 60 * 1000).toISOString();
+
+      await tx.query(
+        `INSERT INTO room_subscriptions
+           (room_id, user_id, status, amount_kobo, started_at, expires_at)
+         VALUES ($1, $2, 'active', $3, NOW(), $4)
+         ON CONFLICT (room_id, user_id) DO UPDATE
+           SET status = 'active', amount_kobo = $3, started_at = NOW(), expires_at = $4`,
+        [roomId, userId, subGrossKobo ?? amount, expiresAt]
+      );
+
+      await tx.query(
+        `INSERT INTO room_members (room_id, user_id, role, joined_at)
+         VALUES ($1, $2, 'member', NOW())
+         ON CONFLICT (room_id, user_id) DO NOTHING`,
+        [roomId, userId]
+      );
+
+      // Credit creator earnings
+      const roomRow = await tx.query<{ creator_id: string; creator_tier: string | null }>(
+        `SELECT r.creator_id, u.creator_tier
+         FROM rooms r JOIN users u ON u.id = r.creator_id WHERE r.id = $1`,
+        [roomId]
+      );
+      const creator = roomRow.rows[0];
+      if (creator) {
+        const sharePercent = creator.creator_tier === "icon" ? 85 : 80;
+        const netKobo = Math.floor(((subGrossKobo ?? amount) * sharePercent) / 100);
+        const platformFeeKobo = (subGrossKobo ?? amount) - netKobo;
+        await tx.query(
+          `INSERT INTO creator_earnings
+             (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo, reference_id)
+           VALUES ($1, 'subscription', $2, $3, $4, $5)`,
+          [creator.creator_id, subGrossKobo ?? amount, platformFeeKobo, netKobo, paymentId]
+        );
+        await tx.query(
+          `UPDATE users
+           SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1, updated_at = NOW()
+           WHERE id = $2`,
+          [netKobo, creator.creator_id]
+        );
+      }
+      return;
+    }
+
     // Handle subscription activation (PRD §3)
     if (itemType === "subscription") {
       const planName = metadata.planName ?? "pro";
