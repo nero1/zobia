@@ -61,10 +61,13 @@ const variantStyles: Record<ButtonVariant, string> = {
 };
 
 const sizeStyles: Record<ButtonSize, string> = {
-  sm: "h-8 px-3 text-xs gap-1.5 rounded-lg",
-  md: "h-10 px-4 text-sm gap-2 rounded-xl",
-  lg: "h-12 px-6 text-base gap-2.5 rounded-xl",
+  sm: "min-h-10 px-3 py-2 text-xs gap-1.5 rounded-lg",
+  md: "min-h-11 px-4 py-2.5 text-sm gap-2 rounded-xl",
+  lg: "min-h-12 px-6 py-3 text-base gap-2.5 rounded-xl",
 };
+
+// Minimum touch target size per WCAG 2.1 (44×44 CSS pixels)
+const accessibilityBase = "min-w-11 min-h-11";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -109,6 +112,8 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           "border transition-colors duration-150",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
           "disabled:cursor-not-allowed disabled:opacity-60",
+          // Accessibility: minimum touch target size (44×44px per WCAG 2.1)
+          accessibilityBase,
           // Variant and size
           variantStyles[variant],
           sizeStyles[size],
