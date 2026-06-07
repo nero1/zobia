@@ -1,18 +1,27 @@
 /**
  * /api/creator/payouts
  *
- * GET  — Returns payout history for the authenticated creator
- * POST — Request a payout of accumulated earnings
+ * GET  — Returns payout history, available balance, payout config and account status
+ * POST — Request a payout (bank_transfer | coins | crypto)
  *
- * Payout rules:
- *   - Minimum payout threshold: configurable in x_manifest (default 5,000 kobo = ₦50)
- *   - Manual approval threshold: configurable in x_manifest (default 500,000 kobo = ₦5,000)
- *   - Below manual threshold: processes automatically via the payment provider
- *   - Above manual threshold: creates an awaiting_approval record for admin review
- *   - Platform fee: 20% retained; creator receives 80% of gross earnings
- *   - Idempotency: one pending payout per creator at a time
+ * Payout methods:
+ *   bank_transfer — Nigeria only. Uses Paystack. Auto-processed by CRON (or manual
+ *                   if nigeria_payout_auto_approve is false).
+ *   coins         — All regions. Immediately converts earnings to platform coins.
+ *                   No minimum threshold.
+ *   crypto        — USDT/Tron. All regions. Always requires manual admin approval.
  *
- * @module app/api/creator/payouts
+ * Financial integrity:
+ *   - All balance changes happen inside a single DB transaction.
+ *   - One active payout per creator at a time.
+ *   - Bank account snapshot stored at request time — changes to the bank account
+ *     after submission do not affect in-flight payouts.
+ *
+ * Fraud monitoring:
+ *   - New-account gift inflow check
+ *   - Payout velocity check
+ *   - Trust score gate
+ *   → Any flag forces awaiting_approval (never blocks the creator outright).
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -21,10 +30,10 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, forbidden, handleApiError } from "@/lib/api/errors";
 import { db } from "@/lib/db";
 import { meetsMinimumTrust } from "@/lib/trust/trustScore";
-import { createPayout } from "@/lib/payments";
 import { loadManifest } from "@/lib/manifest";
 import { creditCoins } from "@/lib/economy/coins";
-import { hasTrackUnlock } from "@/lib/xp/trackMilestones";
+import { checkPayoutFraud } from "@/lib/fraud/payouts";
+import { encryptField, decryptField } from "@/lib/security/fieldEncryption";
 import { randomUUID } from "crypto";
 import Decimal from "decimal.js";
 
@@ -34,51 +43,55 @@ import Decimal from "decimal.js";
 
 interface PayoutRow {
   id: string;
-  creator_id: string;
   gross_kobo: number;
   net_kobo: number;
   platform_fee_kobo: number;
   status: string;
+  payout_method: string;
+  region: string;
   provider_reference: string | null;
-  provider_status: string | null;
-  bank_account_last4: string | null;
+  bank_account_snapshot: Record<string, string> | null;
+  retry_count: number;
+  appeal_status: string | null;
   created_at: string;
   completed_at: string | null;
+  rejection_reason: string | null;
 }
 
-interface CreatorProfileRow {
-  is_creator: boolean;
-  creator_tier: string | null;
-  payout_recipient_code: string | null;
-  payout_account_last4: string | null;
-  available_earnings_kobo: number;
+interface BankAccountRow {
+  bank_name: string;
+  bank_code: string;
+  account_name: string;
+  account_number_last4: string;
+  recipient_code: string;
+}
+
+interface WalletRow {
+  address: string; // encrypted
 }
 
 // ---------------------------------------------------------------------------
-// Default manifest values for payout thresholds
+// Constants
 // ---------------------------------------------------------------------------
 
-const DEFAULT_MIN_PAYOUT_KOBO = 100_000;        // ₦1,000 (PRD §14)
-const DEFAULT_MANUAL_APPROVAL_KOBO = 5_000_000; // ₦50,000 (PRD §14)
+const DEFAULT_MIN_PAYOUT_KOBO = 100_000;        // ₦1,000
+const DEFAULT_MANUAL_APPROVAL_KOBO = 5_000_000; // ₦50,000
 
 // ---------------------------------------------------------------------------
-// GET handler
+// GET /api/creator/payouts
 // ---------------------------------------------------------------------------
 
-/**
- * GET /api/creator/payouts
- *
- * Returns payout history and current available balance.
- */
 export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     const userId = auth.user.sub;
 
-    const { rows: profileRows } = await db.query<CreatorProfileRow>(
-      `SELECT is_creator, creator_tier, payout_recipient_code, payout_account_last4,
-              available_earnings_kobo
-       FROM users
-       WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+    const { rows: profileRows } = await db.query<{
+      is_creator: boolean;
+      available_earnings_kobo: number;
+      country: string | null;
+    }>(
+      `SELECT is_creator, available_earnings_kobo, country
+       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
       [userId]
     );
 
@@ -87,10 +100,58 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
     }
 
     const profile = profileRows[0];
+    const isNigeria = (profile.country ?? "NG") === "NG";
 
+    // Load payout config
+    const manifest = await loadManifest();
+    const pc = manifest.payouts;
+
+    const payoutConfig = isNigeria
+      ? {
+          bankTransferEnabled: pc.enabled && pc.nigeria.cashEnabled,
+          coinsEnabled: pc.enabled && pc.nigeria.coinsEnabled,
+          cryptoEnabled: pc.enabled && pc.nigeria.cryptoEnabled,
+          isManualMode: !pc.nigeria.autoApprove,
+          region: "nigeria" as const,
+        }
+      : {
+          bankTransferEnabled: false,
+          coinsEnabled: pc.enabled && pc.global.coinsEnabled,
+          cryptoEnabled: pc.enabled && pc.global.cryptoEnabled,
+          isManualMode: true, // global crypto is always manual
+          region: "global" as const,
+        };
+
+    // Bank account status
+    const { rows: bankRows } = await db.query<{
+      bank_name: string;
+      account_name: string;
+      account_number_last4: string;
+    }>(
+      `SELECT bank_name, account_name, account_number_last4
+       FROM creator_bank_accounts WHERE creator_id = $1 LIMIT 1`,
+      [userId]
+    );
+
+    // Wallet status
+    const { rows: walletRows } = await db.query<{ has_wallet: string }>(
+      `SELECT '1' AS has_wallet FROM creator_wallet_addresses WHERE creator_id = $1 LIMIT 1`,
+      [userId]
+    );
+
+    // Pending payout check
+    const { rows: pendingRows } = await db.query<{ id: string; payout_method: string }>(
+      `SELECT id, payout_method FROM creator_payouts
+       WHERE creator_id = $1 AND status IN ('pending','awaiting_approval','processing')
+       LIMIT 1`,
+      [userId]
+    );
+
+    // Payout history
     const { rows: payouts } = await db.query<PayoutRow>(
       `SELECT id, gross_kobo, net_kobo, platform_fee_kobo, status,
-              provider_reference, bank_account_last4, created_at, completed_at
+              payout_method, region, provider_reference, bank_account_snapshot,
+              retry_count, appeal_status, rejection_reason, created_at, completed_at
        FROM creator_payouts
        WHERE creator_id = $1
        ORDER BY created_at DESC
@@ -98,27 +159,33 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
       [userId]
     );
 
-    // available_earnings_kobo already stores the net (post-platform-fee) amount —
-    // earnings are recorded as net when each transaction occurs.
-    const netAvailableKobo = profile.available_earnings_kobo ?? 0;
-
     return NextResponse.json({
-      availableEarnings: {
-        netKobo: netAvailableKobo,
-        platformFeePercent: 20,
-      },
-      payoutAccount: {
-        configured: !!profile.payout_recipient_code,
-        last4: profile.payout_account_last4,
-      },
+      availableEarningsKobo: profile.available_earnings_kobo ?? 0,
+      payoutConfig,
+      bankAccount: bankRows[0]
+        ? {
+            configured: true,
+            bankName: bankRows[0].bank_name,
+            accountName: bankRows[0].account_name,
+            accountNumberLast4: bankRows[0].account_number_last4,
+          }
+        : { configured: false },
+      walletAddress: { configured: !!walletRows[0] },
+      pendingPayout: pendingRows[0]
+        ? { id: pendingRows[0].id, method: pendingRows[0].payout_method }
+        : null,
       payouts: payouts.map((p) => ({
         id: p.id,
         grossKobo: p.gross_kobo,
         netKobo: p.net_kobo,
         platformFeeKobo: p.platform_fee_kobo,
         status: p.status,
-        providerReference: p.provider_reference,
-        bankAccountLast4: p.bank_account_last4,
+        method: p.payout_method,
+        region: p.region,
+        bankAccountLast4: p.bank_account_snapshot?.last4 ?? null,
+        retryCount: p.retry_count,
+        appealStatus: p.appeal_status,
+        rejectionReason: p.rejection_reason,
         createdAt: p.created_at,
         completedAt: p.completed_at,
       })),
@@ -129,39 +196,37 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST handler
+// POST /api/creator/payouts
 // ---------------------------------------------------------------------------
 
 const PayoutRequestSchema = z.object({
-  /**
-   * Gross kobo amount to request. Must be <= available_earnings_kobo.
-   * Omit to request the full available balance.
-   */
+  method: z.enum(["bank_transfer", "coins", "crypto"]),
   amountKobo: z.number().int().positive().optional(),
-  /**
-   * When true, converts the payout to Coins and credits them directly to the
-   * creator's coin balance instead of initiating a bank transfer.
-   * No minimum threshold applies for coin payouts.
-   */
-  asCoins: z.boolean().optional().default(false),
 });
 
-/**
- * POST /api/creator/payouts
- *
- * Body: { amountKobo?: number }
- * Requests a payout. Returns the payout record and whether it was auto-processed.
- */
 export const POST = withAuth(async (req: NextRequest, { auth }) => {
   try {
     const userId = auth.user.sub;
     const body = await validateBody(req, PayoutRequestSchema);
 
-    const { rows: profileRows } = await db.query<CreatorProfileRow>(
-      `SELECT is_creator, creator_tier, payout_recipient_code, payout_account_last4,
-              available_earnings_kobo
-       FROM users
-       WHERE id = $1 AND deleted_at IS NULL LIMIT 1 FOR UPDATE`,
+    const manifest = await loadManifest();
+    const pc = manifest.payouts;
+
+    if (!pc.enabled) {
+      return NextResponse.json(
+        { error: { code: "PAYOUTS_DISABLED", message: "Creator payouts are currently disabled." } },
+        { status: 503 }
+      );
+    }
+
+    // Load creator profile
+    const { rows: profileRows } = await db.query<{
+      is_creator: boolean;
+      available_earnings_kobo: number;
+      country: string | null;
+    }>(
+      `SELECT is_creator, available_earnings_kobo, country
+       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1 FOR UPDATE`,
       [userId]
     );
 
@@ -170,57 +235,55 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     }
 
     const profile = profileRows[0];
+    const isNigeria = (profile.country ?? "NG") === "NG";
+    const region: "nigeria" | "global" = isNigeria ? "nigeria" : "global";
 
-    // Trust gate: withdraw_coins requires minimum trust score of 50
-    const trusted = await meetsMinimumTrust(userId, "withdraw_coins", db);
-    if (!trusted) {
-      throw forbidden("Your account trust score is too low to request a payout. Build your reputation first.", "TRUST_SCORE_TOO_LOW");
+    // Validate method is enabled for this region
+    if (body.method === "bank_transfer") {
+      if (!isNigeria) throw badRequest("Bank transfers are only available for Nigerian creators.", "METHOD_NOT_AVAILABLE");
+      if (!pc.nigeria.cashEnabled) throw badRequest("Bank transfer payouts are currently disabled.", "METHOD_DISABLED");
+    } else if (body.method === "coins") {
+      if (isNigeria && !pc.nigeria.coinsEnabled) throw badRequest("Coin payouts are currently disabled.", "METHOD_DISABLED");
+      if (!isNigeria && !pc.global.coinsEnabled) throw badRequest("Coin payouts are currently disabled.", "METHOD_DISABLED");
+    } else if (body.method === "crypto") {
+      if (isNigeria && !pc.nigeria.cryptoEnabled) throw badRequest("Crypto payouts are currently disabled.", "METHOD_DISABLED");
+      if (!isNigeria && !pc.global.cryptoEnabled) throw badRequest("Crypto payouts are currently disabled.", "METHOD_DISABLED");
     }
 
-    // Coin-conversion payouts bypass the bank account requirement (PRD §14 RIZE Coin conversion)
-    if (!body.asCoins && !profile.payout_recipient_code) {
-      throw badRequest(
-        "No payout account configured. Please add your bank account in settings.",
-        "NO_PAYOUT_ACCOUNT"
+    // Trust gate
+    const trusted = await meetsMinimumTrust(userId, "withdraw_coins", db);
+    if (!trusted) {
+      throw forbidden(
+        "Your account trust score is too low to request a payout.",
+        "TRUST_SCORE_TOO_LOW"
       );
     }
 
-    // Load thresholds from manifest (or defaults)
-    const manifest = await loadManifest();
-    const minPayoutKobo =
-      (manifest as unknown as Record<string, unknown>).economy &&
-      typeof ((manifest as unknown as Record<string, unknown>).economy as Record<string, unknown>).minPayoutKobo === "number"
-        ? ((manifest as unknown as Record<string, unknown>).economy as Record<string, unknown>).minPayoutKobo as number
-        : DEFAULT_MIN_PAYOUT_KOBO;
-    const manualApprovalKobo =
-      (manifest as unknown as Record<string, unknown>).economy &&
-      typeof ((manifest as unknown as Record<string, unknown>).economy as Record<string, unknown>).manualApprovalThresholdKobo === "number"
-        ? ((manifest as unknown as Record<string, unknown>).economy as Record<string, unknown>).manualApprovalThresholdKobo as number
-        : DEFAULT_MANUAL_APPROVAL_KOBO;
+    const minPayoutKobo = pc.enabled ? manifest.payoutThresholdKobo : DEFAULT_MIN_PAYOUT_KOBO;
+    const manualApprovalKobo = manifest.payoutLargeApprovalKobo ?? DEFAULT_MANUAL_APPROVAL_KOBO;
 
-    const availableGrossKobo = profile.available_earnings_kobo ?? 0;
-    const requestedGrossKobo = body.amountKobo ?? availableGrossKobo;
+    const availableKobo = profile.available_earnings_kobo ?? 0;
+    const requestedKobo = body.amountKobo ?? availableKobo;
 
-    // Coin conversion: no minimum threshold applies (PRD §14 — RIZE Coin conversion)
-    if (!body.asCoins && requestedGrossKobo < minPayoutKobo) {
+    if (requestedKobo > availableKobo) {
+      throw badRequest("Requested amount exceeds available earnings.", "INSUFFICIENT_EARNINGS");
+    }
+
+    // Coins path has no minimum
+    if (body.method !== "coins" && requestedKobo < minPayoutKobo) {
       throw badRequest(
-        `Minimum payout is ₦${(minPayoutKobo / 100).toFixed(2)}`,
+        `Minimum payout is ₦${(minPayoutKobo / 100).toFixed(2)}.`,
         "BELOW_MINIMUM_PAYOUT"
       );
     }
 
-    if (requestedGrossKobo > availableGrossKobo) {
-      throw badRequest("Requested amount exceeds available earnings", "INSUFFICIENT_EARNINGS");
-    }
-
-    // Check for an already-pending payout
+    // One pending payout at a time
     const { rows: pendingRows } = await db.query<{ id: string }>(
       `SELECT id FROM creator_payouts
-       WHERE creator_id = $1 AND status IN ('pending', 'awaiting_approval', 'processing')
+       WHERE creator_id = $1 AND status IN ('pending','awaiting_approval','processing')
        LIMIT 1`,
       [userId]
     );
-
     if (pendingRows[0]) {
       throw badRequest(
         "You already have a pending payout. Wait for it to complete before requesting another.",
@@ -228,187 +291,152 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       );
     }
 
-    // available_earnings_kobo already stores the net amount (platform fee was taken
-    // at the time each earning was recorded). Do not deduct again here.
-    const netKobo = requestedGrossKobo;
-    const platformFeeKobo = 0;
-    const revenueSharePct = 100; // reflects that the net is already the creator's share
+    // ── Bank transfer: load and snapshot bank account ────────────────────────
+    let bankAccountSnapshot: Record<string, string> | null = null;
 
-    const idempotencyKey = `payout:${userId}:${randomUUID()}`;
-    let requiresManualApproval = requestedGrossKobo >= manualApprovalKobo;
-
-    // Payout fraud monitoring (PRD §18)
-    // Flag creators whose payout patterns are anomalous:
-    // large gift inflows from newly created accounts (< 7 days old) followed by immediate payout request.
-    const SUSPICIOUS_GIFT_THRESHOLD_COINS = 5000; // 5000+ coins from new accounts
-    const NEW_ACCOUNT_AGE_DAYS = 7;
-
-    const { rows: suspiciousGifts } = await db.query<{ total_coins: string; new_account_count: string }>(
-      `SELECT
-         SUM(g.coin_value)::TEXT AS total_coins,
-         COUNT(DISTINCT g.sender_id)::TEXT AS new_account_count
-       FROM gifts g
-       JOIN users sender ON sender.id = g.sender_id
-       JOIN rooms r ON r.id = g.room_id
-       WHERE r.creator_id = $1
-         AND sender.created_at >= NOW() - INTERVAL '${NEW_ACCOUNT_AGE_DAYS} days'
-         AND g.created_at >= NOW() - INTERVAL '7 days'`,
-      [userId]
-    );
-
-    const totalFromNewAccounts = parseInt(suspiciousGifts[0]?.total_coins ?? '0', 10);
-    const newAccountCount = parseInt(suspiciousGifts[0]?.new_account_count ?? '0', 10);
-
-    if (totalFromNewAccounts >= SUSPICIOUS_GIFT_THRESHOLD_COINS && newAccountCount >= 3) {
-      // Flag this creator for fraud review - log alert and force manual approval
-      await db.query(
-        `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-         VALUES ('payout_fraud_flag', 'critical', $1, $2::jsonb, NOW())`,
-        [
-          `Creator @${userId} requested a payout of ₦${(requestedGrossKobo / 100).toFixed(2)} after receiving ${totalFromNewAccounts} coins from ${newAccountCount} new accounts (< ${NEW_ACCOUNT_AGE_DAYS} days old) in the past 7 days.`,
-          JSON.stringify({ creatorId: userId, totalFromNewAccounts, newAccountCount, requestedGrossKobo }),
-        ]
-      ).catch(() => {});
-
-      // Force manual approval regardless of amount
-      requiresManualApproval = true;
+    if (body.method === "bank_transfer") {
+      const { rows: bankRows } = await db.query<BankAccountRow>(
+        `SELECT bank_name, bank_code, account_name, account_number_last4, recipient_code
+         FROM creator_bank_accounts WHERE creator_id = $1 LIMIT 1`,
+        [userId]
+      );
+      if (!bankRows[0] || !bankRows[0].recipient_code) {
+        throw badRequest(
+          "No verified bank account found. Please add your bank account before requesting a payout.",
+          "NO_BANK_ACCOUNT"
+        );
+      }
+      bankAccountSnapshot = {
+        bank_name: bankRows[0].bank_name,
+        account_name: bankRows[0].account_name,
+        last4: bankRows[0].account_number_last4,
+        recipient_code: bankRows[0].recipient_code,
+      };
     }
 
-    // ── RIZE Coin Conversion path (PRD §14) ──────────────────────────────────
-    // When asCoins = true, convert net earnings to Coins and credit directly.
-    // Coin rate: 1 kobo = 0.01 Coin (i.e., 100 kobo = 1 Coin). Admin-configurable
-    // via manifest economy.cobToKoboRate (default 100 kobo per Coin).
-    if (body.asCoins) {
-      const manifest2 = await loadManifest();
-      const koboPerCoin = (manifest2 as unknown as Record<string, unknown>).economy
-        ? Number(((manifest2 as unknown as Record<string, unknown>).economy as Record<string, unknown>).koboPerCoin) || 100
-        : 100;
-      const coinsToCredit = Math.floor(netKobo / koboPerCoin);
+    // ── Crypto: snapshot wallet address ─────────────────────────────────────
+    let walletAddressSnapshot: string | null = null;
+
+    if (body.method === "crypto") {
+      const { rows: walletRows } = await db.query<WalletRow>(
+        `SELECT address FROM creator_wallet_addresses WHERE creator_id = $1 LIMIT 1`,
+        [userId]
+      );
+      if (!walletRows[0]) {
+        throw badRequest(
+          "No USDT wallet address configured. Please add your Tron wallet address first.",
+          "NO_WALLET_ADDRESS"
+        );
+      }
+      // Store already-encrypted address as the snapshot
+      walletAddressSnapshot = walletRows[0].address;
+    }
+
+    // ── Fraud check ──────────────────────────────────────────────────────────
+    const fraudResult = await checkPayoutFraud(userId, requestedKobo, db);
+    let requiresManualApproval =
+      fraudResult.forceManual ||
+      body.method === "crypto" || // crypto always manual
+      (!isNigeria && body.method !== "coins") || // global non-coin always manual
+      (!pc.nigeria.autoApprove && body.method === "bank_transfer") || // manual mode
+      requestedKobo >= manualApprovalKobo;
+
+    const idempotencyKey = `payout:${userId}:${randomUUID()}`;
+
+    // ── Coins path — immediate conversion ────────────────────────────────────
+    if (body.method === "coins") {
+      const koboPerCoin = manifest.coinToCashRate || 100;
+      const coinsToCredit = Math.floor(requestedKobo / koboPerCoin);
 
       if (coinsToCredit <= 0) {
-        throw badRequest("Earnings are too small to convert to Coins at the current rate.", "BELOW_MINIMUM_COIN_CONVERSION");
+        throw badRequest(
+          "Earnings are too small to convert to Coins at the current rate.",
+          "BELOW_MINIMUM_COIN_CONVERSION"
+        );
       }
 
       await db.transaction(async (tx) => {
         await tx.query(
           `UPDATE users SET available_earnings_kobo = available_earnings_kobo - $1, updated_at = NOW() WHERE id = $2`,
-          [requestedGrossKobo, userId]
+          [requestedKobo, userId]
         );
         await tx.query(
-          `INSERT INTO creator_payouts (creator_id, gross_kobo, net_kobo, platform_fee_kobo, status, idempotency_key, bank_account_last4)
-           VALUES ($1, $2, $3, $4, 'completed', $5, NULL)`,
-          [userId, requestedGrossKobo, netKobo, platformFeeKobo, idempotencyKey]
+          `INSERT INTO creator_payouts
+             (creator_id, gross_kobo, net_kobo, platform_fee_kobo, payout_method, region,
+              status, idempotency_key)
+           VALUES ($1, $2, $2, 0, 'coins', $3, 'completed', $4)`,
+          [userId, requestedKobo, region, idempotencyKey]
         );
         await creditCoins(
           userId, coinsToCredit, "creator_coin_conversion", idempotencyKey,
-          `Earnings converted to ${coinsToCredit} Coins`, { grossKobo: requestedGrossKobo }, tx
+          `Earnings converted to ${coinsToCredit} Coins`,
+          { grossKobo: requestedKobo },
+          tx
         );
       });
 
       return NextResponse.json({
         payout: {
           idempotencyKey,
-          grossKobo: requestedGrossKobo,
-          netKobo,
-          platformFeeKobo,
+          method: "coins",
+          grossKobo: requestedKobo,
           status: "completed",
-          asCoins: true,
           coinsAwarded: coinsToCredit,
         },
         message: `${coinsToCredit.toLocaleString()} Coins have been added to your wallet.`,
       });
     }
 
-    // ── Standard bank transfer path ──────────────────────────────────────────
+    // ── Bank transfer / Crypto path ──────────────────────────────────────────
+    const status = requiresManualApproval ? "awaiting_approval" : "pending";
 
-    // Deduct from available earnings atomically before initiating
     await db.transaction(async (tx) => {
       await tx.query(
         `UPDATE users
          SET available_earnings_kobo = available_earnings_kobo - $1, updated_at = NOW()
          WHERE id = $2`,
-        [requestedGrossKobo, userId]
+        [requestedKobo, userId]
       );
 
       await tx.query(
         `INSERT INTO creator_payouts
-           (creator_id, gross_kobo, net_kobo, platform_fee_kobo, status,
-            idempotency_key, bank_account_last4)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+           (creator_id, gross_kobo, net_kobo, platform_fee_kobo, payout_method, region,
+            status, idempotency_key, bank_account_snapshot, wallet_address_snapshot)
+         VALUES ($1, $2, $2, 0, $3, $4, $5, $6, $7::jsonb, $8)`,
         [
           userId,
-          requestedGrossKobo,
-          netKobo,
-          platformFeeKobo,
-          requiresManualApproval ? "awaiting_approval" : "pending",
+          requestedKobo,
+          body.method,
+          region,
+          status,
           idempotencyKey,
-          profile.payout_account_last4,
+          bankAccountSnapshot ? JSON.stringify(bankAccountSnapshot) : null,
+          walletAddressSnapshot,
         ]
       );
     });
 
-    // Load the new payout record
-    const { rows: newPayoutRows } = await db.query<{ id: string; status: string }>(
-      `SELECT id, status FROM creator_payouts WHERE idempotency_key = $1 LIMIT 1`,
+    const { rows: newRows } = await db.query<{ id: string }>(
+      `SELECT id FROM creator_payouts WHERE idempotency_key = $1 LIMIT 1`,
       [idempotencyKey]
     );
-    const newPayout = newPayoutRows[0];
-
-    let providerReference: string | null = null;
-
-    // Auto-process if below manual approval threshold
-    if (!requiresManualApproval) {
-      try {
-        const payoutResult = await createPayout(
-          netKobo,
-          "NGN",
-          { recipientCode: profile.payout_recipient_code!, reason: "Creator payout" },
-          idempotencyKey
-        );
-
-        providerReference = payoutResult.providerId;
-
-        await db.query(
-          `UPDATE creator_payouts
-           SET status = 'processing', provider_reference = $1, updated_at = NOW()
-           WHERE id = $2`,
-          [providerReference, newPayout.id]
-        );
-      } catch (payoutErr) {
-        // If provider call fails, mark as failed and restore earnings
-        console.error("[creator/payouts] Provider payout failed:", payoutErr);
-
-        await db.transaction(async (tx) => {
-          await tx.query(
-            `UPDATE creator_payouts SET status = 'failed', updated_at = NOW() WHERE id = $1`,
-            [newPayout.id]
-          );
-          await tx.query(
-            `UPDATE users
-             SET available_earnings_kobo = available_earnings_kobo + $1, updated_at = NOW()
-             WHERE id = $2`,
-            [requestedGrossKobo, userId]
-          );
-        });
-
-        throw badRequest("Payout initiation failed. Your earnings have been restored.", "PAYOUT_PROVIDER_ERROR");
-      }
-    }
 
     return NextResponse.json({
       payout: {
-        id: newPayout.id,
-        grossKobo: requestedGrossKobo,
-        netKobo,
-        platformFeeKobo,
-        revenueSharePct,
-        status: requiresManualApproval ? "awaiting_approval" : "processing",
-        providerReference,
+        id: newRows[0]?.id,
+        method: body.method,
+        grossKobo: requestedKobo,
+        status,
         requiresManualApproval,
+        fraudFlagged: fraudResult.isSuspicious,
       },
       message: requiresManualApproval
-        ? "Your payout is pending admin approval due to the amount. You'll be notified when it's processed."
-        : "Payout initiated successfully. Funds will arrive within 1–2 business days.",
+        ? body.method === "crypto"
+          ? "Your crypto payout request has been submitted. Admin will process it manually."
+          : fraudResult.isSuspicious
+            ? "Your payout has been flagged for review and will be processed after admin approval."
+            : "Your payout is pending admin approval. You'll be notified when it's processed."
+        : "Payout queued. Funds will be processed in the next batch (within 30 minutes).",
     });
   } catch (err) {
     return handleApiError(err);

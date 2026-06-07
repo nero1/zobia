@@ -1,7 +1,7 @@
 # Zobia Social — Product Requirements Document
 ### A Gamified Monetised Social Platform for the Global Mobile Generation
 
-> **Version 1.2 — Product Requirements Document**
+> **Version 1.3 — Product Requirements Document**
 > Covers: Feature Specifications · Technical Architecture · Economy Design · Moderation · Build Sequence
 > Scope: Nigeria-first, Pan-African then Global · Mobile-first PWA + Android APK · Admin-minimal operation
 
@@ -739,13 +739,57 @@ Accessible to Rising tier and above. Includes: revenue summary (today/week/month
 
 ### Creator Payout Mechanics
 
-Payouts process weekly (day and frequency are admin-configurable, default: every Friday). Minimum payout threshold: admin-configurable (default ₦1,000). Below threshold, earnings roll forward.
+Admin has a master toggle to enable or disable creator payouts globally for all users at any time.
 
-Payment routes: Nigerian bank account (Paystack), and optionally RIZE Coin conversion (creator can reinvest payout as Coins to grow their Room).
+**Payout Methods by Region:**
 
-Admin can configure via x_manifest whether cash payouts are active or whether all commissions are paid in platform Coins instead — useful for early-stage operation before payment infrastructure is fully operational.
+*Nigeria:*
+- **Bank transfer** — NGN payout directly to a verified Nigerian bank account via Paystack. Account verified using the Paystack Resolve Account API; a transfer recipient code is generated and stored at verification time.
+- **Coins** — Payout credited as platform Coins (immediately available in the creator's coin wallet).
+- **USDT/Tron** — Payout in USDT to a Tron (TRC20) wallet address provided by the creator (manual processing by admin).
 
-**Creator KYC:** Before a creator activates paid features, they complete identity verification and bank account confirmation via the configured payment provider's KYC. Ongoing monitoring flags creators with unusual report rates or suspicious payout patterns.
+Each of the three Nigeria methods can be toggled independently via the admin manifest.
+
+*Global (non-Nigerian creators):*
+- **Coins** — Payout credited as platform Coins.
+- **USDT/Tron** — Payout in USDT to a Tron (TRC20) wallet address (manual processing only — no automated transfer).
+
+**Bank Account Setup (Nigeria):**
+Creators add their Nigerian bank account via a two-step flow: enter bank + account number, confirm the account name resolved via Paystack, then receive a transfer recipient code. The account number is encrypted at rest. Adding a bank account for the first time awards XP (5 main XP + 10 Creator Track XP, admin-configurable). A PIN encouragement modal is shown after the first successful add if the creator has no security method set.
+
+**USDT Wallet Setup (Global):**
+Creators provide a Tron (TRC20) wallet address. A prominent irreversibility warning is shown: funds sent to an incorrect address or wrong network are permanently lost and cannot be recovered. The creator must explicitly confirm this before saving. The address is encrypted at rest.
+
+**Bank Account Snapshot:**
+When a creator submits a payout request, their bank account details (bank name, account name, last 4 digits, recipient code) are snapshotted and stored with the payout record. Subsequent changes to the bank account do not affect in-flight payouts. Creators are shown this behaviour explicitly.
+
+**Approval Modes (Nigeria bank transfer):**
+- *Auto-approve mode* (default): payouts meeting the threshold and fraud checks are queued automatically for batch processing via CRON.
+- *Manual mode*: all payouts require admin review before processing. Admin can approve, reject, set status to processing/completed/failed, or reject with a reason.
+
+Manual mode is configured per-region via the admin manifest (`nigeria_payout_auto_approve`).
+
+**Payout Processing (Nigeria bank transfer, auto mode):**
+A batch CRON runs every 30 minutes (via an external cron service, e.g. cron-jobs.org). Batch size is admin-configurable (default 200). For each eligible payout, the CRON calls `paystack.initiateTransfer()` using the recipient code from the bank account snapshot. On success, status moves to `processing`; Paystack sends a webhook confirming `transfer.success` (→ `completed`) or `transfer.failed` (→ retry or DLQ).
+
+**Retry & Dead-Letter Queue:**
+Failed transfers are retried up to 3 times (admin-configurable) with exponential backoff (5 min, 15 min, 45 min). After all retries are exhausted, the payout is moved to a dead-letter queue, the creator's earnings are restored, and both the creator and admin are notified. Reversed transfers (bank returns the money) also restore the creator's earnings balance automatically.
+
+**Minimum Payout Threshold:** Admin-configurable (default ₦1,000). Earnings below threshold roll forward.
+
+**Payout Appeal Pipeline:**
+When a payout is rejected, the creator may submit an appeal with a written reason. Admins review appeals and can approve (re-opening the payout) or dismiss them. Both outcomes notify the creator.
+
+**Fraud Detection:**
+Automated fraud checks run on every payout request:
+1. *New-account gift inflow:* Large gift volumes from newly created accounts (< 7 days old) in the past 7 days trigger a manual review flag.
+2. *Payout velocity:* More than 3 payout requests in 24 hours triggers a manual review flag.
+3. *Trust score gate:* Creators with a trust score below 30 are always flagged for manual review.
+
+Flagged payouts are not blocked — they are routed to `awaiting_approval` for admin decision. A critical-severity system alert is also created for admin visibility.
+
+**Security Gate:**
+Updating or removing a bank account or wallet address requires the creator to verify with their PIN, authenticator code, or password. If no security method is set, a PIN encouragement modal is shown after the first account add.
 
 ---
 
@@ -1323,7 +1367,7 @@ The platform applies multiple overlapping security layers. No single mechanism i
 
 - **Injection (SQL, NoSQL, Command):** All database queries use parameterised queries via the database provider's client. No raw SQL string interpolation regardless of which provider is active. The provider abstraction layer enforces this.
 - **Broken Authentication:** JWT + Redis invalidation, 2FA for sensitive operations, 4-digit PIN option, strong password policy, session expiry.
-- **Sensitive Data Exposure:** All data in transit via HTTPS/TLS. Sensitive fields (bank details, KYC data) encrypted at rest. PII minimisation — only collect what is needed.
+- **Sensitive Data Exposure:** All data in transit via HTTPS/TLS. Sensitive fields (bank account numbers, USDT wallet addresses) encrypted at rest using AES-256-GCM. PII minimisation — only collect what is needed.
 - **XML External Entities:** Not applicable (JSON API). Input validation on all incoming data.
 - **Broken Access Control:** Row Level Security on all PostgreSQL tables (all supported database providers). is_admin and role checks verified against the database on every privileged operation. API routes validate permissions server-side, never trusting client claims.
 - **Security Misconfiguration:** Vercel environment variables for all secrets. No secrets in code. Secret rotation runbook in SETUP.md.
@@ -1528,8 +1572,8 @@ The MVP Build Sequence follows a phased approach. Each phase ends with a stable,
 - Top Gifter leaderboard per Room (real-time, updated via Supabase Realtime).
 - Gift economy in Rooms: gift animation, room-wide spectacle, creator gift balance.
 - Creator dashboard (revenue summary, member analytics, top gifters, payout history, Room health score).
-- Creator KYC integration (via payment provider's KYC for paid Creator features).
-- Creator payout flow (Paystack / DodoPayments based on market configuration).
+- Creator payout account setup (bank account verification via Paystack Resolve Account API for Nigeria; USDT Tron wallet address for global creators).
+- Creator payout flow: method selector (bank transfer / coins / USDT), auto/manual approval mode, retry logic, dead-letter queue, appeal pipeline.
 - Creator Fund data model (seeded from 5% of ad revenue, distributed by engagement score).
 - ClassRoom curriculum builder (modules, pinned resources, start/end dates).
 - Zobia Learning Certificates (Knowledge Track Level 25+ creators can issue).

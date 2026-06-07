@@ -1,0 +1,41 @@
+export interface SupportedBank {
+  name: string;
+  code: string;
+}
+
+export const SUPPORTED_NIGERIAN_BANKS: readonly SupportedBank[] = [
+  { name: 'Opay', code: '999992' },
+  { name: 'PalmPay', code: '999991' },
+  { name: 'MoniePoint', code: '50515' },
+  { name: 'MTN Momo', code: '120003' },
+  { name: 'Access Bank', code: '044' },
+  { name: 'Access Bank (Diamond)', code: '063' },
+  { name: 'Citi Bank', code: '023' },
+  { name: 'Ecobank Nigeria', code: '050' },
+  { name: 'Fidelity Bank', code: '070' },
+  { name: 'First Bank of Nigeria', code: '011' },
+  { name: 'First City Monument Bank', code: '214' },
+  { name: 'Globus Bank', code: '00103' },
+  { name: 'Guaranty Trust Bank', code: '058' },
+  { name: 'Heritage Bank', code: '030' },
+  { name: 'Keystone Bank', code: '082' },
+  { name: 'Kuda Bank', code: '50211' },
+  { name: 'Lotus Bank', code: '303' },
+  { name: 'Parallex Bank', code: '526' },
+  { name: 'Polaris Bank', code: '076' },
+  { name: 'Premium Trust Bank', code: '105' },
+  { name: 'Providus Bank', code: '101' },
+  { name: 'Rubies (Highstreet) Microfinance Bank', code: '125' },
+  { name: 'Signature Bank', code: '106' },
+  { name: 'Stanbic IBTC Bank', code: '221' },
+  { name: 'Standard Chartered Bank', code: '068' },
+  { name: 'Sterling Bank', code: '232' },
+  { name: 'Suntrust Bank', code: '100' },
+  { name: 'Titan Trust Bank', code: '102' },
+  { name: 'Union Bank of Nigeria', code: '032' },
+  { name: 'United Bank for Africa', code: '033' },
+  { name: 'Unity Bank', code: '215' },
+  { name: 'VFD Microfinance Bank', code: '566' },
+  { name: 'Wema Bank', code: '035' },
+  { name: 'Zenith Bank Plc', code: '057' },
+] as const;

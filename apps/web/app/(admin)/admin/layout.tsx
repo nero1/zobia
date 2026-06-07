@@ -44,7 +44,7 @@ const adminNavItems = [
   { href: "/admin/footer-scripts", label: "Footer Scripts", icon: "📄" },
   { href: "/admin/events", label: "Events", icon: "📅" },
   { href: "/admin/flash-xp", label: "Flash XP", icon: "⚡" },
-  { href: "/admin/kyc", label: "KYC", icon: "🪪" },
+  { href: "/admin/payouts/appeals", label: "Payout Appeals", icon: "⚖️" },
   { href: "/admin/actions-log", label: "Actions Log", icon: "📋" },
   { href: "/admin/automated-actions", label: "Auto Actions", icon: "🤖" },
   { href: "/admin/creator-spotlight", label: "Creator Spotlight", icon: "⭐" },

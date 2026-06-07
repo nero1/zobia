@@ -513,21 +513,36 @@ export interface CreatorEarning {
   createdAt: string;
 }
 
-export type PayoutStatus = 'pending' | 'awaiting_approval' | 'approved' | 'processing' | 'completed' | 'failed' | 'rejected';
+export type PayoutStatus =
+  | 'pending'
+  | 'awaiting_approval'
+  | 'processing'
+  | 'completed'
+  | 'failed'
+  | 'rejected'
+  | 'reversed'
+  | 'cancelled';
 
 export interface CreatorPayout {
   id: string;
   creatorId: string;
-  amountKobo: number;
-  provider: PaymentProvider;
-  bankAccountReference?: string;
+  grossKobo: number;
+  netKobo: number;
+  platformFeeKobo: number;
+  payoutMethod: PayoutMethod;
+  region: PayoutRegion;
   status: PayoutStatus;
-  requiresManualApproval: boolean;
-  approvedByAdminId?: string;
-  idempotencyKey?: string;
-  providerReference?: string;
+  bankAccountSnapshot: BankAccountSnapshot | null;
+  walletAddressSnapshot: string | null;
+  retryCount: number;
+  lastRetryAt: string | null;
+  appealReason: string | null;
+  appealStatus: AppealStatus | null;
+  appealSubmittedAt: string | null;
+  rejectionReason: string | null;
+  providerReference: string | null;
   createdAt: string;
-  processedAt?: string;
+  completedAt: string | null;
 }
 
 // ─── Announcement ──────────────────────────────────────────────────────────────
@@ -928,14 +943,42 @@ export interface DropRoomReplay {
   replayFeeKobo: number; isPublished: boolean; publishedAt: string | null; createdAt: string;
 }
 
-// ─── Creator KYC ─────────────────────────────────────────────────────────────
+// ─── Creator Payout Accounts ─────────────────────────────────────────────────
 
-export type KYCStatus = 'unverified' | 'pending' | 'verified' | 'rejected';
-export interface CreatorKYC {
-  id: string; creatorId: string; fullName: string | null; bvnLast4: string | null;
-  bankAccountNumber: string | null; bankCode: string | null; bankName: string | null;
-  kycStatus: KYCStatus; verifiedAt: string | null; rejectionReason: string | null;
-  createdAt: string; updatedAt: string;
+export type PayoutMethod = 'bank_transfer' | 'coins' | 'crypto';
+export type PayoutRegion = 'nigeria' | 'global';
+export type AppealStatus = 'pending' | 'resolved' | 'dismissed';
+
+export interface CreatorBankAccount {
+  id: string;
+  bankName: string;
+  bankCode: string;
+  accountName: string;
+  accountNumberLast4: string;
+  hasAccount: boolean;
+  createdAt: string;
+}
+
+export interface CreatorWalletAddress {
+  network: string;
+  currency: string;
+  addressMasked: string;
+  hasWallet: boolean;
+}
+
+export interface PayoutConfig {
+  bankTransferEnabled: boolean;
+  coinsEnabled: boolean;
+  cryptoEnabled: boolean;
+  isManualMode: boolean;
+  region: PayoutRegion;
+}
+
+export interface BankAccountSnapshot {
+  bank_name: string;
+  account_name: string;
+  last4: string;
+  recipient_code: string;
 }
 
 // ─── Platform Events ─────────────────────────────────────────────────────────

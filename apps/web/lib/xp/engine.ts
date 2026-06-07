@@ -101,6 +101,9 @@ export const XP_VALUES = {
   // Onboarding
   welcome_xp_drop: 500,
   new_member_quest_completion: 2_000,
+
+  // Creator payout setup
+  bank_account_added: 5,  // default; overridden by manifest bank_account_first_add_xp
 };
 
 // ─── Room message XP daily cap ───────────────────────────────────────────────

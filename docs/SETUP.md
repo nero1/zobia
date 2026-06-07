@@ -102,7 +102,7 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `GEMINI_API_KEY` | Yes | Google Gemini API key (AI fallback) | aistudio.google.com → Get API key |
 | `MAILGUN_API_KEY` | Yes | Mailgun API key for transactional email | Mailgun → Account → API Keys |
 | `MAILGUN_DOMAIN` | Yes | Mailgun sending domain (e.g. `mg.yourdomain.com`) | Mailgun → Sending → Domains |
-| `PAYSTACK_SECRET_KEY` | Yes | Paystack secret key | Paystack dashboard → Settings → API Keys |
+| `PAYSTACK_SECRET_KEY` | Yes | Paystack secret key — must have Transfers permission enabled | Paystack dashboard → Settings → API Keys |
 | `PAYSTACK_PUBLIC_KEY` | Yes | Paystack public key | Paystack dashboard → Settings → API Keys |
 | `DODOPAYMENTS_API_KEY` | Yes | DodoPayments API key | DodoPayments dashboard → API |
 | `ADMOB_APP_ID` | No | Google AdMob app ID (for rewarded ads in the Expo app) | AdMob → Apps |
@@ -246,6 +246,7 @@ Vercel Hobby Plan allows **only one CRON job per day**. Zobia requires multiple 
 | Daily reset | Midnight UTC | `/api/cron/daily` (configured in vercel.json) | Quest reset, login streaks, mystery XP drop, Creator Fund (days 1 & 5), guild tier demotion |
 | Guild war checks | Every 1 hour | `/api/cron/guild-wars` | Final Hour transitions, war resolution, Drop Room auto-close, Flash XP announcements |
 | Leaderboard updates | Every 15 minutes | `/api/cron/leaderboards` | Snapshot upserts, rank-change notifications |
+| Payout batch processing | Every 30 minutes | `/api/cron/payouts` | Initiates Paystack transfers for pending Nigeria bank payouts; retries eligible failed payouts |
 
 ### Daily CRON responsibilities (day-of-month logic)
 
@@ -287,7 +288,41 @@ All sub-daily CRON jobs must be driven by an external scheduler because Vercel H
 - HTTP Method: GET
 - Header: `Authorization: Bearer YOUR_CRON_SECRET`
 
+**Payout Batch Processing (every 30 minutes)**
+- URL: `https://your-domain.com/api/cron/payouts`
+- Schedule: Every 30 minutes
+- HTTP Method: POST
+- Header: `Authorization: Bearer YOUR_CRON_SECRET`
+
 All CRON handlers verify the `Authorization: Bearer <CRON_SECRET>` header and return 401 if it does not match. Never expose `CRON_SECRET` publicly.
+
+### Creator Payout Setup
+
+**Paystack Transfers permission** must be enabled before payouts can be processed:
+
+1. Log into your Paystack dashboard.
+2. Go to **Settings → Transfers** and enable the Transfer feature for your account.
+3. Ensure your `PAYSTACK_SECRET_KEY` has the **Transfers** permission scope.
+
+Without this, `POST /api/cron/payouts` will fail on every bank transfer attempt.
+
+**Payout-related `x_manifest` keys** (seeded automatically by migration 030 with defaults):
+
+| Key | Default | Description |
+|---|---|---|
+| `payouts_enabled` | `true` | Master on/off toggle for all creator payouts |
+| `nigeria_cash_payout_enabled` | `true` | Enable/disable bank transfer payouts for Nigeria |
+| `nigeria_coins_payout_enabled` | `true` | Enable/disable Coins payout for Nigeria |
+| `nigeria_crypto_payout_enabled` | `true` | Enable/disable USDT/Tron payout for Nigeria |
+| `global_coins_payout_enabled` | `true` | Enable/disable Coins payout for global creators |
+| `global_crypto_payout_enabled` | `true` | Enable/disable USDT/Tron payout for global creators |
+| `nigeria_payout_auto_approve` | `true` | `true` = automatic CRON processing; `false` = manual admin review required |
+| `payout_batch_size` | `200` | Maximum payouts processed per CRON run |
+| `payout_max_retries` | `3` | Retry attempts before a payout is moved to the dead-letter queue |
+| `bank_account_first_add_xp` | `5` | Main XP awarded when a creator adds their first bank account |
+| `bank_account_first_add_creator_xp` | `10` | Creator Track XP for first bank account add |
+
+These can be updated from the Admin → Config panel at any time.
 
 ### Creator Fund ad revenue tracking
 

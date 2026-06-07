@@ -79,6 +79,15 @@ export interface PaystackVerifyResponse {
   paid_at: string | null;
 }
 
+export interface PaystackResolveAccountResponse {
+  /** Account holder name as returned by the bank. */
+  account_name: string;
+  /** The account number that was resolved. */
+  account_number: string;
+  /** Bank ID in Paystack's system. */
+  bank_id: number;
+}
+
 export interface PaystackTransferRecipientResponse {
   recipient_code: string;
   id: number;
@@ -169,6 +178,27 @@ export function verifyWebhookSignature(
     diff |= expected.charCodeAt(i) ^ signature.charCodeAt(i);
   }
   return diff === 0;
+}
+
+/**
+ * Resolve (verify) a Nigerian bank account number via Paystack.
+ *
+ * Must be called before creating a transfer recipient to confirm the account
+ * exists and obtain the account holder's name for user confirmation.
+ *
+ * @param accountNumber - 10-digit Nigerian bank account number
+ * @param bankCode      - CBN bank code (e.g. "057" for Zenith Bank)
+ * @returns Account name and number as confirmed by the bank
+ */
+export async function resolveAccount(
+  accountNumber: string,
+  bankCode: string
+): Promise<PaystackResolveAccountResponse> {
+  const params = new URLSearchParams({ account_number: accountNumber, bank_code: bankCode });
+  return paystackRequest<PaystackResolveAccountResponse>(
+    "GET",
+    `/bank/resolve?${params.toString()}`
+  );
 }
 
 /**

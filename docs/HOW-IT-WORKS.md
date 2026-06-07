@@ -215,16 +215,41 @@ Atomicity: every debit operation pairs the `UPDATE users SET coin_balance = ...`
 
 ### Payout Pipeline
 
-1. Creator accumulates revenue in `creator_earnings` (per-room, per-gift entries).
-2. The weekly CRON (part of `/api/cron/daily` on Sundays, or a separate scheduled job) aggregates `creator_earnings` by creator and checks the payout threshold from `x_manifest`.
-3. **Below threshold**: No action. Earnings continue accumulating.
-4. **Above threshold, below manual-approval threshold**: Automatic payout initiated via Paystack or DodoPayments (selected by `x_manifest.payment.primaryProvider`). Record created in `creator_payouts` with status `processing`.
-5. **Above manual-approval threshold**: Record created with status `awaiting_approval`. Admin sees it in the payouts panel and approves manually.
-6. **On approval**: Paystack/DodoPayments transfer API called. On webhook confirmation → status set to `completed`.
-7. **On failure**: Status set to `failed`, admin alerted. Manual retry available.
-8. The 80/20 split (80% to creator, 20% platform) is applied at the `creator_earnings` record level, not at payout time. Exception: Zobia Icon tier creators and those with the Creator Track L50 `creator_revenue_share_85_discovery` unlock receive an 85% split.
+**Account Setup:**
+- *Nigeria:* Creator adds a bank account via a two-step Paystack verify-and-confirm flow. `GET /bank/resolve` returns the account name from Paystack; the creator confirms and `POST /api/creator/bank-account` (with `confirmed: true`) calls `createTransferRecipient` to generate a `recipient_code`, which is stored encrypted in `creator_bank_accounts`. The account number is separately encrypted with AES-256-GCM via `encryptField`.
+- *Global:* Creator provides a Tron (TRC20) wallet address, which is validated (34 chars, starts with 'T') and stored encrypted in `creator_wallet_addresses`.
 
-**RIZE Coin Conversion:** Creators can request `asCoins: true` in `POST /api/creator/payouts`. The net earnings are converted using the `kobo_per_coin` rate from `x_manifest` and credited to the wallet atomically — no bank transfer occurs.
+**Payout Request (`POST /api/creator/payouts`):**
+1. Creator selects a method: `bank_transfer` (Nigeria only), `coins`, or `crypto`.
+2. The manifest is checked to confirm the method is enabled for the creator's region (`users.country`).
+3. For `bank_transfer`: the current `creator_bank_accounts` row is loaded and a snapshot `{ bank_name, account_name, last4, recipient_code }` is stored as JSONB in the payout record. Subsequent bank account changes do not affect this payout.
+4. For `crypto`: the wallet address is loaded and stored (encrypted) as `wallet_address_snapshot`.
+5. Three fraud checks run in parallel: new-account gift inflow, payout velocity (>3 requests in 24h), and trust score gate (<30). Any flag forces `awaiting_approval` status and creates a `system_alerts` record.
+6. For `coins`: immediate `creditCoins()` call inside a transaction; status set to `completed`.
+7. For `bank_transfer` in auto-approve mode: status set to `pending` (CRON picks it up). In manual mode: `awaiting_approval`.
+8. For `crypto`: always `awaiting_approval` (manual admin processing).
+9. `available_earnings_kobo` deducted atomically inside a `db.transaction()`.
+
+**CRON Batch Processing (`POST /api/cron/payouts`, every 30 min):**
+- Phase 1: SELECT up to `payout_batch_size` records with `status = 'pending'` AND `payout_method = 'bank_transfer'`, ordered by `created_at ASC`.
+- For each: call `paystack.initiateTransfer(netKobo, recipientCode, reference)` using the snapshot's `recipient_code`.
+- On success: `status → 'processing'`, store `transfer_code` as `provider_reference`.
+- On failure: increment `retry_count`, set `next_retry_at` using exponential backoff (5 min → 15 min → 45 min).
+- Phase 2: SELECT records with `status = 'failed'` AND `next_retry_at <= NOW()` AND `retry_count < max_retries`; re-attempt transfer.
+- After `payout_max_retries` (default 3) failures: move to `payout_dead_letter_queue`, restore `gross_kobo` to creator's `available_earnings_kobo`, notify creator and create admin `system_alert`.
+
+**Paystack Webhook (`POST /api/economy/webhooks/paystack`):**
+- `transfer.success` → payout status `completed`, creator notified.
+- `transfer.failed` → retry logic or DLQ (same as CRON failure path).
+- `transfer.reversed` → payout status `reversed`, `gross_kobo` restored to creator's `available_earnings_kobo`, creator notified.
+
+**Manual Mode (Nigeria) / Global crypto:**
+Admin reviews payouts in the admin panel. For bank transfers: Approve → status `pending` (CRON processes). Admin can also manually advance status: `processing → completed/failed`. For crypto: Approve → admin sees the decrypted wallet address snapshot and manually sends USDT; then marks `completed` via the status PATCH endpoint.
+
+**Appeal Pipeline:**
+Creator can submit `POST /api/creator/payouts/:id/appeal` with a written reason for rejected payouts. Admin reviews in `/admin/payouts/appeals`. Approving re-opens the payout; dismissing closes the appeal. Both notify the creator.
+
+**The 80/20 split** (80% to creator, 20% platform) is applied at the `creator_earnings` record level. Zobia Icon tier creators and those with the Creator Track L50 unlock receive an 85% split.
 
 ### Virtual Economy — Premium Send (PRD §11)
 
