@@ -48,7 +48,7 @@ Enable rich sharing on Twitter:
   "name": "Creator Name",
   "description": "Bio/description",
   "image": "avatar-url",
-  "url": "https://zobia.social/profile/username",
+  "url": "https://zobia.org/profile/username",
   "sameAs": ["twitter-profile", "instagram-profile"]
 }
 ```
@@ -62,7 +62,7 @@ Enable rich sharing on Twitter:
   "description": "Room description",
   "image": "room-image",
   "genre": "room-type",
-  "url": "https://zobia.social/rooms/room-id"
+  "url": "https://zobia.org/rooms/room-id"
 }
 ```
 
@@ -76,13 +76,13 @@ Enable rich sharing on Twitter:
       "@type": "ListItem",
       "position": 1,
       "name": "Home",
-      "item": "https://zobia.social"
+      "item": "https://zobia.org"
     },
     {
       "@type": "ListItem",
       "position": 2,
       "name": "Profiles",
-      "item": "https://zobia.social/profiles"
+      "item": "https://zobia.org/profiles"
     }
   ]
 }
@@ -115,7 +115,7 @@ Disallow: /admin
 Disallow: /api/
 Disallow: /auth/
 
-Sitemap: https://zobia.social/sitemap.xml
+Sitemap: https://zobia.org/sitemap.xml
 ```
 
 ## 4. Implementation in Pages
@@ -136,7 +136,7 @@ export async function generateMetadata({ params }): Promise<Metadata> {
     title: user.displayName,
     description: user.bio || `${user.displayName}'s profile on Zobia Social`,
     keywords: ['creator', 'profile', user.displayName],
-    canonical: `https://zobia.social/profiles/${username}`,
+    canonical: `https://zobia.org/profiles/${username}`,
     image: user.avatarUrl,
     imageAlt: `${user.displayName}'s avatar`,
     ogType: 'profile',
@@ -152,7 +152,7 @@ export default function ProfilePage({ params }) {
     name: user.displayName,
     description: user.bio,
     image: user.avatarUrl,
-    url: `https://zobia.social/profiles/${username}`,
+    url: `https://zobia.org/profiles/${username}`,
     sameAs: user.socialLinks || [],
   });
 
@@ -183,7 +183,7 @@ export async function generateMetadata({ params }): Promise<Metadata> {
     title: room.name,
     description: room.description,
     keywords: ['room', 'space', room.type, room.name],
-    canonical: `https://zobia.social/rooms/${roomId}`,
+    canonical: `https://zobia.org/rooms/${roomId}`,
     image: room.imageUrl,
     imageAlt: `${room.name} cover image`,
   });
@@ -196,7 +196,7 @@ export default function RoomPage({ params }) {
   const structuredData = generateLocalBusinessSchema({
     name: room.name,
     description: room.description,
-    url: `https://zobia.social/rooms/${roomId}`,
+    url: `https://zobia.org/rooms/${roomId}`,
     image: room.imageUrl,
     genre: room.type,
   });
@@ -243,7 +243,7 @@ export default function RoomPage({ params }) {
 const shareData = {
   title: 'Room Name',
   text: 'Check out this room',
-  url: 'https://zobia.social/rooms/room-id',
+  url: 'https://zobia.org/rooms/room-id',
 };
 ```
 
@@ -312,7 +312,7 @@ H1: Page main title (only one per page)
 
 All pages should include self-referential canonical tags:
 ```html
-<link rel="canonical" href="https://zobia.social/rooms/room-id" />
+<link rel="canonical" href="https://zobia.org/rooms/room-id" />
 ```
 
 This prevents duplicate content issues and consolidates ranking signals.
