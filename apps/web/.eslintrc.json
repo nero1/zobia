@@ -1,6 +1,5 @@
 {
   "extends": ["next/core-web-vitals"],
-  "plugins": ["no-restricted-imports"],
   "rules": {
     "no-restricted-imports": [
       "error",

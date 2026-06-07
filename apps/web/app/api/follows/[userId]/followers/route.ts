@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/lib/db';
+import { db } from '@/lib/db';
 
 export async function GET(
   req: NextRequest,
@@ -14,8 +14,7 @@ export async function GET(
   const cursor = searchParams.get('cursor');
   const limit = Math.min(Number(searchParams.get('limit') ?? 50), 100);
 
-  const db = await getDb();
-  const rows = await db.query(
+  const { rows } = await db.query(
     `SELECT f.id, f.follower_id, f.created_at,
             u.username, u.display_name, u.avatar_emoji, u.rank_name,
             u.is_creator, u.is_verified, u.plan

@@ -36,7 +36,7 @@ const RECENTLY_ACTIVE_MS = 60 * 60 * 1000; // 1 hour
 /**
  * Builds the Redis key that signals a user is currently online.
  */
-export function presenceRedisKey(userId: string): string {
+function presenceRedisKey(userId: string): string {
   return `presence:online:${userId}`;
 }
 
