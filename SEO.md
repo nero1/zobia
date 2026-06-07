@@ -4,7 +4,7 @@
 
 This document outlines SEO best practices and implementations for Zobia Social across web and mobile platforms.
 
-## 1. Meta Tags Implementation
+## 1. Meta Tags Implementation Examples
 
 ### Title Tags
 - **Format:** `{Page Title} | Zobia Social`
