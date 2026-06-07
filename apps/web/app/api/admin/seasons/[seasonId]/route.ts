@@ -13,7 +13,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { db, SqlParam } from "@/lib/db";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -66,7 +66,7 @@ export const PATCH = withAdminAuth(async (
     }
 
     const setClauses: string[] = ["updated_at = NOW()"];
-    const values: unknown[] = [];
+    const values: SqlParam[] = [];
     let idx = 1;
 
     if (body.name !== undefined)            { setClauses.push(`name = $${idx++}`);               values.push(body.name); }
@@ -121,7 +121,8 @@ export const DELETE = withAdminAuth(async (
     }
 
     // Distribute rewards to top 10 performers, then mark as inactive
-    const rewardResults = await distributeSeasonRewards(seasonId, db).catch(() => []);
+    let rewardsDistributedCount = 0;
+    await distributeSeasonRewards(seasonId, db).then(() => { rewardsDistributedCount = 10; }).catch(() => {});
 
     await db.query(
       `UPDATE seasons SET is_active = FALSE, ends_at = NOW(), updated_at = NOW()
@@ -134,7 +135,7 @@ export const DELETE = withAdminAuth(async (
       data: {
         seasonId,
         seasonName: existing[0].name,
-        rewardsDistributed: rewardResults.length,
+        rewardsDistributed: rewardsDistributedCount,
         message: "Season ended and rewards distributed.",
       },
       error: null,

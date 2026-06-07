@@ -49,12 +49,12 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
   const body = await req.json();
   const targetId: string | undefined = body?.userId;
 
-  if (!targetId) return badRequest('userId is required');
-  if (targetId === userId) return badRequest('Cannot follow yourself');
+  if (!targetId) throw badRequest('userId is required');
+  if (targetId === userId) throw badRequest('Cannot follow yourself');
 
   // Verify target user exists
   const { rows: targetRows } = await db.query('SELECT id FROM users WHERE id = $1', [targetId]);
-  if (!targetRows[0]) return notFound('User not found');
+  if (!targetRows[0]) throw notFound('User not found');
 
   // Upsert (idempotent)
   await db.query(
@@ -72,7 +72,7 @@ export const DELETE = withAuth(async (req: NextRequest, { auth }) => {
   const userId = auth.user.sub;
   const body = await req.json();
   const targetId: string | undefined = body?.userId;
-  if (!targetId) return badRequest('userId is required');
+  if (!targetId) throw badRequest('userId is required');
 
   await db.query(
     'DELETE FROM follows WHERE follower_id = $1 AND following_id = $2',

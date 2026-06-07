@@ -20,26 +20,26 @@ export const PUT = withAuth(async (
     const body = await req.json();
     const action: string | undefined = body?.action; // 'accept' | 'reject' | 'block'
     if (!action || !['accept', 'reject', 'block'].includes(action)) {
-      return badRequest('action must be accept, reject, or block');
+      throw badRequest('action must be accept, reject, or block');
     }
 
-    const { rows: friendshipRows } = await db.query(
+    const { rows: friendshipRows } = await db.query<{ id: string; requester_id: string; addressee_id: string; status: string }>(
       `SELECT id, requester_id, addressee_id, status FROM friendships
        WHERE id = $1`,
       [friendId],
     );
     const friendship = friendshipRows[0];
-    if (!friendship) return notFound('Friendship not found');
+    if (!friendship) throw notFound('Friendship not found');
 
     // Only the recipient (addressee) can accept/reject; either party can block
     if (action === 'accept' || action === 'reject') {
-      if (friendship.addressee_id !== userId) return forbidden('Not the request recipient');
-      if (friendship.status !== 'pending') return badRequest('Request is not pending');
+      if (friendship.addressee_id !== userId) throw forbidden('Not the request recipient');
+      if (friendship.status !== 'pending') throw badRequest('Request is not pending');
     }
 
     if (action === 'block') {
       if (friendship.requester_id !== userId && friendship.addressee_id !== userId) {
-        return forbidden('Not part of this friendship');
+        throw forbidden('Not part of this friendship');
       }
     }
 
@@ -102,7 +102,7 @@ export const DELETE = withAuth(async (
       [friendId, userId],
     );
     const friendship = dRows[0];
-    if (!friendship) return notFound('Friendship not found');
+    if (!friendship) throw notFound('Friendship not found');
 
     await db.query('DELETE FROM friendships WHERE id = $1', [friendId]);
 

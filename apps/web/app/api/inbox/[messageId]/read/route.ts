@@ -50,7 +50,7 @@ export const POST = withAuth(
       );
 
       if (!rows[0]) {
-        return notFound("Message not found in inbox");
+        throw notFound("Message not found in inbox");
       }
 
       return NextResponse.json({ ok: true, read_at: rows[0].read_at });

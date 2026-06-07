@@ -423,19 +423,66 @@ export type CoinTransactionType =
   | 'refund'
   | 'ad_reward'
   | 'booster_pack'
-  | 'monthly_plan_bonus';
+  | 'monthly_plan_bonus'
+  | 'creator_coin_conversion'
+  | 'comeback_bonus_reserved'
+  | 'comeback_bonus_claimed'
+  | 'referral_bonus'
+  | 'room_subscription'
+  | 'gift_refund'
+  | 'daily_login'
+  | 'test_credit'
+  | 'test_debit'
+  | 'booster_purchase'
+  | 'merch_purchase'
+  | 'brand_broadcast_bonus'
+  | 'guild_creation'
+  | 'guild_donation'
+  | 'prestige_reward'
+  | 'season_reward'
+  | 'sponsored_quest_payout'
+  | 'war_reward'
+  | 'welcome_bonus'
+  | 'onboarding_welcome'
+  | 'season_pass_purchase'
+  | 'room_power'
+  | 'referral_commission'
+  | 'comeback_bonus_expired'
+  | 'replay_access'
+  | 'cosmetic_purchase'
+  | 'friend_gift'
+  | 'gift_received'
+  | 'star_purchase'
+  | 'payout_request'
+  | 'coin_balance_adjustment'
+  | 'subscription_bonus'
+  | 'iap_purchase'
+  | 'coin_purchase'
+  | 'withdraw_coins'
+  | 'merch_sale'
+  | 'referral_qualifying_action'
+  | 'room_promotion'
+  | 'season_milestone'
+  | 'season_pass_gift'
+  | 'sticker_pack';
 
 export interface CoinLedgerEntry {
   id: string;
-  userId: string;
+  userId?: string;
+  user_id?: string;
   amount: number; // positive = credit, negative = debit
-  balanceBefore: number;
-  balanceAfter: number;
-  transactionType: CoinTransactionType;
+  balanceBefore?: number;
+  balance_before?: number;
+  balanceAfter?: number;
+  balance_after?: number;
+  transactionType?: CoinTransactionType;
+  transaction_type?: CoinTransactionType;
   referenceId?: string;
+  reference_id?: string;
   description?: string;
   metadata?: Record<string, unknown>;
-  createdAt: string;
+  createdAt?: string;
+  created_at?: string;
 }
 
 // ─── XP Ledger ────────────────────────────────────────────────────────────────
@@ -709,15 +756,21 @@ export interface Manifest {
 
 export interface StarLedgerEntry {
   id: string;
-  userId: string;
+  userId?: string;
+  user_id?: string;
   /** Positive = credit, negative = debit. */
   amount: number;
-  balanceBefore: number;
-  balanceAfter: number;
-  transactionType: string;
+  balanceBefore?: number;
+  balance_before?: number;
+  balanceAfter?: number;
+  balance_after?: number;
+  transactionType?: string;
+  transaction_type?: string;
   referenceId?: string;
+  reference_id?: string;
   description?: string;
-  createdAt: string;
+  createdAt?: string;
+  created_at?: string;
 }
 
 // ─── Friendship / Follow ──────────────────────────────────────────────────────

@@ -53,8 +53,9 @@ async function verifyPassword(password: string, hash: string): Promise<boolean> 
 export const PUT = withAuth(async (req: NextRequest, { auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", {
-      windowSeconds: 3600,
-      maxRequests: 5,
+      windowMs: 3600 * 1000,
+      limit: 5,
+      name: "password:change",
     });
 
     const body = await validateBody(req, passwordChangeSchema);

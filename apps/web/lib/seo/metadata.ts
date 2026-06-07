@@ -34,7 +34,7 @@ export function generateMetadata(config: SEOConfig): Metadata {
     description,
     keywords: config.keywords,
     metadataBase: new URL(baseUrl),
-    canonical,
+    alternates: { canonical },
     authors: config.author ? [{ name: config.author }] : undefined,
     openGraph: {
       title,

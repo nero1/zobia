@@ -98,7 +98,7 @@ export const POST = withAdminAuth(async (
       });
     }
 
-    const totalCoinCost = body.coinBonusPerRecipient * targetUserIds.length;
+    const totalCoinCost = (body.coinBonusPerRecipient ?? 0) * targetUserIds.length;
 
     // Check budget
     if (totalCoinCost > 0 && branded.sponsor_budget_coins < totalCoinCost) {

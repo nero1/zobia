@@ -16,7 +16,7 @@ import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
 import { withAuth, type AuthContext } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
-import { presenceRedisKey } from "../route";
+import { presenceRedisKey } from "@/lib/presence/keys";
 
 // ---------------------------------------------------------------------------
 // Types

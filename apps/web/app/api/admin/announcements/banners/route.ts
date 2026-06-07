@@ -79,7 +79,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
     const body = await req.json().catch(() => ({}));
     const parsed = CreateBannerSchema.safeParse(body);
     if (!parsed.success) {
-      return badRequest("Invalid banner payload", parsed.error.flatten());
+      throw badRequest("Invalid banner payload", parsed.error.flatten());
     }
 
     const {
@@ -99,7 +99,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
       `SELECT COUNT(*) AS count FROM announcement_banners WHERE deleted_at IS NULL`
     );
     if (parseInt(countRows[0].count, 10) >= MAX_BANNERS) {
-      return badRequest(`Cannot create banner: already at maximum of ${MAX_BANNERS} banners. Delete one first.`);
+      throw badRequest(`Cannot create banner: already at maximum of ${MAX_BANNERS} banners. Delete one first.`);
     }
 
     const { rows } = await db.query(

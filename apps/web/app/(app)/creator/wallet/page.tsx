@@ -209,7 +209,7 @@ export default function WalletAddressPage() {
               className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <p className="text-xs text-neutral-500 mt-1">
-              Must start with 'T' and be exactly 34 characters.
+              Must start with &apos;T&apos; and be exactly 34 characters.
             </p>
           </div>
 
@@ -270,7 +270,7 @@ export default function WalletAddressPage() {
                 onClick={() => setShowPinModal(false)}
                 className="flex-1 rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300"
               >
-                I'll do this later
+                I&apos;ll do this later
               </button>
             </div>
           </div>

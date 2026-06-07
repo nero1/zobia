@@ -11,7 +11,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { db, SqlParam } from "@/lib/db";
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -70,7 +70,7 @@ export const PATCH = withAdminAuth<RouteParams>(
       }
 
       const updates: string[] = [];
-      const values: unknown[] = [bannerId];
+      const values: SqlParam[] = [bannerId];
       let idx = 2;
 
       const { isActive, sponsorName, sponsorLogoUrl, ctaText, ctaUrl, startsAt, endsAt } =

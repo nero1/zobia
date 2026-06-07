@@ -23,7 +23,7 @@
  *   getGuildXPBoostPercent(guildTier)       → number
  */
 
-import type { Plan, ProgressionTrack, RankName, RankInfo, TrackLevelInfo } from '@/types';
+import type { Plan, ProgressionTrack, RankName, RankInfo, TrackLevelInfo } from '@zobia/types';
 
 // ─── Rank Thresholds (from PRD Section 6) ────────────────────────────────────
 

@@ -10,7 +10,8 @@
  */
 
 import { SignJWT } from "jose";
-import { v4 as uuidv4 } from "uuid";
+
+const uuidv4 = () => crypto.randomUUID();
 
 const ISSUER   = "zobia-social";
 const AUDIENCE = "zobia-web";

@@ -67,10 +67,11 @@ export async function compressImage(
 
   try {
     // Attempt to use Sharp if available
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const sharp = require('sharp') as typeof import('sharp');
+    // eslint-disable-line
+    const sharp = require('sharp'); // eslint-disable-line
 
-    const pipeline = sharp(inputBuffer).resize(maxDim, maxDim, {
+    // eslint-disable-line
+    const pipeline = sharp(inputBuffer).resize(maxDim, maxDim, { // eslint-disable-line
       fit: 'inside',
       withoutEnlargement: true,
     });
@@ -79,17 +80,17 @@ export async function compressImage(
     let mimeType: string;
 
     if (format === 'webp') {
-      processed = await pipeline.webp({ quality }).toBuffer();
+      processed = await pipeline.webp({ quality }).toBuffer() as Buffer;
       mimeType = 'image/webp';
     } else if (format === 'jpeg') {
-      processed = await pipeline.jpeg({ quality, mozjpeg: true }).toBuffer();
+      processed = await pipeline.jpeg({ quality, mozjpeg: true }).toBuffer() as Buffer;
       mimeType = 'image/jpeg';
     } else {
-      processed = await pipeline.png({ compressionLevel: 9 }).toBuffer();
+      processed = await pipeline.png({ compressionLevel: 9 }).toBuffer() as Buffer;
       mimeType = 'image/png';
     }
 
-    const meta = await sharp(processed).metadata();
+    const meta = await sharp(processed).metadata() as { width?: number; height?: number };
 
     return {
       buffer: processed,

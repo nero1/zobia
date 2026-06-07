@@ -815,7 +815,7 @@ function SpectacleThresholdPanel({
       </h2>
       <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
         Gifts above this value trigger a full room-wide spectacle animation. Leave blank to use
-        each gift item's default.
+        each gift item&apos;s default.
       </p>
       <div className="flex items-center gap-2">
         <div className="relative flex-1">

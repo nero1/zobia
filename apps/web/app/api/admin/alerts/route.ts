@@ -61,7 +61,7 @@ interface Alert {
  * Returns all active system alerts for the admin dashboard.
  * Admin-only — is_admin verified from DATABASE by withAdminAuth middleware.
  */
-export const GET = withAdminAuth(async (req: NextRequest, ctx: AdminContext) => {
+export const GET = withAdminAuth(async (req: NextRequest, _ctx: { params: Record<string, string>; auth: AdminContext }) => {
   try {
     const { searchParams } = new URL(req.url);
     const includeResolved = searchParams.get("include_resolved") === "true";

@@ -16,7 +16,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { db, SqlParam } from "@/lib/db";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -120,7 +120,7 @@ async function fetchRevenueByStream(
   since: string | null
 ): Promise<Record<string, number>> {
   const conditions = ["creator_id = $1"];
-  const args: unknown[] = [creatorId];
+  const args: SqlParam[] = [creatorId];
 
   if (since) {
     conditions.push(`created_at >= $2`);

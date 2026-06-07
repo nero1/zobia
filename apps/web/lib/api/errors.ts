@@ -50,14 +50,16 @@ export class ApiError extends Error {
 
 /**
  * 400 Bad Request – invalid input or malformed request.
- * @param message - Human-readable description
- * @param code    - Optional machine-readable code (default "BAD_REQUEST")
+ * @param message       - Human-readable description
+ * @param codeOrDetails - Optional string error code OR object with validation details
  */
 export function badRequest(
   message = "Bad request",
-  code = "BAD_REQUEST"
+  codeOrDetails: string | unknown = "BAD_REQUEST"
 ): ApiError {
-  return new ApiError(400, code, message);
+  const code = typeof codeOrDetails === "string" ? codeOrDetails : "BAD_REQUEST";
+  const details = typeof codeOrDetails !== "string" ? codeOrDetails : undefined;
+  return new ApiError(400, code, message, details);
 }
 
 /**
@@ -72,8 +74,8 @@ export function unauthorized(message = "Unauthorized"): ApiError {
  * 403 Forbidden – authenticated but not permitted to perform the action.
  * @param message - Human-readable description
  */
-export function forbidden(message = "Forbidden"): ApiError {
-  return new ApiError(403, "FORBIDDEN", message);
+export function forbidden(message = "Forbidden", code = "FORBIDDEN"): ApiError {
+  return new ApiError(403, code, message);
 }
 
 /**

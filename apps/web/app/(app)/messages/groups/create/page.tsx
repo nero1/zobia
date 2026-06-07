@@ -201,7 +201,7 @@ export default function CreateGroupPage() {
             Add some friends first before creating a group.
           </div>
         ) : filteredFriends.length === 0 ? (
-          <div className="py-4 text-center text-sm text-neutral-400">No friends match "{search}"</div>
+          <div className="py-4 text-center text-sm text-neutral-400">No friends match &quot;{search}&quot;</div>
         ) : (
           <div className="max-h-72 space-y-1 overflow-y-auto rounded-xl border border-neutral-200 p-2 dark:border-neutral-700">
             {filteredFriends.map((f) => (

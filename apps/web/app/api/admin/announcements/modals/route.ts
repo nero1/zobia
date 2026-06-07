@@ -83,7 +83,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
     const body = await req.json().catch(() => ({}));
     const parsed = CreateModalSchema.safeParse(body);
     if (!parsed.success) {
-      return badRequest("Invalid modal payload", parsed.error.flatten());
+      throw badRequest("Invalid modal payload", parsed.error.flatten());
     }
 
     // Enforce modal cap
@@ -92,7 +92,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
     );
     const currentCount = parseInt(countRows[0]?.count ?? "0", 10);
     if (currentCount >= MAX_MODALS) {
-      return badRequest(
+      throw badRequest(
         `Cannot create modal: already at maximum of ${MAX_MODALS} modals. Delete one first.`
       );
     }

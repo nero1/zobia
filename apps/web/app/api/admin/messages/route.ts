@@ -120,7 +120,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
     const body = await req.json().catch(() => ({}));
     const parsed = SendMessageSchema.safeParse(body);
     if (!parsed.success) {
-      return badRequest("Invalid message payload", parsed.error.flatten());
+      throw badRequest("Invalid message payload", parsed.error.flatten());
     }
 
     const { subject, body: msgBody, broadcastType, targetUserIds, targetPlans, targetRoles } =
@@ -135,7 +135,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
     );
 
     if (recipients.length === 0) {
-      return badRequest("No recipients found for the given targeting criteria");
+      throw badRequest("No recipients found for the given targeting criteria");
     }
 
     // Insert admin message record

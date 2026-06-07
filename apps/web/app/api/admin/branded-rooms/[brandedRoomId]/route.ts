@@ -11,7 +11,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { db, SqlParam } from "@/lib/db";
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -85,11 +85,11 @@ export const PATCH = withAdminAuth<RouteParams>(
       const body = await req.json().catch(() => ({}));
       const parsed = PatchBrandedRoomSchema.safeParse(body);
       if (!parsed.success) {
-        return badRequest("Invalid update payload", parsed.error.flatten());
+        throw badRequest("Invalid update payload", parsed.error.flatten());
       }
 
       const updates: string[] = [];
-      const values: unknown[] = [brandedRoomId];
+      const values: SqlParam[] = [brandedRoomId];
       let idx = 2;
 
       const {
@@ -113,7 +113,7 @@ export const PATCH = withAdminAuth<RouteParams>(
       if (endsAt !== undefined) { updates.push(`ends_at = $${idx++}`); values.push(endsAt); }
 
       if (updates.length === 0) {
-        return badRequest("No fields provided to update");
+        throw badRequest("No fields provided to update");
       }
 
       const { rows } = await db.query<BrandedRoomRow>(

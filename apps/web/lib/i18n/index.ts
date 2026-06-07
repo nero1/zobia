@@ -102,9 +102,9 @@ export async function getServerTranslation(
 ): Promise<(key: string, options?: Record<string, unknown>) => string> {
   let messages: Record<string, string>;
   try {
-    messages = (await import(`./locales/${locale}.json`)) as Record<string, string>;
+    messages = (await import(`./locales/${locale}.json`)) as unknown as Record<string, string>;
   } catch {
-    messages = (await import(`./locales/en.json`)) as Record<string, string>;
+    messages = (await import(`./locales/en.json`)) as unknown as Record<string, string>;
   }
 
   return (key: string) => messages[key] ?? key;

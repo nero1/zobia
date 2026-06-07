@@ -104,7 +104,7 @@ export const GET = withAdminAuth(
 
       const report = rows[0];
       if (!report) {
-        return notFound("Report not found");
+        throw notFound("Report not found");
       }
 
       // Fetch prior moderation actions against the reported user

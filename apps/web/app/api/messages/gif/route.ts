@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/middleware';
 import { badRequest } from '@/lib/api/errors';
-import { db } from '@/lib/db';
+import { db, SqlParam } from '@/lib/db';
 
 const GIPHY_BASE = 'https://api.giphy.com/v1/gifs';
 const TENOR_BASE = 'https://tenor.googleapis.com/v2';
@@ -19,10 +19,10 @@ export const GET = withAuth(async (req: NextRequest) => {
   const limit = Math.min(Number(searchParams.get('limit') ?? 20), 50);
   const offset = Number(searchParams.get('offset') ?? 0);
 
-  if (!q) return badRequest('q (search query) is required');
+  if (!q) throw badRequest('q (search query) is required');
 
   // Read gif provider from manifest
-  const { rows: [row] } = await db.query(
+  const { rows: [row] } = await db.query<{ value: string }>(
     "SELECT value FROM x_manifest WHERE key = 'gif_provider'",
     [],
   );

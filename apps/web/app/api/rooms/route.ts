@@ -21,7 +21,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { db, SqlParam } from "@/lib/db";
 import { withAuth, validateBody, validateSearchParams } from "@/lib/api/middleware";
 import { handleApiError, badRequest, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -221,7 +221,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
       "r.is_active = TRUE",
       "r.type != 'guild'", // Guild rooms not discoverable publicly
     ];
-    const queryParams: unknown[] = [];
+    const queryParams: SqlParam[] = [];
     let paramIndex = 1;
 
     if (params.city) {

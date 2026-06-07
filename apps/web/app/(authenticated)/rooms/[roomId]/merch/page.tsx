@@ -86,7 +86,7 @@ export default function RoomMerchStore() {
       <div className="p-6 max-w-6xl mx-auto">
         <h1 className="text-3xl font-bold mb-4">Merch Store</h1>
         <Card className="p-12 text-center">
-          <p className="text-gray-600">This creator hasn't added any merchandise yet.</p>
+          <p className="text-gray-600">This creator hasn&apos;t added any merchandise yet.</p>
         </Card>
       </div>
     );

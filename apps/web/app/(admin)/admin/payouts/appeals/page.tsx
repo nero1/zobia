@@ -114,7 +114,7 @@ function AppealRow({ appeal, onApprove, onDismiss, busy }: AppealRowProps) {
       {/* Appeal reason */}
       {appeal.appealReason && (
         <div className="mb-4 rounded-lg bg-blue-50 p-3 text-xs text-blue-700 dark:bg-blue-950 dark:text-blue-300">
-          <p className="mb-0.5 font-semibold">Creator's appeal reason:</p>
+          <p className="mb-0.5 font-semibold">Creator&apos;s appeal reason:</p>
           <p>{appeal.appealReason}</p>
         </div>
       )}

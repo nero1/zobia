@@ -48,7 +48,7 @@ interface ManifestEntry {
  * Returns all x_manifest entries for the admin configuration panel.
  * Admin-only — is_admin verified from DATABASE by withAdminAuth middleware.
  */
-export const GET = withAdminAuth(async (req: NextRequest, ctx: AdminContext) => {
+export const GET = withAdminAuth(async (req: NextRequest, _ctx: { params: Record<string, string>; auth: AdminContext }) => {
   try {
     const result = await db.query<ManifestRow>(
       `SELECT key, value, description, updated_at

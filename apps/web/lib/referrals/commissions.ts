@@ -11,7 +11,7 @@
  * All operations are atomic within a DB transaction.
  */
 
-import type { DatabaseClient } from "@/lib/db/types";
+import type { TransactionClient as DatabaseClient } from "@/lib/db";
 import Decimal from "decimal.js";
 import { XP_VALUES } from "@/lib/xp/engine";
 import { getManifestValue } from "@/lib/manifest";

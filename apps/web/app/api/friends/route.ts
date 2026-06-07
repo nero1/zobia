@@ -44,11 +44,11 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
   const body = await req.json();
   const targetId: string | undefined = body?.userId;
 
-  if (!targetId) return badRequest('userId is required');
-  if (targetId === userId) return badRequest('Cannot add yourself');
+  if (!targetId) throw badRequest('userId is required');
+  if (targetId === userId) throw badRequest('Cannot add yourself');
 
   const { rows: targetRows } = await db.query('SELECT id FROM users WHERE id = $1', [targetId]);
-  if (!targetRows[0]) return notFound('User not found');
+  if (!targetRows[0]) throw notFound('User not found');
 
   // Check no existing relationship
   const { rows: existingRows } = await db.query(
@@ -58,9 +58,9 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
   );
   const existing = existingRows[0];
   if (existing) {
-    if (existing.status === 'accepted') return badRequest('Already friends');
-    if (existing.status === 'pending') return badRequest('Request already pending');
-    if (existing.status === 'blocked') return badRequest('Cannot send request');
+    if (existing.status === 'accepted') throw badRequest('Already friends');
+    if (existing.status === 'pending') throw badRequest('Request already pending');
+    if (existing.status === 'blocked') throw badRequest('Cannot send request');
   }
 
   await db.query(

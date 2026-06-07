@@ -58,7 +58,7 @@ export const storage: StorageAdapter = new Proxy({} as StorageAdapter, {
     if (!_adapter) {
       _adapter = createAdapter();
     }
-    const value = (_adapter as Record<string | symbol, unknown>)[prop];
+    const value = (_adapter as unknown as Record<string | symbol, unknown>)[prop];
     if (typeof value === "function") {
       return value.bind(_adapter);
     }

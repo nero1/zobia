@@ -62,7 +62,7 @@ export const GET = withAdminAuth(
 
       const message = msgRows[0];
       if (!message) {
-        return notFound("Admin message not found");
+        throw notFound("Admin message not found");
       }
 
       const url = new URL(req.url);

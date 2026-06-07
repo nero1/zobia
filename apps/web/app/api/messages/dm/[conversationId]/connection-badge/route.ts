@@ -50,10 +50,10 @@ interface RouteParams {
 // ---------------------------------------------------------------------------
 
 export const GET = withAuth<RouteParams>(
-  async (_req: NextRequest, ctx: AuthContext & { params: RouteParams }) => {
+  async (_req: NextRequest, { auth, params }: { params: RouteParams; auth: AuthContext }) => {
     try {
-      const userId = ctx.user.sub;
-      const { conversationId } = ctx.params;
+      const userId = auth.user.sub;
+      const { conversationId } = params;
 
       // The conversationId is expected to be one of the participant UUIDs.
       // We look up the conversation_scores row where the authenticated user

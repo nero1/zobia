@@ -90,7 +90,7 @@ export async function assignNemesis(
      ORDER BY assigned_at DESC LIMIT 1`,
     [userId]
   );
-  const currentNemesisId = currentNemesisResult.rows[0]?.nemesis_user_id;
+  const currentNemesisId = currentNemesisResult.rows[0]?.nemesis_id;
 
   // Try same-city first, then any city
   for (const useCityFilter of [true, false]) {

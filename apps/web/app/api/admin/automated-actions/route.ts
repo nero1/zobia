@@ -24,7 +24,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { db, SqlParam } from "@/lib/db";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -100,7 +100,7 @@ export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
     // Build query dynamically
     // -----------------------------------------------------------------------
 
-    const queryParams: unknown[] = [];
+    const queryParams: SqlParam[] = [];
     let paramIndex = 1;
 
     let whereClause = `WHERE deleted_at IS NULL`;

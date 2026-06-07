@@ -90,7 +90,7 @@ const verifySchema = z.object({
 export async function POST(req: NextRequest) {
   try {
     const ip = getClientIp(req);
-    await enforceRateLimit(ip, "ip", { ...RATE_LIMITS.apiWrite, max: 10 });
+    await enforceRateLimit(ip, "ip", { ...RATE_LIMITS.apiWrite, limit: 10 });
 
     const { code, sessionToken } = await validateBody(req, verifySchema);
 

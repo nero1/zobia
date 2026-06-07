@@ -85,9 +85,9 @@ interface UserStreakRow {
  * Daily login recording endpoint.
  * Idempotent: safe to call multiple times per day.
  */
-export const POST = withAuth(async (req: NextRequest, ctx: AuthContext) => {
+export const POST = withAuth(async (req: NextRequest, { auth }: { params: Record<string, string>; auth: AuthContext }) => {
   try {
-    const userId = ctx.user.sub;
+    const userId = auth.user.sub;
     const today = todayUTC();
     const yesterday = yesterdayUTC();
     const redisKey = dailyLoginRedisKey(userId, today);

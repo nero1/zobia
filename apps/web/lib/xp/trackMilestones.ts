@@ -17,7 +17,7 @@
  * logically unlocked milestones so the API response is correct.
  */
 
-import type { ProgressionTrack } from "@/types";
+import type { ProgressionTrack } from "@zobia/types";
 import type { DatabaseAdapter } from "@/lib/db";
 
 // ─── Types ────────────────────────────────────────────────────────────────────

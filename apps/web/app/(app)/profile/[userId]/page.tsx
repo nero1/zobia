@@ -229,7 +229,7 @@ export default function ProfilePage() {
       <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
         <div className="flex flex-wrap gap-4">
           {/* Avatar with rank ring + presence indicator */}
-          <OnlineRing userId={profile.userId} size="lg">
+          <OnlineRing userId={profile.id} size="lg">
             <div
               className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-5xl dark:bg-neutral-800"
               style={{ boxShadow: `0 0 0 3px ${profile.rankColor}` }}
