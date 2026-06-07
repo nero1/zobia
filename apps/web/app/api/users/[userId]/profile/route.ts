@@ -146,6 +146,22 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       }
     }
 
+    // 2b. Alliance trophy — surface the user's alliance and its wars won (PRD §13)
+    let allianceTrophy: { allianceName: string; warsWon: number } | null = null;
+    if (user.guild_id) {
+      const { rows: allianceRows } = await db.query<{ name: string; wars_won: number }>(
+        `SELECT ga.name, ga.wars_won
+         FROM guild_alliance_members gam
+         JOIN guild_alliances ga ON ga.id = gam.alliance_id
+         WHERE gam.guild_id = $1 AND ga.is_active = true
+         LIMIT 1`,
+        [user.guild_id]
+      ).catch(() => ({ rows: [] as Array<{ name: string; wars_won: number }> }));
+      if (allianceRows[0]) {
+        allianceTrophy = { allianceName: allianceRows[0].name, warsWon: allianceRows[0].wars_won };
+      }
+    }
+
     // 3. Creator info — bio is on the users table; category maps from creator_tier
     const creatorBio: string | null = user.is_creator ? (user.bio ?? null) : null;
     const CREATOR_TIER_LABELS: Record<string, string> = {
@@ -304,6 +320,8 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       guildName,
       guildCrest,
       guildId,
+      // Alliance trophy — shown on profile when user belongs to an alliance (PRD §13)
+      allianceTrophy,
       isCreator: user.is_creator,
       creatorBio,
       creatorCategory,
