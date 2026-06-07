@@ -19,6 +19,7 @@ import { useState, useEffect, useCallback } from "react";
 
 type NotificationType =
   | "guild_war"
+  | "guild_low_contribution"
   | "nemesis"
   | "quest"
   | "gift"
@@ -27,6 +28,12 @@ type NotificationType =
   | "mention"
   | "announcement"
   | "season"
+  | "prestige_complete"
+  | "mystery_xp_drop"
+  | "leaderboard_ripple"
+  | "platform_council_invite"
+  | "reengagement"
+  | "streak_risk"
   | "system"
   | string;
 
@@ -47,11 +54,18 @@ interface Notification {
 function notificationIcon(type: NotificationType): string {
   const map: Record<string, string> = {
     guild_war: "⚔️",
+    guild_low_contribution: "📉",
     nemesis: "🎯",
     quest: "📋",
     gift: "🎁",
     rank_up: "🏅",
     friend_request: "👋",
+    prestige_complete: "🔥",
+    mystery_xp_drop: "✨",
+    leaderboard_ripple: "📊",
+    platform_council_invite: "🏛️",
+    reengagement: "👋",
+    streak_risk: "⚠️",
     mention: "💬",
     announcement: "📢",
     season: "🌟",
@@ -70,6 +84,104 @@ function relativeTime(dateStr: string): string {
   const days = Math.floor(hr / 24);
   if (days < 7) return `${days}d ago`;
   return new Date(dateStr).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+// ---------------------------------------------------------------------------
+// Payload → human-readable title + body
+// ---------------------------------------------------------------------------
+
+interface RawNotification {
+  id: string;
+  type: string;
+  payload: Record<string, unknown> | null;
+  isRead: boolean;
+  createdAt: string;
+  // May be pre-formatted by the API or derived below
+  title?: string;
+  body?: string;
+}
+
+function formatNotification(n: RawNotification): Notification {
+  // If API already provides title/body, use them
+  if (n.title) return n as Notification;
+  const p = n.payload ?? {};
+  const str = (key: string, fallback = "") => String(p[key] ?? fallback);
+  const num = (key: string, fallback = 0) => Number(p[key] ?? fallback);
+
+  let title = "Notification";
+  let body = "";
+
+  switch (n.type) {
+    case "guild_war":
+      title = "⚔️ Guild War Update";
+      body = str("message", "Your guild has a war update.");
+      break;
+    case "guild_low_contribution":
+      title = "📉 Low Contribution Alert";
+      body = `Your contribution score (${num("contributionScore")}) is below your guild's average (${num("guildAverage")}). Step it up!`;
+      break;
+    case "nemesis":
+      title = "🎯 Nemesis Update";
+      body = str("message", "Your nemesis has made a move.");
+      break;
+    case "quest":
+      title = "📋 Quest Update";
+      body = str("message", "You have a quest update.");
+      break;
+    case "gift":
+      title = "🎁 You received a gift!";
+      body = str("message", "Someone sent you a gift.");
+      break;
+    case "rank_up":
+      title = `🏅 Rank Up! You're now ${str("newRank", "a higher rank")}`;
+      body = str("message", "");
+      break;
+    case "friend_request":
+      title = "👋 New Friend Request";
+      body = `${str("senderUsername", "Someone")} wants to connect.`;
+      break;
+    case "mention":
+      title = "💬 You were mentioned";
+      body = str("message", "You were mentioned in a conversation.");
+      break;
+    case "announcement":
+      title = str("subject", "📢 Platform Announcement");
+      body = str("body", "");
+      break;
+    case "season":
+      title = "🌟 Season Update";
+      body = str("message", "There's a season update.");
+      break;
+    case "prestige_complete":
+      title = `🔥 Prestige ${num("prestigeCount")} Achieved!`;
+      body = str("title", "You have been reborn.");
+      break;
+    case "mystery_xp_drop":
+      title = "✨ Mystery XP Drop!";
+      body = `You earned ${num("xpAmount").toLocaleString()} bonus XP from a mystery drop.`;
+      break;
+    case "leaderboard_ripple":
+      title = "📊 Leaderboard Change";
+      body = str("message", "Your leaderboard rank has changed.");
+      break;
+    case "platform_council_invite":
+      title = "🏛️ Platform Council Invitation";
+      body = "You've been invited to join the Platform Council based on your Legacy Score.";
+      break;
+    case "reengagement":
+      title = "👋 Welcome back!";
+      body = str("message", "Things have happened while you were away.");
+      break;
+    case "streak_risk":
+      title = "⚠️ Streak at Risk";
+      body = `You have a ${num("streakDays")}-day streak. Log in today to keep it alive!`;
+      break;
+    default:
+      title = str("subject", str("title", n.type.replace(/_/g, " ")));
+      body = str("body", str("message", ""));
+  }
+
+  return { ...n, title, body };
 }
 
 // ---------------------------------------------------------------------------
@@ -163,12 +275,13 @@ export default function NotificationsPage() {
     if (res.status === 401) { window.location.href = "/login"; return null; }
     if (!res.ok) throw new Error("Failed to load notifications");
     const data = (await res.json()) as
-      | Notification[]
-      | { notifications?: Notification[]; nextCursor?: string; hasMore?: boolean };
+      | RawNotification[]
+      | { notifications?: RawNotification[]; nextCursor?: string; hasMore?: boolean };
 
-    const list: Notification[] = Array.isArray(data)
+    const rawList: RawNotification[] = Array.isArray(data)
       ? data
-      : (data as { notifications?: Notification[] }).notifications ?? [];
+      : (data as { notifications?: RawNotification[] }).notifications ?? [];
+    const list: Notification[] = rawList.map(formatNotification);
     const next: string | undefined = (data as { nextCursor?: string }).nextCursor;
     const more: boolean =
       (data as { hasMore?: boolean }).hasMore ??

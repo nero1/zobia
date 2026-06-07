@@ -28,6 +28,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
+import { PresenceDot } from '@/components/ui/PresenceDot';
 import { useTheme } from '@/lib/theme';
 import { colors, rankColors, type RankTier } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
@@ -221,11 +222,16 @@ export default function PublicProfileScreen() {
 
   return (
     <Screen scrollable contentStyle={styles.content}>
-      {/* Avatar + rank ring */}
+      {/* Avatar + rank ring + presence dot */}
       <View style={styles.avatarSection}>
-        <View style={[styles.rankRing, { borderColor: rankColor }]}>
-          <View style={styles.avatarCircle}>
-            <Text style={styles.avatarEmoji}>{profile.avatarEmoji}</Text>
+        <View style={{ position: 'relative' }}>
+          <View style={[styles.rankRing, { borderColor: rankColor }]}>
+            <View style={styles.avatarCircle}>
+              <Text style={styles.avatarEmoji}>{profile.avatarEmoji}</Text>
+            </View>
+          </View>
+          <View style={styles.presenceDotWrap}>
+            <PresenceDot userId={profile.userId} size={14} />
           </View>
         </View>
         {/* Prestige stars */}
@@ -370,6 +376,11 @@ const styles = StyleSheet.create({
   content: { paddingBottom: 32 },
 
   avatarSection: { alignItems: 'center', paddingTop: 24, gap: 8 },
+  presenceDotWrap: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+  },
   rankRing: {
     width: 96,
     height: 96,

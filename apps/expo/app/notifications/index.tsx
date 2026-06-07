@@ -36,21 +36,61 @@ type NotificationType =
   | 'xp'
   | 'gift'
   | 'guild'
+  | 'guild_low_contribution'
   | 'dm'
   | 'mention'
   | 'season'
   | 'system'
   | 'streak'
+  | 'streak_risk'
   | 'friend'
-  | 'announcement';
+  | 'announcement'
+  | 'prestige_complete'
+  | 'mystery_xp_drop'
+  | 'leaderboard_ripple'
+  | 'platform_council_invite'
+  | 'reengagement'
+  | string;
 
 interface AppNotification {
   id: string;
-  type: NotificationType;
+  type: string;
   title: string;
   body: string;
   isRead: boolean;
   createdAt: string;
+  payload?: Record<string, unknown> | null;
+}
+
+// ---------------------------------------------------------------------------
+// Notification formatter (payload → title + body)
+// ---------------------------------------------------------------------------
+
+function formatNotification(n: AppNotification & { payload?: Record<string, unknown> | null }): AppNotification {
+  if (n.title) return n;
+  const p = n.payload ?? {};
+  const str = (k: string, fb = '') => String(p[k] ?? fb);
+  const num = (k: string, fb = 0) => Number(p[k] ?? fb);
+  let title = 'Notification';
+  let body = '';
+  switch (n.type) {
+    case 'guild_low_contribution':
+      title = '📉 Low Contribution Alert';
+      body = `Your score (${num('contributionScore')}) is below your guild average (${num('guildAverage')}). Step it up!`;
+      break;
+    case 'guild_war': title = '⚔️ Guild War Update'; body = str('message', 'Your guild has a war update.'); break;
+    case 'prestige_complete': title = `🔥 Prestige ${num('prestigeCount')} Achieved!`; body = str('title', 'You have been reborn.'); break;
+    case 'mystery_xp_drop': title = '✨ Mystery XP Drop!'; body = `You earned ${num('xpAmount').toLocaleString()} bonus XP.`; break;
+    case 'leaderboard_ripple': title = '📊 Leaderboard Change'; body = str('message', 'Your rank has changed.'); break;
+    case 'platform_council_invite': title = '🏛️ Council Invitation'; body = 'You\'ve been invited to the Platform Council!'; break;
+    case 'reengagement': title = '👋 Welcome back!'; body = str('message', 'Things happened while you were away.'); break;
+    case 'streak_risk': title = '⚠️ Streak at Risk'; body = `${num('streakDays')}-day streak — log in today to keep it!`; break;
+    case 'rank_up': title = `🏅 Rank Up! ${str('newRank', '')}`; body = str('message', ''); break;
+    default:
+      title = str('subject', str('title', n.type.replace(/_/g, ' ')));
+      body = str('body', str('message', ''));
+  }
+  return { ...n, title, body };
 }
 
 // ---------------------------------------------------------------------------
@@ -59,7 +99,8 @@ interface AppNotification {
 
 async function fetchNotifications(): Promise<AppNotification[]> {
   const { data } = await apiClient.get('/api/notifications');
-  return data.notifications ?? [];
+  const raw: AppNotification[] = data.notifications ?? [];
+  return raw.map(formatNotification);
 }
 
 async function markAllRead(): Promise<void> {
@@ -72,30 +113,45 @@ async function markAllRead(): Promise<void> {
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
-const TYPE_ICON: Record<NotificationType, IoniconName> = {
+const TYPE_ICON: Partial<Record<string, IoniconName>> & { default: IoniconName } = {
   xp: 'star-outline',
   gift: 'gift-outline',
   guild: 'shield-outline',
+  guild_low_contribution: 'trending-down-outline',
   dm: 'chatbubble-outline',
   mention: 'at-outline',
   season: 'trophy-outline',
   system: 'information-circle-outline',
   streak: 'flame-outline',
+  streak_risk: 'warning-outline',
   friend: 'person-add-outline',
   announcement: 'megaphone-outline',
-};
+  prestige_complete: 'flame-outline',
+  mystery_xp_drop: 'sparkles-outline',
+  leaderboard_ripple: 'podium-outline',
+  platform_council_invite: 'business-outline',
+  reengagement: 'hand-left-outline',
+  default: 'notifications-outline',
+} as const;
 
-const TYPE_COLOR: Record<NotificationType, string> = {
+const TYPE_COLOR: Partial<Record<string, string>> = {
   xp: colors.brand.gold,
   gift: colors.brand.green,
   guild: colors.brand.blue,
+  guild_low_contribution: '#EF4444',
   dm: colors.brand.blue,
   mention: colors.brand.blue,
   season: colors.brand.gold,
   system: colors.neutral[500],
   streak: '#F97316',
+  streak_risk: '#EF4444',
   friend: colors.brand.green,
   announcement: colors.semantic.info,
+  prestige_complete: '#F97316',
+  mystery_xp_drop: colors.brand.gold,
+  leaderboard_ripple: colors.brand.blue,
+  platform_council_invite: colors.brand.blue,
+  reengagement: colors.brand.green,
 };
 
 function formatTime(iso: string): string {
@@ -114,7 +170,7 @@ function formatTime(iso: string): string {
 
 function NotifRow({ notif }: { notif: AppNotification }) {
   const { colors: themeColors } = useTheme();
-  const iconName = TYPE_ICON[notif.type] ?? 'notifications-outline';
+  const iconName: IoniconName = TYPE_ICON[notif.type] ?? TYPE_ICON.default;
   const iconColor = TYPE_COLOR[notif.type] ?? colors.brand.blue;
 
   return (

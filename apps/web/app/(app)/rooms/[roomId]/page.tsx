@@ -14,6 +14,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { TopGifters } from "@/components/rooms/TopGifters";
+import { LiveRoomPulseBar } from "@/components/ui/LiveRoomPulseBar";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1146,6 +1147,7 @@ export default function RoomPage() {
               </span>
             </div>
             <p className="truncate text-xs text-neutral-500">{room.memberCount.toLocaleString()} members</p>
+            <LiveRoomPulseBar roomId={room.id} initialActiveCount={0} initialMaxCapacity={room.memberCount || 10000} className="mt-1" />
           </div>
           {/* Top gifter display — PRD §12 */}
           {topGifter && (
