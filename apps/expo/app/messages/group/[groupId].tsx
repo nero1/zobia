@@ -30,6 +30,7 @@ import { Screen } from '@/components/ui/Screen';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
+import { queueMessage } from '@/lib/offline/sqlite';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -199,8 +200,11 @@ export default function GroupConversationScreen() {
       if (result.blocked) setSpamBlocked(true);
       queryClient.invalidateQueries({ queryKey: ['group-messages', groupId] });
     },
-    onError: (_, __, ctx) => {
+    onError: (_, content, ctx) => {
       setPendingMessages((prev) => prev.filter((m) => m.id !== ctx?.optimistic.id));
+      queueMessage(groupId!, content, 'text').catch(() =>
+        console.warn('[offline] queueMessage failed')
+      );
     },
   });
 

@@ -9,12 +9,15 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { QueryClientProvider } from '@tanstack/react-query';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
+import NetInfo from '@react-native-community/netinfo';
 
 import { AuthProvider } from '@/lib/auth/context';
 import { ThemeProvider, useTheme } from '@/lib/theme';
 import { queryClient, apiClient } from '@/lib/api/client';
 import { AnnouncementModal } from '@/components/announcements/AnnouncementModal';
 import { useAuth } from '@/lib/auth/hooks';
+import { initOfflineDB } from '@/lib/offline/sqlite';
+import { syncPendingMessages } from '@/lib/offline/syncQueue';
 import '@/lib/i18n';
 
 // ---------------------------------------------------------------------------
@@ -88,11 +91,30 @@ function RootLayoutNav() {
   const notificationListener = useRef<Notifications.EventSubscription | null>(null);
   const responseListener = useRef<Notifications.EventSubscription | null>(null);
 
+  // Initialise offline database
+  useEffect(() => {
+    initOfflineDB().catch((err) =>
+      console.warn('[offline] SQLite init failed', err)
+    );
+  }, []);
+
   // Register push token once the user is authenticated
   useEffect(() => {
     if (!user) return;
     registerForPushNotifications();
   }, [user?.id]);
+
+  // Listen for internet reconnection and sync pending messages
+  useEffect(() => {
+    const unsub = NetInfo.addEventListener((state) => {
+      if (state.isConnected && state.isInternetReachable) {
+        syncPendingMessages().catch((err) =>
+          console.warn('[offline] Sync failed', err)
+        );
+      }
+    });
+    return unsub;
+  }, []);
 
   // Listen for notifications received while the app is foregrounded
   useEffect(() => {

@@ -27,6 +27,7 @@ import {
 } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { XP_VALUES } from "@/lib/xp/engine";
+import { recordWarContribution } from "@/lib/guilds/recordWarContribution";
 
 // ---------------------------------------------------------------------------
 // DB row types
@@ -177,6 +178,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       case "tipping": {
         await addMember(roomId, userId);
         await awardJoinXP(roomId, userId);
+        recordWarContribution(userId, 'join_room', db).catch((err) =>
+          console.error('[rooms:join] war contribution failed', err)
+        );
         return NextResponse.json({ joined: true }, { status: 200 });
       }
 
@@ -205,6 +209,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
         await addMember(roomId, userId);
         await awardJoinXP(roomId, userId);
+        recordWarContribution(userId, 'join_room', db).catch((err) =>
+          console.error('[rooms:join] war contribution failed', err)
+        );
         return NextResponse.json({ joined: true }, { status: 200 });
       }
 
@@ -233,6 +240,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
         await addMember(roomId, userId);
         await awardJoinXP(roomId, userId);
+        recordWarContribution(userId, 'join_room', db).catch((err) =>
+          console.error('[rooms:join] war contribution failed', err)
+        );
         return NextResponse.json({ joined: true }, { status: 200 });
       }
 
@@ -257,6 +267,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
         await addMember(roomId, userId);
         await awardJoinXP(roomId, userId);
+        recordWarContribution(userId, 'join_room', db).catch((err) =>
+          console.error('[rooms:join] war contribution failed', err)
+        );
         return NextResponse.json({ joined: true }, { status: 200 });
       }
 
@@ -279,6 +292,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
         await addMember(roomId, userId);
         await awardJoinXP(roomId, userId);
+        recordWarContribution(userId, 'join_room', db).catch((err) =>
+          console.error('[rooms:join] war contribution failed', err)
+        );
         return NextResponse.json({ joined: true }, { status: 200 });
       }
 

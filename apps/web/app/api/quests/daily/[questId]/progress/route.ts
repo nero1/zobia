@@ -16,6 +16,7 @@ import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { recordWarContribution } from "@/lib/guilds/recordWarContribution";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -262,6 +263,13 @@ export const POST = withAuth<QuestParams>(async (req, { params, auth }) => {
         newly_completed: nowCompleted,
       };
     });
+
+    // Record guild war contribution if quest was newly completed (fire-and-forget)
+    if (outcome.newly_completed) {
+      recordWarContribution(auth.user.sub, 'complete_quest', db).catch((err) =>
+        console.error('[quests:POST] war contribution failed', err)
+      );
+    }
 
     return NextResponse.json(outcome, { status: 200 });
   } catch (err) {
