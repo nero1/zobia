@@ -1907,19 +1907,61 @@ export const GET = async (req: NextRequest) => {
           ]
         ).catch(() => {});
       }
+
+      // Fire push notifications for all nemesis events in one batch (PRD §2.3)
+      if (overtakeRows.length > 0) {
+        const { sendPushNotificationBatch } = await import('@/lib/notifications/push');
+        sendPushNotificationBatch([
+          ...overtakeRows.map((row) => ({
+            userId: row.user_id,
+            title: '📊 Your Nemesis pulled ahead!',
+            body: `Your rival is now ${row.nemesis_xp - row.user_xp} XP ahead. Time to grind!`,
+            data: { action: '/nemesis', type: 'nemesis_overtook_you' },
+          })),
+          ...overtakeRows.map((row) => ({
+            userId: row.nemesis_id,
+            title: '🏆 You overtook your Nemesis!',
+            body: `You're ${row.nemesis_xp - row.user_xp} XP ahead of your rival. Keep the lead!`,
+            data: { action: '/nemesis', type: 'nemesis_triumph' },
+          })),
+        ]).catch(() => {});
+      }
+
       results.nemesisNotifications = { overtakes: overtakeRows.length };
     }
   } catch (err) {
     errors.push(`nemesisNotifications: ${String(err)}`);
   }
 
-  // 32b. Alliance National Alliance Wars weekly resolution (Sundays — PRD §13)
-  //      Tally each guild alliance's combined XP earned this week, declare winner,
-  //      distribute victory XP to all members of the winning alliance.
+  // 32b. Alliance National Alliance Wars weekly resolution + initial pairing (Sundays — PRD §13)
+  //      Step A: Pair any alliances that have no active war (first-time or post-bye week).
+  //      Step B: Resolve wars that have been running for ≥7 days; re-pair same alliances next week.
   try {
     const dayForAlliance = new Date().getUTCDay();
     if (dayForAlliance === 0) {
       const ALLIANCE_WAR_VICTORY_XP = 300;
+
+      // ── Step A: Initial pairing — find alliances without an active war and pair them ──
+      const { rows: unpairedAlliances } = await db.query<{ id: string }>(
+        `SELECT id FROM guild_alliances
+         WHERE is_active = true
+           AND id NOT IN (
+             SELECT alliance_1_id FROM alliance_wars WHERE status = 'active'
+             UNION
+             SELECT alliance_2_id FROM alliance_wars WHERE status = 'active'
+           )
+         ORDER BY RANDOM()`
+      );
+
+      // Pair consecutive alliances; if the count is odd the last alliance sits out this week
+      for (let i = 0; i + 1 < unpairedAlliances.length; i += 2) {
+        await db.query(
+          `INSERT INTO alliance_wars (alliance_1_id, alliance_2_id, status, started_at)
+           VALUES ($1, $2, 'active', NOW())
+           ON CONFLICT DO NOTHING`,
+          [unpairedAlliances[i].id, unpairedAlliances[i + 1].id]
+        ).catch(() => {});
+      }
 
       // Find all active alliance wars
       const { rows: activeWars } = await db.query<{
@@ -1962,6 +2004,12 @@ export const GET = async (req: NextRequest) => {
                alliance_1_xp = $2, alliance_2_xp = $3, ended_at = NOW()
            WHERE id = $4`,
           [winnerId, score1, score2, war.id]
+        ).catch(() => {});
+
+        // Increment wars_won on the winning alliance (PRD §13 — National Alliance Trophy)
+        await db.query(
+          `UPDATE guild_alliances SET wars_won = wars_won + 1, updated_at = NOW() WHERE id = $1`,
+          [winnerId]
         ).catch(() => {});
 
         // Award victory XP to all members of winning alliance

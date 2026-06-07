@@ -151,12 +151,13 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       );
     }
 
-    // Fetch recipient display name for certificate
+    // Fetch recipient display name and email for certificate + email delivery
     const { rows: recipientRows } = await db.query<{
       display_name: string;
       username: string;
+      email: string | null;
     }>(
-      `SELECT display_name, username FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+      `SELECT display_name, username, email FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
       [body.recipientUserId]
     );
     const recipient = recipientRows[0];
@@ -220,6 +221,31 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
       return cert;
     });
+
+    // Send certificate email if the recipient has an email address (PRD §10 — fire-and-forget)
+    if (recipient.email) {
+      const recipientName = recipient.display_name ?? recipient.username ?? "there";
+      const issuedDate = new Date().toLocaleDateString("en-GB", {
+        day: "numeric", month: "long", year: "numeric",
+      });
+      import("@/lib/notifications/email").then(({ sendEmail }) =>
+        sendEmail(
+          recipient.email!,
+          `Your Learning Certificate — ${certificateTitle}`,
+          `Congratulations, ${recipientName}!\n\nYou have been awarded a Learning Certificate.\n\nCourse: ${certificateTitle}\nIssued by: ${room.name}\nDate: ${issuedDate}\n\nOpen the Zobia app to view and share your certificate.`,
+          `<div style="font-family:sans-serif;max-width:600px;margin:auto;padding:24px">` +
+          `<h2 style="color:#1a1a1a">🎓 Congratulations, ${recipientName}!</h2>` +
+          `<p>You have been awarded a <strong>Learning Certificate</strong>.</p>` +
+          `<table style="border-collapse:collapse;width:100%;margin:16px 0">` +
+          `<tr><td style="padding:8px 0;color:#555;width:120px">Course</td><td style="padding:8px 0;font-weight:600">${certificateTitle}</td></tr>` +
+          `<tr><td style="padding:8px 0;color:#555">Issued by</td><td style="padding:8px 0;font-weight:600">${room.name}</td></tr>` +
+          `<tr><td style="padding:8px 0;color:#555">Date</td><td style="padding:8px 0;font-weight:600">${issuedDate}</td></tr>` +
+          `</table>` +
+          `<p style="color:#555">Open the Zobia app to view and share your certificate.</p></div>`,
+          "transactional"
+        )
+      ).catch(() => {});
+    }
 
     return NextResponse.json(
       {
