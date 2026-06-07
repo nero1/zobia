@@ -131,8 +131,8 @@ export const POST = withAuth(async (
         coinsGranted: 0,
         itemType: "room_entry",
         packName: `Entry: ${room.name}`,
-        callbackUrl,
       },
+      callbackUrl,
     );
 
     return NextResponse.json(
