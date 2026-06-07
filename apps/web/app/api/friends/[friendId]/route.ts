@@ -59,7 +59,7 @@ export const PUT = withAuth(async (
 
         // Award accept_friend_request XP to addressee
         await db.query(
-          `UPDATE users SET xp_total = xp_total + $1, updated_at = NOW() WHERE id = $2`,
+          `UPDATE users SET xp_total = xp_total + $1, xp_social = xp_social + $1, updated_at = NOW() WHERE id = $2`,
           [xpAmount, userId],
         ).catch(() => {});
         await db.query(
@@ -70,7 +70,7 @@ export const PUT = withAuth(async (
 
         // Award add_new_friend XP to requester
         await db.query(
-          `UPDATE users SET xp_total = xp_total + $1, updated_at = NOW() WHERE id = $2`,
+          `UPDATE users SET xp_total = xp_total + $1, xp_social = xp_social + $1, updated_at = NOW() WHERE id = $2`,
           [requesterXP, friendship.requester_id],
         ).catch(() => {});
         await db.query(
