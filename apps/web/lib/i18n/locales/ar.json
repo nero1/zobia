@@ -788,5 +788,24 @@
   "communityNotes.modal.cancel": "إلغاء",
   "communityNotes.modal.submit": "تقديم الملاحظة",
   "communityNotes.modal.submitting": "جارٍ التقديم…",
-  "communityNotes.modal.minLength": "يجب أن تحتوي الملاحظة على 20 حرفاً على الأقل."
+  "communityNotes.modal.minLength": "يجب أن تحتوي الملاحظة على 20 حرفاً على الأقل.",
+
+  "terms.title": "شروط الخدمة",
+  "terms.lastUpdated": "آخر تحديث: {{date}}",
+  "terms.backHome": "→ العودة إلى الرئيسية",
+  "terms.toc": "جدول المحتويات",
+
+  "privacy.title": "سياسة الخصوصية",
+  "privacy.lastUpdated": "آخر تحديث: {{date}}",
+  "privacy.backHome": "→ العودة إلى الرئيسية",
+  "privacy.toc": "جدول المحتويات",
+
+  "notFound.title": "الصفحة غير موجودة",
+  "notFound.description": "الصفحة التي تبحث عنها غير موجودة أو تم نقلها.",
+  "notFound.backHome": "العودة إلى الرئيسية",
+  "notFound.quickLinks": "أو جرّب إحدى هذه الصفحات:",
+
+  "landing.footer.terms": "شروط الخدمة",
+  "landing.footer.privacy": "سياسة الخصوصية",
+  "landing.footer.copyright": "© {{year}} زوبيا سوشال. جميع الحقوق محفوظة."
 }

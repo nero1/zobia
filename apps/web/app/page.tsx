@@ -153,6 +153,14 @@ export default function LandingPage() {
       {/* Footer */}
       <footer className="border-t border-neutral-200 bg-white py-8 dark:border-neutral-800 dark:bg-neutral-900">
         <div className="mx-auto max-w-6xl px-6 text-center text-sm text-neutral-500 dark:text-neutral-400">
+          <div className="mb-3 flex justify-center gap-6">
+            <Link href="/terms" className="hover:underline hover:text-neutral-700 dark:hover:text-neutral-300">
+              Terms of Service
+            </Link>
+            <Link href="/privacy" className="hover:underline hover:text-neutral-700 dark:hover:text-neutral-300">
+              Privacy Policy
+            </Link>
+          </div>
           &copy; {new Date().getFullYear()} Zobia Social. All rights reserved.
         </div>
       </footer>

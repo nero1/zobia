@@ -747,5 +747,24 @@
   "communityNotes.modal.cancel": "Soke",
   "communityNotes.modal.submit": "Gabatar da Bayani",
   "communityNotes.modal.submitting": "Ana gabatarwa...",
-  "communityNotes.modal.minLength": "Bayani dole ya kasance akalla haruffa 20."
+  "communityNotes.modal.minLength": "Bayani dole ya kasance akalla haruffa 20.",
+
+  "terms.title": "Sharuɗɗan Amfani",
+  "terms.lastUpdated": "An sabunta: {{date}}",
+  "terms.backHome": "← Koma Gida",
+  "terms.toc": "Jerin Abubuwa",
+
+  "privacy.title": "Manufar Sirri",
+  "privacy.lastUpdated": "An sabunta: {{date}}",
+  "privacy.backHome": "← Koma Gida",
+  "privacy.toc": "Jerin Abubuwa",
+
+  "notFound.title": "Ba a Samu Shafin Ba",
+  "notFound.description": "Shafin da kake nema ba ya nan ko an ƙaura da shi.",
+  "notFound.backHome": "Koma Gida",
+  "notFound.quickLinks": "Ko gwada ɗaya daga cikin waɗannan shafukan:",
+
+  "landing.footer.terms": "Sharuɗɗan Amfani",
+  "landing.footer.privacy": "Manufar Sirri",
+  "landing.footer.copyright": "© {{year}} Zobia Social. Duk haƙƙoƙi an kiyaye su."
 }
