@@ -13,6 +13,7 @@ import { forbidden, notFound } from '@/lib/api/errors';
 import { db } from '@/lib/db';
 import { filterPublicContent } from '@/lib/messaging/antispam';
 import { XP_VALUES, ROOM_MESSAGE_XP_DAILY_CAP } from '@/lib/xp/engine';
+import { recordWarContribution } from '@/lib/guilds/recordWarContribution';
 
 /** Award social XP for group messages (non-blocking, capped at 50/day). */
 async function maybeAwardGroupMessageXP(groupId: string, userId: string): Promise<void> {
@@ -126,11 +127,18 @@ export const POST = withAuth(async (
   // Anti-spam filter (silent — content stripped, not blocked)
   const filteredContent = filterPublicContent(content, isAdmin);
 
+  // Fetch sender's plan for message creation context
+  const { rows: senderRows } = await db.query<{ plan: string }>(
+    `SELECT COALESCE(plan, 'free') AS plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+    [userId],
+  );
+  const senderPlan = senderRows[0]?.plan ?? 'free';
+
   const { rows: msgRows } = await db.query(
-    `INSERT INTO messages (sender_id, group_chat_id, message_type, content)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO messages (sender_id, group_chat_id, message_type, content, sender_plan_at_creation)
+     VALUES ($1, $2, $3, $4, $5)
      RETURNING *`,
-    [userId, groupId, messageType, filteredContent],
+    [userId, groupId, messageType, filteredContent, senderPlan],
   );
 
   // Update group's updated_at
@@ -141,6 +149,11 @@ export const POST = withAuth(async (
 
   // Award social XP for group messaging (non-blocking, PRD §6)
   void maybeAwardGroupMessageXP(groupId, userId);
+
+  // Record guild war contribution (non-blocking)
+  recordWarContribution(userId, 'send_message', db).catch((err) =>
+    console.error('[group:POST] war contribution failed', err)
+  );
 
   return NextResponse.json({ data: msgRows[0] }, { status: 201 });
 });

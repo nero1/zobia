@@ -28,6 +28,7 @@ import {
   incrementDailyCount,
 } from "@/lib/messaging/coinCost";
 import { filterDMContent } from "@/lib/messaging/antispam";
+import { recordWarContribution } from "@/lib/guilds/recordWarContribution";
 import { updateConversationScore } from "@/lib/messaging/conversationScore";
 import type { Plan } from "@zobia/types";
 
@@ -359,8 +360,8 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       const { rows: msgRows } = await tx.query<MessageRow>(
         `INSERT INTO messages
            (sender_id, recipient_id, conversation_id, message_type, content,
-            media_url, coin_cost, reply_count_from_recipient, idempotency_key)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            media_url, coin_cost, reply_count_from_recipient, idempotency_key, sender_plan_at_creation)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          RETURNING id, sender_id, recipient_id, message_type, content, media_url,
                    coin_cost, reply_count_from_recipient, is_deleted,
                    created_at, updated_at`,
@@ -374,6 +375,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
           coinCost,
           replyCountFromRecipient,
           body.idempotencyKey ?? null,
+          sender.plan,
         ]
       );
 
@@ -410,6 +412,11 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     // 13. Update conversation score — best-effort
     updateConversationScore(auth.user.sub, body.recipientId, "message_sent").catch(
       (err) => console.error("[dm:POST] Conversation score update failed", err)
+    );
+
+    // 14. Record guild war contribution — best-effort
+    recordWarContribution(auth.user.sub, 'send_message', db).catch((err) =>
+      console.error("[dm:POST] war contribution failed", err)
     );
 
     return NextResponse.json({ message }, { status: 201 });

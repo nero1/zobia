@@ -205,8 +205,8 @@ export const GET = async (req: NextRequest) => {
     const dayOfWeekForSnapshot = new Date().getUTCDay(); // 0 = Sunday
     if (dayOfWeekForSnapshot === 0) {
       // Find the currently active season
-      const { rows: activeSeasons } = await db.query<{ id: string; name: string }>(
-        `SELECT id, name FROM seasons WHERE is_active = TRUE LIMIT 1`
+      const { rows: activeSeasons } = await db.query<{ id: string; name: string; started_at: string }>(
+        `SELECT id, name, started_at FROM seasons WHERE is_active = TRUE LIMIT 1`
       );
 
       if (activeSeasons.length > 0) {
@@ -240,6 +240,32 @@ export const GET = async (req: NextRequest) => {
            LIMIT 200`,
           [season.id]
         );
+
+        // Award season_top100_frame badge to ranks 11-100 during weeks 6-7 (PRD §8)
+        try {
+          const seasonStartTime = new Date(season.started_at).getTime();
+          const weekNum = Math.ceil((Date.now() - seasonStartTime) / (7 * 24 * 60 * 60 * 1000));
+
+          if (weekNum >= 6) {
+            await db.query(
+              `INSERT INTO user_badges (user_id, badge_type, reference_id, granted_at, awarded_at)
+               SELECT ls.user_id, 'season_top100_frame', $1, NOW(), NOW()
+               FROM (
+                 SELECT ls.user_id, ROW_NUMBER() OVER (ORDER BY ls.xp_value DESC) AS rank
+                 FROM leaderboard_snapshots ls
+                 JOIN users u ON u.id = ls.user_id
+                 WHERE ls.season_id = $1
+                   AND ls.scope = 'season'
+                   AND u.deleted_at IS NULL
+               ) ls
+               WHERE ls.rank BETWEEN 11 AND 100
+               ON CONFLICT (user_id, badge_type, reference_id) DO NOTHING`,
+              [season.id]
+            );
+          }
+        } catch (err) {
+          console.error('[cron] Failed to award season_top100_frame badges:', err);
+        }
 
         results.weeklySeasonSnapshot = { seasonId: season.id, seasonName: season.name, snapshotted: true };
       } else {
@@ -1466,12 +1492,11 @@ export const GET = async (req: NextRequest) => {
   // the SENDER's current plan at the time the CRON runs.
   try {
     // DM messages: delete from the messages table rows older than plan limit
+    // Uses the plan at message creation time, not sender's current plan
     const freeDeleted = await db.query<{ count: string }>(
       `WITH deleted AS (
          DELETE FROM messages m
-         USING users u
-         WHERE m.sender_id = u.id
-           AND u.plan = 'free'
+         WHERE m.sender_plan_at_creation = 'free'
            AND m.created_at < NOW() - INTERVAL '90 days'
          RETURNING 1
        )
@@ -1481,9 +1506,7 @@ export const GET = async (req: NextRequest) => {
     const plusDeleted = await db.query<{ count: string }>(
       `WITH deleted AS (
          DELETE FROM messages m
-         USING users u
-         WHERE m.sender_id = u.id
-           AND u.plan = 'plus'
+         WHERE m.sender_plan_at_creation = 'plus'
            AND m.created_at < NOW() - INTERVAL '180 days'
          RETURNING 1
        )

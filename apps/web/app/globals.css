@@ -13,15 +13,49 @@
 
   body {
     font-family: var(--font-inter);
+    line-height: 1.5;
   }
 
   html {
     scroll-behavior: smooth;
   }
 
+  /* Accessibility: Focus indicators visible for keyboard navigation */
   :focus-visible {
     outline: 2px solid #2563eb;
     outline-offset: 2px;
+  }
+
+  /* Accessibility: Reduce motion for users who prefer it */
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* Accessibility: Improve text rendering */
+  body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Accessibility: Skip to content link for screen readers */
+  .skip-to-main {
+    position: absolute;
+    left: -9999px;
+    z-index: 999;
+  }
+
+  .skip-to-main:focus {
+    left: 0;
+    top: 0;
+    width: 100%;
+    padding: 0.5rem;
+    background-color: #2563eb;
+    color: white;
   }
 }
 

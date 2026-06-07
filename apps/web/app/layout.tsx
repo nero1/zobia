@@ -19,6 +19,7 @@ import { ThemeProvider } from "next-themes";
 import "./globals.css";
 import { ReactQueryProvider } from "@/components/providers/ReactQueryProvider";
 import { I18nProvider } from "@/components/providers/I18nProvider";
+import { SkipToMain } from "@/components/shared/SkipToMain";
 import { loadManifest } from "@/lib/manifest";
 import { db } from "@/lib/db";
 
@@ -131,6 +132,9 @@ export default async function RootLayout({ children }: RootLayoutProps) {
       className={inter.variable}
     >
       <body className="min-h-screen bg-neutral-50 text-neutral-900 font-sans antialiased dark:bg-neutral-950 dark:text-neutral-50">
+        {/* Accessibility: Skip to main content link (only visible on focus) */}
+        <SkipToMain />
+
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
@@ -139,7 +143,9 @@ export default async function RootLayout({ children }: RootLayoutProps) {
         >
           <ReactQueryProvider>
             <I18nProvider>
-              {children}
+              <main id="main-content">
+                {children}
+              </main>
             </I18nProvider>
           </ReactQueryProvider>
         </ThemeProvider>

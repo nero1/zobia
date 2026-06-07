@@ -20,6 +20,7 @@ import { badRequest, notFound, forbidden, handleApiError } from "@/lib/api/error
 import { db } from "@/lib/db";
 import { debitCoins, creditCoins } from "@/lib/economy/coins";
 import { meetsMinimumTrust } from "@/lib/trust/trustScore";
+import { recordWarContribution } from "@/lib/guilds/recordWarContribution";
 
 // Platform takes 20% of gifts received by creators (PRD §14)
 const CREATOR_GIFT_FEE_PERCENT = 20;
@@ -324,6 +325,11 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 
     // 4. Award XP (fire-and-forget)
     void awardGiftXP(senderId, body.recipientId, giftItem.tier);
+
+    // 5. Record guild war contribution (fire-and-forget)
+    recordWarContribution(senderId, 'send_gift', db).catch((err) =>
+      console.error('[gifts:POST] war contribution failed', err)
+    );
 
     return NextResponse.json({
       success: true,

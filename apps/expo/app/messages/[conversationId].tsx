@@ -39,6 +39,7 @@ import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
 import { getPidginSuggestions } from '@/lib/i18n/pidgin';
 import { CHAT_THEMES } from '@/lib/theme/chatThemes';
+import { queueMessage } from '@/lib/offline/sqlite';
 import type { ChatTheme } from '@/lib/theme/chatThemes';
 
 // ---------------------------------------------------------------------------
@@ -529,11 +530,14 @@ export default function DMConversationScreen() {
       setPendingMessages((prev) => prev.filter((m) => m.id !== ctx?.optimistic.id));
       queryClient.invalidateQueries({ queryKey: ['dm-messages', conversationId] });
     },
-    onError: (_, __, ctx) => {
+    onError: (_, values, ctx) => {
       setPendingMessages((prev) =>
         prev.map((m) =>
           m.id === ctx?.optimistic.id ? { ...m, status: 'failed' as MessageStatus } : m,
         ),
+      );
+      queueMessage(conversationId!, values.content, values.type).catch(() =>
+        console.warn('[offline] queueMessage failed')
       );
     },
   });
