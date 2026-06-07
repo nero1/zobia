@@ -14,6 +14,7 @@
 import type { DatabaseClient } from "@/lib/db/types";
 import Decimal from "decimal.js";
 import { XP_VALUES } from "@/lib/xp/engine";
+import { getManifestValue } from "@/lib/manifest";
 
 // ---------------------------------------------------------------------------
 // Commission rates
@@ -78,8 +79,14 @@ export async function awardReferralCommissions(
     [buyerId, tier1Id]
   );
   if (qualifyRows[0]) {
-    // First qualifying purchase — award 500 XP bonus to referrer
-    const xpBonus = XP_VALUES.refer_new_user_who_completes_onboarding;
+    // First qualifying purchase — award one-time XP + coin bonus to referrer (PRD §15)
+    const xpBonusStr = await getManifestValue("referral_tier1_xp_bonus");
+    const coinBonusStr = await getManifestValue("referral_tier1_coin_bonus");
+
+    const xpBonus = parseInt(xpBonusStr ?? "500", 10) || 500;
+    const coinBonus = parseInt(coinBonusStr ?? "100", 10) || 100;
+
+    // Award XP
     await db.query(
       `UPDATE users SET xp_total = xp_total + $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL`,
       [xpBonus, tier1Id]
@@ -88,6 +95,26 @@ export async function awardReferralCommissions(
       `INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, created_at)
        VALUES ($1, $2, 'social', 'referral_qualified', $2, NOW())`,
       [tier1Id, xpBonus]
+    );
+
+    // Award one-time coin bonus
+    if (coinBonus > 0) {
+      const { creditCoins } = await import("@/lib/economy/coins");
+      await creditCoins(
+        tier1Id,
+        coinBonus,
+        "referral_bonus",
+        qualifyRows[0].id,
+        "One-time referral bonus for referring a new user",
+        {},
+        db
+      );
+    }
+
+    // Update referrals table with reward amounts
+    await db.query(
+      `UPDATE referrals SET coin_reward = $1, xp_reward = $2 WHERE id = $3`,
+      [coinBonus, xpBonus, qualifyRows[0].id]
     );
   }
 

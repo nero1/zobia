@@ -36,11 +36,15 @@ interface DodoPaymentSucceededEvent {
     currency: string;
     metadata: {
       userId: string;
-      packId: string;
-      coinsGranted: number;
-      itemType: "coin_pack" | "star_pack";
-      packName: string;
+      packId?: string;
+      coinsGranted?: number;
+      itemType: "coin_pack" | "star_pack" | "subscription";
+      packName?: string;
       idempotencyKey: string;
+      planId?: string;
+      planName?: string;
+      interval?: string;
+      type?: string;
     };
     created_at: string;
   };
@@ -101,19 +105,54 @@ async function processPaymentSucceeded(
     const paymentId = existing[0].id;
     const { userId, coinsGranted, itemType } = metadata;
 
-    if (itemType === "star_pack") {
+    // Handle subscription activation (PRD §3)
+    if (itemType === "subscription") {
+      const planName = metadata.planName ?? "pro";
+
+      // Update user subscription record
+      await tx.query(
+        `INSERT INTO subscriptions
+           (user_id, plan, status, starts_at, ends_at, provider, provider_subscription_id, created_at, updated_at)
+         VALUES ($1, $2, 'active', NOW(), NOW() + (INTERVAL '1 month'), 'dodopayments', $3, NOW(), NOW())
+         ON CONFLICT (user_id) DO UPDATE
+           SET plan = $2, status = 'active', updated_at = NOW()`,
+        [userId, planName, providerReference]
+      );
+
+      // Update users.plan
+      await tx.query(
+        `UPDATE users SET plan = $1, updated_at = NOW() WHERE id = $2`,
+        [planName, userId]
+      );
+
+      // Award monthly subscription bonus coins (PRD §3)
+      const MONTHLY_PLAN_BONUS: Record<string, number> = { plus: 50, pro: 200, max: 500 };
+      const bonusCoins = MONTHLY_PLAN_BONUS[planName];
+      if (bonusCoins && bonusCoins > 0) {
+        await creditCoins(
+          userId,
+          bonusCoins,
+          "subscription_bonus",
+          providerReference,
+          `${planName} plan subscription — monthly coin bonus`,
+          { plan: planName },
+          tx
+        );
+      }
+    } else if (itemType === "star_pack") {
       await creditStars(
         userId,
-        coinsGranted,
+        coinsGranted ?? 0,
         "purchase",
         paymentId,
         `Purchased ${metadata.packName}`,
         tx
       );
     } else {
+      // Coin pack
       await creditCoins(
         userId,
-        coinsGranted,
+        coinsGranted ?? 0,
         "purchase",
         paymentId,
         `Purchased ${metadata.packName}`,
@@ -122,7 +161,7 @@ async function processPaymentSucceeded(
       );
 
       // Award referral commissions for coin purchases
-      await awardReferralCommissions(tx, userId, coinsGranted).catch((err) =>
+      await awardReferralCommissions(tx, userId, coinsGranted ?? 0).catch((err) =>
         console.error("[webhook/dodo] Referral commission error:", err)
       );
     }
