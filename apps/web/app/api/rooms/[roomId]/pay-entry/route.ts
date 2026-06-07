@@ -26,7 +26,7 @@ import {
   conflict,
 } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { initiatePayment } from "@/lib/payments/paystack";
+import { initializePayment } from "@/lib/payments/paystack";
 
 // ---------------------------------------------------------------------------
 // DB row types
@@ -121,19 +121,19 @@ export const POST = withAuth(async (
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.social";
     const callbackUrl = `${appUrl}/rooms/${roomId}?payment=complete`;
 
-    const paymentData = await initiatePayment({
-      email: userEmail,
+    const paymentData = await initializePayment(
       amountKobo,
-      reference: paymentRef,
-      callbackUrl,
-      metadata: {
+      userEmail,
+      paymentRef,
+      {
         userId,
         packId: roomId,
         coinsGranted: 0,
-        itemType: "room_entry" as const,
+        itemType: "room_entry",
         packName: `Entry: ${room.name}`,
       },
-    });
+      callbackUrl,
+    );
 
     return NextResponse.json(
       {
