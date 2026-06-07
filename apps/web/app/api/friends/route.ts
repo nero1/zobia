@@ -72,7 +72,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
   // Award XP for sending a friend request (PRD §6: +10 XP social track)
   const xpAmount = XP_VALUES.add_new_friend;
   await db.query(
-    `UPDATE users SET xp_total = xp_total + $1, updated_at = NOW() WHERE id = $2`,
+    `UPDATE users SET xp_total = xp_total + $1, xp_social = xp_social + $1, updated_at = NOW() WHERE id = $2`,
     [xpAmount, userId],
   ).catch(() => {});
   await db.query(

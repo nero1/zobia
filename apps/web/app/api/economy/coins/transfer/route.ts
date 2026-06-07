@@ -66,15 +66,17 @@ async function awardTransferXP(
       ),
     ]);
 
-    // Update XP totals on the user rows
-    await db.query(
-      `UPDATE users SET xp_total = xp_total + 10, updated_at = NOW() WHERE id = $1`,
-      [senderId]
-    );
-    await db.query(
-      `UPDATE users SET xp_total = xp_total + 5, updated_at = NOW() WHERE id = $1`,
-      [recipientId]
-    );
+    // Update XP totals and track columns
+    await Promise.all([
+      db.query(
+        `UPDATE users SET xp_total = xp_total + 10, xp_generosity = xp_generosity + 10, updated_at = NOW() WHERE id = $1`,
+        [senderId]
+      ),
+      db.query(
+        `UPDATE users SET xp_total = xp_total + 5, xp_social = xp_social + 5, updated_at = NOW() WHERE id = $1`,
+        [recipientId]
+      ),
+    ]);
   } catch (err) {
     // XP is best-effort — don't fail the transfer if XP recording fails
     console.error("[coins/transfer] Failed to award XP:", err);
