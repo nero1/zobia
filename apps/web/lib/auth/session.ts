@@ -99,8 +99,10 @@ export async function createSession(
     JSON.stringify(record)
   );
 
-  // Track session in per-user set (no TTL – cleaned up on logout)
+  // Track session in per-user set; refresh TTL so the set expires if the user
+  // stops logging in (matches the longest possible session lifetime)
   await redis.sadd(userSessionsKey(user.id), sid);
+  await redis.expire(userSessionsKey(user.id), REFRESH_TOKEN_TTL_SECONDS);
 
   const [accessToken, refreshToken] = await Promise.all([
     signAccessToken({
