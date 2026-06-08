@@ -8,7 +8,23 @@ New users choose a username, select their city and country, pick an avatar emoji
 
 ### Direct Messages (DMs)
 
-1-to-1 private messaging between any two users. Messages are stored in the `messages` table with `recipient_id` set. Conversations are fetched from `/api/inbox`. The realtime layer (Supabase Realtime / Ably / Pusher depending on `REALTIME_PROVIDER`) pushes new messages to open clients without polling. Each message sent earns XP on the `social` track.
+1-to-1 private messaging between any two users. Messages are stored in the `messages` table with `recipient_id` set. Conversations are fetched from `/api/inbox`.
+
+**Realtime delivery flow:**
+1. The sender's POST to `/api/messages/dm/[conversationId]` saves the message to the database.
+2. The handler calls `publishRealtimeEvent("dm:conversation:uuid", "new_message", { message })`.
+3. `publishRealtimeEvent` makes a stateless HTTP call to the configured provider's REST API (Ably / Pusher / Supabase Realtime).
+4. The provider delivers the event over WebSocket to all subscribed clients.
+5. The recipient's browser (subscribed via `useRealtimeChannel`) receives the event and updates React state immediately — the message appears without any page refresh.
+
+The DM page also runs a 3-second baseline poll as a guaranteed fallback in case the provider is temporarily unreachable.
+
+**Auth for realtime subscriptions:**
+- Ably: the browser calls `GET /api/realtime/ably-token?channel=dm:conversation:uuid` which verifies the JWT, confirms the user is a participant, and returns a scoped Ably TokenRequest (subscribe-only, 1-hour TTL).
+- Pusher: the browser calls `POST /api/realtime/pusher-auth` which verifies the JWT, confirms participation, and returns an HMAC-signed auth string for the private channel.
+- Supabase Realtime: the browser connects directly with the public `anon` key; Broadcast channels are not RLS-restricted (but the channel name includes the conversation UUID, which is not guessable).
+
+Each message sent earns XP on the `social` track.
 
 ### Rooms
 
@@ -793,9 +809,13 @@ This snapshot is what powers the "Season Leaderboard snapshot published (every S
 - `@supabase/auth-helpers-shared`
 - Any `@supabase/auth-helpers-*` package
 
-**Exception:** `lib/db/providers/supabase.ts` and `lib/storage/providers/supabase-storage.ts` are exempted via the `overrides` config — these are the only two files permitted to use the Supabase SDK directly.
+**Exceptions** — files exempted via `overrides` in `.eslintrc.json`:
+- `lib/db/providers/supabase.ts` — database adapter
+- `lib/storage/providers/supabase-storage.ts` — storage adapter
+- `lib/realtime/**` — realtime providers and client hook (`useRealtimeChannel`)
+- `app/api/realtime/**` — realtime auth endpoints (Ably token, Pusher auth)
 
-This enforces the PRD §22.1 requirement: when `DATABASE_PROVIDER != 'supabase'`, no Supabase SDK code is reachable through any import path.
+This enforces the PRD §22.1 requirement: when `DATABASE_PROVIDER != 'supabase'`, no Supabase SDK code is reachable through any import path (except the explicitly exempted realtime layer, which dynamically imports the SDK only when `NEXT_PUBLIC_REALTIME_PROVIDER=supabase-realtime`).
 
 ---
 

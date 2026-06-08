@@ -32,6 +32,19 @@ const envSchema = z.object({
   // ---- Realtime -----------------------------------------------------------
   REALTIME_PROVIDER: z.enum(["supabase-realtime", "ably", "pusher"]),
 
+  // Supabase Realtime (required when REALTIME_PROVIDER=supabase-realtime)
+  SUPABASE_URL: z.string().url().optional(),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+
+  // Ably (required when REALTIME_PROVIDER=ably)
+  ABLY_API_KEY: z.string().optional(),
+
+  // Pusher (all four required when REALTIME_PROVIDER=pusher)
+  PUSHER_APP_ID: z.string().optional(),
+  PUSHER_KEY: z.string().optional(),
+  PUSHER_SECRET: z.string().optional(),
+  PUSHER_CLUSTER: z.string().optional(),
+
   // ---- Redis --------------------------------------------------------------
   REDIS_URL: z.string().min(1, "REDIS_URL is required"),
   REDIS_PROVIDER: z.enum(["ioredis", "upstash"]),
@@ -88,6 +101,17 @@ const envSchema = z.object({
     .string()
     .url()
     .default("http://localhost:3000/api"),
+
+  // Client-side realtime provider selection (must match REALTIME_PROVIDER)
+  NEXT_PUBLIC_REALTIME_PROVIDER: z
+    .enum(["supabase-realtime", "ably", "pusher"])
+    .optional(),
+  // Supabase Realtime — client-side vars
+  NEXT_PUBLIC_SUPABASE_URL: z.string().url().optional(),
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().optional(),
+  // Pusher — client-side public vars
+  NEXT_PUBLIC_PUSHER_KEY: z.string().optional(),
+  NEXT_PUBLIC_PUSHER_CLUSTER: z.string().optional(),
 
   // ---- Runtime ------------------------------------------------------------
   NODE_ENV: z

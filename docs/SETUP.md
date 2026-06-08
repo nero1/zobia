@@ -98,6 +98,13 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `R2_BUCKET_NAME` | If R2 | Name of the R2 bucket | Cloudflare → R2 → Buckets |
 | `R2_PUBLIC_URL` | If R2 | Public URL for the R2 bucket (e.g. `https://pub-xxx.r2.dev`) | Cloudflare → R2 → Bucket settings |
 | `REALTIME_PROVIDER` | Yes | Realtime backend: `supabase-realtime` \| `ably` \| `pusher` | Choose your provider |
+| `SUPABASE_URL` | If supabase-realtime | Supabase project URL (e.g. `https://xxx.supabase.co`) | Supabase → Project Settings → API |
+| `SUPABASE_SERVICE_ROLE_KEY` | If supabase-realtime | Service-role key — server-side only, never expose to clients | Supabase → Project Settings → API |
+| `ABLY_API_KEY` | If ably | Ably API key with Publish capability (Root key or custom key) | Ably Console → API Keys |
+| `PUSHER_APP_ID` | If pusher | Pusher app ID | Pusher Dashboard → App Keys |
+| `PUSHER_KEY` | If pusher | Pusher app key (public identifier) | Pusher Dashboard → App Keys |
+| `PUSHER_SECRET` | If pusher | Pusher app secret (server-side only) | Pusher Dashboard → App Keys |
+| `PUSHER_CLUSTER` | If pusher | Pusher cluster region (e.g. `mt1`, `eu`, `us2`) | Pusher Dashboard → App Keys |
 | `REDIS_URL` | Yes | Redis connection URL (e.g. `redis://localhost:6379` or Upstash URL) | Upstash → Create Database → REST URL |
 | `REDIS_PROVIDER` | Yes | `ioredis` \| `upstash` | Choose your provider |
 | `UPSTASH_REDIS_REST_URL` | If Upstash | Upstash REST URL | Upstash → Database → REST API |
@@ -131,6 +138,11 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `PROFANITY_WORDLIST` | No | Comma-separated list of additional profanity words to block | Custom list |
 | `NEXT_PUBLIC_APP_URL` | Yes | Full public URL of the app (e.g. `https://zobia.social`) | Your domain |
 | `NEXT_PUBLIC_API_URL` | Yes | Full public API URL (e.g. `https://zobia.social/api`) | Your domain |
+| `NEXT_PUBLIC_REALTIME_PROVIDER` | Yes | Client-side realtime provider — must match `REALTIME_PROVIDER` | `supabase-realtime` \| `ably` \| `pusher` |
+| `NEXT_PUBLIC_SUPABASE_URL` | If supabase-realtime | Supabase project URL — same as `SUPABASE_URL` | Supabase → Project Settings → API |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | If supabase-realtime | Supabase anon/public key — safe to expose to browsers | Supabase → Project Settings → API → `anon public` |
+| `NEXT_PUBLIC_PUSHER_KEY` | If pusher | Pusher App Key (public identifier, same as `PUSHER_KEY`) | Pusher Dashboard → App Keys |
+| `NEXT_PUBLIC_PUSHER_CLUSTER` | If pusher | Pusher cluster region (e.g. `mt1`, `eu`) | Pusher Dashboard → App Keys |
 | `NEXT_PUBLIC_PWA_WEB_ENABLED` | No | Set to `"false"` to disable PWA/service-worker generation at build time. Default: `"true"` | `"true"` or `"false"` |
 | `NODE_ENV` | Auto | Runtime environment — set automatically by Next.js (`development` \| `test` \| `production`) | Set by Next.js |
 | `SKIP_ENV_VALIDATION` | Build only | Set to `"1"` to bypass env-var validation at build time (CI type-check only). Never set in production. | `"1"` |
@@ -200,6 +212,163 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 4. Add the provider key to the `DATABASE_PROVIDER` enum/union in `apps/web/lib/env.ts`.
 5. Import and register the new adapter in `apps/web/lib/db/index.ts`.
 6. Add a corresponding ESLint rule if the provider has a client SDK that must not leak into business logic.
+
+---
+
+## Realtime Setup
+
+Zobia uses a **provider-native** realtime architecture. The server makes a fast, stateless HTTP call to the configured provider's REST API after saving each message. The provider (Ably / Pusher / Supabase Realtime) is responsible for maintaining persistent WebSocket connections to browser and mobile clients. No Redis Pub/Sub is involved in realtime delivery.
+
+### Architecture
+
+```
+User sends DM
+    │
+    ▼
+POST /api/messages/dm/[conversationId]   (saves to DB, ~10ms)
+    │
+    ▼
+publishRealtimeEvent("dm:conversation:uuid", "new_message", { message })
+    │
+    ▼
+Provider REST API  (stateless HTTP call, ~30–50ms)
+    │
+    ▼
+Provider cloud infrastructure  (handles all WebSocket connections)
+    │
+    ▼
+Provider client SDK in browser / Expo  (Ably JS / pusher-js / @supabase/supabase-js)
+    │
+    ▼
+React state updated — new message appears instantly
+```
+
+The Vercel function returns as soon as the DB write and provider REST call complete — no persistent connections, no timeouts.
+
+**Scalability at free tier:**
+
+| Provider | Concurrent connections (free) | Messages/month (free) |
+|---|---|---|
+| Supabase Realtime | 200 | Unlimited (Broadcast) |
+| Ably | 100 | 6 million |
+| Pusher | 100 | 200,000/day |
+
+**Fallback:** The DM conversation page also runs a 3-second baseline poll. Even if the provider is down, messages arrive within 3 seconds.
+
+### Required env vars per provider
+
+You need **two sets** of vars: server-side (for publishing) and client-side (`NEXT_PUBLIC_`) for the browser SDK.
+
+Set both `REALTIME_PROVIDER` and `NEXT_PUBLIC_REALTIME_PROVIDER` to the same value.
+
+---
+
+#### Option A: `supabase-realtime` (default — recommended if you're already on Supabase)
+
+**Server-side vars:**
+
+| Variable | Required | Description | Where to get it |
+|---|---|---|---|
+| `REALTIME_PROVIDER` | Yes | Set to `supabase-realtime` | — |
+| `SUPABASE_URL` | Yes | Your Supabase project URL (e.g. `https://abcdef.supabase.co`) | Supabase → Project Settings → API → Project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Service-role secret key — **never expose to clients** | Supabase → Project Settings → API → `service_role` |
+
+> The `service_role` key bypasses Row Level Security (RLS). Keep it server-side only. It is used only to publish Broadcast events — it never reads user data.
+
+**Client-side vars:**
+
+| Variable | Required | Description | Where to get it |
+|---|---|---|---|
+| `NEXT_PUBLIC_REALTIME_PROVIDER` | Yes | Set to `supabase-realtime` | — |
+| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Same as `SUPABASE_URL` | Supabase → Project Settings → API → Project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Anon / public key — safe to expose to browsers | Supabase → Project Settings → API → `anon public` |
+
+The `anon` key is designed to be public. Supabase Row Level Security policies control what authenticated vs anonymous users can access.
+
+**Enabling Realtime in Supabase:**
+1. In the Supabase dashboard, go to **Realtime → Enabled tables** (if using DB changes). For Broadcast (which Zobia uses), no table setup is required.
+2. Ensure **Realtime** is enabled for your project (it is by default on all plans).
+
+---
+
+#### Option B: `ably`
+
+**Server-side vars:**
+
+| Variable | Required | Description | Where to get it |
+|---|---|---|---|
+| `REALTIME_PROVIDER` | Yes | Set to `ably` | — |
+| `ABLY_API_KEY` | Yes | Server-side API key with Publish capability | See below |
+
+**Client-side vars:**
+
+| Variable | Required | Description |
+|---|---|---|
+| `NEXT_PUBLIC_REALTIME_PROVIDER` | Yes | Set to `ably` | — |
+
+> No `NEXT_PUBLIC_ABLY_*` key is needed. The browser obtains a **scoped token** from `/api/realtime/ably-token` — your Ably API key is never exposed to clients. The token is valid for 1 hour and grants subscribe-only access to the specific conversation channel.
+
+**Which Ably key to use:**
+
+Ably offers three key types in their Console:
+- **Root key** — full access (publish + subscribe + stats + channel management). Fine for development.
+- **Subscribe-only key** — can only receive messages. **Do NOT use this** for `ABLY_API_KEY` — the server needs to publish.
+- **Custom key (recommended for production)** — create a key with exactly the capabilities you need.
+
+**Creating a production Ably key:**
+1. Go to [ably.com](https://ably.com) → log in → select your app.
+2. Navigate to **API Keys → Add New Key**.
+3. Name it `Zobia Server`.
+4. Capabilities: enable **Publish** and **Subscribe** on channel namespace `dm:*` (or `*` for all channels).
+5. Click **Create Key** — copy the full key string (format: `appId.keyId:keySecret`).
+6. Paste it as `ABLY_API_KEY`.
+
+---
+
+#### Option C: `pusher`
+
+**Server-side vars:**
+
+| Variable | Required | Description | Where to get it |
+|---|---|---|---|
+| `REALTIME_PROVIDER` | Yes | Set to `pusher` | — |
+| `PUSHER_APP_ID` | Yes | Numeric app ID (e.g. `1234567`) | Pusher Dashboard → App Keys |
+| `PUSHER_KEY` | Yes | App key — public identifier | Pusher Dashboard → App Keys |
+| `PUSHER_SECRET` | Yes | App secret — **never expose to clients** | Pusher Dashboard → App Keys |
+| `PUSHER_CLUSTER` | Yes | Region cluster code (e.g. `mt1`, `eu`, `us2`) | Pusher Dashboard → App Keys |
+
+**Client-side vars:**
+
+| Variable | Required | Description | Where to get it |
+|---|---|---|---|
+| `NEXT_PUBLIC_REALTIME_PROVIDER` | Yes | Set to `pusher` | — |
+| `NEXT_PUBLIC_PUSHER_KEY` | Yes | Same as `PUSHER_KEY` — this is the **public** App Key, safe to expose | Pusher Dashboard → App Keys |
+| `NEXT_PUBLIC_PUSHER_CLUSTER` | Yes | Same as `PUSHER_CLUSTER` | Pusher Dashboard → App Keys |
+
+> `PUSHER_SECRET` is server-side only. The browser subscribes to **private channels** and gets an auth token from `/api/realtime/pusher-auth` — the secret never leaves the server.
+
+**Setting up Pusher:**
+1. Go to [pusher.com](https://pusher.com) → log in → **Channels → Create app**.
+2. Name the app (e.g. `zobia-social`).
+3. Choose a region cluster close to your users (`mt1` = multi-region US, `eu` = EU, `ap2` = Asia Pacific).
+4. Go to **App Keys** and copy all four values.
+5. In **App Settings**, enable **Private channels** (required for auth).
+
+---
+
+### Verifying realtime is working
+
+1. Set all required env vars for your provider.
+2. Start the dev server: `cd apps/web && npm run dev`
+3. Open **two browser tabs**, each logged in as a different user who share a DM conversation.
+4. Send a message in tab 1 → it should appear in tab 2 **within ~1 second** without any page refresh.
+5. Open your browser's Network tab (filter by WebSocket) — you should see a persistent WS connection to the provider's infrastructure.
+6. To confirm the fallback works: disconnect from the internet briefly, reconnect — new messages should arrive within 3 seconds (baseline poll interval).
+
+**Checking provider dashboards:**
+- **Ably:** Ably Console → your app → **Stats** — you should see channel connections and message counts update in real time.
+- **Pusher:** Pusher Dashboard → your app → **Overview** — connection and message counts visible.
+- **Supabase:** Supabase Dashboard → **Realtime** — shows active connections and channel activity.
 
 ---
 

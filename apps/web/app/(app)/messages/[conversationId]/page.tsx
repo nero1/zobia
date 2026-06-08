@@ -11,6 +11,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { getPidginSuggestions, isPidginLocale } from "@/lib/i18n/pidgin";
+import { useRealtimeChannel } from "@/lib/realtime/useRealtimeChannel";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -653,11 +654,31 @@ export default function DMConversationPage() {
     }
   }, [conversationId]);
 
+  // Baseline polling — always runs at 3s to guarantee delivery even when the
+  // realtime provider is down. The hook below delivers messages faster when
+  // the provider is healthy.
   useEffect(() => {
     void fetchMessages();
-    pollRef.current = setInterval(fetchMessages, 5000);
+    pollRef.current = setInterval(fetchMessages, 3_000);
     return () => clearInterval(pollRef.current);
   }, [fetchMessages]);
+
+  // Realtime push — delivers new messages instantly via Ably / Pusher /
+  // Supabase Realtime. Supplements the baseline poll; doesn't replace it.
+  useRealtimeChannel(
+    conversationId ? `dm:conversation:${conversationId}` : null,
+    useCallback((event: string, data: unknown) => {
+      if (event === "new_message") {
+        const { message } = data as { message: DMMessage };
+        if (message) {
+          setMessages((prev) => {
+            const alreadyExists = prev.some((m) => m.id === message.id);
+            return alreadyExists ? prev : [...prev, message];
+          });
+        }
+      }
+    }, [])
+  );
 
   // Close pickers when clicking outside
   useEffect(() => {

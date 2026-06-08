@@ -33,7 +33,12 @@
   },
   "overrides": [
     {
-      "files": ["lib/db/providers/supabase.ts", "lib/storage/providers/supabase-storage.ts"],
+      "files": [
+        "lib/db/providers/supabase.ts",
+        "lib/storage/providers/supabase-storage.ts",
+        "lib/realtime/**",
+        "app/api/realtime/**"
+      ],
       "rules": {
         "no-restricted-imports": "off"
       }
