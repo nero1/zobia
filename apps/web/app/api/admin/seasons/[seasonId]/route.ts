@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * app/api/admin/seasons/[seasonId]/route.ts
  *

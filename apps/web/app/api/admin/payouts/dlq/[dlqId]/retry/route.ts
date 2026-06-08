@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * app/api/admin/payouts/dlq/[dlqId]/retry/route.ts
  *

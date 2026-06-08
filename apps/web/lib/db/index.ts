@@ -43,7 +43,9 @@ function createAdapter(): DatabaseAdapter {
       // TypeScript exhaustiveness check
       const _exhaustive: never = env.DATABASE_PROVIDER;
       throw new Error(
-        `[db] Unknown DATABASE_PROVIDER: ${String(_exhaustive)}`
+        `[db] Unknown DATABASE_PROVIDER: "${String(_exhaustive)}". ` +
+        `Expected one of: "supabase", "railway", "digitalocean". ` +
+        `Check that DATABASE_PROVIDER is set in your environment.`
       );
     }
   }

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * Friend relationship management — list and send requests.
  */

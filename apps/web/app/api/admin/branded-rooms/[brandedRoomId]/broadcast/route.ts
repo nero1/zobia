@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * app/api/admin/branded-rooms/[brandedRoomId]/broadcast/route.ts
  *

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * app/api/quests/daily/[questId]/progress/route.ts
  *

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * Group chat message feed and message posting.
  *

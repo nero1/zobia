@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * app/api/guilds/[guildId]/wars/route.ts
  *
