@@ -533,6 +533,12 @@ k6 run load-tests/room-feed.js --env BASE_URL=https://staging.zobia.app
 
 # Guild War Final Hour
 k6 run load-tests/guild-war-final-hour.js --env BASE_URL=https://staging.zobia.app
+
+# Daily login thundering-herd (midnight burst of 500 VUs)
+k6 run load-tests/cron-daily-reset.js --env BASE_URL=https://staging.zobia.app
+
+# CRON daily processing at scale — verify /api/cron/daily completes under concurrent load
+CRON_SECRET=<your-cron-secret> k6 run load-tests/cron-daily-processing.js --env BASE_URL=https://staging.zobia.app
 ```
 
 ### Security / Penetration Tests

@@ -67,15 +67,26 @@ interface UserRow {
 async function awardGiftXP(
   senderId: string,
   recipientId: string,
-  giftTier: number
+  giftTier: number,
+  roomId?: string | null
 ): Promise<void> {
   try {
-    // Sender gets Generosity XP — scales with tier
-    const senderXP = 10 * giftTier;
-    // Recipient gets Social XP — fixed
+    // PRD §6: Sending a gift message awards fixed 10 XP (not tier-scaled)
+    const senderXP = 10;
+    // Recipient gets Social XP — fixed 5
     const recipientXP = 5;
 
-    await Promise.all([
+    // PRD §6: Check if recipient has ever received a gift before (first_time_gifted = 15 XP)
+    const { rows: prevGiftRows } = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM gifts WHERE recipient_id = $1 LIMIT 1`,
+      [recipientId]
+    );
+    const isFirstGift = parseInt(prevGiftRows[0]?.count ?? "0") <= 1; // <= 1 because the new gift is already inserted
+
+    // PRD §6: being_tipped_in_room = 25 XP for creator when gift is sent in a room
+    const isTippedInRoom = !!roomId;
+
+    const xpEvents = [
       db.query(
         `INSERT INTO xp_events (user_id, action, xp_awarded, track, metadata)
          VALUES ($1, 'gift_sent', $2, 'generosity', $3::jsonb)`,
@@ -86,9 +97,31 @@ async function awardGiftXP(
          VALUES ($1, 'receive_gift_and_react', $2, 'social', $3::jsonb)`,
         [recipientId, recipientXP, JSON.stringify({ senderId, giftTier })]
       ),
-    ]);
+    ];
 
-    await Promise.all([
+    if (isFirstGift) {
+      xpEvents.push(
+        db.query(
+          `INSERT INTO xp_events (user_id, action, xp_awarded, track, metadata)
+           VALUES ($1, 'first_time_gifted', 15, 'social', $2::jsonb)`,
+          [recipientId, JSON.stringify({ senderId, giftTier })]
+        )
+      );
+    }
+
+    if (isTippedInRoom) {
+      xpEvents.push(
+        db.query(
+          `INSERT INTO xp_events (user_id, action, xp_awarded, track, metadata)
+           VALUES ($1, 'being_tipped_in_room', 25, 'creator', $2::jsonb)`,
+          [recipientId, JSON.stringify({ senderId, roomId, giftTier })]
+        )
+      );
+    }
+
+    await Promise.all(xpEvents);
+
+    const userUpdates = [
       db.query(
         `UPDATE users SET xp_total = xp_total + $2, xp_generosity = xp_generosity + $2, updated_at = NOW() WHERE id = $1`,
         [senderId, senderXP]
@@ -97,7 +130,27 @@ async function awardGiftXP(
         `UPDATE users SET xp_total = xp_total + $2, xp_social = xp_social + $2, updated_at = NOW() WHERE id = $1`,
         [recipientId, recipientXP]
       ),
-    ]);
+    ];
+
+    if (isFirstGift) {
+      userUpdates.push(
+        db.query(
+          `UPDATE users SET xp_total = xp_total + 15, xp_social = xp_social + 15, updated_at = NOW() WHERE id = $1`,
+          [recipientId]
+        )
+      );
+    }
+
+    if (isTippedInRoom) {
+      userUpdates.push(
+        db.query(
+          `UPDATE users SET xp_total = xp_total + 25, xp_creator = xp_creator + 25, updated_at = NOW() WHERE id = $1`,
+          [recipientId]
+        )
+      );
+    }
+
+    await Promise.all(userUpdates);
   } catch (err) {
     console.error("[gifts/send] Failed to award XP:", err);
   }
@@ -328,7 +381,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     });
 
     // 4. Award XP (fire-and-forget)
-    void awardGiftXP(senderId, body.recipientId, giftItem.tier);
+    void awardGiftXP(senderId, body.recipientId, giftItem.tier, body.roomId);
 
     // 5. Record guild war contribution (fire-and-forget)
     recordWarContribution(senderId, 'send_gift', db).catch((err) =>

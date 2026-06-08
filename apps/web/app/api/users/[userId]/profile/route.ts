@@ -100,6 +100,7 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       creator_tier: string | null;
       guild_id: string | null;
       created_at: string;
+      custom_crest: string | null;
     }>(
       `SELECT id, username, display_name, bio, avatar_emoji, city,
               xp_total, COALESCE(legacy_score, 0) AS legacy_score,
@@ -115,7 +116,8 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
               COALESCE(is_creator, false) AS is_creator,
               creator_tier,
               guild_id,
-              created_at
+              created_at,
+              custom_crest
        FROM users
        WHERE id = $1
          AND deleted_at IS NULL
@@ -341,6 +343,9 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       isFriend,
       isFollowing,
       isOwnProfile,
+      // Hall of Fame custom crest (PRD §9 — Prestige 10 exclusive)
+      customCrest: user.custom_crest ?? null,
+      isHallOfFame: user.prestige_count >= 10,
       pastSeasons: seasonRows.map((s) => ({
         id: s.id,
         name: s.name,
