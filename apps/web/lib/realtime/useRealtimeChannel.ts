@@ -32,7 +32,6 @@ export function useRealtimeChannel(
       if (!supabaseUrl || !supabaseAnonKey) return;
 
       (async () => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { createClient } = (await import("@supabase/supabase-js")) as any;
         const supabase = createClient(supabaseUrl, supabaseAnonKey);
         const sub = supabase
@@ -40,7 +39,6 @@ export function useRealtimeChannel(
           .on(
             "broadcast",
             { event: "*" },
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (payload: any) => {
               onEvent(payload.event as string, payload.payload);
             }
@@ -53,7 +51,6 @@ export function useRealtimeChannel(
       })();
     } else if (provider === "ably") {
       (async () => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const Ably = (await import("ably")) as any;
         const client = new Ably.Realtime({
           authUrl: `/api/realtime/ably-token?channel=${encodeURIComponent(channel)}`,
@@ -73,13 +70,14 @@ export function useRealtimeChannel(
       const pusherCluster = process.env.NEXT_PUBLIC_PUSHER_CLUSTER ?? "mt1";
       if (!pusherKey) return;
 
-      // Convert channel name: "dm:conversation:<uuid>" →
-      // "private-dm-conversation-<uuid>" (Pusher private channel format)
+      // Convert channel name to Pusher private channel format:
+      //   "dm:conversation:<uuid>" → "private-dm-conversation-<uuid>"
+      //   "room:<uuid>"            → "private-room-<uuid>"
       const pusherChannel = channel
-        .replace(/^dm:conversation:/, "private-dm-conversation-");
+        .replace(/^dm:conversation:/, "private-dm-conversation-")
+        .replace(/^room:/, "private-room-");
 
       (async () => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const Pusher = ((await import("pusher-js")) as any).default;
         const pusher = new Pusher(pusherKey, {
           cluster: pusherCluster,

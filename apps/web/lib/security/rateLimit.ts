@@ -59,6 +59,8 @@ export const RATE_LIMITS = {
   apiRead: { limit: 300, windowMs: 60 * 1000, name: "api:read" } as RateLimitOptions,
   /** General authenticated API mutations. */
   apiWrite: { limit: 60, windowMs: 60 * 1000, name: "api:write" } as RateLimitOptions,
+  /** Sending messages — room or DM. Dedicated limit, not shared with other writes. */
+  messageSend: { limit: 20, windowMs: 60 * 1000, name: "msg:send" } as RateLimitOptions,
   /** XP award (internal service endpoint). */
   xpAward: { limit: 500, windowMs: 60 * 1000, name: "xp:award" } as RateLimitOptions,
   /** Onboarding endpoints (low limit, one-time flow). */

@@ -31,6 +31,7 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { filterPublicContent } from "@/lib/messaging/antispam";
 import { applyAutoModeration } from "@/lib/moderation/contentFilter";
 import { XP_VALUES, ROOM_MESSAGE_XP_DAILY_CAP } from "@/lib/xp/engine";
+import { publishRealtimeEvent } from "@/lib/realtime";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -58,8 +59,36 @@ const sendMessageSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// DB row types
+// DB row types and client-facing shape
 // ---------------------------------------------------------------------------
+
+// Client-facing message shape (camelCase, matches room page Message interface)
+interface Message {
+  id: string;
+  userId: string;
+  username: string;
+  avatarEmoji: string;
+  content: string;
+  createdAt: string;
+  message_type: string;
+  giftEmoji?: string;
+  giftAmount?: number;
+}
+
+function rowToMessage(row: MessageRow): Message {
+  const meta = (row.metadata as Record<string, unknown> | null) ?? {};
+  return {
+    id: row.id,
+    userId: row.sender_id,
+    username: row.sender_username,
+    avatarEmoji: row.sender_avatar_emoji,
+    content: row.content ?? "",
+    createdAt: row.created_at,
+    message_type: row.message_type,
+    giftEmoji: typeof meta.giftEmoji === "string" ? meta.giftEmoji : undefined,
+    giftAmount: typeof meta.giftAmount === "number" ? meta.giftAmount : undefined,
+  };
+}
 
 interface MessageRow {
   id: string;
@@ -262,7 +291,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
         : null;
 
     return NextResponse.json(
-      { items: messages, nextCursor, hasMore: nextCursor !== null },
+      { items: messages.map(rowToMessage), nextCursor, hasMore: nextCursor !== null },
       { status: 200 }
     );
   } catch (err) {
@@ -288,7 +317,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
  */
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
-    await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
+    await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.messageSend);
 
     const { roomId } = await params as { roomId: string };
     const userId = auth.user.sub;
@@ -320,13 +349,20 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       throw forbidden("You have been removed from this room");
     }
 
-    // Check account-level suspension or ban before allowing any post
+    // Check account-level suspension or ban before allowing any post.
+    // Also fetch profile fields here so we can build the realtime payload later
+    // without an extra round-trip.
     const { rows: senderStatusRows } = await db.query<{
+      username: string;
+      avatar_emoji: string;
+      is_creator: boolean;
       is_suspended: boolean;
       is_banned: boolean;
       suspended_until: string | null;
     }>(
-      `SELECT COALESCE(is_suspended, false) AS is_suspended,
+      `SELECT username, avatar_emoji,
+              COALESCE(is_creator, false) AS is_creator,
+              COALESCE(is_suspended, false) AS is_suspended,
               COALESCE(is_banned, false) AS is_banned,
               suspended_until
        FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
@@ -506,6 +542,23 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     // Award XP (non-blocking)
     void maybeAwardMessageXP(roomId, userId, todayMsgCount);
+
+    // Publish to realtime provider (non-blocking — never delays the HTTP response)
+    if (senderStatus && !requiresApproval) {
+      const meta = (safeMetadata as Record<string, unknown> | null) ?? {};
+      const realtimePayload: Message = {
+        id: message.id,
+        userId: message.sender_id,
+        username: senderStatus.username,
+        avatarEmoji: senderStatus.avatar_emoji,
+        content: content ?? "",
+        createdAt: message.created_at,
+        message_type: message.message_type,
+        giftEmoji: typeof meta.giftEmoji === "string" ? meta.giftEmoji : undefined,
+        giftAmount: typeof meta.giftAmount === "number" ? meta.giftAmount : undefined,
+      };
+      void publishRealtimeEvent(`room:${roomId}`, "new_message", realtimePayload);
+    }
 
     return NextResponse.json({ message }, { status: 201 });
   } catch (err) {

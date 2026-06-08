@@ -15,6 +15,10 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { TopGifters } from "@/components/rooms/TopGifters";
 import { LiveRoomPulseBar } from "@/components/ui/LiveRoomPulseBar";
+import { useRealtimeChannel } from "@/lib/realtime/useRealtimeChannel";
+
+// Resolved at build time — undefined means no push provider, fall back to SSE.
+const REALTIME_PROVIDER = process.env.NEXT_PUBLIC_REALTIME_PROVIDER;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -938,19 +942,49 @@ export default function RoomPage() {
     })();
   }, [roomId, router]);
 
-  // Fetch initial messages (before SSE connects)
+  // Fetch initial messages (REST snapshot before live updates begin)
   const fetchMessages = useCallback(async () => {
     const res = await fetch(`/api/rooms/${roomId}/messages`, { credentials: "include" });
     if (!res.ok) return;
-    const data = (await res.json()) as { messages: Message[] };
-    setMessages(data.messages);
-    if (data.messages.length > 0) {
-      lastMessageIdRef.current = data.messages[data.messages.length - 1].id;
+    const data = (await res.json()) as { items: Message[] };
+    const items = data.items ?? [];
+    setMessages(items);
+    if (items.length > 0) {
+      lastMessageIdRef.current = items[items.length - 1].id;
     }
     setLoadingMessages(false);
   }, [roomId]);
 
-  // Connect to SSE stream
+  // Shared incoming-message handler — used by both SSE (fallback) and realtime hook.
+  // Uses only stable refs and setters so this callback never needs to change.
+  const handleIncomingMessage = useCallback((msg: Message) => {
+    setMessages((prev) => {
+      if (prev.some((m) => m.id === msg.id)) return prev;
+      lastMessageIdRef.current = msg.id;
+      return [...prev, msg];
+    });
+    if (
+      !seenMessageIdsRef.current.has(msg.id) &&
+      msg.giftEmoji &&
+      typeof msg.giftAmount === "number"
+    ) {
+      const threshold = minGiftSpectacleCoinRef.current ?? 50;
+      if (msg.giftAmount >= threshold) {
+        setSpectacle({
+          senderUsername: msg.username,
+          senderAvatarEmoji: msg.avatarEmoji,
+          giftName: "Gift",
+          giftEmoji: msg.giftEmoji,
+          coinValue: msg.giftAmount,
+        });
+        if (spectacleTimerRef.current) clearTimeout(spectacleTimerRef.current);
+        spectacleTimerRef.current = setTimeout(() => setSpectacle(null), 3_000);
+      }
+    }
+    seenMessageIdsRef.current.add(msg.id);
+  }, []);
+
+  // SSE fallback — only used when REALTIME_PROVIDER is not configured
   const connectSSE = useCallback(() => {
     if (esRef.current) {
       esRef.current.close();
@@ -961,62 +995,44 @@ export default function RoomPage() {
     const es = new EventSource(url);
     esRef.current = es;
 
-    es.onmessage = (event) => {
+    es.onmessage = (e) => {
       try {
-        const parsed = JSON.parse(event.data as string) as { type: string; payload?: Message };
+        const parsed = JSON.parse(e.data as string) as { type: string; payload?: Message };
         if (parsed.type === "message" && parsed.payload) {
-          const newMsg = parsed.payload;
-          setMessages((prev) => {
-            if (prev.some((m) => m.id === newMsg.id)) return prev;
-            lastMessageIdRef.current = newMsg.id;
-            return [...prev, newMsg];
-          });
-          // Trigger gift spectacle for high-value gifts (PRD §12)
-          if (
-            !seenMessageIdsRef.current.has(newMsg.id) &&
-            newMsg.giftEmoji &&
-            typeof newMsg.giftAmount === "number"
-          ) {
-            const threshold = minGiftSpectacleCoinRef.current ?? 50;
-            if (newMsg.giftAmount >= threshold) {
-              setSpectacle({
-                senderUsername: newMsg.username,
-                senderAvatarEmoji: newMsg.avatarEmoji,
-                giftName: "Gift",
-                giftEmoji: newMsg.giftEmoji,
-                coinValue: newMsg.giftAmount,
-              });
-              if (spectacleTimerRef.current) clearTimeout(spectacleTimerRef.current);
-              spectacleTimerRef.current = setTimeout(() => setSpectacle(null), 3_000);
-            }
-          }
-          seenMessageIdsRef.current.add(newMsg.id);
+          handleIncomingMessage(parsed.payload);
         }
-        // type === "ping": do nothing
       } catch { /* ignore parse errors */ }
     };
 
     es.onerror = () => {
       es.close();
       esRef.current = null;
-      // Reconnect after 3 seconds
-      reconnectRef.current = setTimeout(() => {
-        connectSSE();
-      }, 3000);
+      reconnectRef.current = setTimeout(() => connectSSE(), 3_000);
     };
-  }, [roomId]);
+  }, [roomId, handleIncomingMessage]);
+
+  // Push-based realtime subscription (no-op when channel is null)
+  const onRealtimeEvent = useCallback((event: string, data: unknown) => {
+    if (event === "new_message") handleIncomingMessage(data as Message);
+  }, [handleIncomingMessage]);
+
+  useRealtimeChannel(REALTIME_PROVIDER ? `room:${roomId}` : null, onRealtimeEvent);
 
   useEffect(() => {
     void fetchMessages().then(() => {
-      connectSSE();
+      if (!REALTIME_PROVIDER) {
+        connectSSE();
+      }
     });
     return () => {
-      if (esRef.current) {
-        esRef.current.close();
-        esRef.current = null;
-      }
-      if (reconnectRef.current) {
-        clearTimeout(reconnectRef.current);
+      if (!REALTIME_PROVIDER) {
+        if (esRef.current) {
+          esRef.current.close();
+          esRef.current = null;
+        }
+        if (reconnectRef.current) {
+          clearTimeout(reconnectRef.current);
+        }
       }
       if (spectacleTimerRef.current) {
         clearTimeout(spectacleTimerRef.current);

@@ -20,6 +20,7 @@ import { handleApiError, forbidden, notFound, badRequest, conflict } from "@/lib
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getDMCost, checkDailyLimitReached, incrementDailyCount } from "@/lib/messaging/coinCost";
 import { filterDMContent } from "@/lib/messaging/antispam";
+import { applyAutoModeration } from "@/lib/moderation/contentFilter";
 import { updateConversationScore } from "@/lib/messaging/conversationScore";
 import { debitCoins } from "@/lib/economy/coins";
 import { publishRealtimeEvent } from "@/lib/realtime";
@@ -293,9 +294,17 @@ const sendInConversationSchema = z.object({
   idempotencyKey: z.string().max(128).optional(),
 });
 
-const DM_SEND_RATE_LIMIT = { limit: 30, windowMs: 60_000, name: "dm:send" } as const;
+// Replaced by the shared RATE_LIMITS.messageSend preset (20/min) so rooms and DMs
+// enforce identical limits.
 
-interface SenderRow { id: string; plan: Plan; coin_balance: number; is_admin: boolean; }
+interface SenderRow {
+  id: string;
+  plan: Plan;
+  coin_balance: number;
+  is_admin: boolean;
+  is_verified: boolean;
+  trust_score: number;
+}
 interface SentMessageRow {
   id: string; sender_id: string; recipient_id: string; message_type: string;
   content: string | null; media_url: string | null; coin_cost: number;
@@ -313,7 +322,7 @@ export const POST = withAuth(
     { params, auth }: { params: { conversationId: string }; auth: { user: { sub: string } } }
   ) => {
     try {
-      await enforceRateLimit(auth.user.sub, "user", DM_SEND_RATE_LIMIT);
+      await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.messageSend);
 
       const { conversationId } = params;
       const body = await validateBody(req, sendInConversationSchema);
@@ -341,7 +350,9 @@ export const POST = withAuth(
 
       // 2. Load sender
       const { rows: senderRows } = await db.query<SenderRow>(
-        `SELECT id, plan, coin_balance, is_admin
+        `SELECT id, plan, coin_balance, is_admin,
+                COALESCE(is_verified, false) AS is_verified,
+                COALESCE(trust_score, 50)    AS trust_score
          FROM users
          WHERE id = $1 AND deleted_at IS NULL AND is_suspended = FALSE
          LIMIT 1`,
@@ -392,7 +403,24 @@ export const POST = withAuth(
         );
       }
 
-      // 7. Idempotency check
+      // 7. Bot/duplicate automod (same checks as room messages)
+      if (!sender.is_admin && body.messageType === "text" && filtered.trim()) {
+        const modResult = await applyAutoModeration(
+          { content: filtered, senderId: auth.user.sub, roomId: conversationId },
+          { id: conversationId },
+          { id: auth.user.sub, is_verified: sender.is_verified, trust_score: sender.trust_score },
+          db
+        );
+        if (modResult.blocked) {
+          throw badRequest(
+            modResult.reason === "bot_behavior"
+              ? "Message blocked: unusual sending velocity detected"
+              : "Message blocked: duplicate content detected"
+          );
+        }
+      }
+
+      // 8. Idempotency check
       if (body.idempotencyKey) {
         const { rows: dupRows } = await db.query<{ id: string }>(
           `SELECT id FROM messages WHERE sender_id = $1 AND idempotency_key = $2 LIMIT 1`,
@@ -409,7 +437,7 @@ export const POST = withAuth(
         }
       }
 
-      // 8. Atomic: deduct coins + create message
+      // 9. Atomic: deduct coins + create message
       const message = await db.transaction(async (tx) => {
         if (coinCost > 0 && !sender.is_admin) {
           const { rows: deductRows } = await tx.query<{ coin_balance: number }>(
@@ -447,7 +475,7 @@ export const POST = withAuth(
 
       if (!message) throw new Error("Message creation failed");
 
-      // 9. XP + daily counter (best-effort, outside transaction)
+      // 10. XP + daily counter (best-effort, outside transaction)
       db.query(
         `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
          VALUES ($1, 1, 'social', 'message', $2, 1, 1)`,
@@ -461,7 +489,7 @@ export const POST = withAuth(
       incrementDailyCount(auth.user.sub, "reply").catch(() => {});
       updateConversationScore(auth.user.sub, recipientId, "message_sent").catch(() => {});
 
-      // 10. Realtime broadcast — push the new message to open clients
+      // 11. Realtime broadcast — push the new message to open clients
       publishRealtimeEvent(
         `dm:conversation:${conversationId}`,
         "new_message",

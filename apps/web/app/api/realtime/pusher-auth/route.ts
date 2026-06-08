@@ -20,9 +20,10 @@ import { verifyAccessToken } from "@/lib/auth/jwt";
 import { ACCESS_TOKEN_COOKIE } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 
-// Pusher private channel format: private-dm-conversation-{uuid}
-const CHANNEL_RE =
+const DM_CHANNEL_RE =
   /^private-dm-conversation-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+const ROOM_CHANNEL_RE =
+  /^private-room-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
 
 export async function POST(req: NextRequest) {
   // 1. Authenticate
@@ -63,22 +64,45 @@ export async function POST(req: NextRequest) {
     return new Response("Missing socket_id or channel_name", { status: 400 });
   }
 
-  // 3. Validate channel and extract conversation ID
-  const match = CHANNEL_RE.exec(channel_name);
-  if (!match) {
+  // 3. Validate channel and authorise the caller
+  const dmMatch = DM_CHANNEL_RE.exec(channel_name);
+  const roomMatch = ROOM_CHANNEL_RE.exec(channel_name);
+
+  if (!dmMatch && !roomMatch) {
     return new Response("Unsupported channel format", { status: 400 });
   }
 
-  const conversationId = match[1];
-  const { rows } = await db.query<{ id: string }>(
-    `SELECT id FROM dm_conversations
-     WHERE id = $1
-       AND (user_id_1 = $2 OR user_id_2 = $2)
-     LIMIT 1`,
-    [conversationId, userId]
-  );
-  if (!rows[0]) {
-    return new Response("Forbidden", { status: 403 });
+  if (dmMatch) {
+    const conversationId = dmMatch[1];
+    const { rows } = await db.query<{ id: string }>(
+      `SELECT id FROM dm_conversations
+       WHERE id = $1
+         AND (user_id_1 = $2 OR user_id_2 = $2)
+       LIMIT 1`,
+      [conversationId, userId]
+    );
+    if (!rows[0]) {
+      return new Response("Forbidden", { status: 403 });
+    }
+  } else if (roomMatch) {
+    const roomId = roomMatch[1];
+    const { rows } = await db.query<{ id: string }>(
+      `SELECT r.id FROM rooms r
+       WHERE r.id = $1
+         AND r.is_active = TRUE
+         AND (r.creator_id = $2
+              OR EXISTS (
+                SELECT 1 FROM room_members m
+                WHERE m.room_id = r.id
+                  AND m.user_id = $2
+                  AND m.left_at IS NULL
+              ))
+       LIMIT 1`,
+      [roomId, userId]
+    );
+    if (!rows[0]) {
+      return new Response("Forbidden", { status: 403 });
+    }
   }
 
   // 4. Generate Pusher auth signature
