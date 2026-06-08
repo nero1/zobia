@@ -29,6 +29,7 @@ import { getSession } from "@/lib/auth/session";
 import { ACCESS_TOKEN_COOKIE } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import {
+  ApiError,
   unauthorized,
   forbidden,
   badRequest,
@@ -108,7 +109,7 @@ function extractToken(req: NextRequest): string | null {
  * @returns Next.js compatible route handler
  */
 export function withAuth<TParams = Record<string, string>>(
-  handler: (req: NextRequest, ctx: { params: TParams; auth: any }) => Promise<NextResponse> // eslint-disable-line
+  handler: (req: NextRequest, ctx: { params: TParams; auth: any }) => Promise<NextResponse | ApiError> // eslint-disable-line
 ): (req: NextRequest, ctx: { params: TParams }) => Promise<NextResponse> {
   return async (req, ctx) => {
     try {
@@ -147,10 +148,12 @@ export function withAuth<TParams = Record<string, string>>(
         }
       }
 
-      return await handler(req, {
+      const result = await handler(req, {
         params: ctx.params,
         auth: { user: payload },
       });
+      if (result instanceof ApiError) return handleApiError(result);
+      return result;
     } catch (err) {
       return handleApiError(err);
     }
@@ -172,7 +175,7 @@ export function withAuth<TParams = Record<string, string>>(
  * @returns Next.js compatible route handler
  */
 export function withAdminAuth<TParams = Record<string, string>>(
-  handler: (req: NextRequest, ctx: { params: TParams; auth: any }) => Promise<NextResponse> // eslint-disable-line
+  handler: (req: NextRequest, ctx: { params: TParams; auth: any }) => Promise<NextResponse | ApiError> // eslint-disable-line
 ): (req: NextRequest, ctx: { params: TParams }) => Promise<NextResponse> {
   return async (req, ctx) => {
     try {
@@ -200,10 +203,12 @@ export function withAdminAuth<TParams = Record<string, string>>(
         throw forbidden("Administrator access required");
       }
 
-      return await handler(req, {
+      const result = await handler(req, {
         params: ctx.params,
         auth: { user: payload, isAdmin: true },
       });
+      if (result instanceof ApiError) return handleApiError(result);
+      return result;
     } catch (err) {
       return handleApiError(err);
     }
