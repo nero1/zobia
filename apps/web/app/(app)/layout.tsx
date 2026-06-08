@@ -13,6 +13,8 @@
  * This layout assumes the user is already authenticated.
  */
 
+export const dynamic = 'force-dynamic';
+
 import { cookies } from "next/headers";
 import { Navbar } from "@/components/layout/Navbar";
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -22,6 +24,7 @@ import { AnnouncementBanner, type BannerData } from "@/components/announcements/
 import { AnnouncementModal, type AnnouncementData } from "@/components/announcements/AnnouncementModal";
 import { NudgeBanner } from "@/components/NudgeBanner";
 import { verifyAccessToken } from "@/lib/auth/jwt";
+import { env } from "@/lib/env";
 import {
   getActiveBannerForUser,
   getActiveModalForUser,
@@ -42,6 +45,9 @@ async function resolveAnnouncements(cookieHeader: string | null): Promise<{
   banner: BannerData | null;
   modal: AnnouncementData | null;
 }> {
+  if (!env.DATABASE_PROVIDER) {
+    return { banner: null, modal: null };
+  }
   try {
     const cookieStore = await cookies();
     const accessToken = cookieStore.get("zobia_at")?.value;

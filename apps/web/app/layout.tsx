@@ -105,6 +105,7 @@ interface RootLayoutProps {
 
 /** Fetch active footer scripts from the database. Fails open (returns []). */
 async function getFooterScripts(): Promise<Array<{ id: string; content: string }>> {
+  if (!env.DATABASE_PROVIDER) return [];
   try {
     const { rows } = await db.query<{ id: string; content: string }>(
       `SELECT id, content FROM footer_scripts

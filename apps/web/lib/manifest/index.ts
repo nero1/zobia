@@ -22,6 +22,7 @@
 import { db } from "@/lib/db";
 import type { DatabaseAdapter } from "@/lib/db/interface";
 import { redis } from "@/lib/redis";
+import { env } from "@/lib/env";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -312,6 +313,10 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
  * @returns The current application manifest
  */
 export async function loadManifest(): Promise<ZobiaManifest> {
+  if (!env.DATABASE_PROVIDER) {
+    return { ...DEFAULT_MANIFEST };
+  }
+
   // 1. Try cache
   try {
     const cached = await redis.get(CACHE_KEY);

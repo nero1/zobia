@@ -3,9 +3,8 @@ export const dynamic = 'force-dynamic';
 /**
  * app/api/creator/broadcasts/route.ts
  *
- * POST /api/creator/broadcasts
- *
- * Send a broadcast message to all the creator's followers.
+ * GET  /api/creator/broadcasts  — fetch allowance + history
+ * POST /api/creator/broadcasts  — send a broadcast to all followers
  *
  * Tier-based limits per PRD:
  *  - Verified tier : 3 free broadcasts per month; ₦200/send thereafter
@@ -112,6 +111,110 @@ async function fetchFollowers(
   );
   return rows;
 }
+
+// ---------------------------------------------------------------------------
+// GET /api/creator/broadcasts
+// ---------------------------------------------------------------------------
+
+interface BroadcastRow {
+  id: string;
+  subject: string | null;
+  content: string;
+  created_at: string;
+  recipient_count: number;
+}
+
+/**
+ * Fetch the creator's broadcast allowance and send history.
+ */
+export const GET = withAuth(async (_req: NextRequest, { auth }) => {
+  try {
+    const creatorId = auth.user.sub;
+
+    const { rows: creatorRows } = await db.query<CreatorRow>(
+      `SELECT is_creator, creator_tier, coin_balance
+       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+      [creatorId]
+    );
+    const creator = creatorRows[0];
+
+    if (!creator?.is_creator) {
+      return NextResponse.json(
+        { message: "Creator account required", reason: "not_creator" },
+        { status: 403 }
+      );
+    }
+
+    const tier = creator.creator_tier ?? "rookie";
+    const isAllowed = ALLOWED_TIERS.includes(tier as (typeof ALLOWED_TIERS)[number]);
+
+    if (!isAllowed) {
+      return NextResponse.json(
+        {
+          message: "Rising tier or above required to send broadcasts",
+          reason: "tier_too_low",
+        },
+        { status: 403 }
+      );
+    }
+
+    const isUnlimited = UNLIMITED_BROADCAST_TIERS.includes(
+      tier as (typeof UNLIMITED_BROADCAST_TIERS)[number]
+    );
+
+    const monthlyCount = await countMonthlyBroadcasts(creatorId);
+
+    let freeRemaining = 0;
+    let freeTotal = 0;
+    let canSend = true;
+    let reason: string | undefined;
+
+    if (isUnlimited) {
+      freeRemaining = Infinity;
+      freeTotal = Infinity;
+    } else if (tier === "verified") {
+      freeTotal = VERIFIED_FREE_QUOTA;
+      freeRemaining = Math.max(0, VERIFIED_FREE_QUOTA - monthlyCount);
+    } else if (tier === "rising") {
+      freeTotal = 0;
+      freeRemaining = 0;
+      if (monthlyCount >= RISING_MONTHLY_CAP) {
+        canSend = false;
+        reason = `Monthly cap of ${RISING_MONTHLY_CAP} reached`;
+      }
+    }
+
+    const allowance = {
+      tier,
+      freeRemaining: isUnlimited ? 999 : freeRemaining,
+      freeTotal: isUnlimited ? 999 : freeTotal,
+      additionalCoinCost: BROADCAST_COST_COINS,
+      canSend,
+      reason,
+    };
+
+    const { rows: historyRows } = await db.query<BroadcastRow>(
+      `SELECT id, subject, content, created_at, recipient_count
+       FROM creator_broadcasts
+       WHERE creator_id = $1
+       ORDER BY created_at DESC
+       LIMIT 50`,
+      [creatorId]
+    );
+
+    const broadcasts = historyRows.map((r) => ({
+      id: r.id,
+      subject: r.subject ?? "",
+      body: r.content,
+      sentAt: r.created_at,
+      recipientCount: r.recipient_count,
+    }));
+
+    return NextResponse.json({ allowance, broadcasts });
+  } catch (err) {
+    return handleApiError(err);
+  }
+});
 
 // ---------------------------------------------------------------------------
 // POST /api/creator/broadcasts
