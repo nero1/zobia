@@ -114,13 +114,17 @@ if (!_parsed.success && process.env.SKIP_ENV_VALIDATION !== "1") {
   throw new Error(`Environment validation failed:\n${formatted}`);
 }
 
+if (!_parsed.success && process.env.SKIP_ENV_VALIDATION === "1") {
+  console.warn(
+    "[env] SKIP_ENV_VALIDATION=1: environment validation was skipped. " +
+    "All env accesses return undefined. Do not use this in production."
+  );
+}
+
 export const env: Env = _parsed.success
   ? _parsed.data
   : (new Proxy({} as Env, {
-      get(_target, prop) {
-        throw new Error(
-          `[env] Attempted to access env.${String(prop)} but environment validation failed. ` +
-          `Set all required env vars or use SKIP_ENV_VALIDATION=1 only in test/scaffold contexts.`
-        );
+      get(_target, _prop) {
+        return undefined as any;
       },
     }));
