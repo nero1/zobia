@@ -104,6 +104,11 @@ export const XP_VALUES = {
 
   // Creator payout setup
   bank_account_added: 5,  // default; overridden by manifest bank_account_first_add_xp
+
+  // Knowledge Track (PRD §7 — ClassRoom completions and quiz activity)
+  complete_classroom_quiz: 20,
+  complete_classroom_module: 50,
+  host_classroom_session: 75,
 };
 
 // ─── Room message XP daily cap ───────────────────────────────────────────────
@@ -339,7 +344,10 @@ export type XPAction =
   | 'complete_quest_deck'
   | 'mystery_xp_drop'
   | 'onboarding_complete'
-  | 'new_member_quest';
+  | 'new_member_quest'
+  | 'complete_classroom_quiz'
+  | 'complete_classroom_module'
+  | 'host_classroom_session';
 
 /** Maps an XP action to the XP track it contributes to (in addition to main). */
 export const ACTION_TRACKS: Partial<Record<XPAction, ProgressionTrack>> = {
@@ -362,6 +370,9 @@ export const ACTION_TRACKS: Partial<Record<XPAction, ProgressionTrack>> = {
   top_contributor_war: 'competitor',
   first_paid_subscriber: 'creator',
   creator_milestone: 'creator',
+  complete_classroom_quiz: 'knowledge',
+  complete_classroom_module: 'knowledge',
+  host_classroom_session: 'knowledge',
 };
 
 /**
@@ -401,6 +412,9 @@ export function calculateXPForAction(
     case 'mystery_xp_drop': return options?.amount ?? v.mystery_xp_drop_min;
     case 'onboarding_complete': return v.welcome_xp_drop;
     case 'new_member_quest': return v.new_member_quest_completion;
+    case 'complete_classroom_quiz': return v.complete_classroom_quiz;
+    case 'complete_classroom_module': return v.complete_classroom_module;
+    case 'host_classroom_session': return v.host_classroom_session;
     default: return 0;
   }
 }

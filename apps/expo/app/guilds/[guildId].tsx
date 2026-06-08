@@ -210,6 +210,7 @@ function WarRow({ war }: { war: WarRecord }) {
  */
 export default function GuildDetailScreen() {
   const { guildId } = useLocalSearchParams<{ guildId: string }>();
+  const router = useRouter();
   const queryClient = useQueryClient();
   const { colors: themeColors } = useTheme();
 
@@ -330,6 +331,18 @@ export default function GuildDetailScreen() {
               </View>
             )}
 
+            {/* Guild Chat (members only) */}
+            {guild.isMember && (
+              <Pressable
+                style={[styles.chatButton, { backgroundColor: themeColors.surface, borderColor: themeColors.border }]}
+                onPress={() => router.push(`/guilds/${guildId}/chat`)}
+              >
+                <Text style={styles.chatButtonIcon}>💬</Text>
+                <Text style={[styles.chatButtonLabel, { color: themeColors.text }]}>Guild Chat</Text>
+                <Text style={styles.chatButtonChevron}>›</Text>
+              </Pressable>
+            )}
+
             {/* Join / Leave */}
             {!guild.isLeader && (
               <View style={styles.joinSection}>
@@ -416,6 +429,20 @@ const styles = StyleSheet.create({
   treasuryValue: { fontSize: 15, fontWeight: '800', color: colors.brand.gold },
 
   joinSection: { paddingHorizontal: 16, marginTop: 12, marginBottom: 4 },
+  chatButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginTop: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 10,
+  },
+  chatButtonIcon: { fontSize: 20 },
+  chatButtonLabel: { flex: 1, fontSize: 15, fontWeight: '600' },
+  chatButtonChevron: { fontSize: 20, color: '#999' },
 
   sectionHeading: {
     fontSize: 16,

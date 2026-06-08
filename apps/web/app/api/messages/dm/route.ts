@@ -32,6 +32,7 @@ import {
 import { filterDMContent } from "@/lib/messaging/antispam";
 import { recordWarContribution } from "@/lib/guilds/recordWarContribution";
 import { updateConversationScore } from "@/lib/messaging/conversationScore";
+import { debitCoins, creditCoins } from "@/lib/economy/coins";
 import type { Plan } from "@zobia/types";
 
 // ---------------------------------------------------------------------------
@@ -53,9 +54,12 @@ const sendDMSchema = z.object({
   content: z
     .string()
     .min(1, "Message content cannot be empty")
-    .max(2000, "Message content cannot exceed 2000 characters"),
-  messageType: z.enum(["text", "gif", "moment", "sticker"]).default("text"),
+    .max(2000, "Message content cannot exceed 2000 characters")
+    .optional(),
+  messageType: z.enum(["text", "gif", "moment", "sticker", "gift"]).default("text"),
   mediaUrl: z.string().url("mediaUrl must be a valid URL").optional(),
+  /** UUID of the gift item (required when messageType is "gift"). */
+  giftItemId: z.string().uuid("giftItemId must be a valid UUID").optional(),
   /** Client-generated idempotency key to prevent duplicate sends. */
   idempotencyKey: z.string().max(128).optional(),
 });
@@ -114,6 +118,141 @@ interface ConversationListRow {
 // POST /api/messages/dm
 // ---------------------------------------------------------------------------
 
+// Gift fee constants (mirrors apps/web/app/api/economy/gifts/send/route.ts)
+const CREATOR_GIFT_FEE_PERCENT = 20;
+const USER_GIFT_FEE_PERCENT = 5;
+
+/**
+ * Handle a gift message sent via the DM endpoint.
+ * Deducts coins, applies fee split, creates the gift record and DM message.
+ */
+async function handleDMGift(
+  senderId: string,
+  recipientId: string,
+  giftItemId: string
+): Promise<NextResponse> {
+  // Load gift item
+  const { rows: giftRows } = await db.query<{
+    id: string; name: string; emoji: string; coin_cost: number; tier: number;
+  }>(
+    `SELECT id, name, emoji, coin_cost, tier FROM gift_items WHERE id = $1 AND is_active = TRUE LIMIT 1`,
+    [giftItemId]
+  );
+  if (!giftRows[0]) throw badRequest("Gift item not found or unavailable");
+  const giftItem = giftRows[0];
+
+  // Load recipient
+  const { rows: recipientRows } = await db.query<{
+    id: string; username: string; is_creator: boolean; creator_tier: string | null;
+    is_suspended: boolean; dm_opt_out: boolean;
+  }>(
+    `SELECT id, username,
+            COALESCE(is_creator, false) AS is_creator,
+            creator_tier,
+            COALESCE(is_suspended, false) AS is_suspended,
+            COALESCE(dm_opt_out, false) AS dm_opt_out
+     FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+    [recipientId]
+  );
+  if (!recipientRows[0]) throw badRequest("Recipient not found");
+  const recipient = recipientRows[0];
+
+  if (recipient.is_suspended || recipient.dm_opt_out) {
+    throw badRequest("This account is not accepting messages.", "RECIPIENT_UNAVAILABLE");
+  }
+
+  // Fee split
+  const feePercent = recipient.is_creator
+    ? (recipient.creator_tier === "icon" ? 15 : CREATOR_GIFT_FEE_PERCENT)
+    : USER_GIFT_FEE_PERCENT;
+  const platformFee = Math.floor((giftItem.coin_cost * feePercent) / 100);
+  const recipientCoins = giftItem.coin_cost - platformFee;
+
+  let giftId: string;
+
+  await db.transaction(async (tx) => {
+    await debitCoins(
+      senderId,
+      giftItem.coin_cost,
+      "gift_sent",
+      null,
+      `Sent ${giftItem.emoji} ${giftItem.name} to @${recipient.username}`,
+      { recipientId, giftItemId: giftItem.id },
+      tx
+    );
+
+    await creditCoins(
+      recipientId,
+      recipientCoins,
+      "gift_received",
+      null,
+      `Received ${giftItem.emoji} ${giftItem.name} via DM`,
+      { senderId, giftItemId: giftItem.id },
+      tx
+    );
+
+    if (recipient.is_creator && recipientCoins > 0) {
+      await tx.query(
+        `INSERT INTO creator_earnings (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo)
+         VALUES ($1, 'gift', $2, $3, $4)`,
+        [recipientId, giftItem.coin_cost, platformFee, recipientCoins]
+      ).catch(() => {});
+      await tx.query(
+        `UPDATE users SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1, updated_at = NOW() WHERE id = $2`,
+        [recipientCoins, recipientId]
+      ).catch(() => {});
+    }
+
+    const { rows: giftInsert } = await tx.query<{ id: string }>(
+      `INSERT INTO gifts (sender_id, recipient_id, gift_item_id, coin_value, coin_cost, room_id, status)
+       VALUES ($1, $2, $3, $4, $4, NULL, 'delivered') RETURNING id`,
+      [senderId, recipientId, giftItem.id, giftItem.coin_cost]
+    );
+    giftId = giftInsert[0].id;
+
+    const { rows: convUpsert } = await tx.query<{ id: string }>(
+      `INSERT INTO dm_conversations (user_id_1, user_id_2)
+       VALUES (LEAST($1::text, $2::text), GREATEST($1::text, $2::text))
+       ON CONFLICT (user_id_1, user_id_2) DO UPDATE SET updated_at = NOW()
+       RETURNING id`,
+      [senderId, recipientId]
+    );
+
+    await tx.query(
+      `INSERT INTO messages
+         (sender_id, recipient_id, conversation_id, message_type, content, media_url, coin_cost, reply_count_from_recipient)
+       VALUES ($1, $2, $3, 'gift', $4, NULL, 0, 0)`,
+      [senderId, recipientId, convUpsert[0]?.id ?? null,
+       `${giftItem.emoji} ${giftItem.name} (${giftItem.coin_cost} coins)`]
+    );
+  });
+
+  // XP awards (fire-and-forget)
+  db.query(
+    `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount)
+     VALUES ($1, 10, 'generosity', 'gift_sent', $2, 10),
+            ($3, 5,  'social',     'gift_received', $2, 5)`,
+    [senderId, giftId!, recipientId]
+  ).catch(() => {});
+  db.query(
+    `UPDATE users SET xp_total = xp_total + 10, xp_generosity = COALESCE(xp_generosity, 0) + 10, updated_at = NOW() WHERE id = $1`,
+    [senderId]
+  ).catch(() => {});
+  db.query(
+    `UPDATE users SET xp_total = xp_total + 5, xp_social = COALESCE(xp_social, 0) + 5, updated_at = NOW() WHERE id = $1`,
+    [recipientId]
+  ).catch(() => {});
+
+  recordWarContribution(senderId, "send_gift", db).catch(() => {});
+
+  return NextResponse.json({
+    success: true,
+    giftId: giftId!,
+    gift: { id: giftItem.id, name: giftItem.name, emoji: giftItem.emoji, tier: giftItem.tier, coinCost: giftItem.coin_cost },
+    recipient: { id: recipient.id, username: recipient.username },
+  }, { status: 201 });
+}
+
 /**
  * Send a direct message to another user.
  *
@@ -130,6 +269,18 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     // Prevent messaging yourself
     if (body.recipientId === auth.user.sub) {
       throw badRequest("You cannot send a DM to yourself");
+    }
+
+    // Gift messages require giftItemId and bypass the normal DM coin cost flow
+    if (body.messageType === "gift") {
+      if (!body.giftItemId) {
+        throw badRequest("giftItemId is required when messageType is 'gift'");
+      }
+      return handleDMGift(auth.user.sub, body.recipientId, body.giftItemId);
+    }
+
+    if (!body.content) {
+      throw badRequest("content is required for non-gift messages");
     }
 
     // 1. Fetch sender plan and coin balance
@@ -265,15 +416,16 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     }
 
     // 7. Apply anti-spam filter silently
+    const messageContent = body.content as string; // non-gift path guarantees content
     const filteredContent = filterDMContent(
-      body.content,
+      messageContent,
       replyCountFromRecipient,
       sender.is_admin
     );
 
     // PRD §8: If the anti-spam filter stripped all content, silently return 201
     // without persisting anything — the sender must not know the message was blocked.
-    if (!sender.is_admin && body.content.trim().length > 0 && filteredContent.trim().length === 0) {
+    if (!sender.is_admin && messageContent.trim().length > 0 && filteredContent.trim().length === 0) {
       return NextResponse.json(
         {
           message: {
@@ -281,7 +433,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
             sender_id: auth.user.sub,
             recipient_id: body.recipientId,
             message_type: body.messageType,
-            content: body.content,
+            content: messageContent,
             media_url: body.mediaUrl ?? null,
             coin_cost: 0,
             reply_count_from_recipient: replyCountFromRecipient,

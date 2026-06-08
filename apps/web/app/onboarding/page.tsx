@@ -23,7 +23,7 @@ import Script from "next/script";
 // Types
 // ---------------------------------------------------------------------------
 
-type Step = 1 | 2 | 3 | 4;
+type Step = 1 | 2 | 3 | 4 | 5;
 
 interface VibeAnswers {
   activity: string;
@@ -37,6 +37,25 @@ interface FriendSearchResult {
   username: string;
   displayName: string;
   avatarEmoji: string;
+}
+
+interface GuildSuggestion {
+  id: string;
+  name: string;
+  description: string | null;
+  memberCount: number;
+  emblem: string;
+  tier: string;
+}
+
+interface NewMemberQuest {
+  id: string;
+  title: string;
+  description: string;
+  xp_reward: number;
+  coin_reward: number;
+  icon: string | null;
+  category: string;
 }
 
 interface ManifestPublic {
@@ -117,7 +136,17 @@ export default function OnboardingPage() {
   const [error, setError] = useState<string | null>(null);
   const [welcomeXP, setWelcomeXP] = useState(false);
 
-  // Step 4 — First Contact
+  // Step 4 — Guild Discovery
+  const [suggestedGuilds, setSuggestedGuilds] = useState<GuildSuggestion[]>([]);
+  const [guildsLoading, setGuildsLoading] = useState(false);
+  const [joinedGuildId, setJoinedGuildId] = useState<string | null>(null);
+  const [joiningGuildId, setJoiningGuildId] = useState<string | null>(null);
+
+  // Step 5 — First Quest CTA
+  const [firstQuests, setFirstQuests] = useState<NewMemberQuest[]>([]);
+  const [questsLoading, setQuestsLoading] = useState(false);
+
+  // Step 5 (was 4) — First Contact
   const [friendQuery, setFriendQuery] = useState("");
   const [friendResults, setFriendResults] = useState<FriendSearchResult[]>([]);
   const [friendSearching, setFriendSearching] = useState(false);
@@ -288,12 +317,20 @@ export default function OnboardingPage() {
         return;
       }
 
-      // Step 3 — Welcome XP Drop animation, then advance to Step 4
+      // Step 3 — Welcome XP Drop animation, then advance to Step 4 (Guild Discovery)
       setWelcomeXP(true);
       setTimeout(() => {
         setWelcomeXP(false);
         setStep(4);
-        // Fetch referral link for Step 4
+        // Pre-fetch guild suggestions and referral link
+        setGuildsLoading(true);
+        fetch(`/api/guilds?city=${encodeURIComponent(city)}&limit=6`)
+          .then((r) => r.json())
+          .then((d: { guilds?: GuildSuggestion[] }) => {
+            setSuggestedGuilds(d.guilds ?? []);
+          })
+          .catch(() => {})
+          .finally(() => setGuildsLoading(false));
         fetch("/api/referrals")
           .then((r) => r.json())
           .then((d: { stats?: { referralUrl?: string } }) => {
@@ -371,7 +408,7 @@ export default function OnboardingPage() {
         <div className="mx-auto max-w-lg px-4 py-12">
           {/* Progress bar */}
           <div className="mb-8 flex gap-2">
-            {([1, 2, 3, 4] as Step[]).map((s) => (
+            {([1, 2, 3, 4, 5] as Step[]).map((s) => (
               <div
                 key={s}
                 className={`h-1.5 flex-1 rounded-full transition-colors duration-300 ${
@@ -526,16 +563,57 @@ export default function OnboardingPage() {
           )}
 
           {/* ================================================================
-              STEP 4 — First Contact (friend search + referral link)
+              STEP 5 — First Quest CTA + First Contact
           ================================================================ */}
-          {step === 4 && (
+          {step === 5 && (
             <div className="space-y-6">
               <div>
                 <h1 className="text-2xl font-black text-neutral-900 dark:text-white">
-                  Find your people
+                  Your first quest awaits!
                 </h1>
                 <p className="mt-1 text-sm text-neutral-500">
-                  Search for friends already on Zobia, or share your invite link to bring them over.
+                  Complete quests to earn XP, coins, and unlock rewards.
+                </p>
+              </div>
+
+              {/* First Quest display */}
+              {questsLoading ? (
+                <div className="space-y-3">
+                  {[1, 2].map((i) => (
+                    <div key={i} className="h-20 animate-pulse rounded-xl bg-neutral-100 dark:bg-neutral-800" />
+                  ))}
+                </div>
+              ) : firstQuests.length > 0 ? (
+                <div className="space-y-3">
+                  {firstQuests.map((quest) => (
+                    <div
+                      key={quest.id}
+                      className="flex items-center gap-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800/40 dark:bg-amber-900/20"
+                    >
+                      <span className="text-2xl">{quest.icon ?? "🎯"}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="truncate text-sm font-semibold text-neutral-900 dark:text-white">
+                          {quest.title}
+                        </p>
+                        <p className="truncate text-xs text-neutral-500">{quest.description}</p>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <p className="text-xs font-bold text-amber-600">+{quest.xp_reward} XP</p>
+                        {quest.coin_reward > 0 && (
+                          <p className="text-xs text-neutral-400">{quest.coin_reward} 🪙</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              <div>
+                <h2 className="mb-2 text-base font-bold text-neutral-800 dark:text-neutral-200">
+                  Find your people
+                </h2>
+                <p className="mb-3 text-sm text-neutral-500">
+                  Search for friends already on Zobia, or share your invite link.
                 </p>
               </div>
 
@@ -628,8 +706,94 @@ export default function OnboardingPage() {
                 onClick={() => router.push("/(app)/home")}
                 className="w-full rounded-xl bg-amber-400 py-3.5 text-sm font-bold text-neutral-900 hover:bg-amber-500 transition-colors"
               >
-                {addedFriends.size > 0 ? `Continue (${addedFriends.size} added) →` : "Continue to Zobia →"}
+                {addedFriends.size > 0 ? `Start Zobia (${addedFriends.size} added) →` : "Start Zobia →"}
               </button>
+            </div>
+          )}
+
+          {/* ================================================================
+              STEP 4 — Guild Discovery
+          ================================================================ */}
+          {step === 4 && (
+            <div className="space-y-6">
+              <div>
+                <h1 className="text-2xl font-black text-neutral-900 dark:text-white">
+                  Find your guild
+                </h1>
+                <p className="mt-1 text-sm text-neutral-500">
+                  Guilds are your crew on Zobia. Join one to unlock chat, wars, and bonuses.
+                </p>
+              </div>
+
+              {guildsLoading ? (
+                <div className="grid grid-cols-2 gap-3">
+                  {[1, 2, 3, 4, 5, 6].map((i) => (
+                    <div key={i} className="h-24 animate-pulse rounded-xl bg-neutral-100 dark:bg-neutral-800" />
+                  ))}
+                </div>
+              ) : suggestedGuilds.length > 0 ? (
+                <div className="grid grid-cols-2 gap-3">
+                  {suggestedGuilds.map((guild) => (
+                    <button
+                      key={guild.id}
+                      type="button"
+                      disabled={!!joinedGuildId || joiningGuildId === guild.id}
+                      onClick={async () => {
+                        if (joinedGuildId) return;
+                        setJoiningGuildId(guild.id);
+                        try {
+                          await fetch(`/api/guilds/${guild.id}/join`, { method: "POST" });
+                          setJoinedGuildId(guild.id);
+                        } catch { /* best-effort */ }
+                        finally { setJoiningGuildId(null); }
+                      }}
+                      className={`relative flex flex-col items-center gap-2 rounded-xl border p-4 text-center transition-all ${
+                        joinedGuildId === guild.id
+                          ? "border-amber-400 bg-amber-50 dark:bg-amber-900/20"
+                          : joinedGuildId
+                          ? "border-neutral-100 opacity-50 dark:border-neutral-800"
+                          : "border-neutral-200 bg-white hover:border-amber-300 dark:border-neutral-700 dark:bg-neutral-800"
+                      }`}
+                    >
+                      <span className="text-3xl">{guild.emblem ?? "🏰"}</span>
+                      <span className="text-xs font-semibold text-neutral-900 dark:text-white line-clamp-1">
+                        {guild.name}
+                      </span>
+                      <span className="text-[10px] text-neutral-400">
+                        {guild.memberCount} members
+                      </span>
+                      {joinedGuildId === guild.id && (
+                        <span className="absolute right-2 top-2 text-xs text-amber-500">✓ Joined</span>
+                      )}
+                      {joiningGuildId === guild.id && (
+                        <span className="absolute right-2 top-2 text-xs text-neutral-400">…</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-neutral-400 text-center py-8">
+                  No guilds found in your city yet. You can join one later from the Guilds tab.
+                </p>
+              )}
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuestsLoading(true);
+                    fetch("/api/quests/daily")
+                      .then((r) => r.json())
+                      .then((d: { quests?: NewMemberQuest[] }) => setFirstQuests(d.quests?.slice(0, 2) ?? []))
+                      .catch(() => {})
+                      .finally(() => setQuestsLoading(false));
+                    setStep(5);
+                  }}
+                  className="flex-[2] rounded-xl bg-amber-400 py-3.5 text-sm font-bold text-neutral-900 hover:bg-amber-500 transition-colors"
+                >
+                  {joinedGuildId ? "Nice! Next →" : "Skip for now →"}
+                </button>
+              </div>
             </div>
           )}
 

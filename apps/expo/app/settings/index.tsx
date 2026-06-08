@@ -51,6 +51,7 @@ interface UserSettings {
   theme: 'light' | 'dark' | 'system';
   notifications: Record<string, boolean>;
   privacyDMOptOut: boolean;
+  hdSendEnabled: boolean;
 }
 
 type PlanTier = 'free' | 'plus' | 'pro' | 'max';
@@ -603,6 +604,7 @@ export default function SettingsScreen() {
     language: 'en',
     theme: 'system',
     privacyDMOptOut: false,
+    hdSendEnabled: false,
     ...data,
     ...settings,
     notifications: mergedNotifications,
@@ -816,6 +818,22 @@ export default function SettingsScreen() {
           description="Prevent non-friends from sending you DMs"
           value={merged.privacyDMOptOut}
           onChange={(v) => set('privacyDMOptOut', v)}
+        />
+      </View>
+
+      {/* Network */}
+      <SectionHeader title="NETWORK" />
+      <View style={[styles.card, { backgroundColor: themeColors.surface }]}>
+        <ToggleRow
+          label="HD Send (Wi-Fi only)"
+          description="Send higher-quality images when connected to Wi-Fi"
+          value={merged.hdSendEnabled}
+          onChange={async (v) => {
+            set('hdSendEnabled', v);
+            try {
+              await apiClient.patch('/api/settings', { hd_send_enabled: v });
+            } catch { /* settings mutation handles this */ }
+          }}
         />
       </View>
 

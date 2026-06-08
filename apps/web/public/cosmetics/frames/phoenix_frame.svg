@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <defs>
+    <linearGradient id="gp" x1="0" y1="0" x2="100" y2="100" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#EF4444"/>
+      <stop offset="30%" stop-color="#F97316"/>
+      <stop offset="60%" stop-color="#FBBF24"/>
+      <stop offset="100%" stop-color="#EF4444"/>
+    </linearGradient>
+  </defs>
+  <circle cx="50" cy="50" r="48" stroke="url(#gp)" stroke-width="5" fill="none"/>
+  <circle cx="50" cy="50" r="43" stroke="#F97316" stroke-width="1" fill="none" opacity="0.4"/>
+  <!-- Phoenix flame tips -->
+  <path d="M50 2 C46 8, 38 6, 36 12 C40 10, 44 14, 44 18 C44 14, 48 10, 50 14 C52 10, 56 14, 56 18 C56 14, 60 10, 64 12 C62 6, 54 8, 50 2Z" fill="#EF4444" opacity="0.9"/>
+  <path d="M50 6 C47 10, 42 9, 41 13 C44 11, 47 14, 47 17 C48 14, 50 12, 50 14.5 C50 12, 52 14, 53 17 C53 14, 56 11, 59 13 C58 9, 53 10, 50 6Z" fill="#FBBF24" opacity="0.8"/>
+</svg>

@@ -1,7 +1,7 @@
 # Zobia Social — Product Requirements Document
 ### A Gamified Monetised Social Platform for the Global Mobile Generation
 
-> **Version 1.3 — Product Requirements Document**
+> **Version 1.4 — Product Requirements Document**
 > Covers: Feature Specifications · Technical Architecture · Economy Design · Moderation · Build Sequence
 > Scope: Nigeria-first, Pan-African then Global · Mobile-first PWA + Android APK · Admin-minimal operation
 
@@ -262,7 +262,16 @@ The messaging layer is fast, lightweight, and culturally expressive. It rewards 
 
 **Zobia Moments** — ephemeral messages visible for 24 hours, after which they disappear. Conversational ephemeral content — distinct from Stories (which are profile-level).
 
-**NOT included in this version:** Voice notes, video notes, voice calls, video calls.
+> ### ⚠️ FUTURE VERSION FEATURES — NOT IN CURRENT SCOPE
+>
+> The following messaging features are **explicitly deferred to a future version** and must **not** be built as part of the current development phase:
+>
+> - **Voice Notes** — audio recording, sending, and playback within DMs and Rooms
+> - **Video Notes** — short-form video messages
+> - **Voice Calls** — real-time 1:1 and group audio calls
+> - **Video Calls** — real-time 1:1 and group video calls
+>
+> These features are planned for a post-launch phase once the core gamification and monetisation loops are stable. Do not include them in any implementation sprint, backlog ticket, or gap analysis for the current build.
 
 ### Group Chats
 

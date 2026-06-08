@@ -122,29 +122,86 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 
     const reportId = rows[0]?.id;
 
-    // Run AI classification async — don't block the response
+    // Run AI classification async — routes to correct pipeline stage based on confidence
     if (reportId) {
       classifyReport(contentForClassification, data.reportType as ReportType)
         .then(async (classification) => {
+          // Load thresholds from x_manifest (with fallback defaults)
+          const { rows: thresholdRows } = await db.query<{ key: string; value: string }>(
+            `SELECT key, value FROM x_manifest
+             WHERE key IN ('ai_moderation_auto_action_threshold', 'ai_moderation_community_threshold')`,
+          );
+          const thresholdMap = Object.fromEntries(thresholdRows.map((r) => [r.key, r.value]));
+          const autoActionThreshold = parseFloat(thresholdMap['ai_moderation_auto_action_threshold'] ?? '0.9');
+          const communityThreshold = parseFloat(thresholdMap['ai_moderation_community_threshold'] ?? '0.7');
+
+          const autoActionRecommendations = ['remove_content', 'suspend_user', 'ban_user'];
+          let pipelineStatus: string;
+
+          if (
+            classification.confidence >= autoActionThreshold &&
+            autoActionRecommendations.includes(classification.recommendation)
+          ) {
+            // Auto-action: hide content or flag for immediate review
+            pipelineStatus = 'ai_auto_actioned';
+            // Flag the reported content as hidden (best-effort)
+            if (data.reportedMessageId) {
+              await db.query(
+                `UPDATE messages SET is_deleted = TRUE, updated_at = NOW() WHERE id = $1`,
+                [data.reportedMessageId]
+              ).catch(() => {});
+            }
+            if (data.reportedRoomId && classification.recommendation === 'ban_user') {
+              // Suspend reported user from the room (non-destructive)
+              await db.query(
+                `UPDATE room_members SET is_muted = TRUE, updated_at = NOW()
+                 WHERE room_id = $1 AND user_id = $2`,
+                [data.reportedRoomId, data.reportedUserId]
+              ).catch(() => {});
+            }
+          } else if (classification.confidence >= communityThreshold) {
+            pipelineStatus = 'community_review';
+            // Create a community note for crowd review
+            if (data.reportedUserId) {
+              await db.query(
+                `INSERT INTO community_notes
+                   (reported_user_id, reported_content_id, content_type, summary, created_at)
+                 VALUES ($1, $2, $3, $4, NOW())
+                 ON CONFLICT DO NOTHING`,
+                [
+                  data.reportedUserId,
+                  data.reportedMessageId ?? data.reportedRoomId ?? data.reportedGuildId ?? null,
+                  data.reportedMessageId ? 'message' : data.reportedRoomId ? 'room' : 'user',
+                  `AI flagged: ${classification.category} (confidence ${Math.round(classification.confidence * 100)}%)`,
+                ]
+              ).catch(() => {});
+            }
+          } else {
+            pipelineStatus = 'manual_queue';
+          }
+
           await db.query(
             `UPDATE moderation_reports
-             SET ai_category   = $1,
-                 ai_confidence = $2,
+             SET ai_category       = $1,
+                 ai_confidence     = $2,
                  ai_recommendation = $3,
-                 ai_provider   = $4,
-                 ai_classified_at = NOW()
-             WHERE id = $5`,
+                 ai_provider       = $4,
+                 ai_classified_at  = NOW(),
+                 pipeline_status   = $5,
+                 status            = CASE WHEN $5 = 'ai_auto_actioned' THEN 'resolved' ELSE status END
+             WHERE id = $6`,
             [
               classification.category,
               classification.confidence,
               classification.recommendation,
               classification.provider,
+              pipelineStatus,
               reportId,
             ]
           );
         })
         .catch((err) => {
-          console.error("[reports] AI classification failed:", err);
+          console.error("[reports] AI classification/pipeline failed:", err);
         });
     }
 

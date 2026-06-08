@@ -2274,6 +2274,25 @@ export const GET = async (req: NextRequest) => {
     errors.push(`telegramDelivery: ${String(err)}`);
   }
 
+  // Close expired Drop rooms (PRD §10 — Drop rooms have a fixed 2–6 hour window)
+  try {
+    const expiredDrops = await db.query<{ count: string }>(
+      `WITH closed AS (
+         UPDATE rooms
+         SET is_active = FALSE, status = 'closed', updated_at = NOW()
+         WHERE type = 'drop'
+           AND drop_ends_at IS NOT NULL
+           AND drop_ends_at < NOW()
+           AND is_active = TRUE
+         RETURNING id
+       )
+       SELECT COUNT(*) AS count FROM closed`
+    );
+    results.dropRoomExpiry = { closed: parseInt(expiredDrops.rows[0]?.count ?? "0") };
+  } catch (err) {
+    errors.push(`dropRoomExpiry: ${String(err)}`);
+  }
+
   return NextResponse.json({
     success: errors.length === 0,
     results,

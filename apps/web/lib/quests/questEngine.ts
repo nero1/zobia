@@ -163,7 +163,8 @@ export async function updateQuestProgress(
 
   return db.transaction(async (client) => {
     const questResult = await client.query<QuestTemplate>(
-      `SELECT id, target_count, xp_reward, coin_reward, action_type
+      `SELECT id, target_count, xp_reward, coin_reward, action_type,
+              category, icon, plan_required
        FROM quest_templates
        WHERE id = $1 AND is_active = TRUE
          AND (valid_date IS NULL OR valid_date = $2)

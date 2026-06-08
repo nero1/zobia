@@ -35,6 +35,8 @@ interface AvatarProps {
   style?: StyleProp<ViewStyle>;
   /** Accessibility label (e.g. "{username}'s avatar"). */
   accessibilityLabel?: string;
+  /** Active cosmetic frame ID — rendered as an overlay on the avatar. */
+  activeFrameId?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -63,6 +65,8 @@ const SIZE_MAP: Record<AvatarSize, { container: number; fontSize: number; ring: 
  * // Remote image avatar, no ring
  * <Avatar imageUri={user.photoUrl} size="md" accessibilityLabel="Alice's avatar" />
  */
+const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? '';
+
 export function Avatar({
   emoji = '🙂',
   imageUri,
@@ -70,10 +74,14 @@ export function Avatar({
   size = 'md',
   style,
   accessibilityLabel,
+  activeFrameId,
 }: AvatarProps) {
   const { container: containerSize, fontSize, ring } = SIZE_MAP[size];
   const ringColor = rankTier ? rankColors[rankTier] : 'transparent';
   const ringWidth = rankTier ? ring : 0;
+  const frameUri = activeFrameId
+    ? `${API_BASE}/cosmetics/frames/${activeFrameId}.svg`
+    : null;
 
   return (
     <View
@@ -110,6 +118,15 @@ export function Avatar({
           />
         ) : (
           <Text style={[styles.emoji, { fontSize }]}>{emoji}</Text>
+        )}
+        {/* Cosmetic frame overlay */}
+        {frameUri && (
+          <Image
+            source={{ uri: frameUri }}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            accessibilityLabel=""
+          />
         )}
       </View>
     </View>

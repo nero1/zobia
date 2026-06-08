@@ -45,11 +45,25 @@ const PROFILE_DEFAULTS: Record<
 };
 
 /**
+ * HD send profile overrides (PRD §5: "One-tap HD send for Wi-Fi connections").
+ * When the caller has `hd_send_enabled = true` and signals Wi-Fi via
+ * `X-Connection-Type: wifi`, quality and maxDimension are bumped.
+ */
+const HD_OVERRIDES: Partial<Record<CompressionProfile, { maxDimension: number; quality: number }>> = {
+  message: { maxDimension: 2048, quality: 92 },
+  room:    { maxDimension: 1920, quality: 90 },
+  avatar:  { maxDimension: 512,  quality: 90 },
+};
+
+/**
  * Compress an image buffer for the given profile.
  *
  * If the `sharp` npm package is installed, it uses Sharp for high-quality
  * compression. Otherwise falls back to returning the original buffer with
  * a warning log (graceful degradation — no crash on missing dependency).
+ *
+ * Pass `hdSend: true` together with `connectionType: 'wifi'` to opt into
+ * higher-quality output (PRD §5 HD send toggle).
  *
  * @param inputBuffer - Raw image bytes
  * @param options     - Compression profile and optional overrides
@@ -57,8 +71,13 @@ const PROFILE_DEFAULTS: Record<
  */
 export async function compressImage(
   inputBuffer: Buffer,
-  options: CompressionOptions
+  options: CompressionOptions & { hdSend?: boolean; connectionType?: string }
 ): Promise<CompressionResult> {
+  const isHD = options.hdSend === true && options.connectionType === 'wifi';
+  if (isHD && HD_OVERRIDES[options.profile]) {
+    const hd = HD_OVERRIDES[options.profile]!;
+    options = { ...options, maxDimension: hd.maxDimension, quality: hd.quality };
+  }
   const defaults = PROFILE_DEFAULTS[options.profile];
   const maxDim = options.maxDimension ?? defaults.maxDimension;
   const quality = options.quality ?? defaults.quality;
