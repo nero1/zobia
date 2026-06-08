@@ -40,6 +40,10 @@ export interface LeaderboardEntry {
   rank_name: string;
   xp_value: number;
   city: string | null;
+  /** True for Hall of Fame users (Prestige 10) — always pinned to global top 100. */
+  is_hall_of_fame?: boolean;
+  /** Custom crest URL or emoji set by Hall of Fame users (PRD §9). */
+  custom_crest?: string | null;
 }
 
 export interface LeaderboardPage {
@@ -224,6 +228,69 @@ export async function getLeaderboard(
     xp_value: Number(r.xp_value),
     city: r.city,
   }));
+
+  // PRD §9: Hall of Fame users (Prestige 10) have permanent top-100 visibility on
+  // the global main leaderboard. On page 1 of the global/main leaderboard, fetch
+  // Hall of Fame users not already in the result set and pin them to the list.
+  if (scope === "global" && track === "main" && page === 1) {
+    try {
+      interface HofRow {
+        user_id: string;
+        username: string;
+        display_name: string;
+        avatar_emoji: string;
+        rank_name: string;
+        xp_value: string;
+        city: string | null;
+        custom_crest: string | null;
+      }
+      const presentIds = new Set(entries.map((e) => e.user_id));
+      const { rows: hofRows } = await db.query<HofRow>(
+        `SELECT
+           hof.user_id,
+           u.username,
+           u.display_name,
+           u.avatar_emoji,
+           u.rank_name,
+           COALESCE(ls.xp_value, u.legacy_score, 0)::text AS xp_value,
+           u.city,
+           u.custom_crest
+         FROM hall_of_fame hof
+         JOIN users u ON u.id = hof.user_id AND u.deleted_at IS NULL
+         LEFT JOIN leaderboard_snapshots ls ON ls.user_id = hof.user_id
+           AND ls.track = 'main' AND ls.scope = 'global' AND ls.city IS NULL
+           AND ls.season_id IS NULL
+         ORDER BY COALESCE(ls.xp_value, u.legacy_score, 0) DESC`
+      );
+
+      for (const hof of hofRows) {
+        if (presentIds.has(hof.user_id)) {
+          // Already in the list — mark as Hall of Fame
+          const existing = entries.find((e) => e.user_id === hof.user_id);
+          if (existing) {
+            existing.is_hall_of_fame = true;
+            existing.custom_crest = hof.custom_crest ?? null;
+          }
+        } else if (entries.length < 100) {
+          // Pin this Hall of Fame user — they always appear in the top 100
+          entries.push({
+            rank: entries.length + 1,
+            user_id: hof.user_id,
+            username: hof.username,
+            display_name: hof.display_name,
+            avatar_emoji: hof.avatar_emoji,
+            rank_name: hof.rank_name,
+            xp_value: Number(hof.xp_value),
+            city: hof.city,
+            is_hall_of_fame: true,
+            custom_crest: hof.custom_crest ?? null,
+          });
+        }
+      }
+    } catch {
+      // Hall of Fame injection is best-effort — never breaks the leaderboard
+    }
+  }
 
   return {
     entries,

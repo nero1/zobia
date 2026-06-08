@@ -312,8 +312,8 @@ export const DELETE = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const { roomId } = await params as { roomId: string };
 
-    const { rows: ownerRows } = await db.query<{ creator_id: string }>(
-      `SELECT creator_id FROM rooms WHERE id = $1 AND is_active = TRUE`,
+    const { rows: ownerRows } = await db.query<{ creator_id: string; created_at: string }>(
+      `SELECT creator_id, created_at FROM rooms WHERE id = $1 AND is_active = TRUE`,
       [roomId]
     );
     if (!ownerRows[0]) throw notFound("Room not found");
@@ -325,6 +325,21 @@ export const DELETE = withAuth(async (req: NextRequest, { params, auth }) => {
       `UPDATE rooms SET is_active = FALSE, updated_at = NOW() WHERE id = $1`,
       [roomId]
     );
+
+    // PRD §6: Award 50 XP (creator track) if creator hosted for 30+ minutes
+    const sessionMinutes = (Date.now() - new Date(ownerRows[0].created_at).getTime()) / 60000;
+    if (sessionMinutes >= 30) {
+      db.query(
+        `INSERT INTO xp_events (user_id, action, xp_awarded, track, metadata)
+         VALUES ($1, 'host_room_session_30_min', 50, 'creator', $2::jsonb)`,
+        [auth.user.sub, JSON.stringify({ roomId, sessionMinutes: Math.floor(sessionMinutes) })]
+      ).then(() =>
+        db.query(
+          `UPDATE users SET xp_total = xp_total + 50, xp_creator = xp_creator + 50, updated_at = NOW() WHERE id = $1`,
+          [auth.user.sub]
+        )
+      ).catch((err) => console.error("[rooms/delete] host_room_session_30_min XP failed:", err));
+    }
 
     return new NextResponse(null, { status: 204 });
   } catch (err) {

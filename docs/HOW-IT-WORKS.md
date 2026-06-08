@@ -41,7 +41,17 @@ XP is earned on seven tracks: `main` (overall), `social`, `creator`, `competitor
 
 ### Gifting
 
-Users can send gift items (flower, trophy, crown, etc.) to any other user. Gift items have coin prices and tiers. Sending a gift earns `generosity` track XP. The receiver sees an in-app notification. Creators earn coin revenue when they receive gifts in their rooms.
+Users can send gift items (flower, trophy, crown, etc.) to any other user. Gift items have coin prices and tiers. The XP awards for gifting are (PRD §6):
+
+| Event | Who | XP | Track |
+|---|---|---|---|
+| Sending any gift | Sender | 10 (fixed) | Generosity |
+| Receiving any gift | Recipient | 5 | Social |
+| First-ever gift received | Recipient | +15 bonus | Social |
+| Gift sent in a Room (tip) | Room creator/recipient | 25 | Creator |
+| Hosting a Room for 30+ minutes | Creator | 50 (on room close) | Creator |
+
+Creators earn coin revenue when they receive gifts in their rooms (80% net; 85% for Zobia Icon creators). The platform retains the remainder. All coin flows are recorded atomically in `coin_ledger`.
 
 ### Seasons
 
@@ -56,7 +66,17 @@ Season Pass: the free tier earns basic coin rewards for completing quests. The p
 
 ### Prestige
 
-When a user reaches the maximum rank (Zobia Icon), they can Prestige: their rank resets to Beginner while their prestige count increments. Prestiged users receive an exclusive cosmetic frame visible to all, a permanent coin multiplier, and higher max daily quest rewards.
+When a user reaches the maximum rank (Zobia Icon, sublevel III), they can Prestige via `POST /api/prestige`. Their main XP resets to 0 while their prestige count increments. Prestiged users receive:
+
+- **Prestige 1**: 500 bonus coins + Phoenix frame badge
+- **Prestige 2+**: 1 Zobia Star per prestige cycle
+- **Prestige 3+**: 3× XP boost for the first 7 days of each new cycle; Elder Candidate badge at P3
+- **Prestige 5**: Veteran Prestige badge
+- **Prestige 10 — Hall of Fame**: Hall of Fame badge, permanent top-100 visibility on the global main leaderboard (users are always pinned into the top 100 even after XP reset), and the exclusive **custom crest** feature
+
+**Custom Crest (Prestige 10 only)**: Hall of Fame users can set a custom crest (emoji or image URL, max 500 chars) via `PUT /api/users/me/crest`. The crest appears on their leaderboard entry, profile page, and DM header. Non–Hall of Fame users calling this endpoint receive a 403.
+
+**Legacy Score**: Accumulated across all Prestige cycles; never resets; displayed with a ⚜️ icon on profile and leaderboard. The Hall of Fame table (`hall_of_fame`) records the user's legacy score at induction time.
 
 ### Creator Economy
 
