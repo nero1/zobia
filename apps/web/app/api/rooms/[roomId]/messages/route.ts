@@ -317,7 +317,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
  */
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
-    await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
+    await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.messageSend);
 
     const { roomId } = await params as { roomId: string };
     const userId = auth.user.sub;
