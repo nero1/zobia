@@ -5,6 +5,7 @@
  *
  * Creator payout management page for the admin panel.
  * Lists payouts by status and allows approve / reject actions.
+ * Includes a Dead-Letter Queue tab for permanently-failed payouts (PRD §18).
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -28,7 +29,20 @@ interface Payout {
   createdAt: string;
 }
 
-type TabKey = "awaiting_approval" | "approved" | "rejected";
+interface DlqItem {
+  id: string;
+  payoutId: string;
+  creator: { id: string; username: string; email: string | null };
+  failureReason: string | null;
+  retryCount: number;
+  lastAttemptedAt: string | null;
+  resolvedAt: string | null;
+  resolutionNote: string | null;
+  createdAt: string;
+  payout: { grossKobo: number; netKobo: number; method: string; region: string; status: string };
+}
+
+type TabKey = "awaiting_approval" | "approved" | "rejected" | "dlq";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -166,12 +180,86 @@ function PayoutRow({ payout, showActions, onApprove, onReject, busy }: PayoutRow
 }
 
 // ---------------------------------------------------------------------------
+// DLQ row component
+// ---------------------------------------------------------------------------
+
+interface DlqRowProps {
+  item: DlqItem;
+  onRetry: (id: string) => Promise<void>;
+  busy: string | null;
+}
+
+function DlqRow({ item, onRetry, busy }: DlqRowProps) {
+  const isBusy = busy === item.id;
+  const isResolved = !!item.resolvedAt;
+
+  return (
+    <tr className="border-b border-neutral-100 transition-colors hover:bg-neutral-50 last:border-0 dark:border-neutral-800 dark:hover:bg-neutral-800/50">
+      <td className="px-4 py-3">
+        <div className="font-medium text-neutral-900 dark:text-neutral-100">
+          @{item.creator.username}
+        </div>
+        {item.creator.email && (
+          <div className="truncate text-xs text-neutral-400 max-w-[140px]">
+            {item.creator.email}
+          </div>
+        )}
+      </td>
+      <td className="px-4 py-3 tabular-nums text-sm font-semibold text-neutral-800 dark:text-neutral-100">
+        {koboToNgn(item.payout.grossKobo)}
+      </td>
+      <td className="px-4 py-3 text-xs text-neutral-500 max-w-[180px]">
+        <span className="block truncate" title={item.failureReason ?? "Unknown"}>
+          {item.failureReason ?? <span className="text-neutral-300 dark:text-neutral-600">—</span>}
+        </span>
+      </td>
+      <td className="px-4 py-3 text-center tabular-nums text-sm text-neutral-600 dark:text-neutral-300">
+        {item.retryCount}
+      </td>
+      <td className="px-4 py-3">
+        {isResolved ? (
+          <span className="rounded-full bg-teal-100 px-2.5 py-0.5 text-xs font-semibold text-teal-700 dark:bg-teal-900 dark:text-teal-300">
+            Resolved
+          </span>
+        ) : (
+          <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-900 dark:text-red-300">
+            Unresolved
+          </span>
+        )}
+      </td>
+      <td className="px-4 py-3 text-xs text-neutral-500">
+        <span title={item.createdAt}>{timeAgo(item.createdAt)}</span>
+        <div className="text-neutral-400">{formatDate(item.createdAt)}</div>
+      </td>
+      <td className="px-4 py-3">
+        {isResolved ? (
+          <span className="text-xs text-neutral-400 italic">{item.resolutionNote ?? "—"}</span>
+        ) : (
+          <button
+            disabled={isBusy}
+            onClick={() => onRetry(item.id)}
+            className="rounded-lg bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700 transition-colors hover:bg-amber-200 disabled:opacity-50 dark:bg-amber-900 dark:text-amber-300"
+          >
+            {isBusy ? (
+              <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+            ) : (
+              "Re-queue"
+            )}
+          </button>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
 export default function AdminPayoutsPage() {
   const [tab, setTab] = useState<TabKey>("awaiting_approval");
   const [payouts, setPayouts] = useState<Payout[]>([]);
+  const [dlqItems, setDlqItems] = useState<DlqItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -187,16 +275,22 @@ export default function AdminPayoutsPage() {
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({ status, limit: "50", offset: "0" });
-      const res = await fetch(`/api/admin/payouts?${params}`, { credentials: "include" });
-      if (res.status === 401 || res.status === 403) {
-        window.location.href = "/admin/login";
-        return;
+      if (status === "dlq") {
+        const res = await fetch("/api/admin/payouts/dlq?limit=50&offset=0", { credentials: "include" });
+        if (res.status === 401 || res.status === 403) { window.location.href = "/admin/login"; return; }
+        if (!res.ok) throw new Error("Failed to load dead-letter queue");
+        const data = (await res.json()) as { items: DlqItem[]; total: number };
+        setDlqItems(data.items);
+        setTotal(data.total);
+      } else {
+        const params = new URLSearchParams({ status, limit: "50", offset: "0" });
+        const res = await fetch(`/api/admin/payouts?${params}`, { credentials: "include" });
+        if (res.status === 401 || res.status === 403) { window.location.href = "/admin/login"; return; }
+        if (!res.ok) throw new Error("Failed to load payouts");
+        const data = (await res.json()) as { payouts: Payout[]; total: number };
+        setPayouts(data.payouts);
+        setTotal(data.total);
       }
-      if (!res.ok) throw new Error("Failed to load payouts");
-      const data = (await res.json()) as { payouts: Payout[]; total: number };
-      setPayouts(data.payouts);
-      setTotal(data.total);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
@@ -228,10 +322,31 @@ export default function AdminPayoutsPage() {
     }
   }
 
+  async function handleDlqRetry(dlqId: string) {
+    setBusy(dlqId);
+    try {
+      const res = await fetch(`/api/admin/payouts/dlq/${dlqId}/retry`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error ?? "Failed to re-queue payout");
+      }
+      showToast("Payout re-queued for processing");
+      await fetchPayouts("dlq");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Error", "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const tabs: { key: TabKey; label: string }[] = [
     { key: "awaiting_approval", label: "Awaiting Approval" },
     { key: "approved", label: "Approved" },
     { key: "rejected", label: "Rejected" },
+    { key: "dlq", label: "Dead-Letter Queue" },
   ];
 
   return (
@@ -275,53 +390,106 @@ export default function AdminPayoutsPage() {
         </div>
       )}
 
-      {/* Table */}
-      <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="border-b border-neutral-100 dark:border-neutral-800">
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-neutral-500">Creator</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-neutral-500">Gross</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-neutral-500">Net</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-neutral-500">Bank Account</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-neutral-500">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-neutral-500">Date</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-neutral-500">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
-              {loading ? (
-                Array.from({ length: 6 }).map((_, i) => <RowSkeleton key={i} />)
-              ) : payouts.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="py-14 text-center text-sm text-neutral-500">
-                    No {tab.replace(/_/g, " ")} payouts.
-                  </td>
-                </tr>
-              ) : (
-                payouts.map((p) => (
-                  <PayoutRow
-                    key={p.id}
-                    payout={p}
-                    showActions={tab === "awaiting_approval"}
-                    onApprove={(id) => handlePayout(id, "approve")}
-                    onReject={(id) => handlePayout(id, "reject")}
-                    busy={busy}
-                  />
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Footer: record count */}
-        {!loading && total > 0 && (
-          <div className="border-t border-neutral-100 px-4 py-3 text-xs text-neutral-400 dark:border-neutral-800">
-            {payouts.length} of {total} payouts
+      {/* Table — DLQ tab */}
+      {tab === "dlq" && (
+        <>
+          <p className="mb-4 text-sm text-neutral-500 dark:text-neutral-400">
+            Payouts that failed all automatic retry attempts. Creator earnings are already restored.
+            Re-queuing re-debits the creator&apos;s balance and submits the payout for the next CRON run.
+          </p>
+          <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b border-neutral-100 dark:border-neutral-800">
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-neutral-500">Creator</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-neutral-500">Amount</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-neutral-500">Failure Reason</th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-neutral-500">Retries</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-neutral-500">State</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-neutral-500">Date</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-neutral-500">Action / Note</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
+                  {loading ? (
+                    Array.from({ length: 4 }).map((_, i) => <RowSkeleton key={i} />)
+                  ) : dlqItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-14 text-center text-sm text-neutral-500">
+                        No items in the dead-letter queue.
+                      </td>
+                    </tr>
+                  ) : (
+                    dlqItems.map((item) => (
+                      <DlqRow
+                        key={item.id}
+                        item={item}
+                        onRetry={handleDlqRetry}
+                        busy={busy}
+                      />
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {!loading && total > 0 && (
+              <div className="border-t border-neutral-100 px-4 py-3 text-xs text-neutral-400 dark:border-neutral-800">
+                {dlqItems.length} of {total} DLQ items
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </>
+      )}
+
+      {/* Table — normal payout tabs */}
+      {tab !== "dlq" && (
+        <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b border-neutral-100 dark:border-neutral-800">
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-neutral-500">Creator</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-neutral-500">Gross</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-neutral-500">Net</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-neutral-500">Bank Account</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-neutral-500">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-neutral-500">Date</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-neutral-500">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
+                {loading ? (
+                  Array.from({ length: 6 }).map((_, i) => <RowSkeleton key={i} />)
+                ) : payouts.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-14 text-center text-sm text-neutral-500">
+                      No {tab.replace(/_/g, " ")} payouts.
+                    </td>
+                  </tr>
+                ) : (
+                  payouts.map((p) => (
+                    <PayoutRow
+                      key={p.id}
+                      payout={p}
+                      showActions={tab === "awaiting_approval"}
+                      onApprove={(id) => handlePayout(id, "approve")}
+                      onReject={(id) => handlePayout(id, "reject")}
+                      busy={busy}
+                    />
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {!loading && total > 0 && (
+            <div className="border-t border-neutral-100 px-4 py-3 text-xs text-neutral-400 dark:border-neutral-800">
+              {payouts.length} of {total} payouts
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

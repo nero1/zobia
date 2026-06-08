@@ -1,18 +1,7 @@
 "use client";
 
-/**
- * app/(app)/creator/broadcasts/page.tsx
- *
- * Creator Broadcasts page.
- * - Only accessible to Rising tier+ creators
- * - Compose modal (subject + body, max 1000 chars)
- * - POST /api/creator/broadcasts to send
- * - Broadcast history with recipient count, date, body preview
- * - Monthly allowance display
- * - Additional broadcast coin cost
- */
-
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -64,6 +53,7 @@ interface ComposeModalProps {
 }
 
 function ComposeModal({ allowance, onSend, onClose, sending }: ComposeModalProps) {
+  const { t } = useTranslation();
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
@@ -71,9 +61,8 @@ function ComposeModal({ allowance, onSend, onClose, sending }: ComposeModalProps
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLocalError(null);
-    if (!subject.trim()) { setLocalError("Subject is required"); return; }
-    if (!body.trim()) { setLocalError("Message body is required"); return; }
-    if (body.length > 1000) { setLocalError("Message must be 1000 characters or fewer"); return; }
+    if (!body.trim()) { setLocalError(t("creator.broadcasts.errorBodyRequired")); return; }
+    if (body.length > 1000) { setLocalError(t("creator.broadcasts.errorBodyTooLong")); return; }
     await onSend(subject.trim(), body.trim());
   }
 
@@ -96,41 +85,44 @@ function ComposeModal({ allowance, onSend, onClose, sending }: ComposeModalProps
 
         <div className="p-6 pt-5">
           <h2 id="compose-title" className="mb-4 text-lg font-bold text-neutral-900 dark:text-neutral-50">
-            Send Broadcast
+            {t("creator.broadcasts.composeTitle")}
           </h2>
 
           {/* Allowance info */}
           <div className="mb-4 rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-xs text-neutral-600 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400">
             {allowance.freeRemaining > 0 ? (
               <span>
-                <span className="font-semibold">{allowance.freeRemaining}</span> free broadcast{allowance.freeRemaining !== 1 ? "s" : ""} remaining this month
-                {allowance.tier && ` (${allowance.tier} tier)`}
+                {allowance.freeRemaining === 1
+                  ? t("creator.broadcasts.freeBannerSingle", { count: allowance.freeRemaining, tier: allowance.tier })
+                  : t("creator.broadcasts.freeBannerPlural", { count: allowance.freeRemaining, tier: allowance.tier })}
               </span>
             ) : (
               <span>
-                No free broadcasts left this month. Additional broadcasts cost{" "}
-                <span className="font-semibold">{allowance.additionalCoinCost.toLocaleString()} 🪙</span> each.
+                {t("creator.broadcasts.noFreeLeft", { count: allowance.additionalCoinCost.toLocaleString() })}
               </span>
             )}
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="mb-1 block text-xs font-semibold text-neutral-700 dark:text-neutral-300">Subject</label>
+              <label className="mb-1 block text-xs font-semibold text-neutral-700 dark:text-neutral-300">
+                {t("creator.broadcasts.subjectLabel")}{" "}
+                <span className="font-normal text-neutral-400">{t("creator.broadcasts.subjectOptional")}</span>
+              </label>
               <input
                 type="text"
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
-                placeholder="Broadcast subject…"
+                placeholder={t("creator.broadcasts.subjectPlaceholder")}
                 maxLength={200}
                 className="w-full rounded-xl border border-neutral-300 bg-white px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
               />
             </div>
             <div>
               <label className="mb-1 flex items-center justify-between text-xs font-semibold text-neutral-700 dark:text-neutral-300">
-                <span>Message</span>
+                <span>{t("creator.broadcasts.bodyLabel")}</span>
                 <span className={`tabular-nums ${body.length > 950 ? "text-red-500" : "text-neutral-400"}`}>
-                  {body.length} / 1000
+                  {t("creator.broadcasts.charCount", { current: body.length })}
                 </span>
               </label>
               <textarea
@@ -138,7 +130,7 @@ function ComposeModal({ allowance, onSend, onClose, sending }: ComposeModalProps
                 onChange={(e) => setBody(e.target.value)}
                 rows={6}
                 maxLength={1000}
-                placeholder="Write your broadcast message…"
+                placeholder={t("creator.broadcasts.bodyPlaceholder")}
                 className="w-full resize-none rounded-xl border border-neutral-300 bg-white px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
               />
             </div>
@@ -154,17 +146,17 @@ function ComposeModal({ allowance, onSend, onClose, sending }: ComposeModalProps
                 className="flex-1 rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
               >
                 {sending
-                  ? "Sending…"
+                  ? t("creator.broadcasts.sending")
                   : allowance.freeRemaining > 0
-                  ? "Send Broadcast"
-                  : `Send (${allowance.additionalCoinCost.toLocaleString()} 🪙)`}
+                  ? t("creator.broadcasts.sendFree")
+                  : t("creator.broadcasts.sendPaid", { count: allowance.additionalCoinCost.toLocaleString() })}
               </button>
               <button
                 type="button"
                 onClick={onClose}
                 className="rounded-xl border border-neutral-300 px-4 py-2.5 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
               >
-                Cancel
+                {t("creator.broadcasts.cancel")}
               </button>
             </div>
           </form>
@@ -179,6 +171,7 @@ function ComposeModal({ allowance, onSend, onClose, sending }: ComposeModalProps
 // ---------------------------------------------------------------------------
 
 function BroadcastHistoryCard({ broadcast }: { broadcast: Broadcast }) {
+  const { t } = useTranslation();
   return (
     <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -188,14 +181,14 @@ function BroadcastHistoryCard({ broadcast }: { broadcast: Broadcast }) {
         </div>
         <div className="shrink-0 text-right">
           <p className="text-xs text-neutral-400">
-            {new Date(broadcast.sentAt).toLocaleDateString("en-GB", {
+            {new Date(broadcast.sentAt).toLocaleDateString(undefined, {
               day: "numeric",
               month: "short",
               year: "numeric",
             })}
           </p>
           <p className="mt-0.5 text-xs font-semibold text-neutral-700 dark:text-neutral-300">
-            {broadcast.recipientCount.toLocaleString()} recipients
+            {t("creator.broadcasts.recipients", { count: broadcast.recipientCount.toLocaleString() })}
           </p>
         </div>
       </div>
@@ -208,12 +201,15 @@ function BroadcastHistoryCard({ broadcast }: { broadcast: Broadcast }) {
 // ---------------------------------------------------------------------------
 
 function AccessDenied({ reason }: { reason?: string }) {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col items-center py-16 text-center">
       <span className="text-5xl">🔒</span>
-      <h2 className="mt-4 text-xl font-bold text-neutral-900 dark:text-neutral-50">Creator Broadcasts</h2>
+      <h2 className="mt-4 text-xl font-bold text-neutral-900 dark:text-neutral-50">
+        {t("creator.broadcasts.accessDeniedTitle")}
+      </h2>
       <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
-        {reason ?? "You need to be a Rising tier creator or above to send broadcasts."}
+        {reason ?? t("creator.broadcasts.accessDeniedDesc")}
       </p>
     </div>
   );
@@ -231,6 +227,7 @@ interface BroadcastsData {
 }
 
 export default function BroadcastsPage() {
+  const { t } = useTranslation();
   const [data, setData] = useState<BroadcastsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -253,7 +250,7 @@ export default function BroadcastsPage() {
           setData({ allowance: null, history: [], accessDenied: true, accessReason: d.message ?? d.reason });
           return;
         }
-        if (!res.ok) throw new Error("Failed to load broadcasts");
+        if (!res.ok) throw new Error(t("creator.broadcasts.loadError"));
 
         const json = (await res.json()) as {
           allowance?: BroadcastAllowance;
@@ -272,12 +269,12 @@ export default function BroadcastsPage() {
           accessDenied: false,
         });
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Unknown error");
+        setError(e instanceof Error ? e.message : t("creator.broadcasts.loadError"));
       } finally {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [t]);
 
   async function handleSend(subject: string, body: string) {
     setSending(true);
@@ -290,7 +287,7 @@ export default function BroadcastsPage() {
       });
       if (!res.ok) {
         const d = (await res.json()) as { message?: string; error?: string };
-        throw new Error(d.message ?? d.error ?? "Send failed");
+        throw new Error(d.message ?? d.error ?? t("creator.broadcasts.toastFailed"));
       }
       const newBroadcast = (await res.json()) as { broadcast?: Broadcast } | Broadcast;
       const broadcast: Broadcast =
@@ -308,9 +305,9 @@ export default function BroadcastsPage() {
           : prev
       );
       setComposing(false);
-      showToast("Broadcast sent!");
+      showToast(t("creator.broadcasts.toastSent"));
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Failed to send", "error");
+      showToast(e instanceof Error ? e.message : t("creator.broadcasts.toastFailed"), "error");
     } finally {
       setSending(false);
     }
@@ -319,7 +316,9 @@ export default function BroadcastsPage() {
   if (loading) {
     return (
       <div className="mx-auto max-w-2xl p-4 sm:p-6">
-        <h1 className="mb-5 text-2xl font-bold text-neutral-900 dark:text-neutral-50">Creator Broadcasts</h1>
+        <h1 className="mb-5 text-2xl font-bold text-neutral-900 dark:text-neutral-50">
+          {t("creator.broadcasts.title")}
+        </h1>
         <PageSkeleton />
       </div>
     );
@@ -346,13 +345,15 @@ export default function BroadcastsPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-5 p-4 sm:p-6">
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">Creator Broadcasts</h1>
+        <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">
+          {t("creator.broadcasts.title")}
+        </h1>
         {data?.allowance?.canSend && (
           <button
             onClick={() => setComposing(true)}
             className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
           >
-            Send Broadcast
+            {t("creator.broadcasts.sendBtn")}
           </button>
         )}
       </div>
@@ -370,19 +371,24 @@ export default function BroadcastsPage() {
       {/* Allowance card */}
       {data?.allowance && (
         <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-          <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">Monthly Allowance</h2>
+          <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+            {t("creator.broadcasts.monthlyAllowance")}
+          </h2>
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-neutral-600 dark:text-neutral-400">
                 <span className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">
                   {data.allowance.freeRemaining}
                 </span>{" "}
-                / {data.allowance.freeTotal} free broadcasts remaining
+                {t("creator.broadcasts.freeOfTotal", {
+                  remaining: data.allowance.freeRemaining,
+                  total: data.allowance.freeTotal,
+                })}
               </p>
               <p className="mt-0.5 text-xs text-neutral-500">
-                Tier: {data.allowance.tier}
+                {t("creator.broadcasts.tierLabel", { tier: data.allowance.tier })}
                 {data.allowance.additionalCoinCost > 0 &&
-                  ` · Additional: ${data.allowance.additionalCoinCost.toLocaleString()} 🪙 each`}
+                  ` · ${t("creator.broadcasts.additionalCost", { count: data.allowance.additionalCoinCost.toLocaleString() })}`}
               </p>
             </div>
             {!data.allowance.canSend && data.allowance.reason && (
@@ -405,11 +411,13 @@ export default function BroadcastsPage() {
       {/* Broadcast history */}
       <div className="rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
         <div className="border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
-          <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">Broadcast History</h2>
+          <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+            {t("creator.broadcasts.historyTitle")}
+          </h2>
         </div>
         {!data?.history?.length ? (
           <div className="px-5 py-8 text-center text-sm text-neutral-500">
-            No broadcasts sent yet. Send your first broadcast to your followers!
+            {t("creator.broadcasts.historyEmpty")}
           </div>
         ) : (
           <div className="divide-y divide-neutral-100 p-4 dark:divide-neutral-800">

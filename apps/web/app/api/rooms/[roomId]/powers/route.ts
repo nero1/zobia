@@ -31,6 +31,9 @@ const POWER_COSTS: Record<string, number> = {
   member_highlight: 200,
 };
 
+// PRD §11: Message Pin lasts 1 hour.
+const MESSAGE_PIN_DURATION_MS = 60 * 60 * 1000;
+
 // ---------------------------------------------------------------------------
 // Schema
 // ---------------------------------------------------------------------------
@@ -129,14 +132,16 @@ export const POST = withAuth<RoomParams>(async (req: NextRequest, { params, auth
           }
         }
 
+        const pinExpiresAt = new Date(Date.now() + MESSAGE_PIN_DURATION_MS).toISOString();
+
         await client.query(
           `UPDATE room_messages
-           SET is_pinned = true, pinned_at = NOW(), pinned_by = $1
+           SET is_pinned = true, pinned_at = NOW(), pinned_by = $1, pin_expires_at = $4
            WHERE id = $2 AND room_id = $3`,
-          [userId, body.messageId, roomId]
+          [userId, body.messageId, roomId, pinExpiresAt]
         );
 
-        return { power: "message_pin", messageId: body.messageId, coinsSpent: coinCost };
+        return { power: "message_pin", messageId: body.messageId, pinExpiresAt, coinsSpent: coinCost };
 
       } else if (body.power === "room_spotlight") {
         const durationMs = body.durationHours * 60 * 60 * 1000;
