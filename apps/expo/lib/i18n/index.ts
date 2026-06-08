@@ -12,6 +12,7 @@ import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import * as Localization from 'expo-localization';
 
+import { setupRTL } from './rtl';
 import en from './locales/en.json';
 import fr from './locales/fr.json';
 import ar from './locales/ar.json';
@@ -58,5 +59,13 @@ i18n
     },
     compatibilityJSON: 'v4',
   });
+
+// Apply RTL layout for Arabic immediately after init, before first render.
+setupRTL(i18n.language);
+
+// Keep RTL in sync if the language changes at runtime.
+i18n.on('languageChanged', (lng) => {
+  setupRTL(lng);
+});
 
 export default i18n;

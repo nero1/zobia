@@ -66,6 +66,7 @@ interface PlanConfig {
   xpMultiplier: number;
   features: PlanFeature[];
   productId: string | null;
+  annualProductId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -110,6 +111,7 @@ const PLANS: PlanConfig[] = [
       { label: '180-day message history' },
     ],
     productId: 'sub_plus_monthly',
+    annualProductId: 'sub_plus_annual',
   },
   {
     tier: 'pro',
@@ -131,6 +133,7 @@ const PLANS: PlanConfig[] = [
       { label: 'Priority support' },
     ],
     productId: 'sub_pro_monthly',
+    annualProductId: 'sub_pro_annual',
   },
   {
     tier: 'max',
@@ -153,6 +156,7 @@ const PLANS: PlanConfig[] = [
       { label: 'Dedicated customer support' },
     ],
     productId: 'sub_max_monthly',
+    annualProductId: 'sub_max_annual',
   },
 ];
 
@@ -310,7 +314,8 @@ export default function SubscriptionScreen() {
 
   const handleSubscribe = useCallback(
     async (plan: PlanConfig) => {
-      if (!plan.productId) return;
+      const productId = isAnnual ? (plan.annualProductId ?? plan.productId) : plan.productId;
+      if (!productId) return;
 
       if (Platform.OS !== 'android') {
         Alert.alert(
@@ -325,7 +330,7 @@ export default function SubscriptionScreen() {
       try {
         await initGooglePlayBilling();
 
-        const result = await purchaseSubscription(plan.productId);
+        const result = await purchaseSubscription(productId);
 
         if (result.success) {
           Alert.alert(
@@ -347,7 +352,7 @@ export default function SubscriptionScreen() {
         setSubscribingTier(null);
       }
     },
-    [queryClient],
+    [queryClient, isAnnual],
   );
 
   const handleCancelInstructions = useCallback(() => {

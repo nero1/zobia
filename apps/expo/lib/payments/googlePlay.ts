@@ -82,8 +82,39 @@ export const SUBSCRIPTION_PRODUCTS: SubscriptionProduct[] = [
   },
 ];
 
+/** Annual subscription products (2 months free vs monthly billing). */
+export const ANNUAL_SUBSCRIPTION_PRODUCTS: SubscriptionProduct[] = [
+  {
+    id: 'sub_plus_annual',
+    plan: 'plus',
+    label: 'Plus (Annual)',
+    monthlyPrice: '₦500',
+    annualPrice: '₦5,000',
+    monthlyCoins: 50,
+  },
+  {
+    id: 'sub_pro_annual',
+    plan: 'pro',
+    label: 'Pro (Annual)',
+    monthlyPrice: '₦1,500',
+    annualPrice: '₦15,000',
+    monthlyCoins: 200,
+  },
+  {
+    id: 'sub_max_annual',
+    plan: 'max',
+    label: 'Max (Annual)',
+    monthlyPrice: '₦3,500',
+    annualPrice: '₦35,000',
+    monthlyCoins: 500,
+  },
+];
+
 const PRODUCT_IDS = COIN_PRODUCTS.map((p) => p.id);
-const SUBSCRIPTION_IDS = SUBSCRIPTION_PRODUCTS.map((p) => p.id);
+const SUBSCRIPTION_IDS = [
+  ...SUBSCRIPTION_PRODUCTS.map((p) => p.id),
+  ...ANNUAL_SUBSCRIPTION_PRODUCTS.map((p) => p.id),
+];
 
 // ---------------------------------------------------------------------------
 // Server verification
@@ -266,25 +297,28 @@ export async function disconnectGooglePlayBilling(): Promise<void> {
 
 /**
  * Fetch available subscription products from the Play Store.
+ *
+ * @param annual - When true, returns annual billing products instead of monthly.
  */
-export async function getSubscriptionProducts(): Promise<SubscriptionProduct[]> {
-  if (Platform.OS !== 'android') return [];
+export async function getSubscriptionProducts(annual = false): Promise<SubscriptionProduct[]> {
+  const localProducts = annual ? ANNUAL_SUBSCRIPTION_PRODUCTS : SUBSCRIPTION_PRODUCTS;
+  if (Platform.OS !== 'android') return localProducts;
 
   try {
     const { responseCode, results } = await InAppPurchases.getProductsAsync(SUBSCRIPTION_IDS);
 
     if (responseCode !== InAppPurchases.IAPResponseCode.OK || !results) {
-      return SUBSCRIPTION_PRODUCTS;
+      return localProducts;
     }
 
-    return SUBSCRIPTION_PRODUCTS.map((local) => {
+    return localProducts.map((local) => {
       const store = results.find((r) => r.productId === local.id);
       return store
         ? { ...local, monthlyPrice: store.price ?? local.monthlyPrice }
         : local;
     });
   } catch {
-    return SUBSCRIPTION_PRODUCTS;
+    return localProducts;
   }
 }
 
@@ -314,7 +348,9 @@ export async function purchaseSubscription(
     return { success: false, error: 'Google Play only available on Android' };
   }
 
-  const product = SUBSCRIPTION_PRODUCTS.find((p) => p.id === productId);
+  const product =
+    SUBSCRIPTION_PRODUCTS.find((p) => p.id === productId) ??
+    ANNUAL_SUBSCRIPTION_PRODUCTS.find((p) => p.id === productId);
   if (!product) {
     return { success: false, error: 'Unknown subscription product ID' };
   }
