@@ -156,7 +156,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
               await db.query(
                 `UPDATE room_members SET is_muted = TRUE, updated_at = NOW()
                  WHERE room_id = $1 AND user_id = $2`,
-                [data.reportedRoomId, data.reportedUserId]
+                [data.reportedRoomId, data.reportedUserId ?? null]
               ).catch(() => {});
             }
           } else if (classification.confidence >= communityThreshold) {
