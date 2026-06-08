@@ -188,7 +188,7 @@ function BroadcastHistoryCard({ broadcast }: { broadcast: Broadcast }) {
             })}
           </p>
           <p className="mt-0.5 text-xs font-semibold text-neutral-700 dark:text-neutral-300">
-            {t("creator.broadcasts.recipients", { count: broadcast.recipientCount.toLocaleString() })}
+            {t("creator.broadcasts.recipients", { count: broadcast.recipientCount })}
           </p>
         </div>
       </div>
@@ -388,7 +388,7 @@ export default function BroadcastsPage() {
               <p className="mt-0.5 text-xs text-neutral-500">
                 {t("creator.broadcasts.tierLabel", { tier: data.allowance.tier })}
                 {data.allowance.additionalCoinCost > 0 &&
-                  ` · ${t("creator.broadcasts.additionalCost", { count: data.allowance.additionalCoinCost.toLocaleString() })}`}
+                  ` · ${t("creator.broadcasts.additionalCost", { count: data.allowance.additionalCoinCost })}`}
               </p>
             </div>
             {!data.allowance.canSend && data.allowance.reason && (
