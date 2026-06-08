@@ -22,6 +22,7 @@ import { I18nProvider } from "@/components/providers/I18nProvider";
 import { SkipToMain } from "@/components/shared/SkipToMain";
 import { loadManifest } from "@/lib/manifest";
 import { db } from "@/lib/db";
+import { env } from "@/lib/env";
 
 // ---------------------------------------------------------------------------
 // Font
