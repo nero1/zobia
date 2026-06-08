@@ -538,7 +538,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       return { rows };
     });
 
-    const message = msgRows[0];
+    const message = msgRows[0] as { id: string; sender_id: string; created_at: string; message_type: string };
 
     // Award XP (non-blocking)
     void maybeAwardMessageXP(roomId, userId, todayMsgCount);
