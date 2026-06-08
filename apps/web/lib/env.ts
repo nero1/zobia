@@ -102,6 +102,17 @@ const envSchema = z.object({
     .url()
     .default("http://localhost:3000/api"),
 
+  // Client-side realtime provider selection (must match REALTIME_PROVIDER)
+  NEXT_PUBLIC_REALTIME_PROVIDER: z
+    .enum(["supabase-realtime", "ably", "pusher"])
+    .optional(),
+  // Supabase Realtime — client-side vars
+  NEXT_PUBLIC_SUPABASE_URL: z.string().url().optional(),
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().optional(),
+  // Pusher — client-side public vars
+  NEXT_PUBLIC_PUSHER_KEY: z.string().optional(),
+  NEXT_PUBLIC_PUSHER_CLUSTER: z.string().optional(),
+
   // ---- Runtime ------------------------------------------------------------
   NODE_ENV: z
     .enum(["development", "test", "production"])
