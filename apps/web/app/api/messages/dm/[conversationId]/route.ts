@@ -4,20 +4,25 @@ export const dynamic = 'force-dynamic';
  * app/api/messages/dm/[conversationId]/route.ts
  *
  * GET /api/messages/dm/[conversationId]
+ *   Returns messages in a specific DM conversation (cursor-based pagination).
+ *   Only participants may access it.
  *
- * Returns messages in a specific DM conversation, paginated via
- * cursor-based pagination (cursor = created_at of oldest message returned).
- *
- * Only participants in the conversation may access it.
+ * POST /api/messages/dm/[conversationId]
+ *   Send a message in an existing DM conversation.
+ *   Coin deduction, anti-spam, and realtime broadcast are all applied.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { withAuth, validateSearchParams } from "@/lib/api/middleware";
-import { handleApiError, forbidden, notFound } from "@/lib/api/errors";
+import { withAuth, validateSearchParams, validateBody } from "@/lib/api/middleware";
+import { handleApiError, forbidden, notFound, badRequest, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { getDMCost } from "@/lib/messaging/coinCost";
+import { getDMCost, checkDailyLimitReached, incrementDailyCount } from "@/lib/messaging/coinCost";
+import { filterDMContent } from "@/lib/messaging/antispam";
+import { updateConversationScore } from "@/lib/messaging/conversationScore";
+import { debitCoins } from "@/lib/economy/coins";
+import { publishRealtimeEvent } from "@/lib/realtime";
 import type { Plan } from "@zobia/types";
 
 // ---------------------------------------------------------------------------
@@ -267,6 +272,203 @@ export const GET = withAuth(
         },
         { status: 200 }
       );
+    } catch (err) {
+      return handleApiError(err);
+    }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// POST /api/messages/dm/[conversationId]
+// ---------------------------------------------------------------------------
+
+const sendInConversationSchema = z.object({
+  content: z
+    .string()
+    .min(1, "Message cannot be empty")
+    .max(2000, "Message cannot exceed 2000 characters")
+    .optional(),
+  messageType: z.enum(["text", "gif", "sticker"]).default("text"),
+  mediaUrl: z.string().url().optional(),
+  idempotencyKey: z.string().max(128).optional(),
+});
+
+const DM_SEND_RATE_LIMIT = { limit: 30, windowMs: 60_000, name: "dm:send" } as const;
+
+interface SenderRow { id: string; plan: Plan; coin_balance: number; is_admin: boolean; }
+interface SentMessageRow {
+  id: string; sender_id: string; recipient_id: string; message_type: string;
+  content: string | null; media_url: string | null; coin_cost: number;
+  reply_count_from_recipient: number; is_deleted: boolean;
+  created_at: string; updated_at: string;
+}
+
+/**
+ * Send a message inside an existing DM conversation.
+ * The recipient is derived from the conversation record (no recipientId in body).
+ */
+export const POST = withAuth(
+  async (
+    req: NextRequest,
+    { params, auth }: { params: { conversationId: string }; auth: { user: { sub: string } } }
+  ) => {
+    try {
+      await enforceRateLimit(auth.user.sub, "user", DM_SEND_RATE_LIMIT);
+
+      const { conversationId } = params;
+      const body = await validateBody(req, sendInConversationSchema);
+
+      if (!body.content) {
+        throw badRequest("content is required");
+      }
+
+      // 1. Load conversation and verify participant
+      const { rows: convRows } = await db.query<{
+        id: string; user_id_1: string; user_id_2: string;
+      }>(
+        `SELECT id, user_id_1, user_id_2 FROM dm_conversations WHERE id = $1 LIMIT 1`,
+        [conversationId]
+      );
+      const conv = convRows[0];
+      if (!conv) throw notFound("Conversation not found");
+
+      const isParticipant =
+        conv.user_id_1 === auth.user.sub || conv.user_id_2 === auth.user.sub;
+      if (!isParticipant) throw forbidden("Not a participant in this conversation");
+
+      const recipientId =
+        conv.user_id_1 === auth.user.sub ? conv.user_id_2 : conv.user_id_1;
+
+      // 2. Load sender
+      const { rows: senderRows } = await db.query<SenderRow>(
+        `SELECT id, plan, coin_balance, is_admin
+         FROM users
+         WHERE id = $1 AND deleted_at IS NULL AND is_suspended = FALSE
+         LIMIT 1`,
+        [auth.user.sub]
+      );
+      const sender = senderRows[0];
+      if (!sender) throw forbidden("Your account cannot send messages");
+
+      // 3. Daily reply limit
+      const daily = await checkDailyLimitReached(auth.user.sub, sender.plan);
+      if (daily.replyLimitReached) {
+        throw conflict("Daily reply limit reached. Try again tomorrow.", "DAILY_LIMIT_REACHED");
+      }
+
+      // 4. Coin cost (always a reply since conversation exists)
+      const coinCost = getDMCost(sender.plan, false);
+      if (coinCost > 0 && sender.coin_balance < coinCost && !sender.is_admin) {
+        throw conflict(`Insufficient coins. This message costs ${coinCost} coin(s).`, "INSUFFICIENT_COINS");
+      }
+
+      // 5. Count recipient replies (for anti-spam threshold)
+      const { rows: replyRows } = await db.query<{ cnt: string }>(
+        `SELECT COUNT(*)::text AS cnt FROM messages
+         WHERE conversation_id = $1 AND sender_id = $2 AND is_deleted = FALSE`,
+        [conversationId, recipientId]
+      );
+      const replyCountFromRecipient = parseInt(replyRows[0]?.cnt ?? "0", 10);
+
+      // 6. Anti-spam filter (silent)
+      const filtered = filterDMContent(body.content, replyCountFromRecipient, sender.is_admin);
+      if (!sender.is_admin && body.content.trim() && !filtered.trim()) {
+        return NextResponse.json(
+          {
+            message: {
+              id: `blocked-${Date.now()}`,
+              sender_id: auth.user.sub,
+              recipient_id: recipientId,
+              message_type: body.messageType,
+              content: body.content,
+              media_url: body.mediaUrl ?? null,
+              coin_cost: 0,
+              is_deleted: false,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+          },
+          { status: 201 }
+        );
+      }
+
+      // 7. Idempotency check
+      if (body.idempotencyKey) {
+        const { rows: dupRows } = await db.query<{ id: string }>(
+          `SELECT id FROM messages WHERE sender_id = $1 AND idempotency_key = $2 LIMIT 1`,
+          [auth.user.sub, body.idempotencyKey]
+        );
+        if (dupRows[0]) {
+          const { rows: existingRows } = await db.query<SentMessageRow>(
+            `SELECT id, sender_id, recipient_id, message_type, content, media_url,
+                    coin_cost, reply_count_from_recipient, is_deleted, created_at, updated_at
+             FROM messages WHERE id = $1 LIMIT 1`,
+            [dupRows[0].id]
+          );
+          return NextResponse.json({ message: existingRows[0] }, { status: 200 });
+        }
+      }
+
+      // 8. Atomic: deduct coins + create message
+      const message = await db.transaction(async (tx) => {
+        if (coinCost > 0 && !sender.is_admin) {
+          const { rows: deductRows } = await tx.query<{ coin_balance: number }>(
+            `UPDATE users SET coin_balance = coin_balance - $1, updated_at = NOW()
+             WHERE id = $2 AND coin_balance >= $1 AND deleted_at IS NULL
+             RETURNING coin_balance`,
+            [coinCost, auth.user.sub]
+          );
+          if (!deductRows[0]) throw conflict("Insufficient coins", "INSUFFICIENT_COINS");
+
+          await tx.query(
+            `INSERT INTO coin_ledger
+               (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description)
+             VALUES ($1, $2, $3, $4, 'dm_cost', NULL, 'DM coin cost')`,
+            [auth.user.sub, -coinCost, sender.coin_balance, deductRows[0].coin_balance]
+          );
+        }
+
+        const { rows: msgRows } = await tx.query<SentMessageRow>(
+          `INSERT INTO messages
+             (sender_id, recipient_id, conversation_id, message_type, content,
+              media_url, coin_cost, reply_count_from_recipient, idempotency_key, sender_plan_at_creation)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           RETURNING id, sender_id, recipient_id, message_type, content, media_url,
+                     coin_cost, reply_count_from_recipient, is_deleted, created_at, updated_at`,
+          [
+            auth.user.sub, recipientId, conversationId, body.messageType,
+            filtered || null, body.mediaUrl ?? null, coinCost,
+            replyCountFromRecipient, body.idempotencyKey ?? null, sender.plan,
+          ]
+        );
+
+        return msgRows[0];
+      });
+
+      if (!message) throw new Error("Message creation failed");
+
+      // 9. XP + daily counter (best-effort, outside transaction)
+      db.query(
+        `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
+         VALUES ($1, 1, 'social', 'message', $2, 1, 1)`,
+        [auth.user.sub, message.id]
+      ).catch(() => {});
+      db.query(
+        `UPDATE users SET xp_total = xp_total + 1, xp_social = xp_social + 1, updated_at = NOW()
+         WHERE id = $1`,
+        [auth.user.sub]
+      ).catch(() => {});
+      incrementDailyCount(auth.user.sub, "reply").catch(() => {});
+      updateConversationScore(auth.user.sub, recipientId, "message_sent").catch(() => {});
+
+      // 10. Realtime broadcast — push the new message to open clients
+      publishRealtimeEvent(
+        `dm:conversation:${conversationId}`,
+        "new_message",
+        { message }
+      ).catch(() => {});
+
+      return NextResponse.json({ message }, { status: 201 });
     } catch (err) {
       return handleApiError(err);
     }

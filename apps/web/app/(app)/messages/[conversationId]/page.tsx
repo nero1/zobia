@@ -544,6 +544,7 @@ export default function DMConversationPage() {
 
   const feedRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval>>();
+  const sseRef = useRef<EventSource | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -653,11 +654,75 @@ export default function DMConversationPage() {
     }
   }, [conversationId]);
 
+  // Realtime: open an SSE connection for instant message delivery.
+  // Falls back to 5-second polling if SSE is unavailable.
   useEffect(() => {
+    // Initial load
     void fetchMessages();
-    pollRef.current = setInterval(fetchMessages, 5000);
-    return () => clearInterval(pollRef.current);
-  }, [fetchMessages]);
+
+    if (!conversationId || typeof EventSource === "undefined") {
+      pollRef.current = setInterval(fetchMessages, 5_000);
+      return () => clearInterval(pollRef.current);
+    }
+
+    let sseConnected = false;
+    const es = new EventSource(
+      `/api/realtime/sse?channel=dm:conversation:${conversationId}`,
+      { withCredentials: true }
+    );
+    sseRef.current = es;
+
+    es.onopen = () => {
+      sseConnected = true;
+      // Cancel fallback polling now that SSE is live
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = undefined;
+      }
+    };
+
+    es.onmessage = (e: MessageEvent<string>) => {
+      try {
+        const { event, data } = JSON.parse(e.data) as {
+          event: string;
+          data: { message: DMMessage };
+        };
+        if (event === "new_message" && data?.message) {
+          setMessages((prev) => {
+            const alreadyExists = prev.some((m) => m.id === data.message.id);
+            return alreadyExists ? prev : [...prev, data.message];
+          });
+        }
+      } catch { /* ignore malformed events */ }
+    };
+
+    es.onerror = () => {
+      if (!sseConnected) {
+        // SSE never connected — start fallback polling
+        es.close();
+        sseRef.current = null;
+        if (!pollRef.current) {
+          pollRef.current = setInterval(fetchMessages, 5_000);
+        }
+      }
+      // If SSE was connected and then errored, the browser retries automatically.
+    };
+
+    // Start a slow fallback poll in case SSE connection takes too long
+    const fallbackTimeout = setTimeout(() => {
+      if (!sseConnected && !pollRef.current) {
+        pollRef.current = setInterval(fetchMessages, 5_000);
+      }
+    }, 3_000);
+
+    return () => {
+      clearTimeout(fallbackTimeout);
+      clearInterval(pollRef.current);
+      pollRef.current = undefined;
+      es.close();
+      sseRef.current = null;
+    };
+  }, [conversationId, fetchMessages]);
 
   // Close pickers when clicking outside
   useEffect(() => {

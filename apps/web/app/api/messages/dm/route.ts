@@ -33,6 +33,7 @@ import { filterDMContent } from "@/lib/messaging/antispam";
 import { recordWarContribution } from "@/lib/guilds/recordWarContribution";
 import { updateConversationScore } from "@/lib/messaging/conversationScore";
 import { debitCoins, creditCoins } from "@/lib/economy/coins";
+import { publishRealtimeEvent } from "@/lib/realtime";
 import type { Plan } from "@zobia/types";
 
 // ---------------------------------------------------------------------------
@@ -572,6 +573,25 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     recordWarContribution(auth.user.sub, 'send_message', db).catch((err) =>
       console.error("[dm:POST] war contribution failed", err)
     );
+
+    // 15. Realtime broadcast — push the new message to open clients
+    if (message.id) {
+      // Fetch the conversation id for the channel name (may be null for new convs)
+      db.query<{ id: string }>(
+        `SELECT id FROM dm_conversations
+         WHERE (user_id_1 = LEAST($1::text, $2::text) AND user_id_2 = GREATEST($1::text, $2::text))
+         LIMIT 1`,
+        [auth.user.sub, body.recipientId]
+      ).then(({ rows }) => {
+        if (rows[0]?.id) {
+          return publishRealtimeEvent(
+            `dm:conversation:${rows[0].id}`,
+            "new_message",
+            { message }
+          );
+        }
+      }).catch(() => {});
+    }
 
     return NextResponse.json({ message }, { status: 201 });
   } catch (err) {

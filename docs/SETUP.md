@@ -98,6 +98,13 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `R2_BUCKET_NAME` | If R2 | Name of the R2 bucket | Cloudflare → R2 → Buckets |
 | `R2_PUBLIC_URL` | If R2 | Public URL for the R2 bucket (e.g. `https://pub-xxx.r2.dev`) | Cloudflare → R2 → Bucket settings |
 | `REALTIME_PROVIDER` | Yes | Realtime backend: `supabase-realtime` \| `ably` \| `pusher` | Choose your provider |
+| `SUPABASE_URL` | If supabase-realtime | Supabase project URL (e.g. `https://xxx.supabase.co`) | Supabase → Project Settings → API |
+| `SUPABASE_SERVICE_ROLE_KEY` | If supabase-realtime | Service-role key — server-side only, never expose to clients | Supabase → Project Settings → API |
+| `ABLY_API_KEY` | If ably | Ably API key with Publish capability (Root key or custom key) | Ably Console → API Keys |
+| `PUSHER_APP_ID` | If pusher | Pusher app ID | Pusher Dashboard → App Keys |
+| `PUSHER_KEY` | If pusher | Pusher app key (public identifier) | Pusher Dashboard → App Keys |
+| `PUSHER_SECRET` | If pusher | Pusher app secret (server-side only) | Pusher Dashboard → App Keys |
+| `PUSHER_CLUSTER` | If pusher | Pusher cluster region (e.g. `mt1`, `eu`, `us2`) | Pusher Dashboard → App Keys |
 | `REDIS_URL` | Yes | Redis connection URL (e.g. `redis://localhost:6379` or Upstash URL) | Upstash → Create Database → REST URL |
 | `REDIS_PROVIDER` | Yes | `ioredis` \| `upstash` | Choose your provider |
 | `UPSTASH_REDIS_REST_URL` | If Upstash | Upstash REST URL | Upstash → Database → REST API |
@@ -200,6 +207,129 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 4. Add the provider key to the `DATABASE_PROVIDER` enum/union in `apps/web/lib/env.ts`.
 5. Import and register the new adapter in `apps/web/lib/db/index.ts`.
 6. Add a corresponding ESLint rule if the provider has a client SDK that must not leak into business logic.
+
+---
+
+## Realtime Setup
+
+Zobia uses a **Redis Pub/Sub → Server-Sent Events (SSE)** bridge for delivering new DMs and other events to open browser tabs in real time. No provider-specific client SDK is needed in the browser — all three provider options work through the same SSE endpoint at `/api/realtime/sse`.
+
+### How it works
+
+```
+User sends DM
+    │
+    ▼
+POST /api/messages/dm/[conversationId]
+    │  saves to DB
+    ▼
+publishRealtimeEvent("dm:conversation:uuid", "new_message", { message })
+    │
+    ├──► Redis PUBLISH  ──► /api/realtime/sse subscriber ──► browser EventSource
+    │       (always)          (web clients — no SDK needed)
+    │
+    └──► External provider (optional fan-out for Expo / mobile clients)
+             ably | pusher | supabase-realtime
+```
+
+For the **web client**, only Redis (already required) is needed. The SSE bridge handles all three provider settings automatically.
+
+For **Expo (Android)** clients, the external provider publishes events that a native provider SDK can receive. Install the provider's SDK in `apps/expo` to enable native push for mobile.
+
+### SSE authentication
+
+The `/api/realtime/sse` endpoint reads the `zobia_at` HttpOnly cookie (the access token). No extra auth configuration is needed.
+
+### Required env vars per provider
+
+Set `REALTIME_PROVIDER` to one of: `supabase-realtime` | `ably` | `pusher`.
+
+#### Option A: `supabase-realtime` (default — recommended if you're already on Supabase)
+
+> **No extra setup needed for web clients.** The SSE bridge uses Redis.
+
+For optional Expo native client integration (Supabase Realtime Broadcast):
+
+| Variable | Required | Description | Where to get it |
+|---|---|---|---|
+| `SUPABASE_URL` | For Expo native | Your Supabase project URL (e.g. `https://abcdef.supabase.co`) | Supabase → Project Settings → API → Project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | For Expo native | Service-role secret key (never expose to clients) | Supabase → Project Settings → API → `service_role` |
+
+Without these, the Supabase Realtime Broadcast fan-out is silently skipped (web SSE still works via Redis).
+
+> **Note:** The `service_role` key bypasses Row Level Security. Keep it server-side only. Never use it in the browser or Expo client — use the `anon` key there.
+
+#### Option B: `ably`
+
+| Variable | Required | Description | Where to get it |
+|---|---|---|---|
+| `ABLY_API_KEY` | Yes | Server-side API key for publishing | See below |
+
+**Which Ably key to use:**
+
+Ably gives you three options in the Console:
+- **Root key** — full access (publish + subscribe + all capabilities). Fine for development and simple setups.
+- **Subscribe-only key** — can receive messages but **cannot publish**. Do NOT use this for `ABLY_API_KEY`.
+- **Custom key (recommended for production)** — create a key with only the capabilities you need.
+
+**Creating a production Ably key:**
+1. Go to [ably.com](https://ably.com) → log in → select your app.
+2. Navigate to **API Keys → Add New Key**.
+3. Name it (e.g. `Zobia Server`).
+4. Set capabilities: **Publish** + **Subscribe** on channel `dm:*` (or `*` for all channels).
+5. Click **Create Key** and copy the full key string (format: `appId.keyId:secret`).
+6. Paste it as `ABLY_API_KEY` in your env vars.
+
+For the SSE bridge (web), no client-side Ably SDK is needed.  
+For Expo native real-time, install `ably` in `apps/expo` and subscribe to channels using the root key or a new Subscribe-only key.
+
+#### Option C: `pusher`
+
+| Variable | Required | Description | Where to get it |
+|---|---|---|---|
+| `PUSHER_APP_ID` | Yes | Numeric app ID | Pusher dashboard → App Keys |
+| `PUSHER_KEY` | Yes | App key (public identifier) | Pusher dashboard → App Keys |
+| `PUSHER_SECRET` | Yes | App secret (server-side only, never expose) | Pusher dashboard → App Keys |
+| `PUSHER_CLUSTER` | Yes | Region cluster code | Pusher dashboard → App Keys |
+
+**Setting up Pusher:**
+1. Go to [pusher.com](https://pusher.com) → log in → **Channels → Create app**.
+2. Name the app (e.g. `zobia-social`).
+3. Choose your region cluster (pick the one closest to your users — `mt1` is multi-region, `eu` is EU, `us2` is US East).
+4. Go to **App Keys** and copy all four values into your env vars.
+
+For the SSE bridge (web), no client-side Pusher SDK is needed.  
+For Expo native real-time, install `pusher-js` in `apps/expo` and subscribe using `PUSHER_KEY` + `PUSHER_CLUSTER` (these are public).
+
+### Verifying realtime is working
+
+After configuring your provider, you can verify the SSE bridge is functional:
+
+```bash
+# 1. Start the dev server
+cd apps/web && npm run dev
+
+# 2. Log in at http://localhost:3000 and open a DM conversation.
+
+# 3. In a second terminal, curl the SSE endpoint (replace TOKEN with your zobia_at cookie value):
+curl -N -H "Cookie: zobia_at=TOKEN" \
+  "http://localhost:3000/api/realtime/sse?channel=dm:conversation:YOUR_CONVERSATION_UUID"
+
+# 4. In a third terminal, send a DM via the UI or API.
+#    You should see a "data: {...}" line appear in the curl output within milliseconds.
+```
+
+If the SSE endpoint returns `403 Forbidden`, verify that:
+- Your `zobia_at` cookie is present and not expired (access tokens expire after 15 minutes).
+- The `conversationId` in the channel name matches a real `dm_conversations.id` that you are a participant in.
+
+If the SSE endpoint returns `401 Unauthorized`, you are not authenticated.
+
+### Redis requirement for SSE
+
+The SSE bridge uses Redis Pub/Sub. Any standard Redis-compatible service works: self-hosted Redis, Railway Redis, DigitalOcean Redis, or **Upstash Redis** (via TCP, not the HTTP REST API — Upstash's REST API does not support Pub/Sub).
+
+If `REDIS_PROVIDER=upstash`, the SSE bridge creates a direct TCP connection to Upstash using `ioredis` (the same package already used for other Redis operations). This works on Vercel's serverless functions as long as the TCP connection is to Upstash's TLS endpoint on port 6380.
 
 ---
 

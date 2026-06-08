@@ -32,6 +32,19 @@ const envSchema = z.object({
   // ---- Realtime -----------------------------------------------------------
   REALTIME_PROVIDER: z.enum(["supabase-realtime", "ably", "pusher"]),
 
+  // Supabase Realtime (required when REALTIME_PROVIDER=supabase-realtime)
+  SUPABASE_URL: z.string().url().optional(),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+
+  // Ably (required when REALTIME_PROVIDER=ably)
+  ABLY_API_KEY: z.string().optional(),
+
+  // Pusher (all four required when REALTIME_PROVIDER=pusher)
+  PUSHER_APP_ID: z.string().optional(),
+  PUSHER_KEY: z.string().optional(),
+  PUSHER_SECRET: z.string().optional(),
+  PUSHER_CLUSTER: z.string().optional(),
+
   // ---- Redis --------------------------------------------------------------
   REDIS_URL: z.string().min(1, "REDIS_URL is required"),
   REDIS_PROVIDER: z.enum(["ioredis", "upstash"]),
