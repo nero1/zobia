@@ -64,6 +64,10 @@ let _ioredisClient: IORedis | null = null;
 function createIoRedisClient(): IORedis {
   if (_ioredisClient) return _ioredisClient;
 
+  if (!env.REDIS_URL) {
+    throw new Error("[redis:ioredis] REDIS_URL is not set");
+  }
+
   _ioredisClient = new IORedis(env.REDIS_URL, {
     maxRetriesPerRequest: 3,
     enableReadyCheck: true,
@@ -136,6 +140,9 @@ function createUpstashClient(): IORedis {
  * Provider is selected via REDIS_PROVIDER ("ioredis" | "upstash").
  */
 export function getRedisClient(): RedisClient {
+  if (!env.REDIS_PROVIDER) {
+    throw new Error("[redis] REDIS_PROVIDER is not set");
+  }
   switch (env.REDIS_PROVIDER) {
     case "ioredis":
       return createIoRedisClient() as unknown as RedisClient;

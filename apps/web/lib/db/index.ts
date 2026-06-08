@@ -32,6 +32,9 @@ let _adapter: DatabaseAdapter | null = null;
  * Throws if the provider value is unknown (should be caught by env validation).
  */
 function createAdapter(): DatabaseAdapter {
+  if (!env.DATABASE_PROVIDER) {
+    throw new Error("[db] DATABASE_PROVIDER is not set");
+  }
   switch (env.DATABASE_PROVIDER) {
     case "supabase":
       return new SupabaseDatabaseAdapter();
