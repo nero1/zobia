@@ -89,8 +89,8 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | Variable | Required | Description | Where to get it |
 |---|---|---|---|
 | `DATABASE_PROVIDER` | Yes | Database backend: `supabase` \| `railway` \| `digitalocean` | Choose your provider |
-| `DATABASE_URL` | Yes | Primary PostgreSQL connection string (pooled via PgBouncer) | Supabase → Settings → Database → Connection pooling |
-| `DIRECT_URL` | Yes | Direct PostgreSQL connection (bypasses PgBouncer — used for migrations) | Supabase → Settings → Database → Connection string |
+| `DATABASE_URL` | Yes | Pooled connection string — **transaction mode** (for serverless/Vercel functions) | Supabase → Settings → Database → "Use pooler transaction mode" |
+| `DIRECT_URL` | Yes | Direct connection string — bypasses the pooler, used for migrations only | Supabase → Settings → Database → "Use the direct connection string" |
 | `STORAGE_PROVIDER` | Yes | Storage backend: `supabase-storage` \| `r2` \| `s3` | Choose your provider |
 | `R2_ACCOUNT_ID` | If R2 | Cloudflare account ID | Cloudflare dashboard → right sidebar |
 | `R2_ACCESS_KEY_ID` | If R2 | R2 API access key ID | Cloudflare → R2 → Manage R2 API tokens |
@@ -141,9 +141,16 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 2. Choose a region close to your users.
 3. Wait for the project to finish provisioning (about 60 seconds).
 4. Navigate to **Settings → Database**.
-5. Under **Connection string**, copy:
-   - **URI** (with `?pgbouncer=true` appended) → this is your `DATABASE_URL`
-   - **Direct connection** URI → this is your `DIRECT_URL`
+5. Supabase shows three connection options — here is which one to use for each env var:
+
+   | Supabase option | Use for |
+   |---|---|
+   | **"Use the direct connection string"** | `DIRECT_URL` — migrations, `pg_dump`, schema changes |
+   | **"Use pooler transaction mode"** | `DATABASE_URL` — all runtime app traffic on Vercel (serverless) |
+   | **"Use pooler session mode"** | Not needed for this project |
+
+   Copy the **pooler transaction mode** string → paste as `DATABASE_URL`.  
+   Copy the **direct connection string** → paste as `DIRECT_URL`.
 6. Run all migrations in order:
    ```bash
    for f in apps/web/db/migrations/*.sql; do
