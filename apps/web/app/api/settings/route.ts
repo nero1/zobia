@@ -15,6 +15,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import type { SqlParam } from "@/lib/db/interface";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -61,7 +62,7 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
     const body = await validateBody(req, patchSettingsSchema);
 
     const updates: string[] = [];
-    const values: unknown[] = [];
+    const values: SqlParam[] = [];
     let idx = 1;
 
     if (body.hd_send_enabled !== undefined) {
