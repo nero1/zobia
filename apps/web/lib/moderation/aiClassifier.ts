@@ -12,6 +12,7 @@
  */
 
 import { aiClient } from "@/lib/ai/client";
+import { db } from "@/lib/db";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -67,6 +68,46 @@ export type ModerationRecommendation =
   | "remove_content"
   | "suspend_user"
   | "ban_user";
+
+// ---------------------------------------------------------------------------
+// Manifest cache (60-second TTL for thresholds and prompt override)
+// ---------------------------------------------------------------------------
+
+interface ManifestCache {
+  autoActionThreshold: number;
+  communityThreshold: number;
+  systemPromptOverride: string;
+  cachedAt: number;
+}
+
+let manifestCache: ManifestCache | null = null;
+const MANIFEST_CACHE_TTL_MS = 60_000;
+
+async function getManifestConfig(): Promise<ManifestCache> {
+  if (manifestCache && Date.now() - manifestCache.cachedAt < MANIFEST_CACHE_TTL_MS) {
+    return manifestCache;
+  }
+  try {
+    const { rows } = await db.query<{ key: string; value: string }>(
+      `SELECT key, value FROM x_manifest
+       WHERE key IN (
+         'ai_moderation_auto_action_threshold',
+         'ai_moderation_community_threshold',
+         'ai_moderation_system_prompt'
+       )`
+    );
+    const map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+    manifestCache = {
+      autoActionThreshold: parseFloat(map['ai_moderation_auto_action_threshold'] ?? '0.9'),
+      communityThreshold: parseFloat(map['ai_moderation_community_threshold'] ?? '0.7'),
+      systemPromptOverride: map['ai_moderation_system_prompt'] ?? '',
+      cachedAt: Date.now(),
+    };
+  } catch {
+    manifestCache = { autoActionThreshold: 0.9, communityThreshold: 0.7, systemPromptOverride: '', cachedAt: Date.now() };
+  }
+  return manifestCache;
+}
 
 // ---------------------------------------------------------------------------
 // System prompt (static — never interpolated with user content)
@@ -240,6 +281,15 @@ ${truncatedContent}
 
 Classify this report according to your instructions.`;
 
+  // Load manifest config (may use cached values)
+  const config = await getManifestConfig().catch(() => ({
+    autoActionThreshold: 0.9,
+    communityThreshold: 0.7,
+    systemPromptOverride: '',
+    cachedAt: 0,
+  }));
+  const effectiveSystemPrompt = config.systemPromptOverride.trim() || CLASSIFICATION_SYSTEM_PROMPT;
+
   const useGeminiDirect = isCircuitOpen();
 
   if (!useGeminiDirect) {
@@ -248,7 +298,7 @@ Classify this report according to your instructions.`;
       const response = await aiClient.chat(
         [{ role: "user", content: userMessage }],
         {
-          systemPrompt: CLASSIFICATION_SYSTEM_PROMPT,
+          systemPrompt: effectiveSystemPrompt,
           maxTokens: 256,
           temperature: 0.1,
         }
@@ -274,7 +324,7 @@ Classify this report according to your instructions.`;
     const response = await aiClient.chat(
       [{ role: "user", content: userMessage }],
       {
-        systemPrompt: CLASSIFICATION_SYSTEM_PROMPT,
+        systemPrompt: effectiveSystemPrompt,
         maxTokens: 256,
         temperature: 0.1,
       }

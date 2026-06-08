@@ -83,7 +83,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
          sp.id,
          sp.name,
          sp.description,
-         sp.cover_sticker_url,
+         COALESCE(sp.cover_sticker_url, sp.cover_emoji) AS cover_sticker_url,
          sp.pack_type,
          sp.unlock_condition,
          sp.coin_price,
@@ -167,8 +167,8 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 
       // Insert unlock record
       await tx.query(
-        `INSERT INTO user_sticker_packs (user_id, pack_id, unlocked_at)
-         VALUES ($1, $2, NOW())`,
+        `INSERT INTO user_sticker_packs (user_id, pack_id, acquired_at, unlocked_at)
+         VALUES ($1, $2, NOW(), NOW())`,
         [userId, packId]
       );
     });

@@ -205,6 +205,29 @@ const CONFIG_META: Record<string, ConfigMeta> = {
     group: "AdMob",
   },
 
+  // AI Moderation
+  ai_moderation_auto_action_threshold: {
+    label: "Auto-Action Threshold",
+    description:
+      "Confidence score (0.0–1.0) above which the AI automatically removes content / suspends users. Default: 0.9",
+    type: "number",
+    group: "AI Moderation",
+  },
+  ai_moderation_community_threshold: {
+    label: "Community Review Threshold",
+    description:
+      "Confidence score (0.0–1.0) above which a report is sent to Community Notes for crowd review. Below this = manual queue. Default: 0.7",
+    type: "number",
+    group: "AI Moderation",
+  },
+  ai_moderation_system_prompt: {
+    label: "AI System Prompt Override",
+    description:
+      "Custom system prompt for AI classification. Leave empty to use the built-in default prompt.",
+    type: "string",
+    group: "AI Moderation",
+  },
+
   // Miscellaneous
   deep_link_base_url: {
     label: "Deep Link Base URL",
@@ -224,6 +247,7 @@ const GROUP_ORDER = [
   "Economy",
   "AdMob",
   "Limits",
+  "AI Moderation",
   "Miscellaneous",
 ];
 

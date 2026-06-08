@@ -42,6 +42,8 @@ export interface AvatarProps {
   isOnline?: boolean;
   /** Prestige count (0–10). Shows star indicators below the avatar. */
   prestigeCount?: number;
+  /** Active cosmetic frame ID (e.g. 'prestige_frame_1', 'phoenix_frame'). */
+  activeFrameId?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -106,10 +108,14 @@ export function Avatar({
   className,
   isOnline = false,
   prestigeCount = 0,
+  activeFrameId,
 }: AvatarProps) {
   const { container, image, text } = sizeMap[size];
   const initials = getInitials(name);
   const initalsColor = nameToColor(name);
+  const frameUrl = activeFrameId
+    ? `/cosmetics/frames/${activeFrameId}.svg`
+    : null;
 
   return (
     <div className={clsx("relative inline-flex flex-shrink-0", className)}>
@@ -143,6 +149,17 @@ export function Avatar({
           >
             {initials}
           </div>
+        )}
+
+        {/* Cosmetic frame overlay */}
+        {frameUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={frameUrl}
+            alt=""
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+          />
         )}
       </div>
 
