@@ -456,6 +456,22 @@ export const GET = async (req: NextRequest) => {
     }
   }
 
+  // 11b. Expired message-pin sweep — unpin coin-purchased pins whose 1-hour window
+  //      has passed (PRD §11: Message Pin lasts 1 hour). Legacy moderator pins
+  //      have pin_expires_at IS NULL and are left untouched.
+  try {
+    const { rowCount: unpinnedCount } = await db.query(
+      `UPDATE room_messages
+       SET is_pinned = false, pinned_at = NULL, pinned_by = NULL, pin_expires_at = NULL
+       WHERE is_pinned = true
+         AND pin_expires_at IS NOT NULL
+         AND pin_expires_at <= NOW()`
+    );
+    results.expiredPinSweep = { unpinned: unpinnedCount ?? 0 };
+  } catch (err) {
+    errors.push(`expiredPinSweep: ${String(err)}`);
+  }
+
   // 12. Guild tier demotion — demote guilds below minimum after 7 days
   try {
     // Minimum member counts per tier base (bronze_1/2/3 = 5, silver_1/2/3 = 15, etc.)

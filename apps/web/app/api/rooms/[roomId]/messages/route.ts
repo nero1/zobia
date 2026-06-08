@@ -240,13 +240,16 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
          m.metadata,
          m.reply_to_message_id,
          m.is_deleted,
-         COALESCE(m.is_pinned, false) AS is_pinned,
+         -- Treat coin-purchased pins as unpinned once pin_expires_at has passed.
+         -- Legacy moderator pins (pin_expires_at IS NULL) are permanent.
+         COALESCE(m.is_pinned AND (m.pin_expires_at IS NULL OR m.pin_expires_at > NOW()), false) AS is_pinned,
          m.pinned_at,
+         m.pin_expires_at,
          m.created_at
        FROM room_messages m
        JOIN users u ON u.id = m.sender_id
        WHERE ${conditions.join(" AND ")}
-       ORDER BY m.is_pinned DESC NULLS LAST, m.created_at DESC
+       ORDER BY (m.is_pinned AND (m.pin_expires_at IS NULL OR m.pin_expires_at > NOW())) DESC NULLS LAST, m.created_at DESC
        LIMIT $${limitParam}`,
       queryArgs
     );
