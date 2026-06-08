@@ -70,10 +70,12 @@ export function useRealtimeChannel(
       const pusherCluster = process.env.NEXT_PUBLIC_PUSHER_CLUSTER ?? "mt1";
       if (!pusherKey) return;
 
-      // Convert channel name: "dm:conversation:<uuid>" →
-      // "private-dm-conversation-<uuid>" (Pusher private channel format)
+      // Convert channel name to Pusher private channel format:
+      //   "dm:conversation:<uuid>" → "private-dm-conversation-<uuid>"
+      //   "room:<uuid>"            → "private-room-<uuid>"
       const pusherChannel = channel
-        .replace(/^dm:conversation:/, "private-dm-conversation-");
+        .replace(/^dm:conversation:/, "private-dm-conversation-")
+        .replace(/^room:/, "private-room-");
 
       (async () => {
         const Pusher = ((await import("pusher-js")) as any).default;

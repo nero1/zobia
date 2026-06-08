@@ -72,9 +72,37 @@ interface MessageRow {
   created_at: string;
 }
 
+// Client-facing message shape (camelCase, matches room page Message interface)
+interface Message {
+  id: string;
+  userId: string;
+  username: string;
+  avatarEmoji: string;
+  content: string;
+  createdAt: string;
+  message_type: string;
+  giftEmoji?: string;
+  giftAmount?: number;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function rowToMessage(row: MessageRow): Message {
+  const meta = (row.metadata as Record<string, unknown> | null) ?? {};
+  return {
+    id: row.id,
+    userId: row.sender_id,
+    username: row.sender_username,
+    avatarEmoji: row.sender_avatar_emoji,
+    content: row.content ?? "",
+    createdAt: row.created_at,
+    message_type: row.message_type,
+    giftEmoji: typeof meta.giftEmoji === "string" ? meta.giftEmoji : undefined,
+    giftAmount: typeof meta.giftAmount === "number" ? meta.giftAmount : undefined,
+  };
+}
 
 /**
  * Extract the JWT access token from the request.
@@ -238,7 +266,7 @@ export async function GET(
       try {
         const initial = await fetchNewMessages(roomId, afterCreatedAt);
         for (const msg of initial) {
-          enqueue({ type: "message", payload: msg });
+          enqueue({ type: "message", payload: rowToMessage(msg) });
           afterCreatedAt = msg.created_at;
         }
       } catch (err) {
@@ -254,7 +282,7 @@ export async function GET(
         try {
           const newMessages = await fetchNewMessages(roomId, afterCreatedAt);
           for (const msg of newMessages) {
-            enqueue({ type: "message", payload: msg });
+            enqueue({ type: "message", payload: rowToMessage(msg) });
             afterCreatedAt = msg.created_at;
           }
         } catch (err) {

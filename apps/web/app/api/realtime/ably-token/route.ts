@@ -24,6 +24,8 @@ import { db } from "@/lib/db";
 
 const DM_CHANNEL_RE =
   /^dm:conversation:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+const ROOM_CHANNEL_RE =
+  /^room:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
 
 export async function GET(req: NextRequest) {
   // 1. Authenticate
@@ -47,21 +49,44 @@ export async function GET(req: NextRequest) {
   }
 
   const dmMatch = DM_CHANNEL_RE.exec(channel);
-  if (!dmMatch) {
+  const roomMatch = ROOM_CHANNEL_RE.exec(channel);
+
+  if (!dmMatch && !roomMatch) {
     return new Response("Unsupported channel format", { status: 400 });
   }
 
-  // 3. Verify the caller is a participant in the conversation
-  const conversationId = dmMatch[1];
-  const { rows } = await db.query<{ id: string }>(
-    `SELECT id FROM dm_conversations
-     WHERE id = $1
-       AND (user_id_1 = $2 OR user_id_2 = $2)
-     LIMIT 1`,
-    [conversationId, userId]
-  );
-  if (!rows[0]) {
-    return new Response("Forbidden", { status: 403 });
+  // 3. Verify the caller is authorised to subscribe to this channel
+  if (dmMatch) {
+    const conversationId = dmMatch[1];
+    const { rows } = await db.query<{ id: string }>(
+      `SELECT id FROM dm_conversations
+       WHERE id = $1
+         AND (user_id_1 = $2 OR user_id_2 = $2)
+       LIMIT 1`,
+      [conversationId, userId]
+    );
+    if (!rows[0]) {
+      return new Response("Forbidden", { status: 403 });
+    }
+  } else if (roomMatch) {
+    const roomId = roomMatch[1];
+    const { rows } = await db.query<{ id: string }>(
+      `SELECT r.id FROM rooms r
+       WHERE r.id = $1
+         AND r.is_active = TRUE
+         AND (r.creator_id = $2
+              OR EXISTS (
+                SELECT 1 FROM room_members m
+                WHERE m.room_id = r.id
+                  AND m.user_id = $2
+                  AND m.left_at IS NULL
+              ))
+       LIMIT 1`,
+      [roomId, userId]
+    );
+    if (!rows[0]) {
+      return new Response("Forbidden", { status: 403 });
+    }
   }
 
   // 4. Issue a scoped Ably TokenRequest
