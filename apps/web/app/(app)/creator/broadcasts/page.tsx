@@ -149,7 +149,7 @@ function ComposeModal({ allowance, onSend, onClose, sending }: ComposeModalProps
                   ? t("creator.broadcasts.sending")
                   : allowance.freeRemaining > 0
                   ? t("creator.broadcasts.sendFree")
-                  : t("creator.broadcasts.sendPaid", { count: allowance.additionalCoinCost.toLocaleString() })}
+                  : t("creator.broadcasts.sendPaid", { count: allowance.additionalCoinCost })}
               </button>
               <button
                 type="button"
