@@ -102,29 +102,38 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `REDIS_PROVIDER` | Yes | `ioredis` \| `upstash` | Choose your provider |
 | `UPSTASH_REDIS_REST_URL` | If Upstash | Upstash REST URL | Upstash → Database → REST API |
 | `UPSTASH_REDIS_REST_TOKEN` | If Upstash | Upstash REST token | Upstash → Database → REST API |
-| `JWT_SECRET` | Yes | Secret for signing access tokens (min 64 hex chars) | `openssl rand -hex 64` |
+| `JWT_SECRET` | Yes | Secret for signing access tokens (min 32 chars) | `openssl rand -hex 64` |
 | `JWT_REFRESH_SECRET` | Yes | Secret for signing refresh tokens (different from JWT_SECRET) | `openssl rand -hex 64` |
 | `GOOGLE_CLIENT_ID` | Yes | Google OAuth 2.0 client ID | Google Cloud Console → Credentials |
 | `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth 2.0 client secret | Google Cloud Console → Credentials |
 | `TELEGRAM_BOT_TOKEN` | Yes | Telegram bot token for Telegram Login | @BotFather → /newbot |
+| `TELEGRAM_WEBHOOK_SECRET` | No | Secret for authenticating incoming Telegram webhook requests | Generate a random string |
 | `DEEPSEEK_API_KEY` | Yes | DeepSeek API key for AI moderation | platform.deepseek.com → API Keys |
 | `DEEPSEEK_API_ENDPOINT` | No | Override endpoint (default: `https://api.deepseek.com/v1`) | DeepSeek docs |
 | `GEMINI_API_KEY` | Yes | Google Gemini API key (AI fallback) | aistudio.google.com → Get API key |
-| `MAILGUN_API_KEY` | Yes | Mailgun API key for transactional email | Mailgun → Account → API Keys |
-| `MAILGUN_DOMAIN` | Yes | Mailgun sending domain (e.g. `mg.yourdomain.com`) | Mailgun → Sending → Domains |
-| `PAYSTACK_SECRET_KEY` | Yes | Paystack secret key — must have Transfers permission enabled | Paystack dashboard → Settings → API Keys |
-| `PAYSTACK_PUBLIC_KEY` | Yes | Paystack public key | Paystack dashboard → Settings → API Keys |
-| `DODOPAYMENTS_API_KEY` | Yes | DodoPayments API key | DodoPayments dashboard → API |
+| `MAILGUN_API_KEY` | No | Mailgun API key for transactional email | Mailgun → Account → API Keys |
+| `MAILGUN_DOMAIN` | No | Mailgun sending domain (e.g. `mg.yourdomain.com`) | Mailgun → Sending → Domains |
+| `PAYSTACK_SECRET_KEY` | No | Paystack secret key — must have Transfers permission enabled | Paystack dashboard → Settings → API Keys |
+| `PAYSTACK_PUBLIC_KEY` | No | Paystack public key | Paystack dashboard → Settings → API Keys |
+| `DODOPAYMENTS_API_KEY` | No | DodoPayments API key | DodoPayments dashboard → API |
+| `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | No | Google Play service account JSON (base64-encoded or raw) for Android IAP verification | Google Play Console → Setup → API access |
 | `ADMOB_APP_ID` | No | Google AdMob app ID (for rewarded ads in the Expo app) | AdMob → Apps |
 | `RECAPTCHA_SITE_KEY` | No | reCAPTCHA v3 site key (if using reCAPTCHA) | console.cloud.google.com → reCAPTCHA |
 | `RECAPTCHA_SECRET_KEY` | No | reCAPTCHA v3 secret key | console.cloud.google.com → reCAPTCHA |
 | `CLOUDFLARE_TURNSTILE_SITE_KEY` | No | Cloudflare Turnstile site key (preferred over reCAPTCHA) | Cloudflare → Turnstile |
 | `CLOUDFLARE_TURNSTILE_SECRET_KEY` | No | Cloudflare Turnstile secret key | Cloudflare → Turnstile |
-| `CRON_SECRET` | No | Shared secret for CRON endpoint authentication. Required in production. | `openssl rand -hex 32` |
+| `CRON_SECRET` | Prod | Shared secret for CRON endpoint authentication. Required in production. | `openssl rand -hex 32` |
+| `KYC_ENCRYPTION_KEY` | No | 32-byte hex key for AES field-level encryption of KYC data | `openssl rand -hex 32` |
+| `SERVICE_TOKEN` | No | Service-to-service auth token for internal endpoints (e.g. XP award). Defaults to `JWT_SECRET` if unset. | `openssl rand -hex 32` |
+| `TENOR_API_KEY` | No | Tenor GIF API key — enables Tenor GIF search in messages | console.cloud.google.com → Tenor API |
+| `GIPHY_API_KEY` | No | Giphy GIF API key — fallback GIF search | developers.giphy.com |
+| `EXPO_ACCESS_TOKEN` | No | Expo access token for enhanced push notification delivery | expo.dev → Account → Access tokens |
+| `PROFANITY_WORDLIST` | No | Comma-separated list of additional profanity words to block | Custom list |
 | `NEXT_PUBLIC_APP_URL` | Yes | Full public URL of the app (e.g. `https://zobia.social`) | Your domain |
 | `NEXT_PUBLIC_API_URL` | Yes | Full public API URL (e.g. `https://zobia.social/api`) | Your domain |
-| `NEXT_PUBLIC_PWA_WEB_ENABLED` | No | Set to `"false"` to disable PWA/service-worker generation at build time. At runtime the admin can also toggle via x_manifest `pwa_web_enabled`. Default: `"true"` | `"true"` or `"false"` |
-| `SKIP_ENV_VALIDATION` | Build only | Set to `"1"` to bypass env-var validation at build time (e.g. in CI where secrets aren't available). Never set this in production runtime. | `"1"` |
+| `NEXT_PUBLIC_PWA_WEB_ENABLED` | No | Set to `"false"` to disable PWA/service-worker generation at build time. Default: `"true"` | `"true"` or `"false"` |
+| `NODE_ENV` | Auto | Runtime environment — set automatically by Next.js (`development` \| `test` \| `production`) | Set by Next.js |
+| `SKIP_ENV_VALIDATION` | Build only | Set to `"1"` to bypass env-var validation at build time (CI type-check only). Never set in production. | `"1"` |
 | `SECURITY_TEST_BASE_URL` | Testing only | Base URL for security/penetration tests (e.g. `http://localhost:3000`) | Local dev server |
 | `SECURITY_TEST_USER_TOKEN` | Testing only | Valid JWT for a regular (non-admin) test user | Login as test user and copy token |
 | `SECURITY_TEST_ADMIN_TOKEN` | Testing only | Valid JWT for an admin test user | Login as admin and copy token |
