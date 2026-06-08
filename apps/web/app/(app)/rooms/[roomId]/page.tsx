@@ -882,6 +882,12 @@ export default function RoomPage() {
   const esRef = useRef<EventSource | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout>>();
   const lastMessageIdRef = useRef<string | undefined>(undefined);
+  const minGiftSpectacleCoinRef = useRef<number | null | undefined>(undefined);
+
+  // Keep minGiftSpectacleCoin ref in sync so connectSSE always has the latest value
+  useEffect(() => {
+    minGiftSpectacleCoinRef.current = room?.minGiftSpectacleCoin;
+  }, [room?.minGiftSpectacleCoin]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -971,7 +977,7 @@ export default function RoomPage() {
             newMsg.giftEmoji &&
             typeof newMsg.giftAmount === "number"
           ) {
-            const threshold = room?.minGiftSpectacleCoin ?? 50;
+            const threshold = minGiftSpectacleCoinRef.current ?? 50;
             if (newMsg.giftAmount >= threshold) {
               setSpectacle({
                 senderUsername: newMsg.username,
