@@ -25,6 +25,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Screen } from '@/components/ui/Screen';
 import { useTheme } from '@/lib/theme';
@@ -89,13 +90,14 @@ interface ComposeModalProps {
 }
 
 function ComposeModal({ visible, allowance, onClose, onSend, sending }: ComposeModalProps) {
+  const { t } = useTranslation();
   const [subject, setSubject] = useState('');
   const [content, setContent] = useState('');
   const { colors: themeColors } = useTheme();
 
   const handleSend = () => {
     if (!content.trim()) {
-      Alert.alert('Error', 'Message content cannot be empty.');
+      Alert.alert(t('broadcasts.errorTitle'), t('broadcasts.errorEmpty'));
       return;
     }
     onSend(subject.trim(), content.trim());
@@ -120,15 +122,19 @@ function ComposeModal({ visible, allowance, onClose, onSend, sending }: ComposeM
       >
         {/* Header */}
         <View style={[styles.composeHeader, { borderBottomColor: themeColors.border }]}>
-          <Pressable onPress={reset} accessibilityRole="button" accessibilityLabel="Cancel">
-            <Text style={[styles.composeCancel, { color: themeColors.textMuted }]}>Cancel</Text>
+          <Pressable onPress={reset} accessibilityRole="button" accessibilityLabel={t('broadcasts.composeCancel')}>
+            <Text style={[styles.composeCancel, { color: themeColors.textMuted }]}>
+              {t('broadcasts.composeCancel')}
+            </Text>
           </Pressable>
-          <Text style={[styles.composeTitle, { color: themeColors.text }]}>Send Broadcast</Text>
+          <Text style={[styles.composeTitle, { color: themeColors.text }]}>
+            {t('broadcasts.composeTitle')}
+          </Text>
           <Pressable
             onPress={handleSend}
             disabled={sending || !content.trim()}
             accessibilityRole="button"
-            accessibilityLabel="Send broadcast"
+            accessibilityLabel={t('broadcasts.composeSend')}
           >
             <Text
               style={[
@@ -136,7 +142,7 @@ function ComposeModal({ visible, allowance, onClose, onSend, sending }: ComposeM
                 { color: content.trim() && !sending ? colors.brand.blue : themeColors.textMuted },
               ]}
             >
-              {sending ? 'Sending…' : 'Send'}
+              {sending ? t('broadcasts.composeSending') : t('broadcasts.composeSend')}
             </Text>
           </Pressable>
         </View>
@@ -145,11 +151,13 @@ function ComposeModal({ visible, allowance, onClose, onSend, sending }: ComposeM
         <View style={[styles.allowanceBanner, { backgroundColor: themeColors.surface }]}>
           {allowance.freeRemaining > 0 ? (
             <Text style={[styles.allowanceText, { color: themeColors.textMuted }]}>
-              {allowance.freeRemaining} free broadcast{allowance.freeRemaining !== 1 ? 's' : ''} remaining this month
+              {allowance.freeRemaining === 1
+                ? t('broadcasts.freeBannerSingle', { count: allowance.freeRemaining })
+                : t('broadcasts.freeBannerPlural', { count: allowance.freeRemaining })}
             </Text>
           ) : (
             <Text style={[styles.allowanceText, { color: themeColors.textMuted }]}>
-              No free broadcasts left. Next send costs {allowance.additionalCoinCost.toLocaleString()} 🪙
+              {t('broadcasts.noFreeLeft', { count: allowance.additionalCoinCost.toLocaleString() })}
             </Text>
           )}
         </View>
@@ -158,7 +166,7 @@ function ComposeModal({ visible, allowance, onClose, onSend, sending }: ComposeM
         <View style={styles.composeForm}>
           <TextInput
             style={[styles.subjectInput, { color: themeColors.text, borderBottomColor: themeColors.border }]}
-            placeholder="Subject (optional)"
+            placeholder={t('broadcasts.subjectPlaceholder')}
             placeholderTextColor={themeColors.textMuted}
             value={subject}
             onChangeText={setSubject}
@@ -167,7 +175,7 @@ function ComposeModal({ visible, allowance, onClose, onSend, sending }: ComposeM
           />
           <TextInput
             style={[styles.bodyInput, { color: themeColors.text }]}
-            placeholder="Write your broadcast message…"
+            placeholder={t('broadcasts.bodyPlaceholder')}
             placeholderTextColor={themeColors.textMuted}
             value={content}
             onChangeText={setContent}
@@ -176,7 +184,7 @@ function ComposeModal({ visible, allowance, onClose, onSend, sending }: ComposeM
             autoFocus
           />
           <Text style={[styles.charCount, { color: content.length > 950 ? colors.semantic.error : themeColors.textMuted }]}>
-            {content.length} / 1000
+            {t('broadcasts.charCount', { current: content.length })}
           </Text>
         </View>
       </KeyboardAvoidingView>
@@ -189,8 +197,9 @@ function ComposeModal({ visible, allowance, onClose, onSend, sending }: ComposeM
 // ---------------------------------------------------------------------------
 
 function BroadcastRow({ broadcast }: { broadcast: Broadcast }) {
+  const { t } = useTranslation();
   const { colors: themeColors } = useTheme();
-  const date = new Date(broadcast.createdAt).toLocaleDateString('en-GB', {
+  const date = new Date(broadcast.createdAt).toLocaleDateString(undefined, {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
@@ -208,7 +217,7 @@ function BroadcastRow({ broadcast }: { broadcast: Broadcast }) {
       </Text>
       <View style={styles.broadcastMeta}>
         <Text style={[styles.broadcastMetaText, { color: themeColors.textMuted }]}>
-          {broadcast.recipientCount.toLocaleString()} recipients · {date}
+          {t('broadcasts.recipientsDate', { count: broadcast.recipientCount.toLocaleString(), date })}
         </Text>
         {broadcast.costCoins > 0 && (
           <Text style={[styles.broadcastCost, { color: themeColors.textMuted }]}>
@@ -225,6 +234,7 @@ function BroadcastRow({ broadcast }: { broadcast: Broadcast }) {
 // ---------------------------------------------------------------------------
 
 export default function BroadcastsScreen() {
+  const { t } = useTranslation();
   const { colors: themeColors } = useTheme();
   const queryClient = useQueryClient();
   const [composing, setComposing] = useState(false);
@@ -239,12 +249,12 @@ export default function BroadcastsScreen() {
     onSuccess: (result) => {
       if (result.requiresConfirmation) {
         Alert.alert(
-          'Confirm Broadcast',
-          `Sending this broadcast costs ${result.costCoins.toLocaleString()} coins (₦200). Confirm?`,
+          t('broadcasts.confirmTitle'),
+          t('broadcasts.confirmBody', { count: result.costCoins.toLocaleString() }),
           [
-            { text: 'Cancel', style: 'cancel' },
+            { text: t('broadcasts.confirmCancel'), style: 'cancel' },
             {
-              text: 'Confirm & Send',
+              text: t('broadcasts.confirmSend'),
               onPress: () => {
                 sendMutation.mutate({ ...pendingPayload!, confirmPayment: true });
               },
@@ -256,10 +266,13 @@ export default function BroadcastsScreen() {
       setComposing(false);
       setPendingPayload(null);
       queryClient.invalidateQueries({ queryKey: ['creator-broadcasts'] });
-      Alert.alert('Sent!', `Broadcast delivered to ${result.broadcast.recipientCount.toLocaleString()} followers.`);
+      Alert.alert(
+        t('broadcasts.sentTitle'),
+        t('broadcasts.sentBody', { count: result.broadcast.recipientCount.toLocaleString() })
+      );
     },
     onError: (err: Error) => {
-      Alert.alert('Error', err.message ?? 'Failed to send broadcast.');
+      Alert.alert(t('broadcasts.errorTitle'), err.message ?? t('broadcasts.errorFailed'));
     },
   });
 
@@ -290,7 +303,7 @@ export default function BroadcastsScreen() {
       <Screen>
         <View style={styles.centerState}>
           <Text style={[styles.errorText, { color: themeColors.textMuted }]}>
-            Could not load broadcasts. You may need to be a Rising tier creator or above.
+            {t('broadcasts.loadError')}
           </Text>
         </View>
       </Screen>
@@ -310,13 +323,13 @@ export default function BroadcastsScreen() {
               <Text style={[styles.allowanceCount, { color: themeColors.text }]}>
                 {allowance.freeRemaining}
                 <Text style={[styles.allowanceTotal, { color: themeColors.textMuted }]}>
-                  {' '}/ {allowance.freeTotal} free
+                  {t('broadcasts.allowanceFree', { total: allowance.freeTotal })}
                 </Text>
               </Text>
               <Text style={[styles.allowanceTier, { color: themeColors.textMuted }]}>
-                {allowance.tier} tier
+                {t('broadcasts.allowanceTier', { tier: allowance.tier })}
                 {allowance.additionalCoinCost > 0
-                  ? ` · Additional: ${allowance.additionalCoinCost.toLocaleString()} 🪙`
+                  ? t('broadcasts.additionalCost', { count: allowance.additionalCoinCost.toLocaleString() })
                   : ''}
               </Text>
             </View>
@@ -325,9 +338,9 @@ export default function BroadcastsScreen() {
                 style={[styles.sendBtn, { backgroundColor: colors.brand.blue }]}
                 onPress={() => setComposing(true)}
                 accessibilityRole="button"
-                accessibilityLabel="Compose broadcast"
+                accessibilityLabel={t('broadcasts.composeTitle')}
               >
-                <Text style={styles.sendBtnText}>+ Broadcast</Text>
+                <Text style={styles.sendBtnText}>{t('broadcasts.sendBtnLabel')}</Text>
               </Pressable>
             )}
           </View>
@@ -356,9 +369,11 @@ export default function BroadcastsScreen() {
         ListEmptyComponent={() => (
           <View style={styles.emptyState}>
             <Text style={styles.emptyEmoji}>📢</Text>
-            <Text style={[styles.emptyTitle, { color: themeColors.text }]}>No broadcasts yet</Text>
+            <Text style={[styles.emptyTitle, { color: themeColors.text }]}>
+              {t('broadcasts.emptyTitle')}
+            </Text>
             <Text style={[styles.emptyDesc, { color: themeColors.textMuted }]}>
-              Send a message to all your followers at once.
+              {t('broadcasts.emptyDesc')}
             </Text>
           </View>
         )}
