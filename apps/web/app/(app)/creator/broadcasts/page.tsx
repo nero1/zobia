@@ -98,7 +98,7 @@ function ComposeModal({ allowance, onSend, onClose, sending }: ComposeModalProps
               </span>
             ) : (
               <span>
-                {t("creator.broadcasts.noFreeLeft", { count: allowance.additionalCoinCost.toLocaleString() })}
+                {t("creator.broadcasts.noFreeLeft", { amount: allowance.additionalCoinCost.toLocaleString() })}
               </span>
             )}
           </div>
