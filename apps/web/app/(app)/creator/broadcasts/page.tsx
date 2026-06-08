@@ -71,7 +71,6 @@ function ComposeModal({ allowance, onSend, onClose, sending }: ComposeModalProps
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLocalError(null);
-    if (!subject.trim()) { setLocalError("Subject is required"); return; }
     if (!body.trim()) { setLocalError("Message body is required"); return; }
     if (body.length > 1000) { setLocalError("Message must be 1000 characters or fewer"); return; }
     await onSend(subject.trim(), body.trim());
@@ -116,7 +115,7 @@ function ComposeModal({ allowance, onSend, onClose, sending }: ComposeModalProps
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="mb-1 block text-xs font-semibold text-neutral-700 dark:text-neutral-300">Subject</label>
+              <label className="mb-1 block text-xs font-semibold text-neutral-700 dark:text-neutral-300">Subject <span className="font-normal text-neutral-400">(optional)</span></label>
               <input
                 type="text"
                 value={subject}
