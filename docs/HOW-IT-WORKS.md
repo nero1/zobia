@@ -776,3 +776,71 @@ This snapshot is what powers the "Season Leaderboard snapshot published (every S
 **Exception:** `lib/db/providers/supabase.ts` and `lib/storage/providers/supabase-storage.ts` are exempted via the `overrides` config — these are the only two files permitted to use the Supabase SDK directly.
 
 This enforces the PRD §22.1 requirement: when `DATABASE_PROVIDER != 'supabase'`, no Supabase SDK code is reachable through any import path.
+
+---
+
+## Internationalisation & RTL Support (PRD §21)
+
+The Expo app supports 8 languages: English (`en`), French (`fr`), Arabic (`ar`), Hausa (`ha`), Swahili (`sw`), Amharic (`am`), Zulu (`zu`), and Portuguese (`pt`).
+
+Locale files live at `apps/expo/lib/i18n/locales/<lang>.json`. All locale files use a **nested JSON** structure matching the top-level namespace objects in `en.json` (23 namespaces, ~352 keys). i18next is initialised with `compatibilityJSON: 'v4'`.
+
+### Arabic RTL
+
+`apps/expo/lib/i18n/rtl.ts` exposes `setupRTL(locale)` which calls `I18nManager.forceRTL(true)` for Arabic and `forceRTL(false)` for all other locales. This is called automatically at app startup in `apps/expo/lib/i18n/index.ts` after i18n initialisation, and re-called whenever the language changes at runtime via the `i18n.on('languageChanged', ...)` listener. A full app reload is required for native-side RTL mirroring to take effect.
+
+---
+
+## Room Powers (PRD §11)
+
+Room Powers are coin-purchasable in-room enhancements available to the room creator:
+
+| Power | Cost | Effect |
+|---|---|---|
+| `room_spotlight` | 500 Coins | Boosts room in discovery for up to 72 hours |
+| `member_highlight` | 200 Coins | Highlights a chosen member in the room for up to 8 hours |
+| `message_pin` | 100 Coins | Pins a message (creator or co-moderator only) |
+
+The backend is at `POST /api/rooms/[roomId]/powers`. The Expo room screen (`apps/expo/app/rooms/[roomId].tsx`) shows a "Room Powers" button for room creators. Tapping "Highlight Member" opens an inline username input. The app resolves the username to a UUID via `GET /api/users/search`, then posts to the powers endpoint.
+
+---
+
+## Google Play Annual Subscriptions
+
+The Expo subscription screen (`apps/expo/app/settings/subscription.tsx`) supports both monthly and annual billing via a toggle. Annual plans offer 2 months free.
+
+Play Store product IDs:
+
+| Plan | Monthly | Annual |
+|---|---|---|
+| Plus | `sub_plus_monthly` | `sub_plus_annual` |
+| Pro | `sub_pro_monthly` | `sub_pro_annual` |
+| Max | `sub_max_monthly` | `sub_max_annual` |
+
+Annual product IDs must be created in the Google Play Console. The verification endpoint (`/api/economy/iap/verify`) handles both monthly and annual subscription tokens identically — the `isSubscription: true` flag distinguishes them from one-time coin purchases.
+
+---
+
+## Cultural Vitality Calendar (PRD §25)
+
+Platform events with XP multipliers are seeded in the `platform_events` table. The complete 2026 calendar includes:
+
+| Event | Dates | Effect |
+|---|---|---|
+| New Year Hustle Season | Jan 1–7 | 1.5× XP |
+| Black History Month | Feb 1–28 | 1.25× XP |
+| Valentine's Gift Weekend | Feb 13–15 | 2× gift XP |
+| International Women's Month | Mar 1–7 | 1.5× XP (female creators) |
+| Eid al-Fitr | Mar 30–31 | 2× gift XP |
+| Easter Weekend | Apr 3–5 | 2× gift XP |
+| Labour Day | May 1 | 1.5× XP |
+| Africa Freedom Day | May 25 | 2× XP |
+| Eid al-Adha | Jun 6–8 | 2× gift XP |
+| African Union Day | Jul 10–12 | 1.5× XP + alliance bonus |
+| Nigerian Independence Day | Oct 1 | 2× XP |
+| Kwanzaa Week | Dec 26–Jan 1 | 1.5× XP |
+| Detty December | All December | 1.5× XP |
+| New Year Countdown | Dec 31 23:00–Jan 1 01:00 | 3× XP |
+| AFCON Season | Jan–Feb | 1.5× competitor XP + guild war bonus |
+
+Events are stored with JSONB `metadata` for event-specific flags (e.g. `gift_xp_multiplier`, `female_creator_only`, `guild_war_points_multiplier`). The XP engine and CRON handlers read active `platform_events` and apply the appropriate multipliers at award time.

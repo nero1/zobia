@@ -222,6 +222,10 @@ export default function RoomScreen() {
   const [isMoment, setIsMoment] = useState(false);
   // Gift spectacle state: holds the active spectacle data (null = not showing)
   const [spectacle, setSpectacle] = useState<GiftSpectacleData | null>(null);
+  // Member Highlight state
+  const [highlightMode, setHighlightMode] = useState(false);
+  const [highlightUsername, setHighlightUsername] = useState('');
+  const [highlightPending, setHighlightPending] = useState(false);
 
   // Fetch room meta
   const { data: room, isLoading: roomLoading } = useQuery({
@@ -315,6 +319,35 @@ export default function RoomScreen() {
     // Opens reaction picker — placeholder
     console.log('Long press', messageId);
   }, []);
+
+  const handleHighlightConfirm = useCallback(async () => {
+    const username = highlightUsername.trim();
+    if (!username || !roomId) return;
+    setHighlightPending(true);
+    try {
+      // Resolve username → userId
+      const { data: searchData } = await apiClient.get(
+        `/api/users/search?q=${encodeURIComponent(username)}&limit=1`
+      );
+      const target = searchData?.users?.[0];
+      if (!target?.id) {
+        Alert.alert('Not found', `No user found with username "${username}".`);
+        return;
+      }
+      await apiClient.post(`/api/rooms/${roomId}/powers`, {
+        power: 'member_highlight',
+        targetUserId: target.id,
+        durationMinutes: 60,
+      });
+      setHighlightMode(false);
+      setHighlightUsername('');
+      Alert.alert('Highlighted!', `@${username} is now highlighted in this room for 1 hour.`);
+    } catch (e) {
+      Alert.alert('Error', (e as Error).message ?? 'Could not highlight member.');
+    } finally {
+      setHighlightPending(false);
+    }
+  }, [highlightUsername, roomId]);
 
   const renderMessage = useCallback(
     ({ item }: { item: Message }) => {
@@ -438,6 +471,35 @@ export default function RoomScreen() {
           ]}
         >
           <XPBadge visible={xpFlash} />
+          {/* Member Highlight inline input */}
+          {highlightMode && (
+            <View style={[styles.highlightBar, { backgroundColor: isDark ? colors.neutral[800] : '#f3f0ff', borderColor: themeColors.border }]}>
+              <Text style={[styles.highlightLabel, { color: themeColors.text }]}>👑 Highlight username:</Text>
+              <TextInput
+                style={[styles.highlightInput, { backgroundColor: isDark ? colors.neutral[700] : '#fff', color: themeColors.text }]}
+                placeholder="username"
+                placeholderTextColor={themeColors.textMuted}
+                value={highlightUsername}
+                onChangeText={setHighlightUsername}
+                autoCapitalize="none"
+                autoCorrect={false}
+                editable={!highlightPending}
+              />
+              <Pressable
+                style={[styles.highlightConfirmBtn, { backgroundColor: colors.brand.blue, opacity: highlightPending ? 0.6 : 1 }]}
+                onPress={handleHighlightConfirm}
+                disabled={highlightPending || !highlightUsername.trim()}
+              >
+                <Text style={styles.highlightConfirmText}>{highlightPending ? '…' : 'Go'}</Text>
+              </Pressable>
+              <Pressable
+                style={styles.highlightCancelBtn}
+                onPress={() => { setHighlightMode(false); setHighlightUsername(''); }}
+              >
+                <Text style={[styles.highlightCancelText, { color: themeColors.textMuted }]}>✕</Text>
+              </Pressable>
+            </View>
+          )}
           {/* Moment label above input */}
           {isMoment && (
             <View style={styles.momentActiveLabel}>
@@ -508,7 +570,7 @@ export default function RoomScreen() {
                     },
                     {
                       text: '👑 Highlight Member (200 🪙)',
-                      onPress: () => Alert.alert('Coming soon', 'Enter a username to highlight.'),
+                      onPress: () => setHighlightMode(true),
                     },
                     { text: 'Cancel', style: 'cancel' },
                   ]
@@ -738,6 +800,39 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#7c3aed',
   },
+
+  // Member Highlight bar
+  highlightBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: 8,
+  },
+  highlightLabel: { fontSize: 12, fontWeight: '600', flexShrink: 0 },
+  highlightInput: {
+    flex: 1,
+    height: 34,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    fontSize: 13,
+  },
+  highlightConfirmBtn: {
+    height: 34,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  highlightConfirmText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  highlightCancelBtn: {
+    width: 30,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  highlightCancelText: { fontSize: 16, fontWeight: '700' },
 
   // Skeleton
   skeletonContainer: { flex: 1, padding: 16, gap: 12 },
