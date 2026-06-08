@@ -35,7 +35,7 @@ export const PATCH = withAuth(
         `SELECT COALESCE(is_admin, false) AS is_admin FROM users WHERE id = $1 LIMIT 1`,
         [auth.user.sub]
       );
-      if (!adminRows[0]?.is_admin) return forbidden("Admin access required");
+      if (!adminRows[0]?.is_admin) throw forbidden("Admin access required");
 
       // Verify target user exists
       const { rows: targetRows } = await db.query<{ id: string; season_xp: number; username: string }>(
@@ -43,7 +43,7 @@ export const PATCH = withAuth(
          FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
         [userId]
       );
-      if (!targetRows[0]) return notFound("User not found");
+      if (!targetRows[0]) throw notFound("User not found");
 
       const body = await validateBody(req, patchSchema);
       const previousXp = targetRows[0].season_xp;
