@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * app/api/classroom/[roomId]/quizzes/[quizId]/attempt/route.ts
  *

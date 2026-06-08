@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * app/api/admin/automated-actions/[actionId]/reverse/route.ts
  *

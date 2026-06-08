@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * app/api/admin/announcements/banners/[bannerId]/route.ts
  *

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * app/api/seasons/[seasonId]/pass/milestones/[milestoneId]/claim/route.ts
  *

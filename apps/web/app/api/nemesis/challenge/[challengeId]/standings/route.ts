@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * app/api/nemesis/challenge/[challengeId]/standings/route.ts
  *

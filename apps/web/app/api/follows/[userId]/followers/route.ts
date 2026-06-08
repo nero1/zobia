@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/follows/[userId]/followers
  * Returns followers of a given user (paginated).

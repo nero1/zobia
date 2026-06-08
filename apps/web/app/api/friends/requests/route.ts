@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/friends/requests — list incoming pending friend requests.
  */

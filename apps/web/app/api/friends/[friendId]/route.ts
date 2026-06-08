@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * Individual friendship management — accept, reject, block, or remove.
  */

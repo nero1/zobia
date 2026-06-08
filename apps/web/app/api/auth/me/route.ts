@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAccessToken, extractBearerToken } from '@/lib/auth/jwt';
 import { getSession, ACCESS_TOKEN_COOKIE } from '@/lib/auth/session';

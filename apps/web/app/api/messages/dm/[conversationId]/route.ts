@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * app/api/messages/dm/[conversationId]/route.ts
  *

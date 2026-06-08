@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * app/api/economy/reaction-sets/[setId]/use/route.ts
  *

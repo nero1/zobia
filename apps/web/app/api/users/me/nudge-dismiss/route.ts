@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * app/api/users/me/nudge-dismiss/route.ts
  *

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * app/api/council/ideas/[ideaId]/vote/route.ts
  *
