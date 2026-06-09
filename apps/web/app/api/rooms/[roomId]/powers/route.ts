@@ -115,9 +115,10 @@ export const POST = withAuth<RoomParams>(async (req: NextRequest, { params, auth
         [newBalance, userId]
       );
       await client.query(
-        `INSERT INTO coin_ledger (user_id, amount, transaction_type, reference_id, created_at)
-         VALUES ($1, $2, 'room_power', $3, NOW())`,
-        [userId, -coinCost, `${body.power}:${roomId}`]
+        `INSERT INTO coin_ledger
+           (user_id, amount, balance_before, balance_after, transaction_type, reference_id, created_at)
+         VALUES ($1, $2, $3, $4, 'room_power', $5, NOW())`,
+        [userId, -coinCost, user.coin_balance, newBalance, `${body.power}:${roomId}`]
       );
 
       // 4. Apply power

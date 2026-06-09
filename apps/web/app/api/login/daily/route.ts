@@ -26,6 +26,7 @@ import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
 import { withAuth, type AuthContext } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
+import { creditCoins } from "@/lib/economy/coins";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -206,10 +207,13 @@ export const POST = withAuth(async (req: NextRequest, { auth }: { params: Record
       );
 
       for (const bonus of pendingBonuses) {
-        await db.query(
-          `INSERT INTO coin_ledger (user_id, amount, transaction_type, reference_id, description, created_at)
-           VALUES ($1, 0, 'comeback_bonus_claimed', $2, 'Comeback bonus claimed on login', NOW())`,
-          [userId, bonus.id]
+        await creditCoins(
+          userId,
+          bonus.amount,
+          "comeback_bonus",
+          bonus.id,
+          "Comeback bonus claimed on login",
+          null
         );
         comebackBonusClaimed += bonus.amount;
       }
