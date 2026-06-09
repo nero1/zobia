@@ -5,7 +5,7 @@
  *
  * Supports two providers selected via REDIS_PROVIDER:
  *   - "ioredis"  – standard Redis / Valkey via ioredis (self-hosted, Railway, DO)
- *   - "upstash"  – Upstash serverless Redis via their REST-compatible ioredis shim
+ *   - "upstash"  – Upstash serverless Redis via @upstash/redis (HTTP-based, Vercel)
  *
  * Always import `redis` from this module.  Never instantiate a client directly.
  *
@@ -18,6 +18,7 @@
  */
 
 import IORedis from "ioredis";
+import type { Redis as UpstashRedisType } from "@upstash/redis";
 import { env } from "@/lib/env";
 
 // ---------------------------------------------------------------------------
@@ -26,7 +27,7 @@ import { env } from "@/lib/env";
 
 /**
  * Minimal Redis command interface the application depends on.
- * Both ioredis and the Upstash ioredis shim satisfy this.
+ * Both providers implement this interface (ioredis natively, Upstash via adapter).
  */
 export interface RedisClient {
   get(key: string): Promise<string | null>;
@@ -59,7 +60,7 @@ export interface RedisClient {
 // Build-time stub
 // ---------------------------------------------------------------------------
 
-// During Next.js static build, Redis is unavailable. Return a no-op stub so
+// During Next.js static build Redis is unavailable — return a no-op stub so
 // pages can be generated without hanging on connection timeouts.
 const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 
@@ -72,7 +73,7 @@ const buildStub: RedisClient = new Proxy({} as RedisClient, {
 });
 
 // ---------------------------------------------------------------------------
-// ioredis factory
+// ioredis provider (self-hosted Redis, Railway, DigitalOcean, etc.)
 // ---------------------------------------------------------------------------
 
 let _ioredisClient: IORedis | null = null;
@@ -89,7 +90,6 @@ function createIoRedisClient(): IORedis {
     enableReadyCheck: true,
     lazyConnect: true,
     connectTimeout: 8_000,
-    // Reconnect with exponential back-off capped at 10 s
     retryStrategy: (times) => Math.min(times * 200, 10_000),
   });
 
@@ -107,19 +107,132 @@ function createIoRedisClient(): IORedis {
 }
 
 // ---------------------------------------------------------------------------
-// Upstash factory
+// Upstash adapter
+//
+// @upstash/redis uses a different calling convention than ioredis:
+//   - set(key, value, { ex: n })  instead of  set(key, value, 'EX', n)
+//   - hset(key, { field: value }) instead of  hset(key, field, value)
+//   - sismember returns boolean   instead of  0 | 1
+//
+// UpstashAdapter wraps the @upstash/redis client and translates each call
+// to match the RedisClient interface so the rest of the app is unaware.
 // ---------------------------------------------------------------------------
 
-let _upstashClient: IORedis | null = null;
+class UpstashAdapter implements RedisClient {
+  constructor(private readonly client: UpstashRedisType) {}
 
-/**
- * Upstash exposes a Redis-compatible REST endpoint.
- * We use ioredis pointed at the Upstash REST URL with token auth.
- * Upstash also provides an @upstash/redis package, but ioredis keeps the
- * interface uniform across providers.
- */
-function createUpstashClient(): IORedis {
-  if (_upstashClient) return _upstashClient;
+  get(key: string): Promise<string | null> {
+    return this.client.get<string>(key);
+  }
+
+  set(key: string, value: string, exMode?: "EX" | "PX", ttl?: number): Promise<"OK" | null> {
+    if (exMode === "EX" && ttl !== undefined) {
+      return this.client.set(key, value, { ex: ttl }) as Promise<"OK" | null>;
+    }
+    if (exMode === "PX" && ttl !== undefined) {
+      return this.client.set(key, value, { px: ttl }) as Promise<"OK" | null>;
+    }
+    return this.client.set(key, value) as Promise<"OK" | null>;
+  }
+
+  async setex(key: string, seconds: number, value: string): Promise<"OK"> {
+    await this.client.set(key, value, { ex: seconds });
+    return "OK";
+  }
+
+  del(...keys: string[]): Promise<number> {
+    if (keys.length === 0) return Promise.resolve(0);
+    return this.client.del(...(keys as [string, ...string[]]));
+  }
+
+  exists(...keys: string[]): Promise<number> {
+    if (keys.length === 0) return Promise.resolve(0);
+    return this.client.exists(...(keys as [string, ...string[]]));
+  }
+
+  expire(key: string, seconds: number): Promise<number> {
+    return this.client.expire(key, seconds) as Promise<number>;
+  }
+
+  ttl(key: string): Promise<number> {
+    return this.client.ttl(key);
+  }
+
+  keys(pattern: string): Promise<string[]> {
+    return this.client.keys(pattern);
+  }
+
+  hset(key: string, field: string, value: string): Promise<number> {
+    return this.client.hset(key, { [field]: value });
+  }
+
+  hget(key: string, field: string): Promise<string | null> {
+    return this.client.hget<string>(key, field);
+  }
+
+  hdel(key: string, ...fields: string[]): Promise<number> {
+    return this.client.hdel(key, ...fields);
+  }
+
+  hgetall(key: string): Promise<Record<string, string> | null> {
+    return this.client.hgetall(key) as Promise<Record<string, string> | null>;
+  }
+
+  sadd(key: string, ...members: string[]): Promise<number> {
+    const [first, ...rest] = members;
+    if (first === undefined) return Promise.resolve(0);
+    return this.client.sadd(key, first, ...rest);
+  }
+
+  srem(key: string, ...members: string[]): Promise<number> {
+    const [first, ...rest] = members;
+    if (first === undefined) return Promise.resolve(0);
+    return this.client.srem(key, first, ...rest);
+  }
+
+  smembers(key: string): Promise<string[]> {
+    return this.client.smembers(key) as Promise<string[]>;
+  }
+
+  async sismember(key: string, member: string): Promise<number> {
+    const result = await this.client.sismember(key, member);
+    return result ? 1 : 0;
+  }
+
+  incr(key: string): Promise<number> {
+    return this.client.incr(key);
+  }
+
+  decr(key: string): Promise<number> {
+    return this.client.decr(key);
+  }
+
+  incrby(key: string, increment: number): Promise<number> {
+    return this.client.incrby(key, increment);
+  }
+
+  decrby(key: string, decrement: number): Promise<number> {
+    return this.client.decrby(key, decrement);
+  }
+
+  async ping(): Promise<string> {
+    return this.client.ping();
+  }
+
+  async quit(): Promise<"OK"> {
+    // @upstash/redis is stateless HTTP — no persistent connection to close
+    return "OK";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Upstash provider factory
+// ---------------------------------------------------------------------------
+
+let _upstashAdapter: UpstashAdapter | null = null;
+
+function createUpstashClient(): UpstashAdapter {
+  if (_upstashAdapter) return _upstashAdapter;
 
   if (!env.UPSTASH_REDIS_REST_URL || !env.UPSTASH_REDIS_REST_TOKEN) {
     throw new Error(
@@ -128,23 +241,17 @@ function createUpstashClient(): IORedis {
     );
   }
 
-  // Upstash REST URL looks like: https://xxx.upstash.io
-  // Convert to redis:// for ioredis by using the TLS endpoint on 6380
-  const restUrl = new URL(env.UPSTASH_REDIS_REST_URL);
-  const redisUrl = `rediss://:${env.UPSTASH_REDIS_REST_TOKEN}@${restUrl.hostname}:6380`;
+  // Dynamic require keeps @upstash/redis out of the ioredis bundle
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { Redis } = require("@upstash/redis") as typeof import("@upstash/redis");
 
-  _upstashClient = new IORedis(redisUrl, {
-    tls: {},
-    maxRetriesPerRequest: 3,
-    connectTimeout: 10_000,
-    retryStrategy: (times) => Math.min(times * 300, 15_000),
+  const client = new Redis({
+    url: env.UPSTASH_REDIS_REST_URL,
+    token: env.UPSTASH_REDIS_REST_TOKEN,
   });
 
-  _upstashClient.on("error", (err) => {
-    console.error("[redis:upstash] error", err);
-  });
-
-  return _upstashClient;
+  _upstashAdapter = new UpstashAdapter(client);
+  return _upstashAdapter;
 }
 
 // ---------------------------------------------------------------------------
@@ -165,7 +272,7 @@ export function getRedisClient(): RedisClient {
     case "ioredis":
       return createIoRedisClient() as unknown as RedisClient;
     case "upstash":
-      return createUpstashClient() as unknown as RedisClient;
+      return createUpstashClient();
     default: {
       const _exhaustive: never = env.REDIS_PROVIDER;
       throw new Error(`[redis] Unknown REDIS_PROVIDER: ${String(_exhaustive)}`);
@@ -190,15 +297,12 @@ export const redis: RedisClient = new Proxy({} as RedisClient, {
 
 /**
  * Close the Redis connection gracefully.
- * Call this on process exit to avoid connection leaks.
+ * Only meaningful for ioredis — Upstash is stateless HTTP.
  */
 export async function closeRedis(): Promise<void> {
   if (_ioredisClient) {
     await _ioredisClient.quit();
     _ioredisClient = null;
   }
-  if (_upstashClient) {
-    await _upstashClient.quit();
-    _upstashClient = null;
-  }
+  _upstashAdapter = null;
 }
