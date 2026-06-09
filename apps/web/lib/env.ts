@@ -46,7 +46,8 @@ const envSchema = z.object({
   PUSHER_CLUSTER: z.string().optional(),
 
   // ---- Redis --------------------------------------------------------------
-  REDIS_URL: z.string().min(1, "REDIS_URL is required"),
+  // REDIS_URL is required for ioredis; Upstash uses UPSTASH_REDIS_REST_URL + TOKEN instead.
+  REDIS_URL: z.string().optional(),
   REDIS_PROVIDER: z.enum(["ioredis", "upstash"]),
   UPSTASH_REDIS_REST_URL: z.string().url().optional(),
   UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
