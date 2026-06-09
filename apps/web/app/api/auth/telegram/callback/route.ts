@@ -148,12 +148,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       ? new URL("/home", env.NEXT_PUBLIC_APP_URL)
       : new URL("/onboarding", env.NEXT_PUBLIC_APP_URL);
 
-    return NextResponse.redirect(destination, {
-      status: 302,
-      headers: {
-        "Set-Cookie": [accessCookie, refreshCookie].join(", "),
-      },
-    });
+    const response = NextResponse.redirect(destination, { status: 302 });
+    response.headers.append("Set-Cookie", accessCookie);
+    response.headers.append("Set-Cookie", refreshCookie);
+    return response;
   } catch (err) {
     return handleApiError(err);
   }
