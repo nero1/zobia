@@ -18,7 +18,7 @@
  */
 
 import IORedis from "ioredis";
-import type { Redis as UpstashRedisType } from "@upstash/redis";
+import { Redis as UpstashRedis } from "@upstash/redis";
 import { env } from "@/lib/env";
 
 // ---------------------------------------------------------------------------
@@ -119,7 +119,7 @@ function createIoRedisClient(): IORedis {
 // ---------------------------------------------------------------------------
 
 class UpstashAdapter implements RedisClient {
-  constructor(private readonly client: UpstashRedisType) {}
+  constructor(private readonly client: UpstashRedis) {}
 
   get(key: string): Promise<string | null> {
     return this.client.get<string>(key);
@@ -241,11 +241,7 @@ function createUpstashClient(): UpstashAdapter {
     );
   }
 
-  // Dynamic require keeps @upstash/redis out of the ioredis bundle
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { Redis } = require("@upstash/redis") as typeof import("@upstash/redis");
-
-  const client = new Redis({
+  const client = new UpstashRedis({
     url: env.UPSTASH_REDIS_REST_URL,
     token: env.UPSTASH_REDIS_REST_TOKEN,
   });
