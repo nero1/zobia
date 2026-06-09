@@ -109,8 +109,8 @@ function extractToken(req: NextRequest): string | null {
  * @returns Next.js compatible route handler
  */
 export function withAuth<TParams = Record<string, string>>(
-  handler: (req: NextRequest, ctx: { params: TParams; auth: any }) => Promise<NextResponse | ApiError> // eslint-disable-line
-): (req: NextRequest, ctx: { params: TParams }) => Promise<NextResponse> {
+  handler: (req: NextRequest, ctx: { params: any; auth: any }) => Promise<NextResponse | ApiError> // eslint-disable-line
+): (req: NextRequest, ctx: { params: Promise<TParams> }) => Promise<NextResponse> {
   return async (req, ctx) => {
     try {
       const token = extractToken(req);
@@ -175,8 +175,8 @@ export function withAuth<TParams = Record<string, string>>(
  * @returns Next.js compatible route handler
  */
 export function withAdminAuth<TParams = Record<string, string>>(
-  handler: (req: NextRequest, ctx: { params: TParams; auth: any }) => Promise<NextResponse | ApiError> // eslint-disable-line
-): (req: NextRequest, ctx: { params: TParams }) => Promise<NextResponse> {
+  handler: (req: NextRequest, ctx: { params: any; auth: any }) => Promise<NextResponse | ApiError> // eslint-disable-line
+): (req: NextRequest, ctx: { params: Promise<TParams> }) => Promise<NextResponse> {
   return async (req, ctx) => {
     try {
       const token = extractToken(req);
@@ -228,9 +228,9 @@ export function withAdminAuth<TParams = Record<string, string>>(
  * @returns Next.js compatible route handler
  */
 export function withRateLimit<TParams = Record<string, string>>(
-  handler: (req: NextRequest, ctx: { params: TParams }) => Promise<NextResponse>,
+  handler: (req: NextRequest, ctx: { params: any }) => Promise<NextResponse>,
   options: RateLimitOptions
-): (req: NextRequest, ctx: { params: TParams }) => Promise<NextResponse> {
+): (req: NextRequest, ctx: { params: Promise<TParams> }) => Promise<NextResponse> {
   return async (req, ctx) => {
     try {
       // Try to extract user identity for per-user limiting
