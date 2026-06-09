@@ -94,6 +94,7 @@ export default function AdminOverviewScreen() {
           { label: "Platform Events", route: "/admin/events", icon: "🗓️" },
           { label: "Sponsored Quests", route: "/admin/sponsored-quests", icon: "🎯" },
           { label: "Config & Flags", route: "/admin/config", icon: "⚙️" },
+          { label: "AI Settings", route: "/admin/ai-settings", icon: "🤖" },
           { label: "Feature Flags", route: "/admin/feature-flags", icon: "🚩" },
           { label: "Actions Log", route: "/admin/actions-log", icon: "📋" },
           { label: "Automated Actions", route: "/admin/automated-actions", icon: "🤖" },
