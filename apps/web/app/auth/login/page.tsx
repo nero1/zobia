@@ -54,7 +54,7 @@ function LoginContent() {
   const handleGoogleLogin = async () => {
     setIsLoading("google");
     try {
-      const res = await fetch("/api/auth/google/url");
+      const res = await fetch("/api/auth/google");
       const { url } = await res.json() as { url: string };
       window.location.href = url;
     } catch {
