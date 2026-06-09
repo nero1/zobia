@@ -56,6 +56,22 @@ export interface RedisClient {
 }
 
 // ---------------------------------------------------------------------------
+// Build-time stub
+// ---------------------------------------------------------------------------
+
+// During Next.js static build, Redis is unavailable. Return a no-op stub so
+// pages can be generated without hanging on connection timeouts.
+const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
+
+const buildStub: RedisClient = new Proxy({} as RedisClient, {
+  get(_t, prop) {
+    if (prop === "ping") return async () => "PONG";
+    if (prop === "quit") return async () => "OK";
+    return async () => null;
+  },
+});
+
+// ---------------------------------------------------------------------------
 // ioredis factory
 // ---------------------------------------------------------------------------
 
@@ -71,7 +87,7 @@ function createIoRedisClient(): IORedis {
   _ioredisClient = new IORedis(env.REDIS_URL, {
     maxRetriesPerRequest: 3,
     enableReadyCheck: true,
-    lazyConnect: false,
+    lazyConnect: true,
     connectTimeout: 8_000,
     // Reconnect with exponential back-off capped at 10 s
     retryStrategy: (times) => Math.min(times * 200, 10_000),
@@ -140,6 +156,8 @@ function createUpstashClient(): IORedis {
  * Provider is selected via REDIS_PROVIDER ("ioredis" | "upstash").
  */
 export function getRedisClient(): RedisClient {
+  if (isBuildPhase) return buildStub;
+
   if (!env.REDIS_PROVIDER) {
     throw new Error("[redis] REDIS_PROVIDER is not set");
   }
