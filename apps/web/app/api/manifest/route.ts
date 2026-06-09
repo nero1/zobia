@@ -34,6 +34,7 @@ type PublicManifestSection = (typeof PUBLIC_MANIFEST_SECTIONS)[number];
 type PublicManifest = {
   [K in PublicManifestSection]: Awaited<ReturnType<typeof loadManifest>>[K];
 } & {
+  auth: { telegramEnabled: boolean };
   captchaProvider: "recaptcha" | "turnstile" | "none";
   recaptchaSiteKey?: string;
   turnstileSiteKey?: string;
@@ -63,6 +64,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // Strip non-public keys
     const publicManifest: PublicManifest = {
       features: manifest.features,
+      auth: {
+        telegramEnabled: manifest.auth.telegramEnabled,
+      },
       payment: {
         // Never expose secret keys – only public-facing config
         primaryProvider: manifest.payment.primaryProvider,

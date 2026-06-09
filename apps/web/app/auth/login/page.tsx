@@ -36,6 +36,7 @@ interface CaptchaManifest {
   captchaProvider: "recaptcha" | "turnstile" | "none";
   recaptchaSiteKey?: string;
   turnstileSiteKey?: string;
+  auth?: { telegramEnabled: boolean };
 }
 
 // ---------------------------------------------------------------------------
@@ -219,8 +220,8 @@ function LoginContent() {
               <div ref={turnstileContainerRef} className="flex justify-center" />
             )}
 
-            {/* Telegram (only shown when bot username is configured) */}
-            {(botUsername || isLoading === "telegram") && (
+            {/* Telegram (only shown when bot username is configured and manifest enables it) */}
+            {((botUsername && captchaManifest !== null && captchaManifest.auth?.telegramEnabled !== false) || isLoading === "telegram") && (
               <>
                 <div className="relative">
                   <div className="absolute inset-0 flex items-center">
