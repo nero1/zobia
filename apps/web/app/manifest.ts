@@ -116,7 +116,6 @@ export default function manifest(): MetadataRoute.Manifest {
         src: "/screenshots/home.png",
         sizes: "1080x1920",
         type: "image/png",
-        // @ts-expect-error – form_factor is valid but not yet in Next.js types
         form_factor: "narrow",
         label: "Home feed",
       },
