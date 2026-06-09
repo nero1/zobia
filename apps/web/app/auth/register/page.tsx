@@ -1,8 +1,9 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import Script from "next/script";
 
 interface TelegramUser {
   id: number;
@@ -17,7 +18,21 @@ interface TelegramUser {
 declare global {
   interface Window {
     onTelegramAuth?: (user: TelegramUser) => void;
+    grecaptcha?: {
+      ready: (cb: () => void) => void;
+      execute: (siteKey: string, opts: { action: string }) => Promise<string>;
+    };
+    turnstile?: {
+      render: (container: string | HTMLElement, opts: object) => string;
+      getResponse: (widgetId: string) => string | undefined;
+    };
   }
+}
+
+interface CaptchaManifest {
+  captchaProvider: "recaptcha" | "turnstile" | "none";
+  recaptchaSiteKey?: string;
+  turnstileSiteKey?: string;
 }
 
 function RegisterContent() {
@@ -26,15 +41,68 @@ function RegisterContent() {
 
   const [isLoading, setIsLoading] = useState<"google" | "telegram" | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [captchaManifest, setCaptchaManifest] = useState<CaptchaManifest | null>(null);
 
   const botUsername = process.env["NEXT_PUBLIC_TELEGRAM_BOT_USERNAME"] ?? "";
   const telegramContainerRef = useRef<HTMLDivElement>(null);
+  const turnstileContainerRef = useRef<HTMLDivElement>(null);
+  const turnstileWidgetId = useRef<string | null>(null);
+
+  // Load manifest for CAPTCHA config
+  useEffect(() => {
+    fetch("/api/manifest")
+      .then((r) => r.json())
+      .then((m: CaptchaManifest) => setCaptchaManifest(m))
+      .catch(() => setCaptchaManifest({ captchaProvider: "none" }));
+  }, []);
+
+  // Init Turnstile when manifest + script are ready
+  const initTurnstile = useCallback(() => {
+    if (
+      captchaManifest?.captchaProvider !== "turnstile" ||
+      !captchaManifest.turnstileSiteKey ||
+      !turnstileContainerRef.current ||
+      turnstileWidgetId.current
+    ) return;
+    turnstileWidgetId.current = window.turnstile?.render(
+      turnstileContainerRef.current,
+      { sitekey: captchaManifest.turnstileSiteKey }
+    ) ?? null;
+  }, [captchaManifest]);
+
+  // Collect CAPTCHA token before redirecting to Google OAuth
+  const getCaptchaToken = useCallback(async (): Promise<string | null> => {
+    if (!captchaManifest || captchaManifest.captchaProvider === "none") return null;
+    if (captchaManifest.captchaProvider === "recaptcha" && captchaManifest.recaptchaSiteKey) {
+      return new Promise((resolve) => {
+        window.grecaptcha?.ready(async () => {
+          try {
+            const token = await window.grecaptcha!.execute(
+              captchaManifest.recaptchaSiteKey!,
+              { action: "register" }
+            );
+            resolve(token);
+          } catch {
+            resolve(null);
+          }
+        });
+      });
+    }
+    if (captchaManifest.captchaProvider === "turnstile" && turnstileWidgetId.current) {
+      return window.turnstile?.getResponse(turnstileWidgetId.current) ?? null;
+    }
+    return null;
+  }, [captchaManifest]);
 
   const handleGoogleLogin = async () => {
     setIsLoading("google");
     setAuthError(null);
     try {
-      const res = await fetch("/api/auth/google");
+      const captchaToken = await getCaptchaToken();
+      const url = captchaToken
+        ? `/api/auth/google?captcha_token=${encodeURIComponent(captchaToken)}`
+        : "/api/auth/google";
+      const res = await fetch(url);
       const data = await res.json() as { url?: string; error?: { message?: string } };
       if (!res.ok || !data.url) {
         setAuthError(data?.error?.message ?? "Authentication failed. Please try again.");
@@ -132,6 +200,11 @@ function RegisterContent() {
               Sign up with Google
             </button>
 
+            {/* Turnstile widget (visible only when configured) */}
+            {captchaManifest?.captchaProvider === "turnstile" && captchaManifest.turnstileSiteKey && (
+              <div ref={turnstileContainerRef} className="flex justify-center" />
+            )}
+
             {(botUsername || isLoading === "telegram") && (
               <>
                 <div className="relative">
@@ -179,6 +252,23 @@ function RegisterContent() {
           .
         </p>
       </div>
+
+      {/* reCAPTCHA v3 script (invisible) */}
+      {captchaManifest?.captchaProvider === "recaptcha" && captchaManifest.recaptchaSiteKey && (
+        <Script
+          src={`https://www.google.com/recaptcha/api.js?render=${captchaManifest.recaptchaSiteKey}`}
+          strategy="afterInteractive"
+        />
+      )}
+
+      {/* Turnstile script */}
+      {captchaManifest?.captchaProvider === "turnstile" && captchaManifest.turnstileSiteKey && (
+        <Script
+          src="https://challenges.cloudflare.com/turnstile/v0/api.js"
+          strategy="afterInteractive"
+          onLoad={initTurnstile}
+        />
+      )}
     </div>
   );
 }
@@ -203,7 +293,7 @@ function GoogleIcon() {
         fill="#34A853"
       />
       <path
-        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
         fill="#FBBC05"
       />
       <path

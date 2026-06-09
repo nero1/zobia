@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { loadManifest } from "@/lib/manifest";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { env } from "@/lib/env";
 
 // ---------------------------------------------------------------------------
 // Public-safe manifest key allowlist
@@ -33,6 +34,10 @@ type PublicManifestSection = (typeof PUBLIC_MANIFEST_SECTIONS)[number];
 type PublicManifest = {
   [K in PublicManifestSection]: Awaited<ReturnType<typeof loadManifest>>[K];
 } & {
+  captchaProvider: "recaptcha" | "turnstile" | "none";
+  recaptchaSiteKey?: string;
+  turnstileSiteKey?: string;
+  minimumAge: number;
   updatedAt: number;
 };
 
@@ -65,6 +70,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         paystackEnabled: manifest.payment.paystackEnabled,
         dodopaymentsEnabled: manifest.payment.dodopaymentsEnabled,
       },
+      // CAPTCHA config: expose provider + site key only (never secret keys)
+      captchaProvider: manifest.captchaProvider,
+      ...(manifest.captchaProvider === "recaptcha" && env.RECAPTCHA_SITE_KEY
+        ? { recaptchaSiteKey: env.RECAPTCHA_SITE_KEY }
+        : {}),
+      ...(manifest.captchaProvider === "turnstile" && env.CLOUDFLARE_TURNSTILE_SITE_KEY
+        ? { turnstileSiteKey: env.CLOUDFLARE_TURNSTILE_SITE_KEY }
+        : {}),
+      minimumAge: manifest.minimumAge,
       updatedAt: manifest.updatedAt ?? Date.now(),
     };
 
