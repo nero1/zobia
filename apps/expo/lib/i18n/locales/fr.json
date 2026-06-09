@@ -36,7 +36,16 @@
     "password": "Password",
     "register": "Create Account",
     "resetPassword": "Reset Password",
-    "twoFactorCode": "Two-Factor Code"
+    "twoFactorCode": "Two-Factor Code",
+    "googleOpening": "Ouverture de Google…",
+    "telegramWaiting": "En attente de Telegram…",
+    "telegramRequiredTitle": "Telegram requis",
+    "telegramRequiredBody": "Veuillez installer Telegram pour utiliser cette méthode de connexion, puis réessayez.",
+    "loginTimeoutTitle": "Délai de connexion dépassé",
+    "loginTimeoutBody": "La connexion Telegram a expiré. Veuillez réessayer et compléter la connexion dans Telegram.",
+    "callbackError": "Échec du rappel d'authentification. Veuillez réessayer.",
+    "googleError": "Échec de la connexion Google. Veuillez réessayer.",
+    "telegramError": "Échec de la connexion Telegram. Veuillez réessayer."
   },
   "onboarding": {
     "step1Title": "Configurez votre profil",

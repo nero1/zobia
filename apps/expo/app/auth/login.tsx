@@ -82,7 +82,7 @@ export default function LoginScreen() {
         router.replace('/(tabs)');
       }
     } catch (err) {
-      Alert.alert(t('common.error'), 'Authentication callback failed. Please try again.');
+      Alert.alert(t('common.error'), t('auth.callbackError'));
     }
   }
 
@@ -109,7 +109,7 @@ export default function LoginScreen() {
         // Dismissed — no error shown
       }
     } catch (err) {
-      Alert.alert(t('common.error'), 'Google Sign-In failed. Please try again.');
+      Alert.alert(t('common.error'), t('auth.googleError'));
     } finally {
       setGoogleLoading(false);
     }
@@ -135,10 +135,7 @@ export default function LoginScreen() {
       const canOpen = await Linking.canOpenURL(telegramUrl);
 
       if (!canOpen) {
-        Alert.alert(
-          'Telegram Required',
-          'Please install Telegram to use this login method, then try again.'
-        );
+        Alert.alert(t('auth.telegramRequiredTitle'), t('auth.telegramRequiredBody'));
         setTelegramLoading(false);
         return;
       }
@@ -148,7 +145,7 @@ export default function LoginScreen() {
       // Poll the backend for the Telegram login result
       startTelegramPoll(shortState);
     } catch (err) {
-      Alert.alert(t('common.error'), 'Telegram login failed. Please try again.');
+      Alert.alert(t('common.error'), t('auth.telegramError'));
       setTelegramLoading(false);
     }
   }
@@ -167,10 +164,7 @@ export default function LoginScreen() {
           router.replace('/(tabs)');
         } else if (data.status === 'expired' || attempts >= MAX_ATTEMPTS) {
           stopTelegramPoll();
-          Alert.alert(
-            'Login Timeout',
-            'Telegram login timed out. Please try again and complete the login in Telegram.'
-          );
+          Alert.alert(t('auth.loginTimeoutTitle'), t('auth.loginTimeoutBody'));
         }
       } catch {
         // Network error — keep polling
@@ -212,7 +206,7 @@ export default function LoginScreen() {
       {/* Auth buttons */}
       <View style={styles.buttons}>
         <Button
-          label={googleLoading ? 'Opening Google...' : t('auth.loginWithGoogle')}
+          label={googleLoading ? t('auth.googleOpening') : t('auth.loginWithGoogle')}
           variant="secondary"
           size="lg"
           loading={googleLoading}
@@ -224,7 +218,7 @@ export default function LoginScreen() {
         />
 
         <Button
-          label={telegramLoading ? 'Waiting for Telegram...' : t('auth.loginWithTelegram')}
+          label={telegramLoading ? t('auth.telegramWaiting') : t('auth.loginWithTelegram')}
           variant="primary"
           size="lg"
           loading={telegramLoading}

@@ -768,7 +768,16 @@
     "loginWithGoogle": "ከGoogle ጋር ቀጥሉ",
     "loginWithTelegram": "ከTelegram ጋር ቀጥሉ",
     "loggingIn": "እየገባ…",
-    "logoutConfirm": "እርግጠኛ ነዎት መውጣት ይፈልጋሉ?"
+    "logoutConfirm": "እርግጠኛ ነዎት መውጣት ይፈልጋሉ?",
+    "googleOpening": "Google እየከፈተ ነው…",
+    "telegramWaiting": "Telegram እየጠበቀ ነው…",
+    "telegramRequiredTitle": "Telegram ያስፈልጋል",
+    "telegramRequiredBody": "ይህን የመግቢያ ዘዴ ለመጠቀም Telegram ን ይጫኑ፣ ከዚያ እንደገና ይሞክሩ።",
+    "loginTimeoutTitle": "የመግቢያ ጊዜ ቆሟል",
+    "loginTimeoutBody": "የTelegram መግቢያ ጊዜ ቆሟል። እባክዎ እንደገና ይሞክሩ እና ወደ Telegram ለመግባቱን ያጠናቅቁ።",
+    "callbackError": "የማረጋገጫ ምላሽ አልተሳካም። እባክዎ እንደገና ይሞክሩ።",
+    "googleError": "Google ላይ መግባት አልተሳካም። እባክዎ እንደገና ይሞክሩ።",
+    "telegramError": "Telegram ላይ መግባት አልተሳካም። እባክዎ እንደገና ይሞክሩ።"
   },
   "onboarding": {
     "step1Title": "መገለጫዎን ያዋቅሩ",

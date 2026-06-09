@@ -768,7 +768,16 @@
     "loginWithGoogle": "Endelea na Google",
     "loginWithTelegram": "Endelea na Telegram",
     "loggingIn": "Inaingia…",
-    "logoutConfirm": "Je, una uhakika unataka kutoka?"
+    "logoutConfirm": "Je, una uhakika unataka kutoka?",
+    "googleOpening": "Inafungua Google…",
+    "telegramWaiting": "Inasubiri Telegram…",
+    "telegramRequiredTitle": "Telegram Inahitajika",
+    "telegramRequiredBody": "Tafadhali sakinisha Telegram kutumia njia hii ya kuingia, kisha jaribu tena.",
+    "loginTimeoutTitle": "Muda wa Kuingia Umeisha",
+    "loginTimeoutBody": "Kuingia kwa Telegram kumechukua muda mrefu. Tafadhali jaribu tena na ukamilishe kuingia ndani ya Telegram.",
+    "callbackError": "Kuingia kumeshindwa. Tafadhali jaribu tena.",
+    "googleError": "Kuingia kwa Google kumeshindwa. Tafadhali jaribu tena.",
+    "telegramError": "Kuingia kwa Telegram kumeshindwa. Tafadhali jaribu tena."
   },
   "onboarding": {
     "step1Title": "Weka wasifu wako",

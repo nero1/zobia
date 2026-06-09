@@ -18,6 +18,7 @@ import {
   fetchGoogleUserProfile,
 } from "@/lib/auth/google";
 import { createSession, buildCookieHeaders } from "@/lib/auth/session";
+import { CSRF_COOKIE_NAME } from "@/lib/security/csrf";
 import { db } from "@/lib/db";
 
 /** Simple username derivation from Google profile. */
@@ -50,7 +51,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   // Validate CSRF state
-  const cookieState = request.cookies.get("oauth_state")?.value;
+  const cookieState = request.cookies.get(CSRF_COOKIE_NAME)?.value;
   if (!state || !cookieState || state !== cookieState) {
     return NextResponse.redirect(
       new URL("/auth/login?error=oauth_failed", request.url)

@@ -36,7 +36,16 @@
     "password": "Password",
     "register": "Create Account",
     "resetPassword": "Reset Password",
-    "twoFactorCode": "Two-Factor Code"
+    "twoFactorCode": "Two-Factor Code",
+    "googleOpening": "فتح Google…",
+    "telegramWaiting": "بانتظار Telegram…",
+    "telegramRequiredTitle": "Telegram مطلوب",
+    "telegramRequiredBody": "يرجى تثبيت Telegram لاستخدام طريقة تسجيل الدخول هذه، ثم حاول مرة أخرى.",
+    "loginTimeoutTitle": "انتهت مهلة تسجيل الدخول",
+    "loginTimeoutBody": "انتهت مهلة تسجيل الدخول عبر Telegram. يرجى المحاولة مرة أخرى وإكمال تسجيل الدخول في Telegram.",
+    "callbackError": "فشل الاستجابة. يرجى المحاولة مرة أخرى.",
+    "googleError": "فشل تسجيل الدخول عبر Google. يرجى المحاولة مرة أخرى.",
+    "telegramError": "فشل تسجيل الدخول عبر Telegram. يرجى المحاولة مرة أخرى."
   },
   "onboarding": {
     "step1Title": "أعد ملفك الشخصي",
