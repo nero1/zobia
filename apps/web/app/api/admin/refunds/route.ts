@@ -207,13 +207,15 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
 
       const newBalance = updatedUser[0]?.coin_balance ?? 0;
 
+      const balanceBefore = newBalance + body.amountCoins;
+
       // Record in coin_ledger as a refund (negative amount = deduction)
       const { rows: ledgerRows } = await tx.query<{ id: string }>(
         `INSERT INTO coin_ledger
-           (user_id, amount, transaction_type, description, created_at)
-         VALUES ($1, $2, 'refund', $3, NOW())
+           (user_id, amount, balance_before, balance_after, transaction_type, description, created_at)
+         VALUES ($1, $2, $3, $4, 'refund', $5, NOW())
          RETURNING id`,
-        [body.userId, -body.amountCoins, `Refund: ${body.reason}`]
+        [body.userId, -body.amountCoins, balanceBefore, newBalance, `Refund: ${body.reason}`]
       );
 
       const ledgerId = ledgerRows[0]?.id;

@@ -25,6 +25,7 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { loadManifest } from "@/lib/manifest";
 import { verifyCaptcha } from "@/lib/security/captcha";
 import { randomBytes } from "crypto";
+import { creditCoins } from "@/lib/economy/coins";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -236,17 +237,15 @@ export const POST = withAuth(async (req, { params, auth }) => {
         [WELCOME_XP, auth.user.sub]
       );
 
-      // 6. Credit coin_ledger for welcome XP event
-      await client.query(
-        `INSERT INTO coin_ledger (user_id, amount, transaction_type, reference_id, created_at)
-         VALUES ($1, $2, 'welcome_bonus', 'onboarding_welcome', NOW())`,
-        [auth.user.sub, WELCOME_COINS]
-      );
-
-      // 7. Update coin balance
-      await client.query(
-        `UPDATE users SET coin_balance = COALESCE(coin_balance, 0) + $1 WHERE id = $2`,
-        [WELCOME_COINS, auth.user.sub]
+      // 6. Credit welcome coins (locks row, writes ledger with balance_before/after, updates balance)
+      await creditCoins(
+        auth.user.sub,
+        WELCOME_COINS,
+        "welcome_bonus",
+        "onboarding_welcome",
+        "Welcome bonus",
+        null,
+        client
       );
 
       // 8. Track referral if a code was supplied
