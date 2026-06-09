@@ -19,10 +19,10 @@ import { Avatar } from "@/components/ui/Avatar";
 // ---------------------------------------------------------------------------
 
 const navItems = [
-  { href: "/(app)/home", label: "Home", shortLabel: "Home" },
-  { href: "/(app)/rooms", label: "Rooms", shortLabel: "Rooms" },
-  { href: "/(app)/messages", label: "Messages", shortLabel: "Msgs" },
-  { href: "/(app)/profile", label: "Profile", shortLabel: "Profile" },
+  { href: "/home", label: "Home", shortLabel: "Home" },
+  { href: "/rooms", label: "Rooms", shortLabel: "Rooms" },
+  { href: "/messages", label: "Messages", shortLabel: "Msgs" },
+  { href: "/profile", label: "Profile", shortLabel: "Profile" },
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -99,7 +99,7 @@ export function Navbar() {
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
           {/* Logo */}
           <Link
-            href="/(app)/home"
+            href="/home"
             className="text-lg font-bold text-primary-600 dark:text-primary-400"
           >
             Zobia
@@ -139,7 +139,7 @@ export function Navbar() {
             </button>
 
             {/* User avatar */}
-            <Link href="/(app)/profile" aria-label="Your profile">
+            <Link href="/profile" aria-label="Your profile">
               <Avatar name="User" size="sm" rankTier="none" />
             </Link>
           </div>

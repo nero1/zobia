@@ -164,7 +164,7 @@ export default function AdminDashboardTab() {
           icon="📊"
           title="Platform Overview"
           subtitle="Users, rooms, guilds, revenue"
-          onPress={() => router.push('/admin/overview')}
+          onPress={() => router.push('/admin')}
         />
         <NavCard
           icon="👥"
@@ -201,12 +201,6 @@ export default function AdminDashboardTab() {
           title="Announcements"
           subtitle="Manage modals and banners"
           onPress={() => router.push('/admin/announcements')}
-        />
-        <NavCard
-          icon="🪪"
-          title="KYC Review"
-          subtitle="Pending identity verifications"
-          onPress={() => router.push('/admin/kyc')}
         />
       </View>
     </Screen>

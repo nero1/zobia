@@ -270,7 +270,7 @@ export default function EventsPage() {
         fetch("/api/events/gift-drop", { credentials: "include" }).catch(() => null),
       ]);
 
-      if (eventsRes.status === 401) { window.location.href = "/login"; return; }
+      if (eventsRes.status === 401) { window.location.href = "/auth/login"; return; }
       if (!eventsRes.ok) throw new Error("Failed to load events");
 
       const eventsJson = (await eventsRes.json()) as

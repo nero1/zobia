@@ -703,7 +703,7 @@ export default function OnboardingPage() {
 
               <button
                 type="button"
-                onClick={() => router.push("/(app)/home")}
+                onClick={() => router.push("/home")}
                 className="w-full rounded-xl bg-amber-400 py-3.5 text-sm font-bold text-neutral-900 hover:bg-amber-500 transition-colors"
               >
                 {addedFriends.size > 0 ? `Start Zobia (${addedFriends.size} added) →` : "Start Zobia →"}

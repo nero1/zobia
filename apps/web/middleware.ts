@@ -4,13 +4,12 @@
  * Next.js Edge Middleware for authentication and route protection.
  *
  * Route protection rules:
- *   - /(app)/*          → requires valid JWT access token
- *   - /(admin)/admin/*  → requires valid JWT + is_admin=true (from JWT claim;
+ *   - /admin/*          → requires valid JWT + is_admin=true (from JWT claim;
  *                         the admin API routes re-verify against the DB)
- *   - /auth/*           → public (redirect to /app/home if already authenticated)
+ *   - /auth/*           → public (redirect to /home if already authenticated)
  *   - /api/auth/*       → public (login/refresh/logout endpoints)
- *   - /api/*            → protected (requires valid JWT)
- *   - Everything else   → public
+ *   - /terms, /privacy, /onboarding → public
+ *   - Everything else   → requires valid JWT access token (default-deny)
  *
  * Note: is_admin is verified from the DB on every admin API request.
  * The middleware only checks the JWT claim as a fast pre-filter to avoid
@@ -26,8 +25,8 @@ import { jwtVerify, errors as JoseErrors } from "jose";
 
 const ACCESS_TOKEN_COOKIE = "zobia_at";
 const LOGIN_URL = "/auth/login";
-const ADMIN_LOGIN_URL = "/(admin)/admin/login";
-const HOME_URL = "/(app)/home";
+const ADMIN_LOGIN_URL = "/admin/login";
+const HOME_URL = "/home";
 
 /** Routes that are always public (no auth required). */
 const PUBLIC_PREFIXES = [
@@ -40,13 +39,13 @@ const PUBLIC_PREFIXES = [
   "/manifest",
   "/sw.js",
   "/workbox-",
+  "/terms",
+  "/privacy",
+  "/onboarding",
 ];
 
 /** Routes that require admin JWT claim. */
-const ADMIN_PREFIXES = ["/(admin)/admin"];
-
-/** Routes that require a regular authenticated user. */
-const APP_PREFIXES = ["/(app)", "/api"];
+const ADMIN_PREFIXES = ["/admin"];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -87,8 +86,11 @@ function isAdminRoute(pathname: string): boolean {
   return ADMIN_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 
-function isAppRoute(pathname: string): boolean {
-  return APP_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+function isAppRoute(_pathname: string): boolean {
+  // Default-deny: everything not public and not admin requires authentication.
+  // This correctly covers all (app) route group pages (/home, /rooms, /events, etc.)
+  // as well as all /api routes.
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -143,11 +145,11 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   }
 
   // Allow admin login page without auth
-  if (pathname === ADMIN_LOGIN_URL || pathname === "/admin/login") {
+  if (pathname === ADMIN_LOGIN_URL) {
     if (token) {
       const payload = await verifyToken(token);
       if (payload?.is_admin) {
-        return NextResponse.redirect(new URL("/(admin)/admin", request.url));
+        return NextResponse.redirect(new URL("/admin", request.url));
       }
     }
     return NextResponse.next();
