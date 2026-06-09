@@ -115,6 +115,7 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth 2.0 client secret | Google Cloud Console → Credentials |
 | `TELEGRAM_BOT_TOKEN` | Yes | Telegram bot token for Telegram Login | @BotFather → /newbot |
 | `TELEGRAM_WEBHOOK_SECRET` | No | Secret for authenticating incoming Telegram webhook requests | Generate a random string |
+| `NEXT_PUBLIC_TELEGRAM_BOT_USERNAME` | Yes | Bot username **without** the `@` (e.g. `ZobiaBot`) — used by the Telegram Login Widget on the frontend. Without this, the widget is hidden. | @BotFather → `/mybots` → select your bot → username shown at the top |
 | `DEEPSEEK_API_KEY` | Yes | DeepSeek API key for AI moderation | platform.deepseek.com → API Keys |
 | `DEEPSEEK_API_ENDPOINT` | No | Override endpoint (default: `https://api.deepseek.com/v1`) | DeepSeek docs |
 | `GEMINI_API_KEY` | Yes | Google Gemini API key (AI fallback) | aistudio.google.com → Get API key |
@@ -429,8 +430,9 @@ Both secrets must be different and at least 32 characters long. Keep them privat
 1. Open Telegram and message **@BotFather**.
 2. Send `/newbot` and follow the prompts to name your bot.
 3. BotFather will reply with a **bot token** — copy it to `TELEGRAM_BOT_TOKEN`.
-4. Send `/setdomain` to BotFather → select your bot → enter your domain (e.g. `zobia.social`).
-5. The Telegram Login Widget will now work on your domain.
+4. The bot username is shown at the top of BotFather's reply (e.g. `ZobiaBot`) — copy it **without the `@`** to `NEXT_PUBLIC_TELEGRAM_BOT_USERNAME`. This is required for the Login Widget to appear on the register/login pages.
+5. Send `/setdomain` to BotFather → select your bot → enter your domain (e.g. `zobia.social`).
+6. The Telegram Login Widget will now work on your domain.
 
 ---
 
