@@ -425,6 +425,7 @@ export type CoinTransactionType =
   | 'booster_pack'
   | 'monthly_plan_bonus'
   | 'creator_coin_conversion'
+  | 'comeback_bonus'
   | 'comeback_bonus_reserved'
   | 'comeback_bonus_claimed'
   | 'referral_bonus'
