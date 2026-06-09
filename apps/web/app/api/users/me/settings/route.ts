@@ -41,6 +41,8 @@ const settingsSchema = z.object({
   email_non_critical:    z.boolean().optional(),
   // Account preferences
   locale:                z.string().min(2).max(10).optional(),
+  // Pidgin suggestions — null means "follow system default (locale-based)"
+  pidginSuggestionsEnabled: z.boolean().nullable().optional(),
 }).strict();
 
 // ---------------------------------------------------------------------------
@@ -58,9 +60,10 @@ interface SettingsRow {
   notify_war_start:      boolean;
   notify_season_end:     boolean;
   notify_announcement:   boolean;
-  email_all_enabled:     boolean;
-  email_non_critical:    boolean;
-  locale:                string | null;
+  email_all_enabled:          boolean;
+  email_non_critical:         boolean;
+  locale:                     string | null;
+  pidgin_suggestions_enabled: boolean | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -84,7 +87,8 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
               COALESCE(notify_announcement, true)   AS notify_announcement,
               COALESCE(email_all_enabled, true)     AS email_all_enabled,
               COALESCE(email_non_critical, true)    AS email_non_critical,
-              locale
+              locale,
+              pidgin_suggestions_enabled
        FROM users
        WHERE id = $1 AND deleted_at IS NULL
        LIMIT 1`,
@@ -115,6 +119,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
           },
         },
         locale: rows[0].locale ?? "en",
+        pidginSuggestionsEnabled: rows[0].pidgin_suggestions_enabled,
       },
       error: null,
     });
@@ -156,6 +161,12 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
     if (body.locale !== undefined) {
       setClauses.push(`locale = $${idx}`);
       values.push(body.locale);
+      idx++;
+    }
+
+    if (body.pidginSuggestionsEnabled !== undefined) {
+      setClauses.push(`pidgin_suggestions_enabled = $${idx}`);
+      values.push(body.pidginSuggestionsEnabled);
       idx++;
     }
 

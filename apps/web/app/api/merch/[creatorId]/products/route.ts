@@ -17,6 +17,7 @@ import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { loadManifest } from "@/lib/manifest";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -129,6 +130,21 @@ export const POST = withAuth(
       if (!storeRows[0]) throw notFound("Merch store not found. Create a store first.");
 
       const body = await validateBody(req, createProductSchema);
+
+      // Gate physical products on admin + creator toggles
+      if (body.product_type === "physical") {
+        const manifest = await loadManifest();
+        if (!manifest.features.physicalGoodsEnabled) {
+          throw forbidden("Physical goods sales are not enabled on this platform");
+        }
+        const { rows: storeSettingRows } = await db.query<{ physical_goods_enabled: boolean }>(
+          `SELECT physical_goods_enabled FROM merch_stores WHERE creator_id = $1 LIMIT 1`,
+          [userId]
+        );
+        if (!storeSettingRows[0]?.physical_goods_enabled) {
+          throw forbidden("You must enable physical goods on your store before creating physical products");
+        }
+      }
 
       const { rows } = await db.query<MerchProductRow>(
         `INSERT INTO merch_products

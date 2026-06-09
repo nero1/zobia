@@ -25,8 +25,9 @@ import { colors } from '@/lib/theme/colors';
 
 interface AnnouncementModalData {
   id: string;
-  subject: string;
-  body: string;
+  title: string;
+  content: string;
+  contentType: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -70,10 +71,10 @@ export function AnnouncementModal() {
 
     (async () => {
       try {
-        const { data } = await apiClient.get<{ modal: AnnouncementModalData | null }>(
-          '/api/admin/announcements/modals',
+        const { data } = await apiClient.get<{ data: { modal: AnnouncementModalData | null } }>(
+          '/api/announcements/modal',
         );
-        const modal = data?.modal;
+        const modal = data?.data?.modal;
         if (!modal || cancelled) return;
 
         // Check if already dismissed this session
@@ -121,7 +122,7 @@ export function AnnouncementModal() {
           {/* Header row */}
           <View style={styles.header}>
             <Text style={styles.subject} numberOfLines={2}>
-              {announcement.subject}
+              {announcement.title}
             </Text>
             <Pressable
               style={styles.closeBtn}
@@ -135,7 +136,7 @@ export function AnnouncementModal() {
           </View>
 
           {/* Body */}
-          <Text style={styles.body}>{stripHtml(announcement.body)}</Text>
+          <Text style={styles.body}>{stripHtml(announcement.content)}</Text>
 
           {/* Dismiss button */}
           <Pressable

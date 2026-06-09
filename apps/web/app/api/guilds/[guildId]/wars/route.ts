@@ -19,12 +19,11 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { withAuth } from "@/lib/api/middleware";
-import { requireFeatureEnabled } from "@/lib/manifest";
+import { requireFeatureEnabled, loadManifest } from "@/lib/manifest";
 import { handleApiError, badRequest, forbidden, notFound, conflict } from "@/lib/api/errors";
 import {
   findWarOpponent,
   WAR_DURATION_HOURS,
-  WAR_COOLDOWN_HOURS,
   WAR_ENTRY_FEE_COINS,
   getRematchDiscount,
 } from "@/lib/guilds/warEngine";
@@ -145,6 +144,9 @@ export const POST = withAuth(
       const { guildId } = params;
       const userId = auth.user.sub;
 
+      const manifest = await loadManifest();
+      const effectiveCooldownHours = manifest.warEventCooldownHours;
+
       // Check for an active rematch token before entering the transaction
       // (read-only; token is consumed atomically inside the transaction)
       const rematchDiscountPercent = await getRematchDiscount(guildId, db);
@@ -189,11 +191,11 @@ export const POST = withAuth(
           throw conflict("Guild is already in an active war", "WAR_ALREADY_ACTIVE");
         }
 
-        // 4. Check cooldown
+        // 4. Check cooldown (duration is 48h during a War Event, 72h otherwise)
         const { last_war_ended_at } = guildRow.rows[0];
         if (last_war_ended_at) {
           const cooldownEnd =
-            new Date(last_war_ended_at).getTime() + WAR_COOLDOWN_HOURS * 60 * 60 * 1000;
+            new Date(last_war_ended_at).getTime() + effectiveCooldownHours * 60 * 60 * 1000;
           if (Date.now() < cooldownEnd) {
             const hoursRemaining = Math.ceil((cooldownEnd - Date.now()) / (60 * 60 * 1000));
             throw badRequest(

@@ -61,8 +61,16 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
     const userId = auth.user.sub;
 
     // PRD §4 Step 5: Guild Discovery is shown only after the user's first 24 hours
-    const { rows: userWithAge } = await db.query<{ city: string | null; guild_id: string | null; created_at: string }>(
-      `SELECT city, guild_id, created_at FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+    const { rows: userWithAge } = await db.query<{
+      city: string | null;
+      guild_id: string | null;
+      created_at: string;
+      guild_emphasis: string | null;
+    }>(
+      `SELECT u.city, u.guild_id, u.created_at, op.guild_emphasis
+       FROM users u
+       LEFT JOIN onboarding_personalization op ON op.user_id = u.id
+       WHERE u.id = $1 AND u.deleted_at IS NULL LIMIT 1`,
       [userId]
     );
     const user = userWithAge[0];
@@ -77,6 +85,11 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
     }
 
     const userCity = user?.city ?? null;
+    const guildEmphasis = (user?.guild_emphasis as 'guild' | 'solo' | null) ?? null;
+    const soloNote =
+      guildEmphasis === 'solo'
+        ? "You can explore Zobia solo — but crew members earn up to 50% more XP on the same actions."
+        : null;
 
     // 1. Find guilds the user is already a member of (covers multi-guild edge case)
     const { rows: membershipRows } = await db.query<{ guild_id: string }>(
@@ -141,6 +154,8 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
             sameCity: g.same_city,
           })),
           userCity,
+          guildEmphasis,
+          soloNote,
         },
         error: null,
       },

@@ -45,6 +45,8 @@ interface GuildDiscoveryResponse {
   data: {
     guilds: GuildDiscovery[];
     userCity: string | null;
+    guildEmphasis: 'guild' | 'solo' | null;
+    soloNote: string | null;
   };
 }
 
@@ -213,6 +215,8 @@ export default function GuildDiscoveryScreen() {
   const textColor = isDark ? colors.neutral[100] : colors.neutral[900];
   const subtitleColor = isDark ? colors.neutral[400] : colors.neutral[500];
   const guilds = data?.data?.guilds ?? [];
+  const guildEmphasis = data?.data?.guildEmphasis ?? null;
+  const soloNote = data?.data?.soloNote ?? null;
 
   return (
     <Screen scrollable={false}>
@@ -227,6 +231,15 @@ export default function GuildDiscoveryScreen() {
             Join a Guild to earn more XP and compete together
           </Text>
         </View>
+
+        {/* Solo note for lone-wolf users */}
+        {soloNote ? (
+          <View style={[styles.soloNoteCard, { backgroundColor: isDark ? colors.neutral[800] : '#eff6ff', borderColor: isDark ? colors.neutral[700] : '#bfdbfe' }]}>
+            <Text style={[styles.soloNoteText, { color: isDark ? colors.neutral[200] : '#1d4ed8' }]}>
+              💡 {soloNote}
+            </Text>
+          </View>
+        ) : null}
 
         {/* Guild cards */}
         {isLoading ? (
@@ -264,9 +277,9 @@ export default function GuildDiscoveryScreen() {
           ))
         )}
 
-        {/* Maybe Later */}
+        {/* Skip / Solo CTA */}
         <Button
-          label="Explore on my own"
+          label={guildEmphasis === 'solo' ? "Continue solo — I'll explore guilds later" : "Explore on my own"}
           variant="ghost"
           size="lg"
           onPress={() => router.replace('/(tabs)')}
@@ -432,5 +445,16 @@ const styles = StyleSheet.create({
   },
   maybeLaterBtn: {
     marginTop: 8,
+  },
+  soloNoteCard: {
+    borderRadius: 10,
+    borderWidth: 1,
+    padding: 12,
+    marginBottom: 4,
+  },
+  soloNoteText: {
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '500',
   },
 });

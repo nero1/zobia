@@ -48,8 +48,14 @@ export interface ZobiaManifest {
     platformCouncil: boolean;
     allianceSystem: boolean;
     pinAuth: boolean;
+    warEventActive: boolean;
+    pidginAutocomplete: boolean;
+    physicalGoodsEnabled: boolean;
+    physicalGoodsManualFulfillment: boolean;
+    physicalGoodsPartnerFulfillment: boolean;
     vipRoomPricing?: { minNgn: number; maxNgn: number };
   };
+  warEventCooldownHours: number;
   // Auth
   auth: {
     googleEnabled: boolean;
@@ -131,7 +137,13 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     platformCouncil: true,
     allianceSystem: true,
     pinAuth: true,
+    warEventActive: false,
+    pidginAutocomplete: false,
+    physicalGoodsEnabled: false,
+    physicalGoodsManualFulfillment: true,
+    physicalGoodsPartnerFulfillment: false,
   },
+  warEventCooldownHours: 72,
   auth: {
     googleEnabled: true,
     telegramEnabled: true,
@@ -249,8 +261,14 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       merchStore:       parseBool(kv["feature_merch_store"]      ?? kv["feature_creator_merch"] ?? "false", DEFAULT_MANIFEST.features.merchStore),
       platformCouncil:  parseBool(kv["feature_platform_council"],            DEFAULT_MANIFEST.features.platformCouncil),
       allianceSystem:   parseBool(kv["feature_alliance_system"],             DEFAULT_MANIFEST.features.allianceSystem),
-      pinAuth:          parseBool(kv["feature_pin_auth"]         ?? "true",  DEFAULT_MANIFEST.features.pinAuth),
+      pinAuth:                    parseBool(kv["feature_pin_auth"]                   ?? "true",  DEFAULT_MANIFEST.features.pinAuth),
+      warEventActive:             parseBool(kv["feature_war_event_active"],                     DEFAULT_MANIFEST.features.warEventActive),
+      pidginAutocomplete:         parseBool(kv["feature_pidgin_autocomplete"],                  DEFAULT_MANIFEST.features.pidginAutocomplete),
+      physicalGoodsEnabled:       parseBool(kv["physical_goods_enabled"],                       DEFAULT_MANIFEST.features.physicalGoodsEnabled),
+      physicalGoodsManualFulfillment:  parseBool(kv["physical_goods_fulfillment_manual"]  ?? "true",  DEFAULT_MANIFEST.features.physicalGoodsManualFulfillment),
+      physicalGoodsPartnerFulfillment: parseBool(kv["physical_goods_fulfillment_partner"],            DEFAULT_MANIFEST.features.physicalGoodsPartnerFulfillment),
     },
+    warEventCooldownHours: parseInt10(kv["war_event_cooldown_hours"], DEFAULT_MANIFEST.warEventCooldownHours),
     auth: {
       googleEnabled:   parseBool(kv["auth_google_enabled"],   DEFAULT_MANIFEST.auth.googleEnabled),
       telegramEnabled: parseBool(kv["auth_telegram_enabled"], DEFAULT_MANIFEST.auth.telegramEnabled),

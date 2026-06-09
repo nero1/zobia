@@ -52,6 +52,7 @@ interface UserSettings {
   notifications: Record<string, boolean>;
   privacyDMOptOut: boolean;
   hdSendEnabled: boolean;
+  pidginSuggestionsEnabled: boolean | null;
 }
 
 type PlanTier = 'free' | 'plus' | 'pro' | 'max';
@@ -579,6 +580,15 @@ export default function SettingsScreen() {
     queryFn: fetchSettings,
   });
 
+  const { data: manifestFeatures } = useQuery({
+    queryKey: ['manifest-features'],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ features: { pidginAutocomplete: boolean } }>('/manifest');
+      return data?.features ?? { pidginAutocomplete: false };
+    },
+    staleTime: 5 * 60_000,
+  });
+
   const [settings, setSettings] = useState<Partial<UserSettings>>({});
 
   const defaultNotifications: Record<string, boolean> = {
@@ -820,6 +830,24 @@ export default function SettingsScreen() {
           onChange={(v) => set('privacyDMOptOut', v)}
         />
       </View>
+
+      {/* Messaging */}
+      {manifestFeatures?.pidginAutocomplete && (
+        <>
+          <SectionHeader title="MESSAGING" />
+          <View style={[styles.card, { backgroundColor: themeColors.surface }]}>
+            <ToggleRow
+              label="Pidgin Suggestions"
+              description="Show Pidgin word suggestions while typing in chats"
+              value={merged.pidginSuggestionsEnabled ?? false}
+              onChange={(v) => {
+                patchMutation.mutate({ pidginSuggestionsEnabled: v });
+                setSettings((prev) => ({ ...prev, pidginSuggestionsEnabled: v }));
+              }}
+            />
+          </View>
+        </>
+      )}
 
       {/* Network */}
       <SectionHeader title="NETWORK" />

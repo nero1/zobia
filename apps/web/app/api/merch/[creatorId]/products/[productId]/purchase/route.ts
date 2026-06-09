@@ -30,10 +30,11 @@ const PLATFORM_FEE_PCT = 20;
 const XP_AWARD_MERCH_PURCHASE = 50;
 
 const purchaseSchema = z.object({
-  shippingName:    z.string().max(200).optional(),
-  shippingAddress: z.string().max(500).optional(),
-  shippingCity:    z.string().max(100).optional(),
-  shippingCountry: z.string().max(100).optional(),
+  shippingName:      z.string().max(200).optional(),
+  shippingAddress:   z.string().max(500).optional(),
+  shippingCity:      z.string().max(100).optional(),
+  shippingCountry:   z.string().max(100).optional(),
+  fulfillmentMethod: z.enum(["manual", "partner"]).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -64,12 +65,28 @@ export const POST = withAuth(
 
       const body = await validateBody(req, purchaseSchema);
 
-      // Fetch creator tier for revenue share calculation
-      const { rows: creatorRows } = await db.query<{ creator_tier: string | null }>(
-        `SELECT creator_tier FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+      // Reject partner fulfillment (Coming Soon)
+      if (body.fulfillmentMethod === "partner") {
+        throw badRequest(
+          "Partner fulfillment integration is coming soon. Please use manual fulfillment.",
+          "PARTNER_FULFILLMENT_COMING_SOON"
+        );
+      }
+
+      // Fetch creator tier and store settings for revenue share + fulfillment
+      const { rows: creatorRows } = await db.query<{
+        creator_tier: string | null;
+        store_default_fulfillment: string;
+      }>(
+        `SELECT u.creator_tier,
+                COALESCE(ms.default_fulfillment_method, 'manual') AS store_default_fulfillment
+         FROM users u
+         LEFT JOIN merch_stores ms ON ms.creator_id = u.id
+         WHERE u.id = $1 AND u.deleted_at IS NULL LIMIT 1`,
         [creatorId]
       );
       const creatorTier = creatorRows[0]?.creator_tier ?? null;
+      const storeFulfillment = creatorRows[0]?.store_default_fulfillment ?? "manual";
 
       const result = await db.transaction(async (tx) => {
         // Fetch product with store verification
@@ -162,14 +179,20 @@ export const POST = withAuth(
         const creatorShareKobo = Math.floor((priceKobo * effectiveSharePct) / 100);
         const platformFeeKobo = priceKobo - creatorShareKobo;
 
+        // Physical products: pending until delivered + confirmed
+        // Digital products: completed immediately
+        const isPhysical = product.product_type === "physical";
+        const orderStatus = isPhysical ? "pending" : "completed";
+        const fulfillmentMethod = isPhysical ? (body.fulfillmentMethod ?? storeFulfillment) : null;
+
         // Create merch order (with optional shipping details for physical products)
         const { rows: orderRows } = await tx.query<{ id: string }>(
           `INSERT INTO merch_orders
              (product_id, buyer_id, creator_id, amount_kobo, creator_share_kobo,
-              platform_fee_kobo, status,
+              platform_fee_kobo, status, fulfillment_method,
               shipping_name, shipping_address, shipping_city, shipping_country,
               created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, 'completed', $7, $8, $9, $10, NOW())
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
            RETURNING id`,
           [
             productId,
@@ -178,6 +201,8 @@ export const POST = withAuth(
             priceKobo,
             creatorShareKobo,
             platformFeeKobo,
+            orderStatus,
+            fulfillmentMethod,
             body.shippingName ?? null,
             body.shippingAddress ?? null,
             body.shippingCity ?? null,
@@ -186,18 +211,20 @@ export const POST = withAuth(
         );
         const orderId = orderRows[0].id;
 
-        // Credit 80% to creator earnings (use canonical schema column names)
-        await tx.query(
-          `INSERT INTO creator_earnings
-             (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo, reference_id, created_at)
-           VALUES ($1, 'merch', $2, $3, $4, $5, NOW())`,
-          [creatorId, priceKobo, platformFeeKobo, creatorShareKobo, orderId]
-        );
-        await tx.query(
-          `UPDATE users SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1,
-                            updated_at = NOW() WHERE id = $2`,
-          [creatorShareKobo, creatorId]
-        );
+        // Credit creator earnings immediately for digital; defer to confirm-receipt for physical
+        if (!isPhysical) {
+          await tx.query(
+            `INSERT INTO creator_earnings
+               (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo, reference_id, created_at)
+             VALUES ($1, 'merch', $2, $3, $4, $5, NOW())`,
+            [creatorId, priceKobo, platformFeeKobo, creatorShareKobo, orderId]
+          );
+          await tx.query(
+            `UPDATE users SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1,
+                              updated_at = NOW() WHERE id = $2`,
+            [creatorShareKobo, creatorId]
+          );
+        }
 
         // Decrement stock if limited
         if (product.stock !== null) {
@@ -229,10 +256,12 @@ export const POST = withAuth(
           productId,
           productName: product.name,
           productType: product.product_type,
+          orderStatus,
+          fulfillmentMethod,
           priceCoins,
           priceKobo,
-          creatorShareKobo,
-          platformFeeKobo,
+          creatorShareKobo: isPhysical ? 0 : creatorShareKobo,
+          platformFeeKobo: isPhysical ? 0 : platformFeeKobo,
           newCoinBalance: newBalance,
           xpAwarded: XP_AWARD_MERCH_PURCHASE,
         };
