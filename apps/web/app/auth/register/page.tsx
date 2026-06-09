@@ -33,6 +33,7 @@ interface CaptchaManifest {
   captchaProvider: "recaptcha" | "turnstile" | "none";
   recaptchaSiteKey?: string;
   turnstileSiteKey?: string;
+  auth?: { telegramEnabled: boolean };
 }
 
 function RegisterContent() {
@@ -205,7 +206,7 @@ function RegisterContent() {
               <div ref={turnstileContainerRef} className="flex justify-center" />
             )}
 
-            {(botUsername || isLoading === "telegram") && (
+            {((botUsername && captchaManifest !== null && captchaManifest.auth?.telegramEnabled !== false) || isLoading === "telegram") && (
               <>
                 <div className="relative">
                   <div className="absolute inset-0 flex items-center">
