@@ -233,7 +233,7 @@ export default function LeaderboardsPage() {
     try {
       const params = new URLSearchParams({ scope: s, track: t, page: String(p), limit: String(perPage) });
       const res = await fetch(`/api/leaderboards?${params}`, { credentials: "include" });
-      if (res.status === 401) { window.location.href = "/login"; return; }
+      if (res.status === 401) { window.location.href = "/auth/login"; return; }
       if (!res.ok) throw new Error("Failed to load leaderboard");
       setData((await res.json()) as LeaderboardResponse);
     } catch (e) {

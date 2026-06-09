@@ -13,6 +13,14 @@ const withPWA = require("next-pwa")({
   skipWaiting: true,
   disable: process.env.NODE_ENV === "development" || !pwaWebEnabled,
   runtimeCaching: [
+    // Auth routes must bypass the service worker entirely so the browser
+    // handles Set-Cookie headers on OAuth redirects natively. If the SW
+    // intercepts the /auth/callback redirect, cookies from that response
+    // may not be stored, breaking session establishment.
+    {
+      urlPattern: /^\/(auth|api\/auth)\/.*/i,
+      handler: "NetworkOnly",
+    },
     {
       urlPattern: /^https:\/\/fonts\.(gstatic|googleapis)\.com\/.*/i,
       handler: "CacheFirst",

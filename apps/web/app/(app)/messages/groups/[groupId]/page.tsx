@@ -161,7 +161,7 @@ export default function GroupConversationPage() {
     (async () => {
       try {
         const res = await fetch(`/api/messages/group`, { credentials: "include" });
-        if (res.status === 401) { router.push("/login"); return; }
+        if (res.status === 401) { router.push("/auth/login"); return; }
         if (!res.ok) throw new Error("Group not found");
         const data = (await res.json()) as { items?: GroupInfo[] };
         const found = (data.items ?? []).find((g) => g.id === groupId);

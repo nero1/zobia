@@ -131,7 +131,7 @@ export default function SettingsPage() {
     (async () => {
       try {
         const res = await fetch("/api/me/settings", { credentials: "include" });
-        if (res.status === 401) { router.push("/login"); return; }
+        if (res.status === 401) { router.push("/auth/login"); return; }
         if (!res.ok) throw new Error("Failed to load settings");
         const data = (await res.json()) as UserSettings;
         setSettings(data);
@@ -195,7 +195,7 @@ export default function SettingsPage() {
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
-    router.push("/login");
+    router.push("/auth/login");
   }
 
   async function handleDeleteAccount() {

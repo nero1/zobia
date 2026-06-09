@@ -931,7 +931,7 @@ export default function RoomPage() {
     (async () => {
       try {
         const res = await fetch(`/api/rooms/${roomId}`, { credentials: "include" });
-        if (res.status === 401) { router.push("/login"); return; }
+        if (res.status === 401) { router.push("/auth/login"); return; }
         if (!res.ok) throw new Error("Room not found");
         setRoom((await res.json()) as RoomInfo);
       } catch (e) {

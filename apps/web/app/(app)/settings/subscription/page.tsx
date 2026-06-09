@@ -279,7 +279,7 @@ export default function SubscriptionPage() {
     (async () => {
       try {
         const res = await fetch("/api/me", { credentials: "include" });
-        if (res.status === 401) { router.push("/login"); return; }
+        if (res.status === 401) { router.push("/auth/login"); return; }
         if (!res.ok) throw new Error("Failed to load subscription info");
         const data = (await res.json()) as CurrentPlanData;
         setPlanData(data);

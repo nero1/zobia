@@ -352,7 +352,7 @@ export default function GuildPage() {
     (async () => {
       try {
         const res = await fetch("/api/guild/mine", { credentials: "include" });
-        if (res.status === 401) { window.location.href = "/login"; return; }
+        if (res.status === 401) { window.location.href = "/auth/login"; return; }
         if (res.status === 404) {
           setMyGuild(null);
           setLoadingNearby(true);

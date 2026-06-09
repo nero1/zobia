@@ -183,7 +183,7 @@ export default function CreatorMarketplacePage() {
       try {
         // Check auth + creator status
         const meRes = await fetch("/api/auth/me", { credentials: "include" });
-        if (meRes.status === 401) { window.location.href = "/login"; return; }
+        if (meRes.status === 401) { window.location.href = "/auth/login"; return; }
         const me = (await meRes.json()) as CurrentUser;
         setUser(me);
         if (!me.isCreator) { setLoading(false); return; }

@@ -77,7 +77,7 @@ export default function GroupChatsPage() {
     (async () => {
       try {
         const res = await fetch("/api/messages/group", { credentials: "include" });
-        if (res.status === 401) { window.location.href = "/login"; return; }
+        if (res.status === 401) { window.location.href = "/auth/login"; return; }
         if (!res.ok) throw new Error("Failed to load group chats");
         const data = (await res.json()) as { items?: GroupChat[] };
         setGroups(data.items ?? []);

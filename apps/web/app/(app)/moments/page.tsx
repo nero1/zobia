@@ -197,7 +197,7 @@ export default function MomentsPage() {
     (async () => {
       try {
         const res = await fetch("/api/moments", { credentials: "include" });
-        if (res.status === 401) { window.location.href = "/login"; return; }
+        if (res.status === 401) { window.location.href = "/auth/login"; return; }
         if (!res.ok) throw new Error("Failed to load moments");
         const data = (await res.json()) as { moments?: Moment[] };
         setMoments(data.moments ?? []);

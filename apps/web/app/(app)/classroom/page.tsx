@@ -473,7 +473,7 @@ export default function ClassroomPage() {
           fetch("/api/users/me", { credentials: "include" }).catch(() => null),
         ]);
 
-        if (browseRes.status === 401) { window.location.href = "/login"; return; }
+        if (browseRes.status === 401) { window.location.href = "/auth/login"; return; }
         if (!browseRes.ok) throw new Error("Failed to load classrooms");
 
         const browseJson = (await browseRes.json()) as

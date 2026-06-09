@@ -244,7 +244,7 @@ export default function BroadcastsPage() {
     (async () => {
       try {
         const res = await fetch("/api/creator/broadcasts", { credentials: "include" });
-        if (res.status === 401) { window.location.href = "/login"; return; }
+        if (res.status === 401) { window.location.href = "/auth/login"; return; }
         if (res.status === 403) {
           const d = (await res.json()) as { message?: string; reason?: string };
           setData({ allowance: null, history: [], accessDenied: true, accessReason: d.message ?? d.reason });

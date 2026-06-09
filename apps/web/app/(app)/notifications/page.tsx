@@ -274,7 +274,7 @@ export default function NotificationsPage() {
   const fetchNotifications = useCallback(async (after?: string) => {
     const url = `/api/notifications?limit=${PAGE_SIZE}${after ? `&after=${after}` : ""}`;
     const res = await fetch(url, { credentials: "include" });
-    if (res.status === 401) { window.location.href = "/login"; return null; }
+    if (res.status === 401) { window.location.href = "/auth/login"; return null; }
     if (!res.ok) throw new Error("Failed to load notifications");
     const data = (await res.json()) as
       | RawNotification[]

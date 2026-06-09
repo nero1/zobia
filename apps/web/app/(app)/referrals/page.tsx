@@ -272,7 +272,7 @@ export default function ReferralsPage() {
     (async () => {
       try {
         const res = await fetch("/api/referrals", { credentials: "include" });
-        if (res.status === 401) { window.location.href = "/login"; return; }
+        if (res.status === 401) { window.location.href = "/auth/login"; return; }
         if (!res.ok) throw new Error("Failed to load referrals");
         const json = (await res.json()) as ReferralsData | { data?: ReferralsData };
         const referralsData: ReferralsData =

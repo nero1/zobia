@@ -570,7 +570,7 @@ export default function DMConversationPage() {
     (async () => {
       try {
         const res = await fetch(`/api/messages/dm/${conversationId}`, { credentials: "include" });
-        if (res.status === 401) { router.push("/login"); return; }
+        if (res.status === 401) { router.push("/auth/login"); return; }
         if (!res.ok) throw new Error("Conversation not found");
         const data = (await res.json()) as {
           conversation?: ConversationInfo & { score?: number };
