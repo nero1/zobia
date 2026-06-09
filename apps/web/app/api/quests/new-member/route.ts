@@ -111,7 +111,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       `SELECT id, user_id, quest_type, progress, completed, completed_at,
               COALESCE(reward_claimed, completed) AS reward_claimed,
               created_at, updated_at
-       FROM user_quests
+       FROM new_member_quests
        WHERE user_id = $1 AND quest_type = 'new_member'
        LIMIT 1`,
       [userId]
@@ -178,7 +178,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       // 1. Lock the quest row
       const { rows } = await client.query<UserQuestRow>(
         `SELECT id, progress, completed, COALESCE(reward_claimed, completed) AS reward_claimed
-         FROM user_quests
+         FROM new_member_quests
          WHERE user_id = $1 AND quest_type = 'new_member'
          FOR UPDATE`,
         [userId]
@@ -230,7 +230,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
       // 6. Mark quest as complete and reward claimed
       await client.query(
-        `UPDATE user_quests
+        `UPDATE new_member_quests
          SET completed = TRUE, reward_claimed = TRUE, completed_at = NOW(), updated_at = NOW()
          WHERE id = $1`,
         [quest.id]

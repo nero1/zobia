@@ -160,6 +160,16 @@ export function handleApiError(error: unknown): NextResponse<ErrorResponseBody> 
     );
   }
 
+  // Plain errors with an explicit statusCode (e.g. FEATURE_DISABLED from requireFeatureEnabled)
+  if (error instanceof Error && "statusCode" in error) {
+    const e = error as Error & { code?: string; statusCode: number };
+    console.error("[api] Unhandled error:", error);
+    return NextResponse.json(
+      { error: { code: e.code ?? "ERROR", message: e.message } },
+      { status: e.statusCode }
+    );
+  }
+
   // Unknown – log and return generic 500
   console.error("[api] Unhandled error:", error);
   return NextResponse.json(
