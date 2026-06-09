@@ -148,7 +148,7 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     googleEnabled: true,
     telegramEnabled: true,
   },
-  captchaProvider: "recaptcha",
+  captchaProvider: "none",
   gifProvider: "giphy",
   pwa: {
     webEnabled: true,
@@ -216,9 +216,9 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
   // Resolve captchaProvider
   const rawCaptcha = kv["captcha_provider"];
   const captchaProvider: ZobiaManifest["captchaProvider"] =
-    rawCaptcha === "turnstile" || rawCaptcha === "none"
+    rawCaptcha === "recaptcha" || rawCaptcha === "turnstile" || rawCaptcha === "none"
       ? rawCaptcha
-      : "recaptcha";
+      : "none";
 
   // Resolve gifProvider
   const rawGif = kv["gif_provider"];
