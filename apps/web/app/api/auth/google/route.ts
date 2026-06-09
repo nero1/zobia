@@ -50,7 +50,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     } else if (!isDev) {
       const { getManifestValue } = await import("@/lib/manifest");
       const captchaProvider = await getManifestValue("captcha_provider");
-      if (captchaProvider !== "none") {
+      // Only enforce CAPTCHA when it's explicitly configured (recaptcha or turnstile).
+      // null means no row in x_manifest → captcha not set up yet → allow through.
+      if (captchaProvider && captchaProvider !== "none") {
         throw badRequest("CAPTCHA token is required.", "CAPTCHA_REQUIRED");
       }
     }
