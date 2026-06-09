@@ -67,9 +67,9 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       created_at: string;
       guild_emphasis: string | null;
     }>(
-      `SELECT u.city, u.guild_id, u.created_at, op.guild_emphasis
+      `SELECT u.city, u.guild_id, u.created_at,
+              u.onboarding_personalization->>'guild_emphasis' AS guild_emphasis
        FROM users u
-       LEFT JOIN onboarding_personalization op ON op.user_id = u.id
        WHERE u.id = $1 AND u.deleted_at IS NULL LIMIT 1`,
       [userId]
     );

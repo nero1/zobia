@@ -278,13 +278,12 @@ export const POST = withAuth(async (req, { params, auth }) => {
       };
 
       await client.query(
-        `INSERT INTO user_quests
+        `INSERT INTO new_member_quests
            (user_id, quest_type, progress, completed, created_at, updated_at)
          VALUES ($1, 'new_member', $2, FALSE, NOW(), NOW())
          ON CONFLICT (user_id, quest_type) DO NOTHING`,
         [auth.user.sub, JSON.stringify(newMemberQuestProgress)]
       ).catch(() => {
-        // If user_quests table doesn't exist yet or has a different schema, non-fatal
         console.warn('[onboarding/complete] Could not insert new_member quest (non-fatal)');
       });
 
