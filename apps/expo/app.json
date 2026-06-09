@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Zobia Social",
-    "slug": "zobia-social",
+    "slug": "zobia",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -18,14 +18,14 @@
     ],
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.zobia.social"
+      "bundleIdentifier": "org.zobia.social"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.zobia.social",
+      "package": "org.zobia.social",
       "targetSdkVersion": 36,
       "intentFilters": [
         {
@@ -34,7 +34,7 @@
           "data": [
             {
               "scheme": "https",
-              "host": "zobia.app",
+              "host": "zobia.vercel.app",
               "pathPrefix": "/"
             }
           ],
@@ -49,7 +49,7 @@
           "data": [
             {
               "scheme": "https",
-              "host": "www.zobia.app",
+              "host": "www.zobia.vercel.app",
               "pathPrefix": "/"
             }
           ],
@@ -80,10 +80,10 @@
     },
     "extra": {
       "router": {
-        "origin": "https://zobia.app"
+        "origin": "https://zobia.vercel.app"
       },
       "eas": {
-        "projectId": "zobia-social"
+        "projectId": "fdb0a4aa-220c-4d17-a32f-bde534edb8c2"
       }
     }
   }
