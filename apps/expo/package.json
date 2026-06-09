@@ -47,7 +47,8 @@
     "expo-notifications": "~0.28.0",
     "react-native-google-mobile-ads": "^13.3.0",
     "expo-in-app-purchases": "~14.0.0",
-    "expo-crypto": "~13.0.0"
+    "expo-crypto": "~13.0.0",
+    "expo-dev-client": "~4.0.0"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",
