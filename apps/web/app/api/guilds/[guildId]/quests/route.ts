@@ -199,6 +199,9 @@ export const POST = withAuth(
       // Validate week range
       const weekStart = new Date(body.weekStart);
       const weekEnd = new Date(body.weekEnd);
+      if (weekStart.getUTCDay() !== 1) {
+        throw badRequest("Guild quest week_start must be a Monday (UTC)", "INVALID_WEEK_START");
+      }
       if (weekEnd <= weekStart) {
         throw badRequest("weekEnd must be after weekStart");
       }

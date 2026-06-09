@@ -26,8 +26,8 @@ type BannerSeverity = 'info' | 'warning' | 'success';
 
 interface BannerData {
   id: string;
-  message: string;
-  severity: BannerSeverity;
+  content: string;
+  contentType: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,10 +77,10 @@ export function AnnouncementBanner() {
 
     (async () => {
       try {
-        const { data } = await apiClient.get<{ banner: BannerData | null }>(
-          '/api/admin/announcements/banners',
+        const { data } = await apiClient.get<{ data: { banner: BannerData | null } }>(
+          '/api/announcements/banner',
         );
-        const b = data?.banner;
+        const b = data?.data?.banner;
         if (!b || cancelled) return;
 
         // Check if dismissed this session
@@ -106,12 +106,12 @@ export function AnnouncementBanner() {
 
   if (!banner || dismissed) return null;
 
-  const bgColor = SEVERITY_COLORS[banner.severity] ?? colors.brand.blue;
+  const bgColor = colors.brand.blue;
 
   return (
     <View style={[styles.banner, { backgroundColor: bgColor }]}>
       <Text style={styles.text} numberOfLines={2}>
-        {stripHtml(banner.message)}
+        {stripHtml(banner.content)}
       </Text>
       <Pressable
         style={styles.closeBtn}

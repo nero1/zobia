@@ -31,6 +31,9 @@ export const WAR_DURATION_HOURS = 48;
 /** Minimum hours between wars for a single guild. */
 export const WAR_COOLDOWN_HOURS = 72;
 
+/** Reduced cooldown during a platform War Event. */
+export const WAR_EVENT_COOLDOWN_HOURS = 48;
+
 /** Acceptable XP deviation (fraction) when finding a war opponent. */
 const OPPONENT_XP_TOLERANCE = 0.15;
 

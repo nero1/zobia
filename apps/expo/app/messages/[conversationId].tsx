@@ -38,6 +38,7 @@ import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
 import { getPidginSuggestions } from '@/lib/i18n/pidgin';
+import { isPidginEnabled } from '@/lib/i18n/pidginEnabled';
 import { CHAT_THEMES } from '@/lib/theme/chatThemes';
 import { queueMessage } from '@/lib/offline/sqlite';
 import type { ChatTheme } from '@/lib/theme/chatThemes';
@@ -495,11 +496,19 @@ export default function DMConversationScreen() {
   });
   const chatTheme = CHAT_THEMES.find((t) => t.id === chatThemeId) ?? CHAT_THEMES[0]!;
 
+  const pidginActive = pidginConfig
+    ? isPidginEnabled(pidginConfig.adminEnabled, pidginConfig.userSetting, i18n.language)
+    : false;
+
   const handleInputChange = useCallback((text: string) => {
     setInputText(text);
-    const suggestions = getPidginSuggestions(text, i18n.language);
-    setPidginSuggestions(suggestions);
-  }, [i18n.language]);
+    if (pidginActive) {
+      const suggestions = getPidginSuggestions(text, i18n.language);
+      setPidginSuggestions(suggestions);
+    } else {
+      setPidginSuggestions([]);
+    }
+  }, [i18n.language, pidginActive]);
 
   const { data: conversation } = useQuery({
     queryKey: ['dm-conversation', conversationId],
@@ -508,6 +517,35 @@ export default function DMConversationScreen() {
     onSuccess: (data) => {
       navigation.setOptions({ title: data.otherDisplayName });
     },
+  });
+
+  // Connection badge
+  const { data: badgeData } = useQuery({
+    queryKey: ['dm-connection-badge', conversationId],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ data: { hasBadge: boolean; streakDays: number } }>(
+        `/messages/dm/${conversationId}/connection-badge`
+      );
+      return data?.data ?? null;
+    },
+    enabled: !!conversationId,
+    staleTime: 60_000,
+  });
+
+  // Manifest + user settings for Pidgin gate
+  const { data: pidginConfig } = useQuery({
+    queryKey: ['pidgin-config'],
+    queryFn: async () => {
+      const [manifestRes, settingsRes] = await Promise.all([
+        apiClient.get<{ features: { pidginAutocomplete: boolean } }>('/manifest'),
+        apiClient.get<{ data: { pidginSuggestionsEnabled: boolean | null } }>('/users/me/settings'),
+      ]);
+      return {
+        adminEnabled: manifestRes.data?.features?.pidginAutocomplete ?? false,
+        userSetting: settingsRes.data?.data?.pidginSuggestionsEnabled ?? null,
+      };
+    },
+    staleTime: 5 * 60_000,
   });
 
   const { data: messages = [], isLoading } = useQuery({
@@ -598,6 +636,15 @@ export default function DMConversationScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={88}
       >
+        {/* Connection badge */}
+        {badgeData?.hasBadge && (
+          <View style={[styles.connectionBadgeBanner, { backgroundColor: isDark ? '#0d3349' : '#eff6ff', borderBottomColor: isDark ? '#1e4d6b' : '#bfdbfe' }]}>
+            <Text style={[styles.connectionBadgeText, { color: isDark ? '#7dd3fc' : '#1d4ed8' }]}>
+              🔗 Connected · {badgeData.streakDays}-day streak
+            </Text>
+          </View>
+        )}
+
         {/* Coin cost notice */}
         {conversation && !conversation.isUnlimited && (
           <View style={styles.costBanner}>
@@ -816,6 +863,17 @@ export default function DMConversationScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+
+  connectionBadgeBanner: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+  },
+  connectionBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
 
   costBanner: {
     paddingHorizontal: 16,

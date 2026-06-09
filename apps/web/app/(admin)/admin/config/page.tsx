@@ -228,6 +228,68 @@ const CONFIG_META: Record<string, ConfigMeta> = {
     group: "AI Moderation",
   },
 
+  // Guild Wars
+  feature_war_event_active: {
+    label: "Platform War Event Active",
+    description: "Activates a platform-wide War Event. Reduces war cooldown to the configured hours below.",
+    type: "boolean",
+    group: "Guild Wars",
+  },
+  war_event_cooldown_hours: {
+    label: "War Event Cooldown (hours)",
+    description: "Guild war cooldown during an active War Event. Default is 48. Normal cooldown is 72 hours.",
+    type: "number",
+    group: "Guild Wars",
+  },
+
+  // Messaging
+  feature_pidgin_autocomplete: {
+    label: "Pidgin Autocomplete",
+    description: "When enabled, users can turn on Pidgin word suggestions in the message composer.",
+    type: "boolean",
+    group: "Messaging",
+  },
+  announcement_modal_display_mode: {
+    label: "Announcement Modal Display Mode",
+    description: "How modals are rotated per user: 'serial' shows them in order, 'random' picks randomly.",
+    type: "select",
+    group: "Messaging",
+    options: [
+      { value: "serial", label: "Serial (in order)" },
+      { value: "random", label: "Random" },
+    ],
+  },
+  announcement_banner_mode: {
+    label: "Announcement Banner Display Mode",
+    description: "How banners are rotated per user: 'serial' shows them in order, 'random' picks randomly.",
+    type: "select",
+    group: "Messaging",
+    options: [
+      { value: "serial", label: "Serial (in order)" },
+      { value: "random", label: "Random" },
+    ],
+  },
+
+  // Physical Goods
+  physical_goods_enabled: {
+    label: "Allow Physical Product Sales",
+    description: "Master toggle — enables physical goods in creator merch stores.",
+    type: "boolean",
+    group: "Physical Goods",
+  },
+  physical_goods_fulfillment_manual: {
+    label: "Manual Fulfillment",
+    description: "Allow creators to fulfill physical orders manually (ship-it-yourself with optional tracking).",
+    type: "boolean",
+    group: "Physical Goods",
+  },
+  physical_goods_fulfillment_partner: {
+    label: "Partner Integration (Coming Soon)",
+    description: "Enable the partner fulfillment option. UI shows 'Coming Soon' — only manual fulfillment is processed.",
+    type: "boolean",
+    group: "Physical Goods",
+  },
+
   // Miscellaneous
   deep_link_base_url: {
     label: "Deep Link Base URL",
@@ -248,6 +310,9 @@ const GROUP_ORDER = [
   "AdMob",
   "Limits",
   "AI Moderation",
+  "Guild Wars",
+  "Messaging",
+  "Physical Goods",
   "Miscellaneous",
 ];
 
