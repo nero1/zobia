@@ -79,7 +79,7 @@ export async function initI18n(): Promise<void> {
         escapeValue: false,
       },
       react: {
-        useSuspense: true,
+        useSuspense: false,
       },
     });
 }
