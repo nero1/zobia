@@ -119,24 +119,6 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `DEEPSEEK_API_ENDPOINT` | No | Override endpoint (default: `https://api.deepseek.com/v1`) | DeepSeek docs |
 | `GEMINI_API_KEY` | Yes | Google Gemini API key (AI fallback) | aistudio.google.com → Get API key |
 | `MAILGUN_API_KEY` | No | Mailgun API key for transactional email | Mailgun → Account → API Keys |
-
-### AI Provider Key Management
-
-API keys for DeepSeek and Gemini can be managed in two ways:
-
-1. **Environment variable (default)** — set `DEEPSEEK_API_KEY` and `GEMINI_API_KEY` in
-   `.env.local` or the Vercel dashboard. This is the base configuration required at deployment.
-
-2. **Admin override** — in Admin Panel → **AI Settings**, an admin can enter a different
-   API key for either provider. The override is stored in `x_manifest` under
-   `ai_deepseek_api_key_override` / `ai_gemini_api_key_override` and takes precedence over
-   the environment variable without requiring a redeployment. Clearing the override reverts
-   to the environment variable.
-
-The AI Settings page (available in both the web admin panel and the Expo mobile admin) also shows:
-- **Circuit breaker status** for DeepSeek (closed / half-open / open) with consecutive failure count.
-- **Live connection test** — sends a minimal ping to verify the key is valid and the provider
-  is reachable. You can test a new key before saving it.
 | `MAILGUN_DOMAIN` | No | Mailgun sending domain (e.g. `mg.yourdomain.com`) | Mailgun → Sending → Domains |
 | `PAYSTACK_SECRET_KEY` | No | Paystack secret key — must have Transfers permission enabled | Paystack dashboard → Settings → API Keys |
 | `PAYSTACK_PUBLIC_KEY` | No | Paystack public key | Paystack dashboard → Settings → API Keys |
@@ -691,6 +673,25 @@ No downtime expected. Old key remains valid briefly during transition.
 2. Update `PAYSTACK_SECRET_KEY` or `DODOPAYMENTS_API_KEY` in Vercel env vars.
 3. Trigger a redeployment.
 4. Revoke the old key in the payment provider dashboard after deployment succeeds.
+
+
+## AI Provider Key Management
+
+API keys for DeepSeek and Gemini can be managed in two ways:
+
+1. **Environment variable (default)** — set `DEEPSEEK_API_KEY` and `GEMINI_API_KEY` in
+   `.env.local` or the Vercel dashboard. This is the base configuration required at deployment.
+
+2. **Admin override** — in Admin Panel → **AI Settings**, an admin can enter a different
+   API key for either provider. The override is stored in `x_manifest` under
+   `ai_deepseek_api_key_override` / `ai_gemini_api_key_override` and takes precedence over
+   the environment variable without requiring a redeployment. Clearing the override reverts
+   to the environment variable.
+
+The AI Settings page (available in both the web admin panel and the Expo mobile admin) also shows:
+- **Circuit breaker status** for DeepSeek (closed / half-open / open) with consecutive failure count.
+- **Live connection test** — sends a minimal ping to verify the key is valid and the provider
+  is reachable. You can test a new key before saving it.
 
 ### AI API key rotation
 
