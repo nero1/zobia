@@ -579,10 +579,7 @@ export default function HomePage() {
 
     // Nemesis
     fetch("/api/nemesis", { credentials: "include" })
-      .then((r) => {
-        if (r.status === 401) { window.location.href = "/auth/login"; }
-        return r.ok ? r.json() : null;
-      })
+      .then((r) => (r.ok ? r.json() : null))
       .then((d: NemesisData | null) => setNemesis(d))
       .catch(() => setNemesis(null));
 

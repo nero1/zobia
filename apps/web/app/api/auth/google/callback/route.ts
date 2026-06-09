@@ -12,8 +12,8 @@ export const dynamic = 'force-dynamic';
  *   4. Creates or retrieves the platform user record from the database
  *   5. Issues a platform JWT (NOT Supabase auth)
  *   6. Stores the Google refresh token in Redis against the session
- *   7. Sets HttpOnly cookies with access + refresh tokens
- *   8. Redirects to /home (if onboarded) or /onboarding
+ *   7a. Web:    Sets HttpOnly cookies and redirects to /home or /onboarding
+ *   7b. Mobile: Redirects to the app deep-link with token + user payload
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -45,6 +45,11 @@ interface UserRow {
   username: string;
   is_admin: boolean;
   onboarding_completed: boolean;
+  display_name: string | null;
+  avatar_emoji: string | null;
+  city: string | null;
+  xp_total: number;
+  rank_name: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -53,12 +58,11 @@ interface UserRow {
 
 /** Store Google's refresh token in Redis keyed to the session. */
 async function storeGoogleRefreshToken(
-  sid: string,
+  userId: string,
   refreshToken: string
 ): Promise<void> {
-  // TTL matches Google's typical refresh token lifetime (6 months)
   await redis.setex(
-    `google_rt:${sid}`,
+    `google_rt:user:${userId}`,
     180 * 24 * 3600,
     refreshToken
   );
@@ -73,7 +77,8 @@ async function upsertGoogleUser(profile: {
 }): Promise<UserRow> {
   // Check if a user with this Google ID already exists
   const existing = await db.query<UserRow>(
-    `SELECT id, email, username, is_admin, onboarding_completed
+    `SELECT id, email, username, is_admin, onboarding_completed,
+            display_name, avatar_emoji, city, xp_total, rank_name
      FROM users
      WHERE google_id = $1 AND deleted_at IS NULL
      LIMIT 1`,
@@ -84,7 +89,8 @@ async function upsertGoogleUser(profile: {
 
   // Check if email is already associated with a different account
   const emailMatch = await db.query<UserRow>(
-    `SELECT id, email, username, is_admin, onboarding_completed
+    `SELECT id, email, username, is_admin, onboarding_completed,
+            display_name, avatar_emoji, city, xp_total, rank_name
      FROM users
      WHERE email = $1 AND deleted_at IS NULL
      LIMIT 1`,
@@ -105,7 +111,8 @@ async function upsertGoogleUser(profile: {
   const inserted = await db.query<UserRow>(
     `INSERT INTO users (google_id, email, display_name, avatar_url, onboarding_completed, is_admin, created_at, updated_at)
      VALUES ($1, $2, $3, $4, false, false, NOW(), NOW())
-     RETURNING id, email, username, is_admin, onboarding_completed`,
+     RETURNING id, email, username, is_admin, onboarding_completed,
+               display_name, avatar_emoji, city, xp_total, rank_name`,
     [profile.googleId, profile.email, profile.name, profile.picture]
   );
 
@@ -120,11 +127,6 @@ async function upsertGoogleUser(profile: {
 // GET /api/auth/google/callback
 // ---------------------------------------------------------------------------
 
-/**
- * Handle the Google OAuth callback.
- * Validates CSRF, exchanges code, upserts user, issues JWT, sets cookies,
- * and redirects to the correct post-auth destination.
- */
 export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     const ip = getClientIp(req);
@@ -149,6 +151,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const csrfValid = validateCsrfState(cookieHeader, state);
     if (!csrfValid) throw unauthorized("Invalid or missing CSRF state token");
 
+    // Read the optional mobile deep-link redirect stored during auth initiation
+    const mobileRedirectRaw = req.cookies.get("zobia_mobile_redirect")?.value;
+    const mobileRedirect = mobileRedirectRaw ? decodeURIComponent(mobileRedirectRaw) : null;
+
     // Exchange code for tokens
     const tokens = await exchangeGoogleCode(code);
 
@@ -163,7 +169,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       picture: profile.picture,
     });
 
-    // Create platform session (platform JWT, not Supabase)
+    // Create platform session
     const authTokens = await createSession(
       {
         id: user.id,
@@ -174,33 +180,53 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       { ip }
     );
 
-    // Store Google refresh token in Redis against this session
+    // Store Google refresh token in Redis
     if (tokens.refresh_token) {
-      // Extract sid from access token payload (already embedded by createSession)
-      // We store it by user ID since we don't have sid here directly
-      await redis.setex(
-        `google_rt:user:${user.id}`,
-        180 * 24 * 3600,
-        tokens.refresh_token
-      );
+      await storeGoogleRefreshToken(user.id, tokens.refresh_token);
     }
 
-    // Build cookie headers
+    const clearMobileCookie = "zobia_mobile_redirect=; Max-Age=0; Path=/; HttpOnly";
+    const cookiesToClear = [clearCsrfCookie(), clearMobileCookie];
+
+    // -----------------------------------------------------------------
+    // Mobile flow: redirect to app deep-link with JWT + user payload
+    // -----------------------------------------------------------------
+    if (mobileRedirect) {
+      const authUser = {
+        id: user.id,
+        username: user.username ?? "",
+        avatarEmoji: user.avatar_emoji ?? "😎",
+        city: user.city ?? "",
+        xp: user.xp_total ?? 0,
+        rankTier: "bronze",
+      };
+      const deepLink = new URL(mobileRedirect);
+      deepLink.searchParams.set("token", authTokens.accessToken);
+      deepLink.searchParams.set("refresh_token", authTokens.refreshToken);
+      deepLink.searchParams.set("user", encodeURIComponent(JSON.stringify(authUser)));
+      deepLink.searchParams.set("onboarding_completed", String(user.onboarding_completed));
+
+      const response = NextResponse.redirect(deepLink.toString(), { status: 302 });
+      for (const cookie of cookiesToClear) {
+        response.headers.append("Set-Cookie", cookie);
+      }
+      return response;
+    }
+
+    // -----------------------------------------------------------------
+    // Web flow: set HttpOnly cookies and redirect to onboarding or home
+    // -----------------------------------------------------------------
     const { accessCookie, refreshCookie } = buildCookieHeaders(authTokens);
 
-    // Determine redirect destination
     const destination = user.onboarding_completed
       ? new URL("/home", env.NEXT_PUBLIC_APP_URL)
       : new URL("/onboarding", env.NEXT_PUBLIC_APP_URL);
 
-    return NextResponse.redirect(destination, {
-      status: 302,
-      headers: {
-        "Set-Cookie": [accessCookie, refreshCookie, clearCsrfCookie()].join(
-          ", "
-        ),
-      },
-    });
+    const response = NextResponse.redirect(destination, { status: 302 });
+    for (const cookie of [accessCookie, refreshCookie, ...cookiesToClear]) {
+      response.headers.append("Set-Cookie", cookie);
+    }
+    return response;
   } catch (err) {
     return handleApiError(err);
   }

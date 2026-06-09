@@ -54,7 +54,7 @@ const SCOPES = ["openid", "email", "profile"];
  * @returns Full OAuth redirect URL
  */
 export function buildGoogleAuthUrl(state: string): string {
-  const redirectUri = `${env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")}/auth/callback/google`;
+  const redirectUri = `${env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")}/api/auth/google/callback`;
 
   const params = new URLSearchParams({
     client_id: env.GOOGLE_CLIENT_ID,
@@ -82,7 +82,7 @@ export function buildGoogleAuthUrl(state: string): string {
 export async function exchangeGoogleCode(
   code: string
 ): Promise<GoogleTokenResponse> {
-  const redirectUri = `${env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")}/auth/callback/google`;
+  const redirectUri = `${env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")}/api/auth/google/callback`;
 
   const { data } = await axios.post<GoogleTokenResponse>(
     GOOGLE_TOKEN_ENDPOINT,
