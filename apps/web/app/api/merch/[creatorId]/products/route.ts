@@ -54,7 +54,7 @@ interface MerchProductRow {
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { creatorId: string } }
+  { params }: { params: Promise<{ creatorId: string }> }
 ): Promise<NextResponse> {
   try {
     const { creatorId } = await params;

@@ -149,7 +149,7 @@ export function withAuth<TParams = Record<string, string>>(
       }
 
       const result = await handler(req, {
-        params: ctx.params,
+        params: await ctx.params,
         auth: { user: payload },
       });
       if (result instanceof ApiError) return handleApiError(result);
@@ -204,7 +204,7 @@ export function withAdminAuth<TParams = Record<string, string>>(
       }
 
       const result = await handler(req, {
-        params: ctx.params,
+        params: await ctx.params,
         auth: { user: payload, isAdmin: true },
       });
       if (result instanceof ApiError) return handleApiError(result);
