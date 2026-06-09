@@ -338,3 +338,4 @@ This prevents duplicate content issues and consolidates ranking signals.
 - [Schema.org](https://schema.org/)
 - [Next.js Metadata API](https://nextjs.org/docs/app/building-your-application/optimizing/metadata)
 - [Web.dev Performance Guide](https://web.dev/performance/)
+- 
