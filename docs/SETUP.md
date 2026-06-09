@@ -511,7 +511,34 @@ All sub-daily CRON jobs must be driven by an external scheduler because Vercel H
 
 All CRON handlers verify the `Authorization: Bearer <CRON_SECRET>` header and return 401 if it does not match. Never expose `CRON_SECRET` publicly.
 
-### Creator Payout Setup
+### Paystack Setup (Payments & Payouts)
+
+#### 1. Get API Keys
+
+1. Log into your [Paystack dashboard](https://dashboard.paystack.com).
+2. Go to **Settings → API Keys**.
+3. Copy your **Secret Key** (starts with `sk_live_` or `sk_test_`) → `PAYSTACK_SECRET_KEY`.
+4. Copy your **Public Key** (starts with `pk_live_` or `pk_test_`) → `PAYSTACK_PUBLIC_KEY`.
+
+#### 2. Configure Webhook URL
+
+1. In the Paystack dashboard, go to **Settings → API Keys & Webhooks**.
+2. Under **Webhooks**, set:
+   - **URL**: `https://zobia.vercel.dev/api/economy/webhooks/paystack` (replace `zobia.vercel.dev` with your actual domain)
+   - **Events to listen for**: `charge.success` (minimum required; you can also add `transfer.success`, `transfer.failed` for payout confirmations)
+3. Click **Save**. Paystack will show a test event — confirm you can receive it.
+
+#### 3. Configure Callback URLs (Optional)
+
+Paystack redirects users back to your app after payment. Each payment flow specifies its own callback:
+
+- **Coins/Stars purchase**: `https://zobia.vercel.dev/economy/purchase/callback`
+- **Subscription purchase**: `https://zobia.vercel.dev/settings/subscription/callback`
+- **Room entry fee**: `https://zobia.vercel.dev/rooms/[roomId]?payment=complete`
+
+You can also set a **default callback URL** in Paystack settings (Settings → Preferences) that applies to all payments that don't specify one.
+
+#### 4. Enable Transfers for Payouts (Creator Fund)
 
 **Paystack Transfers permission** must be enabled before payouts can be processed:
 
@@ -520,6 +547,13 @@ All CRON handlers verify the `Authorization: Bearer <CRON_SECRET>` header and re
 3. Ensure your `PAYSTACK_SECRET_KEY` has the **Transfers** permission scope.
 
 Without this, `POST /api/cron/payouts` will fail on every bank transfer attempt.
+
+#### 5. Test Your Setup
+
+1. Add `PAYSTACK_PUBLIC_KEY` and `PAYSTACK_SECRET_KEY` to your Vercel environment variables.
+2. Deploy the app.
+3. In the Paystack dashboard, go to **Settings → API Keys & Webhooks** and send a test webhook event.
+4. Check your app's logs to confirm the webhook was received and processed.
 
 **Payout-related `x_manifest` keys** (seeded automatically by migration 030 with defaults):
 
