@@ -33,6 +33,7 @@ const HOME_URL = "/(app)/home";
 const PUBLIC_PREFIXES = [
   "/auth",
   "/api/auth",
+  "/api/manifest",
   "/_next",
   "/favicon.ico",
   "/icons",
