@@ -808,7 +808,7 @@ export const GET = async (req: NextRequest) => {
               [COMEBACK_COIN_AMOUNT, user.user_id]
             );
             await tx.query(
-              `INSERT INTO coin_ledger (user_id, amount, type, reference_id, description, created_at)
+              `INSERT INTO coin_ledger (user_id, amount, transaction_type, reference_id, description, created_at)
                VALUES ($1, $2, 'comeback_bonus_reserved',
                  gen_random_uuid(),
                  'Comeback bonus — expires in 7 days if unused',
@@ -1256,13 +1256,13 @@ export const GET = async (req: NextRequest) => {
                  AND NOT EXISTS (
                    SELECT 1 FROM coin_ledger
                    WHERE user_id = users.id
-                     AND type = 'monthly_plan_bonus'
+                     AND transaction_type = 'monthly_plan_bonus'
                      AND created_at::date = CURRENT_DATE
                  )
              ),
              ledger_rows AS (
                INSERT INTO coin_ledger
-                 (user_id, amount, type, reference_id, description, created_at)
+                 (user_id, amount, transaction_type, reference_id, description, created_at)
                SELECT id, $2, 'monthly_plan_bonus', gen_random_uuid(),
                       $3, NOW()
                FROM eligible
@@ -1302,12 +1302,12 @@ export const GET = async (req: NextRequest) => {
       `SELECT cl.user_id, cl.id AS ledger_id, cl.created_at AS bonus_granted_at
        FROM coin_ledger cl
        JOIN users u ON u.id = cl.user_id
-       WHERE cl.type = 'comeback_bonus_reserved'
+       WHERE cl.transaction_type = 'comeback_bonus_reserved'
          AND cl.created_at < NOW() - INTERVAL '7 days'
          AND NOT EXISTS (
            SELECT 1 FROM coin_ledger cl2
            WHERE cl2.user_id = cl.user_id
-             AND cl2.type = 'comeback_bonus_claimed'
+             AND cl2.transaction_type = 'comeback_bonus_claimed'
              AND cl2.created_at > cl.created_at
          )
          AND (u.last_active_at IS NULL OR u.last_active_at < cl.created_at)
@@ -1326,7 +1326,7 @@ export const GET = async (req: NextRequest) => {
             [COMEBACK_COIN_AMOUNT, row.user_id]
           );
           await tx.query(
-            `INSERT INTO coin_ledger (user_id, amount, type, reference_id, description, created_at)
+            `INSERT INTO coin_ledger (user_id, amount, transaction_type, reference_id, description, created_at)
              VALUES ($1, $2, 'comeback_bonus_expired',
                gen_random_uuid(),
                'Comeback bonus expired (7-day window passed)',

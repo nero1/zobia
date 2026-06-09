@@ -192,12 +192,12 @@ export const POST = withAuth(async (req: NextRequest, { auth }: { params: Record
       const { rows: pendingBonuses } = await db.query<{ id: string; amount: number }>(
         `SELECT id, amount FROM coin_ledger
          WHERE user_id = $1
-           AND type = 'comeback_bonus_reserved'
+           AND transaction_type = 'comeback_bonus_reserved'
            AND created_at > NOW() - INTERVAL '7 days'
            AND NOT EXISTS (
              SELECT 1 FROM coin_ledger cl2
              WHERE cl2.user_id = $1
-               AND cl2.type = 'comeback_bonus_claimed'
+               AND cl2.transaction_type = 'comeback_bonus_claimed'
                AND cl2.reference_id = coin_ledger.id::text
            )
          ORDER BY created_at ASC
@@ -207,7 +207,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }: { params: Record
 
       for (const bonus of pendingBonuses) {
         await db.query(
-          `INSERT INTO coin_ledger (user_id, amount, type, reference_id, description, created_at)
+          `INSERT INTO coin_ledger (user_id, amount, transaction_type, reference_id, description, created_at)
            VALUES ($1, 0, 'comeback_bonus_claimed', $2, 'Comeback bonus claimed on login', NOW())`,
           [userId, bonus.id]
         );
