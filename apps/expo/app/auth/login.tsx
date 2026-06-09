@@ -39,7 +39,7 @@ WebBrowser.maybeCompleteAuthSession();
 // Constants
 // ---------------------------------------------------------------------------
 
-const TELEGRAM_BOT = 'ZobiaSocialBot';
+const TELEGRAM_BOT = 'Zobia_bot_bot';
 
 // ---------------------------------------------------------------------------
 // Component
