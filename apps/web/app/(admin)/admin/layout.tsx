@@ -38,6 +38,7 @@ const adminNavItems = [
   { href: "/admin/messages", label: "Messages", icon: "💬" },
   { href: "/admin/alerts", label: "Alerts", icon: "🔔" },
   { href: "/admin/config", label: "Config", icon: "⚙️" },
+  { href: "/admin/ai-settings", label: "AI Settings", icon: "🤖" },
   { href: "/admin/feature-flags", label: "Feature Flags", icon: "🚀" },
   { href: "/admin/branded-rooms", label: "Branded Rooms", icon: "🏠" },
   { href: "/admin/leaderboards", label: "Leaderboards", icon: "📊" },

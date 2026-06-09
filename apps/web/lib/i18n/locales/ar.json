@@ -838,5 +838,28 @@
 
   "landing.footer.terms": "شروط الخدمة",
   "landing.footer.privacy": "سياسة الخصوصية",
-  "landing.footer.copyright": "© {{year}} زوبيا سوشال. جميع الحقوق محفوظة."
+  "landing.footer.copyright": "© {{year}} زوبيا سوشال. جميع الحقوق محفوظة.",
+
+  "admin.aiSettings": "AI Settings",
+  "admin.aiSettings.subtitle": "Manage API keys and connection status for AI providers.",
+  "admin.aiSettings.deepseek": "DeepSeek (Primary)",
+  "admin.aiSettings.gemini": "Gemini (Fallback)",
+  "admin.aiSettings.circuit.closed": "Circuit Closed",
+  "admin.aiSettings.circuit.open": "Circuit Open",
+  "admin.aiSettings.circuit.halfOpen": "Circuit Half-Open",
+  "admin.aiSettings.circuit.failures": "{{count}} failure",
+  "admin.aiSettings.circuit.failures_other": "{{count}} failures",
+  "admin.aiSettings.keySource.env": "Using environment variable",
+  "admin.aiSettings.keySource.override": "Override active (ends {{masked}})",
+  "admin.aiSettings.keyPlaceholder": "Override API key (blank = use env var)",
+  "admin.aiSettings.saveKey": "Save Key",
+  "admin.aiSettings.clearOverride": "Clear Override",
+  "admin.aiSettings.testConnection": "Test Connection",
+  "admin.aiSettings.testing": "Testing…",
+  "admin.aiSettings.testSuccess": "Connected — {{latencyMs}}ms ({{model}})",
+  "admin.aiSettings.testFailed": "Connection failed: {{error}}",
+  "admin.aiSettings.saveSuccess": "API key saved.",
+  "admin.aiSettings.clearSuccess": "Override cleared.",
+  "admin.aiSettings.saveError": "Failed to save key.",
+  "admin.aiSettings.loadError": "Failed to load AI settings."
 }

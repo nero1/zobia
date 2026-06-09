@@ -1175,5 +1175,25 @@
     "recipientsDate": "wapokeaji {{count}} · {{date}}",
     "emptyTitle": "Hakuna matangazo bado",
     "emptyDesc": "Tuma ujumbe kwa wafuasi wako wote mara moja."
+  },
+  "admin": {
+    "aiSettings": "AI Settings",
+    "aiSettingsSubtitle": "Manage API keys and connection status for AI providers.",
+    "aiSettingsDeepseek": "DeepSeek (Primary)",
+    "aiSettingsGemini": "Gemini (Fallback)",
+    "aiSettingsCircuitClosed": "Circuit Closed",
+    "aiSettingsCircuitOpen": "Circuit Open",
+    "aiSettingsCircuitHalfOpen": "Circuit Half-Open",
+    "aiSettingsKeySourceEnv": "Using environment variable",
+    "aiSettingsKeySourceOverride": "Override active (ends {{masked}})",
+    "aiSettingsKeyPlaceholder": "Override API key (blank = use env var)",
+    "aiSettingsSaveKey": "Save Key",
+    "aiSettingsClearOverride": "Clear Override",
+    "aiSettingsTestConnection": "Test Connection",
+    "aiSettingsTesting": "Testing…",
+    "aiSettingsTestSuccess": "Connected — {{latencyMs}}ms",
+    "aiSettingsTestFailed": "Failed: {{error}}",
+    "aiSettingsSaveSuccess": "API key saved.",
+    "aiSettingsSaveError": "Failed to save key."
   }
 }
