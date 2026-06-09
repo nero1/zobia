@@ -60,7 +60,7 @@ interface ExistingReferralRow {
 /**
  * Claim a referral code for the currently authenticated (newly onboarded) user.
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const body = await validateBody(req, claimSchema);
     const newUserId = auth.user.sub;

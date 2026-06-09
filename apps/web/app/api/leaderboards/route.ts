@@ -52,7 +52,7 @@ const VALID_TRACKS: LeaderboardTrack[] = [
  * Returns a paginated leaderboard for the requested track and scope.
  * The calling user's rank is always returned regardless of their position on the page.
  */
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const { searchParams } = new URL(req.url);
     const scopeParam = searchParams.get("scope") ?? "global";

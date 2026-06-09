@@ -62,7 +62,7 @@ const upgradeTierSchema = z.object({
 // PATCH /api/business/tier
 // ---------------------------------------------------------------------------
 
-export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
+export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 

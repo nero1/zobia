@@ -195,7 +195,7 @@ function computeTierProgress(
 // GET /api/creator/tier
 // ---------------------------------------------------------------------------
 
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 
@@ -227,7 +227,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
 // POST /api/creator/tier — trigger upgrade check
 // ---------------------------------------------------------------------------
 
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 

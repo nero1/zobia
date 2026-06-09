@@ -60,7 +60,7 @@ interface CommunityNoteRow {
 // GET /api/admin/community-notes
 // ---------------------------------------------------------------------------
 
-export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
@@ -121,7 +121,7 @@ export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
 // POST /api/admin/community-notes
 // ---------------------------------------------------------------------------
 
-export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 

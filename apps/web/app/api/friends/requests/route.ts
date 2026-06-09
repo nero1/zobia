@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/middleware';
 import { db } from '@/lib/db';
 
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   const userId = auth.user.sub;
   const { searchParams } = new URL(req.url);
   const cursor = searchParams.get('cursor');

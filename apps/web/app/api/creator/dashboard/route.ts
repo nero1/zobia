@@ -154,7 +154,7 @@ async function fetchRevenueByStream(
  * @param req - Incoming request
  * @returns Dashboard payload with revenue, members, gifters, payouts, health
  */
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 

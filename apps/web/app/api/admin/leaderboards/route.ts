@@ -24,7 +24,7 @@ interface LeaderboardRow {
   is_suspended: boolean;
 }
 
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     // Verify caller is admin
     const { rows: adminRows } = await db.query<{ is_admin: boolean }>(

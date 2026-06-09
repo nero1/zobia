@@ -14,7 +14,7 @@ import { badRequest, notFound } from '@/lib/api/errors';
 import { db } from '@/lib/db';
 
 /** GET /api/follows — list users the current user follows */
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   const userId = auth.user.sub;
   const { searchParams } = new URL(req.url);
   const cursor = searchParams.get('cursor');
@@ -46,7 +46,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
 });
 
 /** POST /api/follows — follow a user */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   const userId = auth.user.sub;
   const body = await req.json();
   const targetId: string | undefined = body?.userId;
@@ -70,7 +70,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 });
 
 /** DELETE /api/follows — unfollow a user */
-export const DELETE = withAuth(async (req: NextRequest, { auth }) => {
+export const DELETE = withAuth(async (req: NextRequest, { params, auth }) => {
   const userId = auth.user.sub;
   const body = await req.json();
   const targetId: string | undefined = body?.userId;

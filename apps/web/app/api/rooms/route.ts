@@ -186,7 +186,7 @@ function buildTrendingOrderClause(): string {
  *
  * @returns JSON { items, nextCursor, hasMore }
  */
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 
@@ -359,7 +359,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
  *
  * @returns JSON { room } with status 201
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 

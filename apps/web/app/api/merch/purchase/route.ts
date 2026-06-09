@@ -109,7 +109,7 @@ function koboToCoins(kobo: number): number {
  *   coins path:     { orderId, status, productName, priceKobo }
  *   external path:  { paymentUrl, orderId, message? }
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await requireFeatureEnabled("merchStore");
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);

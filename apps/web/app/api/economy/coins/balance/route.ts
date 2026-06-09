@@ -40,7 +40,7 @@ import { getStarBalance, getStarLedgerEntries } from "@/lib/economy/stars";
  * }
  * ```
  */
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
     const url = new URL(req.url);

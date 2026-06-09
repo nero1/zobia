@@ -44,7 +44,7 @@ const RECENTLY_ACTIVE_MS = 60 * 60 * 1000; // 1 hour
  * Record a presence heartbeat for the authenticated user.
  * Should be called periodically by the client (e.g. every 3–4 minutes).
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
     const now = new Date().toISOString();
@@ -72,7 +72,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
  * Returns the number of users active in the last 5 minutes and any ongoing
  * platform event (flash XP, etc.) for display on the home screen activity banner.
  */
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     // Count distinct users who earned XP in the last hour (PRD §2.2: "X people earned XP in the last hour")
     const { rows } = await db.query<{ count: string }>(

@@ -56,7 +56,7 @@ interface GuildDiscoveryRow {
  * Only open or approval-required guilds are returned (not invite_only).
  * Guilds the user already belongs to are excluded.
  */
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
 

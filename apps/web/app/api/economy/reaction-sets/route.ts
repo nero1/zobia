@@ -144,7 +144,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
  *
  * @returns JSON { reactionSet, newBalance } with status 201
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 

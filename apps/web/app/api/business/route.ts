@@ -86,7 +86,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
 // POST /api/business
 // ---------------------------------------------------------------------------
 
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await requireFeatureEnabled("businessAccounts");
     const userId = auth.user.sub;
@@ -125,7 +125,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 // PATCH /api/business
 // ---------------------------------------------------------------------------
 
-export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
+export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
     await enforceRateLimit(userId, "user", RATE_LIMITS.apiWrite);

@@ -64,7 +64,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
 // PUT /api/admin/email-settings
 // ---------------------------------------------------------------------------
 
-export const PUT = withAuth(async (req: NextRequest, { auth }) => {
+export const PUT = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     if (!auth.user.is_admin) throw forbidden("Admin access required");
 

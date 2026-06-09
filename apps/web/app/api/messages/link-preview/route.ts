@@ -235,7 +235,7 @@ interface LinkPreviewResult {
  * Rendering in DMs is controlled client-side (only shown after the
  * recipient has replied twice per platform policy).
  */
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 

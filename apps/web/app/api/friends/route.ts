@@ -11,7 +11,7 @@ import { db } from '@/lib/db';
 import { XP_VALUES } from '@/lib/xp/engine';
 
 /** GET /api/friends — list accepted friends */
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   const userId = auth.user.sub;
   const { searchParams } = new URL(req.url);
   const cursor = searchParams.get('cursor');
@@ -41,7 +41,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
 });
 
 /** POST /api/friends — send a friend request */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   const userId = auth.user.sub;
   const body = await req.json();
   const targetId: string | undefined = body?.userId;

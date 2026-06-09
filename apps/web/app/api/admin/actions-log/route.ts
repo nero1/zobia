@@ -129,7 +129,7 @@ function buildFilters(
  *
  * Results are merged in application memory and sorted by created_at DESC.
  */
-export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
@@ -318,7 +318,7 @@ export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
  * Accepts { actionId, note } and marks the action as reversed in
  * moderation_actions (or automated_actions_log if present).
  */
-export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 

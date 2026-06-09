@@ -206,7 +206,7 @@ const PayoutRequestSchema = z.object({
   amountKobo: z.number().int().positive().optional(),
 });
 
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
     const body = await validateBody(req, PayoutRequestSchema);

@@ -81,7 +81,7 @@ interface SponsoredQuestAdminRow {
  * List all sponsored quests with per-quest stats.
  * Admin only.
  */
-export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
@@ -131,7 +131,7 @@ export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
  * Publish a new sponsored quest on behalf of a brand.
  * Admin only. Sets `is_active = TRUE` immediately.
  */
-export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 

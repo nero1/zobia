@@ -54,7 +54,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
 // PUT
 // ---------------------------------------------------------------------------
 
-export const PUT = withAuth(async (req: NextRequest, { auth }) => {
+export const PUT = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const body = await validateBody(req, themeSchema);
 

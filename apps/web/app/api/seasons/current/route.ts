@@ -24,7 +24,7 @@ import { getCurrentSeason, getSeasonPhase, isSeasonActive } from "@/lib/seasons/
 /**
  * Returns the active season with user's season pass status and leaderboard preview.
  */
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const season = await getCurrentSeason(db);
     if (!season) throw notFound("No active season");

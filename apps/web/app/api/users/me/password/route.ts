@@ -52,7 +52,7 @@ async function verifyPassword(password: string, hash: string): Promise<boolean> 
 // PUT /api/users/me/password
 // ---------------------------------------------------------------------------
 
-export const PUT = withAuth(async (req: NextRequest, { auth }) => {
+export const PUT = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", {
       windowMs: 3600 * 1000,

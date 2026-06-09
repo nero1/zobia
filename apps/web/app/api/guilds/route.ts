@@ -69,7 +69,7 @@ interface GuildRow {
  * Browse guilds with optional filters.
  * Supports city, tier, and open_only query params.
  */
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const { searchParams } = new URL(req.url);
     const city = searchParams.get("city");
@@ -137,7 +137,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
  * Atomically deducts 500 Coins from the creator and creates the guild
  * plus a guild_member record with the captain role.
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const body = await validateBody(req, createGuildSchema);
     const userId = auth.user.sub;

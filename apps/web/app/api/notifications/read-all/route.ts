@@ -19,7 +19,7 @@ import { handleApiError } from "@/lib/api/errors";
 /**
  * Mark all notifications as read for the authenticated user.
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
 

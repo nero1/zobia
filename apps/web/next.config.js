@@ -84,9 +84,7 @@ const nextConfig = {
       { protocol: "https", hostname: "telegram.org" },
     ],
   },
-  experimental: {
-    serverComponentsExternalPackages: ["pg", "ioredis"],
-  },
+  serverExternalPackages: ["pg", "ioredis"],
 };
 
 module.exports = withPWA(nextConfig);

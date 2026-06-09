@@ -178,7 +178,7 @@ const confirmSchema = z.object({
  * Confirm TOTP setup by verifying the supplied code against the pending secret.
  * On success, persists the secret and enables TOTP for the user.
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 

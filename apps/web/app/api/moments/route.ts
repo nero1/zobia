@@ -22,7 +22,7 @@ const createMomentSchema = z.object({
   caption: z.string().max(200).optional(),
 });
 
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
     const cursor = req.nextUrl.searchParams.get("cursor");
@@ -57,7 +57,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
   }
 });
 
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
     const userId = auth.user.sub;

@@ -118,7 +118,7 @@ function generateReferralCode(): string {
  *
  * @returns JSON { success: true, xpAwarded: number, referralCode: string }
  */
-export const POST = withAuth(async (req, { auth }) => {
+export const POST = withAuth(async (req, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.onboarding);
 

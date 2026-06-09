@@ -67,7 +67,7 @@ const searchSchema = z.object({
  *
  * @returns JSON { users: AdminUserRow[], total: number, page: number, limit: number }
  */
-export const GET = withAdminAuth(async (req, { auth }) => {
+export const GET = withAdminAuth(async (req, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 

@@ -134,7 +134,7 @@ async function getDailyQuestDeck(userId: string): Promise<QuestDeckItem[]> {
  *
  * @returns JSON { date: string, quests: QuestDeckItem[] }
  */
-export const GET = withAuth(async (req, { auth }) => {
+export const GET = withAuth(async (req, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 

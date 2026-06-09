@@ -129,7 +129,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
 // POST /api/rooms/pinned
 // ---------------------------------------------------------------------------
 
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const body = await validateBody(req, pinSchema);
 
@@ -200,7 +200,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 // DELETE /api/rooms/pinned
 // ---------------------------------------------------------------------------
 
-export const DELETE = withAuth(async (req: NextRequest, { auth }) => {
+export const DELETE = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const body = await validateBody(req, pinSchema);
 

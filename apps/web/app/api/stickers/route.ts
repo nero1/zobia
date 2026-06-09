@@ -120,7 +120,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
  * Unlock a sticker pack. Deducts `coin_price` coins if applicable.
  * Requires authentication.
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 

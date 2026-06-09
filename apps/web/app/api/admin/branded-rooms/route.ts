@@ -118,7 +118,7 @@ export const GET = withAdminAuth(async (_req: NextRequest) => {
  *
  * @returns Created branded room record (201)
  */
-export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const body = await req.json().catch(() => ({}));
     const parsed = CreateBrandedRoomSchema.safeParse(body);

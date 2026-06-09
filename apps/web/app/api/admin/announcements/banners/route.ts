@@ -43,7 +43,7 @@ const CreateBannerSchema = z.object({
  *
  * @returns Array of all banners ordered by display_order
  */
-export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
@@ -74,7 +74,7 @@ export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
  *
  * @returns Created banner record
  */
-export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 

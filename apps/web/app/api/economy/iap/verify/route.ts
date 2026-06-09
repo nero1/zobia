@@ -354,7 +354,7 @@ async function verifyAndActivateSubscription(
  * Idempotent: returns 409 if the purchaseToken has already been processed.
  * Uses SELECT FOR UPDATE to prevent race conditions on the user row.
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const body = await validateBody(req, verifyIapSchema);
     const userId = auth.user.sub;

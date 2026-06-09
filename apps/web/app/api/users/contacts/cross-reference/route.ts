@@ -94,7 +94,7 @@ interface ZobiaContactResult {
  * @param req - Incoming request with `{ phoneNumbers: string[] }` body
  * @returns `{ contacts: ZobiaContactResult[] }` — empty array if no matches
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const callerId = auth.user.sub;
 

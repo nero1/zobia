@@ -40,7 +40,7 @@ const setupPinSchema = z.object({
  *
  * @returns JSON { success: true }
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 
