@@ -238,7 +238,7 @@ export const POST = withAuth(async (req, { params, auth }) => {
 
       // 6. Credit coin_ledger for welcome XP event
       await client.query(
-        `INSERT INTO coin_ledger (user_id, amount, type, reference, created_at)
+        `INSERT INTO coin_ledger (user_id, amount, transaction_type, reference_id, created_at)
          VALUES ($1, $2, 'welcome_bonus', 'onboarding_welcome', NOW())`,
         [auth.user.sub, WELCOME_COINS]
       );
