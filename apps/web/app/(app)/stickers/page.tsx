@@ -142,7 +142,7 @@ export default function StickersPage() {
     (async () => {
       try {
         const res = await fetch("/api/stickers", { credentials: "include" });
-        if (res.status === 401) { router.push("/login"); return; }
+        if (res.status === 401) { router.push("/auth/login"); return; }
         if (!res.ok) throw new Error("Failed to load sticker packs");
         const data = (await res.json()) as { packs: StickerPack[] };
         setPacks(data.packs);

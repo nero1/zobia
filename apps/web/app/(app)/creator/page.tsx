@@ -239,7 +239,7 @@ export default function CreatorPage() {
     (async () => {
       try {
         const res = await fetch("/api/creator/dashboard", { credentials: "include" });
-        if (res.status === 401) { window.location.href = "/login"; return; }
+        if (res.status === 401) { window.location.href = "/auth/login"; return; }
         if (res.status === 403) { window.location.href = "/home"; return; }
         if (!res.ok) throw new Error("Failed to load dashboard");
         const d = (await res.json()) as CreatorData;

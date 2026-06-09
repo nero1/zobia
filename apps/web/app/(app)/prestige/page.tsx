@@ -225,7 +225,7 @@ export default function PrestigePage() {
     (async () => {
       try {
         const res = await fetch("/api/prestige", { credentials: "include" });
-        if (res.status === 401) { window.location.href = "/login"; return; }
+        if (res.status === 401) { window.location.href = "/auth/login"; return; }
         if (!res.ok) throw new Error("Failed to load prestige info");
         setData((await res.json()) as PrestigeEligibility);
       } catch (e) {

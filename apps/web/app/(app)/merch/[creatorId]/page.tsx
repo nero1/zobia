@@ -177,7 +177,7 @@ export default function CreatorMerchStorePage({ params }: { params: Promise<{ cr
     (async () => {
       try {
         const res = await fetch(`/api/merch/stores/${creatorId}`, { credentials: "include" });
-        if (res.status === 401) { window.location.href = "/login"; return; }
+        if (res.status === 401) { window.location.href = "/auth/login"; return; }
         if (res.status === 404) { setError("Store not found"); return; }
         if (!res.ok) throw new Error("Failed to load store");
         setStore((await res.json()) as MerchStore);

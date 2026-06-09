@@ -185,7 +185,7 @@ export default function MessagesPage() {
     (async () => {
       try {
         const res = await fetch("/api/messages/dm", { credentials: "include" });
-        if (res.status === 401) { window.location.href = "/login"; return; }
+        if (res.status === 401) { window.location.href = "/auth/login"; return; }
         if (!res.ok) throw new Error("Failed to load messages");
         const data = (await res.json()) as { conversations?: DMConversation[] };
         setConversations(data.conversations ?? []);

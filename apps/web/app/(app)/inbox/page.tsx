@@ -142,7 +142,7 @@ export default function InboxPage() {
     (async () => {
       try {
         const res = await fetch("/api/inbox", { credentials: "include" });
-        if (res.status === 401) { window.location.href = "/login"; return; }
+        if (res.status === 401) { window.location.href = "/auth/login"; return; }
         if (!res.ok) throw new Error("Failed to load inbox");
         const data = (await res.json()) as
           | InboxMessage[]

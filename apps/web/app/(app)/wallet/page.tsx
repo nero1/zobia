@@ -455,7 +455,7 @@ function WalletContent() {
           fetch("/api/economy/store", { credentials: "include" }),
         ]);
 
-        if (balRes.status === 401) { window.location.href = "/login"; return; }
+        if (balRes.status === 401) { window.location.href = "/auth/login"; return; }
 
         const balData = balRes.ok
           ? ((await balRes.json()) as { coins?: number; stars?: number; plan?: string })

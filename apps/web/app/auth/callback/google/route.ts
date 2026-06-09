@@ -126,6 +126,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // Clear OAuth state cookies
     response.headers.append("Set-Cookie", "oauth_state=; Max-Age=0; Path=/; HttpOnly");
     response.headers.append("Set-Cookie", "oauth_redirect=; Max-Age=0; Path=/; HttpOnly");
+    response.headers.append("Set-Cookie", "zobia_csrf_state=; Max-Age=0; Path=/; HttpOnly");
 
     return response;
   } catch (err) {

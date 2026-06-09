@@ -42,7 +42,7 @@ export default function CreateMomentPage() {
         body: JSON.stringify(body),
       });
 
-      if (res.status === 401) { router.push("/login"); return; }
+      if (res.status === 401) { router.push("/auth/login"); return; }
       if (!res.ok) {
         const d = (await res.json()) as { message?: string };
         throw new Error(d.message ?? "Failed to post moment");

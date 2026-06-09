@@ -265,7 +265,7 @@ export default function ElderPage() {
     (async () => {
       try {
         const res = await fetch("/api/elder", { credentials: "include" });
-        if (res.status === 401) { window.location.href = "/login"; return; }
+        if (res.status === 401) { window.location.href = "/auth/login"; return; }
         if (!res.ok) throw new Error("Failed to load Elder data");
         const json = (await res.json()) as ElderData | { data?: ElderData };
         const elderData: ElderData =

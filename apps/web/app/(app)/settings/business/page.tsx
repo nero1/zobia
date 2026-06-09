@@ -236,7 +236,7 @@ export default function BusinessSettingsPage() {
     (async () => {
       try {
         const res = await fetch("/api/business", { credentials: "include" });
-        if (res.status === 401) { window.location.href = "/login"; return; }
+        if (res.status === 401) { window.location.href = "/auth/login"; return; }
         if (res.status === 404) {
           // No business account yet — show form
           setBusiness(null);

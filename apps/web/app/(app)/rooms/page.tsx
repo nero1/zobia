@@ -215,7 +215,7 @@ export default function RoomsPage() {
         if (cur) params.set("cursor", cur);
 
         const res = await fetch(`/api/rooms?${params.toString()}`, { credentials: "include" });
-        if (res.status === 401) { window.location.href = "/login"; return; }
+        if (res.status === 401) { window.location.href = "/auth/login"; return; }
         if (!res.ok) throw new Error("Failed to load rooms");
         const data = (await res.json()) as { rooms: RoomCardData[]; cursor?: string | null; hasMore?: boolean };
 
