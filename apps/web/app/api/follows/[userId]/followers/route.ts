@@ -10,8 +10,9 @@ import { db } from '@/lib/db';
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { userId: string } },
+  { params: _params }: { params: Promise<{ userId: string }> },
 ) {
+  const params = await _params;
   const { searchParams } = new URL(req.url);
   const cursor = searchParams.get('cursor');
   const limit = Math.min(Number(searchParams.get('limit') ?? 50), 100);
