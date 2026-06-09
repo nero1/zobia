@@ -25,7 +25,7 @@ export const ROUTES = {
 
   // ---- OAuth callbacks ----------------------------------------------------
   googleCallback: "/api/auth/google/callback",
-  telegramCallback: "/auth/callback/telegram",
+  telegramCallback: "/api/auth/telegram/callback",
 
   // ---- Authenticated app -------------------------------------------------
   home: "/home",

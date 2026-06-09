@@ -143,7 +143,7 @@ function LoginContent() {
           auth_date: String(user.auth_date),
           hash: user.hash,
         });
-        window.location.href = `/auth/callback/telegram?${params.toString()}`;
+        window.location.href = `/api/auth/telegram/callback?${params.toString()}`;
       } catch {
         setIsLoading(null);
       }
