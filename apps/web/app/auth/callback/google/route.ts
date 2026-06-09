@@ -73,13 +73,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       is_admin: boolean;
       is_suspended: boolean;
     }>(
-      `INSERT INTO users (email, google_id, display_name, avatar_url, email_verified, username, created_at, updated_at)
+      `INSERT INTO users (email, google_id, display_name, avatar_url, is_email_verified, username, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
        ON CONFLICT (email) DO UPDATE SET
          google_id = EXCLUDED.google_id,
          display_name = COALESCE(users.display_name, EXCLUDED.display_name),
          avatar_url = COALESCE(users.avatar_url, EXCLUDED.avatar_url),
-         email_verified = TRUE,
+         is_email_verified = TRUE,
          updated_at = NOW(),
          last_login_at = NOW()
        RETURNING id, email, username, is_admin, is_suspended`,
