@@ -20,7 +20,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { upsertLeaderboardSnapshot, getUserRank } from "@/lib/leaderboards/engine";
+import { upsertLeaderboardSnapshot } from "@/lib/leaderboards/engine";
 
 // ---------------------------------------------------------------------------
 // Auth
@@ -107,49 +107,70 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   // -------------------------------------------------------------------------
-  // Step 2 + 3: Upsert snapshots and detect rank changes
+  // Step 2: Batch-fetch previous snapshot ranks before any upserts
+  // -------------------------------------------------------------------------
+  const userIds = activeUsers.map((u) => u.user_id);
+  const previousRankMap = new Map<string, number>();
+  try {
+    const { rows: prevRows } = await db.query<{ user_id: string; rank_position: number }>(
+      `SELECT user_id, rank_position
+       FROM leaderboard_snapshots
+       WHERE user_id = ANY($1)
+         AND scope = 'global'
+         AND track = 'main'`,
+      [userIds]
+    );
+    for (const row of prevRows) {
+      previousRankMap.set(row.user_id, row.rank_position);
+    }
+  } catch (err) {
+    errors.push(`previousRankFetch: ${String(err)}`);
+  }
+
+  // -------------------------------------------------------------------------
+  // Step 3: Upsert all snapshots
   // -------------------------------------------------------------------------
   for (const user of activeUsers) {
     try {
-      // Fetch previous snapshot rank before upserting
-      const previousSnapshot = await db.query<PreviousSnapshotRow>(
-        `SELECT rank_position FROM leaderboard_snapshots
-         WHERE user_id = $1
-           AND scope = 'global'
-           AND track = 'main'
-         LIMIT 1`,
-        [user.user_id]
-      );
-      const previousRank = previousSnapshot.rows[0]?.rank_position ?? null;
-
-      // Upsert the snapshot with the user's current XP total
       await upsertLeaderboardSnapshot(user.user_id, "main", user.xp_total, db);
-
       usersUpdated++;
+    } catch (err) {
+      errors.push(`upsertSnapshot(${user.user_id}): ${String(err)}`);
+    }
+  }
 
-      // Detect rank change by querying the live rank position after upsert
-      const newRank = await getUserRank(user.user_id, "main", "global", db);
+  // -------------------------------------------------------------------------
+  // Step 4: Batch-compute new ranks with a single window function query,
+  //         then dispatch rank-change notifications
+  // -------------------------------------------------------------------------
+  try {
+    const { rows: rankRows } = await db.query<{ user_id: string; new_rank: number }>(
+      `SELECT user_id,
+              RANK() OVER (PARTITION BY scope ORDER BY xp_value DESC)::int AS new_rank
+       FROM leaderboard_snapshots
+       WHERE user_id = ANY($1)
+         AND scope = 'global'
+         AND track = 'main'`,
+      [userIds]
+    );
 
-      if (
-        previousRank !== null &&
-        newRank !== null &&
-        newRank !== previousRank
-      ) {
+    for (const { user_id, new_rank: newRank } of rankRows) {
+      const previousRank = previousRankMap.get(user_id) ?? null;
+
+      if (previousRank !== null && newRank !== previousRank) {
         rankChanges++;
 
         const enteredTop10 = newRank <= 10 && previousRank > 10;
         const notifType = enteredTop10 ? "leaderboard_top10_entry" : "leaderboard_rank_change";
-
-        // Always notify on top-10 entry; only notify on general rank change
-        // when moving in the top 50 (avoids flooding low-rank users).
         const shouldNotify = enteredTop10 || newRank <= 50;
+
         if (shouldNotify) {
           await db.query(
             `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
              VALUES ($1, $2, $3, false, NOW())
              ON CONFLICT DO NOTHING`,
             [
-              user.user_id,
+              user_id,
               notifType,
               JSON.stringify({
                 previous_rank: previousRank,
@@ -162,9 +183,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           );
         }
       }
-    } catch (err) {
-      errors.push(`user ${user.user_id}: ${String(err)}`);
     }
+  } catch (err) {
+    errors.push(`rankChangeNotifications: ${String(err)}`);
   }
 
   return NextResponse.json({

@@ -223,147 +223,17 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   // -------------------------------------------------------------------------
-  // Step 5: Flash XP — send 6-hour advance announcement notifications
-  //
-  // PRD §2.4: Flash events are "announced 6 hours in advance but firing at an
-  // unannounced moment within that window."
-  //
-  // When announced_at <= NOW() and announcement_notification_sent = FALSE,
-  // blast a push notification to all active users and mark the event sent.
+  // Steps 5–6: Flash XP lifecycle — announce, fire (shared lib handles expiry too)
   // -------------------------------------------------------------------------
   let flashXpAnnounced = 0;
-  try {
-    const { rows: toAnnounce } = await db.query<{
-      id: string;
-      name: string;
-      fires_at: string;
-      ends_at: string;
-      multiplier: string;
-    }>(
-      `SELECT id, name, fires_at, ends_at, multiplier::TEXT AS multiplier
-       FROM flash_xp_events
-       WHERE is_active = TRUE
-         AND announced_at <= $1
-         AND announcement_notification_sent = FALSE
-         AND fires_at > $1`,
-      [now.toISOString()]
-    );
-
-    for (const evt of toAnnounce) {
-      try {
-        // Mark as announced atomically before sending notifications
-        // (so re-runs after a partial send don't re-announce)
-        const { rowCount } = await db.query(
-          `UPDATE flash_xp_events
-           SET announcement_notification_sent = TRUE,
-               notification_sent_at = NOW()
-           WHERE id = $1 AND announcement_notification_sent = FALSE`,
-          [evt.id]
-        );
-
-        if (!rowCount || rowCount === 0) continue; // Another instance beat us
-
-        // Insert in-app notifications for all active users (last 30 days)
-        await db.query(
-          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-           SELECT id,
-                  'flash_xp_announced',
-                  $1::jsonb,
-                  FALSE,
-                  NOW()
-           FROM users
-           WHERE deleted_at IS NULL
-             AND last_active_at > NOW() - INTERVAL '30 days'
-           ON CONFLICT DO NOTHING`,
-          [
-            JSON.stringify({
-              eventId: evt.id,
-              name: evt.name,
-              multiplier: parseFloat(evt.multiplier),
-              windowEnd: evt.ends_at,
-              message: `⚡ Double XP is happening sometime before ${new Date(evt.ends_at).toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" })} today! Stay active.`,
-            }),
-          ]
-        );
-
-        flashXpAnnounced++;
-      } catch (err) {
-        errors.push(`flashXpAnnounce(${evt.id}): ${String(err)}`);
-      }
-    }
-  } catch (err) {
-    errors.push(`flashXpAnnouncements: ${String(err)}`);
-  }
-
-  // -------------------------------------------------------------------------
-  // Step 6: Flash XP — activate events that have reached their fires_at time
-  //
-  // fires_at is the actual (hidden) moment the event starts. When the clock
-  // passes fires_at and fired = FALSE, mark the event as fired and insert a
-  // platform-wide in-app notification signalling the event is NOW live.
-  //
-  // The XP multiplier is applied at award time by checking flash_xp_events
-  // for any active row where fired=TRUE, fires_at<=NOW(), ends_at>NOW().
-  // -------------------------------------------------------------------------
   let flashXpFired = 0;
   try {
-    const { rows: toFire } = await db.query<{
-      id: string;
-      name: string;
-      multiplier: string;
-      ends_at: string;
-    }>(
-      `SELECT id, name, multiplier::TEXT AS multiplier, ends_at
-       FROM flash_xp_events
-       WHERE is_active = TRUE
-         AND fired = FALSE
-         AND fires_at <= $1
-         AND ends_at > $1`,
-      [now.toISOString()]
-    );
-
-    for (const evt of toFire) {
-      try {
-        // Atomically mark as fired
-        const { rowCount } = await db.query(
-          `UPDATE flash_xp_events
-           SET fired = TRUE, updated_at = NOW()
-           WHERE id = $1 AND fired = FALSE`,
-          [evt.id]
-        );
-
-        if (!rowCount || rowCount === 0) continue;
-
-        // Insert high-urgency in-app notification for all active users
-        await db.query(
-          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-           SELECT id,
-                  'flash_xp_live',
-                  $1::jsonb,
-                  FALSE,
-                  NOW()
-           FROM users
-           WHERE deleted_at IS NULL
-             AND last_active_at > NOW() - INTERVAL '7 days'
-           ON CONFLICT DO NOTHING`,
-          [
-            JSON.stringify({
-              eventId: evt.id,
-              name: evt.name,
-              multiplier: parseFloat(evt.multiplier),
-              endsAt: evt.ends_at,
-              message: `⚡ ${evt.name} is LIVE NOW! ${evt.multiplier}× XP until ${new Date(evt.ends_at).toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" })}. Go earn!`,
-            }),
-          ]
-        );
-
-        flashXpFired++;
-      } catch (err) {
-        errors.push(`flashXpFire(${evt.id}): ${String(err)}`);
-      }
-    }
+    const { advanceFlashXPLifecycle } = await import('@/lib/events/flashXP');
+    const flashResult = await advanceFlashXPLifecycle();
+    flashXpAnnounced = flashResult.announced;
+    flashXpFired = flashResult.fired;
   } catch (err) {
-    errors.push(`flashXpFiring: ${String(err)}`);
+    errors.push(`flashXpLifecycle: ${String(err)}`);
   }
 
   // -------------------------------------------------------------------------

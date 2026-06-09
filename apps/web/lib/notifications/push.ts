@@ -142,18 +142,23 @@ function isValidExpoToken(token: string): boolean {
 
 /**
  * Send a batch of Expo push messages. Handles up to 100 per request.
- * Errors are logged but never thrown.
+ * Returns a list of tokens that Expo flagged as DeviceNotRegistered
+ * so callers can clean them from the DB.
  *
- * @param messages - Array of Expo push message objects (max 100)
+ * @param messages        - Array of { message, token } pairs (max 100)
+ * @returns Set of stale tokens that should be removed from user_push_tokens
  */
-async function sendExpoBatch(messages: ExpoMessage[]): Promise<void> {
-  if (messages.length === 0) return;
+async function sendExpoBatch(
+  messages: Array<{ msg: ExpoMessage; token: string }>
+): Promise<Set<string>> {
+  const staleTokens = new Set<string>();
+  if (messages.length === 0) return staleTokens;
 
   try {
     const response = await fetch(EXPO_PUSH_URL, {
       method: "POST",
       headers: buildExpoHeaders(),
-      body: JSON.stringify(messages),
+      body: JSON.stringify(messages.map((m) => m.msg)),
     });
 
     if (!response.ok) {
@@ -161,21 +166,50 @@ async function sendExpoBatch(messages: ExpoMessage[]): Promise<void> {
       console.error(
         `[push] Expo API returned ${response.status}: ${text}`
       );
-      return;
+      return staleTokens;
     }
 
     const result = (await response.json()) as ExpoPushResponse;
 
-    // Log any per-message errors
-    for (const ticket of result.data ?? []) {
+    // Inspect per-message tickets; collect DeviceNotRegistered tokens for cleanup
+    for (let i = 0; i < (result.data ?? []).length; i++) {
+      const ticket = result.data[i];
       if (ticket.status === "error") {
-        console.error(
-          `[push] Expo ticket error: ${ticket.message ?? "unknown"} (${ticket.details?.error ?? "no code"})`
-        );
+        const errCode = ticket.details?.error ?? "";
+        if (errCode === "DeviceNotRegistered") {
+          // Mark this token for removal — app uninstalled or token expired
+          staleTokens.add(messages[i].token);
+        } else {
+          console.error(
+            `[push] Expo ticket error: ${ticket.message ?? "unknown"} (${errCode})`
+          );
+        }
       }
     }
   } catch (err) {
     console.error("[push] Failed to send Expo push batch:", err);
+  }
+
+  return staleTokens;
+}
+
+/**
+ * Remove stale push tokens from the database.
+ * Called after sendExpoBatch returns DeviceNotRegistered tokens.
+ *
+ * @param tokens - Set of Expo push token strings to delete
+ */
+async function purgeStaleTokens(tokens: Set<string>): Promise<void> {
+  if (tokens.size === 0) return;
+  const list = [...tokens];
+  try {
+    await db.query(
+      `DELETE FROM user_push_tokens WHERE token = ANY($1)`,
+      [list]
+    );
+    console.info(`[push] Purged ${list.length} stale push token(s).`);
+  } catch (err) {
+    console.error("[push] Failed to purge stale tokens:", err);
   }
 }
 
@@ -202,18 +236,13 @@ export async function sendPushNotification(
   options?: PushNotificationOptions
 ): Promise<void> {
   try {
+    // Fetch ALL registered tokens for the user — supports multi-device
     const { rows } = await db.query<PushTokenRow>(
-      `SELECT token FROM user_push_tokens WHERE user_id = $1 LIMIT 1`,
+      `SELECT token FROM user_push_tokens WHERE user_id = $1`,
       [userId]
     );
 
-    const token = rows[0]?.token;
-    if (!token) return; // No push token registered — silently skip
-
-    if (!isValidExpoToken(token)) {
-      console.warn(`[push] Invalid Expo push token format for user ${userId}: ${token}`);
-      return;
-    }
+    if (rows.length === 0) return; // No push tokens registered — silently skip
 
     const { sound, priority } = resolveExpoPriority(options?.priority);
 
@@ -222,17 +251,25 @@ export async function sendPushNotification(
       messageData.action = options.action;
     }
 
-    const message: ExpoMessage = {
-      to: token,
-      title,
-      body,
-      sound,
-      priority,
-      ...(Object.keys(messageData).length > 0 ? { data: messageData } : {}),
-      ...(options?.badge !== undefined ? { badge: options.badge } : {}),
-    };
+    const messages = rows
+      .filter((r) => isValidExpoToken(r.token))
+      .map((r) => ({
+        token: r.token,
+        msg: {
+          to: r.token,
+          title,
+          body,
+          sound,
+          priority,
+          ...(Object.keys(messageData).length > 0 ? { data: messageData } : {}),
+          ...(options?.badge !== undefined ? { badge: options.badge } : {}),
+        } as ExpoMessage,
+      }));
 
-    await sendExpoBatch([message]);
+    if (messages.length === 0) return;
+
+    const stale = await sendExpoBatch(messages);
+    await purgeStaleTokens(stale);
   } catch (err) {
     console.error(`[push] sendPushNotification failed for user ${userId}:`, err);
   }
@@ -266,44 +303,50 @@ export async function sendPushNotificationBatch(
   try {
     const userIds = [...new Set(notifications.map((n) => n.userId))];
 
-    // Fetch all tokens in one query
+    // Fetch ALL tokens for all users in one query — supports multi-device
     const { rows } = await db.query<{ user_id: string; token: string }>(
       `SELECT user_id, token FROM user_push_tokens WHERE user_id = ANY($1)`,
       [userIds]
     );
 
-    // Build a userId → token map (one token per user)
-    const tokenMap = new Map<string, string>();
+    // Build a userId → token[] map (accumulate all tokens per user)
+    const tokenMap = new Map<string, string[]>();
     for (const row of rows) {
-      if (isValidExpoToken(row.token)) {
-        tokenMap.set(row.user_id, row.token);
+      if (!isValidExpoToken(row.token)) continue;
+      const existing = tokenMap.get(row.user_id) ?? [];
+      existing.push(row.token);
+      tokenMap.set(row.user_id, existing);
+    }
+
+    // Build one Expo message per (notification × device token) pair
+    const messages: Array<{ msg: ExpoMessage; token: string }> = [];
+    for (const notification of notifications) {
+      const tokens = tokenMap.get(notification.userId) ?? [];
+      for (const token of tokens) {
+        const { sound, priority } = resolveExpoPriority(notification.priority);
+        messages.push({
+          token,
+          msg: {
+            to: token,
+            title: notification.title,
+            body: notification.body,
+            sound,
+            priority,
+            ...(notification.data ? { data: notification.data } : {}),
+            ...(notification.badge !== undefined ? { badge: notification.badge } : {}),
+          },
+        });
       }
     }
 
-    // Build Expo messages for users that have valid tokens
-    const messages: ExpoMessage[] = [];
-    for (const notification of notifications) {
-      const token = tokenMap.get(notification.userId);
-      if (!token) continue;
-
-      const { sound, priority } = resolveExpoPriority(notification.priority);
-
-      messages.push({
-        to: token,
-        title: notification.title,
-        body: notification.body,
-        sound,
-        priority,
-        ...(notification.data ? { data: notification.data } : {}),
-        ...(notification.badge !== undefined ? { badge: notification.badge } : {}),
-      });
-    }
-
-    // Send in batches of EXPO_BATCH_SIZE (100)
+    // Send in batches of EXPO_BATCH_SIZE (100), collect and purge stale tokens
+    const allStale = new Set<string>();
     for (let i = 0; i < messages.length; i += EXPO_BATCH_SIZE) {
       const batch = messages.slice(i, i + EXPO_BATCH_SIZE);
-      await sendExpoBatch(batch);
+      const stale = await sendExpoBatch(batch);
+      stale.forEach((t) => allStale.add(t));
     }
+    await purgeStaleTokens(allStale);
   } catch (err) {
     console.error("[push] sendPushNotificationBatch failed:", err);
   }

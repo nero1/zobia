@@ -210,7 +210,7 @@ export const GET = withAdminAuth(async (req, { auth }) => {
         today: stats.get("revenue_today") ?? 0,
         this_week: stats.get("revenue_week") ?? 0,
         this_month: stats.get("revenue_month") ?? 0,
-        currency: "USD",
+        currency: "NGN",
       },
       rooms: {
         active: stats.get("active_rooms") ?? 0,

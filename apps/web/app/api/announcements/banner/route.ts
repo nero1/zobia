@@ -22,6 +22,11 @@ interface BannerRow {
   display_order: number;
 }
 
+interface UserContext {
+  plan: string;
+  role: string | null;
+}
+
 export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     const userId = auth.user.sub;
@@ -29,8 +34,9 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
 
     const now = new Date().toISOString();
 
-    const { rows: userRows } = await db.query<{ plan: string }>(
-      `SELECT COALESCE(plan, 'free') AS plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+    const { rows: userRows } = await db.query<UserContext>(
+      `SELECT COALESCE(plan, 'free') AS plan, role
+       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
       [userId]
     );
     const user = userRows[0];
@@ -42,9 +48,15 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
        WHERE is_active = TRUE
          AND (starts_at IS NULL OR starts_at <= $1)
          AND (ends_at IS NULL OR ends_at >= $1)
-         AND $2 = ANY(target_plans)
+         AND (
+           cardinality(target_plans) = 0 OR $2 = ANY(target_plans)
+         )
+         AND (
+           cardinality(target_roles) = 0
+           OR ($3::text IS NOT NULL AND $3::text = ANY(target_roles))
+         )
        ORDER BY display_order ASC, created_at ASC`,
-      [now, user.plan]
+      [now, user.plan, user.role ?? null]
     );
 
     if (banners.length === 0) {

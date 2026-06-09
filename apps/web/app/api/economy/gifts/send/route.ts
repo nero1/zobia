@@ -214,7 +214,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     const recipient = recipientRows[0];
 
     // 3. Atomic: debit coins and create gift record
-    let giftId: string;
+    let giftId = "";
     let spectacleTriggered = false;
 
     // Compute fee split — Icon creators get 85% (15% fee), other creators 80% (20% fee), users 95% (5% fee)
@@ -371,12 +371,13 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
           `INSERT INTO messages
              (sender_id, recipient_id, conversation_id, message_type, content,
               media_url, coin_cost, reply_count_from_recipient)
-           VALUES ($1, $2, $3, 'gift', $4, NULL, 0, 0)`,
+           VALUES ($1, $2, $3, 'gift', $4, NULL, $5, 0)`,
           [
             senderId,
             body.recipientId,
             dmConversationId,
             `${giftItem.emoji} ${giftItem.name} (${giftItem.coin_cost} coins)`,
+            giftItem.coin_cost,
           ]
         );
       }
@@ -392,7 +393,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 
     return NextResponse.json({
       success: true,
-      giftId: giftId!,
+      giftId,
       gift: {
         id: giftItem.id,
         name: giftItem.name,

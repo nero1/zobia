@@ -61,7 +61,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
       [season.id]
     );
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
       data: {
         season: {
@@ -78,6 +78,8 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
       },
       error: null,
     });
+    response.headers.set("Cache-Control", "public, s-maxage=30, stale-while-revalidate=60");
+    return response;
   } catch (err) {
     return handleApiError(err);
   }

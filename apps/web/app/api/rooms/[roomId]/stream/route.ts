@@ -229,7 +229,12 @@ export async function GET(
   );
   const isMember = memberRows.length > 0;
 
-  if (!isMember && !isCreator && room.type !== "vip") {
+  if (!isMember && !isCreator) {
+    // VIP rooms: non-subscribers receive a 403 — paywall must be enforced here
+    // just as in the REST messages endpoint. The SSE stream has no preview mode.
+    if (room.type === "vip") {
+      return new Response("Subscription required", { status: 403 });
+    }
     return new Response("Forbidden", { status: 403 });
   }
 

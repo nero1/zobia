@@ -108,16 +108,32 @@ async function checkNewAccountGiftInflow(
   reasons: string[]
 ): Promise<void> {
   try {
+    // Union room gifts AND direct DM gifts so wash-trading via DMs is caught too
     const { rows } = await db.query<{ total_coins: string; account_count: string }>(
       `SELECT
-         COALESCE(SUM(g.coin_value), 0)::TEXT   AS total_coins,
-         COUNT(DISTINCT g.sender_id)::TEXT       AS account_count
-       FROM gifts g
-       JOIN users sender ON sender.id = g.sender_id
-       JOIN rooms r ON r.id = g.room_id
-       WHERE r.creator_id = $1
-         AND sender.created_at >= NOW() - ($2 || ' days')::INTERVAL
-         AND g.created_at    >= NOW() - INTERVAL '7 days'`,
+         COALESCE(SUM(combined.coin_value), 0)::TEXT  AS total_coins,
+         COUNT(DISTINCT combined.sender_id)::TEXT      AS account_count
+       FROM (
+         -- Room gifts received in the creator's rooms
+         SELECT g.coin_value, g.sender_id
+         FROM gifts g
+         JOIN rooms r ON r.id = g.room_id
+         JOIN users sender ON sender.id = g.sender_id
+         WHERE r.creator_id = $1
+           AND sender.created_at >= NOW() - ($2 || ' days')::INTERVAL
+           AND g.created_at >= NOW() - INTERVAL '7 days'
+
+         UNION ALL
+
+         -- Direct (DM) gifts sent to the creator
+         SELECT g2.coin_value, g2.sender_id
+         FROM gifts g2
+         JOIN users sender2 ON sender2.id = g2.sender_id
+         WHERE g2.recipient_id = $1
+           AND g2.room_id IS NULL
+           AND sender2.created_at >= NOW() - ($2 || ' days')::INTERVAL
+           AND g2.created_at >= NOW() - INTERVAL '7 days'
+       ) combined`,
       [creatorId, String(NEW_ACCOUNT_AGE_DAYS)]
     );
 
@@ -129,7 +145,7 @@ async function checkNewAccountGiftInflow(
       accountCount >= SUSPICIOUS_INFLOW_MIN_ACCOUNTS
     ) {
       reasons.push(
-        `Received ${totalCoins.toLocaleString()} coins from ${accountCount} accounts aged < ${NEW_ACCOUNT_AGE_DAYS} days in the past 7 days`
+        `Received ${totalCoins.toLocaleString()} coins from ${accountCount} accounts aged < ${NEW_ACCOUNT_AGE_DAYS} days in the past 7 days (room + DM gifts combined)`
       );
     }
   } catch {

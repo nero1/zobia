@@ -26,6 +26,11 @@ interface ModalRow {
   display_order: number;
 }
 
+interface UserContext {
+  plan: string;
+  role: string | null;
+}
+
 export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     const userId = auth.user.sub;
@@ -33,25 +38,33 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
 
     const now = new Date().toISOString();
 
-    // Fetch user plan and roles for audience filtering
-    const { rows: userRows } = await db.query<{ plan: string; roles: string[] }>(
-      `SELECT COALESCE(plan, 'free') AS plan, ARRAY[]::TEXT[] AS roles
+    // Fetch user plan and role for audience filtering
+    const { rows: userRows } = await db.query<UserContext>(
+      `SELECT COALESCE(plan, 'free') AS plan, role
        FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
       [userId]
     );
     const user = userRows[0];
     if (!user) return NextResponse.json({ success: true, data: { modal: null }, error: null });
 
-    // Fetch all active, scheduled modals that match this user's plan
+    // Fetch all active, scheduled modals whose audience includes this user's plan
+    // OR whose audience includes this user's role (empty target_plans/target_roles
+    // means "show to everyone" for that dimension).
     const { rows: modals } = await db.query<ModalRow>(
       `SELECT id, title, content, content_type, display_order
        FROM announcement_modals
        WHERE is_active = TRUE
          AND (starts_at IS NULL OR starts_at <= $1)
          AND (ends_at IS NULL OR ends_at >= $1)
-         AND $2 = ANY(target_plans)
+         AND (
+           cardinality(target_plans) = 0 OR $2 = ANY(target_plans)
+         )
+         AND (
+           cardinality(target_roles) = 0
+           OR ($3::text IS NOT NULL AND $3::text = ANY(target_roles))
+         )
        ORDER BY display_order ASC, created_at ASC`,
-      [now, user.plan]
+      [now, user.plan, user.role ?? null]
     );
 
     if (modals.length === 0) {

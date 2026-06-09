@@ -21,15 +21,19 @@ import {
   Alert,
   Animated,
   FlatList,
+  Image,
   KeyboardAvoidingView,
+  Linking,
+  Modal,
   Platform,
   Pressable,
+  Share,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
-import { useLocalSearchParams, useNavigation } from 'expo-router';
+import { useLocalSearchParams, useNavigation, router } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
@@ -56,6 +60,7 @@ interface Room {
   entryFeeCoin: number | null;
   isSubscribed: boolean;
   isCreator: boolean;
+  creatorId?: string;
   hostDisplayName: string;
   dropEndsAt?: string | null;
   minGiftSpectacleCoin?: number; // gifts above this value trigger room-wide spectacle
@@ -110,6 +115,18 @@ async function sendMessage(payload: SendMessagePayload): Promise<Message> {
     message_type: payload.message_type ?? 'text',
   });
   return data.message;
+}
+
+interface GifResult {
+  id: string;
+  url: string;
+  previewUrl: string;
+  title: string;
+}
+
+async function searchGifs(query: string): Promise<GifResult[]> {
+  const { data } = await apiClient.get(`/messages/gif?query=${encodeURIComponent(query)}`);
+  return data.results ?? data.gifs ?? [];
 }
 
 // ---------------------------------------------------------------------------
@@ -202,6 +219,74 @@ function Skeleton() {
 }
 
 // ---------------------------------------------------------------------------
+// GIF Picker Modal
+// ---------------------------------------------------------------------------
+
+function GifPickerModal({
+  visible,
+  onClose,
+  onSelect,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onSelect: (gif: GifResult) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<GifResult[]>([]);
+  const [loading, setLoading] = useState(false);
+  const { colors: themeColors } = useTheme();
+
+  const handleSearch = useCallback(async (q: string) => {
+    if (!q.trim()) { setResults([]); return; }
+    setLoading(true);
+    try {
+      const gifs = await searchGifs(q.trim());
+      setResults(gifs);
+    } catch {
+      setResults([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.gifModalOverlay}>
+        <View style={[styles.gifModalSheet, { backgroundColor: themeColors.surface }]}>
+          <View style={styles.gifModalHeader}>
+            <Text style={[styles.gifModalTitle, { color: themeColors.text }]}>Send a GIF</Text>
+            <Pressable onPress={onClose} style={styles.gifModalClose}>
+              <Text style={{ color: themeColors.textMuted, fontSize: 18 }}>✕</Text>
+            </Pressable>
+          </View>
+          <TextInput
+            style={[styles.gifSearchInput, { backgroundColor: themeColors.background, color: themeColors.text }]}
+            placeholder="Search GIFs…"
+            placeholderTextColor={themeColors.textMuted}
+            value={query}
+            onChangeText={(t) => { setQuery(t); handleSearch(t); }}
+            returnKeyType="search"
+            onSubmitEditing={() => handleSearch(query)}
+          />
+          {loading && <ActivityIndicator style={{ marginVertical: 20 }} />}
+          <FlatList
+            data={results}
+            keyExtractor={(item) => item.id}
+            numColumns={2}
+            contentContainerStyle={styles.gifGrid}
+            renderItem={({ item }) => (
+              <Pressable onPress={() => { onSelect(item); onClose(); }} style={styles.gifCell}>
+                <Image source={{ uri: item.previewUrl }} style={styles.gifThumb} resizeMode="cover" />
+              </Pressable>
+            )}
+          />
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -226,6 +311,10 @@ export default function RoomScreen() {
   const [highlightMode, setHighlightMode] = useState(false);
   const [highlightUsername, setHighlightUsername] = useState('');
   const [highlightPending, setHighlightPending] = useState(false);
+  // GIF picker state
+  const [gifPickerVisible, setGifPickerVisible] = useState(false);
+  // VIP subscribe state
+  const [subscribing, setSubscribing] = useState(false);
 
   // Fetch room meta
   const { data: room, isLoading: roomLoading } = useQuery({
@@ -316,9 +405,67 @@ export default function RoomScreen() {
   }, [inputText, roomId, isMoment, sendMutation]);
 
   const handleLongPress = useCallback((messageId: string) => {
-    // Opens reaction picker — placeholder
-    console.log('Long press', messageId);
-  }, []);
+    const msg = messages.find((m) => m.id === messageId);
+    const isOwn = msg?.senderUserId === CURRENT_USER_ID;
+
+    const options: Array<{ text: string; onPress?: () => void; style?: 'cancel' | 'destructive' }> = [
+      {
+        text: '😂 React',
+        onPress: () => {
+          Alert.alert('React', 'Choose a reaction:', [
+            { text: '❤️', onPress: () => apiClient.patch(`/rooms/${roomId}/messages/${messageId}/reactions`, { emoji: '❤️' }).catch(() => {}) },
+            { text: '😂', onPress: () => apiClient.patch(`/rooms/${roomId}/messages/${messageId}/reactions`, { emoji: '😂' }).catch(() => {}) },
+            { text: '🔥', onPress: () => apiClient.patch(`/rooms/${roomId}/messages/${messageId}/reactions`, { emoji: '🔥' }).catch(() => {}) },
+            { text: '👏', onPress: () => apiClient.patch(`/rooms/${roomId}/messages/${messageId}/reactions`, { emoji: '👏' }).catch(() => {}) },
+            { text: 'Cancel', style: 'cancel' },
+          ]);
+        },
+      },
+      {
+        text: '📋 Copy',
+        onPress: () => {
+          if (msg?.content) Share.share({ message: msg.content }).catch(() => {});
+        },
+      },
+      {
+        text: '🚩 Report',
+        onPress: () => {
+          Alert.alert('Report Message', 'Are you sure you want to report this message?', [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Report',
+              style: 'destructive',
+              onPress: () => apiClient.post(`/users/${messageId}/report`, { reason: 'inappropriate_content' }).catch(() => {}),
+            },
+          ]);
+        },
+      },
+    ];
+
+    if (isOwn) {
+      options.push({
+        text: '🗑️ Delete',
+        style: 'destructive',
+        onPress: () => {
+          Alert.alert('Delete Message', 'This will permanently remove your message.', [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Delete',
+              style: 'destructive',
+              onPress: () => {
+                apiClient.delete(`/rooms/${roomId}/messages/${messageId}`)
+                  .then(() => queryClient.invalidateQueries({ queryKey: ['room-messages', roomId] }))
+                  .catch(() => {});
+              },
+            },
+          ]);
+        },
+      });
+    }
+
+    options.push({ text: 'Cancel', style: 'cancel' });
+    Alert.alert('Message options', undefined, options);
+  }, [messages, roomId, queryClient]);
 
   const handleHighlightConfirm = useCallback(async () => {
     const username = highlightUsername.trim();
@@ -348,6 +495,37 @@ export default function RoomScreen() {
       setHighlightPending(false);
     }
   }, [highlightUsername, roomId]);
+
+  const handleGifSelect = useCallback(async (gif: GifResult) => {
+    if (!roomId) return;
+    try {
+      await apiClient.post(`/rooms/${roomId}/messages`, {
+        content: gif.title || 'GIF',
+        message_type: 'gif',
+        metadata: { gifUrl: gif.url, previewUrl: gif.previewUrl },
+      });
+      queryClient.invalidateQueries({ queryKey: ['room-messages', roomId] });
+    } catch (e) {
+      Alert.alert('Error', 'Could not send GIF.');
+    }
+  }, [roomId, queryClient]);
+
+  const handleVIPSubscribe = useCallback(async () => {
+    if (!roomId || subscribing) return;
+    setSubscribing(true);
+    try {
+      const res = await apiClient.post(`/rooms/${roomId}/subscribe`);
+      const checkoutUrl: string | undefined = res.data?.checkoutUrl ?? res.data?.data?.checkoutUrl;
+      if (checkoutUrl) {
+        await Linking.openURL(checkoutUrl);
+      }
+      queryClient.invalidateQueries({ queryKey: ['room', roomId] });
+    } catch (e) {
+      Alert.alert('Error', (e as Error).message ?? 'Could not start subscription.');
+    } finally {
+      setSubscribing(false);
+    }
+  }, [roomId, subscribing, queryClient]);
 
   const renderMessage = useCallback(
     ({ item }: { item: Message }) => {
@@ -450,7 +628,7 @@ export default function RoomScreen() {
 
         {/* VIP overlay */}
         {isVIPLocked && (
-          <VIPSubscribeOverlay onSubscribe={() => console.log('Subscribe')} />
+          <VIPSubscribeOverlay onSubscribe={handleVIPSubscribe} />
         )}
 
         {/* Gift spectacle overlay — dims feed, shows gift animation for 3s */}
@@ -536,7 +714,7 @@ export default function RoomScreen() {
           </Pressable>
           <Pressable
             style={styles.iconBtn}
-            onPress={() => console.log('GIF')}
+            onPress={() => setGifPickerVisible(true)}
             accessibilityLabel="Send GIF"
             accessibilityRole="button"
           >
@@ -544,7 +722,7 @@ export default function RoomScreen() {
           </Pressable>
           <Pressable
             style={styles.iconBtn}
-            onPress={() => console.log('Gift')}
+            onPress={() => router.push(`/economy/gift-send?roomId=${roomId}&recipientId=${room?.creatorId ?? ''}`)}
             accessibilityLabel="Send gift"
             accessibilityRole="button"
           >
@@ -600,6 +778,11 @@ export default function RoomScreen() {
           </Pressable>
         </View>
       </KeyboardAvoidingView>
+      <GifPickerModal
+        visible={gifPickerVisible}
+        onClose={() => setGifPickerVisible(false)}
+        onSelect={handleGifSelect}
+      />
     </Screen>
   );
 }
@@ -853,4 +1036,35 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: colors.neutral[200],
   },
+
+  // GIF picker modal
+  gifModalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  gifModalSheet: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 16,
+    maxHeight: '70%',
+  },
+  gifModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  gifModalTitle: { fontSize: 16, fontWeight: '700' },
+  gifModalClose: { padding: 4 },
+  gifSearchInput: {
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 14,
+    marginBottom: 12,
+  },
+  gifGrid: { paddingBottom: 24 },
+  gifCell: { flex: 1, margin: 4 },
+  gifThumb: { width: '100%', height: 120, borderRadius: 8, backgroundColor: colors.neutral[200] },
 });

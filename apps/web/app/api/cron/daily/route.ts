@@ -822,12 +822,65 @@ export const GET = async (req: NextRequest) => {
       }
     }
 
+    // Pre-fetch personalised context for each inactive user in parallel
+    const personalContextMap = new Map<string, { guildEvent?: string; seasonPhase?: string; nemesisContext?: string }>();
+    await Promise.all(inactiveUsers.map(async (user) => {
+      const ctx: { guildEvent?: string; seasonPhase?: string; nemesisContext?: string } = {};
+      try {
+        if (user.days_inactive >= 7 && user.days_inactive < 14) {
+          // Guild war outcome for ~7-day inactive users
+          const { rows: gwRows } = await db.query<{ result: string; guild_name: string }>(
+            `SELECT gw.result, g.name AS guild_name
+             FROM guild_wars gw
+             JOIN guilds g ON g.id = gw.guild_id
+             JOIN guild_members gm ON gm.guild_id = gw.guild_id
+             WHERE gm.user_id = $1
+               AND gw.ended_at >= NOW() - INTERVAL '30 days'
+             ORDER BY gw.ended_at DESC
+             LIMIT 1`,
+            [user.user_id]
+          );
+          if (gwRows[0]) {
+            const { result, guild_name } = gwRows[0];
+            ctx.guildEvent = result === 'win'
+              ? `Your guild "${guild_name}" won a war while you were away!`
+              : `Your guild "${guild_name}" fought hard in your absence — come back and help them win the next one.`;
+          }
+          // Nemesis XP delta
+          const { rows: nemesisRows } = await db.query<{ nemesis_id: string; xp_delta: number }>(
+            `SELECT na.nemesis_id, (nu.xp_total - u.xp_total) AS xp_delta
+             FROM nemesis_assignments na
+             JOIN users u  ON u.id  = na.user_id
+             JOIN users nu ON nu.id = na.nemesis_id
+             WHERE na.user_id = $1
+             LIMIT 1`,
+            [user.user_id]
+          );
+          if (nemesisRows[0] && nemesisRows[0].xp_delta > 0) {
+            ctx.nemesisContext = `Your nemesis gained ${nemesisRows[0].xp_delta.toLocaleString()} XP while you were away. Time to catch up!`;
+          }
+        } else if (user.days_inactive >= 14) {
+          // Current season phase for ~14-day inactive users
+          const { rows: seasonRows } = await db.query<{ phase: string; name: string }>(
+            `SELECT phase, name FROM seasons WHERE is_active = TRUE LIMIT 1`
+          );
+          if (seasonRows[0]) {
+            ctx.seasonPhase = `Season "${seasonRows[0].name}" is in the ${seasonRows[0].phase} phase — jump back in before it ends!`;
+          }
+        }
+      } catch {
+        // Non-fatal — context enrichment failure must not block notifications
+      }
+      personalContextMap.set(user.user_id, ctx);
+    }));
+
     let dispatched = 0;
     for (const user of inactiveUsers) {
       const payload = await getReengagementPayload(
         user.user_id,
         user.days_inactive,
-        user.last_streak_before_break
+        user.last_streak_before_break,
+        personalContextMap.get(user.user_id)
       );
       if (!payload) continue;
 
@@ -1408,102 +1461,9 @@ export const GET = async (req: NextRequest) => {
   }
 
   // 24. Flash XP event lifecycle — announce, fire, expire (PRD §2.4)
-  // Events in flash_xp_events have three transitions:
-  //   announced_at reached → send push notifications to all users
-  //   fires_at reached     → set fired=true (XP engine starts applying multiplier)
-  //   ends_at reached      → set is_active=false (multiplier stops)
   try {
-    interface FlashXpRow {
-      id: string;
-      name: string;
-      multiplier: string;
-      announced_at: string;
-      fires_at: string;
-      ends_at: string;
-      is_active: boolean;
-      fired: boolean;
-    }
-
-    // Fetch all events that are still active or have passed their fires_at
-    const { rows: flashRows } = await db.query<FlashXpRow>(
-      `SELECT id, name, multiplier::TEXT AS multiplier,
-              announced_at, fires_at, ends_at, is_active, fired
-       FROM flash_xp_events
-       WHERE is_active = TRUE OR (is_active = FALSE AND fired = FALSE AND fires_at <= NOW())`
-    );
-
-    let flashAnnounced = 0;
-    let flashFired = 0;
-    let flashExpired = 0;
-
-    for (const evt of flashRows) {
-      const now = Date.now();
-      const announcedAt = new Date(evt.announced_at).getTime();
-      const firesAt = new Date(evt.fires_at).getTime();
-      const endsAt = new Date(evt.ends_at).getTime();
-
-      // Announce: announced_at reached but not yet fired — send notifications once
-      if (now >= announcedAt && !evt.fired && evt.is_active) {
-        // Check if we already sent announcement notifications for this event
-        const { rows: notifCheck } = await db.query<{ count: string }>(
-          `SELECT COUNT(*) AS count FROM notifications
-           WHERE type = 'flash_xp_announced' AND payload->>'eventId' = $1 LIMIT 1`,
-          [evt.id]
-        ).catch(() => ({ rows: [{ count: "1" }] }));
-
-        if (parseInt(notifCheck[0]?.count ?? "1", 10) === 0) {
-          // Notify all active users
-          await db.query(
-            `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-             SELECT id,
-                    'flash_xp_announced',
-                    jsonb_build_object(
-                      'eventId', $1::text,
-                      'eventName', $2::text,
-                      'multiplier', $3::text,
-                      'firesAt', $4::text,
-                      'endsAt', $5::text
-                    ),
-                    false,
-                    NOW()
-             FROM users
-             WHERE deleted_at IS NULL
-               AND last_active_at > NOW() - INTERVAL '7 days'`,
-            [evt.id, evt.name, evt.multiplier, evt.fires_at, evt.ends_at]
-          ).catch(() => {});
-          flashAnnounced++;
-        }
-      }
-
-      // Activate: fires_at reached and not yet fired
-      // Also sync into platform_events so the events calendar shows it
-      if (now >= firesAt && !evt.fired) {
-        await db.query(
-          `UPDATE flash_xp_events SET fired = TRUE, updated_at = NOW() WHERE id = $1`,
-          [evt.id]
-        ).catch(() => {});
-        // Upsert into platform_events so events calendar reflects it
-        await db.query(
-          `INSERT INTO platform_events
-             (name, description, event_type, xp_multiplier, starts_at, ends_at, is_active, metadata, created_at, updated_at)
-           VALUES ($1, 'Double XP event', 'flash_xp', $2::numeric, $3, $4, TRUE, jsonb_build_object('source_flash_xp_id', $5::text), NOW(), NOW())
-           ON CONFLICT DO NOTHING`,
-          [evt.name, evt.multiplier, evt.fires_at, evt.ends_at, evt.id]
-        ).catch(() => {});
-        flashFired++;
-      }
-
-      // Expire: ends_at reached
-      if (now >= endsAt && evt.is_active) {
-        await db.query(
-          `UPDATE flash_xp_events SET is_active = FALSE, updated_at = NOW() WHERE id = $1`,
-          [evt.id]
-        ).catch(() => {});
-        flashExpired++;
-      }
-    }
-
-    results.flashXpLifecycle = { announced: flashAnnounced, fired: flashFired, expired: flashExpired };
+    const { advanceFlashXPLifecycle } = await import('@/lib/events/flashXP');
+    results.flashXpLifecycle = await advanceFlashXPLifecycle();
   } catch (err) {
     errors.push(`flashXpLifecycle: ${String(err)}`);
   }
@@ -2103,17 +2063,19 @@ export const GET = async (req: NextRequest) => {
       );
 
       let payoutsInitiated = 0;
-      const { createPayout } = await import('@/lib/payments');
+      const { checkPayoutFraud } = await import('@/lib/fraud/payouts');
       for (const candidate of payoutCandidates) {
         try {
           const idempotencyKey = `weekly_${candidate.creator_id}_${new Date().toISOString().slice(0, 10)}`;
+          const fraudResult = await checkPayoutFraud(candidate.creator_id, candidate.balance_kobo, db);
+          const status = fraudResult.forceManual ? 'awaiting_approval' : 'pending';
           await db.transaction(async (tx) => {
             await tx.query(
               `INSERT INTO creator_payouts
                  (creator_id, net_kobo, gross_kobo, status, idempotency_key, created_at)
-               VALUES ($1, $2, $2, 'awaiting_approval', $3, NOW())
+               VALUES ($1, $2, $2, $3, $4, NOW())
                ON CONFLICT (idempotency_key) DO NOTHING`,
-              [candidate.creator_id, candidate.balance_kobo, idempotencyKey]
+              [candidate.creator_id, candidate.balance_kobo, status, idempotencyKey]
             );
           });
           payoutsInitiated++;

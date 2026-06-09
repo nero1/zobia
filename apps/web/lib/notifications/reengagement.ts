@@ -72,6 +72,12 @@ export interface PersonalisedContext {
    * Example: "The season is in its final week"
    */
   seasonPhase?: string;
+  /**
+   * A human-readable description of the user's nemesis XP delta.
+   * Replaces the body of the 7-day nemesis message variant when provided.
+   * Example: "Your nemesis gained 1,200 XP while you were away!"
+   */
+  nemesisContext?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -120,6 +126,13 @@ const REENGAGEMENT_BUCKETS: Array<{
         title: "Your Guild had big news",
         body: "Check what happened with your crew while you were away.",
         action: "/guilds",
+      },
+      {
+        // Fourth variant: surfaced when nemesisContext is available.
+        // Body is replaced at runtime by personalContext.nemesisContext if provided.
+        title: "Your Nemesis is pulling ahead",
+        body: "While you were away, your nemesis made their move. Time to catch up.",
+        action: "/nemesis",
       },
     ],
   },
@@ -210,7 +223,7 @@ export async function getReengagementPayload(
   userId: string,
   daysSinceActive: number,
   loginStreakBeforeBreak: number = 0,
-  personalContext?: { guildEvent?: string; seasonPhase?: string }
+  personalContext?: PersonalisedContext
 ): Promise<ReengagementPayload | null> {
   if (daysSinceActive < 3) return null;
 
@@ -251,6 +264,15 @@ export async function getReengagementPayload(
     payload.action === "/seasons"
   ) {
     payload.body = personalContext.seasonPhase;
+  }
+
+  // The 7-day nemesis variant is identified by its action route ("/nemesis") and title.
+  if (
+    personalContext?.nemesisContext &&
+    payload.title === "Your Nemesis is pulling ahead" &&
+    payload.action === "/nemesis"
+  ) {
+    payload.body = personalContext.nemesisContext;
   }
 
   return payload;

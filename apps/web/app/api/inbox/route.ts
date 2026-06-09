@@ -38,10 +38,11 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
     const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "50"), 100);
     const offset = parseInt(url.searchParams.get("offset") ?? "0");
 
-    // Fetch messages and mark undelivered ones as delivered atomically
+    // Fetch messages and mark undelivered ones as delivered atomically.
+    // Column names match the actual DB schema: admin_message_id + user_id.
     const { rows } = await db.query<{
       id: string;
-      message_id: string;
+      admin_message_id: string;
       subject: string;
       body: string;
       broadcast_type: string;
@@ -53,17 +54,17 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
       `WITH updated AS (
          UPDATE admin_message_receipts
          SET delivered_at = NOW()
-         WHERE message_id IN (
-           SELECT r2.message_id
+         WHERE admin_message_id IN (
+           SELECT r2.admin_message_id
            FROM admin_message_receipts r2
-           WHERE r2.recipient_id = $1
+           WHERE r2.user_id = $1
              AND r2.delivered_at IS NULL
          )
-         AND recipient_id = $1
+         AND user_id = $1
        )
        SELECT
          r.id,
-         r.message_id,
+         r.admin_message_id,
          m.subject,
          m.body,
          m.broadcast_type,
@@ -72,9 +73,9 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
          r.read_at,
          m.created_at
        FROM admin_message_receipts r
-       JOIN admin_messages m ON m.id = r.message_id
+       JOIN admin_messages m ON m.id = r.admin_message_id
        LEFT JOIN users u ON u.id = m.sender_id
-       WHERE r.recipient_id = $1
+       WHERE r.user_id = $1
        ORDER BY m.created_at DESC
        LIMIT $2 OFFSET $3`,
       [auth.user.sub, limit, offset]
