@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 import Script from "next/script";
 
 interface TelegramUser {
@@ -37,6 +38,7 @@ interface CaptchaManifest {
 }
 
 function RegisterContent() {
+  const { t } = useTranslation();
   const searchParams = useSearchParams();
   const error = searchParams.get("error");
 
@@ -106,13 +108,13 @@ function RegisterContent() {
       const res = await fetch(url);
       const data = await res.json() as { url?: string; error?: { message?: string } };
       if (!res.ok || !data.url) {
-        setAuthError(data?.error?.message ?? "Authentication failed. Please try again.");
+        setAuthError(data?.error?.message ?? t("auth.error.oauthFailed"));
         setIsLoading(null);
         return;
       }
       window.location.href = data.url;
     } catch {
-      setAuthError("Authentication failed. Please try again.");
+      setAuthError(t("auth.error.oauthFailed"));
       setIsLoading(null);
     }
   };
@@ -165,23 +167,23 @@ function RegisterContent() {
             Zobia Social
           </h1>
           <p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400">
-            Create your free account
+            {t("auth.registerTagline")}
           </p>
         </div>
 
         {authError && (
-          <div className="mb-6 rounded-lg border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-700 dark:border-danger-800 dark:bg-danger-950 dark:text-danger-300">
+          <div className="mb-6 rounded-lg border border-danger-200 bg-danger-50 px-4 py-3 text-center text-sm text-danger-700 dark:border-danger-800 dark:bg-danger-950 dark:text-danger-300">
             {authError}
           </div>
         )}
 
         {error && (
-          <div className="mb-6 rounded-lg border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-700 dark:border-danger-800 dark:bg-danger-950 dark:text-danger-300">
-            {error === "oauth_failed" && "Authentication failed. Please try again."}
-            {error === "account_suspended" && "Your account has been suspended."}
-            {error === "session_expired" && "Your session expired. Please sign in again."}
+          <div className="mb-6 rounded-lg border border-danger-200 bg-danger-50 px-4 py-3 text-center text-sm text-danger-700 dark:border-danger-800 dark:bg-danger-950 dark:text-danger-300">
+            {error === "oauth_failed" && t("auth.error.oauthFailed")}
+            {error === "account_suspended" && t("auth.error.accountSuspended")}
+            {error === "session_expired" && t("auth.error.sessionExpired")}
             {!["oauth_failed", "account_suspended", "session_expired"].includes(error) &&
-              "An unexpected error occurred. Please try again."}
+              t("auth.error.unexpected")}
           </div>
         )}
 
@@ -198,7 +200,7 @@ function RegisterContent() {
               ) : (
                 <GoogleIcon />
               )}
-              Sign up with Google
+              {t("auth.signUpWithGoogle")}
             </button>
 
             {/* Turnstile widget (visible only when configured) */}
@@ -223,7 +225,7 @@ function RegisterContent() {
                   {isLoading === "telegram" ? (
                     <div className="flex items-center gap-2 text-sm text-neutral-500">
                       <span className="h-4 w-4 animate-spin rounded-full border-2 border-neutral-300 border-t-primary-600" />
-                      Signing up with Telegram…
+                      {t("auth.signingUpWithTelegram")}
                     </div>
                   ) : (
                     <div ref={telegramContainerRef} />

@@ -768,7 +768,16 @@
     "loginWithGoogle": "Ci gaba da Google",
     "loginWithTelegram": "Ci gaba da Telegram",
     "loggingIn": "Ana shiga…",
-    "logoutConfirm": "Shin kana tabbata kana son fita?"
+    "logoutConfirm": "Shin kana tabbata kana son fita?",
+    "googleOpening": "Ana buɗe Google…",
+    "telegramWaiting": "Ana jiran Telegram…",
+    "telegramRequiredTitle": "Ana Buƙatar Telegram",
+    "telegramRequiredBody": "Don Allah shigar da Telegram don amfani da wannan hanyar shiga, sannan sake gwadawa.",
+    "loginTimeoutTitle": "Lokacin Shiga Ya Ƙare",
+    "loginTimeoutBody": "Lokacin shiga ta Telegram ya ƙare. Don Allah sake gwadawa kuma kammala shiga cikin Telegram.",
+    "callbackError": "Kira ya kasa. Don Allah sake gwadawa.",
+    "googleError": "Shiga ta Google ya kasa. Don Allah sake gwadawa.",
+    "telegramError": "Shiga ta Telegram ya kasa. Don Allah sake gwadawa."
   },
   "onboarding": {
     "step1Title": "Saita bayananka",

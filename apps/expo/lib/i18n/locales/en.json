@@ -20,7 +20,16 @@
     "loginWithGoogle": "Continue with Google",
     "loginWithTelegram": "Continue with Telegram",
     "loggingIn": "Signing in…",
-    "logoutConfirm": "Are you sure you want to sign out?"
+    "logoutConfirm": "Are you sure you want to sign out?",
+    "googleOpening": "Opening Google…",
+    "telegramWaiting": "Waiting for Telegram…",
+    "telegramRequiredTitle": "Telegram Required",
+    "telegramRequiredBody": "Please install Telegram to use this login method, then try again.",
+    "loginTimeoutTitle": "Login Timeout",
+    "loginTimeoutBody": "Telegram login timed out. Please try again and complete the login in Telegram.",
+    "callbackError": "Authentication callback failed. Please try again.",
+    "googleError": "Google Sign-In failed. Please try again.",
+    "telegramError": "Telegram login failed. Please try again."
   },
   "onboarding": {
     "step1Title": "Set up your profile",

@@ -768,7 +768,16 @@
     "loginWithGoogle": "Continuar com Google",
     "loginWithTelegram": "Continuar com Telegram",
     "loggingIn": "Entrando…",
-    "logoutConfirm": "Tem certeza que quer sair?"
+    "logoutConfirm": "Tem certeza que quer sair?",
+    "googleOpening": "Abrindo Google…",
+    "telegramWaiting": "Aguardando Telegram…",
+    "telegramRequiredTitle": "Telegram Necessário",
+    "telegramRequiredBody": "Por favor, instale o Telegram para usar este método de login, depois tente novamente.",
+    "loginTimeoutTitle": "Tempo de Login Esgotado",
+    "loginTimeoutBody": "O login via Telegram expirou. Por favor, tente novamente e conclua o login no Telegram.",
+    "callbackError": "Falha no retorno de autenticação. Por favor, tente novamente.",
+    "googleError": "Falha no login com Google. Por favor, tente novamente.",
+    "telegramError": "Falha no login com Telegram. Por favor, tente novamente."
   },
   "onboarding": {
     "step1Title": "Configure seu perfil",

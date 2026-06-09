@@ -768,7 +768,16 @@
     "loginWithGoogle": "Qhubeka nge-Google",
     "loginWithTelegram": "Qhubeka ne-Telegram",
     "loggingIn": "Iyangena…",
-    "logoutConfirm": "Uqinisekile ukuthi ufuna ukuphuma?"
+    "logoutConfirm": "Uqinisekile ukuthi ufuna ukuphuma?",
+    "googleOpening": "Ivula Google…",
+    "telegramWaiting": "Ilinde Telegram…",
+    "telegramRequiredTitle": "Kudingeka i-Telegram",
+    "telegramRequiredBody": "Sicela ufake i-Telegram ukuze usebenzise le ndlela yokungena, bese uzama futhi.",
+    "loginTimeoutTitle": "Isikhathi Sokungena Siphelile",
+    "loginTimeoutBody": "Ukungena kwe-Telegram kuthatha isikhathi. Sicela uzame futhi bese uqeda ukungena ku-Telegram.",
+    "callbackError": "Ukungena kwehlulekile. Sicela uzame futhi.",
+    "googleError": "Ukungena kwe-Google kwehlulekile. Sicela uzame futhi.",
+    "telegramError": "Ukungena kwe-Telegram kwehlulekile. Sicela uzame futhi."
   },
   "onboarding": {
     "step1Title": "Lungisa iphrofayili yakho",
