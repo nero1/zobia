@@ -240,9 +240,9 @@ export const POST = withAuth(
         // Sticker pack reward
         if (milestone.reward_type === "sticker_pack" && reward.stickerPackId) {
           await client.query(
-            `INSERT INTO user_sticker_packs (user_id, sticker_pack_id, awarded_at)
+            `INSERT INTO user_sticker_packs (user_id, pack_id, acquired_at)
              VALUES ($1, $2, NOW())
-             ON CONFLICT (user_id, sticker_pack_id) DO NOTHING`,
+             ON CONFLICT (user_id, pack_id) DO NOTHING`,
             [userId, reward.stickerPackId]
           );
           awardsGiven.stickerPackId = reward.stickerPackId;

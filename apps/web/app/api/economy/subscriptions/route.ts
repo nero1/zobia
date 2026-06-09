@@ -19,6 +19,7 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, notFound, handleApiError } from "@/lib/api/errors";
 import { db } from "@/lib/db";
 import { initializePayment } from "@/lib/payments";
+import { loadManifest } from "@/lib/manifest";
 import { randomUUID } from "crypto";
 import { env } from "@/lib/env";
 
@@ -204,6 +205,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       itemType: "subscription",
     };
 
+    const manifest = await loadManifest();
+    const provider = manifest.payment.primaryProvider as "paystack" | "dodopayments";
+
     const paymentResult = await initializePayment(
       plan.price_kobo,
       plan.currency,
@@ -213,21 +217,23 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       returnUrl
     );
 
+    const metadataWithUrl = { ...metadata, payment_url: paymentResult.paymentUrl };
+
     // Store pending payment
     await db.query(
       `INSERT INTO payments
-         (user_id, store_item_id, amount_kobo, currency, status,
-          idempotency_key, provider_reference, payment_url, metadata)
-       VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8)`,
+         (user_id, payment_type, amount_kobo, currency, provider, status,
+          idempotency_key, provider_reference, metadata)
+       VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8)`,
       [
         userId,
-        plan.id,
+        'subscription',
         plan.price_kobo,
         plan.currency,
+        provider,
         idempotencyKey,
         paymentResult.providerReference,
-        paymentResult.paymentUrl,
-        JSON.stringify(metadata),
+        JSON.stringify(metadataWithUrl),
       ]
     );
 

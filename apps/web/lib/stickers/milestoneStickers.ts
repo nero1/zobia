@@ -112,7 +112,7 @@ export async function awardMilestoneStickers(
     const { rows: existing } = await db.query<{ id: string }>(
       `SELECT sp.id
        FROM user_sticker_packs usp
-       JOIN sticker_packs sp ON sp.id = usp.sticker_pack_id
+       JOIN sticker_packs sp ON sp.id = usp.pack_id
        WHERE usp.user_id = $1 AND sp.name = $2
        LIMIT 1`,
       [userId, grant.packName]
@@ -144,8 +144,8 @@ export async function awardMilestoneStickers(
 
     // Grant the pack to the user
     await db.query(
-      `INSERT INTO user_sticker_packs (user_id, sticker_pack_id, acquired_via)
-       VALUES ($1, $2, 'milestone')
+      `INSERT INTO user_sticker_packs (user_id, pack_id)
+       VALUES ($1, $2)
        ON CONFLICT DO NOTHING`,
       [userId, packId]
     );

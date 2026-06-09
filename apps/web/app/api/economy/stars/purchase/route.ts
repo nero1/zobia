@@ -29,6 +29,7 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, notFound, handleApiError } from "@/lib/api/errors";
 import { db } from "@/lib/db";
 import { initializePayment } from "@/lib/payments";
+import { loadManifest } from "@/lib/manifest";
 import { env } from "@/lib/env";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 
@@ -129,7 +130,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       payment_url: string;
       provider_reference: string;
     }>(
-      `SELECT payment_url, provider_reference
+      `SELECT metadata->>'payment_url' AS payment_url, provider_reference
        FROM payments
        WHERE idempotency_key LIKE $1
          AND status = 'pending'
@@ -156,6 +157,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       itemType: "star_pack",
     };
 
+    const manifest = await loadManifest();
+    const provider = manifest.payment.primaryProvider as "paystack" | "dodopayments";
+
     const paymentResult = await initializePayment(
       pack.price_kobo,
       pack.currency,
@@ -165,21 +169,23 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       returnUrl
     );
 
+    const metadataWithUrl = { ...metadata, payment_url: paymentResult.paymentUrl };
+
     // 6. Persist the pending payment record
     await db.query(
       `INSERT INTO payments
-         (user_id, store_item_id, amount_kobo, currency, status,
-          idempotency_key, provider_reference, payment_url, metadata)
-       VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8)`,
+         (user_id, payment_type, amount_kobo, currency, provider, status,
+          idempotency_key, provider_reference, metadata)
+       VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8)`,
       [
         userId,
-        pack.id,
+        'coin_purchase',
         pack.price_kobo,
         pack.currency,
+        provider,
         idempotencyKey,
         paymentResult.providerReference,
-        paymentResult.paymentUrl,
-        JSON.stringify(metadata),
+        JSON.stringify(metadataWithUrl),
       ]
     );
 

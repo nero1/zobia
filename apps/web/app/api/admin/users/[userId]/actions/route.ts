@@ -115,7 +115,7 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
       // Fetch target user (locked for update)
       const { rows } = await client.query<TargetUser>(
         `SELECT id, email, username, is_admin, is_suspended, is_banned, is_moderator,
-                COALESCE(email_verified, false) AS email_verified,
+                COALESCE(is_email_verified, false) AS email_verified,
                 COALESCE(require_2fa_setup, false) AS require_2fa_setup
          FROM users
          WHERE id = $1 AND deleted_at IS NULL
@@ -234,7 +234,7 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
 
         case "verify_account": {
           // Manually mark the user's email as verified (PRD §20).
-          updateSql = `UPDATE users SET email_verified = true, updated_at = NOW() WHERE id = $1`;
+          updateSql = `UPDATE users SET is_email_verified = true, updated_at = NOW() WHERE id = $1`;
           updateParams = [userId];
           break;
         }
