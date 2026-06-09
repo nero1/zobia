@@ -87,7 +87,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
          r.id           AS room_id,
          r.name,
          r.description,
-         r.room_type,
+         r.type AS room_type,
          r.member_count,
          u.id           AS creator_id,
          u.display_name AS creator_name,
