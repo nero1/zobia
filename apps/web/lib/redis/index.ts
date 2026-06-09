@@ -121,8 +121,16 @@ function createIoRedisClient(): IORedis {
 class UpstashAdapter implements RedisClient {
   constructor(private readonly client: UpstashRedis) {}
 
-  get(key: string): Promise<string | null> {
-    return this.client.get<string>(key);
+  async get(key: string): Promise<string | null> {
+    // Use get<unknown> because Upstash auto-deserializes JSON-serialized values.
+    // When the stored value is a JSON object (e.g. session records), Upstash
+    // returns the parsed object instead of the raw string, breaking callers that
+    // expect a string and call JSON.parse on the result.  Re-serialize here so
+    // the RedisClient contract (Promise<string | null>) is always honoured.
+    const value = await this.client.get<unknown>(key);
+    if (value === null || value === undefined) return null;
+    if (typeof value === "string") return value;
+    return JSON.stringify(value);
   }
 
   set(key: string, value: string, exMode?: "EX" | "PX", ttl?: number): Promise<"OK" | null> {

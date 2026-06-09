@@ -285,6 +285,10 @@ export default function OnboardingPage() {
     setError(null);
 
     try {
+      // Silently refresh the access token before submitting so an expired
+      // 15-minute cookie doesn't cause a spurious "Unauthorised" error.
+      await fetch("/api/auth/refresh", { method: "POST" }).catch(() => {});
+
       const captchaToken = await getCaptchaToken();
 
       const res = await fetch("/api/onboarding/complete", {
