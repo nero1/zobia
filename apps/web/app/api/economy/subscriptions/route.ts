@@ -135,7 +135,7 @@ const SubscribeSchema = z.object({
  * Body: { planId: string }
  * Initiates a subscription payment flow. Returns paymentUrl for redirect.
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const body = await validateBody(req, SubscribeSchema);
     const userId = auth.user.sub;

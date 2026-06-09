@@ -69,7 +69,7 @@ const createSponsoredQuestSchema = z.object({
  * List active sponsored quests with application stats.
  * Available to any authenticated user.
  */
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
 
@@ -119,7 +119,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
 /**
  * Admin creates a new sponsored quest.
  */
-export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 

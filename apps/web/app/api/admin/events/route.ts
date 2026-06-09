@@ -99,7 +99,7 @@ export const GET = withAdminAuth(async (_req: NextRequest, { auth }) => {
 // POST /api/admin/events
 // ---------------------------------------------------------------------------
 
-export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 

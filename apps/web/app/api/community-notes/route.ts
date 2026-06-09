@@ -130,7 +130,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 // POST /api/community-notes
 // ---------------------------------------------------------------------------
 
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await requireFeatureEnabled("communityNotes");
     const userId = auth.user.sub;

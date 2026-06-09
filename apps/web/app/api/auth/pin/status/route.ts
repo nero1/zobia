@@ -15,7 +15,7 @@ import { db } from "@/lib/db";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const { rows } = await db.query<{ id: string }>(
       `SELECT id FROM user_pins WHERE user_id = $1 LIMIT 1`,

@@ -45,7 +45,7 @@ const giftStarsSchema = z.object({
 // POST /api/economy/stars/gift
 // ---------------------------------------------------------------------------
 
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 

@@ -90,7 +90,7 @@ interface GroupChatRow {
  * The authenticated user becomes the creator and first admin.
  * Initial members (if provided) are added as regular members.
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 
@@ -196,7 +196,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
  * Return the list of group chats the authenticated user belongs to.
  * Sorted by most recent activity descending.
  */
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 

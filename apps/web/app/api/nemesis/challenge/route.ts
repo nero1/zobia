@@ -20,7 +20,7 @@ import { getTrackLevelForXP } from "@/lib/xp/engine";
 
 const MIN_COMPETITOR_LEVEL_FOR_CHALLENGE = 40;
 
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
 

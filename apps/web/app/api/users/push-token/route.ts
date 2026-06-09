@@ -35,7 +35,7 @@ const pushTokenSchema = z.object({
  * Register or update the user's push notification token.
  * Upserts by (user_id, platform) — one token per platform per user.
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
 

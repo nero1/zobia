@@ -65,7 +65,7 @@ interface SeasonRow {
 // GET /api/admin/seasons
 // ---------------------------------------------------------------------------
 
-export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
@@ -103,7 +103,7 @@ export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
  *  - A season cannot be created if another active season's end_date is in
  *    the future and would overlap.
  */
-export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 

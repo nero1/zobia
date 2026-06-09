@@ -65,7 +65,7 @@ type ReportBody = z.infer<typeof ReportBodySchema>;
  *
  * @returns 200 on success (regardless of AI classification result)
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 

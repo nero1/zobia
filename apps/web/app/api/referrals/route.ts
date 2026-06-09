@@ -66,7 +66,7 @@ interface UserRow {
 /**
  * Referral stats for the authenticated user.
  */
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
 

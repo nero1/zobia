@@ -202,7 +202,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
  *
  * @returns JSON { user: UserFullProfile }
  */
-export const PUT = withAuth(async (req: NextRequest, { auth }) => {
+export const PUT = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 

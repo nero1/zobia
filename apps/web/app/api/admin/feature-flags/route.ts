@@ -80,7 +80,7 @@ function rowToFlag(row: FeatureFlagRow): FeatureFlag {
 // GET /api/admin/feature-flags
 // ---------------------------------------------------------------------------
 
-export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
@@ -113,7 +113,7 @@ export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
 // PUT /api/admin/feature-flags
 // ---------------------------------------------------------------------------
 
-export const PUT = withAdminAuth(async (req: NextRequest, { auth }) => {
+export const PUT = withAdminAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 

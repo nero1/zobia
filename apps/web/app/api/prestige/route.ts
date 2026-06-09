@@ -69,7 +69,7 @@ const PRESTIGE_MILESTONE_REWARDS: Record<
 /**
  * Returns eligibility and current prestige count for the calling user.
  */
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
 
@@ -129,7 +129,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
  *  5. Inserts prestige frame into user_badges.
  *  6. Writes xp_ledger entry for the reset event.
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
 

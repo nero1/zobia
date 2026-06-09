@@ -30,7 +30,7 @@ import { db } from "@/lib/db";
  *
  * @returns Paginated list of admin messages with read status
  */
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 

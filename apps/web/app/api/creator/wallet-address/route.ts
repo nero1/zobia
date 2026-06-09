@@ -156,7 +156,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
 // POST /api/creator/wallet-address
 // ---------------------------------------------------------------------------
 
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 
@@ -207,7 +207,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 // DELETE /api/creator/wallet-address
 // ---------------------------------------------------------------------------
 
-export const DELETE = withAuth(async (req: NextRequest, { auth }) => {
+export const DELETE = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 

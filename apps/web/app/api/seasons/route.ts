@@ -42,7 +42,7 @@ interface SeasonRow {
 /**
  * Returns the current season (if any) and the 10 most recent past seasons.
  */
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const current = await getCurrentSeason(db);
 

@@ -95,7 +95,7 @@ async function awardTransferXP(
  * Body: { recipientId: string, amount: number }
  * Returns transfer details including fee breakdown and new balance.
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const body = await validateBody(req, TransferSchema);
     const senderId = auth.user.sub;

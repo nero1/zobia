@@ -44,7 +44,7 @@ interface UserPinRow {
  *
  * @returns JSON { success: true }
  */
-export const DELETE = withAuth(async (req: NextRequest, { auth }) => {
+export const DELETE = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     // Tighter rate limit to prevent brute-force
     await enforceRateLimit(auth.user.sub, "user", {

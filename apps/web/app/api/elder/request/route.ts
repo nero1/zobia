@@ -42,7 +42,7 @@ const requestSchema = z.object({
  * Limited to users below the Hustler rank threshold.
  * Prevents duplicate pending requests.
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
     const body = await validateBody(req, requestSchema);

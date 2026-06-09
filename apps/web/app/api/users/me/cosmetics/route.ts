@@ -39,7 +39,7 @@ const VALID_FRAME_IDS = [
 // PATCH /api/users/me/cosmetics
 // ---------------------------------------------------------------------------
 
-export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
+export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 

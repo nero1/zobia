@@ -115,7 +115,7 @@ async function resolveRecipients(
  *
  * @returns { messageId, recipientCount }
  */
-export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
@@ -211,7 +211,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
  *
  * @returns Paginated list of messages with read/delivered counts
  */
-export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 

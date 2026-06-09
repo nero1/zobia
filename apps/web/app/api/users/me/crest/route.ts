@@ -23,7 +23,7 @@ const CrestSchema = z.object({
   crest: z.string().max(500).nullable(),
 });
 
-export const PUT = withAuth(async (req: NextRequest, { auth }) => {
+export const PUT = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
     const body = await validateBody(req, CrestSchema);

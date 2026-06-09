@@ -50,7 +50,7 @@ interface NemesisRow {
 /**
  * Returns the user's current nemesis with XP delta comparison.
  */
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
     await requireFeatureEnabled("nemesisSystem");
@@ -204,7 +204,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
 /**
  * @deprecated Use POST /api/nemesis/challenge or POST /api/nemesis/dismiss.
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
     await requireFeatureEnabled("nemesisSystem");

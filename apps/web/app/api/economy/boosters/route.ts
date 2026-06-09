@@ -92,7 +92,7 @@ const purchaseBoosterSchema = z.object({
  * Validates the booster type, checks coin balance, atomically debits coins,
  * and inserts an active booster record into user_xp_boosters.
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 

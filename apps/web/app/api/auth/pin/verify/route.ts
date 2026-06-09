@@ -45,7 +45,7 @@ interface UserPinRow {
  *
  * @returns JSON { verified: true | false }
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     // Tighter rate limit to prevent brute-force: 10 attempts per minute
     await enforceRateLimit(auth.user.sub, "user", {

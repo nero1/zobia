@@ -20,7 +20,7 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 // GET — list admin messages for the current user
 // ---------------------------------------------------------------------------
 
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 
@@ -78,7 +78,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
 // PATCH — mark a specific message as read
 // ---------------------------------------------------------------------------
 
-export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
+export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 

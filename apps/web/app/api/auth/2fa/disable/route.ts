@@ -85,7 +85,7 @@ const disableSchema = z.object({
 /**
  * Disable 2FA for the authenticated user after verifying a current TOTP code.
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", { ...RATE_LIMITS.apiWrite, limit: 10 });
 

@@ -226,7 +226,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
  * @param req - Incoming request with broadcast payload
  * @returns Broadcast record with recipient count
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 

@@ -103,7 +103,7 @@ function computeQuestState(steps: QuestStep[]): {
  * If no quest record exists (e.g. user signed up before this feature was
  * deployed), a default progress object is returned without writing to DB.
  */
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
 
@@ -170,7 +170,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
  *
  * Idempotent — returns 409 if the reward has already been claimed.
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
 

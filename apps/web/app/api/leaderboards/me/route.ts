@@ -36,7 +36,7 @@ const ALL_TRACKS: LeaderboardTrack[] = [
 /**
  * Returns the user's rank on every track across all applicable scopes.
  */
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
 

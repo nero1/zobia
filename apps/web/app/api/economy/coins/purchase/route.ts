@@ -70,7 +70,7 @@ interface UserRow {
  * Body: { packId: string, paymentProvider?: "paystack" | "dodopayments" }
  * Returns: { paymentUrl: string, paymentReference: string }
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const body = await validateBody(req, PurchaseSchema);
     const userId = auth.user.sub;

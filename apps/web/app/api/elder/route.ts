@@ -79,7 +79,7 @@ interface PendingRequestRow {
 /**
  * Returns elder eligibility, current mentees, and pending mentorship requests.
  */
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
 
@@ -152,7 +152,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
  * Accept a pending mentorship request.
  * The elder must be eligible (Hustler rank or above) and below the MAX_MENTEES cap.
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
     const body = await validateBody(req, acceptMenteeSchema);

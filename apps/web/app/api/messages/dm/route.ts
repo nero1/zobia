@@ -261,7 +261,7 @@ async function handleDMGift(
  * transaction to guarantee atomicity — coins are never deducted without
  * a corresponding message record being created.
  */
-export const POST = withAuth(async (req: NextRequest, { auth }) => {
+export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", DM_SEND_RATE_LIMIT);
 
@@ -607,7 +607,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
  * Return the paginated list of DM conversations for the authenticated user.
  * Sorted by most recent message descending.
  */
-export const GET = withAuth(async (req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 

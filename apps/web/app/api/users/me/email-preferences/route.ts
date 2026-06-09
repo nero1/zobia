@@ -63,7 +63,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   }
 });
 
-export const PUT = withAuth(async (req: NextRequest, { auth }) => {
+export const PUT = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
     const body = await req.json().catch(() => ({}));
