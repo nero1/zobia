@@ -7,6 +7,7 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "node": "20.19.4",
       "android": {
         "buildType": "apk",
         "gradleCommand": ":app:assembleDebug",
@@ -17,6 +18,7 @@
     },
     "preview": {
       "distribution": "internal",
+      "node": "20.19.4",
       "android": {
         "buildType": "apk",
         "gradleCommand": ":app:assembleRelease",
@@ -27,6 +29,7 @@
     },
     "production": {
       "distribution": "store",
+      "node": "20.19.4",
       "android": {
         "buildType": "app-bundle",
         "gradleCommand": ":app:bundleRelease",
