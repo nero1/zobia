@@ -56,7 +56,6 @@
   "settings.notifications": "Izaziso",
   "settings.security": "Ukuphepha",
   "settings.language": "Ulimi",
-  "settings.theme": "Itheme",
   "settings.theme.light": "Ukukhanya",
   "settings.theme.dark": "Ubumnyama",
   "settings.theme.system": "Isistimu",
@@ -813,9 +812,13 @@
   },
   "rooms": {
     "title": "Amakamelo",
-    "empty": "Awekho amakamelo asebenzayo manje",
+    "empty": {
+      "title": "Awekho amakamelo asebenzayo manje"
+    },
     "join": "Joyina",
-    "create": "Dala Ikamelo",
+    "create": {
+      "title": "Dala Ikamelo"
+    },
     "searchPlaceholder": "Sesha amakamelo…",
     "filters": "Izihlungi",
     "tabTrending": "Okudumile",

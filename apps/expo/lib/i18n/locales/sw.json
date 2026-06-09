@@ -56,7 +56,6 @@
   "settings.notifications": "Arifa",
   "settings.security": "Usalama",
   "settings.language": "Lugha",
-  "settings.theme": "Mandhari",
   "settings.theme.light": "Mwanga",
   "settings.theme.dark": "Giza",
   "settings.theme.system": "Mfumo",
@@ -813,9 +812,13 @@
   },
   "rooms": {
     "title": "Vyumba",
-    "empty": "Hakuna vyumba vinavyofanya kazi sasa",
+    "empty": {
+      "title": "Hakuna vyumba vinavyofanya kazi sasa"
+    },
     "join": "Jiunge",
-    "create": "Unda Chumba",
+    "create": {
+      "title": "Unda Chumba"
+    },
     "searchPlaceholder": "Tafuta vyumba…",
     "filters": "Vichujio",
     "tabTrending": "Inayotabiriwa",
