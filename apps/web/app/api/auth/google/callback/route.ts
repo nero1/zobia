@@ -68,6 +68,26 @@ async function storeGoogleRefreshToken(
   );
 }
 
+/** Derive a base username from an email address (part before @, lowercased, non-alphanumeric stripped). */
+function baseUsernameFromEmail(email: string): string {
+  return email.split("@")[0].toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 20) || "user";
+}
+
+/** Find a unique username by appending a numeric suffix if the base is taken. */
+async function uniqueUsername(base: string): Promise<string> {
+  const { rows } = await db.query<{ username: string }>(
+    `SELECT username FROM users WHERE username LIKE $1 AND deleted_at IS NULL`,
+    [`${base}%`]
+  );
+  const taken = new Set(rows.map((r) => r.username));
+  if (!taken.has(base)) return base;
+  for (let i = 2; i < 10_000; i++) {
+    const candidate = `${base}${i}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  return `${base}${Date.now()}`;
+}
+
 /** Upsert the user in the database, returning the existing or new record. */
 async function upsertGoogleUser(profile: {
   googleId: string;
@@ -107,13 +127,16 @@ async function upsertGoogleUser(profile: {
     return emailMatch.rows[0];
   }
 
+  // Generate a unique username derived from the email
+  const username = await uniqueUsername(baseUsernameFromEmail(profile.email));
+
   // Create a brand-new user (onboarding not yet complete)
   const inserted = await db.query<UserRow>(
-    `INSERT INTO users (google_id, email, display_name, avatar_url, onboarding_completed, is_admin, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, false, false, NOW(), NOW())
+    `INSERT INTO users (google_id, email, username, display_name, avatar_url, onboarding_completed, is_admin, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, false, false, NOW(), NOW())
      RETURNING id, email, username, is_admin, onboarding_completed,
                display_name, avatar_emoji, city, xp_total, rank_name`,
-    [profile.googleId, profile.email, profile.name, profile.picture]
+    [profile.googleId, profile.email, username, profile.name, profile.picture]
   );
 
   if (!inserted.rows[0]) {
