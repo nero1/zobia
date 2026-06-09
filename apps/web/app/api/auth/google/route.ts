@@ -18,7 +18,7 @@ import { buildGoogleAuthUrl } from "@/lib/auth/google";
 import { generateCsrfToken, buildCsrfCookie } from "@/lib/security/csrf";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { verifyCaptcha } from "@/lib/security/captcha";
+import { verifyCaptcha, getCaptchaProvider } from "@/lib/security/captcha";
 
 // ---------------------------------------------------------------------------
 // GET /api/auth/google
@@ -41,20 +41,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     // CAPTCHA verification — token passed as query param ?captcha_token=...
     const captchaToken = req.nextUrl.searchParams.get("captcha_token");
-    const isDev = process.env.NODE_ENV !== "production";
+    const captchaProvider = await getCaptchaProvider();
     if (captchaToken) {
       const captchaOk = await verifyCaptcha(captchaToken, ip ?? undefined);
       if (!captchaOk) {
         throw badRequest("CAPTCHA verification failed. Please try again.", "CAPTCHA_FAILED");
       }
-    } else if (!isDev) {
-      const { getManifestValue } = await import("@/lib/manifest");
-      const captchaProvider = await getManifestValue("captcha_provider");
-      // Only enforce CAPTCHA when it's explicitly configured (recaptcha or turnstile).
-      // null means no row in x_manifest → captcha not set up yet → allow through.
-      if (captchaProvider && captchaProvider !== "none") {
-        throw badRequest("CAPTCHA token is required.", "CAPTCHA_REQUIRED");
-      }
+    } else if (captchaProvider !== "none" && process.env.NODE_ENV === "production") {
+      throw badRequest("CAPTCHA token is required.", "CAPTCHA_REQUIRED");
     }
 
     // Generate and store CSRF state token

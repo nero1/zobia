@@ -65,29 +65,25 @@ const RECAPTCHA_MIN_SCORE = 0.5;
 
 /**
  * Determine which CAPTCHA provider to use by reading the x_manifest.
- * Falls back to env-based heuristic if manifest returns null.
+ * The manifest value is the single source of truth — env keys are never
+ * used to infer the active provider. Defaults to "none" when the key is
+ * absent or the DB is unavailable.
  *
  * @returns Active provider identifier
  */
 async function resolveProvider(): Promise<CaptchaProvider> {
   try {
     const manifestValue = await getManifestValue("captcha_provider");
-    if (manifestValue !== null) {
-      if (
-        manifestValue === "recaptcha" ||
-        manifestValue === "turnstile" ||
-        manifestValue === "none"
-      ) {
-        return manifestValue as CaptchaProvider;
-      }
+    if (
+      manifestValue === "recaptcha" ||
+      manifestValue === "turnstile" ||
+      manifestValue === "none"
+    ) {
+      return manifestValue;
     }
   } catch {
-    // ignore manifest errors — fall through to env heuristic
+    // DB unavailable — fail safe
   }
-
-  // Env-based fallback: detect from which secret key is configured
-  if (env.CLOUDFLARE_TURNSTILE_SECRET_KEY) return "turnstile";
-  if (env.RECAPTCHA_SECRET_KEY) return "recaptcha";
   return "none";
 }
 

@@ -420,10 +420,20 @@ Both secrets must be different and at least 32 characters long. Keep them privat
 3. Go to **APIs & Services → Credentials → Create Credentials → OAuth 2.0 Client ID**.
 4. Application type: **Web application**.
 5. Add to **Authorized redirect URIs**:
-   - `http://localhost:3000/api/auth/google/callback` (for local development)
-   - `https://your-domain.com/api/auth/google/callback` (for production)
+   - `http://localhost:3000/auth/callback/google` (for local development)
+   - `https://your-domain.com/auth/callback/google` (for production)
 6. Copy **Client ID** → `GOOGLE_CLIENT_ID`
 7. Copy **Client Secret** → `GOOGLE_CLIENT_SECRET`
+
+> **Important:** The redirect URI must match exactly what `NEXT_PUBLIC_APP_URL` resolves to (including protocol and port). Do not include a trailing slash in `NEXT_PUBLIC_APP_URL` (use `http://localhost:3000`, not `http://localhost:3000/`). A mismatch causes `Error 400: redirect_uri_mismatch` from Google. Changes to Authorized redirect URIs in Google Cloud Console can take up to 5 minutes to propagate.
+
+### Why reCAPTCHA applies to Google sign-in but not Telegram
+
+The "Continue with Google" button calls your own API endpoint (`/api/auth/google`) before redirecting to Google. This endpoint is publicly reachable and needs reCAPTCHA/Turnstile protection to prevent automated abuse.
+
+The Telegram Login Widget is rendered and authenticated entirely by Telegram's infrastructure — when a user clicks it, Telegram's own app/website handles the authentication and returns a cryptographically signed payload (HMAC-SHA256 with your bot token). Telegram's own systems act as the anti-bot layer, so no additional CAPTCHA is needed on your side.
+
+Both methods are protected — just by different mechanisms. This is the correct and common approach.
 
 ### Telegram Login
 
