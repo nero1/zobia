@@ -1,16 +1,8 @@
-/**
- * app/auth/login/page.tsx
- *
- * Login page with Google OAuth and Telegram Login Widget.
- *
- * No email/password for regular users – authentication is exclusively
- * via Google OAuth or Telegram Login.
- */
-
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
+import Script from "next/script";
 
 // ---------------------------------------------------------------------------
 // Telegram Login Widget types
@@ -29,7 +21,21 @@ interface TelegramUser {
 declare global {
   interface Window {
     onTelegramAuth?: (user: TelegramUser) => void;
+    grecaptcha?: {
+      ready: (cb: () => void) => void;
+      execute: (siteKey: string, opts: { action: string }) => Promise<string>;
+    };
+    turnstile?: {
+      render: (container: string | HTMLElement, opts: object) => string;
+      getResponse: (widgetId: string) => string | undefined;
+    };
   }
+}
+
+interface CaptchaManifest {
+  captchaProvider: "recaptcha" | "turnstile" | "none";
+  recaptchaSiteKey?: string;
+  turnstileSiteKey?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -42,16 +48,69 @@ function LoginContent() {
 
   const [isLoading, setIsLoading] = useState<"google" | "telegram" | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [captchaManifest, setCaptchaManifest] = useState<CaptchaManifest | null>(null);
 
   const botUsername = process.env["NEXT_PUBLIC_TELEGRAM_BOT_USERNAME"] ?? "";
   const telegramContainerRef = useRef<HTMLDivElement>(null);
+  const turnstileContainerRef = useRef<HTMLDivElement>(null);
+  const turnstileWidgetId = useRef<string | null>(null);
+
+  // Load manifest for CAPTCHA config
+  useEffect(() => {
+    fetch("/api/manifest")
+      .then((r) => r.json())
+      .then((m: CaptchaManifest) => setCaptchaManifest(m))
+      .catch(() => setCaptchaManifest({ captchaProvider: "none" }));
+  }, []);
+
+  // Init Turnstile when manifest + script are ready
+  const initTurnstile = useCallback(() => {
+    if (
+      captchaManifest?.captchaProvider !== "turnstile" ||
+      !captchaManifest.turnstileSiteKey ||
+      !turnstileContainerRef.current ||
+      turnstileWidgetId.current
+    ) return;
+    turnstileWidgetId.current = window.turnstile?.render(
+      turnstileContainerRef.current,
+      { sitekey: captchaManifest.turnstileSiteKey }
+    ) ?? null;
+  }, [captchaManifest]);
+
+  // Collect CAPTCHA token before redirecting to Google OAuth
+  const getCaptchaToken = useCallback(async (): Promise<string | null> => {
+    if (!captchaManifest || captchaManifest.captchaProvider === "none") return null;
+    if (captchaManifest.captchaProvider === "recaptcha" && captchaManifest.recaptchaSiteKey) {
+      return new Promise((resolve) => {
+        window.grecaptcha?.ready(async () => {
+          try {
+            const token = await window.grecaptcha!.execute(
+              captchaManifest.recaptchaSiteKey!,
+              { action: "login" }
+            );
+            resolve(token);
+          } catch {
+            resolve(null);
+          }
+        });
+      });
+    }
+    if (captchaManifest.captchaProvider === "turnstile" && turnstileWidgetId.current) {
+      return window.turnstile?.getResponse(turnstileWidgetId.current) ?? null;
+    }
+    return null;
+  }, [captchaManifest]);
 
   // Handle Google OAuth redirect
   const handleGoogleLogin = async () => {
     setIsLoading("google");
     setAuthError(null);
     try {
-      const res = await fetch("/api/auth/google");
+      const captchaToken = await getCaptchaToken();
+      const url = captchaToken
+        ? `/api/auth/google?captcha_token=${encodeURIComponent(captchaToken)}`
+        : "/api/auth/google";
+      const res = await fetch(url);
       const data = await res.json() as { url?: string; error?: { message?: string } };
       if (!res.ok || !data.url) {
         setAuthError(data?.error?.message ?? "Authentication failed. Please try again.");
@@ -155,6 +214,11 @@ function LoginContent() {
               Continue with Google
             </button>
 
+            {/* Turnstile widget (visible only when configured) */}
+            {captchaManifest?.captchaProvider === "turnstile" && captchaManifest.turnstileSiteKey && (
+              <div ref={turnstileContainerRef} className="flex justify-center" />
+            )}
+
             {/* Telegram (only shown when bot username is configured) */}
             {(botUsername || isLoading === "telegram") && (
               <>
@@ -197,6 +261,23 @@ function LoginContent() {
           .
         </p>
       </div>
+
+      {/* reCAPTCHA v3 script (invisible) */}
+      {captchaManifest?.captchaProvider === "recaptcha" && captchaManifest.recaptchaSiteKey && (
+        <Script
+          src={`https://www.google.com/recaptcha/api.js?render=${captchaManifest.recaptchaSiteKey}`}
+          strategy="afterInteractive"
+        />
+      )}
+
+      {/* Turnstile script */}
+      {captchaManifest?.captchaProvider === "turnstile" && captchaManifest.turnstileSiteKey && (
+        <Script
+          src="https://challenges.cloudflare.com/turnstile/v0/api.js"
+          strategy="afterInteractive"
+          onLoad={initTurnstile}
+        />
+      )}
     </div>
   );
 }
