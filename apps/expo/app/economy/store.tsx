@@ -81,6 +81,15 @@ interface PurchaseArgs {
   packType: 'coin_pack' | 'star_pack';
 }
 
+interface BoosterPurchaseArgs {
+  boosterType: string;
+}
+
+interface BoosterPurchaseResult {
+  success: boolean;
+  message?: string;
+}
+
 // ---------------------------------------------------------------------------
 // API
 // ---------------------------------------------------------------------------
@@ -95,6 +104,11 @@ async function initiatePurchase({ packId, packType }: PurchaseArgs): Promise<Pur
     ? '/economy/stars/purchase'
     : '/economy/coins/purchase';
   const { data } = await apiClient.post<PurchaseResult>(endpoint, { packId });
+  return data;
+}
+
+async function purchaseBooster({ boosterType }: BoosterPurchaseArgs): Promise<BoosterPurchaseResult> {
+  const { data } = await apiClient.post<BoosterPurchaseResult>('/economy/boosters', { boosterType, quantity: 1 });
   return data;
 }
 
@@ -191,9 +205,11 @@ export default function StoreScreen() {
   const { colors: themeColors } = useTheme();
   const [purchasingId, setPurchasingId] = useState<string | null>(null);
   const [purchasingStarId, setPurchasingStarId] = useState<string | null>(null);
+  const [purchasingBoosterId, setPurchasingBoosterId] = useState<string | null>(null);
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinPending, setPinPending] = useState<PurchaseArgs | null>(null);
+  const [boosterPinPending, setBoosterPinPending] = useState<{ boosterId: string; boosterType: string } | null>(null);
   const [pinError, setPinError] = useState('');
 
   const { data, isLoading, isError, refetch } = useQuery<StoreData>({
@@ -240,6 +256,32 @@ export default function StoreScreen() {
     },
   });
 
+  const boosterMutation = useMutation<BoosterPurchaseResult, Error, BoosterPurchaseArgs>({
+    mutationFn: purchaseBooster,
+    onSuccess: () => {
+      Alert.alert('Purchased!', 'Your booster is now active.');
+      setPurchasingBoosterId(null);
+      setBoosterPinPending(null);
+    },
+    onError: (err) => {
+      Alert.alert('Purchase Failed', err.message);
+      setPurchasingBoosterId(null);
+      setBoosterPinPending(null);
+    },
+  });
+
+  const handleBuyBooster = (boosterId: string, boosterType: string) => {
+    if (pinStatus?.hasPinSet) {
+      setBoosterPinPending({ boosterId, boosterType });
+      setPinInput('');
+      setPinError('');
+      setPinModalVisible(true);
+    } else {
+      setPurchasingBoosterId(boosterId);
+      boosterMutation.mutate({ boosterType });
+    }
+  };
+
   const handleBuy = (packId: string, packType: 'coin_pack' | 'star_pack') => {
     if (pinStatus?.hasPinSet) {
       setPinPending({ packId, packType });
@@ -252,12 +294,18 @@ export default function StoreScreen() {
   };
 
   const submitPin = async () => {
-    if (pinInput.length !== 4 || !pinPending) return;
+    if (pinInput.length !== 4 || (!pinPending && !boosterPinPending)) return;
     try {
       await apiClient.post('/auth/pin/verify', { pin: pinInput });
       setPinModalVisible(false);
-      purchaseMutation.mutate(pinPending);
-      setPinPending(null);
+      if (boosterPinPending) {
+        setPurchasingBoosterId(boosterPinPending.boosterId);
+        boosterMutation.mutate({ boosterType: boosterPinPending.boosterType });
+        setBoosterPinPending(null);
+      } else if (pinPending) {
+        purchaseMutation.mutate(pinPending);
+        setPinPending(null);
+      }
     } catch {
       setPinError('Incorrect PIN. Please try again.');
       setPinInput('');
@@ -370,12 +418,11 @@ export default function StoreScreen() {
                 <Text style={styles.boosterCost}>🪙 {booster.coinsCost?.toLocaleString()} coins</Text>
               </View>
               <Button
-                label="Buy"
+                label={purchasingBoosterId === booster.id ? 'Processing...' : 'Buy'}
                 size="sm"
                 variant="secondary"
-                onPress={() =>
-                  Alert.alert('Coming Soon', 'Booster purchases are available in the next update.')
-                }
+                loading={purchasingBoosterId === booster.id}
+                onPress={() => handleBuyBooster(booster.id, booster.id)}
               />
             </View>
           ))}

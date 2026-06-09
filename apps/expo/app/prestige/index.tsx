@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import {
   View, Text, ScrollView, TouchableOpacity,
-  ActivityIndicator, Alert
+  ActivityIndicator, Alert, RefreshControl,
 } from "react-native";
-import { storage } from "@/lib/offline/store";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiClient } from "@/lib/api/client";
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "";
 const ICON_III_XP_REQUIRED = 100_000;
 
 interface PrestigeData {
@@ -22,23 +22,37 @@ interface PrestigeData {
 
 const PRESTIGE_BADGES = ["🌟", "⭐⭐", "🌠", "👑"];
 
+async function fetchPrestige(): Promise<PrestigeData> {
+  const { data } = await apiClient.get<{ data: PrestigeData }>("/prestige");
+  return data.data;
+}
+
+async function doPrestigeRequest(): Promise<PrestigeData> {
+  const { data } = await apiClient.post<{ data: PrestigeData }>("/prestige");
+  return data.data;
+}
+
 export default function PrestigeScreen() {
-  const [data, setData] = useState<PrestigeData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [prestiging, setPrestiging] = useState(false);
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    const token = storage.getString("authToken");
-    fetch(`${API_BASE}/api/prestige`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    })
-      .then((r) => r.json())
-      .then((d) => setData(d.data))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+  const { data, isLoading, isError, refetch, isRefetching } = useQuery<PrestigeData>({
+    queryKey: ["prestige"],
+    queryFn: fetchPrestige,
+    staleTime: 30_000,
+  });
 
-  async function doPrestige() {
+  const prestigeMutation = useMutation<PrestigeData, Error>({
+    mutationFn: doPrestigeRequest,
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["prestige"], updated);
+      Alert.alert("🌟 Prestige Complete!", `You are now Prestige ${updated.prestige_level}!`);
+    },
+    onError: (err) => {
+      Alert.alert("Error", err.message ?? "Prestige failed. Please try again.");
+    },
+  });
+
+  function handlePrestige() {
     if (!data?.can_prestige) return;
     Alert.alert(
       "Prestige Now?",
@@ -46,34 +60,40 @@ export default function PrestigeScreen() {
       [
         { text: "Cancel" },
         {
-          text: "Prestige!", style: "destructive", onPress: async () => {
-            setPrestiging(true);
-            const token = storage.getString("authToken");
-            const res = await fetch(`${API_BASE}/api/prestige`, {
-              method: "POST",
-              headers: token ? { Authorization: `Bearer ${token}` } : {},
-            });
-            if (res.ok) {
-              const updated = await res.json();
-              setData(updated.data);
-              Alert.alert("🌟 Prestige Complete!", `You are now Prestige ${updated.data?.prestige_level ?? 1}!`);
-            } else {
-              Alert.alert("Error", "Prestige failed. Please try again.");
-            }
-            setPrestiging(false);
-          },
+          text: "Prestige!",
+          style: "destructive",
+          onPress: () => prestigeMutation.mutate(),
         },
       ]
     );
   }
 
-  if (loading) return <View className="flex-1 items-center justify-center"><ActivityIndicator color="#2563EB" /></View>;
-  if (!data) return <View className="flex-1 items-center justify-center"><Text className="text-gray-400">Unable to load prestige data</Text></View>;
+  if (isLoading) {
+    return (
+      <View className="flex-1 items-center justify-center">
+        <ActivityIndicator color="#2563EB" />
+      </View>
+    );
+  }
+
+  if (isError || !data) {
+    return (
+      <View className="flex-1 items-center justify-center">
+        <Text className="text-gray-400 mb-4">Unable to load prestige data</Text>
+        <TouchableOpacity onPress={() => void refetch()} className="px-4 py-2 bg-violet-600 rounded-lg">
+          <Text className="text-white font-semibold">Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   const xpProgress = Math.min((data.xp_total / ICON_III_XP_REQUIRED) * 100, 100);
 
   return (
-    <ScrollView className="flex-1 bg-gray-50">
+    <ScrollView
+      className="flex-1 bg-gray-50"
+      refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => void refetch()} />}
+    >
       {/* Hero */}
       <View className="bg-gradient-to-b from-violet-700 to-violet-900 px-6 pt-8 pb-10 items-center">
         <Text className="text-5xl mb-2">{PRESTIGE_BADGES[data.prestige_level] ?? "🌟"}</Text>
@@ -83,7 +103,9 @@ export default function PrestigeScreen() {
 
       {/* Progress to prestige */}
       <View className="bg-white mx-4 -mt-4 rounded-xl p-5 shadow-sm">
-        <Text className="font-semibold text-gray-800 mb-1">Progress to Prestige {data.prestige_level + 1}</Text>
+        <Text className="font-semibold text-gray-800 mb-1">
+          Progress to Prestige {data.prestige_level + 1}
+        </Text>
         <Text className="text-gray-500 text-xs mb-3">Requires Icon III (100,000 XP)</Text>
         <View className="bg-gray-100 rounded-full h-3 overflow-hidden">
           <View className="bg-violet-600 h-full rounded-full" style={{ width: `${xpProgress}%` }} />
@@ -128,11 +150,15 @@ export default function PrestigeScreen() {
       <View className="mx-4 mt-4 mb-8">
         <TouchableOpacity
           className={`py-4 rounded-xl items-center ${data.can_prestige ? "bg-violet-600" : "bg-gray-200"}`}
-          onPress={() => void doPrestige()}
-          disabled={!data.can_prestige || prestiging}
+          onPress={handlePrestige}
+          disabled={!data.can_prestige || prestigeMutation.isPending}
         >
           <Text className={`font-bold text-base ${data.can_prestige ? "text-white" : "text-gray-400"}`}>
-            {prestiging ? "Processing..." : data.can_prestige ? "✨ Prestige Now" : "Reach Icon III to Prestige"}
+            {prestigeMutation.isPending
+              ? "Processing..."
+              : data.can_prestige
+              ? "✨ Prestige Now"
+              : "Reach Icon III to Prestige"}
           </Text>
         </TouchableOpacity>
       </View>

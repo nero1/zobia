@@ -37,10 +37,13 @@ const MAX_XP = XP_VALUES.mystery_xp_drop_max;
 // ---------------------------------------------------------------------------
 
 /**
- * Generates a cryptographically-safe random integer in [min, max] (inclusive).
+ * Generates a random integer in [min, max] (inclusive) using crypto.getRandomValues.
  */
 function randomInt(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+  const range = max - min + 1;
+  const buf = new Uint32Array(1);
+  crypto.getRandomValues(buf);
+  return min + (buf[0] % range);
 }
 
 // ---------------------------------------------------------------------------
@@ -66,10 +69,11 @@ export async function triggerMysteryXPDrop(
     Date.now() - ACTIVE_WITHIN_DAYS * 24 * 60 * 60 * 1000
   ).toISOString();
 
-  // Find eligible users: active recently, no mystery drop in last 24h
+  // Find eligible users: active recently, no mystery drop in last 24h.
+  // TABLESAMPLE avoids a full-table scan that ORDER BY RANDOM() would cause.
   const eligibleResult = await db.query<{ id: string }>(
     `SELECT u.id
-     FROM users u
+     FROM users u TABLESAMPLE BERNOULLI(5)
      WHERE u.deleted_at IS NULL
        AND u.last_active_at >= $1
        AND u.id NOT IN (
@@ -77,7 +81,6 @@ export async function triggerMysteryXPDrop(
          WHERE action = 'mystery_drop'
            AND created_at >= NOW() - INTERVAL '24 hours'
        )
-     ORDER BY RANDOM()
      LIMIT $2`,
     [activeSince, batchSize]
   );

@@ -75,12 +75,13 @@ const CLASSROOM_MIN_AGE_DAYS = 30;
  * Compute a trust score from raw signals.
  *
  * Scoring breakdown (max 100):
- *  - Account age:     up to 30 pts (1 pt per 10 days, capped at 300 days)
- *  - Verification:    +20 pts
- *  - Payment history: up to 20 pts (2 pts per completed payment, capped at 10)
- *  - Report penalty:  -5 pts per report against user (capped at -30)
- *  - Warning penalty: -10 pts per warning (capped at -30)
- *  - Banned:          score = 0
+ *  - Account age:          up to 30 pts (1 pt per 10 days, capped at 300 days)
+ *  - Verification:         +20 pts
+ *  - Payment history:      up to 20 pts (2 pts per completed payment, capped at 10)
+ *  - Report penalty:       -5 pts per report against user (capped at -30)
+ *  - Warning penalty:      -10 pts per warning (capped at -30)
+ *  - Moderation actions:   -5 pts per action (content removal, etc.), capped at -30
+ *  - Banned:               score = 0
  *
  * @param signals - Aggregated trust signals for the user
  * @returns Integer score 0–100
@@ -104,6 +105,9 @@ function computeScore(signals: TrustSignals): number {
 
   // Warning penalty (10 pts each, max -30)
   score -= Math.min(30, signals.warningCount * 10);
+
+  // Moderation action penalty (5 pts per action such as content removal, max -30)
+  score -= Math.min(30, signals.moderationActionCount * 5);
 
   return Math.max(0, Math.min(100, score));
 }
