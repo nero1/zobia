@@ -56,7 +56,6 @@
   "settings.notifications": "ማሳወቂያዎች",
   "settings.security": "ደህንነት",
   "settings.language": "ቋንቋ",
-  "settings.theme": "ጭብጥ",
   "settings.theme.light": "ብሩህ",
   "settings.theme.dark": "ጨለማ",
   "settings.theme.system": "ስርዓት",
@@ -813,9 +812,13 @@
   },
   "rooms": {
     "title": "ክፍሎች",
-    "empty": "አሁን ምንም ንቁ ክፍሎች የሉም",
+    "empty": {
+      "title": "አሁን ምንም ንቁ ክፍሎች የሉም"
+    },
     "join": "ይቀላቀሉ",
-    "create": "ክፍል ፍጠር",
+    "create": {
+      "title": "ክፍል ፍጠር"
+    },
     "searchPlaceholder": "ክፍሎችን ይፈልጉ…",
     "filters": "ማጣሪያዎች",
     "tabTrending": "ታዋቂ",

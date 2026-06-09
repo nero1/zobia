@@ -56,7 +56,6 @@
   "settings.notifications": "Notificações",
   "settings.security": "Segurança",
   "settings.language": "Idioma",
-  "settings.theme": "Tema",
   "settings.theme.light": "Claro",
   "settings.theme.dark": "Escuro",
   "settings.theme.system": "Sistema",
@@ -813,9 +812,13 @@
   },
   "rooms": {
     "title": "Salas",
-    "empty": "Sem salas ativas agora",
+    "empty": {
+      "title": "Sem salas ativas agora"
+    },
     "join": "Entrar",
-    "create": "Criar Sala",
+    "create": {
+      "title": "Criar Sala"
+    },
     "searchPlaceholder": "Buscar salas…",
     "filters": "Filtros",
     "tabTrending": "Em Alta",

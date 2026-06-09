@@ -56,7 +56,6 @@
   "settings.notifications": "Sanarwa",
   "settings.security": "Tsaro",
   "settings.language": "Harshe",
-  "settings.theme": "Jigo",
   "settings.theme.light": "Haske",
   "settings.theme.dark": "Duhu",
   "settings.theme.system": "Tsarin",
@@ -813,9 +812,13 @@
   },
   "rooms": {
     "title": "Ɗakuna",
-    "empty": "Babu ɗakuna masu aiki a yanzu",
+    "empty": {
+      "title": "Babu ɗakuna masu aiki a yanzu"
+    },
     "join": "Shiga",
-    "create": "Ƙirƙiri Ɗaki",
+    "create": {
+      "title": "Ƙirƙiri Ɗaki"
+    },
     "searchPlaceholder": "Nemi ɗakuna…",
     "filters": "Tace",
     "tabTrending": "Mashahuri",
