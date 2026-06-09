@@ -28,14 +28,22 @@ function RegisterContent() {
   const error = searchParams.get("error");
 
   const [isLoading, setIsLoading] = useState<"google" | "telegram" | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const handleGoogleLogin = async () => {
     setIsLoading("google");
+    setAuthError(null);
     try {
       const res = await fetch("/api/auth/google");
-      const { url } = await res.json() as { url: string };
-      window.location.href = url;
+      const data = await res.json() as { url?: string; error?: { message?: string } };
+      if (!res.ok || !data.url) {
+        setAuthError(data?.error?.message ?? "Authentication failed. Please try again.");
+        setIsLoading(null);
+        return;
+      }
+      window.location.href = data.url;
     } catch {
+      setAuthError("Authentication failed. Please try again.");
       setIsLoading(null);
     }
   };
@@ -75,6 +83,12 @@ function RegisterContent() {
           </p>
         </div>
 
+        {authError && (
+          <div className="mb-6 rounded-lg border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-700 dark:border-danger-800 dark:bg-danger-950 dark:text-danger-300">
+            {authError}
+          </div>
+        )}
+
         {error && (
           <div className="mb-6 rounded-lg border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-700 dark:border-danger-800 dark:bg-danger-950 dark:text-danger-300">
             {error === "oauth_failed" && "Authentication failed. Please try again."}
@@ -101,39 +115,39 @@ function RegisterContent() {
               Sign up with Google
             </button>
 
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-neutral-200 dark:border-neutral-800" />
-              </div>
-              <div className="relative flex justify-center text-xs">
-                <span className="bg-white px-2 text-neutral-400 dark:bg-neutral-900">
-                  or
-                </span>
-              </div>
-            </div>
-
-            <div className="flex justify-center">
-              {isLoading === "telegram" ? (
-                <div className="flex items-center gap-2 text-sm text-neutral-500">
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-neutral-300 border-t-primary-600" />
-                  Signing up with Telegram…
+            {(botUsername || isLoading === "telegram") && (
+              <>
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-neutral-200 dark:border-neutral-800" />
+                  </div>
+                  <div className="relative flex justify-center text-xs">
+                    <span className="bg-white px-2 text-neutral-400 dark:bg-neutral-900">
+                      or
+                    </span>
+                  </div>
                 </div>
-              ) : botUsername ? (
-                <Script
-                  src="https://telegram.org/js/telegram-widget.js?22"
-                  data-telegram-login={botUsername}
-                  data-size="large"
-                  data-radius="12"
-                  data-onauth="onTelegramAuth(user)"
-                  data-request-access="write"
-                  strategy="lazyOnload"
-                />
-              ) : (
-                <p className="text-xs text-neutral-400">
-                  Telegram login not configured.
-                </p>
-              )}
-            </div>
+
+                <div className="flex justify-center">
+                  {isLoading === "telegram" ? (
+                    <div className="flex items-center gap-2 text-sm text-neutral-500">
+                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-neutral-300 border-t-primary-600" />
+                      Signing up with Telegram…
+                    </div>
+                  ) : (
+                    <Script
+                      src="https://telegram.org/js/telegram-widget.js?22"
+                      data-telegram-login={botUsername}
+                      data-size="large"
+                      data-radius="12"
+                      data-onauth="onTelegramAuth(user)"
+                      data-request-access="write"
+                      strategy="lazyOnload"
+                    />
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
 
