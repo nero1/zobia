@@ -92,7 +92,7 @@ export function NudgeBanner({ hasEmail, nudgeDismissedAt }: NudgeBannerProps) {
       {/* CTAs */}
       <div className="flex shrink-0 items-center gap-2">
         <Link
-          href="/(app)/settings"
+          href="/settings"
           className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
         >
           Add Email

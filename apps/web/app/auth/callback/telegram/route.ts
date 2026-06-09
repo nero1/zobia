@@ -99,7 +99,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     // Build response with cookies
     const { accessCookie, refreshCookie } = buildCookieHeaders(authTokens);
-    const redirectTo = request.cookies.get("oauth_redirect")?.value ?? "/(app)/home";
+    const redirectTo = request.cookies.get("oauth_redirect")?.value ?? "/home";
 
     const response = NextResponse.redirect(new URL(redirectTo, request.url));
     response.headers.append("Set-Cookie", accessCookie);
