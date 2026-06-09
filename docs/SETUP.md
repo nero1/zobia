@@ -420,12 +420,34 @@ Both secrets must be different and at least 32 characters long. Keep them privat
 3. Go to **APIs & Services → Credentials → Create Credentials → OAuth 2.0 Client ID**.
 4. Application type: **Web application**.
 5. Add to **Authorized redirect URIs**:
-   - `http://localhost:3000/auth/callback/google` (for local development)
-   - `https://your-domain.com/auth/callback/google` (for production)
+   - `http://localhost:3000/api/auth/google/callback` (for local development)
+   - `https://your-domain.com/api/auth/google/callback` (for production)
 6. Copy **Client ID** → `GOOGLE_CLIENT_ID`
 7. Copy **Client Secret** → `GOOGLE_CLIENT_SECRET`
 
 > **Important:** The redirect URI must match exactly what `NEXT_PUBLIC_APP_URL` resolves to (including protocol and port). Do not include a trailing slash in `NEXT_PUBLIC_APP_URL` (use `http://localhost:3000`, not `http://localhost:3000/`). A mismatch causes `Error 400: redirect_uri_mismatch` from Google. Changes to Authorized redirect URIs in Google Cloud Console can take up to 5 minutes to propagate.
+
+> **Legacy URI:** The old path `/auth/callback/google` still exists and automatically forwards to `/api/auth/google/callback`, so existing Google Console entries pointing at the old URI will continue to work. However, new projects should register only the `/api/auth/google/callback` URI — it is the canonical route and the only one that runs the onboarding check.
+
+#### Onboarding flow
+
+New users (first-ever Google sign-in) are redirected to `/onboarding` after the OAuth callback completes. Returning users go straight to `/home`. This is handled automatically by `/api/auth/google/callback` — no configuration required.
+
+#### Mobile (Expo) OAuth
+
+The Expo app opens an in-app browser to:
+
+```
+/api/auth/google?platform=mobile&redirect=zobia://auth/callback
+```
+
+The backend stores the deep-link redirect URI in a short-lived HttpOnly cookie, completes the standard Google OAuth flow, and then — instead of setting web cookies — redirects the in-app browser to:
+
+```
+zobia://auth/callback?token=JWT&refresh_token=...&user=...&onboarding_completed=true|false
+```
+
+The app catches this deep link, stores the JWT in SecureStore, and routes to `/(tabs)` or `/onboarding` depending on `onboarding_completed`. No separate Google Cloud Console entry is required for the mobile flow — it reuses the same web OAuth client and redirect URI.
 
 ### Why reCAPTCHA applies to Google sign-in but not Telegram
 
