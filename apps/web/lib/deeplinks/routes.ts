@@ -24,7 +24,7 @@ export const ROUTES = {
   resetPassword: "/auth/reset-password",   // ?token=xxx
 
   // ---- OAuth callbacks ----------------------------------------------------
-  googleCallback: "/auth/callback/google",
+  googleCallback: "/api/auth/google/callback",
   telegramCallback: "/auth/callback/telegram",
 
   // ---- Authenticated app -------------------------------------------------

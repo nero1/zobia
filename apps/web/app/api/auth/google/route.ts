@@ -58,15 +58,21 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // Build the Google OAuth URL with state embedded
     const url = buildGoogleAuthUrl(state);
 
-    return NextResponse.json(
-      { url },
-      {
-        status: 200,
-        headers: {
-          "Set-Cookie": csrfCookie,
-        },
-      }
-    );
+    // For mobile clients (?platform=mobile&redirect=app://...) store the
+    // deep-link redirect URI in an HttpOnly cookie so the callback can
+    // return the JWT directly to the app instead of setting a web cookie.
+    const mobileRedirect = req.nextUrl.searchParams.get("redirect");
+    const secure = process.env.NODE_ENV === "production";
+    const cookieFlags = `HttpOnly; Path=/; SameSite=Lax; Max-Age=600${secure ? "; Secure" : ""}`;
+    const cookies = mobileRedirect
+      ? [`${csrfCookie}`, `zobia_mobile_redirect=${encodeURIComponent(mobileRedirect)}; ${cookieFlags}`]
+      : [csrfCookie];
+
+    const response = NextResponse.json({ url }, { status: 200 });
+    for (const cookie of cookies) {
+      response.headers.append("Set-Cookie", cookie);
+    }
+    return response;
   } catch (err) {
     return handleApiError(err);
   }

@@ -75,11 +75,16 @@ export default function LoginScreen() {
       const parsed = ExpoLinking.parse(url);
       const token = parsed.queryParams?.token as string | undefined;
       const userEncoded = parsed.queryParams?.user as string | undefined;
+      const onboardingCompleted = parsed.queryParams?.onboarding_completed as string | undefined;
 
       if (token && userEncoded) {
         const user: AuthUser = JSON.parse(decodeURIComponent(userEncoded));
         await signIn(token, user);
-        router.replace('/(tabs)');
+        if (onboardingCompleted === 'false') {
+          router.replace('/onboarding');
+        } else {
+          router.replace('/(tabs)');
+        }
       }
     } catch (err) {
       Alert.alert(t('common.error'), t('auth.callbackError'));

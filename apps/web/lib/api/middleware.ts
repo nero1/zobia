@@ -25,8 +25,12 @@ import {
   extractBearerToken,
   type AccessTokenPayload,
 } from "@/lib/auth/jwt";
-import { getSession } from "@/lib/auth/session";
-import { ACCESS_TOKEN_COOKIE } from "@/lib/auth/session";
+import {
+  getSession,
+  invalidateSession,
+  ACCESS_TOKEN_COOKIE,
+  REFRESH_TOKEN_COOKIE,
+} from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import {
   ApiError,
@@ -44,7 +48,6 @@ import {
   isIpAnomalous,
   recordAndCheckAnomaly,
 } from "@/lib/security/geoAnomaly";
-import { invalidateSession } from "@/lib/auth/session";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -126,7 +129,16 @@ export function withAuth<TParams = Record<string, string>>(
       // Confirm session is still alive in Redis (not revoked)
       const session = await getSession(payload.sid);
       if (!session) {
-        throw unauthorized("Session has been revoked");
+        // Clear the stale cookies so the browser doesn't loop between /home
+        // and /auth/login with a JWT that passes signature checks but has no
+        // corresponding Redis session.
+        const cleared = NextResponse.json(
+          { error: "Unauthorised", code: "SESSION_REVOKED" },
+          { status: 401 }
+        );
+        cleared.cookies.set(ACCESS_TOKEN_COOKIE, "", { maxAge: 0, path: "/" });
+        cleared.cookies.set(REFRESH_TOKEN_COOKIE, "", { maxAge: 0, path: "/" });
+        return cleared;
       }
 
       // Geolocation anomaly detection (PRD §19, §23)
@@ -191,7 +203,15 @@ export function withAdminAuth<TParams = Record<string, string>>(
 
       // Confirm session is still alive in Redis
       const session = await getSession(payload.sid);
-      if (!session) throw unauthorized("Session has been revoked");
+      if (!session) {
+        const cleared = NextResponse.json(
+          { error: "Unauthorised", code: "SESSION_REVOKED" },
+          { status: 401 }
+        );
+        cleared.cookies.set(ACCESS_TOKEN_COOKIE, "", { maxAge: 0, path: "/" });
+        cleared.cookies.set(REFRESH_TOKEN_COOKIE, "", { maxAge: 0, path: "/" });
+        return cleared;
+      }
 
       // ALWAYS check is_admin from the database – never trust JWT claim alone
       const { rows } = await db.query<{ is_admin: boolean }>(
