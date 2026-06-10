@@ -144,15 +144,22 @@ export default function InboxPage() {
         const res = await fetch("/api/inbox", { credentials: "include" });
         if (res.status === 401) { window.location.href = "/auth/login"; return; }
         if (!res.ok) throw new Error("Failed to load inbox");
-        const data = (await res.json()) as
-          | InboxMessage[]
-          | { messages?: InboxMessage[] }
-          | { data?: InboxMessage[] };
-        const list: InboxMessage[] = Array.isArray(data)
-          ? data
-          : (data as { messages?: InboxMessage[] }).messages ??
-            (data as { data?: InboxMessage[] }).data ??
-            [];
+        const data = await res.json() as Record<string, unknown>;
+        const rawList: Record<string, unknown>[] = Array.isArray(data)
+          ? (data as Record<string, unknown>[])
+          : Array.isArray((data as Record<string, unknown[]>).items)
+            ? (data as Record<string, unknown[]>).items as Record<string, unknown>[]
+            : Array.isArray((data as Record<string, unknown[]>).messages)
+              ? (data as Record<string, unknown[]>).messages as Record<string, unknown>[]
+              : [];
+        const list: InboxMessage[] = rawList.map((m) => ({
+          id: String(m.id ?? ""),
+          subject: String(m.subject ?? "(no subject)"),
+          body: String(m.body ?? ""),
+          senderName: String(m.sender_username ?? m.senderName ?? "Zobia Team"),
+          createdAt: String(m.created_at ?? m.createdAt ?? new Date().toISOString()),
+          readAt: m.read_at != null ? String(m.read_at) : m.readAt != null ? String(m.readAt) : null,
+        }));
         setMessages(list);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Unknown error");

@@ -274,9 +274,31 @@ export default function ReferralsPage() {
         const res = await fetch("/api/referrals", { credentials: "include" });
         if (res.status === 401) { window.location.href = "/auth/login"; return; }
         if (!res.ok) throw new Error("Failed to load referrals");
-        const json = (await res.json()) as ReferralsData | { data?: ReferralsData };
-        const referralsData: ReferralsData =
-          (json as { data?: ReferralsData }).data ?? (json as ReferralsData);
+        const json = await res.json() as Record<string, unknown>;
+        // API returns { success, data: { referralCode, referralUrl, tier1Count, ... } }
+        const apiData = ((json.data ?? json) as Record<string, unknown>);
+        const referralsData: ReferralsData = {
+          stats: {
+            referralCode: String(apiData.referralCode ?? ""),
+            referralUrl: String(apiData.referralUrl ?? ""),
+            tier1Count: Number(apiData.tier1Count ?? 0),
+            tier2Count: Number(apiData.tier2Count ?? 0),
+            tier1XpEarned: Number(apiData.xpEarned ?? 0),
+            tier2XpEarned: 0,
+            tier1CoinsEarned: Number(apiData.coinsEarned ?? 0),
+            tier2CoinsEarned: Number((apiData.commissions as Record<string,unknown>)?.tier2CoinsEarned ?? 0),
+          },
+          referredUsers: ((apiData.referrals as Record<string, unknown>[]) ?? []).map((r) => ({
+            userId: String(r.id ?? ""),
+            username: String(r.referredUsername ?? ""),
+            displayName: String(r.referredDisplayName ?? r.referredUsername ?? "Unknown"),
+            tier: (Number(r.tier) === 1 ? 1 : 2) as 1 | 2,
+            joinedAt: String(r.createdAt ?? r.created_at ?? new Date().toISOString()),
+            qualifyingActionCompleted: Boolean(r.qualified),
+            xpEarned: Number(r.xpReward ?? r.xp_reward ?? 0),
+            coinsEarned: Number(r.coinReward ?? r.coin_reward ?? 0),
+          })),
+        };
         setData(referralsData);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Unknown error");

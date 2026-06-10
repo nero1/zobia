@@ -53,8 +53,25 @@ interface ReferralData {
 // ---------------------------------------------------------------------------
 
 async function fetchReferrals(): Promise<ReferralData> {
-  const { data } = await apiClient.get('/api/referrals');
-  return data;
+  const { data } = await apiClient.get<Record<string, unknown>>('/api/referrals');
+  // API wraps response in { success, data: { referralUrl, referrals, ... } }
+  const apiData = ((data.data ?? data) as Record<string, unknown>);
+  const rawReferrals = (apiData.referrals ?? []) as Record<string, unknown>[];
+  return {
+    referralLink: String(apiData.referralUrl ?? apiData.referralLink ?? ''),
+    tier1Count: Number(apiData.tier1Count ?? 0),
+    tier2Count: Number(apiData.tier2Count ?? 0),
+    totalXPEarned: Number(apiData.xpEarned ?? apiData.totalXPEarned ?? 0),
+    totalCoinsEarned: Number(apiData.coinsEarned ?? apiData.totalCoinsEarned ?? 0),
+    referredUsers: rawReferrals.map((r) => ({
+      userId: String(r.id ?? r.userId ?? ''),
+      displayName: String(r.referredDisplayName ?? r.displayName ?? 'Unknown'),
+      avatarEmoji: String(r.referredAvatarEmoji ?? r.avatarEmoji ?? '😊'),
+      tier: (Number(r.tier) === 1 ? 1 : 2) as 1 | 2,
+      status: r.qualified ? 'qualifying_done' : 'joined',
+      joinedAt: String(r.createdAt ?? r.created_at ?? ''),
+    })),
+  };
 }
 
 // ---------------------------------------------------------------------------

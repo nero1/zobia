@@ -18,7 +18,7 @@ import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, conflict, forbidden } from "@/lib/api/errors";
 import { assignNemesis, compareNemesisProgress } from "@/lib/nemesis/nemesisEngine";
 import { getTrackLevelForXP } from "@/lib/xp/engine";
-import { requireFeatureEnabled } from "@/lib/manifest";
+import { loadManifest } from "@/lib/manifest";
 
 // ---------------------------------------------------------------------------
 // Feature gate constants
@@ -53,7 +53,10 @@ interface NemesisRow {
 export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
-    await requireFeatureEnabled("nemesisSystem");
+    const manifest = await loadManifest();
+    if (!manifest.features.nemesisSystem) {
+      return NextResponse.json({ nemesis: null, me: null, recentActivity: [], sprintActive: false });
+    }
 
     const { rows } = await db.query<NemesisRow>(
       `SELECT na.user_id, na.nemesis_user_id AS nemesis_id, na.assigned_at,
@@ -207,7 +210,10 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
-    await requireFeatureEnabled("nemesisSystem");
+    const manifest = await loadManifest();
+    if (!manifest.features.nemesisSystem) {
+      return NextResponse.json({ success: false, data: null, error: { code: "FEATURE_DISABLED", message: "Nemesis system is currently disabled" } }, { status: 503 });
+    }
     const action = new URL(req.url).pathname.split("/").at(-1); // 'dismiss' or 'challenge'
 
     if (action === "dismiss") {

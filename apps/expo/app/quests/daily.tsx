@@ -51,8 +51,24 @@ interface DailyQuestsResponse {
 // ---------------------------------------------------------------------------
 
 async function fetchDailyQuests(): Promise<DailyQuestsResponse> {
-  const { data } = await apiClient.get<DailyQuestsResponse>('/api/quests/daily');
-  return data;
+  const { data } = await apiClient.get<Record<string, unknown>>('/api/quests/daily');
+  // Map API snake_case fields to the expected Quest interface
+  const rawQuests = (data.quests ?? []) as Record<string, unknown>[];
+  const quests: Quest[] = rawQuests.map((q) => ({
+    id: String(q.id ?? ''),
+    name: String(q.title ?? q.name ?? ''),
+    description: String(q.description ?? ''),
+    xpReward: Number(q.xp_reward ?? q.xpReward ?? 0),
+    coinReward: Number(q.coin_reward ?? q.coinReward ?? 0),
+    progress: Number(q.progress_count ?? q.progress ?? 0),
+    target: Number(q.target_count ?? q.target ?? 1),
+    completed: Boolean(q.completed ?? false),
+  }));
+  return {
+    quests,
+    setBonusXp: Number(data.bonus_xp ?? data.setBonusXp ?? 500),
+    resetAt: String(data.reset_at ?? data.resetAt ?? ''),
+  };
 }
 
 // ---------------------------------------------------------------------------

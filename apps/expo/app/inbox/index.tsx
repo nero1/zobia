@@ -43,12 +43,24 @@ interface AdminMessage {
 // ---------------------------------------------------------------------------
 
 async function fetchInboxMessages(): Promise<AdminMessage[]> {
-  const { data } = await apiClient.get('/inbox/admin');
-  return data.messages ?? [];
+  const { data } = await apiClient.get<Record<string, unknown>>('/api/inbox');
+  // API returns { items: [...], unread_count, limit, offset }
+  const rawList = (
+    Array.isArray(data) ? data :
+    Array.isArray((data as Record<string, unknown[]>).items) ? (data as Record<string, unknown[]>).items :
+    (data as Record<string, unknown[]>).messages ?? []
+  ) as Record<string, unknown>[];
+  return rawList.map((m) => ({
+    id: String(m.id ?? ''),
+    subject: String(m.subject ?? '(no subject)'),
+    body: String(m.body ?? ''),
+    sentAt: String(m.created_at ?? m.sentAt ?? new Date().toISOString()),
+    isRead: m.read_at != null || Boolean(m.isRead),
+  }));
 }
 
 async function markAsRead(messageId: string): Promise<void> {
-  await apiClient.post(`/inbox/admin/${messageId}/read`);
+  await apiClient.post(`/api/inbox/${messageId}/read`);
 }
 
 // ---------------------------------------------------------------------------
