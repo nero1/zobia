@@ -163,7 +163,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // Google-side errors (e.g. user denied access)
     if (error) {
       return NextResponse.redirect(
-        new URL(`/auth/login?error=${encodeURIComponent(error)}`, env.NEXT_PUBLIC_APP_URL)
+        new URL(`/auth/login?error=${encodeURIComponent(error)}`, new URL(req.url).origin)
       );
     }
 
@@ -241,9 +241,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // -----------------------------------------------------------------
     const { accessCookie, refreshCookie } = buildCookieHeaders(authTokens);
 
+    const reqOrigin = new URL(req.url).origin;
     const destination = user.onboarding_completed
-      ? new URL("/home", env.NEXT_PUBLIC_APP_URL)
-      : new URL("/onboarding", env.NEXT_PUBLIC_APP_URL);
+      ? new URL("/home", reqOrigin)
+      : new URL("/onboarding", reqOrigin);
 
     const response = NextResponse.redirect(destination, { status: 302 });
     for (const cookie of [accessCookie, refreshCookie, ...cookiesToClear]) {

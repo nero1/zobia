@@ -44,17 +44,19 @@ interface AppLayoutProps {
 async function resolveAnnouncements(cookieHeader: string | null): Promise<{
   banner: BannerData | null;
   modal: AnnouncementData | null;
+  hasEmail: boolean;
 }> {
   if (!env.DATABASE_PROVIDER) {
-    return { banner: null, modal: null };
+    return { banner: null, modal: null, hasEmail: true };
   }
   try {
     const cookieStore = await cookies();
     const accessToken = cookieStore.get("zobia_at")?.value;
-    if (!accessToken) return { banner: null, modal: null };
+    if (!accessToken) return { banner: null, modal: null, hasEmail: true };
 
     const payload = await verifyAccessToken(accessToken);
     const userId = payload.sub;
+    const hasEmail = !!payload.email;
     const announcementUser = {
       id: userId,
       plan_id: null as string | null,
@@ -84,9 +86,9 @@ async function resolveAnnouncements(cookieHeader: string | null): Promise<{
         }
       : null;
 
-    return { banner, modal };
+    return { banner, modal, hasEmail };
   } catch {
-    return { banner: null, modal: null };
+    return { banner: null, modal: null, hasEmail: true };
   }
 }
 
@@ -94,7 +96,7 @@ async function resolveAnnouncements(cookieHeader: string | null): Promise<{
  * Authenticated app shell layout.
  */
 export default async function AppLayout({ children }: AppLayoutProps) {
-  const { banner, modal } = await resolveAnnouncements(null);
+  const { banner, modal, hasEmail } = await resolveAnnouncements(null);
 
   return (
     <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
@@ -114,13 +116,13 @@ export default async function AppLayout({ children }: AppLayoutProps) {
         <Sidebar />
 
         {/* Main content */}
-        <main className="flex-1 px-4 py-6 sm:px-6 lg:ml-64 lg:px-8">
+        <div className="flex-1 px-4 py-6 sm:px-6 lg:ml-64 lg:px-8">
           <div className="mx-auto max-w-3xl space-y-3">
-            {/* Account recovery nudge (shown when no email set) */}
-            <NudgeBanner hasEmail={false} />
+            {/* Account recovery nudge (shown when user has no email) */}
+            <NudgeBanner hasEmail={hasEmail} />
             {children}
           </div>
-        </main>
+        </div>
       </div>
     </div>
   );
