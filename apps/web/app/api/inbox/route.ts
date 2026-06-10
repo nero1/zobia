@@ -68,13 +68,12 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
          m.subject,
          m.body,
          m.broadcast_type,
-         COALESCE(u.username, 'Zobia Team') AS sender_username,
+         'Zobia Team' AS sender_username,
          r.delivered_at,
          r.read_at,
          m.created_at
        FROM admin_message_receipts r
        JOIN admin_messages m ON m.id = r.admin_message_id
-       LEFT JOIN users u ON u.id = m.sender_id
        WHERE r.user_id = $1
        ORDER BY m.created_at DESC
        LIMIT $2 OFFSET $3`,

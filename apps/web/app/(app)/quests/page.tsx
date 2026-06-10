@@ -188,7 +188,38 @@ export default function QuestsPage() {
       const res = await fetch("/api/quests/daily");
       if (!res.ok) throw new Error("Failed to load quests");
       const json = await res.json();
-      setData(json);
+
+      const VALID_TRACKS = new Set<QuestTrack>(["social","knowledge","wealth","influence","resilience","legacy","main"]);
+
+      // Map API snake_case / alternate fields to the Quest interface
+      const quests: Quest[] = (json.quests ?? []).map((q: Record<string, unknown>): Quest => ({
+        id: String(q.id ?? ""),
+        title: String(q.title ?? q.name ?? ""),
+        description: String(q.description ?? ""),
+        difficulty: (["easy","medium","hard"].includes(String(q.difficulty)) ? q.difficulty : "medium") as QuestDifficulty,
+        track: (VALID_TRACKS.has(String(q.category ?? q.track) as QuestTrack)
+          ? (q.category ?? q.track)
+          : "main") as QuestTrack,
+        xpReward: Number(q.xp_reward ?? q.xpReward ?? 0),
+        coinReward: Number(q.coin_reward ?? q.coinReward ?? 0),
+        currentProgress: Number(q.progress_count ?? q.currentProgress ?? 0),
+        targetProgress: Number(q.target_count ?? q.targetProgress ?? 1),
+        isCompleted: Boolean(q.completed ?? q.isCompleted ?? false),
+        isSponsored: Boolean(q.is_sponsored ?? q.isSponsored ?? false),
+        sponsorName: q.sponsor_name != null ? String(q.sponsor_name) : q.sponsorName != null ? String(q.sponsorName) : undefined,
+      }));
+
+      const today = String(json.date ?? new Date().toISOString().slice(0, 10));
+      const resetDate = new Date(`${today}T00:00:00Z`);
+      resetDate.setUTCDate(resetDate.getUTCDate() + 1);
+
+      setData({
+        quests,
+        completedCount: Number(json.completed ?? json.completedCount ?? 0),
+        totalCount: Number(json.total ?? json.totalCount ?? quests.length),
+        resetAt: resetDate.toISOString(),
+        bonusUnlocked: Boolean(json.bonus_unlocked ?? json.bonusUnlocked ?? false),
+      });
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");

@@ -18,6 +18,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Script from "next/script";
+import { useTranslation } from "react-i18next";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -107,6 +108,7 @@ const CURRENT_YEAR = new Date().getFullYear();
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const { t } = useTranslation();
 
   // Manifest (loaded once)
   const [manifest, setManifest] = useState<ManifestPublic | null>(null);
@@ -240,14 +242,14 @@ export default function OnboardingPage() {
   function validateStep1(): boolean {
     const minAge = manifest?.minimumAge ?? 18;
     const errs = {
-      username: usernameStatus !== "ok" ? "Please choose a valid, available username." : null,
-      displayName: !displayName.trim() ? "Display name is required." : null,
-      city: !city ? "Please select your city." : null,
+      username: usernameStatus !== "ok" ? t("onboarding.step1.usernameError") : null,
+      displayName: !displayName.trim() ? t("onboarding.step1.displayNameError") : null,
+      city: !city ? t("onboarding.step1.cityError") : null,
       birthYear: (() => {
-        if (!birthYear) return "Year of birth is required.";
+        if (!birthYear) return t("onboarding.step1.birthYearError");
         const yr = parseInt(birthYear, 10);
-        if (isNaN(yr) || yr < 1900 || yr > CURRENT_YEAR) return `Please enter a valid year between 1900 and ${CURRENT_YEAR}.`;
-        if (CURRENT_YEAR - yr < minAge) return `You must be at least ${minAge} years old to join Zobia.`;
+        if (isNaN(yr) || yr < 1900 || yr > CURRENT_YEAR) return t("onboarding.step1.birthYearInvalid", { year: CURRENT_YEAR });
+        if (CURRENT_YEAR - yr < minAge) return t("onboarding.step1.ageError", { age: minAge });
         return null;
       })(),
     };
@@ -281,7 +283,7 @@ export default function OnboardingPage() {
     const q = ["activity", "socialStyle", "motivation", "cityVibe"] as const;
     for (const key of q) {
       if (!vibeAnswers[key]) {
-        setError("Please answer all four questions to continue.");
+        setError(t("onboarding.step2.allRequired"));
         return false;
       }
     }
@@ -349,14 +351,14 @@ export default function OnboardingPage() {
 
       if (!res.ok) {
         if (data.error === "age_requirement") {
-          setError(`This platform requires users to be at least ${data.minAge ?? 18} years old.`);
+          setError(t("onboarding.error.ageTooYoung", { age: data.minAge ?? 18 }));
         } else if (data.error === "captcha_failed") {
-          setError("CAPTCHA verification failed. Please try again.");
+          setError(t("onboarding.error.captchaFailed"));
         } else if (data.error === "username_taken") {
-          setError("That username is already taken. Please choose another.");
+          setError(t("onboarding.error.usernameTaken"));
           setStep(1);
         } else {
-          setError(data.error ?? "Something went wrong. Please try again.");
+          setError(data.error ?? t("onboarding.error.generic"));
         }
         return;
       }
@@ -384,7 +386,7 @@ export default function OnboardingPage() {
       }, 2500);
 
     } catch {
-      setError("Network error. Please check your connection and try again.");
+      setError(t("onboarding.error.network"));
     } finally {
       setSubmitting(false);
     }
@@ -396,10 +398,10 @@ export default function OnboardingPage() {
 
   const usernameIndicator = {
     idle: null,
-    checking: <span className="text-xs text-neutral-400">Checking…</span>,
-    ok: <span className="text-xs text-green-600">✓ Available</span>,
-    taken: <span className="text-xs text-red-500">✗ Already taken</span>,
-    invalid: <span className="text-xs text-red-500">✗ Lowercase letters, numbers, _ and - only</span>,
+    checking: <span className="text-xs text-neutral-400">{t("onboarding.step1.usernameChecking")}</span>,
+    ok: <span className="text-xs text-green-600">{t("onboarding.step1.usernameAvailable")}</span>,
+    taken: <span className="text-xs text-red-500">{t("onboarding.step1.usernameTaken")}</span>,
+    invalid: <span className="text-xs text-red-500">{t("onboarding.step1.usernameInvalid")}</span>,
   }[usernameStatus];
 
   const filteredCities = citySearch
@@ -413,15 +415,15 @@ export default function OnboardingPage() {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-neutral-950 text-center">
         <div className="animate-bounce text-7xl">🎉</div>
-        <h1 className="mt-6 text-3xl font-black text-white">Welcome to Zobia!</h1>
-        <p className="mt-3 text-lg text-amber-400 font-semibold">+500 XP earned</p>
+        <h1 className="mt-6 text-3xl font-black text-white">{t("onboarding.xpDrop.title")}</h1>
+        <p className="mt-3 text-lg text-amber-400 font-semibold">{t("onboarding.xpDrop.xpEarned")}</p>
         <div className="mt-4 h-3 w-64 overflow-hidden rounded-full bg-neutral-800">
           <div
             className="h-full rounded-full bg-amber-400 transition-all duration-[2000ms] ease-out"
             style={{ width: welcomeXP ? "40%" : "0%" }}
           />
         </div>
-        <p className="mt-2 text-sm text-neutral-400">Heading to your home feed…</p>
+        <p className="mt-2 text-sm text-neutral-400">{t("onboarding.xpDrop.redirect")}</p>
       </div>
     );
   }
@@ -476,17 +478,17 @@ export default function OnboardingPage() {
             <div className="space-y-6">
               <div>
                 <h1 className="text-2xl font-black text-neutral-900 dark:text-white">
-                  Create your identity
+                  {t("onboarding.step1.title")}
                 </h1>
                 <p className="mt-1 text-sm text-neutral-500">
-                  Your username is permanent. Make it count.
+                  {t("onboarding.step1.subtitle")}
                 </p>
               </div>
 
               {/* Avatar picker */}
               <div>
                 <label className="mb-2 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-                  Pick your avatar
+                  {t("onboarding.step1.avatarLabel")}
                 </label>
                 <div className="flex flex-wrap gap-2">
                   {AVATAR_OPTIONS.map((emoji) => (
@@ -509,13 +511,13 @@ export default function OnboardingPage() {
               {/* Username */}
               <div ref={usernameRef}>
                 <label className="mb-1 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-                  Username
+                  {t("onboarding.step1.usernameLabel")}
                 </label>
                 <input
                   type="text"
                   value={username}
                   onChange={(e) => { setUsername(e.target.value.toLowerCase()); setUsernameFieldError(null); }}
-                  placeholder="yourname"
+                  placeholder={t("onboarding.step1.usernamePlaceholder")}
                   maxLength={30}
                   aria-invalid={!!usernameFieldError}
                   className={`w-full rounded-xl border bg-white px-4 py-3 text-sm focus:outline-none focus:ring-2 dark:bg-neutral-800 dark:text-white transition-colors ${
@@ -535,13 +537,13 @@ export default function OnboardingPage() {
               {/* Display name */}
               <div ref={displayNameRef}>
                 <label className="mb-1 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-                  Display name
+                  {t("onboarding.step1.displayNameLabel")}
                 </label>
                 <input
                   type="text"
                   value={displayName}
                   onChange={(e) => { setDisplayName(e.target.value); setDisplayNameError(null); }}
-                  placeholder="How you appear to others"
+                  placeholder={t("onboarding.step1.displayNamePlaceholder")}
                   maxLength={50}
                   aria-invalid={!!displayNameError}
                   className={`w-full rounded-xl border bg-white px-4 py-3 text-sm focus:outline-none focus:ring-2 dark:bg-neutral-800 dark:text-white transition-colors ${
@@ -558,13 +560,13 @@ export default function OnboardingPage() {
               {/* City */}
               <div ref={cityRef}>
                 <label className="mb-1 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-                  Your city
+                  {t("onboarding.step1.cityLabel")}
                 </label>
                 <input
                   type="text"
                   value={citySearch}
                   onChange={(e) => { setCitySearch(e.target.value); setCity(""); setCityError(null); }}
-                  placeholder="Search cities…"
+                  placeholder={t("onboarding.step1.citySearchPlaceholder")}
                   aria-invalid={!!cityError}
                   className={`w-full rounded-xl border bg-white px-4 py-3 text-sm focus:outline-none focus:ring-2 dark:bg-neutral-800 dark:text-white transition-colors ${
                     cityError
@@ -587,7 +589,7 @@ export default function OnboardingPage() {
                   </div>
                 )}
                 {city
-                  ? <p className="mt-1 text-xs text-green-600">✓ {city} selected</p>
+                  ? <p className="mt-1 text-xs text-green-600">{t("onboarding.step1.citySelected", { city })}</p>
                   : cityError && <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">{cityError}</p>
                 }
               </div>
@@ -595,7 +597,7 @@ export default function OnboardingPage() {
               {/* Year of birth — age gate (full date of birth can be set in settings) */}
               <div ref={birthYearRef}>
                 <label className="mb-1 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-                  Year of birth
+                  {t("onboarding.step1.birthYearLabel")}
                 </label>
                 <input
                   type="number"
@@ -614,7 +616,7 @@ export default function OnboardingPage() {
                 {birthYearError
                   ? <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">{birthYearError}</p>
                   : <p className="mt-1 text-xs text-neutral-400">
-                      You must be at least {manifest?.minimumAge ?? 18} years old. You can add your full date of birth in settings after joining.
+                      {t("onboarding.step1.birthYearHint", { age: manifest?.minimumAge ?? 18 })}
                     </p>
                 }
               </div>
@@ -633,7 +635,7 @@ export default function OnboardingPage() {
                 }}
                 className="w-full rounded-xl bg-amber-400 py-3.5 text-sm font-bold text-neutral-900 hover:bg-amber-500 transition-colors"
               >
-                Continue →
+                {t("onboarding.step1.continueBtn")}
               </button>
             </div>
           )}
@@ -645,10 +647,10 @@ export default function OnboardingPage() {
             <div className="space-y-6">
               <div>
                 <h1 className="text-2xl font-black text-neutral-900 dark:text-white">
-                  Your first quest awaits!
+                  {t("onboarding.step5.title")}
                 </h1>
                 <p className="mt-1 text-sm text-neutral-500">
-                  Complete quests to earn XP, coins, and unlock rewards.
+                  {t("onboarding.step5.subtitle")}
                 </p>
               </div>
 
@@ -686,28 +688,28 @@ export default function OnboardingPage() {
 
               <div>
                 <h2 className="mb-2 text-base font-bold text-neutral-800 dark:text-neutral-200">
-                  Find your people
+                  {t("onboarding.step5.findPeople")}
                 </h2>
                 <p className="mb-3 text-sm text-neutral-500">
-                  Search for friends already on Zobia, or share your invite link.
+                  {t("onboarding.step5.findPeopleHint")}
                 </p>
               </div>
 
               {/* Friend search */}
               <div>
                 <label className="mb-1 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-                  Search by username or display name
+                  {t("onboarding.step5.searchLabel")}
                 </label>
                 <input
                   type="text"
                   value={friendQuery}
                   onChange={(e) => setFriendQuery(e.target.value)}
-                  placeholder="Search friends…"
+                  placeholder={t("onboarding.step5.searchPlaceholder")}
                   className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/20 dark:border-neutral-700 dark:bg-neutral-800 dark:text-white"
                 />
 
                 {friendSearching && (
-                  <p className="mt-2 text-xs text-neutral-400">Searching…</p>
+                  <p className="mt-2 text-xs text-neutral-400">{t("onboarding.step5.searching")}</p>
                 )}
 
                 {friendResults.length > 0 && (
@@ -738,7 +740,7 @@ export default function OnboardingPage() {
                               : "bg-neutral-900 text-white hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-100"
                           }`}
                         >
-                          {addedFriends.has(u.userId) ? "Added" : "Add"}
+                          {addedFriends.has(u.userId) ? t("onboarding.step5.added") : t("onboarding.step5.add")}
                         </button>
                       </li>
                     ))}
@@ -746,14 +748,14 @@ export default function OnboardingPage() {
                 )}
 
                 {!friendSearching && friendQuery.length >= 2 && friendResults.length === 0 && (
-                  <p className="mt-2 text-xs text-neutral-400">No results for &ldquo;{friendQuery}&rdquo;</p>
+                  <p className="mt-2 text-xs text-neutral-400">{t("onboarding.step5.noResults", { query: friendQuery })}</p>
                 )}
               </div>
 
               {/* Referral link */}
               <div>
                 <p className="mb-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-                  Or invite friends via link
+                  {t("onboarding.step5.inviteLabel")}
                 </p>
                 {referralUrl ? (
                   <div className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800">
@@ -769,7 +771,7 @@ export default function OnboardingPage() {
                       }}
                       className="shrink-0 rounded-lg bg-amber-400 px-3 py-1.5 text-xs font-bold text-neutral-900 hover:bg-amber-500 transition-colors"
                     >
-                      {referralCopied ? "Copied!" : "Copy"}
+                      {referralCopied ? t("onboarding.step5.copiedBtn") : t("onboarding.step5.copyBtn")}
                     </button>
                   </div>
                 ) : (
@@ -782,7 +784,9 @@ export default function OnboardingPage() {
                 onClick={() => router.push("/home")}
                 className="w-full rounded-xl bg-amber-400 py-3.5 text-sm font-bold text-neutral-900 hover:bg-amber-500 transition-colors"
               >
-                {addedFriends.size > 0 ? `Start Zobia (${addedFriends.size} added) →` : "Start Zobia →"}
+                {addedFriends.size > 0
+                  ? t("onboarding.step5.startWithFriendsBtn", { count: addedFriends.size })
+                  : t("onboarding.step5.startBtn")}
               </button>
             </div>
           )}
@@ -794,10 +798,10 @@ export default function OnboardingPage() {
             <div className="space-y-6">
               <div>
                 <h1 className="text-2xl font-black text-neutral-900 dark:text-white">
-                  Find your guild
+                  {t("onboarding.step4.title")}
                 </h1>
                 <p className="mt-1 text-sm text-neutral-500">
-                  Guilds are your crew on Zobia. Join one to unlock chat, wars, and bonuses.
+                  {t("onboarding.step4.subtitle")}
                 </p>
               </div>
 
@@ -849,7 +853,7 @@ export default function OnboardingPage() {
                 </div>
               ) : (
                 <p className="text-sm text-neutral-400 text-center py-8">
-                  No guilds found in your city yet. You can join one later from the Guilds tab.
+                  {t("onboarding.step4.noGuilds")}
                 </p>
               )}
 
@@ -867,7 +871,7 @@ export default function OnboardingPage() {
                   }}
                   className="flex-[2] rounded-xl bg-amber-400 py-3.5 text-sm font-bold text-neutral-900 hover:bg-amber-500 transition-colors"
                 >
-                  {joinedGuildId ? "Nice! Next →" : "Skip for now →"}
+                  {joinedGuildId ? t("onboarding.step4.nextBtn") : t("onboarding.step4.skipBtn")}
                 </button>
               </div>
             </div>
@@ -880,21 +884,21 @@ export default function OnboardingPage() {
             <div className="space-y-8">
               <div>
                 <h1 className="text-2xl font-black text-neutral-900 dark:text-white">
-                  Set the vibe
+                  {t("onboarding.step2.title")}
                 </h1>
                 <p className="mt-1 text-sm text-neutral-500">
-                  4 quick questions to personalise your experience.
+                  {t("onboarding.step2.subtitle")}
                 </p>
               </div>
 
               {/* Q1 */}
               <VibeQuestion
-                question="What do you do most?"
+                question={t("onboarding.step2.q1")}
                 options={[
-                  { value: "argue", label: "Argue 🗣️" },
-                  { value: "gist", label: "Gist 💬" },
-                  { value: "learn", label: "Learn 📚" },
-                  { value: "flex", label: "Flex 💅" },
+                  { value: "argue", label: t("onboarding.step2.q1.argue") },
+                  { value: "gist",  label: t("onboarding.step2.q1.gist")  },
+                  { value: "learn", label: t("onboarding.step2.q1.learn") },
+                  { value: "flex",  label: t("onboarding.step2.q1.flex")  },
                 ]}
                 selected={vibeAnswers.activity}
                 onSelect={(v) => setVibeAnswers((p) => ({ ...p, activity: v }))}
@@ -902,12 +906,12 @@ export default function OnboardingPage() {
 
               {/* Q2 */}
               <VibeQuestion
-                question="Are you a lone wolf or a crew person?"
+                question={t("onboarding.step2.q2")}
                 options={[
-                  { value: "lone_wolf", label: "Lone wolf 🐺" },
-                  { value: "crew", label: "Crew person 👥" },
-                  { value: "both", label: "Depends on the mood 🔄" },
-                  { value: "squad", label: "Deep squad 🤝" },
+                  { value: "lone_wolf", label: t("onboarding.step2.q2.lone_wolf") },
+                  { value: "crew",      label: t("onboarding.step2.q2.crew")      },
+                  { value: "both",      label: t("onboarding.step2.q2.both")      },
+                  { value: "squad",     label: t("onboarding.step2.q2.squad")     },
                 ]}
                 selected={vibeAnswers.socialStyle}
                 onSelect={(v) => setVibeAnswers((p) => ({ ...p, socialStyle: v }))}
@@ -915,12 +919,12 @@ export default function OnboardingPage() {
 
               {/* Q3 */}
               <VibeQuestion
-                question="What brings you here?"
+                question={t("onboarding.step2.q3")}
                 options={[
-                  { value: "friends", label: "Find my people 👫" },
-                  { value: "money", label: "Stack coins 💰" },
-                  { value: "vibing", label: "Just vibing 🎵" },
-                  { value: "all", label: "All of the above 🚀" },
+                  { value: "friends", label: t("onboarding.step2.q3.friends") },
+                  { value: "money",   label: t("onboarding.step2.q3.money")   },
+                  { value: "vibing",  label: t("onboarding.step2.q3.vibing")  },
+                  { value: "all",     label: t("onboarding.step2.q3.all")     },
                 ]}
                 selected={vibeAnswers.motivation}
                 onSelect={(v) => setVibeAnswers((p) => ({ ...p, motivation: v }))}
@@ -928,12 +932,12 @@ export default function OnboardingPage() {
 
               {/* Q4 */}
               <VibeQuestion
-                question="Pick your city's vibe."
+                question={t("onboarding.step2.q4")}
                 options={[
-                  { value: "hustle", label: "Hustle city 💼" },
-                  { value: "culture", label: "Culture hub 🎭" },
-                  { value: "nightlife", label: "Nightlife 🌃" },
-                  { value: "community", label: "Community first 🤲" },
+                  { value: "hustle",    label: t("onboarding.step2.q4.hustle")    },
+                  { value: "culture",   label: t("onboarding.step2.q4.culture")   },
+                  { value: "nightlife", label: t("onboarding.step2.q4.nightlife") },
+                  { value: "community", label: t("onboarding.step2.q4.community") },
                 ]}
                 selected={vibeAnswers.cityVibe}
                 onSelect={(v) => setVibeAnswers((p) => ({ ...p, cityVibe: v }))}
@@ -945,7 +949,7 @@ export default function OnboardingPage() {
                   onClick={() => { setError(null); setStep(1); }}
                   className="flex-1 rounded-xl border border-neutral-200 py-3.5 text-sm font-semibold text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
                 >
-                  ← Back
+                  {t("onboarding.step2.backBtn")}
                 </button>
                 <button
                   type="button"
@@ -957,7 +961,7 @@ export default function OnboardingPage() {
                   }}
                   className="flex-[2] rounded-xl bg-amber-400 py-3.5 text-sm font-bold text-neutral-900 hover:bg-amber-500 disabled:opacity-50 transition-colors"
                 >
-                  {submitting ? "Setting up your world…" : "Let's go 🚀"}
+                  {submitting ? t("onboarding.step2.submitting") : t("onboarding.step2.submitBtn")}
                 </button>
               </div>
             </div>

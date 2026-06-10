@@ -116,7 +116,7 @@ export default async function AppLayout({ children }: AppLayoutProps) {
         <Sidebar />
 
         {/* Main content */}
-        <div className="flex-1 px-4 py-6 sm:px-6 lg:ml-64 lg:px-8">
+        <div className="flex-1 px-4 py-6 pb-24 sm:px-6 lg:ml-64 lg:px-8 lg:pb-6">
           <div className="mx-auto max-w-3xl space-y-3">
             {/* Account recovery nudge (shown when user has no email) */}
             <NudgeBanner hasEmail={hasEmail} />
