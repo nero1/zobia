@@ -1207,5 +1207,26 @@
     "aiSettingsTestFailed": "Failed: {{error}}",
     "aiSettingsSaveSuccess": "API key saved.",
     "aiSettingsSaveError": "Failed to save key."
+  },
+  "guildDiscovery": {
+    "stepBadge": "ሊደርሱ ነው",
+    "title": "አቅራቢያዎ ያሉ ቡድኖች አባላት እየቀጠሩ ነው",
+    "subtitle": "ጉልድ መቀላቀል በሚያደርጉት ሁሉ ተጨማሪ XP ያስገኛሎ።",
+    "nearCity": "{{city}} አቅራቢያ ያሉ ጉልዶችን ማሳየት",
+    "nearYou": "አቅራቢያዎ",
+    "members": "{{count}} አባላት",
+    "warsWon": "{{count}} ጦርነቶች ተሸንፈዋል",
+    "xpBoost": "+{{pct}}% XP",
+    "join": "ተቀላቀሉ",
+    "joining": "እየተቀላቀሉ…",
+    "joined": "✓ ተቀላቅለዋል!",
+    "continueHome": "ወደ ቤት ቀጥሉ →",
+    "exploreOwn": "ብቻዬን እመረምራለሁ",
+    "browseAll": "ሁሉንም ጉልዶች ይመልከቱ",
+    "error": "ጉልዶችን መጫን አልተቻለም። ግንኙነቶን ያረጋግጡ።",
+    "retry": "እንደገና ሞክር",
+    "empty": "አቅራቢያ ያለ ከተማዎ ጉልዶች የሉም። ብዙ ሳይቆዩ ይቀጥሉ!",
+    "tooNew": "ብዙ ሳይቆዩ ይምጡ!",
+    "tooNewBody": "የጉልድ ምክሮች በዞቢያ ላይ የመጀመሪያዎቹ 24 ሰዓታት ካለፉ በኋላ ይከፈታሉ።"
   }
 }

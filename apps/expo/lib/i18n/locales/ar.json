@@ -1269,5 +1269,26 @@
     "minLength": "Must be at least {{min}} characters.",
     "passwordMatch": "Passwords do not match.",
     "required": "This field is required."
+  },
+  "guildDiscovery": {
+    "stepBadge": "اقتربت تقريباً",
+    "title": "فرق قريبة منك تجند أعضاء",
+    "subtitle": "الانضمام إلى نقابة يمنحك نقاط XP إضافية على كل شيء.",
+    "nearCity": "عرض النقابات قرب {{city}}",
+    "nearYou": "قريب منك",
+    "members": "{{count}} عضو",
+    "warsWon": "{{count}} حرب فاز بها",
+    "xpBoost": "+{{pct}}% XP",
+    "join": "انضم",
+    "joining": "جارٍ الانضمام…",
+    "joined": "✓ انضممت!",
+    "continueHome": "تابع إلى الرئيسية ←",
+    "exploreOwn": "أستكشف بنفسي",
+    "browseAll": "تصفح كل النقابات",
+    "error": "تعذر تحميل توصيات النقابات. تحقق من اتصالك.",
+    "retry": "إعادة المحاولة",
+    "empty": "لا توجد نقابات قرب مدينتك حتى الآن. تحقق قريباً!",
+    "tooNew": "عد قريباً!",
+    "tooNewBody": "تفتح توصيات النقابات بعد أول 24 ساعة على زوبيا."
   }
 }

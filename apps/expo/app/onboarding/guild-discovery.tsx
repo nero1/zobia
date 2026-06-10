@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useQuery, useMutation } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
@@ -73,6 +74,7 @@ interface GuildCardProps {
 }
 
 function GuildCard({ guild, onJoin, joinedId, joiningId, isDark }: GuildCardProps) {
+  const { t } = useTranslation();
   const isJoined = joinedId === guild.id;
   const isJoining = joiningId === guild.id;
   const anyJoined = joinedId !== null;
@@ -98,17 +100,17 @@ function GuildCard({ guild, onJoin, joinedId, joiningId, isDark }: GuildCardProp
           ) : null}
           <View style={styles.guildMeta}>
             <Text style={[styles.guildMetaText, { color: subtitleColor }]}>
-              {guild.memberCount} members
+              {t('guildDiscovery.members', { count: guild.memberCount })}
             </Text>
             {guild.warWins > 0 && (
               <Text style={[styles.guildMetaText, { color: subtitleColor }]}>
-                · {guild.warWins} wars won
+                · {t('guildDiscovery.warsWon', { count: guild.warWins })}
               </Text>
             )}
           </View>
           <View style={[styles.xpBoost, { backgroundColor: colors.brand.blue + '15' }]}>
             <Text style={[styles.xpBoostText, { color: colors.brand.blue }]}>
-              +{guild.xpBoostPercent}% XP
+              {t('guildDiscovery.xpBoost', { pct: guild.xpBoostPercent })}
             </Text>
           </View>
         </View>
@@ -116,7 +118,7 @@ function GuildCard({ guild, onJoin, joinedId, joiningId, isDark }: GuildCardProp
 
       {isJoined ? (
         <View style={[styles.joinedBadge]}>
-          <Text style={[styles.joinedText, { color: colors.brand.green }]}>✓ Joined!</Text>
+          <Text style={[styles.joinedText, { color: colors.brand.green }]}>{t('guildDiscovery.joined')}</Text>
         </View>
       ) : (
         <Pressable
@@ -133,7 +135,7 @@ function GuildCard({ guild, onJoin, joinedId, joiningId, isDark }: GuildCardProp
           {isJoining ? (
             <ActivityIndicator size="small" color={colors.neutral[0]} />
           ) : (
-            <Text style={styles.joinBtnText}>Join</Text>
+            <Text style={styles.joinBtnText}>{t('guildDiscovery.join')}</Text>
           )}
         </Pressable>
       )}
@@ -151,6 +153,7 @@ function GuildCard({ guild, onJoin, joinedId, joiningId, isDark }: GuildCardProp
 export default function OnboardingGuildDiscovery() {
   const { isDark } = useTheme();
   const router = useRouter();
+  const { t } = useTranslation();
   const [joinedId, setJoinedId] = useState<string | null>(null);
   const [joiningId, setJoiningId] = useState<string | null>(null);
 
@@ -187,13 +190,13 @@ export default function OnboardingGuildDiscovery() {
         {/* Header */}
         <View style={styles.header}>
           <Text style={[styles.stepBadge, { color: colors.brand.blue }]}>
-            Almost There
+            {t('guildDiscovery.stepBadge')}
           </Text>
           <Text style={[styles.title, { color: textColor }]}>
-            Crews near you are recruiting
+            {t('guildDiscovery.title')}
           </Text>
           <Text style={[styles.subtitle, { color: subtitleColor }]}>
-            Joining a Guild earns you bonus XP on everything you do
+            {t('guildDiscovery.subtitle')}
           </Text>
         </View>
 
@@ -213,10 +216,10 @@ export default function OnboardingGuildDiscovery() {
         ) : isError ? (
           <View style={styles.errorState}>
             <Text style={[styles.errorMsg, { color: colors.semantic.error }]}>
-              Could not load guilds. Check your connection.
+              {t('guildDiscovery.error')}
             </Text>
             <Button
-              label="Retry"
+              label={t('guildDiscovery.retry')}
               size="sm"
               variant="secondary"
               onPress={() => void refetch()}
@@ -227,7 +230,7 @@ export default function OnboardingGuildDiscovery() {
           <View style={styles.emptyState}>
             <Text style={styles.emptyEmoji}>🏛️</Text>
             <Text style={[styles.emptyMsg, { color: subtitleColor }]}>
-              No guilds near your city yet. Check back soon!
+              {t('guildDiscovery.empty')}
             </Text>
           </View>
         ) : (
@@ -245,7 +248,7 @@ export default function OnboardingGuildDiscovery() {
 
         {/* Explore on my own CTA */}
         <Button
-          label="Explore on my own"
+          label={joinedId ? t('guildDiscovery.continueHome') : t('guildDiscovery.exploreOwn')}
           variant={joinedId ? 'primary' : 'ghost'}
           size="lg"
           onPress={() => router.replace('/(tabs)')}
