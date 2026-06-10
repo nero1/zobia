@@ -10,9 +10,27 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useState, useEffect, useCallback } from "react";
 import { clsx } from "clsx";
 import { Avatar } from "@/components/ui/Avatar";
+
+interface SidebarUser {
+  display_name: string | null;
+  username: string | null;
+  avatar_emoji: string | null;
+}
+
+function useSidebarUser() {
+  const [user, setUser] = useState<SidebarUser | null>(null);
+  useEffect(() => {
+    fetch("/api/users/me", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((json) => { if (json) setUser(json.user ?? json); })
+      .catch(() => {});
+  }, []);
+  return user;
+}
 
 // ---------------------------------------------------------------------------
 // Nav items
@@ -101,6 +119,16 @@ function navIcon(label: string): string {
  */
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const user = useSidebarUser();
+
+  const handleLogout = useCallback(async () => {
+    await fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => {});
+    router.push("/auth/login");
+  }, [router]);
+
+  const displayName = user?.display_name ?? user?.username ?? "Your Name";
+  const username = user?.username ?? "username";
 
   return (
     <aside
@@ -136,24 +164,23 @@ export function Sidebar() {
           {/* User card */}
           <div className="mt-2 rounded-xl border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-900">
             <div className="flex items-center gap-3">
-              <Avatar name="User" size="sm" rankTier="none" />
+              <Avatar name={displayName} size="sm" rankTier="none" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-50">
-                  Your Name
+                  {displayName}
                 </p>
                 <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">
-                  @username
+                  @{username}
                 </p>
               </div>
             </div>
-            <form action="/api/auth/logout" method="POST" className="mt-2">
-              <button
-                type="submit"
-                className="w-full rounded-lg px-3 py-1.5 text-xs font-medium text-danger-600 transition-colors hover:bg-danger-50 dark:text-danger-400 dark:hover:bg-danger-950"
-              >
-                Log out
-              </button>
-            </form>
+            <button
+              type="button"
+              onClick={() => void handleLogout()}
+              className="mt-2 w-full rounded-lg px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
+            >
+              Log out
+            </button>
           </div>
         </div>
       </div>

@@ -40,6 +40,7 @@ interface LeaderboardResponse {
   total: number;
   currentUserEntry: LeaderboardEntry | null;
   currentUserPage: number;
+  userRank?: number | null;
 }
 
 interface SponsoredBanner {
@@ -235,7 +236,29 @@ export default function LeaderboardsPage() {
       const res = await fetch(`/api/leaderboards?${params}`, { credentials: "include" });
       if (res.status === 401) { window.location.href = "/auth/login"; return; }
       if (!res.ok) throw new Error("Failed to load leaderboard");
-      setData((await res.json()) as LeaderboardResponse);
+      const json = await res.json();
+      // API wraps response under `data`; normalise to LeaderboardResponse
+      const apiData = json.data ?? json;
+      const rawEntries: Record<string, unknown>[] = apiData.entries ?? [];
+      const entries: LeaderboardEntry[] = rawEntries.map((e) => ({
+        rank: (e.rank as number) ?? 0,
+        userId: ((e.user_id ?? e.userId) as string) ?? "",
+        username: (e.username as string) ?? "",
+        displayName: ((e.display_name ?? e.displayName) as string) ?? "",
+        avatarEmoji: ((e.avatar_emoji ?? e.avatarEmoji) as string) ?? "😊",
+        city: (e.city as string) ?? "",
+        xp: ((e.xp_value ?? e.xp) as number) ?? 0,
+        plan: ((e.plan as Plan) ?? "free"),
+        isCurrentUser: false,
+        rankChange: (e.rankChange as number) ?? (e.rank_change as number) ?? 0,
+      }));
+      setData({
+        entries,
+        total: (apiData.total as number) ?? 0,
+        currentUserEntry: null,
+        currentUserPage: 1,
+        userRank: (apiData.userRank as number) ?? null,
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
@@ -279,7 +302,7 @@ export default function LeaderboardsPage() {
 
   const totalPages = data ? Math.ceil(data.total / perPage) : 0;
   const currentUser = data?.currentUserEntry;
-  const isCurrentUserVisible = data?.entries.some((e) => e.isCurrentUser);
+  const isCurrentUserVisible = currentUser == null || (data?.entries ?? []).some((e) => e.isCurrentUser);
 
   return (
     <div className="mx-auto max-w-4xl space-y-4 p-4 sm:p-6">
