@@ -943,7 +943,7 @@ function TwoFactorSection({ onToast }: { onToast: (msg: string, type?: "success"
                       </div>
                     )}
                     <div>
-                      <p className="mb-1 text-xs font-semibold text-neutral-600 dark:text-neutral-400">Manual key (if you can't scan)</p>
+                      <p className="mb-1 text-xs font-semibold text-neutral-600 dark:text-neutral-400">Manual key (if you can&apos;t scan)</p>
                       <p className="break-all font-mono text-xs font-medium text-neutral-700 dark:text-neutral-300 select-all">{setupSecret}</p>
                     </div>
                   </div>
