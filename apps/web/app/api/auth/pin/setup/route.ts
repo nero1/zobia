@@ -17,7 +17,7 @@ import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { isFeatureEnabled } from "@/lib/manifest";
+import { getManifestValue } from "@/lib/manifest";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -45,7 +45,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 
-    if (!(await isFeatureEnabled("feature_pin_auth"))) {
+    const pinKey = await getManifestValue("feature_pin_auth");
+    if (pinKey === "false") {
       return NextResponse.json(
         { error: "PIN authentication is not enabled on this platform", code: "FEATURE_DISABLED" },
         { status: 403 }

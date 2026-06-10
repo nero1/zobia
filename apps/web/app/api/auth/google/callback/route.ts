@@ -28,7 +28,7 @@ import {
 import { signAccessToken } from "@/lib/auth/jwt";
 import { redis } from "@/lib/redis";
 import { db } from "@/lib/db";
-import { isFeatureEnabled } from "@/lib/manifest";
+import { getManifestValue } from "@/lib/manifest";
 import {
   validateCsrfState,
   clearCsrfCookie,
@@ -208,8 +208,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // -----------------------------------------------------------------
     // 2FA gate: if user has TOTP enabled, issue a pre-auth token
     // -----------------------------------------------------------------
-    const twoFaGloballyEnabled = await isFeatureEnabled("auth_2fa_enabled");
-    const twoFaRequiredForMods = await isFeatureEnabled("auth_2fa_required_for_mods");
+    const [twoFaRaw, twoFaModsRaw] = await Promise.all([
+      getManifestValue("auth_2fa_enabled"),
+      getManifestValue("auth_2fa_required_for_mods"),
+    ]);
+    const twoFaGloballyEnabled = twoFaRaw !== "false"; // default enabled
+    const twoFaRequiredForMods = twoFaModsRaw === "true"; // default disabled
 
     const needsTwoFaVerify = twoFaGloballyEnabled && user.totp_enabled;
     const mustSetUp2Fa = twoFaRequiredForMods && user.is_moderator && !user.totp_enabled;

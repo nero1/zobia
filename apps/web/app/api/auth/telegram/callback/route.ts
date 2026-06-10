@@ -27,7 +27,7 @@ import { redis } from "@/lib/redis";
 import { db } from "@/lib/db";
 import { handleApiError, badRequest, unauthorized } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { isFeatureEnabled } from "@/lib/manifest";
+import { getManifestValue } from "@/lib/manifest";
 import { env } from "@/lib/env";
 
 // ---------------------------------------------------------------------------
@@ -137,8 +137,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const reqOrigin = env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin;
 
     // 2FA gate
-    const twoFaGloballyEnabled = await isFeatureEnabled("auth_2fa_enabled");
-    const twoFaRequiredForMods = await isFeatureEnabled("auth_2fa_required_for_mods");
+    const [twoFaRaw, twoFaModsRaw] = await Promise.all([
+      getManifestValue("auth_2fa_enabled"),
+      getManifestValue("auth_2fa_required_for_mods"),
+    ]);
+    const twoFaGloballyEnabled = twoFaRaw !== "false"; // default enabled
+    const twoFaRequiredForMods = twoFaModsRaw === "true"; // default disabled
 
     const needsTwoFaVerify = twoFaGloballyEnabled && user.totp_enabled;
     const mustSetUp2Fa = twoFaRequiredForMods && user.is_moderator && !user.totp_enabled;

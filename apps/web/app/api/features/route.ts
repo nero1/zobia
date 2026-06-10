@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
-import { loadManifest } from "@/lib/manifest";
+import { loadManifest, getManifestValue } from "@/lib/manifest";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 
 export const GET = withAuth(async (req: NextRequest, { auth }) => {
@@ -19,11 +19,17 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
 
     const manifest = await loadManifest();
 
+    // Check raw values for keys that may not be seeded yet (permissive defaults)
+    const [twoFaRaw, twoFaModsRaw] = await Promise.all([
+      getManifestValue("auth_2fa_enabled"),
+      getManifestValue("auth_2fa_required_for_mods"),
+    ]);
+
     return NextResponse.json(
       {
-        twoFaEnabled: manifest.features.twoFaEnabled,
+        twoFaEnabled: twoFaRaw !== "false", // default: enabled
         pinEnabled: manifest.features.pinAuth,
-        twoFaRequiredForMods: manifest.features.twoFaRequiredForMods,
+        twoFaRequiredForMods: twoFaModsRaw === "true", // default: disabled
       },
       {
         status: 200,
