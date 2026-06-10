@@ -41,6 +41,7 @@ const primaryNavItems = [
   { href: "/quests", label: "Quests" },
   { href: "/rooms", label: "Rooms" },
   { href: "/messages", label: "Messages" },
+  { href: "/friends", label: "Friends" },
   { href: "/notifications", label: "Notifications" },
   { href: "/events", label: "Events" },
   { href: "/wallet", label: "Wallet" },

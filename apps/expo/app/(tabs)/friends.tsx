@@ -90,10 +90,10 @@ export default function FriendsTab() {
 
   const onRefresh = () => { setRefreshing(true); void load(); };
 
-  const respondToRequest = async (requestId: string, action: 'accept' | 'decline') => {
+  const respondToRequest = async (requestId: string, action: 'accept' | 'reject') => {
     setActioning(requestId);
     try {
-      await apiClient.patch(`/api/friends/${requestId}`, { action });
+      await apiClient.put(`/api/friends/${requestId}`, { action });
       setRequests((prev) => prev.filter((r) => r.id !== requestId));
     } catch { /* non-fatal */ }
     finally { setActioning(null); }
@@ -178,7 +178,7 @@ export default function FriendsTab() {
               <Text style={styles.primaryBtnText}>{actioning === r.id ? '…' : 'Accept'}</Text>
             </Pressable>
             <Pressable
-              onPress={() => respondToRequest(r.id, 'decline')}
+              onPress={() => respondToRequest(r.id, 'reject')}
               disabled={actioning === r.id}
               style={[styles.actionBtn, { borderColor: border }]}
             >

@@ -141,11 +141,11 @@ function RequestsTab() {
       .finally(() => setLoading(false));
   }, []);
 
-  const respond = useCallback(async (requestId: string, action: "accept" | "decline") => {
+  const respond = useCallback(async (requestId: string, action: "accept" | "reject") => {
     setActioning(requestId);
     try {
       await fetch(`/api/friends/${requestId}`, {
-        method: "PATCH",
+        method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action }),
@@ -183,7 +183,7 @@ function RequestsTab() {
               Accept
             </button>
             <button
-              onClick={() => respond(r.id, "decline")}
+              onClick={() => respond(r.id, "reject")}
               disabled={actioning === r.id}
               className="rounded-full border border-neutral-200 px-3 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-400"
             >
