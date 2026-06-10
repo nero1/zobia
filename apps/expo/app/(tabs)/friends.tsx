@@ -1,7 +1,7 @@
 /**
  * app/(tabs)/friends.tsx
  *
- * Friends tab — My Friends, Requests, and Discover sections.
+ * Friends tab — My Friends, Requests (Received/Sent), and Discover sections.
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
@@ -32,7 +32,8 @@ interface Friend {
 
 interface FriendRequest {
   id: string;
-  requester_id: string;
+  requester_id?: string;
+  addressee_id?: string;
   username: string;
   display_name: string | null;
   avatar_emoji: string;
@@ -49,6 +50,7 @@ interface Suggestion {
 }
 
 type Tab = 'friends' | 'requests' | 'discover';
+type RequestsSubTab = 'received' | 'sent';
 
 // ---------------------------------------------------------------------------
 // Component
@@ -63,10 +65,13 @@ export default function FriendsTab() {
   const border = isDark ? colors.neutral[800] : colors.neutral[200];
   const textPrimary = isDark ? colors.neutral[50] : colors.neutral[900];
   const textSecondary = isDark ? colors.neutral[400] : colors.neutral[500];
+  const subTabActiveBg = isDark ? colors.neutral[800] : colors.neutral[0];
 
   const [tab, setTab] = useState<Tab>('friends');
+  const [requestsSubTab, setRequestsSubTab] = useState<RequestsSubTab>('received');
   const [friends, setFriends] = useState<Friend[]>([]);
-  const [requests, setRequests] = useState<FriendRequest[]>([]);
+  const [receivedRequests, setReceivedRequests] = useState<FriendRequest[]>([]);
+  const [sentRequests, setSentRequests] = useState<FriendRequest[]>([]);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -74,14 +79,16 @@ export default function FriendsTab() {
 
   const load = useCallback(async () => {
     try {
-      const [fr, rr, sr] = await Promise.all([
+      const [fr, rr, sr, sugg] = await Promise.all([
         apiClient.get('/api/friends').catch(() => null),
         apiClient.get('/api/friends/requests').catch(() => null),
+        apiClient.get('/api/friends/requests/sent').catch(() => null),
         apiClient.get('/api/friends/suggestions').catch(() => null),
       ]);
       setFriends((fr?.data?.data ?? []) as Friend[]);
-      setRequests((rr?.data?.data ?? []) as FriendRequest[]);
-      setSuggestions((sr?.data?.suggestions ?? []) as Suggestion[]);
+      setReceivedRequests((rr?.data?.data ?? []) as FriendRequest[]);
+      setSentRequests((sr?.data?.data ?? []) as FriendRequest[]);
+      setSuggestions((sugg?.data?.suggestions ?? []) as Suggestion[]);
     } catch { /* non-fatal */ }
     finally { setLoading(false); setRefreshing(false); }
   }, []);
@@ -94,7 +101,16 @@ export default function FriendsTab() {
     setActioning(requestId);
     try {
       await apiClient.put(`/api/friends/${requestId}`, { action });
-      setRequests((prev) => prev.filter((r) => r.id !== requestId));
+      setReceivedRequests((prev) => prev.filter((r) => r.id !== requestId));
+    } catch { /* non-fatal */ }
+    finally { setActioning(null); }
+  };
+
+  const withdrawRequest = async (requestId: string) => {
+    setActioning(requestId);
+    try {
+      await apiClient.delete(`/api/friends/${requestId}`);
+      setSentRequests((prev) => prev.filter((r) => r.id !== requestId));
     } catch { /* non-fatal */ }
     finally { setActioning(null); }
   };
@@ -127,69 +143,96 @@ export default function FriendsTab() {
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'friends', label: 'My Friends' },
-    { id: 'requests', label: `Requests${requests.length > 0 ? ` (${requests.length})` : ''}` },
+    {
+      id: 'requests',
+      label: `Requests${receivedRequests.length + sentRequests.length > 0 ? ` (${receivedRequests.length + sentRequests.length})` : ''}`,
+    },
     { id: 'discover', label: 'Discover' },
   ];
 
-  const renderContent = () => {
-    if (tab === 'friends') {
-      if (friends.length === 0)
-        return <Text style={[styles.emptyText, { color: textSecondary }]}>You haven't added any friends yet. Go to Discover to find people.</Text>;
-      return friends.map((f) => (
-        <View key={f.id} style={[styles.row, { borderBottomColor: border }]}>
-          <View style={[styles.avatar, { backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100] }]}>
-            <Text style={styles.avatarEmoji}>{f.avatar_emoji || '😊'}</Text>
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.displayName, { color: textPrimary }]}>{f.display_name ?? f.username}</Text>
-            <Text style={[styles.username, { color: textSecondary }]}>@{f.username}</Text>
-          </View>
+  const renderFriends = () => {
+    if (friends.length === 0)
+      return <Text style={[styles.emptyText, { color: textSecondary }]}>You haven't added any friends yet. Go to Discover to find people.</Text>;
+    return friends.map((f) => (
+      <View key={f.id} style={[styles.row, { borderBottomColor: border }]}>
+        <View style={[styles.avatar, { backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100] }]}>
+          <Text style={styles.avatarEmoji}>{f.avatar_emoji || '😊'}</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.displayName, { color: textPrimary }]}>{f.display_name ?? f.username}</Text>
+          <Text style={[styles.username, { color: textSecondary }]}>@{f.username}</Text>
+        </View>
+        <Pressable
+          onPress={() => removeFriend(f.id)}
+          disabled={actioning === f.id}
+          style={[styles.actionBtn, { borderColor: border }]}
+        >
+          <Text style={[styles.actionBtnText, { color: textSecondary }]}>
+            {actioning === f.id ? '…' : 'Remove'}
+          </Text>
+        </Pressable>
+      </View>
+    ));
+  };
+
+  const renderReceivedRequests = () => {
+    if (receivedRequests.length === 0)
+      return <Text style={[styles.emptyText, { color: textSecondary }]}>No pending requests.</Text>;
+    return receivedRequests.map((r) => (
+      <View key={r.id} style={[styles.row, { borderBottomColor: border }]}>
+        <View style={[styles.avatar, { backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100] }]}>
+          <Text style={styles.avatarEmoji}>{r.avatar_emoji || '😊'}</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.displayName, { color: textPrimary }]}>{r.display_name ?? r.username}</Text>
+          <Text style={[styles.username, { color: textSecondary }]}>@{r.username}</Text>
+        </View>
+        <View style={{ gap: 6 }}>
           <Pressable
-            onPress={() => removeFriend(f.id)}
-            disabled={actioning === f.id}
+            onPress={() => respondToRequest(r.id, 'accept')}
+            disabled={actioning === r.id}
+            style={[styles.primaryBtn, { backgroundColor: colors.brand.blue }]}
+          >
+            <Text style={styles.primaryBtnText}>{actioning === r.id ? '…' : 'Accept'}</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => respondToRequest(r.id, 'reject')}
+            disabled={actioning === r.id}
             style={[styles.actionBtn, { borderColor: border }]}
           >
-            <Text style={[styles.actionBtnText, { color: textSecondary }]}>
-              {actioning === f.id ? '…' : 'Remove'}
-            </Text>
+            <Text style={[styles.actionBtnText, { color: textSecondary }]}>Decline</Text>
           </Pressable>
         </View>
-      ));
-    }
+      </View>
+    ));
+  };
 
-    if (tab === 'requests') {
-      if (requests.length === 0)
-        return <Text style={[styles.emptyText, { color: textSecondary }]}>No pending friend requests.</Text>;
-      return requests.map((r) => (
-        <View key={r.id} style={[styles.row, { borderBottomColor: border }]}>
-          <View style={[styles.avatar, { backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100] }]}>
-            <Text style={styles.avatarEmoji}>{r.avatar_emoji || '😊'}</Text>
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.displayName, { color: textPrimary }]}>{r.display_name ?? r.username}</Text>
-            <Text style={[styles.username, { color: textSecondary }]}>@{r.username}</Text>
-          </View>
-          <View style={{ gap: 6 }}>
-            <Pressable
-              onPress={() => respondToRequest(r.id, 'accept')}
-              disabled={actioning === r.id}
-              style={[styles.primaryBtn, { backgroundColor: colors.brand.blue }]}
-            >
-              <Text style={styles.primaryBtnText}>{actioning === r.id ? '…' : 'Accept'}</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => respondToRequest(r.id, 'reject')}
-              disabled={actioning === r.id}
-              style={[styles.actionBtn, { borderColor: border }]}
-            >
-              <Text style={[styles.actionBtnText, { color: textSecondary }]}>Decline</Text>
-            </Pressable>
-          </View>
+  const renderSentRequests = () => {
+    if (sentRequests.length === 0)
+      return <Text style={[styles.emptyText, { color: textSecondary }]}>No pending sent requests.</Text>;
+    return sentRequests.map((r) => (
+      <View key={r.id} style={[styles.row, { borderBottomColor: border }]}>
+        <View style={[styles.avatar, { backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100] }]}>
+          <Text style={styles.avatarEmoji}>{r.avatar_emoji || '😊'}</Text>
         </View>
-      ));
-    }
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.displayName, { color: textPrimary }]}>{r.display_name ?? r.username}</Text>
+          <Text style={[styles.username, { color: textSecondary }]}>@{r.username}</Text>
+        </View>
+        <Pressable
+          onPress={() => withdrawRequest(r.id)}
+          disabled={actioning === r.id}
+          style={[styles.actionBtn, { borderColor: border }]}
+        >
+          <Text style={[styles.actionBtnText, { color: textSecondary }]}>
+            {actioning === r.id ? '…' : 'Withdraw'}
+          </Text>
+        </Pressable>
+      </View>
+    ));
+  };
 
-    // Discover
+  const renderDiscover = () => {
     if (suggestions.length === 0)
       return <Text style={[styles.emptyText, { color: textSecondary }]}>No suggestions right now. Join more rooms and guilds to discover people.</Text>;
     return suggestions.map((s) => (
@@ -222,7 +265,7 @@ export default function FriendsTab() {
     >
       <Text style={[styles.heading, { color: textPrimary }]}>Friends</Text>
 
-      {/* Tab bar */}
+      {/* Main tab bar */}
       <View style={[styles.tabBar, { backgroundColor: cardBg, borderColor: border }]}>
         {tabs.map((t) => (
           <Pressable
@@ -247,7 +290,35 @@ export default function FriendsTab() {
 
       {/* Content */}
       <View style={[styles.card, { backgroundColor: cardBg, borderColor: border }]}>
-        {renderContent()}
+        {tab === 'friends' && renderFriends()}
+        {tab === 'requests' && (
+          <>
+            {/* Requests sub-tab bar */}
+            <View style={[styles.subTabBar, { borderBottomColor: border }]}>
+              {(['received', 'sent'] as RequestsSubTab[]).map((st) => {
+                const count = st === 'received' ? receivedRequests.length : sentRequests.length;
+                const isActive = requestsSubTab === st;
+                return (
+                  <Pressable
+                    key={st}
+                    onPress={() => setRequestsSubTab(st)}
+                    style={[
+                      styles.subTabBtn,
+                      isActive && [styles.subTabBtnActive, { backgroundColor: subTabActiveBg, borderColor: border }],
+                    ]}
+                  >
+                    <Text style={[styles.subTabBtnText, { color: isActive ? (isDark ? colors.neutral[50] : colors.neutral[900]) : textSecondary }]}>
+                      {st === 'received' ? 'Received' : 'Sent'}
+                      {count > 0 ? ` (${count})` : ''}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {requestsSubTab === 'received' ? renderReceivedRequests() : renderSentRequests()}
+          </>
+        )}
+        {tab === 'discover' && renderDiscover()}
       </View>
     </ScrollView>
   );
@@ -262,6 +333,16 @@ const styles = StyleSheet.create({
   },
   tabBtn: { flex: 1, borderRadius: 8, paddingVertical: 8, alignItems: 'center' },
   tabBtnText: { fontSize: 12, fontWeight: '600' },
+  subTabBar: {
+    flexDirection: 'row', borderBottomWidth: 1, paddingHorizontal: 4, paddingTop: 4,
+  },
+  subTabBtn: {
+    flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8, marginBottom: 4,
+  },
+  subTabBtnActive: {
+    borderWidth: 1,
+  },
+  subTabBtnText: { fontSize: 12, fontWeight: '600' },
   card: { borderRadius: 16, borderWidth: 1, overflow: 'hidden' },
   row: {
     flexDirection: 'row', alignItems: 'center', gap: 12,

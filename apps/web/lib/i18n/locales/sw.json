@@ -1,7 +1,6 @@
 {
   "app.name": "Zobia Social",
   "app.tagline": "Unganika, Shiriki, Miliki.",
-
   "nav.home": "Nyumbani",
   "nav.rooms": "Vyumba",
   "nav.messages": "Ujumbe",
@@ -11,7 +10,6 @@
   "nav.rankings": "Orodha ya ngazi",
   "nav.settings": "Mipangilio",
   "nav.logout": "Toka",
-
   "auth.login": "Ingia",
   "auth.logout": "Toka",
   "auth.register": "Fungua akaunti",
@@ -38,11 +36,9 @@
   "auth.signUpWithGoogle": "Jisajili na Google",
   "auth.signingInWithTelegram": "Inaingia na Telegram…",
   "auth.signingUpWithTelegram": "Inasajili na Telegram…",
-
   "home.title": "Nyumbani",
   "home.feed.empty": "Hakuna kitu hapa bado. Fuata watu au jiunge na vyumba kuona machapisho.",
   "home.feed.loading": "Inapakia ukurasa wako…",
-
   "rooms.title": "Vyumba",
   "rooms.discover": "Gundua vyumba",
   "rooms.create": "Unda chumba",
@@ -51,13 +47,11 @@
   "rooms.members": "mwanachama {{count}}",
   "rooms.members_other": "wanachama {{count}}",
   "rooms.empty": "Hakuna vyumba vilivyopatikana. Kuwa wa kwanza kuunda kimoja!",
-
   "messages.title": "Ujumbe",
   "messages.new": "Ujumbe mpya",
   "messages.empty": "Hakuna mazungumzo bado. Anza kupiga gumzo!",
   "messages.typeHere": "Andika ujumbe…",
   "messages.send": "Tuma",
-
   "profile.title": "Wasifu",
   "profile.edit": "Hariri wasifu",
   "profile.followers": "Wafuasi",
@@ -66,7 +60,6 @@
   "profile.rank": "Ngazi",
   "profile.joinedOn": "Alijiunga {{date}}",
   "profile.bio.placeholder": "Jiambie ulimwengu kuhusu wewe…",
-
   "settings.title": "Mipangilio",
   "settings.profile": "Mipangilio ya wasifu",
   "settings.privacy": "Faragha",
@@ -77,7 +70,6 @@
   "settings.theme.light": "Mwanga",
   "settings.theme.dark": "Giza",
   "settings.theme.system": "Mfumo",
-
   "admin.dashboard": "Dashibodi",
   "admin.users": "Watumiaji",
   "admin.rooms": "Vyumba",
@@ -90,17 +82,14 @@
   "admin.activeRooms": "Vyumba vilivyo hai",
   "admin.reportsToday": "Ripoti za leo",
   "admin.revenue": "Mapato",
-
   "error.generic": "Kitu kimekwenda vibaya. Tafadhali jaribu tena.",
   "error.notFound": "Ukurasa haukupatikana.",
   "error.unauthorized": "Lazima uingie ili kuona ukurasa huu.",
   "error.forbidden": "Huna ruhusa ya kufanya hivyo.",
   "error.networkError": "Hitilafu ya mtandao. Tafadhali angalia muunganisho wako.",
   "error.sessionExpired": "Kipindi chako kimekwisha. Tafadhali ingia tena.",
-
   "offline.banner": "Uko nje ya mtandao. Baadhi ya vipengele vinaweza kukosekana.",
   "offline.reconnected": "Umerudi mtandaoni!",
-
   "action.save": "Hifadhi",
   "action.cancel": "Ghairi",
   "action.delete": "Futa",
@@ -111,25 +100,21 @@
   "action.submit": "Wasilisha",
   "action.loading": "Inapakia…",
   "action.retry": "Jaribu tena",
-
   "validation.required": "Sehemu hii inahitajika.",
   "validation.email": "Tafadhali weka anwani sahihi ya barua pepe.",
   "validation.minLength": "Lazima iwe na angalau herufi {{min}}.",
   "validation.maxLength": "Lazima isiwe na zaidi ya herufi {{max}}.",
   "validation.passwordMatch": "Manenosiri hayafanani.",
-
   "upload.dragDrop": "Buruta na uacha faili, au bonyeza kuvinjari",
   "upload.maxSize": "Ukubwa wa juu wa faili: {{size}}",
   "upload.uploading": "Inapakia…",
   "upload.success": "Imepakiwa kwa mafanikio.",
   "upload.error": "Upakiaji umeshindwa. Tafadhali jaribu tena.",
-
   "notification.newMessage": "Ujumbe mpya kutoka kwa {{name}}",
   "notification.newFollower": "{{name}} ameanza kukufuata",
   "notification.roomInvite": "{{name}} amekualika kwenye {{room}}",
   "notification.giftReceived": "{{name}} amekutumia zawadi",
   "notification.rankUp": "Umefika ngazi {{rank}}!",
-
   "home.nemesis.title": "Mpinzani Wako",
   "home.nemesis.you": "Wewe",
   "home.nemesis.aheadBy": "Uko mbele kwa {{diff}} XP",
@@ -160,7 +145,6 @@
   "home.activityCount": "{{count}} mtumiaji alipata XP saa ya mwisho",
   "home.activityCount_other": "{{count}} watumiaji walipata XP saa ya mwisho",
   "home.pageTitle": "Nyumbani",
-
   "rooms.createRoom": "+ Unda Chumba",
   "rooms.tab.trending": "Inayoendelea",
   "rooms.tab.nearby": "Karibu Nami",
@@ -178,7 +162,6 @@
   "rooms.empty.createButton": "Unda Chumba",
   "rooms.loadMore": "Pakia zaidi",
   "rooms.loading": "Inapakia…",
-
   "messages.groups": "👥 Vikundi",
   "messages.newMessage": "+ Ujumbe Mpya",
   "messages.search.placeholder": "Tafuta mazungumzo…",
@@ -190,7 +173,6 @@
   "messages.noSearchResults": "Hakuna mazungumzo yanayolingana na utafutaji wako",
   "messages.noSearchResultsHint": "Jaribu jina tofauti au neno msingi",
   "messages.noMessagesYet": "Hakuna ujumbe bado",
-
   "profile.playSince": "Anacheza tangu {{year}}",
   "profile.verified": "✓ Amethibitishwa",
   "profile.creator": "Mwandishi",
@@ -212,7 +194,6 @@
   "profile.actions.upgrade": "Boresha Mpango",
   "profile.notFound": "Wasifu haukupatikana",
   "profile.backHome": "← Nyumbani",
-
   "settings.account": "Akaunti",
   "settings.displayName": "Jina la Kuonyesha",
   "settings.displayNamePlaceholder": "Jina lako",
@@ -295,7 +276,6 @@
   "settings.privacyDmOptOut": "Zima ujumbe wa moja kwa moja",
   "settings.privacyDmOptOutDesc": "Zuia wasio marafiki kukutumia ujumbe wa moja kwa moja",
   "settings.saved": "Imehifadhiwa",
-
   "guild.joinTitle": "Jiunge na Kikundi",
   "guild.joinSubtitle": "Vikundi karibu nawe — shindana katika vita na panda viwango",
   "guild.joining": "Inajiunga…",
@@ -315,7 +295,6 @@
   "guild.allianceJoined": "Ilijiunga",
   "guild.allianceLeft": "Iliondoka {{date}}",
   "guild.guildLabel": "Kikundi",
-
   "leaderboards.title": "Orodha za Ngazi",
   "leaderboards.scope.global": "Ulimwengu",
   "leaderboards.scope.city": "Jiji",
@@ -340,7 +319,6 @@
   "leaderboards.page": "Ukurasa {{page}} kati ya {{total}}",
   "leaderboards.prevPage": "← Iliyotangulia",
   "leaderboards.nextPage": "Ifuatayo →",
-
   "wallet.title": "Mkoba",
   "wallet.coinBalance": "Salio la Sarafu",
   "wallet.starBalance": "Salio la Nyota",
@@ -361,7 +339,6 @@
   "wallet.minTransfer": "Kiwango cha chini cha uhamishaji ni sarafu 10",
   "wallet.maxTransfer": "Kiwango cha juu cha uhamishaji mmoja ni sarafu 100,000",
   "wallet.purchaseInitiated": "Ununuzi umeanzishwa — angalia barua pepe yako kwa uthibitisho.",
-
   "quests.title": "Kazi za Leo",
   "quests.subtitle": "Kamilisha kazi kupata XP na Sarafu",
   "quests.resetsIn": "Inarudishwa katika",
@@ -371,7 +348,6 @@
   "quests.sponsoredQuests": "Kazi Zinazoafadhiliwa",
   "quests.sponsored": "Inaafadhiliwa",
   "quests.retry": "Jaribu tena",
-
   "seasons.title": "Misimu",
   "seasons.activeSeason": "Msimu Unaoendelea",
   "seasons.daysLeft": "siku zilizobaki",
@@ -406,7 +382,6 @@
   "seasons.confirmGift": "Thibitisha Zawadi",
   "seasons.giftSuccess": "Tiketi imetolewa kwa @{{username}}!",
   "seasons.done": "Imekamilika",
-
   "prestige.title": "Heshima",
   "prestige.notYet": "Bado Haijafika",
   "prestige.currentRank": "Wewe sasa hivi ni {{rank}} (Kiwango {{level}}).",
@@ -436,7 +411,6 @@
   "prestige.yesPrestige": "Ndio, Heshima",
   "prestige.processing": "Inashughulikia…",
   "prestige.notYetButton": "Bado",
-
   "nemesis.title": "Mpinzani Wako",
   "nemesis.subtitle": "Mshindani aliyewekwa kulingana na kiwango chako cha XP. Mshinde kupanda.",
   "nemesis.nextRefresh": "Usasishaji ujao:",
@@ -454,7 +428,6 @@
   "nemesis.rule3": "Mbio zinafuatilia XP iliyopatikana tangu mechi ilipoanza",
   "nemesis.rule4": "Mshinde mpinzani wako kupata XP ya ziada ya Urithi",
   "nemesis.retry": "Jaribu tena",
-
   "rooms.create.title": "Unda Chumba",
   "rooms.create.chooseType": "Chagua aina ya chumba unachotaka kuunda.",
   "rooms.create.continue": "Endelea →",
@@ -496,7 +469,6 @@
   "rooms.create.enrolmentCoins": "Usajili: sarafu {{coins}}",
   "rooms.create.nameRequired": "Jina la chumba linahitajika",
   "rooms.create.moduleRequired": "Ongeza angalau moduli moja ya mtaala",
-
   "room.about": "Kuhusu",
   "room.noDescription": "Hakuna maelezo.",
   "room.creator": "Mwandishi",
@@ -543,7 +515,6 @@
   "room.saved": "Imehifadhiwa",
   "room.save": "Hifadhi",
   "room.roomPowers": "Nguvu za Chumba",
-
   "creator.title": "Dashibodi ya Mwandishi",
   "creator.revenueToday": "Leo",
   "creator.revenueWeek": "Wiki Hii",
@@ -569,7 +540,6 @@
   "creator.processed": "Imeshughulikiwa",
   "creator.accessDenied": "Ufikiaji Umekataliwa",
   "creator.payoutRequested": "Malipo yameombwa — inasubiri idhini ya msimamizi",
-
   "creator.broadcasts.title": "Matangazo ya Muundaji",
   "creator.broadcasts.sendBtn": "Tuma Tangazo",
   "creator.broadcasts.monthlyAllowance": "Ruhusa ya Kila Mwezi",
@@ -600,7 +570,6 @@
   "creator.broadcasts.accessDeniedTitle": "Matangazo ya Muundaji",
   "creator.broadcasts.accessDeniedDesc": "Unahitaji kuwa muundaji wa ngazi ya Rising au zaidi kutuma matangazo.",
   "creator.broadcasts.loadError": "Imeshindwa kupakia matangazo",
-
   "notifications.title": "Arifa",
   "notifications.unread": "{{count}} hazijasomwa",
   "notifications.markAllRead": "Tia alama zote kama zilizosomwa",
@@ -610,7 +579,6 @@
   "notifications.view": "Ona →",
   "notifications.loadMore": "Pakia zaidi",
   "notifications.loading": "Inapakia…",
-
   "referrals.title": "Marejeleo",
   "referrals.linkCard.title": "Kiungo chako cha Rejeleo",
   "referrals.linkCard.copy": "Nakili",
@@ -639,7 +607,6 @@
   "referrals.table.tier": "Ngazi {{tier}}",
   "referrals.table.qualified": "✓ Ndio",
   "referrals.table.pending": "Inasubiri",
-
   "elder.title": "Mfumo wa Mzee",
   "elder.dashboard.menteesLabel": "Wanafunzi",
   "elder.dashboard.mentorshipXpLabel": "XP ya Ushauri",
@@ -665,7 +632,6 @@
   "elder.nonEligible.requestSent": "Ombi limetumwa! Mzee atakupewa hivi karibuni.",
   "elder.nonEligible.requesting": "Inatuma…",
   "elder.nonEligible.requestButton": "Omba Mshauri",
-
   "council.title": "Baraza la Jukwaa",
   "council.subtitle": "Wanachama waliochaguliwa wanaoongoza mwelekeo wa jukwaa kupitia mawazo yaliyopigwa kura.",
   "council.membersSection": "Wanachama wa Baraza",
@@ -682,7 +648,6 @@
   "council.submitting": "Inawasilisha…",
   "council.submitSuccess": "Wazo limewasilishwa kwa mafanikio!",
   "council.voteFailed": "Kupiga kura kumeshindwa",
-
   "stickers.title": "Duka la Vipande",
   "stickers.subtitle": "Fungua vifurushi vya vipande kutumia katika ujumbe na vyumba",
   "stickers.owned": "Unamiliki",
@@ -696,7 +661,6 @@
   "stickers.unlocked": "Kifurushi cha vipande kimefunguliwa!",
   "stickers.empty": "Bado hakuna vifurushi vya vipande",
   "stickers.emptyHint": "Rudi baadaye!",
-
   "moments.title": "Nyakati",
   "moments.subtitle": "Klipsi fupi na picha kutoka kwa jamii",
   "moments.share": "Shiriki Wakati",
@@ -716,7 +680,6 @@
   "moments.create.cancel": "Ghairi",
   "moments.create.post": "Chapisha Wakati",
   "moments.create.posting": "Inachapisha…",
-
   "publicProfile.playingSince": "Anacheza tangu {{year}}",
   "publicProfile.legacyScore": "Alama ya Urithi:",
   "publicProfile.rankXp": "XP ya Ngazi — Kiwango {{level}}",
@@ -734,7 +697,6 @@
   "publicProfile.gift": "Zawadi",
   "publicProfile.notFound": "Wasifu haukupatikana",
   "publicProfile.backHome": "← Nyumbani",
-
   "subscription.title": "Usajili na Bili",
   "subscription.currentPlan": "Mpango wa Sasa",
   "subscription.cancels": "Unafutwa {{date}}",
@@ -758,7 +720,6 @@
   "subscription.cancelledSuccess": "Usajili umefutwa. Utaendelea na ufikiaji hadi kipindi kinapoisha.",
   "subscription.upgradedSuccess": "Umeboreshwa hadi {{plan}}!",
   "subscription.finePrint": "Bei ni kwa Naira ya Nigeria (NGN). Usajili unafanywa upya kiotomatiki na unaweza kufutwa wakati wowote. Mipango ya kila mwaka inalipwa kama malipo moja.",
-
   "groups.title": "Mazungumzo ya Kikundi",
   "groups.createGroup": "+ Unda Kikundi",
   "groups.noGroups": "Bado hakuna mazungumzo ya kikundi",
@@ -784,7 +745,6 @@
   "groups.conversation.noMessages": "Bado hakuna ujumbe. Anza mazungumzo!",
   "groups.conversation.typeMessage": "Andika ujumbe…",
   "groups.conversation.send": "Tuma",
-
   "events.title": "Matukio",
   "events.activeNow": "Yanayoendelea Sasa",
   "events.upcoming": "Yanayokuja",
@@ -800,13 +760,11 @@
   "events.xpMultiplier": "{{multiplier}}× kizidishi cha XP",
   "events.startingSoon": "Inaanza hivi karibuni",
   "events.startsIn": "Inaanza katika {{time}}",
-
   "inbox.title": "Sanduku la Barua",
   "inbox.unread": "{{count}} hazijasomwa",
   "inbox.fromZobia": "Kutoka Zobia",
   "inbox.noMessages": "Hakuna ujumbe",
   "inbox.noMessagesHint": "Bado huna ujumbe kutoka Zobia. Rudi baadaye!",
-
   "communityNotes.title": "Maelezo ya Jamii",
   "communityNotes.subtitle": "Muktadha unaotolewa na jamii kwa maudhui yaliyobandikwa. Mtu yeyote anaweza kuchangia maelezo ya kusaidia.",
   "communityNotes.addNote": "+ Ongeza Maelezo",
@@ -830,23 +788,19 @@
   "communityNotes.modal.submit": "Wasilisha Maelezo",
   "communityNotes.modal.submitting": "Inawasilisha…",
   "communityNotes.modal.minLength": "Maelezo lazima yawe na angalau herufi 20.",
-
   "terms.title": "Masharti ya Huduma",
   "terms.lastUpdated": "Imesasishwa: {{date}}",
   "terms.backHome": "← Rudi Nyumbani",
   "terms.toc": "Jedwali la Yaliyomo",
-
   "privacy.title": "Sera ya Faragha",
   "privacy.lastUpdated": "Imesasishwa: {{date}}",
   "privacy.backHome": "← Rudi Nyumbani",
   "privacy.toc": "Jedwali la Yaliyomo",
-
   "notFound.title": "Ukurasa Haupatikani",
   "notFound.description": "Ukurasa unaotafuta haupo au umehamishwa.",
   "notFound.backHome": "Rudi Nyumbani",
   "notFound.login": "Ingia",
   "notFound.quickLinks": "Au jaribu moja ya kurasa hizi:",
-
   "guildDiscovery.stepBadge": "Karibu Sana",
   "guildDiscovery.title": "Vikundi karibu nawe vinaajiri wanachama",
   "guildDiscovery.subtitle": "Kujiunga na Chama hukupa XP ya ziada kwenye kila unachofanya.",
@@ -867,11 +821,9 @@
   "guildDiscovery.emptyHint": "Angalia hivi karibuni — au vinjari vyama vyote.",
   "guildDiscovery.tooNew": "Rudi hivi karibuni!",
   "guildDiscovery.tooNewBody": "Mapendekezo ya vyama yanafunguliwa baada ya saa 24 za kwanza kwenye Zobia.",
-
   "landing.footer.terms": "Masharti ya Huduma",
   "landing.footer.privacy": "Sera ya Faragha",
   "landing.footer.copyright": "© {{year}} Zobia Social. Haki zote zimehifadhiwa.",
-
   "admin.aiSettings": "AI Settings",
   "admin.aiSettings.subtitle": "Manage API keys and connection status for AI providers.",
   "admin.aiSettings.deepseek": "DeepSeek (Primary)",
@@ -894,7 +846,6 @@
   "admin.aiSettings.clearSuccess": "Override cleared.",
   "admin.aiSettings.saveError": "Failed to save key.",
   "admin.aiSettings.loadError": "Failed to load AI settings.",
-
   "wallet.xpBalance": "XP",
   "wallet.coinsBalance": "Sarafu",
   "wallet.starsBalance": "Nyota",
@@ -930,5 +881,22 @@
   "messages.coinError.buyCoins": "Nunua Sarafu",
   "messages.coinError.upgrade": "Panda Daraja hadi Pro",
   "settings.twoFaDisabledByAdmin": "Uthibitisho wa hatua mbili umezimwa kwa sasa na msimamizi wa jukwaa.",
-  "settings.pinDisabledByAdmin": "Uthibitisho wa PIN umezimwa kwa sasa na msimamizi wa jukwaa."
+  "settings.pinDisabledByAdmin": "Uthibitisho wa PIN umezimwa kwa sasa na msimamizi wa jukwaa.",
+  "friends.requests.received": "Zilizopokelewa",
+  "friends.requests.sent": "Zilizotumwa",
+  "friends.requests.withdraw": "Futa",
+  "friends.requests.withdrawing": "Inafuta…",
+  "friends.empty.noReceivedRequests": "Hakuna maombi yanayosubiri.",
+  "friends.empty.noSentRequests": "Hakuna maombi yaliyotumwa yanayosubiri.",
+  "nav.friends": "Marafiki",
+  "profile.dropdown.viewProfile": "Tazama Wasifu",
+  "profile.dropdown.profileSettings": "Mipangilio ya Wasifu",
+  "profile.dropdown.managePlan": "Simamia Mpango",
+  "profile.dropdown.upgradePlan": "Boresha Mpango",
+  "profile.dropdown.managePlanNamed": "Simamia Mpango wa {{plan}}",
+  "profile.private": "Wasifu huu ni wa faragha.",
+  "profile.restricted": "Akaunti hii imezuiwa.",
+  "settings.privacy.lockProfile": "Wasifu wa faragha",
+  "settings.privacy.disableFriendRequests": "Zima maombi ya urafiki",
+  "settings.privacy.hideSections": "Sehemu zilizofichwa za wasifu"
 }

@@ -1229,7 +1229,6 @@
     "tooNew": "ብዙ ሳይቆዩ ይምጡ!",
     "tooNewBody": "የጉልድ ምክሮች በዞቢያ ላይ የመጀመሪያዎቹ 24 ሰዓታት ካለፉ በኋላ ይከፈታሉ።"
   },
-
   "wallet.xpBalance": "XP",
   "wallet.coinsBalance": "ሳንቲሞች",
   "wallet.starsBalance": "ኮከቦች",
@@ -1265,5 +1264,21 @@
   "messages.coinError.buyCoins": "ሳንቲሞች ግዙ",
   "messages.coinError.upgrade": "ወደ Pro አሻሽሉ",
   "settings.twoFaDisabledByAdmin": "የሁለት ደረጃ ማረጋገጫ በአሁኑ ጊዜ በመድረኩ አስተዳዳሪ ተሰናክሏል።",
-  "settings.pinDisabledByAdmin": "የ PIN ማረጋገጫ በአሁኑ ጊዜ በመድረኩ አስተዳዳሪ ተሰናክሏል።"
+  "settings.pinDisabledByAdmin": "የ PIN ማረጋገጫ በአሁኑ ጊዜ በመድረኩ አስተዳዳሪ ተሰናክሏል።",
+  "nav.friends": "ወዳጆች",
+  "friends.requests.received": "የተቀበሉ",
+  "friends.requests.sent": "የተላኩ",
+  "friends.requests.withdraw": "አንሱ",
+  "friends.requests.withdrawing": "እየተሰረዘ…",
+  "friends.empty.noReceivedRequests": "ምንም የተቀበሉ የጓደኝነት ጥያቄዎች የሉም።",
+  "friends.empty.noSentRequests": "ምንም የተላኩ የጓደኝነት ጥያቄዎች የሉም።",
+  "profile.private": "ይህ መገለጫ ግላዊ ነው።",
+  "profile.restricted": "ይህ መለያ ታግዷል።",
+  "profile.suspended": "ይህ መለያ ታግዷል።",
+  "settings.privacy.lockProfile": "ግላዊ መገለጫ",
+  "settings.privacy.lockProfileDesc": "መገለጫዎን ከጓደኞችዎ ካልሆኑ ተጠቃሚዎች ይደብቁ",
+  "settings.privacy.disableFriendRequests": "የጓደኝነት ጥያቄዎችን አሰናክሉ",
+  "settings.privacy.disableFriendRequestsDesc": "ሌሎች ጥያቄ እንዳይልኩልዎ ያግዱ",
+  "settings.privacy.hideSections": "የተደበቁ የመገለጫ ክፍሎች",
+  "settings.privacy.hideSectionsDesc": "ከሌሎች ለመደበቅ የሚፈልጓቸውን ክፍሎች ይምረጡ"
 }

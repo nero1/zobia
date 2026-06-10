@@ -103,6 +103,11 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       guild_id: string | null;
       created_at: string;
       custom_crest: string | null;
+      is_suspended: boolean;
+      is_banned: boolean;
+      profile_private: boolean;
+      profile_hidden_sections: string[];
+      disable_friend_requests: boolean;
     }>(
       `SELECT id, username, display_name, bio, avatar_emoji, city,
               xp_total, COALESCE(legacy_score, 0) AS legacy_score,
@@ -119,18 +124,53 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
               creator_tier,
               guild_id,
               created_at,
-              custom_crest
+              custom_crest,
+              COALESCE(is_suspended, false) AS is_suspended,
+              COALESCE(is_banned, false) AS is_banned,
+              COALESCE(profile_private, false) AS profile_private,
+              COALESCE(profile_hidden_sections, '[]'::jsonb) AS profile_hidden_sections,
+              COALESCE(disable_friend_requests, false) AS disable_friend_requests
        FROM users
        WHERE id = $1
          AND deleted_at IS NULL
          AND onboarding_completed = true
-         AND is_suspended = false
        LIMIT 1`,
       [userId]
     );
 
     const user = userRows[0];
     if (!user) throw notFound("User not found");
+
+    const isOwnProfileCheck = callerId === userId;
+
+    // Check for banned/suspended account (admin can always view)
+    if (!isOwnProfileCheck) {
+      if (user.is_banned) {
+        return NextResponse.json({ error: "This account has been restricted.", code: "ACCOUNT_RESTRICTED" }, { status: 403 });
+      }
+      if (user.is_suspended) {
+        return NextResponse.json({ error: "This account is temporarily suspended.", code: "ACCOUNT_SUSPENDED" }, { status: 403 });
+      }
+    }
+
+    // Private profile check (skip for own profile)
+    if (!isOwnProfileCheck && user.profile_private) {
+      // Allow friends to still view
+      const { rows: friendRows } = await db.query<{ id: string }>(
+        `SELECT id FROM friendships
+         WHERE ((requester_id = $1 AND addressee_id = $2) OR (requester_id = $2 AND addressee_id = $1))
+           AND status = 'accepted'
+         LIMIT 1`,
+        [callerId, userId]
+      ).catch(() => ({ rows: [] as Array<{ id: string }> }));
+      if (friendRows.length === 0) {
+        return NextResponse.json({ error: "This profile is private.", code: "PROFILE_PRIVATE" }, { status: 403 });
+      }
+    }
+
+    const hiddenSections: string[] = Array.isArray(user.profile_hidden_sections)
+      ? user.profile_hidden_sections
+      : [];
 
     // 2. Guild info
     let guildName: string | null = null;
@@ -180,7 +220,7 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       : null;
 
     // 4. Social context
-    const isOwnProfile = callerId === userId;
+    const isOwnProfile = isOwnProfileCheck;
     let isFriend = false;
     let isFollowing = false;
 
@@ -300,20 +340,21 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
     // 7. Compose rank info
     const rankInfo = getRankForXP(user.xp_total);
 
-    // 8. Build response
+    // 8. Build response (apply hidden sections for non-owners)
+    const hidden = isOwnProfile ? [] : hiddenSections;
     const profile = {
       userId: user.id,
-      displayName: user.display_name ?? user.username ?? "Zobia User",
+      displayName: hidden.includes("display_name") ? null : (user.display_name ?? user.username ?? "Zobia User"),
       username: user.username ?? "",
-      avatarEmoji: user.avatar_emoji ?? "😊",
+      avatarEmoji: hidden.includes("avatar") ? null : (user.avatar_emoji ?? "😊"),
       city: user.city,
       joinedAt: user.created_at,
-      rankTier: getRankTier(rankInfo.rankName),
-      rankLabel: rankInfo.rankName,
-      subLevel: rankInfo.sublevel,
+      rankTier: hidden.includes("rank") ? null : getRankTier(rankInfo.rankName),
+      rankLabel: hidden.includes("rank") ? null : rankInfo.rankName,
+      subLevel: hidden.includes("rank") ? null : rankInfo.sublevel,
       prestigeStars: user.prestige_count,
       legacyScore: user.legacy_score,
-      trackLevels: [
+      trackLevels: hidden.includes("xp") ? [] : [
         { track: "Social",     emoji: TRACK_EMOJIS.social,     level: user.level_social,     maxLevel: TRACK_MAX_LEVEL },
         { track: "Creator",    emoji: TRACK_EMOJIS.creator,    level: user.level_creator,    maxLevel: TRACK_MAX_LEVEL },
         { track: "Competitor", emoji: TRACK_EMOJIS.competitor, level: user.level_competitor, maxLevel: TRACK_MAX_LEVEL },
@@ -321,9 +362,9 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
         { track: "Knowledge",  emoji: TRACK_EMOJIS.knowledge,  level: user.level_knowledge,  maxLevel: TRACK_MAX_LEVEL },
         { track: "Explorer",   emoji: TRACK_EMOJIS.explorer,   level: user.level_explorer,   maxLevel: TRACK_MAX_LEVEL },
       ],
-      guildName,
-      guildCrest,
-      guildId,
+      guildName: hidden.includes("guild") ? null : guildName,
+      guildCrest: hidden.includes("guild") ? null : guildCrest,
+      guildId: hidden.includes("guild") ? null : guildId,
       // Alliance trophy — shown on profile when user belongs to an alliance (PRD §13)
       allianceTrophy,
       isCreator: user.is_creator,
@@ -336,7 +377,7 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       // Connection badge visible on profile (PRD §5/§15)
       connectionBadge,
       // Public Achievements Wall (PRD §15)
-      achievements: achievementRows.map((a) => ({
+      achievements: hidden.includes("badges") ? [] : achievementRows.map((a) => ({
         key: a.badge_key,
         type: a.badge_type,
         grantedAt: a.granted_at,
@@ -345,10 +386,11 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       isFriend,
       isFollowing,
       isOwnProfile,
+      disableFriendRequests: !isOwnProfile ? user.disable_friend_requests : false,
       // Hall of Fame custom crest (PRD §9 — Prestige 10 exclusive)
       customCrest: user.custom_crest ?? null,
       isHallOfFame: user.prestige_count >= 10,
-      pastSeasons: seasonRows.map((s) => ({
+      pastSeasons: hidden.includes("seasons") ? [] : seasonRows.map((s) => ({
         id: s.id,
         name: s.name,
         themeEmoji: s.theme_emoji ?? "🏆",

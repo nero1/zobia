@@ -1229,7 +1229,6 @@
     "tooNew": "Rudi hivi karibuni!",
     "tooNewBody": "Mapendekezo ya vyama yanafunguliwa baada ya saa 24 za kwanza kwenye Zobia."
   },
-
   "wallet.xpBalance": "XP",
   "wallet.coinsBalance": "Sarafu",
   "wallet.starsBalance": "Nyota",
@@ -1265,5 +1264,21 @@
   "messages.coinError.buyCoins": "Nunua Sarafu",
   "messages.coinError.upgrade": "Panda Daraja hadi Pro",
   "settings.twoFaDisabledByAdmin": "Uthibitisho wa hatua mbili umezimwa kwa sasa na msimamizi wa jukwaa.",
-  "settings.pinDisabledByAdmin": "Uthibitisho wa PIN umezimwa kwa sasa na msimamizi wa jukwaa."
+  "settings.pinDisabledByAdmin": "Uthibitisho wa PIN umezimwa kwa sasa na msimamizi wa jukwaa.",
+  "nav.friends": "Marafiki",
+  "friends.requests.received": "Zilizopokelewa",
+  "friends.requests.sent": "Zilizotumwa",
+  "friends.requests.withdraw": "Rudisha",
+  "friends.requests.withdrawing": "Inarudishwa…",
+  "friends.empty.noReceivedRequests": "Hakuna maombi ya urafiki yaliyopokelewa.",
+  "friends.empty.noSentRequests": "Hakuna maombi ya urafiki yaliyotumwa.",
+  "profile.private": "Wasifu huu ni wa siri.",
+  "profile.restricted": "Akaunti hii imezuiwa.",
+  "profile.suspended": "Akaunti hii imesimamishwa.",
+  "settings.privacy.lockProfile": "Wasifu wa Faragha",
+  "settings.privacy.lockProfileDesc": "Ficha wasifu wako kutoka kwa watumiaji ambao si marafiki zako",
+  "settings.privacy.disableFriendRequests": "Zima Maombi ya Urafiki",
+  "settings.privacy.disableFriendRequestsDesc": "Zuia wengine kukutumia maombi ya urafiki",
+  "settings.privacy.hideSections": "Sehemu Zilizofichwa za Wasifu",
+  "settings.privacy.hideSectionsDesc": "Chagua sehemu za wasifu wako kuzificha kutoka kwa wengine"
 }

@@ -1,7 +1,6 @@
 {
   "app.name": "زوبيا سوشال",
   "app.tagline": "تواصل، تفاعل، انتمِ.",
-
   "nav.home": "الرئيسية",
   "nav.rooms": "الغرف",
   "nav.messages": "الرسائل",
@@ -11,7 +10,6 @@
   "nav.rankings": "التصنيفات",
   "nav.settings": "الإعدادات",
   "nav.logout": "تسجيل الخروج",
-
   "auth.login": "تسجيل الدخول",
   "auth.logout": "تسجيل الخروج",
   "auth.register": "إنشاء حساب",
@@ -38,11 +36,9 @@
   "auth.signUpWithGoogle": "إنشاء حساب بـ Google",
   "auth.signingInWithTelegram": "جارٍ تسجيل الدخول بـ Telegram…",
   "auth.signingUpWithTelegram": "جارٍ إنشاء الحساب بـ Telegram…",
-
   "home.title": "الرئيسية",
   "home.feed.empty": "لا يوجد شيء هنا بعد. تابع أشخاصاً أو انضم إلى غرف لرؤية المنشورات.",
   "home.feed.loading": "جارٍ تحميل خلاصتك…",
-
   "rooms.title": "الغرف",
   "rooms.discover": "اكتشف الغرف",
   "rooms.create": "إنشاء غرفة",
@@ -51,13 +47,11 @@
   "rooms.members": "{{count}} عضو",
   "rooms.members_other": "{{count}} أعضاء",
   "rooms.empty": "لم يتم العثور على غرف. كن أول من ينشئ واحدة!",
-
   "messages.title": "الرسائل",
   "messages.new": "رسالة جديدة",
   "messages.empty": "لا توجد محادثات بعد. ابدأ الدردشة!",
   "messages.typeHere": "اكتب رسالة…",
   "messages.send": "إرسال",
-
   "profile.title": "الملف الشخصي",
   "profile.edit": "تعديل الملف الشخصي",
   "profile.followers": "المتابعون",
@@ -66,7 +60,6 @@
   "profile.rank": "الرتبة",
   "profile.joinedOn": "انضم في {{date}}",
   "profile.bio.placeholder": "أخبر العالم عن نفسك…",
-
   "settings.title": "الإعدادات",
   "settings.profile": "إعدادات الملف الشخصي",
   "settings.privacy": "الخصوصية",
@@ -77,7 +70,6 @@
   "settings.theme.light": "فاتح",
   "settings.theme.dark": "داكن",
   "settings.theme.system": "النظام",
-
   "admin.dashboard": "لوحة التحكم",
   "admin.users": "المستخدمون",
   "admin.rooms": "الغرف",
@@ -90,17 +82,14 @@
   "admin.activeRooms": "الغرف النشطة",
   "admin.reportsToday": "تقارير اليوم",
   "admin.revenue": "الإيرادات",
-
   "error.generic": "حدث خطأ ما. يرجى المحاولة مرة أخرى.",
   "error.notFound": "الصفحة غير موجودة.",
   "error.unauthorized": "يجب عليك تسجيل الدخول لعرض هذه الصفحة.",
   "error.forbidden": "ليس لديك إذن للقيام بذلك.",
   "error.networkError": "خطأ في الشبكة. يرجى التحقق من اتصالك.",
   "error.sessionExpired": "انتهت جلستك. يرجى تسجيل الدخول مرة أخرى.",
-
   "offline.banner": "أنت غير متصل بالإنترنت. قد لا تتوفر بعض الميزات.",
   "offline.reconnected": "عدت إلى الاتصال!",
-
   "action.save": "حفظ",
   "action.cancel": "إلغاء",
   "action.delete": "حذف",
@@ -111,25 +100,21 @@
   "action.submit": "إرسال",
   "action.loading": "جارٍ التحميل…",
   "action.retry": "إعادة المحاولة",
-
   "validation.required": "هذا الحقل مطلوب.",
   "validation.email": "يرجى إدخال عنوان بريد إلكتروني صالح.",
   "validation.minLength": "يجب أن يكون {{min}} حرفاً على الأقل.",
   "validation.maxLength": "يجب ألا يتجاوز {{max}} حرفاً.",
   "validation.passwordMatch": "كلمات المرور غير متطابقة.",
-
   "upload.dragDrop": "اسحب وأفلت ملفاً، أو انقر للتصفح",
   "upload.maxSize": "الحجم الأقصى للملف: {{size}}",
   "upload.uploading": "جارٍ الرفع…",
   "upload.success": "تم الرفع بنجاح.",
   "upload.error": "فشل الرفع. يرجى المحاولة مرة أخرى.",
-
   "notification.newMessage": "رسالة جديدة من {{name}}",
   "notification.newFollower": "بدأ {{name}} متابعتك",
   "notification.roomInvite": "دعاك {{name}} إلى {{room}}",
   "notification.giftReceived": "أرسل {{name}} لك هدية",
   "notification.rankUp": "لقد وصلت إلى الرتبة {{rank}}!",
-
   "home.nemesis.title": "غريمك",
   "home.nemesis.you": "أنت",
   "home.nemesis.aheadBy": "أنت متقدم بـ {{diff}} XP",
@@ -160,7 +145,6 @@
   "home.activityCount": "{{count}} مستخدم كسب XP في الساعة الأخيرة",
   "home.activityCount_other": "{{count}} مستخدمين كسبوا XP في الساعة الأخيرة",
   "home.pageTitle": "الرئيسية",
-
   "rooms.createRoom": "+ إنشاء غرفة",
   "rooms.tab.trending": "الأكثر رواجاً",
   "rooms.tab.nearby": "بالقرب مني",
@@ -178,7 +162,6 @@
   "rooms.empty.createButton": "إنشاء غرفة",
   "rooms.loadMore": "تحميل المزيد",
   "rooms.loading": "جارٍ التحميل…",
-
   "messages.groups": "👥 المجموعات",
   "messages.newMessage": "+ رسالة جديدة",
   "messages.search.placeholder": "ابحث في المحادثات…",
@@ -190,7 +173,6 @@
   "messages.noSearchResults": "لا توجد محادثات تطابق بحثك",
   "messages.noSearchResultsHint": "جرب اسماً أو كلمة مفتاحية مختلفة",
   "messages.noMessagesYet": "لا توجد رسائل بعد",
-
   "profile.playSince": "يلعب منذ {{year}}",
   "profile.verified": "✓ موثَّق",
   "profile.creator": "منشئ",
@@ -212,7 +194,6 @@
   "profile.actions.upgrade": "ترقية الخطة",
   "profile.notFound": "الملف الشخصي غير موجود",
   "profile.backHome": "→ الرئيسية",
-
   "settings.account": "الحساب",
   "settings.displayName": "الاسم المعروض",
   "settings.displayNamePlaceholder": "اسمك",
@@ -295,7 +276,6 @@
   "settings.privacyDmOptOut": "تعطيل الرسائل المباشرة",
   "settings.privacyDmOptOutDesc": "منع غير الأصدقاء من إرسال رسائل مباشرة إليك",
   "settings.saved": "تم الحفظ",
-
   "guild.joinTitle": "انضم إلى نقابة",
   "guild.joinSubtitle": "نقابات قريبة منك — شارك في الحروب وتسلق المستويات",
   "guild.joining": "جارٍ الانضمام…",
@@ -315,7 +295,6 @@
   "guild.allianceJoined": "انضم",
   "guild.allianceLeft": "غادر {{date}}",
   "guild.guildLabel": "نقابة",
-
   "leaderboards.title": "قوائم المتصدرين",
   "leaderboards.scope.global": "عالمي",
   "leaderboards.scope.city": "المدينة",
@@ -340,7 +319,6 @@
   "leaderboards.page": "الصفحة {{page}} من {{total}}",
   "leaderboards.prevPage": "→ السابق",
   "leaderboards.nextPage": "التالي ←",
-
   "wallet.title": "المحفظة",
   "wallet.coinBalance": "رصيد العملات",
   "wallet.starBalance": "رصيد النجوم",
@@ -361,7 +339,6 @@
   "wallet.minTransfer": "الحد الأدنى للتحويل 10 عملات",
   "wallet.maxTransfer": "الحد الأقصى للتحويل الواحد 100,000 عملة",
   "wallet.purchaseInitiated": "تم بدء الشراء — تحقق من بريدك الإلكتروني للتأكيد.",
-
   "quests.title": "المهام اليومية",
   "quests.subtitle": "أكمل المهام لتكسب XP وعملات",
   "quests.resetsIn": "يُعاد تعيينها في",
@@ -371,7 +348,6 @@
   "quests.sponsoredQuests": "المهام المدعومة",
   "quests.sponsored": "مدعوم",
   "quests.retry": "إعادة المحاولة",
-
   "seasons.title": "المواسم",
   "seasons.activeSeason": "الموسم النشط",
   "seasons.daysLeft": "أيام متبقية",
@@ -406,7 +382,6 @@
   "seasons.confirmGift": "تأكيد الإهداء",
   "seasons.giftSuccess": "تم إهداء التذكرة لـ @{{username}}!",
   "seasons.done": "تم",
-
   "prestige.title": "المرموقية",
   "prestige.notYet": "ليس بعد",
   "prestige.currentRank": "أنت حالياً {{rank}} (المستوى {{level}}).",
@@ -436,7 +411,6 @@
   "prestige.yesPrestige": "نعم، الارتقاء",
   "prestige.processing": "جارٍ المعالجة…",
   "prestige.notYetButton": "ليس بعد",
-
   "nemesis.title": "غريمك",
   "nemesis.subtitle": "منافس مطابق لمستوى XP الخاص بك. تفوق عليه لترتقي.",
   "nemesis.nextRefresh": "التحديث القادم:",
@@ -454,7 +428,6 @@
   "nemesis.rule3": "يتتبع السباق XP المكتسب منذ بدء المباراة",
   "nemesis.rule4": "تفوق على غريمك لتكسب XP Legacy إضافياً",
   "nemesis.retry": "إعادة المحاولة",
-
   "rooms.create.title": "إنشاء غرفة",
   "rooms.create.chooseType": "اختر نوع الغرفة التي تريد إنشاءها.",
   "rooms.create.continue": "متابعة →",
@@ -496,7 +469,6 @@
   "rooms.create.enrolmentCoins": "التسجيل: {{coins}} عملة",
   "rooms.create.nameRequired": "اسم الغرفة مطلوب",
   "rooms.create.moduleRequired": "أضف وحدة منهج واحدة على الأقل",
-
   "room.about": "حول",
   "room.noDescription": "لا يوجد وصف.",
   "room.creator": "المنشئ",
@@ -543,7 +515,6 @@
   "room.saved": "تم الحفظ",
   "room.save": "حفظ",
   "room.roomPowers": "قوى الغرفة",
-
   "creator.title": "لوحة تحكم المنشئ",
   "creator.revenueToday": "اليوم",
   "creator.revenueWeek": "هذا الأسبوع",
@@ -569,7 +540,6 @@
   "creator.processed": "تمت المعالجة",
   "creator.accessDenied": "تم رفض الوصول",
   "creator.payoutRequested": "تم طلب الصرف — في انتظار موافقة المشرف",
-
   "creator.broadcasts.title": "بث المنشئ",
   "creator.broadcasts.sendBtn": "إرسال بث",
   "creator.broadcasts.monthlyAllowance": "الحصة الشهرية",
@@ -600,7 +570,6 @@
   "creator.broadcasts.accessDeniedTitle": "بث المنشئ",
   "creator.broadcasts.accessDeniedDesc": "يجب أن تكون منشئًا من مستوى Rising أو أعلى لإرسال البثوث.",
   "creator.broadcasts.loadError": "تعذّر تحميل البثوث",
-
   "notifications.title": "الإشعارات",
   "notifications.unread": "{{count}} غير مقروء",
   "notifications.markAllRead": "وضع علامة مقروء على الكل",
@@ -610,7 +579,6 @@
   "notifications.view": "عرض →",
   "notifications.loadMore": "تحميل المزيد",
   "notifications.loading": "جارٍ التحميل…",
-
   "referrals.title": "الإحالات",
   "referrals.linkCard.title": "رابط الإحالة الخاص بك",
   "referrals.linkCard.copy": "نسخ",
@@ -639,7 +607,6 @@
   "referrals.table.tier": "المستوى {{tier}}",
   "referrals.table.qualified": "✓ نعم",
   "referrals.table.pending": "معلَّق",
-
   "elder.title": "نظام الشيوخ",
   "elder.dashboard.menteesLabel": "المتدربون",
   "elder.dashboard.mentorshipXpLabel": "XP الإرشاد",
@@ -665,7 +632,6 @@
   "elder.nonEligible.requestSent": "تم الإرسال! سيتم تعيين شيخ لك قريباً.",
   "elder.nonEligible.requesting": "جارٍ الإرسال…",
   "elder.nonEligible.requestButton": "طلب مرشد",
-
   "council.title": "مجلس المنصة",
   "council.subtitle": "أعضاء منتخبون يوجهون المنصة عبر الأفكار المصوَّت عليها.",
   "council.membersSection": "أعضاء المجلس",
@@ -682,7 +648,6 @@
   "council.submitting": "جارٍ التقديم…",
   "council.submitSuccess": "تم تقديم الفكرة بنجاح!",
   "council.voteFailed": "فشل التصويت",
-
   "stickers.title": "متجر الملصقات",
   "stickers.subtitle": "افتح حزم الملصقات لاستخدامها في الرسائل والغرف",
   "stickers.owned": "مملوك",
@@ -696,7 +661,6 @@
   "stickers.unlocked": "تم فتح حزمة الملصقات!",
   "stickers.empty": "لا توجد حزم ملصقات بعد",
   "stickers.emptyHint": "تحقق لاحقاً!",
-
   "moments.title": "اللحظات",
   "moments.subtitle": "مقاطع قصيرة وصور من المجتمع",
   "moments.share": "شارك لحظة",
@@ -716,7 +680,6 @@
   "moments.create.cancel": "إلغاء",
   "moments.create.post": "نشر اللحظة",
   "moments.create.posting": "جارٍ النشر…",
-
   "publicProfile.playingSince": "يلعب منذ {{year}}",
   "publicProfile.legacyScore": "نقاط الإرث:",
   "publicProfile.rankXp": "XP الرتبة — المستوى {{level}}",
@@ -734,7 +697,6 @@
   "publicProfile.gift": "هدية",
   "publicProfile.notFound": "الملف الشخصي غير موجود",
   "publicProfile.backHome": "→ الرئيسية",
-
   "subscription.title": "الاشتراك والفواتير",
   "subscription.currentPlan": "الخطة الحالية",
   "subscription.cancels": "ينتهي {{date}}",
@@ -758,7 +720,6 @@
   "subscription.cancelledSuccess": "تم إلغاء الاشتراك. ستحتفظ بالوصول حتى نهاية الفترة.",
   "subscription.upgradedSuccess": "تمت الترقية إلى {{plan}}!",
   "subscription.finePrint": "الأسعار بالنيرة النيجيرية. تتجدد الاشتراكات تلقائياً ويمكن إلغاؤها في أي وقت.",
-
   "groups.title": "المحادثات الجماعية",
   "groups.createGroup": "+ إنشاء مجموعة",
   "groups.noGroups": "لا توجد محادثات جماعية بعد",
@@ -784,7 +745,6 @@
   "groups.conversation.noMessages": "لا توجد رسائل. ابدأ المحادثة!",
   "groups.conversation.typeMessage": "اكتب رسالة…",
   "groups.conversation.send": "إرسال",
-
   "events.title": "الأحداث",
   "events.activeNow": "نشط الآن",
   "events.upcoming": "القادمة",
@@ -800,13 +760,11 @@
   "events.xpMultiplier": "{{multiplier}}× مضاعف XP",
   "events.startingSoon": "يبدأ قريباً",
   "events.startsIn": "يبدأ في {{time}}",
-
   "inbox.title": "صندوق الوارد",
   "inbox.unread": "{{count}} غير مقروء",
   "inbox.fromZobia": "من زوبيا",
   "inbox.noMessages": "لا توجد رسائل",
   "inbox.noMessagesHint": "لا توجد رسائل من زوبيا بعد. تحقق لاحقاً!",
-
   "communityNotes.title": "ملاحظات المجتمع",
   "communityNotes.subtitle": "سياق مجتمعي على المحتوى المبلَّغ عنه. يمكن للجميع المساهمة.",
   "communityNotes.addNote": "+ إضافة ملاحظة",
@@ -830,23 +788,19 @@
   "communityNotes.modal.submit": "تقديم الملاحظة",
   "communityNotes.modal.submitting": "جارٍ التقديم…",
   "communityNotes.modal.minLength": "يجب أن تحتوي الملاحظة على 20 حرفاً على الأقل.",
-
   "terms.title": "شروط الخدمة",
   "terms.lastUpdated": "آخر تحديث: {{date}}",
   "terms.backHome": "→ العودة إلى الرئيسية",
   "terms.toc": "جدول المحتويات",
-
   "privacy.title": "سياسة الخصوصية",
   "privacy.lastUpdated": "آخر تحديث: {{date}}",
   "privacy.backHome": "→ العودة إلى الرئيسية",
   "privacy.toc": "جدول المحتويات",
-
   "notFound.title": "الصفحة غير موجودة",
   "notFound.description": "الصفحة التي تبحث عنها غير موجودة أو تم نقلها.",
   "notFound.backHome": "العودة إلى الرئيسية",
   "notFound.login": "تسجيل الدخول",
   "notFound.quickLinks": "أو جرّب إحدى هذه الصفحات:",
-
   "guildDiscovery.stepBadge": "اقتربت تقريباً",
   "guildDiscovery.title": "فرق قريبة منك تجند أعضاء",
   "guildDiscovery.subtitle": "الانضمام إلى نقابة يمنحك نقاط XP إضافية على كل شيء.",
@@ -867,11 +821,9 @@
   "guildDiscovery.emptyHint": "تحقق قريباً — أو تصفح جميع النقابات.",
   "guildDiscovery.tooNew": "عد قريباً!",
   "guildDiscovery.tooNewBody": "تفتح توصيات النقابات بعد أول 24 ساعة على زوبيا.",
-
   "landing.footer.terms": "شروط الخدمة",
   "landing.footer.privacy": "سياسة الخصوصية",
   "landing.footer.copyright": "© {{year}} زوبيا سوشال. جميع الحقوق محفوظة.",
-
   "admin.aiSettings": "AI Settings",
   "admin.aiSettings.subtitle": "Manage API keys and connection status for AI providers.",
   "admin.aiSettings.deepseek": "DeepSeek (Primary)",
@@ -894,7 +846,6 @@
   "admin.aiSettings.clearSuccess": "Override cleared.",
   "admin.aiSettings.saveError": "Failed to save key.",
   "admin.aiSettings.loadError": "Failed to load AI settings.",
-
   "wallet.xpBalance": "XP",
   "wallet.coinsBalance": "العملات",
   "wallet.starsBalance": "النجوم",
@@ -930,5 +881,22 @@
   "messages.coinError.buyCoins": "شراء عملات",
   "messages.coinError.upgrade": "الترقية إلى Pro",
   "settings.twoFaDisabledByAdmin": "المصادقة الثنائية معطَّلة حالياً من قِبَل مسؤول المنصة.",
-  "settings.pinDisabledByAdmin": "مصادقة PIN معطَّلة حالياً من قِبَل مسؤول المنصة."
+  "settings.pinDisabledByAdmin": "مصادقة PIN معطَّلة حالياً من قِبَل مسؤول المنصة.",
+  "friends.requests.received": "المستلمة",
+  "friends.requests.sent": "المرسلة",
+  "friends.requests.withdraw": "سحب",
+  "friends.requests.withdrawing": "جارٍ السحب…",
+  "friends.empty.noReceivedRequests": "لا توجد طلبات معلقة.",
+  "friends.empty.noSentRequests": "لا توجد طلبات مرسلة معلقة.",
+  "nav.friends": "الأصدقاء",
+  "profile.dropdown.viewProfile": "عرض الملف الشخصي",
+  "profile.dropdown.profileSettings": "إعدادات الملف الشخصي",
+  "profile.dropdown.managePlan": "إدارة الخطة",
+  "profile.dropdown.upgradePlan": "ترقية الخطة",
+  "profile.dropdown.managePlanNamed": "إدارة خطة {{plan}}",
+  "profile.private": "هذا الملف الشخصي خاص.",
+  "profile.restricted": "تم تقييد هذا الحساب.",
+  "settings.privacy.lockProfile": "ملف شخصي خاص",
+  "settings.privacy.disableFriendRequests": "تعطيل طلبات الصداقة",
+  "settings.privacy.hideSections": "الأقسام المخفية من الملف الشخصي"
 }

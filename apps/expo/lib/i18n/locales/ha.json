@@ -1229,7 +1229,6 @@
     "tooNew": "Ka dawo ba da daɗewa ba!",
     "tooNewBody": "Shawarwarin Guild suna buɗewa bayan sa'o'i 24 na farko akan Zobia."
   },
-
   "wallet.xpBalance": "XP",
   "wallet.coinsBalance": "Tsabar Kudi",
   "wallet.starsBalance": "Taurari",
@@ -1265,5 +1264,21 @@
   "messages.coinError.buyCoins": "Saya Tsabar Kudi",
   "messages.coinError.upgrade": "Haɓaka zuwa Pro",
   "settings.twoFaDisabledByAdmin": "Tabbacin abubuwa biyu an kashe shi a halin yanzu ta mai gudanar da dandali.",
-  "settings.pinDisabledByAdmin": "Tabbacin PIN an kashe shi a halin yanzu ta mai gudanar da dandali."
+  "settings.pinDisabledByAdmin": "Tabbacin PIN an kashe shi a halin yanzu ta mai gudanar da dandali.",
+  "nav.friends": "Abokai",
+  "friends.requests.received": "Waɗanda aka karɓa",
+  "friends.requests.sent": "Waɗanda aka aika",
+  "friends.requests.withdraw": "Janye",
+  "friends.requests.withdrawing": "Ana janyewa…",
+  "friends.empty.noReceivedRequests": "Babu buƙatun abota da aka karɓa.",
+  "friends.empty.noSentRequests": "Babu buƙatun abota da aka aika.",
+  "profile.private": "Wannan bayanin martaba na sirri ne.",
+  "profile.restricted": "An iyakance wannan asusun.",
+  "profile.suspended": "An dakatar da wannan asusun.",
+  "settings.privacy.lockProfile": "Sirrin Martaba",
+  "settings.privacy.lockProfileDesc": "Ɓoye martabarku daga masu amfani da ba abokai ba",
+  "settings.privacy.disableFriendRequests": "Kashe Buƙatun Abota",
+  "settings.privacy.disableFriendRequestsDesc": "Hana wasu aika muku buƙatun abota",
+  "settings.privacy.hideSections": "Ɓoyannan Sassan Martaba",
+  "settings.privacy.hideSectionsDesc": "Zaɓi waɗanne sassan martabarku za a ɓoye daga wasu"
 }

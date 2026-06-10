@@ -1,7 +1,6 @@
 {
   "app.name": "Zobia Social",
   "app.tagline": "Xhumana, Hlanganyela, Ube Ingxenye.",
-
   "nav.home": "Ikhaya",
   "nav.rooms": "Amakamelo",
   "nav.messages": "Imilayezo",
@@ -11,7 +10,6 @@
   "nav.rankings": "Amazinga",
   "nav.settings": "Izilungiselelo",
   "nav.logout": "Phuma",
-
   "auth.login": "Ngena",
   "auth.logout": "Phuma",
   "auth.register": "Dala i-akhawunti",
@@ -38,11 +36,9 @@
   "auth.signUpWithGoogle": "Bhalisa nge-Google",
   "auth.signingInWithTelegram": "Uyangena nge-Telegram…",
   "auth.signingUpWithTelegram": "Uyabhalisa nge-Telegram…",
-
   "home.title": "Ikhaya",
   "home.feed.empty": "Akukho lutho lapha. Landela abantu noma ufake amakamelo ukuze ubone izithunyelwa.",
   "home.feed.loading": "Iyalayisha ukudla kwakho…",
-
   "rooms.title": "Amakamelo",
   "rooms.discover": "Thola amakamelo",
   "rooms.create": "Dala ikamelo",
@@ -51,13 +47,11 @@
   "rooms.members": "{{count}} ilungu",
   "rooms.members_other": "{{count}} amalungu",
   "rooms.empty": "Ayikho amakamelo atholiwe. Yiba owokuqala ukudala elinye!",
-
   "messages.title": "Imilayezo",
   "messages.new": "Umlayezo omusha",
   "messages.empty": "Akukho zingxoxo. Qala ukukhuluma!",
   "messages.typeHere": "Thayipha umlayezo…",
   "messages.send": "Thumela",
-
   "profile.title": "Iphrofayili",
   "profile.edit": "Hlela iphrofayili",
   "profile.followers": "Abalandeli",
@@ -66,7 +60,6 @@
   "profile.rank": "Izinga",
   "profile.joinedOn": "Wajoyina {{date}}",
   "profile.bio.placeholder": "Xoxela umhlaba ngawe…",
-
   "settings.title": "Izilungiselelo",
   "settings.profile": "Izilungiselelo zephrofayili",
   "settings.privacy": "Ubumfihlo",
@@ -77,7 +70,6 @@
   "settings.theme.light": "Ukukhanya",
   "settings.theme.dark": "Ubumnyama",
   "settings.theme.system": "Isistimu",
-
   "admin.dashboard": "Idashbhodi",
   "admin.users": "Abasebenzisi",
   "admin.rooms": "Amakamelo",
@@ -90,17 +82,14 @@
   "admin.activeRooms": "Amakamelo asebenzayo",
   "admin.reportsToday": "Imibiko yanamuhla",
   "admin.revenue": "Inzuzo",
-
   "error.generic": "Kukhona okungahambanga kahle. Sicela uzame futhi.",
   "error.notFound": "Ikhasi alitholakali.",
   "error.unauthorized": "Kufanele ungene ukuze ubone leli khasi.",
   "error.forbidden": "Awunalo igunya lokwenza lokho.",
   "error.networkError": "Iphutha lenethiwekhi. Sicela uhlole ukuxhumeka kwakho.",
   "error.sessionExpired": "Iseshini yakho iphelelwe yisikhathi. Sicela ungene futhi.",
-
   "offline.banner": "Awuxhunyiwe ku-inthanethi. Ezinye izici zingase zingasetshenziswa.",
   "offline.reconnected": "Ubuye ku-inthanethi!",
-
   "action.save": "Gcina",
   "action.cancel": "Khansela",
   "action.delete": "Susa",
@@ -111,25 +100,21 @@
   "action.submit": "Thumela",
   "action.loading": "Iyalayisha…",
   "action.retry": "Zama futhi",
-
   "validation.required": "Le ndawo iyadingeka.",
   "validation.email": "Sicela ufake ikheli le-imeyili elivumelekile.",
   "validation.minLength": "Kufanele kube okungenani nezinhlamvu ezingu-{{min}}.",
   "validation.maxLength": "Kufanele kubemumo okungeqi izinhlamvu ezingu-{{max}}.",
   "validation.passwordMatch": "Amaphasiwedi awafani.",
-
   "upload.dragDrop": "Hudula ufayela, noma uchofoze ukuze ubrowse",
   "upload.maxSize": "Usayizi omkhulu wefayela: {{size}}",
   "upload.uploading": "Iyaklayipha…",
   "upload.success": "Iklayphiwe ngempumelelo.",
   "upload.error": "Ukuklaypha kwehlulekile. Sicela uzame futhi.",
-
   "notification.newMessage": "Umlayezo omusha evela ku-{{name}}",
   "notification.newFollower": "{{name}} uqale ukukulandela",
   "notification.roomInvite": "{{name}} ukumemile ku-{{room}}",
   "notification.giftReceived": "{{name}} ukuthumelele isipho",
   "notification.rankUp": "Ufike ezingeni elingu-{{rank}}!",
-
   "home.nemesis.title": "Isitha Sakho",
   "home.nemesis.you": "Wena",
   "home.nemesis.aheadBy": "Uphambi ngo-{{diff}} XP",
@@ -160,7 +145,6 @@
   "home.activityCount": "{{count}} umsebenzisi uthole i-XP nehora lokugcina",
   "home.activityCount_other": "{{count}} abasebenzisi bathole i-XP nehora lokugcina",
   "home.pageTitle": "Ikhaya",
-
   "rooms.createRoom": "+ Dala Ikamelo",
   "rooms.tab.trending": "Okujwayelekile",
   "rooms.tab.nearby": "Eduze Kwami",
@@ -178,7 +162,6 @@
   "rooms.empty.createButton": "Dala Ikamelo",
   "rooms.loadMore": "Layisha okuningi",
   "rooms.loading": "Iyalayisha…",
-
   "messages.groups": "👥 Amaqembu",
   "messages.newMessage": "+ Umlayezo Omusha",
   "messages.search.placeholder": "Sesha izingxoxo…",
@@ -190,7 +173,6 @@
   "messages.noSearchResults": "Azikho izingxoxo ezifanele usesho lwakho",
   "messages.noSearchResultsHint": "Zama igama elikhona noma igama elikhona",
   "messages.noMessagesYet": "Ayikho imilayezo",
-
   "profile.playSince": "Udlala kusukela {{year}}",
   "profile.verified": "✓ Kuqinisekisiwe",
   "profile.creator": "Umdali",
@@ -212,7 +194,6 @@
   "profile.actions.upgrade": "Thuthukisa Uhlelo",
   "profile.notFound": "Iphrofayili ayitholakali",
   "profile.backHome": "← Ikhaya",
-
   "settings.account": "I-akhawunti",
   "settings.displayName": "Igama Lokukhombisa",
   "settings.displayNamePlaceholder": "Igama lakho",
@@ -295,7 +276,6 @@
   "settings.privacyDmOptOut": "Khubaza imilayezo eqondile",
   "settings.privacyDmOptOutDesc": "Thintela labo abangebona abangane ukuthumela i-DM",
   "settings.saved": "Kugcinwe",
-
   "guild.joinTitle": "Joyina Iqembu",
   "guild.joinSubtitle": "Amaqembu aseduze nawe — nqoba ezimpini unyuke izinga",
   "guild.joining": "Ijoyina…",
@@ -315,7 +295,6 @@
   "guild.allianceJoined": "Yajoyina",
   "guild.allianceLeft": "Yashiya {{date}}",
   "guild.guildLabel": "Iqembu",
-
   "leaderboards.title": "Ohlwi Lwezinga",
   "leaderboards.scope.global": "Umhlaba Wonke",
   "leaderboards.scope.city": "Idolobha",
@@ -340,7 +319,6 @@
   "leaderboards.page": "Ikhasi {{page}} ku-{{total}}",
   "leaderboards.prevPage": "← Elidlule",
   "leaderboards.nextPage": "Okulandelayo →",
-
   "wallet.title": "Isikhwama",
   "wallet.coinBalance": "Ibhalansi Yezinhlamvu",
   "wallet.starBalance": "Ibhalansi Yezinkanyezi",
@@ -361,7 +339,6 @@
   "wallet.minTransfer": "Inani elincane lokudluliswa yi-10 izinhlamvu",
   "wallet.maxTransfer": "Ukudluliswa okukhulu okukodwa yi-100,000 izinhlamvu",
   "wallet.purchaseInitiated": "Ukuthenga kuqalisiwe — hlola i-imeyili yakho ukuqinisekisa.",
-
   "quests.title": "Imisebenzi Yansuku Zonke",
   "quests.subtitle": "Qeda imisebenzi ukuthola i-XP nezinhlamvu",
   "quests.resetsIn": "Isetha kabusha ku",
@@ -371,7 +348,6 @@
   "quests.sponsoredQuests": "Imisebenzi Exhasiwe",
   "quests.sponsored": "Ixhasiwe",
   "quests.retry": "Zama futhi",
-
   "seasons.title": "Izikhathi",
   "seasons.activeSeason": "Isikhathi Esisebenzayo",
   "seasons.daysLeft": "izinsuku ezisele",
@@ -406,7 +382,6 @@
   "seasons.confirmGift": "Qinisekisa Isipho",
   "seasons.giftSuccess": "Ipassi inikezwe ku-@{{username}}!",
   "seasons.done": "Kuqediwe",
-
   "prestige.title": "Isidumiso",
   "prestige.notYet": "Akukabi Yisikhathi",
   "prestige.currentRank": "Manje ungumuntu we-{{rank}} (Izinga {{level}}).",
@@ -436,7 +411,6 @@
   "prestige.yesPrestige": "Yebo, Isidumiso",
   "prestige.processing": "Iyacutshungulwa…",
   "prestige.notYetButton": "Akukabi Yisikhathi",
-
   "nemesis.title": "Isitha Sakho",
   "nemesis.subtitle": "Iqhawe elifaniswe nezinga lakho le-XP. Lihluze ukuze ukhuphuke.",
   "nemesis.nextRefresh": "Ukuvuselelwa okulandelayo:",
@@ -454,7 +428,6 @@
   "nemesis.rule3": "Umjaho uqapha i-XP ezuzwe kusukela umdlalo uqalile",
   "nemesis.rule4": "Dlula isitha sakho ukuzuza i-XP Yomlando Yebhonasi",
   "nemesis.retry": "Zama futhi",
-
   "rooms.create.title": "Dala Ikamelo",
   "rooms.create.chooseType": "Khetha uhlobo lwekamelo ofuna ukulidala.",
   "rooms.create.continue": "Qhubeka →",
@@ -496,7 +469,6 @@
   "rooms.create.enrolmentCoins": "Ukubhalisa: {{coins}} izinhlamvu",
   "rooms.create.nameRequired": "Igama lekamelo liyadingeka",
   "rooms.create.moduleRequired": "Engeza okungenani isifundo esisodwa sohlelo",
-
   "room.about": "Mayelana",
   "room.noDescription": "Akukho ncazelo.",
   "room.creator": "Umdali",
@@ -543,7 +515,6 @@
   "room.saved": "Kugcinwe",
   "room.save": "Gcina",
   "room.roomPowers": "Amandla Ekamelo",
-
   "creator.title": "Idashbhodi Yomdali",
   "creator.revenueToday": "Namuhla",
   "creator.revenueWeek": "Leli Viki",
@@ -569,7 +540,6 @@
   "creator.processed": "Icutshungulwe",
   "creator.accessDenied": "Ukufinyelela Kukhanyelwe",
   "creator.payoutRequested": "Inkokhelo icelwe — ilinde imvume yomphathi",
-
   "creator.broadcasts.title": "Ukusakaza Komakhi",
   "creator.broadcasts.sendBtn": "Thumela Ukusakaza",
   "creator.broadcasts.monthlyAllowance": "Isibalo Senyanga",
@@ -600,7 +570,6 @@
   "creator.broadcasts.accessDeniedTitle": "Ukusakaza Komakhi",
   "creator.broadcasts.accessDeniedDesc": "Kudingeka ube umakhi we-Rising tier noma ngaphezulu ukuze uthumele ukusakaza.",
   "creator.broadcasts.loadError": "Yehlulekile ukulayisha ukusakaza",
-
   "notifications.title": "Izaziso",
   "notifications.unread": "{{count}} ezingafundiwe",
   "notifications.markAllRead": "Phawula zonke njengezifundiwe",
@@ -610,7 +579,6 @@
   "notifications.view": "Buka →",
   "notifications.loadMore": "Layisha okuningi",
   "notifications.loading": "Iyalayisha…",
-
   "referrals.title": "Izincomo",
   "referrals.linkCard.title": "Isixhumanisi Sakho Sencomo",
   "referrals.linkCard.copy": "Kopisha",
@@ -639,7 +607,6 @@
   "referrals.table.tier": "Iqophelo {{tier}}",
   "referrals.table.qualified": "✓ Yebo",
   "referrals.table.pending": "Ilindile",
-
   "elder.title": "Uhlelo Lwebadala",
   "elder.dashboard.menteesLabel": "Abafundi",
   "elder.dashboard.mentorshipXpLabel": "I-XP Yomqeqeshi",
@@ -665,7 +632,6 @@
   "elder.nonEligible.requestSent": "Isicelo sithunyiwe! Umuntu omdala uzonikezwa ngokushesha.",
   "elder.nonEligible.requesting": "Ithuma…",
   "elder.nonEligible.requestButton": "Cela Umqeqeshi",
-
   "council.title": "Ibhunga Leqonga",
   "council.subtitle": "Amalungu akhethiwe aholela isigqi seqonga ngeziphakamiso ezivotelwe.",
   "council.membersSection": "Amalungu Ebhunga",
@@ -682,7 +648,6 @@
   "council.submitting": "Ithuma…",
   "council.submitSuccess": "Umqondo uthunyiwe ngempumelelo!",
   "council.voteFailed": "Ukuvota kuhlulekile",
-
   "stickers.title": "Isitolo Sezitembu",
   "stickers.subtitle": "Vula amaphakethe ezitembu ukuwasebenzisa emilayezweni nasemakamelo",
   "stickers.owned": "Uyinhloko",
@@ -696,7 +661,6 @@
   "stickers.unlocked": "Iphakethe yezitembu ivuliwe!",
   "stickers.empty": "Ayikho amaphakethe ezitembu okwamanje",
   "stickers.emptyHint": "Buyela emuva maduze!",
-
   "moments.title": "Amathuba",
   "moments.subtitle": "Izividiyo ezimfushane nezithombe zomphakathi",
   "moments.share": "Yabelana Ngethuba",
@@ -716,7 +680,6 @@
   "moments.create.cancel": "Khansela",
   "moments.create.post": "Shicilela Ithuba",
   "moments.create.posting": "Ishicilela…",
-
   "publicProfile.playingSince": "Udlala kusukela {{year}}",
   "publicProfile.legacyScore": "Amanqe Omlando:",
   "publicProfile.rankXp": "I-XP Yezinga — Izinga {{level}}",
@@ -734,7 +697,6 @@
   "publicProfile.gift": "Isipho",
   "publicProfile.notFound": "Iphrofayili ayitholakali",
   "publicProfile.backHome": "← Ikhaya",
-
   "subscription.title": "Ukubhalisa Nokukhokhela",
   "subscription.currentPlan": "Uhlelo Lwamanje",
   "subscription.cancels": "Iyakhansela {{date}}",
@@ -758,7 +720,6 @@
   "subscription.cancelledSuccess": "Ukubhalisa kukhanselwe. Uzogcina ukufinyelela kuze kufike ekupheleni kwesikhathi.",
   "subscription.upgradedSuccess": "Kuthuthukiswe ku-{{plan}}!",
   "subscription.finePrint": "Amanani angama-Nigerian Naira (NGN). Ukubhalisa kuvuselelwa ngokwenzeka ngokwayo futhi kungakhanselelwa nganoma iyiphi isikhathi. Izinhlelo zonyaka zikhokhelwa njengokukhokhela okukodwa.",
-
   "groups.title": "Izingxoxo Zamaqembu",
   "groups.createGroup": "+ Dala Iqembu",
   "groups.noGroups": "Azikho izingxoxo zamaqembu okwamanje",
@@ -784,7 +745,6 @@
   "groups.conversation.noMessages": "Akukho milayezo okwamanje. Qala ingxoxo!",
   "groups.conversation.typeMessage": "Thayipha umlayezo…",
   "groups.conversation.send": "Thumela",
-
   "events.title": "Imicimbi",
   "events.activeNow": "Isebenza Manje",
   "events.upcoming": "Ezizayo",
@@ -800,13 +760,11 @@
   "events.xpMultiplier": "{{multiplier}}× i-XP iphindaphindwa",
   "events.startingSoon": "Iqala maduze",
   "events.startsIn": "Iqala ku {{time}}",
-
   "inbox.title": "Ibhokisi Lemeyili",
   "inbox.unread": "{{count}} ezingafundiwe",
   "inbox.fromZobia": "Evela ku-Zobia",
   "inbox.noMessages": "Ayikho imilayezo",
   "inbox.noMessagesHint": "Awunayo imilayezo evela ku-Zobia okwamanje. Buyela emuva maduze!",
-
   "communityNotes.title": "Amanothi Omphakathi",
   "communityNotes.subtitle": "Umongo ovela kumphakathi mayelana nezinhloko ezibikelwe. Noma ubani angafinyelela amanothi asiza.",
   "communityNotes.addNote": "+ Engeza Inothi",
@@ -830,23 +788,19 @@
   "communityNotes.modal.submit": "Thumela Inothi",
   "communityNotes.modal.submitting": "Ithuma…",
   "communityNotes.modal.minLength": "Inothi kufanele libe nezinhlamvu ezingama-20 okungenani.",
-
   "terms.title": "Imigomo Yesevisi",
   "terms.lastUpdated": "Kubuyekeziwe: {{date}}",
   "terms.backHome": "← Buyela Ekhaya",
   "terms.toc": "Uhlu Lwezinhlobo",
-
   "privacy.title": "Inqubomgomo Yobumfihlo",
   "privacy.lastUpdated": "Kubuyekeziwe: {{date}}",
   "privacy.backHome": "← Buyela Ekhaya",
   "privacy.toc": "Uhlu Lwezinhlobo",
-
   "notFound.title": "Ikhasi Alitholakali",
   "notFound.description": "Ikhasi ofuna lona alikhona noma lihanjisiwe.",
   "notFound.backHome": "Buyela Ekhaya",
   "notFound.login": "Ngena",
   "notFound.quickLinks": "Noma zama elinye lala makhasi:",
-
   "guildDiscovery.stepBadge": "Ususeduze",
   "guildDiscovery.title": "Amaqembu aseduzane nawe ayaqasha",
   "guildDiscovery.subtitle": "Ukujoyina iGuild kukuvumela uthole amaXP awengeziwe kukho konke okwenzayo.",
@@ -867,11 +821,9 @@
   "guildDiscovery.emptyHint": "Hlola maduze — noma bhekisisa wonke amaqembu.",
   "guildDiscovery.tooNew": "Buya maduze!",
   "guildDiscovery.tooNewBody": "Izincomo zeGuild zivuleka ngemuva kwamahora akho ayi-24 okuqala ku-Zobia.",
-
   "landing.footer.terms": "Imigomo Yesevisi",
   "landing.footer.privacy": "Inqubomgomo Yobumfihlo",
   "landing.footer.copyright": "© {{year}} Zobia Social. Wonke amalungelo agcinwe.",
-
   "admin.aiSettings": "AI Settings",
   "admin.aiSettings.subtitle": "Manage API keys and connection status for AI providers.",
   "admin.aiSettings.deepseek": "DeepSeek (Primary)",
@@ -894,7 +846,6 @@
   "admin.aiSettings.clearSuccess": "Override cleared.",
   "admin.aiSettings.saveError": "Failed to save key.",
   "admin.aiSettings.loadError": "Failed to load AI settings.",
-
   "wallet.xpBalance": "XP",
   "wallet.coinsBalance": "Izinhlamvu",
   "wallet.starsBalance": "Izinkanyezi",
@@ -930,5 +881,22 @@
   "messages.coinError.buyCoins": "Thenga Izinhlamvu",
   "messages.coinError.upgrade": "Dlulela ku-Pro",
   "settings.twoFaDisabledByAdmin": "Ukuqinisekiswa kwezinyathelo ezimbili njengamanje kukhubazwe umphathi wenkundla.",
-  "settings.pinDisabledByAdmin": "Ukuqinisekiswa kwe-PIN njengamanje kukhubazwe umphathi wenkundla."
+  "settings.pinDisabledByAdmin": "Ukuqinisekiswa kwe-PIN njengamanje kukhubazwe umphathi wenkundla.",
+  "friends.requests.received": "Ezamukelwa",
+  "friends.requests.sent": "Ezathunyelwa",
+  "friends.requests.withdraw": "Hoxisa",
+  "friends.requests.withdrawing": "Iyahoxisa…",
+  "friends.empty.noReceivedRequests": "Azikho izicelo ezilindile.",
+  "friends.empty.noSentRequests": "Azikho izicelo ezithunyiwe ezilindile.",
+  "nav.friends": "Abangane",
+  "profile.dropdown.viewProfile": "Buka Iphrofayela",
+  "profile.dropdown.profileSettings": "Izilungiselelo Zephrofayela",
+  "profile.dropdown.managePlan": "Phatha Ihlelo",
+  "profile.dropdown.upgradePlan": "Thuthukisa Ihlelo",
+  "profile.dropdown.managePlanNamed": "Phatha Ihlelo le-{{plan}}",
+  "profile.private": "Le phrofayela iyimfihlo.",
+  "profile.restricted": "Le akhawunti ikhawulelwe.",
+  "settings.privacy.lockProfile": "Iphrofayela yimfihlo",
+  "settings.privacy.disableFriendRequests": "Khubaza izicelo zobungane",
+  "settings.privacy.hideSections": "Izingxenye zephrofayela ezifihliwe"
 }

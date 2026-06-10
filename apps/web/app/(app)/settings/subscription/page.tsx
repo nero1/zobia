@@ -27,6 +27,19 @@ interface CurrentPlanData {
   } | null;
 }
 
+interface MeResponse {
+  user?: { plan?: string } | null;
+  plan?: string;
+}
+
+interface SubscriptionResponse {
+  subscription?: {
+    interval?: BillingInterval;
+    current_period_end?: string;
+    cancel_at_period_end?: boolean;
+  } | null;
+}
+
 interface PlanFeature {
   text: string;
   included: boolean;
@@ -278,12 +291,26 @@ export default function SubscriptionPage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/me", { credentials: "include" });
-        if (res.status === 401) { router.push("/auth/login"); return; }
-        if (!res.ok) throw new Error("Failed to load subscription info");
-        const data = (await res.json()) as CurrentPlanData;
+        const [meRes, subRes] = await Promise.all([
+          fetch("/api/users/me", { credentials: "include" }),
+          fetch("/api/economy/subscriptions", { credentials: "include" }),
+        ]);
+        if (meRes.status === 401) { router.push("/auth/login"); return; }
+        if (!meRes.ok) throw new Error("Failed to load subscription info");
+        const meJson = (await meRes.json()) as MeResponse;
+        const subJson = subRes.ok ? (await subRes.json()) as SubscriptionResponse : null;
+        const rawUser = meJson.user ?? meJson;
+        const planId = ((rawUser as { plan?: string }).plan ?? "free") as PlanId;
+        const sub = subJson?.subscription;
+        const data: CurrentPlanData = {
+          plan: planId,
+          subscription: sub ? {
+            interval: sub.interval,
+            currentPeriodEnd: sub.current_period_end,
+            cancelAtPeriodEnd: sub.cancel_at_period_end,
+          } : null,
+        };
         setPlanData(data);
-        // Initialise billing interval from existing subscription if available
         if (data.subscription?.interval) {
           setInterval(data.subscription.interval);
         }
@@ -316,8 +343,20 @@ export default function SubscriptionPage() {
         // If no redirect URL, assume immediate upgrade
         showToast(`Upgraded to ${targetPlan}!`);
         // Refetch plan data
-        const meRes = await fetch("/api/me", { credentials: "include" });
-        if (meRes.ok) setPlanData((await meRes.json()) as CurrentPlanData);
+        const [meRes2, subRes2] = await Promise.all([
+          fetch("/api/users/me", { credentials: "include" }),
+          fetch("/api/economy/subscriptions", { credentials: "include" }),
+        ]);
+        if (meRes2.ok) {
+          const meJson2 = (await meRes2.json()) as MeResponse;
+          const subJson2 = subRes2.ok ? (await subRes2.json()) as SubscriptionResponse : null;
+          const rawUser2 = meJson2.user ?? meJson2;
+          const sub2 = subJson2?.subscription;
+          setPlanData({
+            plan: ((rawUser2 as { plan?: string }).plan ?? "free") as PlanId,
+            subscription: sub2 ? { interval: sub2.interval, currentPeriodEnd: sub2.current_period_end, cancelAtPeriodEnd: sub2.cancel_at_period_end } : null,
+          });
+        }
       }
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Upgrade failed", "error");
@@ -340,8 +379,20 @@ export default function SubscriptionPage() {
       }
       showToast("Subscription cancelled. You'll retain access until the period ends.");
       // Refetch
-      const meRes = await fetch("/api/me", { credentials: "include" });
-      if (meRes.ok) setPlanData((await meRes.json()) as CurrentPlanData);
+      const [meRes3, subRes3] = await Promise.all([
+        fetch("/api/users/me", { credentials: "include" }),
+        fetch("/api/economy/subscriptions", { credentials: "include" }),
+      ]);
+      if (meRes3.ok) {
+        const meJson3 = (await meRes3.json()) as MeResponse;
+        const subJson3 = subRes3.ok ? (await subRes3.json()) as SubscriptionResponse : null;
+        const rawUser3 = meJson3.user ?? meJson3;
+        const sub3 = subJson3?.subscription;
+        setPlanData({
+          plan: ((rawUser3 as { plan?: string }).plan ?? "free") as PlanId,
+          subscription: sub3 ? { interval: sub3.interval, currentPeriodEnd: sub3.current_period_end, cancelAtPeriodEnd: sub3.cancel_at_period_end } : null,
+        });
+      }
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Cancel failed", "error");
     } finally {

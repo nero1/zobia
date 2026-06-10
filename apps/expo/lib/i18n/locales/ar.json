@@ -1291,7 +1291,6 @@
     "tooNew": "عد قريباً!",
     "tooNewBody": "تفتح توصيات النقابات بعد أول 24 ساعة على زوبيا."
   },
-
   "wallet.xpBalance": "XP",
   "wallet.coinsBalance": "العملات",
   "wallet.starsBalance": "النجوم",
@@ -1327,5 +1326,21 @@
   "messages.coinError.buyCoins": "شراء عملات",
   "messages.coinError.upgrade": "الترقية إلى Pro",
   "settings.twoFaDisabledByAdmin": "المصادقة الثنائية معطَّلة حالياً من قِبَل مسؤول المنصة.",
-  "settings.pinDisabledByAdmin": "مصادقة PIN معطَّلة حالياً من قِبَل مسؤول المنصة."
+  "settings.pinDisabledByAdmin": "مصادقة PIN معطَّلة حالياً من قِبَل مسؤول المنصة.",
+  "nav.friends": "الأصدقاء",
+  "friends.requests.received": "المُستلَمة",
+  "friends.requests.sent": "المُرسَلة",
+  "friends.requests.withdraw": "سحب",
+  "friends.requests.withdrawing": "جارٍ السحب…",
+  "friends.empty.noReceivedRequests": "لا توجد طلبات صداقة مستلمة.",
+  "friends.empty.noSentRequests": "لا توجد طلبات صداقة مُرسَلة.",
+  "profile.private": "هذا الملف الشخصي خاص.",
+  "profile.restricted": "هذا الحساب مقيّد.",
+  "profile.suspended": "هذا الحساب موقوف.",
+  "settings.privacy.lockProfile": "ملف شخصي خاص",
+  "settings.privacy.lockProfileDesc": "إخفاء ملفك الشخصي عن المستخدمين غير الأصدقاء",
+  "settings.privacy.disableFriendRequests": "تعطيل طلبات الصداقة",
+  "settings.privacy.disableFriendRequestsDesc": "منع الآخرين من إرسال طلبات صداقة إليك",
+  "settings.privacy.hideSections": "الأقسام المخفية في الملف الشخصي",
+  "settings.privacy.hideSectionsDesc": "اختر الأقسام التي تريد إخفاءها عن الآخرين"
 }

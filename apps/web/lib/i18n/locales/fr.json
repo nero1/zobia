@@ -1,7 +1,6 @@
 {
   "app.name": "Zobia Social",
   "app.tagline": "Connecter, S'engager, Appartenir.",
-
   "nav.home": "Accueil",
   "nav.rooms": "Salons",
   "nav.messages": "Messages",
@@ -11,7 +10,6 @@
   "nav.rankings": "Classements",
   "nav.settings": "Paramètres",
   "nav.logout": "Se déconnecter",
-
   "auth.login": "Se connecter",
   "auth.logout": "Se déconnecter",
   "auth.register": "Créer un compte",
@@ -38,11 +36,9 @@
   "auth.signUpWithGoogle": "S'inscrire avec Google",
   "auth.signingInWithTelegram": "Connexion avec Telegram…",
   "auth.signingUpWithTelegram": "Inscription avec Telegram…",
-
   "home.title": "Accueil",
   "home.feed.empty": "Rien ici pour l'instant. Suivez des personnes ou rejoignez des salons pour voir des publications.",
   "home.feed.loading": "Chargement de votre fil…",
-
   "rooms.title": "Salons",
   "rooms.discover": "Découvrir des salons",
   "rooms.create": "Créer un salon",
@@ -51,13 +47,11 @@
   "rooms.members": "{{count}} membre",
   "rooms.members_other": "{{count}} membres",
   "rooms.empty": "Aucun salon trouvé. Soyez le premier à en créer un !",
-
   "messages.title": "Messages",
   "messages.new": "Nouveau message",
   "messages.empty": "Aucune conversation pour l'instant. Commencez à discuter !",
   "messages.typeHere": "Tapez un message…",
   "messages.send": "Envoyer",
-
   "profile.title": "Profil",
   "profile.edit": "Modifier le profil",
   "profile.followers": "Abonnés",
@@ -66,7 +60,6 @@
   "profile.rank": "Rang",
   "profile.joinedOn": "Inscrit le {{date}}",
   "profile.bio.placeholder": "Parlez-vous au monde entier…",
-
   "settings.title": "Paramètres",
   "settings.profile": "Paramètres du profil",
   "settings.privacy": "Confidentialité",
@@ -77,7 +70,6 @@
   "settings.theme.light": "Clair",
   "settings.theme.dark": "Sombre",
   "settings.theme.system": "Système",
-
   "admin.dashboard": "Tableau de bord",
   "admin.users": "Utilisateurs",
   "admin.rooms": "Salons",
@@ -90,17 +82,14 @@
   "admin.activeRooms": "Salons actifs",
   "admin.reportsToday": "Rapports aujourd'hui",
   "admin.revenue": "Revenus",
-
   "error.generic": "Une erreur s'est produite. Veuillez réessayer.",
   "error.notFound": "Page introuvable.",
   "error.unauthorized": "Vous devez être connecté pour voir cette page.",
   "error.forbidden": "Vous n'avez pas la permission de faire cela.",
   "error.networkError": "Erreur réseau. Veuillez vérifier votre connexion.",
   "error.sessionExpired": "Votre session a expiré. Veuillez vous reconnecter.",
-
   "offline.banner": "Vous êtes hors ligne. Certaines fonctionnalités peuvent être indisponibles.",
   "offline.reconnected": "Vous êtes de retour en ligne !",
-
   "action.save": "Enregistrer",
   "action.cancel": "Annuler",
   "action.delete": "Supprimer",
@@ -111,25 +100,21 @@
   "action.submit": "Soumettre",
   "action.loading": "Chargement…",
   "action.retry": "Réessayer",
-
   "validation.required": "Ce champ est obligatoire.",
   "validation.email": "Veuillez entrer une adresse e-mail valide.",
   "validation.minLength": "Doit contenir au moins {{min}} caractères.",
   "validation.maxLength": "Ne doit pas dépasser {{max}} caractères.",
   "validation.passwordMatch": "Les mots de passe ne correspondent pas.",
-
   "upload.dragDrop": "Glissez-déposez un fichier, ou cliquez pour parcourir",
   "upload.maxSize": "Taille maximale du fichier : {{size}}",
   "upload.uploading": "Téléchargement en cours…",
   "upload.success": "Téléchargé avec succès.",
   "upload.error": "Échec du téléchargement. Veuillez réessayer.",
-
   "notification.newMessage": "Nouveau message de {{name}}",
   "notification.newFollower": "{{name}} a commencé à vous suivre",
   "notification.roomInvite": "{{name}} vous a invité dans {{room}}",
   "notification.giftReceived": "{{name}} vous a envoyé un cadeau",
   "notification.rankUp": "Vous avez atteint le rang {{rank}} !",
-
   "home.nemesis.title": "Votre Némésis",
   "home.nemesis.you": "Vous",
   "home.nemesis.aheadBy": "Vous avez {{diff}} XP d'avance",
@@ -160,7 +145,6 @@
   "home.activityCount": "{{count}} utilisateur a gagné des XP la dernière heure",
   "home.activityCount_other": "{{count}} utilisateurs ont gagné des XP la dernière heure",
   "home.pageTitle": "Accueil",
-
   "rooms.createRoom": "+ Créer un salon",
   "rooms.tab.trending": "Tendance",
   "rooms.tab.nearby": "Près de moi",
@@ -178,7 +162,6 @@
   "rooms.empty.createButton": "Créer un salon",
   "rooms.loadMore": "Charger plus",
   "rooms.loading": "Chargement…",
-
   "messages.groups": "👥 Groupes",
   "messages.newMessage": "+ Nouveau message",
   "messages.search.placeholder": "Rechercher des conversations…",
@@ -190,7 +173,6 @@
   "messages.noSearchResults": "Aucune conversation ne correspond à votre recherche",
   "messages.noSearchResultsHint": "Essayez un autre nom ou mot-clé",
   "messages.noMessagesYet": "Pas encore de messages",
-
   "profile.playSince": "Joue depuis {{year}}",
   "profile.verified": "✓ Vérifié",
   "profile.creator": "Créateur",
@@ -212,7 +194,6 @@
   "profile.actions.upgrade": "Améliorer le plan",
   "profile.notFound": "Profil introuvable",
   "profile.backHome": "← Accueil",
-
   "settings.account": "Compte",
   "settings.displayName": "Nom affiché",
   "settings.displayNamePlaceholder": "Votre nom",
@@ -295,7 +276,6 @@
   "settings.privacyDmOptOut": "Désactiver les messages directs",
   "settings.privacyDmOptOutDesc": "Empêcher les non-amis de vous envoyer des DMs",
   "settings.saved": "Enregistré",
-
   "guild.joinTitle": "Rejoindre une guilde",
   "guild.joinSubtitle": "Guildes près de vous — participez aux guerres et montez en niveaux",
   "guild.joining": "Rejoindre…",
@@ -315,7 +295,6 @@
   "guild.allianceJoined": "Rejoint",
   "guild.allianceLeft": "Quitté {{date}}",
   "guild.guildLabel": "Guilde",
-
   "leaderboards.title": "Classements",
   "leaderboards.scope.global": "Mondial",
   "leaderboards.scope.city": "Ville",
@@ -340,7 +319,6 @@
   "leaderboards.page": "Page {{page}} sur {{total}}",
   "leaderboards.prevPage": "← Préc",
   "leaderboards.nextPage": "Suiv →",
-
   "wallet.title": "Portefeuille",
   "wallet.coinBalance": "Solde de pièces",
   "wallet.starBalance": "Solde d'étoiles",
@@ -361,7 +339,6 @@
   "wallet.minTransfer": "Le montant minimum de transfert est de 10 pièces",
   "wallet.maxTransfer": "Le transfert unique maximum est de 100 000 pièces",
   "wallet.purchaseInitiated": "Achat initié — vérifiez votre e-mail pour la confirmation.",
-
   "quests.title": "Quêtes quotidiennes",
   "quests.subtitle": "Complétez des quêtes pour gagner des XP et des pièces",
   "quests.resetsIn": "Réinitialise dans",
@@ -371,7 +348,6 @@
   "quests.sponsoredQuests": "Quêtes sponsorisées",
   "quests.sponsored": "Sponsorisé",
   "quests.retry": "Réessayer",
-
   "seasons.title": "Saisons",
   "seasons.activeSeason": "Saison active",
   "seasons.daysLeft": "jours restants",
@@ -406,7 +382,6 @@
   "seasons.confirmGift": "Confirmer le cadeau",
   "seasons.giftSuccess": "Pass offert à @{{username}} !",
   "seasons.done": "Terminé",
-
   "prestige.title": "Prestige",
   "prestige.notYet": "Pas encore",
   "prestige.currentRank": "Vous êtes actuellement {{rank}} (Niveau {{level}}).",
@@ -436,7 +411,6 @@
   "prestige.yesPrestige": "Oui, Prestigier",
   "prestige.processing": "Traitement en cours…",
   "prestige.notYetButton": "Pas encore",
-
   "nemesis.title": "Votre Némésis",
   "nemesis.subtitle": "Un rival associé à votre niveau XP. Surpassez-le pour grimper.",
   "nemesis.nextRefresh": "Prochain rafraîchissement :",
@@ -454,7 +428,6 @@
   "nemesis.rule3": "Le sprint suit les XP gagnés depuis le début du match",
   "nemesis.rule4": "Surclassez votre némésis pour gagner des XP Legacy bonus",
   "nemesis.retry": "Réessayer",
-
   "rooms.create.title": "Créer un salon",
   "rooms.create.chooseType": "Choisissez le type de salon que vous souhaitez créer.",
   "rooms.create.continue": "Continuer →",
@@ -496,7 +469,6 @@
   "rooms.create.enrolmentCoins": "Inscription : {{coins}} pièces",
   "rooms.create.nameRequired": "Le nom du salon est obligatoire",
   "rooms.create.moduleRequired": "Ajoutez au moins un module de curriculum",
-
   "room.about": "À propos",
   "room.noDescription": "Aucune description.",
   "room.creator": "Créateur",
@@ -543,7 +515,6 @@
   "room.saved": "Sauvegardé",
   "room.save": "Sauvegarder",
   "room.roomPowers": "Pouvoirs du salon",
-
   "creator.title": "Tableau de bord créateur",
   "creator.revenueToday": "Aujourd'hui",
   "creator.revenueWeek": "Cette semaine",
@@ -569,7 +540,6 @@
   "creator.processed": "Traité",
   "creator.accessDenied": "Accès refusé",
   "creator.payoutRequested": "Paiement demandé — en attente d'approbation administrative",
-
   "creator.broadcasts.title": "Diffusions du Créateur",
   "creator.broadcasts.sendBtn": "Envoyer une diffusion",
   "creator.broadcasts.monthlyAllowance": "Quota mensuel",
@@ -600,7 +570,6 @@
   "creator.broadcasts.accessDeniedTitle": "Diffusions du Créateur",
   "creator.broadcasts.accessDeniedDesc": "Vous devez être un créateur de niveau Rising ou supérieur pour envoyer des diffusions.",
   "creator.broadcasts.loadError": "Impossible de charger les diffusions",
-
   "notifications.title": "Notifications",
   "notifications.unread": "{{count}} non lu",
   "notifications.markAllRead": "Tout marquer comme lu",
@@ -610,7 +579,6 @@
   "notifications.view": "Voir →",
   "notifications.loadMore": "Charger plus",
   "notifications.loading": "Chargement…",
-
   "referrals.title": "Parrainages",
   "referrals.linkCard.title": "Votre lien de parrainage",
   "referrals.linkCard.copy": "Copier",
@@ -639,7 +607,6 @@
   "referrals.table.tier": "Niveau {{tier}}",
   "referrals.table.qualified": "✓ Oui",
   "referrals.table.pending": "En attente",
-
   "elder.title": "Système Ancien",
   "elder.dashboard.menteesLabel": "Mentorés",
   "elder.dashboard.mentorshipXpLabel": "XP de mentorat",
@@ -665,7 +632,6 @@
   "elder.nonEligible.requestSent": "Demande envoyée ! Un Ancien vous sera bientôt assigné.",
   "elder.nonEligible.requesting": "Envoi…",
   "elder.nonEligible.requestButton": "Demander un mentor",
-
   "council.title": "Conseil de la plateforme",
   "council.subtitle": "Membres élus qui orientent la plateforme via des idées votées.",
   "council.membersSection": "Membres du conseil",
@@ -682,7 +648,6 @@
   "council.submitting": "Soumission…",
   "council.submitSuccess": "Idée soumise avec succès !",
   "council.voteFailed": "Vote échoué",
-
   "stickers.title": "Boutique de stickers",
   "stickers.subtitle": "Débloquez des packs de stickers pour les messages et salons",
   "stickers.owned": "Possédé",
@@ -696,7 +661,6 @@
   "stickers.unlocked": "Pack de stickers débloqué !",
   "stickers.empty": "Aucun pack de stickers",
   "stickers.emptyHint": "Revenez bientôt !",
-
   "moments.title": "Moments",
   "moments.subtitle": "Clips courts et photos de la communauté",
   "moments.share": "Partager un moment",
@@ -716,7 +680,6 @@
   "moments.create.cancel": "Annuler",
   "moments.create.post": "Publier le moment",
   "moments.create.posting": "Publication…",
-
   "publicProfile.playingSince": "Joue depuis {{year}}",
   "publicProfile.legacyScore": "Score héritage :",
   "publicProfile.rankXp": "XP de rang — Niveau {{level}}",
@@ -734,7 +697,6 @@
   "publicProfile.gift": "Cadeau",
   "publicProfile.notFound": "Profil introuvable",
   "publicProfile.backHome": "← Accueil",
-
   "subscription.title": "Abonnement & Facturation",
   "subscription.currentPlan": "Plan actuel",
   "subscription.cancels": "Annulé le {{date}}",
@@ -758,7 +720,6 @@
   "subscription.cancelledSuccess": "Abonnement annulé. Vous conserverez l'accès jusqu'à la fin de la période.",
   "subscription.upgradedSuccess": "Passé à {{plan}} !",
   "subscription.finePrint": "Prix en Naira nigérian. Les abonnements se renouvellent automatiquement et peuvent être annulés à tout moment.",
-
   "groups.title": "Discussions de groupe",
   "groups.createGroup": "+ Créer un groupe",
   "groups.noGroups": "Aucune discussion de groupe",
@@ -784,7 +745,6 @@
   "groups.conversation.noMessages": "Aucun message. Démarrez la conversation !",
   "groups.conversation.typeMessage": "Tapez un message…",
   "groups.conversation.send": "Envoyer",
-
   "events.title": "Événements",
   "events.activeNow": "En cours",
   "events.upcoming": "À venir",
@@ -800,13 +760,11 @@
   "events.xpMultiplier": "{{multiplier}}× multiplicateur XP",
   "events.startingSoon": "Commence bientôt",
   "events.startsIn": "Commence dans {{time}}",
-
   "inbox.title": "Boîte de réception",
   "inbox.unread": "{{count}} non lu",
   "inbox.fromZobia": "De Zobia",
   "inbox.noMessages": "Aucun message",
   "inbox.noMessagesHint": "Vous n'avez pas encore de messages de Zobia. Revenez bientôt !",
-
   "communityNotes.title": "Notes communautaires",
   "communityNotes.subtitle": "Contexte communautaire sur le contenu signalé. Tout le monde peut contribuer.",
   "communityNotes.addNote": "+ Ajouter une note",
@@ -830,23 +788,19 @@
   "communityNotes.modal.submit": "Soumettre la note",
   "communityNotes.modal.submitting": "Soumission…",
   "communityNotes.modal.minLength": "La note doit contenir au moins 20 caractères.",
-
   "terms.title": "Conditions d'utilisation",
   "terms.lastUpdated": "Dernière mise à jour : {{date}}",
   "terms.backHome": "← Retour à l'accueil",
   "terms.toc": "Table des matières",
-
   "privacy.title": "Politique de confidentialité",
   "privacy.lastUpdated": "Dernière mise à jour : {{date}}",
   "privacy.backHome": "← Retour à l'accueil",
   "privacy.toc": "Table des matières",
-
   "notFound.title": "Page introuvable",
   "notFound.description": "La page que vous recherchez n'existe pas ou a été déplacée.",
   "notFound.backHome": "Retourner à l'accueil",
   "notFound.login": "Se connecter",
   "notFound.quickLinks": "Ou essayez l'une de ces pages :",
-
   "guildDiscovery.stepBadge": "Presque là",
   "guildDiscovery.title": "Des équipes près de chez vous recrutent",
   "guildDiscovery.subtitle": "Rejoindre une Guilde vous rapporte des XP supplémentaires sur tout ce que vous faites.",
@@ -867,11 +821,9 @@
   "guildDiscovery.emptyHint": "Revenez bientôt — ou parcourez toutes les guildes.",
   "guildDiscovery.tooNew": "Revenez bientôt !",
   "guildDiscovery.tooNewBody": "Les recommandations de guildes se débloquent après vos 24 premières heures sur Zobia.",
-
   "landing.footer.terms": "Conditions d'utilisation",
   "landing.footer.privacy": "Politique de confidentialité",
   "landing.footer.copyright": "© {{year}} Zobia Social. Tous droits réservés.",
-
   "admin.aiSettings": "AI Settings",
   "admin.aiSettings.subtitle": "Manage API keys and connection status for AI providers.",
   "admin.aiSettings.deepseek": "DeepSeek (Primary)",
@@ -894,7 +846,6 @@
   "admin.aiSettings.clearSuccess": "Override cleared.",
   "admin.aiSettings.saveError": "Failed to save key.",
   "admin.aiSettings.loadError": "Failed to load AI settings.",
-
   "wallet.xpBalance": "XP",
   "wallet.coinsBalance": "Pièces",
   "wallet.starsBalance": "Étoiles",
@@ -930,5 +881,22 @@
   "messages.coinError.buyCoins": "Acheter des pièces",
   "messages.coinError.upgrade": "Passer à Pro",
   "settings.twoFaDisabledByAdmin": "L'authentification à deux facteurs est actuellement désactivée par l'administrateur de la plateforme.",
-  "settings.pinDisabledByAdmin": "L'authentification par PIN est actuellement désactivée par l'administrateur de la plateforme."
+  "settings.pinDisabledByAdmin": "L'authentification par PIN est actuellement désactivée par l'administrateur de la plateforme.",
+  "friends.requests.received": "Reçues",
+  "friends.requests.sent": "Envoyées",
+  "friends.requests.withdraw": "Annuler",
+  "friends.requests.withdrawing": "Annulation…",
+  "friends.empty.noReceivedRequests": "Aucune demande en attente.",
+  "friends.empty.noSentRequests": "Aucune demande envoyée en attente.",
+  "nav.friends": "Amis",
+  "profile.dropdown.viewProfile": "Voir le profil",
+  "profile.dropdown.profileSettings": "Paramètres du profil",
+  "profile.dropdown.managePlan": "Gérer le forfait",
+  "profile.dropdown.upgradePlan": "Améliorer le forfait",
+  "profile.dropdown.managePlanNamed": "Gérer le forfait {{plan}}",
+  "profile.private": "Ce profil est privé.",
+  "profile.restricted": "Ce compte a été restreint.",
+  "settings.privacy.lockProfile": "Profil privé",
+  "settings.privacy.disableFriendRequests": "Désactiver les demandes d'ami",
+  "settings.privacy.hideSections": "Sections de profil masquées"
 }

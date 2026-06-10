@@ -1,7 +1,6 @@
 {
   "app.name": "ዞቢያ ሶሻል",
   "app.tagline": "ተገናኙ፣ ይሳተፉ፣ ይሆኑ።",
-
   "nav.home": "ቤት",
   "nav.rooms": "ክፍሎች",
   "nav.messages": "መልዕክቶች",
@@ -11,7 +10,6 @@
   "nav.rankings": "ደረጃዎች",
   "nav.settings": "ቅንብሮች",
   "nav.logout": "ውጣ",
-
   "auth.login": "ግባ",
   "auth.logout": "ውጣ",
   "auth.register": "መለያ ፍጠር",
@@ -38,11 +36,9 @@
   "auth.signUpWithGoogle": "በGoogle ይመዝገቡ",
   "auth.signingInWithTelegram": "በTelegram በኩል እየገቡ ነው…",
   "auth.signingUpWithTelegram": "በTelegram በኩል እየተመዘገቡ ነው…",
-
   "home.title": "ቤት",
   "home.feed.empty": "ገና ምንም የለም። ሰዎችን ይከተሉ ወይም ክፍሎችን ይቀላቀሉ ለልጥፎች።",
   "home.feed.loading": "ምግብዎ እየጫነ ነው…",
-
   "rooms.title": "ክፍሎች",
   "rooms.discover": "ክፍሎችን ያግኙ",
   "rooms.create": "ክፍል ፍጠር",
@@ -51,13 +47,11 @@
   "rooms.members": "{{count}} አባል",
   "rooms.members_other": "{{count}} አባላት",
   "rooms.empty": "ምንም ክፍሎች አልተገኙም። መጀመሪያ ይፍጠሩ!",
-
   "messages.title": "መልዕክቶች",
   "messages.new": "አዲስ መልዕክት",
   "messages.empty": "ገና ምንም ውይይቶች የሉም። ማውራት ጀምሩ!",
   "messages.typeHere": "መልዕክት ይተይቡ…",
   "messages.send": "ላክ",
-
   "profile.title": "መገለጫ",
   "profile.edit": "መገለጫ አርትዕ",
   "profile.followers": "ተከታዮች",
@@ -66,7 +60,6 @@
   "profile.rank": "ደረጃ",
   "profile.joinedOn": "{{date}} ተቀላቀለ",
   "profile.bio.placeholder": "ስለራስዎ ለዓለም ያውሩ…",
-
   "settings.title": "ቅንብሮች",
   "settings.profile": "የመገለጫ ቅንብሮች",
   "settings.privacy": "ግላዊነት",
@@ -77,7 +70,6 @@
   "settings.theme.light": "ብሩህ",
   "settings.theme.dark": "ጨለማ",
   "settings.theme.system": "ስርዓት",
-
   "admin.dashboard": "ዳሽቦርድ",
   "admin.users": "ተጠቃሚዎች",
   "admin.rooms": "ክፍሎች",
@@ -90,17 +82,14 @@
   "admin.activeRooms": "ንቁ ክፍሎች",
   "admin.reportsToday": "የዛሬ ሪፖርቶች",
   "admin.revenue": "ገቢ",
-
   "error.generic": "ችግር ተፈጥሯል። እባክዎ ደግመው ይሞክሩ።",
   "error.notFound": "ገጹ አልተገኘም።",
   "error.unauthorized": "ይህን ገጽ ለማየት መግባት አለብዎት።",
   "error.forbidden": "ይህን ለማድረግ ፈቃድ የለዎትም።",
   "error.networkError": "የአውታረ መረብ ስህተት። እባክዎ ግንኙነቶን ያረጋግጡ።",
   "error.sessionExpired": "ስብሰባዎ አብቅቷል። እባክዎ ደግመው ይግቡ።",
-
   "offline.banner": "ከኢንተርኔት ተቋርጠዋል። አንዳንድ ባህሪያት ላይሰሩ ይችላሉ።",
   "offline.reconnected": "ወደ ኦንላይን ተመልሰዋል!",
-
   "action.save": "አስቀምጥ",
   "action.cancel": "ሰርዝ",
   "action.delete": "ሰርዝ",
@@ -111,25 +100,21 @@
   "action.submit": "ላክ",
   "action.loading": "እየጫነ…",
   "action.retry": "ደግመው ሞክሩ",
-
   "validation.required": "ይህ መስክ ያስፈልጋል።",
   "validation.email": "እባክዎ ትክክለኛ የኢሜይል አድራሻ ያስገቡ።",
   "validation.minLength": "ቢያንስ {{min}} ቁምፊ መሆን አለበት።",
   "validation.maxLength": "ከ {{max}} ቁምፊ መብለጥ አይገባም።",
   "validation.passwordMatch": "የሚስጥር ቃሎቹ አይዛመዱም።",
-
   "upload.dragDrop": "ፋይልን ይጎትቱ፣ ወይም ለማሰስ ይጫኑ",
   "upload.maxSize": "የፋይል ከፍተኛ መጠን: {{size}}",
   "upload.uploading": "እየጫነ…",
   "upload.success": "በተሳካ ሁኔታ ተጭኗል።",
   "upload.error": "ጭነቱ ተሳንቷል። እባክዎ ደግመው ይሞክሩ።",
-
   "notification.newMessage": "ከ {{name}} አዲስ መልዕክት",
   "notification.newFollower": "{{name}} መከተል ጀምሯል",
   "notification.roomInvite": "{{name}} ወደ {{room}} ጋብዞዎታል",
   "notification.giftReceived": "{{name}} ስጦታ ልኮለዎታል",
   "notification.rankUp": "ወደ ደረጃ {{rank}} ደርሰዋል!",
-
   "home.nemesis.title": "ተቀናቃኝዎ",
   "home.nemesis.you": "እርስዎ",
   "home.nemesis.aheadBy": "{{diff}} XP ቀደምት ነዎት",
@@ -160,7 +145,6 @@
   "home.activityCount": "{{count}} ተጠቃሚ ባለፈው ሰዓት XP አግኝቷል",
   "home.activityCount_other": "{{count}} ተጠቃሚዎች ባለፈው ሰዓት XP አግኝተዋል",
   "home.pageTitle": "ቤት",
-
   "rooms.createRoom": "+ ክፍል ፍጠር",
   "rooms.tab.trending": "ቅጣሚ",
   "rooms.tab.nearby": "ቅርብ ለእኔ",
@@ -178,7 +162,6 @@
   "rooms.empty.createButton": "ክፍል ፍጠር",
   "rooms.loadMore": "ተጨማሪ ጫን",
   "rooms.loading": "እየጫነ…",
-
   "messages.groups": "👥 ቡድኖች",
   "messages.newMessage": "+ አዲስ መልዕክት",
   "messages.search.placeholder": "ውይይቶችን ፈልግ…",
@@ -190,7 +173,6 @@
   "messages.noSearchResults": "ምንም ውይይቶች ከፍለጋዎ ጋር አይዛመዱም",
   "messages.noSearchResultsHint": "ሌሎች ስም ወይም ቁልፍ ቃሎች ሞክሩ",
   "messages.noMessagesYet": "ገና ምንም መልዕክቶች የሉም",
-
   "profile.playSince": "ከ {{year}} ጀምሮ ይጫወታሉ",
   "profile.verified": "✓ ተረጋገጠ",
   "profile.creator": "ፈጣሪ",
@@ -212,7 +194,6 @@
   "profile.actions.upgrade": "ፕላን አሻሽል",
   "profile.notFound": "መገለጫ አልተገኘም",
   "profile.backHome": "← ቤት",
-
   "settings.account": "መለያ",
   "settings.displayName": "የሚታይ ስም",
   "settings.displayNamePlaceholder": "ስምዎ",
@@ -295,7 +276,6 @@
   "settings.privacyDmOptOut": "ቀጥታ መልዕክቶች አጥፋ",
   "settings.privacyDmOptOutDesc": "ወዳጅ ያልሆኑ ሰዎች ቀጥታ መልዕክቶች ከመላክ ይከልክሉ",
   "settings.saved": "ተቀምጧል",
-
   "guild.joinTitle": "ጓድ ይቀላቀሉ",
   "guild.joinSubtitle": "አካባቢዎ ያሉ ጓዶች — ጦርነቶቹን ይዋደዱ እና ደረጃ ይውጡ",
   "guild.joining": "እየተቀላቀለ…",
@@ -315,7 +295,6 @@
   "guild.allianceJoined": "ተቀላቀለ",
   "guild.allianceLeft": "ወጣ {{date}}",
   "guild.guildLabel": "ጓድ",
-
   "leaderboards.title": "ደረጃ ዝርዝሮች",
   "leaderboards.scope.global": "ዓለም አቀፍ",
   "leaderboards.scope.city": "ከተማ",
@@ -340,7 +319,6 @@
   "leaderboards.page": "ገጽ {{page}} ከ {{total}}",
   "leaderboards.prevPage": "← ቀዳሚ",
   "leaderboards.nextPage": "ቀጣይ →",
-
   "wallet.title": "ቦርሳ",
   "wallet.coinBalance": "የሳንቲም ቀሪ",
   "wallet.starBalance": "የኮከብ ቀሪ",
@@ -361,7 +339,6 @@
   "wallet.minTransfer": "ዝቅተኛ የዝውውር መጠን 10 ሳንቲሞች ነው",
   "wallet.maxTransfer": "ከፍተኛ ነጠላ ዝውውር 100,000 ሳንቲሞች ነው",
   "wallet.purchaseInitiated": "ግዥ ተጀምሯል — ለማረጋገጫ ኢሜይልዎን ይፈትሹ።",
-
   "quests.title": "የዕለቱ ተግባሮች",
   "quests.subtitle": "ተግባሮችን አጠናቅቀው XP እና ሳንቲሞች ያግኙ",
   "quests.resetsIn": "ዳግም ያስጀምራል ውስጥ",
@@ -371,7 +348,6 @@
   "quests.sponsoredQuests": "ስፖንሰር የተደረጉ ተግባሮች",
   "quests.sponsored": "ስፖንሰር",
   "quests.retry": "ደግመው ሞክሩ",
-
   "seasons.title": "ወቅቶች",
   "seasons.activeSeason": "ንቁ ወቅት",
   "seasons.daysLeft": "ቀናት ቀርተዋል",
@@ -406,7 +382,6 @@
   "seasons.confirmGift": "ስጦታ አረጋግጥ",
   "seasons.giftSuccess": "ፓሱ ለ @{{username}} ተሰጥቷል!",
   "seasons.done": "ተጠናቋል",
-
   "prestige.title": "ክብር",
   "prestige.notYet": "ገና አይደለም",
   "prestige.currentRank": "አሁን {{rank}} ናቸው (ደረጃ {{level}})።",
@@ -436,7 +411,6 @@
   "prestige.yesPrestige": "አዎ፣ ክብር",
   "prestige.processing": "በሂደት ላይ…",
   "prestige.notYetButton": "ገና አይደለም",
-
   "nemesis.title": "ተቀናቃኝዎ",
   "nemesis.subtitle": "ለXP ደረጃዎ የተዛመደ ፉክክር። ከእርሱ/ከእርሷ ወጥተው ይውጡ።",
   "nemesis.nextRefresh": "ቀጣይ ዳግም ማስጀመር:",
@@ -454,7 +428,6 @@
   "nemesis.rule3": "ሩጫ ጨዋታ ከጀመረ በኋላ ያገኘውን XP ይከታተላል",
   "nemesis.rule4": "ተቀናቃኝዎን ከፍ ያድርጉ ጉርሻ ቅርስ XP ለማግኘት",
   "nemesis.retry": "ደግመው ሞክሩ",
-
   "rooms.create.title": "ክፍል ፍጠር",
   "rooms.create.chooseType": "መፍጠር የሚፈልጉትን ክፍል አይነት ይምረጡ።",
   "rooms.create.continue": "ቀጥሉ →",
@@ -496,7 +469,6 @@
   "rooms.create.enrolmentCoins": "ምዝገባ: {{coins}} ሳንቲሞች",
   "rooms.create.nameRequired": "የክፍሉ ስም ያስፈልጋል",
   "rooms.create.moduleRequired": "ቢያንስ አንድ የሥርዓተ ትምህርት ሞዱል ጨምሩ",
-
   "room.about": "ስለ",
   "room.noDescription": "ምንም መግለጫ የለም።",
   "room.creator": "ፈጣሪ",
@@ -543,7 +515,6 @@
   "room.saved": "ተቀምጧል",
   "room.save": "አስቀምጥ",
   "room.roomPowers": "የክፍሉ ሃይሎች",
-
   "creator.title": "የፈጣሪ ዳሽቦርድ",
   "creator.revenueToday": "ዛሬ",
   "creator.revenueWeek": "ይህ ሳምንት",
@@ -569,7 +540,6 @@
   "creator.processed": "ተፈጽሟል",
   "creator.accessDenied": "ፈቃድ ተነፍጓል",
   "creator.payoutRequested": "ክፍያ ተጠይቋል — የአስተዳዳሪ ፈቃድ ይጠብቃል",
-
   "creator.broadcasts.title": "የፈጣሪ ስርጭቶች",
   "creator.broadcasts.sendBtn": "ስርጭት ላክ",
   "creator.broadcasts.monthlyAllowance": "የወር ፈቃድ",
@@ -600,7 +570,6 @@
   "creator.broadcasts.accessDeniedTitle": "የፈጣሪ ስርጭቶች",
   "creator.broadcasts.accessDeniedDesc": "ስርጭቶችን ለመላክ Rising ደረጃ ወይም ከዚያ በላይ ፈጣሪ መሆን ያስፈልጋል።",
   "creator.broadcasts.loadError": "ስርጭቶችን መጫን አልተሳካም",
-
   "notifications.title": "ማሳወቂያዎች",
   "notifications.unread": "{{count}} ያልተነበቡ",
   "notifications.markAllRead": "ሁሉንም እንደ ተነበቡ ምልክት ያድርጉ",
@@ -610,7 +579,6 @@
   "notifications.view": "ይመልከቱ →",
   "notifications.loadMore": "ተጨማሪ ጫን",
   "notifications.loading": "እየጫነ…",
-
   "referrals.title": "ማስተዋወቅ",
   "referrals.linkCard.title": "የማስተዋወቅ ሊንክዎ",
   "referrals.linkCard.copy": "ቅዱ",
@@ -639,7 +607,6 @@
   "referrals.table.tier": "ደረጃ {{tier}}",
   "referrals.table.qualified": "✓ አዎ",
   "referrals.table.pending": "በሂደት ላይ",
-
   "elder.title": "የሽማግሌ ስርዓት",
   "elder.dashboard.menteesLabel": "ተማሪዎች",
   "elder.dashboard.mentorshipXpLabel": "የምክር XP",
@@ -665,7 +632,6 @@
   "elder.nonEligible.requestSent": "ጥያቄ ተልኳል! ሽማግሌ ብዙም ሳይቆይ ይሾሙዎታል።",
   "elder.nonEligible.requesting": "እየላከ…",
   "elder.nonEligible.requestButton": "አስተማሪ ይጠይቁ",
-
   "council.title": "የፕላትፎርም ምክር ቤት",
   "council.subtitle": "የፕላትፎርምን አቅጣጫ ለምርጫ ሃሳቦች ሲመሩ የተለምቅ አባላት።",
   "council.membersSection": "የምክር ቤት አባላት",
@@ -682,7 +648,6 @@
   "council.submitting": "እያቀረበ…",
   "council.submitSuccess": "ሃሳቡ በተሳካ ሁኔታ ቀርቧል!",
   "council.voteFailed": "ምርጫ አልተሳካም",
-
   "stickers.title": "የስቲከር ሱቅ",
   "stickers.subtitle": "በመልዕክቶች እና ክፍሎች ለመጠቀም የስቲከር ጥቅሎችን ክፈቱ",
   "stickers.owned": "ባለቤት ናቸው",
@@ -696,7 +661,6 @@
   "stickers.unlocked": "የስቲከር ጥቅሉ ተከፍቷል!",
   "stickers.empty": "ገና ምንም የስቲከር ጥቅሎች የሉም",
   "stickers.emptyHint": "ቆይተው ይፈትሹ!",
-
   "moments.title": "ቅጽበቶች",
   "moments.subtitle": "ከማህበረሰቡ አጭር ቪዲዮዎች እና ፎቶዎች",
   "moments.share": "ቅጽበት ያጋሩ",
@@ -716,7 +680,6 @@
   "moments.create.cancel": "ሰርዝ",
   "moments.create.post": "ቅጽበት አሳትሙ",
   "moments.create.posting": "እያሳተመ…",
-
   "publicProfile.playingSince": "ከ {{year}} ጀምሮ ይጫወቱ ነበር",
   "publicProfile.legacyScore": "የቅርስ ነጥብ:",
   "publicProfile.rankXp": "የደረጃ XP — ደረጃ {{level}}",
@@ -734,7 +697,6 @@
   "publicProfile.gift": "ስጦታ",
   "publicProfile.notFound": "መገለጫ አልተገኘም",
   "publicProfile.backHome": "← ቤት",
-
   "subscription.title": "ምዝገባ እና ክፍያ",
   "subscription.currentPlan": "የአሁኑ ፕላን",
   "subscription.cancels": "{{date}} ሲሰረዝ",
@@ -758,7 +720,6 @@
   "subscription.cancelledSuccess": "ምዝገባ ተሰርዟል። ጊዜ እስካለቀ ድረስ ፈቃዱን ይቆያሉ።",
   "subscription.upgradedSuccess": "ወደ {{plan}} ተሻሽሏል!",
   "subscription.finePrint": "ዋጋዎች በናይጄሪያ ናይራ (NGN) ናቸው። ምዝገቦች በራስሰር ይታደሳሉ እና በማንኛውም ጊዜ ሊሰረዙ ይችላሉ። ዓመታዊ ፕላኖች እንደ አንድ ክፍያ ይሰበሰባሉ።",
-
   "groups.title": "የቡድን ቻቶች",
   "groups.createGroup": "+ ቡድን ፍጠሩ",
   "groups.noGroups": "ገና ምንም የቡድን ቻቶች የሉም",
@@ -784,7 +745,6 @@
   "groups.conversation.noMessages": "ገና ምንም መልዕክቶች የሉም። ውይይቱን ጀምሩ!",
   "groups.conversation.typeMessage": "መልዕክት ይተይቡ…",
   "groups.conversation.send": "ላክ",
-
   "events.title": "ዝግጅቶች",
   "events.activeNow": "አሁን ንቁ",
   "events.upcoming": "ቀጣይ",
@@ -800,13 +760,11 @@
   "events.xpMultiplier": "{{multiplier}}× XP አባዥ",
   "events.startingSoon": "ብዙም ሳይቆይ ይጀምራል",
   "events.startsIn": "{{time}} ውስጥ ይጀምራል",
-
   "inbox.title": "ሳጥን",
   "inbox.unread": "{{count}} ያልተነበቡ",
   "inbox.fromZobia": "ከዞቢያ",
   "inbox.noMessages": "ምንም መልዕክቶች የሉም",
   "inbox.noMessagesHint": "ከዞቢያ ምንም መልዕክቶች ገና የሉም። ቆይተው ይፈትሹ!",
-
   "communityNotes.title": "የማህበረሰብ ማስታወሻዎች",
   "communityNotes.subtitle": "በተበጠሩ ይዘቶች ላይ ከማህበረሰቡ ሙዜ አውዶ። ማንኛውም ሰው ጠቃሚ ማስታወሻዎችን ሊያቀርብ ይችላል።",
   "communityNotes.addNote": "+ ማስታወሻ ጨምሩ",
@@ -830,23 +788,19 @@
   "communityNotes.modal.submit": "ማስታወሻ አቅርቡ",
   "communityNotes.modal.submitting": "እያቀረበ…",
   "communityNotes.modal.minLength": "ማስታወሻ ቢያንስ 20 ቁምፊ መሆን አለበት።",
-
   "terms.title": "የአገልግሎት ውሎች",
   "terms.lastUpdated": "የተዘመነ: {{date}}",
   "terms.backHome": "← ወደ ቤት ተመለስ",
   "terms.toc": "የይዘት ሰንጠረዥ",
-
   "privacy.title": "የግላዊነት ፖሊሲ",
   "privacy.lastUpdated": "የተዘመነ: {{date}}",
   "privacy.backHome": "← ወደ ቤት ተመለስ",
   "privacy.toc": "የይዘት ሰንጠረዥ",
-
   "notFound.title": "ገጹ አልተገኘም",
   "notFound.description": "እርስዎ የሚፈልጉት ገጽ የለም ወይም ተዛውሯል።",
   "notFound.backHome": "ወደ ቤት ተመለስ",
   "notFound.login": "ግባ",
   "notFound.quickLinks": "ወይም ከዚህ ገጾች አንዱን ይሞክሩ:",
-
   "guildDiscovery.stepBadge": "ሊደርሱ ነው",
   "guildDiscovery.title": "አቅራቢያዎ ያሉ ቡድኖች አባላት እየቀጠሩ ነው",
   "guildDiscovery.subtitle": "ጉልድ መቀላቀል በሚያደርጉት ሁሉ ተጨማሪ XP ያስገኛሎ።",
@@ -867,11 +821,9 @@
   "guildDiscovery.emptyHint": "ብዙ ሳይቆይ ይቀጥሉ — ወይም ሁሉንም ጉልዶች ይፈልጉ።",
   "guildDiscovery.tooNew": "ብዙ ሳይቆዩ ይምጡ!",
   "guildDiscovery.tooNewBody": "የጉልድ ምክሮች በዞቢያ ላይ የመጀመሪያዎቹ 24 ሰዓታት ካለፉ በኋላ ይከፈታሉ።",
-
   "landing.footer.terms": "የአገልግሎት ውሎች",
   "landing.footer.privacy": "የግላዊነት ፖሊሲ",
   "landing.footer.copyright": "© {{year}} ዞቢያ ሶሻል። ሁሉም መብቶች የተጠበቁ ናቸው።",
-
   "admin.aiSettings": "AI Settings",
   "admin.aiSettings.subtitle": "Manage API keys and connection status for AI providers.",
   "admin.aiSettings.deepseek": "DeepSeek (Primary)",
@@ -894,7 +846,6 @@
   "admin.aiSettings.clearSuccess": "Override cleared.",
   "admin.aiSettings.saveError": "Failed to save key.",
   "admin.aiSettings.loadError": "Failed to load AI settings.",
-
   "wallet.xpBalance": "XP",
   "wallet.coinsBalance": "ሳንቲሞች",
   "wallet.starsBalance": "ኮከቦች",
@@ -930,5 +881,22 @@
   "messages.coinError.buyCoins": "ሳንቲሞች ግዙ",
   "messages.coinError.upgrade": "ወደ Pro አሻሽሉ",
   "settings.twoFaDisabledByAdmin": "የሁለት ደረጃ ማረጋገጫ በአሁኑ ጊዜ በመድረኩ አስተዳዳሪ ተሰናክሏል።",
-  "settings.pinDisabledByAdmin": "የ PIN ማረጋገጫ በአሁኑ ጊዜ በመድረኩ አስተዳዳሪ ተሰናክሏል።"
+  "settings.pinDisabledByAdmin": "የ PIN ማረጋገጫ በአሁኑ ጊዜ በመድረኩ አስተዳዳሪ ተሰናክሏል።",
+  "friends.requests.received": "የተቀበሉት",
+  "friends.requests.sent": "የተላኩ",
+  "friends.requests.withdraw": "አጥፋ",
+  "friends.requests.withdrawing": "እያጠፋ…",
+  "friends.empty.noReceivedRequests": "ምንም ጥያቄ የለም።",
+  "friends.empty.noSentRequests": "ምንም የተላኩ ጥያቄዎች የሉም።",
+  "nav.friends": "ጓደኞች",
+  "profile.dropdown.viewProfile": "መገለጫ ይመልከቱ",
+  "profile.dropdown.profileSettings": "የፕሮፋይል ቅንብሮች",
+  "profile.dropdown.managePlan": "እቅድ ያስተዳድሩ",
+  "profile.dropdown.upgradePlan": "እቅድ አሻሽሉ",
+  "profile.dropdown.managePlanNamed": "{{plan}} እቅድ ያስተዳድሩ",
+  "profile.private": "ይህ መገለጫ ግልጽ አይደለም።",
+  "profile.restricted": "ይህ መለያ ተገድቧል።",
+  "settings.privacy.lockProfile": "ሚስጥራዊ መገለጫ",
+  "settings.privacy.disableFriendRequests": "የጓደኝነት ጥያቄዎችን ያሰናክሉ",
+  "settings.privacy.hideSections": "የተደበቁ የፕሮፋይል ክፍሎች"
 }

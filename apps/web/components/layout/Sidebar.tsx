@@ -19,6 +19,7 @@ interface SidebarUser {
   display_name: string | null;
   username: string | null;
   avatar_emoji: string | null;
+  plan?: string | null;
 }
 
 function useSidebarUser() {
@@ -96,6 +97,7 @@ function navIcon(label: string): string {
     Quests: "🎯",
     Rooms: "🚪",
     Messages: "💬",
+    Friends: "👥",
     Notifications: "🔔",
     Events: "📅",
     Wallet: "🪙",
@@ -167,7 +169,7 @@ export function Sidebar() {
           {/* User card */}
           <div className="mt-2 rounded-xl border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-900">
             <div className="flex items-center gap-3">
-              <Avatar name={displayName} size="sm" rankTier="none" />
+              <Avatar name={displayName} emoji={user?.avatar_emoji ?? undefined} size="sm" rankTier="none" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-50">
                   {displayName}

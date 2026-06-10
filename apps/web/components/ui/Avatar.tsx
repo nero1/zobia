@@ -32,6 +32,8 @@ export interface AvatarProps {
   src?: string | null;
   /** User's display name (used for alt text and initials fallback). */
   name: string;
+  /** Emoji to display instead of initials when no src is set. */
+  emoji?: string | null;
   /** Avatar size preset. @default 'md' */
   size?: AvatarSize;
   /** User's rank tier – determines the ring color. @default 'none' */
@@ -103,6 +105,7 @@ function getInitials(name: string): string {
 export function Avatar({
   src,
   name,
+  emoji,
   size = "md",
   rankTier = "none",
   className,
@@ -138,6 +141,18 @@ export function Avatar({
             className="h-full w-full object-cover"
             unoptimized={src.startsWith("https://t.me") || src.includes("telegram")}
           />
+        ) : emoji ? (
+          <div
+            className={clsx(
+              "flex h-full w-full items-center justify-center",
+              "bg-neutral-100 dark:bg-neutral-800"
+            )}
+            aria-hidden="true"
+          >
+            <span className={clsx("leading-none", size === "xs" || size === "sm" ? "text-base" : size === "md" ? "text-xl" : "text-3xl")}>
+              {emoji}
+            </span>
+          </div>
         ) : (
           <div
             className={clsx(

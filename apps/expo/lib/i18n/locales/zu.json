@@ -1229,7 +1229,6 @@
     "tooNew": "Buya maduze!",
     "tooNewBody": "Izincomo zeGuild zivuleka ngemuva kwamahora akho ayi-24 okuqala ku-Zobia."
   },
-
   "wallet.xpBalance": "XP",
   "wallet.coinsBalance": "Izinhlamvu",
   "wallet.starsBalance": "Izinkanyezi",
@@ -1265,5 +1264,21 @@
   "messages.coinError.buyCoins": "Thenga Izinhlamvu",
   "messages.coinError.upgrade": "Dlulela ku-Pro",
   "settings.twoFaDisabledByAdmin": "Ukuqinisekiswa kwezinyathelo ezimbili njengamanje kukhubazwe umphathi wenkundla.",
-  "settings.pinDisabledByAdmin": "Ukuqinisekiswa kwe-PIN njengamanje kukhubazwe umphathi wenkundla."
+  "settings.pinDisabledByAdmin": "Ukuqinisekiswa kwe-PIN njengamanje kukhubazwe umphathi wenkundla.",
+  "nav.friends": "Abangane",
+  "friends.requests.received": "Ezamukelwayo",
+  "friends.requests.sent": "Ezethumelwayo",
+  "friends.requests.withdraw": "Hoxisa",
+  "friends.requests.withdrawing": "Iyahoxiswa…",
+  "friends.empty.noReceivedRequests": "Awukho ama-oda obungane amukelwayo.",
+  "friends.empty.noSentRequests": "Awukho ama-oda obungane athumelwayo.",
+  "profile.private": "Leli phrofayili liyimfihlo.",
+  "profile.restricted": "Le akhawunti ikhawulelwe.",
+  "profile.suspended": "Le akhawunti imisiwe.",
+  "settings.privacy.lockProfile": "Iphrofayili Eyimfihlo",
+  "settings.privacy.lockProfileDesc": "Fihla iphrofayili yakho kubasebenzisi abangabangane bakho",
+  "settings.privacy.disableFriendRequests": "Khubaza Izicelo Zobungane",
+  "settings.privacy.disableFriendRequestsDesc": "Gwema abanye ukukuthumelela izicelo zobungane",
+  "settings.privacy.hideSections": "Izigaba Zephrofayili Ezifihliwe",
+  "settings.privacy.hideSectionsDesc": "Khetha izigaba zephrofayili yakho ukuzifihla kubanye"
 }

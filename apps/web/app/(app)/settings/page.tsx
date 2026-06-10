@@ -212,7 +212,25 @@ export default function SettingsPage() {
   const [savingField, setSavingField] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
 
+  interface PrivacyCapabilities {
+    canLockProfile: boolean;
+    canHideSections: boolean;
+    canDisableFriendRequests: boolean;
+    hideableSections: string[];
+  }
   const [featureFlags, setFeatureFlags] = useState({ pinEnabled: true, twoFaEnabled: true });
+  const [privacyCaps, setPrivacyCaps] = useState<PrivacyCapabilities>({
+    canLockProfile: false,
+    canHideSections: false,
+    canDisableFriendRequests: false,
+    hideableSections: [],
+  });
+  const [privacySettings, setPrivacySettings] = useState({
+    profile_private: false,
+    profile_hidden_sections: [] as string[],
+    disable_friend_requests: false,
+  });
+  const [savingPrivacy, setSavingPrivacy] = useState(false);
 
   const showToast = useCallback((msg: string, type: "success" | "error" = "success") => {
     setToast({ msg, type });
@@ -222,8 +240,23 @@ export default function SettingsPage() {
   useEffect(() => {
     void fetch("/api/features", { credentials: "include" })
       .then((r) => r.ok ? r.json() : null)
-      .then((d) => { if (d) setFeatureFlags({ pinEnabled: d.pinEnabled ?? true, twoFaEnabled: d.twoFaEnabled ?? true }); })
+      .then((d) => {
+        if (d) {
+          setFeatureFlags({ pinEnabled: d.pinEnabled ?? true, twoFaEnabled: d.twoFaEnabled ?? true });
+          if (d.privacy) setPrivacyCaps(d.privacy as PrivacyCapabilities);
+        }
+      })
       .catch(() => { /* non-fatal, defaults are permissive */ });
+  }, []);
+
+  useEffect(() => {
+    void fetch("/api/users/me/privacy", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => {
+        if (d?.settings) setPrivacySettings(d.settings as typeof privacySettings);
+        if (d?.capabilities) setPrivacyCaps(d.capabilities as PrivacyCapabilities);
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -413,6 +446,27 @@ export default function SettingsPage() {
       showToast(e instanceof Error ? e.message : "Error", "error");
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function savePrivacy(patch: Partial<typeof privacySettings>) {
+    setSavingPrivacy(true);
+    const updated = { ...privacySettings, ...patch };
+    setPrivacySettings(updated);
+    try {
+      const res = await fetch("/api/users/me/privacy", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) throw new Error("Failed to save privacy settings");
+      showToast("Privacy settings saved");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Save failed", "error");
+      setPrivacySettings(privacySettings); // revert
+    } finally {
+      setSavingPrivacy(false);
     }
   }
 
@@ -613,15 +667,95 @@ export default function SettingsPage() {
 
       {/* Privacy */}
       <Section title="Privacy">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Disable direct messages</p>
-            <p className="text-xs text-neutral-500">Prevent non-friends from sending you DMs</p>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Disable direct messages</p>
+              <p className="text-xs text-neutral-500">Prevent non-friends from sending you DMs</p>
+            </div>
+            <ToggleSwitch
+              checked={dmOptOut}
+              onChange={(v) => { setDmOptOut(v); void saveField("dmOptOut", v); }}
+            />
           </div>
-          <ToggleSwitch
-            checked={dmOptOut}
-            onChange={(v) => { setDmOptOut(v); void saveField("dmOptOut", v); }}
-          />
+
+          {/* Disable friend requests */}
+          {privacyCaps.canDisableFriendRequests ? (
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Disable friend requests</p>
+                <p className="text-xs text-neutral-500">Prevent others from sending you friend requests</p>
+              </div>
+              <ToggleSwitch
+                checked={privacySettings.disable_friend_requests}
+                onChange={(v) => void savePrivacy({ disable_friend_requests: v })}
+                disabled={savingPrivacy}
+              />
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-3 opacity-60">
+              <div>
+                <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Disable friend requests</p>
+                <p className="text-xs text-neutral-500">Available on Plus plan and above</p>
+              </div>
+              <ToggleSwitch checked={false} onChange={() => {}} disabled />
+            </div>
+          )}
+
+          {/* Private profile */}
+          {privacyCaps.canLockProfile ? (
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Private profile</p>
+                <p className="text-xs text-neutral-500">Only friends can view your profile details</p>
+              </div>
+              <ToggleSwitch
+                checked={privacySettings.profile_private}
+                onChange={(v) => void savePrivacy({ profile_private: v })}
+                disabled={savingPrivacy}
+              />
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-3 opacity-60">
+              <div>
+                <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Private profile</p>
+                <p className="text-xs text-neutral-500">Available on Pro plan and above</p>
+              </div>
+              <ToggleSwitch checked={false} onChange={() => {}} disabled />
+            </div>
+          )}
+
+          {/* Hide profile sections */}
+          {privacyCaps.canHideSections && privacyCaps.hideableSections.length > 0 && (
+            <div>
+              <p className="mb-2 text-sm font-medium text-neutral-900 dark:text-neutral-100">Hidden profile sections</p>
+              <p className="mb-3 text-xs text-neutral-500">Choose which sections to hide from other users</p>
+              <div className="flex flex-wrap gap-2">
+                {privacyCaps.hideableSections.map((section) => {
+                  const isHidden = privacySettings.profile_hidden_sections.includes(section);
+                  const label = section.charAt(0).toUpperCase() + section.slice(1);
+                  return (
+                    <button
+                      key={section}
+                      onClick={() => {
+                        const current = privacySettings.profile_hidden_sections;
+                        const next = isHidden ? current.filter((s) => s !== section) : [...current, section];
+                        void savePrivacy({ profile_hidden_sections: next });
+                      }}
+                      disabled={savingPrivacy}
+                      className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors disabled:opacity-50 ${
+                        isHidden
+                          ? "bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900"
+                          : "border border-neutral-300 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400"
+                      }`}
+                    >
+                      {isHidden ? "🙈 " : ""}{label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </Section>
 
@@ -660,21 +794,17 @@ export default function SettingsPage() {
         </div>
       </Section>
 
-      {/* Danger zone */}
+      {/* Data export — own section above danger zone */}
+      <Section title="Data">
+        <DataExport onToast={showToast} />
+      </Section>
+
+      {/* Danger zone — delete account only */}
       <div className="rounded-xl border border-red-200 bg-white shadow-card dark:border-red-900 dark:bg-neutral-900">
         <div className="border-b border-red-200 px-5 py-4 dark:border-red-900">
           <h2 className="text-sm font-semibold text-red-700 dark:text-red-400">Danger Zone</h2>
         </div>
-        <div className="space-y-4 p-5">
-          {/* Data export */}
-          <DataExport onToast={showToast} />
-
-          <button
-            onClick={handleLogout}
-            className="w-full rounded-xl border border-neutral-300 py-2.5 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
-          >
-            Log Out
-          </button>
+        <div className="space-y-4 rounded-b-xl bg-red-50/60 p-5 dark:bg-red-950/30">
           <div>
             <p className="mb-2 text-sm font-semibold text-red-700 dark:text-red-400">Delete Account</p>
             <p className="mb-3 text-xs text-neutral-500">This action is permanent and cannot be undone. All your data will be deleted.</p>
@@ -699,6 +829,16 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Logout — bottom of page, outside danger zone */}
+      <div className="border-t border-neutral-200 pt-4 dark:border-neutral-800">
+        <button
+          onClick={handleLogout}
+          className="w-full rounded-xl border border-neutral-300 py-2.5 text-sm font-semibold text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
+        >
+          Log Out
+        </button>
       </div>
     </div>
   );
