@@ -33,6 +33,12 @@ interface NemesisData {
   rivalXP: number;
 }
 
+interface NemesisApiResponse {
+  me: { userId: string; displayName: string; avatarEmoji: string; xp: number } | null;
+  nemesis: { userId: string; displayName: string; avatarEmoji: string; xp: number } | null;
+  comparison?: { userXP: number; nemesisXP: number; delta: number; userIsAhead: boolean } | null;
+}
+
 interface DailyQuest {
   id: string;
   title: string;
@@ -546,9 +552,10 @@ export default function HomePage() {
   const [platformEvent, setPlatformEvent] = useState<PlatformEvent | null>(null);
   const [activeCount, setActiveCount] = useState<number>(0);
   const [nemesis, setNemesis] = useState<NemesisData | null | undefined>(undefined);
+
   const [quests, setQuests] = useState<DailyQuest[] | undefined>(undefined);
   const [friends, setFriends] = useState<Friend[] | undefined>(undefined);
-  const [leaderboard, setLeaderboard] = useState<LeaderboardPosition | undefined>(undefined);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardPosition | null | undefined>(undefined);
   const [challenging, setChallenging] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -580,7 +587,16 @@ export default function HomePage() {
     // Nemesis
     fetch("/api/nemesis", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: NemesisData | null) => setNemesis(d))
+      .then((d: NemesisApiResponse | null) => {
+        if (!d?.nemesis || !d?.me) { setNemesis(null); return; }
+        setNemesis({
+          rivalUserId: d.nemesis.userId,
+          rivalUsername: d.nemesis.displayName,
+          rivalAvatarEmoji: d.nemesis.avatarEmoji,
+          myXP: d.comparison?.userXP ?? d.me.xp,
+          rivalXP: d.comparison?.nemesisXP ?? d.nemesis.xp,
+        });
+      })
       .catch(() => setNemesis(null));
 
     // Daily quests
@@ -611,9 +627,9 @@ export default function HomePage() {
       if (mainRank?.globalRank != null) {
         setLeaderboard({ rank: mainRank.globalRank, rankDelta: 0, xp });
       } else {
-        setLeaderboard(undefined);
+        setLeaderboard(null);
       }
-    });
+    }).catch(() => setLeaderboard(null));
 
     // PRD §4: Guild Discovery — fetch 3 nearby guilds
     // API returns empty array if user is already in a guild

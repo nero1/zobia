@@ -120,12 +120,15 @@ interface Module {
 
 interface CreateRoomPayload {
   name: string;
-  description: string;
-  roomType: RoomType;
+  description?: string;
+  type: RoomType;
   category: string;
-  city: string;
-  priceCoin: number | null;
-  modules: Module[];
+  city?: string;
+  subscriptionPriceNgn?: number;
+  entryFeeNgn?: number;
+  dropDurationMinutes?: number;
+  enrolmentFeeNgn?: number;
+  curriculum?: Array<{ title: string; order: number }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -324,15 +327,23 @@ export default function CreateRoomScreen() {
       Alert.alert('Validation', 'Room name is required.');
       return;
     }
-    createMutation.mutate({
+    const payload: CreateRoomPayload = {
       name: name.trim(),
-      description: description.trim(),
-      roomType: selectedType,
-      category,
-      city: city.trim(),
-      priceCoin: selectedOption.hasPricing && priceCoin ? Number(priceCoin) : null,
-      modules,
-    });
+      description: description.trim() || undefined,
+      type: selectedType,
+      category: category || 'Other',
+      city: city.trim() || undefined,
+    };
+    if (selectedType === 'vip' && priceCoin) {
+      payload.subscriptionPriceNgn = Number(priceCoin);
+    } else if (selectedType === 'drop') {
+      if (priceCoin) payload.entryFeeNgn = Number(priceCoin);
+      payload.dropDurationMinutes = 120;
+    } else if (selectedType === 'classroom') {
+      payload.enrolmentFeeNgn = priceCoin ? Number(priceCoin) : 0;
+      payload.curriculum = modules.map((m, i) => ({ title: m.title, order: i }));
+    }
+    createMutation.mutate(payload);
   };
 
   const fieldStyle = {

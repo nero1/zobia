@@ -18,15 +18,11 @@ import Link from "next/link";
 // Types
 // ---------------------------------------------------------------------------
 
-interface NemesisUser {
+interface NemesisParty {
   userId: string;
   displayName: string;
-  username: string;
   avatarEmoji: string;
-  city: string | null;
-  rankLabel: string;
-  xpTotal: number;
-  xpDelta: number;
+  xp: number;
 }
 
 interface SprintStanding {
@@ -38,14 +34,24 @@ interface SprintStanding {
 }
 
 interface NemesisData {
-  matchId: string | null;
-  nemesis: NemesisUser | null;
-  me: NemesisUser | null;
-  sprintStandings: SprintStanding[];
-  challengeStartedAt: string | null;
-  nextRefreshAt: string;
-  isActive: boolean;
-  myLead: number;
+  nemesis: NemesisParty | null;
+  me: NemesisParty | null;
+  sprintStandings?: SprintStanding[];
+  sprintActive?: boolean;
+  sprintEndsAt?: string | null;
+  comparison?: {
+    userXP: number;
+    nemesisXP: number;
+    delta: number;
+    userIsAhead: boolean;
+  } | null;
+  recentActivity?: Array<{
+    id: string;
+    userId: string;
+    description: string;
+    xpEarned: number;
+    createdAt: string;
+  }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -84,7 +90,7 @@ function NemesisSkeleton() {
 // ---------------------------------------------------------------------------
 
 function NemesisCard({ data }: { data: NemesisData }) {
-  const { nemesis, me, sprintStandings, myLead } = data;
+  const { nemesis, me, sprintStandings = [], comparison } = data;
 
   if (!nemesis || !me) {
     return (
@@ -98,7 +104,10 @@ function NemesisCard({ data }: { data: NemesisData }) {
     );
   }
 
-  const isLeading = myLead >= 0;
+  const myXP = comparison?.userXP ?? me.xp;
+  const rivalXP = comparison?.nemesisXP ?? nemesis.xp;
+  const delta = comparison?.delta ?? (myXP - rivalXP);
+  const isLeading = delta >= 0;
 
   return (
     <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-2xl overflow-hidden">
@@ -110,15 +119,14 @@ function NemesisCard({ data }: { data: NemesisData }) {
           <div className="flex flex-col items-center flex-1">
             <span className="text-4xl">{me.avatarEmoji}</span>
             <span className="font-bold text-sm mt-1 text-neutral-900 dark:text-neutral-100 truncate max-w-full">{me.displayName}</span>
-            <span className="text-xs text-neutral-400">@{me.username}</span>
-            <span className="text-sm font-bold text-blue-600 dark:text-blue-400 mt-1">{me.xpTotal.toLocaleString()} XP</span>
+            <span className="text-sm font-bold text-blue-600 dark:text-blue-400 mt-1">{myXP.toLocaleString()} XP</span>
           </div>
 
           {/* VS */}
           <div className="flex flex-col items-center">
             <span className="text-xl font-black text-neutral-400">VS</span>
             <span className={`text-xs font-bold mt-1 ${isLeading ? "text-green-600" : "text-red-600"}`}>
-              {isLeading ? `You lead by ${myLead.toLocaleString()}` : `Behind by ${Math.abs(myLead).toLocaleString()}`}
+              {isLeading ? `You lead by ${Math.abs(delta).toLocaleString()}` : `Behind by ${Math.abs(delta).toLocaleString()}`}
             </span>
           </div>
 
@@ -126,18 +134,12 @@ function NemesisCard({ data }: { data: NemesisData }) {
           <div className="flex flex-col items-center flex-1">
             <span className="text-4xl">{nemesis.avatarEmoji}</span>
             <span className="font-bold text-sm mt-1 text-neutral-900 dark:text-neutral-100 truncate max-w-full">{nemesis.displayName}</span>
-            <span className="text-xs text-neutral-400">@{nemesis.username}</span>
-            <span className="text-sm font-bold text-red-500 mt-1">{nemesis.xpTotal.toLocaleString()} XP</span>
+            <span className="text-sm font-bold text-red-500 mt-1">{rivalXP.toLocaleString()} XP</span>
           </div>
         </div>
 
-        {/* City */}
-        {nemesis.city && (
-          <p className="text-xs text-center text-neutral-400 mt-3">📍 {nemesis.city}</p>
-        )}
-
         {/* Sprint standings */}
-        {sprintStandings.length > 0 && data.challengeStartedAt && (
+        {data.sprintActive && sprintStandings.length > 0 && (
           <div className="mt-4 bg-neutral-50 dark:bg-neutral-800 rounded-xl p-3">
             <div className="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-2">Sprint Standings</div>
             <div className="space-y-2">
@@ -150,6 +152,22 @@ function NemesisCard({ data }: { data: NemesisData }) {
                   <span className={`text-sm font-bold ${s.xpEarned > 0 ? "text-green-600" : "text-neutral-400"}`}>
                     {xpDiff(s.xpEarned)} XP
                   </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Recent activity (from API) */}
+        {(data.recentActivity ?? []).length > 0 && (
+          <div className="mt-4">
+            <div className="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-2">Recent Activity</div>
+            <div className="space-y-1.5 max-h-32 overflow-y-auto">
+              {(data.recentActivity ?? []).slice(0, 6).map((a) => (
+                <div key={a.id} className="flex items-center gap-2 text-xs">
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${a.userId === me.userId ? "bg-blue-500" : "bg-red-500"}`} />
+                  <span className="flex-1 text-neutral-600 dark:text-neutral-400 truncate capitalize">{a.description}</span>
+                  <span className="font-semibold text-neutral-700 dark:text-neutral-300">+{a.xpEarned} XP</span>
                 </div>
               ))}
             </div>
@@ -203,12 +221,22 @@ export default function NemesisPage() {
   }, [load]);
 
   useEffect(() => {
-    if (!data?.nextRefreshAt) return;
-    const tick = () => setTimeLeft(formatTimeUntil(data.nextRefreshAt));
+    // Compute next Sunday (weekly nemesis refresh)
+    const getNextSunday = () => {
+      const now = new Date();
+      const day = now.getDay();
+      const daysUntilSunday = day === 0 ? 7 : 7 - day;
+      const next = new Date(now);
+      next.setDate(now.getDate() + daysUntilSunday);
+      next.setHours(0, 0, 0, 0);
+      return next.toISOString();
+    };
+    const nextRefreshAt = getNextSunday();
+    const tick = () => setTimeLeft(formatTimeUntil(nextRefreshAt));
     tick();
     const id = setInterval(tick, 60_000);
     return () => clearInterval(id);
-  }, [data?.nextRefreshAt]);
+  }, []);
 
   return (
     <div className="max-w-lg mx-auto px-4 py-6">
@@ -221,10 +249,10 @@ export default function NemesisPage() {
       </div>
 
       {/* Refresh countdown */}
-      {data && (
+      {timeLeft && (
         <div className="flex items-center gap-2 mb-4 text-xs text-neutral-400">
           <span>🔄</span>
-          <span>Next refresh: <strong className="text-neutral-600 dark:text-neutral-300">{timeLeft || formatTimeUntil(data.nextRefreshAt)}</strong></span>
+          <span>Next refresh: <strong className="text-neutral-600 dark:text-neutral-300">{timeLeft}</strong></span>
         </div>
       )}
 

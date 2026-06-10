@@ -28,20 +28,18 @@ interface CurriculumModule {
 
 interface CreateRoomPayload {
   name: string;
-  description: string;
-  roomType: RoomType;
+  description?: string;
+  type: RoomType;
   category: string;
   coverEmoji: string;
-  priceCoin?: number;
-  entryFeeCoin?: number;
-  dropDurationHours?: number;
+  subscriptionPriceNgn?: number;
+  entryFeeNgn?: number;
+  dropDurationMinutes?: number;
   // ClassRoom-specific
-  curriculumTitle?: string;
-  modules?: CurriculumModule[];
-  startDate?: string;
-  endDate?: string;
-  hasGraduation?: boolean;
-  enrolmentFee?: number;
+  curriculum?: Array<{ title: string; description?: string; order: number }>;
+  classStartDate?: string;
+  classEndDate?: string;
+  enrolmentFeeNgn?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -230,24 +228,26 @@ export default function CreateRoomPage() {
 
     const payload: CreateRoomPayload = {
       name: name.trim(),
-      description: description.trim(),
-      roomType,
+      description: description.trim() || undefined,
+      type: roomType,
       category,
       coverEmoji,
     };
 
-    if (roomType === "vip" && priceCoin) payload.priceCoin = parseInt(priceCoin, 10);
+    if (roomType === "vip" && priceCoin) payload.subscriptionPriceNgn = parseInt(priceCoin, 10);
     if (roomType === "drop") {
-      if (entryFeeCoin) payload.entryFeeCoin = parseInt(entryFeeCoin, 10);
-      payload.dropDurationHours = parseInt(dropDurationHours, 10);
+      if (entryFeeCoin) payload.entryFeeNgn = parseInt(entryFeeCoin, 10);
+      payload.dropDurationMinutes = parseInt(dropDurationHours, 10) * 60;
     }
     if (roomType === "classroom") {
-      payload.curriculumTitle = curriculumTitle.trim();
-      payload.modules = modules;
-      if (startDate) payload.startDate = startDate;
-      if (endDate) payload.endDate = endDate;
-      payload.hasGraduation = hasGraduation;
-      if (enrolmentFee) payload.enrolmentFee = parseInt(enrolmentFee, 10);
+      payload.curriculum = modules.map((m, i) => ({
+        title: m.title,
+        description: m.description || undefined,
+        order: i,
+      }));
+      if (startDate) payload.classStartDate = startDate;
+      if (endDate) payload.classEndDate = endDate;
+      payload.enrolmentFeeNgn = enrolmentFee ? parseInt(enrolmentFee, 10) : 0;
     }
 
     try {
@@ -258,8 +258,9 @@ export default function CreateRoomPage() {
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        const d = (await res.json()) as { message?: string; error?: string };
-        throw new Error(d.message ?? d.error ?? "Failed to create room");
+        const d = (await res.json()) as { message?: string; error?: { message?: string } | string };
+        const errMsg = typeof d.error === "string" ? d.error : d.error?.message;
+        throw new Error(errMsg ?? d.message ?? "Failed to create room");
       }
       const data = (await res.json()) as { room?: { id: string }; id?: string };
       const roomId = data.room?.id ?? data.id;

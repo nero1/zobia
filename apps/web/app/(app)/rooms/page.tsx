@@ -121,10 +121,10 @@ function DropRoomFomoStrip() {
   const [dropRooms, setDropRooms] = useState<DropRoomFomo[]>([]);
 
   useEffect(() => {
-    fetch("/api/rooms?type=drop&tab=trending&limit=6", { credentials: "include" })
+    fetch("/api/rooms?type=drop&trending=1&limit=6", { credentials: "include" })
       .then((r) => r.ok ? r.json() : null)
-      .then((d: { rooms?: Array<RoomCardData & { dropEndsAt?: string; entryFee?: number }> } | null) => {
-        const drops = (d?.rooms ?? [])
+      .then((d: { items?: Array<RoomCardData & { dropEndsAt?: string; entryFee?: number }> } | null) => {
+        const drops = (d?.items ?? [])
           .filter((r) => r.type === "drop" && r.dropEndsAt)
           .map((r) => ({
             id: r.id,
@@ -210,17 +210,21 @@ export default function RoomsPage() {
       else setLoadingMore(true);
 
       try {
-        const params = new URLSearchParams({ tab, type });
+        const params = new URLSearchParams();
+        if (tab === "trending") params.set("trending", "1");
+        if (tab === "friends") params.set("friends_in_room", "1");
+        if (type === "public") params.set("type", "free_open");
+        else if (type !== "all") params.set("type", type);
         if (q.trim()) params.set("q", q.trim());
         if (cur) params.set("cursor", cur);
 
         const res = await fetch(`/api/rooms?${params.toString()}`, { credentials: "include" });
         if (res.status === 401) { window.location.href = "/auth/login"; return; }
         if (!res.ok) throw new Error("Failed to load rooms");
-        const data = (await res.json()) as { rooms: RoomCardData[]; cursor?: string | null; hasMore?: boolean };
+        const data = (await res.json()) as { items: RoomCardData[]; nextCursor?: string | null; hasMore?: boolean };
 
-        setRooms((prev) => append ? [...prev, ...(data.rooms ?? [])] : (data.rooms ?? []));
-        setCursor(data.cursor ?? null);
+        setRooms((prev) => append ? [...prev, ...(data.items ?? [])] : (data.items ?? []));
+        setCursor(data.nextCursor ?? null);
         setHasMore(data.hasMore ?? false);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Unknown error");

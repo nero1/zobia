@@ -47,6 +47,7 @@ interface WalletData {
   stars: number;
   transactions: Transaction[];
   starTransactions: Transaction[];
+  plan?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -54,8 +55,15 @@ interface WalletData {
 // ---------------------------------------------------------------------------
 
 async function fetchWallet(): Promise<WalletData> {
-  const { data } = await apiClient.get<WalletData>('/economy/coins/balance?limit=30');
-  return data;
+  const [{ data: balData }, planRes] = await Promise.all([
+    apiClient.get<WalletData>('/economy/coins/balance?limit=30'),
+    apiClient.get<{ data?: { plan?: string; subscription?: { plan?: string } } | null }>('/economy/subscriptions').catch(() => ({ data: null })),
+  ]);
+  const plan =
+    (planRes.data as { data?: { plan?: string; subscription?: { plan?: string } } | null } | null)?.data?.plan ??
+    (planRes.data as { data?: { plan?: string; subscription?: { plan?: string } } | null } | null)?.data?.subscription?.plan ??
+    undefined;
+  return { ...balData, plan };
 }
 
 // ---------------------------------------------------------------------------
@@ -131,6 +139,7 @@ export default function WalletScreen() {
   const router = useRouter();
   const { t } = useTranslation();
   const { colors: themeColors } = useTheme();
+  const [txTab, setTxTab] = React.useState<'coins' | 'stars'>('coins');
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery<WalletData>({
     queryKey: ['wallet', 'balance'],
@@ -138,10 +147,15 @@ export default function WalletScreen() {
     staleTime: 30_000,
   });
 
+  const txList = txTab === 'coins' ? (data?.transactions ?? []) : (data?.starTransactions ?? []);
+  const planLabel = data?.plan
+    ? data.plan.charAt(0).toUpperCase() + data.plan.slice(1)
+    : 'Free';
+
   return (
     <Screen scrollable={false} disableBottomInset>
       <FlatList
-        data={data?.transactions ?? []}
+        data={txList}
         keyExtractor={(item) => item.id}
         refreshControl={
           <RefreshControl refreshing={isFetching} onRefresh={() => void refetch()} />
@@ -186,15 +200,25 @@ export default function WalletScreen() {
                   </Text>
                 </View>
 
-                {/* Star balance */}
-                <View style={[styles.starCard, { backgroundColor: themeColors.surface }]}>
-                  <Text style={styles.starIcon}>⭐</Text>
-                  <View>
-                    <Text style={styles.starAmount}>
-                      {data?.stars ?? 0} Stars
-                    </Text>
-                    <Text style={styles.starSubtext}>Premium currency</Text>
+                {/* Star balance + plan row */}
+                <View style={styles.secondaryRow}>
+                  <View style={[styles.starCard, { backgroundColor: themeColors.surface, flex: 1 }]}>
+                    <Text style={styles.starIcon}>⭐</Text>
+                    <View>
+                      <Text style={styles.starAmount}>
+                        {data?.stars ?? 0} Stars
+                      </Text>
+                      <Text style={styles.starSubtext}>Premium currency</Text>
+                    </View>
                   </View>
+                  <Pressable
+                    style={[styles.planCard, { backgroundColor: themeColors.surface }]}
+                    onPress={() => router.push('/settings/subscription' as never)}
+                  >
+                    <Text style={styles.planLabel}>Plan</Text>
+                    <Text style={styles.planName}>{planLabel}</Text>
+                    <Text style={styles.planManage}>Manage →</Text>
+                  </Pressable>
                 </View>
 
                 {/* Add Coins CTA */}
@@ -206,15 +230,35 @@ export default function WalletScreen() {
               </>
             )}
 
-            {/* Section header */}
-            <Text style={styles.sectionHeader}>Recent Transactions</Text>
+            {/* Transaction tab selector */}
+            <View style={styles.txTabRow}>
+              <Text style={styles.sectionHeader}>Transactions</Text>
+              <View style={styles.txTabBtns}>
+                <Pressable
+                  style={[styles.txTabBtn, txTab === 'coins' && styles.txTabBtnActive]}
+                  onPress={() => setTxTab('coins')}
+                >
+                  <Text style={[styles.txTabBtnText, txTab === 'coins' && styles.txTabBtnTextActive]}>
+                    🪙 Coins
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.txTabBtn, txTab === 'stars' && styles.txTabBtnActive]}
+                  onPress={() => setTxTab('stars')}
+                >
+                  <Text style={[styles.txTabBtnText, txTab === 'stars' && styles.txTabBtnTextActive]}>
+                    ⭐ Stars
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
           </View>
         }
         renderItem={({ item }) => <TransactionItem item={item} />}
         ListEmptyComponent={
           !isLoading ? (
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No transactions yet</Text>
+              <Text style={styles.emptyText}>No {txTab} transactions yet</Text>
             </View>
           ) : null
         }
@@ -301,8 +345,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   starCard: {
-    marginHorizontal: 20,
-    marginTop: 12,
     borderRadius: 16,
     padding: 16,
     flexDirection: 'row',
@@ -328,12 +370,76 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginTop: 16,
   },
+  secondaryRow: {
+    flexDirection: 'row',
+    marginHorizontal: 20,
+    marginTop: 12,
+    gap: 10,
+  },
+  planCard: {
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: colors.neutral[200],
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 90,
+  },
+  planLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.neutral[500],
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 4,
+  },
+  planName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.neutral[900],
+  },
+  planManage: {
+    fontSize: 11,
+    color: colors.brand.blue,
+    marginTop: 4,
+  },
+  txTabRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingRight: 20,
+    paddingTop: 24,
+    paddingBottom: 4,
+  },
+  txTabBtns: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  txTabBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.neutral[300],
+  },
+  txTabBtnActive: {
+    backgroundColor: colors.brand.blue,
+    borderColor: colors.brand.blue,
+  },
+  txTabBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.neutral[600],
+  },
+  txTabBtnTextActive: {
+    color: colors.neutral[0],
+  },
   sectionHeader: {
     fontSize: 16,
     fontWeight: '600',
     color: colors.neutral[700],
     paddingHorizontal: 20,
-    paddingTop: 28,
+    paddingTop: 0,
     paddingBottom: 12,
   },
   txItem: {
