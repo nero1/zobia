@@ -38,6 +38,7 @@ function useSidebarUser() {
 
 const primaryNavItems = [
   { href: "/home", label: "Home" },
+  { href: "/quests", label: "Quests" },
   { href: "/rooms", label: "Rooms" },
   { href: "/messages", label: "Messages" },
   { href: "/notifications", label: "Notifications" },
@@ -91,6 +92,7 @@ function SidebarLink({
 function navIcon(label: string): string {
   const map: Record<string, string> = {
     Home: "🏠",
+    Quests: "🎯",
     Rooms: "🚪",
     Messages: "💬",
     Notifications: "🔔",

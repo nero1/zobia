@@ -165,9 +165,11 @@ function GiftDropCard({ drop, onPurchase, purchasing }: GiftDropCardProps) {
         </div>
       </div>
       <div className="mt-4 flex items-center gap-3">
-        <span className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-          {drop.coinCost.toLocaleString()} 🪙
-        </span>
+        {(drop.coinCost ?? 0) > 0 && (
+          <span className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+            {(drop.coinCost ?? 0).toLocaleString()} 🪙
+          </span>
+        )}
         {drop.owned ? (
           <span className="rounded-full bg-teal-100 px-3 py-1 text-sm font-semibold text-teal-700 dark:bg-teal-900 dark:text-teal-300">
             Owned ✓
@@ -273,20 +275,69 @@ export default function EventsPage() {
       if (eventsRes.status === 401) { window.location.href = "/auth/login"; return; }
       if (!eventsRes.ok) throw new Error("Failed to load events");
 
-      const eventsJson = (await eventsRes.json()) as
+      // API returns { success, data: { events }, error } or { events } or PlatformEvent[]
+      const eventsJson = await eventsRes.json() as
         | PlatformEvent[]
-        | { events?: PlatformEvent[] };
-      const events: PlatformEvent[] = Array.isArray(eventsJson)
-        ? eventsJson
-        : (eventsJson as { events?: PlatformEvent[] }).events ?? [];
+        | { events?: PlatformEvent[] }
+        | { data?: { events?: PlatformEvent[] }; success?: boolean };
+      let events: PlatformEvent[];
+      if (Array.isArray(eventsJson)) {
+        events = eventsJson;
+      } else if ((eventsJson as { data?: { events?: PlatformEvent[] } }).data?.events) {
+        const raw = (eventsJson as { data: { events: PlatformEvent[] } }).data.events;
+        // Map snake_case API fields to camelCase
+        events = raw.map((e) => {
+          const r = e as unknown as Record<string, unknown>;
+          return {
+            id: (r.id ?? e.id) as string,
+            title: (r.name ?? r.title ?? e.title) as string,
+            description: (r.description ?? e.description ?? "") as string,
+            type: (r.event_type ?? r.type ?? e.type) as string,
+            startsAt: (r.starts_at ?? e.startsAt ?? "") as string,
+            endsAt: (r.ends_at ?? e.endsAt ?? "") as string,
+            isActive: (r.is_active ?? e.isActive ?? false) as boolean,
+            xpMultiplier: (r.xp_multiplier ?? e.xpMultiplier) as number | undefined,
+            rewardDescription: e.rewardDescription,
+          };
+        });
+      } else {
+        events = (eventsJson as { events?: PlatformEvent[] }).events ?? [];
+      }
 
       let giftDrop: GiftDrop | null = null;
       if (giftRes?.ok) {
-        const giftJson = (await giftRes.json()) as GiftDrop | { data?: GiftDrop } | null;
-        giftDrop =
-          giftJson && (giftJson as { data?: GiftDrop }).data !== undefined
-            ? ((giftJson as { data?: GiftDrop }).data ?? null)
-            : (giftJson as GiftDrop | null);
+        // API returns { active: MonthlyGiftDrop | null, upcoming: MonthlyGiftDrop | null, countdown: number | null }
+        const giftJson = await giftRes.json() as {
+          active?: { id: string; giftItemId?: string; title?: string; availableUntil?: string } | null;
+          upcoming?: { id: string; giftItemId?: string; title?: string; availableFrom?: string } | null;
+          countdown?: number | null;
+          // Legacy flat shape
+          id?: string;
+          name?: string;
+          coinCost?: number;
+          endsAt?: string;
+          owned?: boolean;
+          data?: GiftDrop | null;
+        } | null;
+
+        if (giftJson) {
+          if (giftJson.active) {
+            // Map MonthlyGiftDrop to GiftDrop
+            giftDrop = {
+              id: giftJson.active.id,
+              name: giftJson.active.title ?? "Monthly Gift Drop",
+              description: "Exclusive limited gift — only available for 48 hours!",
+              coinCost: 0,
+              endsAt: giftJson.active.availableUntil ?? new Date(Date.now() + 86400000).toISOString(),
+              owned: false,
+              itemId: giftJson.active.giftItemId,
+            };
+          } else if (giftJson.data) {
+            giftDrop = giftJson.data;
+          } else if (giftJson.id && giftJson.name) {
+            giftDrop = giftJson as GiftDrop;
+          }
+        }
       }
 
       setData({ events, giftDrop });

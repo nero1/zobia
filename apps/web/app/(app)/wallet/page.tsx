@@ -50,6 +50,11 @@ interface BoosterPack {
   expiresAt: string;
 }
 
+interface EarningsData {
+  totalMonthNgn: number;
+  pendingPayouts: { id: string; amount: number; currency: string; method: string; status: string; createdAt: string }[];
+}
+
 interface StoreData {
   balance: Balance | null;
   transactions: Transaction[];
@@ -57,6 +62,7 @@ interface StoreData {
   coinPacks: CoinPack[];
   boosters: BoosterPack[];
   activePlan: string | null;
+  earnings: EarningsData | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -121,6 +127,59 @@ function BalanceCard({ balance, activePlan }: { balance: Balance; activePlan: st
           Manage →
         </a>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Income & Pending Payouts
+// ---------------------------------------------------------------------------
+
+function EarningsSection({ earnings }: { earnings: EarningsData }) {
+  return (
+    <div className="space-y-3">
+      {/* Income this month */}
+      <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+        <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Income This Month</p>
+        <div className="mt-2 flex items-center gap-2">
+          <span className="text-2xl">💰</span>
+          <span className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">
+            ₦{earnings.totalMonthNgn.toLocaleString()}
+          </span>
+        </div>
+        <p className="mt-1 text-xs text-neutral-400">From gifts, tips, and sponsorships</p>
+      </div>
+
+      {/* Pending payouts */}
+      {earnings.pendingPayouts.length > 0 && (
+        <div className="rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+          <div className="border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
+            <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">Pending Payouts</h2>
+          </div>
+          <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
+            {earnings.pendingPayouts.map((p) => (
+              <div key={p.id} className="flex items-center justify-between px-5 py-3">
+                <div>
+                  <p className="text-sm font-medium capitalize text-neutral-900 dark:text-neutral-100">
+                    {p.method.replace(/_/g, " ")}
+                  </p>
+                  <p className="text-xs text-neutral-500">
+                    {new Date(p.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-bold text-neutral-800 dark:text-neutral-200">
+                    ₦{(p.amount / 100).toLocaleString()}
+                  </p>
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold capitalize text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+                    {p.status.replace(/_/g, " ")}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -482,6 +541,7 @@ function WalletContent() {
     coinPacks: [],
     boosters: [],
     activePlan: null,
+    earnings: null,
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -502,10 +562,12 @@ function WalletContent() {
   useEffect(() => {
     (async () => {
       try {
-        const [balRes, storeRes, planRes] = await Promise.all([
+        const [balRes, storeRes, planRes, earningsRes, payoutsRes] = await Promise.all([
           fetch("/api/economy/coins/balance?limit=30", { credentials: "include" }),
           fetch("/api/economy/store", { credentials: "include" }),
           fetch("/api/economy/subscriptions", { credentials: "include" }),
+          fetch("/api/creator/earnings", { credentials: "include" }).catch(() => null),
+          fetch("/api/creator/payouts", { credentials: "include" }).catch(() => null),
         ]);
 
         if (balRes.status === 401) { window.location.href = "/auth/login"; return; }
@@ -539,6 +601,32 @@ function WalletContent() {
           balData?.plan ??
           null;
 
+        // Parse creator earnings and payouts (non-fatal — only shown for creators)
+        let earnings: EarningsData | null = null;
+        try {
+          const earningsJson = earningsRes?.ok ? await earningsRes.json() as Record<string, unknown> : null;
+          const payoutsJson = payoutsRes?.ok ? await payoutsRes.json() as Record<string, unknown> : null;
+          const earningsData = (earningsJson?.data ?? earningsJson) as { month?: { total_ngn?: number } } | null;
+          const payoutsData = (payoutsJson?.data ?? payoutsJson) as {
+            payouts?: { id: string; gross_kobo?: number; net_kobo?: number; payout_method?: string; status?: string; created_at?: string }[];
+          } | null;
+          const pendingStatuses = new Set(["pending", "awaiting_approval", "processing"]);
+          const pending = (payoutsData?.payouts ?? [])
+            .filter((p) => pendingStatuses.has(p.status ?? ""))
+            .map((p) => ({
+              id: p.id,
+              amount: p.gross_kobo ?? 0,
+              currency: "NGN",
+              method: p.payout_method ?? "bank_transfer",
+              status: p.status ?? "pending",
+              createdAt: p.created_at ?? new Date().toISOString(),
+            }));
+          const totalMonthNgn = (earningsData?.month?.total_ngn ?? 0);
+          if (totalMonthNgn > 0 || pending.length > 0) {
+            earnings = { totalMonthNgn, pendingPayouts: pending };
+          }
+        } catch { /* creator data is non-fatal */ }
+
         setData({
           balance: balData
             ? { coins: balData.coins ?? 0, stars: balData.stars ?? 0, plan: balData.plan }
@@ -548,6 +636,7 @@ function WalletContent() {
           coinPacks,
           boosters: [],
           activePlan,
+          earnings,
         });
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load wallet");
@@ -613,6 +702,8 @@ function WalletContent() {
       )}
 
       {data.balance && <BalanceCard balance={data.balance} activePlan={data.activePlan} />}
+
+      {data.earnings && <EarningsSection earnings={data.earnings} />}
 
       {transferRecipientId && (
         <CoinTransferPanel

@@ -23,10 +23,10 @@ const TABS: TabConfig[] = [
     iconFocused: 'home',
   },
   {
-    name: 'rooms',
-    title: 'Rooms',
-    icon: 'mic-outline',
-    iconFocused: 'mic',
+    name: 'quests',
+    title: 'Quests',
+    icon: 'checkmark-circle-outline',
+    iconFocused: 'checkmark-circle',
   },
   {
     name: 'messages',
@@ -35,10 +35,10 @@ const TABS: TabConfig[] = [
     iconFocused: 'chatbubble',
   },
   {
-    name: 'guild',
-    title: 'Guild',
-    icon: 'shield-outline',
-    iconFocused: 'shield',
+    name: 'wallet',
+    title: 'Wallet',
+    icon: 'wallet-outline',
+    iconFocused: 'wallet',
   },
   {
     name: 'profile',
@@ -109,6 +109,10 @@ export default function TabLayout() {
           }}
         />
       ))}
+
+      {/* Rooms and Guild still accessible but hidden from tab bar */}
+      <Tabs.Screen name="rooms" options={{ href: null }} />
+      <Tabs.Screen name="guild" options={{ href: null }} />
 
       {/* Admin tab — only visible to users with is_admin === true */}
       <Tabs.Screen
