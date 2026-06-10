@@ -22,8 +22,10 @@ import { env } from "@/lib/env";
 // Constants
 // ---------------------------------------------------------------------------
 
-const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;       // 15 minutes
-const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 3600; // 30 days
+const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;            // 15 minutes
+const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 3600;   // 30 days
+const ADMIN_ACCESS_TOKEN_TTL_SECONDS = 30 * 60;     // 30 minutes
+const ADMIN_REFRESH_TOKEN_TTL_SECONDS = 1 * 3600;   // 1 hour
 const ISSUER = "zobia-social";
 const AUDIENCE = "zobia-web";
 
@@ -71,14 +73,15 @@ export interface RefreshTokenPayload extends JWTPayload {
  * @returns Signed JWT string
  */
 export async function signAccessToken(
-  payload: Omit<AccessTokenPayload, "iss" | "aud" | "iat" | "exp">
+  payload: Omit<AccessTokenPayload, "iss" | "aud" | "iat" | "exp">,
+  ttlSeconds = ACCESS_TOKEN_TTL_SECONDS
 ): Promise<string> {
   return new SignJWT({ ...payload })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setIssuer(ISSUER)
     .setAudience(AUDIENCE)
-    .setExpirationTime(`${ACCESS_TOKEN_TTL_SECONDS}s`)
+    .setExpirationTime(`${ttlSeconds}s`)
     .sign(accessSecret());
 }
 
@@ -87,15 +90,16 @@ export async function signAccessToken(
  *
  * @param sub - User UUID
  * @param sid - Session ID
+ * @param ttlSeconds - Override the token lifetime (defaults to 30 days)
  * @returns Signed JWT string
  */
-export async function signRefreshToken(sub: string, sid: string): Promise<string> {
+export async function signRefreshToken(sub: string, sid: string, ttlSeconds = REFRESH_TOKEN_TTL_SECONDS): Promise<string> {
   return new SignJWT({ sub, sid })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setIssuer(ISSUER)
     .setAudience(AUDIENCE)
-    .setExpirationTime(`${REFRESH_TOKEN_TTL_SECONDS}s`)
+    .setExpirationTime(`${ttlSeconds}s`)
     .sign(refreshSecret());
 }
 
@@ -183,4 +187,4 @@ export function extractBearerToken(authHeader: string | null): string | null {
   return authHeader.slice(7).trim() || null;
 }
 
-export { ACCESS_TOKEN_TTL_SECONDS, REFRESH_TOKEN_TTL_SECONDS };
+export { ACCESS_TOKEN_TTL_SECONDS, REFRESH_TOKEN_TTL_SECONDS, ADMIN_ACCESS_TOKEN_TTL_SECONDS, ADMIN_REFRESH_TOKEN_TTL_SECONDS };

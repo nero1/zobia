@@ -5,22 +5,28 @@ export const dynamic = 'force-dynamic';
  *
  * POST /api/auth/2fa/verify
  *   Called during login when totp_enabled=true.
- *   Body: { code: string, sessionToken: string }
- *   Verifies the TOTP code against the stored secret for the session user.
- *   Returns: { valid: boolean }
+ *
+ *   Accepts either:
+ *   a) { code, preAuthToken } — pre-auth flow: verifies code, creates full session
+ *   b) { code, sessionToken } — legacy: verifies code against an existing session token
+ *
+ *   On success with preAuthToken: sets session cookies and returns { success: true }.
+ *   On success with sessionToken: returns { valid: true }.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import crypto from "crypto";
 import { db } from "@/lib/db";
+import { redis } from "@/lib/redis";
 import { validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, unauthorized } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { verifyAccessToken } from "@/lib/auth/jwt";
+import { createSession, buildCookieHeaders } from "@/lib/auth/session";
 
 // ---------------------------------------------------------------------------
-// TOTP helpers (same manual implementation as setup route)
+// TOTP helpers
 // ---------------------------------------------------------------------------
 
 function base32Decode(input: string): Uint8Array {
@@ -77,35 +83,104 @@ function verifyTOTP(secret: string, code: string): boolean {
 
 const verifySchema = z.object({
   code: z.string().regex(/^\d{6}$/, "Code must be exactly 6 digits"),
-  sessionToken: z.string().min(1, "Session token is required"),
+  preAuthToken: z.string().optional(),
+  sessionToken: z.string().optional(),
 });
 
 // ---------------------------------------------------------------------------
 // POST /api/auth/2fa/verify
 // ---------------------------------------------------------------------------
 
-/**
- * Verify a TOTP code during login flow.
- * The sessionToken is the partially-authenticated access token issued after
- * credential verification but before 2FA completion.
- */
 export async function POST(req: NextRequest) {
   try {
     const ip = getClientIp(req);
     await enforceRateLimit(ip, "ip", { ...RATE_LIMITS.apiWrite, limit: 10 });
 
-    const { code, sessionToken } = await validateBody(req, verifySchema);
+    const { code, preAuthToken, sessionToken } = await validateBody(req, verifySchema);
 
-    // Decode the session token to get the user ID without full auth validation
+    if (!preAuthToken && !sessionToken) {
+      throw badRequest("Either preAuthToken or sessionToken is required", "MISSING_TOKEN");
+    }
+
+    // -----------------------------------------------------------------------
+    // Pre-auth flow: preAuthToken issued during OAuth callback
+    // -----------------------------------------------------------------------
+    if (preAuthToken) {
+      let userId: string;
+      try {
+        const payload = await verifyAccessToken(preAuthToken);
+        if ((payload as Record<string, unknown>).type !== "pre_auth") {
+          throw new Error("Not a pre-auth token");
+        }
+        userId = payload.sub;
+      } catch {
+        throw unauthorized("Invalid or expired pre-auth token");
+      }
+
+      // Confirm the pre-auth key still exists in Redis
+      const redisKey = `pre_auth:${userId}`;
+      const storedToken = await redis.get(redisKey);
+      if (!storedToken || storedToken !== preAuthToken) {
+        throw unauthorized("Pre-auth token has expired or already been used");
+      }
+
+      // Fetch user row
+      const { rows } = await db.query<{
+        id: string;
+        email: string;
+        username: string;
+        is_admin: boolean;
+        totp_secret: string | null;
+        totp_enabled: boolean;
+        onboarding_completed: boolean;
+        is_moderator: boolean;
+      }>(
+        `SELECT id, email, username, is_admin, totp_secret, totp_enabled, onboarding_completed, is_moderator
+         FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+        [userId]
+      );
+      const user = rows[0];
+
+      if (!user || !user.totp_enabled || !user.totp_secret) {
+        throw badRequest("2FA is not enabled for this user", "TOTP_NOT_ENABLED");
+      }
+
+      if (!verifyTOTP(user.totp_secret, code)) {
+        return NextResponse.json({ success: false, error: "Invalid code" }, { status: 400 });
+      }
+
+      // Consume the pre-auth token
+      await redis.del(redisKey);
+
+      // Create full session
+      const authTokens = await createSession(
+        { id: user.id, email: user.email, username: user.username ?? "", is_admin: user.is_admin },
+        { ip }
+      );
+
+      const { accessCookie, refreshCookie } = buildCookieHeaders(authTokens);
+      const response = NextResponse.json({
+        success: true,
+        onboardingCompleted: user.onboarding_completed,
+        accessToken: authTokens.accessToken,
+        refreshToken: authTokens.refreshToken,
+      });
+      response.headers.append("Set-Cookie", accessCookie);
+      response.headers.append("Set-Cookie", refreshCookie);
+      return response;
+    }
+
+    // -----------------------------------------------------------------------
+    // Legacy flow: sessionToken (existing access token)
+    // -----------------------------------------------------------------------
     let userId: string;
     try {
-      const payload = await verifyAccessToken(sessionToken);
+      const payload = await verifyAccessToken(sessionToken!);
       userId = payload.sub;
     } catch {
       throw unauthorized("Invalid session token");
     }
 
-    // Fetch the user's stored TOTP secret
     const { rows: userRows } = await db.query<{ totp_secret: string | null; totp_enabled: boolean }>(
       "SELECT totp_secret, totp_enabled FROM users WHERE id = $1",
       [userId]
@@ -117,7 +192,6 @@ export async function POST(req: NextRequest) {
     }
 
     const valid = verifyTOTP(row.totp_secret, code);
-
     return NextResponse.json({ valid }, { status: 200 });
   } catch (err) {
     return handleApiError(err);

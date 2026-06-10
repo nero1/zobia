@@ -625,7 +625,7 @@ export default function HomePage() {
     // Online friends
     fetch("/api/friends", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: { friends?: Friend[] } | null) => setFriends(d?.friends ?? []))
+      .then((d: { data?: Friend[]; friends?: Friend[] } | null) => setFriends(d?.data ?? d?.friends ?? []))
       .catch(() => setFriends([]));
 
     // Leaderboard position — fetch rank from /api/leaderboards/me and XP from /api/users/me

@@ -33,7 +33,7 @@ import { apiClient } from '@/lib/api/client';
 // Types
 // ---------------------------------------------------------------------------
 
-type GroupTag = 'study_group' | 'crew' | 'business';
+type GroupTag = 'Personal' | 'General' | 'Study Group' | 'Crew' | 'Business' | 'Other';
 
 interface Friend {
   userId: string;
@@ -51,9 +51,12 @@ interface CreateGroupResponse {
 // ---------------------------------------------------------------------------
 
 const TAG_OPTIONS: { key: GroupTag; label: string; emoji: string }[] = [
-  { key: 'study_group', label: 'Study Group', emoji: '📚' },
-  { key: 'crew', label: 'Crew', emoji: '🤝' },
-  { key: 'business', label: 'Business', emoji: '💼' },
+  { key: 'Personal', label: 'Personal', emoji: '👤' },
+  { key: 'General', label: 'General', emoji: '💬' },
+  { key: 'Study Group', label: 'Study Group', emoji: '📚' },
+  { key: 'Crew', label: 'Crew', emoji: '🤝' },
+  { key: 'Business', label: 'Business', emoji: '💼' },
+  { key: 'Other', label: 'Other', emoji: '🔖' },
 ];
 
 // ---------------------------------------------------------------------------

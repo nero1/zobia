@@ -21,6 +21,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 interface Balance {
   coins: number;
   stars: number;
+  xp: number;
   plan?: string;
 }
 
@@ -56,7 +57,7 @@ interface EarningsData {
 }
 
 interface StoreData {
-  balance: Balance | null;
+  balance: Balance;
   transactions: Transaction[];
   starTransactions: Transaction[];
   coinPacks: CoinPack[];
@@ -94,25 +95,36 @@ function BalanceCard({ balance, activePlan }: { balance: Balance; activePlan: st
   const plan = activePlan ?? balance.plan ?? "Free";
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-          <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Coin Balance</p>
-          <div className="mt-2 flex items-center gap-2">
-            <span className="text-2xl">🪙</span>
-            <span className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">
+      <div className="grid grid-cols-3 gap-3">
+        <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+          <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">XP</p>
+          <div className="mt-2 flex items-center gap-1.5">
+            <span className="text-xl">⚡</span>
+            <span className="text-xl font-bold text-neutral-900 dark:text-neutral-50">
+              {(balance.xp ?? 0).toLocaleString()}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-neutral-400">Experience</p>
+        </div>
+        <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+          <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Coins</p>
+          <div className="mt-2 flex items-center gap-1.5">
+            <span className="text-xl">🪙</span>
+            <span className="text-xl font-bold text-neutral-900 dark:text-neutral-50">
               {balance.coins.toLocaleString()}
             </span>
           </div>
+          <p className="mt-1 text-xs text-neutral-400">Soft currency</p>
         </div>
-        <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-          <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Star Balance</p>
-          <div className="mt-2 flex items-center gap-2">
-            <span className="text-2xl">⭐</span>
-            <span className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">
+        <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+          <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Stars</p>
+          <div className="mt-2 flex items-center gap-1.5">
+            <span className="text-xl">⭐</span>
+            <span className="text-xl font-bold text-neutral-900 dark:text-neutral-50">
               {balance.stars.toLocaleString()}
             </span>
           </div>
-          <p className="mt-1 text-xs text-neutral-400">Premium currency</p>
+          <p className="mt-1 text-xs text-neutral-400">Premium</p>
         </div>
       </div>
       <div className="flex items-center justify-between rounded-xl border border-neutral-200 bg-white px-5 py-3 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
@@ -535,7 +547,7 @@ function WalletContent() {
   const transferRecipientId = searchParams.get("transfer");
 
   const [data, setData] = useState<StoreData>({
-    balance: null,
+    balance: { coins: 0, stars: 0, xp: 0 },
     transactions: [],
     starTransactions: [],
     coinPacks: [],
@@ -576,6 +588,7 @@ function WalletContent() {
           ? ((await balRes.json()) as {
               coins?: number;
               stars?: number;
+              xp?: number;
               plan?: string;
               transactions?: Transaction[];
               starTransactions?: Transaction[];
@@ -591,7 +604,7 @@ function WalletContent() {
           [];
         const coinPacks = allItems.filter((i) => !i.item_type || i.item_type === "coin_pack");
 
-        // Extract active plan from subscriptions endpoint
+        // Extract active plan from subscriptions endpoint or balance response
         const planData = planRes.ok
           ? ((await planRes.json()) as { data?: { plan?: string; subscription?: { plan?: string } } | null })
           : null;
@@ -628,9 +641,12 @@ function WalletContent() {
         } catch { /* creator data is non-fatal */ }
 
         setData({
-          balance: balData
-            ? { coins: balData.coins ?? 0, stars: balData.stars ?? 0, plan: balData.plan }
-            : null,
+          balance: {
+            coins: balData?.coins ?? 0,
+            stars: balData?.stars ?? 0,
+            xp: balData?.xp ?? 0,
+            plan: balData?.plan ?? activePlan ?? undefined,
+          },
           transactions: (balData?.transactions ?? []).slice(0, 30),
           starTransactions: (balData?.starTransactions ?? []).slice(0, 30),
           coinPacks,
@@ -701,7 +717,7 @@ function WalletContent() {
         </div>
       )}
 
-      {data.balance && <BalanceCard balance={data.balance} activePlan={data.activePlan} />}
+      <BalanceCard balance={data.balance} activePlan={data.activePlan} />
 
       {data.earnings && <EarningsSection earnings={data.earnings} />}
 

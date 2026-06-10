@@ -140,10 +140,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       throw unauthorized("Invalid authenticator code. Check your device clock and try again.");
     }
 
-    // Issue session
+    // Issue admin session (shorter TTL: 30 min access, 1 hour refresh)
     const tokens = await createSession(
       { id: user.id, email: user.email, username: user.username, is_admin: true },
-      { ip, ua: req.headers.get("user-agent") ?? undefined }
+      { ip, ua: req.headers.get("user-agent") ?? undefined, adminSession: true }
     );
 
     const { accessCookie, refreshCookie } = buildCookieHeaders(tokens);

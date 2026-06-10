@@ -120,11 +120,12 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     if (!rows[0]) {
       // Quest record not found — return empty progress (user predates the feature)
       const defaultSteps: QuestStep[] = [
-        { id: "send_message", label: "Send a message",       completed: false },
-        { id: "join_room",    label: "Join a Room",          completed: false },
-        { id: "gift_someone", label: "Gift someone",         completed: false },
-        { id: "add_friend",   label: "Add a friend",         completed: false },
-        { id: "daily_login",  label: "Complete a daily login", completed: false },
+        { id: "send_message",   label: "Send a message",          completed: false },
+        { id: "join_room",      label: "Join a Room",             completed: false },
+        { id: "gift_someone",   label: "Gift someone",            completed: false },
+        { id: "add_friend",     label: "Add a friend",            completed: false },
+        { id: "friend_request", label: "Send 3 friend requests",  completed: false },
+        { id: "daily_login",    label: "Complete a daily login",  completed: false },
       ];
       return NextResponse.json({
         success: true,

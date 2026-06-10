@@ -17,6 +17,7 @@ import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { getManifestValue } from "@/lib/manifest";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -43,6 +44,14 @@ const setupPinSchema = z.object({
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
+
+    const pinKey = await getManifestValue("feature_pin_auth");
+    if (pinKey === "false") {
+      return NextResponse.json(
+        { error: "PIN authentication is not enabled on this platform", code: "FEATURE_DISABLED" },
+        { status: 403 }
+      );
+    }
 
     const body = await validateBody(req, setupPinSchema);
 

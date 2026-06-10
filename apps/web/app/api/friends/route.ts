@@ -83,5 +83,30 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     [userId, xpAmount],
   ).catch(() => {});
 
+  // Increment friend_request new-member quest step (non-fatal)
+  db.query(
+    `UPDATE new_member_quests
+     SET progress = jsonb_set(
+       progress,
+       '{steps}',
+       (
+         SELECT jsonb_agg(
+           CASE WHEN s->>'id' = 'friend_request'
+                THEN jsonb_set(
+                  jsonb_set(s, '{count}', to_jsonb(COALESCE((s->>'count')::int, 0) + 1)),
+                  '{completed}',
+                  to_jsonb(COALESCE((s->>'count')::int, 0) + 1 >= 3)
+                )
+                ELSE s END
+         )
+         FROM jsonb_array_elements(progress->'steps') s
+       )
+     ),
+     updated_at = NOW()
+     WHERE user_id = $1 AND quest_type = 'new_member'
+       AND NOT completed`,
+    [userId],
+  ).catch(() => {});
+
   return NextResponse.json({ success: true }, { status: 201 });
 });

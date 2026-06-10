@@ -35,6 +35,12 @@ const TABS: TabConfig[] = [
     iconFocused: 'chatbubble',
   },
   {
+    name: 'friends',
+    title: 'Friends',
+    icon: 'people-outline',
+    iconFocused: 'people',
+  },
+  {
     name: 'wallet',
     title: 'Wallet',
     icon: 'wallet-outline',

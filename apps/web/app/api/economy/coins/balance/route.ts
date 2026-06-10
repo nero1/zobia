@@ -12,6 +12,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
+import { db } from "@/lib/db";
 import { getBalance, getLedgerEntries } from "@/lib/economy/coins";
 import { getStarBalance, getStarLedgerEntries } from "@/lib/economy/stars";
 
@@ -47,12 +48,16 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const rawLimit = parseInt(url.searchParams.get("limit") ?? "20", 10);
     const limit = Math.min(Math.max(1, rawLimit), 50);
 
-    // Fetch balances and recent ledger entries in parallel
-    const [coins, stars, coinLedger, starLedger] = await Promise.all([
-      getBalance(userId),
-      getStarBalance(userId),
-      getLedgerEntries(userId, limit),
-      getStarLedgerEntries(userId, limit),
+    // Fetch user row (xp_total + plan), balances, and ledger entries in parallel
+    const [userRow, coins, stars, coinLedger, starLedger] = await Promise.all([
+      db.query<{ xp_total: number; plan: string | null }>(
+        `SELECT xp_total, plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+        [userId]
+      ).then((r) => r.rows[0] ?? { xp_total: 0, plan: null }),
+      getBalance(userId).catch(() => 0),
+      getStarBalance(userId).catch(() => 0),
+      getLedgerEntries(userId, limit).catch(() => []),
+      getStarLedgerEntries(userId, limit).catch(() => []),
     ]);
 
     // Shape the ledger entries for the client
@@ -81,6 +86,8 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     return NextResponse.json({
       coins,
       stars,
+      xp: userRow.xp_total ?? 0,
+      plan: userRow.plan ?? null,
       transactions,
       starTransactions,
     });

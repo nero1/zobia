@@ -43,7 +43,7 @@ export default function CreateGroupPage() {
   const router = useRouter();
 
   const [groupName, setGroupName] = useState("");
-  const [tag, setTag] = useState<"Study Group" | "Crew" | "Business" | "">("");
+  const [tag, setTag] = useState<"Personal" | "General" | "Study Group" | "Crew" | "Business" | "Other" | "">("");
   const [search, setSearch] = useState("");
   const [friends, setFriends] = useState<Friend[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -164,7 +164,7 @@ export default function CreateGroupPage() {
           Group type
         </label>
         <div className="flex gap-2">
-          {(["Crew", "Study Group", "Business"] as const).map((t) => (
+          {(["Personal", "General", "Crew", "Study Group", "Business", "Other"] as const).map((t) => (
             <button
               key={t}
               type="button"

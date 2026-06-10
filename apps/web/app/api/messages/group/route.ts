@@ -45,7 +45,7 @@ const createGroupSchema = z.object({
     .min(1, "Avatar emoji is required")
     .max(10, "Avatar emoji must be at most 10 characters")
     .default("💬"),
-  tag: z.enum(["Study Group", "Crew", "Business"]).optional(),
+  tag: z.enum(["Personal", "General", "Study Group", "Crew", "Business", "Other"]).optional(),
   /** Initial member IDs to add (excluding the creator, who is added automatically). */
   memberIds: z
     .array(z.string().uuid())

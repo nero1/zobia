@@ -17,6 +17,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import QRCode from 'react-native-qrcode-svg';
 import {
   Alert,
   Linking,
@@ -401,18 +402,9 @@ function TwoFactorSection() {
                   {setupSecret}
                 </Text>
                 {setupQrUrl && (
-                  <>
-                    <Text style={[styles.secretLabel, { color: themeColors.textMuted, marginTop: 12 }]}>
-                      Or use this otpauth URL:
-                    </Text>
-                    <Text
-                      style={[styles.qrUrlText, { color: themeColors.textMuted }]}
-                      selectable
-                      numberOfLines={4}
-                    >
-                      {setupQrUrl}
-                    </Text>
-                  </>
+                  <View style={{ alignItems: 'center', marginTop: 12, padding: 12, backgroundColor: '#fff', borderRadius: 12 }}>
+                    <QRCode value={setupQrUrl} size={180} />
+                  </View>
                 )}
               </View>
             ) : (
@@ -585,6 +577,15 @@ export default function SettingsScreen() {
     queryFn: async () => {
       const { data } = await apiClient.get<{ features: { pidginAutocomplete: boolean } }>('/manifest');
       return data?.features ?? { pidginAutocomplete: false };
+    },
+    staleTime: 5 * 60_000,
+  });
+
+  const { data: featureFlags } = useQuery({
+    queryKey: ['feature-flags'],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ twoFaEnabled: boolean; pinEnabled: boolean }>('/api/features');
+      return data ?? { twoFaEnabled: true, pinEnabled: true };
     },
     staleTime: 5 * 60_000,
   });
@@ -797,18 +798,20 @@ export default function SettingsScreen() {
           <Text style={[styles.settingsRowLabel, { color: themeColors.text }]}>Change Password</Text>
           <Text style={[styles.chevron, { color: themeColors.textMuted }]}>›</Text>
         </Pressable>
-        <Pressable
-          style={[styles.settingsRow, { borderBottomColor: 'transparent' }]}
-          onPress={() => router.push('/settings/pin')}
-          accessibilityRole="button"
-        >
-          <Text style={[styles.settingsRowLabel, { color: themeColors.text }]}>Change PIN</Text>
-          <Text style={[styles.chevron, { color: themeColors.textMuted }]}>›</Text>
-        </Pressable>
+        {(featureFlags?.pinEnabled ?? true) && (
+          <Pressable
+            style={[styles.settingsRow, { borderBottomColor: 'transparent' }]}
+            onPress={() => router.push('/settings/pin')}
+            accessibilityRole="button"
+          >
+            <Text style={[styles.settingsRowLabel, { color: themeColors.text }]}>Change PIN</Text>
+            <Text style={[styles.chevron, { color: themeColors.textMuted }]}>›</Text>
+          </Pressable>
+        )}
       </View>
 
       {/* Two-Factor Authentication */}
-      <TwoFactorSection />
+      {(featureFlags?.twoFaEnabled ?? true) && <TwoFactorSection />}
 
       {/* Privacy & Data */}
       <PrivacyDataSection />
