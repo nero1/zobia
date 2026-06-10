@@ -169,7 +169,8 @@ export default function MyProfilePage() {
     try {
       const res = await fetch("/api/users/me", { credentials: "include" });
       if (!res.ok) throw new Error("Could not load profile");
-      const data: MeData = await res.json();
+      const json = await res.json();
+      const data: MeData = json.user ?? json;
       setMe(data);
 
       // Load guild info if user is in one

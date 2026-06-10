@@ -595,11 +595,25 @@ export default function HomePage() {
       .then((d: { friends?: Friend[] } | null) => setFriends(d?.friends ?? []))
       .catch(() => setFriends([]));
 
-    // Leaderboard position
-    fetch("/api/leaderboards/me", { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: LeaderboardPosition | null) => setLeaderboard(d ?? undefined))
-      .catch(() => setLeaderboard(undefined));
+    // Leaderboard position — fetch rank from /api/leaderboards/me and XP from /api/users/me
+    Promise.all([
+      fetch("/api/leaderboards/me", { credentials: "include" })
+        .then((r) => r.ok ? r.json() : null)
+        .catch(() => null),
+      fetch("/api/users/me", { credentials: "include" })
+        .then((r) => r.ok ? r.json() : null)
+        .catch(() => null),
+    ]).then(([lbData, meData]) => {
+      const ranks: Array<{ track: string; globalRank: number | null }> =
+        lbData?.data?.ranks ?? [];
+      const mainRank = ranks.find((r) => r.track === "main");
+      const xp = (meData?.user ?? meData)?.xp_total ?? 0;
+      if (mainRank?.globalRank != null) {
+        setLeaderboard({ rank: mainRank.globalRank, rankDelta: 0, xp });
+      } else {
+        setLeaderboard(undefined);
+      }
+    });
 
     // PRD §4: Guild Discovery — fetch 3 nearby guilds
     // API returns empty array if user is already in a guild

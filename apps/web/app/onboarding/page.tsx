@@ -375,10 +375,10 @@ export default function OnboardingPage() {
           })
           .catch(() => {})
           .finally(() => setGuildsLoading(false));
-        fetch("/api/referrals")
+        fetch("/api/referrals", { credentials: "include" })
           .then((r) => r.json())
-          .then((d: { stats?: { referralUrl?: string } }) => {
-            if (d.stats?.referralUrl) setReferralUrl(d.stats.referralUrl);
+          .then((d: { data?: { referralUrl?: string | null } }) => {
+            if (d.data?.referralUrl) setReferralUrl(d.data.referralUrl);
           })
           .catch(() => {});
       }, 2500);

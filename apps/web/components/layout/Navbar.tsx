@@ -10,9 +10,27 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
 import { clsx } from "clsx";
 import { Avatar } from "@/components/ui/Avatar";
+
+interface NavUser {
+  display_name: string | null;
+  username: string | null;
+  avatar_emoji: string | null;
+}
+
+function useNavUser() {
+  const [user, setUser] = useState<NavUser | null>(null);
+  useEffect(() => {
+    fetch("/api/users/me", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((json) => { if (json) setUser(json.user ?? json); })
+      .catch(() => {});
+  }, []);
+  return user;
+}
 
 // ---------------------------------------------------------------------------
 // Nav items
@@ -91,6 +109,8 @@ function NavIcon({ label, isActive }: { label: string; isActive: boolean }) {
  */
 export function Navbar() {
   const pathname = usePathname();
+  const navUser = useNavUser();
+  const displayName = navUser?.display_name ?? navUser?.username ?? "User";
 
   return (
     <>
@@ -129,18 +149,18 @@ export function Navbar() {
 
           {/* Right: notifications + avatar */}
           <div className="flex items-center gap-2">
-            {/* Notification bell placeholder */}
-            <button
-              type="button"
+            {/* Notification bell — links to /notifications */}
+            <Link
+              href="/notifications"
               aria-label="Notifications"
               className="relative rounded-full p-2 text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
             >
               <span aria-hidden="true" className="text-lg leading-none">🔔</span>
-            </button>
+            </Link>
 
             {/* User avatar */}
             <Link href="/profile" aria-label="Your profile">
-              <Avatar name="User" size="sm" rankTier="none" />
+              <Avatar name={displayName} size="sm" rankTier="none" />
             </Link>
           </div>
         </div>

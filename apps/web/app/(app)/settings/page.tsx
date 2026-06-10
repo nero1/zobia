@@ -135,18 +135,47 @@ export default function SettingsPage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/me/settings", { credentials: "include" });
-        if (res.status === 401) { router.push("/auth/login"); return; }
-        if (!res.ok) throw new Error("Failed to load settings");
-        const data = (await res.json()) as UserSettings;
-        setSettings(data);
-        setDisplayName(data.displayName);
-        setBio(data.bio);
-        setEmail(data.email);
-        setLanguage(data.language);
-        setTheme(data.theme);
-        setNotifications(data.notifications);
-        setDmOptOut(data.dmOptOut);
+        const [settingsRes, profileRes] = await Promise.all([
+          fetch("/api/users/me/settings", { credentials: "include" }),
+          fetch("/api/users/me", { credentials: "include" }),
+        ]);
+        if (settingsRes.status === 401 || profileRes.status === 401) {
+          router.push("/auth/login");
+          return;
+        }
+        if (!settingsRes.ok || !profileRes.ok) throw new Error("Failed to load settings");
+        const settingsJson = await settingsRes.json();
+        const profileJson = await profileRes.json();
+        const apiSettings = settingsJson.data ?? settingsJson;
+        const user = profileJson.user ?? profileJson;
+        const notifPush = apiSettings.notifications?.push ?? {};
+        const mappedSettings: UserSettings = {
+          displayName: user.display_name ?? "",
+          bio: user.bio ?? "",
+          email: user.email ?? "",
+          language: user.locale ?? apiSettings.locale ?? "en",
+          theme: "system",
+          notifications: {
+            new_message:    notifPush.newMessage    ?? true,
+            friend_request: notifPush.friendRequest ?? true,
+            gift_received:  notifPush.giftReceived  ?? true,
+            rank_up:        notifPush.rankUp         ?? true,
+            war_start:      notifPush.warStart       ?? true,
+            season_end:     notifPush.seasonEnd      ?? true,
+            announcement:   notifPush.announcement   ?? true,
+          },
+          dmOptOut: user.dm_privacy === "friends_only" || user.dm_privacy === "nobody",
+          plan: user.plan ?? null,
+          chatTheme: user.chat_theme ?? "default",
+        };
+        setSettings(mappedSettings);
+        setDisplayName(mappedSettings.displayName);
+        setBio(mappedSettings.bio);
+        setEmail(mappedSettings.email);
+        setLanguage(mappedSettings.language);
+        setTheme(mappedSettings.theme);
+        setNotifications(mappedSettings.notifications);
+        setDmOptOut(mappedSettings.dmOptOut);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Unknown error");
       } finally {
@@ -194,11 +223,51 @@ export default function SettingsPage() {
   async function saveField(field: string, value: unknown) {
     setSavingField(field);
     try {
-      const res = await fetch("/api/me/settings", {
-        method: "PATCH",
+      // Route each field to the correct API endpoint
+      const NOTIF_KEY_MAP: Record<string, string> = {
+        new_message:    "notify_new_message",
+        friend_request: "notify_friend_request",
+        gift_received:  "notify_gift_received",
+        rank_up:        "notify_rank_up",
+        war_start:      "notify_war_start",
+        season_end:     "notify_season_end",
+        announcement:   "notify_announcement",
+      };
+
+      let url: string;
+      let method: string;
+      let body: Record<string, unknown>;
+
+      if (field === "displayName") {
+        url = "/api/users/me"; method = "PUT"; body = { display_name: value };
+      } else if (field === "bio") {
+        url = "/api/users/me"; method = "PUT"; body = { bio: value };
+      } else if (field === "email") {
+        showToast("Email changes require verification — coming soon", "error");
+        return;
+      } else if (field === "theme") {
+        url = "/api/users/me/theme"; method = "PUT"; body = { theme: value };
+      } else if (field === "language") {
+        url = "/api/users/me/settings"; method = "PATCH"; body = { locale: value };
+      } else if (field === "notifications") {
+        const notifObj = value as Record<string, boolean>;
+        const mapped: Record<string, boolean> = {};
+        for (const [key, apiKey] of Object.entries(NOTIF_KEY_MAP)) {
+          if (notifObj[key] !== undefined) mapped[apiKey] = notifObj[key];
+        }
+        url = "/api/users/me/settings"; method = "PATCH"; body = mapped;
+      } else if (field === "dmOptOut") {
+        url = "/api/users/me"; method = "PUT";
+        body = { dm_privacy: value ? "friends_only" : "everyone" };
+      } else {
+        url = "/api/users/me/settings"; method = "PATCH"; body = { [field]: value };
+      }
+
+      const res = await fetch(url, {
+        method,
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ [field]: value }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error("Failed to save");
       showToast("Saved");
@@ -216,7 +285,7 @@ export default function SettingsPage() {
     if (newPassword.length < 8) { setPwError("Password must be at least 8 characters"); return; }
     setPwSaving(true);
     try {
-      const res = await fetch("/api/me/password", {
+      const res = await fetch("/api/users/me/password", {
         method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -243,7 +312,7 @@ export default function SettingsPage() {
     if (deleteConfirmText !== "DELETE") return;
     setDeleting(true);
     try {
-      const res = await fetch("/api/me", { method: "DELETE", credentials: "include" });
+      const res = await fetch("/api/users/me", { method: "DELETE", credentials: "include" });
       if (!res.ok) throw new Error("Failed to delete account");
       router.push("/goodbye");
     } catch (e) {
@@ -637,10 +706,11 @@ function TwoFactorSection({ onToast }: { onToast: (msg: string, type?: "success"
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/me", { credentials: "include" });
+        const res = await fetch("/api/users/me", { credentials: "include" });
         if (!res.ok) return;
-        const data = (await res.json()) as { totpEnabled?: boolean };
-        setTotpEnabled(data.totpEnabled ?? false);
+        const json = await res.json();
+        const data = json.user ?? json;
+        setTotpEnabled(data.totp_enabled ?? data.totpEnabled ?? false);
       } catch { /* non-fatal */ } finally {
         setLoadingStatus(false);
       }
