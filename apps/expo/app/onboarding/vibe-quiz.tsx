@@ -97,7 +97,7 @@ export default function VibeQuiz() {
     username: string;
     emoji: string;
     city: string;
-    dateOfBirth: string;
+    birthYear: string;
   }>();
 
   const questions = useQuizQuestions();

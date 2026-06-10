@@ -129,6 +129,12 @@ const updateProfileSchema = z.object({
   streak_notifications: z.boolean().optional(),
   dm_privacy: z.enum(["everyone", "friends_only", "nobody"]).optional(),
   gender: z.enum(["female", "male", "non_binary", "prefer_not_to_say"]).nullable().optional(),
+  // Full date of birth — users set this from profile settings after onboarding
+  date_of_birth: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "date_of_birth must be in YYYY-MM-DD format")
+    .nullable()
+    .optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -147,7 +153,7 @@ const SELECT_COLUMNS = `
   dm_notifications, guild_notifications, streak_notifications,
   COALESCE(dm_privacy, 'everyone') AS dm_privacy,
   COALESCE(totp_enabled, false) AS totp_enabled,
-  gender, created_at, updated_at
+  gender, date_of_birth, created_at, updated_at
 `;
 
 // ---------------------------------------------------------------------------
@@ -252,6 +258,10 @@ export const PUT = withAuth(async (req: NextRequest, { params, auth }) => {
     if (body.gender !== undefined) {
       updates.push(`gender = $${paramIdx++}`);
       params.push(body.gender);
+    }
+    if (body.date_of_birth !== undefined) {
+      updates.push(`date_of_birth = $${paramIdx++}`);
+      params.push(body.date_of_birth);
     }
 
     if (updates.length === 0) {

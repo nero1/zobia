@@ -50,7 +50,7 @@ export default function WelcomeDrop() {
     emoji: string;
     city: string;
     vibeAnswers: string;
-    dateOfBirth: string;
+    birthYear: string;
   }>();
 
   // -------------------------------------------------------------------------
@@ -77,7 +77,7 @@ export default function WelcomeDrop() {
         username: params.username,
         avatar_emoji: params.emoji,
         city: params.city,
-        date_of_birth: params.dateOfBirth,
+        birth_year: parseInt(params.birthYear ?? '0', 10),
         vibe_answers: vibeAnswers,
       })
       .catch(() => {

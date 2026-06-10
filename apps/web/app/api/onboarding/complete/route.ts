@@ -63,9 +63,13 @@ const onboardingSchema = z.object({
     .record(z.string(), z.unknown())
     .optional()
     .nullable(),
-  date_of_birth: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "date_of_birth must be in YYYY-MM-DD format"),
+  // Onboarding collects only birth year; stored as YYYY-01-01 in the DB.
+  // Users may update to their full date of birth later in profile settings.
+  birth_year: z.coerce
+    .number()
+    .int()
+    .min(1900, "birth_year must be 1900 or later")
+    .max(new Date().getFullYear(), "birth_year cannot be in the future"),
   referral_code: z.string().max(20).optional().nullable(),
   captcha_token: z.string().optional(),
 });
@@ -75,20 +79,14 @@ const onboardingSchema = z.object({
 // ---------------------------------------------------------------------------
 
 /**
- * Calculate age in full years from a YYYY-MM-DD string.
+ * Calculate age in full years from a birth year integer.
+ * Conservative: assumes the birthday hasn't occurred yet this year.
  *
- * @param dob - ISO date string (YYYY-MM-DD)
- * @returns Age in years
+ * @param birthYear - Four-digit birth year
+ * @returns Minimum age in years
  */
-function calculateAge(dob: string): number {
-  const birth = new Date(dob);
-  const today = new Date();
-  let age = today.getFullYear() - birth.getFullYear();
-  const monthDiff = today.getMonth() - birth.getMonth();
-  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
-    age--;
-  }
-  return age;
+function calculateAge(birthYear: number): number {
+  return new Date().getFullYear() - birthYear;
 }
 
 /**
@@ -147,14 +145,18 @@ export const POST = withAuth(async (req, { params, auth }) => {
     // @ts-ignore – minimum_age may exist as a custom manifest key
     const minimumAge: number = (manifest as Record<string, unknown>).minimum_age ?? 18;
 
-    // Check age requirement
-    const age = calculateAge(body.date_of_birth);
+    // Check age requirement (conservative: uses birth year only)
+    const age = calculateAge(body.birth_year);
     if (age < minimumAge) {
       throw badRequest(
         `You must be at least ${minimumAge} years old to use Zobia Social`,
         "AGE_REQUIREMENT_NOT_MET"
       );
     }
+
+    // Build ISO date from birth year for DB storage (YYYY-01-01).
+    // Users can update to their full date of birth from profile settings.
+    const dateOfBirth = `${body.birth_year}-01-01`;
 
     // Execute all writes in a single transaction
     const result = await db.transaction(async (client) => {
@@ -218,7 +220,7 @@ export const POST = withAuth(async (req, { params, auth }) => {
           body.avatar_emoji ?? null,
           body.city ?? null,
           personalization ? JSON.stringify(personalization) : null,
-          body.date_of_birth,
+          dateOfBirth,
           referralCode,
           auth.user.sub,
         ]
