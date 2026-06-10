@@ -1207,5 +1207,26 @@
     "aiSettingsTestFailed": "Failed: {{error}}",
     "aiSettingsSaveSuccess": "API key saved.",
     "aiSettingsSaveError": "Failed to save key."
+  },
+  "guildDiscovery": {
+    "stepBadge": "Kusa ka isa",
+    "title": "Ƙungiyoyi a kusa da kai suna neman membobi",
+    "subtitle": "Shiga Guild yana ba ka ƙarin XP akan komai da kake yi.",
+    "nearCity": "Nuna ƙungiyoyi kusa da {{city}}",
+    "nearYou": "Kusa da kai",
+    "members": "membobi {{count}}",
+    "warsWon": "yaƙe-yaƙe {{count}} da aka ci",
+    "xpBoost": "+{{pct}}% XP",
+    "join": "Shiga",
+    "joining": "Ana shiga…",
+    "joined": "✓ Ka shiga!",
+    "continueHome": "Ci gaba zuwa Gida →",
+    "exploreOwn": "Nina bincike shi kaɗai",
+    "browseAll": "Duba Dukkan Ƙungiyoyi",
+    "error": "Ba a iya loda shawarwarin ƙungiya ba. Duba haɗin intanet ɗinka.",
+    "retry": "Sake gwadawa",
+    "empty": "Babu ƙungiyoyi kusa da birninka tukuna. Duba ba da daɗewa ba!",
+    "tooNew": "Ka dawo ba da daɗewa ba!",
+    "tooNewBody": "Shawarwarin Guild suna buɗewa bayan sa'o'i 24 na farko akan Zobia."
   }
 }

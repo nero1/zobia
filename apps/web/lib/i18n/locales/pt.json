@@ -830,5 +830,32 @@
   "admin.aiSettings.saveSuccess": "API key saved.",
   "admin.aiSettings.clearSuccess": "Override cleared.",
   "admin.aiSettings.saveError": "Failed to save key.",
-  "admin.aiSettings.loadError": "Failed to load AI settings."
+  "admin.aiSettings.loadError": "Failed to load AI settings.",
+
+  "notFound.title": "Página não encontrada",
+  "notFound.description": "A página que você procura não existe ou foi movida.",
+  "notFound.backHome": "Voltar para o início",
+  "notFound.login": "Entrar",
+  "notFound.quickLinks": "Ou tente uma dessas páginas:",
+
+  "guildDiscovery.stepBadge": "Quase lá",
+  "guildDiscovery.title": "Equipes perto de você estão recrutando",
+  "guildDiscovery.subtitle": "Entrar em uma Guilda rende XP bônus em tudo que você faz.",
+  "guildDiscovery.nearCity": "Mostrando guildas perto de {{city}}",
+  "guildDiscovery.nearYou": "Perto de você",
+  "guildDiscovery.members": "{{count}} membro",
+  "guildDiscovery.warsWon": "{{count}} guerras vencidas",
+  "guildDiscovery.xpBoost": "+{{pct}}% XP",
+  "guildDiscovery.join": "Entrar",
+  "guildDiscovery.joining": "Entrando…",
+  "guildDiscovery.joined": "✓ Entrou!",
+  "guildDiscovery.continueHome": "Continuar para o Início →",
+  "guildDiscovery.exploreOwn": "Explorar por conta própria",
+  "guildDiscovery.browseAll": "Ver Todas as Guildas",
+  "guildDiscovery.error": "Não foi possível carregar as recomendações de guildas. Verifique sua conexão.",
+  "guildDiscovery.retry": "Tentar novamente",
+  "guildDiscovery.empty": "Nenhuma guilda perto da sua cidade ainda",
+  "guildDiscovery.emptyHint": "Volte em breve — ou explore todas as guildas.",
+  "guildDiscovery.tooNew": "Volte em breve!",
+  "guildDiscovery.tooNewBody": "As recomendações de guildas ficam disponíveis após suas primeiras 24 horas na Zobia."
 }

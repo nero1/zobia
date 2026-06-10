@@ -1269,5 +1269,26 @@
     "minLength": "Must be at least {{min}} characters.",
     "passwordMatch": "Passwords do not match.",
     "required": "This field is required."
+  },
+  "guildDiscovery": {
+    "stepBadge": "Presque là",
+    "title": "Des équipes près de chez vous recrutent",
+    "subtitle": "Rejoindre une Guilde vous rapporte des XP supplémentaires sur tout ce que vous faites.",
+    "nearCity": "Guildes près de {{city}}",
+    "nearYou": "Près de vous",
+    "members": "{{count}} membre",
+    "warsWon": "{{count}} guerres gagnées",
+    "xpBoost": "+{{pct}}% XP",
+    "join": "Rejoindre",
+    "joining": "Adhésion…",
+    "joined": "✓ Rejoint !",
+    "continueHome": "Continuer vers l'accueil →",
+    "exploreOwn": "Explorer seul",
+    "browseAll": "Voir toutes les guildes",
+    "error": "Impossible de charger les guildes. Vérifiez votre connexion.",
+    "retry": "Réessayer",
+    "empty": "Aucune guilde près de votre ville pour l'instant. Revenez bientôt !",
+    "tooNew": "Revenez bientôt !",
+    "tooNewBody": "Les recommandations de guildes se débloquent après vos 24 premières heures sur Zobia."
   }
 }

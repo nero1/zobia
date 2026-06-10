@@ -1207,5 +1207,26 @@
     "aiSettingsTestFailed": "Failed: {{error}}",
     "aiSettingsSaveSuccess": "API key saved.",
     "aiSettingsSaveError": "Failed to save key."
+  },
+  "guildDiscovery": {
+    "stepBadge": "Ususeduze",
+    "title": "Amaqembu aseduzane nawe ayaqasha",
+    "subtitle": "Ukujoyina iGuild kukuvumela uthole amaXP awengeziwe kukho konke okwenzayo.",
+    "nearCity": "Ukubonisa amaqembu eduzane ne-{{city}}",
+    "nearYou": "Eduze nawe",
+    "members": "amalungu angu-{{count}}",
+    "warsWon": "impi {{count}} enqobiwe",
+    "xpBoost": "+{{pct}}% XP",
+    "join": "Joyina",
+    "joining": "Iyajoyina…",
+    "joined": "✓ Ujoyiniwe!",
+    "continueHome": "Qhubeka Ekhaya →",
+    "exploreOwn": "Ngizophenya ngokwami",
+    "browseAll": "Bheka Wonke Amaqembu",
+    "error": "Yehlulekile ukulayisha amaqembu. Hlola uxhumano lwakho.",
+    "retry": "Zama futhi",
+    "empty": "Awekho amaqembu eduzane nedolobha lakho okwamanje. Hlola maduze!",
+    "tooNew": "Buya maduze!",
+    "tooNewBody": "Izincomo zeGuild zivuleka ngemuva kwamahora akho ayi-24 okuqala ku-Zobia."
   }
 }

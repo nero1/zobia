@@ -1207,5 +1207,26 @@
     "aiSettingsTestFailed": "Failed: {{error}}",
     "aiSettingsSaveSuccess": "API key saved.",
     "aiSettingsSaveError": "Failed to save key."
+  },
+  "guildDiscovery": {
+    "stepBadge": "Quase lá",
+    "title": "Equipes perto de você estão recrutando",
+    "subtitle": "Entrar em uma Guilda rende XP bônus em tudo que você faz.",
+    "nearCity": "Mostrando guildas perto de {{city}}",
+    "nearYou": "Perto de você",
+    "members": "{{count}} membro",
+    "warsWon": "{{count}} guerras vencidas",
+    "xpBoost": "+{{pct}}% XP",
+    "join": "Entrar",
+    "joining": "Entrando…",
+    "joined": "✓ Entrou!",
+    "continueHome": "Continuar para o Início →",
+    "exploreOwn": "Explorar por conta própria",
+    "browseAll": "Ver Todas as Guildas",
+    "error": "Não foi possível carregar as guildas. Verifique sua conexão.",
+    "retry": "Tentar novamente",
+    "empty": "Nenhuma guilda perto da sua cidade ainda. Volte em breve!",
+    "tooNew": "Volte em breve!",
+    "tooNewBody": "As recomendações de guildas ficam disponíveis após suas primeiras 24 horas na Zobia."
   }
 }

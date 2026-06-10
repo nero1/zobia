@@ -1207,5 +1207,26 @@
     "aiSettingsTestFailed": "Failed: {{error}}",
     "aiSettingsSaveSuccess": "API key saved.",
     "aiSettingsSaveError": "Failed to save key."
+  },
+  "guildDiscovery": {
+    "stepBadge": "Karibu Sana",
+    "title": "Vikundi karibu nawe vinaajiri wanachama",
+    "subtitle": "Kujiunga na Chama hukupa XP ya ziada kwenye kila unachofanya.",
+    "nearCity": "Maonyesho ya vyama karibu na {{city}}",
+    "nearYou": "Karibu nawe",
+    "members": "wanachama {{count}}",
+    "warsWon": "vita {{count}} vilivyoshindwa",
+    "xpBoost": "+{{pct}}% XP",
+    "join": "Jiunge",
+    "joining": "Inajiunga…",
+    "joined": "✓ Umejiunga!",
+    "continueHome": "Endelea Nyumbani →",
+    "exploreOwn": "Chunguza peke yangu",
+    "browseAll": "Tazama Vyama Vyote",
+    "error": "Haikuweza kupakia vyama. Angalia muunganiko wako.",
+    "retry": "Jaribu tena",
+    "empty": "Hakuna vyama karibu na mji wako bado. Angalia hivi karibuni!",
+    "tooNew": "Rudi hivi karibuni!",
+    "tooNewBody": "Mapendekezo ya vyama yanafunguliwa baada ya saa 24 za kwanza kwenye Zobia."
   }
 }
