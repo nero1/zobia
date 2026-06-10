@@ -19,7 +19,7 @@ import { test, expect, type Page } from "@playwright/test";
 const MOCK_USER = {
   username: `test_${Date.now()}`,
   displayName: "Test User",
-  dob: "2000-01-15", // 25+ years old, passes 18-year gate
+  birthYear: "2000", // 25+ years old, passes 18-year gate
   city: "Lagos",
 };
 
@@ -51,14 +51,13 @@ test.describe("Onboarding — Identity Creation", () => {
 
   test("blocks users under minimum age", async ({ page }) => {
     await goToOnboarding(page);
-    const dobInput = page
-      .getByPlaceholder(/date of birth|birthday/i)
-      .or(page.locator('input[name="date_of_birth"], input[type="date"]'));
-    if (await dobInput.isVisible()) {
-      // Set DOB to 10 years ago (underage)
-      const underage = new Date();
-      underage.setFullYear(underage.getFullYear() - 10);
-      await dobInput.fill(underage.toISOString().slice(0, 10));
+    const birthYearInput = page
+      .getByPlaceholder(/year of birth|birth year/i)
+      .or(page.locator('input[placeholder*="e.g."]'));
+    if (await birthYearInput.isVisible()) {
+      // Set birth year to 10 years ago (underage)
+      const underageYear = String(new Date().getFullYear() - 10);
+      await birthYearInput.fill(underageYear);
       await page.getByRole("button", { name: /next|continue|complete/i }).click();
       await expect(page.getByText(/age|18|minimum|years old/i)).toBeVisible();
     }
@@ -88,7 +87,7 @@ test.describe("API — Onboarding completion", () => {
       data: {
         username: `age_test_${Date.now()}`,
         display_name: "Age Test",
-        date_of_birth: "2020-01-01", // only ~4-5 years old
+        birth_year: new Date().getFullYear() - 5, // only ~5 years old
         city: "Lagos",
       },
       headers: { "Content-Type": "application/json" },
@@ -104,7 +103,7 @@ test.describe("API — Onboarding completion", () => {
       data: {
         username: `no_auth_${Date.now()}`,
         display_name: "No Auth",
-        date_of_birth: "1990-01-01",
+        birth_year: 1990,
         city: "Lagos",
       },
     });

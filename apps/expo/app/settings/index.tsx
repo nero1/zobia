@@ -591,6 +591,38 @@ export default function SettingsScreen() {
 
   const [settings, setSettings] = useState<Partial<UserSettings>>({});
 
+  // Date of birth (fetched separately from profile)
+  const [dateOfBirth, setDateOfBirth] = useState('');
+  const [dobSaving, setDobSaving] = useState(false);
+  const [dobError, setDobError] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: profileData } = await apiClient.get<{ user?: { date_of_birth?: string | null } }>('/api/users/me');
+        if (profileData?.user?.date_of_birth) {
+          setDateOfBirth(profileData.user.date_of_birth);
+        }
+      } catch { /* non-fatal */ }
+    })();
+  }, []);
+
+  async function saveDateOfBirth() {
+    if (!dateOfBirth.trim()) { setDobError('Please enter a date of birth.'); return; }
+    const dobRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dobRegex.test(dateOfBirth.trim())) { setDobError('Please use YYYY-MM-DD format (e.g. 1995-06-15).'); return; }
+    setDobError(null);
+    setDobSaving(true);
+    try {
+      await apiClient.put('/api/users/me', { date_of_birth: dateOfBirth.trim() });
+      Alert.alert('Saved', 'Date of birth updated.');
+    } catch {
+      Alert.alert('Error', 'Could not save date of birth. Please try again.');
+    } finally {
+      setDobSaving(false);
+    }
+  }
+
   const defaultNotifications: Record<string, boolean> = {
     new_message: true,
     friend_request: true,
@@ -718,6 +750,45 @@ export default function SettingsScreen() {
           autoCapitalize="none"
           returnKeyType="done"
         />
+        {/* Date of birth */}
+        <View style={[styles.dobRow, { borderBottomColor: themeColors.border }]}>
+          <Text style={[styles.dobLabel, { color: themeColors.textMuted }]}>
+            Date of Birth
+          </Text>
+          <View style={styles.dobInputRow}>
+            <TextInput
+              style={[styles.dobInput, {
+                backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100],
+                color: themeColors.text,
+                borderColor: dobError ? colors.semantic.error : themeColors.border,
+              }]}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor={themeColors.textMuted}
+              value={dateOfBirth}
+              onChangeText={(v) => { setDateOfBirth(v); if (dobError) setDobError(null); }}
+              keyboardType="numbers-and-punctuation"
+              maxLength={10}
+              returnKeyType="done"
+              accessibilityLabel="Date of birth in YYYY-MM-DD format"
+            />
+            <Pressable
+              onPress={saveDateOfBirth}
+              disabled={dobSaving}
+              style={[styles.dobSaveBtn, { opacity: dobSaving ? 0.6 : 1 }]}
+              accessibilityRole="button"
+              accessibilityLabel="Save date of birth"
+            >
+              <Text style={styles.dobSaveBtnText}>{dobSaving ? '…' : 'Save'}</Text>
+            </Pressable>
+          </View>
+          {dobError
+            ? <Text style={[styles.dobHint, { color: colors.semantic.error }]} accessibilityRole="alert">{dobError}</Text>
+            : <Text style={[styles.dobHint, { color: themeColors.textMuted }]}>
+                Full date of birth. Only your birth year was collected during signup.
+              </Text>
+          }
+        </View>
+
         <Pressable
           style={[styles.settingsRow, { borderBottomColor: themeColors.border }]}
           onPress={() => Alert.alert('Change Password', 'Password change flow would open here.')}
@@ -1047,6 +1118,50 @@ const styles = StyleSheet.create({
   toggleDesc: { fontSize: 12, marginTop: 2 },
 
   dangerBtn: { margin: 8 },
+
+  dobRow: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: 8,
+  },
+  dobLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  dobInputRow: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  dobInput: {
+    flex: 1,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    minHeight: 44,
+  },
+  dobSaveBtn: {
+    borderRadius: 10,
+    backgroundColor: colors.brand.blue,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    minHeight: 44,
+    justifyContent: 'center',
+  },
+  dobSaveBtnText: {
+    color: colors.neutral[0],
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  dobHint: {
+    fontSize: 11,
+    lineHeight: 16,
+  },
 
   skeletonContainer: { padding: 16, gap: 12 },
   skeletonRow: { height: 52, borderRadius: 10, backgroundColor: colors.neutral[200] },

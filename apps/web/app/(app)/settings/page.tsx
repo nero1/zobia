@@ -108,6 +108,11 @@ export default function SettingsPage() {
   const [notifications, setNotifications] = useState<Record<string, boolean>>({});
   const [dmOptOut, setDmOptOut] = useState(false);
 
+  // Date of birth (loaded from /api/users/me)
+  const [dateOfBirth, setDateOfBirth] = useState("");
+  const [dobSaving, setDobSaving] = useState(false);
+  const [dobError, setDobError] = useState<string | null>(null);
+
   // Password change
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -149,6 +154,42 @@ export default function SettingsPage() {
       }
     })();
   }, [router]);
+
+  // Fetch date of birth from profile (separate from settings)
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/users/me", { credentials: "include" });
+        if (!res.ok) return;
+        const data = (await res.json()) as { user?: { date_of_birth?: string | null } };
+        if (data.user?.date_of_birth) {
+          setDateOfBirth(data.user.date_of_birth);
+        }
+      } catch { /* non-fatal */ }
+    })();
+  }, []);
+
+  async function saveDateOfBirth() {
+    if (!dateOfBirth) { setDobError("Please enter a date of birth."); return; }
+    const dobRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dobRegex.test(dateOfBirth)) { setDobError("Please use YYYY-MM-DD format (e.g. 1995-06-15)."); return; }
+    setDobError(null);
+    setDobSaving(true);
+    try {
+      const res = await fetch("/api/users/me", {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date_of_birth: dateOfBirth }),
+      });
+      if (!res.ok) throw new Error("Failed to save");
+      showToast("Date of birth saved");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Save failed", "error");
+    } finally {
+      setDobSaving(false);
+    }
+  }
 
   async function saveField(field: string, value: unknown) {
     setSavingField(field);
@@ -280,6 +321,36 @@ export default function SettingsPage() {
               </div>
             </div>
           ))}
+          {/* Date of birth */}
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-neutral-700 dark:text-neutral-300">Date of Birth</label>
+            <div className="flex gap-2">
+              <input
+                type="date"
+                value={dateOfBirth}
+                onChange={(e) => { setDateOfBirth(e.target.value); setDobError(null); }}
+                max={new Date().toISOString().split("T")[0]}
+                aria-invalid={!!dobError}
+                className={`flex-1 rounded-xl border bg-white px-4 py-2.5 text-sm focus:outline-none focus:ring-2 dark:bg-neutral-800 dark:text-neutral-100 transition-colors ${
+                  dobError
+                    ? "border-red-400 focus:border-red-500 focus:ring-red-500/20"
+                    : "border-neutral-300 dark:border-neutral-700 focus:border-blue-500 focus:ring-blue-500/20"
+                }`}
+              />
+              <button
+                onClick={saveDateOfBirth}
+                disabled={dobSaving}
+                className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+              >
+                {dobSaving ? "…" : "Save"}
+              </button>
+            </div>
+            {dobError
+              ? <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">{dobError}</p>
+              : <p className="mt-1 text-xs text-neutral-400">Your full date of birth (YYYY-MM-DD). Only your birth year was collected during signup.</p>
+            }
+          </div>
+
           <div>
             <label className="mb-1 block text-xs font-semibold text-neutral-700 dark:text-neutral-300">Bio</label>
             <div className="flex gap-2">

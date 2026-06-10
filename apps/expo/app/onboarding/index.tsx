@@ -11,7 +11,6 @@
 
 import React, { useState } from 'react';
 import {
-  Alert,
   FlatList,
   Platform,
   Pressable,
@@ -80,7 +79,8 @@ async function requestAndFetchContacts(): Promise<string[]> {
 // ---------------------------------------------------------------------------
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/;
-const DOB_RE = /^\d{4}-\d{2}-\d{2}$/;
+const CURRENT_YEAR = new Date().getFullYear();
+const MINIMUM_AGE = 18;
 
 function validateUsername(value: string): string | undefined {
   if (!value.trim()) return 'Username is required';
@@ -89,22 +89,11 @@ function validateUsername(value: string): string | undefined {
   return undefined;
 }
 
-const MINIMUM_AGE = 18;
-
-function calculateAge(dob: string): number {
-  const birth = new Date(dob);
-  const today = new Date();
-  let age = today.getFullYear() - birth.getFullYear();
-  const m = today.getMonth() - birth.getMonth();
-  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
-  return age;
-}
-
-function validateDateOfBirth(value: string): string | undefined {
-  if (!value.trim()) return 'Date of birth is required';
-  if (!DOB_RE.test(value.trim())) return 'Please use YYYY-MM-DD format';
-  const age = calculateAge(value.trim());
-  if (age < MINIMUM_AGE) return `You must be at least ${MINIMUM_AGE} years old to join`;
+function validateBirthYear(value: string): string | undefined {
+  if (!value.trim()) return 'Year of birth is required';
+  const yr = parseInt(value.trim(), 10);
+  if (isNaN(yr) || yr < 1900 || yr > CURRENT_YEAR) return `Enter a valid year between 1900 and ${CURRENT_YEAR}`;
+  if (CURRENT_YEAR - yr < MINIMUM_AGE) return `You must be at least ${MINIMUM_AGE} years old to join`;
   return undefined;
 }
 
@@ -124,11 +113,14 @@ export default function OnboardingStep1() {
   const [usernameError, setUsernameError] = useState<string | undefined>();
   const [selectedEmoji, setSelectedEmoji] = useState(AVATAR_OPTIONS[0]);
   const [city, setCity] = useState('');
-  const [dateOfBirth, setDateOfBirth] = useState('');
-  const [dobError, setDobError] = useState<string | undefined>();
+  const [cityError, setCityError] = useState<string | undefined>();
+  const [birthYear, setBirthYear] = useState('');
+  const [birthYearError, setBirthYearError] = useState<string | undefined>();
 
   // Contacts
   const [contactsStatus, setContactsStatus] = useState<'idle' | 'loading' | 'done' | 'denied' | 'unavailable'>('idle');
+
+
 
   const textColor = isDark ? colors.neutral[100] : colors.neutral[900];
   const subtitleColor = isDark ? colors.neutral[400] : colors.neutral[500];
@@ -160,32 +152,24 @@ export default function OnboardingStep1() {
 
   function handleNext() {
     const usernameErr = validateUsername(username);
-    if (usernameErr) {
-      setUsernameError(usernameErr);
+    const cityErr = !city.trim() ? 'City is required' : undefined;
+    const yearErr = validateBirthYear(birthYear);
+
+    setUsernameError(usernameErr);
+    setCityError(cityErr);
+    setBirthYearError(yearErr);
+
+    if (usernameErr || cityErr || yearErr) {
       return;
     }
-    if (!city.trim()) {
-      Alert.alert('City required', 'Please enter your city to continue.');
-      return;
-    }
-    const dobErr = validateDateOfBirth(dateOfBirth);
-    if (dobErr) {
-      setDobError(dobErr);
-      if (dobErr === 'Date of birth is required') {
-        Alert.alert('Date of birth is required', 'Please enter your date of birth to continue.');
-      } else {
-        Alert.alert('Invalid date format', 'Please use YYYY-MM-DD format');
-      }
-      return;
-    }
-    // Navigate to step 2, passing profile data via query params.
+
     router.push({
       pathname: '/onboarding/vibe-quiz',
       params: {
         username: username.trim(),
         emoji: selectedEmoji,
         city: city.trim(),
-        dateOfBirth: dateOfBirth.trim(),
+        birthYear: birthYear.trim(),
       },
     });
   }
@@ -257,27 +241,31 @@ export default function OnboardingStep1() {
           label={t('onboarding.cityLabel')}
           placeholder={t('onboarding.cityPlaceholder')}
           value={city}
-          onChangeText={setCity}
+          onChangeText={(v) => { setCity(v); if (cityError) setCityError(undefined); }}
+          error={cityError}
           autoCorrect={false}
         />
       </View>
 
-      {/* Date of Birth input */}
+      {/* Year of birth — age gate only; full date of birth can be set in settings */}
       <View style={styles.section}>
         <Input
-          label="Date of Birth"
-          placeholder="YYYY-MM-DD"
-          value={dateOfBirth}
+          label="Year of Birth"
+          placeholder={`e.g. ${CURRENT_YEAR - 20}`}
+          value={birthYear}
           onChangeText={(v) => {
-            setDateOfBirth(v);
-            if (dobError) setDobError(undefined);
+            setBirthYear(v);
+            if (birthYearError) setBirthYearError(undefined);
           }}
-          error={dobError}
-          keyboardType="numeric"
-          maxLength={10}
+          error={birthYearError}
+          keyboardType="number-pad"
+          maxLength={4}
           autoCorrect={false}
-          accessibilityLabel="Date of birth in YYYY-MM-DD format"
+          accessibilityLabel="Year of birth (4-digit year)"
         />
+        <Text style={[styles.hint, { color: subtitleColor }]}>
+          You must be at least {MINIMUM_AGE} years old. You can add your full date of birth in settings after joining.
+        </Text>
       </View>
 
       {/* Find Friends from Contacts (Step 4 / additional) */}
@@ -386,5 +374,10 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 10,
     backgroundColor: `${colors.semantic.success}14`,
+  },
+  hint: {
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 4,
   },
 });

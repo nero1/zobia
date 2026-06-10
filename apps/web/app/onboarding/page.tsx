@@ -11,7 +11,7 @@
  * Step 4 — First Contact: friend search + referral link share (web fallback for expo-contacts).
  *
  * CAPTCHA token is collected via reCAPTCHA v3 / Turnstile (per manifest).
- * Age gate enforced: date_of_birth required; users below minimumAge are blocked.
+ * Age gate enforced: birth year required; users below minimumAge are blocked.
  * Redirects to /(app)/home on completion.
  */
 
@@ -99,14 +99,7 @@ const AVATAR_OPTIONS = [
 // Helpers
 // ---------------------------------------------------------------------------
 
-function calculateAge(dob: string): number {
-  const birth = new Date(dob);
-  const today = new Date();
-  let age = today.getFullYear() - birth.getFullYear();
-  const m = today.getMonth() - birth.getMonth();
-  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
-  return age;
-}
+const CURRENT_YEAR = new Date().getFullYear();
 
 // ---------------------------------------------------------------------------
 // Component
@@ -124,8 +117,20 @@ export default function OnboardingPage() {
   const [avatarEmoji, setAvatarEmoji] = useState("😎");
   const [city, setCity] = useState("");
   const [citySearch, setCitySearch] = useState("");
-  const [dob, setDob] = useState("");
+  const [birthYear, setBirthYear] = useState("");
   const [usernameStatus, setUsernameStatus] = useState<"idle" | "checking" | "ok" | "taken" | "invalid">("idle");
+
+  // Per-field validation errors — Step 1
+  const [usernameFieldError, setUsernameFieldError] = useState<string | null>(null);
+  const [displayNameError, setDisplayNameError] = useState<string | null>(null);
+  const [cityError, setCityError] = useState<string | null>(null);
+  const [birthYearError, setBirthYearError] = useState<string | null>(null);
+
+  // Step 1 field refs for scroll-to-error
+  const usernameRef = useRef<HTMLDivElement>(null);
+  const displayNameRef = useRef<HTMLDivElement>(null);
+  const cityRef = useRef<HTMLDivElement>(null);
+  const birthYearRef = useRef<HTMLDivElement>(null);
 
   // Vibe Quiz — Step 2
   const [vibeAnswers, setVibeAnswers] = useState<Partial<VibeAnswers>>({});
@@ -157,6 +162,14 @@ export default function OnboardingPage() {
   // Captcha refs
   const turnstileWidgetId = useRef<string | null>(null);
   const captchaContainerRef = useRef<HTMLDivElement>(null);
+
+  // Scroll error banner into view when server-side errors occur
+  const errorBannerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (error) {
+      errorBannerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [error]);
 
   // ---------------------------------------------------------------------------
   // Fetch manifest for CAPTCHA config + minimum age
@@ -222,28 +235,57 @@ export default function OnboardingPage() {
   }, [friendQuery]);
 
   // ---------------------------------------------------------------------------
-  // Step 1 validation
+  // Step 1 validation — sets per-field errors and scrolls to first error
   // ---------------------------------------------------------------------------
-  function validateStep1(): string | null {
-    if (usernameStatus !== "ok") return "Please choose a valid, available username.";
-    if (!displayName.trim()) return "Display name is required.";
-    if (!dob) return "Date of birth is required.";
-    const age = calculateAge(dob);
+  function validateStep1(): boolean {
     const minAge = manifest?.minimumAge ?? 18;
-    if (age < minAge) return `You must be at least ${minAge} years old to join Zobia.`;
-    if (!city) return "Please select your city.";
-    return null;
+    const errs = {
+      username: usernameStatus !== "ok" ? "Please choose a valid, available username." : null,
+      displayName: !displayName.trim() ? "Display name is required." : null,
+      city: !city ? "Please select your city." : null,
+      birthYear: (() => {
+        if (!birthYear) return "Year of birth is required.";
+        const yr = parseInt(birthYear, 10);
+        if (isNaN(yr) || yr < 1900 || yr > CURRENT_YEAR) return `Please enter a valid year between 1900 and ${CURRENT_YEAR}.`;
+        if (CURRENT_YEAR - yr < minAge) return `You must be at least ${minAge} years old to join Zobia.`;
+        return null;
+      })(),
+    };
+
+    setUsernameFieldError(errs.username);
+    setDisplayNameError(errs.displayName);
+    setCityError(errs.city);
+    setBirthYearError(errs.birthYear);
+
+    const errorOrder: { hasError: string | null; ref: React.RefObject<HTMLDivElement> }[] = [
+      { hasError: errs.username, ref: usernameRef },
+      { hasError: errs.displayName, ref: displayNameRef },
+      { hasError: errs.city, ref: cityRef },
+      { hasError: errs.birthYear, ref: birthYearRef },
+    ];
+
+    const firstError = errorOrder.find((e) => e.hasError !== null);
+    if (firstError) {
+      setTimeout(() => {
+        firstError.ref.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 0);
+      return false;
+    }
+    return true;
   }
 
   // ---------------------------------------------------------------------------
   // Step 2 validation
   // ---------------------------------------------------------------------------
-  function validateStep2(): string | null {
+  function validateStep2(): boolean {
     const q = ["activity", "socialStyle", "motivation", "cityVibe"] as const;
     for (const key of q) {
-      if (!vibeAnswers[key]) return "Please answer all four questions to continue.";
+      if (!vibeAnswers[key]) {
+        setError("Please answer all four questions to continue.");
+        return false;
+      }
     }
-    return null;
+    return true;
   }
 
   // ---------------------------------------------------------------------------
@@ -276,10 +318,8 @@ export default function OnboardingPage() {
   // Submit onboarding
   // ---------------------------------------------------------------------------
   async function submitOnboarding() {
-    const step1Error = validateStep1();
-    if (step1Error) { setError(step1Error); return; }
-    const step2Error = validateStep2();
-    if (step2Error) { setError(step2Error); return; }
+    if (!validateStep1()) return;
+    if (!validateStep2()) return;
 
     setSubmitting(true);
     setError(null);
@@ -299,7 +339,7 @@ export default function OnboardingPage() {
           display_name: displayName.trim(),
           avatar_emoji: avatarEmoji,
           city,
-          date_of_birth: dob,
+          birth_year: parseInt(birthYear, 10),
           vibe_quiz_responses: vibeAnswers,
           captcha_token: captchaToken ?? undefined,
         }),
@@ -422,9 +462,9 @@ export default function OnboardingPage() {
             ))}
           </div>
 
-          {/* Error banner */}
+          {/* Error banner — server errors and step 2 validation */}
           {error && (
-            <div className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
+            <div ref={errorBannerRef} role="alert" className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
               {error}
             </div>
           )}
@@ -467,48 +507,70 @@ export default function OnboardingPage() {
               </div>
 
               {/* Username */}
-              <div>
+              <div ref={usernameRef}>
                 <label className="mb-1 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">
                   Username
                 </label>
                 <input
                   type="text"
                   value={username}
-                  onChange={(e) => setUsername(e.target.value.toLowerCase())}
+                  onChange={(e) => { setUsername(e.target.value.toLowerCase()); setUsernameFieldError(null); }}
                   placeholder="yourname"
                   maxLength={30}
-                  className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/20 dark:border-neutral-700 dark:bg-neutral-800 dark:text-white"
+                  aria-invalid={!!usernameFieldError}
+                  className={`w-full rounded-xl border bg-white px-4 py-3 text-sm focus:outline-none focus:ring-2 dark:bg-neutral-800 dark:text-white transition-colors ${
+                    usernameFieldError
+                      ? "border-red-500 focus:border-red-500 focus:ring-red-500/20"
+                      : "border-neutral-200 dark:border-neutral-700 focus:border-amber-400 focus:ring-amber-400/20"
+                  }`}
                   autoComplete="off"
                 />
-                <div className="mt-1">{usernameIndicator}</div>
+                <div className="mt-1">
+                  {usernameFieldError
+                    ? <p role="alert" className="text-xs text-red-600 dark:text-red-400">{usernameFieldError}</p>
+                    : usernameIndicator}
+                </div>
               </div>
 
               {/* Display name */}
-              <div>
+              <div ref={displayNameRef}>
                 <label className="mb-1 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">
                   Display name
                 </label>
                 <input
                   type="text"
                   value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
+                  onChange={(e) => { setDisplayName(e.target.value); setDisplayNameError(null); }}
                   placeholder="How you appear to others"
                   maxLength={50}
-                  className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/20 dark:border-neutral-700 dark:bg-neutral-800 dark:text-white"
+                  aria-invalid={!!displayNameError}
+                  className={`w-full rounded-xl border bg-white px-4 py-3 text-sm focus:outline-none focus:ring-2 dark:bg-neutral-800 dark:text-white transition-colors ${
+                    displayNameError
+                      ? "border-red-500 focus:border-red-500 focus:ring-red-500/20"
+                      : "border-neutral-200 dark:border-neutral-700 focus:border-amber-400 focus:ring-amber-400/20"
+                  }`}
                 />
+                {displayNameError && (
+                  <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">{displayNameError}</p>
+                )}
               </div>
 
               {/* City */}
-              <div>
+              <div ref={cityRef}>
                 <label className="mb-1 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">
                   Your city
                 </label>
                 <input
                   type="text"
                   value={citySearch}
-                  onChange={(e) => { setCitySearch(e.target.value); setCity(""); }}
+                  onChange={(e) => { setCitySearch(e.target.value); setCity(""); setCityError(null); }}
                   placeholder="Search cities…"
-                  className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/20 dark:border-neutral-700 dark:bg-neutral-800 dark:text-white"
+                  aria-invalid={!!cityError}
+                  className={`w-full rounded-xl border bg-white px-4 py-3 text-sm focus:outline-none focus:ring-2 dark:bg-neutral-800 dark:text-white transition-colors ${
+                    cityError
+                      ? "border-red-500 focus:border-red-500 focus:ring-red-500/20"
+                      : "border-neutral-200 dark:border-neutral-700 focus:border-amber-400 focus:ring-amber-400/20"
+                  }`}
                 />
                 {citySearch && !city && (
                   <div className="mt-1 max-h-48 overflow-y-auto rounded-xl border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-800">
@@ -516,7 +578,7 @@ export default function OnboardingPage() {
                       <button
                         key={c}
                         type="button"
-                        onClick={() => { setCity(c); setCitySearch(c); }}
+                        onClick={() => { setCity(c); setCitySearch(c); setCityError(null); }}
                         className="w-full px-4 py-2.5 text-left text-sm hover:bg-neutral-50 dark:hover:bg-neutral-700"
                       >
                         {c}
@@ -524,26 +586,37 @@ export default function OnboardingPage() {
                     ))}
                   </div>
                 )}
-                {city && (
-                  <p className="mt-1 text-xs text-green-600">✓ {city} selected</p>
-                )}
+                {city
+                  ? <p className="mt-1 text-xs text-green-600">✓ {city} selected</p>
+                  : cityError && <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">{cityError}</p>
+                }
               </div>
 
-              {/* Date of birth — age gate */}
-              <div>
+              {/* Year of birth — age gate (full date of birth can be set in settings) */}
+              <div ref={birthYearRef}>
                 <label className="mb-1 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-                  Date of birth
+                  Year of birth
                 </label>
                 <input
-                  type="date"
-                  value={dob}
-                  onChange={(e) => setDob(e.target.value)}
-                  max={new Date().toISOString().split("T")[0]}
-                  className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/20 dark:border-neutral-700 dark:bg-neutral-800 dark:text-white"
+                  type="number"
+                  value={birthYear}
+                  onChange={(e) => { setBirthYear(e.target.value); setBirthYearError(null); }}
+                  placeholder={`e.g. ${CURRENT_YEAR - 20}`}
+                  min={1900}
+                  max={CURRENT_YEAR}
+                  aria-invalid={!!birthYearError}
+                  className={`w-full rounded-xl border bg-white px-4 py-3 text-sm focus:outline-none focus:ring-2 dark:bg-neutral-800 dark:text-white transition-colors ${
+                    birthYearError
+                      ? "border-red-500 focus:border-red-500 focus:ring-red-500/20"
+                      : "border-neutral-200 dark:border-neutral-700 focus:border-amber-400 focus:ring-amber-400/20"
+                  }`}
                 />
-                <p className="mt-1 text-xs text-neutral-400">
-                  You must be at least {manifest?.minimumAge ?? 18} years old to join.
-                </p>
+                {birthYearError
+                  ? <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">{birthYearError}</p>
+                  : <p className="mt-1 text-xs text-neutral-400">
+                      You must be at least {manifest?.minimumAge ?? 18} years old. You can add your full date of birth in settings after joining.
+                    </p>
+                }
               </div>
 
               {/* Turnstile widget mount point */}
@@ -554,8 +627,7 @@ export default function OnboardingPage() {
               <button
                 type="button"
                 onClick={() => {
-                  const err = validateStep1();
-                  if (err) { setError(err); return; }
+                  if (!validateStep1()) return;
                   setError(null);
                   setStep(2);
                 }}
@@ -879,8 +951,7 @@ export default function OnboardingPage() {
                   type="button"
                   disabled={submitting}
                   onClick={() => {
-                    const err = validateStep2();
-                    if (err) { setError(err); return; }
+                    if (!validateStep2()) return;
                     setError(null);
                     void submitOnboarding();
                   }}
