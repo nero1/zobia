@@ -28,7 +28,9 @@ interface Transaction {
   id: string;
   type: string;
   amount: number;
-  description: string;
+  balanceBefore?: number;
+  balanceAfter?: number;
+  description: string | null;
   createdAt: string;
 }
 
@@ -51,8 +53,10 @@ interface BoosterPack {
 interface StoreData {
   balance: Balance | null;
   transactions: Transaction[];
+  starTransactions: Transaction[];
   coinPacks: CoinPack[];
   boosters: BoosterPack[];
+  activePlan: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -80,29 +84,42 @@ function WalletSkeleton() {
 // Balance Cards
 // ---------------------------------------------------------------------------
 
-function BalanceCard({ balance }: { balance: Balance }) {
+function BalanceCard({ balance, activePlan }: { balance: Balance; activePlan: string | null }) {
+  const plan = activePlan ?? balance.plan ?? "Free";
   return (
-    <div className="grid grid-cols-2 gap-4">
-      <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-        <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Coin Balance</p>
-        <div className="mt-2 flex items-center gap-2">
-          <span className="text-2xl">🪙</span>
-          <span className="text-3xl font-bold text-neutral-900 dark:text-neutral-50">
-            {balance.coins.toLocaleString()}
-          </span>
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+          <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Coin Balance</p>
+          <div className="mt-2 flex items-center gap-2">
+            <span className="text-2xl">🪙</span>
+            <span className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">
+              {balance.coins.toLocaleString()}
+            </span>
+          </div>
+        </div>
+        <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+          <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Star Balance</p>
+          <div className="mt-2 flex items-center gap-2">
+            <span className="text-2xl">⭐</span>
+            <span className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">
+              {balance.stars.toLocaleString()}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-neutral-400">Premium currency</p>
         </div>
       </div>
-      <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-        <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Star Balance</p>
-        <div className="mt-2 flex items-center gap-2">
-          <span className="text-2xl">⭐</span>
-          <span className="text-3xl font-bold text-neutral-900 dark:text-neutral-50">
-            {balance.stars.toLocaleString()}
-          </span>
+      <div className="flex items-center justify-between rounded-xl border border-neutral-200 bg-white px-5 py-3 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Current Plan</p>
+          <p className="mt-0.5 font-bold text-neutral-900 capitalize dark:text-neutral-50">{plan}</p>
         </div>
-        {balance.plan && (
-          <p className="mt-1 text-xs text-neutral-400">Plan: {balance.plan}</p>
-        )}
+        <a
+          href="/settings/subscription"
+          className="text-xs font-semibold text-blue-600 hover:underline dark:text-blue-400"
+        >
+          Manage →
+        </a>
       </div>
     </div>
   );
@@ -161,50 +178,84 @@ function CoinPacks({ packs, onPurchase, purchasing }: CoinPacksProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Transaction History
+// Transaction History (coins + stars tabs)
 // ---------------------------------------------------------------------------
 
-function TransactionHistory({ transactions }: { transactions: Transaction[] }) {
-  if (transactions.length === 0) {
-    return (
-      <div className="rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-        <div className="border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
-          <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">Transaction History</h2>
-        </div>
-        <div className="px-5 py-8 text-center text-sm text-neutral-500">No transactions yet.</div>
-      </div>
-    );
-  }
+function txLabel(type: string): string {
+  const map: Record<string, string> = {
+    purchase: "Purchase",
+    gift_sent: "Gift Sent",
+    gift_received: "Gift Received",
+    quest_reward: "Quest Reward",
+    dm_cost: "Message",
+    transfer_sent: "Transfer Out",
+    transfer_received: "Transfer In",
+    admin_grant: "Bonus",
+    refund: "Refund",
+    room_entry_fee: "Room Entry",
+    room_subscription: "Room Subscription",
+    creator_earning: "Creator Earning",
+    payout: "Payout",
+    booster_purchase: "Booster",
+    season_reward: "Season Reward",
+    xp_reward: "XP Reward",
+    star_gift: "Star Gift",
+    star_purchase: "Star Purchase",
+  };
+  return map[type] ?? type.replace(/_/g, " ");
+}
+
+function TransactionHistory({ transactions, starTransactions }: { transactions: Transaction[]; starTransactions: Transaction[] }) {
+  const [tab, setTab] = useState<"coins" | "stars">("coins");
+  const list = tab === "coins" ? transactions : starTransactions;
+  const icon = tab === "coins" ? "🪙" : "⭐";
 
   return (
     <div className="rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-      <div className="border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
+      <div className="flex items-center justify-between border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
         <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">Transaction History</h2>
+        <div className="flex gap-1 rounded-lg border border-neutral-200 bg-neutral-50 p-0.5 dark:border-neutral-700 dark:bg-neutral-800">
+          <button
+            onClick={() => setTab("coins")}
+            className={`rounded-md px-3 py-1 text-xs font-semibold transition-colors ${tab === "coins" ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-50" : "text-neutral-500"}`}
+          >
+            🪙 Coins
+          </button>
+          <button
+            onClick={() => setTab("stars")}
+            className={`rounded-md px-3 py-1 text-xs font-semibold transition-colors ${tab === "stars" ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-50" : "text-neutral-500"}`}
+          >
+            ⭐ Stars
+          </button>
+        </div>
       </div>
-      <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
-        {transactions.map((tx) => (
-          <div key={tx.id} className="flex items-center justify-between px-5 py-3">
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{tx.description}</p>
-              <p className="text-xs text-neutral-500">
-                {new Date(tx.createdAt).toLocaleDateString("en-GB", {
-                  day: "numeric",
-                  month: "short",
-                  year: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </p>
+      {list.length === 0 ? (
+        <div className="px-5 py-8 text-center text-sm text-neutral-500">No {tab} transactions yet.</div>
+      ) : (
+        <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
+          {list.map((tx) => (
+            <div key={tx.id} className="flex items-center justify-between px-5 py-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium capitalize text-neutral-900 dark:text-neutral-100">
+                  {tx.description ?? txLabel(tx.type)}
+                </p>
+                <p className="text-xs text-neutral-500">
+                  {new Date(tx.createdAt).toLocaleDateString("en-GB", {
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </p>
+              </div>
+              <span className={`ml-3 shrink-0 font-bold tabular-nums ${tx.amount >= 0 ? "text-teal-600" : "text-red-500"}`}>
+                {tx.amount >= 0 ? "+" : ""}{tx.amount.toLocaleString()} {icon}
+              </span>
             </div>
-            <span
-              className={`ml-3 shrink-0 font-bold tabular-nums ${tx.amount >= 0 ? "text-teal-600" : "text-red-500"}`}
-            >
-              {tx.amount >= 0 ? "+" : ""}
-              {tx.amount.toLocaleString()} 🪙
-            </span>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -427,8 +478,10 @@ function WalletContent() {
   const [data, setData] = useState<StoreData>({
     balance: null,
     transactions: [],
+    starTransactions: [],
     coinPacks: [],
     boosters: [],
+    activePlan: null,
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -449,26 +502,23 @@ function WalletContent() {
   useEffect(() => {
     (async () => {
       try {
-        const [balRes, txRes, storeRes] = await Promise.all([
-          fetch("/api/economy/coins/balance", { credentials: "include" }),
-          fetch("/api/economy/coins/balance?history=1", { credentials: "include" }),
+        const [balRes, storeRes, planRes] = await Promise.all([
+          fetch("/api/economy/coins/balance?limit=30", { credentials: "include" }),
           fetch("/api/economy/store", { credentials: "include" }),
+          fetch("/api/economy/subscriptions", { credentials: "include" }),
         ]);
 
         if (balRes.status === 401) { window.location.href = "/auth/login"; return; }
 
         const balData = balRes.ok
-          ? ((await balRes.json()) as { coins?: number; stars?: number; plan?: string })
+          ? ((await balRes.json()) as {
+              coins?: number;
+              stars?: number;
+              plan?: string;
+              transactions?: Transaction[];
+              starTransactions?: Transaction[];
+            })
           : null;
-
-        // Some APIs may nest under 'data'
-        const txData = txRes.ok
-          ? ((await txRes.json()) as { transactions?: Transaction[]; data?: { transactions?: Transaction[] } })
-          : null;
-        const txList: Transaction[] =
-          (txData as { transactions?: Transaction[] })?.transactions ??
-          (txData as { data?: { transactions?: Transaction[] } })?.data?.transactions ??
-          [];
 
         const storeData = storeRes.ok
           ? ((await storeRes.json()) as { items?: (CoinPack & { item_type?: string })[]; data?: (CoinPack & { item_type?: string })[] })
@@ -479,13 +529,25 @@ function WalletContent() {
           [];
         const coinPacks = allItems.filter((i) => !i.item_type || i.item_type === "coin_pack");
 
+        // Extract active plan from subscriptions endpoint
+        const planData = planRes.ok
+          ? ((await planRes.json()) as { data?: { plan?: string; subscription?: { plan?: string } } | null })
+          : null;
+        const activePlan =
+          planData?.data?.plan ??
+          planData?.data?.subscription?.plan ??
+          balData?.plan ??
+          null;
+
         setData({
           balance: balData
             ? { coins: balData.coins ?? 0, stars: balData.stars ?? 0, plan: balData.plan }
             : null,
-          transactions: txList.slice(0, 20),
+          transactions: (balData?.transactions ?? []).slice(0, 30),
+          starTransactions: (balData?.starTransactions ?? []).slice(0, 30),
           coinPacks,
           boosters: [],
+          activePlan,
         });
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load wallet");
@@ -550,7 +612,7 @@ function WalletContent() {
         </div>
       )}
 
-      {data.balance && <BalanceCard balance={data.balance} />}
+      {data.balance && <BalanceCard balance={data.balance} activePlan={data.activePlan} />}
 
       {transferRecipientId && (
         <CoinTransferPanel
@@ -564,7 +626,7 @@ function WalletContent() {
 
       <BoosterPacks boosters={data.boosters} />
 
-      <TransactionHistory transactions={data.transactions} />
+      <TransactionHistory transactions={data.transactions} starTransactions={data.starTransactions} />
     </div>
   );
 }
