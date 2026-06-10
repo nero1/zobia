@@ -43,10 +43,40 @@ function PageSkeleton() {
 }
 
 // ---------------------------------------------------------------------------
+// Prestige explanation card
+// ---------------------------------------------------------------------------
+
+function PrestigeExplainer() {
+  return (
+    <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950/30">
+      <h3 className="mb-2 text-sm font-bold text-blue-800 dark:text-blue-200">What is Prestige?</h3>
+      <p className="text-sm text-blue-700 dark:text-blue-300">
+        Prestige is a special milestone for the most dedicated Zobia players. When you reach the highest rank
+        (<strong>Zobia Icon III</strong>), you can choose to <em>Prestige</em> — resetting your main rank back
+        to Beginner in exchange for exclusive rewards and a permanent star on your profile that shows
+        everyone how many times you have mastered the game.
+      </p>
+      <ul className="mt-3 space-y-1 text-xs text-blue-600 dark:text-blue-400">
+        <li>⭐ Each prestige adds a star to your profile badge</li>
+        <li>🪙 Earn coins and exclusive frames with each prestige</li>
+        <li>🔥 3× XP boost for 7 days after prestige (from your 3rd prestige)</li>
+        <li>🏆 Reach Prestige 10 to be inducted into the Hall of Fame</li>
+      </ul>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Lock screen
 // ---------------------------------------------------------------------------
 
+const RANK_ORDER = ["Beginner", "Rookie", "Hustler", "Baller", "Boss", "Legend", "Titan", "Goat", "Icon", "Zobia Icon"];
+
 function LockScreen({ data }: { data: PrestigeEligibility }) {
+  const currentLevel = data.currentRankLevel > 0 ? data.currentRankLevel : 1;
+  const requiredLevel = data.requiredRankLevel > 0 ? data.requiredRankLevel : RANK_ORDER.length;
+  const progressPct = Math.min(100, Math.round((currentLevel / requiredLevel) * 100));
+
   return (
     <div className="flex flex-col items-center py-12 text-center">
       <span className="text-6xl">🔒</span>
@@ -56,26 +86,25 @@ function LockScreen({ data }: { data: PrestigeEligibility }) {
       <p className="mt-2 text-neutral-500">
         You are currently{" "}
         <span className="font-semibold text-neutral-900 dark:text-neutral-100">
-          {data.currentRankName}
+          {data.currentRankName || "Beginner"}
         </span>{" "}
-        (Level {data.currentRankLevel}).
+        (Level {currentLevel}).
       </p>
       <p className="mt-1 text-sm text-neutral-500">
         Prestige requires reaching Level{" "}
-        <span className="font-semibold">{data.requiredRankLevel}</span>.
+        <span className="font-semibold">{requiredLevel}</span>{" "}
+        (<strong>Zobia Icon III</strong>).
       </p>
 
       <div className="mt-6 w-full max-w-xs">
         <div className="mb-1 flex justify-between text-xs text-neutral-400">
-          <span>Level {data.currentRankLevel}</span>
-          <span>Level {data.requiredRankLevel} required</span>
+          <span>Level {currentLevel}</span>
+          <span>Level {requiredLevel} required</span>
         </div>
         <div className="h-3 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700">
           <div
             className="h-full rounded-full bg-blue-500 transition-all"
-            style={{
-              width: `${Math.min(100, Math.round((data.currentRankLevel / data.requiredRankLevel) * 100))}%`,
-            }}
+            style={{ width: `${progressPct}%` }}
           />
         </div>
       </div>
@@ -227,7 +256,38 @@ export default function PrestigePage() {
         const res = await fetch("/api/prestige", { credentials: "include" });
         if (res.status === 401) { window.location.href = "/auth/login"; return; }
         if (!res.ok) throw new Error("Failed to load prestige info");
-        setData((await res.json()) as PrestigeEligibility);
+
+        const rawJson = await res.json() as Record<string, unknown>;
+        // API returns { success, data: { eligible, prestigeCount, currentRank, requirements, rewards }, error }
+        const d = (rawJson.data ?? rawJson) as {
+          eligible?: boolean;
+          prestigeCount?: number;
+          currentRank?: { rankName?: string; level?: number; sublevel?: number };
+          requirements?: { rank?: string; sublevel?: number };
+          rewards?: { coins?: number; stars?: number; frame?: string; title?: string };
+          // Direct fields (if already flat)
+          currentRankName?: string;
+          currentRankLevel?: number;
+          currentPrestige?: number;
+          requiredRankLevel?: number;
+          rewardsFrame?: string;
+          rewardsTitle?: string;
+          rewardsCoins?: number;
+        };
+
+        const currentRankName = d.currentRankName ?? d.currentRank?.rankName ?? "Beginner";
+        const rankIdx = RANK_ORDER.indexOf(currentRankName) + 1;
+
+        setData({
+          eligible: d.eligible ?? false,
+          currentRankName,
+          currentRankLevel: d.currentRankLevel ?? (rankIdx > 0 ? rankIdx : 1),
+          currentPrestige: d.currentPrestige ?? d.prestigeCount ?? 0,
+          requiredRankLevel: d.requiredRankLevel ?? RANK_ORDER.length,
+          rewardsFrame: d.rewardsFrame ?? d.rewards?.frame ?? "",
+          rewardsTitle: d.rewardsTitle ?? d.rewards?.title ?? "",
+          rewardsCoins: d.rewardsCoins ?? d.rewards?.coins ?? 500,
+        });
       } catch (e) {
         setError(e instanceof Error ? e.message : "Unknown error");
       } finally {
@@ -283,6 +343,8 @@ export default function PrestigePage() {
       <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">
         Prestige
       </h1>
+
+      <PrestigeExplainer />
 
       {data.eligible ? (
         <ConfirmScreen

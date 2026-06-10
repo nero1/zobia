@@ -541,7 +541,55 @@ export default function SeasonsPage() {
         ]);
         if (res.status === 401) { window.location.href = "/auth/login"; return; }
         if (!res.ok) throw new Error("Failed to load seasons");
-        const seasonsData = (await res.json()) as SeasonsData;
+
+        const rawJson = await res.json() as Record<string, unknown>;
+
+        // API returns { success, data: { current, past }, error } — unwrap and map field names
+        let seasonsData: SeasonsData;
+        const apiData = (rawJson.data ?? rawJson) as {
+          current?: { id: string; name: string; theme: string; starts_at: string; ends_at: string; pass_price_coins?: number } | null;
+          past?: Array<{ id: string; name: string; theme: string; starts_at?: string; ends_at?: string }>;
+          activeSeason?: ActiveSeason | null;
+          leaderboard?: SeasonLeaderEntry[];
+          pastSeasons?: PastSeason[];
+        };
+
+        if (apiData.activeSeason !== undefined || apiData.leaderboard !== undefined) {
+          // Already in the expected shape
+          seasonsData = {
+            activeSeason: apiData.activeSeason ?? null,
+            leaderboard: apiData.leaderboard ?? [],
+            pastSeasons: apiData.pastSeasons ?? [],
+          };
+        } else {
+          // Map from { current, past } shape
+          const cur = apiData.current ?? null;
+          seasonsData = {
+            activeSeason: cur ? {
+              id: cur.id,
+              name: cur.name,
+              theme: cur.theme,
+              startAt: cur.starts_at,
+              endAt: cur.ends_at,
+              passPrice: cur.pass_price_coins ?? 500,
+              hasPaidPass: false,
+              freePassLevel: 1,
+              paidPassLevel: 0,
+              maxPassLevel: 30,
+              freePassXp: 0,
+              freePassXpForNext: 1000,
+            } : null,
+            leaderboard: [],
+            pastSeasons: (apiData.past ?? []).map((p) => ({
+              id: p.id,
+              name: p.name,
+              year: new Date(p.ends_at ?? p.starts_at ?? Date.now()).getFullYear(),
+              theme: p.theme,
+              userRank: null,
+              userTier: null,
+            })),
+          };
+        }
         setData(seasonsData);
 
         // Store the user's plan for discount calculation
@@ -551,11 +599,21 @@ export default function SeasonsPage() {
           setUserPlan(plan);
         }
 
-        // Fetch milestones for active season
+        // Fetch milestones and leaderboard for active season
         if (seasonsData.activeSeason) {
           fetch(`/api/seasons/${seasonsData.activeSeason.id}/pass`, { credentials: "include" })
             .then((r) => (r.ok ? r.json() : null))
             .then((d: SeasonPassData | null) => { if (d) setPassData(d); })
+            .catch(() => {});
+
+          fetch(`/api/seasons/${seasonsData.activeSeason.id}/leaderboard?limit=10`, { credentials: "include" })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d: { data?: { entries?: SeasonLeaderEntry[] }; entries?: SeasonLeaderEntry[] } | null) => {
+              const entries = d?.data?.entries ?? d?.entries ?? [];
+              if (entries.length > 0) {
+                setData((prev) => prev ? { ...prev, leaderboard: entries } : prev);
+              }
+            })
             .catch(() => {});
         }
       } catch (e) {

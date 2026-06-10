@@ -39,16 +39,17 @@ function useNavUser() {
 // ---------------------------------------------------------------------------
 
 const bottomTabItems = [
-  { href: "/home",     label: "Home",    shortLabel: "Home"    },
-  { href: "/rooms",    label: "Rooms",   shortLabel: "Rooms"   },
-  { href: "/messages", label: "Messages",shortLabel: "Msgs"    },
-  { href: "/wallet",   label: "Wallet",  shortLabel: "Wallet"  },
-  { href: "/profile",  label: "Profile", shortLabel: "Profile" },
+  { href: "/home",     label: "Home",    shortLabel: "Home"   },
+  { href: "/quests",   label: "Quests",  shortLabel: "Quests" },
+  { href: "/messages", label: "Messages",shortLabel: "Msgs"   },
+  { href: "/wallet",   label: "Wallet",  shortLabel: "Wallet" },
+  { href: "/profile",  label: "Profile", shortLabel: "Profile"},
 ] as const;
 
 // Full nav for desktop + drawer
 const primaryNavItems = [
   { href: "/home",         label: "Home",         icon: "🏠" },
+  { href: "/quests",       label: "Quests",       icon: "🎯" },
   { href: "/rooms",        label: "Rooms",        icon: "🚪" },
   { href: "/messages",     label: "Messages",     icon: "💬" },
   { href: "/notifications",label: "Notifications",icon: "🔔" },
@@ -59,7 +60,6 @@ const primaryNavItems = [
   { href: "/referrals",    label: "Referrals",    icon: "🔗" },
   { href: "/classroom",    label: "Classroom",    icon: "🏫" },
   { href: "/leaderboards", label: "Leaderboards", icon: "🏆" },
-  { href: "/quests",       label: "Quests",       icon: "🎯" },
   { href: "/seasons",      label: "Seasons",      icon: "🗓️" },
 ] as const;
 
@@ -74,7 +74,7 @@ const secondaryNavItems = [
 
 const TAB_ICONS: Record<string, { active: string; inactive: string }> = {
   Home:     { active: "🏠", inactive: "🏡" },
-  Rooms:    { active: "🚪", inactive: "🚪" },
+  Quests:   { active: "🎯", inactive: "🎯" },
   Messages: { active: "💬", inactive: "💭" },
   Wallet:   { active: "🪙", inactive: "🪙" },
   Profile:  { active: "👤", inactive: "👤" },

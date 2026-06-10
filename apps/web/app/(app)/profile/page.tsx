@@ -337,6 +337,19 @@ export default function MyProfilePage() {
         </Link>
       )}
 
+      {/* ── Find Rooms ───────────────────────────────────────────────── */}
+      <Link
+        href="/rooms"
+        className="flex items-center gap-3 rounded-xl border border-dashed border-neutral-300 bg-white p-4 shadow-sm transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:bg-neutral-800"
+      >
+        <span className="text-2xl">🚪</span>
+        <div className="min-w-0 flex-1">
+          <p className="font-medium text-neutral-700 dark:text-neutral-300">Find Rooms</p>
+          <p className="text-xs text-neutral-500">Discover audio rooms to join</p>
+        </div>
+        <span className="text-xs text-neutral-400">→</span>
+      </Link>
+
       {/* ── Six track bars ───────────────────────────────────────────── */}
       <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
         <h2 className="mb-4 text-sm font-semibold text-neutral-700 dark:text-neutral-300">Progression Tracks</h2>
