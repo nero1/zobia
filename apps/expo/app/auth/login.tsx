@@ -62,11 +62,6 @@ export default function LoginScreen() {
   // Deep link listener — catches the callback from Google OAuth redirect
   // -------------------------------------------------------------------------
 
-  useEffect(() => {
-    const subscription = ExpoLinking.addEventListener('url', handleDeepLink);
-    return () => subscription.remove();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   async function handleDeepLink(event: { url: string }) {
     const url = event.url;
     if (!url.includes('auth/callback')) return;
@@ -86,10 +81,15 @@ export default function LoginScreen() {
           router.replace('/(tabs)');
         }
       }
-    } catch (err) {
+    } catch {
       Alert.alert(t('common.error'), t('auth.callbackError'));
     }
   }
+
+  useEffect(() => {
+    const subscription = ExpoLinking.addEventListener('url', handleDeepLink);
+    return () => subscription.remove();
+  }, [signIn, router]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // -------------------------------------------------------------------------
   // Google OAuth
@@ -98,22 +98,24 @@ export default function LoginScreen() {
   async function handleGoogleLogin() {
     setGoogleLoading(true);
     try {
-      // The backend /api/auth/google?platform=mobile&redirect=zobia://auth/callback
-      // handles the full OAuth flow and redirects back to the app with a JWT.
       const redirectUri = ExpoLinking.createURL('auth/callback');
-      const authUrl =
-        `${API_BASE_URL}/api/auth/google?platform=mobile&redirect=${encodeURIComponent(redirectUri)}`;
 
-      const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri);
+      // Step 1: fetch the Google OAuth URL from the backend.
+      // /api/auth/google returns JSON { url } — it does NOT redirect directly.
+      const apiUrl =
+        `${API_BASE_URL}/api/auth/google?platform=mobile&redirect=${encodeURIComponent(redirectUri)}`;
+      const apiRes = await fetch(apiUrl);
+      if (!apiRes.ok) throw new Error('Failed to initiate Google login');
+      const { url: googleAuthUrl } = (await apiRes.json()) as { url: string };
+
+      // Step 2: open the actual Google consent screen and wait for the deep-link callback.
+      const result = await WebBrowser.openAuthSessionAsync(googleAuthUrl, redirectUri);
 
       if (result.type === 'success' && result.url) {
         await handleDeepLink({ url: result.url });
-      } else if (result.type === 'cancel') {
-        // User cancelled — no error shown
-      } else if (result.type === 'dismiss') {
-        // Dismissed — no error shown
       }
-    } catch (err) {
+      // 'cancel' and 'dismiss' are silent — user backed out
+    } catch {
       Alert.alert(t('common.error'), t('auth.googleError'));
     } finally {
       setGoogleLoading(false);
