@@ -93,7 +93,7 @@ function FriendsTab() {
   if (friends.length === 0)
     return (
       <div className="py-12 text-center">
-        <p className="text-neutral-500 dark:text-neutral-400">You haven't added any friends yet.</p>
+        <p className="text-neutral-500 dark:text-neutral-400">You haven&apos;t added any friends yet.</p>
         <p className="mt-1 text-sm text-neutral-400 dark:text-neutral-500">
           Go to the Discover tab to find people you might know.
         </p>
