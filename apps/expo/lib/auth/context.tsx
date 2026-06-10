@@ -19,7 +19,7 @@ import React, {
   type ReactNode,
 } from 'react';
 import * as SecureStore from 'expo-secure-store';
-import { JWT_KEY } from '@/lib/api/client';
+import { JWT_KEY, REFRESH_TOKEN_KEY } from '@/lib/api/client';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -40,11 +40,12 @@ export interface AuthContextValue {
   token: string | null;
   isLoading: boolean;
   /**
-   * Persist `jwt` and populate `user` from its decoded payload.
-   * @param jwt   Raw JWT string received from the Zobia API.
-   * @param user  Decoded user object (avoid runtime crypto dependency).
+   * Persist `jwt`, `refreshToken`, and `user`.
+   * @param jwt          Raw access JWT string received from the Zobia API.
+   * @param user         Decoded user object (avoid runtime crypto dependency).
+   * @param refreshToken Raw refresh token (optional for backward compat).
    */
-  signIn: (jwt: string, user: AuthUser) => Promise<void>;
+  signIn: (jwt: string, user: AuthUser, refreshToken?: string) => Promise<void>;
   /** Clear the stored token and reset auth state. */
   signOut: () => Promise<void>;
 }
@@ -97,11 +98,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  const signIn = useCallback(async (jwt: string, authUser: AuthUser) => {
-    await Promise.all([
+  const signIn = useCallback(async (jwt: string, authUser: AuthUser, refreshToken?: string) => {
+    const writes: Promise<void>[] = [
       SecureStore.setItemAsync(JWT_KEY, jwt),
       SecureStore.setItemAsync('zobia_user', JSON.stringify(authUser)),
-    ]);
+    ];
+    if (refreshToken) {
+      writes.push(SecureStore.setItemAsync(REFRESH_TOKEN_KEY, refreshToken));
+    }
+    await Promise.all(writes);
     setToken(jwt);
     setUser(authUser);
   }, []);
@@ -109,6 +114,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     await Promise.all([
       SecureStore.deleteItemAsync(JWT_KEY),
+      SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY),
       SecureStore.deleteItemAsync('zobia_user'),
     ]);
     setToken(null);

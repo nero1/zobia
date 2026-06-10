@@ -72,6 +72,24 @@ const CONFIG_META: Record<string, ConfigMeta> = {
     type: "boolean",
     group: "Auth",
   },
+  auth_2fa_enabled: {
+    label: "Two-Factor Authentication (2FA)",
+    description: "Allow users to enable TOTP-based 2FA on their accounts.",
+    type: "boolean",
+    group: "Auth",
+  },
+  auth_2fa_required_for_mods: {
+    label: "Require 2FA for Moderators",
+    description: "Block moderator logins until they set up 2FA on their account.",
+    type: "boolean",
+    group: "Auth",
+  },
+  feature_pin_auth: {
+    label: "PIN Authentication",
+    description: "Allow users to set a numeric PIN for quick app unlock.",
+    type: "boolean",
+    group: "Auth",
+  },
 
   // CAPTCHA
   captcha_provider: {

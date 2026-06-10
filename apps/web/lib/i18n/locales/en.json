@@ -982,5 +982,47 @@
   "onboarding.error.captchaFailed": "CAPTCHA verification failed. Please try again.",
   "onboarding.error.usernameTaken": "That username is already taken. Please choose another.",
   "onboarding.error.network": "Network error. Please check your connection and try again.",
-  "onboarding.error.generic": "Something went wrong. Please try again."
+  "onboarding.error.generic": "Something went wrong. Please try again.",
+
+  "wallet.xpBalance": "XP",
+  "wallet.coinsBalance": "Coins",
+  "wallet.starsBalance": "Stars",
+
+  "auth.twoFaVerify.title": "Two-factor authentication",
+  "auth.twoFaVerify.instructions": "Enter the 6-digit code from your authenticator app to continue.",
+  "auth.twoFaVerify.placeholder": "000000",
+  "auth.twoFaVerify.submit": "Verify",
+  "auth.twoFaVerify.error": "Invalid code. Please try again.",
+  "auth.require2Fa.title": "Two-factor authentication required",
+  "auth.require2Fa.body": "Your account has moderator privileges. Platform policy requires all moderators to have two-factor authentication enabled before logging in.",
+  "auth.require2Fa.settingsLink": "Back to login",
+  "auth.featureDisabled": "This feature is not currently enabled on this platform.",
+
+  "friends.title": "Friends",
+  "friends.tabs.myFriends": "My Friends",
+  "friends.tabs.requests": "Requests",
+  "friends.tabs.discover": "Discover",
+  "friends.empty.noFriends": "You haven't added any friends yet.",
+  "friends.empty.noRequests": "No pending friend requests.",
+  "friends.empty.noSuggestions": "No suggestions right now.",
+  "friends.addFriend": "Add",
+  "friends.removeFriend": "Remove",
+  "friends.accept": "Accept",
+  "friends.decline": "Decline",
+  "friends.sent": "Sent ✓",
+  "friends.mutualFriend": "mutual friend",
+  "friends.mutualFriends": "mutual friends",
+
+  "quests.sendFriendRequests": "Send 3 friend requests",
+
+  "messages.groupTypes.personal": "Personal",
+  "messages.groupTypes.general": "General",
+  "messages.groupTypes.other": "Other",
+  "messages.coinError.notEnoughCoins": "You need {{required}} coins to send this message. You currently have {{balance}} coins.",
+  "messages.coinError.cannotInitiate": "Upgrade to Pro to start new conversations.",
+  "messages.coinError.buyCoins": "Buy Coins",
+  "messages.coinError.upgrade": "Upgrade to Pro",
+
+  "settings.twoFaDisabledByAdmin": "Two-factor authentication is currently disabled by the platform administrator.",
+  "settings.pinDisabledByAdmin": "PIN authentication is currently disabled by the platform administrator."
 }

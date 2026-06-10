@@ -271,11 +271,12 @@ export const POST = withAuth(async (req, { params, auth }) => {
       //    Payout on completion: 1,000 Coins + 2,000 XP
       const newMemberQuestProgress = {
         steps: [
-          { id: 'send_message', label: 'Send a message', completed: false },
-          { id: 'join_room',    label: 'Join a Room',    completed: false },
-          { id: 'gift_someone', label: 'Gift someone',   completed: false },
-          { id: 'add_friend',   label: 'Add a friend',   completed: false },
-          { id: 'daily_login',  label: 'Complete a daily login', completed: false },
+          { id: 'send_message',    label: 'Send a message',         completed: false },
+          { id: 'join_room',       label: 'Join a Room',            completed: false },
+          { id: 'gift_someone',    label: 'Gift someone',           completed: false },
+          { id: 'add_friend',      label: 'Add a friend',           completed: false },
+          { id: 'friend_request',  label: 'Send 3 friend requests', completed: false, count: 0, target: 3 },
+          { id: 'daily_login',     label: 'Complete a daily login', completed: false },
         ],
       };
 

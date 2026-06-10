@@ -38,9 +38,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const ip = getClientIp(request);
     await enforceRateLimit(ip, "ip", RATE_LIMITS.auth);
 
-    const refreshToken = request.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
+    // Accept refresh token from cookie (web) or X-Refresh-Token header (mobile)
+    const refreshToken =
+      request.cookies.get(REFRESH_TOKEN_COOKIE)?.value ??
+      request.headers.get("x-refresh-token") ??
+      undefined;
+
     if (!refreshToken) {
-      throw unauthorized("No refresh token cookie present");
+      throw unauthorized("No refresh token present");
     }
 
     // Validate token and confirm session in Redis; get new access token
@@ -55,6 +60,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const response = NextResponse.json({ expiresIn }, { status: 200 });
     response.headers.set("Set-Cookie", accessCookie);
+    // Also expose the new access token in a header for mobile clients
+    response.headers.set("X-Access-Token", accessToken);
     return response;
   } catch (err) {
     // Surface JWT-specific error codes for the client to act on

@@ -24,6 +24,7 @@ import { redis } from "@/lib/redis";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { isFeatureEnabled } from "@/lib/manifest";
 
 // ---------------------------------------------------------------------------
 // TOTP helpers (manual HMAC-SHA1 implementation — no external library needed)
@@ -139,6 +140,13 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 
+    if (!(await isFeatureEnabled("auth_2fa_enabled"))) {
+      return NextResponse.json(
+        { error: "Two-factor authentication is not enabled on this platform", code: "FEATURE_DISABLED" },
+        { status: 403 }
+      );
+    }
+
     const secret = generateTOTPSecret();
     const userId = auth.user.sub;
 
@@ -181,6 +189,13 @@ const confirmSchema = z.object({
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
+
+    if (!(await isFeatureEnabled("auth_2fa_enabled"))) {
+      return NextResponse.json(
+        { error: "Two-factor authentication is not enabled on this platform", code: "FEATURE_DISABLED" },
+        { status: 403 }
+      );
+    }
 
     const { code } = await validateBody(req, confirmSchema);
     const userId = auth.user.sub;

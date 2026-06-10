@@ -22,9 +22,12 @@ import {
   parseTelegramParams,
 } from "@/lib/auth/telegram";
 import { createSession, buildCookieHeaders } from "@/lib/auth/session";
+import { signAccessToken } from "@/lib/auth/jwt";
+import { redis } from "@/lib/redis";
 import { db } from "@/lib/db";
 import { handleApiError, badRequest, unauthorized } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { isFeatureEnabled } from "@/lib/manifest";
 import { env } from "@/lib/env";
 
 // ---------------------------------------------------------------------------
@@ -36,6 +39,8 @@ interface UserRow {
   email: string;
   username: string;
   is_admin: boolean;
+  is_moderator: boolean;
+  totp_enabled: boolean;
   onboarding_completed: boolean;
 }
 
@@ -59,7 +64,7 @@ async function upsertTelegramUser(profile: {
 }): Promise<UserRow> {
   // Check if user already exists with this Telegram ID
   const existing = await db.query<UserRow>(
-    `SELECT id, email, username, is_admin, onboarding_completed
+    `SELECT id, email, username, is_admin, is_moderator, totp_enabled, onboarding_completed
      FROM users
      WHERE telegram_id = $1 AND deleted_at IS NULL
      LIMIT 1`,
@@ -80,7 +85,7 @@ async function upsertTelegramUser(profile: {
        is_admin, created_at, updated_at
      )
      VALUES ($1, $2, $3, false, false, NOW(), NOW())
-     RETURNING id, email, username, is_admin, onboarding_completed`,
+     RETURNING id, email, username, is_admin, is_moderator, totp_enabled, onboarding_completed`,
     [profile.telegramId, displayName, profile.photoUrl ?? null]
   );
 
@@ -129,6 +134,31 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // Upsert user in database
     const user = await upsertTelegramUser(profile);
 
+    const reqOrigin = env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin;
+
+    // 2FA gate
+    const twoFaGloballyEnabled = await isFeatureEnabled("auth_2fa_enabled");
+    const twoFaRequiredForMods = await isFeatureEnabled("auth_2fa_required_for_mods");
+
+    const needsTwoFaVerify = twoFaGloballyEnabled && user.totp_enabled;
+    const mustSetUp2Fa = twoFaRequiredForMods && user.is_moderator && !user.totp_enabled;
+
+    if (mustSetUp2Fa) {
+      const response = NextResponse.redirect(new URL("/auth/require-2fa", reqOrigin), { status: 302 });
+      return response;
+    }
+
+    if (needsTwoFaVerify) {
+      const preAuthToken = await signAccessToken(
+        { sub: user.id, email: user.email ?? "", username: user.username ?? "", is_admin: user.is_admin, sid: "pre_auth", type: "pre_auth" } as Parameters<typeof signAccessToken>[0],
+        5 * 60
+      );
+      await redis.setex(`pre_auth:${user.id}`, 5 * 60, preAuthToken);
+      const dest = new URL("/auth/2fa", reqOrigin);
+      dest.searchParams.set("token", preAuthToken);
+      return NextResponse.redirect(dest, { status: 302 });
+    }
+
     // Create platform session
     const authTokens = await createSession(
       {
@@ -145,8 +175,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     // Redirect to appropriate post-auth destination
     const destination = user.onboarding_completed
-      ? new URL("/home", env.NEXT_PUBLIC_APP_URL)
-      : new URL("/onboarding", env.NEXT_PUBLIC_APP_URL);
+      ? new URL("/home", reqOrigin)
+      : new URL("/onboarding", reqOrigin);
 
     const response = NextResponse.redirect(destination, { status: 302 });
     response.headers.append("Set-Cookie", accessCookie);

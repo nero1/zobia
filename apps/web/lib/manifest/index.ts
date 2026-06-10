@@ -48,6 +48,8 @@ export interface ZobiaManifest {
     platformCouncil: boolean;
     allianceSystem: boolean;
     pinAuth: boolean;
+    twoFaEnabled: boolean;
+    twoFaRequiredForMods: boolean;
     warEventActive: boolean;
     pidginAutocomplete: boolean;
     physicalGoodsEnabled: boolean;
@@ -137,6 +139,8 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     platformCouncil: true,
     allianceSystem: true,
     pinAuth: true,
+    twoFaEnabled: true,
+    twoFaRequiredForMods: false,
     warEventActive: false,
     pidginAutocomplete: false,
     physicalGoodsEnabled: false,
@@ -262,6 +266,8 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       platformCouncil:  parseBool(kv["feature_platform_council"],            DEFAULT_MANIFEST.features.platformCouncil),
       allianceSystem:   parseBool(kv["feature_alliance_system"],             DEFAULT_MANIFEST.features.allianceSystem),
       pinAuth:                    parseBool(kv["feature_pin_auth"]                   ?? "true",  DEFAULT_MANIFEST.features.pinAuth),
+      twoFaEnabled:               parseBool(kv["auth_2fa_enabled"]                  ?? "true",  DEFAULT_MANIFEST.features.twoFaEnabled),
+      twoFaRequiredForMods:       parseBool(kv["auth_2fa_required_for_mods"]        ?? "false", DEFAULT_MANIFEST.features.twoFaRequiredForMods),
       warEventActive:             parseBool(kv["feature_war_event_active"],                     DEFAULT_MANIFEST.features.warEventActive),
       pidginAutocomplete:         parseBool(kv["feature_pidgin_autocomplete"],                  DEFAULT_MANIFEST.features.pidginAutocomplete),
       physicalGoodsEnabled:       parseBool(kv["physical_goods_enabled"],                       DEFAULT_MANIFEST.features.physicalGoodsEnabled),

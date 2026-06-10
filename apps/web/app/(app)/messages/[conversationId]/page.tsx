@@ -523,6 +523,7 @@ export default function DMConversationPage() {
   const [loadingConversation, setLoadingConversation] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [coinError, setCoinError] = useState<{ message: string; balance?: number; required?: number } | null>(null);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -697,6 +698,7 @@ export default function DMConversationPage() {
   async function sendMessage(content: string, messageType: "text" | "gif" | "sticker" = "text") {
     if (!content.trim() || sending) return;
     setSending(true);
+    setCoinError(null);
     try {
       const res = await fetch(`/api/messages/dm/${conversationId}`, {
         method: "POST",
@@ -705,7 +707,20 @@ export default function DMConversationPage() {
         body: JSON.stringify({ content: content.trim(), messageType }),
       });
       if (!res.ok) {
-        const d = (await res.json()) as { message?: string };
+        const d = (await res.json()) as { message?: string; error?: { code?: string; coinBalance?: number; coinCost?: number } };
+        const code = d.error?.code;
+        if (code === "INSUFFICIENT_COINS") {
+          setCoinError({
+            message: `You need ${d.error?.coinCost ?? "?"} coins to send this message. You currently have ${d.error?.coinBalance ?? "?"} coins.`,
+            balance: d.error?.coinBalance,
+            required: d.error?.coinCost,
+          });
+          return;
+        }
+        if (code === "PLAN_RESTRICTION") {
+          setCoinError({ message: "Upgrade to Pro to start new conversations." });
+          return;
+        }
         throw new Error(d.message ?? "Failed to send");
       }
       setInput("");
@@ -867,6 +882,23 @@ export default function DMConversationPage() {
       {error && conversation && (
         <div className="border-b border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-800 dark:bg-red-950">
           <p className="text-xs text-red-700 dark:text-red-300">{error}</p>
+        </div>
+      )}
+
+      {/* Coin error banner */}
+      {coinError && (
+        <div className="flex items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2.5 dark:border-amber-800 dark:bg-amber-950/40">
+          <p className="text-xs text-amber-800 dark:text-amber-300">{coinError.message}</p>
+          <div className="flex shrink-0 gap-2">
+            <Link
+              href="/wallet?buy=true"
+              onClick={() => setCoinError(null)}
+              className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600"
+            >
+              Buy Coins
+            </Link>
+            <button onClick={() => setCoinError(null)} className="text-xs text-amber-600 hover:text-amber-800 dark:text-amber-400">✕</button>
+          </div>
         </div>
       )}
 

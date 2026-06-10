@@ -23,6 +23,7 @@ import { apiClient } from '@/lib/api/client';
 interface Balance {
   coins: number;
   stars: number;
+  xp?: number;
   plan?: string;
 }
 
@@ -37,6 +38,7 @@ interface PendingPayout {
 interface WalletData {
   coins: number;
   stars: number;
+  xp: number;
   plan: string;
   incomeMonth: number;
   pendingPayouts: PendingPayout[];
@@ -65,10 +67,12 @@ export default function WalletTab() {
         apiClient.get('/api/creator/payouts').catch(() => null),
       ]);
 
+      const balPayload = balRes.data ?? balRes;
       const bal: Balance = {
-        coins: balRes.coins ?? balRes.data?.coins ?? 0,
-        stars: balRes.stars ?? balRes.data?.stars ?? 0,
-        plan: balRes.plan ?? balRes.data?.plan ?? 'free',
+        coins: balPayload.coins ?? 0,
+        stars: balPayload.stars ?? 0,
+        xp: balPayload.xp ?? 0,
+        plan: balPayload.plan ?? 'free',
       };
 
       const earningsData = earningsRes?.data ?? earningsRes ?? {};
@@ -80,7 +84,7 @@ export default function WalletTab() {
         (p: PendingPayout) => pendingStatuses.has(p.status ?? '')
       );
 
-      setWalletData({ coins: bal.coins, stars: bal.stars, plan: bal.plan ?? 'free', incomeMonth, pendingPayouts });
+      setWalletData({ coins: bal.coins, stars: bal.stars, xp: bal.xp ?? 0, plan: bal.plan ?? 'free', incomeMonth, pendingPayouts });
     } catch {
       // non-fatal
     } finally {
@@ -109,8 +113,15 @@ export default function WalletTab() {
     >
       <Text style={[styles.heading, { color: textPrimary }]}>Wallet</Text>
 
-      {/* Coin & Star Balance */}
+      {/* XP, Coin & Star Balance */}
       <View style={styles.balanceRow}>
+        <View style={[styles.balanceCard, { backgroundColor: cardBg, borderColor: border }]}>
+          <Text style={styles.balanceIcon}>⚡</Text>
+          <Text style={[styles.balanceAmount, { color: textPrimary }]}>
+            {(walletData?.xp ?? 0).toLocaleString()}
+          </Text>
+          <Text style={[styles.balanceLabel, { color: textSecondary }]}>XP</Text>
+        </View>
         <View style={[styles.balanceCard, { backgroundColor: cardBg, borderColor: border }]}>
           <Text style={styles.balanceIcon}>🪙</Text>
           <Text style={[styles.balanceAmount, { color: textPrimary }]}>

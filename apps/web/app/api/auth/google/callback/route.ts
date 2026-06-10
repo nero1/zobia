@@ -25,8 +25,10 @@ import {
   createSession,
   buildCookieHeaders,
 } from "@/lib/auth/session";
+import { signAccessToken } from "@/lib/auth/jwt";
 import { redis } from "@/lib/redis";
 import { db } from "@/lib/db";
+import { isFeatureEnabled } from "@/lib/manifest";
 import {
   validateCsrfState,
   clearCsrfCookie,
@@ -44,6 +46,8 @@ interface UserRow {
   email: string;
   username: string;
   is_admin: boolean;
+  is_moderator: boolean;
+  totp_enabled: boolean;
   onboarding_completed: boolean;
   display_name: string | null;
   avatar_emoji: string | null;
@@ -97,7 +101,7 @@ async function upsertGoogleUser(profile: {
 }): Promise<UserRow> {
   // Check if a user with this Google ID already exists
   const existing = await db.query<UserRow>(
-    `SELECT id, email, username, is_admin, onboarding_completed,
+    `SELECT id, email, username, is_admin, is_moderator, totp_enabled, onboarding_completed,
             display_name, avatar_emoji, city, xp_total, rank_name
      FROM users
      WHERE google_id = $1 AND deleted_at IS NULL
@@ -109,7 +113,7 @@ async function upsertGoogleUser(profile: {
 
   // Check if email is already associated with a different account
   const emailMatch = await db.query<UserRow>(
-    `SELECT id, email, username, is_admin, onboarding_completed,
+    `SELECT id, email, username, is_admin, is_moderator, totp_enabled, onboarding_completed,
             display_name, avatar_emoji, city, xp_total, rank_name
      FROM users
      WHERE email = $1 AND deleted_at IS NULL
@@ -134,7 +138,7 @@ async function upsertGoogleUser(profile: {
   const inserted = await db.query<UserRow>(
     `INSERT INTO users (google_id, email, username, display_name, avatar_url, onboarding_completed, is_admin, created_at, updated_at)
      VALUES ($1, $2, $3, $4, $5, false, false, NOW(), NOW())
-     RETURNING id, email, username, is_admin, onboarding_completed,
+     RETURNING id, email, username, is_admin, is_moderator, totp_enabled, onboarding_completed,
                display_name, avatar_emoji, city, xp_total, rank_name`,
     [profile.googleId, profile.email, username, profile.name, profile.picture]
   );
@@ -192,7 +196,57 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       picture: profile.picture,
     });
 
-    // Create platform session
+    // Store Google refresh token in Redis
+    if (tokens.refresh_token) {
+      await storeGoogleRefreshToken(user.id, tokens.refresh_token);
+    }
+
+    const reqOrigin = new URL(req.url).origin;
+    const clearMobileCookie = "zobia_mobile_redirect=; Max-Age=0; Path=/; HttpOnly";
+    const cookiesToClear = [clearCsrfCookie(), clearMobileCookie];
+
+    // -----------------------------------------------------------------
+    // 2FA gate: if user has TOTP enabled, issue a pre-auth token
+    // -----------------------------------------------------------------
+    const twoFaGloballyEnabled = await isFeatureEnabled("auth_2fa_enabled");
+    const twoFaRequiredForMods = await isFeatureEnabled("auth_2fa_required_for_mods");
+
+    const needsTwoFaVerify = twoFaGloballyEnabled && user.totp_enabled;
+    const mustSetUp2Fa = twoFaRequiredForMods && user.is_moderator && !user.totp_enabled;
+
+    if (mustSetUp2Fa) {
+      // Moderator who hasn't set up 2FA — block and redirect to require page
+      const destination = new URL("/auth/require-2fa", reqOrigin);
+      const response = NextResponse.redirect(destination, { status: 302 });
+      for (const cookie of cookiesToClear) response.headers.append("Set-Cookie", cookie);
+      return response;
+    }
+
+    if (needsTwoFaVerify) {
+      // Issue a 5-minute pre-auth token and redirect to the 2FA verify page
+      const preAuthToken = await signAccessToken(
+        { sub: user.id, email: user.email, username: user.username ?? "", is_admin: user.is_admin, sid: "pre_auth", type: "pre_auth" } as Parameters<typeof signAccessToken>[0],
+        5 * 60
+      );
+      await redis.setex(`pre_auth:${user.id}`, 5 * 60, preAuthToken);
+
+      if (mobileRedirect) {
+        const deepLink = new URL(mobileRedirect);
+        deepLink.searchParams.set("pre_auth_token", preAuthToken);
+        deepLink.searchParams.set("requires_2fa", "true");
+        const response = NextResponse.redirect(deepLink.toString(), { status: 302 });
+        for (const cookie of cookiesToClear) response.headers.append("Set-Cookie", cookie);
+        return response;
+      }
+
+      const destination = new URL("/auth/2fa", reqOrigin);
+      destination.searchParams.set("token", preAuthToken);
+      const response = NextResponse.redirect(destination, { status: 302 });
+      for (const cookie of cookiesToClear) response.headers.append("Set-Cookie", cookie);
+      return response;
+    }
+
+    // Create platform session (no 2FA required)
     const authTokens = await createSession(
       {
         id: user.id,
@@ -202,14 +256,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       },
       { ip }
     );
-
-    // Store Google refresh token in Redis
-    if (tokens.refresh_token) {
-      await storeGoogleRefreshToken(user.id, tokens.refresh_token);
-    }
-
-    const clearMobileCookie = "zobia_mobile_redirect=; Max-Age=0; Path=/; HttpOnly";
-    const cookiesToClear = [clearCsrfCookie(), clearMobileCookie];
 
     // -----------------------------------------------------------------
     // Mobile flow: redirect to app deep-link with JWT + user payload
@@ -241,7 +287,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // -----------------------------------------------------------------
     const { accessCookie, refreshCookie } = buildCookieHeaders(authTokens);
 
-    const reqOrigin = new URL(req.url).origin;
     const destination = user.onboarding_completed
       ? new URL("/home", reqOrigin)
       : new URL("/onboarding", reqOrigin);

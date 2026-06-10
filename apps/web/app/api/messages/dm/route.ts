@@ -410,9 +410,16 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const coinCost = getDMCost(sender.plan, isInitiating);
 
     if (coinCost > 0 && sender.coin_balance < coinCost && !sender.is_admin) {
-      throw conflict(
-        `Insufficient coins. This action costs ${coinCost} coin(s).`,
-        "INSUFFICIENT_COINS"
+      return NextResponse.json(
+        {
+          error: {
+            code: "INSUFFICIENT_COINS",
+            message: `Insufficient coins. This action costs ${coinCost} coin(s).`,
+            coinCost,
+            coinBalance: sender.coin_balance,
+          },
+        },
+        { status: 409 }
       );
     }
 

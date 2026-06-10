@@ -10,6 +10,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { QRCodeSVG } from "qrcode.react";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -211,9 +212,18 @@ export default function SettingsPage() {
   const [savingField, setSavingField] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
 
+  const [featureFlags, setFeatureFlags] = useState({ pinEnabled: true, twoFaEnabled: true });
+
   const showToast = useCallback((msg: string, type: "success" | "error" = "success") => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3500);
+  }, []);
+
+  useEffect(() => {
+    void fetch("/api/features", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d) setFeatureFlags({ pinEnabled: d.pinEnabled ?? true, twoFaEnabled: d.twoFaEnabled ?? true }); })
+      .catch(() => { /* non-fatal, defaults are permissive */ });
   }, []);
 
   useEffect(() => {
@@ -616,10 +626,10 @@ export default function SettingsPage() {
       </Section>
 
       {/* Security PIN */}
-      <PinSection onToast={showToast} />
+      {featureFlags.pinEnabled && <PinSection onToast={showToast} />}
 
       {/* Two-Factor Authentication */}
-      <TwoFactorSection onToast={showToast} />
+      {featureFlags.twoFaEnabled && <TwoFactorSection onToast={showToast} />}
 
       {/* Chat Theme */}
       <Section title="Chat Theme">
@@ -924,20 +934,18 @@ function TwoFactorSection({ onToast }: { onToast: (msg: string, type?: "success"
                     <li className="flex gap-2"><span className="font-semibold text-neutral-500">3.</span> Enter the 6-digit code from the app below.</li>
                   </ol>
 
-                  <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4 dark:border-neutral-800 dark:bg-neutral-800/50">
-                    <p className="mb-1 text-xs font-semibold text-neutral-600 dark:text-neutral-400">Secret Key (enter manually if needed)</p>
-                    <p className="break-all font-mono text-sm font-medium text-neutral-900 dark:text-neutral-100">{setupSecret}</p>
-                    <p className="mt-2 text-xs text-neutral-400">
-                      Or open this URL in your authenticator:{" "}
-                      <a
-                        href={setupQrUrl ?? "#"}
-                        className="break-all text-blue-600 hover:underline dark:text-blue-400"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        Open authenticator link
-                      </a>
-                    </p>
+                  <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4 dark:border-neutral-800 dark:bg-neutral-800/50 space-y-3">
+                    {setupQrUrl && (
+                      <div className="flex justify-center">
+                        <div className="rounded-xl bg-white p-3">
+                          <QRCodeSVG value={setupQrUrl} size={180} level="M" />
+                        </div>
+                      </div>
+                    )}
+                    <div>
+                      <p className="mb-1 text-xs font-semibold text-neutral-600 dark:text-neutral-400">Manual key (if you can't scan)</p>
+                      <p className="break-all font-mono text-xs font-medium text-neutral-700 dark:text-neutral-300 select-all">{setupSecret}</p>
+                    </div>
                   </div>
 
                   <div>

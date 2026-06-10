@@ -5,7 +5,7 @@
  *  - Base URL from typed env config
  *  - JSON content-type headers
  *  - JWT injection via request interceptor (reads from SecureStore)
- *  - 401 handling (clears token and fires a global auth-error event)
+ *  - 401 handling with silent token refresh, then signOut on failure
  *
  * Also exports the shared `QueryClient` for React Query.
  */
@@ -22,8 +22,11 @@ import { env } from '@/lib/env';
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Key used to persist the JWT in SecureStore — must match auth/context.tsx. */
+/** Key used to persist the JWT access token in SecureStore. */
 export const JWT_KEY = 'zobia_jwt';
+
+/** Key used to persist the refresh token in SecureStore. */
+export const REFRESH_TOKEN_KEY = 'zobia_rt';
 
 // ---------------------------------------------------------------------------
 // Axios instance
@@ -39,6 +42,49 @@ export const apiClient = axios.create({
   },
 });
 
+// Prevent concurrent refresh races
+let refreshPromise: Promise<string | null> | null = null;
+
+async function refreshAccessToken(): Promise<string | null> {
+  if (refreshPromise) return refreshPromise;
+
+  refreshPromise = (async () => {
+    try {
+      const refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+      if (!refreshToken) return null;
+
+      const res = await axios.post<{ expiresIn: number }>(
+        `${env.API_BASE_URL}/api/auth/refresh`,
+        null,
+        {
+          headers: {
+            // Pass refresh token as a custom header so the server can use it
+            // (mobile doesn't use HttpOnly cookies)
+            'X-Refresh-Token': refreshToken,
+            'Content-Type': 'application/json',
+          },
+          timeout: 10_000,
+        }
+      );
+
+      if (res.status !== 200) return null;
+
+      // The new access token is in the response header or body
+      const newToken = res.headers['x-access-token'] as string | undefined;
+      if (!newToken) return null;
+
+      await SecureStore.setItemAsync(JWT_KEY, newToken);
+      return newToken;
+    } catch {
+      return null;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
+}
+
 // Request interceptor — attach stored JWT as Bearer token.
 apiClient.interceptors.request.use(
   async (config: InternalAxiosRequestConfig) => {
@@ -51,14 +97,29 @@ apiClient.interceptors.request.use(
   (error: AxiosError) => Promise.reject(error),
 );
 
-// Response interceptor — handle 401 globally.
+// Response interceptor — handle 401 with silent refresh, then sign out.
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
-    if (error.response?.status === 401) {
-      // Clear the stored token so the auth context can redirect to login.
-      await SecureStore.deleteItemAsync(JWT_KEY);
+    const originalRequest = error.config as InternalAxiosRequestConfig & { _retried?: boolean };
+
+    if (error.response?.status === 401 && !originalRequest._retried) {
+      originalRequest._retried = true;
+
+      const newToken = await refreshAccessToken();
+      if (newToken) {
+        originalRequest.headers.Authorization = `Bearer ${newToken}`;
+        return apiClient(originalRequest);
+      }
+
+      // Refresh failed — clear credentials and fire global sign-out event
+      await Promise.all([
+        SecureStore.deleteItemAsync(JWT_KEY),
+        SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY),
+        SecureStore.deleteItemAsync('zobia_user'),
+      ]);
     }
+
     return Promise.reject(error);
   },
 );

@@ -21,6 +21,8 @@ import {
   verifyRefreshToken,
   ACCESS_TOKEN_TTL_SECONDS,
   REFRESH_TOKEN_TTL_SECONDS,
+  ADMIN_ACCESS_TOKEN_TTL_SECONDS,
+  ADMIN_REFRESH_TOKEN_TTL_SECONDS,
   type AccessTokenPayload,
 } from "./jwt";
 import { randomUUID } from "crypto";
@@ -77,9 +79,11 @@ export async function createSession(
     username: string;
     is_admin: boolean;
   },
-  options: { ip?: string; ua?: string } = {}
+  options: { ip?: string; ua?: string; adminSession?: boolean } = {}
 ): Promise<AuthTokens> {
   const sid = randomUUID();
+  const accessTtl = options.adminSession ? ADMIN_ACCESS_TOKEN_TTL_SECONDS : ACCESS_TOKEN_TTL_SECONDS;
+  const refreshTtl = options.adminSession ? ADMIN_REFRESH_TOKEN_TTL_SECONDS : REFRESH_TOKEN_TTL_SECONDS;
 
   const record: SessionRecord = {
     uid: user.id,
@@ -95,14 +99,14 @@ export async function createSession(
   // Write session with TTL matching the refresh token lifetime
   await redis.setex(
     sessionKey(sid),
-    REFRESH_TOKEN_TTL_SECONDS,
+    refreshTtl,
     JSON.stringify(record)
   );
 
   // Track session in per-user set; refresh TTL so the set expires if the user
   // stops logging in (matches the longest possible session lifetime)
   await redis.sadd(userSessionsKey(user.id), sid);
-  await redis.expire(userSessionsKey(user.id), REFRESH_TOKEN_TTL_SECONDS);
+  await redis.expire(userSessionsKey(user.id), refreshTtl);
 
   const [accessToken, refreshToken] = await Promise.all([
     signAccessToken({
@@ -111,11 +115,11 @@ export async function createSession(
       username: user.username,
       is_admin: user.is_admin,
       sid,
-    }),
-    signRefreshToken(user.id, sid),
+    }, accessTtl),
+    signRefreshToken(user.id, sid, refreshTtl),
   ]);
 
-  return { accessToken, refreshToken, expiresIn: ACCESS_TOKEN_TTL_SECONDS };
+  return { accessToken, refreshToken, expiresIn: accessTtl };
 }
 
 // ---------------------------------------------------------------------------

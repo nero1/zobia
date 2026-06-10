@@ -23,6 +23,7 @@ interface UserRow {
   username: string;
   display_name: string | null;
   avatar_emoji: string;
+  is_friend: boolean;
 }
 
 export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
@@ -36,15 +37,26 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       throw badRequest("Search query must be at least 2 characters");
     }
 
+    const userId = auth.user.sub;
+
     const { rows } = await db.query<UserRow>(
-      `SELECT id, username, display_name, avatar_emoji
-       FROM users
-       WHERE username ILIKE $1
-         AND deleted_at IS NULL
-         AND id != $2
-       ORDER BY username
-       LIMIT 10`,
-      [`${q}%`, auth.user.sub]
+      `SELECT
+         u.id, u.username, u.display_name, u.avatar_emoji,
+         EXISTS (
+           SELECT 1 FROM friendships f
+           WHERE f.status = 'accepted'
+             AND ((f.requester_id = $2 AND f.addressee_id = u.id)
+               OR (f.addressee_id = $2 AND f.requester_id = u.id))
+         ) AS is_friend
+       FROM users u
+       WHERE (u.username ILIKE $1 OR u.display_name ILIKE $3)
+         AND u.deleted_at IS NULL
+         AND u.id != $2
+       ORDER BY
+         CASE WHEN u.username ILIKE $1 THEN 0 ELSE 1 END,
+         u.username
+       LIMIT 20`,
+      [`${q}%`, userId, `%${q}%`]
     );
 
     return NextResponse.json({
@@ -55,6 +67,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
           username: r.username,
           displayName: r.display_name ?? r.username,
           avatarEmoji: r.avatar_emoji,
+          isFriend: r.is_friend,
         })),
       },
       error: null,

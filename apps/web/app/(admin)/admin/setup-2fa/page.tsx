@@ -15,6 +15,7 @@
 
 import { useState, useEffect, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { QRCodeSVG } from "qrcode.react";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 
@@ -126,27 +127,21 @@ export default function Setup2FAPage() {
                 </p>
                 {secret ? (
                   <div className="space-y-3">
-                    {/* Manual secret entry */}
+                    {otpauthUri && (
+                      <div className="flex justify-center">
+                        <div className="rounded-xl bg-white p-3">
+                          <QRCodeSVG value={otpauthUri} size={180} level="M" />
+                        </div>
+                      </div>
+                    )}
                     <div className="rounded-md bg-white px-3 py-2 dark:bg-neutral-900">
                       <p className="mb-1 text-xs text-neutral-500">
                         Manual entry key (if you can&apos;t scan):
                       </p>
-                      <code className="break-all text-sm font-mono font-semibold text-blue-600 dark:text-blue-400">
+                      <code className="break-all text-sm font-mono font-semibold text-blue-600 dark:text-blue-400 select-all">
                         {secret}
                       </code>
                     </div>
-
-                    {/* OTPAuth URI */}
-                    {otpauthUri && (
-                      <div>
-                        <p className="mb-1 text-xs text-neutral-500">
-                          Or open this URL in your authenticator app:
-                        </p>
-                        <code className="block break-all rounded bg-neutral-100 p-2 text-xs dark:bg-neutral-800">
-                          {otpauthUri}
-                        </code>
-                      </div>
-                    )}
                   </div>
                 ) : (
                   <div className="h-8 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" />
