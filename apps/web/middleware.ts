@@ -43,6 +43,8 @@ const PUBLIC_PREFIXES = [
   "/terms",
   "/privacy",
   "/onboarding",
+  // PWA entry — handles its own auth-check + redirect client-side
+  "/pwa-start",
 ];
 
 /** Routes that require admin JWT claim. */

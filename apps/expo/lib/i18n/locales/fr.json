@@ -1049,7 +1049,10 @@
     "rankings": "Rankings",
     "rooms": "Rooms",
     "search": "Search",
-    "settings": "Settings"
+    "settings": "Settings",
+    "openMenu": "Open navigation menu",
+    "closeMenu": "Close menu",
+    "userArea": "User Area"
   },
   "notification": {
     "giftReceived": "{{name}} sent you a gift",

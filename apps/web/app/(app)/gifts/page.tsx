@@ -55,8 +55,9 @@ interface Catalogue {
 interface UserSuggestion {
   id: string;
   username: string;
-  display_name: string | null;
-  avatar_emoji: string | null;
+  displayName: string | null;
+  avatarEmoji: string | null;
+  isFriend?: boolean;
 }
 
 interface WalletBalance {
@@ -142,8 +143,8 @@ function SendGiftModal({
       setRecipient({
         id: prefilledRecipientId,
         username: prefilledUsername,
-        display_name: null,
-        avatar_emoji: null,
+        displayName: null,
+        avatarEmoji: null,
       });
     }
   }, [prefilledRecipientId, prefilledUsername]);
@@ -158,7 +159,7 @@ function SendGiftModal({
       setSearchLoading(true);
       fetch(`/api/users/search?q=${encodeURIComponent(search)}&limit=6`, { credentials: "include" })
         .then((r) => r.ok ? r.json() : null)
-        .then((data) => { setSuggestions(data?.users ?? []); })
+        .then((data) => { setSuggestions(data?.data?.users ?? data?.users ?? []); })
         .catch(() => {})
         .finally(() => setSearchLoading(false));
     }, 300);
@@ -225,7 +226,7 @@ function SendGiftModal({
         {recipient ? (
           <div className="flex items-center justify-between rounded-xl border border-primary-300 bg-primary-50 px-3 py-2.5 dark:border-primary-700 dark:bg-primary-950">
             <div className="flex items-center gap-2">
-              <Avatar name={recipient.display_name ?? recipient.username} emoji={recipient.avatar_emoji ?? undefined} size="xs" rankTier="none" />
+              <Avatar name={recipient.displayName ?? recipient.username} emoji={recipient.avatarEmoji ?? undefined} size="xs" rankTier="none" />
               <span className="text-sm font-medium text-neutral-900 dark:text-neutral-50">
                 @{recipient.username}
               </span>
@@ -259,10 +260,10 @@ function SendGiftModal({
                     onClick={() => { setRecipient(u); setSearch(u.username); setSuggestions([]); }}
                     className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-neutral-50 dark:hover:bg-neutral-700"
                   >
-                    <Avatar name={u.display_name ?? u.username} emoji={u.avatar_emoji ?? undefined} size="xs" rankTier="none" />
+                    <Avatar name={u.displayName ?? u.username} emoji={u.avatarEmoji ?? undefined} size="xs" rankTier="none" />
                     <div>
                       <p className="font-medium text-neutral-900 dark:text-neutral-50">
-                        {u.display_name ?? u.username}
+                        {u.displayName ?? u.username}
                       </p>
                       <p className="text-xs text-neutral-500">@{u.username}</p>
                     </div>
@@ -538,7 +539,7 @@ function GiftsPageContent() {
           <div
             role="dialog"
             aria-label="Send a gift"
-            className="fixed inset-x-4 top-1/2 z-50 max-h-[85vh] w-full max-w-lg -translate-y-1/2 overflow-y-auto rounded-2xl bg-white shadow-2xl dark:bg-neutral-900 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2"
+            className="fixed left-4 right-4 top-1/2 z-50 max-h-[85vh] -translate-y-1/2 overflow-y-auto rounded-2xl bg-white shadow-2xl dark:bg-neutral-900 sm:left-1/2 sm:right-auto sm:w-full sm:max-w-lg sm:-translate-x-1/2"
           >
             <div className="sticky top-0 flex items-center justify-between border-b border-neutral-100 bg-white px-5 py-4 dark:border-neutral-800 dark:bg-neutral-900">
               <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-50">

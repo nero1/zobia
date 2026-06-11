@@ -18,7 +18,7 @@ export default function manifest(): MetadataRoute.Manifest {
     short_name: "Zobia",
     description:
       "Connect, engage, and belong. Discover rooms, chat with friends, and build your community.",
-    start_url: "/home",
+    start_url: "/pwa-start",
     display: "standalone",
     background_color: "#ffffff",
     theme_color: "#2563eb",

@@ -461,13 +461,16 @@ export function Navbar() {
   const displayName = navUser?.display_name ?? navUser?.username ?? "User";
 
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Ref so touch handlers always see the latest open state without re-registering
+  const drawerOpenRef = useRef(false);
+  useEffect(() => { drawerOpenRef.current = drawerOpen; }, [drawerOpen]);
 
   const handleLogout = useCallback(async () => {
     await fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => {});
     router.push("/auth/login");
   }, [router]);
 
-  // Left-edge swipe to open drawer (mobile web / PWA)
+  // Left-edge swipe RIGHT to open drawer; LEFT swipe to close (mobile web / PWA)
   useEffect(() => {
     const EDGE_PX = 20;
     const MIN_SWIPE = 60;
@@ -476,7 +479,8 @@ export function Navbar() {
 
     const onTouchStart = (e: TouchEvent) => {
       const t = e.touches[0];
-      if (t.clientX <= EDGE_PX) {
+      // Activate if coming from left edge (to open) OR drawer is already open (to close)
+      if (t.clientX <= EDGE_PX || drawerOpenRef.current) {
         touchStartX = t.clientX;
         touchStartY = t.clientY;
       } else {
@@ -490,11 +494,21 @@ export function Navbar() {
       const t = e.touches[0];
       const dx = t.clientX - touchStartX;
       const dy = Math.abs(t.clientY - touchStartY);
-      // Open only when predominantly horizontal right-swipe
-      if (dx > MIN_SWIPE && dy < dx * 0.75) {
-        setDrawerOpen(true);
-        touchStartX = null;
-        touchStartY = null;
+
+      if (drawerOpenRef.current) {
+        // Close on predominantly horizontal LEFT swipe
+        if (dx < -MIN_SWIPE && dy < Math.abs(dx) * 0.75) {
+          setDrawerOpen(false);
+          touchStartX = null;
+          touchStartY = null;
+        }
+      } else {
+        // Open on predominantly horizontal RIGHT swipe from left edge
+        if (dx > MIN_SWIPE && dy < dx * 0.75) {
+          setDrawerOpen(true);
+          touchStartX = null;
+          touchStartY = null;
+        }
       }
     };
 
@@ -511,7 +525,7 @@ export function Navbar() {
       document.removeEventListener("touchmove", onTouchMove);
       document.removeEventListener("touchend", onTouchEnd);
     };
-  }, []);
+  }, []); // Registered once; drawerOpenRef provides up-to-date state
 
   return (
     <>
