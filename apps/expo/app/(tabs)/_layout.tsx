@@ -99,6 +99,22 @@ export default function TabLayout() {
         },
       }}
     >
+      {/* Admin tab — shown first (leftmost) when user is admin */}
+      <Tabs.Screen
+        name="admin"
+        options={{
+          title: 'Admin',
+          href: isAdmin ? undefined : null,
+          tabBarIcon: ({ focused, color }) => (
+            <Ionicons
+              name={focused ? 'shield' : 'shield-outline'}
+              size={24}
+              color={color}
+            />
+          ),
+        }}
+      />
+
       {TABS.map(({ name, title, icon, iconFocused }) => (
         <Tabs.Screen
           key={name}
@@ -119,22 +135,6 @@ export default function TabLayout() {
       {/* Rooms and Guild still accessible but hidden from tab bar */}
       <Tabs.Screen name="rooms" options={{ href: null }} />
       <Tabs.Screen name="guild" options={{ href: null }} />
-
-      {/* Admin tab — only visible to users with is_admin === true */}
-      <Tabs.Screen
-        name="admin"
-        options={{
-          title: 'Admin',
-          href: isAdmin ? undefined : null,
-          tabBarIcon: ({ focused, color }) => (
-            <Ionicons
-              name={focused ? 'shield' : 'shield-outline'}
-              size={24}
-              color={color}
-            />
-          ),
-        }}
-      />
     </Tabs>
     </View>
   );
