@@ -11,6 +11,7 @@
 
 import React, { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -205,6 +206,7 @@ interface CoinStoreProps {
 export function CoinStore({ className = "" }: CoinStoreProps) {
   const [purchasingId, setPurchasingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const currency = useCurrency();
 
   const { data, isLoading, isError } = useQuery<StoreData>({
     queryKey: ["economy", "store"],
@@ -269,7 +271,7 @@ export function CoinStore({ className = "" }: CoinStoreProps) {
       {data.coinPacks.length > 0 && (
         <section>
           <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-            🪙 Coin Packs
+            🪙 {currency.softPlural} Packs
           </h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {data.coinPacks.map((pack) => (
@@ -281,7 +283,7 @@ export function CoinStore({ className = "" }: CoinStoreProps) {
                 priceKobo={pack.priceKobo}
                 currency={pack.currency}
                 grantedAmount={pack.coinsGranted}
-                grantedLabel="Coins"
+                grantedLabel={currency.softPlural}
                 grantedIcon="🪙"
                 bonusLabel={pack.bonusLabel}
                 isFeatured={pack.isFeatured}
@@ -297,7 +299,7 @@ export function CoinStore({ className = "" }: CoinStoreProps) {
       {data.starPacks.length > 0 && (
         <section>
           <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-            ⭐ Star Packs
+            ⭐ {currency.premiumPlural} Packs
           </h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {data.starPacks.map((pack) => (
@@ -309,7 +311,7 @@ export function CoinStore({ className = "" }: CoinStoreProps) {
                 priceKobo={pack.priceKobo}
                 currency={pack.currency}
                 grantedAmount={pack.starsGranted}
-                grantedLabel="Stars"
+                grantedLabel={currency.premiumPlural}
                 grantedIcon="⭐"
                 bonusLabel={pack.bonusLabel}
                 isFeatured={pack.isFeatured}
@@ -343,7 +345,7 @@ export function CoinStore({ className = "" }: CoinStoreProps) {
                     </p>
                   )}
                   <p className="mt-1 text-sm font-medium text-amber-600 dark:text-amber-400">
-                    🪙 {booster.coinsCost?.toLocaleString()} coins
+                    🪙 {booster.coinsCost?.toLocaleString()} {currency.softPlural.toLowerCase()}
                   </p>
                 </div>
                 <button

@@ -15,6 +15,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { OnlineRing } from "@/components/ui/OnlineRing";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -164,6 +165,7 @@ export default function MyProfilePage() {
   const [seasons, setSeasons] = useState<SeasonRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const currency = useCurrency();
 
   const load = useCallback(async () => {
     try {
@@ -298,11 +300,11 @@ export default function MyProfilePage() {
         <div className="mt-4 flex gap-6 border-t border-neutral-100 pt-4 dark:border-neutral-800">
           <div className="text-center">
             <p className="text-lg font-bold text-neutral-900 dark:text-neutral-50">{me.coin_balance.toLocaleString()}</p>
-            <p className="text-xs text-neutral-500">Coins</p>
+            <p className="text-xs text-neutral-500">{currency.softPlural}</p>
           </div>
           <div className="text-center">
             <p className="text-lg font-bold text-neutral-900 dark:text-neutral-50">{me.star_balance.toLocaleString()}</p>
-            <p className="text-xs text-neutral-500">Stars</p>
+            <p className="text-xs text-neutral-500">{currency.premiumPlural}</p>
           </div>
           <Link href="/wallet" className="ml-auto flex items-center rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700">
             Wallet →

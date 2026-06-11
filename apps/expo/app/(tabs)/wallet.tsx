@@ -19,6 +19,7 @@ import {
 import { useRouter } from 'expo-router';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 
 interface Balance {
   coins: number;
@@ -48,6 +49,7 @@ export default function WalletTab() {
   const scheme = useColorScheme();
   const isDark = scheme === 'dark';
   const router = useRouter();
+  const currency = useCurrency();
 
   const [walletData, setWalletData] = useState<WalletData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -127,14 +129,14 @@ export default function WalletTab() {
           <Text style={[styles.balanceAmount, { color: textPrimary }]}>
             {(walletData?.coins ?? 0).toLocaleString()}
           </Text>
-          <Text style={[styles.balanceLabel, { color: textSecondary }]}>Coins</Text>
+          <Text style={[styles.balanceLabel, { color: textSecondary }]}>{currency.softPlural}</Text>
         </View>
         <View style={[styles.balanceCard, { backgroundColor: cardBg, borderColor: border }]}>
           <Text style={styles.balanceIcon}>⭐</Text>
           <Text style={[styles.balanceAmount, { color: textPrimary }]}>
             {(walletData?.stars ?? 0).toLocaleString()}
           </Text>
-          <Text style={[styles.balanceLabel, { color: textSecondary }]}>Stars</Text>
+          <Text style={[styles.balanceLabel, { color: textSecondary }]}>{currency.premiumPlural}</Text>
         </View>
       </View>
 
@@ -197,7 +199,7 @@ export default function WalletTab() {
         onPress={() => router.push('/economy/wallet' as never)}
         style={[styles.ctaButton, { backgroundColor: colors.brand.blue }]}
       >
-        <Text style={styles.ctaText}>View Full Wallet &amp; Buy Coins</Text>
+        <Text style={styles.ctaText}>View Full Wallet &amp; Buy {currency.softPlural}</Text>
       </Pressable>
     </ScrollView>
   );

@@ -27,6 +27,7 @@ import { GiftAnimation } from '@/components/economy/GiftAnimation';
 import { apiClient } from '@/lib/api/client';
 import { colors } from '@/lib/theme/colors';
 import { useTheme } from '@/lib/theme';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -158,6 +159,7 @@ export default function GiftSendScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { colors: themeColors } = useTheme();
+  const currency = useCurrency();
   const params = useLocalSearchParams<{
     recipientId: string;
     recipientUsername: string;
@@ -351,7 +353,7 @@ export default function GiftSendScreen() {
                 onSelect={(gift) => {
                   const cost = currencyMode === 'stars' ? (gift.starCost ?? 0) : gift.coinCost;
                   if (activeBalance < cost) {
-                    const label = currencyMode === 'stars' ? 'Stars' : 'Coins';
+                    const label = currencyMode === 'stars' ? currency.premiumPlural : currency.softPlural;
                     Alert.alert(
                       `Not Enough ${label}`,
                       `You need ${cost} ${label.toLowerCase()} but only have ${activeBalance}.`,

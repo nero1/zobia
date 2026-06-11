@@ -13,6 +13,7 @@
 
 import { Suspense, useState, useEffect, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { useCurrency, type CurrencyNames } from "@/lib/hooks/useCurrency";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -91,7 +92,7 @@ function WalletSkeleton() {
 // Balance Cards
 // ---------------------------------------------------------------------------
 
-function BalanceCard({ balance, activePlan }: { balance: Balance; activePlan: string | null }) {
+function BalanceCard({ balance, activePlan, currency }: { balance: Balance; activePlan: string | null; currency: CurrencyNames }) {
   const plan = activePlan ?? balance.plan ?? "Free";
   return (
     <div className="space-y-3">
@@ -107,7 +108,7 @@ function BalanceCard({ balance, activePlan }: { balance: Balance; activePlan: st
           <p className="mt-1 text-xs text-neutral-400">Experience</p>
         </div>
         <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-          <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Coins</p>
+          <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">{currency.softPlural}</p>
           <div className="mt-2 flex items-center gap-1.5">
             <span className="text-xl">🪙</span>
             <span className="text-xl font-bold text-neutral-900 dark:text-neutral-50">
@@ -117,7 +118,7 @@ function BalanceCard({ balance, activePlan }: { balance: Balance; activePlan: st
           <p className="mt-1 text-xs text-neutral-400">Soft currency</p>
         </div>
         <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-          <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Stars</p>
+          <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">{currency.premiumPlural}</p>
           <div className="mt-2 flex items-center gap-1.5">
             <span className="text-xl">⭐</span>
             <span className="text-xl font-bold text-neutral-900 dark:text-neutral-50">
@@ -206,13 +207,13 @@ interface CoinPacksProps {
   purchasing: string | null;
 }
 
-function CoinPacks({ packs, onPurchase, purchasing }: CoinPacksProps) {
+function CoinPacks({ packs, onPurchase, purchasing, currency }: CoinPacksProps & { currency: CurrencyNames }) {
   if (packs.length === 0) return null;
 
   return (
     <div className="rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
       <div className="border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
-        <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">Buy Coins</h2>
+        <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">Buy {currency.softPlural}</h2>
       </div>
       <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
         {packs.map((pack) => (
@@ -276,7 +277,7 @@ function txLabel(type: string): string {
   return map[type] ?? type.replace(/_/g, " ");
 }
 
-function TransactionHistory({ transactions, starTransactions }: { transactions: Transaction[]; starTransactions: Transaction[] }) {
+function TransactionHistory({ transactions, starTransactions, currency }: { transactions: Transaction[]; starTransactions: Transaction[]; currency: CurrencyNames }) {
   const [tab, setTab] = useState<"coins" | "stars">("coins");
   const list = tab === "coins" ? transactions : starTransactions;
   const icon = tab === "coins" ? "🪙" : "⭐";
@@ -290,18 +291,18 @@ function TransactionHistory({ transactions, starTransactions }: { transactions: 
             onClick={() => setTab("coins")}
             className={`rounded-md px-3 py-1 text-xs font-semibold transition-colors ${tab === "coins" ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-50" : "text-neutral-500"}`}
           >
-            🪙 Coins
+            🪙 {currency.softPlural}
           </button>
           <button
             onClick={() => setTab("stars")}
             className={`rounded-md px-3 py-1 text-xs font-semibold transition-colors ${tab === "stars" ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-50" : "text-neutral-500"}`}
           >
-            ⭐ Stars
+            ⭐ {currency.premiumPlural}
           </button>
         </div>
       </div>
       {list.length === 0 ? (
-        <div className="px-5 py-8 text-center text-sm text-neutral-500">No {tab} transactions yet.</div>
+        <div className="px-5 py-8 text-center text-sm text-neutral-500">No {tab === "coins" ? currency.softPlural.toLowerCase() : currency.premiumPlural.toLowerCase()} transactions yet.</div>
       ) : (
         <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
           {list.map((tx) => (
@@ -408,7 +409,7 @@ interface CoinTransferPanelProps {
   onClose: () => void;
 }
 
-function CoinTransferPanel({ recipientId, onSuccess, onClose }: CoinTransferPanelProps) {
+function CoinTransferPanel({ recipientId, onSuccess, onClose, currency }: CoinTransferPanelProps & { currency: CurrencyNames }) {
   const [recipient, setRecipient] = useState<TransferRecipient | null>(null);
   const [loadingRecipient, setLoadingRecipient] = useState(true);
   const [amount, setAmount] = useState<string>("");
@@ -447,11 +448,11 @@ function CoinTransferPanel({ recipientId, onSuccess, onClose }: CoinTransferPane
     setTransferError(null);
     const n = parseInt(amount, 10);
     if (isNaN(n) || n < 10) {
-      setTransferError("Minimum transfer amount is 10 coins");
+      setTransferError(`Minimum transfer amount is 10 ${currency.softPlural.toLowerCase()}`);
       return;
     }
     if (n > 100_000) {
-      setTransferError("Maximum single transfer is 100,000 coins");
+      setTransferError(`Maximum single transfer is 100,000 ${currency.softPlural.toLowerCase()}`);
       return;
     }
     setSending(true);
@@ -465,7 +466,7 @@ function CoinTransferPanel({ recipientId, onSuccess, onClose }: CoinTransferPane
       const data = (await res.json()) as { success?: boolean; message?: string; error?: string; transfer?: { netAmount: number; recipient: { username: string } } };
       if (!res.ok) throw new Error(data.message ?? data.error ?? "Transfer failed");
       const label = data.transfer?.recipient?.username ?? "user";
-      onSuccess(`Sent ${n} coins to @${label} (they received ${data.transfer?.netAmount ?? n - Math.floor(n * 0.05)})`);
+      onSuccess(`Sent ${n} ${currency.softPlural.toLowerCase()} to @${label} (they received ${data.transfer?.netAmount ?? n - Math.floor(n * 0.05)})`);
       onClose();
     } catch (e) {
       setTransferError(e instanceof Error ? e.message : "Transfer failed");
@@ -477,7 +478,7 @@ function CoinTransferPanel({ recipientId, onSuccess, onClose }: CoinTransferPane
   return (
     <div className="rounded-xl border border-amber-200 bg-amber-50 shadow-card dark:border-amber-800 dark:bg-amber-950">
       <div className="flex items-center justify-between border-b border-amber-200 px-5 py-4 dark:border-amber-800">
-        <h2 className="text-sm font-semibold text-amber-900 dark:text-amber-100">Send Coins</h2>
+        <h2 className="text-sm font-semibold text-amber-900 dark:text-amber-100">Send {currency.softPlural}</h2>
         <button onClick={onClose} className="text-sm text-amber-600 hover:text-amber-800 dark:text-amber-400">
           ✕
         </button>
@@ -498,7 +499,7 @@ function CoinTransferPanel({ recipientId, onSuccess, onClose }: CoinTransferPane
 
         <div>
           <label className="mb-1 block text-xs font-medium text-amber-800 dark:text-amber-200">
-            Amount (coins)
+            Amount ({currency.softPlural.toLowerCase()})
           </label>
           <input
             type="number"
@@ -530,7 +531,7 @@ function CoinTransferPanel({ recipientId, onSuccess, onClose }: CoinTransferPane
           disabled={sending || !recipient || !amount}
           className="w-full rounded-xl bg-amber-500 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-60"
         >
-          {sending ? "Sending…" : "Send Coins"}
+          {sending ? "Sending…" : `Send ${currency.softPlural}`}
         </button>
       </div>
     </div>
@@ -545,6 +546,7 @@ function WalletContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const transferRecipientId = searchParams.get("transfer");
+  const currency = useCurrency();
 
   const [data, setData] = useState<StoreData>({
     balance: { coins: 0, stars: 0, xp: 0 },
@@ -717,7 +719,7 @@ function WalletContent() {
         </div>
       )}
 
-      <BalanceCard balance={data.balance} activePlan={data.activePlan} />
+      <BalanceCard balance={data.balance} activePlan={data.activePlan} currency={currency} />
 
       {data.earnings && <EarningsSection earnings={data.earnings} />}
 
@@ -726,14 +728,15 @@ function WalletContent() {
           recipientId={transferRecipientId}
           onSuccess={showToast}
           onClose={dismissTransfer}
+          currency={currency}
         />
       )}
 
-      <CoinPacks packs={data.coinPacks} onPurchase={handlePurchase} purchasing={purchasing} />
+      <CoinPacks packs={data.coinPacks} onPurchase={handlePurchase} purchasing={purchasing} currency={currency} />
 
       <BoosterPacks boosters={data.boosters} />
 
-      <TransactionHistory transactions={data.transactions} starTransactions={data.starTransactions} />
+      <TransactionHistory transactions={data.transactions} starTransactions={data.starTransactions} currency={currency} />
     </div>
   );
 }

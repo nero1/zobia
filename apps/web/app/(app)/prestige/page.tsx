@@ -13,6 +13,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -131,6 +132,7 @@ interface ConfirmScreenProps {
 }
 
 function ConfirmScreen({ data, onConfirm, confirming, done }: ConfirmScreenProps) {
+  const currency = useCurrency();
   if (done) {
     return (
       <div className="flex flex-col items-center py-16 text-center">
@@ -142,7 +144,7 @@ function ConfirmScreen({ data, onConfirm, confirming, done }: ConfirmScreenProps
           You have begun again — with honour. Your legacy grows.
         </p>
         <p className="mt-4 text-sm font-semibold text-amber-600">
-          +{data.rewardsCoins.toLocaleString()} coins awarded
+          +{data.rewardsCoins.toLocaleString()} {currency.softPlural.toLowerCase()} awarded
         </p>
         <Link
           href="/profile"
@@ -211,7 +213,7 @@ function ConfirmScreen({ data, onConfirm, confirming, done }: ConfirmScreenProps
           <li>Prestige star on your profile</li>
           {data.rewardsFrame && <li>Exclusive frame: {data.rewardsFrame}</li>}
           {data.rewardsTitle && <li>Title: &quot;{data.rewardsTitle}&quot;</li>}
-          <li>{data.rewardsCoins.toLocaleString()} coins</li>
+          <li>{data.rewardsCoins.toLocaleString()} {currency.softPlural.toLowerCase()}</li>
         </ul>
       </div>
 

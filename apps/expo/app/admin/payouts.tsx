@@ -8,6 +8,7 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 import {
   View,
   Text,
@@ -74,10 +75,10 @@ function formatDate(iso: string) {
   });
 }
 
-function methodLabel(method: Payout['payoutMethod']): string {
+function methodLabel(method: Payout['payoutMethod'], softPlural = 'Coins'): string {
   switch (method) {
     case 'bank_transfer': return 'Bank Transfer';
-    case 'coins': return 'Coins';
+    case 'coins': return softPlural;
     case 'crypto': return 'USDT/Tron';
   }
 }
@@ -87,6 +88,7 @@ function methodLabel(method: Payout['payoutMethod']): string {
 // ---------------------------------------------------------------------------
 
 export default function AdminPayoutsScreen() {
+  const currency = useCurrency();
   const [tab, setTab] = useState<TabKey>('awaiting_approval');
   const [payouts, setPayouts] = useState<Payout[]>([]);
   const [loading, setLoading] = useState(true);
@@ -325,7 +327,7 @@ export default function AdminPayoutsScreen() {
 
               {/* Details row */}
               <View style={styles.detailsRow}>
-                <Text style={styles.detailChip}>{methodLabel(item.payoutMethod)}</Text>
+                <Text style={styles.detailChip}>{methodLabel(item.payoutMethod, currency.softPlural)}</Text>
                 <Text style={styles.detailChip}>{item.region}</Text>
                 {item.bankAccountSnapshot && (
                   <Text style={styles.detailChip}>

@@ -16,6 +16,7 @@ import Link from "next/link";
 import { TopGifters } from "@/components/rooms/TopGifters";
 import { LiveRoomPulseBar } from "@/components/ui/LiveRoomPulseBar";
 import { useRealtimeChannel } from "@/lib/realtime/useRealtimeChannel";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 // Resolved at build time — undefined means no push provider, fall back to SSE.
 const REALTIME_PROVIDER = process.env.NEXT_PUBLIC_REALTIME_PROVIDER;
@@ -145,6 +146,7 @@ function ClassRoomCurriculum({
   const [data, setData] = useState<ClassroomData | null>(null);
   const [loading, setLoading] = useState(true);
   const [enrolling, setEnrolling] = useState(false);
+  const currency = useCurrency();
   const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -260,7 +262,7 @@ function ClassRoomCurriculum({
       )}
       {!data.isEnrolled && !isCreator && (
         <button type="button" onClick={handleEnroll} disabled={enrolling} className="w-full rounded-lg bg-blue-600 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
-          {enrolling ? "Enrolling…" : data.enrolmentFee > 0 ? `Enrol · ${data.enrolmentFee.toLocaleString()} coins` : "Enrol (Free)"}
+          {enrolling ? "Enrolling…" : data.enrolmentFee > 0 ? `Enrol · ${data.enrolmentFee.toLocaleString()} ${currency.softPlural.toLowerCase()}` : "Enrol (Free)"}
         </button>
       )}
       {data.isEnrolled && !data.isGraduate && (
@@ -300,6 +302,7 @@ interface MessageBubbleProps {
 }
 
 function MessageBubble({ msg, isOwn }: MessageBubbleProps) {
+  const currency = useCurrency();
   return (
     <div className={`flex gap-2.5 ${isOwn ? "flex-row-reverse" : ""}`}>
       <span className="mt-1 h-8 w-8 shrink-0 rounded-full bg-neutral-100 text-center text-lg leading-8 dark:bg-neutral-800">
@@ -324,7 +327,7 @@ function MessageBubble({ msg, isOwn }: MessageBubbleProps) {
           {msg.giftEmoji && (
             <div className="mb-1 flex items-center gap-1 text-xs font-semibold opacity-80">
               <span>{msg.giftEmoji}</span>
-              <span>Gift · {msg.giftAmount} coins</span>
+              <span>Gift · {msg.giftAmount} {currency.softPlural.toLowerCase()}</span>
             </div>
           )}
           {msg.content}
@@ -349,6 +352,7 @@ interface VipOverlayProps {
 }
 
 function VipOverlay({ price, previewMessages, onSubscribe, subscribing }: VipOverlayProps) {
+  const currency = useCurrency();
   return (
     <div className="relative flex flex-1 flex-col overflow-hidden">
       {/* Blurred preview */}
@@ -365,7 +369,7 @@ function VipOverlay({ price, previewMessages, onSubscribe, subscribing }: VipOve
           <span className="text-4xl">🔒</span>
           <h3 className="mt-3 text-lg font-bold text-neutral-900 dark:text-neutral-50">VIP Room</h3>
           <p className="mt-1 text-sm text-neutral-500">Subscribe to access this room</p>
-          <p className="mt-2 text-2xl font-bold text-amber-600">{price.toLocaleString()} <span className="text-base">coins</span></p>
+          <p className="mt-2 text-2xl font-bold text-amber-600">{price.toLocaleString()} <span className="text-base">{currency.softPlural.toLowerCase()}</span></p>
           <button
             onClick={onSubscribe}
             disabled={subscribing}
@@ -391,6 +395,7 @@ function DropNotice({ expiresAt, entryFee, onPay, paying, paid }: {
   paid: boolean;
 }) {
   const [secs, setSecs] = useState(secondsRemaining(expiresAt));
+  const currency = useCurrency();
 
   useEffect(() => {
     const id = setInterval(() => setSecs(secondsRemaining(expiresAt)), 1000);
@@ -406,7 +411,7 @@ function DropNotice({ expiresAt, entryFee, onPay, paying, paid }: {
           <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">
             ⏱ Drop room — ends in <span className="tabular-nums">{formatCountdown(secs)}</span>
           </p>
-          <p className="text-xs text-amber-600">Entry fee: {entryFee.toLocaleString()} coins</p>
+          <p className="text-xs text-amber-600">Entry fee: {entryFee.toLocaleString()} {currency.softPlural.toLowerCase()}</p>
         </div>
         <button
           onClick={onPay}
@@ -551,6 +556,7 @@ function RoomPowersPanel({
 }: { roomId: string; onClose: () => void }) {
   const [activating, setActivating] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
+  const currency = useCurrency();
 
   const POWERS = [
     { type: "message_pin",      emoji: "📌", label: "Pin Message",       description: "Pin your last message at the top for 1 hour", coins: 100 },
@@ -597,7 +603,7 @@ function RoomPowersPanel({
               <p className="text-xs text-neutral-500">{power.description}</p>
             </div>
             <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700 dark:bg-amber-900 dark:text-amber-200">
-              🪙 {power.coins}
+              🪙 {power.coins} {currency.softPlural.toLowerCase()}
             </span>
           </button>
         ))}
@@ -857,6 +863,7 @@ export default function RoomPage() {
   const params = useParams();
   const router = useRouter();
   const roomId = params.roomId as string;
+  const currency = useCurrency();
 
   const [room, setRoom] = useState<RoomInfo | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -1270,7 +1277,7 @@ export default function RoomPage() {
             <div className="flex items-center gap-1.5 rounded-xl bg-amber-50 px-4 py-2 dark:bg-amber-950/30">
               <span className="text-lg">🪙</span>
               <span className="text-lg font-extrabold text-amber-700 dark:text-amber-300">
-                {spectacle.coinValue.toLocaleString()} coins
+                {spectacle.coinValue.toLocaleString()} {currency.softPlural.toLowerCase()}
               </span>
             </div>
             <p className="text-xs text-neutral-400">Tap to dismiss</p>
@@ -1321,7 +1328,7 @@ export default function RoomPage() {
                   <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40">
                     <p className="mb-2 text-xs text-amber-800 dark:text-amber-300">
                       🔒 Replay requires a one-time fee of{" "}
-                      <strong>{(replay.replayFeeKobo / 100).toLocaleString()} coins</strong>
+                      <strong>{(replay.replayFeeKobo / 100).toLocaleString()} {currency.softPlural.toLowerCase()}</strong>
                     </p>
                     <button
                       type="button"
@@ -1339,7 +1346,7 @@ export default function RoomPage() {
                       }}
                       className="w-full rounded-lg bg-amber-500 py-1.5 text-xs font-semibold text-white hover:bg-amber-600 disabled:opacity-60"
                     >
-                      {purchasingReplay ? "Processing…" : `🪙 Unlock Replay · ${(replay.replayFeeKobo / 100).toLocaleString()} coins`}
+                      {purchasingReplay ? "Processing…" : `🪙 Unlock Replay · ${(replay.replayFeeKobo / 100).toLocaleString()} ${currency.softPlural.toLowerCase()}`}
                     </button>
                   </div>
                 ) : (

@@ -23,6 +23,7 @@ import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import { colors } from '@/lib/theme/colors';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,6 +80,7 @@ function formatCoins(amount: number): string {
  */
 export function CoinBalance({ style, variant = 'compact' }: CoinBalanceProps) {
   const router = useRouter();
+  const currency = useCurrency();
 
   const { data, isLoading } = useQuery<BalanceResponse>({
     queryKey: ['wallet', 'balance'],
@@ -94,7 +96,7 @@ export function CoinBalance({ style, variant = 'compact' }: CoinBalanceProps) {
   return (
     <Pressable
       onPress={handlePress}
-      accessibilityLabel={`Coin balance: ${data?.coins ?? 0} coins. Tap to open wallet.`}
+      accessibilityLabel={`${currency.softPlural} balance: ${data?.coins ?? 0} ${currency.softPlural.toLowerCase()}. Tap to open wallet.`}
       accessibilityRole="button"
       style={({ pressed }) => [
         styles.container,
@@ -111,7 +113,7 @@ export function CoinBalance({ style, variant = 'compact' }: CoinBalanceProps) {
         <Text style={styles.amount}>{formatCoins(data?.coins ?? 0)}</Text>
       )}
       {variant === 'full' && (
-        <Text style={styles.label}>Coins</Text>
+        <Text style={styles.label}>{currency.softPlural}</Text>
       )}
     </Pressable>
   );
