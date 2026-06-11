@@ -1286,6 +1286,22 @@
   "settings.pinDisabledByAdmin": "PIN authentication is currently disabled by the platform administrator.",
 
   "nav.friends": "Friends",
+  "nav.gifts": "Gifts",
+
+  "gifts.title": "Gifts",
+  "gifts.subtitle": "Send gifts to friends and see your gift history",
+  "gifts.sendBtn": "🎁 Send a Gift",
+  "gifts.tabs.received": "📥 Received",
+  "gifts.tabs.sent": "📤 Sent",
+  "gifts.empty.received": "No gifts received yet",
+  "gifts.empty.receivedHint": "Share your profile with friends — they might surprise you!",
+  "gifts.empty.sent": "No gifts sent yet",
+  "gifts.empty.sentHint": "Spread some love — send a gift to a friend!",
+  "gifts.send.title": "Send a Gift",
+  "gifts.row.to": "To",
+  "gifts.row.from": "From",
+  "gifts.loadError": "Could not load gifts. Check your connection.",
+  "gifts.retry": "Retry",
 
   "friends.requests.received": "Received",
   "friends.requests.sent": "Sent",
