@@ -73,6 +73,13 @@ export interface ZobiaManifest {
     androidEnabled: boolean;
     iosEnabled: boolean;
   };
+  // Currency display names (admin-configurable)
+  currency: {
+    softNameSingular: string;   // e.g. "Credit"
+    softNamePlural: string;     // e.g. "Credits"
+    premiumNameSingular: string; // e.g. "Star"
+    premiumNamePlural: string;   // e.g. "Stars"
+  };
   // Platform config
   minimumAge: number;
   coinToCashRate: number;
@@ -146,6 +153,12 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     physicalGoodsEnabled: false,
     physicalGoodsManualFulfillment: true,
     physicalGoodsPartnerFulfillment: false,
+  },
+  currency: {
+    softNameSingular: "Credit",
+    softNamePlural: "Credits",
+    premiumNameSingular: "Star",
+    premiumNamePlural: "Stars",
   },
   warEventCooldownHours: 72,
   auth: {
@@ -273,6 +286,12 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       physicalGoodsEnabled:       parseBool(kv["physical_goods_enabled"],                       DEFAULT_MANIFEST.features.physicalGoodsEnabled),
       physicalGoodsManualFulfillment:  parseBool(kv["physical_goods_fulfillment_manual"]  ?? "true",  DEFAULT_MANIFEST.features.physicalGoodsManualFulfillment),
       physicalGoodsPartnerFulfillment: parseBool(kv["physical_goods_fulfillment_partner"],            DEFAULT_MANIFEST.features.physicalGoodsPartnerFulfillment),
+    },
+    currency: {
+      softNameSingular:    kv["currency_soft_name_singular"]    ?? DEFAULT_MANIFEST.currency.softNameSingular,
+      softNamePlural:      kv["currency_soft_name_plural"]      ?? DEFAULT_MANIFEST.currency.softNamePlural,
+      premiumNameSingular: kv["currency_premium_name_singular"] ?? DEFAULT_MANIFEST.currency.premiumNameSingular,
+      premiumNamePlural:   kv["currency_premium_name_plural"]   ?? DEFAULT_MANIFEST.currency.premiumNamePlural,
     },
     warEventCooldownHours: parseInt10(kv["war_event_cooldown_hours"], DEFAULT_MANIFEST.warEventCooldownHours),
     auth: {

@@ -163,9 +163,33 @@ const CONFIG_META: Record<string, ConfigMeta> = {
   },
 
   // Economy
+  currency_soft_name_singular: {
+    label: "Soft Currency Name (Singular)",
+    description: "Display name for one unit of the soft (earned) currency. Default: Credit",
+    type: "string",
+    group: "Economy",
+  },
+  currency_soft_name_plural: {
+    label: "Soft Currency Name (Plural)",
+    description: "Display name for multiple units of the soft (earned) currency. Default: Credits",
+    type: "string",
+    group: "Economy",
+  },
+  currency_premium_name_singular: {
+    label: "Premium Currency Name (Singular)",
+    description: "Display name for one unit of the premium (purchased) currency. Default: Star",
+    type: "string",
+    group: "Economy",
+  },
+  currency_premium_name_plural: {
+    label: "Premium Currency Name (Plural)",
+    description: "Display name for multiple units of the premium (purchased) currency. Default: Stars",
+    type: "string",
+    group: "Economy",
+  },
   coin_to_cash_rate: {
-    label: "Coin-to-Cash Rate",
-    description: "Number of coins equivalent to ₦1 (e.g. 100 means 100 coins = ₦1).",
+    label: "Credit-to-Cash Rate",
+    description: "Number of Credits equivalent to ₦1 (e.g. 100 means 100 Credits = ₦1).",
     type: "number",
     group: "Economy",
   },
@@ -183,8 +207,8 @@ const CONFIG_META: Record<string, ConfigMeta> = {
     group: "Economy",
   },
   season_pass_price_coins: {
-    label: "Season Pass Price (coins)",
-    description: "Default price of a Season Pass in Zobia coins.",
+    label: "Season Pass Price (Credits)",
+    description: "Default price of a Season Pass in Credits.",
     type: "number",
     group: "Economy",
   },
@@ -218,7 +242,7 @@ const CONFIG_META: Record<string, ConfigMeta> = {
   },
   feature_rewarded_ads: {
     label: "Rewarded Ads",
-    description: "Allow free-tier users to earn coins by watching rewarded ads.",
+    description: "Allow free-tier users to earn Credits by watching rewarded ads.",
     type: "boolean",
     group: "AdMob",
   },
