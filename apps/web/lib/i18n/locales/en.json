@@ -11,6 +11,9 @@
   "nav.rankings": "Rankings",
   "nav.settings": "Settings",
   "nav.logout": "Log out",
+  "nav.openMenu": "Open navigation menu",
+  "nav.closeMenu": "Close menu",
+  "nav.userArea": "User Area",
 
   "auth.login": "Log in",
   "auth.logout": "Log out",
@@ -90,6 +93,9 @@
   "admin.activeRooms": "Active rooms",
   "admin.reportsToday": "Reports today",
   "admin.revenue": "Revenue",
+  "admin.openMenu": "Open admin menu",
+  "admin.closeMenu": "Close admin menu",
+  "admin.panel": "Admin Panel",
 
   "error.generic": "Something went wrong. Please try again.",
   "error.notFound": "Page not found.",
@@ -1032,7 +1038,7 @@
   "gifts.empty.sentHint": "Spread some love — send a gift to a friend!",
   "gifts.send.title": "Send a Gift",
   "gifts.send.recipientLabel": "Send to",
-  "gifts.send.recipientSearch": "Search by username…",
+  "gifts.send.recipientSearch": "Search any user by username…",
   "gifts.send.searching": "Searching…",
   "gifts.send.change": "Change",
   "gifts.send.tierLabel": "Tier {{tier}}",

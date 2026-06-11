@@ -11,7 +11,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { clsx } from "clsx";
 
 const adminNavItems = [
@@ -167,6 +167,61 @@ function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void })
 
 export function AdminLayoutShell({ children }: { children: React.ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const drawerOpenRef = useRef(false);
+  useEffect(() => { drawerOpenRef.current = drawerOpen; }, [drawerOpen]);
+
+  // Left-edge swipe RIGHT to open; LEFT swipe to close (mobile web / PWA)
+  useEffect(() => {
+    const EDGE_PX = 20;
+    const MIN_SWIPE = 60;
+    let touchStartX: number | null = null;
+    let touchStartY: number | null = null;
+
+    const onTouchStart = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (t.clientX <= EDGE_PX || drawerOpenRef.current) {
+        touchStartX = t.clientX;
+        touchStartY = t.clientY;
+      } else {
+        touchStartX = null;
+        touchStartY = null;
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (touchStartX === null || touchStartY === null) return;
+      const t = e.touches[0];
+      const dx = t.clientX - touchStartX;
+      const dy = Math.abs(t.clientY - touchStartY);
+      if (drawerOpenRef.current) {
+        if (dx < -MIN_SWIPE && dy < Math.abs(dx) * 0.75) {
+          setDrawerOpen(false);
+          touchStartX = null;
+          touchStartY = null;
+        }
+      } else {
+        if (dx > MIN_SWIPE && dy < dx * 0.75) {
+          setDrawerOpen(true);
+          touchStartX = null;
+          touchStartY = null;
+        }
+      }
+    };
+
+    const onTouchEnd = () => {
+      touchStartX = null;
+      touchStartY = null;
+    };
+
+    document.addEventListener("touchstart", onTouchStart, { passive: true });
+    document.addEventListener("touchmove", onTouchMove, { passive: true });
+    document.addEventListener("touchend", onTouchEnd, { passive: true });
+    return () => {
+      document.removeEventListener("touchstart", onTouchStart);
+      document.removeEventListener("touchmove", onTouchMove);
+      document.removeEventListener("touchend", onTouchEnd);
+    };
+  }, []);
 
   return (
     <div className="flex min-h-screen bg-neutral-100 dark:bg-neutral-950">

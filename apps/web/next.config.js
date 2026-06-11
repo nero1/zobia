@@ -21,6 +21,12 @@ const withPWA = require("next-pwa")({
       urlPattern: /^\/(auth|api\/auth)\/.*/i,
       handler: "NetworkOnly",
     },
+    // PWA entry point — always hit the network so the app never opens a
+    // stale cached version that shows a 404 or expired auth state.
+    {
+      urlPattern: /^\/pwa-start.*/i,
+      handler: "NetworkOnly",
+    },
     {
       urlPattern: /^https:\/\/fonts\.(gstatic|googleapis)\.com\/.*/i,
       handler: "CacheFirst",
