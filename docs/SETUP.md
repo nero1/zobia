@@ -180,7 +180,9 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
      psql "$DIRECT_URL" < "$f"
    done
    ```
-   Migrations are numbered 001–023. Always apply them in order. Each migration is idempotent (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`).
+   Migrations are numbered 001 onwards. Always apply them in order. Each migration is idempotent (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`).
+
+   Migration `008_profile_privacy.sql` adds three columns to `users` (`profile_private`, `profile_hidden_sections`, `disable_friend_requests`) and seeds the four `x_manifest` privacy feature-flag keys. These are required for the Profile Privacy system.
 7. Optional seed data: `psql "$DIRECT_URL" < apps/web/db/seed.sql`
 
 ### Option B: Railway PostgreSQL

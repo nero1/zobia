@@ -1291,7 +1291,6 @@
     "tooNew": "Revenez bientôt !",
     "tooNewBody": "Les recommandations de guildes se débloquent après vos 24 premières heures sur Zobia."
   },
-
   "wallet.xpBalance": "XP",
   "wallet.coinsBalance": "Pièces",
   "wallet.starsBalance": "Étoiles",
@@ -1327,5 +1326,21 @@
   "messages.coinError.buyCoins": "Acheter des pièces",
   "messages.coinError.upgrade": "Passer à Pro",
   "settings.twoFaDisabledByAdmin": "L'authentification à deux facteurs est actuellement désactivée par l'administrateur de la plateforme.",
-  "settings.pinDisabledByAdmin": "L'authentification par PIN est actuellement désactivée par l'administrateur de la plateforme."
+  "settings.pinDisabledByAdmin": "L'authentification par PIN est actuellement désactivée par l'administrateur de la plateforme.",
+  "nav.friends": "Amis",
+  "friends.requests.received": "Reçues",
+  "friends.requests.sent": "Envoyées",
+  "friends.requests.withdraw": "Retirer",
+  "friends.requests.withdrawing": "Retrait en cours…",
+  "friends.empty.noReceivedRequests": "Aucune demande d'ami reçue.",
+  "friends.empty.noSentRequests": "Aucune demande d'ami envoyée.",
+  "profile.private": "Ce profil est privé.",
+  "profile.restricted": "Ce compte a été restreint.",
+  "profile.suspended": "Ce compte a été suspendu.",
+  "settings.privacy.lockProfile": "Profil privé",
+  "settings.privacy.lockProfileDesc": "Masquer votre profil aux utilisateurs qui ne sont pas vos amis",
+  "settings.privacy.disableFriendRequests": "Désactiver les demandes d'amis",
+  "settings.privacy.disableFriendRequestsDesc": "Empêcher les autres de vous envoyer des demandes d'amis",
+  "settings.privacy.hideSections": "Sections de profil masquées",
+  "settings.privacy.hideSectionsDesc": "Choisissez les sections de votre profil à masquer aux autres"
 }

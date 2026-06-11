@@ -12,6 +12,27 @@ import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { loadManifest, getManifestValue } from "@/lib/manifest";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { db } from "@/lib/db";
+
+async function getJsonManifestList(key: string, fallback: string[]): Promise<string[]> {
+  try {
+    const raw = await getManifestValue(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw) as string[];
+  } catch {
+    return fallback;
+  }
+}
+
+function userEligibleForFeature(plan: string, prestigeCount: number, allowed: string[]): boolean {
+  const p = plan.toLowerCase();
+  if (allowed.includes(p)) return true;
+  for (const entry of allowed) {
+    const m = /^prestige_(\d+)$/.exec(entry);
+    if (m && prestigeCount >= parseInt(m[1], 10)) return true;
+  }
+  return false;
+}
 
 export const GET = withAuth(async (req: NextRequest, { auth }) => {
   try {
@@ -19,21 +40,39 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
 
     const manifest = await loadManifest();
 
-    // Check raw values for keys that may not be seeded yet (permissive defaults)
-    const [twoFaRaw, twoFaModsRaw] = await Promise.all([
+    const [twoFaRaw, twoFaModsRaw, userRow] = await Promise.all([
       getManifestValue("auth_2fa_enabled"),
       getManifestValue("auth_2fa_required_for_mods"),
+      db.query<{ plan: string; prestige_count: number }>(
+        `SELECT COALESCE(plan,'free') AS plan, COALESCE(prestige_count,0) AS prestige_count FROM users WHERE id = $1 LIMIT 1`,
+        [auth.user.sub]
+      ).catch(() => ({ rows: [] as Array<{ plan: string; prestige_count: number }> })),
+    ]);
+
+    const user = userRow.rows[0] ?? { plan: "free", prestige_count: 0 };
+
+    const [lockAllowed, hideAllowed, noFrAllowed, hideableSections] = await Promise.all([
+      getJsonManifestList('privacy_can_lock_profile', ['pro', 'max', 'prestige_1']),
+      getJsonManifestList('privacy_can_hide_sections', ['plus', 'pro', 'max', 'prestige_1']),
+      getJsonManifestList('privacy_can_disable_friend_requests', ['plus', 'pro', 'max', 'prestige_1']),
+      getJsonManifestList('privacy_hideable_sections', ['avatar', 'bio', 'rank', 'xp', 'guild', 'seasons', 'badges']),
     ]);
 
     return NextResponse.json(
       {
-        twoFaEnabled: twoFaRaw !== "false", // default: enabled
+        twoFaEnabled: twoFaRaw !== "false",
         pinEnabled: manifest.features.pinAuth,
-        twoFaRequiredForMods: twoFaModsRaw === "true", // default: disabled
+        twoFaRequiredForMods: twoFaModsRaw === "true",
+        privacy: {
+          canLockProfile: userEligibleForFeature(user.plan, user.prestige_count, lockAllowed),
+          canHideSections: userEligibleForFeature(user.plan, user.prestige_count, hideAllowed),
+          canDisableFriendRequests: userEligibleForFeature(user.plan, user.prestige_count, noFrAllowed),
+          hideableSections,
+        },
       },
       {
         status: 200,
-        headers: { "Cache-Control": "private, max-age=300" },
+        headers: { "Cache-Control": "private, max-age=60" },
       }
     );
   } catch (err) {

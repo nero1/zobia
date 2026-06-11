@@ -1283,5 +1283,25 @@
   "messages.coinError.buyCoins": "Buy Coins",
   "messages.coinError.upgrade": "Upgrade to Pro",
   "settings.twoFaDisabledByAdmin": "Two-factor authentication is currently disabled by the platform administrator.",
-  "settings.pinDisabledByAdmin": "PIN authentication is currently disabled by the platform administrator."
+  "settings.pinDisabledByAdmin": "PIN authentication is currently disabled by the platform administrator.",
+
+  "nav.friends": "Friends",
+
+  "friends.requests.received": "Received",
+  "friends.requests.sent": "Sent",
+  "friends.requests.withdraw": "Withdraw",
+  "friends.requests.withdrawing": "Withdrawing…",
+  "friends.empty.noReceivedRequests": "No received friend requests.",
+  "friends.empty.noSentRequests": "No sent friend requests.",
+
+  "profile.private": "This profile is private.",
+  "profile.restricted": "This account has been restricted.",
+  "profile.suspended": "This account has been suspended.",
+
+  "settings.privacy.lockProfile": "Private Profile",
+  "settings.privacy.lockProfileDesc": "Hide your profile from users who aren't your friends",
+  "settings.privacy.disableFriendRequests": "Disable Friend Requests",
+  "settings.privacy.disableFriendRequestsDesc": "Prevent others from sending you friend requests",
+  "settings.privacy.hideSections": "Hidden Profile Sections",
+  "settings.privacy.hideSectionsDesc": "Choose which sections of your profile to hide from others"
 }

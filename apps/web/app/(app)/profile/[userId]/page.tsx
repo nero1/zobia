@@ -161,9 +161,11 @@ function SeasonCard({ season }: { season: SeasonSummary }) {
 export default function ProfilePage() {
   const params = useParams();
   const userId = params.userId as string;
+  type PrivacyError = "PROFILE_PRIVATE" | "ACCOUNT_RESTRICTED" | "ACCOUNT_SUSPENDED" | null;
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [privacyCode, setPrivacyCode] = useState<PrivacyError>(null);
   const [friendBusy, setFriendBusy] = useState(false);
   const [followBusy, setFollowBusy] = useState(false);
   const [isFriend, setIsFriend] = useState(false);
@@ -173,6 +175,12 @@ export default function ProfilePage() {
     (async () => {
       try {
         const res = await fetch(`/api/users/${userId}/profile`, { credentials: "include" });
+        if (res.status === 403) {
+          const body = await res.json().catch(() => ({})) as { code?: string; error?: string };
+          setPrivacyCode((body.code ?? "PROFILE_PRIVATE") as PrivacyError);
+          setError(body.error ?? "This profile is not available.");
+          return;
+        }
         if (!res.ok) throw new Error("Profile not found");
         const data = await res.json();
         setProfile({
@@ -213,10 +221,20 @@ export default function ProfilePage() {
   if (loading) return <div className="p-4 sm:p-6"><ProfileSkeleton /></div>;
 
   if (error || !profile) {
+    const icon = privacyCode === "PROFILE_PRIVATE" ? "🔒"
+      : privacyCode === "ACCOUNT_RESTRICTED" || privacyCode === "ACCOUNT_SUSPENDED" ? "🚫"
+      : "😕";
     return (
-      <div className="flex flex-col items-center justify-center py-24">
-        <p className="text-neutral-500">{error ?? "Profile not found"}</p>
-        <Link href="/" className="mt-3 text-sm text-blue-600 hover:underline">← Home</Link>
+      <div className="flex flex-col items-center justify-center py-24 text-center">
+        <span className="mb-3 text-5xl">{icon}</span>
+        <p className="text-base font-semibold text-neutral-700 dark:text-neutral-300">
+          {privacyCode === "PROFILE_PRIVATE" ? "This profile is private"
+            : privacyCode === "ACCOUNT_RESTRICTED" ? "This account has been restricted"
+            : privacyCode === "ACCOUNT_SUSPENDED" ? "This account is temporarily suspended"
+            : "Profile not found"}
+        </p>
+        <p className="mt-1 max-w-xs text-sm text-neutral-500">{error ?? "The profile you're looking for doesn't exist or isn't available."}</p>
+        <Link href="/" className="mt-4 text-sm text-blue-600 hover:underline">← Back to Home</Link>
       </div>
     );
   }

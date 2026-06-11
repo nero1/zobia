@@ -4,7 +4,8 @@
  * Top navigation bar for the authenticated app.
  * - Fixed top bar (all screen sizes)
  * - Mobile hamburger that opens a full nav drawer
- * - Mobile bottom tab bar (Home, Rooms, Messages, Wallet, Profile)
+ * - Mobile bottom tab bar (Home, Quests, Messages, Friends, Wallet, Profile)
+ * - Profile avatar dropdown (top right, all screen sizes)
  *
  * NO purple colors. NO gradients.
  */
@@ -13,7 +14,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { clsx } from "clsx";
 import { Avatar } from "@/components/ui/Avatar";
 
@@ -21,6 +22,7 @@ interface NavUser {
   display_name: string | null;
   username: string | null;
   avatar_emoji: string | null;
+  plan?: string | null;
 }
 
 function useNavUser() {
@@ -42,6 +44,7 @@ const bottomTabItems = [
   { href: "/home",     label: "Home",    shortLabel: "Home"   },
   { href: "/quests",   label: "Quests",  shortLabel: "Quests" },
   { href: "/messages", label: "Messages",shortLabel: "Msgs"   },
+  { href: "/friends",  label: "Friends", shortLabel: "Friends"},
   { href: "/wallet",   label: "Wallet",  shortLabel: "Wallet" },
   { href: "/profile",  label: "Profile", shortLabel: "Profile"},
 ] as const;
@@ -52,6 +55,7 @@ const primaryNavItems = [
   { href: "/quests",       label: "Quests",       icon: "🎯" },
   { href: "/rooms",        label: "Rooms",        icon: "🚪" },
   { href: "/messages",     label: "Messages",     icon: "💬" },
+  { href: "/friends",      label: "Friends",      icon: "👥" },
   { href: "/notifications",label: "Notifications",icon: "🔔" },
   { href: "/events",       label: "Events",       icon: "📅" },
   { href: "/wallet",       label: "Wallet",       icon: "🪙" },
@@ -76,6 +80,7 @@ const TAB_ICONS: Record<string, { active: string; inactive: string }> = {
   Home:     { active: "🏠", inactive: "🏡" },
   Quests:   { active: "🎯", inactive: "🎯" },
   Messages: { active: "💬", inactive: "💭" },
+  Friends:  { active: "👥", inactive: "👥" },
   Wallet:   { active: "🪙", inactive: "🪙" },
   Profile:  { active: "👤", inactive: "👤" },
 };
@@ -90,6 +95,25 @@ function TabIcon({ label, isActive }: { label: string; isActive: boolean }) {
 }
 
 // ---------------------------------------------------------------------------
+// Plan badge helpers
+// ---------------------------------------------------------------------------
+
+const PLAN_BADGE: Record<string, string> = {
+  free:  "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400",
+  plus:  "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
+  pro:   "bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300",
+  max:   "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300",
+};
+
+function planBadgeClass(plan: string | null | undefined) {
+  return PLAN_BADGE[(plan ?? "free").toLowerCase()] ?? PLAN_BADGE.free;
+}
+
+function isMaxPlan(plan: string | null | undefined) {
+  return (plan ?? "").toLowerCase() === "max";
+}
+
+// ---------------------------------------------------------------------------
 // Mobile bottom tab bar
 // ---------------------------------------------------------------------------
 
@@ -101,7 +125,7 @@ function MobileTabBar() {
       className="fixed bottom-0 inset-x-0 z-40 border-t border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900 lg:hidden"
       aria-label="Mobile navigation"
     >
-      <div className="grid grid-cols-5">
+      <div className="grid grid-cols-6">
         {bottomTabItems.map((item) => {
           const isActive = pathname.startsWith(item.href);
           return (
@@ -117,7 +141,7 @@ function MobileTabBar() {
               aria-current={isActive ? "page" : undefined}
             >
               <TabIcon label={item.label} isActive={isActive} />
-              <span className="text-[10px] leading-none">{item.shortLabel}</span>
+              <span className="text-[9px] leading-none">{item.shortLabel}</span>
             </Link>
           );
         })}
@@ -251,6 +275,159 @@ function MobileDrawer({
 }
 
 // ---------------------------------------------------------------------------
+// Profile dropdown
+// ---------------------------------------------------------------------------
+
+function ProfileDropdown({
+  user,
+  onLogout,
+}: {
+  user: NavUser | null;
+  onLogout: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+  const displayName = user?.display_name ?? user?.username ?? "User";
+  const username = user?.username ?? "";
+  const plan = (user?.plan ?? "free").toLowerCase();
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  // Close on Escape
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [open]);
+
+  const handleThemeToggle = useCallback(() => {
+    // Toggle between light / dark / system by cycling through them
+    const root = document.documentElement;
+    const current = root.classList.contains("dark") ? "dark" : "light";
+    if (current === "dark") {
+      root.classList.remove("dark");
+      localStorage.setItem("theme", "light");
+    } else {
+      root.classList.add("dark");
+      localStorage.setItem("theme", "dark");
+    }
+  }, []);
+
+  const isDark = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        aria-label="Your profile"
+        aria-expanded={open}
+        aria-haspopup="true"
+        onClick={() => setOpen((v) => !v)}
+        className="rounded-full focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
+      >
+        <Avatar name={displayName} emoji={user?.avatar_emoji ?? undefined} size="sm" rankTier="none" />
+      </button>
+
+      {open && (
+        <div
+          className="absolute right-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-800 dark:bg-neutral-900"
+          role="menu"
+          aria-label="Profile menu"
+        >
+          {/* User info header */}
+          <div className="px-4 py-3 border-b border-neutral-100 dark:border-neutral-800">
+            <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-50">
+              {displayName}
+            </p>
+            {username && (
+              <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">
+                @{username}
+              </p>
+            )}
+            <div className="mt-2 flex items-center gap-2">
+              <span className={clsx("rounded-full px-2 py-0.5 text-xs font-semibold capitalize", planBadgeClass(plan))}>
+                {plan}
+              </span>
+              <Link
+                href="/settings/subscription"
+                onClick={() => setOpen(false)}
+                className="text-xs text-primary-600 hover:underline dark:text-primary-400"
+              >
+                Manage Plan
+              </Link>
+            </div>
+          </div>
+
+          {/* Menu items */}
+          <div className="py-1" role="none">
+            <Link
+              href="/profile"
+              onClick={() => setOpen(false)}
+              role="menuitem"
+              className="flex items-center gap-3 px-4 py-2.5 text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            >
+              <span aria-hidden="true">👤</span>
+              View Profile
+            </Link>
+            <Link
+              href="/settings"
+              onClick={() => setOpen(false)}
+              role="menuitem"
+              className="flex items-center gap-3 px-4 py-2.5 text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            >
+              <span aria-hidden="true">⚙️</span>
+              Profile Settings
+            </Link>
+
+            <button
+              type="button"
+              role="menuitem"
+              onClick={handleThemeToggle}
+              className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            >
+              <span aria-hidden="true">{isDark ? "☀️" : "🌙"}</span>
+              {isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
+            </button>
+
+            <Link
+              href="/settings/subscription"
+              onClick={() => setOpen(false)}
+              role="menuitem"
+              className="flex items-center gap-3 px-4 py-2.5 text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            >
+              <span aria-hidden="true">⭐</span>
+              {isMaxPlan(plan) ? `Manage ${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan` : "Upgrade Plan"}
+            </Link>
+          </div>
+
+          <div className="border-t border-neutral-100 py-1 dark:border-neutral-800" role="none">
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => { setOpen(false); onLogout(); }}
+              className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
+            >
+              <span aria-hidden="true">🚪</span>
+              Log out
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Top nav bar
 // ---------------------------------------------------------------------------
 
@@ -301,7 +478,7 @@ export function Navbar() {
             </Link>
           </div>
 
-          {/* Desktop nav links */}
+          {/* Desktop nav links — uses bottomTabItems to stay in sync with the mobile bottom bar */}
           <nav className="hidden items-center gap-1 lg:flex" aria-label="Main navigation">
             {bottomTabItems.map((item) => {
               const isActive = pathname.startsWith(item.href);
@@ -323,7 +500,7 @@ export function Navbar() {
             })}
           </nav>
 
-          {/* Right: notifications + avatar */}
+          {/* Right: notifications + profile dropdown */}
           <div className="flex items-center gap-2">
             <Link
               href="/notifications"
@@ -332,9 +509,7 @@ export function Navbar() {
             >
               <span aria-hidden="true" className="text-lg leading-none">🔔</span>
             </Link>
-            <Link href="/profile" aria-label="Your profile">
-              <Avatar name={displayName} size="sm" rankTier="none" />
-            </Link>
+            <ProfileDropdown user={navUser} onLogout={handleLogout} />
           </div>
         </div>
       </header>

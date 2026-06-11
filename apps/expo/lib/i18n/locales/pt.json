@@ -1229,7 +1229,6 @@
     "tooNew": "Volte em breve!",
     "tooNewBody": "As recomendações de guildas ficam disponíveis após suas primeiras 24 horas na Zobia."
   },
-
   "wallet.xpBalance": "XP",
   "wallet.coinsBalance": "Moedas",
   "wallet.starsBalance": "Estrelas",
@@ -1265,5 +1264,21 @@
   "messages.coinError.buyCoins": "Comprar Moedas",
   "messages.coinError.upgrade": "Fazer Upgrade para Pro",
   "settings.twoFaDisabledByAdmin": "A autenticação em dois fatores está atualmente desabilitada pelo administrador da plataforma.",
-  "settings.pinDisabledByAdmin": "A autenticação por PIN está atualmente desabilitada pelo administrador da plataforma."
+  "settings.pinDisabledByAdmin": "A autenticação por PIN está atualmente desabilitada pelo administrador da plataforma.",
+  "nav.friends": "Amigos",
+  "friends.requests.received": "Recebidas",
+  "friends.requests.sent": "Enviadas",
+  "friends.requests.withdraw": "Retirar",
+  "friends.requests.withdrawing": "A retirar…",
+  "friends.empty.noReceivedRequests": "Sem pedidos de amizade recebidos.",
+  "friends.empty.noSentRequests": "Sem pedidos de amizade enviados.",
+  "profile.private": "Este perfil é privado.",
+  "profile.restricted": "Esta conta foi restringida.",
+  "profile.suspended": "Esta conta foi suspensa.",
+  "settings.privacy.lockProfile": "Perfil Privado",
+  "settings.privacy.lockProfileDesc": "Ocultar o seu perfil de utilizadores que não são seus amigos",
+  "settings.privacy.disableFriendRequests": "Desativar Pedidos de Amizade",
+  "settings.privacy.disableFriendRequestsDesc": "Impedir que outros lhe enviem pedidos de amizade",
+  "settings.privacy.hideSections": "Secções de Perfil Ocultas",
+  "settings.privacy.hideSectionsDesc": "Escolha quais as secções do seu perfil a ocultar dos outros"
 }

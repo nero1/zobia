@@ -758,7 +758,6 @@
   "creator.processed": "Processed",
   "creator.accessDenied": "Access denied",
   "creator.payoutRequested": "Payout requested — pending admin approval",
-
   "creator.broadcasts.title": "Transmissões do Criador",
   "creator.broadcasts.sendBtn": "Enviar Transmissão",
   "creator.broadcasts.monthlyAllowance": "Cota Mensal",
@@ -789,26 +788,21 @@
   "creator.broadcasts.accessDeniedTitle": "Transmissões do Criador",
   "creator.broadcasts.accessDeniedDesc": "Você precisa ser um criador do nível Rising ou acima para enviar transmissões.",
   "creator.broadcasts.loadError": "Falha ao carregar transmissões",
-
   "terms.title": "Termos de Serviço",
   "terms.lastUpdated": "Última atualização: {{date}}",
   "terms.backHome": "← Voltar ao Início",
   "terms.toc": "Índice",
-
   "privacy.title": "Política de Privacidade",
   "privacy.lastUpdated": "Última atualização: {{date}}",
   "privacy.backHome": "← Voltar ao Início",
   "privacy.toc": "Índice",
-
-  "notFound.title": "Página Não Encontrada",
-  "notFound.description": "A página que você está procurando não existe ou foi movida.",
-  "notFound.backHome": "Voltar ao início",
-  "notFound.quickLinks": "Ou experimente uma destas páginas:",
-
+  "notFound.title": "Página não encontrada",
+  "notFound.description": "A página que você procura não existe ou foi movida.",
+  "notFound.backHome": "Voltar para o início",
+  "notFound.quickLinks": "Ou tente uma dessas páginas:",
   "landing.footer.terms": "Termos de Serviço",
   "landing.footer.privacy": "Política de Privacidade",
   "landing.footer.copyright": "© {{year}} Zobia Social. Todos os direitos reservados.",
-
   "admin.aiSettings": "AI Settings",
   "admin.aiSettings.subtitle": "Manage API keys and connection status for AI providers.",
   "admin.aiSettings.deepseek": "DeepSeek (Primary)",
@@ -831,13 +825,7 @@
   "admin.aiSettings.clearSuccess": "Override cleared.",
   "admin.aiSettings.saveError": "Failed to save key.",
   "admin.aiSettings.loadError": "Failed to load AI settings.",
-
-  "notFound.title": "Página não encontrada",
-  "notFound.description": "A página que você procura não existe ou foi movida.",
-  "notFound.backHome": "Voltar para o início",
   "notFound.login": "Entrar",
-  "notFound.quickLinks": "Ou tente uma dessas páginas:",
-
   "guildDiscovery.stepBadge": "Quase lá",
   "guildDiscovery.title": "Equipes perto de você estão recrutando",
   "guildDiscovery.subtitle": "Entrar em uma Guilda rende XP bônus em tudo que você faz.",
@@ -858,7 +846,6 @@
   "guildDiscovery.emptyHint": "Volte em breve — ou explore todas as guildas.",
   "guildDiscovery.tooNew": "Volte em breve!",
   "guildDiscovery.tooNewBody": "As recomendações de guildas ficam disponíveis após suas primeiras 24 horas na Zobia.",
-
   "wallet.xpBalance": "XP",
   "wallet.coinsBalance": "Moedas",
   "wallet.starsBalance": "Estrelas",
@@ -894,5 +881,22 @@
   "messages.coinError.buyCoins": "Comprar Moedas",
   "messages.coinError.upgrade": "Fazer Upgrade para Pro",
   "settings.twoFaDisabledByAdmin": "A autenticação em dois fatores está atualmente desabilitada pelo administrador da plataforma.",
-  "settings.pinDisabledByAdmin": "A autenticação por PIN está atualmente desabilitada pelo administrador da plataforma."
+  "settings.pinDisabledByAdmin": "A autenticação por PIN está atualmente desabilitada pelo administrador da plataforma.",
+  "friends.requests.received": "Recebidas",
+  "friends.requests.sent": "Enviadas",
+  "friends.requests.withdraw": "Cancelar",
+  "friends.requests.withdrawing": "A cancelar…",
+  "friends.empty.noReceivedRequests": "Nenhum pedido pendente.",
+  "friends.empty.noSentRequests": "Nenhum pedido enviado pendente.",
+  "nav.friends": "Amigos",
+  "profile.dropdown.viewProfile": "Ver perfil",
+  "profile.dropdown.profileSettings": "Configurações do perfil",
+  "profile.dropdown.managePlan": "Gerir plano",
+  "profile.dropdown.upgradePlan": "Melhorar plano",
+  "profile.dropdown.managePlanNamed": "Gerir plano {{plan}}",
+  "profile.private": "Este perfil é privado.",
+  "profile.restricted": "Esta conta foi restringida.",
+  "settings.privacy.lockProfile": "Perfil privado",
+  "settings.privacy.disableFriendRequests": "Desativar pedidos de amizade",
+  "settings.privacy.hideSections": "Secções do perfil ocultadas"
 }

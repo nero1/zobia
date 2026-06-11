@@ -540,7 +540,6 @@
   "creator.processed": "An Sarrafa",
   "creator.accessDenied": "An Ki Shiga",
   "creator.payoutRequested": "An nemi biyan kuɗi — a jiran amincewar mai kula",
-
   "creator.broadcasts.title": "Watsa Saƙo na Mahalicci",
   "creator.broadcasts.sendBtn": "Aika Watsa",
   "creator.broadcasts.monthlyAllowance": "Adadin Wata",
@@ -571,7 +570,6 @@
   "creator.broadcasts.accessDeniedTitle": "Watsa Saƙo na Mahalicci",
   "creator.broadcasts.accessDeniedDesc": "Kana buƙatar zama mahalicci na mataki Rising ko sama don aika watsa.",
   "creator.broadcasts.loadError": "Ba a iya loda watsa ba",
-
   "notifications.title": "Sanarwa",
   "notifications.unread": "{{count}} da ba a karanta ba",
   "notifications.markAllRead": "Ka nuna duka an karanta",
@@ -790,26 +788,21 @@
   "communityNotes.modal.submit": "Gabatar da Bayani",
   "communityNotes.modal.submitting": "Ana gabatarwa...",
   "communityNotes.modal.minLength": "Bayani dole ya kasance akalla haruffa 20.",
-
   "terms.title": "Sharuɗɗan Amfani",
   "terms.lastUpdated": "An sabunta: {{date}}",
   "terms.backHome": "← Koma Gida",
   "terms.toc": "Jerin Abubuwa",
-
   "privacy.title": "Manufar Sirri",
   "privacy.lastUpdated": "An sabunta: {{date}}",
   "privacy.backHome": "← Koma Gida",
   "privacy.toc": "Jerin Abubuwa",
-
-  "notFound.title": "Ba a Samu Shafin Ba",
-  "notFound.description": "Shafin da kake nema ba ya nan ko an ƙaura da shi.",
-  "notFound.backHome": "Koma Gida",
-  "notFound.quickLinks": "Ko gwada ɗaya daga cikin waɗannan shafukan:",
-
+  "notFound.title": "Ba a sami shafin ba",
+  "notFound.description": "Ba a samu shafin da kake nema ba ko an tura shi.",
+  "notFound.backHome": "Koma gida",
+  "notFound.quickLinks": "Ko gwada ɗayan waɗannan shafuka:",
   "landing.footer.terms": "Sharuɗɗan Amfani",
   "landing.footer.privacy": "Manufar Sirri",
   "landing.footer.copyright": "© {{year}} Zobia Social. Duk haƙƙoƙi an kiyaye su.",
-
   "admin.aiSettings": "AI Settings",
   "admin.aiSettings.subtitle": "Manage API keys and connection status for AI providers.",
   "admin.aiSettings.deepseek": "DeepSeek (Primary)",
@@ -832,13 +825,7 @@
   "admin.aiSettings.clearSuccess": "Override cleared.",
   "admin.aiSettings.saveError": "Failed to save key.",
   "admin.aiSettings.loadError": "Failed to load AI settings.",
-
-  "notFound.title": "Ba a sami shafin ba",
-  "notFound.description": "Ba a samu shafin da kake nema ba ko an tura shi.",
-  "notFound.backHome": "Koma gida",
   "notFound.login": "Shiga",
-  "notFound.quickLinks": "Ko gwada ɗayan waɗannan shafuka:",
-
   "guildDiscovery.stepBadge": "Kusa ka isa",
   "guildDiscovery.title": "Ƙungiyoyi a kusa da kai suna neman membobi",
   "guildDiscovery.subtitle": "Shiga Guild yana ba ka ƙarin XP akan komai da kake yi.",
@@ -859,7 +846,6 @@
   "guildDiscovery.emptyHint": "Duba ba da daɗewa ba — ko bincika dukkan ƙungiyoyin.",
   "guildDiscovery.tooNew": "Ka dawo ba da daɗewa ba!",
   "guildDiscovery.tooNewBody": "Shawarwarin Guild suna buɗewa bayan sa'o'i 24 na farko akan Zobia.",
-
   "wallet.xpBalance": "XP",
   "wallet.coinsBalance": "Tsabar Kudi",
   "wallet.starsBalance": "Taurari",
@@ -895,5 +881,22 @@
   "messages.coinError.buyCoins": "Saya Tsabar Kudi",
   "messages.coinError.upgrade": "Haɓaka zuwa Pro",
   "settings.twoFaDisabledByAdmin": "Tabbacin abubuwa biyu an kashe shi a halin yanzu ta mai gudanar da dandali.",
-  "settings.pinDisabledByAdmin": "Tabbacin PIN an kashe shi a halin yanzu ta mai gudanar da dandali."
+  "settings.pinDisabledByAdmin": "Tabbacin PIN an kashe shi a halin yanzu ta mai gudanar da dandali.",
+  "friends.requests.received": "Da aka karba",
+  "friends.requests.sent": "Da aka aika",
+  "friends.requests.withdraw": "Janye",
+  "friends.requests.withdrawing": "Ana janye…",
+  "friends.empty.noReceivedRequests": "Babu bukatun da ake jira.",
+  "friends.empty.noSentRequests": "Babu bukatun da aka aika masu jira.",
+  "nav.friends": "Abokai",
+  "profile.dropdown.viewProfile": "Duba bayanin bayani",
+  "profile.dropdown.profileSettings": "Saitunan bayanin bayani",
+  "profile.dropdown.managePlan": "Sarrafa tsari",
+  "profile.dropdown.upgradePlan": "Inganta tsari",
+  "profile.dropdown.managePlanNamed": "Sarrafa tsarin {{plan}}",
+  "profile.private": "Wannan bayanin bayani na sirri ne.",
+  "profile.restricted": "An iyakance wannan asusun.",
+  "settings.privacy.lockProfile": "Bayanin bayani na sirri",
+  "settings.privacy.disableFriendRequests": "Kashe bukatun abokantaka",
+  "settings.privacy.hideSections": "Sassan bayanin bayani da aka ɓoye"
 }

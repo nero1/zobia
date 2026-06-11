@@ -115,6 +115,49 @@ Revenue accrues to `creator_earnings`. The daily CRON (on payout day) checks cre
 - **Follows**: Unilateral following. Stored in `follows`. Used for feed curation and notification preferences.
 - **Mutual follows** appear in suggestions.
 
+The Friends page (`/friends`) has three tabs:
+1. **My Friends** — accepted friendships with quick Remove action.
+2. **Requests** — split into two sub-tabs:
+   - **Received** — incoming pending requests; Accept / Decline buttons.
+   - **Sent** — outgoing pending requests; Withdraw button (calls `DELETE /api/friends/[id]`). Sent requests fetched from `GET /api/friends/requests/sent`.
+3. **Discover** — suggested users to add.
+
+Count badges on the Received and Sent sub-tabs show pending counts at a glance.
+
+### Profile Privacy
+
+Users can control the visibility of their profile through three privacy settings, each gated to specific plans/ranks:
+
+| Setting | Default gate | What it does |
+|---|---|---|
+| **Private Profile** | Pro / Max / Prestige 1+ | Hides the profile entirely from non-friends (returns 403) |
+| **Hide profile sections** | Plus / Pro / Max / Prestige 1+ | Removes individual sections (avatar, bio, rank, xp, guild, seasons, badges) from the non-owner view |
+| **Disable friend requests** | Plus / Pro / Max / Prestige 1+ | Prevents the "Add Friend" button appearing on the user's profile |
+
+Settings are stored as three columns on the `users` table:
+- `profile_private` — BOOLEAN
+- `profile_hidden_sections` — JSONB array of section keys
+- `disable_friend_requests` — BOOLEAN
+
+**Enforcement** happens in `GET /api/users/[userId]/profile`:
+1. If the profile owner is banned → 403 `ACCOUNT_RESTRICTED`.
+2. If the profile owner is suspended → 403 `ACCOUNT_SUSPENDED`.
+3. If `profile_private = true` AND the viewer is not a confirmed friend AND the viewer is not the owner AND the viewer is not an admin → 403 `PROFILE_PRIVATE`.
+4. For non-owners, fields listed in `profile_hidden_sections` are stripped from the response.
+
+**User control** via `PATCH /api/users/me/privacy` — only toggles the user is eligible for (based on plan/prestige) are accepted. Eligibility is checked server-side against `x_manifest` flags.
+
+**Admin control** — the admin panel page at `/admin/settings/privacy` lets admins configure which plans and prestige ranks can access each privacy feature. The four configurable flags stored in `x_manifest`:
+
+| Key | Default |
+|---|---|
+| `privacy_can_lock_profile` | `["pro","max","prestige_1"]` |
+| `privacy_can_hide_sections` | `["plus","pro","max","prestige_1"]` |
+| `privacy_can_disable_friend_requests` | `["plus","pro","max","prestige_1"]` |
+| `privacy_hideable_sections` | `["avatar","bio","rank","xp","guild","seasons","badges"]` |
+
+Changes take effect within 60 seconds (Redis cache TTL).
+
 ### Profile Components (PRD §15)
 
 - **Creator Card**: When `is_creator = true`, the profile shows the creator's primary room (highest-member-count), member count, and total earnings (own profile only, for privacy).
