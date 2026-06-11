@@ -4,7 +4,7 @@
 
 ### Onboarding
 
-New users choose a username, select their city and country, pick an avatar emoji, and optionally enter a referral code. The onboarding flow calls `/api/onboarding/complete`, which atomically awards welcome XP and coins, generates a unique referral code, and records a tier-1 referral if a code was provided. Auth is immediately established via HTTP-only JWT cookie (web) or Expo SecureStore (Android).
+New users choose a username, select their city and country, pick an avatar emoji, and optionally enter a referral code. The onboarding flow calls `/api/onboarding/complete`, which atomically awards welcome XP and credits, generates a unique referral code, and records a tier-1 referral if a code was provided. Auth is immediately established via HTTP-only JWT cookie (web) or Expo SecureStore (Android).
 
 ### Direct Messages (DMs)
 
@@ -43,7 +43,7 @@ Rooms can be city-scoped or global. Guild captains can create guild-exclusive ro
 
 ### Guilds
 
-Guilds are persistent groups of up to N members. Creating a guild costs 500 Coins (deducted atomically). Members earn `competitor` track XP from guild activities. Guilds have a treasury (coin pool) funded by member donations and war rewards. Guild tiers (bronze → silver → gold → platinum → diamond) unlock higher treasury caps and XP multipliers. See **Guild War Engine** below.
+Guilds are persistent groups of up to N members. Creating a guild costs 500 Credits (deducted atomically). Members earn `competitor` track XP from guild activities. Guilds have a treasury (credit pool) funded by member donations and war rewards. Guild tiers (bronze → silver → gold → platinum → diamond) unlock higher treasury caps and XP multipliers. See **Guild War Engine** below.
 
 ### XP System
 
@@ -51,13 +51,13 @@ XP is earned on seven tracks: `main` (overall), `social`, `creator`, `competitor
 
 ### Dual Currencies
 
-**Coins** — Earned from quests, daily logins, season rewards, gifts received, rewarded ads (free users only, capped at 5/day). Spent on guilds, gifts, store items, and room creation. Stored in `users.coin_balance`; all mutations go through `coin_ledger` (append-only audit trail).
+**Credits** (soft currency, previously "Coins") — Earned from quests, daily logins, season rewards, gifts received, rewarded ads (free users only, capped at 5/day). Spent on guilds, gifts, store items, and room creation. Stored in `users.coin_balance`; all mutations go through `coin_ledger` (append-only audit trail). The display name is admin-configurable via `x_manifest` keys `currency_soft_name_singular` / `currency_soft_name_plural` (defaults: Credit / Credits).
 
-**Stars** — Premium currency purchased via Paystack or DodoPayments. Used for exclusive cosmetics and season pass upgrades. Stored in `users.star_balance`; all mutations go through `star_ledger`.
+**Stars** (premium currency) — Purchased via Paystack or DodoPayments. Used for exclusive cosmetics and season pass upgrades. Stored in `users.star_balance`; all mutations go through `star_ledger`. The display name is admin-configurable via `currency_premium_name_singular` / `currency_premium_name_plural` (defaults: Star / Stars).
 
 ### Gifting
 
-Users can send gift items (flower, trophy, crown, etc.) to any other user. Gift items have coin prices and tiers. The XP awards for gifting are (PRD §6):
+Users can send gift items (flower, trophy, crown, etc.) to any other user. Gift items have credit prices and tiers. The XP awards for gifting are (PRD §6):
 
 | Event | Who | XP | Track |
 |---|---|---|---|
@@ -67,7 +67,7 @@ Users can send gift items (flower, trophy, crown, etc.) to any other user. Gift 
 | Gift sent in a Room (tip) | Room creator/recipient | 25 | Creator |
 | Hosting a Room for 30+ minutes | Creator | 50 (on room close) | Creator |
 
-Creators earn coin revenue when they receive gifts in their rooms (80% net; 85% for Zobia Icon creators). The platform retains the remainder. All coin flows are recorded atomically in `coin_ledger`.
+Creators earn credit revenue when they receive gifts in their rooms (80% net; 85% for Zobia Icon creators). The platform retains the remainder. All credit flows are recorded atomically in `coin_ledger`.
 
 ### Seasons
 
@@ -78,13 +78,13 @@ Seasons run in 8-week cycles. Each season has four phases:
 - **Push (weeks 6–7)**: Leaderboard freeze warnings, sprint quests unlock
 - **Final Day (week 8)**: 2× XP all day, global leaderboard visible to all users
 
-Season Pass: the free tier earns basic coin rewards for completing quests. The paid tier unlocks exclusive cosmetics, animated borders, and bonus XP multipliers. At season end, competitive rankings reset. Track levels, coin balance, friend list, and history are all preserved.
+Season Pass: the free tier earns basic credit rewards for completing quests. The paid tier unlocks exclusive cosmetics, animated borders, and bonus XP multipliers. At season end, competitive rankings reset. Track levels, credit balance, friend list, and history are all preserved.
 
 ### Prestige
 
 When a user reaches the maximum rank (Zobia Icon, sublevel III), they can Prestige via `POST /api/prestige`. Their main XP resets to 0 while their prestige count increments. Prestiged users receive:
 
-- **Prestige 1**: 500 bonus coins + Phoenix frame badge
+- **Prestige 1**: 500 bonus credits + Phoenix frame badge
 - **Prestige 2+**: 1 Zobia Star per prestige cycle
 - **Prestige 3+**: 3× XP boost for the first 7 days of each new cycle; Elder Candidate badge at P3
 - **Prestige 5**: Veteran Prestige badge
@@ -105,7 +105,7 @@ Revenue accrues to `creator_earnings`. The daily CRON (on payout day) checks cre
 
 **Creator Fund (monthly):** The platform sets aside 5% of advertising revenue each month into the Creator Fund. On the **1st of each month**, the daily CRON seeds the fund pool by reading `ad_revenue_YYYY_MM_kobo` from `x_manifest` and writing 5% to `creator_fund_balance_kobo`. On the **5th of each month**, the daily CRON distributes the pool to eligible creators (Elite tier+) proportional to their engagement score, then resets the pool to 0. During **International Women's Month** (first week of March), female creators receive a 1.5× boost to their Creator Fund allocation.
 
-**RIZE Coin conversion (PRD §14):** Instead of a bank payout, creators can request `asCoins: true` when calling `POST /api/creator/payouts`. The net earnings are converted to Coins at the admin-configurable `kobo_per_coin` rate (default 100 kobo = 1 Coin) and credited to the creator's wallet in the same atomic transaction.
+**RIZE Coin conversion (PRD §14):** Instead of a bank payout, creators can request `asCoins: true` when calling `POST /api/creator/payouts`. The net earnings are converted to Credits at the admin-configurable `kobo_per_coin` rate (default 100 kobo = 1 Credit) and credited to the creator's wallet in the same atomic transaction.
 
 **Room capacity gates by Creator Track level:** Creators below Level 5 can create rooms with up to 50 members. Reaching Level 5 raises the cap to 100 (Room Opener milestone). Reaching Level 20 removes the cap entirely (rooms can grow to the platform maximum).
 
@@ -167,7 +167,7 @@ Changes take effect within 60 seconds (Redis cache TTL).
 
 ### Guild Treasury (PRD §13)
 
-Legend-tier guilds earn a 5% share of coin gift values sent in rooms where their creator-members are active. Each qualifying gift atomically increments `guilds.treasury_balance` and appends a `guild_treasury_log` row with `source = 'room_revenue_share'`. The treasury balance is visible to guild members and spent via future guild upgrades.
+Legend-tier guilds earn a 5% share of credit gift values sent in rooms where their creator-members are active. Each qualifying gift atomically increments `guilds.treasury_balance` and appends a `guild_treasury_log` row with `source = 'room_revenue_share'`. The treasury balance is visible to guild members and spent via future guild upgrades.
 
 ### Ad Revenue Share (PRD §10)
 
@@ -214,10 +214,10 @@ The admin panel is available at `/admin` and is protected by `is_admin = true` i
 Daily/weekly/monthly active users, new registrations, revenue totals (today / week / month), active rooms, active guilds, and moderation queue depth.
 
 ### Financial Monitoring (`/api/admin/financial`)
-Transaction volume, creator payout pipeline status, pending payouts awaiting approval, payment provider health, coin/star ledger summaries.
+Transaction volume, creator payout pipeline status, pending payouts awaiting approval, payment provider health, credit/star ledger summaries.
 
 ### User Management (`/api/admin/users`)
-Search, view, suspend, ban, or restore any user. View user's XP history, coin ledger, quest history, guild membership, and reports filed against them.
+Search, view, suspend, ban, or restore any user. View user's XP history, credit ledger, quest history, guild membership, and reports filed against them.
 
 All moderation actions are performed via `POST /api/admin/users/:userId/actions` and are logged atomically to the `admin_actions` audit table. Supported actions:
 
@@ -333,14 +333,14 @@ Creator can submit `POST /api/creator/payouts/:id/appeal` with a written reason 
 ### Virtual Economy — Premium Send (PRD §11)
 
 Premium Send is a purchasable booster that adds a gold-shimmer animation to a message. Two tiers:
-- **One-shot** (`premium_send`): 50 Coins. Activates for the next message. Multiple one-shots can be queued (they stack; the next send consumes one activation from `user_xp_boosters`).
-- **7-Day Pass** (`premium_send_7day`): 250 Coins. All messages for 7 days carry the premium animation. Cannot be stacked.
+- **One-shot** (`premium_send`): 50 Credits. Activates for the next message. Multiple one-shots can be queued (they stack; the next send consumes one activation from `user_xp_boosters`).
+- **7-Day Pass** (`premium_send_7day`): 250 Credits. All messages for 7 days carry the premium animation. Cannot be stacked.
 
 Both are purchasable via `POST /api/economy/boosters` with `boosterType: "premium_send"` or `"premium_send_7day"`. The message send handler checks for an active `premium_send` or `premium_send_7day` booster before attaching the animation metadata.
 
 ### Generosity Track L40 Coin Purchase Bonus (PRD §7)
 
-When a user who has reached the Generosity Track L40 Philanthropist milestone purchases coins (via Paystack or DodoPayments), `getCoinPurchaseBonus()` is called and a 5% bonus coin amount is credited in the same transaction. The bonus is recorded as a separate ledger entry with `type = 'philanthropist_bonus'` for auditability.
+When a user who has reached the Generosity Track L40 Philanthropist milestone purchases credits (via Paystack or DodoPayments), `getCoinPurchaseBonus()` is called and a 5% bonus credit amount is credited in the same transaction. The bonus is recorded as a separate ledger entry with `type = 'philanthropist_bonus'` for auditability.
 
 ### AI Moderation Pipeline
 
@@ -502,7 +502,7 @@ Location: `lib/guilds/warEngine.ts`
 3. **Final Hour**: When `ends_at - 1 hour ≤ now`, the hourly CRON transitions the war to `final_hour` status and notifies all members.
 4. **Resolution**: When `ends_at < now`, the hourly CRON calls `resolveWar(db, warId)`. The engine:
    - Determines the winner (higher total war points).
-   - Calls `distributeWarRewards()` to distribute XP + coins to winning guild members by contribution rank.
+   - Calls `distributeWarRewards()` to distribute XP + credits to winning guild members by contribution rank.
    - Awards a Rematch Token to the losing guild captain.
    - Updates `guilds.wars_won` / `wars_lost`.
 5. All war calculations use integer arithmetic. No floating-point values.
@@ -512,10 +512,10 @@ Location: `lib/guilds/warEngine.ts`
 Seasons are 8-week cycles defined in the `seasons` table. The Season Engine (`lib/seasons/seasonEngine.ts`) manages:
 - Phase detection based on current week within the season.
 - Season Pass reward tier checks (free vs paid).
-- End-of-season reward distribution (coins, cosmetics, prestige points for top-ranked users).
+- End-of-season reward distribution (credits, cosmetics, prestige points for top-ranked users).
 - Season transition (closing the old season, opening the new one).
 
-At season end: competitive rankings reset. Track XP, coins, friends, and history are **not** reset.
+At season end: competitive rankings reset. Track XP, credits, friends, and history are **not** reset.
 
 ### Nemesis System
 
@@ -575,8 +575,8 @@ The Redis key `daily_login:<userId>:<YYYY-MM-DD>` prevents double-awards within 
 
 Located in `e2e/`. Covers all 11 PRD-required user journeys:
 - Authentication (register, login, logout, Google OAuth)
-- Direct messages (coin cost, anti-spam, gift-them-coins flow)
-- Economy (coin purchase, transfer, gift items)
+- Direct messages (credit cost, anti-spam, gift-them-credits flow)
+- Economy (credit purchase, transfer, gift items)
 - Rooms (create, join, VIP gate, gift in room)
 - Guilds (create, join, declare war, resolve war)
 - Leaderboards (global, city, track-specific)
@@ -876,13 +876,13 @@ Locale files live at `apps/expo/lib/i18n/locales/<lang>.json`. All locale files 
 
 ## Room Powers (PRD §11)
 
-Room Powers are coin-purchasable in-room enhancements available to the room creator:
+Room Powers are credit-purchasable in-room enhancements available to the room creator:
 
 | Power | Cost | Effect |
 |---|---|---|
-| `room_spotlight` | 500 Coins | Boosts room in discovery for up to 72 hours |
-| `member_highlight` | 200 Coins | Highlights a chosen member in the room for up to 8 hours |
-| `message_pin` | 100 Coins | Pins a message (creator or co-moderator only) |
+| `room_spotlight` | 500 Credits | Boosts room in discovery for up to 72 hours |
+| `member_highlight` | 200 Credits | Highlights a chosen member in the room for up to 8 hours |
+| `message_pin` | 100 Credits | Pins a message (creator or co-moderator only) |
 
 The backend is at `POST /api/rooms/[roomId]/powers`. The Expo room screen (`apps/expo/app/rooms/[roomId].tsx`) shows a "Room Powers" button for room creators. Tapping "Highlight Member" opens an inline username input. The app resolves the username to a UUID via `GET /api/users/search`, then posts to the powers endpoint.
 
@@ -900,7 +900,7 @@ Play Store product IDs:
 | Pro | `sub_pro_monthly` | `sub_pro_annual` |
 | Max | `sub_max_monthly` | `sub_max_annual` |
 
-Annual product IDs must be created in the Google Play Console. The verification endpoint (`/api/economy/iap/verify`) handles both monthly and annual subscription tokens identically — the `isSubscription: true` flag distinguishes them from one-time coin purchases.
+Annual product IDs must be created in the Google Play Console. The verification endpoint (`/api/economy/iap/verify`) handles both monthly and annual subscription tokens identically — the `isSubscription: true` flag distinguishes them from one-time credit purchases.
 
 ---
 

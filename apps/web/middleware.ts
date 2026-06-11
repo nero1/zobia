@@ -184,8 +184,8 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 
   // Public routes – pass through
   if (isPublicRoute(pathname)) {
-    // Redirect authenticated users away from login page
-    if (pathname.startsWith("/auth/login") && token) {
+    // Redirect authenticated users away from login page and root landing page
+    if ((pathname.startsWith("/auth/login") || pathname === "/" || pathname === "") && token) {
       const payload = await verifyToken(token);
       if (payload?.sub) {
         return NextResponse.redirect(new URL(HOME_URL, request.url));

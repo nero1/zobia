@@ -1,7 +1,7 @@
 # Zobia Social — Product Requirements Document
 ### A Gamified Monetised Social Platform for the Global Mobile Generation
 
-> **Version 1.5 — Product Requirements Document**
+> **Version 1.6 — Product Requirements Document**
 > Covers: Feature Specifications · Technical Architecture · Economy Design · Moderation · Build Sequence
 > Scope: Nigeria-first, Pan-African then Global · Mobile-first PWA + Android APK · Admin-minimal operation
 
@@ -71,7 +71,7 @@ Zobia makes social capital visible, earned, displayed, and monetised. Leaving Zo
 
 3. **The platform must feel alive when you are not there.** Events, wars, drops, and leaderboard shifts happen on fixed schedules. When users return, the world has moved.
 
-4. **Earning must feel real, not theoretical.** Creators receive payouts on a regular cadence. Coins convert to tangible value. The moment a user earns their first payout on Zobia, their relationship with the platform changes permanently.
+4. **Earning must feel real, not theoretical.** Creators receive payouts on a regular cadence. Credits convert to tangible value. The moment a user earns their first payout on Zobia, their relationship with the platform changes permanently.
 
 5. **Local identity is a first-class feature.** City-based guilds and leaderboards, local cultural events, language-native content. Zobia is not a Western product adapted for Africa — it is built outward from the African digital experience.
 
@@ -146,16 +146,16 @@ Each user is algorithmically assigned a Nemesis — another user within 10% of t
 
 | Capability | Free | Plus | Pro | Max |
 |---|---|---|---|---|
-| Send new DM (initiate) | No | No | Yes (1 Coin/message) | Yes (Free) |
+| Send new DM (initiate) | No | No | Yes (1 Credit/message) | Yes (Free) |
 | Max DMs sent per day | — | — | 25 | 250 |
-| Reply to DM | Yes (2 Coins) | Yes (1 Coin) | Yes (Free) | Yes (Free) |
+| Reply to DM | Yes (2 Credits) | Yes (1 Credit) | Yes (Free) | Yes (Free) |
 | Max DM replies per day | 25 | 50 | 100 | Unlimited |
 | Receive DMs | Yes (unless opted out or blocked) | Yes | Yes | Yes |
 
 **DM Rules:**
 - Everybody can receive and read DMs unless they have opted out of receiving DMs or have blocked the sender.
 - Users who are suspended or temporarily banned cannot receive DMs during the ban period. The sender receives a notice that the recipient's account is temporarily unavailable — no detail about the reason is disclosed.
-- If a message is sent to a user who cannot reply due to insufficient coins, the message window displays a notice explaining that the recipient cannot reply at this time, alongside a "Gift them coins" button that opens the coin gifting flow.
+- If a message is sent to a user who cannot reply due to insufficient credits, the message window displays a notice explaining that the recipient cannot reply at this time, alongside a "Gift them credits" button that opens the credit gifting flow.
 - All group messaging — Rooms (free and paid), Guilds, group chats, public comments — is free for all tiers.
 - Restrictions on sending phone numbers, links, or email addresses apply to new DM conversations: these are silently blocked until the recipient has replied at least twice in that conversation. This restriction is intentional and is not documented publicly or surfaced to the user. They discover it naturally.
 - Anti-spam applies to public areas: links, phone numbers, and email addresses are blocked in all public chats and Room feeds except in designated profile areas or when posted by Room or Group admins.
@@ -170,11 +170,11 @@ Each user is algorithmically assigned a Nemesis — another user within 10% of t
 ### Pay-As-You-Go Booster Packs
 
 Available to all tiers regardless of subscription status:
-- **XP Booster Pack:** 2× XP for 24 hours — 200 Coins or ₦200 equivalent.
-- **Quest Accelerator:** +50% XP on quest completions for 7 days — 500 Coins.
-- **Guild War Boost:** Double personal War Points for next war — 300 Coins.
-- **Room Spotlight:** Feature your Room on the discovery feed for 6 hours — 500 Coins.
-- **Message Pin:** Pin your message at the top of a Room for 1 hour — 100 Coins.
+- **XP Booster Pack:** 2× XP for 24 hours — 200 Credits or ₦200 equivalent.
+- **Quest Accelerator:** +50% XP on quest completions for 7 days — 500 Credits.
+- **Guild War Boost:** Double personal War Points for next war — 300 Credits.
+- **Room Spotlight:** Feature your Room on the discovery feed for 6 hours — 500 Credits.
+- **Message Pin:** Pin your message at the top of a Room for 1 hour — 100 Credits.
 
 ---
 
@@ -217,7 +217,7 @@ Onboarding completion triggers a brief animation: "Welcome to Zobia — you just
 The user is prompted to:
 - Invite contacts from their device phonebook (only those already on Zobia are surfaced).
 - Explore a curated "First Room" tailored to their quiz responses.
-- Accept a "New Member Quest" — a 5-step guided mission: send a message, join a Room, gift someone, add a friend, complete a daily login. Payout on completion: 1,000 Coins + 2,000 XP. Designed to be completable within the first session.
+- Accept a "New Member Quest" — a 5-step guided mission: send a message, join a Room, gift someone, add a friend, complete a daily login. Payout on completion: 1,000 Credits + 2,000 XP. Designed to be completable within the first session.
 
 **Step 5 — Guild Discovery (after first 24 hours)**
 The user is shown a panel: "Crews near you are recruiting." Three local guilds are surfaced based on city — with tier badges, member count, and war records visible. Joining a Guild is optional but deeply prompted. Guild members earn 5–50% more XP from the same activities.
@@ -254,7 +254,7 @@ The messaging layer is fast, lightweight, and culturally expressive. It rewards 
 
 **Reactions** — standard emoji reactions plus purchasable Zobia-specific reaction sets. Reacting with a custom reaction awards 1 XP to the sender.
 
-**Sticker Packs** — three tiers: Free packs (locale-themed expressions), Earnable packs (unlocked through progression milestones), and Premium packs (purchased with Coins). Sticker use is tracked for badge unlocks.
+**Sticker Packs** — three tiers: Free packs (locale-themed expressions), Earnable packs (unlocked through progression milestones), and Premium packs (purchased with Credits). Sticker use is tracked for badge unlocks.
 
 **GIFs** — built-in GIF search via an integrated library (Giphy or Tenor, admin-configurable via env var). Sending a GIF costs nothing.
 
@@ -382,7 +382,7 @@ Measures Room quality, subscriber growth, revenue earned, member engagement. Key
 Measures leaderboard finishes, Guild War contributions, Season rankings, event performance. Key milestones: Level 15 (Fighter — Nemesis system activates), Level 40 (Champion — can challenge users to head-to-head XP sprints), Level 50 (Arena King — trophy shelf on profile).
 
 **Track 4: Generosity Track**
-Measures coins gifted, gifts sent, new users invited. Key milestones: Level 10 (Big Spender — top gifter notifications more prominent), Level 40 (Philanthropist — 5% coin bonus on all coin purchases), Level 50 (Big Donor — "Most Generous" badge, monthly feature on platform gifter wall).
+Measures credits gifted, gifts sent, new users invited. Key milestones: Level 10 (Big Spender — top gifter notifications more prominent), Level 40 (Philanthropist — 5% credit bonus on all credit purchases), Level 50 (Big Donor — "Most Generous" badge, monthly feature on platform gifter wall).
 
 **Track 5: Knowledge Track**
 Measures ClassRoom completions, in-app quizzes, ClassRoom hosting performance. Key milestones: Level 25 (Scholar — can co-host ClassRooms), Level 40 (Sage — can create and publish quizzes), Level 50 (The Scholar — can issue Zobia Learning Certificates).
@@ -393,12 +393,12 @@ Measures Rooms discovered, cities represented in friend network, unique Room cat
 ### Daily Quest System
 
 Each user receives a daily quest deck at midnight local time. Quest deck size varies by plan (3–6 quests). Sample quests:
-- "Send 10 messages today" — 100 XP + 10 Coins
+- "Send 10 messages today" — 100 XP + 10 Credits
 - "Join a Room you haven't visited before" — 150 XP
-- "Gift any user today" — 50 XP + 5 Coins
-- "Log in for 7 consecutive days" — 200 XP + 50 Coins
+- "Gift any user today" — 50 XP + 5 Credits
+- "Log in for 7 consecutive days" — 200 XP + 50 Credits
 - "Complete a Guild Quest contribution" — 200 XP
-- "Earn 500 XP today" — 100 XP + 20 Coins (meta-quest)
+- "Earn 500 XP today" — 100 XP + 20 Credits (meta-quest)
 
 Completing the full daily quest deck awards a bonus 500 XP. Quest XP feeds both the main rank and the relevant parallel tracks.
 
@@ -429,15 +429,15 @@ A Season is an 8-week competitive cycle — a fresh chapter for the platform. It
 - Competitive rankings reset to zero.
 - Seasonal cosmetics become "Retired" — still visible on profiles but no longer earnable.
 - All six track levels are preserved (never reset).
-- Prestige, Legacy Score, Coins, inventory, friends, creator history all carry forward.
+- Prestige, Legacy Score, Credits, inventory, friends, creator history all carry forward.
 
 ### Season Pass
 
-**Free Tier** — available to all users. Unlocks at Season milestones through normal play. Rewards: standard sticker packs, coin amounts, non-exclusive Season badge.
+**Free Tier** — available to all users. Unlocks at Season milestones through normal play. Rewards: standard sticker packs, credit amounts, non-exclusive Season badge.
 
 **Paid Tier** — price set by admin in x_manifest (default ₦500/Season). Unlocks additional reward nodes at the same milestones: exclusive cosmetics, animated profile frames, premium sticker packs, bonus XP events, ability to earn the Season's exclusive title. Can be gifted to other users.
 
-The paid Season Pass is designed so that a consistent player earns enough coins through the pass to cover its own cost.
+The paid Season Pass is designed so that a consistent player earns enough credits through the pass to cover its own cost.
 
 ### Season Records on Profile
 
@@ -457,11 +457,11 @@ Prestige is never forced. The platform asks: "You have mastered Zobia. Do you wa
 
 **Resets:** Main rank level, main rank XP counter.
 
-**Never resets:** All six track levels and XP, Guild tier and war history, Season records and badges, Coins, inventory, friends, Legacy Score, creator subscriptions and revenue history, earned titles, badges, or cosmetics.
+**Never resets:** All six track levels and XP, Guild tier and war history, Season records and badges, Credits, inventory, friends, Legacy Score, creator subscriptions and revenue history, earned titles, badges, or cosmetics.
 
 ### Prestige Rewards
 
-- **Prestige 1:** "Prestige I" profile frame, exclusive "Phoenix" title, 500 bonus Coins.
+- **Prestige 1:** "Prestige I" profile frame, exclusive "Phoenix" title, 500 bonus Credits.
 - **Prestige 3:** "Elder Candidate" marker, 3× XP boost for first 7 days of each new Prestige cycle.
 - **Prestige 5:** Council application access, "Veteran Prestige" animated badge.
 - **Prestige 10:** Hall of Fame entry, permanent Legacy Score top-100 visibility, custom crest option.
@@ -513,7 +513,7 @@ A Room is a public or semi-public group conversation space — the social and co
 
 ### Room Discovery
 
-The discovery feed surfaces Rooms based on: city proximity, category affinity (from past Room activity and quiz responses), friends-in-room signal, trending score (activity in last 2 hours weighted heavily), and Creator Tier (Verified and Elite creators get discovery boosts). Rooms can be promoted using Coins for native paid discovery.
+The discovery feed surfaces Rooms based on: city proximity, category affinity (from past Room activity and quiz responses), friends-in-room signal, trending score (activity in last 2 hours weighted heavily), and Creator Tier (Verified and Elite creators get discovery boosts). Rooms can be promoted using Credits for native paid discovery.
 
 ### Room Moderation
 
@@ -529,28 +529,28 @@ The platform generates a community health score per Room — a rolling metric ba
 
 Zobia operates a dual-currency economy designed to serve distinct psychological and financial functions.
 
-#### Currency 1: Zobia Coins (Soft Currency)
+#### Currency 1: Zobia Credits (Soft Currency)
 
-Coins are the primary transactional currency for social and platform activities. They sit at the intersection of social gifting, platform economy, and creator monetisation.
+Credits are the primary transactional currency for social and platform activities. They sit at the intersection of social gifting, platform economy, and creator monetisation.
 
-**How Coins are acquired:**
+**How Credits are acquired:**
 - Purchased with real money via in-app purchase, Paystack (Nigeria), or DodoPayments (international).
 - Earned through quests and daily logins in small amounts.
 - Received as Season Pass rewards.
 - Earned through Guild War wins.
 - Gifted between users.
-- Rewarded via watching ads (free-tier users: up to 5 rewarded ads per day, earning 10–20 Coins each).
+- Rewarded via watching ads (free-tier users: up to 5 rewarded ads per day, earn Credits each).
 
-**How Coins are spent:**
-- Coin packs for gifts (social gifting).
+**How Credits are spent:**
+- Credit packs for gifts (social gifting).
 - Room Spotlights, Message Pins, Member Highlights.
 - Sticker packs, custom reaction sets, avatar items, message themes.
 - XP boosters and quest boosters.
 - Guild Treasury donations, Guild creation fee.
-- DM costs (Coin-per-message or Coin-per-reply as per plan).
-- Season Pass purchase (can be paid in Coins at a published coin:cash rate).
+- DM costs (Credit-per-message or Credit-per-reply as per plan).
+- Season Pass purchase (can be paid in Credits at a published credit:cash rate).
 
-**Coins cannot be:**
+**Credits cannot be:**
 - Converted directly back to cash by non-creators.
 - Transferred in bulk outside the platform.
 - Spent on anything with real-world monetary value outside of Zobia.
@@ -564,19 +564,19 @@ Stars are a higher-value, harder-to-earn prestige currency designed for premium 
 - Awarded to top Season performers (top 10 nationally).
 - Earned by achieving rare platform milestones (first in a city to reach Legend rank, winning 10 Guild Wars, etc.).
 - Occasional platform-wide drops as rewards for engagement events.
-- Can be purchased directly (at a higher price-to-value ratio than Coins) — admin can toggle this on or off.
+- Can be purchased directly (at a higher price-to-value ratio than Credits) — admin can toggle this on or off.
 
 **How Stars are spent:**
-- Exclusive cosmetics, profile frames, and animated items not available for Coins.
+- Exclusive cosmetics, profile frames, and animated items not available for Credits.
 - Unlocking rare titles.
-- Purchasing limited-edition seasonal items when Coins are insufficient.
+- Purchasing limited-edition seasonal items when Credits are insufficient.
 - Gifting Stars to other users (generates significant Generosity Track XP).
 
-Stars are deliberately scarce. They signal that a user has been deeply engaged, not just willing to spend. Displaying Stars on a profile carries status that Coins cannot replicate.
+Stars are deliberately scarce. They signal that a user has been deeply engaged, not just willing to spend. Displaying Stars on a profile carries status that Credits cannot replicate.
 
-### Coin Pricing (Default — Admin Configurable)
+### Credit Pricing (Default — Admin Configurable)
 
-| Pack | Price (NGN) | Coins | Bonus |
+| Pack | Price (NGN) | Credits | Bonus |
 |---|---|---|---|
 | Starter | ₦200 | 100 | — |
 | Regular | ₦500 | 300 | +50 |
@@ -587,13 +587,13 @@ Stars are deliberately scarce. They signal that a user has been deeply engaged, 
 
 All prices stored in the database in the smallest currency unit (kobo for NGN). Admin can update prices at runtime via the admin panel without a deployment. Currency display is derived from the user's locale.
 
-### The Coin Store
+### The Credit Store
 
 Accessible from any screen via the wallet icon. Contains:
 
-**Avatar Items:** Profile frames (static and animated, 50–2,000 Coins), avatar borders, background scenes for the profile card, rare emoji variants.
+**Avatar Items:** Profile frames (static and animated, 50–2,000 Credits), avatar borders, background scenes for the profile card, rare emoji variants.
 
-**Message Enhancements:** Custom reaction sets (100–500 Coins per pack), animated sticker packs (150–600 Coins), message themes (coloured message bubble), "Premium Send" animation (per-message or subscription-based).
+**Message Enhancements:** Custom reaction sets (100–500 Credits per pack), animated sticker packs (150–600 Credits), message themes (coloured message bubble), "Premium Send" animation (per-message or subscription-based).
 
 **Room Powers:** Message Pin, Room Spotlight, Member Highlight.
 
@@ -603,7 +603,7 @@ Accessible from any screen via the wallet icon. Contains:
 
 ### Gifting Between Users
 
-Users can send Coins directly to any friend. Coin gifts are subject to a 5% platform transaction fee. The recipient receives the full amount minus the fee. Coin gifting generates XP for both sender (Generosity Track) and receiver (Social Track).
+Users can send Credits directly to any friend. Credit gifts are subject to a 5% platform transaction fee. The recipient receives the full amount minus the fee. Credit gifting generates XP for both sender (Generosity Track) and receiver (Social Track).
 
 ---
 
@@ -625,13 +625,13 @@ In Rooms, high-value gifts trigger a room-wide spectacle: the message feed dims 
 
 ### Gift Catalogue (Default — Admin Configurable)
 
-**Tier 1 — Social Gifts (1–50 Coins):**
+**Tier 1 — Social Gifts (1–50 Credits):**
 Flower (5), Cold One (10), Respect (15), Fire (25), Big Brain (40).
 
-**Tier 2 — Flex Gifts (50–500 Coins):**
+**Tier 2 — Flex Gifts (50–500 Credits):**
 Trophy (80), Diamond (150), Crown (300), Rocket (400), Lion (500).
 
-**Tier 3 — Boss Gifts (500–5,000 Coins):**
+**Tier 3 — Boss Gifts (500–5,000 Credits):**
 Money Bag (800), City Night (1,500 — animated cityscape), Stadium Roar (2,000), Legendary Crown (5,000 — animated gold with particle effects).
 
 **Limited Edition Gifts:**
@@ -660,7 +660,7 @@ A Guild is a persistent team of up to 50 users who share a collective identity, 
 
 ### Guild Creation
 
-Creating a Guild costs 500 Coins. The founding user becomes the Guild Captain. They choose a Guild name, crest emoji, description (max 150 characters), city affiliation, and recruitment settings (open, approval required, or invite-only).
+Creating a Guild costs 500 Credits. The founding user becomes the Guild Captain. They choose a Guild name, crest emoji, description (max 150 characters), city affiliation, and recruitment settings (open, approval required, or invite-only).
 
 ### Guild Roles
 
@@ -686,7 +686,7 @@ Guild XP does not decay. The only way to lose tier is dropping below minimum mem
 
 ### Guild Treasury
 
-A shared Coin wallet. Coins enter through voluntary member donations, war win bonuses, Guild Quest completions, and brand quest payments. The Captain can spend Treasury Coins on Guild-wide XP boosts, war entry fees, seasonal cosmetics, and monthly top-contributor payouts. All treasury activity is fully logged and visible to all members.
+A shared Credit wallet. Credits enter through voluntary member donations, war win bonuses, Guild Quest completions, and brand quest payments. The Captain can spend Treasury Credits on Guild-wide XP boosts, war entry fees, seasonal cosmetics, and monthly top-contributor payouts. All treasury activity is fully logged and visible to all members.
 
 ### Guild Wars
 
@@ -702,7 +702,7 @@ Maximum war frequency: once per 72 hours. Can reduce to 48 hours during platform
 
 ### Guild Quests
 
-Weekly collective challenges reset every Monday. Examples: "Send a combined 1,000 messages this week," "Have 10+ different members complete daily quests 3 days in a row," "Gift 5,000 Coins collectively to users outside the Guild." Guild Quests reward Guild XP + coin bonuses and pull individual members toward more active engagement in service of a collective goal.
+Weekly collective challenges reset every Monday. Examples: "Send a combined 1,000 messages this week," "Have 10+ different members complete daily quests 3 days in a row," "Gift 5,000 Credits collectively to users outside the Guild." Guild Quests reward Guild XP + coin bonuses and pull individual members toward more active engagement in service of a collective goal.
 
 ### The Alliance System
 
@@ -754,13 +754,13 @@ Admin has a master toggle to enable or disable creator payouts globally for all 
 
 *Nigeria:*
 - **Bank transfer** — NGN payout directly to a verified Nigerian bank account via Paystack. Account verified using the Paystack Resolve Account API; a transfer recipient code is generated and stored at verification time.
-- **Coins** — Payout credited as platform Coins (immediately available in the creator's coin wallet).
+- **Credits** — Payout credited as platform Credits (immediately available in the creator's credit wallet).
 - **USDT/Tron** — Payout in USDT to a Tron (TRC20) wallet address provided by the creator (manual processing by admin).
 
 Each of the three Nigeria methods can be toggled independently via the admin manifest.
 
 *Global (non-Nigerian creators):*
-- **Coins** — Payout credited as platform Coins.
+- **Credits** — Payout credited as platform Credits.
 - **USDT/Tron** — Payout in USDT to a Tron (TRC20) wallet address (manual processing only — no automated transfer).
 
 **Bank Account Setup (Nigeria):**
@@ -846,11 +846,11 @@ Monthly, the top 50 users by Legacy Score are invited to join the Platform Counc
 
 Referral links use numeric IDs and not usernames (for privacy). URL format: `?r=471370973` (not `?ref=`).
 
-**Tier 1 (Direct Referral):** The referrer earns a Coin and XP bonus when their referred user completes onboarding and performs a specified qualifying action (configurable by admin — default: first coin purchase or 7-day streak).
+**Tier 1 (Direct Referral):** The referrer earns a Credit and XP bonus when their referred user completes onboarding and performs a specified qualifying action (configurable by admin — default: first credit purchase or 7-day streak).
 
 **Tier 2 (Indirect Referral):** If the referred user themselves refers someone who qualifies, the original referrer earns a smaller Tier 2 bonus. The Tier 2 bonus amount is admin-configurable. Tier 2 referrals do not extend further (two tiers maximum).
 
-**Commission-based referrals:** For creator affiliate scenarios, admin can configure a lifetime 5% cash commission on referred users' coin purchases, paid in Coins or cash depending on the admin's payout configuration.
+**Commission-based referrals:** For creator affiliate scenarios, admin can configure a lifetime 5% cash commission on referred users' credit purchases, paid in Credits or cash depending on the admin's payout configuration.
 
 ---
 
@@ -898,7 +898,7 @@ Email provider: Mailgun.
 - **7 days inactive:** Highlight real events that occurred (Guild war outcome, Season progress).
 - **14 days inactive:** Personalised narrative summary of what happened since they left.
 - **30 days inactive:** "A new Season just started. Your rank is waiting. Your history is safe."
-- **90 days inactive:** "We saved 200 Coins for you. They expire in 7 days." Coins are real and are actually reserved.
+- **90 days inactive:** "We saved 200 Credits for you. They expire in 7 days." Credits are real and are actually reserved.
 
 No SMS re-engagement of any kind.
 
@@ -912,11 +912,11 @@ No SMS re-engagement of any kind.
 Plus, Pro, and Max plans as detailed in Section 3. Monthly and annual billing.
 
 **Pillar 2: In-App Purchases**
-Coin packs (Section 11), Star packs (where admin enables direct Star purchase), Prestige Cosmetic Pack (cosmetic-only prestige aura, does not grant actual Prestige), Guild Boost Pack, Season Starter Pack (available at Season launch only), pay-as-you-go booster packs.
+Credit packs (Section 11), Star packs (where admin enables direct Star purchase), Prestige Cosmetic Pack (cosmetic-only prestige aura, does not grant actual Prestige), Guild Boost Pack, Season Starter Pack (available at Season launch only), pay-as-you-go booster packs.
 
 **Pillar 3: Platform Advertising**
 - **AdMob (Android/mobile):** Banner ads, interstitial ads, and rewarded video ads. AdMob configuration (App ID, ad unit IDs, banner/interstitial settings) is specified in the x_manifest file. Ads are served only to Free-tier users. Paid users see no ads.
-- **Rewarded Ads:** Free-tier users can watch a 30-second ad to earn 10–20 Coins. Daily cap: 5 rewarded ads per user.
+- **Rewarded Ads:** Free-tier users can watch a 30-second ad to earn 10–20 Credits. Daily cap: 5 rewarded ads per user.
 - **Branded Rooms:** Companies sponsor a dedicated Room. Appears in discovery with a "Sponsored" tag. Members who join earn a small coin bonus funded by the brand.
 - **Sponsored Leaderboard Banners:** Weekly leaderboards carry a single sponsor banner visible to all users viewing that leaderboard.
 
@@ -932,7 +932,7 @@ Coin packs (Section 11), Star packs (where admin enables direct Star purchase), 
 
 ## 18. Payments, Payouts & Financial Integrity
 
-### Inward Payments (Coin Purchases and Subscriptions)
+### Inward Payments (Credit Purchases and Subscriptions)
 
 | Platform | Nigeria | Rest of World |
 |---|---|---|
@@ -948,7 +948,7 @@ Google Play Billing is the exclusive in-app purchase mechanism on Android — th
 | Nigeria | Paystack |
 | Rest of World | DodoPayments |
 
-The active payout provider is configured in the x_manifest before building. Both providers are supported in code simultaneously — the manifest variable determines which is active per deployment or per market. Admin can also configure commissions to be paid in Coins instead of cash, eliminating cash payout complexity at early stages.
+The active payout provider is configured in the x_manifest before building. Both providers are supported in code simultaneously — the manifest variable determines which is active per deployment or per market. Admin can also configure commissions to be paid in Credits instead of cash, eliminating cash payout complexity at early stages.
 
 ### Withdrawal Thresholds and Manual Approval
 
@@ -967,7 +967,7 @@ All financial operations must satisfy the following properties — the developer
 - **Amounts in smallest unit:** All prices stored in the database in the smallest currency unit (kobo for NGN, cents for USD/EUR). Display layer converts to major unit.
 - **Re-entrancy protection:** Coin spend and gift operations are protected against concurrent duplicate requests. Use database-level row locks or optimistic concurrency.
 - **Accounting integrity:** All coin movements are logged to an immutable ledger table with before-balance, after-balance, transaction type, reference ID, and timestamp. This table is append-only.
-- **Race condition prevention:** User balance reads and writes use SELECT FOR UPDATE or equivalent. Concurrent requests to spend the same coins must be serialised.
+- **Race condition prevention:** User balance reads and writes use SELECT FOR UPDATE or equivalent. Concurrent requests to spend the same credits must be serialised.
 - **MEV / front-running protection:** Not applicable to a centralised platform, but all payout ordering must be time-ordered and deterministic.
 - **Payout fraud monitoring:** Flag creators whose payout patterns are anomalous (e.g., large gift inflows from newly created accounts followed by immediate payout requests). Escalate to admin review.
 - **Database-level is_admin check:** Admin privilege checks must verify against the database role, not just session claims. JWT claims alone are insufficient for financial and admin operations.
@@ -1015,7 +1015,7 @@ Every user has a private Trust Score derived from: account age, report rate vs r
 - Suspended users cannot send or receive DMs during the suspension period.
 - Senders receive a generic notice that the recipient's account is temporarily unavailable.
 - Suspended users cannot create Rooms, post in public areas, or participate in Guild Wars.
-- Temporarily banned users cannot receive Coins, gifts, or payouts during the ban period.
+- Temporarily banned users cannot receive Credits, gifts, or payouts during the ban period.
 - Permanent bans result in account deactivation. Creator payouts are held and reviewed before release.
 
 ### Anti-Bot & Anti-Spam
@@ -1052,9 +1052,9 @@ Admin interaction should be minimal and maintenance-oriented. The platform runs 
 **Financial Monitoring**
 - Payout account balance with low-water alert status.
 - Pending withdrawal approvals (withdrawals above threshold requiring manual approval).
-- Coin economy summary: total Coins in circulation, Coins purchased vs Coins earned vs Coins spent.
+- Coin economy summary: total Coins in circulation, Credits purchased vs Coins earn Credits spent.
 - Revenue by payment provider (Paystack / DodoPayments / Google Pay split).
-- Anomaly alerts: unusual spike in coin purchases, creator payouts, or refund requests.
+- Anomaly alerts: unusual spike in credit purchases, creator payouts, or refund requests.
 
 **User Management**
 - Search users by username, email, or ID.
@@ -1094,7 +1094,7 @@ Admin interaction should be minimal and maintenance-oriented. The platform runs 
 - Payment provider routing (Paystack / DodoPayments for web; Google Play Billing hardcoded for Android).
 - AdMob App ID and ad unit IDs (banner, interstitial, rewarded video).
 - Payout provider (Paystack for Nigeria, DodoPayments for rest of world).
-- Coin-to-cash conversion rate.
+- Credit-to-cash conversion rate.
 - Payout threshold (manual approval trigger).
 - Low payout balance alert threshold.
 - Active AI model versions (DeepSeek and Gemini — stored in a central constants file, not hardcoded inline).
@@ -1415,7 +1415,7 @@ The platform applies multiple overlapping security layers. No single mechanism i
 
 ### Workflow 2: The Creator's Week
 
-Monday: Post a thread in their ClassRoom kicking off the week's module. Members respond. Creator earns XP + Coins from gifts.
+Monday: Post a thread in their ClassRoom kicking off the week's module. Members respond. Creator earns XP + Credits from gifts.
 
 Tuesday–Thursday: DM responses to students. Two Broadcast Messages to followers about upcoming content. New VIP Room members join.
 
@@ -1435,7 +1435,7 @@ Saturday: Members grind. One member purchases a War Boost.
 
 Sunday (Final Hour): Push notification fires to all members. Double points. Members log on within 20 minutes. The gap widens.
 
-Sunday (War End): Guild wins. XP distributed. Coins distributed by contribution rank. Captain posts in Guild Room: "Next war, we hit the next tier. Let's go."
+Sunday (War End): Guild wins. XP distributed. Credits distributed by contribution rank. Captain posts in Guild Room: "Next war, we hit the next tier. Let's go."
 
 ### Workflow 4: The New User's First Week
 
@@ -1445,9 +1445,9 @@ Day 2: Returns to check daily quests. Nemesis assigned — someone 150 XP ahead.
 
 Day 3: A friend is found on Zobia. Friend invites them to a Guild. Joins. Contribution score begins. Earns Guild XP boost.
 
-Day 5: Completes the New Member Quest. 1,000 Coins + 2,000 XP bonus. Considers buying Plus plan. Decides to earn more first.
+Day 5: Completes the New Member Quest. 1,000 Credits + 2,000 XP bonus. Considers buying Plus plan. Decides to earn more first.
 
-Day 7: 7-day login streak. 200 bonus XP. Guild is mid-war. Contributes for the first time. Sends their first gift (5 Coins) to a creator in a Room. Realises there are other tracks to explore.
+Day 7: 7-day login streak. 200 bonus XP. Guild is mid-war. Contributes for the first time. Sends their first gift (5 Credits) to a creator in a Room. Realises there are other tracks to explore.
 
 End of Week 1: User is at Hustler I. Has joined a Guild. Has one active Nemesis. Has sent a gift. Has a 7-day streak. The platform has become a habit.
 
@@ -1520,7 +1520,7 @@ The MVP Build Sequence follows a phased approach. Each phase ends with a stable,
 - CAPTCHA integration on web (Google reCAPTCHA default, Cloudflare Turnstile toggle). On mobile: API-side rate limiting and trust signals.
 - EAS Build configuration (`eas.json`) scaffolded and committed from day one. `app.json` sets `android.targetSdkVersion: 36` (Android API Level 36 minimum).
 
-**Does not include:** Messaging, Coins, Rooms, Guilds, payments.
+**Does not include:** Messaging, Credits, Rooms, Guilds, payments.
 
 ---
 
@@ -1529,7 +1529,7 @@ The MVP Build Sequence follows a phased approach. Each phase ends with a stable,
 **Goal:** Users can communicate. Social connections exist.
 
 **Deliverables:**
-- 1-on-1 DMs with plan-based Coin cost enforcement and daily reply/send limits.
+- 1-on-1 DMs with plan-based Credit cost enforcement and daily reply/send limits.
 - Text messages, reactions, GIF search integration.
 - DM conversation score tracking.
 - Message bandwidth optimisation (image compression, offline queue).
@@ -1546,19 +1546,19 @@ The MVP Build Sequence follows a phased approach. Each phase ends with a stable,
 
 ### Phase 3 — Virtual Economy & Payments
 
-**Goal:** Coins exist, can be purchased, and can be spent.
+**Goal:** Credits exist, can be purchased, and can be spent.
 
 **Deliverables:**
-- Dual currency system: Coins and Stars (data model and ledger).
+- Dual currency system: Credits and Stars (data model and ledger).
 - Immutable Coin ledger (append-only transaction log).
-- Coin Store UI and inventory system.
-- Coin packs and pricing (admin-configurable in database).
-- Paystack integration (Nigeria web/PWA — coin purchases and subscriptions).
-- DodoPayments integration (international web/PWA — coin purchases and subscriptions; also available as Nigeria web option via admin toggle).
+- Credit Store UI and inventory system.
+- Credit packs and pricing (admin-configurable in database).
+- Paystack integration (Nigeria web/PWA — credit purchases and subscriptions).
+- DodoPayments integration (international web/PWA — credit purchases and subscriptions; also available as Nigeria web option via admin toggle).
 - Google Play Billing integration (Android APK only — via Expo In-App Purchases). This is the sole in-app purchase mechanism on Android per Google Play policy.
 - Gift system: gift catalogue, gift animations, gift messages, room-wide spectacle logic.
-- Coin gifting between users (with 5% platform fee).
-- DM Coin cost enforcement (deducted from sender's wallet on send).
+- Credit gifting between users (with 5% platform fee).
+- DM Credit cost enforcement (deducted from sender's wallet on send).
 - Star currency data model and acquisition triggers (Prestige milestones, Season top performers).
 - Subscription plan management (Plus, Pro, Max) — billing, plan upgrades/downgrades.
 - Pay-as-you-go booster packs.
@@ -1582,7 +1582,7 @@ The MVP Build Sequence follows a phased approach. Each phase ends with a stable,
 - Gift economy in Rooms: gift animation, room-wide spectacle, creator gift balance.
 - Creator dashboard (revenue summary, member analytics, top gifters, payout history, Room health score).
 - Creator payout account setup (bank account verification via Paystack Resolve Account API for Nigeria; USDT Tron wallet address for global creators).
-- Creator payout flow: method selector (bank transfer / coins / USDT), auto/manual approval mode, retry logic, dead-letter queue, appeal pipeline.
+- Creator payout flow: method selector (bank transfer / credits / USDT), auto/manual approval mode, retry logic, dead-letter queue, appeal pipeline.
 - Creator Fund data model (seeded from 5% of ad revenue, distributed by engagement score).
 - ClassRoom curriculum builder (modules, pinned resources, start/end dates).
 - Zobia Learning Certificates (Knowledge Track Level 25+ creators can issue).
@@ -1624,7 +1624,7 @@ The MVP Build Sequence follows a phased approach. Each phase ends with a stable,
 - Trust Score system (private, silently gates high-sensitivity features).
 - Suspension and ban enforcement (DMs, Room posting, coin receipt, payout hold).
 - AdMob integration (banner, interstitial, rewarded video ads) — configuration from x_manifest.
-- Rewarded ad flow: free-tier users watch ad, earn 10–20 Coins, daily cap enforced.
+- Rewarded ad flow: free-tier users watch ad, earn Credits, daily cap enforced.
 - Branded Room sponsorship management (admin creates and manages sponsored Rooms).
 - Sponsored Leaderboard Banners (admin-managed).
 - Business Account management UI (admin and business user facing).
@@ -1716,7 +1716,7 @@ The MVP Build Sequence follows a phased approach. Each phase ends with a stable,
 ### E2E Tests (Required — using Playwright or Cypress)
 
 - Full onboarding flow (new user creation through first quest completion).
-- DM send and receive flow (all plan tiers, Coin deduction verification).
+- DM send and receive flow (all plan tiers, Credit deduction verification).
 - Coin purchase flow (Paystack sandbox, DodoPayments sandbox, Google Pay sandbox).
 - Gift send and receive flow (Coin deduction, ledger entry, XP award).
 - Room creation, join, and post flow.
@@ -1828,6 +1828,33 @@ Every feature decision on Zobia is tested against this checklist. If any answer 
 
 ---
 
-*ZobiaSocial PRD v1.2*
+## Appendix: Version 1.6 Change Log
+
+### v1.6 — Changelog
+
+#### 1. Soft Currency Renamed: Coins → Credits
+
+The soft (earned) currency has been renamed from **Coins** to **Credits** across all user-facing surfaces — web app, PWA, and Expo mobile app. All i18n strings in all 8 supported locales have been updated accordingly. Internal database identifiers (`coin_ledger`, `coin_balance`, `coin_to_cash_rate`) are unchanged.
+
+#### 2. Admin-Configurable Currency Display Names
+
+Both currencies now have admin-configurable display names, stored in `x_manifest`:
+
+| Key | Default | Description |
+|---|---|---|
+| `currency_soft_name_singular` | `Credit` | Singular form of the soft currency |
+| `currency_soft_name_plural` | `Credits` | Plural form of the soft currency |
+| `currency_premium_name_singular` | `Star` | Singular form of the premium currency |
+| `currency_premium_name_plural` | `Stars` | Plural form of the premium currency |
+
+Admins can change these from **Admin → Platform Configuration → Economy**. Changes are reflected within the manifest cache TTL (60 seconds). The `ZobiaManifest` interface exposes these under `manifest.currency.*`. A DB migration (009) seeds the defaults.
+
+#### 3. Authenticated Root Redirect
+
+When a logged-in user visits the root URL (`/` or the bare domain e.g. `zobia.vercel.app`), they are now redirected to `/home` instead of seeing the public marketing landing page. This is enforced in `middleware.ts` — the existing JWT verification is reused; no additional DB call is made.
+
+---
+
+*ZobiaSocial PRD v1.6*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*
