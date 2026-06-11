@@ -23,6 +23,7 @@ interface NavUser {
   username: string | null;
   avatar_emoji: string | null;
   plan?: string | null;
+  is_admin?: boolean;
 }
 
 function useNavUser() {
@@ -160,12 +161,14 @@ function MobileDrawer({
   pathname,
   displayName,
   onLogout,
+  isAdmin,
 }: {
   open: boolean;
   onClose: () => void;
   pathname: string;
   displayName: string;
   onLogout: () => void;
+  isAdmin?: boolean;
 }) {
   // Close on Escape
   useEffect(() => {
@@ -208,6 +211,22 @@ function MobileDrawer({
         <div className="flex h-full flex-col overflow-y-auto px-3 py-4">
           {/* Primary nav */}
           <nav className="space-y-0.5" aria-label="Primary">
+            {isAdmin && (
+              <Link
+                href="/admin"
+                onClick={onClose}
+                className={clsx(
+                  "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
+                  pathname.startsWith("/admin")
+                    ? "bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300"
+                    : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-50"
+                )}
+                aria-current={pathname.startsWith("/admin") ? "page" : undefined}
+              >
+                <span className="w-5 text-center text-base leading-none" aria-hidden="true">🛡️</span>
+                Admin
+              </Link>
+            )}
             {primaryNavItems.map((item) => {
               const isActive = pathname.startsWith(item.href);
               return (
@@ -502,6 +521,20 @@ export function Navbar() {
 
           {/* Right: notifications + profile dropdown */}
           <div className="flex items-center gap-2">
+            {navUser?.is_admin && (
+              <Link
+                href="/admin"
+                aria-label="Admin panel"
+                className={clsx(
+                  "rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                  pathname.startsWith("/admin")
+                    ? "bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300"
+                    : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-50"
+                )}
+              >
+                🛡️ Admin
+              </Link>
+            )}
             <Link
               href="/notifications"
               aria-label="Notifications"
@@ -521,6 +554,7 @@ export function Navbar() {
         pathname={pathname}
         displayName={displayName}
         onLogout={handleLogout}
+        isAdmin={navUser?.is_admin}
       />
 
       {/* Mobile bottom tab bar */}

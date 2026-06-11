@@ -103,8 +103,8 @@ function sanitizeManifestValue(key: string, value: string): string {
     return String(num);
   }
 
-  // Default: trimmed string
-  return value.trim();
+  // Default: trimmed string — JSON-encoded for the JSONB value column
+  return JSON.stringify(value.trim());
 }
 
 // ---------------------------------------------------------------------------

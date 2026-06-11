@@ -20,6 +20,7 @@ interface SidebarUser {
   username: string | null;
   avatar_emoji: string | null;
   plan?: string | null;
+  is_admin?: boolean;
 }
 
 function useSidebarUser() {
@@ -93,6 +94,7 @@ function SidebarLink({
 
 function navIcon(label: string): string {
   const map: Record<string, string> = {
+    Admin: "🛡️",
     Home: "🏠",
     Quests: "🎯",
     Rooms: "🚪",
@@ -143,6 +145,13 @@ export function Sidebar() {
       <div className="flex flex-1 flex-col justify-between overflow-y-auto px-3 py-4">
         {/* Primary navigation */}
         <nav className="space-y-0.5">
+          {user?.is_admin && (
+            <SidebarLink
+              href="/admin"
+              label="Admin"
+              isActive={pathname.startsWith("/admin")}
+            />
+          )}
           {primaryNavItems.map((item) => (
             <SidebarLink
               key={item.href}
