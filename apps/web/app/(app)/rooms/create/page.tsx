@@ -13,6 +13,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -193,6 +194,7 @@ function CurriculumBuilder({
 
 export default function CreateRoomPage() {
   const router = useRouter();
+  const currency = useCurrency();
 
   // Form state
   const [step, setStep] = useState<"type" | "details" | "preview">("type");
@@ -423,7 +425,7 @@ export default function CreateRoomPage() {
           {roomType === "vip" && (
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-neutral-500" htmlFor="vip-price">
-                Monthly Subscription Price (Coins)
+                Monthly Subscription Price ({currency.softPlural})
               </label>
               <input
                 id="vip-price"
@@ -435,7 +437,7 @@ export default function CreateRoomPage() {
                 placeholder="e.g. 500"
                 className="w-full rounded-xl border border-neutral-300 bg-white px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
               />
-              <p className="mt-1 text-xs text-neutral-400">Min 200 · Max 10,000 coins</p>
+              <p className="mt-1 text-xs text-neutral-400">Min 200 · Max 10,000 {currency.softPlural.toLowerCase()}</p>
             </div>
           )}
 
@@ -444,7 +446,7 @@ export default function CreateRoomPage() {
             <div className="space-y-4">
               <div>
                 <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-neutral-500" htmlFor="entry-fee">
-                  Entry Fee (Coins)
+                  Entry Fee ({currency.softPlural})
                 </label>
                 <input
                   id="entry-fee"
@@ -523,7 +525,7 @@ export default function CreateRoomPage() {
 
               <div>
                 <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-neutral-500" htmlFor="enrolment-fee">
-                  Enrolment Fee (Coins)
+                  Enrolment Fee ({currency.softPlural})
                 </label>
                 <input
                   id="enrolment-fee"
@@ -604,13 +606,13 @@ export default function CreateRoomPage() {
 
             {roomType === "vip" && priceCoin && (
               <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">
-                👑 {parseInt(priceCoin, 10).toLocaleString()} coins/month
+                👑 {parseInt(priceCoin, 10).toLocaleString()} {currency.softPlural.toLowerCase()}/month
               </p>
             )}
 
             {roomType === "drop" && (
               <p className="text-sm font-semibold text-orange-700 dark:text-orange-300">
-                ⚡ {entryFeeCoin ? `${parseInt(entryFeeCoin, 10).toLocaleString()} coins entry` : "Free entry"} · {dropDurationHours}h duration
+                ⚡ {entryFeeCoin ? `${parseInt(entryFeeCoin, 10).toLocaleString()} ${currency.softPlural.toLowerCase()} entry` : "Free entry"} · {dropDurationHours}h duration
               </p>
             )}
 
@@ -642,7 +644,7 @@ export default function CreateRoomPage() {
                 )}
                 {enrolmentFee && (
                   <p className="text-xs font-semibold text-teal-700 dark:text-teal-300">
-                    Enrolment: {parseInt(enrolmentFee, 10).toLocaleString()} coins
+                    Enrolment: {parseInt(enrolmentFee, 10).toLocaleString()} {currency.softPlural.toLowerCase()}
                   </p>
                 )}
               </div>

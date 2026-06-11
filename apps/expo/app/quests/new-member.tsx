@@ -33,6 +33,7 @@ import { Button } from '@/components/ui/Button';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -166,6 +167,7 @@ function ProgressBar({ completed, total }: { completed: number; total: number })
 }
 
 function RewardClaimedBanner({ coins, xp }: { coins: number; xp: number }) {
+  const currency = useCurrency();
   return (
     <View style={[styles.rewardBanner, { backgroundColor: `${colors.semantic.success}15` }]}>
       <Text style={styles.rewardBannerEmoji}>🎉</Text>
@@ -173,7 +175,7 @@ function RewardClaimedBanner({ coins, xp }: { coins: number; xp: number }) {
         Reward claimed!
       </Text>
       <Text style={styles.rewardBannerBody}>
-        +{coins.toLocaleString()} Coins · +{xp.toLocaleString()} XP
+        +{coins.toLocaleString()} {currency.softPlural} · +{xp.toLocaleString()} XP
       </Text>
     </View>
   );
@@ -186,6 +188,7 @@ function RewardClaimedBanner({ coins, xp }: { coins: number; xp: number }) {
 export default function NewMemberQuestScreen() {
   const { colors: themeColors } = useTheme();
   const queryClient = useQueryClient();
+  const currency = useCurrency();
   const [justClaimed, setJustClaimed] = React.useState<{
     coins: number;
     xp: number;
@@ -289,7 +292,7 @@ export default function NewMemberQuestScreen() {
         <View style={styles.rewardItem}>
           <Text style={styles.rewardEmoji}>🪙</Text>
           <Text style={[styles.rewardAmount, { color: themeColors.text }]}>1,000</Text>
-          <Text style={[styles.rewardLabel, { color: themeColors.textMuted }]}>Coins</Text>
+          <Text style={[styles.rewardLabel, { color: themeColors.textMuted }]}>{currency.softPlural}</Text>
         </View>
         <View style={[styles.rewardDivider, { backgroundColor: themeColors.border }]} />
         <View style={styles.rewardItem}>

@@ -40,6 +40,12 @@ type PublicManifest = {
   turnstileSiteKey?: string;
   minimumAge: number;
   updatedAt: number;
+  currency: {
+    softNameSingular: string;
+    softNamePlural: string;
+    premiumNameSingular: string;
+    premiumNamePlural: string;
+  };
 };
 
 // ---------------------------------------------------------------------------
@@ -84,6 +90,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         : {}),
       minimumAge: manifest.minimumAge,
       updatedAt: manifest.updatedAt ?? Date.now(),
+      currency: {
+        softNameSingular: manifest.currency.softNameSingular,
+        softNamePlural: manifest.currency.softNamePlural,
+        premiumNameSingular: manifest.currency.premiumNameSingular,
+        premiumNamePlural: manifest.currency.premiumNamePlural,
+      },
     };
 
     return NextResponse.json(publicManifest, {

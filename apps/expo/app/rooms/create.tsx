@@ -29,6 +29,7 @@ import { Button } from '@/components/ui/Button';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -261,6 +262,7 @@ interface PreviewCardProps {
 
 function PreviewCard({ name, description, roomType, city, category, priceCoin }: PreviewCardProps) {
   const opt = ROOM_TYPES.find((r) => r.type === roomType)!;
+  const currency = useCurrency();;
 
   return (
     <View style={[styles.previewCard, { borderColor: opt.color }]}>
@@ -283,7 +285,7 @@ function PreviewCard({ name, description, roomType, city, category, priceCoin }:
         {city ? <Text style={styles.previewFooterText}>📍 {city}</Text> : null}
         {category ? <Text style={styles.previewFooterText}>#{category}</Text> : null}
         {priceCoin ? (
-          <Text style={styles.previewFooterText}>🪙 {priceCoin} coins</Text>
+          <Text style={styles.previewFooterText}>🪙 {priceCoin} {currency.softPlural.toLowerCase()}</Text>
         ) : null}
       </View>
     </View>
@@ -300,6 +302,7 @@ function PreviewCard({ name, description, roomType, city, category, priceCoin }:
 export default function CreateRoomScreen() {
   const router = useRouter();
   const { colors: themeColors, isDark } = useTheme();
+  const currency = useCurrency();
 
   const [selectedType, setSelectedType] = useState<RoomType>('free_open');
   const [name, setName] = useState('');
@@ -434,7 +437,7 @@ export default function CreateRoomScreen() {
           <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Pricing</Text>
           <TextInput
             style={[styles.field, fieldStyle]}
-            placeholder="Entry fee in Coins (e.g. 50)"
+            placeholder={`Entry fee in ${currency.softPlural} (e.g. 50)`}
             placeholderTextColor={themeColors.textMuted}
             value={priceCoin}
             onChangeText={setPriceCoin}

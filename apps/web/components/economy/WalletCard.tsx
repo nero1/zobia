@@ -14,6 +14,7 @@
 import React from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,6 +67,7 @@ export function WalletCard({
   showTopUp = true,
   className = "",
 }: WalletCardProps) {
+  const currency = useCurrency();
   const { data, isLoading, isError } = useQuery<WalletBalance>({
     queryKey: ["wallet", "balance"],
     queryFn: fetchBalance,
@@ -112,13 +114,13 @@ export function WalletCard({
               </span>
             </div>
             <p className="mt-1 text-xs font-medium uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-              Coins
+              {currency.softPlural}
             </p>
           </div>
 
           <div className="w-px bg-neutral-200 dark:bg-neutral-700" />
 
-          {/* Stars */}
+          {/* Premium currency */}
           <div>
             <div className="flex items-center gap-1.5">
               <span className="text-xl" aria-hidden>
@@ -129,7 +131,7 @@ export function WalletCard({
               </span>
             </div>
             <p className="mt-1 text-xs font-medium uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-              Stars
+              {currency.premiumPlural}
             </p>
           </div>
         </div>
@@ -141,7 +143,7 @@ export function WalletCard({
           href="/economy/store"
           className="mt-5 flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-700 active:bg-blue-800"
         >
-          🪙 Add Coins
+          🪙 Add {currency.softPlural}
         </Link>
       )}
     </div>

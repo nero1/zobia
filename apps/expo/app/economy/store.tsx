@@ -29,6 +29,7 @@ import { Button } from '@/components/ui/Button';
 import { apiClient } from '@/lib/api/client';
 import { colors } from '@/lib/theme/colors';
 import { useTheme } from '@/lib/theme';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -203,6 +204,7 @@ function PackCard({
 export default function StoreScreen() {
   const router = useRouter();
   const { colors: themeColors } = useTheme();
+  const currency = useCurrency();
   const [purchasingId, setPurchasingId] = useState<string | null>(null);
   const [purchasingStarId, setPurchasingStarId] = useState<string | null>(null);
   const [purchasingBoosterId, setPurchasingBoosterId] = useState<string | null>(null);
@@ -340,7 +342,7 @@ export default function StoreScreen() {
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Text style={styles.backText}>← Back</Text>
         </Pressable>
-        <Text style={styles.title}>Coin Store</Text>
+        <Text style={styles.title}>{currency.softPlural} Store</Text>
       </View>
 
       {!data.paymentEnabled && (
@@ -352,7 +354,7 @@ export default function StoreScreen() {
       {/* Coin Packs */}
       {data.coinPacks.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>🪙 Coin Packs</Text>
+          <Text style={styles.sectionTitle}>🪙 {currency.softPlural} Packs</Text>
           <View style={styles.packGrid}>
             {data.coinPacks.map((pack) => (
               <PackCard
@@ -364,7 +366,7 @@ export default function StoreScreen() {
                 currency={pack.currency}
                 grantedAmount={pack.coinsGranted}
                 grantedIcon="🪙"
-                grantedLabel="Coins"
+                grantedLabel={currency.softPlural}
                 bonusLabel={pack.bonusLabel}
                 isFeatured={pack.isFeatured}
                 isPurchasing={purchasingId === pack.id}
@@ -378,7 +380,7 @@ export default function StoreScreen() {
       {/* Star Packs */}
       {data.starPacks.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>⭐ Star Packs</Text>
+          <Text style={styles.sectionTitle}>⭐ {currency.premiumPlural} Packs</Text>
           <View style={styles.packGrid}>
             {data.starPacks.map((pack) => (
               <PackCard
@@ -390,7 +392,7 @@ export default function StoreScreen() {
                 currency={pack.currency}
                 grantedAmount={pack.starsGranted}
                 grantedIcon="⭐"
-                grantedLabel="Stars"
+                grantedLabel={currency.premiumPlural}
                 bonusLabel={pack.bonusLabel}
                 isFeatured={pack.isFeatured}
                 isPurchasing={purchasingStarId === pack.id}
@@ -415,7 +417,7 @@ export default function StoreScreen() {
                 {booster.description && (
                   <Text style={styles.boosterDesc}>{booster.description}</Text>
                 )}
-                <Text style={styles.boosterCost}>🪙 {booster.coinsCost?.toLocaleString()} coins</Text>
+                <Text style={styles.boosterCost}>🪙 {booster.coinsCost?.toLocaleString()} {currency.softPlural.toLowerCase()}</Text>
               </View>
               <Button
                 label={purchasingBoosterId === booster.id ? 'Processing...' : 'Buy'}

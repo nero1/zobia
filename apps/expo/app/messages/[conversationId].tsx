@@ -39,6 +39,7 @@ import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
 import { getPidginSuggestions } from '@/lib/i18n/pidgin';
 import { isPidginEnabled } from '@/lib/i18n/pidginEnabled';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 import { CHAT_THEMES } from '@/lib/theme/chatThemes';
 import { queueMessage } from '@/lib/offline/sqlite';
 import type { ChatTheme } from '@/lib/theme/chatThemes';
@@ -481,6 +482,7 @@ export default function DMConversationScreen() {
   const queryClient = useQueryClient();
   const { colors: themeColors, isDark } = useTheme();
   const { i18n } = useTranslation();
+  const currency = useCurrency();
 
   const [inputText, setInputText] = useState('');
   const [pidginSuggestions, setPidginSuggestions] = useState<string[]>([]);
@@ -673,7 +675,7 @@ export default function DMConversationScreen() {
         {insufficientCoins && (
           <View style={[styles.insufficientBanner, { backgroundColor: `${colors.semantic.error}18` }]}>
             <Text style={[styles.insufficientText, { color: colors.semantic.error }]}>
-              Not enough coins to reply.{' '}
+              Not enough {currency.softPlural.toLowerCase()} to reply.{' '}
             </Text>
             <Pressable
               onPress={() =>
@@ -684,7 +686,7 @@ export default function DMConversationScreen() {
               }
               accessibilityRole="link"
             >
-              <Text style={styles.giftLink}>Gift them coins →</Text>
+              <Text style={styles.giftLink}>Gift them {currency.softPlural.toLowerCase()} →</Text>
             </Pressable>
           </View>
         )}
