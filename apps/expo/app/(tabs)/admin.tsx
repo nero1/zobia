@@ -159,7 +159,14 @@ export default function AdminDashboardTab() {
 
       {/* Navigation cards */}
       <View style={styles.section}>
-        <Text style={[styles.sectionLabel, { color: themeColors.textMuted }]}>SECTIONS</Text>
+        <NavCard
+          icon="←"
+          title="User Area"
+          subtitle="Back to the main app"
+          onPress={() => router.push('/home')}
+        />
+
+        <Text style={[styles.sectionLabel, { color: themeColors.textMuted, marginTop: 12 }]}>SECTIONS</Text>
         <NavCard
           icon="📊"
           title="Platform Overview"
