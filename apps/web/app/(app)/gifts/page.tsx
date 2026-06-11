@@ -202,7 +202,7 @@ function SendGiftModal({
           Gift sent to @{recipient?.username}!
         </p>
         <p className="text-sm text-neutral-500">
-          You sent {selectedGift?.name} — they'll love it 🎉
+          You sent {selectedGift?.name} — they&apos;ll love it 🎉
         </p>
         <button
           type="button"
