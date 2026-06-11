@@ -12,6 +12,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { getPidginSuggestions, isPidginLocale } from "@/lib/i18n/pidgin";
 import { useRealtimeChannel } from "@/lib/realtime/useRealtimeChannel";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -517,6 +518,7 @@ export default function DMConversationPage() {
   const params = useParams();
   const router = useRouter();
   const conversationId = params.conversationId as string;
+  const currency = useCurrency();
 
   const [conversation, setConversation] = useState<ConversationInfo | null>(null);
   const [messages, setMessages] = useState<DMMessage[]>([]);
@@ -906,13 +908,13 @@ export default function DMConversationPage() {
       {!recipientCanReply && otherUserId && (
         <div className="flex items-center justify-between border-b border-amber-200 bg-amber-50 px-4 py-2.5 dark:border-amber-800 dark:bg-amber-950/40">
           <p className="text-xs text-amber-700 dark:text-amber-300">
-            This person cannot reply right now — they may not have enough coins.
+            This person cannot reply right now — they may not have enough {currency.softPlural.toLowerCase()}.
           </p>
           <Link
             href={`/wallet?transfer=${otherUserId}`}
             className="ml-3 shrink-0 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600"
           >
-            🪙 Gift them coins
+            🪙 Gift them {currency.softPlural.toLowerCase()}
           </Link>
         </div>
       )}

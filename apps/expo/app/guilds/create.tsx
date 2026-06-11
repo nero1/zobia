@@ -28,6 +28,7 @@ import { Button } from '@/components/ui/Button';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -121,6 +122,7 @@ function EmojiPicker({ selected, onSelect }: EmojiPickerProps) {
 export default function CreateGuildScreen() {
   const router = useRouter();
   const { colors: themeColors, isDark } = useTheme();
+  const currency = useCurrency();
 
   const [name, setName] = useState('');
   const [crest, setCrest] = useState('🦁');
@@ -180,8 +182,8 @@ export default function CreateGuildScreen() {
     }
     if (!canAfford) {
       Alert.alert(
-        'Insufficient Coins',
-        `You need ${GUILD_COST} coins to create a guild. You currently have ${wallet?.coins ?? 0} coins.`,
+        `Insufficient ${currency.softPlural}`,
+        `You need ${GUILD_COST} ${currency.softPlural.toLowerCase()} to create a guild. You currently have ${wallet?.coins ?? 0} ${currency.softPlural.toLowerCase()}.`,
       );
       return;
     }
@@ -227,7 +229,7 @@ export default function CreateGuildScreen() {
         ]}
       >
         <Text style={styles.costBannerText}>
-          🪙 Creating a guild costs {GUILD_COST} coins.
+          🪙 Creating a guild costs {GUILD_COST} {currency.softPlural.toLowerCase()}.
         </Text>
         <Text
           style={[
@@ -350,7 +352,7 @@ export default function CreateGuildScreen() {
 
       {/* Create button */}
       <Button
-        label={`Create Guild — 500 Coins`}
+        label={`Create Guild — 500 ${currency.softPlural}`}
         onPress={handleCreate}
         loading={createMutation.isPending}
         disabled={!canAfford || nameStatus === 'taken'}

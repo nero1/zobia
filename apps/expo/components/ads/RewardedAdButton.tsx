@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { TouchableOpacity, Text, ActivityIndicator, Alert } from "react-native";
 import { loadRewardedAd, showRewardedAd, isRewardedAdLoaded } from "@/lib/ads/admob";
 import { storage } from "@/lib/offline/store";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -28,6 +29,7 @@ interface RewardedAdButtonProps {
 // ---------------------------------------------------------------------------
 
 export function RewardedAdButton({ onRewarded, disabled }: RewardedAdButtonProps) {
+  const currency = useCurrency();
   const [loading, setLoading] = useState(false);
   const [adReady, setAdReady] = useState(false);
   const [adsWatched, setAdsWatched] = useState(0);
@@ -118,7 +120,7 @@ export function RewardedAdButton({ onRewarded, disabled }: RewardedAdButtonProps
         <Text className={`text-sm font-semibold ${isDisabled ? "text-gray-400" : "text-white"}`}>
           {adsWatched >= AD_DAILY_CAP
             ? "Ad limit reached for today"
-            : `Watch Ad for Coins (${remaining} left)`}
+            : `Watch Ad for ${currency.softPlural} (${remaining} left)`}
         </Text>
       )}
     </TouchableOpacity>

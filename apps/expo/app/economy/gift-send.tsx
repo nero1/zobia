@@ -207,7 +207,7 @@ export default function GiftSendScreen() {
     const cost =
       currencyMode === 'stars' ? selectedGift.starCost ?? 0 : selectedGift.coinCost;
     const costLabel =
-      currencyMode === 'stars' ? `${cost} ⭐ Stars` : `${cost} 🪙 coins`;
+      currencyMode === 'stars' ? `${cost} ⭐ ${currency.premiumPlural}` : `${cost} 🪙 ${currency.softPlural.toLowerCase()}`;
 
     Alert.alert(
       'Send Gift?',
@@ -264,7 +264,7 @@ export default function GiftSendScreen() {
           style={[styles.currencyToggleBtn, currencyMode === 'coins' && styles.currencyToggleActive]}
         >
           <Text style={[styles.currencyToggleText, currencyMode === 'coins' && styles.currencyToggleTextActive]}>
-            🪙 Coins
+            🪙 {currency.softPlural}
           </Text>
         </Pressable>
         <Pressable
@@ -272,7 +272,7 @@ export default function GiftSendScreen() {
           style={[styles.currencyToggleBtn, currencyMode === 'stars' && styles.currencyToggleActive]}
         >
           <Text style={[styles.currencyToggleText, currencyMode === 'stars' && styles.currencyToggleTextActive]}>
-            ⭐ Stars
+            ⭐ {currency.premiumPlural}
           </Text>
         </Pressable>
       </View>
@@ -281,8 +281,8 @@ export default function GiftSendScreen() {
       <View style={styles.balanceBar}>
         <Text style={styles.balanceBarText}>
           {currencyMode === 'stars'
-            ? `⭐ ${starsBalance.toLocaleString()} stars available`
-            : `🪙 ${coinsBalance.toLocaleString()} coins available`}
+            ? `⭐ ${starsBalance.toLocaleString()} ${currency.premiumPlural.toLowerCase()} available`
+            : `🪙 ${coinsBalance.toLocaleString()} ${currency.softPlural.toLowerCase()} available`}
         </Text>
         <Pressable onPress={() => router.push('/economy/store')}>
           <Text style={styles.addMoreText}>Add more</Text>

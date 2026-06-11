@@ -5,6 +5,7 @@ import {
 } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api/client";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 interface StickerPack {
   id: string;
@@ -29,6 +30,7 @@ async function unlockStickerPack(packId: string): Promise<void> {
 
 export default function StickerStoreScreen() {
   const queryClient = useQueryClient();
+  const currency = useCurrency();
   const [previewPack, setPreviewPack] = useState<StickerPack | null>(null);
 
   const { data: packs = [], isLoading, isRefetching, refetch } = useQuery<StickerPack[]>({
@@ -57,7 +59,7 @@ export default function StickerStoreScreen() {
       Alert.alert("Earnable Pack", pack.unlock_condition ?? "Complete special challenges to unlock.");
       return;
     }
-    Alert.alert(`Unlock ${pack.name}`, `Cost: ${pack.coin_price} coins`, [
+    Alert.alert(`Unlock ${pack.name}`, `Cost: ${pack.coin_price} ${currency.softPlural.toLowerCase()}`, [
       { text: "Cancel" },
       {
         text: "Unlock",

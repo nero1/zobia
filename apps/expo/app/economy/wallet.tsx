@@ -27,6 +27,7 @@ import { Button } from '@/components/ui/Button';
 import { apiClient } from '@/lib/api/client';
 import { colors } from '@/lib/theme/colors';
 import { useTheme } from '@/lib/theme';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -139,6 +140,7 @@ export default function WalletScreen() {
   const router = useRouter();
   const { t } = useTranslation();
   const { colors: themeColors } = useTheme();
+  const currency = useCurrency();
   const [txTab, setTxTab] = React.useState<'coins' | 'stars'>('coins');
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery<WalletData>({
@@ -188,7 +190,7 @@ export default function WalletScreen() {
               <>
                 {/* Coin balance — prominent */}
                 <View style={[styles.balanceCard, { backgroundColor: colors.brand.blue }]}>
-                  <Text style={styles.balanceLabel}>Coin Balance</Text>
+                  <Text style={styles.balanceLabel}>{currency.softSingular} Balance</Text>
                   <View style={styles.balanceRow}>
                     <Text style={styles.balanceCoinIcon}>🪙</Text>
                     <Text style={styles.balanceAmount}>
@@ -196,7 +198,7 @@ export default function WalletScreen() {
                     </Text>
                   </View>
                   <Text style={styles.balanceExact}>
-                    {(data?.coins ?? 0).toLocaleString()} coins
+                    {(data?.coins ?? 0).toLocaleString()} {currency.softPlural.toLowerCase()}
                   </Text>
                 </View>
 
@@ -206,7 +208,7 @@ export default function WalletScreen() {
                     <Text style={styles.starIcon}>⭐</Text>
                     <View>
                       <Text style={styles.starAmount}>
-                        {data?.stars ?? 0} Stars
+                        {data?.stars ?? 0} {currency.premiumPlural}
                       </Text>
                       <Text style={styles.starSubtext}>Premium currency</Text>
                     </View>
@@ -223,7 +225,7 @@ export default function WalletScreen() {
 
                 {/* Add Coins CTA */}
                 <Button
-                  label="🪙 Add Coins"
+                  label={`🪙 Add ${currency.softPlural}`}
                   onPress={() => router.push('/economy/store')}
                   style={styles.addCoinsBtn}
                 />
@@ -239,7 +241,7 @@ export default function WalletScreen() {
                   onPress={() => setTxTab('coins')}
                 >
                   <Text style={[styles.txTabBtnText, txTab === 'coins' && styles.txTabBtnTextActive]}>
-                    🪙 Coins
+                    🪙 {currency.softPlural}
                   </Text>
                 </Pressable>
                 <Pressable
@@ -247,7 +249,7 @@ export default function WalletScreen() {
                   onPress={() => setTxTab('stars')}
                 >
                   <Text style={[styles.txTabBtnText, txTab === 'stars' && styles.txTabBtnTextActive]}>
-                    ⭐ Stars
+                    ⭐ {currency.premiumPlural}
                   </Text>
                 </Pressable>
               </View>
