@@ -57,9 +57,10 @@ const primaryNavItems = [
   { href: "/rooms",        label: "Rooms",        icon: "🚪" },
   { href: "/messages",     label: "Messages",     icon: "💬" },
   { href: "/friends",      label: "Friends",      icon: "👥" },
+  { href: "/gifts",        label: "Gifts",        icon: "🎁" },
+  { href: "/wallet",       label: "Wallet",       icon: "🪙" },
   { href: "/notifications",label: "Notifications",icon: "🔔" },
   { href: "/events",       label: "Events",       icon: "📅" },
-  { href: "/wallet",       label: "Wallet",       icon: "🪙" },
   { href: "/inbox",        label: "Inbox",        icon: "📬" },
   { href: "/elder",        label: "Elder",        icon: "🎓" },
   { href: "/referrals",    label: "Referrals",    icon: "🔗" },
@@ -465,6 +466,52 @@ export function Navbar() {
     await fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => {});
     router.push("/auth/login");
   }, [router]);
+
+  // Left-edge swipe to open drawer (mobile web / PWA)
+  useEffect(() => {
+    const EDGE_PX = 20;
+    const MIN_SWIPE = 60;
+    let touchStartX: number | null = null;
+    let touchStartY: number | null = null;
+
+    const onTouchStart = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (t.clientX <= EDGE_PX) {
+        touchStartX = t.clientX;
+        touchStartY = t.clientY;
+      } else {
+        touchStartX = null;
+        touchStartY = null;
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (touchStartX === null || touchStartY === null) return;
+      const t = e.touches[0];
+      const dx = t.clientX - touchStartX;
+      const dy = Math.abs(t.clientY - touchStartY);
+      // Open only when predominantly horizontal right-swipe
+      if (dx > MIN_SWIPE && dy < dx * 0.75) {
+        setDrawerOpen(true);
+        touchStartX = null;
+        touchStartY = null;
+      }
+    };
+
+    const onTouchEnd = () => {
+      touchStartX = null;
+      touchStartY = null;
+    };
+
+    document.addEventListener("touchstart", onTouchStart, { passive: true });
+    document.addEventListener("touchmove", onTouchMove, { passive: true });
+    document.addEventListener("touchend", onTouchEnd, { passive: true });
+    return () => {
+      document.removeEventListener("touchstart", onTouchStart);
+      document.removeEventListener("touchmove", onTouchMove);
+      document.removeEventListener("touchend", onTouchEnd);
+    };
+  }, []);
 
   return (
     <>

@@ -69,6 +69,34 @@ Users can send gift items (flower, trophy, crown, etc.) to any other user. Gift 
 
 Creators earn credit revenue when they receive gifts in their rooms (80% net; 85% for Zobia Icon creators). The platform retains the remainder. All credit flows are recorded atomically in `coin_ledger`.
 
+#### Gifts Hub
+
+A dedicated **Gifts Hub** is accessible from the main navigation (below Friends) on both web and Expo:
+
+- **Web:** `/gifts` — tabbed view of received/sent gift history, plus a **Send a Gift** modal. The modal supports searching friends by username (debounced), browsing the catalogue by tier, and confirms the credit cost before sending. Pre-fill a recipient via `?recipientId=<id>` or `?username=<name>` query params (e.g. from a friend's profile page).
+- **Expo:** `/(tabs)/gifts` — the same two-tab history view; tapping **Send a Gift** navigates to the existing `/economy/gift-send` send flow. The screen is hidden from the bottom tab bar and accessed via the swipe drawer.
+
+**Gift history API:** `GET /api/economy/gifts`
+
+| Query param | Default | Description |
+|---|---|---|
+| `type` | `both` | `sent`, `received`, or `both` |
+| `limit` | `20` | Max 100 |
+| `offset` | `0` | Pagination offset |
+
+Response shape (each item):
+```json
+{
+  "id": "uuid",
+  "direction": "sent" | "received",
+  "gift_item": { "name": "...", "emoji": "...", "tier": 1, "credit_price": 50 },
+  "sender": { "id": "uuid", "username": "...", "avatar_emoji": "..." },
+  "recipient": { "id": "uuid", "username": "...", "avatar_emoji": "..." },
+  "credits_paid": 50,
+  "created_at": "ISO8601"
+}
+```
+
 ### Seasons
 
 Seasons run in 8-week cycles. Each season has four phases:

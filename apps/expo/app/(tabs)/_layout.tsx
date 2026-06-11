@@ -5,6 +5,7 @@ import { useColorScheme, View } from 'react-native';
 import { colors } from '@/lib/theme/colors';
 import { useAuth } from '@/lib/auth/hooks';
 import { AnnouncementBanner } from '@/components/announcements/AnnouncementBanner';
+import { SwipeDrawer } from '@/components/layout/SwipeDrawer';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -78,6 +79,7 @@ export default function TabLayout() {
   const borderColor = isDark ? colors.neutral[800] : colors.neutral[200];
 
   return (
+    <SwipeDrawer>
     <View style={{ flex: 1 }}>
       <AnnouncementBanner />
     <Tabs
@@ -132,10 +134,12 @@ export default function TabLayout() {
         />
       ))}
 
-      {/* Rooms and Guild still accessible but hidden from tab bar */}
+      {/* Rooms, Guild and Gifts accessible but hidden from tab bar */}
       <Tabs.Screen name="rooms" options={{ href: null }} />
       <Tabs.Screen name="guild" options={{ href: null }} />
+      <Tabs.Screen name="gifts" options={{ href: null }} />
     </Tabs>
     </View>
+    </SwipeDrawer>
   );
 }
