@@ -36,7 +36,34 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const url = new URL(req.url);
     const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "50"), 100);
-    const offset = parseInt(url.searchParams.get("offset") ?? "0");
+    const cursorParam = url.searchParams.get("cursor");
+
+    // Decode cursor: base64-encoded JSON { created_at: string, id: string }
+    let cursorData: { created_at: string; id: string } | null = null;
+    if (cursorParam) {
+      try {
+        cursorData = JSON.parse(Buffer.from(cursorParam, "base64").toString()) as {
+          created_at: string;
+          id: string;
+        };
+      } catch {
+        // Invalid cursor — ignore and start from the beginning
+      }
+    }
+
+    // Cursor pagination using composite (m.created_at, r.id) for stable ordering.
+    let queryParams: (string | number)[];
+    let cursorCondition: string;
+
+    if (cursorData) {
+      cursorCondition = `AND (m.created_at, r.id) < ($2, $3)`;
+      queryParams = [auth.user.sub, cursorData.created_at, cursorData.id, limit];
+    } else {
+      cursorCondition = "";
+      queryParams = [auth.user.sub, limit];
+    }
+
+    const limitParam = cursorData ? "$4" : "$2";
 
     // Fetch messages and mark undelivered ones as delivered atomically.
     // Column names match the actual DB schema: admin_message_id + user_id.
@@ -75,18 +102,28 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
        FROM admin_message_receipts r
        JOIN admin_messages m ON m.id = r.admin_message_id
        WHERE r.user_id = $1
-       ORDER BY m.created_at DESC
-       LIMIT $2 OFFSET $3`,
-      [auth.user.sub, limit, offset]
+       ${cursorCondition}
+       ORDER BY m.created_at DESC, r.id DESC
+       LIMIT ${limitParam}`,
+      queryParams
     );
 
     const unreadCount = rows.filter((r) => !r.read_at).length;
+
+    // Produce the next cursor from the last item returned, if the page is full.
+    const lastItem = rows[rows.length - 1];
+    const nextCursor =
+      lastItem && rows.length === limit
+        ? Buffer.from(
+            JSON.stringify({ created_at: lastItem.created_at, id: lastItem.id })
+          ).toString("base64")
+        : null;
 
     return NextResponse.json({
       items: rows,
       unread_count: unreadCount,
       limit,
-      offset,
+      nextCursor,
     });
   } catch (err) {
     return handleApiError(err);

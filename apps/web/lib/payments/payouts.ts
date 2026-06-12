@@ -308,7 +308,10 @@ export async function moveToDeadLetterQueue(
       [retryCount, payoutId]
     );
 
-    // Restore creator's earnings
+    // Restore creator's earnings using gross_kobo (the full amount before payment
+    // provider fees). This is correct because the original debit from
+    // available_earnings_kobo when the payout was created used gross_kobo.
+    // Using net_kobo here would shortchange the creator by the platform fee.
     const { rows } = await tx.query<{ gross_kobo: number }>(
       `SELECT gross_kobo FROM creator_payouts WHERE id = $1`,
       [payoutId]

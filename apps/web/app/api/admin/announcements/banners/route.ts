@@ -14,6 +14,7 @@ import { z } from "zod";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { sanitizeAnnouncementContent } from "@/lib/security/htmlSanitizer";
 import { db } from "@/lib/db";
 
 const MAX_BANNERS = 5;
@@ -86,7 +87,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
 
     const {
       title,
-      content,
+      content: rawContent,
       contentType,
       linkUrl,
       startsAt,
@@ -95,6 +96,8 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
       targetRoles,
       displayOrder,
     } = parsed.data;
+
+    const content = sanitizeAnnouncementContent(rawContent, contentType);
 
     // Enforce maximum banner cap
     const { rows: countRows } = await db.query<{ count: string }>(

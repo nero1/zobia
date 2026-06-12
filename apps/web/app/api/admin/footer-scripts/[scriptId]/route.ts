@@ -8,6 +8,12 @@ export const dynamic = 'force-dynamic';
  * DELETE /api/admin/footer-scripts/[scriptId]  — Delete a footer script.
  *
  * Admin only.
+ *
+ * SECURITY WARNING: Footer script content is intentionally raw <script> HTML
+ * injected into the page via dangerouslySetInnerHTML. This endpoint is
+ * protected by withAdminAuth (admin-level trust required). Footer scripts
+ * intentionally bypass XSS protection — only trusted admins should have access.
+ * Any compromise of admin credentials would allow arbitrary script injection.
  */
 
 import { NextRequest, NextResponse } from "next/server";

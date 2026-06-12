@@ -16,6 +16,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { ThemeProvider } from "next-themes";
+import { cookies } from "next/headers";
 import "./globals.css";
 import { ReactQueryProvider } from "@/components/providers/ReactQueryProvider";
 import { I18nProvider } from "@/components/providers/I18nProvider";
@@ -23,6 +24,8 @@ import { SkipToMain } from "@/components/shared/SkipToMain";
 import { loadManifest } from "@/lib/manifest";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
+import { getDir } from "@/lib/i18n/rtl";
+import { SUPPORTED_LOCALES, DEFAULT_LOCALE } from "@/lib/i18n";
 
 // ---------------------------------------------------------------------------
 // Font
@@ -123,13 +126,28 @@ async function getFooterScripts(): Promise<Array<{ id: string; content: string }
  * Root layout component. Async Server Component — safe to await at the top
  * level. PWA manifest presence is controlled per-request by generateMetadata.
  * Footer scripts from the admin panel are injected at the bottom of <body>.
+ *
+ * The `lang` and `dir` attributes are derived from the user's locale cookie
+ * so that Arabic (ar) receives `dir="rtl"` and all other locales get `dir="ltr"`.
+ * The cookie name `zobia_lang` matches the i18next browser language detector
+ * configuration in lib/i18n/index.ts (lookupCookie: "zobia_lang").
  */
 export default async function RootLayout({ children }: RootLayoutProps) {
   const footerScripts = await getFooterScripts();
 
+  // Resolve locale from the i18n cookie set by the browser language detector.
+  const cookieStore = await cookies();
+  const rawLocale = cookieStore.get("zobia_lang")?.value ?? DEFAULT_LOCALE;
+  // Validate the locale value to guard against cookie tampering.
+  const locale = (SUPPORTED_LOCALES as readonly string[]).includes(rawLocale)
+    ? rawLocale
+    : DEFAULT_LOCALE;
+  const dir = getDir(locale);
+
   return (
     <html
-      lang="en"
+      lang={locale}
+      dir={dir}
       suppressHydrationWarning
       className={inter.variable}
     >
@@ -151,7 +169,7 @@ export default async function RootLayout({ children }: RootLayoutProps) {
             </I18nProvider>
           </ReactQueryProvider>
         </ThemeProvider>
-        {footerScripts.map((script) => (
+        {footerScripts.filter(s => s.content.trim()).map((script) => (
           <div
             key={script.id}
             dangerouslySetInnerHTML={{ __html: script.content }}

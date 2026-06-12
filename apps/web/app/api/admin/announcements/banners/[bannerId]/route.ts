@@ -12,6 +12,7 @@ import { z } from "zod";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { sanitizeAnnouncementContent } from "@/lib/security/htmlSanitizer";
 import { db, SqlParam } from "@/lib/db";
 
 // ---------------------------------------------------------------------------
@@ -73,8 +74,10 @@ export const PUT = withAdminAuth(
         values.push(updates.title);
       }
       if (updates.content !== undefined) {
+        // Sanitize using the new contentType if being updated, otherwise fall back to 'html' for safety
+        const effectiveContentType = updates.contentType ?? "html";
         setClauses.push(`content = $${idx++}`);
-        values.push(updates.content);
+        values.push(sanitizeAnnouncementContent(updates.content, effectiveContentType));
       }
       if (updates.contentType !== undefined) {
         setClauses.push(`content_type = $${idx++}`);
