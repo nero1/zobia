@@ -145,6 +145,14 @@ export function withAuth<TParams = Record<string, string>>(
       // Check account status (banned/suspended/deleted) — cached 30s to reduce DB load
       const statusKey = `user:status:${payload.sub}`;
       let accountBlocked = false;
+      // Sensitive mutation endpoints (payments, payouts, transfers, gifts) fail CLOSED
+      // when status cannot be confirmed — a brief Redis/DB outage is preferable to
+      // allowing a banned user to transact (#20).
+      const isSensitiveMutation =
+        req.method !== "GET" &&
+        req.method !== "HEAD" &&
+        /\/(payments|payouts|gifts|coins\/transfer|stars\/gift|economy\/webhooks)/.test(new URL(req.url).pathname);
+
       try {
         const cachedStatus = await redis.get(statusKey);
         if (cachedStatus !== null) {
@@ -163,7 +171,11 @@ export function withAuth<TParams = Record<string, string>>(
           await redis.setex(statusKey, 30, accountBlocked ? "blocked" : "ok").catch(() => {});
         }
       } catch {
-        // If status check fails, allow the request to proceed (fail open)
+        if (isSensitiveMutation) {
+          // Fail closed: cannot confirm account is active, deny sensitive mutations
+          throw unauthorized("Account status check failed. Please try again.");
+        }
+        // For read paths, fail open (a Redis blip shouldn't break the whole app)
       }
 
       if (accountBlocked) {

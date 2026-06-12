@@ -23,6 +23,7 @@ import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { calculateXPForAction } from "@/lib/xp/engine";
+import { creditCoins } from "@/lib/economy/coins";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -161,11 +162,14 @@ export const POST = withAuth(
               const coinsPerMember = Math.floor(quest.reward_coins / memberCount);
               if (coinsPerMember > 0) {
                 for (const member of membersResult.rows) {
-                  await tx.query(
-                    `UPDATE users
-                     SET coins = coins + $1, updated_at = NOW()
-                     WHERE id = $2`,
-                    [coinsPerMember, member.user_id]
+                  await creditCoins(
+                    member.user_id,
+                    coinsPerMember,
+                    "quest_reward",
+                    questId,
+                    `Quest completion reward`,
+                    { guildId, questId },
+                    tx
                   );
                 }
               }

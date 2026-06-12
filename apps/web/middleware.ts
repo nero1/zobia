@@ -34,6 +34,12 @@ const PUBLIC_PREFIXES = [
   "/auth",
   "/api/auth",
   "/api/manifest",
+  // CRON endpoints authenticate via CRON_SECRET (Bearer token), not JWT cookies.
+  // The middleware must let them through so the route handler can verify the secret.
+  "/api/cron",
+  // Public profile/room read views for SEO crawlers
+  "/u/",
+  "/r/",
   "/_next",
   "/favicon.ico",
   "/icons",

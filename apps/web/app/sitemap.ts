@@ -45,8 +45,9 @@ const STATIC_PAGES: MetadataRoute.Sitemap = [
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const entries: MetadataRoute.Sitemap = [...STATIC_PAGES];
 
+  // Public user profiles — active in last 30 days.
+  // These are served at /u/[username] (public, SSR, crawlable).
   try {
-    // Public user profiles — active in last 30 days
     const { rows: profiles } = await db.query<{ username: string; updated_at: string }>(
       `SELECT username, updated_at
        FROM users
@@ -59,35 +60,40 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
     for (const p of profiles) {
       entries.push({
-        url: `${BASE_URL}/profile/${encodeURIComponent(p.username)}`,
+        url: `${BASE_URL}/u/${encodeURIComponent(p.username)}`,
         lastModified: new Date(p.updated_at),
         changeFrequency: "weekly",
         priority: 0.5,
       });
     }
+  } catch {
+    // Profiles unavailable (e.g. build-time DB not connected) — skip silently
+  }
 
-    // Public discoverable rooms (free_open only — no private rooms in sitemap).
-    // The rooms table uses the column `type` (not `room_type`) per the DB schema.
-    const { rows: rooms } = await db.query<{ id: string; name: string; updated_at: string }>(
-      `SELECT id, name, updated_at
+  // Public discoverable rooms (free_open only — no private rooms in sitemap).
+  // Served at /r/[id] (public, SSR, crawlable).
+  // Bug #11: rooms table has `updated_at`, not `last_activity_at`.
+  try {
+    const { rows: rooms } = await db.query<{ id: string; updated_at: string }>(
+      `SELECT id, updated_at
        FROM rooms
        WHERE type = 'free_open'
          AND deleted_at IS NULL
          AND is_active = TRUE
-       ORDER BY last_activity_at DESC NULLS LAST
+       ORDER BY updated_at DESC NULLS LAST
        LIMIT 2000`
     );
 
     for (const r of rooms) {
       entries.push({
-        url: `${BASE_URL}/rooms/${r.id}`,
+        url: `${BASE_URL}/r/${r.id}`,
         lastModified: new Date(r.updated_at),
         changeFrequency: "hourly",
         priority: 0.6,
       });
     }
   } catch {
-    // Return static pages if DB is unavailable (e.g. build-time)
+    // Rooms unavailable — skip silently; profile entries are still returned
   }
 
   return entries;

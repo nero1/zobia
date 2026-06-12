@@ -19,6 +19,7 @@
 import axios from "axios";
 import { env } from "@/lib/env";
 import { getManifestValue } from "@/lib/manifest";
+import { redis } from "@/lib/redis";
 import {
   DEEPSEEK_CONFIG,
   GEMINI_CONFIG,
@@ -29,46 +30,88 @@ import {
 } from "./config";
 
 // ---------------------------------------------------------------------------
-// Circuit breaker state
+// Circuit breaker — persisted in Redis so it works across Vercel lambda instances (#22)
 // ---------------------------------------------------------------------------
 
-interface CircuitState {
-  failures: number;
-  openedAt: number | null;
-}
+const CB_FAILURES_KEY = "ai:circuit:deepseek:failures";
+const CB_OPENED_AT_KEY = "ai:circuit:deepseek:opened_at";
 
-const deepseekCircuit: CircuitState = { failures: 0, openedAt: null };
+// In-memory L1 cache to avoid a Redis round-trip on every hot path
+interface CircuitCache {
+  open: boolean;
+  checkedAt: number;
+}
+let _circuitCache: CircuitCache | null = null;
+const CACHE_TTL_MS = 5_000; // refresh cache every 5 s
 
 /** Read-only snapshot of the DeepSeek circuit breaker state for admin inspection. */
-export function getDeepSeekCircuitState(): Readonly<CircuitState> {
-  return { ...deepseekCircuit };
+export async function getDeepSeekCircuitState(): Promise<{ failures: number; openedAt: number | null }> {
+  const [failures, openedAt] = await Promise.all([
+    redis.get(CB_FAILURES_KEY),
+    redis.get(CB_OPENED_AT_KEY),
+  ]);
+  return {
+    failures: parseInt(failures ?? "0", 10),
+    openedAt: openedAt ? parseInt(openedAt, 10) : null,
+  };
 }
 
-function isCircuitOpen(state: CircuitState): boolean {
-  if (state.openedAt === null) return false;
-  const elapsed = Date.now() - state.openedAt;
-  if (elapsed >= CIRCUIT_BREAKER.recoveryTimeMs) {
-    // Half-open: allow one probe
-    state.openedAt = null;
-    state.failures = 0;
+async function isCircuitOpen(): Promise<boolean> {
+  // Fast path: use in-memory cache to avoid Redis on every request
+  if (_circuitCache && Date.now() - _circuitCache.checkedAt < CACHE_TTL_MS) {
+    return _circuitCache.open;
+  }
+
+  try {
+    const openedAtRaw = await redis.get(CB_OPENED_AT_KEY);
+    if (!openedAtRaw) {
+      _circuitCache = { open: false, checkedAt: Date.now() };
+      return false;
+    }
+
+    const openedAt = parseInt(openedAtRaw, 10);
+    const elapsed = Date.now() - openedAt;
+
+    if (elapsed >= CIRCUIT_BREAKER.recoveryTimeMs) {
+      // Half-open: clear state and allow one probe
+      await redis.del(CB_FAILURES_KEY, CB_OPENED_AT_KEY);
+      _circuitCache = { open: false, checkedAt: Date.now() };
+      return false;
+    }
+
+    _circuitCache = { open: true, checkedAt: Date.now() };
+    return true;
+  } catch {
+    // On Redis error, default to allowing the request (fail open for availability)
     return false;
   }
-  return true;
 }
 
-function recordFailure(state: CircuitState): void {
-  state.failures += 1;
-  if (state.failures >= CIRCUIT_BREAKER.failureThreshold) {
-    state.openedAt = Date.now();
-    console.warn(
-      `[ai:circuit-breaker] DeepSeek circuit OPEN after ${state.failures} failures`
-    );
+async function recordFailure(): Promise<void> {
+  try {
+    const failures = await redis.incr(CB_FAILURES_KEY);
+    await redis.expire(CB_FAILURES_KEY, Math.ceil(CIRCUIT_BREAKER.recoveryTimeMs / 1000) + 60);
+
+    if (failures >= CIRCUIT_BREAKER.failureThreshold) {
+      const now = Date.now();
+      await redis.set(CB_OPENED_AT_KEY, String(now), "EX", Math.ceil(CIRCUIT_BREAKER.recoveryTimeMs / 1000) + 60);
+      _circuitCache = { open: true, checkedAt: Date.now() };
+      console.warn(`[ai:circuit-breaker] DeepSeek circuit OPEN after ${failures} failures (global)`);
+    } else {
+      _circuitCache = null; // invalidate cache
+    }
+  } catch {
+    // Redis failure — don't block the AI path
   }
 }
 
-function recordSuccess(state: CircuitState): void {
-  state.failures = 0;
-  state.openedAt = null;
+async function recordSuccess(): Promise<void> {
+  try {
+    await redis.del(CB_FAILURES_KEY, CB_OPENED_AT_KEY);
+    _circuitCache = { open: false, checkedAt: Date.now() };
+  } catch {
+    // Redis failure — ignore
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -232,18 +275,18 @@ async function chat(
   messages: ChatMessage[],
   options: CompletionOptions = {}
 ): Promise<CompletionResponse> {
-  // Primary: DeepSeek
-  if (!isCircuitOpen(deepseekCircuit)) {
+  // Primary: DeepSeek — check global Redis circuit breaker
+  if (!await isCircuitOpen()) {
     try {
       const response = await callDeepSeek(messages, options);
-      recordSuccess(deepseekCircuit);
+      await recordSuccess();
       return response;
     } catch (err) {
-      recordFailure(deepseekCircuit);
+      await recordFailure();
       console.error("[ai:deepseek] request failed, falling back to Gemini", err);
     }
   } else {
-    console.warn("[ai:circuit-breaker] DeepSeek circuit is OPEN, using Gemini");
+    console.warn("[ai:circuit-breaker] DeepSeek circuit is OPEN (global), using Gemini");
   }
 
   // Fallback: Gemini

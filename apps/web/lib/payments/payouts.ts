@@ -161,9 +161,26 @@ async function attemptTransfer(
   }
 
   try {
-    const reference = isRetry
-      ? `${payout.idempotency_key}:retry${payout.retry_count + 1}`
-      : `${payout.idempotency_key}:auto`;
+    // Use a single stable reference across ALL attempts so the provider can
+    // deduplicate and we never double-pay on a network-blip retry (#6).
+    const reference = payout.idempotency_key;
+
+    // On retries, verify whether the previous attempt actually succeeded before
+    // re-initiating to avoid double-payment on delayed confirmations.
+    if (isRetry && payout.idempotency_key) {
+      try {
+        const prior = await verifyTransfer(reference);
+        if (prior.status === "success") {
+          await db.query(
+            `UPDATE creator_payouts SET status = 'completed', updated_at = NOW() WHERE id = $1`,
+            [payout.id]
+          );
+          return true;
+        }
+      } catch {
+        // verifyTransfer failed (not found or network error) — proceed to re-initiate
+      }
+    }
 
     const transfer = await initiateTransfer(
       payout.net_kobo,
@@ -260,19 +277,29 @@ export async function reconcileStuckPayouts(): Promise<{ reconciled: number; fai
         );
         reconciled++;
       } else if (transfer.status === "failed" || transfer.status === "reversed") {
-        // Restore creator earnings and mark payout as failed
+        // Restore creator earnings idempotently (guard with earnings_restored flag)
         await db.transaction(async (tx) => {
+          const { rows: cur } = await tx.query<{ earnings_restored: boolean }>(
+            `SELECT earnings_restored FROM creator_payouts WHERE id = $1 FOR UPDATE`,
+            [payout.id]
+          );
           await tx.query(
             `UPDATE creator_payouts SET status = 'failed', updated_at = NOW() WHERE id = $1`,
             [payout.id]
           );
-          await tx.query(
-            `UPDATE users
-             SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1,
-                 updated_at = NOW()
-             WHERE id = $2`,
-            [payout.gross_kobo, payout.creator_id]
-          );
+          if (cur[0] && !cur[0].earnings_restored) {
+            await tx.query(
+              `UPDATE creator_payouts SET earnings_restored = true WHERE id = $1`,
+              [payout.id]
+            );
+            await tx.query(
+              `UPDATE users
+               SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1,
+                   updated_at = NOW()
+               WHERE id = $2`,
+              [payout.gross_kobo, payout.creator_id]
+            );
+          }
         });
         failed++;
       }
@@ -297,6 +324,13 @@ export async function moveToDeadLetterQueue(
   reason: string
 ): Promise<void> {
   await db.transaction(async (tx) => {
+    // Lock the payout row so concurrent callers (cron + webhook) don't both restore earnings (#7)
+    const { rows: current } = await tx.query<{ gross_kobo: number; earnings_restored: boolean; status: string }>(
+      `SELECT gross_kobo, earnings_restored, status FROM creator_payouts WHERE id = $1 FOR UPDATE`,
+      [payoutId]
+    );
+    if (!current[0]) return;
+
     // Mark payout as permanently failed
     await tx.query(
       `UPDATE creator_payouts
@@ -308,28 +342,27 @@ export async function moveToDeadLetterQueue(
       [retryCount, payoutId]
     );
 
-    // Restore creator's earnings using gross_kobo (the full amount before payment
-    // provider fees). This is correct because the original debit from
-    // available_earnings_kobo when the payout was created used gross_kobo.
-    // Using net_kobo here would shortchange the creator by the platform fee.
-    const { rows } = await tx.query<{ gross_kobo: number }>(
-      `SELECT gross_kobo FROM creator_payouts WHERE id = $1`,
-      [payoutId]
-    );
-    if (rows[0]) {
+    // Restore creator's earnings only once. earnings_restored guards against
+    // double-credit when both the DLQ cron and the transfer.failed webhook fire.
+    if (!current[0].earnings_restored) {
+      await tx.query(
+        `UPDATE creator_payouts SET earnings_restored = true WHERE id = $1`,
+        [payoutId]
+      );
       await tx.query(
         `UPDATE users
          SET available_earnings_kobo = available_earnings_kobo + $1, updated_at = NOW()
          WHERE id = $2`,
-        [rows[0].gross_kobo, creatorId]
+        [current[0].gross_kobo, creatorId]
       );
     }
 
-    // Insert dead-letter record
+    // Insert dead-letter record (ON CONFLICT to tolerate duplicate calls)
     await tx.query(
       `INSERT INTO payout_dead_letter_queue
          (payout_id, creator_id, failure_reason, retry_count, last_attempted_at)
-       VALUES ($1, $2, $3, $4, NOW())`,
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (payout_id) DO NOTHING`,
       [payoutId, creatorId, reason, retryCount]
     );
   });
