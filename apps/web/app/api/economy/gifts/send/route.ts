@@ -23,6 +23,8 @@ import { db } from "@/lib/db";
 import { debitCoins, creditCoins } from "@/lib/economy/coins";
 import { meetsMinimumTrust } from "@/lib/trust/trustScore";
 import { recordWarContribution } from "@/lib/guilds/recordWarContribution";
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { redis } from "@/lib/redis";
 
 // Platform takes 20% of gifts received by creators (PRD §14)
 const CREATOR_GIFT_FEE_PERCENT = 20;
@@ -40,6 +42,8 @@ const SendGiftSchema = z.object({
   recipientId: z.string().uuid("recipientId must be a valid UUID"),
   /** Optional Room UUID — if provided, the gift appears in the room feed. */
   roomId: z.string().uuid().optional(),
+  /** Optional idempotency key — prevents double-send on client retry. */
+  idempotencyKey: z.string().uuid("idempotencyKey must be a valid UUID").optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -169,12 +173,26 @@ async function awardGiftXP(
  * Returns: { giftId, spectacleTriggered }
  */
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
+  // Declared outside try so the catch block can clean it up on error
+  let idempKey: string | null = null;
   try {
     const body = await validateBody(req, SendGiftSchema);
     const senderId = auth.user.sub;
 
+    // Rate-limit: prevent double-tap sends (#13)
+    await enforceRateLimit(senderId, "user", RATE_LIMITS.apiWrite);
+
     if (body.recipientId === senderId) {
       throw badRequest("Cannot send a gift to yourself");
+    }
+
+    // Idempotency guard via atomic SET NX (#13)
+    if (body.idempotencyKey) {
+      idempKey = `idempotency:gift:${senderId}:${body.idempotencyKey}`;
+      const setResult = await redis.set(idempKey, "processing", "EX", 86400, "NX");
+      if (setResult === null) {
+        return NextResponse.json({ success: true, duplicate: true, message: "Duplicate request - gift already sent" });
+      }
     }
 
     // Trust gate: send_gift requires minimum trust score of 20
@@ -224,7 +242,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const recipientCoins = giftItem.coin_cost - platformFeeCoins;
 
     await db.transaction(async (tx) => {
-      // Debit full coin cost from sender
+      // Debit full coin cost from sender — on failure the catch below cleans up idempKey
       await debitCoins(
         senderId,
         giftItem.coin_cost,
@@ -246,15 +264,12 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         tx
       );
 
-      // Record creator_earnings for payout accounting only (no coin double-credit)
-      if (recipient.is_creator && recipientCoins > 0) {
-        await tx.query(
-          `INSERT INTO creator_earnings
-             (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo)
-           VALUES ($1, 'gift', $2, $3, $4)`,
-          [body.recipientId, giftItem.coin_cost, platformFeeCoins, recipientCoins]
-        );
-      }
+      // Gifts are virtual-coin denominated, not fiat (kobo). We do NOT insert into
+      // creator_earnings here because those columns are real-money (kobo) fields and
+      // mixing coin values there would corrupt payout accounting (#14).
+      // The coin_ledger entries written above are the canonical accounting record.
+      // If gift-to-fiat cashout is needed in future, apply an explicit coin→kobo
+      // conversion rate at withdrawal time.
 
       // Guild Legend tier 5% Room Revenue Share (PRD §13)
       // If this gift is in a room and the room creator belongs to a Legend-tier guild,
@@ -274,8 +289,12 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           if (legendGuildRows[0]) {
             const guildShare = Math.floor(giftItem.coin_cost * 5 / 100);
             if (guildShare > 0) {
+              // LEAST clamp ensures treasury_balance never exceeds treasury_cap (#24)
               await tx.query(
-                `UPDATE guilds SET treasury_balance = treasury_balance + $1, updated_at = NOW() WHERE id = $2`,
+                `UPDATE guilds
+                 SET treasury_balance = LEAST(treasury_cap, COALESCE(treasury_balance, 0) + $1),
+                     updated_at = NOW()
+                 WHERE id = $2`,
                 [guildShare, legendGuildRows[0].guild_id]
               );
               await tx.query(
@@ -400,6 +419,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       spectacleTriggered,
     });
   } catch (err) {
+    // On any error, remove the idempotency key so the client can retry
+    if (idempKey) await redis.del(idempKey).catch(() => {});
     if ((err as NodeJS.ErrnoException).code === "INSUFFICIENT_BALANCE") {
       return handleApiError(
         badRequest("Not enough coins to send this gift", "INSUFFICIENT_BALANCE")

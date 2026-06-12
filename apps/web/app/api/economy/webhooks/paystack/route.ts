@@ -181,6 +181,27 @@ async function processChargeSuccess(
       if (packRows[0]) {
         if (packRows[0].coins_granted != null) serverCoinsGranted = packRows[0].coins_granted;
         if (packRows[0].stars_granted != null) serverStarsGranted = packRows[0].stars_granted;
+
+        // Bug #18: Reject underpayments — never credit if paid amount < pack price
+        if (packRows[0].price_kobo != null && amount < packRows[0].price_kobo) {
+          console.warn(
+            `[webhook/paystack] Underpayment detected: paid ${amount} kobo for pack ${metadata.packId} ` +
+            `priced at ${packRows[0].price_kobo} kobo. Flagging for manual review.`
+          );
+          await tx.query(
+            `UPDATE payments SET status = 'underpaid', updated_at = NOW() WHERE provider_reference = $1`,
+            [reference]
+          ).catch(() => {});
+          await tx.query(
+            `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
+             VALUES ('underpayment', 'critical', $1, $2::jsonb, NOW())`,
+            [
+              `Underpayment for reference ${reference}: paid ${amount}, expected ${packRows[0].price_kobo}`,
+              JSON.stringify({ reference, amount, priceKobo: packRows[0].price_kobo, userId, packId: metadata.packId }),
+            ]
+          ).catch(() => {});
+          return;
+        }
       }
     }
 
@@ -205,8 +226,8 @@ async function processChargeSuccess(
         tx
       );
 
-      // Award referral commissions (Tier 1 + Tier 2) for coin purchases
-      await awardReferralCommissions(tx, userId, coinsGranted ?? 0).catch((err) =>
+      // Award referral commissions using server-derived amount, not client metadata (#17)
+      await awardReferralCommissions(tx, userId, serverCoinsGranted).catch((err) =>
         console.error("[webhook/paystack] Referral commission error:", err)
       );
     }
@@ -287,6 +308,7 @@ async function processTransferEvent(
     const newRetryCount = payout.retry_count + 1;
 
     if (newRetryCount >= maxRetries) {
+      // moveToDeadLetterQueue already uses earnings_restored guard internally
       await moveToDeadLetterQueue(
         payout.id,
         payout.creator_id,
@@ -314,20 +336,34 @@ async function processTransferEvent(
     }
 
   } else if (event.event === "transfer.reversed") {
-    // Restore earnings to creator
+    // Restore earnings to creator — guard with FOR UPDATE + earnings_restored flag
+    // to prevent duplicate webhook deliveries from double-crediting (#8)
     await db.transaction(async (tx) => {
+      const { rows: cur } = await tx.query<{ status: string; earnings_restored: boolean }>(
+        `SELECT status, earnings_restored FROM creator_payouts WHERE id = $1 FOR UPDATE`,
+        [payout.id]
+      );
+      if (!cur[0] || cur[0].status === "reversed") return; // already handled
+
       await tx.query(
         `UPDATE creator_payouts
          SET status = 'reversed', updated_at = NOW()
          WHERE id = $1`,
         [payout.id]
       );
-      await tx.query(
-        `UPDATE users
-         SET available_earnings_kobo = available_earnings_kobo + $1, updated_at = NOW()
-         WHERE id = $2`,
-        [payout.gross_kobo, payout.creator_id]
-      );
+
+      if (!cur[0].earnings_restored) {
+        await tx.query(
+          `UPDATE creator_payouts SET earnings_restored = true WHERE id = $1`,
+          [payout.id]
+        );
+        await tx.query(
+          `UPDATE users
+           SET available_earnings_kobo = available_earnings_kobo + $1, updated_at = NOW()
+           WHERE id = $2`,
+          [payout.gross_kobo, payout.creator_id]
+        );
+      }
     });
 
     // Notify creator of reversal
@@ -371,9 +407,12 @@ async function processSubscriptionEvent(
 
   if (!resolvedUserId) return;
 
-  // Map Paystack status to internal plan status
+  // Map Paystack status to internal plan status.
+  // non-renewing = paid-up but will not auto-renew; user keeps access until period end.
+  // completed / cancelled = hard cancellation; downgrade immediately.
   const isActive = status === "active";
-  const isCancelled = status === "cancelled" || status === "non-renewing" || status === "completed";
+  const isNonRenewing = status === "non-renewing";
+  const isCancelled = status === "cancelled" || status === "completed";
 
   if (event.event === "subscription.create") {
     // New subscription — update or insert user subscription record
@@ -419,8 +458,18 @@ async function processSubscriptionEvent(
       console.error("[webhook/paystack] Transaction error for subscription bonus:", err);
     });
 
+  } else if (isNonRenewing) {
+    // Subscription will not renew but is still active until period end.
+    // Mark as 'cancelling' and keep plan; the daily cron downgrades when period lapses (#16).
+    await db.query(
+      `UPDATE user_subscriptions
+       SET status = 'cancelling', updated_at = NOW()
+       WHERE user_id = $1`,
+      [resolvedUserId]
+    ).catch(() => {});
+
   } else if (isCancelled || event.event === "subscription.disable") {
-    // Subscription cancelled / not renewing
+    // Hard cancellation or provider-disabled — downgrade immediately
     await db.query(
       `UPDATE user_subscriptions
        SET status = 'cancelled', cancelled_at = NOW(), updated_at = NOW()
@@ -428,7 +477,6 @@ async function processSubscriptionEvent(
       [resolvedUserId]
     ).catch(() => {});
 
-    // Downgrade plan to free
     await db.query(
       `UPDATE users SET plan = 'free', updated_at = NOW() WHERE id = $1`,
       [resolvedUserId]
@@ -436,12 +484,16 @@ async function processSubscriptionEvent(
   }
 
   // Write notification to user
+  let notifType = "subscription_cancelled";
+  if (event.event === "subscription.create") notifType = "subscription_activated";
+  else if (isNonRenewing) notifType = "subscription_non_renewing";
+
   await db.query(
     `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
      VALUES ($1, $2, $3, false, NOW())`,
     [
       resolvedUserId,
-      event.event === "subscription.create" ? "subscription_activated" : "subscription_cancelled",
+      notifType,
       JSON.stringify({ subscriptionCode: subscription_code, status, nextPaymentDate: next_payment_date }),
     ]
   ).catch(() => {});

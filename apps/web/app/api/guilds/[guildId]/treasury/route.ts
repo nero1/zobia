@@ -191,9 +191,11 @@ export const POST = withAuth(
             ]
           );
 
-          // Add to treasury
+          // Add to treasury — LEAST clamp as a DB-level guard in case of races (#24)
           await client.query(
-            `UPDATE guilds SET treasury_balance = treasury_balance + $1, updated_at = NOW()
+            `UPDATE guilds
+             SET treasury_balance = LEAST(treasury_cap, treasury_balance + $1),
+                 updated_at = NOW()
              WHERE id = $2`,
             [body.amount, guildId]
           );

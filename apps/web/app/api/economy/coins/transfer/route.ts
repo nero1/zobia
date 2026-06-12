@@ -99,25 +99,28 @@ async function awardTransferXP(
  * Returns transfer details including fee breakdown and new balance.
  */
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
+  // Declared outside try so the catch block can clean it up on error
+  let idempKey: string | null = null;
   try {
     const body = await validateBody(req, TransferSchema);
     const senderId = auth.user.sub;
 
     await enforceRateLimit(senderId, "user", RATE_LIMITS.apiWrite);
 
-    // Idempotency check to prevent double-spend on retry
-    if (body.idempotencyKey) {
-      const idempKey = `idempotency:transfer:${senderId}:${body.idempotencyKey}`;
-      const exists = await redis.exists(idempKey);
-      if (exists) {
-        return NextResponse.json({ success: true, duplicate: true, message: "Duplicate request - transfer already processed" });
-      }
-      await redis.setex(idempKey, 86400, "1");
-    }
-
     // Prevent self-transfers
     if (body.recipientId === senderId) {
       throw badRequest("Cannot transfer coins to yourself");
+    }
+
+    // Idempotency check: atomic SET NX to prevent TOCTOU double-spend (#12).
+    // We check BEFORE the transfer; on failure we delete the key so retries can proceed.
+    if (body.idempotencyKey) {
+      idempKey = `idempotency:transfer:${senderId}:${body.idempotencyKey}`;
+      const setResult = await redis.set(idempKey, "processing", "EX", 86400, "NX");
+      if (setResult === null) {
+        // Key already exists — duplicate request
+        return NextResponse.json({ success: true, duplicate: true, message: "Duplicate request - transfer already processed" });
+      }
     }
 
     // Verify the recipient exists
@@ -129,18 +132,31 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     );
 
     if (!recipientRows[0]) {
+      // Remove the key so a corrected retry can succeed
+      if (idempKey) await redis.del(idempKey).catch(() => {});
       throw notFound("Recipient user not found");
     }
 
     const recipient = recipientRows[0];
 
     // Perform the atomic transfer with 5% platform fee
-    const { debit, credit, feeCoins } = await transferCoins(
+    const transferResult = await transferCoins(
       senderId,
       body.recipientId,
       body.amount,
       5 // 5% platform fee
-    );
+    ).catch(async (err) => {
+      // Transfer failed — remove the idempotency key so a legitimate retry can proceed
+      if (idempKey) await redis.del(idempKey).catch(() => {});
+      throw err;
+    });
+
+    const { debit, credit, feeCoins } = transferResult;
+
+    // Transfer succeeded — mark key as done (already set; update value for traceability)
+    if (idempKey) {
+      await redis.set(idempKey, "done", "EX", 86400).catch(() => {});
+    }
 
     // Award XP (fire-and-forget)
     void awardTransferXP(senderId, body.recipientId);
@@ -160,6 +176,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       recipientBalance: credit.balance_after,
     });
   } catch (err) {
+    // On unexpected errors (not already handled by the transfer catch), clean up the key
+    if (idempKey) await redis.del(idempKey).catch(() => {});
     // Rethrow INSUFFICIENT_BALANCE as a friendly 400
     if ((err as NodeJS.ErrnoException).code === "INSUFFICIENT_BALANCE") {
       return handleApiError(
