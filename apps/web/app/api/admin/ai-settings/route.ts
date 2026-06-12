@@ -55,7 +55,7 @@ export const GET = withAdminAuth(
         geminiKeySource === "override" ? geminiOverride : env.GEMINI_API_KEY;
 
       // Circuit breaker status
-      const circuit = getDeepSeekCircuitState();
+      const circuit = await getDeepSeekCircuitState();
       let circuitStatus: "closed" | "open" | "half-open" = "closed";
       if (circuit.openedAt !== null) {
         const elapsed = Date.now() - circuit.openedAt;
