@@ -10,8 +10,8 @@ export const dynamic = 'force-dynamic';
  * enforced client-side (only shown after the recipient has replied twice).
  *
  * Security:
- *  - SSRF protection: blocks private IP ranges, localhost, link-local
- *    addresses, and internal hostnames before making any outbound request.
+ *  - SSRF protection via safeFetch: blocks private IPs, link-local ranges,
+ *    and validates redirects. Also performs DNS rebinding checks.
  *  - Custom User-Agent to identify bot traffic.
  *  - 5-second fetch timeout to prevent hanging.
  *
@@ -23,118 +23,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-
-// ---------------------------------------------------------------------------
-// SSRF protection helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Parse a dotted-decimal IPv4 address into a 32-bit unsigned integer.
- * Returns null if the string is not a valid IPv4 address.
- */
-function ipv4ToInt(ip: string): number | null {
-  const parts = ip.split(".");
-  if (parts.length !== 4) return null;
-  let n = 0;
-  for (const part of parts) {
-    const octet = parseInt(part, 10);
-    if (isNaN(octet) || octet < 0 || octet > 255) return null;
-    n = (n << 8) | octet;
-  }
-  // Convert to unsigned 32-bit
-  return n >>> 0;
-}
-
-/**
- * Return true if the given IPv4 address falls within a private/reserved range.
- *
- * Blocked ranges:
- *  - 127.0.0.0/8   — loopback
- *  - 10.0.0.0/8    — RFC 1918 private
- *  - 172.16.0.0/12 — RFC 1918 private
- *  - 192.168.0.0/16 — RFC 1918 private
- *  - 169.254.0.0/16 — link-local (AWS metadata, etc.)
- *  - 0.0.0.0/8     — unspecified
- */
-function isPrivateIpv4(ip: string): boolean {
-  const n = ipv4ToInt(ip);
-  if (n === null) return false;
-
-  const ranges: [number, number, number][] = [
-    // [network, mask_bits, network_int]
-    [0x7f000000, 8, 0x7f000000],   // 127.0.0.0/8
-    [0x0a000000, 8, 0x0a000000],   // 10.0.0.0/8
-    [0xac100000, 12, 0xac100000],  // 172.16.0.0/12
-    [0xc0a80000, 16, 0xc0a80000],  // 192.168.0.0/16
-    [0xa9fe0000, 16, 0xa9fe0000],  // 169.254.0.0/16
-    [0x00000000, 8, 0x00000000],   // 0.0.0.0/8
-  ];
-
-  for (const [network, bits] of ranges) {
-    const mask = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0;
-    if ((n & mask) >>> 0 === (network & mask) >>> 0) return true;
-  }
-  return false;
-}
-
-/**
- * Validate that a URL is safe to fetch (SSRF guard).
- *
- * Blocks:
- *  - Non-http/https schemes
- *  - localhost (by name or 127.x.x.x)
- *  - IPv6 loopback [::1]
- *  - Private IPv4 ranges (10.x, 172.16-31.x, 192.168.x)
- *  - Link-local (169.254.x)
- *  - Internal TLDs: .local, .internal, .intranet, .localhost
- *
- * @param rawUrl - Raw URL string from the query parameter
- * @returns Parsed URL if safe
- * @throws ApiError 400 if the URL is blocked or invalid
- */
-function validateSsrfSafeUrl(rawUrl: string): URL {
-  let parsed: URL;
-  try {
-    parsed = new URL(rawUrl);
-  } catch {
-    throw badRequest("Invalid URL format", "INVALID_URL");
-  }
-
-  const { protocol, hostname } = parsed;
-
-  // Only http and https are allowed
-  if (protocol !== "http:" && protocol !== "https:") {
-    throw badRequest("Only http and https URLs are allowed", "INVALID_URL_SCHEME");
-  }
-
-  const host = hostname.toLowerCase();
-
-  // Block localhost by name
-  if (host === "localhost") {
-    throw badRequest("URL hostname is not allowed", "SSRF_BLOCKED");
-  }
-
-  // Block IPv6 loopback
-  if (host === "[::1]" || host === "::1") {
-    throw badRequest("URL hostname is not allowed", "SSRF_BLOCKED");
-  }
-
-  // Block internal TLDs
-  const internalTlds = [".local", ".internal", ".intranet", ".localhost"];
-  for (const tld of internalTlds) {
-    if (host.endsWith(tld)) {
-      throw badRequest("URL hostname is not allowed", "SSRF_BLOCKED");
-    }
-  }
-
-  // Block private IPv4 ranges — check if hostname looks like an IP
-  // (simple heuristic: only digits and dots)
-  if (/^[\d.]+$/.test(host) && isPrivateIpv4(host)) {
-    throw badRequest("URL hostname is not allowed", "SSRF_BLOCKED");
-  }
-
-  return parsed;
-}
+import { safeFetch, SSRFError } from "@/lib/security/ssrf";
 
 // ---------------------------------------------------------------------------
 // Meta-tag parsing helpers
@@ -244,23 +133,21 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       throw badRequest("Query parameter 'url' is required", "MISSING_URL");
     }
 
-    // SSRF guard — throws 400 if blocked
-    const safeUrl = validateSsrfSafeUrl(rawUrl);
-
-    // Fetch with a 5-second timeout and custom User-Agent
+    // Fetch with a 5-second timeout and custom User-Agent.
+    // safeFetch validates the URL (private IPs, DNS rebinding, redirect chains)
+    // so no separate SSRF pre-check is needed.
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5_000);
 
     let html: string;
     try {
-      const response = await fetch(safeUrl.toString(), {
+      const response = await safeFetch(rawUrl, {
         signal: controller.signal,
         headers: {
           "User-Agent": "ZobiaBot/1.0 (link-preview)",
           Accept: "text/html,application/xhtml+xml",
           "Accept-Language": "en-US,en;q=0.9",
         },
-        redirect: "follow",
       });
 
       // Only parse HTML responses
@@ -268,7 +155,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       if (!contentType.includes("text/html") && !contentType.includes("application/xhtml")) {
         // Return minimal preview for non-HTML responses
         return NextResponse.json<LinkPreviewResult>({
-          url: safeUrl.toString(),
+          url: rawUrl,
           title: null,
           description: null,
           image: null,
@@ -281,12 +168,15 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       const partial = Buffer.from(buffer).slice(0, 100_000).toString("utf-8");
       html = partial;
     } catch (err: unknown) {
+      if (err instanceof SSRFError) {
+        throw badRequest("URL hostname is not allowed", "SSRF_BLOCKED");
+      }
       if (err instanceof Error && err.name === "AbortError") {
         throw badRequest("Link preview timed out after 5 seconds", "FETCH_TIMEOUT");
       }
       // For network errors, return an empty preview rather than a 500
       return NextResponse.json<LinkPreviewResult>({
-        url: safeUrl.toString(),
+        url: rawUrl,
         title: null,
         description: null,
         image: null,
@@ -308,7 +198,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const ogSiteName = extractMetaContent(html, "og:site_name");
 
     const result: LinkPreviewResult = {
-      url: ogUrl ?? safeUrl.toString(),
+      url: ogUrl ?? rawUrl,
       title: ogTitle ?? fallbackTitle,
       description: ogDescription ?? metaDescription,
       image: ogImage,

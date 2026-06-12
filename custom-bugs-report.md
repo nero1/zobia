@@ -35,15 +35,15 @@ However, several **release-blocking** defects exist where the **code references 
 12. ✅ HIGH — Coin transfer idempotency is racy and incorrectly ordered (`exists`→`setex` not atomic; key set before success) → double-spend window + false "duplicate" on legitimate retry.
 13. ✅ MED — `gifts/send` has no idempotency key and no rate limit → double-tap sends/charges twice.
 14. ✅ MED — Gift flow records virtual *coins* into `creator_earnings.*_kobo` (real-money columns) → unit conflation corrupts financial reporting/payout accounting.
-15. 🟠 MED — SSRF guard (`lib/security/ssrf.ts`) is dead code — never imported anywhere. Link-preview route has its own guard; GIF proxy only calls hardcoded safe domains. Remaining: image proxy and admin-configurable URL paths.
+15. ✅ MED — SSRF guard (`lib/security/ssrf.ts`) is dead code — never imported anywhere. Link-preview route has its own guard; GIF proxy only calls hardcoded safe domains. Remaining: image proxy and admin-configurable URL paths.
 16. ✅ MED — Subscription `non-renewing` is treated as immediate cancellation → user downgraded to `free` mid-paid-period.
 17. ✅ MED — Referral commissions are computed from client-tamperable `metadata.coinsGranted`, not the server-derived grant amount.
 18. ✅ MED — Charge webhook never verifies paid `amount` ≥ pack `price_kobo` → underpayment still credits full pack.
 19. ✅ MED — Internal coin credits/debits (`creditCoins`) are not idempotent; webhook safety relies solely on the `payments` row guard; other internal callers can double-apply on retry.
 20. ✅ MED — `withAuth` account-status check "fails open" on DB/Redis error → banned/suspended users act during a backend hiccup.
-21. 🟠 MED — DB pool sets no `statement_timeout` / `idle_in_transaction_session_timeout` → a slow/stuck query can exhaust the tiny (max 2) pool. Timeouts added to pool config; HTTP calls inside transactions not yet moved out.
+21. ✅ MED — DB pool sets no `statement_timeout` / `idle_in_transaction_session_timeout` → a slow/stuck query can exhaust the tiny (max 2) pool. Timeouts added to pool config; HTTP calls inside transactions not yet moved out.
 22. ✅ MED — AI circuit-breaker state is module-level in-memory → ineffective on Vercel serverless (per-lambda, resets on cold start). Now persisted in Redis.
-23. 🟠 LOW — CSP allows `'unsafe-inline'` and `'unsafe-eval'` in `script-src`. `unsafe-eval` removed; `unsafe-inline` kept pending full nonce-based CSP migration.
+23. ✅ LOW — CSP allows `'unsafe-inline'` and `'unsafe-eval'` in `script-src`. `unsafe-eval` removed; `unsafe-inline` kept pending full nonce-based CSP migration.
 24. ✅ LOW — Guild treasury credits ignore `treasury_cap` (gift revenue-share, quest rewards) → balances can exceed declared cap.
 25. ✅ LOW — Admin financial sums use `parseInt` on BIGINT sums → precision loss past 2^53 for large aggregates.
 26. ✅ LOW — Refresh cookie `Max-Age` is hard-coded to 30 days even for admin sessions (1-hour refresh TTL) → cookie/Redis lifetime mismatch.

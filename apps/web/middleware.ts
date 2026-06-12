@@ -20,6 +20,38 @@ import { type NextRequest, NextResponse } from "next/server";
 import { jwtVerify, SignJWT, errors as JoseErrors } from "jose";
 
 // ---------------------------------------------------------------------------
+// CSP nonce helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a per-request Content-Security-Policy string.
+ *
+ * Includes 'nonce-<nonce>' AND 'unsafe-inline' in script-src.
+ * Browsers that support CSP Level 3 (Chrome 67+, Firefox 68+, Safari 15.4+)
+ * treat a valid nonce as overriding 'unsafe-inline' for inline scripts, so
+ * this progressively hardens security on modern browsers while keeping the
+ * site functional on older ones. 'strict-dynamic' is included so that scripts
+ * bearing the nonce can in turn load other scripts (required by Next.js's
+ * dynamic chunk loading).
+ */
+function buildCsp(nonce: string): string {
+  return [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-inline' https://www.google.com https://www.gstatic.com https://challenges.cloudflare.com`,
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data: blob: https: http:",
+    "connect-src 'self' https: wss:",
+    "frame-src 'self' https://www.google.com https://challenges.cloudflare.com",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'self'",
+    "upgrade-insecure-requests",
+  ].join("; ");
+}
+
+// ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
 
@@ -140,17 +172,33 @@ function isCsrfSafe(request: NextRequest): boolean {
 /**
  * Next.js Edge Middleware.
  * Runs before every request to enforce authentication rules.
+ * Also generates a per-request CSP nonce and forwards it via the
+ * x-nonce request header so server components can apply it to inline scripts.
  */
 export async function middleware(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
   const token = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
 
+  // Generate a per-request nonce for Content-Security-Policy.
+  const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
+  const csp = buildCsp(nonce);
+
+  // Helper: wrap any NextResponse.next() with the CSP header and nonce.
+  function withCsp(requestHeaders: Headers): NextResponse {
+    requestHeaders.set("x-nonce", nonce);
+    const res = NextResponse.next({ request: { headers: requestHeaders } });
+    res.headers.set("Content-Security-Policy", csp);
+    return res;
+  }
+
   // CSRF check for all API mutation endpoints
   if (pathname.startsWith("/api/") && !isPublicRoute(pathname) && !isCsrfSafe(request)) {
-    return NextResponse.json(
+    const res = NextResponse.json(
       { error: "Forbidden", code: "CSRF_ORIGIN_MISMATCH" },
       { status: 403 }
     );
+    res.headers.set("Content-Security-Policy", csp);
+    return res;
   }
 
   // Allow admin login page without auth
@@ -161,7 +209,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
         return NextResponse.redirect(new URL("/admin", request.url));
       }
     }
-    return NextResponse.next();
+    return withCsp(new Headers(request.headers));
   }
 
   // Public routes – pass through
@@ -173,7 +221,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
         return NextResponse.redirect(new URL(HOME_URL, request.url));
       }
     }
-    return NextResponse.next();
+    return withCsp(new Headers(request.headers));
   }
 
   // Admin routes – check JWT + is_admin claim
@@ -205,17 +253,19 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     requestHeaders.delete("x-user-id");
     requestHeaders.delete("x-is-admin");
     requestHeaders.delete("x-session-id");
-    return NextResponse.next({ request: { headers: requestHeaders } });
+    return withCsp(requestHeaders);
   }
 
   // App / API routes – require authenticated user
   if (isAppRoute(pathname)) {
     if (!token) {
       if (pathname.startsWith("/api/")) {
-        return NextResponse.json(
+        const res = NextResponse.json(
           { error: "Unauthorised", code: "MISSING_TOKEN" },
           { status: 401 }
         );
+        res.headers.set("Content-Security-Policy", csp);
+        return res;
       }
       const loginUrl = new URL(LOGIN_URL, request.url);
       loginUrl.searchParams.set("redirect", pathname);
@@ -226,10 +276,12 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 
     if (!payload?.sub) {
       if (pathname.startsWith("/api/")) {
-        return NextResponse.json(
+        const res = NextResponse.json(
           { error: "Unauthorised", code: "INVALID_TOKEN" },
           { status: 401 }
         );
+        res.headers.set("Content-Security-Policy", csp);
+        return res;
       }
       const loginUrl = new URL(LOGIN_URL, request.url);
       loginUrl.searchParams.set("redirect", pathname);
@@ -243,10 +295,10 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     requestHeaders.delete("x-user-id");
     requestHeaders.delete("x-is-admin");
     requestHeaders.delete("x-session-id");
-    return NextResponse.next({ request: { headers: requestHeaders } });
+    return withCsp(requestHeaders);
   }
 
-  return NextResponse.next();
+  return withCsp(new Headers(request.headers));
 }
 
 // ---------------------------------------------------------------------------

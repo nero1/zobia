@@ -16,7 +16,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { ThemeProvider } from "next-themes";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import "./globals.css";
 import { ReactQueryProvider } from "@/components/providers/ReactQueryProvider";
 import { I18nProvider } from "@/components/providers/I18nProvider";
@@ -135,6 +135,10 @@ async function getFooterScripts(): Promise<Array<{ id: string; content: string }
 export default async function RootLayout({ children }: RootLayoutProps) {
   const footerScripts = await getFooterScripts();
 
+  // Read CSP nonce injected by middleware so we can apply it to footer scripts.
+  const requestHeaders = await headers();
+  const nonce = requestHeaders.get("x-nonce") ?? "";
+
   // Resolve locale from the i18n cookie set by the browser language detector.
   const cookieStore = await cookies();
   const rawLocale = cookieStore.get("zobia_lang")?.value ?? DEFAULT_LOCALE;
@@ -172,7 +176,13 @@ export default async function RootLayout({ children }: RootLayoutProps) {
         {footerScripts.filter(s => s.content.trim()).map((script) => (
           <div
             key={script.id}
-            dangerouslySetInnerHTML={{ __html: script.content }}
+            dangerouslySetInnerHTML={{
+              // Inject the CSP nonce into every <script> tag so admin-added
+              // scripts are allowed through the nonce-based policy.
+              __html: nonce
+                ? script.content.replace(/<script(\s|>)/gi, `<script nonce="${nonce}"$1`)
+                : script.content,
+            }}
           />
         ))}
       </body>
