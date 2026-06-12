@@ -24,6 +24,8 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, notFound, handleApiError } from "@/lib/api/errors";
 import { db } from "@/lib/db";
 import { transferCoins } from "@/lib/economy/coins";
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { redis } from "@/lib/redis";
 
 // ---------------------------------------------------------------------------
 // Request schema
@@ -41,6 +43,7 @@ const TransferSchema = z.object({
     .int("Amount must be an integer")
     .min(10, "Minimum transfer amount is 10 coins")
     .max(100_000, "Maximum single transfer is 100,000 coins"),
+  idempotencyKey: z.string().uuid("idempotencyKey must be a valid UUID").optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -99,6 +102,18 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const body = await validateBody(req, TransferSchema);
     const senderId = auth.user.sub;
+
+    await enforceRateLimit(senderId, "user", RATE_LIMITS.apiWrite);
+
+    // Idempotency check to prevent double-spend on retry
+    if (body.idempotencyKey) {
+      const idempKey = `idempotency:transfer:${senderId}:${body.idempotencyKey}`;
+      const exists = await redis.exists(idempKey);
+      if (exists) {
+        return NextResponse.json({ success: true, duplicate: true, message: "Duplicate request - transfer already processed" });
+      }
+      await redis.setex(idempKey, 86400, "1");
+    }
 
     // Prevent self-transfers
     if (body.recipientId === senderId) {

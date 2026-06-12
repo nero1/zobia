@@ -557,7 +557,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         giftEmoji: typeof meta.giftEmoji === "string" ? meta.giftEmoji : undefined,
         giftAmount: typeof meta.giftAmount === "number" ? meta.giftAmount : undefined,
       };
-      void publishRealtimeEvent(`room:${roomId}`, "new_message", realtimePayload);
+      void publishRealtimeEvent(`room:${roomId}:messages`, "new_message", realtimePayload);
     }
 
     return NextResponse.json({ message }, { status: 201 });

@@ -32,6 +32,7 @@ import {
   REFRESH_TOKEN_COOKIE,
 } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { redis } from "@/lib/redis";
 import {
   ApiError,
   unauthorized,
@@ -139,6 +140,35 @@ export function withAuth<TParams = Record<string, string>>(
         cleared.cookies.set(ACCESS_TOKEN_COOKIE, "", { maxAge: 0, path: "/" });
         cleared.cookies.set(REFRESH_TOKEN_COOKIE, "", { maxAge: 0, path: "/" });
         return cleared;
+      }
+
+      // Check account status (banned/suspended/deleted) — cached 30s to reduce DB load
+      const statusKey = `user:status:${payload.sub}`;
+      let accountBlocked = false;
+      try {
+        const cachedStatus = await redis.get(statusKey);
+        if (cachedStatus !== null) {
+          accountBlocked = cachedStatus === "blocked";
+        } else {
+          const { rows: statusRows } = await db.query<{
+            is_banned: boolean;
+            is_suspended: boolean;
+            deleted_at: string | null;
+          }>(
+            `SELECT is_banned, is_suspended, deleted_at FROM users WHERE id = $1 LIMIT 1`,
+            [payload.sub]
+          );
+          const s = statusRows[0];
+          accountBlocked = !s || !!s.deleted_at || s.is_banned || s.is_suspended;
+          await redis.setex(statusKey, 30, accountBlocked ? "blocked" : "ok").catch(() => {});
+        }
+      } catch {
+        // If status check fails, allow the request to proceed (fail open)
+      }
+
+      if (accountBlocked) {
+        await invalidateSession(payload.sid, payload.sub).catch(() => {});
+        throw unauthorized("Account is not active. Please contact support.");
       }
 
       // Geolocation anomaly detection (PRD §19, §23)

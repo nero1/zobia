@@ -80,32 +80,6 @@ async function verifyToken(token: string): Promise<TokenPayload | null> {
   }
 }
 
-/** Attempt to silently refresh the access token using the refresh cookie. */
-async function tryRefreshToken(
-  request: NextRequest
-): Promise<{ newAccessToken: string; expiresIn: number } | null> {
-  const refreshToken = request.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
-  if (!refreshToken) return null;
-
-  try {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin;
-    const res = await fetch(`${appUrl}/api/auth/refresh`, {
-      method: "POST",
-      headers: { cookie: `${REFRESH_TOKEN_COOKIE}=${refreshToken}` },
-    });
-    if (!res.ok) return null;
-    const body = (await res.json()) as { expiresIn?: number; accessToken?: string };
-    // The refresh endpoint sets a new cookie; we need the raw token value.
-    // Extract it from the Set-Cookie header.
-    const setCookie = res.headers.get("set-cookie") ?? "";
-    const match = setCookie.match(/zobia_at=([^;]+)/);
-    if (!match) return null;
-    return { newAccessToken: match[1], expiresIn: body.expiresIn ?? 900 };
-  } catch {
-    return null;
-  }
-}
-
 function isPublicRoute(pathname: string): boolean {
   if (pathname === "/" || pathname === "") return true;
   return PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix));
@@ -220,36 +194,17 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
       return NextResponse.redirect(new URL(HOME_URL, request.url));
     }
 
-    // Pass admin identity in headers for downstream use
     const requestHeaders = new Headers(request.headers);
-    requestHeaders.set("x-user-id", payload.sub ?? "");
-    requestHeaders.set("x-is-admin", "true");
-    requestHeaders.set("x-session-id", payload.sid ?? "");
-
+    // Strip inbound identity headers that could be client-spoofed
+    requestHeaders.delete("x-user-id");
+    requestHeaders.delete("x-is-admin");
+    requestHeaders.delete("x-session-id");
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   // App / API routes – require authenticated user
   if (isAppRoute(pathname)) {
     if (!token) {
-      // Try silent refresh before giving up
-      const refreshed = await tryRefreshToken(request);
-      if (refreshed) {
-        // Re-verify the freshly issued token
-        const freshPayload = await verifyToken(refreshed.newAccessToken);
-        if (freshPayload?.sub) {
-          const secure = process.env.NODE_ENV === "production";
-          const cookieFlags = `HttpOnly; Path=/; SameSite=Lax${secure ? "; Secure" : ""}; Max-Age=${refreshed.expiresIn}`;
-          const requestHeaders = new Headers(request.headers);
-          requestHeaders.set("x-user-id", freshPayload.sub);
-          requestHeaders.set("x-is-admin", String(freshPayload.is_admin ?? false));
-          requestHeaders.set("x-session-id", freshPayload.sid ?? "");
-          const response = NextResponse.next({ request: { headers: requestHeaders } });
-          response.headers.set("Set-Cookie", `${ACCESS_TOKEN_COOKIE}=${refreshed.newAccessToken}; ${cookieFlags}`);
-          return response;
-        }
-      }
-      // API routes return JSON 401
       if (pathname.startsWith("/api/")) {
         return NextResponse.json(
           { error: "Unauthorised", code: "MISSING_TOKEN" },
@@ -261,25 +216,9 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
       return NextResponse.redirect(loginUrl);
     }
 
-    let payload = await verifyToken(token);
+    const payload = await verifyToken(token);
 
-    // Token present but invalid/expired — try silent refresh
     if (!payload?.sub) {
-      const refreshed = await tryRefreshToken(request);
-      if (refreshed) {
-        payload = await verifyToken(refreshed.newAccessToken);
-        if (payload?.sub) {
-          const secure = process.env.NODE_ENV === "production";
-          const cookieFlags = `HttpOnly; Path=/; SameSite=Lax${secure ? "; Secure" : ""}; Max-Age=${refreshed.expiresIn}`;
-          const requestHeaders = new Headers(request.headers);
-          requestHeaders.set("x-user-id", payload.sub);
-          requestHeaders.set("x-is-admin", String(payload.is_admin ?? false));
-          requestHeaders.set("x-session-id", payload.sid ?? "");
-          const response = NextResponse.next({ request: { headers: requestHeaders } });
-          response.headers.set("Set-Cookie", `${ACCESS_TOKEN_COOKIE}=${refreshed.newAccessToken}; ${cookieFlags}`);
-          return response;
-        }
-      }
       if (pathname.startsWith("/api/")) {
         return NextResponse.json(
           { error: "Unauthorised", code: "INVALID_TOKEN" },
@@ -293,12 +232,11 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
       return response;
     }
 
-    // Forward user identity to route handlers via headers
+    // Strip inbound spoofed identity headers — handlers re-verify JWT themselves
     const requestHeaders = new Headers(request.headers);
-    requestHeaders.set("x-user-id", payload.sub);
-    requestHeaders.set("x-is-admin", String(payload.is_admin ?? false));
-    requestHeaders.set("x-session-id", payload.sid ?? "");
-
+    requestHeaders.delete("x-user-id");
+    requestHeaders.delete("x-is-admin");
+    requestHeaders.delete("x-session-id");
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 

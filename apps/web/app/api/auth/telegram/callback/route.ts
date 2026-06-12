@@ -40,6 +40,8 @@ interface UserRow {
   username: string;
   is_admin: boolean;
   is_moderator: boolean;
+  is_banned: boolean;
+  is_suspended: boolean;
   totp_enabled: boolean;
   onboarding_completed: boolean;
 }
@@ -64,14 +66,20 @@ async function upsertTelegramUser(profile: {
 }): Promise<UserRow> {
   // Check if user already exists with this Telegram ID
   const existing = await db.query<UserRow>(
-    `SELECT id, email, username, is_admin, is_moderator, totp_enabled, onboarding_completed
+    `SELECT id, email, username, is_admin, is_moderator, is_banned, is_suspended,
+            totp_enabled, onboarding_completed
      FROM users
      WHERE telegram_id = $1 AND deleted_at IS NULL
      LIMIT 1`,
     [profile.telegramId]
   );
 
-  if (existing.rows[0]) return existing.rows[0];
+  if (existing.rows[0]) {
+    const u = existing.rows[0];
+    if (u.is_banned) throw Object.assign(new Error("Account is banned"), { code: "ACCOUNT_BANNED" });
+    if (u.is_suspended) throw Object.assign(new Error("Account is suspended"), { code: "ACCOUNT_SUSPENDED" });
+    return u;
+  }
 
   // Build display name from Telegram profile
   const displayName = [profile.firstName, profile.lastName]
@@ -187,6 +195,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     response.headers.append("Set-Cookie", refreshCookie);
     return response;
   } catch (err) {
+    const code = (err as { code?: string }).code;
+    if (code === "ACCOUNT_BANNED" || code === "ACCOUNT_SUSPENDED") {
+      const reqOrigin = env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin;
+      return NextResponse.redirect(
+        new URL(`/auth/login?error=${code.toLowerCase()}`, reqOrigin),
+        { status: 302 }
+      );
+    }
     return handleApiError(err);
   }
 }

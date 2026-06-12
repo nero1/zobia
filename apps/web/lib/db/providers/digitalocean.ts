@@ -36,7 +36,7 @@ function getPool(): Pool {
       connectionString: env.DATABASE_URL,
       // DigitalOcean Managed Postgres always requires SSL
       ssl: { rejectUnauthorized: false },
-      max: 10,
+      max: parseInt(process.env.DB_POOL_SIZE ?? "2", 10),
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 8_000,
     });
@@ -58,7 +58,7 @@ function getDirectPool(): Pool {
       connectionString: env.DIRECT_URL,
       ssl: { rejectUnauthorized: false },
       // Keep direct connections minimal; used only for transactions
-      max: 3,
+      max: parseInt(process.env.DB_DIRECT_POOL_SIZE ?? "2", 10),
       idleTimeoutMillis: 15_000,
       connectionTimeoutMillis: 8_000,
     });
@@ -112,7 +112,9 @@ export class DigitalOceanDatabaseAdapter implements DatabaseAdapter {
       await client.query("COMMIT");
       return result;
     } catch (err) {
-      await client.query("ROLLBACK");
+      try { await client.query("ROLLBACK"); } catch (rollbackErr) {
+        console.error("[db] ROLLBACK failed:", rollbackErr);
+      }
       throw err;
     } finally {
       client.release();

@@ -60,7 +60,9 @@ export function getCreatorFeeRate(creatorTier: string | null | undefined): numbe
 const RETRY_DELAYS_MINUTES = [5, 15, 45] as const;
 
 function nextRetryOffsetMinutes(retryCount: number): number {
-  return RETRY_DELAYS_MINUTES[retryCount] ?? 60;
+  const base = RETRY_DELAYS_MINUTES[retryCount] ?? 60;
+  const jitter = (Math.random() - 0.5) * base * 0.4;
+  return Math.max(1, Math.round(base + jitter));
 }
 
 // ---------------------------------------------------------------------------
@@ -79,12 +81,17 @@ export async function processPendingPayouts(
 
   // ── Phase 1: Process freshly queued pending payouts ──────────────────────
   const { rows: pendingRows } = await db.query<PendingPayoutRow>(
-    `SELECT id, creator_id, net_kobo, gross_kobo, idempotency_key, retry_count,
-            bank_account_snapshot
-     FROM creator_payouts
-     WHERE status = 'pending' AND payout_method = 'bank_transfer'
-     ORDER BY created_at ASC
-     LIMIT $1`,
+    `UPDATE creator_payouts
+     SET status = 'processing', updated_at = NOW()
+     WHERE id IN (
+       SELECT id FROM creator_payouts
+       WHERE status = 'pending' AND payout_method = 'bank_transfer'
+       ORDER BY created_at ASC
+       LIMIT $1
+       FOR UPDATE SKIP LOCKED
+     )
+     RETURNING id, creator_id, net_kobo, gross_kobo, idempotency_key, retry_count,
+               bank_account_snapshot`,
     [batchSize]
   );
 
@@ -101,16 +108,21 @@ export async function processPendingPayouts(
 
   // ── Phase 2: Retry failed payouts whose retry window has elapsed ─────────
   const { rows: retryRows } = await db.query<PendingPayoutRow>(
-    `SELECT id, creator_id, net_kobo, gross_kobo, idempotency_key, retry_count,
-            bank_account_snapshot
-     FROM creator_payouts
-     WHERE status = 'failed'
-       AND payout_method = 'bank_transfer'
-       AND next_retry_at IS NOT NULL
-       AND next_retry_at <= NOW()
-       AND retry_count < $1
-     ORDER BY next_retry_at ASC
-     LIMIT $2`,
+    `UPDATE creator_payouts
+     SET status = 'processing', updated_at = NOW()
+     WHERE id IN (
+       SELECT id FROM creator_payouts
+       WHERE status = 'failed'
+         AND payout_method = 'bank_transfer'
+         AND next_retry_at IS NOT NULL
+         AND next_retry_at <= NOW()
+         AND retry_count < $1
+       ORDER BY next_retry_at ASC
+       LIMIT $2
+       FOR UPDATE SKIP LOCKED
+     )
+     RETURNING id, creator_id, net_kobo, gross_kobo, idempotency_key, retry_count,
+               bank_account_snapshot`,
     [maxRetries, Math.max(1, Math.floor(batchSize / 4))]
   );
 
@@ -162,8 +174,7 @@ async function attemptTransfer(
 
     await db.query(
       `UPDATE creator_payouts
-       SET status = 'processing',
-           provider_reference = $1,
+       SET provider_reference = $1,
            last_retry_at = NOW(),
            next_retry_at = NULL,
            updated_at = NOW()

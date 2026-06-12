@@ -3,11 +3,16 @@ export const dynamic = 'force-dynamic';
 /**
  * app/api/rooms/[roomId]/stream/route.ts
  *
- * SSE endpoint for room message streaming.
+ * SSE endpoint for room message streaming — push-on-write architecture.
  *
  * GET /api/rooms/:roomId/stream
- *   Returns new messages as they are polled from the database every 2 seconds.
- *   Format: data: {type: "message", payload: {...}}\n\n
+ *   Sends the initial batch of messages then a `realtime_ready` event that
+ *   instructs the client to subscribe to the realtime provider directly.
+ *   The stream closes immediately after delivering those events — no
+ *   long-lived polling loop. This is safe on Vercel Hobby serverless because
+ *   function execution time is bounded and the DB pool is not exhausted.
+ *
+ *   Format: data: {type: "message"|"realtime_ready"}\n\n
  *
  *   Query params:
  *     - lastMessageId  UUID of the last message the client has seen.
@@ -20,15 +25,16 @@ export const dynamic = 'force-dynamic';
  *     Cache-Control: no-cache
  *     Connection:    keep-alive
  *
- *   The stream closes automatically after 60 seconds; clients should reconnect.
- *   Requires a valid JWT (Authorization header or access_token cookie).
+ *   After receiving `realtime_ready`, clients must subscribe to the realtime
+ *   provider channel `room:<roomId>:messages` using the native SDK to receive
+ *   new messages in real time.
  *
  * Usage:
  *   const es = new EventSource(`/api/rooms/${roomId}/stream?lastMessageId=${lastId}`);
  *   es.onmessage = (e) => {
- *     const { type, payload } = JSON.parse(e.data);
- *     if (type === 'message') appendMessage(payload);
- *     if (type === 'ping')    console.log('alive');
+ *     const { type, payload, channel } = JSON.parse(e.data);
+ *     if (type === 'message')        appendMessage(payload);
+ *     if (type === 'realtime_ready') subscribeToChannel(channel);
  *   };
  */
 
@@ -39,19 +45,6 @@ import {
   extractBearerToken,
 } from "@/lib/auth/jwt";
 import { getSession, ACCESS_TOKEN_COOKIE } from "@/lib/auth/session";
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/** How often the server polls the database for new messages (ms). */
-const POLL_INTERVAL_MS = 2_000;
-
-/** Maximum lifetime of an SSE connection before client must reconnect (ms). */
-const MAX_STREAM_DURATION_MS = 60_000;
-
-/** Keep-alive ping interval (ms). */
-const PING_INTERVAL_MS = 15_000;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -122,11 +115,13 @@ function sseEvent(data: unknown): string {
 }
 
 /**
- * Fetch messages created after the given cursor timestamp or lastMessageId.
+ * Fetch messages using a composite (created_at, id) cursor to avoid skipping
+ * messages that share the same timestamp as the last seen message.
  */
 async function fetchNewMessages(
   roomId: string,
-  afterCreatedAt: string | null
+  afterCreatedAt: string | null,
+  afterId: string | null
 ): Promise<MessageRow[]> {
   const query = afterCreatedAt
     ? `SELECT
@@ -146,8 +141,8 @@ async function fetchNewMessages(
        JOIN users u ON u.id = m.sender_id
        WHERE m.room_id = $1
          AND m.is_deleted = FALSE
-         AND m.created_at > $2
-       ORDER BY m.created_at ASC
+         AND (m.created_at, m.id) > ($2, $3)
+       ORDER BY m.created_at ASC, m.id ASC
        LIMIT 50`
     : `SELECT
          m.id,
@@ -166,12 +161,12 @@ async function fetchNewMessages(
        JOIN users u ON u.id = m.sender_id
        WHERE m.room_id = $1
          AND m.is_deleted = FALSE
-       ORDER BY m.created_at DESC
+       ORDER BY m.created_at DESC, m.id DESC
        LIMIT 20`;
 
   const { rows } = await db.query<MessageRow>(
     query,
-    afterCreatedAt ? [roomId, afterCreatedAt] : [roomId]
+    afterCreatedAt ? [roomId, afterCreatedAt, afterId ?? ""] : [roomId]
   );
 
   // For the initial load (no cursor), reverse to chronological order
@@ -238,20 +233,27 @@ export async function GET(
     return new Response("Forbidden", { status: 403 });
   }
 
-  // ---- Resolve lastMessageId to a created_at cursor ------------------------
+  // ---- Resolve lastMessageId to a composite cursor -------------------------
   const url = new URL(req.url);
   const lastMessageId = url.searchParams.get("lastMessageId");
 
   let afterCreatedAt: string | null = null;
+  let afterId: string | null = null;
   if (lastMessageId) {
-    const { rows: anchorRows } = await db.query<{ created_at: string }>(
-      `SELECT created_at FROM room_messages WHERE id = $1 AND room_id = $2`,
+    const { rows: anchorRows } = await db.query<{ created_at: string; id: string }>(
+      `SELECT created_at, id FROM room_messages WHERE id = $1 AND room_id = $2`,
       [lastMessageId, roomId]
     );
-    afterCreatedAt = anchorRows[0]?.created_at ?? null;
+    if (anchorRows[0]) {
+      afterCreatedAt = anchorRows[0].created_at;
+      afterId = anchorRows[0].id;
+    }
   }
 
   // ---- Build SSE stream ----------------------------------------------------
+  // Architecture: send the initial batch of messages, then a realtime_ready
+  // event so the client can subscribe to the provider's native SDK channel.
+  // The stream closes immediately — no polling loop, no function-hours wasted.
   const encoder = new TextEncoder();
   let closed = false;
 
@@ -267,57 +269,8 @@ export async function GET(
         }
       };
 
-      // Send initial batch of messages
-      try {
-        const initial = await fetchNewMessages(roomId, afterCreatedAt);
-        for (const msg of initial) {
-          enqueue({ type: "message", payload: rowToMessage(msg) });
-          afterCreatedAt = msg.created_at;
-        }
-      } catch (err) {
-        console.error("[stream] initial fetch error:", err);
-      }
-
-      // Periodic poll for new messages
-      const pollId = setInterval(async () => {
-        if (closed) {
-          clearInterval(pollId);
-          return;
-        }
-        try {
-          const newMessages = await fetchNewMessages(roomId, afterCreatedAt);
-          for (const msg of newMessages) {
-            enqueue({ type: "message", payload: rowToMessage(msg) });
-            afterCreatedAt = msg.created_at;
-          }
-        } catch (err) {
-          console.error("[stream] poll error:", err);
-        }
-      }, POLL_INTERVAL_MS);
-
-      // Keep-alive ping to prevent proxy/browser timeouts
-      const pingId = setInterval(() => {
-        enqueue({ type: "ping", ts: Date.now() });
-      }, PING_INTERVAL_MS);
-
-      // Auto-close after MAX_STREAM_DURATION_MS (client should reconnect)
-      const timeoutId = setTimeout(() => {
-        clearInterval(pollId);
-        clearInterval(pingId);
-        closed = true;
-        enqueue({ type: "close", reason: "reconnect" });
-        try {
-          controller.close();
-        } catch {
-          // already closed
-        }
-      }, MAX_STREAM_DURATION_MS);
-
-      // Cleanup on client disconnect
+      // Cleanup on client disconnect (fires if the client closes before we do)
       req.signal.addEventListener("abort", () => {
-        clearInterval(pollId);
-        clearInterval(pingId);
-        clearTimeout(timeoutId);
         closed = true;
         try {
           controller.close();
@@ -325,6 +278,32 @@ export async function GET(
           // already closed
         }
       });
+
+      // Send initial batch of messages
+      try {
+        const initial = await fetchNewMessages(roomId, afterCreatedAt, afterId);
+        for (const msg of initial) {
+          enqueue({ type: "message", payload: rowToMessage(msg) });
+        }
+      } catch (err) {
+        console.error("[stream] initial fetch error:", err);
+      }
+
+      // Instruct the client to subscribe via the realtime provider's native SDK.
+      // The client should connect to this channel to receive new messages going
+      // forward. See lib/realtime/index.ts for the architecture note.
+      enqueue({
+        type: "realtime_ready",
+        channel: `room:${roomId}:messages`,
+      });
+
+      // Close the stream — the client now uses the realtime SDK for new messages.
+      closed = true;
+      try {
+        controller.close();
+      } catch {
+        // already closed
+      }
     },
   });
 

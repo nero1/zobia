@@ -60,23 +60,25 @@ async function writeLedgerEntry(
   referenceId: string | null,
   description: string | null,
   metadata: Record<string, unknown> | null
-): Promise<void> {
-  await tx.query(
+): Promise<CoinLedgerEntry> {
+  const { rows } = await tx.query<CoinLedgerEntry>(
     `INSERT INTO coin_ledger
        (user_id, amount, balance_before, balance_after,
         transaction_type, reference_id, description, metadata)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     RETURNING *`,
     [
       userId,
-      amount.toNumber(),
-      balanceBefore.toNumber(),
-      balanceAfter.toNumber(),
+      amount.toFixed(0),
+      balanceBefore.toFixed(0),
+      balanceAfter.toFixed(0),
       type,
       referenceId ?? null,
       description ?? null,
       metadata ? JSON.stringify(metadata) : null,
     ]
   );
+  return rows[0];
 }
 
 // ---------------------------------------------------------------------------
@@ -119,16 +121,10 @@ export async function creditCoins(
 
     await tx.query(
       `UPDATE users SET coin_balance = $1, updated_at = NOW() WHERE id = $2`,
-      [balanceAfter.toNumber(), userId]
+      [balanceAfter.toFixed(0), userId]
     );
 
-    await writeLedgerEntry(tx, userId, dec, balanceBefore, balanceAfter, type, referenceId, description, metadata);
-
-    const { rows } = await tx.query<CoinLedgerEntry>(
-      `SELECT * FROM coin_ledger WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
-      [userId]
-    );
-    return rows[0];
+    return writeLedgerEntry(tx, userId, dec, balanceBefore, balanceAfter, type, referenceId, description, metadata);
   };
 
   if (txClient) return run(txClient);
@@ -175,20 +171,14 @@ export async function debitCoins(
     }
 
     const balanceAfter = balanceBefore.minus(dec);
-    const debitAmount = dec.negated(); // stored as negative in ledger
+    const debitAmount = dec.negated();
 
     await tx.query(
       `UPDATE users SET coin_balance = $1, updated_at = NOW() WHERE id = $2`,
-      [balanceAfter.toNumber(), userId]
+      [balanceAfter.toFixed(0), userId]
     );
 
-    await writeLedgerEntry(tx, userId, debitAmount, balanceBefore, balanceAfter, type, referenceId, description, metadata);
-
-    const { rows } = await tx.query<CoinLedgerEntry>(
-      `SELECT * FROM coin_ledger WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
-      [userId]
-    );
-    return rows[0];
+    return writeLedgerEntry(tx, userId, debitAmount, balanceBefore, balanceAfter, type, referenceId, description, metadata);
   };
 
   if (txClient) return run(txClient);

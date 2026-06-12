@@ -19,12 +19,25 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { timingSafeEqual } from "crypto";
 import { db } from "@/lib/db";
 import { upsertLeaderboardSnapshot } from "@/lib/leaderboards/engine";
 
 // ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
+
+function isValidSecret(provided: string, expected: string): boolean {
+  if (!provided || !expected) return false;
+  try {
+    const a = Buffer.from(provided);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length) return false;
+    return timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Validates the CRON secret from the Authorization header.
@@ -33,7 +46,8 @@ function validateCronSecret(req: NextRequest): boolean {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) return false;
   const authHeader = req.headers.get("authorization");
-  return authHeader === `Bearer ${cronSecret}`;
+  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : "";
+  return isValidSecret(token, cronSecret);
 }
 
 // ---------------------------------------------------------------------------
