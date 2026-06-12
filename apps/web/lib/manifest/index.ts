@@ -209,7 +209,21 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
 // ---------------------------------------------------------------------------
 
 const CACHE_KEY = "app:manifest:v2";
+/** Raw key→value map cache — used by getManifestValue to avoid DB reads. */
+const CACHE_KV_KEY = "app:manifest:kv:v2";
 const CACHE_TTL_SECONDS = 60; // 1 minute
+
+// ---------------------------------------------------------------------------
+// Single-flight deduplication
+// ---------------------------------------------------------------------------
+
+/**
+ * In-flight promise for loadManifest(). Deduplicated across concurrent calls
+ * during a cold start so N simultaneous requests share one DB query.
+ * Cleared after resolution to allow subsequent cache-miss requests to
+ * re-populate (each new cold-start period gets its own flight).
+ */
+let _inflightManifest: Promise<ZobiaManifest> | null = null;
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -353,6 +367,9 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
  * and builds the manifest from individual key/value pairs.
  * Falls back to DEFAULT_MANIFEST if the table is empty or unavailable.
  *
+ * Single-flight: concurrent cache-miss calls during a cold start all share the
+ * same DB query promise rather than hammering the database simultaneously.
+ *
  * @returns The current application manifest
  */
 export async function loadManifest(): Promise<ZobiaManifest> {
@@ -360,7 +377,7 @@ export async function loadManifest(): Promise<ZobiaManifest> {
     return { ...DEFAULT_MANIFEST };
   }
 
-  // 1. Try cache
+  // 1. Try cache (fast path — no single-flight needed, Redis read is cheap)
   try {
     const cached = await redis.get(CACHE_KEY);
     if (cached) {
@@ -370,32 +387,53 @@ export async function loadManifest(): Promise<ZobiaManifest> {
     // Redis unavailable – continue to DB
   }
 
-  // 2. Read all rows from x_manifest
-  let manifest = DEFAULT_MANIFEST;
-  try {
-    const { rows } = await db.query<{ key: string; value: string }>(
-      "SELECT key, value FROM x_manifest"
-    );
+  // 2. Single-flight: deduplicate concurrent cold-start DB reads
+  if (_inflightManifest) return _inflightManifest;
 
-    if (rows.length > 0) {
-      const kv: Record<string, string> = {};
-      for (const row of rows) {
-        kv[row.key] = row.value;
+  _inflightManifest = (async () => {
+    try {
+      // Read all rows from x_manifest
+      let manifest: ZobiaManifest = DEFAULT_MANIFEST;
+      let kv: Record<string, string> = {};
+
+      try {
+        const { rows } = await db.query<{ key: string; value: string }>(
+          "SELECT key, value FROM x_manifest"
+        );
+
+        if (rows.length > 0) {
+          for (const row of rows) {
+            kv[row.key] = row.value;
+          }
+          manifest = buildManifest(kv);
+        }
+      } catch (err) {
+        console.error("[manifest] Failed to load from DB, using defaults", err);
+        kv = {};
       }
-      manifest = buildManifest(kv);
+
+      // Write both the full manifest and the raw KV map to cache (best-effort)
+      try {
+        await Promise.all([
+          redis.setex(CACHE_KEY, CACHE_TTL_SECONDS, JSON.stringify(manifest)),
+          redis.setex(CACHE_KV_KEY, CACHE_TTL_SECONDS, JSON.stringify(kv)),
+        ]);
+      } catch {
+        // Ignore cache write errors
+      }
+
+      return manifest;
+    } finally {
+      // Clear after a tick so that the resolved value is still returned to any
+      // callers that joined the in-flight promise, then the next cache-miss
+      // can start a fresh flight.
+      setTimeout(() => {
+        _inflightManifest = null;
+      }, 0);
     }
-  } catch (err) {
-    console.error("[manifest] Failed to load from DB, using defaults", err);
-  }
+  })();
 
-  // 3. Write to cache (best-effort)
-  try {
-    await redis.setex(CACHE_KEY, CACHE_TTL_SECONDS, JSON.stringify(manifest));
-  } catch {
-    // Ignore cache write errors
-  }
-
-  return manifest;
+  return _inflightManifest;
 }
 
 /**
@@ -404,7 +442,7 @@ export async function loadManifest(): Promise<ZobiaManifest> {
  */
 export async function invalidateManifestCache(): Promise<void> {
   try {
-    await redis.del(CACHE_KEY);
+    await redis.del(CACHE_KEY, CACHE_KV_KEY);
   } catch {
     // Ignore Redis errors during invalidation
   }
@@ -412,12 +450,27 @@ export async function invalidateManifestCache(): Promise<void> {
 
 /**
  * Read a single raw string value from x_manifest by key.
- * Returns null if the key does not exist in the database.
+ *
+ * Reads from the Redis KV cache populated by loadManifest() to avoid direct
+ * DB hits on every call. Falls back to a direct DB query if the cache is
+ * cold or unavailable.
  *
  * @param key - The x_manifest key to look up
- * @returns Raw string value or null
+ * @returns Raw string value or null if the key does not exist
  */
 export async function getManifestValue(key: string): Promise<string | null> {
+  // 1. Try the KV cache first
+  try {
+    const cachedKv = await redis.get(CACHE_KV_KEY);
+    if (cachedKv) {
+      const kv = JSON.parse(cachedKv) as Record<string, string>;
+      return kv[key] ?? null;
+    }
+  } catch {
+    // Redis unavailable – fall through to DB
+  }
+
+  // 2. Cache miss — query the DB directly
   try {
     const { rows } = await db.query<{ value: string }>(
       "SELECT value FROM x_manifest WHERE key = $1 LIMIT 1",

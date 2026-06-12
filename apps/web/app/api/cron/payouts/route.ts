@@ -29,16 +29,29 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { timingSafeEqual } from "crypto";
 import { loadManifest } from "@/lib/manifest";
-import { processPendingPayouts } from "@/lib/payments/payouts";
+import { processPendingPayouts, reconcileStuckPayouts } from "@/lib/payments/payouts";
 import { env } from "@/lib/env";
+
+function isValidSecret(provided: string, expected: string): boolean {
+  if (!provided || !expected) return false;
+  try {
+    const a = Buffer.from(provided);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length) return false;
+    return timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
 
 export const POST = async (req: NextRequest) => {
   // ── Auth ──────────────────────────────────────────────────────────────────
   const authHeader = req.headers.get("authorization") ?? "";
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
 
-  if (!env.CRON_SECRET || token !== env.CRON_SECRET) {
+  if (!env.CRON_SECRET || !isValidSecret(token, env.CRON_SECRET)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -60,9 +73,14 @@ export const POST = async (req: NextRequest) => {
 
     const result = await processPendingPayouts(batchSize, maxRetries);
 
+    // Phase 3 — Reconcile payouts stuck in 'processing' for >30 minutes.
+    // Re-queries Paystack for their current status to recover from lost webhooks.
+    const reconcileResult = await reconcileStuckPayouts();
+
     return NextResponse.json({
       success: true,
       result,
+      reconcileResult,
       durationMs: Date.now() - startedAt,
       timestamp: new Date().toISOString(),
     });

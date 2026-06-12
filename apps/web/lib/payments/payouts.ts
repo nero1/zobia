@@ -17,7 +17,7 @@
  */
 
 import { db } from "@/lib/db";
-import { initiateTransfer } from "@/lib/payments/paystack";
+import { initiateTransfer, verifyTransfer } from "@/lib/payments/paystack";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -211,6 +211,79 @@ async function attemptTransfer(
 
     return false;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Reconciliation — fix payouts stuck in 'processing'
+// ---------------------------------------------------------------------------
+
+/**
+ * Reconcile payouts stuck in 'processing' for more than 30 minutes.
+ *
+ * A payout can get stuck if the Paystack webhook is lost or delayed. This
+ * function re-queries the provider for each stuck payout's current status and
+ * updates the local record accordingly, restoring the creator's earnings on
+ * failure so funds are never permanently stuck.
+ *
+ * Runs at most 50 stuck payouts per invocation to bound execution time.
+ *
+ * @returns Counts of reconciled (completed) and failed payouts
+ */
+export async function reconcileStuckPayouts(): Promise<{ reconciled: number; failed: number }> {
+  // Find payouts stuck in 'processing' for more than 30 minutes
+  const { rows: stuckPayouts } = await db.query<{
+    id: string;
+    provider_reference: string;
+    amount_kobo: string;
+    creator_id: string;
+    gross_kobo: string;
+  }>(
+    `SELECT id, provider_reference, creator_id, gross_kobo
+     FROM creator_payouts
+     WHERE status = 'processing'
+       AND updated_at < NOW() - INTERVAL '30 minutes'
+       AND provider_reference IS NOT NULL
+     LIMIT 50`
+  );
+
+  let reconciled = 0;
+  let failed = 0;
+
+  for (const payout of stuckPayouts) {
+    try {
+      const transfer = await verifyTransfer(payout.provider_reference);
+
+      if (transfer.status === "success") {
+        await db.query(
+          `UPDATE creator_payouts SET status = 'completed', updated_at = NOW() WHERE id = $1`,
+          [payout.id]
+        );
+        reconciled++;
+      } else if (transfer.status === "failed" || transfer.status === "reversed") {
+        // Restore creator earnings and mark payout as failed
+        await db.transaction(async (tx) => {
+          await tx.query(
+            `UPDATE creator_payouts SET status = 'failed', updated_at = NOW() WHERE id = $1`,
+            [payout.id]
+          );
+          await tx.query(
+            `UPDATE users
+             SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1,
+                 updated_at = NOW()
+             WHERE id = $2`,
+            [payout.gross_kobo, payout.creator_id]
+          );
+        });
+        failed++;
+      }
+      // For other statuses (pending, otp, abandoned) — leave as 'processing'
+      // and let the next reconciliation cycle pick them up again.
+    } catch (err) {
+      console.error(`[payouts:reconcile] Failed to reconcile payout ${payout.id}:`, err);
+    }
+  }
+
+  return { reconciled, failed };
 }
 
 // ---------------------------------------------------------------------------
