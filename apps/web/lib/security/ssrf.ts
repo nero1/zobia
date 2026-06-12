@@ -8,11 +8,14 @@
  *   - Requests to internal RFC-1918 / loopback / link-local addresses
  *   - Requests to cloud metadata endpoints (169.254.x.x)
  *   - Redirects that bypass the allowlist via HTTP 3xx
+ *   - DNS rebinding attacks (hostname passes string check but resolves to private IP)
  *
  * Usage:
  *   import { safeFetch } from '@/lib/security/ssrf';
  *   const res = await safeFetch(userSuppliedUrl, { method: 'GET' });
  */
+
+import { promises as dns } from "dns";
 
 // ---------------------------------------------------------------------------
 // Private IP ranges (CIDR notation as tuple pairs for fast comparison)
@@ -59,6 +62,29 @@ function isPrivateIp(hostname: string): boolean {
   return PRIVATE_RANGES.some((range) => ipInt >= range.start && ipInt <= range.end);
 }
 
+/**
+ * Checks whether a hostname resolves to a private/internal IP address via DNS.
+ * This prevents DNS rebinding attacks where a public-looking hostname is
+ * configured to resolve to an internal RFC-1918 address at query time.
+ *
+ * IP literal hostnames are skipped (already checked by isPrivateIp).
+ * On DNS resolution failure, fails safe by returning true (block the request).
+ */
+async function isHostnameResolvingToPrivateIp(hostname: string): Promise<boolean> {
+  // Skip DNS check for IPv4 literals — already checked by isPrivateIp above
+  const parts = hostname.split(".");
+  const isIpv4Literal = parts.length === 4 && parts.every((p) => /^\d+$/.test(p));
+  if (isIpv4Literal) return false;
+
+  try {
+    const addrs = await dns.resolve4(hostname);
+    return addrs.some((addr) => isPrivateIp(addr));
+  } catch {
+    // DNS resolution failure — fail safe by blocking
+    return true;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Allowlisted hostnames (for admin-configurable URLs like manifest assets)
 // ---------------------------------------------------------------------------
@@ -93,13 +119,14 @@ export class SSRFError extends Error {
  *
  * Throws SSRFError if:
  *  - The URL is not http or https
- *  - The hostname resolves to a private/loopback/link-local address
+ *  - The hostname resolves to a private/loopback/link-local address (string check)
+ *  - The hostname resolves to a private IP via DNS (prevents DNS rebinding)
  *  - The hostname contains credentials (user:pass@)
  *
  * @param rawUrl - The URL to validate (user-supplied or admin-supplied)
  * @throws SSRFError if the URL is not safe to fetch
  */
-export function validateOutboundUrl(rawUrl: string): URL {
+export async function validateOutboundUrl(rawUrl: string): Promise<URL> {
   let parsed: URL;
   try {
     parsed = new URL(rawUrl);
@@ -127,6 +154,14 @@ export function validateOutboundUrl(rawUrl: string): URL {
   // Block localhost variants
   if (hostname === "localhost" || hostname === "0.0.0.0") {
     throw new SSRFError(`Loopback address not allowed: ${hostname}`);
+  }
+
+  // DNS rebinding check: resolve hostname and verify it doesn't point to a private IP
+  if (!isPrivateIp(hostname) && hostname !== "localhost" && hostname !== "0.0.0.0") {
+    const resolvesToPrivate = await isHostnameResolvingToPrivateIp(hostname);
+    if (resolvesToPrivate) {
+      throw new SSRFError(`Hostname '${hostname}' resolves to a private/internal address`);
+    }
   }
 
   return parsed;
@@ -159,7 +194,7 @@ export async function safeFetch(
     maxResponseBytes?: number;
   }
 ): Promise<Response> {
-  const parsed = validateOutboundUrl(url);
+  const parsed = await validateOutboundUrl(url);
 
   if (options?.requireAllowlist) {
     const allowed = HOSTNAME_ALLOWLIST.some(

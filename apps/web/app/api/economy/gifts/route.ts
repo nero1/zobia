@@ -42,12 +42,40 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
     const url = new URL(req.url);
     const type = url.searchParams.get("type") ?? "both";
     const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "40"), 100);
-    const offset = Math.max(parseInt(url.searchParams.get("offset") ?? "0"), 0);
+    const cursorParam = url.searchParams.get("cursor");
 
-    const whereClause =
-      type === "sent"     ? "WHERE g.sender_id = $1" :
-      type === "received" ? "WHERE g.recipient_id = $1" :
-                            "WHERE (g.sender_id = $1 OR g.recipient_id = $1)";
+    // Decode cursor: base64-encoded JSON { created_at: string, id: string }
+    let cursorData: { created_at: string; id: string } | null = null;
+    if (cursorParam) {
+      try {
+        cursorData = JSON.parse(Buffer.from(cursorParam, "base64").toString()) as {
+          created_at: string;
+          id: string;
+        };
+      } catch {
+        // Invalid cursor — ignore and start from the beginning
+      }
+    }
+
+    const typeCondition =
+      type === "sent"     ? "g.sender_id = $1" :
+      type === "received" ? "g.recipient_id = $1" :
+                            "(g.sender_id = $1 OR g.recipient_id = $1)";
+
+    // Cursor pagination: fetch rows strictly before the cursor position
+    // using the composite (created_at, id) key for stable ordering.
+    let queryParams: (string | number)[];
+    let cursorCondition: string;
+
+    if (cursorData) {
+      cursorCondition = `AND (g.created_at, g.id) < ($2, $3)`;
+      queryParams = [userId, cursorData.created_at, cursorData.id, limit];
+    } else {
+      cursorCondition = "";
+      queryParams = [userId, limit];
+    }
+
+    const limitParam = cursorData ? "$4" : "$2";
 
     const { rows } = await db.query<GiftHistoryRow>(
       `SELECT g.id, g.created_at, g.coin_value, g.status,
@@ -66,10 +94,11 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
        JOIN users s       ON s.id = g.sender_id
        JOIN users r       ON r.id = g.recipient_id
        JOIN gift_items gi ON gi.id = g.gift_item_id
-       ${whereClause}
-       ORDER BY g.created_at DESC
-       LIMIT $2 OFFSET $3`,
-      [userId, limit, offset]
+       WHERE ${typeCondition}
+       ${cursorCondition}
+       ORDER BY g.created_at DESC, g.id DESC
+       LIMIT ${limitParam}`,
+      queryParams
     );
 
     const gifts = rows.map((row) => ({
@@ -97,7 +126,16 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
       },
     }));
 
-    return NextResponse.json({ gifts });
+    // Produce the next cursor from the last item returned, if the page is full.
+    const lastItem = rows[rows.length - 1];
+    const nextCursor =
+      lastItem && rows.length === limit
+        ? Buffer.from(
+            JSON.stringify({ created_at: lastItem.created_at, id: lastItem.id })
+          ).toString("base64")
+        : null;
+
+    return NextResponse.json({ gifts, nextCursor });
   } catch (err) {
     return handleApiError(err);
   }

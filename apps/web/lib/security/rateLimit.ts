@@ -8,13 +8,14 @@
  *   - Per-IP    – keyed on the client's remote IP address
  *
  * The sliding window algorithm keeps a sorted set of request timestamps in
- * Redis. On each request:
- *   1. Remove entries older than `windowMs`
- *   2. Count remaining entries
- *   3. If count ≥ limit → deny
- *   4. Otherwise add current timestamp and set key TTL
+ * Redis. On each request, a single atomic Lua script:
+ *   1. Removes entries older than `windowMs` (ZREMRANGEBYSCORE)
+ *   2. Counts remaining entries (ZCARD)
+ *   3. If count ≥ limit → denies without writing
+ *   4. Otherwise adds current timestamp with a unique member (ZADD) and
+ *      resets the key TTL (PEXPIRE)
  *
- * This is accurate and resistant to burst abuse while using minimal memory.
+ * All four steps execute atomically — no TOCTOU race, single round-trip.
  */
 
 import { redis } from "@/lib/redis";
@@ -70,6 +71,54 @@ export const RATE_LIMITS = {
 } as const;
 
 // ---------------------------------------------------------------------------
+// Lua sliding-window script (atomic, single round-trip)
+// ---------------------------------------------------------------------------
+
+/**
+ * Atomic sorted-set sliding window using Redis Lua eval.
+ *
+ * KEYS[1]  = rate limit key (sorted set)
+ * ARGV[1]  = now (ms, as string)
+ * ARGV[2]  = window_start (now - windowMs, as string) — entries older than
+ *            this are expired before counting
+ * ARGV[3]  = limit (max allowed entries)
+ * ARGV[4]  = ttl (windowMs in ms) — key expires after this many ms of
+ *            inactivity, ensuring automatic cleanup
+ * ARGV[5]  = member — unique string for this request
+ *            (prevents score collisions for concurrent same-ms requests)
+ *
+ * Returns: {allowed, remaining, ttlMs}
+ *   allowed  = 1 if the request is permitted, 0 if denied
+ *   remaining = slots left after this request (0 when denied)
+ *   ttlMs    = milliseconds until the key expires (= reset window)
+ */
+const SLIDING_WINDOW_LUA = `
+local key = KEYS[1]
+local now = tonumber(ARGV[1])
+local window_start = tonumber(ARGV[2])
+local limit = tonumber(ARGV[3])
+local ttl = tonumber(ARGV[4])
+local member = ARGV[5]
+
+-- Remove expired entries from the sorted set
+redis.call('ZREMRANGEBYSCORE', key, '-inf', window_start)
+
+-- Count current entries in the window
+local count = redis.call('ZCARD', key)
+
+if count >= limit then
+  return {0, 0, redis.call('PTTL', key)}
+end
+
+-- Add this request as a new entry (score = timestamp ms, member = unique)
+redis.call('ZADD', key, now, member)
+-- Reset TTL on each add so the key expires when the window goes idle
+redis.call('PEXPIRE', key, ttl)
+
+return {1, limit - count - 1, ttl}
+`;
+
+// ---------------------------------------------------------------------------
 // Core sliding-window implementation
 // ---------------------------------------------------------------------------
 
@@ -86,45 +135,26 @@ async function slidingWindowCheck(
 ): Promise<RateLimitResult> {
   const now = Date.now();
   const windowStart = now - options.windowMs;
-  const resetAt = now + options.windowMs;
-  const windowSeconds = Math.ceil(options.windowMs / 1000);
+  // Unique member prevents collisions when multiple requests arrive in the
+  // same millisecond (identical score would overwrite the same member).
+  const member = `${now}-${Math.random().toString(36).slice(2)}`;
 
-  // We use a sorted set with score = timestamp (ms).
-  // ioredis does not expose ZRANGEBYSCORE / ZADD in the typed interface,
-  // so we fall back to raw incr-based counting with a TTL.
-  // For a production deployment with high traffic, replace this with a
-  // Lua script that uses ZREMRANGEBYSCORE + ZADD atomically.
+  const result = await redis.eval(
+    SLIDING_WINDOW_LUA,
+    1,
+    key,
+    String(now),
+    String(windowStart),
+    String(options.limit),
+    String(options.windowMs),
+    member
+  ) as [number, number, number];
 
-  // Simple token-bucket approximation using INCR + EXPIRE:
-  const countKey = `${key}:count`;
-  const tsKey = `${key}:ts`;
-
-  // Get current count
-  const rawCount = await redis.get(countKey);
-  const count = rawCount ? parseInt(rawCount, 10) : 0;
-
-  if (count >= options.limit) {
-    const ttl = await redis.ttl(countKey);
-    return {
-      allowed: false,
-      remaining: 0,
-      resetAt: now + ttl * 1000,
-    };
-  }
-
-  // Increment counter
-  const newCount = await redis.incr(countKey);
-  // Set TTL only on first write (avoid resetting window on each request)
-  if (newCount === 1) {
-    await redis.expire(countKey, windowSeconds);
-    await redis.setex(tsKey, windowSeconds, String(now));
-  }
-
-  const ttl = await redis.ttl(countKey);
+  const [allowed, remaining, ttlMs] = result;
   return {
-    allowed: true,
-    remaining: options.limit - newCount,
-    resetAt: now + ttl * 1000,
+    allowed: allowed === 1,
+    remaining,
+    resetAt: now + ttlMs,
   };
 }
 
@@ -150,7 +180,7 @@ export async function checkUserRateLimit(
 /**
  * Check rate limit for a specific IP address.
  *
- * @param ip      - Client IP address (from X-Forwarded-For or remoteAddress)
+ * @param ip      - Client IP address (from trusted headers)
  * @param options - Rate limit configuration
  * @returns Rate limit result
  */
@@ -189,17 +219,35 @@ export async function enforceRateLimit(
 }
 
 /**
- * Extract the client IP from a Next.js Request object.
- * Prefers X-Forwarded-For (set by proxies / CDN) over the raw socket address.
+ * Extract the trusted client IP from a Next.js Request object.
+ *
+ * Priority:
+ *   1. x-vercel-forwarded-for — set by Vercel's edge network to the actual
+ *      client IP; non-spoofable on Vercel deployments.
+ *   2. x-real-ip — set by nginx and other trusted reverse proxies upstream.
+ *   3. x-forwarded-for (rightmost value) — the rightmost non-private entry is
+ *      what the closest trusted proxy observed; the leftmost entries are
+ *      user-controlled and must NOT be trusted.
  *
  * @param request - Incoming Next.js request
  * @returns IP string (falls back to "unknown" if not determinable)
  */
 export function getClientIp(request: Request): string {
+  // Vercel sets x-vercel-forwarded-for to the actual client IP (non-spoofable)
+  const vercelIp = request.headers.get("x-vercel-forwarded-for");
+  if (vercelIp) return vercelIp.split(",")[0].trim();
+
+  // x-real-ip is set by nginx and other trusted reverse proxies
+  const realIp = request.headers.get("x-real-ip");
+  if (realIp) return realIp.trim();
+
+  // Fallback: if we must use x-forwarded-for, trust only the rightmost value
+  // (the one appended by the closest trusted proxy, not by the client)
   const forwarded = request.headers.get("x-forwarded-for");
   if (forwarded) {
-    // X-Forwarded-For can be a comma-separated list; take the first (client) IP
-    return forwarded.split(",")[0].trim();
+    const ips = forwarded.split(",").map((ip) => ip.trim()).filter(Boolean);
+    if (ips.length > 0) return ips[ips.length - 1];
   }
-  return request.headers.get("x-real-ip") ?? "unknown";
+
+  return "unknown";
 }

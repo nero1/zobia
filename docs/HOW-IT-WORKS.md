@@ -13,9 +13,11 @@ New users choose a username, select their city and country, pick an avatar emoji
 **Realtime delivery flow:**
 1. The sender's POST to `/api/messages/dm/[conversationId]` saves the message to the database.
 2. The handler calls `publishRealtimeEvent("dm:conversation:uuid", "new_message", { message })`.
-3. `publishRealtimeEvent` makes a stateless HTTP call to the configured provider's REST API (Ably / Pusher / Supabase Realtime).
+3. `publishRealtimeEvent` makes a stateless HTTP call to the configured provider's REST API (Ably / Pusher / Supabase Realtime). The `REALTIME_PROVIDER` environment variable selects the active provider.
 4. The provider delivers the event over WebSocket to all subscribed clients.
 5. The recipient's browser (subscribed via `useRealtimeChannel`) receives the event and updates React state immediately — the message appears without any page refresh.
+
+**Message history vs. live updates:** When a conversation is opened, the page fetches initial message history directly from the database via the REST API. After the initial load, **all live updates come exclusively from the realtime provider** (Ably/Pusher/Supabase Realtime) via the WebSocket connection. The `REALTIME_PROVIDER` (and its matching `NEXT_PUBLIC_REALTIME_PROVIDER`) env var must be set for live updates to work.
 
 The DM page also runs a 3-second baseline poll as a guaranteed fallback in case the provider is temporarily unreachable.
 
@@ -82,7 +84,9 @@ A dedicated **Gifts Hub** is accessible from the main navigation (below Friends)
 |---|---|---|
 | `type` | `both` | `sent`, `received`, or `both` |
 | `limit` | `20` | Max 100 |
-| `offset` | `0` | Pagination offset |
+| `cursor` | — | Opaque cursor string returned by a previous response as `nextCursor`. Omit for the first page. |
+
+The response includes a `nextCursor` field. Pass it as `?cursor=<value>` to fetch the next page. A `null` value means there are no more pages. Cursor-based pagination prevents items from being skipped or duplicated when new gifts are received during navigation.
 
 Response shape (each item):
 ```json

@@ -104,6 +104,17 @@ export interface PaystackTransferResponse {
   status: "pending" | "success" | "failed";
 }
 
+export interface PaystackTransferVerifyResponse {
+  transfer_code: string;
+  id: number;
+  reference: string;
+  amount: number;
+  /** Paystack transfer status values returned by GET /transfer/:code */
+  status: "success" | "failed" | "reversed" | "pending" | "otp" | "abandoned";
+  reason: string;
+  recipient: { recipient_code: string };
+}
+
 // ---------------------------------------------------------------------------
 // Exported functions
 // ---------------------------------------------------------------------------
@@ -219,6 +230,24 @@ export async function createTransferRecipient(
     "POST",
     "/transferrecipient",
     { type: "nuban", name, account_number: accountNumber, bank_code: bankCode, currency: "NGN" }
+  );
+}
+
+/**
+ * Verify the current status of a Paystack transfer by its transfer_code.
+ *
+ * Used during payout reconciliation to re-query the provider for transfers
+ * whose webhooks were lost or never received.
+ *
+ * @param transferCode - The transfer_code returned by initiateTransfer
+ * @returns Transfer detail including current status
+ */
+export async function verifyTransfer(
+  transferCode: string
+): Promise<PaystackTransferVerifyResponse> {
+  return paystackRequest<PaystackTransferVerifyResponse>(
+    "GET",
+    `/transfer/${encodeURIComponent(transferCode)}`
   );
 }
 

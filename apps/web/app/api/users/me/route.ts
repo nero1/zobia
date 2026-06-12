@@ -16,6 +16,7 @@ import { z } from "zod";
 import { db, SqlParam } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
+import { invalidateAllSessions } from "@/lib/auth/session";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 
 // ---------------------------------------------------------------------------
@@ -321,27 +322,25 @@ export const DELETE = withAuth(async (_req: NextRequest, { auth }) => {
     const shortId = userId.replace(/-/g, "").slice(0, 8);
 
     await db.transaction(async (tx) => {
+      // Soft delete: anonymise public-facing fields but KEEP identifiers (email, google_id, etc.)
+      // so the user can reactivate within the 30-day grace period by logging in again.
+      // PII identifiers are only wiped by the scheduled purge job after pending_deletion_at.
       await tx.query(
         `UPDATE users
-         SET email           = NULL,
-             display_name    = 'Deleted User',
-             username        = $2,
+         SET display_name    = 'Deleted User',
              bio             = NULL,
              avatar_emoji    = '👤',
              city            = NULL,
              push_token      = NULL,
-             google_id       = NULL,
-             telegram_id     = NULL,
-             password_hash   = NULL,
              pin_hash        = NULL,
              deleted_at      = NOW(),
              updated_at      = NOW()
          WHERE id = $1 AND deleted_at IS NULL`,
-        [userId, `deleted_${shortId}`]
+        [userId]
       );
 
-      // Hard-delete PII tables — bank accounts and wallet addresses are entirely
-      // PII; payout records preserve the data needed for accounting via snapshots.
+      // Hard-delete payment PII — bank accounts and wallet addresses are PII
+      // that cannot be retained; payout records preserve accounting data via snapshots.
       await tx.query(
         `DELETE FROM creator_bank_accounts WHERE creator_id = $1`,
         [userId]
@@ -350,12 +349,14 @@ export const DELETE = withAuth(async (_req: NextRequest, { auth }) => {
         `DELETE FROM creator_wallet_addresses WHERE creator_id = $1`,
         [userId]
       );
-      // Remove old KYC records if still present from prior schema
       await tx.query(
         `DELETE FROM creator_kyc WHERE creator_id = $1`,
         [userId]
-      ).catch(() => {}); // table may not exist; ignore
+      ).catch(() => {});
     });
+
+    // ZB-16: Invalidate all active sessions so deleted user can't keep refreshing tokens
+    await invalidateAllSessions(userId).catch(() => {});
 
     return NextResponse.json(
       { success: true, data: { message: "Account deleted. We're sorry to see you go." }, error: null },

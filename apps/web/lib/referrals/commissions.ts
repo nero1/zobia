@@ -124,39 +124,24 @@ export async function awardReferralCommissions(
   const tier1Coins = new Decimal(coinAmount).mul(TIER_1_RATE).toDecimalPlaces(0, Decimal.ROUND_DOWN).toNumber();
 
   if (tier1Coins > 0) {
-    // Credit coins to Tier 1 referrer
-    const { rows: t1BalanceRows } = await db.query<{ coin_balance: number }>(
-      `UPDATE users SET coin_balance = coin_balance + $1, updated_at = NOW()
-       WHERE id = $2 AND deleted_at IS NULL
-       RETURNING coin_balance`,
-      [tier1Coins, tier1Id]
+    const { creditCoins } = await import("@/lib/economy/coins");
+    await creditCoins(
+      tier1Id,
+      tier1Coins,
+      "referral_commission",
+      buyerId,
+      `Tier 1 referral commission from ${coinAmount} coin purchase`,
+      { tier: 1, buyerId, coinAmount },
+      db
     );
+    result.tier1Coins = tier1Coins;
 
-    if (t1BalanceRows[0]) {
-      // Append to coin ledger
-      await db.query(
-        `INSERT INTO coin_ledger
-           (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description)
-         VALUES ($1, $2, $3, $4, 'referral_commission', $5, $6)`,
-        [
-          tier1Id,
-          tier1Coins,
-          t1BalanceRows[0].coin_balance - tier1Coins,
-          t1BalanceRows[0].coin_balance,
-          buyerId,
-          `Tier 1 referral commission from ${coinAmount} coin purchase`,
-        ]
-      );
-      result.tier1Coins = tier1Coins;
-
-      // Record in referral_commissions table
-      await db.query(
-        `INSERT INTO referral_commissions
-           (referrer_id, referee_id, tier, coin_amount, purchase_coin_amount, created_at)
-         VALUES ($1, $2, 1, $3, $4, NOW())`,
-        [tier1Id, buyerId, tier1Coins, coinAmount]
-      );
-    }
+    await db.query(
+      `INSERT INTO referral_commissions
+         (referrer_id, referee_id, tier, coin_amount, purchase_coin_amount, created_at)
+       VALUES ($1, $2, 1, $3, $4, NOW())`,
+      [tier1Id, buyerId, tier1Coins, coinAmount]
+    );
   }
 
   // Find Tier 2 referrer (referrer of the Tier 1 referrer)
@@ -173,36 +158,24 @@ export async function awardReferralCommissions(
   const tier2Coins = new Decimal(coinAmount).mul(TIER_2_RATE).toDecimalPlaces(0, Decimal.ROUND_DOWN).toNumber();
 
   if (tier2Coins > 0) {
-    const { rows: t2BalanceRows } = await db.query<{ coin_balance: number }>(
-      `UPDATE users SET coin_balance = coin_balance + $1, updated_at = NOW()
-       WHERE id = $2 AND deleted_at IS NULL
-       RETURNING coin_balance`,
-      [tier2Coins, tier2Id]
+    const { creditCoins } = await import("@/lib/economy/coins");
+    await creditCoins(
+      tier2Id,
+      tier2Coins,
+      "referral_commission",
+      buyerId,
+      `Tier 2 referral commission from ${coinAmount} coin purchase`,
+      { tier: 2, buyerId, coinAmount },
+      db
     );
+    result.tier2Coins = tier2Coins;
 
-    if (t2BalanceRows[0]) {
-      await db.query(
-        `INSERT INTO coin_ledger
-           (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description)
-         VALUES ($1, $2, $3, $4, 'referral_commission', $5, $6)`,
-        [
-          tier2Id,
-          tier2Coins,
-          t2BalanceRows[0].coin_balance - tier2Coins,
-          t2BalanceRows[0].coin_balance,
-          buyerId,
-          `Tier 2 referral commission from ${coinAmount} coin purchase`,
-        ]
-      );
-      result.tier2Coins = tier2Coins;
-
-      await db.query(
-        `INSERT INTO referral_commissions
-           (referrer_id, referee_id, tier, coin_amount, purchase_coin_amount, created_at)
-         VALUES ($1, $2, 2, $3, $4, NOW())`,
-        [tier2Id, buyerId, tier2Coins, coinAmount]
-      );
-    }
+    await db.query(
+      `INSERT INTO referral_commissions
+         (referrer_id, referee_id, tier, coin_amount, purchase_coin_amount, created_at)
+       VALUES ($1, $2, 2, $3, $4, NOW())`,
+      [tier2Id, buyerId, tier2Coins, coinAmount]
+    );
   }
 
   return result;

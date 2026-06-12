@@ -17,7 +17,7 @@
  */
 
 import { db } from "@/lib/db";
-import { initiateTransfer } from "@/lib/payments/paystack";
+import { initiateTransfer, verifyTransfer } from "@/lib/payments/paystack";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -60,7 +60,9 @@ export function getCreatorFeeRate(creatorTier: string | null | undefined): numbe
 const RETRY_DELAYS_MINUTES = [5, 15, 45] as const;
 
 function nextRetryOffsetMinutes(retryCount: number): number {
-  return RETRY_DELAYS_MINUTES[retryCount] ?? 60;
+  const base = RETRY_DELAYS_MINUTES[retryCount] ?? 60;
+  const jitter = (Math.random() - 0.5) * base * 0.4;
+  return Math.max(1, Math.round(base + jitter));
 }
 
 // ---------------------------------------------------------------------------
@@ -79,12 +81,17 @@ export async function processPendingPayouts(
 
   // ── Phase 1: Process freshly queued pending payouts ──────────────────────
   const { rows: pendingRows } = await db.query<PendingPayoutRow>(
-    `SELECT id, creator_id, net_kobo, gross_kobo, idempotency_key, retry_count,
-            bank_account_snapshot
-     FROM creator_payouts
-     WHERE status = 'pending' AND payout_method = 'bank_transfer'
-     ORDER BY created_at ASC
-     LIMIT $1`,
+    `UPDATE creator_payouts
+     SET status = 'processing', updated_at = NOW()
+     WHERE id IN (
+       SELECT id FROM creator_payouts
+       WHERE status = 'pending' AND payout_method = 'bank_transfer'
+       ORDER BY created_at ASC
+       LIMIT $1
+       FOR UPDATE SKIP LOCKED
+     )
+     RETURNING id, creator_id, net_kobo, gross_kobo, idempotency_key, retry_count,
+               bank_account_snapshot`,
     [batchSize]
   );
 
@@ -101,16 +108,21 @@ export async function processPendingPayouts(
 
   // ── Phase 2: Retry failed payouts whose retry window has elapsed ─────────
   const { rows: retryRows } = await db.query<PendingPayoutRow>(
-    `SELECT id, creator_id, net_kobo, gross_kobo, idempotency_key, retry_count,
-            bank_account_snapshot
-     FROM creator_payouts
-     WHERE status = 'failed'
-       AND payout_method = 'bank_transfer'
-       AND next_retry_at IS NOT NULL
-       AND next_retry_at <= NOW()
-       AND retry_count < $1
-     ORDER BY next_retry_at ASC
-     LIMIT $2`,
+    `UPDATE creator_payouts
+     SET status = 'processing', updated_at = NOW()
+     WHERE id IN (
+       SELECT id FROM creator_payouts
+       WHERE status = 'failed'
+         AND payout_method = 'bank_transfer'
+         AND next_retry_at IS NOT NULL
+         AND next_retry_at <= NOW()
+         AND retry_count < $1
+       ORDER BY next_retry_at ASC
+       LIMIT $2
+       FOR UPDATE SKIP LOCKED
+     )
+     RETURNING id, creator_id, net_kobo, gross_kobo, idempotency_key, retry_count,
+               bank_account_snapshot`,
     [maxRetries, Math.max(1, Math.floor(batchSize / 4))]
   );
 
@@ -162,8 +174,7 @@ async function attemptTransfer(
 
     await db.query(
       `UPDATE creator_payouts
-       SET status = 'processing',
-           provider_reference = $1,
+       SET provider_reference = $1,
            last_retry_at = NOW(),
            next_retry_at = NULL,
            updated_at = NOW()
@@ -203,6 +214,79 @@ async function attemptTransfer(
 }
 
 // ---------------------------------------------------------------------------
+// Reconciliation — fix payouts stuck in 'processing'
+// ---------------------------------------------------------------------------
+
+/**
+ * Reconcile payouts stuck in 'processing' for more than 30 minutes.
+ *
+ * A payout can get stuck if the Paystack webhook is lost or delayed. This
+ * function re-queries the provider for each stuck payout's current status and
+ * updates the local record accordingly, restoring the creator's earnings on
+ * failure so funds are never permanently stuck.
+ *
+ * Runs at most 50 stuck payouts per invocation to bound execution time.
+ *
+ * @returns Counts of reconciled (completed) and failed payouts
+ */
+export async function reconcileStuckPayouts(): Promise<{ reconciled: number; failed: number }> {
+  // Find payouts stuck in 'processing' for more than 30 minutes
+  const { rows: stuckPayouts } = await db.query<{
+    id: string;
+    provider_reference: string;
+    amount_kobo: string;
+    creator_id: string;
+    gross_kobo: string;
+  }>(
+    `SELECT id, provider_reference, creator_id, gross_kobo
+     FROM creator_payouts
+     WHERE status = 'processing'
+       AND updated_at < NOW() - INTERVAL '30 minutes'
+       AND provider_reference IS NOT NULL
+     LIMIT 50`
+  );
+
+  let reconciled = 0;
+  let failed = 0;
+
+  for (const payout of stuckPayouts) {
+    try {
+      const transfer = await verifyTransfer(payout.provider_reference);
+
+      if (transfer.status === "success") {
+        await db.query(
+          `UPDATE creator_payouts SET status = 'completed', updated_at = NOW() WHERE id = $1`,
+          [payout.id]
+        );
+        reconciled++;
+      } else if (transfer.status === "failed" || transfer.status === "reversed") {
+        // Restore creator earnings and mark payout as failed
+        await db.transaction(async (tx) => {
+          await tx.query(
+            `UPDATE creator_payouts SET status = 'failed', updated_at = NOW() WHERE id = $1`,
+            [payout.id]
+          );
+          await tx.query(
+            `UPDATE users
+             SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1,
+                 updated_at = NOW()
+             WHERE id = $2`,
+            [payout.gross_kobo, payout.creator_id]
+          );
+        });
+        failed++;
+      }
+      // For other statuses (pending, otp, abandoned) — leave as 'processing'
+      // and let the next reconciliation cycle pick them up again.
+    } catch (err) {
+      console.error(`[payouts:reconcile] Failed to reconcile payout ${payout.id}:`, err);
+    }
+  }
+
+  return { reconciled, failed };
+}
+
+// ---------------------------------------------------------------------------
 // Dead-letter queue
 // ---------------------------------------------------------------------------
 
@@ -224,7 +308,10 @@ export async function moveToDeadLetterQueue(
       [retryCount, payoutId]
     );
 
-    // Restore creator's earnings
+    // Restore creator's earnings using gross_kobo (the full amount before payment
+    // provider fees). This is correct because the original debit from
+    // available_earnings_kobo when the payout was created used gross_kobo.
+    // Using net_kobo here would shortchange the creator by the platform fee.
     const { rows } = await tx.query<{ gross_kobo: number }>(
       `SELECT gross_kobo FROM creator_payouts WHERE id = $1`,
       [payoutId]

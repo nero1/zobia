@@ -47,6 +47,9 @@ interface UserRow {
   username: string;
   is_admin: boolean;
   is_moderator: boolean;
+  is_banned: boolean;
+  is_suspended: boolean;
+  deleted_at: string | null;
   totp_enabled: boolean;
   onboarding_completed: boolean;
   display_name: string | null;
@@ -99,22 +102,34 @@ async function upsertGoogleUser(profile: {
   name: string;
   picture: string;
 }): Promise<UserRow> {
-  // Check if a user with this Google ID already exists
+  // Check if a user with this Google ID already exists (including soft-deleted for reactivation)
   const existing = await db.query<UserRow>(
-    `SELECT id, email, username, is_admin, is_moderator, totp_enabled, onboarding_completed,
-            display_name, avatar_emoji, city, xp_total, rank_name
+    `SELECT id, email, username, is_admin, is_moderator, is_banned, is_suspended, deleted_at,
+            totp_enabled, onboarding_completed, display_name, avatar_emoji, city, xp_total, rank_name
      FROM users
-     WHERE google_id = $1 AND deleted_at IS NULL
+     WHERE google_id = $1
      LIMIT 1`,
     [profile.googleId]
   );
 
-  if (existing.rows[0]) return existing.rows[0];
+  if (existing.rows[0]) {
+    const u = existing.rows[0];
+    if (u.is_banned) throw Object.assign(new Error("Account is banned"), { code: "ACCOUNT_BANNED" });
+    if (u.is_suspended) throw Object.assign(new Error("Account is suspended"), { code: "ACCOUNT_SUSPENDED" });
+    // Reactivate if within grace period (soft-deleted but identifiers intact)
+    if (u.deleted_at) {
+      await db.query(
+        `UPDATE users SET deleted_at = NULL, updated_at = NOW() WHERE id = $1`,
+        [u.id]
+      );
+    }
+    return u;
+  }
 
   // Check if email is already associated with a different account
   const emailMatch = await db.query<UserRow>(
-    `SELECT id, email, username, is_admin, is_moderator, totp_enabled, onboarding_completed,
-            display_name, avatar_emoji, city, xp_total, rank_name
+    `SELECT id, email, username, is_admin, is_moderator, is_banned, is_suspended, deleted_at,
+            totp_enabled, onboarding_completed, display_name, avatar_emoji, city, xp_total, rank_name
      FROM users
      WHERE email = $1 AND deleted_at IS NULL
      LIMIT 1`,
@@ -122,13 +137,16 @@ async function upsertGoogleUser(profile: {
   );
 
   if (emailMatch.rows[0]) {
+    const u = emailMatch.rows[0];
+    if (u.is_banned) throw Object.assign(new Error("Account is banned"), { code: "ACCOUNT_BANNED" });
+    if (u.is_suspended) throw Object.assign(new Error("Account is suspended"), { code: "ACCOUNT_SUSPENDED" });
     // Link Google ID to the existing email account
     await db.query(
       `UPDATE users SET google_id = $1, avatar_url = COALESCE(avatar_url, $2), updated_at = NOW()
        WHERE id = $3`,
-      [profile.googleId, profile.picture, emailMatch.rows[0].id]
+      [profile.googleId, profile.picture, u.id]
     );
-    return emailMatch.rows[0];
+    return u;
   }
 
   // Generate a unique username derived from the email
@@ -301,6 +319,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     }
     return response;
   } catch (err) {
+    const code = (err as { code?: string }).code;
+    if (code === "ACCOUNT_BANNED" || code === "ACCOUNT_SUSPENDED") {
+      const reqOrigin = new URL(req.url).origin;
+      return NextResponse.redirect(
+        new URL(`/auth/login?error=${code.toLowerCase()}`, reqOrigin),
+        { status: 302 }
+      );
+    }
     return handleApiError(err);
   }
 }

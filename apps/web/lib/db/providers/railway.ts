@@ -37,7 +37,7 @@ function getPool(): Pool {
           ? { rejectUnauthorized: false }
           : undefined,
       // Railway recommends keeping pool size small to avoid exhaustion
-      max: 5,
+      max: parseInt(process.env.DB_POOL_SIZE ?? "2", 10),
       idleTimeoutMillis: 20_000,
       connectionTimeoutMillis: 8_000,
     });
@@ -60,7 +60,7 @@ function getDirectPool(): Pool {
         env.NODE_ENV === "production"
           ? { rejectUnauthorized: false }
           : undefined,
-      max: 2,
+      max: parseInt(process.env.DB_DIRECT_POOL_SIZE ?? "2", 10),
       idleTimeoutMillis: 10_000,
       connectionTimeoutMillis: 8_000,
     });
@@ -117,7 +117,9 @@ export class RailwayDatabaseAdapter implements DatabaseAdapter {
       await client.query("COMMIT");
       return result;
     } catch (err) {
-      await client.query("ROLLBACK");
+      try { await client.query("ROLLBACK"); } catch (rollbackErr) {
+        console.error("[db] ROLLBACK failed:", rollbackErr);
+      }
       throw err;
     } finally {
       client.release();

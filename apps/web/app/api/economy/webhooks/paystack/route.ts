@@ -170,11 +170,25 @@ async function processChargeSuccess(
       return;
     }
 
+    // Re-derive grant amounts server-side from store_items to prevent metadata tampering
+    let serverCoinsGranted = coinsGranted ?? 0;
+    let serverStarsGranted = starsGranted ?? 0;
+    if (metadata.packId) {
+      const { rows: packRows } = await tx.query<{ coins_granted: number | null; stars_granted: number | null; price_kobo: number | null }>(
+        `SELECT coins_granted, stars_granted, price_kobo FROM store_items WHERE id = $1 LIMIT 1`,
+        [metadata.packId]
+      );
+      if (packRows[0]) {
+        if (packRows[0].coins_granted != null) serverCoinsGranted = packRows[0].coins_granted;
+        if (packRows[0].stars_granted != null) serverStarsGranted = packRows[0].stars_granted;
+      }
+    }
+
     // Credit coins or stars based on pack type
     if (itemType === "star_pack") {
       await creditStars(
         userId,
-        starsGranted ?? 0,
+        serverStarsGranted,
         "purchase",
         paymentId,
         `Purchased ${metadata.packName}`,
@@ -183,7 +197,7 @@ async function processChargeSuccess(
     } else {
       await creditCoins(
         userId,
-        coinsGranted ?? 0,
+        serverCoinsGranted,
         "purchase",
         paymentId,
         `Purchased ${metadata.packName}`,
@@ -487,9 +501,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         console.info(`[webhook/paystack] Ignoring unhandled event: ${(event as { event: string }).event}`);
     }
   } catch (err) {
-    // Log the error but return 200 so Paystack doesn't retry indefinitely.
-    // A monitoring alert should fire on these log lines.
     console.error("[webhook/paystack] Processing error:", err);
+    return NextResponse.json({ received: false, error: "Processing failed" }, { status: 500 });
   }
 
   return NextResponse.json({ received: true });

@@ -91,6 +91,8 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `DATABASE_PROVIDER` | Yes | Database backend: `supabase` \| `railway` \| `digitalocean` | Choose your provider |
 | `DATABASE_URL` | Yes | Pooled connection string — **transaction mode** (for serverless/Vercel functions) | Supabase → Settings → Database → "Use pooler transaction mode" |
 | `DIRECT_URL` | Yes | Direct connection string — bypasses the pooler, used for migrations only | Supabase → Settings → Database → "Use the direct connection string" |
+| `DB_POOL_SIZE` | No | Connection pool size for the pooled `DATABASE_URL` (default: `2`). Keep at 2 for serverless/Vercel functions to avoid exhausting the PgBouncer connection limit. | — |
+| `DB_DIRECT_POOL_SIZE` | No | Connection pool size for `DIRECT_URL` used in migrations/long-running scripts (default: `2`). | — |
 | `STORAGE_PROVIDER` | Yes | Storage backend: `supabase-storage` \| `r2` \| `s3` | Choose your provider |
 | `R2_ACCOUNT_ID` | If R2 | Cloudflare account ID | Cloudflare dashboard → right sidebar |
 | `R2_ACCESS_KEY_ID` | If R2 | R2 API access key ID | Cloudflare → R2 → Manage R2 API tokens |
@@ -467,6 +469,17 @@ Both methods are protected — just by different mechanisms. This is the correct
 4. The bot username is shown at the top of BotFather's reply (e.g. `ZobiaBot`) — copy it **without the `@`** to `NEXT_PUBLIC_TELEGRAM_BOT_USERNAME`. This is required for the Login Widget to appear on the register/login pages.
 5. Send `/setdomain` to BotFather → select your bot → enter your domain (e.g. `zobia.social`).
 6. The Telegram Login Widget will now work on your domain.
+
+---
+
+## Pagination
+
+User-facing feed APIs (gifts history, inbox, guilds discovery, season leaderboard) use **cursor-based pagination** instead of `OFFSET`/`page` parameters.
+
+- **Request:** pass `cursor=<opaque_string>` (returned by a previous response as `nextCursor`).
+- **Response:** each paginated endpoint returns a `nextCursor` field. A `null` value means there are no more pages.
+- The cursor is a base64-encoded JSON value containing enough information to resume the query from the exact position. Do not construct cursors manually — always use the value returned by the API.
+- Admin-only routes (`/api/admin/*`) may still use `OFFSET`/`page` pagination for simplicity.
 
 ---
 

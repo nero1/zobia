@@ -25,7 +25,7 @@ import {
   ADMIN_REFRESH_TOKEN_TTL_SECONDS,
   type AccessTokenPayload,
 } from "./jwt";
-import { randomUUID } from "crypto";
+import { randomUUID, createHash } from "crypto";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -38,11 +38,13 @@ export interface SessionRecord {
   email: string;
   username: string;
   is_admin: boolean;
+  adminSession?: boolean;
   created_at: string;  // ISO-8601
   /** IP address at login time (for audit). */
   ip?: string;
   /** User-agent at login time. */
   ua?: string;
+  refreshTokenHash?: string;
 }
 
 /** Result of a successful login or token refresh. */
@@ -85,15 +87,29 @@ export async function createSession(
   const accessTtl = options.adminSession ? ADMIN_ACCESS_TOKEN_TTL_SECONDS : ACCESS_TOKEN_TTL_SECONDS;
   const refreshTtl = options.adminSession ? ADMIN_REFRESH_TOKEN_TTL_SECONDS : REFRESH_TOKEN_TTL_SECONDS;
 
+  // Generate tokens first so we can hash the refresh token into the session record (ZB-24)
+  const [accessToken, refreshToken] = await Promise.all([
+    signAccessToken({
+      sub: user.id,
+      email: user.email,
+      username: user.username,
+      is_admin: user.is_admin,
+      sid,
+    }, accessTtl),
+    signRefreshToken(user.id, sid, refreshTtl),
+  ]);
+
   const record: SessionRecord = {
     uid: user.id,
     sid,
     email: user.email,
     username: user.username,
     is_admin: user.is_admin,
+    adminSession: options.adminSession,
     created_at: new Date().toISOString(),
     ip: options.ip,
     ua: options.ua,
+    refreshTokenHash: createHash("sha256").update(refreshToken).digest("hex"), // ZB-24: for rotation detection
   };
 
   // Write session with TTL matching the refresh token lifetime
@@ -107,17 +123,6 @@ export async function createSession(
   // stops logging in (matches the longest possible session lifetime)
   await redis.sadd(userSessionsKey(user.id), sid);
   await redis.expire(userSessionsKey(user.id), refreshTtl);
-
-  const [accessToken, refreshToken] = await Promise.all([
-    signAccessToken({
-      sub: user.id,
-      email: user.email,
-      username: user.username,
-      is_admin: user.is_admin,
-      sid,
-    }, accessTtl),
-    signRefreshToken(user.id, sid, refreshTtl),
-  ]);
 
   return { accessToken, refreshToken, expiresIn: accessTtl };
 }
@@ -156,25 +161,47 @@ export async function getSession(sid: string): Promise<SessionRecord | null> {
  */
 export async function refreshAccessToken(
   refreshToken: string
-): Promise<Pick<AuthTokens, "accessToken" | "expiresIn">> {
-  // Verify the JWT signature and expiry
+): Promise<Pick<AuthTokens, "accessToken" | "expiresIn"> & { newRefreshToken?: string }> {
   const payload = await verifyRefreshToken(refreshToken);
 
-  // Confirm the session still exists in Redis
   const session = await getSession(payload.sid!);
   if (!session) {
     throw new Error("Session has been revoked or has expired");
   }
 
-  const accessToken = await signAccessToken({
-    sub: session.uid,
-    email: session.email,
-    username: session.username,
-    is_admin: session.is_admin,
-    sid: session.sid,
-  });
+  // ZB-24: Reuse detection — if session has a stored hash and it doesn't match, revoke all sessions
+  if (session.refreshTokenHash) {
+    const presentedHash = createHash("sha256").update(refreshToken).digest("hex");
+    if (presentedHash !== session.refreshTokenHash) {
+      // Token reuse detected — revoke entire session chain
+      await invalidateAllSessions(session.uid).catch(() => {});
+      throw new Error("Refresh token reuse detected. All sessions revoked.");
+    }
+  }
 
-  return { accessToken, expiresIn: ACCESS_TOKEN_TTL_SECONDS };
+  // ZB-25: Use correct TTL for admin sessions
+  const isAdminSession = session.adminSession ?? session.is_admin;
+  const accessTtl = isAdminSession ? ADMIN_ACCESS_TOKEN_TTL_SECONDS : ACCESS_TOKEN_TTL_SECONDS;
+  const refreshTtl = isAdminSession ? ADMIN_REFRESH_TOKEN_TTL_SECONDS : REFRESH_TOKEN_TTL_SECONDS;
+
+  // ZB-24: Rotate refresh token — issue a new one and update the session record
+  const [accessToken, newRefreshToken] = await Promise.all([
+    signAccessToken({
+      sub: session.uid,
+      email: session.email,
+      username: session.username,
+      is_admin: session.is_admin,
+      sid: session.sid,
+    }, accessTtl),
+    signRefreshToken(session.uid, session.sid, refreshTtl),
+  ]);
+
+  // Update session with new refresh token hash
+  const newHash = createHash("sha256").update(newRefreshToken).digest("hex");
+  const updatedRecord: SessionRecord = { ...session, refreshTokenHash: newHash };
+  await redis.setex(sessionKey(session.sid), refreshTtl, JSON.stringify(updatedRecord)).catch(() => {});
+
+  return { accessToken, expiresIn: accessTtl, newRefreshToken };
 }
 
 // ---------------------------------------------------------------------------

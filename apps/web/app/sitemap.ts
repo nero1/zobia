@@ -4,9 +4,13 @@
  * Dynamic SEO sitemap for Zobia Social web app.
  *
  * Returns entries for:
- *   - Static app pages (home, rooms, leaderboards, seasons, etc.)
+ *   - Static public pages (landing, terms, privacy)
  *   - Public user profiles (active users, last 30 days)
  *   - Public rooms (free_open rooms, discoverable)
+ *
+ * Auth-gated routes (/home, /rooms, /leaderboards, /seasons, /council,
+ * /moments, /quests, etc.) are intentionally excluded — they redirect
+ * unauthenticated visitors to /auth/login and must not appear in a sitemap.
  *
  * Follows the Next.js MetadataRoute.Sitemap API.
  * PRD §26 Phase 7: SEO with sitemap.
@@ -15,20 +19,23 @@
 import type { MetadataRoute } from "next";
 import { db } from "@/lib/db";
 
+// Revalidate the sitemap at most once per hour so it doesn't run on every request.
+export const revalidate = 3600;
+
 const BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.social";
 
 // ---------------------------------------------------------------------------
-// Static pages
+// Static public pages (no authentication required per middleware.ts)
 // ---------------------------------------------------------------------------
 
 const STATIC_PAGES: MetadataRoute.Sitemap = [
+  // Landing page — public
   { url: BASE_URL, lastModified: new Date(), changeFrequency: "daily", priority: 1.0 },
-  { url: `${BASE_URL}/rooms`, lastModified: new Date(), changeFrequency: "hourly", priority: 0.9 },
-  { url: `${BASE_URL}/leaderboards`, lastModified: new Date(), changeFrequency: "hourly", priority: 0.8 },
-  { url: `${BASE_URL}/seasons`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.7 },
-  { url: `${BASE_URL}/council`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.5 },
-  { url: `${BASE_URL}/moments`, lastModified: new Date(), changeFrequency: "hourly", priority: 0.6 },
-  { url: `${BASE_URL}/quests`, lastModified: new Date(), changeFrequency: "daily", priority: 0.6 },
+  // Legal pages — public
+  { url: `${BASE_URL}/terms`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.3 },
+  { url: `${BASE_URL}/privacy`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.3 },
+  // NOTE: /home, /rooms, /leaderboards, /seasons, /council, /moments, /quests
+  // are all auth-gated (middleware default-deny) and must NOT appear here.
 ];
 
 // ---------------------------------------------------------------------------
@@ -59,11 +66,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       });
     }
 
-    // Public discoverable rooms (free_open only — no private rooms in sitemap)
+    // Public discoverable rooms (free_open only — no private rooms in sitemap).
+    // The rooms table uses the column `type` (not `room_type`) per the DB schema.
     const { rows: rooms } = await db.query<{ id: string; name: string; updated_at: string }>(
       `SELECT id, name, updated_at
        FROM rooms
-       WHERE room_type = 'free_open'
+       WHERE type = 'free_open'
          AND deleted_at IS NULL
          AND is_active = TRUE
        ORDER BY last_activity_at DESC NULLS LAST

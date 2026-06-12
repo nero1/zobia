@@ -69,22 +69,24 @@ async function writeStarLedgerEntry(
   type: StarTransactionType,
   referenceId: string | null,
   description: string | null
-): Promise<void> {
-  await tx.query(
+): Promise<StarLedgerEntry> {
+  const { rows } = await tx.query<StarLedgerEntry>(
     `INSERT INTO star_ledger
        (user_id, amount, balance_before, balance_after,
         transaction_type, reference_id, description)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     RETURNING *`,
     [
       userId,
-      amount.toNumber(),
-      balanceBefore.toNumber(),
-      balanceAfter.toNumber(),
+      amount.toFixed(0),
+      balanceBefore.toFixed(0),
+      balanceAfter.toFixed(0),
       type,
       referenceId ?? null,
       description ?? null,
     ]
   );
+  return rows[0];
 }
 
 // ---------------------------------------------------------------------------
@@ -122,16 +124,10 @@ export async function creditStars(
 
     await tx.query(
       `UPDATE users SET star_balance = $1, updated_at = NOW() WHERE id = $2`,
-      [balanceAfter.toNumber(), userId]
+      [balanceAfter.toFixed(0), userId]
     );
 
-    await writeStarLedgerEntry(tx, userId, dec, balanceBefore, balanceAfter, type, referenceId, description);
-
-    const { rows } = await tx.query<StarLedgerEntry>(
-      `SELECT * FROM star_ledger WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
-      [userId]
-    );
-    return rows[0];
+    return writeStarLedgerEntry(tx, userId, dec, balanceBefore, balanceAfter, type, referenceId, description);
   };
 
   if (txClient) return run(txClient);
@@ -179,16 +175,10 @@ export async function debitStars(
 
     await tx.query(
       `UPDATE users SET star_balance = $1, updated_at = NOW() WHERE id = $2`,
-      [balanceAfter.toNumber(), userId]
+      [balanceAfter.toFixed(0), userId]
     );
 
-    await writeStarLedgerEntry(tx, userId, debitAmount, balanceBefore, balanceAfter, type, referenceId, description);
-
-    const { rows } = await tx.query<StarLedgerEntry>(
-      `SELECT * FROM star_ledger WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
-      [userId]
-    );
-    return rows[0];
+    return writeStarLedgerEntry(tx, userId, debitAmount, balanceBefore, balanceAfter, type, referenceId, description);
   };
 
   if (txClient) return run(txClient);

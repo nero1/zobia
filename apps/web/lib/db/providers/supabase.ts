@@ -38,7 +38,7 @@ function getPool(): Pool {
         env.NODE_ENV === "production"
           ? { rejectUnauthorized: false }
           : undefined,
-      max: 10,
+      max: parseInt(process.env.DB_POOL_SIZE ?? "2", 10),
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 5_000,
     });
@@ -93,7 +93,9 @@ export class SupabaseDatabaseAdapter implements DatabaseAdapter {
       await client.query("COMMIT");
       return result;
     } catch (err) {
-      await client.query("ROLLBACK");
+      try { await client.query("ROLLBACK"); } catch (rollbackErr) {
+        console.error("[db] ROLLBACK failed:", rollbackErr);
+      }
       throw err;
     } finally {
       client.release();

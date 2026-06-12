@@ -76,25 +76,46 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const tier = searchParams.get("tier");
     const openOnly = searchParams.get("open_only") === "true";
     const limit = Math.min(parseInt(searchParams.get("limit") ?? "20"), 50);
-    const offset = parseInt(searchParams.get("offset") ?? "0");
+    const cursorParam = searchParams.get("cursor");
+
+    // Decode cursor: base64-encoded JSON { created_at: string, id: string }
+    // Guilds are ordered by guild_xp DESC then id DESC, but created_at + id
+    // provides a stable cursor for discovery browsing (new guilds at the top).
+    let cursorData: { created_at: string; id: string } | null = null;
+    if (cursorParam) {
+      try {
+        cursorData = JSON.parse(Buffer.from(cursorParam, "base64").toString()) as {
+          created_at: string;
+          id: string;
+        };
+      } catch {
+        // Invalid cursor — ignore and start from the beginning
+      }
+    }
 
     const conditions: string[] = ["g.is_active = TRUE"];
-    const params: (string | number | boolean)[] = [];
+    const queryParams: (string | number | boolean)[] = [];
     let paramIdx = 1;
 
     if (city) {
       conditions.push(`g.city ILIKE $${paramIdx++}`);
-      params.push(`%${city}%`);
+      queryParams.push(`%${city}%`);
     }
     if (tier) {
       conditions.push(`g.tier = $${paramIdx++}`);
-      params.push(tier);
+      queryParams.push(tier);
     }
     if (openOnly) {
       conditions.push(`g.recruitment_type = 'open'`);
     }
 
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    // Cursor condition: guilds with lower (created_at, id) than the cursor
+    if (cursorData) {
+      conditions.push(`(g.created_at, g.id) < ($${paramIdx++}, $${paramIdx++})`);
+      queryParams.push(cursorData.created_at, cursorData.id);
+    }
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
 
     const result = await db.query<GuildRow>(
       `SELECT g.id, g.name, g.crest_emoji, g.description, g.city, g.country,
@@ -103,23 +124,26 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
               g.is_active, g.created_at
        FROM guilds g
        ${whereClause}
-       ORDER BY g.guild_xp DESC
-       LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
-      [...params, limit, offset]
+       ORDER BY g.guild_xp DESC, g.id DESC
+       LIMIT $${paramIdx}`,
+      [...queryParams, limit]
     );
 
-    const countResult = await db.query<{ count: string }>(
-      `SELECT COUNT(*) as count FROM guilds g ${whereClause}`,
-      params
-    );
+    // Produce the next cursor from the last item returned, if the page is full.
+    const lastItem = result.rows[result.rows.length - 1];
+    const nextCursor =
+      lastItem && result.rows.length === limit
+        ? Buffer.from(
+            JSON.stringify({ created_at: lastItem.created_at, id: lastItem.id })
+          ).toString("base64")
+        : null;
 
     return NextResponse.json({
       success: true,
       data: {
         items: result.rows,
-        total: parseInt(countResult.rows[0]?.count ?? "0"),
-        hasMore: offset + limit < parseInt(countResult.rows[0]?.count ?? "0"),
-        nextCursor: null,
+        hasMore: nextCursor !== null,
+        nextCursor,
       },
       error: null,
     });

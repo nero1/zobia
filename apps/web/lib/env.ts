@@ -18,6 +18,10 @@ const envSchema = z.object({
   DATABASE_PROVIDER: z.enum(["supabase", "railway", "digitalocean"]),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   DIRECT_URL: z.string().min(1, "DIRECT_URL is required"),
+  /** Max connections per serverless instance for the pooled connection. Default: 2. */
+  DB_POOL_SIZE: z.string().optional(),
+  /** Max connections per serverless instance for the direct (non-pooled) connection. Default: 2. */
+  DB_DIRECT_POOL_SIZE: z.string().optional(),
 
   // ---- Storage ------------------------------------------------------------
   STORAGE_PROVIDER: z.enum(["supabase-storage", "r2", "s3"]),
