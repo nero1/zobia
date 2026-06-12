@@ -25,6 +25,7 @@ import resourcesToBackend from "i18next-resources-to-backend";
 // Supported locales — re-exported from the server-safe constants module
 // ---------------------------------------------------------------------------
 
+import { SUPPORTED_LOCALES, DEFAULT_LOCALE, type SupportedLocale } from "./locales";
 export { SUPPORTED_LOCALES, LOCALE_LABELS, DEFAULT_LOCALE } from "./locales";
 export type { SupportedLocale } from "./locales";
 
