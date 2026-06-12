@@ -365,28 +365,19 @@ CREATE TABLE IF NOT EXISTS group_chat_members (
   UNIQUE(group_chat_id, user_id)
 );
 
-CREATE TABLE IF NOT EXISTS user_notifications (
-  id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  type       TEXT NOT NULL,
-  title      TEXT,
-  body       TEXT,
-  payload    JSONB,
-  metadata   JSONB,
-  is_read    BOOLEAN NOT NULL DEFAULT false,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
 CREATE TABLE IF NOT EXISTS notifications (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   type       TEXT NOT NULL,
   payload    JSONB,
+  title      TEXT,
+  body       TEXT,
+  metadata   JSONB,
   is_read    BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS user_messages (
+CREATE TABLE IF NOT EXISTS creator_broadcasts (
   id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   sender_id    UUID REFERENCES users(id) ON DELETE SET NULL,
   recipient_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -585,16 +576,8 @@ CREATE TABLE IF NOT EXISTS guild_treasury_ledger (
   balance_after    BIGINT NOT NULL,
   transaction_type TEXT NOT NULL,
   description      TEXT,
+  reference_id     TEXT,
   created_at       TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS guild_treasury_log (
-  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  guild_id     UUID NOT NULL REFERENCES guilds(id) ON DELETE CASCADE,
-  amount       INTEGER NOT NULL CHECK (amount >= 0),
-  source       TEXT NOT NULL,
-  reference_id TEXT,
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS guild_tier_history (
@@ -769,7 +752,7 @@ CREATE TABLE IF NOT EXISTS room_messages (
 
 CREATE TABLE IF NOT EXISTS message_reactions (
   id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  message_id UUID NOT NULL REFERENCES room_messages(id) ON DELETE CASCADE,
+  message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
   user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   emoji      TEXT NOT NULL,
   is_custom  BOOLEAN DEFAULT false,
@@ -2118,7 +2101,7 @@ CREATE INDEX IF NOT EXISTS idx_guild_applications_user  ON guild_applications(us
 CREATE INDEX IF NOT EXISTS idx_guild_invites_guild  ON guild_invites(guild_id);
 CREATE INDEX IF NOT EXISTS idx_guild_invites_token  ON guild_invites(token);
 CREATE INDEX IF NOT EXISTS idx_guild_treasury_ledger_guild ON guild_treasury_ledger(guild_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_guild_treasury_log_guild    ON guild_treasury_log(guild_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_guild_treasury_ledger_ref   ON guild_treasury_ledger(reference_id) WHERE reference_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_guild_quests_guild_week     ON guild_quests(guild_id, week_start);
 CREATE INDEX IF NOT EXISTS idx_guild_quest_contributions_quest ON guild_quest_contributions(quest_id);
 CREATE INDEX IF NOT EXISTS idx_guild_quest_contributions_user  ON guild_quest_contributions(user_id);

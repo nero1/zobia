@@ -201,7 +201,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
         // Notify user of badge
         await db.query(
-          `INSERT INTO user_notifications (user_id, type, title, body, metadata, created_at)
+          `INSERT INTO notifications (user_id, type, title, body, metadata, created_at)
            VALUES ($1, 'badge_unlocked', 'New Badge!', $2, $3, NOW())`,
           [
             userId,

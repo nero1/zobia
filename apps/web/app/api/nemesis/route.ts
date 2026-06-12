@@ -284,7 +284,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       // Queue notification (best-effort — don't fail if notifications table doesn't exist)
       try {
         await db.query(
-          `INSERT INTO user_notifications (user_id, type, payload, created_at)
+          `INSERT INTO notifications (user_id, type, payload, created_at)
            VALUES ($1, 'nemesis_challenge', $2, NOW())`,
           [
             nemesisId,

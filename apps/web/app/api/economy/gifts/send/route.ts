@@ -289,19 +289,22 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           if (legendGuildRows[0]) {
             const guildShare = Math.floor(giftItem.coin_cost * 5 / 100);
             if (guildShare > 0) {
+              const balanceBefore = legendGuildRows[0].treasury_balance ?? 0;
               // LEAST clamp ensures treasury_balance never exceeds treasury_cap (#24)
-              await tx.query(
+              const { rows: updatedGuild } = await tx.query<{ treasury_balance: number }>(
                 `UPDATE guilds
                  SET treasury_balance = LEAST(treasury_cap, COALESCE(treasury_balance, 0) + $1),
                      updated_at = NOW()
-                 WHERE id = $2`,
+                 WHERE id = $2
+                 RETURNING treasury_balance`,
                 [guildShare, legendGuildRows[0].guild_id]
               );
+              const balanceAfter = updatedGuild[0]?.treasury_balance ?? balanceBefore;
               await tx.query(
-                `INSERT INTO guild_treasury_log (guild_id, amount, source, reference_id, created_at)
-                 VALUES ($1, $2, 'room_revenue_share', $3, NOW())
-                 ON CONFLICT DO NOTHING`,
-                [legendGuildRows[0].guild_id, guildShare, body.roomId]
+                `INSERT INTO guild_treasury_ledger
+                   (guild_id, amount, balance_before, balance_after, transaction_type, reference_id, created_at)
+                 VALUES ($1, $2, $3, $4, 'room_revenue_share', $5, NOW())`,
+                [legendGuildRows[0].guild_id, guildShare, balanceBefore, balanceAfter, body.roomId ?? null]
               );
             }
           }
