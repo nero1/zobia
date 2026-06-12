@@ -286,7 +286,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     // Notify user of tier upgrade
     await db.query(
-      `INSERT INTO user_notifications (user_id, type, title, body, metadata, created_at)
+      `INSERT INTO notifications (user_id, type, title, body, metadata, created_at)
        VALUES ($1, 'creator_tier_upgrade', $2, $3, $4, NOW())`,
       [
         userId,

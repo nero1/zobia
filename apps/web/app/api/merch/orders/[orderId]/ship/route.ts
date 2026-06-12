@@ -69,7 +69,7 @@ export const PATCH = withAuth(
       void (async () => {
         try {
           await db.query(
-            `INSERT INTO user_notifications (user_id, type, title, body, metadata, created_at)
+            `INSERT INTO notifications (user_id, type, title, body, metadata, created_at)
              VALUES ($1, 'order_shipped', 'Your order is on the way!',
                      'Your order has been shipped and is on its way to you.', $2, NOW())`,
             [order.buyer_id, JSON.stringify({ orderId })]

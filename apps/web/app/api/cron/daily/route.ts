@@ -762,7 +762,7 @@ export const GET = async (req: NextRequest) => {
       for (const candidate of candidates) {
         // Insert council invitation notification
         await db.query(
-          `INSERT INTO user_notifications (user_id, type, title, body, metadata, created_at)
+          `INSERT INTO notifications (user_id, type, title, body, metadata, created_at)
            VALUES ($1, 'council_invitation', 'Platform Council Invitation',
              'You are among the top contributors on Zobia. You have been invited to join the Platform Council.',
              $2, NOW())
@@ -1715,7 +1715,7 @@ export const GET = async (req: NextRequest) => {
 
         // Notify user
         await db.query(
-          `INSERT INTO user_notifications (user_id, type, title, body, metadata, created_at)
+          `INSERT INTO notifications (user_id, type, title, body, metadata, created_at)
            VALUES ($1, 'sticker_pack_unlocked', 'New Sticker Pack!', $2, $3, NOW())`,
           [
             row.user_id,

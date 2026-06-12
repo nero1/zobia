@@ -31,6 +31,8 @@ interface NotificationRow {
   id: string;
   type: string;
   payload: Record<string, unknown> | null;
+  title: string | null;
+  body: string | null;
   is_read: boolean;
   created_at: string;
 }
@@ -39,6 +41,8 @@ interface Notification {
   id: string;
   type: string;
   payload: Record<string, unknown> | null;
+  title: string | null;
+  body: string | null;
   isRead: boolean;
   createdAt: string;
 }
@@ -55,7 +59,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const userId = auth.user.sub;
 
     const result = await db.query<NotificationRow>(
-      `SELECT id, type, payload, is_read, created_at
+      `SELECT id, type, payload, title, body, is_read, created_at
        FROM notifications
        WHERE user_id = $1
        ORDER BY created_at DESC
@@ -67,6 +71,8 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       id: row.id,
       type: row.type,
       payload: row.payload,
+      title: row.title,
+      body: row.body,
       isRead: row.is_read,
       createdAt: row.created_at,
     }));

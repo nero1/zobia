@@ -110,7 +110,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       // Queue notification for the elder
       try {
         await client.query(
-          `INSERT INTO user_notifications (user_id, type, payload, created_at)
+          `INSERT INTO notifications (user_id, type, payload, created_at)
            VALUES ($1, 'elder_request', $2, NOW())`,
           [
             body.elderId,

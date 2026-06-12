@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
  *  - Rising tier   : Pay-per-send at ₦200/send
  *  - Elite / Icon  : Unlimited free broadcasts
  *
- * Messages are bulk-inserted into `user_messages` for each follower.
+ * Messages are bulk-inserted into `creator_broadcasts` for each follower.
  * Telegram cross-delivery is triggered if the follower has telegram_id set.
  */
 
@@ -362,12 +362,12 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       const broadcastRecord = broadcastRows[0];
       if (!broadcastRecord) throw new Error("Broadcast creation failed");
 
-      // Bulk insert user_messages for each follower
+      // Bulk insert creator_broadcasts for each follower
       // Using unnest for performance on large follower lists
       const userIds = followers.map((f) => f.user_id);
 
       await tx.query(
-        `INSERT INTO user_messages
+        `INSERT INTO creator_broadcasts
            (sender_id, recipient_id, content, message_type, reference_id)
          SELECT $1, u, $2, 'broadcast', $3
          FROM UNNEST($4::uuid[]) AS u`,

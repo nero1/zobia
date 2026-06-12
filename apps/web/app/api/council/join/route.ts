@@ -44,17 +44,7 @@ export const POST = withAuth(async (_req: NextRequest, { auth }) => {
       [userId]
     );
 
-    // Also check user_notifications table (cron uses a different table)
-    const { rows: userNotifRows } = await db.query<{ id: string }>(
-      `SELECT id FROM user_notifications
-       WHERE user_id = $1
-         AND type = 'council_invitation'
-         AND created_at >= NOW() - INTERVAL '14 days'
-       LIMIT 1`,
-      [userId]
-    );
-
-    if (!inviteRows[0] && !userNotifRows[0]) {
+    if (!inviteRows[0]) {
       throw forbidden("No pending council invitation found for your account");
     }
 
@@ -104,11 +94,6 @@ export const POST = withAuth(async (_req: NextRequest, { auth }) => {
     // Mark the invitation notification as read
     await db.query(
       `UPDATE notifications SET is_read = true
-       WHERE user_id = $1 AND type = 'council_invitation'`,
-      [userId]
-    ).catch(() => {});
-    await db.query(
-      `UPDATE user_notifications SET is_read = true
        WHERE user_id = $1 AND type = 'council_invitation'`,
       [userId]
     ).catch(() => {});

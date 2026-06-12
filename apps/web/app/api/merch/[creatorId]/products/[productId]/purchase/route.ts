@@ -275,7 +275,7 @@ export const POST = withAuth(
         try {
           // 1. In-app notification
           await db.query(
-            `INSERT INTO user_notifications (user_id, type, title, body, metadata, created_at)
+            `INSERT INTO notifications (user_id, type, title, body, metadata, created_at)
              VALUES ($1, 'new_merch_order', $2, $3, $4, NOW())`,
             [
               creatorId,
