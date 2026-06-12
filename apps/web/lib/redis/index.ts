@@ -52,6 +52,8 @@ export interface RedisClient {
   decr(key: string): Promise<number>;
   incrby(key: string, increment: number): Promise<number>;
   decrby(key: string, decrement: number): Promise<number>;
+  /** Execute a Lua script atomically. Compatible with ioredis eval(script, numkeys, ...args). */
+  eval(script: string, numkeys: number, ...args: (string | number)[]): Promise<unknown>;
   ping(): Promise<string>;
   quit(): Promise<"OK">;
 }
@@ -221,6 +223,12 @@ class UpstashAdapter implements RedisClient {
 
   decrby(key: string, decrement: number): Promise<number> {
     return this.client.decrby(key, decrement);
+  }
+
+  async eval(script: string, numkeys: number, ...args: (string | number)[]): Promise<unknown> {
+    const keys = args.slice(0, numkeys).map(String);
+    const argv = args.slice(numkeys).map(String);
+    return this.client.eval(script, keys, argv);
   }
 
   async ping(): Promise<string> {
