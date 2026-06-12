@@ -13,7 +13,7 @@
  *   <div dir={dir} style={{ textAlign: getTextAlign('ar') }}>…</div>
  */
 
-import type { SupportedLocale } from "./index";
+import type { SupportedLocale } from "./locales";
 
 /** Set of locales that render right-to-left. */
 const RTL_LOCALES: ReadonlySet<string> = new Set(["ar"]);
