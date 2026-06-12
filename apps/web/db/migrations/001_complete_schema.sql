@@ -1,5 +1,5 @@
 -- ============================================================
--- Zobia Social — Complete Schema (consolidated from migrations 001–039)
+-- Zobia Social — Complete Schema (consolidated from migrations 001–011)
 -- Run on a fresh database. Safe to re-run: uses IF NOT EXISTS.
 -- ============================================================
 
@@ -165,6 +165,13 @@ CREATE TABLE IF NOT EXISTS users (
   nudge_email_shown_at     TIMESTAMPTZ,
   nudge_email_dismissed_at TIMESTAMPTZ,
 
+  -- Misc personalisation & privacy
+  pidgin_suggestions_enabled BOOLEAN DEFAULT NULL,
+  avatar_url                 TEXT,
+  profile_private            BOOLEAN NOT NULL DEFAULT FALSE,
+  profile_hidden_sections    JSONB   NOT NULL DEFAULT '[]',
+  disable_friend_requests    BOOLEAN NOT NULL DEFAULT FALSE,
+
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -294,6 +301,7 @@ CREATE TABLE IF NOT EXISTS messages (
   metadata        JSONB,
   coin_cost       BIGINT DEFAULT 0,
   reply_count_from_recipient INTEGER DEFAULT 0,
+  is_read         BOOLEAN NOT NULL DEFAULT false,
   is_deleted      BOOLEAN DEFAULT false,
   is_flagged      BOOLEAN DEFAULT false,
   sender_plan_at_creation TEXT DEFAULT 'free',
@@ -377,7 +385,7 @@ CREATE TABLE IF NOT EXISTS notifications (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS creator_broadcasts (
+CREATE TABLE IF NOT EXISTS user_messages (
   id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   sender_id    UUID REFERENCES users(id) ON DELETE SET NULL,
   recipient_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -522,7 +530,9 @@ CREATE TABLE IF NOT EXISTS guild_quests (
   week_end        TIMESTAMPTZ NOT NULL,
   is_completed    BOOLEAN DEFAULT false,
   completed_at    TIMESTAMPTZ,
-  created_at      TIMESTAMPTZ DEFAULT NOW()
+  created_at      TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT guild_quests_week_start_is_monday
+    CHECK (EXTRACT(ISODOW FROM week_start AT TIME ZONE 'UTC') = 1)
 );
 
 CREATE TABLE IF NOT EXISTS guild_quest_contributions (
@@ -924,8 +934,9 @@ CREATE TABLE IF NOT EXISTS seasons (
   season_number    INTEGER NOT NULL,
   starts_at        TIMESTAMPTZ NOT NULL,
   ends_at          TIMESTAMPTZ NOT NULL,
-  pass_price_coins INTEGER NOT NULL DEFAULT 500,
-  is_active        BOOLEAN DEFAULT false,
+  pass_price_coins  INTEGER NOT NULL DEFAULT 500,
+  reward_pool_coins INTEGER NOT NULL DEFAULT 0,
+  is_active         BOOLEAN DEFAULT false,
   created_by       UUID REFERENCES users(id) ON DELETE SET NULL,
   created_at       TIMESTAMPTZ DEFAULT NOW()
 );
@@ -1103,6 +1114,19 @@ CREATE TABLE IF NOT EXISTS hall_of_fame (
   inducted_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS new_member_quests (
+  id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id        UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  quest_type     TEXT NOT NULL DEFAULT 'new_member',
+  progress       JSONB NOT NULL DEFAULT '{}',
+  completed      BOOLEAN NOT NULL DEFAULT FALSE,
+  reward_claimed BOOLEAN NOT NULL DEFAULT FALSE,
+  completed_at   TIMESTAMPTZ,
+  created_at     TIMESTAMPTZ DEFAULT NOW(),
+  updated_at     TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, quest_type)
+);
+
 
 -- ============================================================
 -- SECTION 7: Economy (Ledgers, Payments, Gifts, Store)
@@ -1125,9 +1149,11 @@ CREATE TABLE IF NOT EXISTS star_ledger (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id          UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   amount           INT NOT NULL,
+  balance_before   BIGINT NOT NULL DEFAULT 0,
+  balance_after    BIGINT NOT NULL DEFAULT 0,
   transaction_type TEXT NOT NULL,
   description      TEXT,
-  reference_id     UUID,
+  reference_id     TEXT,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -1164,8 +1190,9 @@ CREATE TABLE IF NOT EXISTS payments (
   status                  TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
     'pending','processing','completed','failed','refunded'
   )),
-  coins_credited  BIGINT,
-  idempotency_key TEXT UNIQUE,
+  coins_credited       BIGINT,
+  amount_received_kobo BIGINT,
+  idempotency_key      TEXT UNIQUE,
   metadata        JSONB,
   created_at      TIMESTAMPTZ DEFAULT NOW(),
   completed_at    TIMESTAMPTZ
@@ -1364,6 +1391,7 @@ CREATE TABLE IF NOT EXISTS creator_payouts (
   appeal_submitted_at      TIMESTAMPTZ,
   appeal_resolved_at       TIMESTAMPTZ,
   appeal_resolved_by       UUID REFERENCES users(id) ON DELETE SET NULL,
+  earnings_restored        BOOLEAN NOT NULL DEFAULT false,
   created_at               TIMESTAMPTZ DEFAULT NOW(),
   processed_at             TIMESTAMPTZ,
   updated_at               TIMESTAMPTZ DEFAULT NOW(),
@@ -1512,12 +1540,15 @@ CREATE TABLE IF NOT EXISTS creator_spotlights (
 );
 
 CREATE TABLE IF NOT EXISTS merch_stores (
-  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  creator_id  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE UNIQUE,
-  name        TEXT NOT NULL,
-  description TEXT,
-  is_active   BOOLEAN DEFAULT true,
-  created_at  TIMESTAMPTZ DEFAULT NOW()
+  id                        UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  creator_id                UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE UNIQUE,
+  name                      TEXT NOT NULL,
+  description               TEXT,
+  is_active                 BOOLEAN DEFAULT true,
+  physical_goods_enabled    BOOLEAN DEFAULT false,
+  default_fulfillment_method TEXT DEFAULT 'manual'
+    CHECK (default_fulfillment_method IN ('manual', 'partner')),
+  created_at                TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS merch_products (
@@ -1543,11 +1574,18 @@ CREATE TABLE IF NOT EXISTS merch_orders (
   creator_share_kobo BIGINT NOT NULL,
   platform_fee_kobo  BIGINT NOT NULL,
   status             TEXT NOT NULL DEFAULT 'pending'
-                       CHECK (status IN ('pending','completed','refunded')),
+                       CHECK (status IN ('pending','shipped','in_transit','delivered','completed','refunded')),
   shipping_name      TEXT,
   shipping_address   TEXT,
   shipping_city      TEXT,
   shipping_country   TEXT,
+  fulfillment_method TEXT DEFAULT 'manual'
+    CHECK (fulfillment_method IN ('manual', 'partner')),
+  seller_notes       TEXT,
+  shipped_at         TIMESTAMPTZ,
+  delivered_at       TIMESTAMPTZ,
+  confirmed_at       TIMESTAMPTZ,
+  tracking_updates   JSONB DEFAULT '[]'::jsonb,
   created_at         TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -1684,6 +1722,14 @@ CREATE TABLE IF NOT EXISTS user_banner_views (
   banner_id UUID NOT NULL REFERENCES announcement_banners(id) ON DELETE CASCADE,
   viewed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE(user_id, banner_id)
+);
+
+CREATE TABLE IF NOT EXISTS user_announcement_rotation (
+  user_id        UUID    NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content_type   TEXT    NOT NULL CHECK (content_type IN ('modal', 'banner')),
+  last_shown_id  UUID    NOT NULL,
+  last_shown_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, content_type)
 );
 
 CREATE TABLE IF NOT EXISTS admin_messages (
@@ -2057,7 +2103,12 @@ CREATE INDEX IF NOT EXISTS idx_users_prestige_boost ON users(prestige_cycle_boos
 -- ledgers
 CREATE INDEX IF NOT EXISTS idx_coin_ledger_user_id    ON coin_ledger(user_id);
 CREATE INDEX IF NOT EXISTS idx_coin_ledger_created_at ON coin_ledger(created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS uidx_coin_ledger_type_ref ON coin_ledger(transaction_type, reference_id)
+  WHERE reference_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_star_ledger_user       ON star_ledger(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_star_ledger_created_at ON star_ledger(created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS uidx_star_ledger_type_ref ON star_ledger(transaction_type, reference_id)
+  WHERE reference_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_xp_ledger_user_id      ON xp_ledger(user_id);
 CREATE INDEX IF NOT EXISTS idx_xp_ledger_track        ON xp_ledger(track);
 CREATE INDEX IF NOT EXISTS idx_xp_ledger_created_at   ON xp_ledger(created_at DESC);
@@ -2078,18 +2129,20 @@ CREATE INDEX IF NOT EXISTS idx_conversation_scores_u1 ON conversation_scores(use
 CREATE INDEX IF NOT EXISTS idx_conversation_scores_u2 ON conversation_scores(user_id_2);
 CREATE INDEX IF NOT EXISTS idx_user_blocks_blocker    ON user_blocks(blocker_id);
 CREATE INDEX IF NOT EXISTS idx_user_blocks_blocked    ON user_blocks(blocked_id);
-CREATE INDEX IF NOT EXISTS idx_user_notifications_user   ON user_notifications(user_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_user_notifications_unread ON user_notifications(user_id) WHERE is_read = false;
 CREATE INDEX IF NOT EXISTS idx_notifications_user_id     ON notifications(user_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_created_at  ON notifications(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_read_created ON notifications(user_id, is_read, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_user_messages_recipient   ON user_messages(recipient_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_user_messages_unread      ON user_messages(recipient_id) WHERE is_read = false;
-CREATE INDEX IF NOT EXISTS idx_moments_user    ON moments(user_id);
-CREATE INDEX IF NOT EXISTS idx_moments_expires ON moments(expires_at);
+CREATE INDEX IF NOT EXISTS idx_moments_user       ON moments(user_id);
+CREATE INDEX IF NOT EXISTS idx_moments_expires    ON moments(expires_at);
+CREATE INDEX IF NOT EXISTS idx_moments_expires_at ON moments(expires_at) WHERE expires_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_messages_sender_dm    ON messages(sender_id);
 CREATE INDEX IF NOT EXISTS idx_messages_recipient_dm ON messages(recipient_id) WHERE recipient_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_messages_conversation  ON messages(conversation_id) WHERE conversation_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_messages_sender_plan_created ON messages(sender_plan_at_creation, created_at);
+CREATE INDEX IF NOT EXISTS idx_messages_unread ON messages(conversation_id, recipient_id, is_read, is_deleted)
+  WHERE is_read = false AND is_deleted = false;
 
 -- guilds
 CREATE INDEX IF NOT EXISTS idx_guilds_tier          ON guilds(tier);
@@ -2114,6 +2167,7 @@ CREATE INDEX IF NOT EXISTS idx_war_contributions_user ON war_contributions(user_
 CREATE INDEX IF NOT EXISTS idx_guild_rooms_room ON guild_rooms(room_id);
 CREATE INDEX IF NOT EXISTS idx_hall_of_fame_user ON hall_of_fame(user_id);
 CREATE INDEX IF NOT EXISTS idx_hall_of_fame_legacy ON hall_of_fame(legacy_score DESC);
+CREATE INDEX IF NOT EXISTS new_member_quests_user_id_idx ON new_member_quests(user_id);
 
 -- rooms
 CREATE INDEX IF NOT EXISTS idx_rooms_creator_id ON rooms(creator_id);
@@ -2124,8 +2178,9 @@ CREATE INDEX IF NOT EXISTS idx_rooms_guild_id   ON rooms(guild_id)  WHERE guild_
 CREATE INDEX IF NOT EXISTS idx_rooms_spotlight  ON rooms(spotlight_until) WHERE spotlight_until IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_room_members_room ON room_members(room_id);
 CREATE INDEX IF NOT EXISTS idx_room_members_user ON room_members(user_id);
-CREATE INDEX IF NOT EXISTS idx_room_messages_room    ON room_messages(room_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_room_messages_sender  ON room_messages(sender_id);
+CREATE INDEX IF NOT EXISTS idx_room_messages_room       ON room_messages(room_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_room_messages_created_at ON room_messages(created_at);
+CREATE INDEX IF NOT EXISTS idx_room_messages_sender     ON room_messages(sender_id);
 CREATE INDEX IF NOT EXISTS idx_room_messages_pinned  ON room_messages(room_id) WHERE is_pinned = true;
 CREATE INDEX IF NOT EXISTS idx_room_messages_pin_expiry ON room_messages(pin_expires_at)
   WHERE is_pinned = true AND pin_expires_at IS NOT NULL;
@@ -2162,8 +2217,9 @@ CREATE INDEX IF NOT EXISTS idx_nemesis_challenges_challenged ON nemesis_challeng
 CREATE INDEX IF NOT EXISTS idx_user_titles_user ON user_titles(user_id);
 CREATE INDEX IF NOT EXISTS idx_track_milestone_unlocks_user ON track_milestone_unlocks(user_id, track);
 CREATE INDEX IF NOT EXISTS idx_rank_up_events_user ON rank_up_events(user_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_xp_events_user        ON xp_events(user_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_xp_events_action      ON xp_events(action);
+CREATE INDEX IF NOT EXISTS idx_xp_events_user       ON xp_events(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_xp_events_action     ON xp_events(action);
+CREATE INDEX IF NOT EXISTS idx_xp_events_created_at ON xp_events(created_at);
 CREATE INDEX IF NOT EXISTS idx_user_inactivity_notified ON user_inactivity_events(notified, created_at)
   WHERE notified = false;
 CREATE INDEX IF NOT EXISTS idx_dm_score_milestones ON dm_conversation_score_milestones(user_id_a, user_id_b);
@@ -2210,10 +2266,13 @@ CREATE INDEX IF NOT EXISTS idx_elder_mentorships_elder   ON elder_mentorships(el
 CREATE INDEX IF NOT EXISTS idx_elder_mentorships_mentee  ON elder_mentorships(mentee_id);
 CREATE INDEX IF NOT EXISTS idx_creator_broadcasts_creator ON creator_broadcasts(creator_id);
 CREATE INDEX IF NOT EXISTS idx_creator_broadcasts_created ON creator_broadcasts(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_user_ann_rotation_user     ON user_announcement_rotation(user_id);
 CREATE INDEX IF NOT EXISTS idx_creator_spotlights_creator  ON creator_spotlights(creator_id);
 CREATE INDEX IF NOT EXISTS idx_creator_spotlights_is_active ON creator_spotlights(is_active) WHERE is_active = true;
 CREATE INDEX IF NOT EXISTS idx_creator_spotlights_month    ON creator_spotlights(month_year DESC);
 CREATE INDEX IF NOT EXISTS idx_sponsored_banners_active    ON sponsored_leaderboard_banners(is_active, starts_at, ends_at);
+CREATE INDEX IF NOT EXISTS idx_merch_orders_creator_status ON merch_orders(creator_id, status);
+CREATE INDEX IF NOT EXISTS idx_merch_orders_buyer_status   ON merch_orders(buyer_id, status);
 
 -- moderation
 CREATE INDEX IF NOT EXISTS idx_reports_status   ON reports(status);
@@ -2590,7 +2649,31 @@ INSERT INTO x_manifest (key, value, description) VALUES
   ('referral_tier1_xp_bonus',            '500',                      'Tier 1 referral XP bonus'),
   ('referral_tier2_coin_bonus',          '50',                       'Tier 2 referral coin bonus'),
   ('referral_tier2_xp_bonus',            '250',                      'Tier 2 referral XP bonus'),
-  ('referral_qualifying_action',         '"coin_purchase"',          'Action that qualifies a referral')
+  ('referral_qualifying_action',         '"coin_purchase"',          'Action that qualifies a referral'),
+
+  -- 2FA (migration 007)
+  ('auth_2fa_enabled',           'true',  'Allow users to configure two-factor authentication'),
+  ('auth_2fa_required_for_mods', 'false', 'Require 2FA for moderators before they can log in'),
+
+  -- Profile privacy (migration 008)
+  ('privacy_can_lock_profile',
+   '["pro","max","prestige_1"]',
+   'Plans/roles allowed to lock their profile (hide from non-friends). JSON array.'),
+  ('privacy_can_hide_sections',
+   '["plus","pro","max","prestige_1"]',
+   'Plans/roles allowed to hide individual profile sections. JSON array.'),
+  ('privacy_can_disable_friend_requests',
+   '["plus","pro","max","prestige_1"]',
+   'Plans/roles allowed to disable incoming friend requests. JSON array.'),
+  ('privacy_hideable_sections',
+   '["avatar","bio","rank","xp","guild","seasons","badges"]',
+   'Profile sections that users can hide (admin-controlled list). JSON array.'),
+
+  -- Currency display names (migration 009)
+  ('currency_soft_name_singular',    '"Credit"',  'Singular display name for the earned soft currency (e.g. Credit)'),
+  ('currency_soft_name_plural',      '"Credits"', 'Plural display name for the earned soft currency (e.g. Credits)'),
+  ('currency_premium_name_singular', '"Star"',    'Singular display name for the purchased premium currency (e.g. Star)'),
+  ('currency_premium_name_plural',   '"Stars"',   'Plural display name for the purchased premium currency (e.g. Stars)')
 ON CONFLICT (key) DO NOTHING;
 
 -- subscription_plans
