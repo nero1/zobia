@@ -75,28 +75,29 @@ async function getCoinEconomy() {
      WHERE deleted_at IS NULL`
   );
 
+  // Use Number() on BIGINT sums — safe up to 2^53. For coin aggregates in the
+  // billions this is fine; if ever larger, switch to string and parse on the client (#25).
+  const safeNum = (s: string | undefined) => Number(s ?? "0");
+
   const row = rows[0];
-  const purchasedToday = parseInt(row?.coins_minted_today ?? "0", 10);
-  const purchasedWeek = parseInt(row?.coins_minted_week ?? "0", 10);
-  const purchasedMonth = parseInt(row?.coins_minted_month ?? "0", 10);
+  const purchasedToday = safeNum(row?.coins_minted_today);
+  const purchasedWeek  = safeNum(row?.coins_minted_week);
+  const purchasedMonth = safeNum(row?.coins_minted_month);
   return {
-    totalCoinsInCirculation: parseInt(row?.total_coins_in_circulation ?? "0", 10),
-    // "purchased" = coins bought via IAP/payment (formerly "minted")
+    totalCoinsInCirculation: safeNum(row?.total_coins_in_circulation),
     purchasedToday,
     purchasedWeek,
     purchasedMonth,
-    // backward-compat aliases
     mintedToday: purchasedToday,
     mintedWeek: purchasedWeek,
     mintedMonth: purchasedMonth,
-    burnedToday: parseInt(row?.coins_burned_today ?? "0", 10),
-    burnedWeek: parseInt(row?.coins_burned_week ?? "0", 10),
-    burnedMonth: parseInt(row?.coins_burned_month ?? "0", 10),
-    // coins earned through platform activities (quests, login bonuses, war wins, referrals, etc.)
-    earnedToday: parseInt(row?.coins_earned_today ?? "0", 10),
-    earnedWeek: parseInt(row?.coins_earned_week ?? "0", 10),
-    earnedMonth: parseInt(row?.coins_earned_month ?? "0", 10),
-    usersWithCoins: parseInt(row?.total_users_with_coins ?? "0", 10),
+    burnedToday:  safeNum(row?.coins_burned_today),
+    burnedWeek:   safeNum(row?.coins_burned_week),
+    burnedMonth:  safeNum(row?.coins_burned_month),
+    earnedToday:  safeNum(row?.coins_earned_today),
+    earnedWeek:   safeNum(row?.coins_earned_week),
+    earnedMonth:  safeNum(row?.coins_earned_month),
+    usersWithCoins: safeNum(row?.total_users_with_coins),
   };
 }
 
@@ -132,10 +133,10 @@ async function getRevenueByProvider() {
 
   return rows.map((r) => ({
     provider: r.provider,
-    revenueToday: parseInt(r.revenue_today_kobo ?? "0", 10),
-    revenueWeek: parseInt(r.revenue_week_kobo ?? "0", 10),
-    revenueMonth: parseInt(r.revenue_month_kobo ?? "0", 10),
-    transactionCount: parseInt(r.transaction_count ?? "0", 10),
+    revenueToday: Number(r.revenue_today_kobo ?? "0"),
+    revenueWeek:  Number(r.revenue_week_kobo ?? "0"),
+    revenueMonth: Number(r.revenue_month_kobo ?? "0"),
+    transactionCount: Number(r.transaction_count ?? "0"),
   }));
 }
 
@@ -167,14 +168,14 @@ async function getPayoutSummary() {
   const row = rows[0];
   return {
     awaitingApproval: {
-      count: parseInt(row?.awaiting_approval_count ?? "0", 10),
-      grossKobo: parseInt(row?.awaiting_approval_gross_kobo ?? "0", 10),
+      count:     Number(row?.awaiting_approval_count ?? "0"),
+      grossKobo: Number(row?.awaiting_approval_gross_kobo ?? "0"),
     },
     processing: {
-      count: parseInt(row?.processing_count ?? "0", 10),
-      grossKobo: parseInt(row?.processing_gross_kobo ?? "0", 10),
+      count:     Number(row?.processing_count ?? "0"),
+      grossKobo: Number(row?.processing_gross_kobo ?? "0"),
     },
-    completedThisMonthNetKobo: parseInt(row?.completed_month_kobo ?? "0", 10),
+    completedThisMonthNetKobo: Number(row?.completed_month_kobo ?? "0"),
   };
 }
 

@@ -19,34 +19,36 @@ However, several **release-blocking** defects exist where the **code references 
 
 ## A. Complete List of Findings (one-line each)
 
-1. CRIT — `star_ledger` table is missing `balance_before`/`balance_after`; every star credit/debit throws → all star purchases/gifts fail.
-2. CRIT — `payments.amount_received_kobo` column does not exist; all Paystack & Dodo `charge.success` webhooks throw → no coins credited, payments never marked completed.
-3. CRIT — Refresh-token rotation is half-wired: server rotates the stored hash but the route keeps the old cookie → reuse-detection nukes all sessions on the 2nd refresh.
-4. CRIT — Guild quest completion credits `users.coins` (non-existent column) and bypasses the coin ledger → quest completion transaction fails.
-5. HIGH — Auth middleware default-denies `/api/cron/*` (no JWT cookie) → external CRON jobs get 401 and never run.
-6. HIGH — Payout retries use a *new* Paystack `reference` each attempt → defeats provider idempotency → double payouts on network-blip retries.
-7. HIGH — Payout earnings restoration is non-idempotent (`moveToDeadLetterQueue`, `transfer.reversed`, `reconcileStuckPayouts` can each restore `gross_kobo`) → double-credit of creator balances.
-8. HIGH — `transfer.reversed` webhook has no idempotency guard → duplicate provider webhook double-restores earnings.
-9. HIGH — `admin/financial` revenue query selects non-existent `amount_received_kobo` → admin financial dashboard 500s.
-10. HIGH — SEO: sitemap lists `/profile/*` and `/rooms/*` which are auth-gated by middleware (redirect to login) → uncrawlable; sitemap "public profiles" promise is false.
-11. HIGH — SEO: sitemap rooms query orders by non-existent `rooms.last_activity_at` → query throws → all rooms (and the whole dynamic block) silently dropped from sitemap.
-12. HIGH — Coin transfer idempotency is racy and incorrectly ordered (`exists`→`setex` not atomic; key set before success) → double-spend window + false "duplicate" on legitimate retry.
-13. MED — `gifts/send` has no idempotency key and no rate limit → double-tap sends/charges twice.
-14. MED — Gift flow records virtual *coins* into `creator_earnings.*_kobo` (real-money columns) → unit conflation corrupts financial reporting/payout accounting.
-15. MED — SSRF guard (`lib/security/ssrf.ts`) is dead code — never imported anywhere; server-side fetches of user/admin URLs are unprotected.
-16. MED — Subscription `non-renewing` is treated as immediate cancellation → user downgraded to `free` mid-paid-period.
-17. MED — Referral commissions are computed from client-tamperable `metadata.coinsGranted`, not the server-derived grant amount.
-18. MED — Charge webhook never verifies paid `amount` ≥ pack `price_kobo` → underpayment still credits full pack.
-19. MED — Internal coin credits/debits (`creditCoins`) are not idempotent; webhook safety relies solely on the `payments` row guard; other internal callers can double-apply on retry.
-20. MED — `withAuth` account-status check "fails open" on DB/Redis error → banned/suspended users act during a backend hiccup.
-21. MED — DB pool sets no `statement_timeout` / `idle_in_transaction_session_timeout` → a slow/stuck query can exhaust the tiny (max 2) pool (thundering-herd / connection starvation).
-22. MED — AI circuit-breaker state is module-level in-memory → ineffective on Vercel serverless (per-lambda, resets on cold start).
-23. LOW — CSP allows `'unsafe-inline'` and `'unsafe-eval'` in `script-src`, weakening XSS defense; admin footer-scripts + multiple `dangerouslySetInnerHTML` increase stored-XSS surface.
-24. LOW — Guild treasury credits ignore `treasury_cap` (gift revenue-share, quest rewards) → balances can exceed declared cap.
-25. LOW — Admin financial sums use `parseInt` on BIGINT sums → precision loss past 2^53 for large aggregates.
-26. LOW — Refresh cookie `Max-Age` is hard-coded to 30 days even for admin sessions (1-hour refresh TTL) → cookie/Redis lifetime mismatch.
-27. LOW — `getClientIp` rate-limit fallback returns `"unknown"`, bucketing all unidentifiable clients together; sliding-window keys can also grow unbounded under high cardinality.
-28. LOW — Mixed/duplicate schema (`coin_ledger` vs `guild_treasury_ledger`+`guild_treasury_log`, `messages` vs `room_messages` vs `user_messages`, `notifications` vs `user_notifications`, `message_reactions` vs `room_message_reactions`) → data-model bloat & ambiguity.
+**Legend:** ✅ Fixed | 🟠 Partially fixed | ⬜ Not yet fixed
+
+1. ✅ CRIT — `star_ledger` table is missing `balance_before`/`balance_after`; every star credit/debit throws → all star purchases/gifts fail.
+2. ✅ CRIT — `payments.amount_received_kobo` column does not exist; all Paystack & Dodo `charge.success` webhooks throw → no coins credited, payments never marked completed.
+3. ✅ CRIT — Refresh-token rotation is half-wired: server rotates the stored hash but the route keeps the old cookie → reuse-detection nukes all sessions on the 2nd refresh.
+4. ✅ CRIT — Guild quest completion credits `users.coins` (non-existent column) and bypasses the coin ledger → quest completion transaction fails.
+5. ✅ HIGH — Auth middleware default-denies `/api/cron/*` (no JWT cookie) → external CRON jobs get 401 and never run.
+6. ✅ HIGH — Payout retries use a *new* Paystack `reference` each attempt → defeats provider idempotency → double payouts on network-blip retries.
+7. ✅ HIGH — Payout earnings restoration is non-idempotent (`moveToDeadLetterQueue`, `transfer.reversed`, `reconcileStuckPayouts` can each restore `gross_kobo`) → double-credit of creator balances.
+8. ✅ HIGH — `transfer.reversed` webhook has no idempotency guard → duplicate provider webhook double-restores earnings.
+9. ✅ HIGH — `admin/financial` revenue query selects non-existent `amount_received_kobo` → admin financial dashboard 500s. (Fixed transitively by #2 — column now added.)
+10. ✅ HIGH — SEO: sitemap lists `/profile/*` and `/rooms/*` which are auth-gated by middleware → uncrawlable. Public `/u/[username]` and `/r/[id]` routes created.
+11. ✅ HIGH — SEO: sitemap rooms query orders by non-existent `rooms.last_activity_at` → query throws → all rooms dropped from sitemap.
+12. ✅ HIGH — Coin transfer idempotency is racy and incorrectly ordered (`exists`→`setex` not atomic; key set before success) → double-spend window + false "duplicate" on legitimate retry.
+13. ✅ MED — `gifts/send` has no idempotency key and no rate limit → double-tap sends/charges twice.
+14. ✅ MED — Gift flow records virtual *coins* into `creator_earnings.*_kobo` (real-money columns) → unit conflation corrupts financial reporting/payout accounting.
+15. 🟠 MED — SSRF guard (`lib/security/ssrf.ts`) is dead code — never imported anywhere. Link-preview route has its own guard; GIF proxy only calls hardcoded safe domains. Remaining: image proxy and admin-configurable URL paths.
+16. ✅ MED — Subscription `non-renewing` is treated as immediate cancellation → user downgraded to `free` mid-paid-period.
+17. ✅ MED — Referral commissions are computed from client-tamperable `metadata.coinsGranted`, not the server-derived grant amount.
+18. ✅ MED — Charge webhook never verifies paid `amount` ≥ pack `price_kobo` → underpayment still credits full pack.
+19. ✅ MED — Internal coin credits/debits (`creditCoins`) are not idempotent; webhook safety relies solely on the `payments` row guard; other internal callers can double-apply on retry.
+20. ✅ MED — `withAuth` account-status check "fails open" on DB/Redis error → banned/suspended users act during a backend hiccup.
+21. 🟠 MED — DB pool sets no `statement_timeout` / `idle_in_transaction_session_timeout` → a slow/stuck query can exhaust the tiny (max 2) pool. Timeouts added to pool config; HTTP calls inside transactions not yet moved out.
+22. ✅ MED — AI circuit-breaker state is module-level in-memory → ineffective on Vercel serverless (per-lambda, resets on cold start). Now persisted in Redis.
+23. 🟠 LOW — CSP allows `'unsafe-inline'` and `'unsafe-eval'` in `script-src`. `unsafe-eval` removed; `unsafe-inline` kept pending full nonce-based CSP migration.
+24. ✅ LOW — Guild treasury credits ignore `treasury_cap` (gift revenue-share, quest rewards) → balances can exceed declared cap.
+25. ✅ LOW — Admin financial sums use `parseInt` on BIGINT sums → precision loss past 2^53 for large aggregates.
+26. ✅ LOW — Refresh cookie `Max-Age` is hard-coded to 30 days even for admin sessions (1-hour refresh TTL) → cookie/Redis lifetime mismatch.
+27. ✅ LOW — `getClientIp` rate-limit fallback returns `"unknown"`, bucketing all unidentifiable clients together.
+28. ⬜ LOW — Mixed/duplicate schema (`coin_ledger` vs `guild_treasury_ledger`+`guild_treasury_log`, etc.) → data-model bloat & ambiguity. Not addressed — requires DB migrations and codebase-wide refactor.
 
 ---
 

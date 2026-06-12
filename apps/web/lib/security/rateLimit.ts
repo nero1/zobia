@@ -206,6 +206,13 @@ export async function enforceRateLimit(
   type: "user" | "ip",
   options: RateLimitOptions
 ): Promise<void> {
+  // If the subject is the "unknown" fallback IP, skip rate limiting rather than
+  // bucketing all unidentifiable clients together (collateral throttling, #27).
+  // This is safe because authenticated routes already have per-user limits.
+  if (type === "ip" && subject === "unknown") {
+    return;
+  }
+
   const result =
     type === "user"
       ? await checkUserRateLimit(subject, options)

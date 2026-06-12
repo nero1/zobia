@@ -161,7 +161,7 @@ export async function getSession(sid: string): Promise<SessionRecord | null> {
  */
 export async function refreshAccessToken(
   refreshToken: string
-): Promise<Pick<AuthTokens, "accessToken" | "expiresIn"> & { newRefreshToken?: string }> {
+): Promise<Pick<AuthTokens, "accessToken" | "expiresIn"> & { newRefreshToken?: string; refreshTtl?: number }> {
   const payload = await verifyRefreshToken(refreshToken);
 
   const session = await getSession(payload.sid!);
@@ -201,7 +201,7 @@ export async function refreshAccessToken(
   const updatedRecord: SessionRecord = { ...session, refreshTokenHash: newHash };
   await redis.setex(sessionKey(session.sid), refreshTtl, JSON.stringify(updatedRecord)).catch(() => {});
 
-  return { accessToken, expiresIn: accessTtl, newRefreshToken };
+  return { accessToken, expiresIn: accessTtl, newRefreshToken, refreshTtl };
 }
 
 // ---------------------------------------------------------------------------
@@ -246,12 +246,16 @@ export const ACCESS_TOKEN_COOKIE = "zobia_at";
 /**
  * Build Set-Cookie header values for both tokens.
  *
- * @param tokens - Token pair from createSession / refreshAccessToken
- * @param secure - Whether to set the Secure flag (true in production)
+ * @param tokens     - Token pair from createSession / refreshAccessToken
+ * @param secure     - Whether to set the Secure flag (true in production)
+ * @param refreshTtl - Max-Age for the refresh cookie in seconds (defaults to
+ *                     REFRESH_TOKEN_TTL_SECONDS). Pass the actual TTL so admin
+ *                     sessions (1-hour refresh) don't get a 30-day cookie.
  */
 export function buildCookieHeaders(
   tokens: AuthTokens,
-  secure = process.env.NODE_ENV === "production"
+  secure = process.env.NODE_ENV === "production",
+  refreshTtl: number = REFRESH_TOKEN_TTL_SECONDS
 ): { accessCookie: string; refreshCookie: string } {
   const flags = `HttpOnly; Path=/; SameSite=Lax${secure ? "; Secure" : ""}`;
 
@@ -261,7 +265,7 @@ export function buildCookieHeaders(
 
   const refreshCookie =
     `${REFRESH_TOKEN_COOKIE}=${tokens.refreshToken}; ` +
-    `Max-Age=${REFRESH_TOKEN_TTL_SECONDS}; ${flags}`;
+    `Max-Age=${refreshTtl}; ${flags}`;
 
   return { accessCookie, refreshCookie };
 }

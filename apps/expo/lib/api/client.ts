@@ -69,11 +69,18 @@ async function refreshAccessToken(): Promise<string | null> {
 
       if (res.status !== 200) return null;
 
-      // The new access token is in the response header or body
+      // The new access token is in the response header
       const newToken = res.headers['x-access-token'] as string | undefined;
       if (!newToken) return null;
 
       await SecureStore.setItemAsync(JWT_KEY, newToken);
+
+      // Persist the rotated refresh token so the next refresh succeeds
+      const newRefreshToken = res.headers['x-refresh-token'] as string | undefined;
+      if (newRefreshToken) {
+        await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, newRefreshToken);
+      }
+
       return newToken;
     } catch {
       return null;
