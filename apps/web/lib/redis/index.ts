@@ -34,6 +34,8 @@ export interface RedisClient {
   set(key: string, value: string): Promise<"OK" | null>;
   set(key: string, value: string, exMode: "EX", seconds: number): Promise<"OK" | null>;
   set(key: string, value: string, pxMode: "PX", milliseconds: number): Promise<"OK" | null>;
+  set(key: string, value: string, exMode: "EX", seconds: number, nx: "NX"): Promise<"OK" | null>;
+  set(key: string, value: string, pxMode: "PX", milliseconds: number, nx: "NX"): Promise<"OK" | null>;
   setex(key: string, seconds: number, value: string): Promise<"OK">;
   del(...keys: string[]): Promise<number>;
   exists(...keys: string[]): Promise<number>;
@@ -135,12 +137,13 @@ class UpstashAdapter implements RedisClient {
     return JSON.stringify(value);
   }
 
-  set(key: string, value: string, exMode?: "EX" | "PX", ttl?: number): Promise<"OK" | null> {
-    if (exMode === "EX" && ttl !== undefined) {
-      return this.client.set(key, value, { ex: ttl }) as Promise<"OK" | null>;
-    }
-    if (exMode === "PX" && ttl !== undefined) {
-      return this.client.set(key, value, { px: ttl }) as Promise<"OK" | null>;
+  set(key: string, value: string, exMode?: "EX" | "PX", ttl?: number, nx?: "NX"): Promise<"OK" | null> {
+    const opts: { ex?: number; px?: number; nx?: true } = {};
+    if (exMode === "EX" && ttl !== undefined) opts.ex = ttl;
+    if (exMode === "PX" && ttl !== undefined) opts.px = ttl;
+    if (nx === "NX") opts.nx = true;
+    if (Object.keys(opts).length > 0) {
+      return this.client.set(key, value, opts) as Promise<"OK" | null>;
     }
     return this.client.set(key, value) as Promise<"OK" | null>;
   }
