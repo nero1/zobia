@@ -25,7 +25,7 @@ import { loadManifest } from "@/lib/manifest";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { getDir } from "@/lib/i18n/rtl";
-import { SUPPORTED_LOCALES, DEFAULT_LOCALE } from "@/lib/i18n";
+import { SUPPORTED_LOCALES, DEFAULT_LOCALE } from "@/lib/i18n/locales";
 
 // ---------------------------------------------------------------------------
 // Font

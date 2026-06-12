@@ -22,24 +22,11 @@ import LanguageDetector from "i18next-browser-languagedetector";
 import resourcesToBackend from "i18next-resources-to-backend";
 
 // ---------------------------------------------------------------------------
-// Supported locales
+// Supported locales — re-exported from the server-safe constants module
 // ---------------------------------------------------------------------------
 
-export const SUPPORTED_LOCALES = ["en", "ar", "fr", "ha", "sw", "am", "zu", "pt"] as const;
-export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
-
-export const LOCALE_LABELS: Record<SupportedLocale, string> = {
-  en: "English",
-  ar: "العربية",
-  fr: "Français",
-  ha: "Hausa",
-  sw: "Kiswahili",
-  am: "አማርኛ",
-  zu: "IsiZulu",
-  pt: "Português",
-};
-
-export const DEFAULT_LOCALE: SupportedLocale = "en";
+export { SUPPORTED_LOCALES, LOCALE_LABELS, DEFAULT_LOCALE } from "./locales";
+export type { SupportedLocale } from "./locales";
 
 // ---------------------------------------------------------------------------
 // Initialisation
