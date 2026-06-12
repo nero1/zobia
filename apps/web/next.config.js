@@ -105,25 +105,10 @@ const securityHeaders = [
     key: "Permissions-Policy",
     value: "camera=(), microphone=(), geolocation=(), browsing-topics=()",
   },
-  {
-    key: "Content-Security-Policy",
-    value: [
-      "default-src 'self'",
-      // unsafe-eval removed (#23); unsafe-inline kept for SSR/Next.js inline scripts
-      // TODO: migrate to nonce-based CSP to also remove unsafe-inline
-      "script-src 'self' 'unsafe-inline' https://www.google.com https://www.gstatic.com https://challenges.cloudflare.com",
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-      "font-src 'self' https://fonts.gstatic.com",
-      "img-src 'self' data: blob: https: http:",
-      "connect-src 'self' https: wss:",
-      "frame-src 'self' https://www.google.com https://challenges.cloudflare.com",
-      "object-src 'none'",
-      "base-uri 'self'",
-      "form-action 'self'",
-      "frame-ancestors 'self'",
-      "upgrade-insecure-requests",
-    ].join("; "),
-  },
+  // Content-Security-Policy is set dynamically per-request in middleware.ts
+  // with a per-request nonce. Removing it here prevents duplicate CSP headers
+  // which would otherwise cause browsers to AND both policies (the static one
+  // would weaken the middleware's stricter nonce-based policy).
 ];
 
 const nextConfig = {

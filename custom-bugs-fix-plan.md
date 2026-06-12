@@ -72,13 +72,13 @@ These break core money & session flows. Fix and verify before anything else.
 
 ## Phase 2 — Security Hardening (~1 day)
 
-- 🟠 **SSRF (Bug #15):** `lib/security/ssrf.ts` exists and the link-preview route uses its own `validateSsrfSafeUrl`. GIF proxy only calls hardcoded safe domains. Remaining: verify image proxy and admin-configurable URL paths use `safeFetch`.
+- ✅ **SSRF (Bug #15):** link-preview route now uses `safeFetch` from `lib/security/ssrf.ts` (full DNS rebinding protection + recursive redirect validation). GIF proxy uses hardcoded Giphy/Tenor URLs (no user input). No image proxy route exists and no admin-configurable outbound URL fields were found.
 - ✅ **Fail-closed status (Bug #20):** for payment/payout/transfer/gift mutations, now denies when ban/suspend status can't be confirmed.
-- 🟠 **CSP + XSS sinks (Bug #23):** removed `unsafe-eval`; `unsafe-inline` kept pending full nonce-based CSP migration (larger refactor). `dangerouslySetInnerHTML` paths not audited in this session.
+- ✅ **CSP + XSS sinks (Bug #23):** CSP moved from static `next.config.js` headers to per-request middleware with `'nonce-${nonce}'` + `'strict-dynamic'` in script-src (CSP3 browsers ignore `unsafe-inline` when a valid nonce is present). All `dangerouslySetInnerHTML` paths audited: announcement modal/banner sanitized via `sanitizeHtmlContent()`, leaderboard banner is a static constant, footer scripts are admin-gated and have the nonce injected server-side. Nonce forwarded via `x-nonce` request header and applied to footer `<script>` tags in `app/layout.tsx`.
 
 ## Phase 3 — Scalability & Cost (~1 day)
 
-- 🟠 **Pool timeouts + no HTTP in transactions (Bug #21):** `statement_timeout=10s` / `idle_in_transaction_session_timeout=15s` added to all 3 DB providers. Moving HTTP calls out of transactions is a larger refactor not done in this session.
+- ✅ **Pool timeouts + no HTTP in transactions (Bug #21):** `statement_timeout=10s` / `idle_in_transaction_session_timeout=15s` added to all 3 DB providers. Audit of webhook and payout code confirmed no HTTP/fetch calls inside `db.transaction()` callbacks — all external calls (Paystack, DodoPayments) are made before or after transaction boundaries.
 - ✅ **Global circuit breaker (Bug #22):** AI circuit breaker state now persisted in Redis; in-memory L1 cache reduces Redis round-trips.
 - ✅ **Rate-limit keying (Bug #27):** `"unknown"` IP now skips rate limiting instead of bucketing all unidentifiable clients together.
 
