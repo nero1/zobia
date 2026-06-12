@@ -18,7 +18,7 @@
  */
 
 import IORedis from "ioredis";
-import { Redis as UpstashRedis } from "@upstash/redis";
+import { Redis as UpstashRedis, type SetCommandOptions } from "@upstash/redis";
 import { env } from "@/lib/env";
 
 // ---------------------------------------------------------------------------
@@ -143,7 +143,7 @@ class UpstashAdapter implements RedisClient {
     if (exMode === "PX" && ttl !== undefined) opts.px = ttl;
     if (nx === "NX") opts.nx = true;
     if (Object.keys(opts).length > 0) {
-      return this.client.set(key, value, opts) as Promise<"OK" | null>;
+      return this.client.set(key, value, opts as SetCommandOptions) as Promise<"OK" | null>;
     }
     return this.client.set(key, value) as Promise<"OK" | null>;
   }
