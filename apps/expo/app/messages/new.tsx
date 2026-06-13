@@ -72,7 +72,7 @@ async function fetchDMCostInfo(): Promise<DMCostInfo> {
 }
 
 async function startConversation(targetUserId: string): Promise<{ conversationId: string }> {
-  const { data } = await apiClient.post('/messages/conversations', { targetUserId });
+  const { data } = await apiClient.post('/messages/dm', { targetUserId });
   return data;
 }
 

@@ -5,10 +5,11 @@
  *
  * Flow:
  *  1. Check if device is connected and has internet
- *  2. Fetch pending messages from local SQLite queue
- *  3. Attempt to send each to the backend
- *  4. Mark as sent on success, failed on error
- *  5. Silent errors (don't break the sync loop for one failure)
+ *  2. Reset previously-failed messages back to pending so they are retried
+ *  3. Fetch pending messages from local SQLite queue
+ *  4. Route each message to the correct endpoint based on conversation type
+ *  5. Mark as sent on success, failed on error
+ *  6. Silent per-message errors (don't break the sync loop for one failure)
  */
 
 import NetInfo from '@react-native-community/netinfo';
@@ -17,6 +18,7 @@ import {
   getPendingMessages,
   markMessageSent,
   markMessageFailed,
+  resetFailedMessages,
 } from './sqlite';
 
 /**
@@ -31,21 +33,27 @@ export async function syncPendingMessages(): Promise<void> {
   }
 
   try {
+    // Reset failed messages back to pending before this sync pass
+    await resetFailedMessages();
+
     const pending = await getPendingMessages();
 
-    // Sync each pending message
     for (const msg of pending) {
       try {
-        // Send to backend
-        await apiClient.post(`/api/messages/${msg.conversation_id}`, {
+        // Route to the correct endpoint based on conversation type
+        const endpoint =
+          msg.conversationType === 'group'
+            ? `/messages/group/${msg.conversationId}`
+            : `/messages/dm/${msg.conversationId}`;
+
+        await apiClient.post(endpoint, {
           content: msg.content,
-          messageType: msg.message_type,
+          messageType: msg.messageType,
+          idempotencyKey: msg.idempotencyKey,
         });
 
-        // Mark as sent
         await markMessageSent(msg.id);
       } catch (err) {
-        // Mark as failed but continue syncing other messages
         await markMessageFailed(msg.id);
         console.warn(`[offline:sync] Failed to send message ${msg.id}`, err);
       }

@@ -75,7 +75,7 @@ interface OwnProfile {
 // ---------------------------------------------------------------------------
 
 async function fetchOwnProfile(userId: string): Promise<OwnProfile> {
-  const { data } = await apiClient.get(`/api/profile/${userId}`);
+  const { data } = await apiClient.get(`/profile/${userId}`);
   return data.profile;
 }
 

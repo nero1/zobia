@@ -23,6 +23,7 @@ import { db } from "@/lib/db";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import type { AdminContext } from "@/lib/api/middleware";
+import { encryptField } from "@/lib/security/fieldEncryption";
 
 // ---------------------------------------------------------------------------
 // TOTP helpers (minimal RFC 6238 implementation without heavy libraries)
@@ -166,7 +167,7 @@ export const POST = withAdminAuth(async (req: NextRequest, ctx: { params: Record
       `UPDATE users
        SET totp_secret = $1, totp_enabled = TRUE, updated_at = NOW()
        WHERE id = $2`,
-      [body.secret, ctx.auth.user.sub]
+      [encryptField(body.secret), ctx.auth.user.sub]
     );
 
     return NextResponse.json({

@@ -93,13 +93,13 @@ interface StickerPack {
 // ---------------------------------------------------------------------------
 
 async function fetchConversation(id: string): Promise<ConversationMeta> {
-  const { data } = await apiClient.get(`/messages/conversations/${id}`);
+  const { data } = await apiClient.get(`/messages/dm/${id}`);
   return data.conversation;
 }
 
 async function fetchChatTheme(): Promise<ChatTheme> {
   try {
-    const { data } = await apiClient.get('/api/users/me/theme');
+    const { data } = await apiClient.get('/users/me/theme');
     return (data.data?.theme ?? 'default') as ChatTheme;
   } catch {
     return 'default';
@@ -107,7 +107,7 @@ async function fetchChatTheme(): Promise<ChatTheme> {
 }
 
 async function fetchMessages(id: string): Promise<DM[]> {
-  const { data } = await apiClient.get(`/messages/conversations/${id}/messages`);
+  const { data } = await apiClient.get(`/messages/dm/${id}`);
   return data.messages ?? [];
 }
 
@@ -116,7 +116,7 @@ async function sendDM(
   content: string,
   messageType: MessageType = 'text',
 ): Promise<DM> {
-  const { data } = await apiClient.post(`/messages/conversations/${conversationId}/messages`, {
+  const { data } = await apiClient.post(`/messages/dm/${conversationId}`, {
     content,
     messageType,
   });

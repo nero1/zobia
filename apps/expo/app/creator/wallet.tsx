@@ -70,7 +70,7 @@ export default function WalletScreen() {
 
   useEffect(() => {
     apiClient
-      .get<WalletData>('/api/creator/wallet-address')
+      .get<WalletData>('/creator/wallet-address')
       .then((res) => setWallet(res.data))
       .catch(() => setWallet({ hasWallet: false }))
       .finally(() => setLoading(false));
@@ -87,7 +87,7 @@ export default function WalletScreen() {
       const res = await apiClient.post<{
         addressMasked: string;
         showPinModal?: boolean;
-      }>('/api/creator/wallet-address', {
+      }>('/creator/wallet-address', {
         address,
         pinOrCode: pinOrCode || undefined,
       });
@@ -115,7 +115,7 @@ export default function WalletScreen() {
   async function handleDelete() {
     setSubmitting(true);
     try {
-      await apiClient.delete('/api/creator/wallet-address', {
+      await apiClient.delete('/creator/wallet-address', {
         data: { pinOrCode: deletePin || undefined },
       });
       setWallet({ hasWallet: false });

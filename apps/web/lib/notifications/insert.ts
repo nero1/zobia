@@ -47,6 +47,9 @@ export async function insertNotification(
  * Insert notifications for multiple users in one batch.
  * Each user gets an identical payload — clone and customise before calling
  * if per-user data differs.
+ *
+ * Uses a single bulk INSERT (chunked at 500 rows) instead of per-user queries
+ * to reduce round-trips and improve throughput.
  */
 export async function insertNotificationBatch(
   db: DatabaseAdapter | TransactionClient,
@@ -56,11 +59,21 @@ export async function insertNotificationBatch(
 ): Promise<void> {
   if (userIds.length === 0) return;
   const payloadJson = JSON.stringify(payload);
-  for (const userId of userIds) {
+
+  // Chunk at 500 rows to avoid parameter count limits
+  const CHUNK_SIZE = 500;
+  for (let i = 0; i < userIds.length; i += CHUNK_SIZE) {
+    const chunk = userIds.slice(i, i + CHUNK_SIZE);
+    const values = chunk
+      .map((_, j) => `($${j * 3 + 1}, $${j * 3 + 2}, $${j * 3 + 3}, false, NOW())`)
+      .join(", ");
+    const params: string[] = [];
+    for (const userId of chunk) {
+      params.push(userId, type, payloadJson);
+    }
     await db.query(
-      `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-       VALUES ($1, $2, $3, false, NOW())`,
-      [userId, type, payloadJson]
+      `INSERT INTO notifications (user_id, type, payload, is_read, created_at) VALUES ${values}`,
+      params
     );
   }
 }

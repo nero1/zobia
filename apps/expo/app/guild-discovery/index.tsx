@@ -55,12 +55,12 @@ interface GuildDiscoveryResponse {
 // ---------------------------------------------------------------------------
 
 async function fetchDiscoveryGuilds(): Promise<GuildDiscoveryResponse> {
-  const { data } = await apiClient.get<GuildDiscoveryResponse>('/api/guilds/discovery');
+  const { data } = await apiClient.get<GuildDiscoveryResponse>('/guilds/discovery');
   return data;
 }
 
 async function joinGuild(guildId: string): Promise<void> {
-  await apiClient.post(`/api/guilds/${guildId}/join`);
+  await apiClient.post(`/guilds/${guildId}/join`);
 }
 
 // ---------------------------------------------------------------------------

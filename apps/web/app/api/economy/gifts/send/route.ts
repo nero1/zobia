@@ -25,6 +25,9 @@ import { meetsMinimumTrust } from "@/lib/trust/trustScore";
 import { recordWarContribution } from "@/lib/guilds/recordWarContribution";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { redis } from "@/lib/redis";
+import { requirePinVerified } from "@/lib/auth/pinGuard";
+import { calculateFinalXP, PLAN_XP_MULTIPLIERS_BP } from "@/lib/xp/engine";
+import type { Plan } from "@zobia/types";
 
 // Platform takes 20% of gifts received by creators (PRD §14)
 const CREATOR_GIFT_FEE_PERCENT = 20;
@@ -74,13 +77,22 @@ async function awardGiftXP(
   senderId: string,
   recipientId: string,
   giftTier: number,
+  senderPlan: Plan,
   roomId?: string | null
 ): Promise<void> {
   try {
-    // PRD §6: Sending a gift message awards fixed 10 XP (not tier-scaled)
-    const senderXP = 10;
-    // Recipient gets Social XP — fixed 5
-    const recipientXP = 5;
+    // PRD §6: Sending a gift message is a messaging action — apply plan multiplier
+    const { baseXp: senderBaseXp, finalXp: senderXP } = calculateFinalXP(
+      'send_gift_message',
+      { plan: senderPlan, isMessagingAction: true }
+    );
+    const senderMultiplierBP = PLAN_XP_MULTIPLIERS_BP[senderPlan];
+
+    // Recipient XP (receive_gift_and_react) — not a messaging action, no plan multiplier
+    const { baseXp: recipBaseXp, finalXp: recipientXP } = calculateFinalXP(
+      'receive_gift_and_react',
+      { plan: 'free', isMessagingAction: false }
+    );
 
     // PRD §6: Check if recipient has ever received a gift before (first_time_gifted = 15 XP)
     const { rows: prevGiftRows } = await db.query<{ count: string }>(
@@ -92,40 +104,52 @@ async function awardGiftXP(
     // PRD §6: being_tipped_in_room = 25 XP for creator when gift is sent in a room
     const isTippedInRoom = !!roomId;
 
-    const xpEvents = [
+    // first_time_gifted XP (non-messaging, flat)
+    const { baseXp: firstGiftBaseXp, finalXp: firstGiftXP } = calculateFinalXP(
+      'first_time_gifted',
+      { plan: 'free', isMessagingAction: false }
+    );
+
+    // being_tipped_in_room XP (non-messaging, flat)
+    const { baseXp: tippedBaseXp, finalXp: tippedXP } = calculateFinalXP(
+      'being_tipped_in_room',
+      { plan: 'free', isMessagingAction: false }
+    );
+
+    const xpLedgerInserts = [
       db.query(
-        `INSERT INTO xp_events (user_id, action, xp_awarded, track, metadata)
-         VALUES ($1, 'gift_sent', $2, 'generosity', $3::jsonb)`,
-        [senderId, senderXP, JSON.stringify({ recipientId, giftTier })]
+        `INSERT INTO xp_ledger (user_id, amount, track, source, multiplier, base_amount)
+         VALUES ($1, $2, 'generosity', 'gift_sent', $3, $4)`,
+        [senderId, senderXP, senderMultiplierBP, senderBaseXp]
       ),
       db.query(
-        `INSERT INTO xp_events (user_id, action, xp_awarded, track, metadata)
-         VALUES ($1, 'receive_gift_and_react', $2, 'social', $3::jsonb)`,
-        [recipientId, recipientXP, JSON.stringify({ senderId, giftTier })]
+        `INSERT INTO xp_ledger (user_id, amount, track, source, multiplier, base_amount)
+         VALUES ($1, $2, 'social', 'gift_received', 100, $3)`,
+        [recipientId, recipientXP, recipBaseXp]
       ),
     ];
 
     if (isFirstGift) {
-      xpEvents.push(
+      xpLedgerInserts.push(
         db.query(
-          `INSERT INTO xp_events (user_id, action, xp_awarded, track, metadata)
-           VALUES ($1, 'first_time_gifted', 15, 'social', $2::jsonb)`,
-          [recipientId, JSON.stringify({ senderId, giftTier })]
+          `INSERT INTO xp_ledger (user_id, amount, track, source, multiplier, base_amount)
+           VALUES ($1, $2, 'social', 'first_time_gifted', 100, $3)`,
+          [recipientId, firstGiftXP, firstGiftBaseXp]
         )
       );
     }
 
     if (isTippedInRoom) {
-      xpEvents.push(
+      xpLedgerInserts.push(
         db.query(
-          `INSERT INTO xp_events (user_id, action, xp_awarded, track, metadata)
-           VALUES ($1, 'being_tipped_in_room', 25, 'creator', $2::jsonb)`,
-          [recipientId, JSON.stringify({ senderId, roomId, giftTier })]
+          `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
+           VALUES ($1, $2, 'creator', 'being_tipped_in_room', $3, 100, $4)`,
+          [recipientId, tippedXP, roomId, tippedBaseXp]
         )
       );
     }
 
-    await Promise.all(xpEvents);
+    await Promise.all(xpLedgerInserts);
 
     const userUpdates = [
       db.query(
@@ -141,8 +165,8 @@ async function awardGiftXP(
     if (isFirstGift) {
       userUpdates.push(
         db.query(
-          `UPDATE users SET xp_total = xp_total + 15, xp_social = xp_social + 15, updated_at = NOW() WHERE id = $1`,
-          [recipientId]
+          `UPDATE users SET xp_total = xp_total + $2, xp_social = xp_social + $2, updated_at = NOW() WHERE id = $1`,
+          [recipientId, firstGiftXP]
         )
       );
     }
@@ -150,8 +174,8 @@ async function awardGiftXP(
     if (isTippedInRoom) {
       userUpdates.push(
         db.query(
-          `UPDATE users SET xp_total = xp_total + 25, xp_creator = xp_creator + 25, updated_at = NOW() WHERE id = $1`,
-          [recipientId]
+          `UPDATE users SET xp_total = xp_total + $2, xp_creator = xp_creator + $2, updated_at = NOW() WHERE id = $1`,
+          [recipientId, tippedXP]
         )
       );
     }
@@ -176,8 +200,18 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   // Declared outside try so the catch block can clean it up on error
   let idempKey: string | null = null;
   try {
-    const body = await validateBody(req, SendGiftSchema);
     const senderId = auth.user.sub;
+
+    // Require a recent PIN verification before allowing gift sends
+    const pinOk = await requirePinVerified(senderId);
+    if (!pinOk) {
+      return NextResponse.json(
+        { error: "PIN verification required", code: "PIN_REQUIRED" },
+        { status: 403 }
+      );
+    }
+
+    const body = await validateBody(req, SendGiftSchema);
 
     // Rate-limit: prevent double-tap sends (#13)
     await enforceRateLimit(senderId, "user", RATE_LIMITS.apiWrite);
@@ -234,6 +268,18 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     const recipient = recipientRows[0];
+
+    // Check block relationship (both directions) before sending
+    const { rows: blockRows } = await db.query<{ id: string }>(
+      `SELECT id FROM user_blocks
+       WHERE (blocker_id = $1 AND blocked_id = $2)
+          OR (blocker_id = $2 AND blocked_id = $1)
+       LIMIT 1`,
+      [senderId, body.recipientId]
+    );
+    if (blockRows[0]) {
+      throw forbidden("Cannot send a gift to this user", "USER_BLOCKED");
+    }
 
     // 3. Atomic: debit coins and create gift record
     let giftId = "";
@@ -401,8 +447,14 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       }
     });
 
-    // 4. Award XP (fire-and-forget)
-    void awardGiftXP(senderId, body.recipientId, giftItem.tier, body.roomId);
+    // 4. Award XP (fire-and-forget) — fetch sender plan for multiplier
+    db.query<{ plan: Plan }>(
+      `SELECT COALESCE(plan, 'free') AS plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+      [senderId]
+    ).then(({ rows }) => {
+      const senderPlan: Plan = rows[0]?.plan ?? 'free';
+      return awardGiftXP(senderId, body.recipientId, giftItem.tier, senderPlan, body.roomId);
+    }).catch((err) => console.error('[gifts:POST] XP award failed', err));
 
     // 5. Record guild war contribution (fire-and-forget)
     recordWarContribution(senderId, 'send_gift', db).catch((err) =>

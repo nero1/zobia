@@ -40,6 +40,7 @@ interface DodoPaymentSucceededEvent {
       userId: string;
       packId?: string;
       coinsGranted?: number;
+      starsGranted?: number;
       itemType: "coin_pack" | "star_pack" | "subscription" | "room_subscription";
       packName?: string;
       idempotencyKey: string;
@@ -105,7 +106,7 @@ async function processPaymentSucceeded(
     );
 
     const paymentId = existing[0].id;
-    const { userId, coinsGranted, itemType } = metadata;
+    const { userId, coinsGranted, starsGranted, itemType } = metadata;
 
     // VIP room subscription — activate room access
     if (itemType === "room_subscription") {
@@ -196,7 +197,7 @@ async function processPaymentSucceeded(
     } else if (itemType === "star_pack") {
       await creditStars(
         userId,
-        coinsGranted ?? 0,
+        starsGranted ?? 0,
         "purchase",
         paymentId,
         `Purchased ${metadata.packName}`,

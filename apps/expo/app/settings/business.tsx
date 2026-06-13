@@ -83,16 +83,16 @@ const PLAN_LABELS: Record<BusinessPlan, string> = {
 // ---------------------------------------------------------------------------
 
 async function fetchBusiness(): Promise<BusinessData> {
-  const { data } = await apiClient.get('/api/business');
+  const { data } = await apiClient.get('/business');
   return data;
 }
 
 async function upgradeToPlan(plan: BusinessPlan): Promise<void> {
-  await apiClient.post('/api/business/upgrade', { plan });
+  await apiClient.post('/business/upgrade', { plan });
 }
 
 async function requestVerification(): Promise<void> {
-  await apiClient.post('/api/business/verify');
+  await apiClient.post('/business/verify');
 }
 
 // ---------------------------------------------------------------------------

@@ -26,7 +26,7 @@ interface ManifestCurrencyResponse {
 
 async function fetchCurrencyNames(): Promise<CurrencyNames> {
   try {
-    const { data } = await apiClient.get<ManifestCurrencyResponse>("/api/manifest");
+    const { data } = await apiClient.get<ManifestCurrencyResponse>("/manifest");
     return {
       softSingular: data.currency?.softNameSingular ?? DEFAULTS.softSingular,
       softPlural: data.currency?.softNamePlural ?? DEFAULTS.softPlural,

@@ -82,10 +82,10 @@ export default function FriendsTab() {
   const load = useCallback(async () => {
     try {
       const [fr, rr, sr, sugg] = await Promise.all([
-        apiClient.get('/api/friends').catch(() => null),
-        apiClient.get('/api/friends/requests').catch(() => null),
-        apiClient.get('/api/friends/requests/sent').catch(() => null),
-        apiClient.get('/api/friends/suggestions').catch(() => null),
+        apiClient.get('/friends').catch(() => null),
+        apiClient.get('/friends/requests').catch(() => null),
+        apiClient.get('/friends/requests/sent').catch(() => null),
+        apiClient.get('/friends/suggestions').catch(() => null),
       ]);
       setFriends((fr?.data?.data ?? []) as Friend[]);
       setReceivedRequests((rr?.data?.data ?? []) as FriendRequest[]);
@@ -102,7 +102,7 @@ export default function FriendsTab() {
   const respondToRequest = async (requestId: string, action: 'accept' | 'reject') => {
     setActioning(requestId);
     try {
-      await apiClient.put(`/api/friends/${requestId}`, { action });
+      await apiClient.put(`/friends/${requestId}`, { action });
       setReceivedRequests((prev) => prev.filter((r) => r.id !== requestId));
     } catch { /* non-fatal */ }
     finally { setActioning(null); }
@@ -111,7 +111,7 @@ export default function FriendsTab() {
   const withdrawRequest = async (requestId: string) => {
     setActioning(requestId);
     try {
-      await apiClient.delete(`/api/friends/${requestId}`);
+      await apiClient.delete(`/friends/${requestId}`);
       setSentRequests((prev) => prev.filter((r) => r.id !== requestId));
     } catch { /* non-fatal */ }
     finally { setActioning(null); }
@@ -120,7 +120,7 @@ export default function FriendsTab() {
   const sendRequest = async (userId: string) => {
     setActioning(userId);
     try {
-      await apiClient.post('/api/friends', { userId });
+      await apiClient.post('/friends', { userId });
       setSuggestions((prev) => prev.filter((s) => s.id !== userId));
     } catch { /* non-fatal */ }
     finally { setActioning(null); }
@@ -129,7 +129,7 @@ export default function FriendsTab() {
   const removeFriend = async (friendId: string) => {
     setActioning(friendId);
     try {
-      await apiClient.delete(`/api/friends/${friendId}`);
+      await apiClient.delete(`/friends/${friendId}`);
       setFriends((prev) => prev.filter((f) => f.id !== friendId));
     } catch { /* non-fatal */ }
     finally { setActioning(null); }

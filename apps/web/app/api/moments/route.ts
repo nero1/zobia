@@ -14,11 +14,86 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 
+// ---------------------------------------------------------------------------
+// Media URL allowlist
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the list of hostnames that are allowed as media_url / thumbnail_url
+ * sources. Derived from configured storage/CDN environment variables so the
+ * allowlist automatically reflects the deployment's storage provider.
+ *
+ * Sources considered (in priority order):
+ *   1. R2_PUBLIC_URL          — Cloudflare R2 public bucket hostname
+ *   2. NEXT_PUBLIC_SUPABASE_URL — Supabase storage hostname
+ *   3. NEXT_PUBLIC_APP_URL    — same-origin uploads served via the app itself
+ *
+ * Additional domains can be added via the ALLOWED_MEDIA_HOSTS env var
+ * (comma-separated list of hostnames, e.g. "cdn.example.com,assets.example.com").
+ */
+function getAllowedMediaHosts(): string[] {
+  const hosts = new Set<string>();
+
+  const addHost = (raw: string | undefined) => {
+    if (!raw) return;
+    try {
+      const { hostname } = new URL(raw);
+      if (hostname) hosts.add(hostname.toLowerCase());
+    } catch {
+      // ignore malformed URLs
+    }
+  };
+
+  // Storage provider public URLs
+  addHost(process.env.R2_PUBLIC_URL);
+  addHost(process.env.NEXT_PUBLIC_SUPABASE_URL);
+  // App origin (for locally-served uploads)
+  addHost(process.env.NEXT_PUBLIC_APP_URL);
+
+  // Additional opt-in CDN domains
+  const extra = process.env.ALLOWED_MEDIA_HOSTS ?? "";
+  for (const h of extra.split(",").map((s) => s.trim()).filter(Boolean)) {
+    hosts.add(h.toLowerCase());
+  }
+
+  return [...hosts];
+}
+
+/**
+ * Returns true if the given URL's hostname is in the configured CDN/storage
+ * allowlist. Falls back to allowing any https URL during local development
+ * when no storage env vars are configured (all allowed hosts would be empty).
+ */
+function isAllowedMediaUrl(raw: string): boolean {
+  const allowedHosts = getAllowedMediaHosts();
+
+  // If no storage env vars are configured (e.g. bare local dev), skip the
+  // check rather than blocking every URL. This is safe because it only occurs
+  // when NEXT_PUBLIC_SUPABASE_URL, R2_PUBLIC_URL, and NEXT_PUBLIC_APP_URL are
+  // all unset — a configuration that implies no production data.
+  if (allowedHosts.length === 0) return true;
+
+  try {
+    const { hostname } = new URL(raw);
+    return allowedHosts.includes(hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
 const createMomentSchema = z.object({
   content: z.string().min(1).max(500),
   content_type: z.enum(["text", "image", "video"]).default("text"),
-  media_url: z.string().url().optional(),
-  thumbnail_url: z.string().url().optional(),
+  media_url: z
+    .string()
+    .url()
+    .refine(isAllowedMediaUrl, { message: "Media URL must be from allowed domain" })
+    .optional(),
+  thumbnail_url: z
+    .string()
+    .url()
+    .refine(isAllowedMediaUrl, { message: "Media URL must be from allowed domain" })
+    .optional(),
   caption: z.string().max(200).optional(),
 });
 

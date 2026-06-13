@@ -19,7 +19,6 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { randomUUID } from "crypto";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, notFound, handleApiError } from "@/lib/api/errors";
 import { db } from "@/lib/db";
@@ -111,7 +110,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     //    taps within the same day reuse the same pending record rather than
     //    creating multiple payment sessions.
     const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-    const idempotencyKey = `purchase:${userId}:${body.packId}:${today}:${randomUUID()}`;
+    const idempotencyKey = `purchase:${userId}:${body.packId}:${today}`;
 
     // 4. Check for an already-pending payment for this key (within 10 minutes)
     const { rows: existingRows } = await db.query<{

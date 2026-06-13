@@ -64,7 +64,7 @@ const TAG_OPTIONS: { key: GroupTag; label: string; emoji: string }[] = [
 // ---------------------------------------------------------------------------
 
 async function fetchFriends(): Promise<Friend[]> {
-  const { data } = await apiClient.get('/api/friends');
+  const { data } = await apiClient.get('/friends');
   return data.friends ?? [];
 }
 
@@ -73,7 +73,7 @@ async function createGroup(payload: {
   tag: GroupTag;
   memberUserIds: string[];
 }): Promise<CreateGroupResponse> {
-  const { data } = await apiClient.post('/api/messages/group', payload);
+  const { data } = await apiClient.post('/messages/group', payload);
   return data;
 }
 

@@ -57,12 +57,12 @@ interface ElderData {
 // ---------------------------------------------------------------------------
 
 async function fetchElderData(): Promise<ElderData> {
-  const { data } = await apiClient.get('/api/elder');
+  const { data } = await apiClient.get('/elder');
   return data;
 }
 
 async function requestMentor(): Promise<void> {
-  await apiClient.post('/api/elder/request-mentor');
+  await apiClient.post('/elder/request-mentor');
 }
 
 // ---------------------------------------------------------------------------

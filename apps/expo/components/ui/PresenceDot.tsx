@@ -50,7 +50,7 @@ export function PresenceDot({ userId, size = 12 }: PresenceDotProps) {
     queryKey: ['presence', userId],
     queryFn: () =>
       apiClient
-        .get<{ data: { status: PresenceStatus } }>(`/api/presence/${userId}`)
+        .get<{ data: { status: PresenceStatus } }>(`/presence/${userId}`)
         .then((r) => r.data.data),
     staleTime: 60_000,       // refresh every 60 s
     refetchInterval: 90_000, // background poll

@@ -136,7 +136,7 @@ export default function OnboardingStep1() {
       if (numbers.length > 0) {
         // Fire-and-forget — we just want to notify the server
         apiClient
-          .post('/api/friends/contacts-check', { phoneNumbers: numbers })
+          .post('/friends/contacts-check', { phoneNumbers: numbers })
           .catch(() => {});
       }
       setContactsStatus('done');

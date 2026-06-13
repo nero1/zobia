@@ -29,6 +29,7 @@ interface PendingPayoutRow {
   net_kobo: number;
   gross_kobo: number;
   idempotency_key: string;
+  provider_reference: string | null;
   retry_count: number;
   bank_account_snapshot: {
     recipient_code: string;
@@ -90,7 +91,7 @@ export async function processPendingPayouts(
        LIMIT $1
        FOR UPDATE SKIP LOCKED
      )
-     RETURNING id, creator_id, net_kobo, gross_kobo, idempotency_key, retry_count,
+     RETURNING id, creator_id, net_kobo, gross_kobo, idempotency_key, provider_reference, retry_count,
                bank_account_snapshot`,
     [batchSize]
   );
@@ -121,7 +122,7 @@ export async function processPendingPayouts(
        LIMIT $2
        FOR UPDATE SKIP LOCKED
      )
-     RETURNING id, creator_id, net_kobo, gross_kobo, idempotency_key, retry_count,
+     RETURNING id, creator_id, net_kobo, gross_kobo, idempotency_key, provider_reference, retry_count,
                bank_account_snapshot`,
     [maxRetries, Math.max(1, Math.floor(batchSize / 4))]
   );
@@ -167,9 +168,9 @@ async function attemptTransfer(
 
     // On retries, verify whether the previous attempt actually succeeded before
     // re-initiating to avoid double-payment on delayed confirmations.
-    if (isRetry && payout.idempotency_key) {
+    if (isRetry && payout.provider_reference) {
       try {
-        const prior = await verifyTransfer(reference);
+        const prior = await verifyTransfer(payout.provider_reference);
         if (prior.status === "success") {
           await db.query(
             `UPDATE creator_payouts SET status = 'completed', updated_at = NOW() WHERE id = $1`,
@@ -251,7 +252,6 @@ export async function reconcileStuckPayouts(): Promise<{ reconciled: number; fai
   const { rows: stuckPayouts } = await db.query<{
     id: string;
     provider_reference: string;
-    amount_kobo: string;
     creator_id: string;
     gross_kobo: string;
   }>(

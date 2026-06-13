@@ -23,18 +23,34 @@ export async function initOfflineDB(): Promise<void> {
 
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS offline_messages (
-      id            TEXT PRIMARY KEY,
-      conversation_id TEXT NOT NULL,
-      content       TEXT NOT NULL,
-      message_type  TEXT NOT NULL DEFAULT 'text',
-      created_at    INTEGER NOT NULL,
-      sync_status   TEXT NOT NULL DEFAULT 'pending'
+      id                TEXT PRIMARY KEY,
+      conversation_id   TEXT NOT NULL,
+      conversation_type TEXT NOT NULL DEFAULT 'dm',
+      content           TEXT NOT NULL,
+      message_type      TEXT NOT NULL DEFAULT 'text',
+      idempotency_key   TEXT,
+      created_at        INTEGER NOT NULL,
+      sync_status       TEXT NOT NULL DEFAULT 'pending'
         CHECK (sync_status IN ('pending', 'sending', 'failed'))
     );
 
     CREATE INDEX IF NOT EXISTS idx_offline_messages_status
       ON offline_messages(sync_status, created_at);
   `);
+
+  // Migration: add new columns to existing installations that lack them.
+  // SQLite ignores "duplicate column" errors so we suppress them individually.
+  const migrations = [
+    `ALTER TABLE offline_messages ADD COLUMN conversation_type TEXT NOT NULL DEFAULT 'dm'`,
+    `ALTER TABLE offline_messages ADD COLUMN idempotency_key TEXT`,
+  ];
+  for (const sql of migrations) {
+    try {
+      await db.execAsync(sql);
+    } catch {
+      // Column already exists — safe to ignore.
+    }
+  }
 }
 
 function getDB(): SQLite.SQLiteDatabase {
@@ -49,22 +65,26 @@ function getDB(): SQLite.SQLiteDatabase {
 /**
  * Queue a message for later delivery.
  *
- * @param conversationId - DM conversation ID or group chat ID
- * @param content        - Message content
- * @param messageType    - 'text' | 'gif' | 'sticker' | etc.
+ * @param conversationId   - DM conversation ID or group chat ID
+ * @param content          - Message content
+ * @param messageType      - 'text' | 'gif' | 'sticker' | etc.
+ * @param conversationType - 'dm' | 'group'
  * @returns Generated local ID for the queued message
  */
 export async function queueMessage(
   conversationId: string,
   content: string,
-  messageType: string = 'text'
+  messageType: string = 'text',
+  conversationType: 'dm' | 'group' = 'dm'
 ): Promise<string> {
   const localId = `offline_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const idempotencyKey = `${localId}_${Date.now()}`;
 
   await getDB().runAsync(
-    `INSERT INTO offline_messages (id, conversation_id, content, message_type, created_at, sync_status)
-     VALUES (?, ?, ?, ?, ?, 'pending')`,
-    [localId, conversationId, content, messageType, Date.now()]
+    `INSERT INTO offline_messages
+       (id, conversation_id, conversation_type, content, message_type, idempotency_key, created_at, sync_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+    [localId, conversationId, conversationType, content, messageType, idempotencyKey, Date.now()]
   );
 
   return localId;
@@ -76,18 +96,22 @@ export async function queueMessage(
 export async function getPendingMessages(): Promise<Array<{
   id: string;
   conversationId: string;
+  conversationType: 'dm' | 'group';
   content: string;
   messageType: string;
+  idempotencyKey: string | null;
   createdAt: number;
 }>> {
   const rows = await getDB().getAllAsync<{
     id: string;
     conversation_id: string;
+    conversation_type: string;
     content: string;
     message_type: string;
+    idempotency_key: string | null;
     created_at: number;
   }>(
-    `SELECT id, conversation_id, content, message_type, created_at
+    `SELECT id, conversation_id, conversation_type, content, message_type, idempotency_key, created_at
      FROM offline_messages
      WHERE sync_status = 'pending'
      ORDER BY created_at ASC`
@@ -96,8 +120,10 @@ export async function getPendingMessages(): Promise<Array<{
   return rows.map((r) => ({
     id: r.id,
     conversationId: r.conversation_id,
+    conversationType: (r.conversation_type === 'group' ? 'group' : 'dm') as 'dm' | 'group',
     content: r.content,
     messageType: r.message_type,
+    idempotencyKey: r.idempotency_key,
     createdAt: r.created_at,
   }));
 }

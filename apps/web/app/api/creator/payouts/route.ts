@@ -38,6 +38,7 @@ import { checkPayoutFraud } from "@/lib/fraud/payouts";
 import { encryptField, decryptField } from "@/lib/security/fieldEncryption";
 import { randomUUID } from "crypto";
 import Decimal from "decimal.js";
+import { requirePinVerified } from "@/lib/auth/pinGuard";
 
 // ---------------------------------------------------------------------------
 // DB row types
@@ -209,6 +210,16 @@ const PayoutRequestSchema = z.object({
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
+
+    // Require a recent PIN verification before allowing payout initiation
+    const pinOk = await requirePinVerified(userId);
+    if (!pinOk) {
+      return NextResponse.json(
+        { error: "PIN verification required", code: "PIN_REQUIRED" },
+        { status: 403 }
+      );
+    }
+
     const body = await validateBody(req, PayoutRequestSchema);
 
     const manifest = await loadManifest();

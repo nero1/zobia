@@ -30,7 +30,8 @@ import {
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { filterPublicContent } from "@/lib/messaging/antispam";
 import { applyAutoModeration } from "@/lib/moderation/contentFilter";
-import { XP_VALUES, ROOM_MESSAGE_XP_DAILY_CAP } from "@/lib/xp/engine";
+import { XP_VALUES, ROOM_MESSAGE_XP_DAILY_CAP, calculateFinalXP, PLAN_XP_MULTIPLIERS_BP } from "@/lib/xp/engine";
+import type { Plan } from "@zobia/types";
 import { publishRealtimeEvent } from "@/lib/realtime";
 
 // ---------------------------------------------------------------------------
@@ -150,21 +151,28 @@ async function countTodayMessages(roomId: string, userId: string): Promise<numbe
 }
 
 /**
- * Award 2 XP to the sender if they have not yet hit the daily 50-message cap.
+ * Award XP to the sender if they have not yet hit the daily 50-message cap.
+ * Applies the user's plan multiplier per PRD §6.
  * Silently swallows errors.
  *
  * @param roomId          - Room UUID
  * @param userId          - Sender UUID
  * @param todayMsgCount   - How many messages they have already sent today
+ * @param plan            - The sender's current plan (for multiplier)
  */
 async function maybeAwardMessageXP(
   roomId: string,
   userId: string,
-  todayMsgCount: number
+  todayMsgCount: number,
+  plan: Plan
 ): Promise<void> {
   if (todayMsgCount >= ROOM_MESSAGE_XP_DAILY_CAP) return;
   try {
-    const xp = XP_VALUES.send_message_in_room; // 2 XP
+    const { baseXp, finalXp } = calculateFinalXP(
+      'send_room_message',
+      { plan, isMessagingAction: true }
+    );
+    const multiplierBP = PLAN_XP_MULTIPLIERS_BP[plan];
     await db.transaction(async (tx) => {
       await tx.query(
         `UPDATE users
@@ -172,13 +180,13 @@ async function maybeAwardMessageXP(
              xp_social = xp_social + $1,
              updated_at = NOW()
          WHERE id = $2`,
-        [xp, userId]
+        [finalXp, userId]
       );
       await tx.query(
         `INSERT INTO xp_ledger
            (user_id, amount, track, source, reference_id, multiplier, base_amount)
-         VALUES ($1, $2, 'social', 'message', $3, 100, $2)`,
-        [userId, xp, roomId]
+         VALUES ($1, $2, 'social', 'message', $3, $4, $5)`,
+        [userId, finalXp, roomId, multiplierBP, baseXp]
       );
     });
   } catch (err) {
@@ -250,8 +258,16 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     let paramIdx = 2;
 
     if (queryParams.cursor) {
-      conditions.push(`m.created_at < $${paramIdx++}`);
-      queryArgs.push(queryParams.cursor);
+      // Parse compound cursor: "ISO_TIMESTAMP__UUID"
+      const parts = queryParams.cursor.split('__');
+      const cursorTs = parts[0] ?? null;
+      const cursorId = parts[1] ?? null;
+      if (cursorTs && cursorId) {
+        conditions.push(`(m.created_at, m.id) < ($${paramIdx}::timestamptz, $${paramIdx + 1}::uuid)`);
+        queryArgs.push(cursorTs);
+        queryArgs.push(cursorId);
+        paramIdx += 2;
+      }
     }
 
     queryArgs.push(limit);
@@ -285,10 +301,10 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       queryArgs
     );
 
-    const nextCursor =
-      messages.length === limit
-        ? (messages[messages.length - 1]?.created_at ?? null)
-        : null;
+    const lastMsg = messages[messages.length - 1];
+    const nextCursor = messages.length === limit && lastMsg
+      ? `${lastMsg.created_at}__${lastMsg.id}`
+      : null;
 
     return NextResponse.json(
       { items: messages.map(rowToMessage), nextCursor, hasMore: nextCursor !== null },
@@ -359,12 +375,14 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       is_suspended: boolean;
       is_banned: boolean;
       suspended_until: string | null;
+      plan: Plan;
     }>(
       `SELECT username, avatar_emoji,
               COALESCE(is_creator, false) AS is_creator,
               COALESCE(is_suspended, false) AS is_suspended,
               COALESCE(is_banned, false) AS is_banned,
-              suspended_until
+              suspended_until,
+              COALESCE(plan, 'free') AS plan
        FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
       [userId]
     );
@@ -492,7 +510,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     if (body.messageType === "text") {
       // filterPublicContent already strips links when isAdmin=false; the
       // blockLinks rule makes this explicit even for edge cases.
-      content = filterPublicContent(content, isAdmin && !blockLinks);
+      content = filterPublicContent(content, isAdmin);
       if (!content.trim()) {
         throw badRequest("Message content is empty after content filtering");
       }
@@ -541,7 +559,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const message = msgRows[0] as { id: string; sender_id: string; created_at: string; message_type: string };
 
     // Award XP (non-blocking)
-    void maybeAwardMessageXP(roomId, userId, todayMsgCount);
+    void maybeAwardMessageXP(roomId, userId, todayMsgCount, senderStatus?.plan ?? 'free');
 
     // Publish to realtime provider (non-blocking — never delays the HTTP response)
     if (senderStatus && !requiresApproval) {

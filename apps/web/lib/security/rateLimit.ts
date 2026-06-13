@@ -232,9 +232,22 @@ export async function enforceRateLimit(
  *   1. x-vercel-forwarded-for — set by Vercel's edge network to the actual
  *      client IP; non-spoofable on Vercel deployments.
  *   2. x-real-ip — set by nginx and other trusted reverse proxies upstream.
- *   3. x-forwarded-for (rightmost value) — the rightmost non-private entry is
- *      what the closest trusted proxy observed; the leftmost entries are
- *      user-controlled and must NOT be trusted.
+ *   3. x-forwarded-for — parsed using TRUSTED_PROXY_COUNT to select the
+ *      correct entry and avoid spoofing.
+ *
+ * TRUSTED_PROXY_COUNT (env var, default 1):
+ *   The number of trusted reverse proxy hops that sit between the internet
+ *   and this application server. The client IP is selected from the
+ *   X-Forwarded-For list at position (totalEntries - TRUSTED_PROXY_COUNT)
+ *   from the left (i.e. nth entry from the right, where n = TRUSTED_PROXY_COUNT).
+ *   If the list has fewer entries than TRUSTED_PROXY_COUNT, the leftmost entry
+ *   is used as a safe fallback.
+ *
+ *   Example with TRUSTED_PROXY_COUNT=2 and header "1.2.3.4, 10.0.0.1, 10.0.0.2":
+ *     - index = 3 - 2 = 1  →  "10.0.0.1" (the entry added by the outermost trusted proxy)
+ *
+ *   Set to 0 to trust the raw rightmost entry (same as the old behaviour).
+ *   Set to 1 (default) when there is exactly one trusted proxy in front of the app.
  *
  * @param request - Incoming Next.js request
  * @returns IP string (falls back to "unknown" if not determinable)
@@ -248,12 +261,23 @@ export function getClientIp(request: Request): string {
   const realIp = request.headers.get("x-real-ip");
   if (realIp) return realIp.trim();
 
-  // Fallback: if we must use x-forwarded-for, trust only the rightmost value
-  // (the one appended by the closest trusted proxy, not by the client)
+  // Fallback: parse X-Forwarded-For using TRUSTED_PROXY_COUNT so that the
+  // rightmost entry (appended by the closest trusted proxy) is not blindly
+  // trusted when there are multiple proxies in the chain.
   const forwarded = request.headers.get("x-forwarded-for");
   if (forwarded) {
     const ips = forwarded.split(",").map((ip) => ip.trim()).filter(Boolean);
-    if (ips.length > 0) return ips[ips.length - 1];
+    if (ips.length > 0) {
+      // TRUSTED_PROXY_COUNT: number of trusted proxy hops (default 1).
+      // Select the IP at position (total - trustedCount) from the left,
+      // falling back to the leftmost entry if the list is too short.
+      const trustedProxyCount = Math.max(
+        0,
+        parseInt(process.env.TRUSTED_PROXY_COUNT ?? "1", 10) || 1
+      );
+      const index = Math.max(0, ips.length - trustedProxyCount);
+      return ips[index];
+    }
   }
 
   return "unknown";

@@ -217,16 +217,48 @@ export async function distributeSeasonRewards(
 
   const topUsers = rankResult.rows;
   const rewardShares = [0.25, 0.15, 0.1];
-  const rank4to10Share = topUsers.length > 3
-    ? Math.floor((pool * 0.5) / Math.max(topUsers.length - 3, 1))
-    : 0;
+
+  // BUG-46: When fewer than 4 users placed, the 50% allocated to ranks 4-10 was
+  // computed as 0 and silently lost. Instead, redistribute unallocated shares
+  // proportionally to the existing top-3 (or fewer) users.
+  //
+  // Compute per-user coin amounts up-front so we can redistribute any remainder.
+  const userCoins: number[] = new Array(topUsers.length).fill(0);
+
+  if (topUsers.length > 3) {
+    // Normal case: ranks 1-3 get their fixed shares; ranks 4-10 split 50% evenly
+    const rank4to10Share = Math.floor((pool * 0.5) / (topUsers.length - 3));
+    for (let i = 0; i < topUsers.length; i++) {
+      userCoins[i] = i < 3 ? Math.floor(pool * rewardShares[i]) : rank4to10Share;
+    }
+  } else {
+    // Fewer than 4 users: no rank-4-to-10 recipients exist.
+    // Redistribute the unallocated 50% proportionally among the placed users.
+    // Proportional weights for the placed users (using the same rewardShares ratios):
+    const placedCount = topUsers.length; // 0, 1, 2, or 3
+    if (placedCount === 0) {
+      // No users placed — nothing to distribute
+    } else {
+      const activeTiersTotal = rewardShares.slice(0, placedCount).reduce((a, b) => a + b, 0);
+      for (let i = 0; i < placedCount; i++) {
+        // Scale each user's share up so the full pool is distributed
+        userCoins[i] = Math.floor(pool * (rewardShares[i] / activeTiersTotal));
+      }
+      // Assign any remaining coins due to floor rounding to rank-1
+      const distributed = userCoins.slice(0, placedCount).reduce((a, b) => a + b, 0);
+      const remainder = pool - distributed;
+      if (remainder > 0 && placedCount > 0) {
+        userCoins[0] += remainder;
+      }
+    }
+  }
 
   await db.transaction(async (client) => {
     const { creditCoins } = await import("@/lib/economy/coins");
 
     for (let i = 0; i < topUsers.length; i++) {
       const { user_id } = topUsers[i];
-      const coins = i < 3 ? Math.floor(pool * rewardShares[i]) : rank4to10Share;
+      const coins = userCoins[i];
 
       // ZB-04: Use creditCoins with a per-user reference so the unique partial
       // index on coin_ledger is not violated when multiple users receive rewards.
@@ -242,11 +274,13 @@ export async function distributeSeasonRewards(
         );
       }
 
-      // Award season badge
+      // Award season badge.
+      // The only unique index on user_badges is (user_id, badge_key) WHERE badge_key IS NOT NULL
+      // (there is no (user_id, badge_type, reference_id) index — BUG-39 in seasonEngine).
       await client.query(
         `INSERT INTO user_badges (user_id, badge_type, badge_key, reference_id, granted_at, awarded_at)
          VALUES ($1, 'season_top10', 'season_top10', $2, NOW(), NOW())
-         ON CONFLICT (user_id, badge_type, reference_id) DO NOTHING`,
+         ON CONFLICT (user_id, badge_key) WHERE badge_key IS NOT NULL DO NOTHING`,
         [user_id, seasonId]
       );
     }

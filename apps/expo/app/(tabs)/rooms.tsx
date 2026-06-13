@@ -119,7 +119,7 @@ function usePinnedRooms() {
 
   useEffect(() => {
     setLoading(true);
-    apiClient.get<{ rooms: RoomCardData[] }>('/api/rooms/pinned')
+    apiClient.get<{ rooms: RoomCardData[] }>('/rooms/pinned')
       .then(({ data }) => setPinned(data.rooms ?? []))
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -199,7 +199,7 @@ function useRoomsQuery(
           items: RoomCardData[];
           nextCursor: string | null;
           hasMore: boolean;
-        }>(`/api/rooms?${qs}`);
+        }>(`/rooms?${qs}`);
 
         if (isRefresh || !cursor) {
           setRooms(data.items);

@@ -23,6 +23,9 @@ import { handleApiError, unauthorized } from "@/lib/api/errors";
 import { validateBody } from "@/lib/api/middleware";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { createSession, buildCookieHeaders } from "@/lib/auth/session";
+import { ADMIN_REFRESH_TOKEN_TTL_SECONDS } from "@/lib/auth/jwt";
+import { decryptField } from "@/lib/security/fieldEncryption";
+import { redis } from "@/lib/redis";
 
 // ---------------------------------------------------------------------------
 // TOTP helpers (mirrors the implementation in totp/setup/route.ts)
@@ -135,9 +138,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       throw unauthorized("2FA is not configured for this account. Please set it up first.");
     }
 
-    const totpValid = await verifyTotp(user.totp_secret, body.code);
+    const secret = user.totp_secret ? decryptField(user.totp_secret) : null;
+    if (!secret) {
+      throw unauthorized("2FA secret not configured or corrupted. Please set up 2FA again.");
+    }
+    const totpValid = await verifyTotp(secret, body.code);
     if (!totpValid) {
       throw unauthorized("Invalid authenticator code. Check your device clock and try again.");
+    }
+
+    // Anti-replay: reject codes reused within the 90s TOTP window (BUG-12)
+    const usedKey = `totp:used:${user.id}:${body.code}`;
+    const alreadyUsed = await redis.set(usedKey, "1", "EX", 90, "NX");
+    if (alreadyUsed === null) {
+      throw unauthorized("TOTP code has already been used. Please wait for the next code.");
     }
 
     // Issue admin session (shorter TTL: 30 min access, 1 hour refresh)
@@ -146,7 +160,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       { ip, ua: req.headers.get("user-agent") ?? undefined, adminSession: true }
     );
 
-    const { accessCookie, refreshCookie } = buildCookieHeaders(tokens);
+    const { accessCookie, refreshCookie } = buildCookieHeaders(tokens, undefined, ADMIN_REFRESH_TOKEN_TTL_SECONDS);
     const response = NextResponse.json({ success: true }, { status: 200 });
     response.headers.append("Set-Cookie", accessCookie);
     response.headers.append("Set-Cookie", refreshCookie);

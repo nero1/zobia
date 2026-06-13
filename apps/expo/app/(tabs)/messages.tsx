@@ -86,12 +86,12 @@ function truncate(text: string | null, len = 40): string {
 // ---------------------------------------------------------------------------
 
 async function fetchDMList(): Promise<DMConversation[]> {
-  const { data } = await apiClient.get('/api/messages/dm');
+  const { data } = await apiClient.get('/messages/dm');
   return data.conversations ?? [];
 }
 
 async function fetchGroupChats(): Promise<GroupChat[]> {
-  const { data } = await apiClient.get('/api/messages/group');
+  const { data } = await apiClient.get('/messages/group');
   return data.groups ?? [];
 }
 

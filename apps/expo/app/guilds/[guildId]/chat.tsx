@@ -69,8 +69,8 @@ export default function GuildChatScreen() {
     queryKey: ['guild-chat', guildId],
     queryFn: async ({ pageParam }) => {
       const url = pageParam
-        ? `/api/guilds/${guildId}/chat?cursor=${encodeURIComponent(pageParam as string)}&limit=30`
-        : `/api/guilds/${guildId}/chat?limit=30`;
+        ? `/guilds/${guildId}/chat?cursor=${encodeURIComponent(pageParam as string)}&limit=30`
+        : `/guilds/${guildId}/chat?limit=30`;
       const res = await apiClient.get(url);
       return res.data;
     },
@@ -83,7 +83,7 @@ export default function GuildChatScreen() {
   // Send message mutation
   const sendMutation = useMutation({
     mutationFn: async (content: string) => {
-      const res = await apiClient.post(`/api/guilds/${guildId}/chat`, {
+      const res = await apiClient.post(`/guilds/${guildId}/chat`, {
         content,
         type: 'text',
       });

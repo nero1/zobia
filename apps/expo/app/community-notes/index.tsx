@@ -63,18 +63,18 @@ interface VotePayload {
 // ---------------------------------------------------------------------------
 
 async function fetchCommunityNotes(): Promise<CommunityNotesData> {
-  const { data } = await apiClient.get('/api/community-notes');
+  const { data } = await apiClient.get('/community-notes');
   return data;
 }
 
 async function voteOnNote(payload: VotePayload): Promise<void> {
-  await apiClient.post(`/api/community-notes/${payload.noteId}/vote`, {
+  await apiClient.post(`/community-notes/${payload.noteId}/vote`, {
     direction: payload.direction,
   });
 }
 
 async function addNote(payload: { contentId: string; noteText: string }): Promise<void> {
-  await apiClient.post('/api/community-notes', payload);
+  await apiClient.post('/community-notes', payload);
 }
 
 // ---------------------------------------------------------------------------

@@ -41,7 +41,8 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
     const userId = auth.user.sub;
     const url = new URL(req.url);
     const type = url.searchParams.get("type") ?? "both";
-    const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "40"), 100);
+    const limitRaw = parseInt(url.searchParams.get("limit") ?? "40", 10);
+    const limit = Math.min(isNaN(limitRaw) || limitRaw < 1 ? 40 : limitRaw, 100);
     const cursorParam = url.searchParams.get("cursor");
 
     // Decode cursor: base64-encoded JSON { created_at: string, id: string }

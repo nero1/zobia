@@ -53,12 +53,12 @@ interface PlatformEvent {
 // ---------------------------------------------------------------------------
 
 async function fetchEvents(): Promise<PlatformEvent[]> {
-  const { data } = await apiClient.get('/api/events');
+  const { data } = await apiClient.get('/events');
   return data.events ?? [];
 }
 
 async function purchaseGiftDrop(eventId: string): Promise<void> {
-  await apiClient.post(`/api/events/${eventId}/purchase`);
+  await apiClient.post(`/events/${eventId}/purchase`);
 }
 
 // ---------------------------------------------------------------------------

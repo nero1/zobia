@@ -24,6 +24,7 @@ import { applyAutoModeration } from "@/lib/moderation/contentFilter";
 import { updateConversationScore } from "@/lib/messaging/conversationScore";
 import { debitCoins } from "@/lib/economy/coins";
 import { publishRealtimeEvent } from "@/lib/realtime";
+import { calculateFinalXP, PLAN_XP_MULTIPLIERS_BP } from "@/lib/xp/engine";
 import type { Plan } from "@zobia/types";
 
 // ---------------------------------------------------------------------------
@@ -130,17 +131,26 @@ export const GET = withAuth(
         [auth.user.sub]
       );
       const userPlan = planRows[0]?.plan ?? "free";
-      let historyFilter = "";
-      if (userPlan === "free") {
-        historyFilter = `AND m.created_at > NOW() - INTERVAL '90 days'`;
-      } else if (userPlan === "plus") {
-        historyFilter = `AND m.created_at > NOW() - INTERVAL '180 days'`;
-      }
-      // pro and max have no history limit
+      // Map plan to history limit in days (null = unlimited) — BUG-51: use parameterized query
+      const PLAN_HISTORY_DAYS: Record<string, number | null> = {
+        free: 90, plus: 180, pro: null, max: null,
+      };
+      const historyDays = PLAN_HISTORY_DAYS[userPlan] ?? 90;
 
-      const cursorClause = before ? `AND m.created_at < $3` : "";
       const params2: (string | number)[] = [conversationId, limit];
-      if (before) params2.push(before);
+      let nextParam = 3;
+
+      let cursorClause = "";
+      if (before) {
+        cursorClause = `AND m.created_at < $${nextParam++}`;
+        params2.push(before);
+      }
+
+      let historyClause = "";
+      if (historyDays !== null) {
+        historyClause = `AND m.created_at > NOW() - make_interval(days => $${nextParam++}::int)`;
+        params2.push(historyDays);
+      }
 
       // 3. Fetch messages with sender profile and reactions
       const { rows } = await db.query<MessageRow>(
@@ -172,8 +182,8 @@ export const GET = withAuth(
          FROM messages m
          JOIN users u ON u.id = m.sender_id
          WHERE m.conversation_id = $1
-           ${historyFilter}
            ${cursorClause}
+           ${historyClause}
            AND (m.message_type != 'moment' OR m.created_at > NOW() - INTERVAL '24 hours')
          ORDER BY m.created_at DESC
          LIMIT $2`,
@@ -348,6 +358,14 @@ export const POST = withAuth(
       const recipientId =
         conv.user_id_1 === auth.user.sub ? conv.user_id_2 : conv.user_id_1;
 
+      // BUG-53: Check if recipient has blocked the sender (generic error, no block status revealed)
+      const { rows: dmBlockRows } = await db.query<{ id: string }>(
+        `SELECT id FROM user_blocks
+         WHERE blocker_id = $1 AND blocked_id = $2
+         LIMIT 1`,
+        [recipientId, auth.user.sub]
+      );
+
       // 2. Load sender
       const { rows: senderRows } = await db.query<SenderRow>(
         `SELECT id, plan, coin_balance, is_admin,
@@ -360,6 +378,11 @@ export const POST = withAuth(
       );
       const sender = senderRows[0];
       if (!sender) throw forbidden("Your account cannot send messages");
+
+      // BUG-53: Enforce block check now that we know sender.is_admin
+      if (dmBlockRows[0] && !sender.is_admin) {
+        throw badRequest("Unable to send message to this user", "MESSAGE_NOT_DELIVERED");
+      }
 
       // 3. Daily reply limit
       const daily = await checkDailyLimitReached(auth.user.sub, sender.plan);
@@ -402,6 +425,9 @@ export const POST = withAuth(
           { status: 201 }
         );
       }
+
+      // BUG-52: Ensure filtered content is never null/empty before persisting
+      const finalContent = filtered.trim() || "[Message removed by content filter]";
 
       // 7. Bot/duplicate automod (same checks as room messages)
       if (!sender.is_admin && body.messageType === "text" && filtered.trim()) {
@@ -465,7 +491,7 @@ export const POST = withAuth(
                      coin_cost, reply_count_from_recipient, is_deleted, created_at, updated_at`,
           [
             auth.user.sub, recipientId, conversationId, body.messageType,
-            filtered || null, body.mediaUrl ?? null, coinCost,
+            finalContent, body.mediaUrl ?? null, coinCost,
             replyCountFromRecipient, body.idempotencyKey ?? null, sender.plan,
           ]
         );
@@ -475,17 +501,24 @@ export const POST = withAuth(
 
       if (!message) throw new Error("Message creation failed");
 
-      // 10. XP + daily counter (best-effort, outside transaction)
-      db.query(
-        `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
-         VALUES ($1, 1, 'social', 'message', $2, 1, 1)`,
-        [auth.user.sub, message.id]
-      ).catch(() => {});
-      db.query(
-        `UPDATE users SET xp_total = xp_total + 1, xp_social = xp_social + 1, updated_at = NOW()
-         WHERE id = $1`,
-        [auth.user.sub]
-      ).catch(() => {});
+      // 10. XP + daily counter (best-effort, outside transaction) — apply plan multiplier per PRD §6
+      {
+        const { baseXp: convBaseXp, finalXp: convFinalXp } = calculateFinalXP(
+          'send_text_message',
+          { plan: sender.plan, isMessagingAction: true }
+        );
+        const convMultiplierBP = PLAN_XP_MULTIPLIERS_BP[sender.plan];
+        db.query(
+          `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
+           VALUES ($1, $2, 'social', 'message', $3, $4, $5)`,
+          [auth.user.sub, convFinalXp, message.id, convMultiplierBP, convBaseXp]
+        ).catch(() => {});
+        db.query(
+          `UPDATE users SET xp_total = xp_total + $1, xp_social = xp_social + $1, updated_at = NOW()
+           WHERE id = $2`,
+          [convFinalXp, auth.user.sub]
+        ).catch(() => {});
+      }
       incrementDailyCount(auth.user.sub, "reply").catch(() => {});
       updateConversationScore(auth.user.sub, recipientId, "message_sent").catch(() => {});
 

@@ -109,7 +109,7 @@ export function ContactsImporter({ onDone }: ContactsImporterProps) {
 
       // 4. Cross-reference with Zobia (server caps at 500 numbers per request)
       const response = await apiClient.post<{ contacts: ZobiaContact[] }>(
-        '/api/users/contacts/cross-reference',
+        '/users/contacts/cross-reference',
         { phoneNumbers: phoneNumbers.slice(0, 500) }
       );
 
@@ -128,7 +128,7 @@ export function ContactsImporter({ onDone }: ContactsImporterProps) {
    */
   const handleInvite = useCallback(async (contact: ZobiaContact) => {
     try {
-      await apiClient.post('/api/friends', { targetUserId: contact.userId });
+      await apiClient.post('/friends', { targetUserId: contact.userId });
       setInvited(prev => new Set([...prev, contact.userId]));
     } catch {
       // Not critical — user can always add friends from the profile page later

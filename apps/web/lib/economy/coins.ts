@@ -260,6 +260,20 @@ export async function transferCoins(
   const transferRef = `transfer:${fromUserId}:${toUserId}:${Date.now()}`;
 
   const run = async (tx: TransactionClient) => {
+    // Lock both rows in deterministic ascending UUID order to prevent deadlocks (BUG-20)
+    const [firstId, secondId] = fromUserId < toUserId
+      ? [fromUserId, toUserId]
+      : [toUserId, fromUserId];
+    await tx.query(
+      `SELECT id FROM users WHERE id = $1 FOR UPDATE`,
+      [firstId]
+    );
+    await tx.query(
+      `SELECT id FROM users WHERE id = $1 FOR UPDATE`,
+      [secondId]
+    );
+    // debitCoins and creditCoins will re-lock their rows (already locked above)
+
     const debit = await debitCoins(
       fromUserId,
       gross.toNumber(),
