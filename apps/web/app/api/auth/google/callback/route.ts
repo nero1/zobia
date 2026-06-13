@@ -66,7 +66,7 @@ interface UserRow {
   email: string;
   username: string;
   google_id: string | null;
-  email_verified: boolean | null;
+  is_email_verified: boolean | null;
   is_admin: boolean;
   is_moderator: boolean;
   is_banned: boolean;
@@ -132,7 +132,7 @@ async function upsertGoogleUser(profile: {
 }): Promise<UserRow> {
   // Check if a user with this Google ID already exists (including soft-deleted for reactivation)
   const existing = await db.query<UserRow>(
-    `SELECT id, email, username, google_id, email_verified, is_admin, is_moderator,
+    `SELECT id, email, username, google_id, is_email_verified, is_admin, is_moderator,
             is_banned, is_suspended, deleted_at,
             totp_enabled, onboarding_completed, display_name, avatar_emoji, city, xp_total, rank_name
      FROM users
@@ -157,7 +157,7 @@ async function upsertGoogleUser(profile: {
 
   // Check if email is already associated with a different account (no google_id match)
   const emailMatch = await db.query<UserRow>(
-    `SELECT id, email, username, google_id, email_verified, is_admin, is_moderator,
+    `SELECT id, email, username, google_id, is_email_verified, is_admin, is_moderator,
             is_banned, is_suspended, deleted_at,
             totp_enabled, onboarding_completed, display_name, avatar_emoji, city, xp_total, rank_name
      FROM users
@@ -184,7 +184,7 @@ async function upsertGoogleUser(profile: {
       return u;
     }
 
-    if (u.email_verified === true) {
+    if (u.is_email_verified === true) {
       // Existing account has a verified email — safe to link Google ID
       await db.query(
         `UPDATE users SET google_id = $1, avatar_url = COALESCE(avatar_url, $2), updated_at = NOW()
@@ -206,7 +206,7 @@ async function upsertGoogleUser(profile: {
   const inserted = await db.query<UserRow>(
     `INSERT INTO users (google_id, email, username, display_name, avatar_url, onboarding_completed, is_admin, created_at, updated_at)
      VALUES ($1, $2, $3, $4, $5, false, false, NOW(), NOW())
-     RETURNING id, email, username, google_id, email_verified, is_admin, is_moderator,
+     RETURNING id, email, username, google_id, is_email_verified, is_admin, is_moderator,
                is_banned, is_suspended, deleted_at,
                totp_enabled, onboarding_completed,
                display_name, avatar_emoji, city, xp_total, rank_name`,
