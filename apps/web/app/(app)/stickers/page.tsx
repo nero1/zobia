@@ -9,6 +9,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -53,11 +54,12 @@ interface PackCardProps {
 }
 
 function PackCard({ pack, onUnlock, unlocking }: PackCardProps) {
+  const currency = useCurrency();
   const badgeLabel =
     pack.unlockType === "free"
       ? "Free"
       : pack.unlockType === "coins"
-      ? `🪙 ${pack.coinPrice?.toLocaleString()}`
+      ? `🪙 ${pack.coinPrice?.toLocaleString()} ${currency.softPlural}`
       : "Earn";
 
   const badgeClasses =

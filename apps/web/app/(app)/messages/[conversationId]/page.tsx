@@ -188,6 +188,7 @@ function MessageBubble({
   /** PRD §5: only show link previews after recipient has replied ≥2 times. */
   linkPreviewsEnabled: boolean;
 }) {
+  const currency = useCurrency();
   const isGif = msg.messageType === "gif";
   const isSticker = msg.messageType === "sticker";
   const isGift = msg.messageType === "gift";
@@ -231,7 +232,7 @@ function MessageBubble({
             <div>
               <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">{msg.content}</p>
               {msg.giftAmount && (
-                <p className="text-xs text-amber-600 dark:text-amber-400">🪙 {msg.giftAmount.toLocaleString()} coins</p>
+                <p className="text-xs text-amber-600 dark:text-amber-400">🪙 {msg.giftAmount.toLocaleString()} {currency.softPlural.toLowerCase()}</p>
               )}
             </div>
           </div>
@@ -713,7 +714,7 @@ export default function DMConversationPage() {
         const code = d.error?.code;
         if (code === "INSUFFICIENT_COINS") {
           setCoinError({
-            message: `You need ${d.error?.coinCost ?? "?"} coins to send this message. You currently have ${d.error?.coinBalance ?? "?"} coins.`,
+            message: `You need ${d.error?.coinCost ?? "?"} ${currency.softPlural.toLowerCase()} to send this message. You currently have ${d.error?.coinBalance ?? "?"} ${currency.softPlural.toLowerCase()}.`,
             balance: d.error?.coinBalance,
             required: d.error?.coinCost,
           });
@@ -875,7 +876,7 @@ export default function DMConversationPage() {
       {conversation?.dmCoinCost && conversation.dmCoinCost > 0 && (
         <div className="border-b border-amber-200 bg-amber-50 px-4 py-2.5 dark:border-amber-800 dark:bg-amber-950/30">
           <p className="text-xs text-amber-700 dark:text-amber-300">
-            Sending a message costs <span className="font-semibold">{conversation.dmCoinCost} coins</span> per message.
+            Sending a message costs <span className="font-semibold">{conversation.dmCoinCost} {currency.softPlural.toLowerCase()}</span> per message.
           </p>
         </div>
       )}
@@ -897,7 +898,7 @@ export default function DMConversationPage() {
               onClick={() => setCoinError(null)}
               className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600"
             >
-              Buy Coins
+              Buy {currency.softPlural}
             </Link>
             <button onClick={() => setCoinError(null)} className="text-xs text-amber-600 hover:text-amber-800 dark:text-amber-400">✕</button>
           </div>

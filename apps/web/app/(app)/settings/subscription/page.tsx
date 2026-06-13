@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -168,6 +169,7 @@ interface PlanCardProps {
 }
 
 function PlanCard({ plan, interval, isCurrent, currentPlanRank, onUpgrade, onManage, upgrading }: PlanCardProps) {
+  const currency = useCurrency();
   const price = interval === "annual" ? plan.annualPrice : plan.monthlyPrice * 12;
   const displayMonthly = interval === "monthly" ? plan.monthlyPrice : Math.round(plan.annualPrice / 12);
   const isDowngrade = planRank(plan.id) < currentPlanRank;
@@ -229,7 +231,9 @@ function PlanCard({ plan, interval, isCurrent, currentPlanRank, onUpgrade, onMan
                 </svg>
               )}
               <span className={f.included ? "text-neutral-700 dark:text-neutral-300" : "text-neutral-400 dark:text-neutral-600"}>
-                {f.text}
+                {f.text
+                  .replace(/\bcoins\b/gi, currency.softPlural.toLowerCase())
+                  .replace(/\bcoin\b/gi, currency.softSingular.toLowerCase())}
               </span>
             </li>
           ))}

@@ -22,6 +22,7 @@ import {
   View,
 } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { Screen } from '@/components/ui/Screen';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
@@ -112,10 +113,11 @@ async function fetchLeaderboardBanner(): Promise<SponsoredBanner | null> {
 
 function SponsoredBannerRow({ banner }: { banner: SponsoredBanner }) {
   const { colors: themeColors } = useTheme();
+  const { t } = useTranslation();
   return (
     <View style={[styles.bannerRow, { backgroundColor: themeColors.surface }]}>
       <Text style={[styles.bannerSponsoredLabel, { color: themeColors.textMuted }]}>
-        Sponsored
+        {t('leaderboards.sponsored', 'Sponsored')}
       </Text>
       <Text style={[styles.bannerSponsorName, { color: themeColors.text }]}>
         {banner.sponsorName}
@@ -306,6 +308,7 @@ function PinnedUserRow({ entry }: { entry: LeaderboardEntry }) {
  */
 export default function LeaderboardScreen() {
   const { colors: themeColors, isDark } = useTheme();
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<LeaderboardTab>('global');
   const [activeTrack, setActiveTrack] = useState<LeaderboardTrack>('main');
 
@@ -344,7 +347,7 @@ export default function LeaderboardScreen() {
                 { color: activeTab === tab.key ? colors.brand.blue : themeColors.textMuted },
               ]}
             >
-              {tab.label}
+              {t(`leaderboards.scope.${tab.key}`, tab.label)}
             </Text>
           </Pressable>
         ))}
@@ -378,7 +381,7 @@ export default function LeaderboardScreen() {
                 { color: activeTrack === track.key ? colors.neutral[0] : themeColors.textMuted },
               ]}
             >
-              {track.label}
+              {t(`leaderboards.track.${track.key}`, track.label)}
             </Text>
           </Pressable>
         ))}
@@ -389,7 +392,7 @@ export default function LeaderboardScreen() {
       ) : isError ? (
         <View style={styles.errorState}>
           <Text style={[styles.errorText, { color: themeColors.textMuted }]}>
-            Could not load leaderboard. Check your connection.
+            {t('leaderboards.loadError', 'Could not load leaderboard. Check your connection.')}
           </Text>
         </View>
       ) : (
@@ -405,7 +408,7 @@ export default function LeaderboardScreen() {
             ListEmptyComponent={() => (
               <View style={styles.emptyState}>
                 <Text style={[styles.emptyText, { color: themeColors.textMuted }]}>
-                  No entries yet for this leaderboard.
+                  {t('leaderboards.empty')}
                 </Text>
               </View>
             )}

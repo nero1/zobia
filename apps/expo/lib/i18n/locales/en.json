@@ -276,7 +276,9 @@
     "paymentOpenFailed": "Failed to open payment page",
     "boosterComingSoonTitle": "Coming Soon",
     "boosterComingSoonBody": "Booster purchases are available in the next update.",
-    "buy": "Buy"
+    "buy": "Buy",
+    "enterPin": "Enter PIN",
+    "enterPinBody": "Enter your 4-digit PIN to authorise this purchase"
   },
   "seasons": {
     "title": "Season",
@@ -1230,7 +1232,6 @@
   "communityNotes.modal.submit": "Submit Note",
   "communityNotes.modal.submitting": "Submitting…",
   "communityNotes.modal.minLength": "Note must be at least 20 characters.",
-
   "guildDiscovery.stepBadge": "Almost There",
   "guildDiscovery.title": "Crews near you are recruiting",
   "guildDiscovery.subtitle": "Joining a Guild earns you bonus XP on everything you do.",
@@ -1250,7 +1251,6 @@
   "guildDiscovery.empty": "No guilds near your city yet. Check back soon!",
   "guildDiscovery.tooNew": "Come back soon!",
   "guildDiscovery.tooNewBody": "Guild recommendations unlock after your first 24 hours on Zobia.",
-
   "wallet.xpBalance": "XP",
   "wallet.coinsBalance": "Credits",
   "wallet.starsBalance": "Stars",
@@ -1287,10 +1287,8 @@
   "messages.coinError.upgrade": "Upgrade to Pro",
   "settings.twoFaDisabledByAdmin": "Two-factor authentication is currently disabled by the platform administrator.",
   "settings.pinDisabledByAdmin": "PIN authentication is currently disabled by the platform administrator.",
-
   "nav.friends": "Friends",
   "nav.gifts": "Gifts",
-
   "gifts.title": "Gifts",
   "gifts.subtitle": "Send gifts to friends and see your gift history",
   "gifts.sendBtn": "🎁 Send a Gift",
@@ -1305,22 +1303,48 @@
   "gifts.row.from": "From",
   "gifts.loadError": "Could not load gifts. Check your connection.",
   "gifts.retry": "Retry",
-
   "friends.requests.received": "Received",
   "friends.requests.sent": "Sent",
   "friends.requests.withdraw": "Withdraw",
   "friends.requests.withdrawing": "Withdrawing…",
   "friends.empty.noReceivedRequests": "No received friend requests.",
   "friends.empty.noSentRequests": "No sent friend requests.",
-
   "profile.private": "This profile is private.",
   "profile.restricted": "This account has been restricted.",
   "profile.suspended": "This account has been suspended.",
-
   "settings.privacy.lockProfile": "Private Profile",
   "settings.privacy.lockProfileDesc": "Hide your profile from users who aren't your friends",
   "settings.privacy.disableFriendRequests": "Disable Friend Requests",
   "settings.privacy.disableFriendRequestsDesc": "Prevent others from sending you friend requests",
   "settings.privacy.hideSections": "Hidden Profile Sections",
-  "settings.privacy.hideSectionsDesc": "Choose which sections of your profile to hide from others"
+  "settings.privacy.hideSectionsDesc": "Choose which sections of your profile to hide from others",
+  "notifications.title": "Notifications",
+  "notifications.markAllRead": "Mark all read",
+  "notifications.marking": "Marking…",
+  "notifications.loadError": "Could not load notifications.",
+  "notifications.unreadCount": "{{count}} unread",
+  "prestige.nowLevel": "You are now Prestige {{level}}!",
+  "prestige.progressTo": "Progress to Prestige {{level}}",
+  "prestige.requiresIconIII": "Requires Icon III (100,000 XP)",
+  "prestige.whatItDoes": "What Prestige Does",
+  "prestige.trackLevelsPreserved": "All 6 track levels preserved",
+  "prestige.earnBadge": "Earn a permanent Prestige badge",
+  "prestige.badgeOnProfile": "Prestige badge displayed on profile",
+  "prestige.history": "Prestige History",
+  "prestige.processing": "Processing…",
+  "prestige.prestigeNow": "✨ Prestige Now",
+  "prestige.confirmTitle": "Prestige Now?",
+  "prestige.confirmBody": "Your main XP rank resets to Newcomer, but all 6 track levels are preserved. You'll earn a Prestige badge. This cannot be undone.",
+  "prestige.loadError": "Unable to load prestige data",
+  "prestige.mainRankResetsToNewcomer": "Main rank resets to Newcomer",
+  "leaderboards.sponsored": "Sponsored",
+  "leaderboards.loadError": "Could not load leaderboard. Check your connection.",
+  "leaderboards.title": "Leaderboards",
+  "nav": {
+    "quests": "Quests"
+  },
+  "quests": {
+    "viewAll": "View all quests →",
+    "noQuestsToday": "No quests today. Check back soon!"
+  }
 }

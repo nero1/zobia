@@ -237,7 +237,7 @@ export default function CreateGuildScreen() {
             { color: canAfford ? colors.brand.goldDark : colors.semantic.error },
           ]}
         >
-          Your balance: {wallet?.coins?.toLocaleString() ?? '…'} coins
+          Your balance: {wallet?.coins?.toLocaleString() ?? '…'} {currency.softPlural.toLowerCase()}
           {canAfford ? ' ✓' : ' — insufficient'}
         </Text>
       </View>

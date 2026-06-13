@@ -15,6 +15,7 @@ import {
   View,
   useColorScheme,
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
 
@@ -59,6 +60,7 @@ type RequestsSubTab = 'received' | 'sent';
 export default function FriendsTab() {
   const scheme = useColorScheme();
   const isDark = scheme === 'dark';
+  const { t } = useTranslation();
 
   const bg = isDark ? colors.neutral[950] : colors.neutral[50];
   const cardBg = isDark ? colors.neutral[900] : colors.neutral[0];
@@ -141,18 +143,21 @@ export default function FriendsTab() {
     );
   }
 
+  const totalRequests = receivedRequests.length + sentRequests.length;
   const tabs: { id: Tab; label: string }[] = [
-    { id: 'friends', label: 'My Friends' },
+    { id: 'friends', label: t('friends.tabs.myFriends') },
     {
       id: 'requests',
-      label: `Requests${receivedRequests.length + sentRequests.length > 0 ? ` (${receivedRequests.length + sentRequests.length})` : ''}`,
+      label: totalRequests > 0
+        ? `${t('friends.tabs.requests')} (${totalRequests})`
+        : t('friends.tabs.requests'),
     },
-    { id: 'discover', label: 'Discover' },
+    { id: 'discover', label: t('friends.tabs.discover') },
   ];
 
   const renderFriends = () => {
     if (friends.length === 0)
-      return <Text style={[styles.emptyText, { color: textSecondary }]}>You haven't added any friends yet. Go to Discover to find people.</Text>;
+      return <Text style={[styles.emptyText, { color: textSecondary }]}>{t('friends.empty.noFriends')}</Text>;
     return friends.map((f) => (
       <View key={f.id} style={[styles.row, { borderBottomColor: border }]}>
         <View style={[styles.avatar, { backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100] }]}>
@@ -168,7 +173,7 @@ export default function FriendsTab() {
           style={[styles.actionBtn, { borderColor: border }]}
         >
           <Text style={[styles.actionBtnText, { color: textSecondary }]}>
-            {actioning === f.id ? '…' : 'Remove'}
+            {actioning === f.id ? '…' : t('friends.removeFriend')}
           </Text>
         </Pressable>
       </View>
@@ -177,7 +182,7 @@ export default function FriendsTab() {
 
   const renderReceivedRequests = () => {
     if (receivedRequests.length === 0)
-      return <Text style={[styles.emptyText, { color: textSecondary }]}>No pending requests.</Text>;
+      return <Text style={[styles.emptyText, { color: textSecondary }]}>{t('friends.empty.noReceivedRequests')}</Text>;
     return receivedRequests.map((r) => (
       <View key={r.id} style={[styles.row, { borderBottomColor: border }]}>
         <View style={[styles.avatar, { backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100] }]}>
@@ -193,14 +198,14 @@ export default function FriendsTab() {
             disabled={actioning === r.id}
             style={[styles.primaryBtn, { backgroundColor: colors.brand.blue }]}
           >
-            <Text style={styles.primaryBtnText}>{actioning === r.id ? '…' : 'Accept'}</Text>
+            <Text style={styles.primaryBtnText}>{actioning === r.id ? '…' : t('friends.accept')}</Text>
           </Pressable>
           <Pressable
             onPress={() => respondToRequest(r.id, 'reject')}
             disabled={actioning === r.id}
             style={[styles.actionBtn, { borderColor: border }]}
           >
-            <Text style={[styles.actionBtnText, { color: textSecondary }]}>Decline</Text>
+            <Text style={[styles.actionBtnText, { color: textSecondary }]}>{t('friends.decline')}</Text>
           </Pressable>
         </View>
       </View>
@@ -209,7 +214,7 @@ export default function FriendsTab() {
 
   const renderSentRequests = () => {
     if (sentRequests.length === 0)
-      return <Text style={[styles.emptyText, { color: textSecondary }]}>No pending sent requests.</Text>;
+      return <Text style={[styles.emptyText, { color: textSecondary }]}>{t('friends.empty.noSentRequests')}</Text>;
     return sentRequests.map((r) => (
       <View key={r.id} style={[styles.row, { borderBottomColor: border }]}>
         <View style={[styles.avatar, { backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100] }]}>
@@ -225,7 +230,7 @@ export default function FriendsTab() {
           style={[styles.actionBtn, { borderColor: border }]}
         >
           <Text style={[styles.actionBtnText, { color: textSecondary }]}>
-            {actioning === r.id ? '…' : 'Withdraw'}
+            {actioning === r.id ? '…' : t('friends.requests.withdraw')}
           </Text>
         </Pressable>
       </View>
@@ -234,7 +239,7 @@ export default function FriendsTab() {
 
   const renderDiscover = () => {
     if (suggestions.length === 0)
-      return <Text style={[styles.emptyText, { color: textSecondary }]}>No suggestions right now. Join more rooms and guilds to discover people.</Text>;
+      return <Text style={[styles.emptyText, { color: textSecondary }]}>{t('friends.empty.noSuggestions')}</Text>;
     return suggestions.map((s) => (
       <View key={s.id} style={[styles.row, { borderBottomColor: border }]}>
         <View style={[styles.avatar, { backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100] }]}>
@@ -243,7 +248,7 @@ export default function FriendsTab() {
         <View style={{ flex: 1 }}>
           <Text style={[styles.displayName, { color: textPrimary }]}>{s.displayName}</Text>
           <Text style={[styles.username, { color: textSecondary }]}>
-            @{s.username}{s.mutualFriendCount > 0 ? ` · ${s.mutualFriendCount} mutual` : ''}
+            @{s.username}{s.mutualFriendCount > 0 ? ` · ${s.mutualFriendCount} ${s.mutualFriendCount === 1 ? t('friends.mutualFriend') : t('friends.mutualFriends')}` : ''}
           </Text>
         </View>
         <Pressable
@@ -251,7 +256,7 @@ export default function FriendsTab() {
           disabled={actioning === s.id}
           style={[styles.primaryBtn, { backgroundColor: colors.brand.blue }]}
         >
-          <Text style={styles.primaryBtnText}>{actioning === s.id ? '…' : 'Add'}</Text>
+          <Text style={styles.primaryBtnText}>{actioning === s.id ? '…' : t('friends.addFriend')}</Text>
         </Pressable>
       </View>
     ));
@@ -263,7 +268,7 @@ export default function FriendsTab() {
       contentContainerStyle={styles.container}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
-      <Text style={[styles.heading, { color: textPrimary }]}>Friends</Text>
+      <Text style={[styles.heading, { color: textPrimary }]}>{t('friends.title')}</Text>
 
       {/* Main tab bar */}
       <View style={[styles.tabBar, { backgroundColor: cardBg, borderColor: border }]}>
@@ -308,7 +313,7 @@ export default function FriendsTab() {
                     ]}
                   >
                     <Text style={[styles.subTabBtnText, { color: isActive ? (isDark ? colors.neutral[50] : colors.neutral[900]) : textSecondary }]}>
-                      {st === 'received' ? 'Received' : 'Sent'}
+                      {st === 'received' ? t('friends.requests.received') : t('friends.requests.sent')}
                       {count > 0 ? ` (${count})` : ''}
                     </Text>
                   </Pressable>

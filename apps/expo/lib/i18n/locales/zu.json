@@ -34,12 +34,10 @@
   "home.feed.loading": "Iyalayisha ukudla kwakho…",
   "rooms.title": "Amakamelo",
   "rooms.discover": "Thola amakamelo",
-  "rooms.create": "Dala ikamelo",
   "rooms.join": "Joyina",
   "rooms.leave": "Shiya",
   "rooms.members": "{{count}} ilungu",
   "rooms.members_other": "{{count}} amalungu",
-  "rooms.empty": "Ayikho amakamelo atholiwe. Yiba owokuqala ukudala elinye!",
   "messages.title": "Imilayezo",
   "messages.new": "Umlayezo omusha",
   "messages.empty": "Akukho zingxoxo. Qala ukukhuluma!",
@@ -168,7 +166,6 @@
   "profile.playSince": "Udlala kusukela {{year}}",
   "profile.verified": "✓ Kuqinisekisiwe",
   "profile.creator": "Umdali",
-  "profile.amakhrediti": "Amakhrediti",
   "profile.stars": "Izinkanyezi",
   "profile.wallet": "Isikhwama →",
   "profile.joinGuild": "Joyina Iqembu",
@@ -824,13 +821,7 @@
   },
   "rooms": {
     "title": "Amakamelo",
-    "empty": {
-      "title": "Awekho amakamelo asebenzayo manje"
-    },
     "join": "Joyina",
-    "create": {
-      "title": "Dala Ikamelo"
-    },
     "searchPlaceholder": "Sesha amakamelo…",
     "filters": "Izihlungi",
     "tabTrending": "Okudumile",
@@ -981,7 +972,9 @@
     "paymentOpenFailed": "Ukuvula ikhasi lenkokhelo kuhlulekile",
     "boosterComingSoonTitle": "Kuzofika Maduze",
     "boosterComingSoonBody": "Ukuthenga okuqinisayo kutholakala esibuyekezo esilandelayo.",
-    "buy": "Thenga"
+    "buy": "Thenga",
+    "enterPin": "Faka i-PIN",
+    "enterPinBody": "Faka i-PIN yezinhlamvu ezi-4 ukugunyaza lo thenge"
   },
   "legal": {
     "agreePrefix": "Ngokuqhubeka, uyavuma",
@@ -1298,5 +1291,30 @@
   "settings.privacy.disableFriendRequests": "Khubaza Izicelo Zobungane",
   "settings.privacy.disableFriendRequestsDesc": "Gwema abanye ukukuthumelela izicelo zobungane",
   "settings.privacy.hideSections": "Izigaba Zephrofayili Ezifihliwe",
-  "settings.privacy.hideSectionsDesc": "Khetha izigaba zephrofayili yakho ukuzifihla kubanye"
+  "settings.privacy.hideSectionsDesc": "Khetha izigaba zephrofayili yakho ukuzifihla kubanye",
+  "profile.coins": "Amakhrediti",
+  "notifications.marking": "Iphawula…",
+  "notifications.loadError": "Ukupakisha izaziso kuhlulekile.",
+  "notifications.unreadCount": "{{count}} okungafundwanga",
+  "prestige.nowLevel": "Manje uyiPrestige {{level}}!",
+  "prestige.progressTo": "Inqubekela phambili kuya kuPrestige {{level}}",
+  "prestige.requiresIconIII": "Idinga i-Icon III (100,000 XP)",
+  "prestige.whatItDoes": "Lokho iPrestige Ekwenzayo",
+  "prestige.trackLevelsPreserved": "Wonke amazinga amatrekhi ayi-6 alondolozwe",
+  "prestige.earnBadge": "Zuzisa ibheji eliluhlaza lePrestige",
+  "prestige.badgeOnProfile": "Ibheji lePrestige liboniswa esikhundleni sakho",
+  "prestige.history": "Umlando wePrestige",
+  "prestige.prestigeNow": "✨ Prestige Manje",
+  "prestige.confirmTitle": "Prestige Manje?",
+  "prestige.confirmBody": "Izinga lakho eliyinhloko le-XP liyabuyela ku-Nsali, kodwa wonke amazinga amatrekhi ayi-6 agcinwe. Uzozuza ibheji lePrestige. Lokhu akunakuguqulwa.",
+  "prestige.loadError": "Ukupakisha idatha yePrestige kuhlulekile",
+  "prestige.mainRankResetsToNewcomer": "Izinga eliyinhloko libuyela ku-Nsali",
+  "leaderboards.loadError": "Ukupakisha uhlu lwabaholayo kuhlulekile. Hlola ukuxhumana kwakho.",
+  "nav": {
+    "quests": "Imihlomulo"
+  },
+  "quests": {
+    "viewAll": "Buka yonke imihlomulo →",
+    "noQuestsToday": "Ayikho imihlomulo namuhla. Buyela maduze!"
+  }
 }

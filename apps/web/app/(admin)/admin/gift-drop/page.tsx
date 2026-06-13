@@ -13,6 +13,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -68,6 +69,7 @@ function dropStatus(drop: GiftDrop): { label: string; colour: string } {
 // ---------------------------------------------------------------------------
 
 export default function AdminGiftDropPage() {
+  const currency = useCurrency();
   const [drops, setDrops] = useState<GiftDrop[]>([]);
   const [giftItems, setGiftItems] = useState<GiftItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -199,7 +201,7 @@ export default function AdminGiftDropPage() {
                 <option value="">Select a gift item…</option>
                 {giftItems.map((g) => (
                   <option key={g.id} value={g.id}>
-                    {g.emoji} {g.name} — {g.coin_price.toLocaleString()} coins (Tier {g.tier})
+                    {g.emoji} {g.name} — {g.coin_price.toLocaleString()} {currency.softPlural.toLowerCase()} (Tier {g.tier})
                   </option>
                 ))}
               </select>

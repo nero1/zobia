@@ -20,6 +20,8 @@ import { useRouter } from 'expo-router';
 import { colors } from '@/lib/theme/colors';
 import { useAuth } from '@/lib/auth/hooks';
 import { apiClient } from '@/lib/api/client';
+import { useTranslation } from 'react-i18next';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 
 interface DailyQuest {
   id: string;
@@ -48,6 +50,8 @@ export default function QuestsTab() {
   const isDark = scheme === 'dark';
   const router = useRouter();
   const { token } = useAuth();
+  const currency = useCurrency();
+  const { t } = useTranslation();
 
   const [dailyQuests, setDailyQuests] = useState<DailyQuest[]>([]);
   const [memberQuest, setMemberQuest] = useState<MemberQuestData | null>(null);
@@ -100,7 +104,7 @@ export default function QuestsTab() {
       contentContainerStyle={styles.container}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
-      <Text style={[styles.heading, { color: textPrimary }]}>Quests</Text>
+      <Text style={[styles.heading, { color: textPrimary }]}>{t('nav.quests')}</Text>
 
       {/* New Member Quest */}
       {memberQuest && (
@@ -110,13 +114,13 @@ export default function QuestsTab() {
         >
           <View style={styles.cardHeader}>
             <Text style={styles.cardIcon}>🎯</Text>
-            <Text style={[styles.cardTitle, { color: textPrimary }]}>New Member Quest</Text>
+            <Text style={[styles.cardTitle, { color: textPrimary }]}>{t('newMemberQuest.title')}</Text>
             <Text style={[styles.badge, { backgroundColor: '#ede9fe', color: '#7c3aed' }]}>
               {memberQuest.steps.filter((s) => s.completed).length}/{memberQuest.steps.length}
             </Text>
           </View>
           <Text style={[styles.cardSubtext, { color: textSecondary }]}>
-            Complete all steps to earn 1,000 Coins + 2,000 XP →
+            {t('home.memberQuest.reward', { coins: '1,000', xp: '2,000' })}
           </Text>
           <View style={styles.progressBar}>
             <View
@@ -136,14 +140,14 @@ export default function QuestsTab() {
       <View style={[styles.card, { backgroundColor: cardBg, borderColor: border }]}>
         <View style={styles.cardHeader}>
           <Text style={styles.cardIcon}>📋</Text>
-          <Text style={[styles.cardTitle, { color: textPrimary }]}>Daily Quests</Text>
+          <Text style={[styles.cardTitle, { color: textPrimary }]}>{t('quests.title')}</Text>
           <Text style={[styles.badge, { backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100], color: textSecondary }]}>
             {completedCount}/{totalCount}
           </Text>
         </View>
 
         {dailyQuests.length === 0 ? (
-          <Text style={[styles.emptyText, { color: textSecondary }]}>No quests today. Check back soon!</Text>
+          <Text style={[styles.emptyText, { color: textSecondary }]}>{t('quests.noQuestsToday')}</Text>
         ) : (
           dailyQuests.map((quest) => {
             const pct = quest.goal > 0 ? Math.min(100, Math.round((quest.progress / quest.goal) * 100)) : 0;
@@ -190,7 +194,7 @@ export default function QuestsTab() {
         style={[styles.link, { borderColor: border }]}
       >
         <Text style={{ color: colors.brand.blue, fontSize: 14, fontWeight: '600' }}>
-          View all quests →
+          {t('quests.viewAll')}
         </Text>
       </Pressable>
     </ScrollView>

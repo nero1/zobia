@@ -14,6 +14,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -171,6 +172,7 @@ interface FlagRowProps {
 }
 
 function FlagRow({ flag, onToggle }: FlagRowProps) {
+  const currency = useCurrency();
   const [saving, setSaving] = useState(false);
   const [localEnabled, setLocalEnabled] = useState(flag.enabled);
   const [localUpdatedAt, setLocalUpdatedAt] = useState(flag.updatedAt);
@@ -204,7 +206,7 @@ function FlagRow({ flag, onToggle }: FlagRowProps) {
           )}
         </div>
         <p className="mt-0.5 text-sm font-semibold text-neutral-900 dark:text-neutral-100">{flag.label}</p>
-        <p className="text-xs text-neutral-500">{flag.description}</p>
+        <p className="text-xs text-neutral-500">{flag.description.replace(/\bcoins?\b/gi, (m) => m.toLowerCase() === 'coins' ? currency.softPlural.toLowerCase() : currency.softSingular.toLowerCase())}</p>
         {flag.availableFrom && (
           <p className="mt-1 text-xs text-neutral-400">
             <span className="font-medium text-neutral-500">General release:</span>{" "}

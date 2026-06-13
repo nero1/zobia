@@ -43,6 +43,7 @@ import { GiftSpectacle, type GiftSpectacleData } from '@/components/rooms/GiftSp
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -300,6 +301,7 @@ export default function RoomScreen() {
   const navigation = useNavigation();
   const queryClient = useQueryClient();
   const { colors: themeColors, isDark } = useTheme();
+  const currency = useCurrency();
 
   const [inputText, setInputText] = useState('');
   const [showGifters, setShowGifters] = useState(false);
@@ -576,7 +578,7 @@ export default function RoomScreen() {
             {room.entryFeeCoin !== null && (
               <View style={styles.entryFee}>
                 <Text style={styles.entryFeeText}>
-                  🪙 Entry fee: {room.entryFeeCoin} coins
+                  🪙 Entry fee: {room.entryFeeCoin} {currency.softPlural.toLowerCase()}
                 </Text>
               </View>
             )}

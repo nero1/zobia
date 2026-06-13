@@ -5,6 +5,7 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { storage } from "@/lib/offline/store";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "";
 
@@ -36,6 +37,7 @@ function StatCard({
 
 export default function AdminOverviewScreen() {
   const router = useRouter();
+  const currency = useCurrency();
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -77,7 +79,7 @@ export default function AdminOverviewScreen() {
         <StatCard title="Daily Logins" value={stats?.dailyLogins ?? 0} route="/admin/users" color="bg-violet-600" />
         <StatCard title="Pending Reports" value={stats?.pendingReports ?? 0} route="/admin/moderation" color="bg-red-500" />
         <StatCard title="Pending Payouts" value={stats?.pendingPayouts ?? 0} route="/admin/financial" color="bg-amber-500" />
-        <StatCard title="Coins in Circulation" value={(stats?.coinsInCirculation ?? 0).toLocaleString()} route="/admin/financial" color="bg-teal-600" />
+        <StatCard title={`${currency.softPlural} in Circulation`} value={(stats?.coinsInCirculation ?? 0).toLocaleString()} route="/admin/financial" color="bg-teal-600" />
       </View>
 
       <View className="mx-4 mt-4">

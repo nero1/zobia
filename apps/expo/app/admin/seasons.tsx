@@ -4,6 +4,7 @@ import {
   Alert, ActivityIndicator, RefreshControl, TextInput, Modal, KeyboardAvoidingView, Platform
 } from "react-native";
 import { storage } from "@/lib/offline/store";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "";
 
@@ -48,6 +49,7 @@ export default function AdminSeasonsScreen() {
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState<CreateForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const currency = useCurrency();
 
   async function loadSeasons() {
     const token = storage.getString("authToken");
@@ -169,10 +171,10 @@ export default function AdminSeasonsScreen() {
             </View>
             <View className="flex-row gap-x-4 mt-1">
               <Text className="text-xs text-gray-500">
-                Pass: <Text className="font-medium text-gray-700">{item.pass_price_coins} coins</Text>
+                Pass: <Text className="font-medium text-gray-700">{item.pass_price_coins} {currency.softPlural.toLowerCase()}</Text>
               </Text>
               <Text className="text-xs text-gray-500">
-                Pool: <Text className="font-medium text-gray-700">{item.reward_pool_coins.toLocaleString()} coins</Text>
+                Pool: <Text className="font-medium text-gray-700">{item.reward_pool_coins.toLocaleString()} {currency.softPlural.toLowerCase()}</Text>
               </Text>
             </View>
             {item.description && (
@@ -197,8 +199,8 @@ export default function AdminSeasonsScreen() {
                   { label: "Theme", key: "theme", placeholder: "fire / ocean / neon…" },
                   { label: "Start (ISO 8601)", key: "startsAt", placeholder: "2025-09-01T00:00:00Z" },
                   { label: "End (ISO 8601)", key: "endsAt", placeholder: "2025-11-30T23:59:59Z" },
-                  { label: "Pass Price (coins)", key: "passPriceCoins", placeholder: "500" },
-                  { label: "Reward Pool (coins)", key: "rewardPoolCoins", placeholder: "0" },
+                  { label: `Pass Price (${currency.softPlural.toLowerCase()})`, key: "passPriceCoins", placeholder: "500" },
+                  { label: `Reward Pool (${currency.softPlural.toLowerCase()})`, key: "rewardPoolCoins", placeholder: "0" },
                 ] as const
               ).map(({ label, key, placeholder }) => (
                 <View key={key} className="mb-3">

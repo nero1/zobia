@@ -34,12 +34,10 @@
   "home.feed.loading": "Ana loda shafinka…",
   "rooms.title": "Ɗakuna",
   "rooms.discover": "Gano ɗakuna",
-  "rooms.create": "Ƙirƙiri ɗaki",
   "rooms.join": "Shiga",
   "rooms.leave": "Fita",
   "rooms.members": "{{count}} memba",
   "rooms.members_other": "{{count}} mambobi",
-  "rooms.empty": "Ba a sami ɗakuna ba. Ka zama na farko da ke ƙirƙira ɗaya!",
   "messages.title": "Saƙonni",
   "messages.new": "Saƙon Sabon",
   "messages.empty": "Babu tattaunawa tukuna. Fara hira!",
@@ -168,7 +166,6 @@
   "profile.playSince": "Yana wasa tun {{year}}",
   "profile.verified": "✓ An Tabbatar",
   "profile.creator": "Mai Ƙirƙira",
-  "profile.kirediti": "Kirediti",
   "profile.stars": "Taurari",
   "profile.wallet": "Jakar Kirediti →",
   "profile.joinGuild": "Shiga Ƙungiya",
@@ -824,13 +821,7 @@
   },
   "rooms": {
     "title": "Ɗakuna",
-    "empty": {
-      "title": "Babu ɗakuna masu aiki a yanzu"
-    },
     "join": "Shiga",
-    "create": {
-      "title": "Ƙirƙiri Ɗaki"
-    },
     "searchPlaceholder": "Nemi ɗakuna…",
     "filters": "Tace",
     "tabTrending": "Mashahuri",
@@ -981,7 +972,9 @@
     "paymentOpenFailed": "Kasa buɗe shafin biyan kirediti",
     "boosterComingSoonTitle": "Zuwa nan gaba",
     "boosterComingSoonBody": "Sayan ƙarfafawa yana samuwa a cikin sabuntawar mai zuwa.",
-    "buy": "Saya"
+    "buy": "Saya",
+    "enterPin": "Shigar PIN",
+    "enterPinBody": "Shigar PIN na lambobi 4 don tabbatar da wannan siyan"
   },
   "seasons": {
     "title": "Kakar",
@@ -1298,5 +1291,30 @@
   "settings.privacy.disableFriendRequests": "Kashe Buƙatun Abota",
   "settings.privacy.disableFriendRequestsDesc": "Hana wasu aika muku buƙatun abota",
   "settings.privacy.hideSections": "Ɓoyannan Sassan Martaba",
-  "settings.privacy.hideSectionsDesc": "Zaɓi waɗanne sassan martabarku za a ɓoye daga wasu"
+  "settings.privacy.hideSectionsDesc": "Zaɓi waɗanne sassan martabarku za a ɓoye daga wasu",
+  "profile.coins": "Kirediti",
+  "notifications.marking": "Ana alama…",
+  "notifications.loadError": "Kuskuren loda sanarwa.",
+  "notifications.unreadCount": "{{count}} ba a karanta",
+  "prestige.nowLevel": "Yanzu kai Prestige {{level}} ne!",
+  "prestige.progressTo": "Ci gaba zuwa Prestige {{level}}",
+  "prestige.requiresIconIII": "Yana buƙatar Icon III (XP 100,000)",
+  "prestige.whatItDoes": "Abin da Prestige Ke Yi",
+  "prestige.trackLevelsPreserved": "Duk matakan hanya 6 sun tsare",
+  "prestige.earnBadge": "Samu alamar Prestige na dindindin",
+  "prestige.badgeOnProfile": "Alamar Prestige tana nuna akan bayanan ka",
+  "prestige.history": "Tarihin Prestige",
+  "prestige.prestigeNow": "✨ Prestige Yanzu",
+  "prestige.confirmTitle": "Prestige Yanzu?",
+  "prestige.confirmBody": "Darajan XP ɗinka na asali zai koma Ƙarami, amma duk matakan hanya 6 an adana. Za ka samu alamar Prestige. Ba za a iya canza wannan ba.",
+  "prestige.loadError": "Kuskuren loda bayanin prestige",
+  "prestige.mainRankResetsToNewcomer": "Daraja na asali ya koma Ƙarami",
+  "leaderboards.loadError": "Kuskuren loda jerin. Duba muhallin intanet ɗinka.",
+  "nav": {
+    "quests": "Ayyuka"
+  },
+  "quests": {
+    "viewAll": "Duba dukkan ayyuka →",
+    "noQuestsToday": "Babu ayyuka yau. Duba nan gaba!"
+  }
 }

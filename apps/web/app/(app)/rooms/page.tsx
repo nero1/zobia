@@ -12,6 +12,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { RoomCard, type RoomCardData } from "@/components/rooms/RoomCard";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -96,6 +97,7 @@ function DropRoomCard({ room }: { room: DropRoomFomo }) {
   const countdown = useCountdown(room.dropEndsAt);
   const urgentSecs = Math.max(0, Math.floor((new Date(room.dropEndsAt).getTime() - Date.now()) / 1000));
   const isUrgent = urgentSecs < 3600; // under 1 hour
+  const currency = useCurrency();
 
   return (
     <Link
@@ -111,7 +113,7 @@ function DropRoomCard({ room }: { room: DropRoomFomo }) {
       <p className="line-clamp-1 text-sm font-bold text-neutral-900 dark:text-neutral-50">{room.name}</p>
       <div className="mt-1.5 flex items-center gap-2 text-xs text-neutral-500">
         <span>{room.memberCount} inside</span>
-        {room.entryFee ? <span>· {room.entryFee.toLocaleString()} coins entry</span> : <span>· Free entry</span>}
+        {room.entryFee ? <span>· {room.entryFee.toLocaleString()} {currency.softPlural.toLowerCase()} entry</span> : <span>· Free entry</span>}
       </div>
     </Link>
   );

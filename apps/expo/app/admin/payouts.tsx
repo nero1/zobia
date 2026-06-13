@@ -75,7 +75,7 @@ function formatDate(iso: string) {
   });
 }
 
-function methodLabel(method: Payout['payoutMethod'], softPlural = 'Coins'): string {
+function methodLabel(method: Payout['payoutMethod'], softPlural: string): string {
   switch (method) {
     case 'bank_transfer': return 'Bank Transfer';
     case 'coins': return softPlural;

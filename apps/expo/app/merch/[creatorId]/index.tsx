@@ -23,6 +23,7 @@ import { Screen } from '@/components/ui/Screen';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,6 +67,7 @@ export default function CreatorMerchStoreScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { isDark } = useTheme();
+  const currency = useCurrency();
 
   const themedStyles = {
     bg: isDark ? colors.neutral[900] : colors.neutral[50],
@@ -116,7 +118,7 @@ export default function CreatorMerchStoreScreen() {
       }
 
       const priceLabel = product.coinPrice != null
-        ? `${product.coinPrice.toLocaleString()} coins`
+        ? `${product.coinPrice.toLocaleString()} ${currency.softPlural.toLowerCase()}`
         : `₦${product.price.toLocaleString()}`;
 
       Alert.alert(
@@ -141,7 +143,7 @@ export default function CreatorMerchStoreScreen() {
   const renderProduct = useCallback(
     ({ item }: { item: MerchProduct }) => {
       const priceLabel = item.coinPrice != null
-        ? `🪙 ${item.coinPrice.toLocaleString()} coins`
+        ? `🪙 ${item.coinPrice.toLocaleString()} ${currency.softPlural.toLowerCase()}`
         : `₦${item.price.toLocaleString()}`;
       const stockLabel = item.stock != null ? `${item.stock} left` : null;
 

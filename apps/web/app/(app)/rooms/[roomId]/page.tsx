@@ -1379,7 +1379,7 @@ export default function RoomPage() {
                   {/* Replay fee — PRD §10: "published for a smaller replay fee" */}
                   <div className="flex items-center gap-2">
                     <label className="text-xs text-neutral-500 dark:text-neutral-400 whitespace-nowrap">
-                      Replay fee (coins):
+                      Replay fee ({currency.softPlural.toLowerCase()}):
                     </label>
                     <input
                       type="number"

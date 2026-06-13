@@ -4,6 +4,7 @@ import {
   ActivityIndicator, RefreshControl, Alert, TextInput, Modal,
 } from "react-native";
 import { storage } from "@/lib/offline/store";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "";
 
@@ -27,6 +28,7 @@ function formatDate(iso: string) {
 }
 
 export default function SponsoredQuestsAdminScreen() {
+  const currency = useCurrency();
   const [quests, setQuests] = useState<SponsoredQuest[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -157,7 +159,7 @@ export default function SponsoredQuestsAdminScreen() {
 
           <View className="mt-3 flex-row flex-wrap gap-2">
             <View className="bg-yellow-50 px-3 py-1 rounded-lg">
-              <Text className="text-yellow-700 text-xs">{quest.reward_coins} coins</Text>
+              <Text className="text-yellow-700 text-xs">{quest.reward_coins} {currency.softPlural.toLowerCase()}</Text>
             </View>
             <View className="bg-violet-50 px-3 py-1 rounded-lg">
               <Text className="text-violet-700 text-xs">{quest.reward_xp} XP</Text>
@@ -199,7 +201,7 @@ export default function SponsoredQuestsAdminScreen() {
               { label: "Quest Title *", value: title, set: setTitle, placeholder: "e.g. Pepsi Challenge" },
               { label: "Brand Name *", value: brandName, set: setBrandName, placeholder: "e.g. Pepsi Nigeria" },
               { label: "Description", value: description, set: setDescription, placeholder: "Quest description" },
-              { label: "Coin Reward", value: rewardCoins, set: setRewardCoins, placeholder: "100", numeric: true },
+              { label: `${currency.softSingular} Reward`, value: rewardCoins, set: setRewardCoins, placeholder: "100", numeric: true },
               { label: "XP Reward", value: rewardXp, set: setRewardXp, placeholder: "50", numeric: true },
               { label: "Target Action", value: targetAction, set: setTargetAction, placeholder: "send_message" },
               { label: "Target Count", value: targetCount, set: setTargetCount, placeholder: "10", numeric: true },

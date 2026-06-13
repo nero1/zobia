@@ -8,6 +8,7 @@
  */
 
 import { useState, useEffect } from "react";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 import Link from "next/link";
 
 // ---------------------------------------------------------------------------
@@ -383,10 +384,10 @@ function PassCard({ season, userPlan, onUpgrade, upgrading, onGift }: PassCardPr
 // Milestone reward track
 // ---------------------------------------------------------------------------
 
-function milestoneRewardLabel(reward: MilestoneReward): string {
+function milestoneRewardLabel(reward: MilestoneReward, softPlural: string): string {
   if (reward.label) return reward.label;
   switch (reward.type) {
-    case "coins": return `${Number(reward.value).toLocaleString()} 🪙`;
+    case "coins": return `${Number(reward.value).toLocaleString()} 🪙 ${softPlural}`;
     case "badge": return `Badge: ${reward.value}`;
     case "title": return `Title: "${reward.value}"`;
     case "sticker_pack": return `Sticker Pack: ${reward.value}`;
@@ -401,6 +402,7 @@ interface MilestoneTrackProps {
 }
 
 function MilestoneTrack({ passData, onClaim, claiming }: MilestoneTrackProps) {
+  const currency = useCurrency();
   const freeMilestones = passData.milestones.filter((m) => m.tier === "free");
   const paidMilestones = passData.milestones.filter((m) => m.tier === "paid");
 
@@ -420,7 +422,7 @@ function MilestoneTrack({ passData, onClaim, claiming }: MilestoneTrackProps) {
           {m.claimed ? "✓" : m.level}
         </div>
         <p className="max-w-[5rem] truncate text-center text-xs text-neutral-500">
-          {milestoneRewardLabel(m.reward)}
+          {milestoneRewardLabel(m.reward, currency.softPlural)}
         </p>
         <p className="text-xs font-semibold tabular-nums text-neutral-400">
           {m.xpThreshold.toLocaleString()} XP

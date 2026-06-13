@@ -4,6 +4,7 @@ import {
   Alert, ActivityIndicator, RefreshControl
 } from "react-native";
 import { storage } from "@/lib/offline/store";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "";
 
@@ -28,6 +29,7 @@ function koboToNaira(kobo: number) {
 }
 
 export default function AdminFinancialScreen() {
+  const currency = useCurrency();
   const [stats, setStats] = useState<FinancialStats | null>(null);
   const [payouts, setPayouts] = useState<PayoutRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -86,7 +88,7 @@ export default function AdminFinancialScreen() {
             { label: "Total Revenue", value: koboToNaira(stats.totalRevenueKobo) },
             { label: "Pending Payouts", value: koboToNaira(stats.pendingPayoutsKobo) },
             { label: "Pending Requests", value: String(stats.pendingPayoutCount) },
-            { label: "Coins in Circulation", value: stats.coinsInCirculation.toLocaleString() },
+            { label: `${currency.softPlural} in Circulation`, value: stats.coinsInCirculation.toLocaleString() },
           ].map((row) => (
             <View key={row.label} className="flex-row justify-between py-1">
               <Text className="text-gray-600">{row.label}</Text>

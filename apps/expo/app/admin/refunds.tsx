@@ -21,6 +21,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { storage } from '@/lib/offline/store';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? '';
 
@@ -62,6 +63,7 @@ function formatDate(iso: string) {
 // ---------------------------------------------------------------------------
 
 export default function AdminRefundsScreen() {
+  const currency = useCurrency();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('pending');
   const [refunds, setRefunds] = useState<Refund[]>([]);
   const [loading, setLoading] = useState(true);
@@ -126,7 +128,7 @@ export default function AdminRefundsScreen() {
       return;
     }
     if (!amountNum || amountNum <= 0) {
-      Alert.alert('Error', 'Enter a valid coin amount.');
+      Alert.alert('Error', `Enter a valid ${currency.softSingular.toLowerCase()} amount.`);
       return;
     }
     if (issueReason.trim().length < 5) {
@@ -158,7 +160,7 @@ export default function AdminRefundsScreen() {
       const data = await res.json();
       Alert.alert(
         'Refund Issued',
-        `${data.data?.amountRefunded ?? amountNum} coins refunded to @${data.data?.username ?? issueUserId}.`
+        `${data.data?.amountRefunded ?? amountNum} ${currency.softPlural.toLowerCase()} refunded to @${data.data?.username ?? issueUserId}.`
       );
       setIssueModalVisible(false);
       setIssueUserId('');
@@ -247,7 +249,7 @@ export default function AdminRefundsScreen() {
                 <Text style={styles.refId} numberOfLines={1}>Ref: {item.reference_id}</Text>
               </View>
               <View style={styles.amountBlock}>
-                <Text style={styles.coinAmount}>{item.amount_coins} coins</Text>
+                <Text style={styles.coinAmount}>{item.amount_coins} {currency.softPlural.toLowerCase()}</Text>
                 <View style={[
                   styles.statusBadge,
                   item.status === 'processed' ? styles.statusDone : styles.statusPending,
@@ -275,7 +277,7 @@ export default function AdminRefundsScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Issue Coin Refund</Text>
+            <Text style={styles.modalTitle}>Issue {currency.softSingular} Refund</Text>
 
             <Text style={styles.fieldLabel}>User ID (UUID)</Text>
             <TextInput
@@ -288,7 +290,7 @@ export default function AdminRefundsScreen() {
               autoCorrect={false}
             />
 
-            <Text style={styles.fieldLabel}>Coins to Refund</Text>
+            <Text style={styles.fieldLabel}>{currency.softPlural} to Refund</Text>
             <TextInput
               style={styles.input}
               value={issueAmount}

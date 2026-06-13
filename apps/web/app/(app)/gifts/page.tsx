@@ -10,6 +10,7 @@ import { Suspense, useState, useEffect, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { clsx } from "clsx";
 import { Avatar } from "@/components/ui/Avatar";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -106,6 +107,7 @@ function SendGiftModal({
   prefilledRecipientId?: string;
   prefilledUsername?: string;
 }) {
+  const currency = useCurrency();
   const [search, setSearch] = useState(prefilledUsername ?? "");
   const [suggestions, setSuggestions] = useState<UserSuggestion[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -281,7 +283,7 @@ function SendGiftModal({
           {/* Wallet balance */}
           {wallet && (
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
-              🪙 <span className="font-medium text-neutral-700 dark:text-neutral-300">{wallet.coins.toLocaleString()} credits</span> available
+              🪙 <span className="font-medium text-neutral-700 dark:text-neutral-300">{wallet.coins.toLocaleString()} {currency.softPlural.toLowerCase()}</span> available
             </p>
           )}
 

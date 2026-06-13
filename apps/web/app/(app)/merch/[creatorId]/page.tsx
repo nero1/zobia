@@ -12,6 +12,7 @@
 
 import { useState, useEffect, use } from "react";
 import Link from "next/link";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -65,13 +66,14 @@ interface ConfirmModalProps {
 }
 
 function ConfirmModal({ product, onConfirm, onCancel, buying }: ConfirmModalProps) {
+  const currency = useCurrency();
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="w-full max-w-sm rounded-2xl border border-neutral-200 bg-white p-6 shadow-xl dark:border-neutral-800 dark:bg-neutral-900">
         <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-50">Confirm Purchase</h3>
         <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
           You are about to buy <span className="font-semibold text-neutral-900 dark:text-neutral-100">{product.name}</span> for{" "}
-          <span className="font-bold text-amber-600">🪙 {product.priceCoin.toLocaleString()} coins</span>.
+          <span className="font-bold text-amber-600">🪙 {product.priceCoin.toLocaleString()} {currency.softPlural.toLowerCase()}</span>.
         </p>
         <div className="mt-5 flex gap-3">
           <button

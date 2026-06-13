@@ -23,6 +23,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { Screen } from '@/components/ui/Screen';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
@@ -220,6 +221,7 @@ function Skeleton() {
 
 export default function NotificationsScreen() {
   const { colors: themeColors } = useTheme();
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
 
@@ -248,7 +250,7 @@ export default function NotificationsScreen() {
       <Screen>
         <View style={styles.errorState}>
           <Text style={[styles.errorText, { color: themeColors.textMuted }]}>
-            Could not load notifications.
+            {t('notifications.loadError', 'Could not load notifications.')}
           </Text>
         </View>
       </Screen>
@@ -265,17 +267,17 @@ export default function NotificationsScreen() {
       }
       ListHeaderComponent={() => (
         <View style={[styles.header, { borderBottomColor: themeColors.border }]}>
-          <Text style={[styles.headerTitle, { color: themeColors.text }]}>Notifications</Text>
+          <Text style={[styles.headerTitle, { color: themeColors.text }]}>{t('notifications.title')}</Text>
           {unreadCount > 0 && (
             <TouchableOpacity
               style={styles.markAllBtn}
               onPress={() => markAllMutation.mutate()}
               disabled={markAllMutation.isPending}
               accessibilityRole="button"
-              accessibilityLabel="Mark all notifications as read"
+              accessibilityLabel={t('notifications.markAllRead')}
             >
               <Text style={styles.markAllText}>
-                {markAllMutation.isPending ? 'Marking…' : 'Mark all read'}
+                {markAllMutation.isPending ? t('notifications.markingAll') : t('notifications.markAllRead')}
               </Text>
             </TouchableOpacity>
           )}
@@ -285,7 +287,7 @@ export default function NotificationsScreen() {
         <View style={styles.emptyState}>
           <Ionicons name="notifications-off-outline" size={48} color={themeColors.textMuted} />
           <Text style={[styles.emptyText, { color: themeColors.textMuted }]}>
-            No notifications yet.
+            {t('notifications.empty')}
           </Text>
         </View>
       )}

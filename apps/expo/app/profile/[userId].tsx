@@ -31,6 +31,7 @@ import { Button } from '@/components/ui/Button';
 import { PresenceDot } from '@/components/ui/PresenceDot';
 import { useTheme } from '@/lib/theme';
 import { colors, rankColors, type RankTier } from '@/lib/theme/colors';
+import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 
 // ---------------------------------------------------------------------------
@@ -131,6 +132,7 @@ interface LevelBarProps {
 
 function LevelBar({ track }: LevelBarProps) {
   const { colors: themeColors } = useTheme();
+  const { t } = useTranslation();
   const progress = track.level / track.maxLevel;
 
   return (
@@ -139,7 +141,7 @@ function LevelBar({ track }: LevelBarProps) {
       <View style={styles.levelBarInfo}>
         <View style={styles.levelBarHeader}>
           <Text style={[styles.levelBarTrack, { color: themeColors.text }]}>{track.track}</Text>
-          <Text style={[styles.levelBarLevel, { color: colors.brand.blue }]}>Lvl {track.level}</Text>
+          <Text style={[styles.levelBarLevel, { color: colors.brand.blue }]}>{t('publicProfile.lv', { level: track.level })}</Text>
         </View>
         <View style={styles.levelBarOuter}>
           <View
@@ -171,6 +173,7 @@ export default function PublicProfileScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { colors: themeColors } = useTheme();
+  const { t } = useTranslation();
 
   const { data: profile, isLoading, isError } = useQuery({
     queryKey: ['profile', userId],
@@ -189,17 +192,17 @@ export default function PublicProfileScreen() {
   });
 
   const handleReport = () => {
-    Alert.alert('Report User', 'Select a reason:', [
+    Alert.alert(t('publicProfile.reportTitle'), t('publicProfile.reportSelectReason'), [
       ...REPORT_REASONS.map((reason) => ({
         text: reason,
         onPress: () => {
           reportUser(userId!, reason).catch(() => {
-            Alert.alert('Error', 'Could not submit report.');
+            Alert.alert('Error', t('publicProfile.reportError'));
           });
-          Alert.alert('Reported', 'Thank you for your report. We will review it shortly.');
+          Alert.alert(t('publicProfile.reportedTitle'), t('publicProfile.reportedBody'));
         },
       })),
-      { text: 'Cancel', style: 'cancel' },
+      { text: t('action.cancel'), style: 'cancel' },
     ]);
   };
 
@@ -210,7 +213,7 @@ export default function PublicProfileScreen() {
       <Screen>
         <View style={styles.errorState}>
           <Text style={[styles.errorText, { color: themeColors.textMuted }]}>
-            Could not load profile.
+            {t('publicProfile.loadError')}
           </Text>
         </View>
       </Screen>
@@ -250,7 +253,7 @@ export default function PublicProfileScreen() {
         <Text style={[styles.username, { color: themeColors.textMuted }]}>@{profile.username}</Text>
         <View style={styles.metaRow}>
           {profile.city && <Text style={[styles.metaText, { color: themeColors.textMuted }]}>📍 {profile.city}</Text>}
-          <Text style={[styles.metaText, { color: themeColors.textMuted }]}>Playing since {joinYear}</Text>
+          <Text style={[styles.metaText, { color: themeColors.textMuted }]}>{t('publicProfile.playingSince', { year: joinYear })}</Text>
         </View>
       </View>
 
@@ -284,14 +287,14 @@ export default function PublicProfileScreen() {
         <View style={styles.actions}>
           <View style={styles.actionsRow}>
             <Button
-              label={profile.isFriend ? 'Friends ✓' : 'Add Friend'}
+              label={profile.isFriend ? t('publicProfile.friends') : t('publicProfile.addFriend')}
               variant={profile.isFriend ? 'secondary' : 'primary'}
               onPress={() => friendMutation.mutate()}
               loading={friendMutation.isPending}
               style={styles.actionBtn}
             />
             <Button
-              label={profile.isFollowing ? 'Following ✓' : 'Follow'}
+              label={profile.isFollowing ? t('publicProfile.following') : t('publicProfile.follow')}
               variant={profile.isFollowing ? 'secondary' : 'primary'}
               onPress={() => followMutation.mutate()}
               loading={followMutation.isPending}
@@ -300,13 +303,13 @@ export default function PublicProfileScreen() {
           </View>
           <View style={styles.actionsRow}>
             <Button
-              label="🎁 Gift"
+              label={t('publicProfile.gift')}
               variant="secondary"
               onPress={() => router.push({ pathname: '/economy/gift-send', params: { toUserId: userId } })}
               style={styles.actionBtn}
             />
             <Button
-              label="Report"
+              label={t('publicProfile.report')}
               variant="ghost"
               onPress={handleReport}
               style={styles.actionBtn}
@@ -319,7 +322,7 @@ export default function PublicProfileScreen() {
       {profile.isCreator && (
         <View style={[styles.creatorCard, { borderColor: colors.brand.blue }]}>
           <View style={styles.creatorHeader}>
-            <Text style={styles.creatorBadge}>Creator</Text>
+            <Text style={styles.creatorBadge}>{t('publicProfile.creatorBadge')}</Text>
             {profile.creatorCategory && (
               <Text style={[styles.creatorCategory, { color: themeColors.textMuted }]}>
                 {profile.creatorCategory}
@@ -336,9 +339,9 @@ export default function PublicProfileScreen() {
 
       {/* Track level bars */}
       <View style={[styles.trackSection, { backgroundColor: themeColors.surface }]}>
-        <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Track Levels</Text>
-        {profile.trackLevels.map((t) => (
-          <LevelBar key={t.track} track={t} />
+        <Text style={[styles.sectionTitle, { color: themeColors.text }]}>{t('publicProfile.trackLevels')}</Text>
+        {profile.trackLevels.map((tl) => (
+          <LevelBar key={tl.track} track={tl} />
         ))}
       </View>
 
@@ -346,7 +349,7 @@ export default function PublicProfileScreen() {
       {profile.pastSeasons.length > 0 && (
         <View>
           <Text style={[styles.sectionTitle, { color: themeColors.text, paddingHorizontal: 16 }]}>
-            Season History
+            {t('publicProfile.seasonHistory')}
           </Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.seasonsScroll}>
             {profile.pastSeasons.map((s) => (

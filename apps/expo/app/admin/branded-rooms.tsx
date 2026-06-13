@@ -4,6 +4,7 @@ import {
   ActivityIndicator, RefreshControl, Alert, TextInput, Modal,
 } from "react-native";
 import { storage } from "@/lib/offline/store";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "";
 
@@ -26,6 +27,7 @@ function formatDate(iso: string) {
 }
 
 export default function BrandedRoomsAdminScreen() {
+  const currency = useCurrency();
   const [rooms, setRooms] = useState<BrandedRoom[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -155,7 +157,7 @@ export default function BrandedRoomsAdminScreen() {
             )}
             <View className="bg-blue-50 px-3 py-1 rounded-lg">
               <Text className="text-blue-700 text-xs">
-                {room.entry_fee_coins > 0 ? `${room.entry_fee_coins} coins entry` : "Free entry"}
+                {room.entry_fee_coins > 0 ? `${room.entry_fee_coins} ${currency.softPlural.toLowerCase()} entry` : "Free entry"}
               </Text>
             </View>
             {room.starts_at && (
@@ -207,7 +209,7 @@ export default function BrandedRoomsAdminScreen() {
               placeholder="e.g. Pepsi Fan Zone"
             />
 
-            <Text className="text-sm font-medium text-gray-700 mb-1">Entry Fee (coins)</Text>
+            <Text className="text-sm font-medium text-gray-700 mb-1">Entry Fee ({currency.softPlural.toLowerCase()})</Text>
             <TextInput
               className="border border-gray-300 rounded-xl px-3 py-2 mb-4 text-gray-900"
               value={entryFee}

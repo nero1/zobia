@@ -171,9 +171,9 @@ export default function WalletScreen() {
                 accessibilityLabel="Go back"
                 style={styles.backBtn}
               >
-                <Text style={styles.backText}>← Back</Text>
+                <Text style={styles.backText}>{t('wallet.backBtn')}</Text>
               </Pressable>
-              <Text style={styles.title}>My Wallet</Text>
+              <Text style={styles.title}>{t('wallet.title')}</Text>
             </View>
 
             {/* Balance cards */}
@@ -183,14 +183,14 @@ export default function WalletScreen() {
               </View>
             ) : isError ? (
               <View style={styles.errorContainer}>
-                <Text style={styles.errorText}>Failed to load wallet</Text>
-                <Button label="Retry" size="sm" variant="ghost" onPress={() => void refetch()} />
+                <Text style={styles.errorText}>{t('wallet.loadError')}</Text>
+                <Button label={t('action.retry')} size="sm" variant="ghost" onPress={() => void refetch()} />
               </View>
             ) : (
               <>
                 {/* Coin balance — prominent */}
                 <View style={[styles.balanceCard, { backgroundColor: colors.brand.blue }]}>
-                  <Text style={styles.balanceLabel}>{currency.softSingular} Balance</Text>
+                  <Text style={styles.balanceLabel}>{t('wallet.coinBalance')}</Text>
                   <View style={styles.balanceRow}>
                     <Text style={styles.balanceCoinIcon}>🪙</Text>
                     <Text style={styles.balanceAmount}>
@@ -210,22 +210,22 @@ export default function WalletScreen() {
                       <Text style={styles.starAmount}>
                         {data?.stars ?? 0} {currency.premiumPlural}
                       </Text>
-                      <Text style={styles.starSubtext}>Premium currency</Text>
+                      <Text style={styles.starSubtext}>{t('wallet.premiumCurrency')}</Text>
                     </View>
                   </View>
                   <Pressable
                     style={[styles.planCard, { backgroundColor: themeColors.surface }]}
                     onPress={() => router.push('/settings/subscription' as never)}
                   >
-                    <Text style={styles.planLabel}>Plan</Text>
+                    <Text style={styles.planLabel}>{t('subscription.currentPlan')}</Text>
                     <Text style={styles.planName}>{planLabel}</Text>
-                    <Text style={styles.planManage}>Manage →</Text>
+                    <Text style={styles.planManage}>{t('settings.manageSubscription')}</Text>
                   </Pressable>
                 </View>
 
                 {/* Add Coins CTA */}
                 <Button
-                  label={`🪙 Add ${currency.softPlural}`}
+                  label={t('wallet.addCoins')}
                   onPress={() => router.push('/economy/store')}
                   style={styles.addCoinsBtn}
                 />
@@ -234,7 +234,7 @@ export default function WalletScreen() {
 
             {/* Transaction tab selector */}
             <View style={styles.txTabRow}>
-              <Text style={styles.sectionHeader}>Transactions</Text>
+              <Text style={styles.sectionHeader}>{t('wallet.transactionHistory')}</Text>
               <View style={styles.txTabBtns}>
                 <Pressable
                   style={[styles.txTabBtn, txTab === 'coins' && styles.txTabBtnActive]}
@@ -260,7 +260,7 @@ export default function WalletScreen() {
         ListEmptyComponent={
           !isLoading ? (
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No {txTab} transactions yet</Text>
+              <Text style={styles.emptyText}>{t('wallet.noTransactions')}</Text>
             </View>
           ) : null
         }

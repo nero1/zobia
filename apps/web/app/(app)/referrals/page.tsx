@@ -12,6 +12,7 @@
  */
 
 import { useState, useEffect } from "react";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -115,11 +116,12 @@ function ReferralLinkCard({ url }: { url: string }) {
 // ---------------------------------------------------------------------------
 
 function StatsGrid({ stats }: { stats: ReferralStats }) {
+  const currency = useCurrency();
   const items = [
     { label: "Tier 1 Referrals", value: stats.tier1Count.toLocaleString(), sub: "Direct" },
     { label: "Tier 2 Referrals", value: stats.tier2Count.toLocaleString(), sub: "Indirect" },
     { label: "XP Earned", value: (stats.tier1XpEarned + stats.tier2XpEarned).toLocaleString(), sub: "Total XP" },
-    { label: "Coins Earned", value: (stats.tier1CoinsEarned + stats.tier2CoinsEarned).toLocaleString(), sub: "Total 🪙" },
+    { label: `${currency.softPlural} Earned`, value: (stats.tier1CoinsEarned + stats.tier2CoinsEarned).toLocaleString(), sub: "Total 🪙" },
   ];
 
   return (
@@ -143,6 +145,7 @@ function StatsGrid({ stats }: { stats: ReferralStats }) {
 // ---------------------------------------------------------------------------
 
 function TwoTierExplainer() {
+  const currency = useCurrency();
   return (
     <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
       <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">How the Two-Tier System Works</h2>
@@ -155,7 +158,7 @@ function TwoTierExplainer() {
             <p className="font-semibold text-neutral-900 dark:text-neutral-100">Tier 1 — Direct Referrals</p>
             <p className="mt-0.5 text-xs">
               When someone signs up using your referral link and completes their first qualifying
-              action, you earn XP and Coins.
+              action, you earn XP and {currency.softPlural}.
             </p>
           </div>
         </div>
@@ -181,6 +184,7 @@ function TwoTierExplainer() {
 // ---------------------------------------------------------------------------
 
 function ReferredUsersTable({ users }: { users: ReferredUser[] }) {
+  const currency = useCurrency();
   if (users.length === 0) {
     return (
       <div className="rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
@@ -207,7 +211,7 @@ function ReferredUsersTable({ users }: { users: ReferredUser[] }) {
               <th className="px-4 py-3 text-left font-semibold">Tier</th>
               <th className="px-4 py-3 text-left font-semibold">Joined</th>
               <th className="px-4 py-3 text-left font-semibold">Qualified</th>
-              <th className="px-4 py-3 text-right font-semibold">XP / Coins</th>
+              <th className="px-4 py-3 text-right font-semibold">XP / {currency.softPlural}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">

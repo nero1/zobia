@@ -25,6 +25,8 @@ import { Screen } from '@/components/ui/Screen';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
+import { useTranslation } from 'react-i18next';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -78,10 +80,10 @@ async function fetchReferrals(): Promise<ReferralData> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const STATUS_LABELS: Record<ReferredUser['status'], string> = {
-  joined: 'Joined',
-  qualifying_done: 'Qualifying done ✓',
-  pending: 'Pending',
+const STATUS_KEYS: Record<ReferredUser['status'], string> = {
+  joined: 'referrals.statusJoined',
+  qualifying_done: 'referrals.statusQualifying',
+  pending: 'referrals.statusPending',
 };
 
 const STATUS_COLORS: Record<ReferredUser['status'], string> = {
@@ -107,6 +109,7 @@ function StatCard({ label, value, subtitle }: { label: string; value: string; su
 
 function ReferredRow({ user }: { user: ReferredUser }) {
   const { colors: themeColors } = useTheme();
+  const { t } = useTranslation();
   const statusColor = STATUS_COLORS[user.status];
   return (
     <View style={[styles.referredRow, { borderBottomColor: themeColors.border }]}>
@@ -118,7 +121,7 @@ function ReferredRow({ user }: { user: ReferredUser }) {
           {user.displayName}
         </Text>
         <Text style={[styles.referredStatus, { color: statusColor }]}>
-          {STATUS_LABELS[user.status]}
+          {t(STATUS_KEYS[user.status])}
         </Text>
       </View>
       <View style={[styles.tierBadge, user.tier === 1 ? styles.tier1Badge : styles.tier2Badge]}>
@@ -146,6 +149,8 @@ function Skeleton() {
 
 export default function ReferralsScreen() {
   const { colors: themeColors } = useTheme();
+  const currency = useCurrency();
+  const { t } = useTranslation();
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['referrals'],
@@ -155,14 +160,14 @@ export default function ReferralsScreen() {
   function handleCopy() {
     if (!data?.referralLink) return;
     Clipboard.setString(data.referralLink);
-    Alert.alert('Copied!', 'Referral link copied to clipboard.');
+    Alert.alert(t('referrals.copied'), t('referrals.copiedBody'));
   }
 
   async function handleShare() {
     if (!data?.referralLink) return;
     try {
       await Share.share({
-        message: `Join me on Zobia Social! ${data.referralLink}`,
+        message: t('referrals.shareMessage', { link: data.referralLink }),
         url: data.referralLink,
       });
     } catch {
@@ -177,7 +182,7 @@ export default function ReferralsScreen() {
       <Screen>
         <View style={styles.errorState}>
           <Text style={[styles.errorText, { color: themeColors.textMuted }]}>
-            Could not load referral data.
+            {t('referrals.loadError')}
           </Text>
         </View>
       </Screen>
@@ -195,15 +200,15 @@ export default function ReferralsScreen() {
             {/* Title */}
             <View style={styles.titleSection}>
               <Text style={styles.titleEmoji}>🤝</Text>
-              <Text style={[styles.title, { color: themeColors.text }]}>Referrals</Text>
+              <Text style={[styles.title, { color: themeColors.text }]}>{t('referrals.title')}</Text>
               <Text style={[styles.subtitle, { color: themeColors.textMuted }]}>
-                Earn XP and coins for every friend you bring to Zobia.
+                {t('referrals.subtitle')}
               </Text>
             </View>
 
             {/* Referral link */}
             <View style={[styles.linkCard, { backgroundColor: themeColors.surface }]}>
-              <Text style={[styles.linkLabel, { color: themeColors.textMuted }]}>Your referral link</Text>
+              <Text style={[styles.linkLabel, { color: themeColors.textMuted }]}>{t('referrals.yourLink')}</Text>
               <Text style={[styles.linkText, { color: themeColors.text }]} numberOfLines={2} selectable>
                 {data.referralLink}
               </Text>
@@ -214,7 +219,7 @@ export default function ReferralsScreen() {
                   accessibilityRole="button"
                   accessibilityLabel="Copy referral link"
                 >
-                  <Text style={styles.copyBtnText}>Copy Link</Text>
+                  <Text style={styles.copyBtnText}>{t('referrals.copyLink')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.shareBtn}
@@ -222,27 +227,27 @@ export default function ReferralsScreen() {
                   accessibilityRole="button"
                   accessibilityLabel="Share referral link"
                 >
-                  <Text style={styles.shareBtnText}>Share</Text>
+                  <Text style={styles.shareBtnText}>{t('referrals.share')}</Text>
                 </TouchableOpacity>
               </View>
             </View>
 
             {/* Stats */}
             <View style={styles.statsRow}>
-              <StatCard label="Tier 1 Referrals" value={data.tier1Count.toString()} />
-              <StatCard label="Tier 2 Referrals" value={data.tier2Count.toString()} />
-              <StatCard label="Total XP" value={`+${data.totalXPEarned.toLocaleString()}`} />
+              <StatCard label={t('referrals.tier1')} value={data.tier1Count.toString()} />
+              <StatCard label={t('referrals.tier2')} value={data.tier2Count.toString()} />
+              <StatCard label={t('referrals.totalXP')} value={`+${data.totalXPEarned.toLocaleString()}`} />
             </View>
 
             <View style={styles.coinsEarned}>
-              <Text style={[styles.coinsEarnedLabel, { color: themeColors.textMuted }]}>Coins earned from referrals</Text>
+              <Text style={[styles.coinsEarnedLabel, { color: themeColors.textMuted }]}>{t('referrals.coinsEarned')}</Text>
               <Text style={styles.coinsEarnedValue}>🪙 {data.totalCoinsEarned.toLocaleString()}</Text>
             </View>
 
             {/* Section header */}
             {data.referredUsers.length > 0 && (
               <Text style={[styles.listHeader, { color: themeColors.text }]}>
-                Referred Users ({data.referredUsers.length})
+                {t('referrals.referredUsers', { count: data.referredUsers.length })}
               </Text>
             )}
           </View>
@@ -251,7 +256,7 @@ export default function ReferralsScreen() {
         ListEmptyComponent={() => (
           <View style={styles.emptyState}>
             <Text style={[styles.emptyText, { color: themeColors.textMuted }]}>
-              No referrals yet. Share your link to get started!
+              {t('referrals.noReferrals')}
             </Text>
           </View>
         )}
