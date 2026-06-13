@@ -2,45 +2,34 @@
  * components/providers/I18nProvider.tsx
  *
  * Client-side i18n provider.
- * Initialises i18next and wraps the tree with I18nextProvider.
+ * Wraps the tree with I18nextProvider.
+ *
+ * i18next is initialised synchronously at module load (see lib/i18n) with the
+ * English bundle available immediately, so children can be rendered
+ * unconditionally. Rendering children unconditionally is important: a previous
+ * version gated them behind a `ready` flag derived from `i18n.isInitialized`,
+ * which evaluated to `true` on a warm SSR process but `false` on a fresh
+ * client. That divergence caused a hydration mismatch under <main> that React
+ * recovered from by duplicating the entire page ("duplicate screen on scroll").
  */
 
 "use client";
 
-import { useEffect, useState } from "react";
 import { I18nextProvider } from "react-i18next";
-import i18n, { initI18n } from "@/lib/i18n";
-
-// Kick off i18n initialization at module load so i18n.options (including
-// react.useSuspense: false) is set before any component renders. Without this,
-// useTranslation() would suspend during SSR/SSG since useEffect never runs
-// server-side, and an uninitialized i18next instance defaults useSuspense to true.
-if (!i18n.isInitialized) {
-  initI18n().catch(() => {});
-}
+import i18n from "@/lib/i18n";
 
 interface I18nProviderProps {
   children: React.ReactNode;
 }
 
 /**
- * Initialises i18next on the client and provides the i18n instance
- * to all child components via React context.
+ * Provides the shared i18next instance to all child components via React
+ * context. The instance is already initialised by the time this renders.
  */
 export function I18nProvider({ children }: I18nProviderProps) {
-  const [ready, setReady] = useState(() => i18n.isInitialized);
-
-  useEffect(() => {
-    if (i18n.isInitialized) {
-      setReady(true);
-      return;
-    }
-    initI18n().then(() => setReady(true));
-  }, []);
-
   return (
     <I18nextProvider i18n={i18n} defaultNS="translation">
-      {ready ? children : null}
+      {children}
     </I18nextProvider>
   );
 }

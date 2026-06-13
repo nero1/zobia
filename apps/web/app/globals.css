@@ -14,13 +14,10 @@
   body {
     font-family: var(--font-inter);
     line-height: 1.5;
-    /* Prevent iOS elastic overscroll that creates a phantom "second screen" */
-    overscroll-behavior: none;
   }
 
   html {
     scroll-behavior: smooth;
-    height: 100%;
   }
 
   /* Accessibility: Focus indicators visible for keyboard navigation */
