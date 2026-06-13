@@ -86,7 +86,7 @@ const features: FeatureCardProps[] = [
  */
 export default function LandingPage() {
   return (
-    <div className="bg-neutral-50 dark:bg-neutral-950">
+    <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
       {/* Header */}
       <header className="border-b border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">

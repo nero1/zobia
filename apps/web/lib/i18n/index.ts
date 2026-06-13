@@ -29,19 +29,34 @@ import { SUPPORTED_LOCALES, DEFAULT_LOCALE, type SupportedLocale } from "./local
 export { SUPPORTED_LOCALES, LOCALE_LABELS, DEFAULT_LOCALE } from "./locales";
 export type { SupportedLocale } from "./locales";
 
+// The default-locale (English) bundle is imported statically so it is available
+// synchronously at module-evaluation time. This guarantees i18next is fully
+// initialised on the very FIRST render — on both the server and the client —
+// which is essential for two reasons:
+//   1. No raw translation keys flash before the async JSON finishes loading.
+//   2. `i18n.isInitialized` is identical (true) on the server and the client,
+//      so the React tree renders the same thing on both sides. A value that
+//      differed between SSR (warm server → true) and the client (fresh → false)
+//      previously produced a hydration mismatch directly under <main>, which
+//      React recovered from by appending a second copy of the whole app —
+//      the "duplicate screen on scroll" bug.
+import enTranslation from "./locales/en.json";
+
 // ---------------------------------------------------------------------------
 // Initialisation
 // ---------------------------------------------------------------------------
 
 /**
- * Initialise i18next.
- * Called once at app startup (in the root layout / providers).
- * Safe to call multiple times – subsequent calls are no-ops.
+ * Configure and initialise the shared i18next singleton.
+ *
+ * Initialisation is SYNCHRONOUS (`initImmediate: false`) with English bundled
+ * inline; every other locale is lazy-loaded on demand via resourcesToBackend
+ * (`partialBundledLanguages: true`). Idempotent — safe to call repeatedly.
  */
-export async function initI18n(): Promise<void> {
+function setupI18n(): void {
   if (i18n.isInitialized) return;
 
-  await i18n
+  i18n
     .use(LanguageDetector)
     .use(resourcesToBackend(
       (language: string, namespace: string) =>
@@ -51,9 +66,13 @@ export async function initI18n(): Promise<void> {
     ))
     .use(initReactI18next)
     .init({
+      // English is available immediately; other locales load lazily.
+      resources: { [DEFAULT_LOCALE]: { translation: enTranslation } },
+      partialBundledLanguages: true,
+      // Synchronous init so i18n.isInitialized is true on the first render.
+      initImmediate: false,
       fallbackLng: DEFAULT_LOCALE,
       supportedLngs: SUPPORTED_LOCALES,
-      preload: [DEFAULT_LOCALE],
       defaultNS: "translation",
       ns: ["translation"],
       detection: {
@@ -71,6 +90,18 @@ export async function initI18n(): Promise<void> {
         useSuspense: false,
       },
     });
+}
+
+// Initialise eagerly at module load.
+setupI18n();
+
+/**
+ * Initialise i18next.
+ * Retained for backwards compatibility — initialisation now happens eagerly at
+ * module load, so this simply ensures setup has run and resolves immediately.
+ */
+export async function initI18n(): Promise<void> {
+  setupI18n();
 }
 
 export default i18n;
