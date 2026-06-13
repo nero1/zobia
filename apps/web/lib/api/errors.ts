@@ -160,6 +160,17 @@ export function handleApiError(error: unknown): NextResponse<ErrorResponseBody> 
     );
   }
 
+  // Insufficient balance errors — map to 402 Payment Required
+  if (error instanceof Error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "INSUFFICIENT_BALANCE" || code === "INSUFFICIENT_STAR_BALANCE") {
+      return NextResponse.json(
+        { error: { code, message: error.message } },
+        { status: 402 }
+      );
+    }
+  }
+
   // Plain errors with an explicit statusCode (e.g. FEATURE_DISABLED from requireFeatureEnabled)
   if (error instanceof Error && "statusCode" in error) {
     const e = error as Error & { code?: string; statusCode: number };

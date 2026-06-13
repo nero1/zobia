@@ -149,10 +149,8 @@ export async function incrementDailyCount(
 ): Promise<number> {
   const key = buildCountKey(userId, type, date);
   const newVal = await redis.incr(key);
-  if (newVal === 1) {
-    // First write today — set TTL to 25 hours so Redis cleans up automatically
-    await redis.expire(key, 90_000);
-  }
+  // Always reset TTL so a Redis blip can never leave the key without expiry
+  await redis.expire(key, 90_000);
   return newVal;
 }
 

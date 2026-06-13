@@ -112,15 +112,19 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       throw badRequest("Cannot transfer coins to yourself");
     }
 
-    // Idempotency check: atomic SET NX to prevent TOCTOU double-spend (#12).
-    // We check BEFORE the transfer; on failure we delete the key so retries can proceed.
-    if (body.idempotencyKey) {
-      idempKey = `idempotency:transfer:${senderId}:${body.idempotencyKey}`;
-      const setResult = await redis.set(idempKey, "processing", "EX", 86400, "NX");
-      if (setResult === null) {
-        // Key already exists — duplicate request
-        return NextResponse.json({ success: true, duplicate: true, message: "Duplicate request - transfer already processed" });
-      }
+    // ZB-18: Derive the idempotency key server-side so it is always bound to the
+    // specific operation (sender + recipient + amount). A client-only UUID can be
+    // reused across different operations, allowing a different transfer to be silently
+    // treated as a duplicate.
+    const hourBucket = new Date().toISOString().slice(0, 13); // YYYY-MM-DDTHH
+    const opHash = `${body.recipientId}:${body.amount}`;
+    idempKey = body.idempotencyKey
+      ? `idempotency:transfer:${senderId}:${body.idempotencyKey}:${opHash}`
+      : `idempotency:transfer:${senderId}:${opHash}:${hourBucket}`;
+    const setResult = await redis.set(idempKey, "processing", "EX", 86400, "NX");
+    if (setResult === null) {
+      // Key already exists — duplicate request
+      return NextResponse.json({ success: true, duplicate: true, message: "Duplicate request - transfer already processed" });
     }
 
     // Verify the recipient exists

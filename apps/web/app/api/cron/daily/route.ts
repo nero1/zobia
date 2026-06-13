@@ -222,8 +222,8 @@ export const GET = async (req: NextRequest) => {
     const dayOfWeekForSnapshot = new Date().getUTCDay(); // 0 = Sunday
     if (dayOfWeekForSnapshot === 0) {
       // Find the currently active season
-      const { rows: activeSeasons } = await db.query<{ id: string; name: string; started_at: string }>(
-        `SELECT id, name, started_at FROM seasons WHERE is_active = TRUE LIMIT 1`
+      const { rows: activeSeasons } = await db.query<{ id: string; name: string; starts_at: string }>(
+        `SELECT id, name, starts_at FROM seasons WHERE is_active = TRUE LIMIT 1`
       );
 
       if (activeSeasons.length > 0) {
@@ -260,7 +260,7 @@ export const GET = async (req: NextRequest) => {
 
         // Award season_top100_frame badge to ranks 11-100 during weeks 6-7 (PRD §8)
         try {
-          const seasonStartTime = new Date(season.started_at).getTime();
+          const seasonStartTime = new Date(season.starts_at).getTime();
           const weekNum = Math.ceil((Date.now() - seasonStartTime) / (7 * 24 * 60 * 60 * 1000));
 
           if (weekNum >= 6) {
@@ -815,19 +815,17 @@ export const GET = async (req: NextRequest) => {
     for (const user of inactiveUsers) {
       if (user.days_inactive === 90) {
         try {
+          // ZB-05: use creditCoins so balance_before/after are tracked correctly
+          const { creditCoins } = await import("@/lib/economy/coins");
           await db.transaction(async (tx) => {
-            await tx.query(
-              `UPDATE users SET coin_balance = COALESCE(coin_balance, 0) + $1, updated_at = NOW()
-               WHERE id = $2`,
-              [COMEBACK_COIN_AMOUNT, user.user_id]
-            );
-            await tx.query(
-              `INSERT INTO coin_ledger (user_id, amount, transaction_type, reference_id, description, created_at)
-               VALUES ($1, $2, 'comeback_bonus_reserved',
-                 gen_random_uuid(),
-                 'Comeback bonus — expires in 7 days if unused',
-                 NOW())`,
-              [user.user_id, COMEBACK_COIN_AMOUNT]
+            await creditCoins(
+              user.user_id,
+              COMEBACK_COIN_AMOUNT,
+              "comeback_bonus_reserved",
+              `comeback:${user.user_id}`,
+              "Comeback bonus — expires in 7 days if unused",
+              {},
+              tx
             );
           });
         } catch {
@@ -843,20 +841,25 @@ export const GET = async (req: NextRequest) => {
       try {
         if (user.days_inactive >= 7 && user.days_inactive < 14) {
           // Guild war outcome for ~7-day inactive users
-          const { rows: gwRows } = await db.query<{ result: string; guild_name: string }>(
-            `SELECT gw.result, g.name AS guild_name
+          // ZB-15: guild_wars has no result/guild_id/ended_at — derive from winner_guild_id / ends_at
+          const { rows: gwRows } = await db.query<{ is_win: boolean; guild_name: string }>(
+            `SELECT
+               gw.winner_guild_id = gm.guild_id AS is_win,
+               g.name AS guild_name
              FROM guild_wars gw
-             JOIN guilds g ON g.id = gw.guild_id
-             JOIN guild_members gm ON gm.guild_id = gw.guild_id
-             WHERE gm.user_id = $1
-               AND gw.ended_at >= NOW() - INTERVAL '30 days'
-             ORDER BY gw.ended_at DESC
+             JOIN guild_members gm
+               ON gm.guild_id IN (gw.challenger_guild_id, gw.defender_guild_id)
+               AND gm.user_id = $1
+             JOIN guilds g ON g.id = gm.guild_id
+             WHERE gw.status = 'completed'
+               AND gw.ends_at >= NOW() - INTERVAL '30 days'
+             ORDER BY gw.ends_at DESC
              LIMIT 1`,
             [user.user_id]
           );
           if (gwRows[0]) {
-            const { result, guild_name } = gwRows[0];
-            ctx.guildEvent = result === 'win'
+            const { is_win, guild_name } = gwRows[0];
+            ctx.guildEvent = is_win
               ? `Your guild "${guild_name}" won a war while you were away!`
               : `Your guild "${guild_name}" fought hard in your absence — come back and help them win the next one.`;
           }
@@ -875,11 +878,20 @@ export const GET = async (req: NextRequest) => {
           }
         } else if (user.days_inactive >= 14) {
           // Current season phase for ~14-day inactive users
-          const { rows: seasonRows } = await db.query<{ phase: string; name: string }>(
-            `SELECT phase, name FROM seasons WHERE is_active = TRUE LIMIT 1`
+          // ZB-16: seasons has no phase column — compute it from timestamps
+          const { rows: seasonRows } = await db.query<{ name: string; starts_at: string; ends_at: string }>(
+            `SELECT name, starts_at, ends_at FROM seasons WHERE is_active = TRUE LIMIT 1`
           );
           if (seasonRows[0]) {
-            ctx.seasonPhase = `Season "${seasonRows[0].name}" is in the ${seasonRows[0].phase} phase — jump back in before it ends!`;
+            const { name: seasonName, starts_at, ends_at } = seasonRows[0];
+            const start = new Date(starts_at).getTime();
+            const end = new Date(ends_at).getTime();
+            const ratio = (Date.now() - start) / (end - start);
+            const phase =
+              ratio >= 0.95 || end - Date.now() <= 86_400_000 ? 'final day' :
+              ratio >= 0.75 ? 'push' :
+              ratio >= 0.25 ? 'mid' : 'opening';
+            ctx.seasonPhase = `Season "${seasonName}" is in the ${phase} phase — jump back in before it ends!`;
           }
         }
       } catch {
@@ -1218,7 +1230,7 @@ export const GET = async (req: NextRequest) => {
            EXISTS (
              SELECT 1 FROM payments p
              WHERE p.user_id = u.id
-               AND p.status = 'success'
+               AND p.status = 'completed'
                AND p.created_at >= NOW() - INTERVAL '24 hours'
            )
            OR
@@ -1261,9 +1273,10 @@ export const GET = async (req: NextRequest) => {
         await db.transaction(async (tx) => {
           // Credit ledger and balance atomically; skip users already credited today
           // (idempotency: ON CONFLICT DO NOTHING on the unique ledger reference).
+          // ZB-05: include balance_before/balance_after (NOT NULL in coin_ledger)
           await tx.query(
             `WITH eligible AS (
-               SELECT id FROM users
+               SELECT id, coin_balance FROM users
                WHERE plan = $1
                  AND is_active = true
                  AND deleted_at IS NULL
@@ -1276,8 +1289,8 @@ export const GET = async (req: NextRequest) => {
              ),
              ledger_rows AS (
                INSERT INTO coin_ledger
-                 (user_id, amount, transaction_type, reference_id, description, created_at)
-               SELECT id, $2, 'monthly_plan_bonus', gen_random_uuid(),
+                 (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description, created_at)
+               SELECT id, $2, coin_balance, coin_balance + $2, 'monthly_plan_bonus', gen_random_uuid(),
                       $3, NOW()
                FROM eligible
                RETURNING user_id
@@ -1331,20 +1344,31 @@ export const GET = async (req: NextRequest) => {
     let expiredBonuses = 0;
     for (const row of expiredBonusUsers) {
       try {
+        // ZB-05: include balance_before/balance_after in coin_ledger (NOT NULL)
         await db.transaction(async (tx) => {
+          // Lock user row, compute balances, then deduct and write ledger atomically
           await tx.query(
-            `UPDATE users
-             SET coin_balance = GREATEST(COALESCE(coin_balance, 0) - $1, 0),
+            `WITH locked AS (
+               SELECT coin_balance FROM users WHERE id = $1 FOR UPDATE
+             ),
+             ledger_insert AS (
+               INSERT INTO coin_ledger
+                 (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description, created_at)
+               SELECT $1, $2,
+                      locked.coin_balance,
+                      GREATEST(locked.coin_balance + $2, 0),
+                      'comeback_bonus_expired',
+                      gen_random_uuid(),
+                      'Comeback bonus expired (7-day window passed)',
+                      NOW()
+               FROM locked
+               RETURNING 1
+             )
+             UPDATE users
+             SET coin_balance = GREATEST(COALESCE(coin_balance, 0) + $2, 0),
                  updated_at = NOW()
-             WHERE id = $2`,
-            [COMEBACK_COIN_AMOUNT, row.user_id]
-          );
-          await tx.query(
-            `INSERT INTO coin_ledger (user_id, amount, transaction_type, reference_id, description, created_at)
-             VALUES ($1, $2, 'comeback_bonus_expired',
-               gen_random_uuid(),
-               'Comeback bonus expired (7-day window passed)',
-               NOW())`,
+             WHERE id = $1
+               AND EXISTS (SELECT 1 FROM ledger_insert)`,
             [row.user_id, -COMEBACK_COIN_AMOUNT]
           );
         });
@@ -1534,7 +1558,7 @@ export const GET = async (req: NextRequest) => {
         `SELECT rm.room_id, COUNT(DISTINCT rm.user_id)::TEXT AS mau_count
          FROM room_members rm
          JOIN rooms r ON r.id = rm.room_id
-         WHERE r.room_type = 'free_open'
+         WHERE r.type = 'free_open'
            AND r.is_active = TRUE
            AND rm.joined_at < $2
            AND (rm.left_at IS NULL OR rm.left_at >= $1)

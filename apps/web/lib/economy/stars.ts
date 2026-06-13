@@ -243,7 +243,7 @@ export async function getStarLedgerEntries(
             transaction_type, reference_id, description, created_at
      FROM star_ledger
      WHERE user_id = $1
-     ORDER BY created_at DESC
+     ORDER BY created_at DESC, id DESC
      LIMIT $2`,
     [userId, limit]
   );

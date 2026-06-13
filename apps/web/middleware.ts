@@ -17,7 +17,7 @@
  */
 
 import { type NextRequest, NextResponse } from "next/server";
-import { jwtVerify, SignJWT, errors as JoseErrors } from "jose";
+import { jwtVerify, errors as JoseErrors } from "jose";
 
 // ---------------------------------------------------------------------------
 // CSP nonce helpers
@@ -37,7 +37,7 @@ import { jwtVerify, SignJWT, errors as JoseErrors } from "jose";
 function buildCsp(nonce: string): string {
   return [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-inline' https://www.google.com https://www.gstatic.com https://challenges.cloudflare.com`,
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-inline'`,
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
     "img-src 'self' data: blob: https: http:",

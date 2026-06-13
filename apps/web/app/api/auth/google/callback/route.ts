@@ -37,6 +37,26 @@ import { handleApiError, badRequest, unauthorized } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { env } from "@/lib/env";
 
+// Only these schemes/hosts may be used as post-OAuth deep-link redirect targets (ZB-01).
+const ALLOWED_REDIRECT_SCHEMES = ["zobia:", "exp:"];
+
+function isRedirectAllowed(redirect: string): boolean {
+  try {
+    const url = new URL(redirect);
+    if (ALLOWED_REDIRECT_SCHEMES.includes(url.protocol)) return true;
+    if (url.protocol === "https:" || url.protocol === "http:") {
+      const appOrigin = env.NEXT_PUBLIC_APP_URL;
+      if (appOrigin) {
+        const appHost = new URL(appOrigin).hostname;
+        if (url.hostname === appHost) return true;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -199,12 +219,21 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // Read the optional mobile deep-link redirect stored during auth initiation
     const mobileRedirectRaw = req.cookies.get("zobia_mobile_redirect")?.value;
     const mobileRedirect = mobileRedirectRaw ? decodeURIComponent(mobileRedirectRaw) : null;
+    // ZB-01: Validate the stored redirect target before using it
+    if (mobileRedirect && !isRedirectAllowed(mobileRedirect)) {
+      throw badRequest("Invalid redirect target.", "INVALID_REDIRECT");
+    }
 
     // Exchange code for tokens
     const tokens = await exchangeGoogleCode(code);
 
     // Fetch Google user profile
     const profile = await fetchGoogleUserProfile(tokens.access_token);
+
+    // ZB-08: Reject logins from Google accounts whose email hasn't been verified
+    if (!profile.emailVerified) {
+      throw badRequest("Google account email is not verified. Please verify your email with Google and try again.", "EMAIL_NOT_VERIFIED");
+    }
 
     // Upsert user in database
     const user = await upsertGoogleUser({

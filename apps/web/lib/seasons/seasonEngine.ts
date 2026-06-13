@@ -222,20 +222,23 @@ export async function distributeSeasonRewards(
     : 0;
 
   await db.transaction(async (client) => {
+    const { creditCoins } = await import("@/lib/economy/coins");
+
     for (let i = 0; i < topUsers.length; i++) {
       const { user_id } = topUsers[i];
-      let coins = i < 3 ? Math.floor(pool * rewardShares[i]) : rank4to10Share;
+      const coins = i < 3 ? Math.floor(pool * rewardShares[i]) : rank4to10Share;
 
+      // ZB-04: Use creditCoins with a per-user reference so the unique partial
+      // index on coin_ledger is not violated when multiple users receive rewards.
       if (coins > 0) {
-        await client.query(
-          `UPDATE users SET coin_balance = coin_balance + $1, updated_at = NOW() WHERE id = $2`,
-          [coins, user_id]
-        );
-        await client.query(
-          `INSERT INTO coin_ledger (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description, created_at)
-           SELECT $1, $2, coin_balance - $2, coin_balance, 'season_reward', $3, 'Season end reward', NOW()
-           FROM users WHERE id = $1`,
-          [user_id, coins, seasonId]
+        await creditCoins(
+          user_id,
+          coins,
+          "season_reward",
+          `season:${seasonId}:${user_id}`,
+          "Season end reward",
+          { seasonId, rank: i + 1 },
+          client
         );
       }
 
@@ -416,6 +419,12 @@ export async function getPassMilestones(
 /**
  * Claim a season pass milestone reward for a user.
  * Checks the user has enough season XP and the milestone isn't already claimed.
+ *
+ * ZB-06/ZB-22: All checks and the reward grant are wrapped in a single
+ * transaction with FOR UPDATE locks so concurrent requests cannot both
+ * pass the "not yet claimed" check and each apply the reward.
+ * The RETURNING clause tells us whether the INSERT actually ran, preventing
+ * the reward from being applied when ON CONFLICT DO NOTHING silently skips it.
  */
 export async function claimPassMilestone(
   userId: string,
@@ -423,73 +432,95 @@ export async function claimPassMilestone(
   milestoneId: string,
   db: DatabaseAdapter
 ): Promise<{ success: boolean; rewardType: string; rewardValue: unknown }> {
-  // Get milestone
-  const { rows: milRows } = await db.query<{
-    milestone_xp: number; tier: string; reward_type: string; reward_value: unknown;
-  }>(
-    `SELECT milestone_xp, tier, reward_type, reward_value
-     FROM season_pass_milestones WHERE id = $1 AND season_id = $2`,
-    [milestoneId, seasonId]
-  );
-  const milestone = milRows[0];
-  if (!milestone) throw new Error('Milestone not found');
+  let claimed: { rewardType: string; rewardValue: unknown } | null = null;
 
-  // Get user's season XP and pass status
-  const { rows: passRows } = await db.query<{
-    season_xp: number; has_paid_pass: boolean;
-  }>(
-    `SELECT sp.season_xp, sp.is_paid AS has_paid_pass
-     FROM user_season_passes sp
-     WHERE sp.user_id = $1 AND sp.season_id = $2`,
-    [userId, seasonId]
-  );
-  const pass = passRows[0];
-  if (!pass) throw new Error('User has no season pass');
+  await db.transaction(async (client) => {
+    // Lock the pass row so concurrent claims for the same user/season are serialised
+    const { rows: passRows } = await client.query<{
+      season_xp: number; has_paid_pass: boolean;
+    }>(
+      `SELECT sp.season_xp, sp.is_paid AS has_paid_pass
+       FROM user_season_passes sp
+       WHERE sp.user_id = $1 AND sp.season_id = $2
+       FOR UPDATE`,
+      [userId, seasonId]
+    );
+    const pass = passRows[0];
+    if (!pass) throw new Error('User has no season pass');
 
-  // Check tier eligibility
-  if (milestone.tier === 'paid' && !pass.has_paid_pass) {
-    throw new Error('Paid pass required for this milestone');
+    const { rows: milRows } = await client.query<{
+      milestone_xp: number; tier: string; reward_type: string; reward_value: unknown;
+    }>(
+      `SELECT milestone_xp, tier, reward_type, reward_value
+       FROM season_pass_milestones WHERE id = $1 AND season_id = $2`,
+      [milestoneId, seasonId]
+    );
+    const milestone = milRows[0];
+    if (!milestone) throw new Error('Milestone not found');
+
+    if (milestone.tier === 'paid' && !pass.has_paid_pass) {
+      throw new Error('Paid pass required for this milestone');
+    }
+    if (pass.season_xp < milestone.milestone_xp) {
+      throw new Error('Insufficient season XP');
+    }
+
+    // Attempt claim; RETURNING lets us detect whether the row was actually inserted
+    const { rows: claimRows } = await client.query<{ user_id: string }>(
+      `INSERT INTO user_season_pass_claims (user_id, season_id, milestone_id)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, milestone_id) DO NOTHING
+       RETURNING user_id`,
+      [userId, seasonId, milestoneId]
+    );
+
+    // Already claimed — skip reward, return success: false
+    if (!claimRows[0]) return;
+
+    // Apply reward only when the insert actually happened
+    if (milestone.reward_type === 'coins') {
+      const val = milestone.reward_value as { amount: number };
+      const { creditCoins } = await import("@/lib/economy/coins");
+      await creditCoins(
+        userId,
+        val.amount,
+        "season_milestone",
+        `milestone:${milestoneId}`,
+        "Season pass milestone reward",
+        { milestoneId, seasonId },
+        client
+      );
+    } else if (milestone.reward_type === 'badge' || milestone.reward_type === 'title') {
+      const val = milestone.reward_value as { badgeType?: string; title?: string };
+      const badgeType = val.badgeType ?? val.title ?? 'season_reward';
+      await client.query(
+        `INSERT INTO user_badges (user_id, badge_type, badge_key, reference_id, granted_at, awarded_at)
+         VALUES ($1, $2, $2, $3, NOW(), NOW()) ON CONFLICT DO NOTHING`,
+        [userId, badgeType, milestoneId]
+      );
+    } else if (milestone.reward_type === 'xp_bonus') {
+      const val = milestone.reward_value as { bonusXP: number };
+      await client.query(
+        `UPDATE users SET xp_total = xp_total + $1, legacy_score = legacy_score + $1 WHERE id = $2`,
+        [val.bonusXP, userId]
+      );
+    }
+
+    claimed = { rewardType: milestone.reward_type, rewardValue: milestone.reward_value };
+  });
+
+  if (!claimed) {
+    // Fetch reward metadata to return a well-typed response for already-claimed milestones
+    const { rows } = await db.query<{ reward_type: string; reward_value: unknown }>(
+      `SELECT reward_type, reward_value FROM season_pass_milestones WHERE id = $1`,
+      [milestoneId]
+    );
+    return {
+      success: false,
+      rewardType: rows[0]?.reward_type ?? 'unknown',
+      rewardValue: rows[0]?.reward_value ?? {},
+    };
   }
 
-  // Check XP threshold
-  if (pass.season_xp < milestone.milestone_xp) {
-    throw new Error('Insufficient season XP');
-  }
-
-  // Claim (idempotent)
-  await db.query(
-    `INSERT INTO user_season_pass_claims (user_id, season_id, milestone_id)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (user_id, milestone_id) DO NOTHING`,
-    [userId, seasonId, milestoneId]
-  );
-
-  // Apply reward
-  if (milestone.reward_type === 'coins') {
-    const val = milestone.reward_value as { amount: number };
-    await db.query(
-      `UPDATE users SET coin_balance = coin_balance + $1 WHERE id = $2`,
-      [val.amount, userId]
-    );
-  } else if (milestone.reward_type === 'badge' || milestone.reward_type === 'title') {
-    const val = milestone.reward_value as { badgeType?: string; title?: string };
-    const badgeType = val.badgeType ?? val.title ?? 'season_reward';
-    await db.query(
-      `INSERT INTO user_badges (user_id, badge_type, badge_key, reference_id, granted_at, awarded_at)
-       VALUES ($1, $2, $2, $3, NOW(), NOW()) ON CONFLICT DO NOTHING`,
-      [userId, badgeType, milestoneId]
-    );
-  } else if (milestone.reward_type === 'xp_bonus') {
-    const val = milestone.reward_value as { bonusXP: number };
-    await db.query(
-      `UPDATE users SET xp_total = xp_total + $1, legacy_score = legacy_score + $1 WHERE id = $2`,
-      [val.bonusXP, userId]
-    );
-  }
-
-  return {
-    success: true,
-    rewardType: milestone.reward_type,
-    rewardValue: milestone.reward_value
-  };
+  return { success: true, ...(claimed as { rewardType: string; rewardValue: unknown }) };
 }

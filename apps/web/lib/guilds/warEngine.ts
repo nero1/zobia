@@ -214,17 +214,22 @@ export async function findWarOpponent(
  * Second contributor receives 20%.
  * Remaining members share the remaining 50% equally.
  *
+ * ZB-03: Uses creditCoins with a per-user reference (war:warId:userId) so the
+ * unique partial index on coin_ledger is not violated when multiple members win.
+ *
  * @param warId          - UUID of the resolved war.
  * @param winnerGuildId  - UUID of the winning guild.
  * @param db             - Active database adapter.
+ * @param txClient       - Optional transaction client; when provided the work
+ *                         runs inside the caller's transaction instead of a new one.
  */
 export async function distributeWarRewards(
   warId: string,
   winnerGuildId: string,
-  db: DatabaseAdapter
+  db: DatabaseAdapter,
+  txClient?: TransactionClient
 ): Promise<void> {
-  await db.transaction(async (client) => {
-    // Fetch member contributions for the winning guild in this war, sorted desc
+  const run = async (client: TransactionClient) => {
     const contribResult = await client.query<MemberContributionRow>(
       `SELECT wc.user_id, wc.guild_id, wc.war_points, u.username
        FROM war_contributions wc
@@ -245,6 +250,8 @@ export async function distributeWarRewards(
     const equalShare =
       remainingMembers > 0 ? Math.floor(remainderPool / remainingMembers) : 0;
 
+    const { creditCoins } = await import("@/lib/economy/coins");
+
     for (let i = 0; i < members.length; i++) {
       const { user_id } = members[i];
       let coins = 0;
@@ -254,15 +261,14 @@ export async function distributeWarRewards(
 
       if (coins <= 0) continue;
 
-      await client.query(
-        `UPDATE users SET coin_balance = coin_balance + $1, updated_at = NOW() WHERE id = $2`,
-        [coins, user_id]
-      );
-      await client.query(
-        `INSERT INTO coin_ledger (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description, created_at)
-         SELECT $1, $2, coin_balance - $2, coin_balance, 'war_reward', $3, 'Guild war win reward', NOW()
-         FROM users WHERE id = $1`,
-        [user_id, coins, warId]
+      await creditCoins(
+        user_id,
+        coins,
+        "war_reward",
+        `war:${warId}:${user_id}`,
+        "Guild war win reward",
+        { warId, rank: i + 1 },
+        client
       );
     }
 
@@ -275,14 +281,16 @@ export async function distributeWarRewards(
       await client.query(
         `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
          VALUES ($1, $2, 'competitor', 'top_contributor_war', $3, $2, NOW())`,
-        [
-          members[0].user_id,
-          TOP_CONTRIBUTOR_BONUS_XP,
-          warId,
-        ]
+        [members[0].user_id, TOP_CONTRIBUTOR_BONUS_XP, warId]
       );
     }
-  });
+  };
+
+  if (txClient) {
+    await run(txClient);
+  } else {
+    await db.transaction(run);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -308,26 +316,31 @@ export async function resolveWar(
   warId: string,
   db: DatabaseAdapter
 ): Promise<{ winnerGuildId: string; loserGuildId: string }> {
-  const warResult = await db.query<GuildWarRow>(
-    `SELECT * FROM guild_wars WHERE id = $1 FOR UPDATE`,
-    [warId]
-  );
-  const war = warResult.rows[0];
-  if (!war) throw new Error(`[warEngine] War not found: ${warId}`);
-  if (war.status === "completed" || war.status === "cancelled") {
-    throw new Error(`[warEngine] War ${warId} is already resolved`);
-  }
+  let winnerGuildId!: string;
+  let loserGuildId!: string;
 
-  const winnerGuildId =
-    war.challenger_points >= war.defender_points
-      ? war.challenger_guild_id
-      : war.defender_guild_id;
-  const loserGuildId =
-    winnerGuildId === war.challenger_guild_id
-      ? war.defender_guild_id
-      : war.challenger_guild_id;
-
+  // ZB-07: The FOR UPDATE lock and all mutations run inside a single transaction
+  // so concurrent calls cannot both see the war as unresolved.
   await db.transaction(async (client) => {
+    const warResult = await client.query<GuildWarRow>(
+      `SELECT * FROM guild_wars WHERE id = $1 FOR UPDATE`,
+      [warId]
+    );
+    const war = warResult.rows[0];
+    if (!war) throw new Error(`[warEngine] War not found: ${warId}`);
+    if (war.status === "completed" || war.status === "cancelled") {
+      throw new Error(`[warEngine] War ${warId} is already resolved`);
+    }
+
+    winnerGuildId =
+      war.challenger_points >= war.defender_points
+        ? war.challenger_guild_id
+        : war.defender_guild_id;
+    loserGuildId =
+      winnerGuildId === war.challenger_guild_id
+        ? war.defender_guild_id
+        : war.challenger_guild_id;
+
     // Mark war as completed
     await client.query(
       `UPDATE guild_wars
@@ -361,7 +374,6 @@ export async function resolveWar(
     const memberCount = winnerMembers.rows.length;
     for (let i = 0; i < memberCount; i++) {
       const { user_id } = winnerMembers.rows[i];
-      // Scale XP: top contributor gets WAR_WIN_XP_MAX, last gets WAR_WIN_XP_MIN
       const scale = memberCount > 1 ? 1 - i / (memberCount - 1) : 1;
       const memberXP = Math.round(WAR_WIN_XP_MIN + scale * (WAR_WIN_XP_MAX - WAR_WIN_XP_MIN));
       await client.query(
@@ -376,7 +388,6 @@ export async function resolveWar(
     }
 
     // Award Guild XP (500–5,000 based on opponent strength) for tier progression
-    // Scale by opponent points — bigger upset = more Guild XP
     const guildXPReward = Math.min(
       WAR_WIN_GUILD_XP_MAX,
       Math.max(WAR_WIN_GUILD_XP_MIN, Math.round(war.defender_points + war.challenger_points) * 2)
@@ -391,10 +402,10 @@ export async function resolveWar(
        ON CONFLICT DO NOTHING`,
       [winnerGuildId]
     ).catch(() => {});
-  });
 
-  // Distribute coins by contribution rank
-  await distributeWarRewards(warId, winnerGuildId, db);
+    // Distribute coin rewards within the same transaction (ZB-03)
+    await distributeWarRewards(warId, winnerGuildId, db, client);
+  });
 
   return { winnerGuildId, loserGuildId };
 }

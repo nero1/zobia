@@ -227,7 +227,7 @@ async function processChargeSuccess(
       );
 
       // Award referral commissions using server-derived amount, not client metadata (#17)
-      await awardReferralCommissions(tx, userId, serverCoinsGranted).catch((err) =>
+      await awardReferralCommissions(tx, userId, serverCoinsGranted, paymentId).catch((err) =>
         console.error("[webhook/paystack] Referral commission error:", err)
       );
     }
@@ -312,7 +312,7 @@ async function processTransferEvent(
       await moveToDeadLetterQueue(
         payout.id,
         payout.creator_id,
-        payout.retry_count,
+        newRetryCount,
         `Paystack transfer failed after ${maxRetries} attempts. Status: ${status}`
       );
       await notifyPayoutFailure(
