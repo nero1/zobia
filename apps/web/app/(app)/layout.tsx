@@ -99,7 +99,7 @@ export default async function AppLayout({ children }: AppLayoutProps) {
   const { banner, modal, hasEmail } = await resolveAnnouncements(null);
 
   return (
-    <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
+    <div className="bg-neutral-50 dark:bg-neutral-950">
       {/* Offline indicator and queue sync */}
       <OfflineBanner />
       <OfflineSyncProvider />
