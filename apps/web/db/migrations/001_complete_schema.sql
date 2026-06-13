@@ -1840,7 +1840,7 @@ CREATE TABLE IF NOT EXISTS system_alerts (
 
 CREATE TABLE IF NOT EXISTS moderation_ai_escalations (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  report_id  UUID NOT NULL REFERENCES moderation_reports(id) ON DELETE CASCADE,
+  report_id  UUID NOT NULL,
   admin_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   provider   TEXT NOT NULL,
   verdict    TEXT NOT NULL CHECK (verdict IN ('violation','borderline','no_violation')),
@@ -1963,6 +1963,13 @@ CREATE TABLE IF NOT EXISTS moderation_reports (
   resolution_note   TEXT,
   created_at        TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- moderation_ai_escalations.report_id -> moderation_reports (forward ref resolved here)
+DO $$ BEGIN
+  ALTER TABLE moderation_ai_escalations ADD CONSTRAINT moderation_ai_escalations_report_id_fkey
+    FOREIGN KEY (report_id) REFERENCES moderation_reports(id) ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE IF NOT EXISTS moderation_actions (
   id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
