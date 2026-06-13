@@ -28,16 +28,19 @@ interface I18nProviderProps {
  * to all child components via React context.
  */
 export function I18nProvider({ children }: I18nProviderProps) {
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(() => i18n.isInitialized);
 
   useEffect(() => {
+    if (i18n.isInitialized) {
+      setReady(true);
+      return;
+    }
     initI18n().then(() => setReady(true));
   }, []);
 
-  // Render children immediately (translations fall back to keys until ready)
   return (
     <I18nextProvider i18n={i18n} defaultNS="translation">
-      {children}
+      {ready ? children : null}
     </I18nextProvider>
   );
 }
