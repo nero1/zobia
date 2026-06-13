@@ -65,6 +65,8 @@ interface UserRow {
   id: string;
   email: string;
   username: string;
+  google_id: string | null;
+  email_verified: boolean | null;
   is_admin: boolean;
   is_moderator: boolean;
   is_banned: boolean;
@@ -130,7 +132,8 @@ async function upsertGoogleUser(profile: {
 }): Promise<UserRow> {
   // Check if a user with this Google ID already exists (including soft-deleted for reactivation)
   const existing = await db.query<UserRow>(
-    `SELECT id, email, username, is_admin, is_moderator, is_banned, is_suspended, deleted_at,
+    `SELECT id, email, username, google_id, email_verified, is_admin, is_moderator,
+            is_banned, is_suspended, deleted_at,
             totp_enabled, onboarding_completed, display_name, avatar_emoji, city, xp_total, rank_name
      FROM users
      WHERE google_id = $1
@@ -152,9 +155,10 @@ async function upsertGoogleUser(profile: {
     return u;
   }
 
-  // Check if email is already associated with a different account
+  // Check if email is already associated with a different account (no google_id match)
   const emailMatch = await db.query<UserRow>(
-    `SELECT id, email, username, is_admin, is_moderator, is_banned, is_suspended, deleted_at,
+    `SELECT id, email, username, google_id, email_verified, is_admin, is_moderator,
+            is_banned, is_suspended, deleted_at,
             totp_enabled, onboarding_completed, display_name, avatar_emoji, city, xp_total, rank_name
      FROM users
      WHERE email = $1 AND deleted_at IS NULL
@@ -166,13 +170,33 @@ async function upsertGoogleUser(profile: {
     const u = emailMatch.rows[0];
     if (u.is_banned) throw Object.assign(new Error("Account is banned"), { code: "ACCOUNT_BANNED" });
     if (u.is_suspended) throw Object.assign(new Error("Account is suspended"), { code: "ACCOUNT_SUSPENDED" });
-    // Link Google ID to the existing email account
-    await db.query(
-      `UPDATE users SET google_id = $1, avatar_url = COALESCE(avatar_url, $2), updated_at = NOW()
-       WHERE id = $3`,
-      [profile.googleId, profile.picture, u.id]
-    );
-    return u;
+
+    // Only auto-link if the existing account's google_id is already set
+    // (clean re-auth path — e.g. google_id was stored from a previous session).
+    // If google_id is null the account was created via a different method
+    // (email/password, Telegram, etc.) and auto-linking without confirmation
+    // would allow account takeover via a verified-email claim from Google.
+    // We allow linking only when the existing account's email is marked as
+    // verified (email_verified = true), which indicates the user previously
+    // proved ownership of that address on this platform.
+    if (u.google_id !== null) {
+      // google_id already set — this is a clean re-auth; allow it
+      return u;
+    }
+
+    if (u.email_verified === true) {
+      // Existing account has a verified email — safe to link Google ID
+      await db.query(
+        `UPDATE users SET google_id = $1, avatar_url = COALESCE(avatar_url, $2), updated_at = NOW()
+         WHERE id = $3`,
+        [profile.googleId, profile.picture, u.id]
+      );
+      return u;
+    }
+
+    // Existing account with unverified email and no google_id — do NOT auto-link.
+    // Treat this as a new account to avoid account takeover.
+    // Fall through to create a new user record below.
   }
 
   // Generate a unique username derived from the email
@@ -182,7 +206,9 @@ async function upsertGoogleUser(profile: {
   const inserted = await db.query<UserRow>(
     `INSERT INTO users (google_id, email, username, display_name, avatar_url, onboarding_completed, is_admin, created_at, updated_at)
      VALUES ($1, $2, $3, $4, $5, false, false, NOW(), NOW())
-     RETURNING id, email, username, is_admin, is_moderator, totp_enabled, onboarding_completed,
+     RETURNING id, email, username, google_id, email_verified, is_admin, is_moderator,
+               is_banned, is_suspended, deleted_at,
+               totp_enabled, onboarding_completed,
                display_name, avatar_emoji, city, xp_total, rank_name`,
     [profile.googleId, profile.email, username, profile.name, profile.picture]
   );

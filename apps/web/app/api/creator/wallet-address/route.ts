@@ -135,7 +135,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
     const wallet = rows[0];
     let decryptedAddress = "";
     try {
-      decryptedAddress = decryptField(wallet.address);
+      decryptedAddress = decryptField(wallet.address) ?? "****";
     } catch {
       decryptedAddress = "****";
     }

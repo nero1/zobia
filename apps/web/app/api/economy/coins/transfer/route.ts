@@ -27,6 +27,8 @@ import { transferCoins } from "@/lib/economy/coins";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { redis } from "@/lib/redis";
 import { requirePinVerified } from "@/lib/auth/pinGuard";
+import { calculateFinalXP, PLAN_XP_MULTIPLIERS_BP } from "@/lib/xp/engine";
+import type { Plan } from "@zobia/types";
 
 // ---------------------------------------------------------------------------
 // Request schema
@@ -56,31 +58,51 @@ async function awardTransferXP(
   recipientId: string
 ): Promise<void> {
   try {
-    // Award XP to sender (Generosity) and recipient (Social)
+    // Fetch sender plan for multiplier (BUG-06: apply plan multiplier per PRD §6)
+    const { rows: planRows } = await db.query<{ plan: Plan }>(
+      `SELECT COALESCE(plan, 'free') AS plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+      [senderId]
+    );
+    const senderPlan: Plan = planRows[0]?.plan ?? 'free';
+
+    // Sender: send_gift_message is a messaging action — apply plan multiplier per PRD §6
+    const { baseXp: senderBaseXp, finalXp: senderXP } = calculateFinalXP(
+      'send_gift_message',
+      { plan: senderPlan, isMessagingAction: true }
+    );
+    const senderMultiplierBP = PLAN_XP_MULTIPLIERS_BP[senderPlan];
+
+    // Recipient: receive_gift_and_react is not a messaging action — no plan multiplier
+    const { baseXp: recipBaseXp, finalXp: recipientXP } = calculateFinalXP(
+      'receive_gift_and_react',
+      { plan: 'free', isMessagingAction: false }
+    );
+
+    // Write to xp_ledger (canonical XP history table)
     await Promise.all([
       db.query(
-        `INSERT INTO xp_events
-           (user_id, action, xp_awarded, track, metadata)
-         VALUES ($1, 'coin_transfer_sent', 10, 'generosity', $2::jsonb)`,
-        [senderId, JSON.stringify({ recipientId })]
+        `INSERT INTO xp_ledger
+           (user_id, amount, track, source, multiplier, base_amount)
+         VALUES ($1, $2, 'generosity', 'coin_transfer_sent', $3, $4)`,
+        [senderId, senderXP, senderMultiplierBP, senderBaseXp]
       ),
       db.query(
-        `INSERT INTO xp_events
-           (user_id, action, xp_awarded, track, metadata)
-         VALUES ($1, 'coin_transfer_received', 5, 'social', $2::jsonb)`,
-        [recipientId, JSON.stringify({ senderId })]
+        `INSERT INTO xp_ledger
+           (user_id, amount, track, source, multiplier, base_amount)
+         VALUES ($1, $2, 'social', 'coin_transfer_received', 100, $3)`,
+        [recipientId, recipientXP, recipBaseXp]
       ),
     ]);
 
     // Update XP totals and track columns
     await Promise.all([
       db.query(
-        `UPDATE users SET xp_total = xp_total + 10, xp_generosity = xp_generosity + 10, updated_at = NOW() WHERE id = $1`,
-        [senderId]
+        `UPDATE users SET xp_total = xp_total + $2, xp_generosity = xp_generosity + $2, updated_at = NOW() WHERE id = $1`,
+        [senderId, senderXP]
       ),
       db.query(
-        `UPDATE users SET xp_total = xp_total + 5, xp_social = xp_social + 5, updated_at = NOW() WHERE id = $1`,
-        [recipientId]
+        `UPDATE users SET xp_total = xp_total + $2, xp_social = xp_social + $2, updated_at = NOW() WHERE id = $1`,
+        [recipientId, recipientXP]
       ),
     ]);
   } catch (err) {

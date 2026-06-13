@@ -127,10 +127,9 @@ export async function createSession(
   // stops logging in (matches the longest possible session lifetime)
   await redis.sadd(userSessionsKey(user.id), sid);
   // Only extend the set TTL if the new TTL would be longer than the current one
-  const currentTtl = await redis.pttl(userSessionsKey(user.id));
-  const newTtlMs = refreshTtl * 1000;
-  if (currentTtl < newTtlMs) {
-    await redis.pexpire(userSessionsKey(user.id), newTtlMs);
+  const currentTtlSec = await redis.ttl(userSessionsKey(user.id));
+  if (currentTtlSec < refreshTtl) {
+    await redis.expire(userSessionsKey(user.id), refreshTtl);
   }
 
   return { accessToken, refreshToken, expiresIn: accessTtl };
@@ -226,9 +225,9 @@ export async function refreshAccessToken(
   await redis.setex(sessionKey(session.sid), refreshTtl, JSON.stringify(updatedRecord)).catch(() => {});
 
   // Extend the per-user session-set TTL so active users don't get evicted (BUG-16)
-  await redis.pexpire(
+  await redis.expire(
     userSessionsKey(session.uid),
-    refreshTtl * 1000
+    refreshTtl
   ).catch(() => {});
 
   return { accessToken, expiresIn: accessTtl, newRefreshToken, refreshTtl };

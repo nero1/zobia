@@ -86,7 +86,7 @@ export const POST = withAdminAuth(
         if (payout.wallet_address_snapshot) {
           try {
             const addr = decryptField(payout.wallet_address_snapshot);
-            walletAddressMasked = addr; // full address shown to admin for sending
+            walletAddressMasked = addr ?? "Could not decrypt address"; // full address shown to admin for sending
           } catch {
             walletAddressMasked = "Could not decrypt address";
           }

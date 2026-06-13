@@ -447,8 +447,14 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       }
     });
 
-    // 4. Award XP (fire-and-forget)
-    void awardGiftXP(senderId, body.recipientId, giftItem.tier, body.roomId);
+    // 4. Award XP (fire-and-forget) — fetch sender plan for multiplier
+    db.query<{ plan: Plan }>(
+      `SELECT COALESCE(plan, 'free') AS plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+      [senderId]
+    ).then(({ rows }) => {
+      const senderPlan: Plan = rows[0]?.plan ?? 'free';
+      return awardGiftXP(senderId, body.recipientId, giftItem.tier, senderPlan, body.roomId);
+    }).catch((err) => console.error('[gifts:POST] XP award failed', err));
 
     // 5. Record guild war contribution (fire-and-forget)
     recordWarContribution(senderId, 'send_gift', db).catch((err) =>

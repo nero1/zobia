@@ -40,7 +40,7 @@ interface PaystackChargeEvent {
       packId: string;
       coinsGranted?: number;
       starsGranted?: number;
-      itemType: "coin_pack" | "star_pack" | "subscription" | "room_subscription";
+      itemType: "coin_pack" | "star_pack" | "subscription" | "room_subscription" | "room_entry";
       packName: string;
     };
     paid_at: string;
@@ -63,7 +63,7 @@ interface PaystackSubscriptionEvent {
     subscription_code: string;
     status: "active" | "non-renewing" | "cancelled" | "attention" | "completed";
     plan: { plan_code: string; name: string };
-    customer: { email: string; customer_code: string; metadata?: { userId?: string } };
+    customer: { email: string; customer_code: string; metadata?: { userId?: string; starsGranted?: number } };
     next_payment_date?: string;
     cancelledAt?: string;
   };
@@ -461,6 +461,19 @@ async function processSubscriptionEvent(
           `plan:${resolvedUserId}:${monthKey}`,
           `${derivedPlan} plan subscription — monthly coin bonus`,
           { plan: derivedPlan },
+          tx
+        );
+      }
+
+      // Award subscription stars if the plan includes a star grant (BUG-56).
+      const subscriptionStars = customer.metadata?.starsGranted ?? 0;
+      if (subscriptionStars > 0) {
+        await creditStars(
+          resolvedUserId,
+          subscriptionStars,
+          "purchase",
+          `plan:stars:${resolvedUserId}:${new Date().toISOString().slice(0, 7)}`,
+          `${derivedPlan} plan subscription — star bonus`,
           tx
         );
       }

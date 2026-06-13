@@ -33,6 +33,7 @@ interface NotificationRow {
   payload: Record<string, unknown> | null;
   title: string | null;
   body: string | null;
+  metadata: Record<string, unknown> | null;
   is_read: boolean;
   created_at: string;
 }
@@ -43,6 +44,7 @@ interface Notification {
   payload: Record<string, unknown> | null;
   title: string | null;
   body: string | null;
+  metadata: Record<string, unknown> | null;
   isRead: boolean;
   createdAt: string;
 }
@@ -58,14 +60,20 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
 
-    const result = await db.query<NotificationRow>(
-      `SELECT id, type, payload, title, body, is_read, created_at
-       FROM notifications
-       WHERE user_id = $1
-       ORDER BY created_at DESC
-       LIMIT $2`,
-      [userId, NOTIFICATION_LIMIT]
-    );
+    const [result, countResult] = await Promise.all([
+      db.query<NotificationRow>(
+        `SELECT id, type, payload, title, body, metadata, is_read, created_at
+         FROM notifications
+         WHERE user_id = $1
+         ORDER BY created_at DESC
+         LIMIT $2`,
+        [userId, NOTIFICATION_LIMIT]
+      ),
+      db.query<{ count: string }>(
+        `SELECT COUNT(*) AS count FROM notifications WHERE user_id = $1 AND is_read = false`,
+        [userId]
+      ),
+    ]);
 
     const notifications: Notification[] = result.rows.map((row) => ({
       id: row.id,
@@ -73,11 +81,12 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       payload: row.payload,
       title: row.title,
       body: row.body,
+      metadata: row.metadata,
       isRead: row.is_read,
       createdAt: row.created_at,
     }));
 
-    const unreadCount = notifications.filter((n) => !n.isRead).length;
+    const unreadCount = parseInt(countResult.rows[0]?.count ?? "0", 10);
 
     return NextResponse.json({
       success: true,
