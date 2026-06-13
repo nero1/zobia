@@ -474,8 +474,11 @@ CREATE TABLE IF NOT EXISTS guilds (
   updated_at         TIMESTAMPTZ DEFAULT NOW()
 );
 
-ALTER TABLE users ADD CONSTRAINT users_guild_id_fkey
-  FOREIGN KEY (guild_id) REFERENCES guilds(id) ON DELETE SET NULL;
+DO $$ BEGIN
+  ALTER TABLE users ADD CONSTRAINT users_guild_id_fkey
+    FOREIGN KEY (guild_id) REFERENCES guilds(id) ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE IF NOT EXISTS guild_members (
   id                               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -620,10 +623,10 @@ CREATE TABLE IF NOT EXISTS guild_alliance_members (
 
 CREATE TABLE IF NOT EXISTS alliance_wars (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  alliance_1_id      UUID NOT NULL,
-  alliance_2_id      UUID NOT NULL,
+  alliance_1_id      UUID NOT NULL REFERENCES guild_alliances(id) ON DELETE CASCADE,
+  alliance_2_id      UUID NOT NULL REFERENCES guild_alliances(id) ON DELETE CASCADE,
   status             TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','completed')),
-  winner_alliance_id UUID,
+  winner_alliance_id UUID REFERENCES guild_alliances(id) ON DELETE SET NULL,
   alliance_1_xp      BIGINT NOT NULL DEFAULT 0,
   alliance_2_xp      BIGINT NOT NULL DEFAULT 0,
   started_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -882,7 +885,7 @@ CREATE TABLE IF NOT EXISTS branded_rooms (
 
 CREATE TABLE IF NOT EXISTS quest_templates (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  title         TEXT NOT NULL,
+  title         TEXT NOT NULL UNIQUE,
   description   TEXT NOT NULL,
   action_type   TEXT NOT NULL,
   target_count  INTEGER NOT NULL,
@@ -991,7 +994,7 @@ CREATE TABLE IF NOT EXISTS user_season_milestone_claims (
   id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   season_id    UUID NOT NULL REFERENCES seasons(id) ON DELETE CASCADE,
-  milestone_id UUID NOT NULL,
+  milestone_id UUID NOT NULL REFERENCES season_pass_milestones(id) ON DELETE CASCADE,
   claimed_at   TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(user_id, season_id, milestone_id)
 );
@@ -1200,7 +1203,7 @@ CREATE TABLE IF NOT EXISTS payments (
 
 CREATE TABLE IF NOT EXISTS gift_items (
   id                        UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  name                      TEXT NOT NULL,
+  name                      TEXT NOT NULL UNIQUE,
   emoji                     TEXT NOT NULL,
   coin_price                INTEGER NOT NULL,
   coin_cost                 INTEGER NOT NULL DEFAULT 0,
@@ -1231,7 +1234,7 @@ CREATE TABLE IF NOT EXISTS gifts (
 
 CREATE TABLE IF NOT EXISTS store_items (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name              TEXT NOT NULL,
+  name              TEXT NOT NULL UNIQUE,
   description       TEXT,
   item_type         TEXT NOT NULL
                       CHECK (item_type IN ('coin_pack','star_pack','booster','cosmetic')),
@@ -1255,8 +1258,11 @@ CREATE TABLE IF NOT EXISTS store_items (
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-ALTER TABLE users ADD CONSTRAINT users_active_cosmetic_frame_id_fkey
-  FOREIGN KEY (active_cosmetic_frame_id) REFERENCES store_items(id) ON DELETE SET NULL;
+DO $$ BEGIN
+  ALTER TABLE users ADD CONSTRAINT users_active_cosmetic_frame_id_fkey
+    FOREIGN KEY (active_cosmetic_frame_id) REFERENCES store_items(id) ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE IF NOT EXISTS user_cosmetics (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1280,7 +1286,7 @@ CREATE TABLE IF NOT EXISTS user_xp_boosters (
 
 CREATE TABLE IF NOT EXISTS sticker_packs (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  name              TEXT NOT NULL,
+  name              TEXT NOT NULL UNIQUE,
   description       TEXT,
   cover_emoji       TEXT NOT NULL DEFAULT '🎨',
   cover_sticker_url TEXT,
@@ -1300,7 +1306,8 @@ CREATE TABLE IF NOT EXISTS stickers (
   emoji      TEXT NOT NULL,
   image_url  TEXT,
   position   INTEGER NOT NULL DEFAULT 0,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(pack_id, name)
 );
 
 CREATE TABLE IF NOT EXISTS user_sticker_packs (
@@ -1397,6 +1404,13 @@ CREATE TABLE IF NOT EXISTS creator_payouts (
   updated_at               TIMESTAMPTZ DEFAULT NOW(),
   completed_at             TIMESTAMPTZ
 );
+
+-- creator_earnings.payout_id -> creator_payouts (forward ref: creator_payouts defined above)
+DO $$ BEGIN
+  ALTER TABLE creator_earnings ADD CONSTRAINT creator_earnings_payout_id_fkey
+    FOREIGN KEY (payout_id) REFERENCES creator_payouts(id) ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE IF NOT EXISTS creator_bank_accounts (
   id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1511,7 +1525,7 @@ CREATE TABLE IF NOT EXISTS sponsored_quest_applications (
   completion_proof TEXT,
   completed_at     TIMESTAMPTZ,
   approved_at      TIMESTAMPTZ,
-  payout_id        UUID,
+  payout_id        UUID REFERENCES creator_payouts(id) ON DELETE SET NULL,
   payout_coins     INTEGER,
   paid_at          TIMESTAMPTZ,
   created_at       TIMESTAMPTZ DEFAULT NOW(),
@@ -1644,7 +1658,7 @@ CREATE TABLE IF NOT EXISTS learning_certificates (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   classroom_room_id UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
   student_id        UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  issuer_id         UUID NOT NULL REFERENCES users(id) ON DELETE SET NULL,
+  issuer_id         UUID REFERENCES users(id) ON DELETE SET NULL,
   issued_at         TIMESTAMPTZ DEFAULT NOW(),
   certificate_url   TEXT,
   metadata          JSONB,
@@ -1826,7 +1840,7 @@ CREATE TABLE IF NOT EXISTS system_alerts (
 
 CREATE TABLE IF NOT EXISTS moderation_ai_escalations (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  report_id  UUID NOT NULL,
+  report_id  UUID NOT NULL REFERENCES moderation_reports(id) ON DELETE CASCADE,
   admin_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   provider   TEXT NOT NULL,
   verdict    TEXT NOT NULL CHECK (verdict IN ('violation','borderline','no_violation')),
@@ -1969,7 +1983,7 @@ CREATE TABLE IF NOT EXISTS moderation_actions (
 
 CREATE TABLE IF NOT EXISTS platform_events (
   id                            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  name                          TEXT NOT NULL,
+  name                          TEXT NOT NULL UNIQUE,
   description                   TEXT,
   event_type                    TEXT NOT NULL DEFAULT 'cultural' CHECK (event_type IN (
     'cultural','season_launch','flash_xp','guild_war_event','mystery_drop','platform'
@@ -2135,7 +2149,6 @@ CREATE INDEX IF NOT EXISTS idx_notifications_user_read_created ON notifications(
 CREATE INDEX IF NOT EXISTS idx_user_messages_recipient   ON user_messages(recipient_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_user_messages_unread      ON user_messages(recipient_id) WHERE is_read = false;
 CREATE INDEX IF NOT EXISTS idx_moments_user       ON moments(user_id);
-CREATE INDEX IF NOT EXISTS idx_moments_expires    ON moments(expires_at);
 CREATE INDEX IF NOT EXISTS idx_moments_expires_at ON moments(expires_at) WHERE expires_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_messages_sender_dm    ON messages(sender_id);
 CREATE INDEX IF NOT EXISTS idx_messages_recipient_dm ON messages(recipient_id) WHERE recipient_id IS NOT NULL;
@@ -2577,7 +2590,7 @@ CREATE POLICY referral_commissions_owner ON referral_commissions FOR SELECT USIN
 -- x_manifest (final merged set — canonical keys only)
 INSERT INTO x_manifest (key, value, description) VALUES
   ('minimum_age',                          '18',                       'Minimum age for registration'),
-  ('captcha_provider',                     'none',                     'CAPTCHA provider: recaptcha | turnstile | none'),
+  ('captcha_provider',                     '"none"',                   'CAPTCHA provider: recaptcha | turnstile | none'),
   ('auth_google_enabled',                  'true',                     'Enable Google OAuth'),
   ('auth_telegram_enabled',                'true',                     'Enable Telegram Login'),
   ('feature_nemesis_system',               'true',                     'Enable Nemesis system'),
