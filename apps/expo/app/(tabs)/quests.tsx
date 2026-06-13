@@ -100,7 +100,7 @@ export default function QuestsTab() {
 
   return (
     <ScrollView
-      style={{ backgroundColor: bg }}
+      style={[{ flex: 1 }, { backgroundColor: bg }]}
       contentContainerStyle={styles.container}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
