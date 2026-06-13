@@ -204,8 +204,8 @@ async function upsertGoogleUser(profile: {
 
   // Create a brand-new user (onboarding not yet complete)
   const inserted = await db.query<UserRow>(
-    `INSERT INTO users (google_id, email, username, display_name, avatar_url, onboarding_completed, is_admin, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, false, false, NOW(), NOW())
+    `INSERT INTO users (google_id, email, username, display_name, avatar_url, onboarding_completed, is_admin, is_email_verified, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, false, false, true, NOW(), NOW())
      RETURNING id, email, username, google_id, is_email_verified, is_admin, is_moderator,
                is_banned, is_suspended, deleted_at,
                totp_enabled, onboarding_completed,
