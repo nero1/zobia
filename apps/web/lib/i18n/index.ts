@@ -53,6 +53,7 @@ export async function initI18n(): Promise<void> {
     .init({
       fallbackLng: DEFAULT_LOCALE,
       supportedLngs: SUPPORTED_LOCALES,
+      preload: [DEFAULT_LOCALE],
       defaultNS: "translation",
       ns: ["translation"],
       detection: {
