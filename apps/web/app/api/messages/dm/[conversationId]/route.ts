@@ -24,6 +24,7 @@ import { applyAutoModeration } from "@/lib/moderation/contentFilter";
 import { updateConversationScore } from "@/lib/messaging/conversationScore";
 import { debitCoins } from "@/lib/economy/coins";
 import { publishRealtimeEvent } from "@/lib/realtime";
+import { calculateFinalXP, PLAN_XP_MULTIPLIERS_BP } from "@/lib/xp/engine";
 import type { Plan } from "@zobia/types";
 
 // ---------------------------------------------------------------------------
@@ -500,17 +501,24 @@ export const POST = withAuth(
 
       if (!message) throw new Error("Message creation failed");
 
-      // 10. XP + daily counter (best-effort, outside transaction)
-      db.query(
-        `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
-         VALUES ($1, 1, 'social', 'message', $2, 100, 1)`,
-        [auth.user.sub, message.id]
-      ).catch(() => {});
-      db.query(
-        `UPDATE users SET xp_total = xp_total + 1, xp_social = xp_social + 1, updated_at = NOW()
-         WHERE id = $1`,
-        [auth.user.sub]
-      ).catch(() => {});
+      // 10. XP + daily counter (best-effort, outside transaction) — apply plan multiplier per PRD §6
+      {
+        const { baseXp: convBaseXp, finalXp: convFinalXp } = calculateFinalXP(
+          'send_text_message',
+          { plan: sender.plan, isMessagingAction: true }
+        );
+        const convMultiplierBP = PLAN_XP_MULTIPLIERS_BP[sender.plan];
+        db.query(
+          `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
+           VALUES ($1, $2, 'social', 'message', $3, $4, $5)`,
+          [auth.user.sub, convFinalXp, message.id, convMultiplierBP, convBaseXp]
+        ).catch(() => {});
+        db.query(
+          `UPDATE users SET xp_total = xp_total + $1, xp_social = xp_social + $1, updated_at = NOW()
+           WHERE id = $2`,
+          [convFinalXp, auth.user.sub]
+        ).catch(() => {});
+      }
       incrementDailyCount(auth.user.sub, "reply").catch(() => {});
       updateConversationScore(auth.user.sub, recipientId, "message_sent").catch(() => {});
 

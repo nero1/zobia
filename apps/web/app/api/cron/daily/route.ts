@@ -89,14 +89,17 @@ export const GET = async (req: NextRequest) => {
     const today = new Date().toISOString().slice(0, 10);
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-    // Increment streaks for users who logged in both today and yesterday
+    // Increment streaks for users who logged in both today and yesterday.
+    // Uses last_login_at (updated only on explicit auth) rather than
+    // last_active_at (updated on any API call) to avoid false streak credits
+    // from background tabs (BUG-28).
     const streakUpdate = await db.query<{ count: string }>(
       `WITH updated AS (
          UPDATE users
          SET login_streak_days = login_streak_days + 1,
              updated_at = NOW()
          WHERE last_login_date = $1
-           AND last_active_at::date = $2::date
+           AND last_login_at::date = $2::date
          RETURNING 1
        )
        SELECT COUNT(*) AS count FROM updated`,
@@ -229,22 +232,27 @@ export const GET = async (req: NextRequest) => {
       if (activeSeasons.length > 0) {
         const season = activeSeasons[0];
 
-        // Delete last week's snapshot for this season
+        // Encode the season into the scope value so historical snapshots are
+        // preserved (BUG-07: the table has no season_id column).
+        const seasonScope = `season:${season.id}`;
+
+        // Delete last week's snapshot for this season scope
         await db.query(
           `DELETE FROM leaderboard_rank_snapshots
-           WHERE scope = 'season_weekly' AND season_id = $1`,
-          [season.id]
+           WHERE scope = $1`,
+          [seasonScope]
         );
 
-        // Insert fresh snapshot of top-200 season leaderboard
+        // Insert fresh snapshot of top-200 season leaderboard.
         // Uses leaderboard_snapshots (the materialised table) filtered to season scope.
+        // Columns used: user_id, scope, rank, xp, snapped_at (BUG-07: season_id,
+        // xp_total, snapshotted_at do not exist in this table).
         await db.query(
           `INSERT INTO leaderboard_rank_snapshots
-             (user_id, scope, season_id, rank, xp_total, snapshotted_at)
+             (user_id, scope, rank, xp, snapped_at)
            SELECT
              ls.user_id,
-             'season_weekly',
-             $1,
+             $2,
              ROW_NUMBER() OVER (ORDER BY ls.xp_value DESC) AS rank,
              ls.xp_value,
              NOW()
@@ -254,19 +262,23 @@ export const GET = async (req: NextRequest) => {
              AND ls.scope = 'season'
              AND u.deleted_at IS NULL
            ORDER BY ls.xp_value DESC
-           LIMIT 200`,
-          [season.id]
+           LIMIT 200
+           ON CONFLICT (user_id, scope)
+           DO UPDATE SET rank = EXCLUDED.rank, xp = EXCLUDED.xp, snapped_at = EXCLUDED.snapped_at`,
+          [season.id, seasonScope]
         );
 
         // Award season_top100_frame badge to ranks 11-100 during weeks 6-7 (PRD §8)
+        // BUG-39: The only unique index on user_badges is (user_id, badge_key) WHERE
+        // badge_key IS NOT NULL — there is no (user_id, badge_type, reference_id) index.
         try {
           const seasonStartTime = new Date(season.starts_at).getTime();
           const weekNum = Math.ceil((Date.now() - seasonStartTime) / (7 * 24 * 60 * 60 * 1000));
 
           if (weekNum >= 6) {
             await db.query(
-              `INSERT INTO user_badges (user_id, badge_type, reference_id, granted_at, awarded_at)
-               SELECT ls.user_id, 'season_top100_frame', $1, NOW(), NOW()
+              `INSERT INTO user_badges (user_id, badge_type, badge_key, reference_id, granted_at, awarded_at)
+               SELECT ls.user_id, 'season_top100_frame', 'season_top100_frame', $1, NOW(), NOW()
                FROM (
                  SELECT ls.user_id, ROW_NUMBER() OVER (ORDER BY ls.xp_value DESC) AS rank
                  FROM leaderboard_snapshots ls
@@ -276,7 +288,7 @@ export const GET = async (req: NextRequest) => {
                    AND u.deleted_at IS NULL
                ) ls
                WHERE ls.rank BETWEEN 11 AND 100
-               ON CONFLICT (user_id, badge_type, reference_id) DO NOTHING`,
+               ON CONFLICT (user_id, badge_key) WHERE badge_key IS NOT NULL DO NOTHING`,
               [season.id]
             );
           }
@@ -297,7 +309,7 @@ export const GET = async (req: NextRequest) => {
 
   // 6. Check season transitions
   try {
-    const seasonTransitions: { ended?: string; upcoming?: string } = {};
+    const seasonTransitions: { ended?: string[]; upcoming?: string } = {};
 
     // Check for seasons that just ended
     const endedSeasons = await db.query<{ id: string; name: string }>(
@@ -310,8 +322,13 @@ export const GET = async (req: NextRequest) => {
       try {
         await distributeSeasonRewards(season.id, db);
         await resetSeasonRankings(season.id, db);
-        void createSeasonCeremonyRoom(season.id, season.name, db);
-        seasonTransitions.ended = season.id;
+        try {
+          await createSeasonCeremonyRoom(season.id, season.name, db);
+        } catch (err) {
+          console.error('[cron] createSeasonCeremonyRoom failed for season', season.id, err);
+        }
+        if (!seasonTransitions.ended) seasonTransitions.ended = [];
+        seasonTransitions.ended.push(season.id);
       } catch (err) {
         errors.push(`seasonEnd(${season.id}): ${String(err)}`);
       }
@@ -336,16 +353,6 @@ export const GET = async (req: NextRequest) => {
 
   // 7. Expire moments older than 24 hours
   try {
-    const momentsExpired = await db.query<{ count: string }>(
-      `WITH expired AS (
-         UPDATE moments
-         SET expires_at = expires_at  -- mark row as touched; actual expiry is already set
-         WHERE expires_at < NOW()
-           AND expires_at IS NOT NULL
-         RETURNING 1
-       )
-       SELECT COUNT(*) AS count FROM expired`
-    );
     // Because the moments table uses expires_at (not is_expired), we simply
     // delete moments whose expires_at has passed so they are cleaned up.
     const deletedMoments = await db.query<{ count: string }>(
@@ -1261,51 +1268,81 @@ export const GET = async (req: NextRequest) => {
 
   // 21. Monthly coin bonus for paid plan users (runs on 1st of each month only)
   // PRD §3: Plus=50 coins, Pro=200 coins, Max=500 coins per month.
-  // Each plan is processed in a single atomic transaction: ledger INSERT +
-  // balance UPDATE happen together so no partial write can occur (PRD §18).
+  //
+  // BUG-21: The dedup key is now `plan:{userId}:{YYYY-MM}` (same pattern used
+  // by processSubscriptionEvent in the Paystack webhook) so subscribing on the 1st
+  // cannot yield both a subscription_bonus AND a monthly_plan_bonus credit.
+  //
+  // BUG-60: All three plan tiers are processed inside a single DB transaction so
+  // a partial failure cannot leave distribution half-applied.
   try {
     const today = new Date();
     if (today.getDate() === 1) {
       const PLAN_MONTHLY_BONUS: Record<string, number> = { plus: 50, pro: 200, max: 500 };
-      let totalAwarded = 0;
+      // YYYY-MM string used as part of the dedup reference_id
+      const monthKey = today.toISOString().slice(0, 7); // e.g. "2026-06"
+      const planBonusErrors: string[] = [];
 
-      for (const [plan, bonus] of Object.entries(PLAN_MONTHLY_BONUS)) {
+      // BUG-60: wrap all three plan tiers in one transaction so partial failures
+      // are atomic — either all plans are credited or none are.
+      try {
         await db.transaction(async (tx) => {
-          // Credit ledger and balance atomically; skip users already credited today
-          // (idempotency: ON CONFLICT DO NOTHING on the unique ledger reference).
-          // ZB-05: include balance_before/balance_after (NOT NULL in coin_ledger)
-          await tx.query(
-            `WITH eligible AS (
-               SELECT id, coin_balance FROM users
-               WHERE plan = $1
-                 AND is_active = true
-                 AND deleted_at IS NULL
-                 AND NOT EXISTS (
-                   SELECT 1 FROM coin_ledger
-                   WHERE user_id = users.id
-                     AND transaction_type = 'monthly_plan_bonus'
-                     AND created_at::date = CURRENT_DATE
-                 )
-             ),
-             ledger_rows AS (
-               INSERT INTO coin_ledger
-                 (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description, created_at)
-               SELECT id, $2, coin_balance, coin_balance + $2, 'monthly_plan_bonus', gen_random_uuid(),
-                      $3, NOW()
-               FROM eligible
-               RETURNING user_id
-             )
-             UPDATE users
-             SET coin_balance = coin_balance + $2,
-                 updated_at = NOW()
-             WHERE id IN (SELECT user_id FROM ledger_rows)`,
-            [plan, bonus, `Monthly ${plan} plan bonus`]
-          );
+          for (const [plan, bonus] of Object.entries(PLAN_MONTHLY_BONUS)) {
+            // Credit ledger and balance atomically for each plan tier.
+            // Dedup key: `plan:{userId}:{YYYY-MM}` — matches the webhook pattern
+            // to prevent double-crediting when a subscription event and CRON both fire
+            // on the 1st (BUG-21).
+            // ZB-05: include balance_before/balance_after (NOT NULL in coin_ledger).
+            await tx.query(
+              `WITH eligible AS (
+                 SELECT id, coin_balance FROM users
+                 WHERE plan = $1
+                   AND is_active = true
+                   AND deleted_at IS NULL
+                   AND NOT EXISTS (
+                     SELECT 1 FROM coin_ledger
+                     WHERE user_id = users.id
+                       AND transaction_type = 'monthly_plan_bonus'
+                       AND reference_id LIKE 'plan:' || users.id::text || ':' || $4
+                   )
+               ),
+               ledger_rows AS (
+                 INSERT INTO coin_ledger
+                   (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description, created_at)
+                 SELECT id, $2, coin_balance, coin_balance + $2,
+                        'monthly_plan_bonus',
+                        'plan:' || id::text || ':' || $4,
+                        $3, NOW()
+                 FROM eligible
+                 ON CONFLICT DO NOTHING
+                 RETURNING user_id
+               )
+               UPDATE users
+               SET coin_balance = coin_balance + $2,
+                   updated_at = NOW()
+               WHERE id IN (SELECT user_id FROM ledger_rows)`,
+              [plan, bonus, `Monthly ${plan} plan bonus`, monthKey]
+            );
+          }
         });
-        totalAwarded++;
+      } catch (txErr: unknown) {
+        // BUG-21: swallow unique constraint violations (23505) — they mean the
+        // bonus was already awarded by the webhook on this month, which is correct.
+        const pgCode = (txErr as { code?: string })?.code;
+        if (pgCode === '23505') {
+          console.info('[cron/21] monthly_plan_bonus already awarded this month (23505) — skipping');
+        } else {
+          planBonusErrors.push(String(txErr));
+          errors.push(`monthlyPlanBonus: ${String(txErr)}`);
+        }
       }
 
-      results.monthlyPlanBonus = { ran: true, plansProcessed: totalAwarded, date: today.toISOString() };
+      results.monthlyPlanBonus = {
+        ran: true,
+        plansProcessed: Object.keys(PLAN_MONTHLY_BONUS).length,
+        date: today.toISOString(),
+        errors: planBonusErrors.length > 0 ? planBonusErrors : undefined,
+      };
     } else {
       results.monthlyPlanBonus = { ran: false, reason: "Not the 1st of the month" };
     }
@@ -1342,34 +1379,20 @@ export const GET = async (req: NextRequest) => {
     );
 
     let expiredBonuses = 0;
+    const { debitCoins } = await import("@/lib/economy/coins");
     for (const row of expiredBonusUsers) {
       try {
-        // ZB-05: include balance_before/balance_after in coin_ledger (NOT NULL)
+        // BUG-45: Use debitCoins() so balance_before/after are tracked correctly
+        // and the reversal goes through the authoritative coin ledger path.
         await db.transaction(async (tx) => {
-          // Lock user row, compute balances, then deduct and write ledger atomically
-          await tx.query(
-            `WITH locked AS (
-               SELECT coin_balance FROM users WHERE id = $1 FOR UPDATE
-             ),
-             ledger_insert AS (
-               INSERT INTO coin_ledger
-                 (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description, created_at)
-               SELECT $1, $2,
-                      locked.coin_balance,
-                      GREATEST(locked.coin_balance + $2, 0),
-                      'comeback_bonus_expired',
-                      gen_random_uuid(),
-                      'Comeback bonus expired (7-day window passed)',
-                      NOW()
-               FROM locked
-               RETURNING 1
-             )
-             UPDATE users
-             SET coin_balance = GREATEST(COALESCE(coin_balance, 0) + $2, 0),
-                 updated_at = NOW()
-             WHERE id = $1
-               AND EXISTS (SELECT 1 FROM ledger_insert)`,
-            [row.user_id, -COMEBACK_COIN_AMOUNT]
+          await debitCoins(
+            row.user_id,
+            COMEBACK_COIN_AMOUNT,
+            "comeback_bonus_expired",
+            `comeback_reversal:${row.user_id}`,
+            "Comeback bonus expired (7-day window passed)",
+            {},
+            tx
           );
         });
         expiredBonuses++;

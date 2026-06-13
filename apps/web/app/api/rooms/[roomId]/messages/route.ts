@@ -375,12 +375,14 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       is_suspended: boolean;
       is_banned: boolean;
       suspended_until: string | null;
+      plan: Plan;
     }>(
       `SELECT username, avatar_emoji,
               COALESCE(is_creator, false) AS is_creator,
               COALESCE(is_suspended, false) AS is_suspended,
               COALESCE(is_banned, false) AS is_banned,
-              suspended_until
+              suspended_until,
+              COALESCE(plan, 'free') AS plan
        FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
       [userId]
     );
@@ -557,7 +559,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const message = msgRows[0] as { id: string; sender_id: string; created_at: string; message_type: string };
 
     // Award XP (non-blocking)
-    void maybeAwardMessageXP(roomId, userId, todayMsgCount);
+    void maybeAwardMessageXP(roomId, userId, todayMsgCount, senderStatus?.plan ?? 'free');
 
     // Publish to realtime provider (non-blocking — never delays the HTTP response)
     if (senderStatus && !requiresApproval) {

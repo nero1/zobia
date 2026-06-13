@@ -34,6 +34,7 @@ import { recordWarContribution } from "@/lib/guilds/recordWarContribution";
 import { updateConversationScore } from "@/lib/messaging/conversationScore";
 import { debitCoins, creditCoins } from "@/lib/economy/coins";
 import { publishRealtimeEvent } from "@/lib/realtime";
+import { calculateFinalXP, PLAN_XP_MULTIPLIERS_BP } from "@/lib/xp/engine";
 import type { Plan } from "@zobia/types";
 
 // ---------------------------------------------------------------------------
@@ -228,21 +229,39 @@ async function handleDMGift(
     );
   });
 
-  // XP awards (fire-and-forget)
-  db.query(
-    `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount)
-     VALUES ($1, 10, 'generosity', 'gift_sent', $2, 10),
-            ($3, 5,  'social',     'gift_received', $2, 5)`,
-    [senderId, giftId!, recipientId]
-  ).catch(() => {});
-  db.query(
-    `UPDATE users SET xp_total = xp_total + 10, xp_generosity = COALESCE(xp_generosity, 0) + 10, updated_at = NOW() WHERE id = $1`,
-    [senderId]
-  ).catch(() => {});
-  db.query(
-    `UPDATE users SET xp_total = xp_total + 5, xp_social = COALESCE(xp_social, 0) + 5, updated_at = NOW() WHERE id = $1`,
-    [recipientId]
-  ).catch(() => {});
+  // XP awards (fire-and-forget) — apply sender's plan multiplier per PRD §6
+  {
+    const { rows: senderPlanRows } = await db.query<{ plan: Plan }>(
+      `SELECT COALESCE(plan, 'free') AS plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+      [senderId]
+    ).catch(() => ({ rows: [] as Array<{ plan: Plan }> }));
+    const senderPlan: Plan = senderPlanRows[0]?.plan ?? 'free';
+    const { baseXp: giftSenderBaseXp, finalXp: giftSenderFinalXp } = calculateFinalXP(
+      'send_gift_message',
+      { plan: senderPlan, isMessagingAction: true }
+    );
+    const giftSenderMultiplierBP = PLAN_XP_MULTIPLIERS_BP[senderPlan];
+    // Recipient XP (receive_gift_and_react) — not a messaging action, no plan multiplier
+    const { baseXp: giftRecipBaseXp, finalXp: giftRecipFinalXp } = calculateFinalXP(
+      'receive_gift_and_react',
+      { plan: 'free', isMessagingAction: false }
+    );
+    db.query(
+      `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
+       VALUES ($1, $2, 'generosity', 'gift_sent',      $3, $4, $5),
+              ($6, $7, 'social',     'gift_received',  $3, 100, $8)`,
+      [senderId, giftSenderFinalXp, giftId!, giftSenderMultiplierBP, giftSenderBaseXp,
+       recipientId, giftRecipFinalXp, giftRecipBaseXp]
+    ).catch(() => {});
+    db.query(
+      `UPDATE users SET xp_total = xp_total + $1, xp_generosity = COALESCE(xp_generosity, 0) + $1, updated_at = NOW() WHERE id = $2`,
+      [giftSenderFinalXp, senderId]
+    ).catch(() => {});
+    db.query(
+      `UPDATE users SET xp_total = xp_total + $1, xp_social = COALESCE(xp_social, 0) + $1, updated_at = NOW() WHERE id = $2`,
+      [giftRecipFinalXp, recipientId]
+    ).catch(() => {});
+  }
 
   recordWarContribution(senderId, "send_gift", db).catch(() => {});
 
@@ -548,23 +567,30 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       throw new Error("Message creation failed");
     }
 
-    // 10. Award XP (1 XP, Social track) — best-effort, outside transaction
-    db.query(
-      `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
-       VALUES ($1, 1, 'social', 'message', $2, 100, 1)`,
-      [auth.user.sub, message.id]
-    ).catch((err) =>
-      console.error("[dm:POST] XP award failed", err)
-    );
+    // 10. Award XP (Social track, plan multiplier applied) — best-effort, outside transaction
+    {
+      const { baseXp: dmBaseXp, finalXp: dmFinalXp } = calculateFinalXP(
+        'send_text_message',
+        { plan: sender.plan, isMessagingAction: true }
+      );
+      const dmMultiplierBP = PLAN_XP_MULTIPLIERS_BP[sender.plan];
+      db.query(
+        `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
+         VALUES ($1, $2, 'social', 'message', $3, $4, $5)`,
+        [auth.user.sub, dmFinalXp, message.id, dmMultiplierBP, dmBaseXp]
+      ).catch((err) =>
+        console.error("[dm:POST] XP award failed", err)
+      );
 
-    // 11. Update user total XP — best-effort
-    db.query(
-      `UPDATE users SET xp_total = xp_total + 1, xp_social = xp_social + 1, updated_at = NOW()
-       WHERE id = $1`,
-      [auth.user.sub]
-    ).catch((err) =>
-      console.error("[dm:POST] XP user update failed", err)
-    );
+      // 11. Update user total XP — best-effort
+      db.query(
+        `UPDATE users SET xp_total = xp_total + $1, xp_social = xp_social + $1, updated_at = NOW()
+         WHERE id = $2`,
+        [dmFinalXp, auth.user.sub]
+      ).catch((err) =>
+        console.error("[dm:POST] XP user update failed", err)
+      );
+    }
 
     // 12. Increment daily counter
     incrementDailyCount(auth.user.sub, isInitiating ? "sent" : "reply").catch(

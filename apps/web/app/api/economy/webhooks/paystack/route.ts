@@ -446,22 +446,33 @@ async function processSubscriptionEvent(
         [derivedPlan, resolvedUserId]
       );
 
-      // Award monthly subscription bonus coins (PRD §3)
+      // Award monthly subscription bonus coins (PRD §3).
+      // BUG-21: Key on `plan:{userId}:{YYYY-MM}` rather than subscription_code so
+      // that the CRON's monthly_plan_bonus (which uses the same pattern) hits the same
+      // dedup key and only one credit is issued when both fire on the 1st of the month.
       const MONTHLY_PLAN_BONUS: Record<string, number> = { plus: 50, pro: 200, max: 500 };
       const bonusCoins = MONTHLY_PLAN_BONUS[derivedPlan];
       if (bonusCoins && bonusCoins > 0) {
+        const monthKey = new Date().toISOString().slice(0, 7); // YYYY-MM
         await creditCoins(
           resolvedUserId,
           bonusCoins,
           "subscription_bonus",
-          subscription_code,
+          `plan:${resolvedUserId}:${monthKey}`,
           `${derivedPlan} plan subscription — monthly coin bonus`,
           { plan: derivedPlan },
           tx
         );
       }
-    }).catch((err) => {
-      console.error("[webhook/paystack] Transaction error for subscription bonus:", err);
+    }).catch((err: unknown) => {
+      // BUG-21: swallow unique constraint violations (23505) — they mean the CRON
+      // already awarded the bonus for this month, which is the correct outcome.
+      const pgCode = (err as { code?: string })?.code;
+      if (pgCode === '23505') {
+        console.info('[webhook/paystack] subscription_bonus already awarded this month (23505) — skipping');
+      } else {
+        console.error("[webhook/paystack] Transaction error for subscription bonus:", err);
+      }
     });
 
   } else if (isNonRenewing) {
