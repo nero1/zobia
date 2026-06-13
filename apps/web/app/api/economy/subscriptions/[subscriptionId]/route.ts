@@ -24,7 +24,7 @@ interface SubscriptionRow {
   user_id: string;
   plan: string;
   status: string;
-  current_period_end: string | null;
+  ends_at: string | null;
   cancelled_at: string | null;
 }
 
@@ -33,7 +33,7 @@ async function loadOwnSubscription(
   userId: string
 ): Promise<SubscriptionRow> {
   const { rows } = await db.query<SubscriptionRow>(
-    `SELECT id, user_id, plan, status, current_period_end, cancelled_at
+    `SELECT id, user_id, plan, status, ends_at, cancelled_at
      FROM subscriptions
      WHERE id = $1 LIMIT 1`,
     [subscriptionId]
@@ -86,7 +86,7 @@ export const DELETE = withAuth(
       return NextResponse.json({
         success: true,
         message: "Subscription cancelled. You retain access until your current period ends.",
-        accessUntil: subscription.current_period_end,
+        accessUntil: subscription.ends_at,
       });
     } catch (err) {
       return handleApiError(err);
@@ -153,9 +153,9 @@ export const PUT = withAuth(
         // Update the subscription plan
         await tx.query(
           `UPDATE subscriptions
-           SET plan = $1, store_item_id = $2, updated_at = NOW()
-           WHERE id = $3`,
-          [newPlan.plan, newPlan.id, subscriptionId]
+           SET plan = $1, updated_at = NOW()
+           WHERE id = $2`,
+          [newPlan.plan, subscriptionId]
         );
 
         // Update user's plan column

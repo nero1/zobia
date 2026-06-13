@@ -327,6 +327,11 @@ export default function SubscriptionPage() {
   }, [router]);
 
   async function handleUpgrade(targetPlan: PlanId) {
+    const currentPlanAtTime = (planData?.plan ?? "free") as PlanId;
+    const isUpgrading = planRank(targetPlan) > planRank(currentPlanAtTime);
+    const actionVerb = isUpgrading ? "upgrade" : "downgrade";
+    const actionPast = isUpgrading ? "Upgraded" : "Downgraded";
+
     setUpgrading(targetPlan);
     try {
       const res = await fetch("/api/economy/subscriptions", {
@@ -337,15 +342,14 @@ export default function SubscriptionPage() {
       });
       if (!res.ok) {
         const d = (await res.json()) as { message?: string };
-        throw new Error(d.message ?? "Failed to initiate upgrade");
+        throw new Error(d.message ?? `Failed to initiate ${actionVerb}`);
       }
       const d = (await res.json()) as { checkoutUrl?: string; redirectUrl?: string };
       const url = d.checkoutUrl ?? d.redirectUrl;
       if (url) {
         window.location.href = url;
       } else {
-        // If no redirect URL, assume immediate upgrade
-        showToast(`Upgraded to ${targetPlan}!`);
+        showToast(`${actionPast} to ${targetPlan}!`);
         // Refetch plan data
         const [meRes2, subRes2] = await Promise.all([
           fetch("/api/users/me", { credentials: "include" }),
@@ -363,7 +367,7 @@ export default function SubscriptionPage() {
         }
       }
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Upgrade failed", "error");
+      showToast(e instanceof Error ? e.message : `${actionPast.charAt(0) + actionVerb.slice(1)} failed`, "error");
     } finally {
       setUpgrading(null);
     }
