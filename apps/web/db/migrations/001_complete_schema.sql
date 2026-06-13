@@ -2577,7 +2577,7 @@ CREATE POLICY referral_commissions_owner ON referral_commissions FOR SELECT USIN
 -- x_manifest (final merged set — canonical keys only)
 INSERT INTO x_manifest (key, value, description) VALUES
   ('minimum_age',                          '18',                       'Minimum age for registration'),
-  ('captcha_provider',                     'none',                     'CAPTCHA provider: recaptcha | turnstile | none'),
+  ('captcha_provider',                     '"none"',                   'CAPTCHA provider: recaptcha | turnstile | none'),
   ('auth_google_enabled',                  'true',                     'Enable Google OAuth'),
   ('auth_telegram_enabled',                'true',                     'Enable Telegram Login'),
   ('feature_nemesis_system',               'true',                     'Enable Nemesis system'),
