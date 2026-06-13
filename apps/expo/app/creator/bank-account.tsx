@@ -81,7 +81,7 @@ export default function BankAccountScreen() {
 
   useEffect(() => {
     apiClient
-      .get<BankAccountData>('/api/creator/bank-account')
+      .get<BankAccountData>('/creator/bank-account')
       .then((res) => setAccount(res.data))
       .catch(() => setAccount({ hasAccount: false }))
       .finally(() => setLoading(false));
@@ -115,7 +115,7 @@ export default function BankAccountScreen() {
         accountName: string;
         bankName: string;
         accountNumberLast4: string;
-      }>('/api/creator/bank-account', {
+      }>('/creator/bank-account', {
         accountNumber,
         bankCode: selectedBankCode,
         bankName: selectedBankName,
@@ -140,7 +140,7 @@ export default function BankAccountScreen() {
     setSubmitting(true);
     try {
       const res = await apiClient.post<{ success: boolean; showPinModal?: boolean }>(
-        '/api/creator/bank-account',
+        '/creator/bank-account',
         {
           accountNumber,
           bankCode: selectedBankCode,
@@ -171,7 +171,7 @@ export default function BankAccountScreen() {
   async function handleDelete() {
     setSubmitting(true);
     try {
-      await apiClient.delete('/api/creator/bank-account', {
+      await apiClient.delete('/creator/bank-account', {
         data: { pinOrCode: deletePin || undefined },
       });
       setAccount({ hasAccount: false });

@@ -68,12 +68,22 @@ export function isIpAnomalous(loginIp: string | undefined, currentIp: string): b
     return false; // IPv6 or unparseable — skip
   }
 
-  // Private IP ranges — never flag transitions involving private IPs
-  // (dev environments, VPNs connecting to private networks, etc.)
-  const isPrivate = (octet: number) =>
-    octet === 10 || octet === 127 || octet === 172 || octet === 192;
+  // Use full CIDR ranges for private IP detection (BUG-33)
+  const loginParts = loginIp.split('.').map(Number);
+  const currentParts = currentIp.split('.').map(Number);
 
-  if (isPrivate(loginOctet) || isPrivate(currentOctet)) {
+  const isPrivateFull = (parts: number[]): boolean => {
+    const [a, b] = parts;
+    return (
+      a === 10 ||                          // 10.0.0.0/8
+      a === 127 ||                         // 127.0.0.0/8
+      (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12
+      (a === 192 && b === 168) ||          // 192.168.0.0/16
+      (a === 169 && b === 254)             // 169.254.0.0/16 (link-local)
+    );
+  };
+
+  if (isPrivateFull(loginParts) || isPrivateFull(currentParts)) {
     return false;
   }
 

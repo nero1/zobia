@@ -532,7 +532,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           body.recipientId,
           conversationId ?? null,
           body.messageType,
-          filteredContent || null,
+          filteredContent.trim() || "[Message removed by content filter]",
           body.mediaUrl ?? null,
           coinCost,
           replyCountFromRecipient,
@@ -551,7 +551,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // 10. Award XP (1 XP, Social track) — best-effort, outside transaction
     db.query(
       `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
-       VALUES ($1, 1, 'social', 'message', $2, 1, 1)`,
+       VALUES ($1, 1, 'social', 'message', $2, 100, 1)`,
       [auth.user.sub, message.id]
     ).catch((err) =>
       console.error("[dm:POST] XP award failed", err)

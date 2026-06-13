@@ -584,7 +584,7 @@ export default function SettingsScreen() {
   const { data: featureFlags } = useQuery({
     queryKey: ['feature-flags'],
     queryFn: async () => {
-      const { data } = await apiClient.get<{ twoFaEnabled: boolean; pinEnabled: boolean }>('/api/features');
+      const { data } = await apiClient.get<{ twoFaEnabled: boolean; pinEnabled: boolean }>('/features');
       return data ?? { twoFaEnabled: true, pinEnabled: true };
     },
     staleTime: 5 * 60_000,
@@ -600,7 +600,7 @@ export default function SettingsScreen() {
   useEffect(() => {
     (async () => {
       try {
-        const { data: profileData } = await apiClient.get<{ user?: { date_of_birth?: string | null } }>('/api/users/me');
+        const { data: profileData } = await apiClient.get<{ user?: { date_of_birth?: string | null } }>('/users/me');
         if (profileData?.user?.date_of_birth) {
           setDateOfBirth(profileData.user.date_of_birth);
         }
@@ -615,7 +615,7 @@ export default function SettingsScreen() {
     setDobError(null);
     setDobSaving(true);
     try {
-      await apiClient.put('/api/users/me', { date_of_birth: dateOfBirth.trim() });
+      await apiClient.put('/users/me', { date_of_birth: dateOfBirth.trim() });
       Alert.alert('Saved', 'Date of birth updated.');
     } catch {
       Alert.alert('Error', 'Could not save date of birth. Please try again.');
@@ -933,7 +933,7 @@ export default function SettingsScreen() {
           onChange={async (v) => {
             set('hdSendEnabled', v);
             try {
-              await apiClient.patch('/api/settings', { hd_send_enabled: v });
+              await apiClient.patch('/settings', { hd_send_enabled: v });
             } catch { /* settings mutation handles this */ }
           }}
         />

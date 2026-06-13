@@ -58,18 +58,29 @@ export function sanitizeHtml(dirty: string): string {
           const attr = attrName.toLowerCase();
           if (!tagAllowedAttrs.has(attr)) return "";
           const value = dq ?? sq ?? unq ?? "";
-          // Block dangerous URL schemes in href/src
-          if (
-            (attr === "href" || attr === "src") &&
-            DANGEROUS_PROTOCOLS.test(value.trim())
-          ) {
-            return "";
+          // Block dangerous URL schemes in href/src — decode entities and strip control chars first
+          if (attr === "href" || attr === "src") {
+            // Decode common HTML entities and strip control chars to prevent bypass
+            const decoded = value
+              .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+              .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+              .replace(/&amp;/g, "&")
+              .replace(/[\x00-\x1f\x7f]/g, ""); // strip control chars
+            const scheme = decoded.trim().split(/[:/\s]/)[0]?.toLowerCase() ?? "";
+            const ALLOWED_SCHEMES = new Set(["https", "mailto", "http"]);
+            if (!ALLOWED_SCHEMES.has(scheme) && decoded.trim().length > 0) {
+              return "";
+            }
           }
           return ` ${attr}="${value.replace(/"/g, "&quot;")}"`;
         }
       );
 
-      return `<${tag}${safeAttrs}>`;
+      let tagFinalAttrs = safeAttrs;
+      if (tag === "a" && tagFinalAttrs.includes('target="_blank"') && !tagFinalAttrs.includes('rel=')) {
+        tagFinalAttrs += ' rel="noopener noreferrer"';
+      }
+      return `<${tag}${tagFinalAttrs}>`;
     }
   );
 

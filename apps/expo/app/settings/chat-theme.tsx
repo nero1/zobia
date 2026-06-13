@@ -34,17 +34,17 @@ export type { ChatTheme };
 // ---------------------------------------------------------------------------
 
 async function fetchCurrentTheme(): Promise<ChatTheme> {
-  const { data } = await apiClient.get('/api/users/me/theme');
+  const { data } = await apiClient.get('/users/me/theme');
   return (data.data?.theme ?? 'default') as ChatTheme;
 }
 
 async function fetchUserPlan(): Promise<string> {
-  const { data } = await apiClient.get('/api/users/me');
+  const { data } = await apiClient.get('/users/me');
   return data.user?.planTier ?? data.plan ?? 'free';
 }
 
 async function updateTheme(theme: ChatTheme): Promise<void> {
-  await apiClient.put('/api/users/me/theme', { theme });
+  await apiClient.put('/users/me/theme', { theme });
 }
 
 // ---------------------------------------------------------------------------

@@ -476,14 +476,14 @@ export default function RoomScreen() {
     try {
       // Resolve username → userId
       const { data: searchData } = await apiClient.get(
-        `/api/users/search?q=${encodeURIComponent(username)}&limit=1`
+        `/users/search?q=${encodeURIComponent(username)}&limit=1`
       );
       const target = searchData?.users?.[0];
       if (!target?.id) {
         Alert.alert('Not found', `No user found with username "${username}".`);
         return;
       }
-      await apiClient.post(`/api/rooms/${roomId}/powers`, {
+      await apiClient.post(`/rooms/${roomId}/powers`, {
         power: 'member_highlight',
         targetUserId: target.id,
         durationMinutes: 60,
@@ -743,7 +743,7 @@ export default function RoomScreen() {
                       text: '⚡ Spotlight Room (500 🪙)',
                       onPress: () => {
                         apiClient
-                          .post(`/api/rooms/${roomId}/powers`, { power: 'room_spotlight', durationHours: 24 })
+                          .post(`/rooms/${roomId}/powers`, { power: 'room_spotlight', durationHours: 24 })
                           .then(() => Alert.alert('Activated!', 'Your room is now spotlighted on discovery for 24 hours.'))
                           .catch((e: Error) => Alert.alert('Error', e.message));
                       },

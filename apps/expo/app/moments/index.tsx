@@ -57,7 +57,7 @@ interface MomentsResponse {
 // ---------------------------------------------------------------------------
 
 async function fetchMoments(): Promise<Moment[]> {
-  const { data } = await apiClient.get<MomentsResponse>('/api/moments');
+  const { data } = await apiClient.get<MomentsResponse>('/moments');
   return data.data?.moments ?? [];
 }
 
@@ -235,7 +235,7 @@ export default function MomentsScreen() {
 
   const handleReact = useCallback(async (momentId: string, emoji: string) => {
     try {
-      await apiClient.post(`/api/moments/${momentId}/reactions`, { emoji });
+      await apiClient.post(`/moments/${momentId}/reactions`, { emoji });
       void queryClient.invalidateQueries({ queryKey: ['moments'] });
     } catch {
       // Non-fatal

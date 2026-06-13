@@ -25,6 +25,7 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getManifestValue } from "@/lib/manifest";
+import { encryptField } from "@/lib/security/fieldEncryption";
 
 // ---------------------------------------------------------------------------
 // TOTP helpers (manual HMAC-SHA1 implementation — no external library needed)
@@ -215,7 +216,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     await db.query(
       `UPDATE users SET totp_secret = $1, totp_enabled = true, updated_at = NOW()
        WHERE id = $2`,
-      [pendingSecret, userId]
+      [encryptField(pendingSecret), userId]
     );
 
     // Remove pending key

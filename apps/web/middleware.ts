@@ -26,18 +26,17 @@ import { jwtVerify, errors as JoseErrors } from "jose";
 /**
  * Build a per-request Content-Security-Policy string.
  *
- * Includes 'nonce-<nonce>' AND 'unsafe-inline' in script-src.
+ * Uses 'nonce-<nonce>' and 'strict-dynamic' in script-src (no 'unsafe-inline').
  * Browsers that support CSP Level 3 (Chrome 67+, Firefox 68+, Safari 15.4+)
- * treat a valid nonce as overriding 'unsafe-inline' for inline scripts, so
- * this progressively hardens security on modern browsers while keeping the
- * site functional on older ones. 'strict-dynamic' is included so that scripts
- * bearing the nonce can in turn load other scripts (required by Next.js's
- * dynamic chunk loading).
+ * enforce the nonce for inline scripts and propagate trust to dynamically
+ * loaded scripts via 'strict-dynamic' (required by Next.js chunk loading).
+ * 'unsafe-inline' is intentionally omitted — it would silently override the
+ * nonce protection in supporting browsers (BUG-30).
  */
 function buildCsp(nonce: string): string {
   return [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-inline'`,
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
     "img-src 'self' data: blob: https: http:",
@@ -151,11 +150,10 @@ function isCsrfSafe(request: NextRequest): boolean {
 
   const origin = request.headers.get("origin");
   if (!origin) {
-    // No Origin header — allow server-to-server requests that include service token
-    const hasServiceAuth =
-      request.headers.has("x-cron-secret") ||
-      (request.headers.get("authorization") ?? "").startsWith("Bearer ");
-    return hasServiceAuth;
+    // No Origin header — only allow specific CRON paths with the CRON secret header
+    const isCronPath = request.nextUrl.pathname.startsWith("/api/cron/");
+    const hasCronSecret = request.headers.has("x-cron-secret");
+    return isCronPath && hasCronSecret;
   }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
@@ -191,8 +189,12 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     return res;
   }
 
-  // CSRF check for all API mutation endpoints
-  if (pathname.startsWith("/api/") && !isPublicRoute(pathname) && !isCsrfSafe(request)) {
+  // CSRF check for all API mutation endpoints (including auth POSTs but not GET callbacks)
+  const isAuthMutation =
+    pathname.startsWith("/api/auth/") &&
+    !CSRF_SAFE_METHODS.has(request.method.toUpperCase());
+
+  if ((pathname.startsWith("/api/") && !isPublicRoute(pathname) || isAuthMutation) && !isCsrfSafe(request)) {
     const res = NextResponse.json(
       { error: "Forbidden", code: "CSRF_ORIGIN_MISMATCH" },
       { status: 403 }

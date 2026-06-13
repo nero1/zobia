@@ -156,53 +156,53 @@ interface SpotlightData {
 // ---------------------------------------------------------------------------
 
 async function fetchPresence(): Promise<PresenceData> {
-  const { data } = await apiClient.get<PresenceData>('/api/presence');
+  const { data } = await apiClient.get<PresenceData>('/presence');
   return data;
 }
 
 async function fetchFriends(): Promise<FriendsResponse> {
-  const { data } = await apiClient.get<FriendsResponse>('/api/friends');
+  const { data } = await apiClient.get<FriendsResponse>('/friends');
   return data;
 }
 
 async function fetchNemesis(): Promise<NemesisData> {
-  const { data } = await apiClient.get<NemesisData>('/api/nemesis');
+  const { data } = await apiClient.get<NemesisData>('/nemesis');
   return data;
 }
 
 async function fetchDailyQuests(): Promise<QuestsResponse> {
-  const { data } = await apiClient.get<QuestsResponse>('/api/quests/daily');
+  const { data } = await apiClient.get<QuestsResponse>('/quests/daily');
   return data;
 }
 
 async function fetchLeaderboardMe(): Promise<LeaderboardMeData> {
-  const { data } = await apiClient.get<LeaderboardMeData>('/api/leaderboards/me');
+  const { data } = await apiClient.get<LeaderboardMeData>('/leaderboards/me');
   return data;
 }
 
 async function postDailyLogin(): Promise<DailyLoginResponse> {
-  const { data } = await apiClient.post<DailyLoginResponse>('/api/login/daily');
+  const { data } = await apiClient.post<DailyLoginResponse>('/login/daily');
   return data;
 }
 
 async function fetchGuildDiscovery(): Promise<GuildDiscoveryResponse> {
-  const { data } = await apiClient.get<GuildDiscoveryResponse>('/api/guilds/discovery');
+  const { data } = await apiClient.get<GuildDiscoveryResponse>('/guilds/discovery');
   return data;
 }
 
 async function fetchUserProfile(): Promise<UserProfileResponse> {
-  const { data } = await apiClient.get<UserProfileResponse>('/api/users/me');
+  const { data } = await apiClient.get<UserProfileResponse>('/users/me');
   return data;
 }
 
 async function fetchNewMemberQuest(): Promise<NewMemberQuestProgress> {
-  const { data } = await apiClient.get('/api/quests/new-member');
+  const { data } = await apiClient.get('/quests/new-member');
   return data.data ?? data;
 }
 
 async function fetchCreatorSpotlight(): Promise<SpotlightData | null> {
   try {
-    const { data } = await apiClient.get('/api/creator-spotlight');
+    const { data } = await apiClient.get('/creator-spotlight');
     return data.spotlight ?? null;
   } catch {
     return null;
@@ -891,7 +891,7 @@ export default function HomeScreen() {
   // -------------------------------------------------------------------------
 
   const challengeMutation = useMutation({
-    mutationFn: async () => apiClient.post('/api/nemesis/challenge'),
+    mutationFn: async () => apiClient.post('/nemesis/challenge'),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['nemesis'] });
     },

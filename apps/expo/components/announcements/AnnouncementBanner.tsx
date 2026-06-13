@@ -78,7 +78,7 @@ export function AnnouncementBanner() {
     (async () => {
       try {
         const { data } = await apiClient.get<{ data: { banner: BannerData | null } }>(
-          '/api/announcements/banner',
+          '/announcements/banner',
         );
         const b = data?.data?.banner;
         if (!b || cancelled) return;

@@ -81,7 +81,7 @@ export default function CreatorMerchStoreScreen() {
   const { data: store, isLoading, error } = useQuery<MerchStore>({
     queryKey: ['merch-store', creatorId],
     queryFn: async () => {
-      const res = await apiClient.get<{ store: MerchStore }>(`/api/merch/${creatorId}`);
+      const res = await apiClient.get<{ store: MerchStore }>(`/merch/${creatorId}`);
       return res.store;
     },
     enabled: !!creatorId,
@@ -92,7 +92,7 @@ export default function CreatorMerchStoreScreen() {
   const purchaseMutation = useMutation({
     mutationFn: async (productId: string) => {
       return apiClient.post<PurchaseResponse>(
-        `/api/merch/${creatorId}/products/${productId}/purchase`,
+        `/merch/${creatorId}/products/${productId}/purchase`,
         { paymentMethod: 'coins' }
       );
     },

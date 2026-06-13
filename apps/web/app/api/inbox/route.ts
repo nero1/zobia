@@ -35,7 +35,8 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 
     const url = new URL(req.url);
-    const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "50"), 100);
+    const limitRaw = parseInt(url.searchParams.get("limit") ?? "50", 10);
+    const limit = Math.min(isNaN(limitRaw) || limitRaw < 1 ? 50 : limitRaw, 100);
     const cursorParam = url.searchParams.get("cursor");
 
     // Decode cursor: base64-encoded JSON { created_at: string, id: string }

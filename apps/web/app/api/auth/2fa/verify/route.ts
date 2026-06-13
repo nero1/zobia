@@ -24,6 +24,7 @@ import { handleApiError, badRequest, unauthorized } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { verifyAccessToken } from "@/lib/auth/jwt";
 import { createSession, buildCookieHeaders } from "@/lib/auth/session";
+import { decryptField } from "@/lib/security/fieldEncryption";
 
 // ---------------------------------------------------------------------------
 // TOTP helpers
@@ -145,8 +146,16 @@ export async function POST(req: NextRequest) {
         throw badRequest("2FA is not enabled for this user", "TOTP_NOT_ENABLED");
       }
 
-      if (!verifyTOTP(user.totp_secret, code)) {
+      const secret = user.totp_secret ? decryptField(user.totp_secret) : null;
+      if (!secret || !verifyTOTP(secret, code)) {
         return NextResponse.json({ success: false, error: "Invalid code" }, { status: 400 });
+      }
+
+      // Anti-replay: reject codes reused within the 90s TOTP window (BUG-12)
+      const usedKey = `totp:used:${userId}:${code}`;
+      const alreadyUsed = await redis.set(usedKey, "1", "EX", 90, "NX");
+      if (alreadyUsed === null) {
+        return NextResponse.json({ success: false, error: "TOTP code already used" }, { status: 400 });
       }
 
       // Consume the pre-auth token
@@ -191,7 +200,16 @@ export async function POST(req: NextRequest) {
       throw badRequest("2FA is not enabled for this user", "TOTP_NOT_ENABLED");
     }
 
-    const valid = verifyTOTP(row.totp_secret, code);
+    const legacySecret = row.totp_secret ? decryptField(row.totp_secret) : null;
+    const valid = legacySecret ? verifyTOTP(legacySecret, code) : false;
+
+    if (valid) {
+      const usedKey = `totp:used:${userId}:${code}`;
+      const alreadyUsed = await redis.set(usedKey, "1", "EX", 90, "NX");
+      if (alreadyUsed === null) {
+        return NextResponse.json({ valid: false, error: "TOTP code already used" }, { status: 400 });
+      }
+    }
     return NextResponse.json({ valid }, { status: 200 });
   } catch (err) {
     return handleApiError(err);

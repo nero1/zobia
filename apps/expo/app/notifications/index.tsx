@@ -4,7 +4,7 @@
  * Notifications screen.
  *
  * Features:
- *  - FlatList of notifications from /api/notifications
+ *  - FlatList of notifications from /notifications
  *  - Icon per type (Ionicons)
  *  - Read/unread visual indicator
  *  - "Mark all read" button
@@ -99,13 +99,13 @@ function formatNotification(n: AppNotification & { payload?: Record<string, unkn
 // ---------------------------------------------------------------------------
 
 async function fetchNotifications(): Promise<AppNotification[]> {
-  const { data } = await apiClient.get('/api/notifications');
+  const { data } = await apiClient.get('/notifications');
   const raw: AppNotification[] = data.notifications ?? [];
   return raw.map(formatNotification);
 }
 
 async function markAllRead(): Promise<void> {
-  await apiClient.post('/api/notifications/read-all');
+  await apiClient.post('/notifications/read-all');
 }
 
 // ---------------------------------------------------------------------------

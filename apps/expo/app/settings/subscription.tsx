@@ -166,7 +166,7 @@ const PLANS: PlanConfig[] = [
 // ---------------------------------------------------------------------------
 
 async function fetchMe(): Promise<UserMe> {
-  const { data } = await apiClient.get('/api/users/me');
+  const { data } = await apiClient.get('/users/me');
   return data.user ?? data;
 }
 

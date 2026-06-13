@@ -21,11 +21,12 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { withAuth, validateBody } from "@/lib/api/middleware";
-import { badRequest, notFound, handleApiError } from "@/lib/api/errors";
+import { badRequest, notFound, forbidden, handleApiError } from "@/lib/api/errors";
 import { db } from "@/lib/db";
 import { transferCoins } from "@/lib/economy/coins";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { redis } from "@/lib/redis";
+import { requirePinVerified } from "@/lib/auth/pinGuard";
 
 // ---------------------------------------------------------------------------
 // Request schema
@@ -102,8 +103,18 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   // Declared outside try so the catch block can clean it up on error
   let idempKey: string | null = null;
   try {
-    const body = await validateBody(req, TransferSchema);
     const senderId = auth.user.sub;
+
+    // Require a recent PIN verification before allowing coin transfers
+    const pinOk = await requirePinVerified(senderId);
+    if (!pinOk) {
+      return NextResponse.json(
+        { error: "PIN verification required", code: "PIN_REQUIRED" },
+        { status: 403 }
+      );
+    }
+
+    const body = await validateBody(req, TransferSchema);
 
     await enforceRateLimit(senderId, "user", RATE_LIMITS.apiWrite);
 
@@ -142,6 +153,18 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     const recipient = recipientRows[0];
+
+    // Block relationship check
+    const { rows: blockRows } = await db.query<{ id: string }>(
+      `SELECT id FROM user_blocks
+       WHERE (blocker_id = $1 AND blocked_id = $2)
+          OR (blocker_id = $2 AND blocked_id = $1)
+       LIMIT 1`,
+      [senderId, body.recipientId]
+    );
+    if (blockRows[0]) {
+      throw forbidden("Cannot transfer coins to this user", "USER_BLOCKED");
+    }
 
     // Perform the atomic transfer with 5% platform fee
     const transferResult = await transferCoins(

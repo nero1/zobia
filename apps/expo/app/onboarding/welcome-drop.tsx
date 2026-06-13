@@ -73,7 +73,7 @@ export default function WelcomeDrop() {
     // Persist onboarding data to the server.
     const vibeAnswers = params.vibeAnswers ? JSON.parse(params.vibeAnswers) : {};
     apiClient
-      .post('/api/onboarding/complete', {
+      .post('/onboarding/complete', {
         username: params.username,
         avatar_emoji: params.emoji,
         city: params.city,

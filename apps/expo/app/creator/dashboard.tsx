@@ -81,12 +81,12 @@ interface CreatorDashboardData {
 // ---------------------------------------------------------------------------
 
 async function fetchCreatorDashboard(): Promise<CreatorDashboardData> {
-  const { data } = await apiClient.get<CreatorDashboardData>('/api/creator/dashboard');
+  const { data } = await apiClient.get<CreatorDashboardData>('/creator/dashboard');
   return data;
 }
 
 async function requestPayout(): Promise<{ message: string }> {
-  const { data } = await apiClient.post<{ message: string }>('/api/creator/payout/request');
+  const { data } = await apiClient.post<{ message: string }>('/creator/payout/request');
   return data;
 }
 

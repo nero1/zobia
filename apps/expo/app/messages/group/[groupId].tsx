@@ -57,17 +57,17 @@ interface GroupMeta {
 // ---------------------------------------------------------------------------
 
 async function fetchGroupMeta(groupId: string): Promise<GroupMeta> {
-  const { data } = await apiClient.get(`/api/messages/group/${groupId}`);
+  const { data } = await apiClient.get(`/messages/group/${groupId}`);
   return data.group;
 }
 
 async function fetchGroupMessages(groupId: string): Promise<GroupMessage[]> {
-  const { data } = await apiClient.get(`/api/messages/group/${groupId}`);
+  const { data } = await apiClient.get(`/messages/group/${groupId}`);
   return data.messages ?? [];
 }
 
 async function sendGroupMessage(groupId: string, content: string): Promise<GroupMessage> {
-  const { data } = await apiClient.post(`/api/messages/group/${groupId}`, { content });
+  const { data } = await apiClient.post(`/messages/group/${groupId}`, { content });
   return data.message;
 }
 

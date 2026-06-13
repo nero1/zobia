@@ -29,12 +29,39 @@ export const JWT_KEY = 'zobia_jwt';
 export const REFRESH_TOKEN_KEY = 'zobia_rt';
 
 // ---------------------------------------------------------------------------
+// Auth event emitter
+// ---------------------------------------------------------------------------
+
+type AuthEventCallback = () => void;
+const unauthCallbacks: AuthEventCallback[] = [];
+
+/**
+ * Register a callback to be invoked when the API client detects that the
+ * session is no longer valid (i.e. token refresh failed).
+ *
+ * @returns Unsubscribe function — call it in a useEffect cleanup.
+ */
+export function onUnauthenticated(cb: AuthEventCallback): () => void {
+  unauthCallbacks.push(cb);
+  return () => {
+    const idx = unauthCallbacks.indexOf(cb);
+    if (idx !== -1) unauthCallbacks.splice(idx, 1);
+  };
+}
+
+function notifyUnauthenticated(): void {
+  unauthCallbacks.forEach((cb) => {
+    try { cb(); } catch {}
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Axios instance
 // ---------------------------------------------------------------------------
 
 /** Shared Axios instance for all Zobia API calls. */
 export const apiClient = axios.create({
-  baseURL: env.API_BASE_URL,
+  baseURL: `${env.API_BASE_URL}/api`,
   timeout: 15_000,
   headers: {
     'Content-Type': 'application/json',
@@ -119,12 +146,13 @@ apiClient.interceptors.response.use(
         return apiClient(originalRequest);
       }
 
-      // Refresh failed — clear credentials and fire global sign-out event
+      // Refresh failed — clear credentials and notify AuthContext
       await Promise.all([
         SecureStore.deleteItemAsync(JWT_KEY),
         SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY),
         SecureStore.deleteItemAsync('zobia_user'),
       ]);
+      notifyUnauthenticated();
     }
 
     return Promise.reject(error);

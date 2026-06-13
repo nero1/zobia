@@ -25,6 +25,7 @@ import { meetsMinimumTrust } from "@/lib/trust/trustScore";
 import { recordWarContribution } from "@/lib/guilds/recordWarContribution";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { redis } from "@/lib/redis";
+import { requirePinVerified } from "@/lib/auth/pinGuard";
 
 // Platform takes 20% of gifts received by creators (PRD §14)
 const CREATOR_GIFT_FEE_PERCENT = 20;
@@ -234,6 +235,18 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     const recipient = recipientRows[0];
+
+    // Check block relationship (both directions) before sending
+    const { rows: blockRows } = await db.query<{ id: string }>(
+      `SELECT id FROM user_blocks
+       WHERE (blocker_id = $1 AND blocked_id = $2)
+          OR (blocker_id = $2 AND blocked_id = $1)
+       LIMIT 1`,
+      [senderId, body.recipientId]
+    );
+    if (blockRows[0]) {
+      throw forbidden("Cannot send a gift to this user", "USER_BLOCKED");
+    }
 
     // 3. Atomic: debit coins and create gift record
     let giftId = "";

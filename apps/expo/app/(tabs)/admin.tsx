@@ -39,7 +39,7 @@ interface AdminQuickStats {
 // ---------------------------------------------------------------------------
 
 async function fetchQuickStats(): Promise<AdminQuickStats> {
-  const { data } = await apiClient.get('/api/admin/overview');
+  const { data } = await apiClient.get('/admin/overview');
   return {
     dau: data.activeUsers ?? 0,
     revenueToday: data.revenue ?? 0,

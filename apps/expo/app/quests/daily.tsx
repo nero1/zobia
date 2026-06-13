@@ -51,7 +51,7 @@ interface DailyQuestsResponse {
 // ---------------------------------------------------------------------------
 
 async function fetchDailyQuests(): Promise<DailyQuestsResponse> {
-  const { data } = await apiClient.get<Record<string, unknown>>('/api/quests/daily');
+  const { data } = await apiClient.get<Record<string, unknown>>('/quests/daily');
   // Map API snake_case fields to the expected Quest interface
   const rawQuests = (data.quests ?? []) as Record<string, unknown>[];
   const quests: Quest[] = rawQuests.map((q) => ({

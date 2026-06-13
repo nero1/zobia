@@ -100,6 +100,9 @@ function baseUsernameFromEmail(email: string): string {
   return email.split("@")[0].toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 20) || "user";
 }
 
+// Maximum username length enforced by the DB schema constraint (BUG-58)
+const DB_USERNAME_MAX_LENGTH = 30;
+
 /** Find a unique username by appending a numeric suffix if the base is taken. */
 async function uniqueUsername(base: string): Promise<string> {
   const { rows } = await db.query<{ username: string }>(
@@ -109,10 +112,13 @@ async function uniqueUsername(base: string): Promise<string> {
   const taken = new Set(rows.map((r) => r.username));
   if (!taken.has(base)) return base;
   for (let i = 2; i < 10_000; i++) {
-    const candidate = `${base}${i}`;
+    const suffix = String(i);
+    const candidate = `${base.slice(0, DB_USERNAME_MAX_LENGTH - suffix.length)}${suffix}`;
     if (!taken.has(candidate)) return candidate;
   }
-  return `${base}${Date.now()}`;
+  // Last-resort fallback: 4-char random suffix, sliced to fit (BUG-58)
+  const suffix = Math.random().toString(36).slice(2, 6); // 4 char suffix
+  return `${base.slice(0, DB_USERNAME_MAX_LENGTH - suffix.length)}${suffix}`;
 }
 
 /** Upsert the user in the database, returning the existing or new record. */

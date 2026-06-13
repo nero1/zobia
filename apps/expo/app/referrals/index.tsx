@@ -55,7 +55,7 @@ interface ReferralData {
 // ---------------------------------------------------------------------------
 
 async function fetchReferrals(): Promise<ReferralData> {
-  const { data } = await apiClient.get<Record<string, unknown>>('/api/referrals');
+  const { data } = await apiClient.get<Record<string, unknown>>('/referrals');
   // API wraps response in { success, data: { referralUrl, referrals, ... } }
   const apiData = ((data.data ?? data) as Record<string, unknown>);
   const rawReferrals = (apiData.referrals ?? []) as Record<string, unknown>[];

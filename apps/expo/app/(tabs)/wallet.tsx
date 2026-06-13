@@ -64,9 +64,9 @@ export default function WalletTab() {
   const load = useCallback(async () => {
     try {
       const [balRes, earningsRes, payoutsRes] = await Promise.all([
-        apiClient.get('/api/economy/coins/balance'),
-        apiClient.get('/api/creator/earnings').catch(() => null),
-        apiClient.get('/api/creator/payouts').catch(() => null),
+        apiClient.get('/economy/coins/balance'),
+        apiClient.get('/creator/earnings').catch(() => null),
+        apiClient.get('/creator/payouts').catch(() => null),
       ]);
 
       const balPayload = balRes.data ?? balRes;

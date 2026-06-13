@@ -89,7 +89,7 @@ const TIER_CONFIG: Record<GuildTier, { label: string; color: string }> = {
 // ---------------------------------------------------------------------------
 
 async function fetchMyGuilds(): Promise<MyGuild[]> {
-  const { data } = await apiClient.get<GuildListResponse>('/api/guilds?mine=true');
+  const { data } = await apiClient.get<GuildListResponse>('/guilds?mine=true');
   return data.guilds ?? [];
 }
 

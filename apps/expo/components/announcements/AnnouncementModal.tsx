@@ -72,7 +72,7 @@ export function AnnouncementModal() {
     (async () => {
       try {
         const { data } = await apiClient.get<{ data: { modal: AnnouncementModalData | null } }>(
-          '/api/announcements/modal',
+          '/announcements/modal',
         );
         const modal = data?.data?.modal;
         if (!modal || cancelled) return;

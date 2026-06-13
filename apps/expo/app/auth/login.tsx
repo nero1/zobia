@@ -164,7 +164,7 @@ export default function LoginScreen() {
     telegramPollRef.current = setInterval(async () => {
       attempts++;
       try {
-        const { data } = await apiClient.get(`/api/auth/telegram/status?state=${state}`);
+        const { data } = await apiClient.get(`/auth/telegram/status?state=${state}`);
         if (data.status === 'approved' && data.token && data.user) {
           stopTelegramPoll();
           await signIn(data.token, data.user as AuthUser);

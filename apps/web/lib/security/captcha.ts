@@ -214,9 +214,9 @@ export async function verifyCaptcha(
     case "turnstile":
       return verifyTurnstile(token, userIp);
     case "none":
-      // No CAPTCHA configured – allow in development, warn in production
       if (process.env.NODE_ENV === "production") {
-        console.warn("[captcha] No CAPTCHA provider configured in production");
+        console.warn("[captcha] No CAPTCHA provider configured in production — blocking request");
+        return false;
       }
       return true;
     default: {

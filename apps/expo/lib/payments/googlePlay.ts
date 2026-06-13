@@ -9,15 +9,15 @@
  *
  * Purchase flow (coins):
  *  1. purchaseCoins() triggers the Google Play billing sheet
- *  2. On success, the purchaseToken is sent to the server for verification
+ *  2. The global listener receives the purchase and calls verifyPurchaseServerSide
  *  3. Server verifies with Google Play Developer API and credits coins
- *  4. finishTransactionAsync() is called to consume the purchase on the client
+ *  4. finishTransactionAsync() is called ONLY after confirmed server credit
  *
  * Purchase flow (subscriptions):
  *  1. purchaseSubscription() triggers the Google Play billing sheet
- *  2. On success, the purchaseToken is sent to the server for verification
+ *  2. The global listener receives the purchase and calls verifyPurchaseServerSide
  *  3. Server verifies with Google Play subscriptions API and activates plan
- *  4. finishTransactionAsync(purchase, false) acknowledges (does not consume)
+ *  4. finishTransactionAsync(purchase, false) acknowledges ONLY after server credit
  */
 
 import { Platform } from 'react-native';
@@ -134,7 +134,7 @@ async function verifyPurchaseServerSide(
       success: boolean;
       coinsGranted: number;
       plan?: string;
-    }>('/api/economy/iap/verify', {
+    }>('/economy/iap/verify', {
       purchaseToken,
       productId,
       packageName,
@@ -151,6 +151,58 @@ async function verifyPurchaseServerSide(
 }
 
 // ---------------------------------------------------------------------------
+// Global purchase resolver map (BUG-10)
+// ---------------------------------------------------------------------------
+
+type PurchaseResolver = (result: { coinsGranted?: number; plan?: string } | null) => void;
+
+/**
+ * Maps productId → pending resolver so a single global listener can dispatch
+ * results to the correct caller without registering/replacing listeners per purchase.
+ */
+const purchaseResolvers = new Map<string, PurchaseResolver>();
+
+/**
+ * Register the single global purchase listener.
+ * Must be called once after connectAsync() succeeds.
+ */
+function setupGlobalPurchaseListener(): void {
+  InAppPurchases.setPurchaseListener(async ({ responseCode, results }) => {
+    if (responseCode === InAppPurchases.IAPResponseCode.OK && results) {
+      for (const purchase of results) {
+        const resolver = purchaseResolvers.get(purchase.productId);
+        if (!resolver || !purchase.purchaseToken) continue;
+
+        // Remove before async work to prevent double-resolution.
+        purchaseResolvers.delete(purchase.productId);
+
+        const isSubscription = SUBSCRIPTION_IDS.includes(purchase.productId);
+
+        // BUG-05: verify server-side FIRST; only consume/acknowledge on success.
+        const verifyResult = await verifyPurchaseServerSide(
+          purchase.purchaseToken,
+          purchase.productId,
+          'com.zobia.app',
+          isSubscription
+        ).catch(() => null);
+
+        if (verifyResult !== null) {
+          // Only finish the transaction after confirmed server credit.
+          try {
+            await InAppPurchases.finishTransactionAsync(purchase, false);
+          } catch (finishErr) {
+            console.warn('[googlePlay] finishTransactionAsync failed:', finishErr);
+          }
+        }
+        // If verifyResult === null we do NOT consume so Play Store can replay it.
+
+        resolver(verifyResult);
+      }
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Initialisation
 // ---------------------------------------------------------------------------
 
@@ -163,6 +215,7 @@ export async function initGooglePlayBilling(): Promise<void> {
   if (Platform.OS !== 'android' || initialised) return;
 
   await InAppPurchases.connectAsync();
+  setupGlobalPurchaseListener();
   initialised = true;
 }
 
@@ -204,10 +257,9 @@ export async function getCoinProducts(): Promise<CoinProduct[]> {
  * Initiate a coin purchase via Google Play.
  *
  * Flow:
- *  1. Opens the Google Play billing sheet for the given product
- *  2. On success, sends the purchaseToken to the server for verification
- *  3. Server credits coins atomically and acknowledges on Google Play API
- *  4. Client calls finishTransactionAsync() to consume the purchase locally
+ *  1. Registers a resolver in the global purchaseResolvers map
+ *  2. Opens the Google Play billing sheet for the given product
+ *  3. Global listener receives the result, verifies server-side, then resolves
  *
  * @param productId   - Play Store product ID (e.g. 'coins_starter')
  * @param packageName - App package name (e.g. 'com.zobia.app')
@@ -223,7 +275,7 @@ export async function purchaseCoins(
   error?: string;
 }> {
   if (Platform.OS !== 'android') {
-    return { success: false, coins: 0, error: 'Google Play only available on Android' };
+    return { success: false, coins: 0, error: 'Android only' };
   }
 
   const product = COIN_PRODUCTS.find((p) => p.id === productId);
@@ -232,51 +284,20 @@ export async function purchaseCoins(
   }
 
   return new Promise((resolve) => {
-    // Set up purchase listener
-    InAppPurchases.setPurchaseListener(async ({ responseCode, results, errorCode }) => {
-      if (responseCode === InAppPurchases.IAPResponseCode.OK && results) {
-        const purchase = results.find((r) => r.productId === productId);
-        if (purchase && purchase.purchaseToken) {
-          // 1. Verify server-side first — this credits the coins
-          const result = await verifyPurchaseServerSide(
-            purchase.purchaseToken,
-            productId,
-            packageName
-          );
-
-          // 2. Finish (consume) the transaction on the client side regardless
-          //    of server verification outcome, to prevent it from being stuck.
-          try {
-            await InAppPurchases.finishTransactionAsync(purchase, false);
-          } catch (finishErr) {
-            console.warn('[googlePlay] finishTransactionAsync failed:', finishErr);
-          }
-
-          if (result !== null) {
-            resolve({
-              success: true,
-              coins: result.coinsGranted,
-              purchaseToken: purchase.purchaseToken,
-            });
-          } else {
-            // Server verification failed — return what Play Store said, but flag the issue
-            resolve({
-              success: false,
-              coins: 0,
-              purchaseToken: purchase.purchaseToken,
-              error: 'Server verification failed — please contact support if coins are missing',
-            });
-          }
-        }
-      } else if (responseCode === InAppPurchases.IAPResponseCode.USER_CANCELED) {
-        resolve({ success: false, coins: 0, error: 'Purchase cancelled' });
+    purchaseResolvers.set(productId, (result) => {
+      if (result !== null) {
+        resolve({ success: true, coins: result.coinsGranted ?? 0 });
       } else {
-        resolve({ success: false, coins: 0, error: `Purchase failed (code ${errorCode})` });
+        resolve({
+          success: false,
+          coins: 0,
+          error: 'Server verification failed — please contact support if coins are missing',
+        });
       }
     });
 
-    // Initiate purchase
     InAppPurchases.purchaseItemAsync(productId).catch((err: Error) => {
+      purchaseResolvers.delete(productId);
       resolve({ success: false, coins: 0, error: err.message });
     });
   });
@@ -326,10 +347,9 @@ export async function getSubscriptionProducts(annual = false): Promise<Subscript
  * Initiate a subscription purchase via Google Play.
  *
  * Flow:
- *  1. Opens the Google Play billing sheet for the subscription product
- *  2. On success, sends the purchaseToken to the server for verification
- *  3. Server verifies via purchases.subscriptions API and activates the plan
- *  4. Client calls finishTransactionAsync(purchase, false) to acknowledge
+ *  1. Registers a resolver in the global purchaseResolvers map
+ *  2. Opens the Google Play billing sheet for the subscription product
+ *  3. Global listener receives the result, verifies server-side, then resolves
  *
  * @param productId   - Subscription product ID (e.g. 'sub_plus_monthly')
  * @param packageName - App package name (e.g. 'com.zobia.app')
@@ -345,7 +365,7 @@ export async function purchaseSubscription(
   error?: string;
 }> {
   if (Platform.OS !== 'android') {
-    return { success: false, error: 'Google Play only available on Android' };
+    return { success: false, error: 'Android only' };
   }
 
   const product =
@@ -356,48 +376,23 @@ export async function purchaseSubscription(
   }
 
   return new Promise((resolve) => {
-    InAppPurchases.setPurchaseListener(async ({ responseCode, results, errorCode }) => {
-      if (responseCode === InAppPurchases.IAPResponseCode.OK && results) {
-        const purchase = results.find((r) => r.productId === productId);
-        if (purchase && purchase.purchaseToken) {
-          // Verify and activate plan server-side
-          const result = await verifyPurchaseServerSide(
-            purchase.purchaseToken,
-            productId,
-            packageName,
-            true // isSubscription
-          );
-
-          // Acknowledge (not consume) the subscription on the client
-          try {
-            await InAppPurchases.finishTransactionAsync(purchase, false);
-          } catch (finishErr) {
-            console.warn('[googlePlay] Subscription finishTransactionAsync failed:', finishErr);
-          }
-
-          if (result !== null) {
-            resolve({
-              success: true,
-              plan: result.plan,
-              coinsGranted: result.coinsGranted,
-              purchaseToken: purchase.purchaseToken,
-            });
-          } else {
-            resolve({
-              success: false,
-              purchaseToken: purchase.purchaseToken,
-              error: 'Server verification failed — please contact support',
-            });
-          }
-        }
-      } else if (responseCode === InAppPurchases.IAPResponseCode.USER_CANCELED) {
-        resolve({ success: false, error: 'Purchase cancelled' });
+    purchaseResolvers.set(productId, (result) => {
+      if (result !== null) {
+        resolve({
+          success: true,
+          plan: result.plan,
+          coinsGranted: result.coinsGranted,
+        });
       } else {
-        resolve({ success: false, error: `Purchase failed (code ${errorCode})` });
+        resolve({
+          success: false,
+          error: 'Server verification failed — please contact support if coins are missing',
+        });
       }
     });
 
     InAppPurchases.purchaseItemAsync(productId).catch((err: Error) => {
+      purchaseResolvers.delete(productId);
       resolve({ success: false, error: err.message });
     });
   });

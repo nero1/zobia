@@ -40,7 +40,7 @@ interface CreateMomentPayload {
 // ---------------------------------------------------------------------------
 
 async function createMoment(payload: CreateMomentPayload) {
-  const { data } = await apiClient.post('/api/moments', payload);
+  const { data } = await apiClient.post('/moments', payload);
   return data;
 }
 

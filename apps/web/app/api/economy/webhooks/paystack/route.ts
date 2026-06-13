@@ -170,6 +170,12 @@ async function processChargeSuccess(
       return;
     }
 
+    // Drop-room entry payment — payment is already marked completed above.
+    // The join route validates payment.status='completed'; no coin credit needed.
+    if (itemType === "room_entry") {
+      return;
+    }
+
     // Re-derive grant amounts server-side from store_items to prevent metadata tampering
     let serverCoinsGranted = coinsGranted ?? 0;
     let serverStarsGranted = starsGranted ?? 0;
@@ -215,7 +221,7 @@ async function processChargeSuccess(
         `Purchased ${metadata.packName}`,
         tx
       );
-    } else {
+    } else if (serverCoinsGranted > 0) {
       await creditCoins(
         userId,
         serverCoinsGranted,

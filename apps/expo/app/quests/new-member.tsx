@@ -79,12 +79,12 @@ const STEP_ICONS: Record<string, string> = {
 // ---------------------------------------------------------------------------
 
 async function fetchQuestProgress(): Promise<QuestProgress> {
-  const { data } = await apiClient.get('/api/quests/new-member');
+  const { data } = await apiClient.get('/quests/new-member');
   return data.data ?? data;
 }
 
 async function claimReward(): Promise<{ coinsGranted: number; xpGranted: number }> {
-  const { data } = await apiClient.post('/api/quests/new-member');
+  const { data } = await apiClient.post('/quests/new-member');
   return data.data ?? data;
 }
 

@@ -289,38 +289,41 @@ export async function checkDeckCompletion(
   date: string,
   db: DatabaseAdapter
 ): Promise<{ deckComplete: boolean; bonusAwarded: boolean; bonusXP: number }> {
-  // Count total quests in the deck vs completed quests
-  const result = await db.query<{
-    total: string;
-    completed_count: string;
-    bonus_already_awarded: boolean;
-  }>(
-    `SELECT
-       COUNT(*) AS total,
-       COUNT(*) FILTER (WHERE uqp.completed = TRUE) AS completed_count,
-       EXISTS (
-         SELECT 1 FROM xp_ledger
-         WHERE user_id = $1 AND source = 'complete_quest_deck'
-           AND metadata->>'date' = $2
-       ) AS bonus_already_awarded
-     FROM user_quest_progress uqp
-     WHERE uqp.user_id = $1 AND uqp.quest_date = $2`,
-    [userId, date]
-  );
+  return db.transaction(async (client) => {
+    // Lock user row to serialize concurrent calls
+    await client.query(`SELECT id FROM users WHERE id = $1 FOR UPDATE`, [userId]);
 
-  const row = result.rows[0];
-  if (!row) return { deckComplete: false, bonusAwarded: false, bonusXP: 0 };
+    // Check quest completion
+    const result = await client.query<{
+      total: string;
+      completed_count: string;
+      bonus_already_awarded: boolean;
+    }>(
+      `SELECT
+         COUNT(*) AS total,
+         COUNT(*) FILTER (WHERE uqp.completed = TRUE) AS completed_count,
+         EXISTS (
+           SELECT 1 FROM xp_ledger
+           WHERE user_id = $1 AND source = 'complete_quest_deck'
+             AND metadata->>'date' = $2
+         ) AS bonus_already_awarded
+       FROM user_quest_progress uqp
+       WHERE uqp.user_id = $1 AND uqp.quest_date = $2`,
+      [userId, date]
+    );
 
-  const total = parseInt(row.total);
-  const completed = parseInt(row.completed_count);
-  const deckComplete = total > 0 && completed >= total;
+    const row = result.rows[0];
+    if (!row) return { deckComplete: false, bonusAwarded: false, bonusXP: 0 };
 
-  if (!deckComplete || row.bonus_already_awarded) {
-    return { deckComplete, bonusAwarded: false, bonusXP: 0 };
-  }
+    const total = parseInt(row.total);
+    const completed = parseInt(row.completed_count);
+    const deckComplete = total > 0 && completed >= total;
 
-  // Award bonus
-  await db.transaction(async (client) => {
+    if (!deckComplete || row.bonus_already_awarded) {
+      return { deckComplete, bonusAwarded: false, bonusXP: 0 };
+    }
+
+    // Award bonus within the locked transaction
     await client.query(
       `UPDATE users SET xp_total = xp_total + $1, updated_at = NOW() WHERE id = $2`,
       [DECK_COMPLETION_BONUS_XP, userId]
@@ -330,9 +333,9 @@ export async function checkDeckCompletion(
        VALUES ($1, $2, 'main', 'complete_quest_deck', $2, $3::jsonb, NOW())`,
       [userId, DECK_COMPLETION_BONUS_XP, JSON.stringify({ date })]
     );
-  });
 
-  return { deckComplete: true, bonusAwarded: true, bonusXP: DECK_COMPLETION_BONUS_XP };
+    return { deckComplete: true, bonusAwarded: true, bonusXP: DECK_COMPLETION_BONUS_XP };
+  });
 }
 
 // ---------------------------------------------------------------------------

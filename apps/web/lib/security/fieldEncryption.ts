@@ -28,13 +28,18 @@ export function encryptField(plaintext: string): string {
  * Decrypt a field encrypted by encryptField.
  * Returns plaintext, or null if the value is not encrypted (legacy plaintext passthrough).
  */
-export function decryptField(ciphertext: string): string {
-  const key = getKey();
-  const buf = Buffer.from(ciphertext, "base64");
-  const iv = buf.subarray(0, IV_LENGTH);
-  const authTag = buf.subarray(IV_LENGTH, IV_LENGTH + AUTH_TAG_LENGTH);
-  const encrypted = buf.subarray(IV_LENGTH + AUTH_TAG_LENGTH);
-  const decipher = createDecipheriv(ALGORITHM, key, iv);
-  decipher.setAuthTag(authTag);
-  return decipher.update(encrypted, undefined, "utf8") + decipher.final("utf8");
+export function decryptField(ciphertext: string): string | null {
+  try {
+    const key = getKey();
+    const buf = Buffer.from(ciphertext, "base64");
+    const iv = buf.subarray(0, IV_LENGTH);
+    const authTag = buf.subarray(IV_LENGTH, IV_LENGTH + AUTH_TAG_LENGTH);
+    const encrypted = buf.subarray(IV_LENGTH + AUTH_TAG_LENGTH);
+    const decipher = createDecipheriv(ALGORITHM, key, iv);
+    decipher.setAuthTag(authTag);
+    return decipher.update(encrypted, undefined, "utf8") + decipher.final("utf8");
+  } catch (err) {
+    console.error("[fieldEncryption] decryptField failed:", (err as Error).message);
+    return null;
+  }
 }

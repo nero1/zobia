@@ -14,9 +14,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
+import { redis } from "@/lib/redis";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, ApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { markPinVerified } from "@/lib/auth/pinGuard";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -54,12 +56,32 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       name: "pin:verify",
     });
 
+    const userId = auth.user.sub;
     const body = await validateBody(req, verifyPinSchema);
+
+    // Check lockout
+    const failKey = `pin_fail:${userId}`;
+    const failures = parseInt(await redis.get(failKey) ?? "0", 10);
+    if (failures >= 20) {
+      return NextResponse.json(
+        { error: "PIN locked: too many failed attempts. Please re-authenticate.", code: "PIN_LOCKED" },
+        { status: 429 }
+      );
+    }
+    if (failures >= 10) {
+      const ttl = await redis.ttl(failKey);
+      if (ttl > 0) {
+        return NextResponse.json(
+          { error: `PIN temporarily locked. Try again in ${Math.ceil(ttl / 60)} minutes.`, code: "PIN_LOCKED" },
+          { status: 429 }
+        );
+      }
+    }
 
     // Fetch the user's stored PIN hash
     const { rows } = await db.query<UserPinRow>(
       `SELECT pin_hash FROM user_pins WHERE user_id = $1 LIMIT 1`,
-      [auth.user.sub]
+      [userId]
     );
 
     if (!rows[0]) {
@@ -68,6 +90,17 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     const verified = await bcrypt.compare(body.pin, rows[0].pin_hash);
+
+    if (!verified) {
+      // On wrong PIN, increment failure counter with escalating lockout
+      const newFailures = await redis.incr(failKey);
+      const lockoutTtl = newFailures >= 20 ? 24 * 3600 : newFailures >= 10 ? 30 * 60 : 5 * 60;
+      await redis.expire(failKey, lockoutTtl);
+    } else {
+      // On success, clear the failure counter and record the verified session
+      await redis.del(failKey);
+      await markPinVerified(userId);
+    }
 
     return NextResponse.json({ verified }, { status: 200 });
   } catch (err) {

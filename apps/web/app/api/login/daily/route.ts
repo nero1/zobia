@@ -95,10 +95,10 @@ export const POST = withAuth(async (req: NextRequest, { auth }: { params: Record
     const yesterday = yesterdayUTC();
     const redisKey = dailyLoginRedisKey(userId, today);
 
-    // Check if already logged in today (idempotency guard)
-    const alreadyLogged = await redis.get(redisKey);
-    if (alreadyLogged !== null) {
-      // Already processed today — return current streak without re-awarding
+    // Set idempotency key atomically BEFORE the transaction (NX ensures only one wins under concurrency)
+    const acquired = await redis.set(redisKey, "1", "EX", DAILY_LOGIN_KEY_TTL_SECONDS, "NX");
+    if (acquired === null) {
+      // Another concurrent request already won the race
       const userResult = await db.query<UserStreakRow>(
         `SELECT login_streak, longest_streak FROM users
          WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
@@ -139,7 +139,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }: { params: Record
         // Consecutive day — extend streak
         newStreak = user.login_streak + 1;
       } else if (lastLogin === today) {
-        // Same day — already counted (shouldn't reach here due to Redis guard, but safety)
+        // Same day — already counted
         newStreak = user.login_streak;
       } else {
         // Gap — reset streak to 1
@@ -147,11 +147,17 @@ export const POST = withAuth(async (req: NextRequest, { auth }: { params: Record
       }
 
       // Calculate XP to award
-      let xpAwarded = BASE_LOGIN_XP;
-      for (const [milestone, bonus] of STREAK_MILESTONES) {
-        if (newStreak === milestone) {
-          xpAwarded += bonus;
-          break;
+      let xpAwarded: number;
+      if (lastLogin === today) {
+        // Defensive: should not reach here due to Redis NX guard above
+        xpAwarded = 0;
+      } else {
+        xpAwarded = BASE_LOGIN_XP;
+        for (const [milestone, bonus] of STREAK_MILESTONES) {
+          if (newStreak === milestone) {
+            xpAwarded += bonus;
+            break;
+          }
         }
       }
 
@@ -184,9 +190,6 @@ export const POST = withAuth(async (req: NextRequest, { auth }: { params: Record
       return { newStreak, xpAwarded, isPersonalBest };
     });
 
-    // Mark today's login in Redis (idempotency key)
-    await redis.set(redisKey, "1", "EX", DAILY_LOGIN_KEY_TTL_SECONDS);
-
     // Process any unclaimed comeback bonus coins (90-day re-engagement)
     let comebackBonusClaimed = 0;
     try {
@@ -210,7 +213,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }: { params: Record
         await creditCoins(
           userId,
           bonus.amount,
-          "comeback_bonus",
+          "comeback_bonus_claimed",
           bonus.id,
           "Comeback bonus claimed on login",
           null

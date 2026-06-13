@@ -19,7 +19,7 @@ import React, {
   type ReactNode,
 } from 'react';
 import * as SecureStore from 'expo-secure-store';
-import { JWT_KEY, REFRESH_TOKEN_KEY } from '@/lib/api/client';
+import { JWT_KEY, REFRESH_TOKEN_KEY, onUnauthenticated } from '@/lib/api/client';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -96,6 +96,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsLoading(false);
       }
     })();
+  }, []);
+
+  // Subscribe to unauthenticated events (triggered when token refresh fails).
+  useEffect(() => {
+    const unsubscribe = onUnauthenticated(() => {
+      setToken(null);
+      setUser(null);
+    });
+    return unsubscribe;
   }, []);
 
   const signIn = useCallback(async (jwt: string, authUser: AuthUser, refreshToken?: string) => {

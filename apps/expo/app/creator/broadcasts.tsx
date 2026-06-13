@@ -64,7 +64,7 @@ interface BroadcastsResponse {
 // ---------------------------------------------------------------------------
 
 async function fetchBroadcasts(): Promise<BroadcastsResponse> {
-  const { data } = await apiClient.get('/api/creator/broadcasts');
+  const { data } = await apiClient.get('/creator/broadcasts');
   return data;
 }
 
@@ -73,7 +73,7 @@ async function sendBroadcast(payload: {
   content: string;
   confirmPayment: boolean;
 }): Promise<{ broadcast: Broadcast; costCoins: number; requiresConfirmation?: boolean }> {
-  const { data } = await apiClient.post('/api/creator/broadcasts', payload);
+  const { data } = await apiClient.post('/creator/broadcasts', payload);
   return data;
 }
 

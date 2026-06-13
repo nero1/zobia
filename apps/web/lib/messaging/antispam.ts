@@ -69,6 +69,10 @@ export const URL_REGEX =
 function stripContactInfo(content: string): string {
   // Order matters: strip URLs first (they may contain @ signs),
   // then emails, then phone numbers.
+  // Reset lastIndex on global regexes before each replace to prevent
+  // stale state from a previous call causing missed matches (BUG-49).
+  URL_REGEX.lastIndex = 0;
+  EMAIL_REGEX.lastIndex = 0;
   return content
     .replace(URL_REGEX, "")
     .replace(EMAIL_REGEX, "")

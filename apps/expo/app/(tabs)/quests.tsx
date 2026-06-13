@@ -67,8 +67,8 @@ export default function QuestsTab() {
   const load = useCallback(async () => {
     try {
       const [dailyRes, memberRes] = await Promise.all([
-        apiClient.get('/api/quests/daily'),
-        apiClient.get('/api/quests/new-member'),
+        apiClient.get('/quests/daily'),
+        apiClient.get('/quests/new-member'),
       ]);
       setDailyQuests(dailyRes.data?.quests ?? dailyRes.quests ?? []);
       const md = memberRes.data ?? memberRes;

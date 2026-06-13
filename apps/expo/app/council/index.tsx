@@ -68,21 +68,21 @@ interface Idea {
 // ---------------------------------------------------------------------------
 
 async function fetchCouncil(): Promise<CouncilData> {
-  const { data } = await apiClient.get('/api/council');
+  const { data } = await apiClient.get('/council');
   return data;
 }
 
 async function fetchIdeas(): Promise<Idea[]> {
-  const { data } = await apiClient.get('/api/council/ideas');
+  const { data } = await apiClient.get('/council/ideas');
   return data.ideas ?? [];
 }
 
 async function voteOnIdea(ideaId: string): Promise<void> {
-  await apiClient.post(`/api/council/ideas/${ideaId}/vote`);
+  await apiClient.post(`/council/ideas/${ideaId}/vote`);
 }
 
 async function submitIdea(payload: { title: string; body: string }): Promise<void> {
-  await apiClient.post('/api/council/ideas', payload);
+  await apiClient.post('/council/ideas', payload);
 }
 
 // ---------------------------------------------------------------------------

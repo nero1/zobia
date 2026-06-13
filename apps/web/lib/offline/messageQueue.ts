@@ -113,12 +113,13 @@ export async function enqueueMessage(
 
 /**
  * Get all pending (unsent) messages, ordered by creation time.
+ * Only returns messages with status === 'pending'.
  */
 export async function getPendingMessages(): Promise<PendingMessage[]> {
   const db = await openDB();
   const store = txStore(db, "readonly");
-  const index = store.index("createdAt");
-  return promisify(index.getAll());
+  const index = store.index("status");
+  return promisify(index.getAll(IDBKeyRange.only("pending")));
 }
 
 /**
@@ -159,4 +160,21 @@ export async function getQueueCounts(): Promise<Record<PendingMessageStatus, num
 export async function clearQueue(): Promise<void> {
   const db = await openDB();
   await promisify(txStore(db, "readwrite").clear());
+}
+
+/**
+ * Reset all 'failed' messages back to 'pending' so they are retried.
+ * Returns the number of messages re-queued.
+ */
+export async function retryFailed(): Promise<number> {
+  const db = await openDB();
+  const store = txStore(db, "readwrite");
+  const index = store.index("status");
+  const failedMessages = await promisify<PendingMessage[]>(
+    index.getAll(IDBKeyRange.only("failed"))
+  );
+  for (const msg of failedMessages) {
+    await promisify(store.put({ ...msg, status: "pending" as PendingMessageStatus, lastAttemptAt: null }));
+  }
+  return failedMessages.length;
 }

@@ -53,17 +53,17 @@ interface MerchStore {
 // ---------------------------------------------------------------------------
 
 async function fetchStores(): Promise<MerchStore[]> {
-  const { data } = await apiClient.get('/api/merch');
+  const { data } = await apiClient.get('/merch');
   return data.stores ?? [];
 }
 
 async function fetchStoreProducts(creatorId: string): Promise<MerchProduct[]> {
-  const { data } = await apiClient.get(`/api/merch/${creatorId}/products`);
+  const { data } = await apiClient.get(`/merch/${creatorId}/products`);
   return data.products ?? [];
 }
 
 async function purchaseProduct(creatorId: string, productId: string): Promise<void> {
-  await apiClient.post(`/api/merch/${creatorId}/products/${productId}/purchase`);
+  await apiClient.post(`/merch/${creatorId}/products/${productId}/purchase`);
 }
 
 // ---------------------------------------------------------------------------

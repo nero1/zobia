@@ -43,7 +43,7 @@ interface AdminMessage {
 // ---------------------------------------------------------------------------
 
 async function fetchInboxMessages(): Promise<AdminMessage[]> {
-  const { data } = await apiClient.get<Record<string, unknown>>('/api/inbox');
+  const { data } = await apiClient.get<Record<string, unknown>>('/inbox');
   // API returns { items: [...], unread_count, limit, offset }
   const rawList = (
     Array.isArray(data) ? data :
@@ -60,7 +60,7 @@ async function fetchInboxMessages(): Promise<AdminMessage[]> {
 }
 
 async function markAsRead(messageId: string): Promise<void> {
-  await apiClient.post(`/api/inbox/${messageId}/read`);
+  await apiClient.post(`/inbox/${messageId}/read`);
 }
 
 // ---------------------------------------------------------------------------

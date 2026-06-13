@@ -72,7 +72,7 @@ function truncate(text: string | null, len = 40): string {
 // ---------------------------------------------------------------------------
 
 async function fetchGroupChats(): Promise<GroupChat[]> {
-  const { data } = await apiClient.get('/api/messages/group');
+  const { data } = await apiClient.get('/messages/group');
   return data.groups ?? [];
 }
 
