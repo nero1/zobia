@@ -1,245 +1,214 @@
-# Zobia Social — Custom Bug & Code Quality Report
+# Zobia Social — Custom Forensic Bug Report
 
-**Generated:** 2026-06-12 at 11:21 PM UTC (Friday)
-**Analyst:** Claude Code (forensic deep-dive, independent — no reliance on prior bug reports)
-**Scope:** `apps/web` (Next.js API + PWA), `apps/expo` (Android), `shared`, DB schema (`db/migrations/001_complete_schema.sql`)
-**Method:** Manual, line-by-line review of economy, auth, security, payments, cron, guild/season engines, webhooks, middleware, and representative client code. Schema cross-checked against query column names. CRON frequency and test files intentionally excluded per instructions.
-
----
-
-## How to read this report
-
-Findings are listed once as a numbered summary, then expanded individually with affected files and recommended fixes. Severities: **CRITICAL** (money loss / account takeover / core feature broken), **HIGH** (security weakness or silently broken feature), **MEDIUM** (incorrect behaviour, degraded feature), **LOW** (smell / robustness / maintainability).
+**Generated:** Saturday, June 13, 2026 — 12:36 AM (UTC)
+**Scope:** Full monorepo — Next.js 15 web app + PWA (`apps/web`), Expo/React-Native Android app (`apps/expo`), shared types, DB schema.
+**Method:** Independent three-pass manual review of the database/auth/economy/payment cores, every money-movement path, the daily CRON, security libraries, the Expo client, and cross-checks against `001_complete_schema.sql`. No reliance on any pre-existing report. CRON-frequency concerns and test files were excluded per instructions.
 
 ---
 
-## Summary list
+## Overall Rating & Review
 
-1. **CRITICAL — ZB-01:** OAuth `redirect` param is unvalidated → access + refresh tokens exfiltrated to attacker URL (account takeover).
-2. **CRITICAL — ZB-02:** Referral commission ledger reference collides (tier1 & tier2 share `reference_id=buyerId`) → unique-index violation rolls back the whole charge webhook → buyer never gets coins; every repeat purchase fails.
-3. **CRITICAL — ZB-03:** Guild-war coin rewards never distributed — all winners share `('war_reward', warId)` violating the unique ledger index on the 2nd member.
-4. **CRITICAL — ZB-04:** Season-end coin rewards never distributed — same `('season_reward', seasonId)` collision across top-10 users.
-5. **CRITICAL — ZB-05:** Monthly plan bonus & 90-day comeback bonus `coin_ledger` inserts omit `NOT NULL` `balance_before`/`balance_after` → always fail → both features silently broken.
-6. **CRITICAL — ZB-06:** `claimPassMilestone` applies the reward even when the claim row already existed (`ON CONFLICT DO NOTHING` not checked) → repeatable coin/XP farming.
-7. **HIGH — ZB-07:** `resolveWar` runs `SELECT … FOR UPDATE` outside any transaction and checks status in a different transaction from the reward writes → concurrent calls double-resolve / double-pay.
-8. **HIGH — ZB-08:** Google login links accounts by email without checking `email_verified` → account takeover via unverified Google email.
-9. **HIGH — ZB-09:** Password reset completion does not invalidate existing sessions.
-10. **HIGH — ZB-10:** Creator Fund metrics query has a cartesian fan-out (`xp_ledger` joined twice) → `xp_earned_30d` is inflated by a factor of the ledger row count → grossly unfair fund distribution.
-11. **HIGH — ZB-11:** Payment status compared against `'success'` but the schema only allows `'completed'` → trust-score payment signal always 0, cron skips real payers, admin revenue under-reports.
-12. **HIGH — ZB-12:** `sanitizeHtml` is regex-based with an unused allow-list → trivially bypassable stored XSS (`<svg onload>`, `<iframe>`, entity-encoded `javascript:`).
-13. **HIGH — ZB-13:** `safeFetch` follows redirects with unbounded recursion (no max-hops) and never enforces `maxResponseBytes` → SSRF redirect loop / memory DoS.
-14. **MEDIUM — ZB-14:** Weekly season snapshot cron queries `seasons.started_at`, which does not exist (column is `starts_at`) → the whole step throws every Sunday.
-15. **MEDIUM — ZB-15:** Re-engagement guild-war context query references non-existent `guild_wars.result`, `.guild_id`, `.ended_at` → always silently fails.
-16. **MEDIUM — ZB-16:** Re-engagement season context queries `seasons.phase`, which does not exist → silently fails.
-17. **MEDIUM — ZB-17:** Ad-revenue MAU auto-enrolment queries `rooms.room_type`, but the column is `type` → silently fails (no room ever auto-enrolled).
-18. **MEDIUM — ZB-18:** `idempotencyKey` is optional on gift-send and coin-transfer → double-tap double-spend when the client omits it.
-19. **MEDIUM — ZB-19:** Refresh-token rotation reuse-detection logs the user out of all devices when a refresh response is lost (common on flaky mobile networks).
-20. **MEDIUM — ZB-20:** `INSUFFICIENT_BALANCE` / `INSUFFICIENT_STAR_BALANCE` thrown by the economy layer are returned as HTTP 500 anywhere callers don't special-case them (`errors.ts` doesn't map the code).
-21. **MEDIUM — ZB-21:** Trust score is never computed for ordinary users → trust-gated actions (send gift, create guild, etc.) are permanently blocked for legitimate accounts.
-22. **MEDIUM — ZB-22:** `claimPassMilestone` coin reward bypasses `coin_ledger` entirely (direct `coin_balance` update, no row lock) → balance/ledger drift.
-23. **MEDIUM — ZB-23:** Creator Fund Day-5 distribution has no idempotency guard → a double cron run double-credits creators.
-24. **LOW — ZB-24:** Telegram login hash comparison is a plain `!==` (not constant-time) despite the comment claiming otherwise.
-25. **LOW — ZB-25:** `decryptField` calls `decipher.update(encrypted)` without an output encoding → possible multibyte corruption across the update/final boundary.
-26. **LOW — ZB-26:** `notifications` table is written with two incompatible shapes (`payload` vs `title/body/metadata`) → UI must guess which is present.
-27. **LOW — ZB-27:** XP is recorded in two parallel tables (`xp_events` and `xp_ledger`) inconsistently → any reconciliation summing one table is wrong.
-28. **LOW — ZB-28:** `middleware.ts` imports `SignJWT` unused; CSP mixes `'strict-dynamic'` with `'unsafe-inline'` + host allow-list (the latter two are ignored by modern browsers).
-29. **LOW — ZB-29:** `transferCoins` computes fee/net before validating the amount is a positive integer (cosmetic ordering).
-30. **LOW — ZB-30:** DM daily-limit check and increment are separate (TOCTOU); the TTL is only set when the counter is first created, so a Redis blip can leave a key without expiry.
-31. **LOW — ZB-31:** Ledger reads `ORDER BY created_at DESC` only → non-deterministic ordering for entries written in the same transaction/timestamp.
-32. **LOW — ZB-32:** Paystack `transfer.failed` webhook passes the un-incremented `retry_count` into `moveToDeadLetterQueue`, mislabelling the recorded retry count.
+**Current state — 6.4 / 10**
+
+The architecture is genuinely strong: clean provider abstractions (DB/Redis/storage/realtime), strictly parameterised SQL (no injection found anywhere), `decimal.js` money arithmetic, append-only ledgers with `SELECT … FOR UPDATE`, partial-unique idempotency indexes, HMAC webhook verification, refresh-token rotation with reuse detection, and DB-backed admin authorization. That foundation is above average for an app this size.
+
+However, the review surfaced a cluster of **shipping-blocker functional bugs** that break paid, money-handling, or core flows end-to-end:
+- Drop-room entry payments cannot complete (webhook crashes on a `0`-coin credit).
+- Roughly **half** of the Expo app's API calls use the wrong URL path and will 404.
+- Offline message sync targets a non-existent endpoint and never retries.
+- Google Play purchases are consumed even when server verification fails (real money loss).
+- The advertised paid-plan XP multiplier is never applied to messaging XP.
+- A weekly leaderboard CRON writes to columns that don't exist.
+
+There are also meaningful security gaps (plaintext TOTP secrets, a regex HTML sanitizer that is bypassable, PIN not enforced on the payout/transfer endpoints it's meant to guard, and an unbounded SSRF response body).
+
+**Projected state after the recommended fixes — 9.0 / 10.** None of the issues are architectural; they are localized defects and a few cross-cutting consistency problems. Once the path convention, the webhook item-type handling, the IAP consume-ordering, and the XP/notification/ledger consistency items are resolved, this becomes a robust, secure platform.
+
+Category breakdown (current → projected):
+- Correctness / functional: 5.5 → 9.0
+- Security: 6.5 → 9.0
+- Structure / maintainability: 8.0 → 9.0
+- Performance / scalability: 7.5 → 8.5
 
 ---
 
-## Detailed findings
+## Summary List (all findings, one line each)
 
-### 1: ZB-01 — Unvalidated OAuth redirect leaks auth tokens (account takeover)
-**FILES:** `apps/web/app/api/auth/google/route.ts`, `apps/web/app/api/auth/google/callback/route.ts`
-**Severity:** CRITICAL
-The initiation route stores the raw `redirect` query param into the `zobia_mobile_redirect` cookie with no validation. The callback then does `new URL(mobileRedirect)` and appends `token`, `refresh_token` and the user payload as query parameters before redirecting the browser there. An attacker who sends a victim a link such as `/api/auth/google?redirect=https://evil.com` receives the victim's **access and refresh tokens** after the victim completes a normal Google login (CSRF state still validates because it is the victim's own browser). **FIX:** Validate the redirect target against a strict allow-list — only permit the app's custom scheme(s) (e.g. `zobia://`, `exp://` for dev) and/or a small set of exact first-party hosts. Reject anything else before setting the cookie *and* again in the callback before redirecting. Prefer delivering tokens to the mobile app via a one-time, server-stored exchange code rather than embedding them in a URL.
+1. **ZBX-01 (Critical):** Drop-room entry payments never complete — webhook crashes calling `creditCoins(…, 0)`; user is charged but can never join.
+2. **ZBX-02 (Critical):** Expo app — ~65 of ~133 `apiClient` calls omit the `/api/` path prefix; with the configured base URL, roughly half the mobile API surface 404s.
+3. **ZBX-03 (Critical):** Expo offline message sync posts to `/api/messages/{id}` (no `/dm/` or `/group/`) — wrong/nonexistent route; failed messages are never retried.
+4. **ZBX-04 (High):** Google Play purchase is consumed/acknowledged even when server verification fails — user pays, coins are lost, token is gone.
+5. **ZBX-05 (High):** Paid-plan XP multiplier is never applied to messaging XP — room/DM messages award flat base XP, nullifying a core monetised perk.
+6. **ZBX-06 (High):** Weekly season-leaderboard CRON (section 5b) INSERT/DELETE references non-existent columns (`season_id`, `xp_total`, `snapshotted_at`) — fails every Sunday.
+7. **ZBX-07 (High):** Daily-login XP can be double-awarded under concurrency — Redis guard is set *after* the transaction (not `NX` before), and the same-day branch doesn't zero the award.
+8. **ZBX-08 (High):** Expo API client wipes credentials on refresh failure but never notifies `AuthContext` (no sign-out event fired) — UI is stuck in a broken authenticated state.
+9. **ZBX-09 (High):** `setPurchaseListener` is registered per-purchase in the Google Play flow — sequential/concurrent purchases cross-fire; non-matching purchases are never finished or resolved (hung promises / stuck purchases).
+10. **ZBX-10 (High):** TOTP secrets are stored in plaintext in `users.totp_secret` — `fieldEncryption` exists but is not applied; DB compromise fully defeats 2FA.
+11. **ZBX-11 (Medium):** PIN is enforced server-side only for bank-account/wallet changes, not for payout/transfer/purchase endpoints — client-side PIN gates are bypassable by direct API call.
+12. **ZBX-12 (Medium):** `safeFetch` enforces the response-size cap only via `Content-Length`; chunked/omitted-length responses are unbounded (memory-exhaustion DoS).
+13. **ZBX-13 (Medium):** SSRF check is TOCTOU/DNS-rebinding-vulnerable — `validateOutboundUrl` resolves DNS, then `fetch()` re-resolves with no IP pinning.
+14. **ZBX-14 (Medium):** Coin transfer & gift-send acquire row locks in sender→recipient order — two opposite simultaneous transfers deadlock (one user gets a 500).
+15. **ZBX-15 (Medium):** Subscription monthly bonus can double-credit — webhook uses `subscription_bonus` while CRON's dedupe checks `monthly_plan_bonus`; also `subscription.create` re-awards on every duplicate webhook.
+16. **ZBX-16 (Medium):** Comeback-bonus "claimed" marker (`comeback_bonus_claimed`) is never written — the claim logic is dead and only the unique index prevents repeat credits (throws daily, swallowed).
+17. **ZBX-17 (Medium):** Two parallel XP audit tables (`xp_events` vs `xp_ledger`) are written by different routes — XP history is fragmented; any single-table read is incomplete.
+18. **ZBX-18 (Medium):** Regex HTML sanitizer's protocol filter is bypassable via HTML entities / embedded control chars (e.g. `java&#9;script:`) — stored-XSS path for announcement HTML.
+19. **ZBX-19 (Medium):** Notifications are written in two incompatible shapes (`payload` vs `title`/`body`/`metadata`); the read API ignores `metadata` and `unreadCount` is capped at the 50 loaded rows.
+20. **ZBX-20 (Medium):** Admin login sets a 30-day refresh-cookie `Max-Age` for a 1-hour admin session — `buildCookieHeaders` is called without the admin `refreshTtl`.
+21. **ZBX-21 (Medium):** 4-digit PIN with a 10/min per-user limit and no lockout — full 10,000 keyspace is brute-forceable in ~16h with a valid session.
+22. **ZBX-22 (Low):** `payouts.attemptTransfer` retry calls `verifyTransfer(idempotency_key)` instead of the `transfer_code` — the pre-retry confirmation always fails; double-pay protection relies solely on Paystack reference dedup.
+23. **ZBX-23 (Low):** Concurrent duplicate IAP submissions surface as a raw 500 (unique-index violation) instead of a clean 409 — idempotency SELECT is outside the credit transaction.
+24. **ZBX-24 (Low):** `geoAnomaly.isPrivateIp` treats *all* `172.*` and `192.*` as private (should be `172.16/12` and `192.168/16`) — weakens IP-anomaly detection with false negatives.
+25. **ZBX-25 (Low):** Pagination `limit` params are `parseInt`-ed with no `NaN` guard across many routes — `?limit=abc` passes `NaN` to Postgres and 500s.
+26. **ZBX-26 (Low):** `getClientIp` x-forwarded-for fallback returns the *rightmost* value (closest proxy / often an internal LB IP), mislabeled as the trusted client IP.
+27. **ZBX-27 (Low):** CSRF origin check exempts the entire `/api/auth/*` prefix — login/logout/refresh have no CSRF protection.
+28. **ZBX-28 (Low):** `media_url`/`thumbnail_url` accept arbitrary external URLs (only `z.string().url()`); the web app has no upload endpoint and the storage abstraction is unused — open-media-URL abuse / no domain allowlist.
+29. **ZBX-29 (Low):** Daily CRON moments-expiry runs a redundant no-op `UPDATE … SET expires_at = expires_at` that locks every expired row before the DELETE.
+30. **ZBX-30 (Low):** CRON 5b badge insert uses `ON CONFLICT (user_id, badge_type, reference_id)` but no such unique constraint exists on `user_badges` — would throw if the (already-broken) snapshot block reached it.
+31. **ZBX-31 (Low):** CAPTCHA verification fails *open* — provider `"none"` (the default, and the DB-error fallback) returns `true` even in production.
+32. **ZBX-32 (Low):** Gift-send and coin-transfer don't check block relationships — a blocked/blocking user can still push gifts/coins to a target.
+33. **ZBX-33 (Low):** Google login links a verified Google email to any pre-existing account with the same email without a confirmation step — edge-case account-linking risk.
+34. **ZBX-34 (Low):** TOTP verification has no replay protection (a code is reusable within its ±1 step window) on the legacy `sessionToken` and admin paths.
 
-### 2: ZB-02 — Referral commission reference collision breaks coin purchases
-**FILES:** `apps/web/lib/referrals/commissions.ts`, `apps/web/app/api/economy/webhooks/paystack/route.ts`, schema `coin_ledger` unique index `uidx_coin_ledger_type_ref`
-**Severity:** CRITICAL
-Both the tier-1 and tier-2 commission credits call `creditCoins(..., "referral_commission", buyerId, ...)`, i.e. identical `(transaction_type, reference_id)`. The partial unique index `(transaction_type, reference_id) WHERE reference_id IS NOT NULL` makes the second insert throw. Because `awardReferralCommissions` runs inside the webhook's `db.transaction`, the violation aborts the whole transaction (the `.catch` swallows the JS error but Postgres has already marked the tx failed), so the payment-completed update, coin credit and creator-fund seed all roll back. The webhook then 500s and Paystack retries forever. This triggers on the **first** purchase of any 2-level referee and on **every repeat** purchase of any referred user. **FIX:** Make each commission reference unique per purchase and per tier, e.g. `reference_id = `referral:${paymentId}:t1`` / `:t2``. Use the payment id (already available as `paymentId`) so retries remain idempotent. Add a regression test for repeat purchases and 2-level chains.
+---
 
-### 3: ZB-03 — Guild-war coin rewards never paid (ledger collision)
-**FILES:** `apps/web/lib/guilds/warEngine.ts` (`distributeWarRewards`)
-**Severity:** CRITICAL
-The loop inserts `('war_reward', warId)` into `coin_ledger` for every winning member. The unique index rejects the second member, aborting the transaction, so **no member is paid** and the gift-retirement/stat updates roll back. **FIX:** Make the reference unique per recipient, e.g. `reference_id = `war:${warId}:${userId}``, or route the credit through `creditCoins(..., tx)` with a per-user reference. Apply the same pattern everywhere multiple users are credited under one event id.
+## Detailed Findings
 
-### 4: ZB-04 — Season-end coin rewards never paid (ledger collision)
-**FILES:** `apps/web/lib/seasons/seasonEngine.ts` (`distributeSeasonRewards`)
-**Severity:** CRITICAL
-Identical root cause to ZB-03: every top-10 winner is inserted as `('season_reward', seasonId)`; the 2nd insert violates the unique index and rolls back the whole distribution (and the season gift retirement). **FIX:** Use `reference_id = `season:${seasonId}:${userId}`` (or per-rank) and prefer `creditCoins`.
+### 1: ZBX-01 — Drop-room entry payments crash the webhook and never complete (Critical)
+**FILES:** `apps/web/app/api/economy/webhooks/paystack/route.ts` (`processChargeSuccess`), `apps/web/app/api/rooms/[roomId]/pay-entry/route.ts`, `apps/web/app/api/rooms/[roomId]/join/route.ts`
+**FIX:** `pay-entry` creates a payment with `metadata.itemType = "room_entry"` and `coinsGranted: 0`. `processChargeSuccess` has no `room_entry` branch — it falls through to the coin path, looks up `store_items` by `packId = roomId` (no row), leaves `serverCoinsGranted = 0`, then calls `creditCoins(userId, 0, …)`, which throws (amount must be a positive integer). The transaction rolls back, the payment stays `pending`, and the webhook 500s on every Paystack retry. The `join` route requires `status='completed'`, so the paying user is permanently locked out while having been charged. Add an explicit `room_entry` branch in `processChargeSuccess` *before* the coin path that marks the payment completed and returns (mirroring `room_subscription`), and harden the coin path to skip crediting when `serverCoinsGranted <= 0` instead of calling `creditCoins(…, 0)`.
 
-### 5: ZB-05 — Monthly plan bonus & comeback bonus inserts violate NOT NULL
-**FILES:** `apps/web/app/api/cron/daily/route.ts` (lines ~824–831 comeback grant, ~1278–1290 monthly plan bonus, ~1343–1349 comeback expiry), schema `coin_ledger`
-**Severity:** CRITICAL
-`coin_ledger.balance_before` and `balance_after` are `BIGINT NOT NULL` with no default, but these three inserts omit them. Every execution throws a NOT NULL violation: the monthly paid-plan coin bonus (Plus/Pro/Max) is **never credited**, and the 90-day comeback bonus grant/expiry are silently broken (their try/catch hides it). **FIX:** Compute and pass `balance_before`/`balance_after` (lock the user row first), or — better — route all of these through `creditCoins`/`debitCoins`, which already handle the ledger correctly and atomically. After the fix, verify the unique-reference rule (ZB-02/03/04) since these run for many users.
+### 2: ZBX-02 — Half the Expo app's API calls use the wrong path prefix (Critical)
+**FILES:** `apps/expo/lib/api/client.ts` (`baseURL = env.API_BASE_URL`), `apps/expo/lib/env.ts` (`API_BASE_URL` default `https://api.zobia.app`), plus ~65 call sites across `apps/expo/app/**` and `apps/expo/components/**`
+**FIX:** `apiClient.baseURL` has no `/api` suffix, and infra calls expect the prefix (`/api/auth/refresh`, `/api/economy/iap/verify`), yet **68 calls start with `/api/` and 65 start with `/` but not `/api/`** (e.g. `/auth/pin/verify`, `/friends`, `/follows/${id}`, `/guilds`, `/leaderboards`, `/merch/*`, `/nemesis`, `/rooms`, `/seasons/current`, `/stickers`, `/users/${id}/profile`, `/messages/conversations/*`). No base-URL value makes both groups resolve — the other ~half always 404s. Standardize on one convention: make all paths relative *without* `/api` and put `/api` in `baseURL` (recommended), or keep `/api/` everywhere; add a wrapper/lint that rejects non-conforming paths, then fix the 65 offenders. Note `/messages/conversations/...` also doesn't match the real `/api/messages/dm/[conversationId]` structure and needs the `conversations`→`dm` correction too.
 
-### 6: ZB-06 — Repeatable season-pass milestone reward claim
-**FILES:** `apps/web/lib/seasons/seasonEngine.ts` (`claimPassMilestone`)
-**Severity:** CRITICAL
-The claim `INSERT … ON CONFLICT (user_id, milestone_id) DO NOTHING` is not checked for an actual insert; the reward (coins / XP / badge) is then applied unconditionally. A user can call the endpoint repeatedly (or concurrently double-submit) and receive the coin/XP reward each time. **FIX:** Use `RETURNING` (or check `rowCount`) and only apply the reward when a row was actually inserted; wrap the read-eligibility, insert, and reward in one transaction with `SELECT … FOR UPDATE` on the pass row.
+### 3: ZBX-03 — Offline message sync posts to a nonexistent route and never retries (Critical)
+**FILES:** `apps/expo/lib/offline/syncQueue.ts`, `apps/expo/lib/offline/sqlite.ts` (`getPendingMessages`, `markMessageFailed`, `retryFailedMessages`)
+**FIX:** `syncQueue` posts to `` `/api/messages/${msg.conversation_id}` `` but the real routes are `/api/messages/dm/[conversationId]` and `/api/messages/group/[groupId]` — there is no `/api/messages/[id]` route, so every queued message 404s and is marked `failed`. `getPendingMessages` only selects `sync_status='pending'`, and `retryFailedMessages()` is never called, so failed messages are stuck permanently. Route by stored conversation type to `/api/messages/dm/${id}` or `/api/messages/group/${id}` (with the prefix from ZBX-02), call `retryFailedMessages()` on reconnect before draining the queue, and add a client idempotency key to each queued message.
 
-### 7: ZB-07 — War resolution is not concurrency-safe (double payout)
-**FILES:** `apps/web/lib/guilds/warEngine.ts` (`resolveWar`)
-**Severity:** HIGH
-`SELECT * FROM guild_wars … FOR UPDATE` is issued via `db.query` (auto-commit), so the row lock is released immediately and provides no protection. The "already resolved" guard and the reward-writing transaction are separate, so two overlapping invocations (cron + manual, or retried cron) can both pass the guard and both award XP/coins/guild-XP. **FIX:** Move the `SELECT … FOR UPDATE` and the status check **inside** the same `db.transaction` that performs the updates, and re-check `status` after acquiring the lock; bail if already `completed`/`cancelled`.
+### 4: ZBX-04 — Google Play purchase consumed even when server verification fails → money loss (High)
+**FILES:** `apps/expo/lib/payments/googlePlay.ts` (`purchaseCoins`, `purchaseSubscription`, `verifyPurchaseServerSide`)
+**FIX:** `verifyPurchaseServerSide` returns `null` on *any* failure (including transient network/5xx), and the listener then calls `finishTransactionAsync(...)` "regardless of server verification outcome." Consuming discards the `purchaseToken`, so a user who paid Google gets no coins and nothing to retry. Only finish/acknowledge after a confirmed server credit; on transient/unknown failure leave the purchase unconsumed so Google Play replays it next launch (the server credit is idempotent via the unique `coin_ledger` ref). Distinguish "definitively invalid" (consume) from "transient" (keep) using the server status code.
 
-### 8: ZB-08 — Google account linking ignores email_verified
-**FILES:** `apps/web/lib/auth/google.ts`, `apps/web/app/api/auth/google/callback/route.ts` (`upsertGoogleUser`)
-**Severity:** HIGH
-`fetchGoogleUserProfile` returns `emailVerified`, but `upsertGoogleUser` links a Google identity to a pre-existing email account without checking it. Combined with any path that creates accounts by email, this is a classic account-linking takeover vector. **FIX:** Reject (or route to a manual verification flow) when `email_verified !== true` before linking a Google id to an existing email-based account.
+### 5: ZBX-05 — Paid-plan XP multiplier never applied to messaging XP (High)
+**FILES:** `apps/web/app/api/rooms/[roomId]/messages/route.ts`, `apps/web/app/api/messages/dm/route.ts`, `apps/web/app/api/messages/dm/[conversationId]/route.ts` (plus the 21-vs-15 split of inline-XP vs engine-using routes)
+**FIX:** Per PRD §6 the plan multiplier (1×/1.5×/3×/5×) applies to messaging XP, but message routes award flat base XP and write `multiplier=1` to `xp_ledger` without calling `applyMultipliers`/`calculateFinalXP`. A Max-plan user gets the same messaging XP as a free user — the headline paid perk is inert (guild/season-pass boosts are skipped too). Route all XP awards through a single `awardXp()` helper that calls `calculateFinalXP(action, ctx)` with the user's plan/guild/season-pass context and persists the real `multiplier`/`base_amount` (this also fixes ZBX-17).
 
-### 9: ZB-09 — Password reset does not revoke sessions
-**FILES:** `apps/web/app/api/auth/password-reset/route.ts` (PATCH), `apps/web/lib/auth/session.ts` (`invalidateAllSessions`)
-**Severity:** HIGH
-After setting a new password hash, existing sessions remain valid, so a compromised/old session survives a reset. `invalidateAllSessions` already exists for exactly this. **FIX:** Call `invalidateAllSessions(userId)` inside the reset transaction (or immediately after) so all access/refresh tokens are revoked.
+### 6: ZBX-06 — Weekly season leaderboard CRON writes to columns that don't exist (High)
+**FILES:** `apps/web/app/api/cron/daily/route.ts` (section 5b "Weekly Season Leaderboard Snapshot"), `apps/web/db/migrations/001_complete_schema.sql` (`leaderboard_rank_snapshots`)
+**FIX:** The table is `(id, user_id, scope, rank, xp, snapped_at)` with `UNIQUE(user_id, scope)`. Section 5b's `DELETE … WHERE season_id = $1` and `INSERT … (user_id, scope, season_id, rank, xp_total, snapshotted_at)` reference `season_id`, `xp_total`, and `snapshotted_at`, none of which exist — both statements throw every Sunday (swallowed into `errors`), so the snapshot and its `season_top100_frame` badge block never run. Either add `season_id` + a `UNIQUE(user_id, scope, season_id)` and alias the columns, or rewrite 5b to the real columns (`xp`, `snapped_at`) encoding season scope inside `scope`. Reconcile with the correctly-written section 14 so both writers agree.
 
-### 10: ZB-10 — Creator Fund engagement metric inflated by join fan-out
-**FILES:** `apps/web/lib/creator/fund.ts` (`calculateFundDistributions`)
-**Severity:** HIGH
-The query LEFT JOINs `xp_ledger xl`, `follows f`, `sponsored_quest_applications qa`, and a **second** `xp_ledger xl2`, then `SUM(xl.amount)`. Because multiple one-to-many joins form a cartesian product and `SUM` is not `DISTINCT`-protected, `xp_earned_30d` is multiplied by the number of joined rows (notably by the count of `xl2` rows). The engagement dimension (40% weight) is therefore wildly wrong, skewing the entire distribution toward whoever has the most ledger rows. **FIX:** Compute each aggregate in its own subquery/CTE (one row per user) and join those, or use `SUM(DISTINCT …)` only where mathematically valid. Remove the duplicate `xl2` self-join (use `COUNT(DISTINCT xl.created_at::date)` over the single `xl`).
+### 7: ZBX-07 — Daily-login XP double-award under concurrency (High)
+**FILES:** `apps/web/app/api/login/daily/route.ts`
+**FIX:** The idempotency key is set with `redis.set(redisKey,"1","EX",…)` *after* the transaction, not `NX` before it. Two near-simultaneous requests both pass the initial `redis.get === null` check and both run the transaction; the `FOR UPDATE` only serializes them, and the second's `lastLogin === today` branch keeps the streak but does **not** zero `xpAwarded`, so it credits another 50 XP. Set `redis.set(redisKey,"1","EX",ttl,"NX")` *before* the transaction and bail when it returns `null`; defensively set `xpAwarded = 0` whenever `lastLogin === today`.
 
-### 11: ZB-11 — Wrong payment status literal (`'success'` vs `'completed'`)
-**FILES:** `apps/web/lib/trust/trustScore.ts` (line ~151), `apps/web/app/api/cron/daily/route.ts` (line ~1221), `apps/web/app/api/admin/overview/route.ts` (lines ~152/159/166)
-**Severity:** HIGH
-`payments.status` is constrained to `('pending','processing','completed','failed','refunded')` — `'success'` is impossible. Every query filtering `status = 'success'` returns nothing: trust scores never credit payment history, the daily trust-recompute never selects paying users, and admin revenue/overview figures under-report. **FIX:** Replace `'success'` with `'completed'` in all four locations; grep the codebase for other `'success'` status comparisons.
+### 8: ZBX-08 — Expo client clears credentials on refresh failure but never signs out (High)
+**FILES:** `apps/expo/lib/api/client.ts` (response interceptor), `apps/expo/lib/auth/context.tsx`
+**FIX:** On failed refresh the interceptor deletes SecureStore keys and comments "fire global sign-out event," but emits nothing and `AuthContext` has no listener; the in-memory `user`/`token` stay set, so the app keeps showing authenticated screens while every request fails until a cold restart. Add a small event bus or a registered `onUnauthenticated` callback that the `AuthProvider` subscribes to, and have the interceptor invoke it after clearing storage so `signOut()` runs and the router redirects to login.
 
-### 12: ZB-12 — Regex HTML sanitizer is bypassable (stored XSS)
-**FILES:** `apps/web/lib/security/htmlSanitizer.ts`
-**Severity:** HIGH
-`ALLOWED_TAGS`/`ALLOWED_ATTRS` are declared but never used; `sanitizeHtml` only strips `<script>`, `<style>`, and whitespace-prefixed `on*=`/`javascript:` patterns. Disallowed tags (`<iframe>`, `<object>`, `<svg>`, `<math>`, `<base>`) pass through, and handlers using `/` separators (`<svg/onload=…>`) or HTML-entity-encoded `javascript:` bypass the regexes. Anywhere this output is rendered as HTML (announcements, community notes) is an XSS sink. **FIX:** Replace with a vetted allow-list sanitizer (`sanitize-html` server-side, or `DOMPurify` via `jsdom`) that actually enforces the tag/attribute allow-list and URL-scheme checks.
+### 9: ZBX-09 — Per-purchase `setPurchaseListener` causes cross-fire and hung promises (High)
+**FILES:** `apps/expo/lib/payments/googlePlay.ts` (`purchaseCoins`, `purchaseSubscription`)
+**FIX:** Each call installs a fresh listener whose closure filters by *that* `productId`; a later purchase's listener replaces the earlier one, so when the earlier purchase resolves the active listener's `results.find(...)` misses — it neither resolves the promise nor finishes the transaction (purchase hangs, stays unconsumed, later replayed). Register one global listener at init that resolves pending purchases via a `Map<productId|orderId, resolver>` and always finishes processed transactions; have the purchase functions register/await a resolver instead of re-installing the listener.
 
-### 13: ZB-13 — safeFetch redirect loop & unbounded response
+### 10: ZBX-10 — TOTP secrets stored in plaintext (High)
+**FILES:** `apps/web/app/api/auth/2fa/setup/route.ts`, `apps/web/app/api/auth/2fa/verify/route.ts`, `apps/web/app/api/admin/auth/totp/route.ts`, `apps/web/app/api/admin/auth/totp/setup/route.ts`, `apps/web/lib/security/fieldEncryption.ts` (present but unused for TOTP)
+**FIX:** `users.totp_secret` is written/read as plaintext Base32 while bank PII is already AES-256-GCM encrypted via `encryptField`/`decryptField`. A DB read (backup leak, insider, SQLi elsewhere) yields working 2FA seeds for every user/admin. Encrypt `totp_secret` with `encryptField` on write and `decryptField` on read in all TOTP routes, migrate existing rows, and confirm the encryption key env var is set. Consider hashing recovery codes too.
+
+### 11: ZBX-11 — PIN not enforced server-side on payout/transfer/purchase endpoints (Medium)
+**FILES:** `apps/web/app/api/creator/payouts/route.ts`, `apps/web/app/api/economy/coins/transfer/route.ts`, `apps/web/app/api/economy/gifts/send/route.ts`, `apps/web/app/api/economy/store/*`; PIN is checked only in `creator/bank-account/route.ts` and `creator/wallet-address/route.ts`; Expo gates client-side in `app/economy/store.tsx`, `app/creator/dashboard.tsx`
+**FIX:** The PIN guards changing the payout destination (good) but the payout-initiation, transfer, gift, and store endpoints accept any valid session token without PIN proof, so the client-side prompts are advisory and a stolen token can move funds directly. Decide which actions require the PIN and enforce it server-side, ideally via a short-lived "PIN-verified" claim (signed nonce or `pin_ok:{uid}` Redis key with a few-minutes TTL) minted by `/auth/pin/verify` and required by the sensitive mutations — not a bare boolean the client can skip.
+
+### 12: ZBX-12 — `safeFetch` response-size cap not enforced on chunked responses (Medium)
 **FILES:** `apps/web/lib/security/ssrf.ts` (`safeFetch`)
-**Severity:** HIGH
-`safeFetch` recurses on every 3xx with no maximum-redirect counter, so a malicious endpoint that 302-loops causes unbounded recursion. The documented `maxResponseBytes` option is never enforced, so a large response can exhaust memory. **FIX:** Add a redirect-hop limit (e.g. ≤5) threaded through the recursion, and enforce `maxResponseBytes` by streaming/capping the body (`Content-Length` check plus a bounded reader). Also note the inherent TOCTOU between the DNS check and `fetch` re-resolving — consider resolving once and connecting to the validated IP, or use an egress proxy/allow-list for production.
+**FIX:** The size guard only inspects `Content-Length`; a server can omit it (chunked) and stream unbounded data — the comment claims an "actual body size" check that doesn't exist. Used for link-preview/manifest/admin-URL fetches, this is a memory-exhaustion DoS. Read the body through a size-counting stream reader and abort with `SSRFError` once `maxResponseBytes` is exceeded, instead of trusting the header.
 
-### 14: ZB-14 — Weekly season snapshot uses non-existent column `started_at`
-**FILES:** `apps/web/app/api/cron/daily/route.ts` (step "5b", line ~225/263)
-**Severity:** MEDIUM
-`SELECT id, name, started_at FROM seasons …` — the column is `starts_at`. The query throws and the entire weekly snapshot/top-100-frame step is recorded as an error and never runs. **FIX:** Use `starts_at` (and alias if downstream code reads `started_at`).
+### 13: ZBX-13 — SSRF DNS-rebinding / TOCTOU (Medium)
+**FILES:** `apps/web/lib/security/ssrf.ts` (`validateOutboundUrl`, `isHostnameResolvingToPrivateIp`, `safeFetch`)
+**FIX:** `validateOutboundUrl` resolves the hostname and rejects private results, but `safeFetch` then calls `fetch(url)` which re-resolves independently, letting attacker DNS answer "public" for validation and "private" (e.g. `169.254.169.254`) for the fetch; only `resolve4` is checked so IPv6 rebinding is unguarded too. Resolve once, validate the resolved IP(s) for both A and AAAA, and pin the connection to that IP (custom lookup/agent or fetch-by-IP with the original `Host`), re-validating on every redirect hop.
 
-### 15: ZB-15 — Re-engagement guild-war context queries non-existent columns
-**FILES:** `apps/web/app/api/cron/daily/route.ts` (step 11, lines ~846–854)
-**Severity:** MEDIUM
-The query selects `gw.result`, joins on `gw.guild_id`, and orders by `gw.ended_at`, none of which exist on `guild_wars` (it has `challenger_guild_id`/`defender_guild_id`, `winner_guild_id`, `ends_at`). The `try/catch` hides the failure, so 7-day-inactive users never get guild-war personalisation. **FIX:** Rewrite using real columns: join through `guild_members` to the user's guild, match `challenger_guild_id`/`defender_guild_id`, derive win/loss from `winner_guild_id`, and order by `ends_at`.
+### 14: ZBX-14 — Lock-ordering deadlock in coin transfer / gift send (Medium)
+**FILES:** `apps/web/lib/economy/coins.ts` (`transferCoins`), `apps/web/app/api/economy/coins/transfer/route.ts`, `apps/web/app/api/economy/gifts/send/route.ts`
+**FIX:** Both flows debit the sender (locks sender row) then credit the recipient (locks recipient row); two simultaneous opposite operations (A→B and B→A) acquire locks in opposite order and deadlock, surfacing as a 500. Lock the two user rows in a deterministic order (e.g. ascending `id`) before mutating either balance regardless of direction, and optionally retry once on SQLSTATE `40P01`.
 
-### 16: ZB-16 — Re-engagement season context queries non-existent `phase`
-**FILES:** `apps/web/app/api/cron/daily/route.ts` (step 11, lines ~878–883)
-**Severity:** MEDIUM
-`SELECT phase, name FROM seasons …` — there is no `phase` column; phase is computed in code (`getSeasonPhase`). The query throws (caught), so 14-day-inactive users get no season context. **FIX:** Select `starts_at, ends_at, name` and compute the phase via `getSeasonPhase`.
+### 15: ZBX-15 — Subscription monthly bonus can double-credit (Medium)
+**FILES:** `apps/web/app/api/economy/webhooks/paystack/route.ts` (`processSubscriptionEvent`), `apps/web/app/api/cron/daily/route.ts` (section 21), `apps/web/app/api/economy/iap/verify/route.ts` (`verifyAndActivateSubscription`)
+**FIX:** The webhook awards `subscription_bonus` keyed on `subscription_code`; the day-1 CRON awards `monthly_plan_bonus` and dedupes only against `monthly_plan_bonus` — so subscribing on the 1st yields both. Also `subscription.create` awards on every delivery of that event (Paystack may resend), prevented only by the `(transaction_type, reference_id)` unique index, which throws a raw 500 on collision. Pick one authoritative monthly-bonus path and dedupe across both transaction types for the period (e.g. key `monthly_plan_bonus` as `plan:{userId}:{YYYY-MM}`); make `subscription.create` swallow the unique violation as "already processed."
 
-### 17: ZB-17 — Ad-revenue MAU enrolment uses non-existent `rooms.room_type`
-**FILES:** `apps/web/app/api/cron/daily/route.ts` (step 25, line ~1537)
-**Severity:** MEDIUM
-The rooms table column is `type` (CHECK in `('free_open','vip','drop','tipping','classroom','guild')`), not `room_type`. The query is wrapped in `.catch(() => ({rows:[]}))`, so it silently returns nothing and no room is ever auto-enrolled into ad revenue share. **FIX:** Use `r.type = 'free_open'`.
+### 16: ZBX-16 — Comeback-bonus "claimed" marker is never written (Medium)
+**FILES:** `apps/web/app/api/login/daily/route.ts`, `apps/web/app/api/cron/daily/route.ts` (sections 11/22)
+**FIX:** The login route credits claimed bonuses with `transaction_type='comeback_bonus'`, but both the claim's `NOT EXISTS` guard and the expiry CRON look for `transaction_type='comeback_bonus_claimed'`, which nothing ever inserts. The claim re-selects the reserved bonus on every login and only the unique index stops a repeat credit (throwing a swallowed error daily); expiry instead leans on `last_active_at`. Write an explicit `comeback_bonus_claimed` ledger row (or a `claimed_at` flag) in the same transaction as the credit and have both guards test it. Also time-scope the reservation reference (`comeback:{userId}` permanently blocks a second lifetime comeback).
 
-### 18: ZB-18 — Optional idempotency key allows double-spend
+### 17: ZBX-17 — Fragmented XP audit trail across `xp_events` and `xp_ledger` (Medium)
+**FILES:** `apps/web/app/api/economy/gifts/send/route.ts` & `economy/coins/transfer/route.ts` (write `xp_events`), ~29 routes write `xp_ledger`; readers split 8 (`xp_ledger`) vs 1 (`xp_events`)
+**FIX:** Two append-only XP tables are populated by different features, so any history/analytics/reconciliation reading one silently misses the other and totals won't match `users.xp_total`. Consolidate onto one canonical ledger (recommend `xp_ledger`, which carries `multiplier`/`base_amount`), migrate `xp_events`, repoint the gift/transfer routes, and funnel all writes through the single `awardXp()` helper from ZBX-05.
+
+### 18: ZBX-18 — Regex HTML sanitizer protocol filter is bypassable (Medium)
+**FILES:** `apps/web/lib/security/htmlSanitizer.ts`; consumers `apps/web/app/api/admin/announcements/{banners,modals}/**`; renderers `apps/web/components/announcements/AnnouncementBanner.tsx`, `AnnouncementModal.tsx`
+**FIX:** `DANGEROUS_PROTOCOLS` is tested against the raw value, but browsers ignore embedded tabs/newlines and decode entities in URL schemes, so `href="java&#9;script:alert(1)"` (or a literal tab) passes the filter yet executes — stored XSS rendered to all users via `dangerouslySetInnerHTML`. Replace the hand-rolled regex with a vetted sanitizer (`sanitize-html`/DOMPurify); if not possible, decode entities and strip control chars before the scheme test and allow only an explicit scheme allowlist (`http`/`https`/`mailto`). Add `rel="noopener noreferrer"` for `target=_blank`.
+
+### 19: ZBX-19 — Inconsistent notification shapes; read API drops `metadata` and miscounts unread (Medium)
+**FILES:** notification writers across `apps/web/app/api/**` (some insert `payload`, others `title`/`body`/`metadata`), `apps/web/app/api/economy/webhooks/paystack/route.ts` (both in one file), `apps/web/app/api/notifications/route.ts`
+**FIX:** The table carries both `payload` and `title`/`body`/`metadata`, populated inconsistently, so one renderer can't reliably display every notification; the GET endpoint never selects `metadata` and computes `unreadCount` from only the 50 loaded rows. Standardize on one content shape (recommend structured `payload` + optional `title`/`body`), backfill, update all writers, select all needed fields in the read API, and compute `unreadCount` with a dedicated `COUNT(*) WHERE is_read=false`.
+
+### 20: ZBX-20 — Admin refresh cookie outlives the 1-hour admin session (Medium)
+**FILES:** `apps/web/app/api/admin/auth/totp/route.ts`, `apps/web/lib/auth/session.ts` (`buildCookieHeaders`)
+**FIX:** `createSession({ adminSession: true })` stores a 1-hour refresh session in Redis, but the login calls `buildCookieHeaders(tokens)` without the admin `refreshTtl`, so the browser keeps the refresh cookie 30 days (access still expires at 1h since Redis is authoritative, but the cookie lifetime contradicts the intent and the function's own documented warning). Pass `ADMIN_REFRESH_TOKEN_TTL_SECONDS` as the third arg to `buildCookieHeaders` in the admin TOTP login, as the refresh route already does.
+
+### 21: ZBX-21 — 4-digit PIN brute-forceable with no lockout (Medium)
+**FILES:** `apps/web/app/api/auth/pin/verify/route.ts`, `apps/web/app/api/auth/pin/setup/route.ts`
+**FIX:** The PIN space is 10,000 and the limiter allows 10/min per user with no escalating lockout, exhausting the space in ~16h for anyone holding a valid session. Add an escalating per-user lockout (exponential cooldown after a few failures; require re-auth/2FA after N), tracked in Redis, and consider 6-digit PINs. Combine with ZBX-11 so the PIN actually gates sensitive actions.
+
+### 22: ZBX-22 — Payout retry verifies the wrong Paystack identifier (Low)
+**FILES:** `apps/web/lib/payments/payouts.ts` (`attemptTransfer`), `apps/web/lib/payments/paystack.ts` (`verifyTransfer`)
+**FIX:** On retry the code calls `verifyTransfer(payout.idempotency_key)`, but `GET /transfer/:id_or_code` expects the `transfer_code`/numeric id, not your reference — so the lookup always errors and the catch re-initiates, defeating the pre-retry confirmation. Double-payment is prevented only by Paystack rejecting a duplicate `reference`. Verify by the stored `provider_reference` (the `transfer_code`), falling back to the reference only when no code is recorded, restoring the intended confirm-before-reinitiate guard.
+
+### 23: ZBX-23 — Concurrent duplicate IAP returns 500 instead of 409 (Low)
+**FILES:** `apps/web/app/api/economy/iap/verify/route.ts`
+**FIX:** Idempotency is a `SELECT … coin_ledger WHERE reference_id` *outside* the `creditCoins` transaction; two concurrent submissions of the same `purchaseToken` both pass the SELECT and the second's insert hits the partial unique index, throwing a raw Postgres 500 (no double-credit, but poor UX/noisy logs). Catch SQLSTATE `23505` from `creditCoins` and translate it to the clean 409 `PURCHASE_ALREADY_PROCESSED`, or move the idempotency check inside the credit transaction.
+
+### 24: ZBX-24 — Over-broad private-IP test weakens geo-anomaly detection (Low)
+**FILES:** `apps/web/lib/security/geoAnomaly.ts` (`isIpAnomalous`)
+**FIX:** `isPrivate` flags any first octet of `172` or `192` as private, but only `172.16.0.0–172.31.255.255` and `192.168.0.0/16` are private, so legitimate public IPs in those ranges are skipped (false negatives) and never flagged. Compare full CIDR ranges using integer math like `ssrf.ts` already does, rather than first-octet equality.
+
+### 25: ZBX-25 — Pagination `parseInt` 500s on non-numeric input (Low)
+**FILES:** e.g. `apps/web/app/api/economy/gifts/route.ts`, `apps/web/app/api/moments/route.ts`, `apps/web/app/api/inbox/route.ts`, and many `Math.min(parseInt(searchParams...), MAX)` sites
+**FIX:** `Math.min(parseInt("abc"), 100)` is `NaN`, which errors at the driver when bound to a SQL param → 500 on `?limit=abc`. Add a shared `parsePositiveInt(value, default, max)` (or a `z.coerce.number().int().min(1).max(...)` query schema) and use it everywhere pagination/limit params are read.
+
+### 26: ZBX-26 — `getClientIp` fallback trusts the wrong x-forwarded-for entry (Low)
+**FILES:** `apps/web/lib/security/rateLimit.ts` (`getClientIp`)
+**FIX:** When `x-vercel-forwarded-for`/`x-real-ip` are absent the fallback returns the *rightmost* x-forwarded-for hop (closest proxy / often an internal LB IP), which the comment mislabels as the trusted client IP — bucketing many clients under one IP on non-Vercel hosts. Make the trusted-proxy depth explicit (take the Nth-from-right hop), or require `x-real-ip` and treat its absence as `unknown`.
+
+### 27: ZBX-27 — Auth endpoints exempt from CSRF origin check (Low)
+**FILES:** `apps/web/middleware.ts` (`isCsrfSafe`, `PUBLIC_PREFIXES` includes `/api/auth`)
+**FIX:** The Origin check runs only for non-public `/api/` paths; since `/api/auth/*` is public, login/logout/refresh skip it, enabling logout-CSRF and login-CSRF. Apply the Origin/Referer check to the state-changing `/api/auth/*` POSTs while still allowing OAuth `GET` callbacks, or add CSRF tokens to those forms.
+
+### 28: ZBX-28 — Unrestricted client-supplied media URLs; storage abstraction unused on web (Low)
+**FILES:** `apps/web/app/api/moments/route.ts` (`media_url`/`thumbnail_url` = `z.string().url()`), `apps/web/lib/storage/**` (imported by no `app/`/`components/` code)
+**FIX:** Media is accepted as an arbitrary URL with no allowlist (hotlinking, tracking-pixel injection, unmoderatable content), and the S3/R2 adapters are never wired into a web upload path. Restrict `media_url`/`thumbnail_url` to the configured storage/CDN host(s), or add a signed-upload endpoint using the existing storage adapters and persist only keys you control, validating content-type/size at upload.
+
+### 29: ZBX-29 — Redundant no-op UPDATE locks all expired moments before deletion (Low)
+**FILES:** `apps/web/app/api/cron/daily/route.ts` (section 7)
+**FIX:** Before deleting expired moments the CRON runs `UPDATE moments SET expires_at = expires_at WHERE expires_at < NOW()` whose result is unused, locking/writing every expired row for no effect before the DELETE. Remove the no-op UPDATE and report the deleted count from the DELETE's `RETURNING`/`rowCount`.
+
+### 30: ZBX-30 — `ON CONFLICT` target without a matching constraint on `user_badges` (Low)
+**FILES:** `apps/web/app/api/cron/daily/route.ts` (section 5b `season_top100_frame` insert), `apps/web/db/migrations/001_complete_schema.sql` (`user_badges`)
+**FIX:** The badge insert uses `ON CONFLICT (user_id, badge_type, reference_id)`, but the only unique index is `(user_id, badge_key) WHERE badge_key IS NOT NULL`, so Postgres raises "no unique or exclusion constraint matching the ON CONFLICT specification." It's masked today only because 5b already fails earlier (ZBX-06). Standardize badge idempotency on `badge_key` (`ON CONFLICT (user_id, badge_key)`), or add a unique index on `(user_id, badge_type, reference_id)` if that's the intended key.
+
+### 31: ZBX-31 — CAPTCHA verification fails open in production (Low)
+**FILES:** `apps/web/lib/security/captcha.ts` (`verifyCaptcha`, `resolveProvider`)
+**FIX:** Provider `"none"` — the default and the fallback when the manifest read throws — returns `true` (only a prod warning), so degrading the manifest lookup or a misconfig silently disables bot protection on signup/login. Treat "provider not configured" as a hard fail on protected endpoints in production (return `false`) and fail closed when the manifest read errors; also enforce a real reCAPTCHA score when `score` is undefined for v3.
+
+### 32: ZBX-32 — Gifts/transfers ignore block relationships (Low)
 **FILES:** `apps/web/app/api/economy/gifts/send/route.ts`, `apps/web/app/api/economy/coins/transfer/route.ts`
-**Severity:** MEDIUM
-`idempotencyKey` is optional in both schemas. When the client omits it, nothing prevents a rapid double-submit (the `apiWrite` limit is 60/min) from sending two gifts / two transfers. **FIX:** Require `idempotencyKey` for all value-moving endpoints, and reject requests without it; or derive a server-side dedup key (sender + recipient + amount + short time bucket).
+**FIX:** Neither flow checks whether the recipient has blocked the sender (or vice-versa), so a blocked user can still push gifts/coins plus an attached message/room event — a harassment vector that bypasses the block UX. Before debiting, check the block relationship both directions and reject with a 403 (`USER_BLOCKED`).
 
-### 19: ZB-19 — Refresh-token rotation causes spurious global logout
-**FILES:** `apps/web/lib/auth/session.ts` (`refreshAccessToken`), `apps/web/app/api/auth/refresh/route.ts`, `apps/expo/lib/api/client.ts`
-**Severity:** MEDIUM
-Each refresh rotates the token and stores the new hash; if the response is lost (common on mobile), the client retries with the old token, the hash mismatches, and `invalidateAllSessions` logs the user out everywhere. **FIX:** Add a short grace window — keep the previous token hash valid for a few seconds, or only treat reuse as malicious if the *old* token is presented *after* the new one has already been used. Make refresh idempotent for the immediately-previous token.
+### 33: ZBX-33 — Google email auto-links to any existing same-email account (Low)
+**FILES:** `apps/web/app/api/auth/google/callback/route.ts` (`upsertGoogleUser`)
+**FIX:** With no `google_id` match, a verified Google email is linked to any non-deleted account sharing that email with no confirmation; if that account's email was set via a weakly-verified path, this enables edge-case linking/takeover. Require an explicit "link account" confirmation (or only auto-link when the existing account's email was itself verified). Also include `is_banned, is_suspended, deleted_at` in the new-user INSERT `RETURNING` (currently omitted, leaving them `undefined` on the returned row).
 
-### 20: ZB-20 — Insufficient-balance errors surface as HTTP 500
-**FILES:** `apps/web/lib/api/errors.ts` (`handleApiError`), `apps/web/lib/economy/coins.ts`, `apps/web/lib/economy/stars.ts`, plus any debit caller not special-casing the code (e.g. DM cost, room powers)
-**Severity:** MEDIUM
-`debitCoins`/`debitStars` throw a plain `Error` with `code = INSUFFICIENT_BALANCE`/`INSUFFICIENT_STAR_BALANCE` but **no** `statusCode`. `handleApiError` only maps `ApiError`, `ZodError`, and errors carrying `statusCode`, so these become generic 500s wherever the route doesn't manually catch them (gift-send and transfer do; other debit paths may not). **FIX:** Either attach `statusCode = 402/400` to those errors at the source, or add a branch in `handleApiError` that maps the `INSUFFICIENT_*` codes to a 4xx response.
-
-### 21: ZB-21 — Trust score never computed for normal users blocks features
-**FILES:** `apps/web/lib/trust/trustScore.ts` (`meetsMinimumTrust`), `apps/web/app/api/cron/daily/route.ts` (step 20), registration flow
-**Severity:** MEDIUM
-`meetsMinimumTrust` reads the cached `users.trust_score` (default 0 / NULL) and never recomputes. The only recompute path (daily cron step 20) selects users who had a report/payment/mod-action in the last 24h. A normal user therefore keeps trust 0 forever and can never pass `send_gift` (≥20), `guild_creation` (≥30), etc. **FIX:** Compute the trust score at registration and on login, and/or have `meetsMinimumTrust` lazily recompute when the score is null/stale. (Also depends on ZB-11 being fixed for the payment signal to count.)
-
-### 22: ZB-22 — Milestone coin reward bypasses the ledger
-**FILES:** `apps/web/lib/seasons/seasonEngine.ts` (`claimPassMilestone`)
-**Severity:** MEDIUM
-The coin reward path does `UPDATE users SET coin_balance = coin_balance + amount` directly, with no `coin_ledger` entry and no row lock. This breaks the "ledger is the source of truth" invariant and can drift from `coin_balance`. **FIX:** Use `creditCoins(userId, amount, "season_milestone_reward", milestoneId, …, tx)` so the ledger and balance stay consistent (this also gives idempotency via the unique reference once ZB-06 is fixed).
-
-### 23: ZB-23 — Creator Fund distribution lacks idempotency
-**FILES:** `apps/web/lib/creator/fund.ts` (`distributeCreatorFund`), `apps/web/app/api/cron/daily/route.ts` (Day-5 block)
-**Severity:** MEDIUM
-Distribution inserts `creator_earnings` with `reference_id = fund:${period}:rank${rank}` and unconditionally increments `available_earnings_kobo`. If the Day-5 cron runs twice (external scheduler retry), creators are credited twice (no unique guard on the insert, no "already distributed this period" flag). **FIX:** Add a unique constraint on `creator_earnings(source_type, reference_id)` (or a `creator_fund_distributions(period)` marker row) and make the balance increment conditional on a fresh insert.
-
-### 24: ZB-24 — Telegram hash comparison not constant-time
-**FILES:** `apps/web/lib/auth/telegram.ts` (`verifyTelegramLogin`)
-**Severity:** LOW
-The code uses `expectedHash !== hash` (plain string compare) while the comment claims constant-time. **FIX:** Use `crypto.timingSafeEqual` on equal-length buffers (guard length first), matching the pattern already used in `csrf.ts`.
-
-### 25: ZB-25 — Field decryption may corrupt multibyte text
-**FILES:** `apps/web/lib/security/fieldEncryption.ts` (`decryptField`)
-**Severity:** LOW
-`decipher.update(encrypted)` returns a Buffer (no encoding), then `+ decipher.final("utf8")` coerces it; a multibyte UTF-8 character split across the update/final boundary can be mangled. **FIX:** Pass the output encoding to both calls: `decipher.update(encrypted, undefined, "utf8") + decipher.final("utf8")`, or concatenate Buffers and `toString("utf8")` once.
-
-### 26: ZB-26 — Notifications table written with two shapes
-**FILES:** schema `notifications`; writers across `apps/web/app/api/**` and `lib/**` (some use `payload`, others use `title/body/metadata`)
-**Severity:** LOW
-The table has both `payload` and `title/body/metadata`; different writers populate different columns, so consumers must defensively handle both. **FIX:** Pick one canonical shape (recommend `type` + `payload` JSONB) and migrate all writers/readers; or add a thin helper `insertNotification()` that normalises every call.
-
-### 27: ZB-27 — XP recorded in two parallel tables
-**FILES:** `xp_events` vs `xp_ledger` writers (e.g. `app/api/economy/gifts/send/route.ts` writes `xp_events`; `lib/referrals/commissions.ts`, `lib/guilds/warEngine.ts`, cron write `xp_ledger`)
-**Severity:** LOW
-Two audit tables for the same concept mean any analytics/reconciliation summing one table silently omits the other. `users.xp_total` is the de-facto truth, which makes both ledgers untrustworthy as audit. **FIX:** Consolidate on a single XP ledger table and update all writers; if both must remain, document which is authoritative and stop writing the other.
-
-### 28: ZB-28 — Middleware dead import and mixed CSP directives
-**FILES:** `apps/web/middleware.ts`
-**Severity:** LOW
-`SignJWT` is imported but unused. The CSP includes `'strict-dynamic'` together with `'unsafe-inline'` and host allow-lists in `script-src`; CSP3 browsers ignore the host list and `unsafe-inline` when `strict-dynamic` + a nonce are present, so the host entries are misleading and `unsafe-inline` weakens older browsers. **FIX:** Remove the unused import; decide on a single strategy — nonce + `strict-dynamic` (drop `unsafe-inline` and host allow-list from `script-src`), keeping host allow-lists only where you don't use `strict-dynamic`.
-
-### 29: ZB-29 — transferCoins validates after computing fee/net
-**FILES:** `apps/web/lib/economy/coins.ts` (`transferCoins`)
-**Severity:** LOW
-`fee`/`net` are computed before the `isInteger()/lte(0)` guard. No exploit (it still throws before DB work), but a negative `amount` produces nonsensical intermediate values. **FIX:** Move the validation to the top of the function.
-
-### 30: ZB-30 — DM daily-limit TOCTOU and fragile TTL
-**FILES:** `apps/web/lib/messaging/coinCost.ts` (`checkDailyLimitReached`, `incrementDailyCount`)
-**Severity:** LOW
-The limit check and the increment are separate operations, so two concurrent sends can both pass the check. Also `expire` is only set when `incr` returns 1; if that `expire` call fails, the counter can persist without a TTL. **FIX:** Use an atomic check-and-increment (Lua, like the rate limiter) and set the TTL via `SET … EX`/`PEXPIRE` on every write, or recreate the TTL idempotently.
-
-### 31: ZB-31 — Non-deterministic ledger ordering
-**FILES:** `apps/web/lib/economy/coins.ts` (`getLedgerEntries`), `apps/web/lib/economy/stars.ts` (`getStarLedgerEntries`)
-**Severity:** LOW
-`ORDER BY created_at DESC` alone is ambiguous for multiple entries sharing a timestamp (same transaction), producing inconsistent paging/order. **FIX:** Add a stable tiebreaker, e.g. `ORDER BY created_at DESC, id DESC`.
-
-### 32: ZB-32 — DLQ records the pre-increment retry count
-**FILES:** `apps/web/app/api/economy/webhooks/paystack/route.ts` (`processTransferEvent`, `transfer.failed`)
-**Severity:** LOW
-On terminal failure it calls `moveToDeadLetterQueue(payout.id, payout.creator_id, payout.retry_count, …)` passing the old `retry_count` rather than `newRetryCount`, so the DLQ row/UPDATE records one less attempt than actually occurred. **FIX:** Pass `newRetryCount`.
+### 34: ZBX-34 — TOTP codes replayable within their window (Low)
+**FILES:** `apps/web/app/api/auth/2fa/verify/route.ts` (legacy `sessionToken` path), `apps/web/app/api/admin/auth/totp/route.ts`
+**FIX:** Verification accepts ±1 time-step with no record of the last-used counter, so a code is valid/reusable for ~90s. The login pre-auth path is protected by a single-use Redis token, but the legacy `sessionToken` and admin paths are not. Track the last accepted TOTP counter per user (e.g. `users.totp_last_counter` or a short Redis key) and reject any code whose step ≤ the last accepted step.
 
 ---
 
-## Overall assessment
-
-### Current state (before fixes)
-
-| Dimension | Rating (/10) | Notes |
-|---|---|---|
-| Architecture & structure | 8.0 | Clean provider abstractions (db/redis/storage/realtime), good HOC middleware, typed errors, Decimal-based money math. Genuinely well-organised. |
-| Security | 4.5 | Strong foundations (JWT+Redis sessions, refresh rotation+reuse detection, SSRF guard, rate limiting, fail-closed status checks) undermined by a **critical OAuth token-leak (ZB-01)**, a bypassable HTML sanitizer (ZB-12), and missing email-verification (ZB-08). |
-| Financial correctness | 3.5 | Core ledger design is sound and idempotent, but several reward/bonus paths are **outright broken or exploitable** (ZB-02..06) due to ledger unique-reference collisions, NOT NULL omissions, and an unchecked claim. |
-| Reliability / data integrity | 5.0 | Schema↔query mismatches (ZB-11, ZB-14..17) silently break multiple cron features; concurrency gap in war resolution (ZB-07). |
-| Code quality / maintainability | 7.0 | Excellent docs/comments and consistent patterns; weakened by dual notification/XP schemas and a very large monolithic daily-cron handler. |
-| **Overall** | **5.0** | A strong, thoughtfully-built platform carrying a cluster of high-impact correctness/security defects that would surface immediately in production (broken bonuses/rewards, token leak). |
-
-### Projected state (after all recommended fixes)
-
-| Dimension | Rating (/10) |
-|---|---|
-| Architecture & structure | 8.5 |
-| Security | 8.5 |
-| Financial correctness | 9.0 |
-| Reliability / data integrity | 8.5 |
-| Code quality / maintainability | 8.0 |
-| **Overall** | **8.5** |
-
-**Summary review:** The codebase is above-average in craftsmanship — provider-agnostic infrastructure, immutable Decimal ledgers, defence-in-depth auth, and unusually thorough documentation. Its weaknesses are concentrated and fixable: (1) a single critical OAuth redirect-validation gap, (2) a recurring "multiple users credited under one `(type, reference_id)`" pattern that the unique index turns into transaction-aborting failures, (3) a handful of `coin_ledger` inserts missing required columns, (4) schema/column-name drift between cron queries and the consolidated schema, and (5) the `'success'` vs `'completed'` status mismatch. Address the CRITICAL and HIGH items (ZB-01 through ZB-13) first — they are the difference between "broken/exploitable in production" and "solid." Once corrected, this is a genuinely robust 8.5/10 platform.
-
----
-
-*Report generated by Claude Code on 2026-06-12 at 11:21 PM UTC (Friday). Bugs were identified through independent static analysis; no fixes have been applied — awaiting review of the accompanying `custom-bugs-fix-plan.md`.*
+*End of report — 34 findings. Generated Saturday, June 13, 2026 at 12:36 AM (UTC) by independent forensic code review of Zobia Social. Every item cites concrete file locations and was cross-checked against the live schema; no findings were fabricated. Per instructions, do not begin fixes until this plan and the accompanying `custom-bugs-fix-plan.md` are reviewed.*

@@ -1,109 +1,107 @@
-# Zobia Social — Bug Fix Plan
+# Zobia Social — Custom Bug Fix Plan
 
-**Generated:** 2026-06-12 at 11:21 PM UTC (Friday)
-**Companion to:** `custom-bugs-report.md`
-**Status:** ⛔ DO NOT IMPLEMENT YET — awaiting owner review of this plan.
+**Generated:** Saturday, June 13, 2026 — 12:36 AM (UTC)
+**Companion to:** `custom-bugs-report.md` (34 findings, ZBX-01 … ZBX-34)
+**Status:** AWAITING REVIEW — do not implement until approved.
 
-This plan groups the 32 findings into ordered work phases. Each task lists the bug code, files, concrete change, and how to verify. Phases are ordered by risk: ship Phase 1 before anything else.
-
----
-
-## Phase 0 — Pre-work (shared scaffolding)
-
-- [ ] **P0.1 — Ledger reference helper.** Several fixes (ZB-02/03/04/05/22) depend on giving each per-user credit a unique `(transaction_type, reference_id)`. Add/confirm a convention: per-recipient references of the form `${event}:${eventId}:${userId}`. Audit every multi-user credit loop for the same anti-pattern.
-- [ ] **P0.2 — Branch + CI.** Work on `claude/codebase-bug-analysis-kv8dem`. Ensure `npm run typecheck` and the existing economy/concurrency tests run locally before each push.
-- [ ] **P0.3 — Repro tests first.** For each CRITICAL, write a failing test before fixing (repeat referral purchase, multi-member war payout, season payout, monthly bonus credit, double milestone claim, OAuth redirect rejection).
+This plan sequences the fixes by risk and dependency. Each phase is independently shippable. Effort is rough (S ≈ <1h, M ≈ a few hours, L ≈ a day+). IDs map 1:1 to the report.
 
 ---
 
-## Phase 1 — CRITICAL (security & money). Do first.
+## Phase 0 — Pre-work (do first, unblocks everything)
 
-- [ ] **ZB-01 — OAuth redirect allow-list.**
-  Files: `apps/web/app/api/auth/google/route.ts`, `apps/web/app/api/auth/google/callback/route.ts` (and check the Telegram callback for the same pattern).
-  Change: Validate `redirect` against an explicit allow-list (custom app scheme(s) + exact first-party hosts) in **both** initiation (before setting `zobia_mobile_redirect`) and callback (before redirecting). Reject otherwise. Preferred hardening: deliver mobile tokens via a one-time server-stored exchange code instead of URL query params.
-  Verify: unit test that `redirect=https://evil.com` is rejected; manual mobile login still works with the approved scheme.
-
-- [ ] **ZB-02 — Referral commission unique references.**
-  Files: `apps/web/lib/referrals/commissions.ts`.
-  Change: Use `reference_id = `referral:${paymentId}:t1`` and `:t2`` (thread `paymentId` in from the webhook). Keep the qualifying-bonus reference distinct too.
-  Verify: repeat purchase by the same referee and a 2-level chain both credit coins and don't 500 the webhook.
-
-- [ ] **ZB-03 / ZB-04 — Per-recipient reward references.**
-  Files: `apps/web/lib/guilds/warEngine.ts` (`distributeWarRewards`), `apps/web/lib/seasons/seasonEngine.ts` (`distributeSeasonRewards`).
-  Change: `reference_id = `war:${warId}:${userId}`` / `season:${seasonId}:${userId}``; prefer routing through `creditCoins(..., tx)`.
-  Verify: a war/season with ≥2 winners pays every winner; ledger has one row per winner.
-
-- [ ] **ZB-05 — Fix NOT NULL ledger inserts.**
-  Files: `apps/web/app/api/cron/daily/route.ts` (comeback grant ~824, monthly plan bonus ~1278, comeback expiry ~1343).
-  Change: Route through `creditCoins`/`debitCoins` (preferred) or include locked `balance_before`/`balance_after`. Keep idempotency (unique reference, not `gen_random_uuid()` if you want true de-dup).
-  Verify: run the cron path in a test DB; Plus/Pro/Max users receive their monthly coins and a ledger row.
-
-- [ ] **ZB-06 — Guard milestone claim against re-award.**
-  Files: `apps/web/lib/seasons/seasonEngine.ts` (`claimPassMilestone`).
-  Change: Use `INSERT … ON CONFLICT DO NOTHING RETURNING id`; only apply the reward when a row was inserted. Wrap eligibility read + insert + reward in one transaction with `SELECT … FOR UPDATE` on the pass.
-  Verify: second claim of the same milestone returns "already claimed" and grants nothing; concurrent double-submit grants once.
+- **P0.1 Reproduce on a staging DB.** Load `001_complete_schema.sql`, seed, and stand up the web app + a dev Expo build pointing at staging so each fix can be verified end-to-end.
+- **P0.2 Decide the canonical conventions** that several fixes depend on:
+  - Expo API path convention (ZBX-02): **recommend** paths relative *without* `/api`, with `baseURL = API_BASE_URL + '/api'`.
+  - Single XP award helper + single XP ledger table (ZBX-05, ZBX-17): **recommend** `xp_ledger`.
+  - Single notification content shape (ZBX-19): **recommend** structured `payload` + optional `title`/`body`.
+  - PIN enforcement model (ZBX-11/21): **recommend** a short-lived signed "PIN-verified" claim.
+- **P0.3 Add regression tests first** for the money paths touched in Phase 1 (drop-room entry, IAP, daily login) so fixes are provably correct. *(Test work itself is out of scope per the brief, but a few targeted ones de-risk the money changes.)*
 
 ---
 
-## Phase 2 — HIGH (security weaknesses & broken core features)
+## Phase 1 — Critical / money-loss & broken-flow blockers (ship ASAP)
 
-- [ ] **ZB-07 — Atomic war resolution.** Move `SELECT … FOR UPDATE` + status guard inside the reward transaction in `warEngine.ts` (`resolveWar`); re-check status post-lock.
-- [ ] **ZB-08 — Require email_verified.** In `upsertGoogleUser` (`auth/google/callback/route.ts`), refuse to link a Google id to an existing email account unless `profile.emailVerified === true`.
-- [ ] **ZB-09 — Revoke sessions on password reset.** Call `invalidateAllSessions(userId)` in the PATCH transaction of `auth/password-reset/route.ts`.
-- [ ] **ZB-10 — Fix Creator Fund fan-out.** Rewrite `calculateFundDistributions` query in `creator/fund.ts` so each metric is a one-row-per-user subquery/CTE; remove the duplicate `xl2` self-join.
-- [ ] **ZB-11 — `'success'` → `'completed'`.** Fix `trust/trustScore.ts`, `cron/daily/route.ts` (~1221), `admin/overview/route.ts` (~152/159/166); grep for other occurrences.
-- [ ] **ZB-12 — Real HTML sanitizer.** Replace `security/htmlSanitizer.ts` internals with `sanitize-html` (server) / `DOMPurify`+`jsdom`, enforcing the existing allow-lists and URL-scheme checks. Audit all render sites.
-- [ ] **ZB-13 — safeFetch hardening.** Add a max-redirect counter and enforce `maxResponseBytes` in `security/ssrf.ts`; consider resolve-once-then-connect to close the DNS TOCTOU.
+| ID | Fix | Effort |
+|----|-----|--------|
+| ZBX-01 | Add a `room_entry` branch to `processChargeSuccess` (mark payment `completed`, no coin credit, optional creator-earnings, `return`) before the coin path; guard the coin path to skip `creditCoins` when `serverCoinsGranted <= 0`. | M |
+| ZBX-02 | Standardize the Expo API path convention (per P0.2); set `baseURL` accordingly and fix the ~65 non-conforming call sites; correct `/messages/conversations/*` → `/messages/dm/*`. Add a thin request wrapper that asserts the path shape. | L |
+| ZBX-03 | Route offline sync by stored conversation type to `/messages/dm/${id}` or `/messages/group/${id}` (with the agreed prefix); call `retryFailedMessages()` on reconnect before draining; add a per-message client idempotency key. | M |
+| ZBX-04 | Only `finishTransactionAsync` after a confirmed server credit; on transient/unknown failure leave the purchase unconsumed for Google-Play replay; classify "invalid" vs "transient" by server status. | M |
+| ZBX-06 | Fix CRON section 5b to the real `leaderboard_rank_snapshots` columns (or add `season_id` + `UNIQUE(user_id, scope, season_id)`); reconcile with section 14. | M |
+| ZBX-07 | Replace get-then-set with `redis.set(key,"1","EX",ttl,"NX")` before the daily-login transaction; defensively zero `xpAwarded` when `lastLogin === today`. | S |
 
----
-
-## Phase 3 — MEDIUM (correctness & degraded features)
-
-- [ ] **ZB-14 — `started_at` → `starts_at`** in `cron/daily/route.ts` weekly snapshot.
-- [ ] **ZB-15 — Rewrite guild-war re-engagement query** to real `guild_wars` columns (`challenger/defender_guild_id`, `winner_guild_id`, `ends_at`) via `guild_members`.
-- [ ] **ZB-16 — Drop `seasons.phase` usage;** select timestamps and compute phase with `getSeasonPhase`.
-- [ ] **ZB-17 — `rooms.room_type` → `rooms.type`** in the MAU enrolment query.
-- [ ] **ZB-18 — Require `idempotencyKey`** for gift-send and coin-transfer (or derive a server-side dedup key).
-- [ ] **ZB-19 — Refresh grace window.** Keep the previous refresh-token hash valid briefly (or treat reuse as malicious only when the new token has already been consumed) in `auth/session.ts`.
-- [ ] **ZB-20 — Map INSUFFICIENT_* to 4xx.** Either attach `statusCode` at throw sites in `economy/coins.ts`/`stars.ts`, or add a branch in `api/errors.ts` `handleApiError`.
-- [ ] **ZB-21 — Compute trust score at registration/login** and/or lazily recompute in `meetsMinimumTrust` when null/stale. (Depends on ZB-11.)
-- [ ] **ZB-22 — Route milestone coins through `creditCoins`** in `claimPassMilestone` (folds into ZB-06).
-- [ ] **ZB-23 — Idempotent Creator Fund distribution.** Add unique `creator_earnings(source_type, reference_id)` and a per-period marker; make the balance increment conditional on a fresh insert.
+**Exit criteria:** a paid drop-room user can join; a fresh Expo build can hit every screen's API; offline messages deliver and retry; an IAP that fails server-side is retried (not lost); the Sunday snapshot succeeds; daily-login XP cannot be farmed by parallel requests.
 
 ---
 
-## Phase 4 — LOW (robustness, hygiene, maintainability)
+## Phase 2 — High-impact correctness & security
 
-- [ ] **ZB-24 — `timingSafeEqual`** in `auth/telegram.ts`.
-- [ ] **ZB-25 — `decryptField` utf8 encoding** in `security/fieldEncryption.ts`.
-- [ ] **ZB-26 — Unify notification shape** (helper `insertNotification`, migrate writers/readers).
-- [ ] **ZB-27 — Consolidate XP ledger tables** (or document the authoritative one and stop dual-writing).
-- [ ] **ZB-28 — Remove unused `SignJWT` import; tidy CSP** in `middleware.ts`.
-- [ ] **ZB-29 — Reorder validation** in `transferCoins`.
-- [ ] **ZB-30 — Atomic DM counter** (Lua check-and-increment; always set TTL) in `messaging/coinCost.ts`.
-- [ ] **ZB-31 — Stable ledger ordering** (`, id DESC`) in `economy/coins.ts` / `stars.ts`.
-- [ ] **ZB-32 — Pass `newRetryCount`** to `moveToDeadLetterQueue` in the Paystack webhook.
+| ID | Fix | Effort |
+|----|-----|--------|
+| ZBX-05 | Introduce `awardXp(action, ctx, opts)` that calls `calculateFinalXP` and persists real `multiplier`/`base_amount`; repoint room/DM message routes (and other inline-XP routes) through it. | L |
+| ZBX-08 | Add an `onUnauthenticated` bus/callback; interceptor invokes it after clearing storage so `AuthContext.signOut()` runs and routes to login. | S |
+| ZBX-09 | Register one global Google-Play purchase listener at init resolving via a `Map`; always finish processed transactions; purchase fns register/await a resolver. | M |
+| ZBX-10 | Encrypt `totp_secret` with `encryptField`/`decryptField` in all TOTP routes; migrate existing rows; confirm key env var. | M |
+| ZBX-11 | Mint a short-lived PIN-verified claim in `/auth/pin/verify`; require it in payout/transfer/gift/store mutations server-side. | M |
+| ZBX-12 | Stream-count the `safeFetch` body and abort past `maxResponseBytes` instead of trusting `Content-Length`. | S |
+| ZBX-13 | Resolve once (A+AAAA), validate, and pin the connection to the resolved IP; re-validate per redirect hop. | M |
+| ZBX-14 | Lock both user rows in deterministic id order in `transferCoins`/gift-send; retry once on deadlock (`40P01`). | S |
+| ZBX-18 | Replace the regex sanitizer with `sanitize-html`/DOMPurify (or decode-entities + control-char strip + scheme allowlist); add `rel="noopener noreferrer"`. | M |
 
----
-
-## Cross-cutting follow-ups (recommended, not bugs)
-
-- [ ] **Schema↔code drift guard.** Add a CI check (or integration test against a migrated DB) that exercises each cron sub-task so column-name mismatches (ZB-11/14/15/16/17) fail loudly instead of being swallowed by `try/catch`.
-- [ ] **Split `cron/daily/route.ts`.** ~2,279 lines / 25+ steps in one handler. Extract each step into `lib/cron/*` functions with unit tests; the route just orchestrates. This alone would have caught ZB-14..17.
-- [ ] **Stop swallowing cron errors silently.** The per-step `try/catch` is fine for isolation, but surface a structured failure summary (and alert) so silently-broken steps are visible.
-- [ ] **Ledger reference audit script.** One-off scan for any `creditCoins/INSERT INTO coin_ledger` inside a loop sharing one `reference_id`.
+**Exit criteria:** Max-plan messaging XP reflects the multiplier; a failed mobile refresh redirects to login; no hung/stuck purchases; TOTP seeds encrypted at rest; PIN actually gates payouts/transfers server-side; SSRF body bounded and rebinding-resistant; no transfer deadlocks; announcement HTML is XSS-safe.
 
 ---
 
-## Suggested execution order & checkpoints
+## Phase 3 — Consistency, idempotency & moderate hardening
 
-1. Phase 1 (ZB-01..06) → review → deploy. These are user-visible breakage/exploits.
-2. Phase 2 (ZB-07..13) → review → deploy.
-3. Phase 3 (ZB-14..23) → batch deploy.
-4. Phase 4 (ZB-24..32) + cross-cutting → batch deploy.
-
-Each phase: write/extend tests, run `npm run typecheck` + economy/concurrency suites, commit per-bug with the `ZB-xx` code in the message, push to `claude/codebase-bug-analysis-kv8dem`. No PR unless explicitly requested.
+| ID | Fix | Effort |
+|----|-----|--------|
+| ZBX-15 | One authoritative monthly-bonus path keyed `plan:{userId}:{YYYY-MM}`, deduped across `subscription_bonus`/`monthly_plan_bonus`; make `subscription.create` swallow the unique violation. | M |
+| ZBX-16 | Write a real `comeback_bonus_claimed` marker (or `claimed_at`) in the credit transaction; both guards test it; time-scope the reservation reference. | S |
+| ZBX-17 | Consolidate `xp_events` into `xp_ledger`; migrate + repoint gift/transfer routes through `awardXp` (depends on ZBX-05). | M |
+| ZBX-19 | Standardize notification shape; backfill; update writers; read API selects all fields; `unreadCount` via dedicated `COUNT(*)`. | M |
+| ZBX-20 | Pass `ADMIN_REFRESH_TOKEN_TTL_SECONDS` to `buildCookieHeaders` in the admin TOTP login. | S |
+| ZBX-21 | Escalating per-user PIN lockout in Redis; require re-auth/2FA after N failures; consider 6-digit. | M |
+| ZBX-22 | Verify payouts by stored `provider_reference` (transfer_code), falling back to reference only when absent. | S |
+| ZBX-23 | Catch `23505` from `creditCoins` in IAP verify → return clean 409. | S |
 
 ---
 
-*Plan generated by Claude Code on 2026-06-12 at 11:21 PM UTC (Friday). Awaiting your review before any code changes are made.*
+## Phase 4 — Low-severity polish & defense-in-depth
+
+| ID | Fix | Effort |
+|----|-----|--------|
+| ZBX-24 | Full-range private-IP check in `geoAnomaly` (reuse `ssrf.ts` integer logic). | S |
+| ZBX-25 | Shared `parsePositiveInt`/`z.coerce` for all pagination/limit params. | S |
+| ZBX-26 | Make trusted-proxy depth explicit in `getClientIp`, or require `x-real-ip`. | S |
+| ZBX-27 | Apply CSRF Origin check to `/api/auth/*` POSTs (allow OAuth GET callbacks). | S |
+| ZBX-28 | Allowlist media host(s) or add a signed-upload endpoint via the storage adapters. | M |
+| ZBX-29 | Remove the no-op moments `UPDATE`; count via DELETE `RETURNING`. | S |
+| ZBX-30 | Align `user_badges` `ON CONFLICT` with `badge_key` (or add the missing unique index). | S |
+| ZBX-31 | CAPTCHA fails closed in production when unconfigured/manifest-read fails; enforce v3 score. | S |
+| ZBX-32 | Block-relationship check in gift-send and coin-transfer (403 `USER_BLOCKED`). | S |
+| ZBX-33 | Require explicit account-link confirmation for Google email match; add missing columns to INSERT `RETURNING`. | M |
+| ZBX-34 | Track last-used TOTP counter per user; reject replays. | S |
+
+---
+
+## Cross-cutting follow-ups (recommended after the above)
+
+- **Single XP pipeline:** once ZBX-05/17 land, delete the inline `xp_total = xp_total + N` updates entirely so no route can hand-roll XP again.
+- **Idempotency audit:** confirm every external-money credit path (`creditCoins`/`creditStars`) passes a stable, operation-scoped `reference_id` so the partial-unique indexes are the real backstop (gift-send currently passes `null` refs — acceptable since gifts are guarded by the Redis idempotency key, but worth documenting).
+- **Notification + ledger shape lint:** add a CI check that all `INSERT INTO notifications`/`xp_ledger` use the canonical column set.
+- **Schema/`ON CONFLICT` lint:** a quick script asserting every `ON CONFLICT (...)` target has a matching unique index would have caught ZBX-06 and ZBX-30 automatically.
+
+## Suggested sequencing summary
+
+1. Phase 1 (P1) — unblock paid/core flows (1–2 days).
+2. Phase 2 (P2) — security + the XP multiplier (2–3 days).
+3. Phase 3 (P3) — consistency/idempotency (1–2 days).
+4. Phase 4 (P4) — polish (1 day).
+
+Phases 1 and 4 can run in parallel with different owners; Phase 3's ZBX-17 depends on Phase 2's ZBX-05.
+
+---
+
+*Fix plan for 34 findings. Generated Saturday, June 13, 2026 at 12:36 AM (UTC). Awaiting your review before any code changes are made.*
