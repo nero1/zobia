@@ -149,21 +149,21 @@ export const GET = withAdminAuth(async (req, { params, auth }) => {
         label: "revenue_today",
         sql: `SELECT COALESCE(SUM(amount), 0)::text AS value
               FROM payments
-              WHERE status = 'success'
+              WHERE status = 'completed'
                 AND created_at >= CURRENT_DATE`,
       },
       {
         label: "revenue_week",
         sql: `SELECT COALESCE(SUM(amount), 0)::text AS value
               FROM payments
-              WHERE status = 'success'
+              WHERE status = 'completed'
                 AND created_at >= NOW() - INTERVAL '7 days'`,
       },
       {
         label: "revenue_month",
         sql: `SELECT COALESCE(SUM(amount), 0)::text AS value
               FROM payments
-              WHERE status = 'success'
+              WHERE status = 'completed'
                 AND created_at >= NOW() - INTERVAL '30 days'`,
       },
 

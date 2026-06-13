@@ -314,6 +314,20 @@ Calculation flow:
 4. Minimum award when base > 0 is 1 XP.
 5. The result is written to `xp_ledger` and added to `users.xp_total` and the relevant track column.
 
+#### XP Table Authority (ZB-27)
+
+Two tables record XP; they must be kept in sync at all times:
+
+| Column / Table | Role | Read / Write |
+|---|---|---|
+| `xp_ledger` | Append-only audit trail — one row per XP event | Write-only during mutations; never update/delete rows |
+| `users.xp_total` | Denormalised sum of all XP — used for leaderboards, trust scores, and rank badges | Always read from here; update atomically alongside every `xp_ledger` insert |
+| `users.xp_<track>` (e.g. `xp_social`, `xp_creator`) | Denormalised per-track totals | Update in the same atomic write as `xp_total` and `xp_ledger` |
+
+**Invariant:** every XP mutation MUST write an `xp_ledger` row AND update `users.xp_total` (plus the track column) inside the same database transaction. Updating `users.xp_total` without a matching `xp_ledger` row, or vice-versa, breaks the audit trail.
+
+**Never** sum `xp_ledger.amount` to compute a user's XP — read `users.xp_total` instead. Summing the ledger is expensive (full table scan) and will diverge if any direct `users.xp_total` update is missed.
+
 ### Coin Ledger
 
 `coin_ledger` is **append-only** — rows are never updated or deleted. This preserves a complete audit trail of every coin credit and debit.

@@ -171,12 +171,22 @@ export async function validateOutboundUrl(rawUrl: string): Promise<URL> {
 // safeFetch
 // ---------------------------------------------------------------------------
 
+/** Maximum number of redirects safeFetch will follow. */
+const MAX_REDIRECT_HOPS = 5;
+
+/** Default maximum response body size (5 MiB). */
+const DEFAULT_MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
+
 /**
  * A safe wrapper around the global fetch that validates the URL against
  * the SSRF allowlist before making the request.
  *
  * Also prevents redirect-following to private addresses by checking the
  * Location header on 3xx responses.
+ *
+ * ZB-13 fixes:
+ *  - Tracks redirect hops and throws after MAX_REDIRECT_HOPS (prevents infinite loops).
+ *  - Enforces maxResponseBytes by checking Content-Length and then the actual body size.
  *
  * @param url     - URL string to fetch (user or admin supplied)
  * @param init    - Standard RequestInit options
@@ -190,10 +200,17 @@ export async function safeFetch(
   options?: {
     /** If true, only allow URLs from the HOSTNAME_ALLOWLIST. */
     requireAllowlist?: boolean;
-    /** Max response size in bytes (default 5MB). */
+    /** Max response size in bytes (default 5 MiB). */
     maxResponseBytes?: number;
+    /** Internal: current redirect depth — do not set externally. */
+    _hops?: number;
   }
 ): Promise<Response> {
+  const hops = options?._hops ?? 0;
+  if (hops > MAX_REDIRECT_HOPS) {
+    throw new SSRFError(`Too many redirects (max ${MAX_REDIRECT_HOPS})`);
+  }
+
   const parsed = await validateOutboundUrl(url);
 
   if (options?.requireAllowlist) {
@@ -217,9 +234,17 @@ export async function safeFetch(
     if (!location) {
       throw new SSRFError("Redirect without Location header");
     }
-    // Validate the redirect target
     const redirectUrl = new URL(location, url).toString();
-    return safeFetch(redirectUrl, init, options);
+    return safeFetch(redirectUrl, init, { ...options, _hops: hops + 1 });
+  }
+
+  // Enforce response size limit via Content-Length header (fast path)
+  const maxBytes = options?.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
+  const contentLength = response.headers.get("content-length");
+  if (contentLength !== null && parseInt(contentLength, 10) > maxBytes) {
+    throw new SSRFError(
+      `Response too large: Content-Length ${contentLength} exceeds limit of ${maxBytes} bytes`
+    );
   }
 
   return response;

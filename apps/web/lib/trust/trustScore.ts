@@ -148,7 +148,7 @@ export async function calculateTrustScore(
        (
          SELECT COUNT(*)::text
          FROM payments
-         WHERE user_id = u.id AND status = 'success'
+         WHERE user_id = u.id AND status = 'completed'
        )                                                     AS payment_count,
        (
          SELECT COUNT(*)::text
@@ -256,9 +256,17 @@ export async function meetsMinimumTrust(
   const user = rows[0];
   if (!user || user.is_banned) return false;
 
-  const score = user.trust_score ?? 0;
-  const requiredScore = FEATURE_THRESHOLDS[feature];
+  // Lazily compute trust score when null so new users are not permanently blocked
+  let score = user.trust_score;
+  if (score === null) {
+    try {
+      score = await calculateTrustScore(userId, db);
+    } catch {
+      score = 0;
+    }
+  }
 
+  const requiredScore = FEATURE_THRESHOLDS[feature];
   if (score < requiredScore) return false;
 
   // ClassRoom requires 30-day account age in addition to trust score

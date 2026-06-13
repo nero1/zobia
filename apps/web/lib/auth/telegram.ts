@@ -9,7 +9,7 @@
  * Reference: https://core.telegram.org/widgets/login#checking-authorization
  */
 
-import { createHash, createHmac } from "crypto";
+import { createHash, createHmac, timingSafeEqual } from "crypto";
 import { env } from "@/lib/env";
 
 // ---------------------------------------------------------------------------
@@ -83,8 +83,10 @@ export function verifyTelegramLogin(data: TelegramLoginData): TelegramUserProfil
     .update(checkString)
     .digest("hex");
 
-  // 4. Constant-time comparison
-  if (expectedHash !== hash) {
+  // 4. Constant-time comparison (ZB-24: guard length before comparing)
+  const expectedBuf = Buffer.from(expectedHash, "hex");
+  const presentedBuf = Buffer.from(hash.length === expectedHash.length ? hash : "", "hex");
+  if (expectedBuf.length !== presentedBuf.length || !timingSafeEqual(expectedBuf, presentedBuf)) {
     throw new Error("Telegram login verification failed: invalid hash");
   }
 

@@ -47,11 +47,13 @@ export interface CommissionResult {
  * @param db         Transaction-capable database client
  * @param buyerId    ID of the user who purchased coins
  * @param coinAmount Total coins purchased
+ * @param paymentId  ID of the payment record — used to make each commission reference unique per purchase
  */
 export async function awardReferralCommissions(
   db: DatabaseClient,
   buyerId: string,
-  coinAmount: number
+  coinAmount: number,
+  paymentId: string = buyerId
 ): Promise<CommissionResult> {
   const result: CommissionResult = {
     tier1ReferrerId: null,
@@ -129,7 +131,7 @@ export async function awardReferralCommissions(
       tier1Id,
       tier1Coins,
       "referral_commission",
-      buyerId,
+      `referral:${paymentId}:t1`,
       `Tier 1 referral commission from ${coinAmount} coin purchase`,
       { tier: 1, buyerId, coinAmount },
       db
@@ -163,7 +165,7 @@ export async function awardReferralCommissions(
       tier2Id,
       tier2Coins,
       "referral_commission",
-      buyerId,
+      `referral:${paymentId}:t2`,
       `Tier 2 referral commission from ${coinAmount} coin purchase`,
       { tier: 2, buyerId, coinAmount },
       db

@@ -45,6 +45,10 @@ export interface SessionRecord {
   /** User-agent at login time. */
   ua?: string;
   refreshTokenHash?: string;
+  /** Previous refresh token hash — valid during a short grace window after rotation. */
+  prevRefreshTokenHash?: string;
+  /** Unix ms timestamp until which prevRefreshTokenHash is accepted (grace window). */
+  prevRefreshValidUntil?: number;
 }
 
 /** Result of a successful login or token refresh. */
@@ -169,13 +173,23 @@ export async function refreshAccessToken(
     throw new Error("Session has been revoked or has expired");
   }
 
-  // ZB-24: Reuse detection — if session has a stored hash and it doesn't match, revoke all sessions
+  // Reuse detection — if session has a stored hash and it doesn't match, check grace window
   if (session.refreshTokenHash) {
     const presentedHash = createHash("sha256").update(refreshToken).digest("hex");
     if (presentedHash !== session.refreshTokenHash) {
-      // Token reuse detected — revoke entire session chain
-      await invalidateAllSessions(session.uid).catch(() => {});
-      throw new Error("Refresh token reuse detected. All sessions revoked.");
+      // Check if this is the previous token within its grace window (handles lost responses on mobile)
+      const withinGrace =
+        session.prevRefreshTokenHash &&
+        session.prevRefreshValidUntil &&
+        Date.now() < session.prevRefreshValidUntil &&
+        presentedHash === session.prevRefreshTokenHash;
+
+      if (!withinGrace) {
+        // Genuine token reuse — revoke entire session chain
+        await invalidateAllSessions(session.uid).catch(() => {});
+        throw new Error("Refresh token reuse detected. All sessions revoked.");
+      }
+      // Within grace window — treat as if the current token was presented so rotation proceeds
     }
   }
 
@@ -196,9 +210,14 @@ export async function refreshAccessToken(
     signRefreshToken(session.uid, session.sid, refreshTtl),
   ]);
 
-  // Update session with new refresh token hash
+  // Update session with new refresh token hash; keep previous hash valid for 30s (grace window)
   const newHash = createHash("sha256").update(newRefreshToken).digest("hex");
-  const updatedRecord: SessionRecord = { ...session, refreshTokenHash: newHash };
+  const updatedRecord: SessionRecord = {
+    ...session,
+    refreshTokenHash: newHash,
+    prevRefreshTokenHash: session.refreshTokenHash,
+    prevRefreshValidUntil: Date.now() + 30_000,
+  };
   await redis.setex(sessionKey(session.sid), refreshTtl, JSON.stringify(updatedRecord)).catch(() => {});
 
   return { accessToken, expiresIn: accessTtl, newRefreshToken, refreshTtl };

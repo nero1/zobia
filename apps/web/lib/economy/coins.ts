@@ -251,12 +251,11 @@ export async function transferCoins(
   txClient?: TransactionClient
 ): Promise<{ debit: CoinLedgerEntry; credit: CoinLedgerEntry; feeCoins: number }> {
   const gross = new Decimal(amount);
-  const fee = gross.times(feePercent).dividedBy(100).floor();
-  const net = gross.minus(fee);
-
   if (!gross.isInteger() || gross.lte(0)) {
     throw new Error(`[coins] transferCoins: amount must be a positive integer, got ${amount}`);
   }
+  const fee = gross.times(feePercent).dividedBy(100).floor();
+  const net = gross.minus(fee);
 
   const transferRef = `transfer:${fromUserId}:${toUserId}:${Date.now()}`;
 
@@ -307,7 +306,7 @@ export async function getLedgerEntries(
             transaction_type, reference_id, description, metadata, created_at
      FROM coin_ledger
      WHERE user_id = $1
-     ORDER BY created_at DESC
+     ORDER BY created_at DESC, id DESC
      LIMIT $2`,
     [userId, limit]
   );

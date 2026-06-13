@@ -36,5 +36,5 @@ export function decryptField(ciphertext: string): string {
   const encrypted = buf.subarray(IV_LENGTH + AUTH_TAG_LENGTH);
   const decipher = createDecipheriv(ALGORITHM, key, iv);
   decipher.setAuthTag(authTag);
-  return decipher.update(encrypted) + decipher.final("utf8");
+  return decipher.update(encrypted, undefined, "utf8") + decipher.final("utf8");
 }

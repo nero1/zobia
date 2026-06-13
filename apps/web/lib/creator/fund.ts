@@ -90,35 +90,49 @@ export async function calculateFundDistributions(
   );
   const femaleCreatorBoost = eventRows[0] ? parseFloat(eventRows[0].multiplier) : 1.0;
 
-  // Fetch multi-factor metrics for all active creators in the last 30 days
+  // ZB-10: Use CTEs to compute each metric independently, then JOIN.
+  // Joining multiple one-to-many tables to the same user row in a single query
+  // causes a Cartesian fan-out that inflates aggregate values (e.g. SUM of xp_earned
+  // grows by the number of follower rows, not the actual XP).
   const { rows: creators } = await db.query<CreatorMetrics>(
-    `SELECT
+    `WITH eng AS (
+       SELECT user_id,
+              COALESCE(SUM(amount), 0)::INTEGER           AS xp_earned_30d,
+              COUNT(DISTINCT created_at::date)::INTEGER   AS active_days_30d
+       FROM xp_ledger
+       WHERE created_at >= NOW() - INTERVAL '30 days'
+       GROUP BY user_id
+     ),
+     grw AS (
+       SELECT following_id AS user_id,
+              COUNT(DISTINCT follower_id)::INTEGER        AS new_followers_30d
+       FROM follows
+       WHERE created_at >= NOW() - INTERVAL '30 days'
+       GROUP BY following_id
+     ),
+     qst AS (
+       SELECT creator_id AS user_id,
+              COUNT(*)::INTEGER                           AS quests_completed_30d
+       FROM sponsored_quest_applications
+       WHERE updated_at >= NOW() - INTERVAL '30 days'
+         AND status IN ('paid', 'approved')
+       GROUP BY creator_id
+     )
+     SELECT
        u.id,
        u.gender,
-       COALESCE(SUM(xl.amount), 0)::INTEGER               AS xp_earned_30d,
-       COUNT(DISTINCT f.follower_id)::INTEGER              AS new_followers_30d,
-       COUNT(DISTINCT qa.id)
-         FILTER (WHERE qa.status IN ('paid', 'approved'))::INTEGER
-                                                           AS quests_completed_30d,
-       COUNT(DISTINCT xl2.created_at::date)::INTEGER       AS active_days_30d
+       COALESCE(eng.xp_earned_30d, 0)        AS xp_earned_30d,
+       COALESCE(grw.new_followers_30d, 0)    AS new_followers_30d,
+       COALESCE(qst.quests_completed_30d, 0) AS quests_completed_30d,
+       COALESCE(eng.active_days_30d, 0)      AS active_days_30d
      FROM users u
-     LEFT JOIN xp_ledger xl
-            ON xl.user_id = u.id
-           AND xl.created_at >= NOW() - INTERVAL '30 days'
-     LEFT JOIN follows f
-            ON f.following_id = u.id
-           AND f.created_at  >= NOW() - INTERVAL '30 days'
-     LEFT JOIN sponsored_quest_applications qa
-            ON qa.creator_id = u.id
-           AND qa.updated_at >= NOW() - INTERVAL '30 days'
-     LEFT JOIN xp_ledger xl2
-            ON xl2.user_id = u.id
-           AND xl2.created_at >= NOW() - INTERVAL '30 days'
+     LEFT JOIN eng ON eng.user_id = u.id
+     LEFT JOIN grw ON grw.user_id = u.id
+     LEFT JOIN qst ON qst.user_id = u.id
      WHERE u.is_creator = TRUE
        AND u.creator_tier IN ('elite', 'icon', 'zobia_icon')
        AND u.deleted_at IS NULL
-     GROUP BY u.id
-     HAVING COALESCE(SUM(xl.amount), 0) > 0
+       AND COALESCE(eng.xp_earned_30d, 0) > 0
      ORDER BY u.id`
   );
 
@@ -187,6 +201,16 @@ export async function distributeCreatorFund(poolKobo: number): Promise<number> {
   const period = new Date().toISOString().slice(0, 7); // YYYY-MM
 
   await db.transaction(async (tx) => {
+    // ZB-23: Idempotency guard — if any distribution for this period already exists, skip.
+    // All inserts are in a single transaction, so a partial run leaves nothing; a full run
+    // leaves reference_id 'fund:{period}:rank1' as the sentinel.
+    const { rows: existing } = await tx.query<{ count: string }>(
+      `SELECT COUNT(*)::TEXT AS count FROM creator_earnings
+       WHERE source_type = 'creator_fund' AND reference_id LIKE $1`,
+      [`fund:${period}:%`]
+    );
+    if (parseInt(existing[0]?.count ?? '0', 10) > 0) return;
+
     for (const dist of distributions) {
       await tx.query(
         `INSERT INTO creator_earnings

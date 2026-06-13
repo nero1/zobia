@@ -190,6 +190,12 @@ export const PATCH = async (req: NextRequest) => {
       );
     });
 
+    // Revoke all existing sessions so a compromised old session cannot survive the reset
+    const { invalidateAllSessions } = await import("@/lib/auth/session");
+    await invalidateAllSessions(tokenRow.user_id).catch((err) => {
+      console.error("[password-reset] Failed to invalidate sessions:", err);
+    });
+
     return NextResponse.json({
       success: true,
       data: { message: "Password reset successfully. You can now log in with your new password." },

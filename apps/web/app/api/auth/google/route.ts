@@ -19,6 +19,29 @@ import { generateCsrfToken, buildCsrfCookie } from "@/lib/security/csrf";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { verifyCaptcha, getCaptchaProvider } from "@/lib/security/captcha";
+import { env } from "@/lib/env";
+
+// Only these schemes/hosts may be stored as the post-OAuth deep-link redirect target.
+// Prevents token exfiltration to attacker-controlled URLs (ZB-01).
+const ALLOWED_REDIRECT_SCHEMES = ["zobia:", "exp:"];
+
+function isRedirectAllowed(redirect: string): boolean {
+  try {
+    const url = new URL(redirect);
+    if (ALLOWED_REDIRECT_SCHEMES.includes(url.protocol)) return true;
+    // Allow https redirects back to our own app origin only
+    if (url.protocol === "https:" || url.protocol === "http:") {
+      const appOrigin = env.NEXT_PUBLIC_APP_URL;
+      if (appOrigin) {
+        const appHost = new URL(appOrigin).hostname;
+        if (url.hostname === appHost) return true;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // GET /api/auth/google
@@ -62,6 +85,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // deep-link redirect URI in an HttpOnly cookie so the callback can
     // return the JWT directly to the app instead of setting a web cookie.
     const mobileRedirect = req.nextUrl.searchParams.get("redirect");
+    if (mobileRedirect && !isRedirectAllowed(mobileRedirect)) {
+      throw badRequest("Invalid redirect target.", "INVALID_REDIRECT");
+    }
     const secure = process.env.NODE_ENV === "production";
     const cookieFlags = `HttpOnly; Path=/; SameSite=Lax; Max-Age=600${secure ? "; Secure" : ""}`;
     const cookies = mobileRedirect
