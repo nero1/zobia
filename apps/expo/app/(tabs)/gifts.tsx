@@ -23,6 +23,7 @@ import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 
 import { Screen } from '@/components/ui/Screen';
 import { apiClient } from '@/lib/api/client';
@@ -92,6 +93,7 @@ function relativeTime(iso: string): string {
 // ---------------------------------------------------------------------------
 
 function GiftRow({ gift, isDark }: { gift: GiftRecord; isDark: boolean }) {
+  const { t } = useTranslation();
   const isSent = gift.direction === 'sent';
   const other = isSent ? gift.recipient : gift.sender;
   const tierBg = TIER_BG[gift.giftItem.tier] ?? colors.neutral[200];
@@ -110,7 +112,7 @@ function GiftRow({ gift, isDark }: { gift: GiftRecord; isDark: boolean }) {
           {gift.giftItem.name}
         </Text>
         <Text style={[styles.rowSub, { color: colors.neutral[500] }]} numberOfLines={1}>
-          {isSent ? 'To' : 'From'} @{other.username ?? 'unknown'} · {relativeTime(gift.createdAt)}
+          {isSent ? t('gifts.row.to') : t('gifts.row.from')} @{other.username ?? 'unknown'} · {relativeTime(gift.createdAt)}
         </Text>
       </View>
       <View style={[styles.tierBadge, { backgroundColor: tierBg }]}>
@@ -133,20 +135,19 @@ function EmptyState({
   onSend: () => void;
   isDark: boolean;
 }) {
+  const { t } = useTranslation();
   return (
     <View style={styles.emptyWrap}>
       <Text style={styles.emptyEmoji}>🎁</Text>
       <Text style={[styles.emptyTitle, { color: isDark ? colors.neutral[50] : colors.neutral[900] }]}>
-        {tab === 'received' ? 'No gifts received yet' : 'No gifts sent yet'}
+        {tab === 'received' ? t('gifts.empty.received') : t('gifts.empty.sent')}
       </Text>
       <Text style={[styles.emptySub, { color: colors.neutral[500] }]}>
-        {tab === 'received'
-          ? 'Share your profile with friends — they might surprise you!'
-          : 'Spread some love — send a gift to a friend!'}
+        {tab === 'received' ? t('gifts.empty.receivedHint') : t('gifts.empty.sentHint')}
       </Text>
       {tab === 'sent' && (
         <Pressable onPress={onSend} style={styles.sendBtn}>
-          <Text style={styles.sendBtnText}>🎁 Send a Gift</Text>
+          <Text style={styles.sendBtnText}>{t('gifts.sendBtn')}</Text>
         </Pressable>
       )}
     </View>
@@ -161,6 +162,7 @@ export default function GiftsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
+  const { t } = useTranslation();
 
   const [tab, setTab] = useState<'received' | 'sent'>('received');
 
@@ -193,7 +195,7 @@ export default function GiftsScreen() {
         <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8}>
           <Ionicons name="chevron-back" size={22} color={colors.brand.blue} />
         </Pressable>
-        <Text style={[styles.title, { color: textPrimary }]}>🎁 Gifts</Text>
+        <Text style={[styles.title, { color: textPrimary }]}>🎁 {t('gifts.title')}</Text>
         <Pressable onPress={handleSend} style={styles.sendHeaderBtn} hitSlop={8}>
           <Ionicons name="add-circle-outline" size={24} color={colors.brand.blue} />
         </Pressable>
@@ -201,17 +203,17 @@ export default function GiftsScreen() {
 
       {/* Tab bar */}
       <View style={[styles.tabBar, { backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100], borderBottomColor: borderColor }]}>
-        {(['received', 'sent'] as const).map((t) => (
+        {(['received', 'sent'] as const).map((tabKey) => (
           <Pressable
-            key={t}
-            onPress={() => setTab(t)}
+            key={tabKey}
+            onPress={() => setTab(tabKey)}
             style={[
               styles.tabBtn,
-              tab === t && { backgroundColor: isDark ? colors.neutral[900] : colors.neutral[0] },
+              tab === tabKey && { backgroundColor: isDark ? colors.neutral[900] : colors.neutral[0] },
             ]}
           >
-            <Text style={[styles.tabLabel, { color: tab === t ? colors.brand.blue : colors.neutral[500] }]}>
-              {t === 'received' ? '📥 Received' : '📤 Sent'}
+            <Text style={[styles.tabLabel, { color: tab === tabKey ? colors.brand.blue : colors.neutral[500] }]}>
+              {tabKey === 'received' ? t('gifts.tabs.received') : t('gifts.tabs.sent')}
             </Text>
           </Pressable>
         ))}
@@ -224,9 +226,9 @@ export default function GiftsScreen() {
         </View>
       ) : isError ? (
         <View style={styles.emptyWrap}>
-          <Text style={[styles.emptySub, { color: colors.neutral[500] }]}>Could not load gifts.</Text>
+          <Text style={[styles.emptySub, { color: colors.neutral[500] }]}>{t('gifts.loadError')}</Text>
           <Pressable onPress={() => refetch()} style={styles.sendBtn}>
-            <Text style={styles.sendBtnText}>Retry</Text>
+            <Text style={styles.sendBtnText}>{t('gifts.retry')}</Text>
           </Pressable>
         </View>
       ) : gifts.length === 0 ? (

@@ -32,6 +32,7 @@ import { Button } from '@/components/ui/Button';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -213,6 +214,7 @@ export default function GuildDetailScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { colors: themeColors } = useTheme();
+  const currency = useCurrency();
 
   const { data: guild, isLoading, isError } = useQuery({
     queryKey: ['guild', guildId],
@@ -326,7 +328,7 @@ export default function GuildDetailScreen() {
               <View style={[styles.treasury, { backgroundColor: `${colors.brand.gold}18` }]}>
                 <Text style={styles.treasuryLabel}>🏦 Treasury</Text>
                 <Text style={styles.treasuryValue}>
-                  🪙 {guild.treasuryCoins.toLocaleString()} coins
+                  🪙 {guild.treasuryCoins.toLocaleString()} {currency.softPlural.toLowerCase()}
                 </Text>
               </View>
             )}

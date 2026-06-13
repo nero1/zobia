@@ -9,6 +9,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -185,6 +186,7 @@ function PayoutRow({ payout, onApprove, onReject, busy }: PayoutRowProps) {
  * Requires admin authentication (enforced by middleware).
  */
 export default function AdminFinancialPage() {
+  const currency = useCurrency();
   const [data, setData] = useState<FinancialData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -266,7 +268,7 @@ export default function AdminFinancialPage() {
         <SummarySkeleton />
       ) : data ? (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <SummaryCard label="Coins in Circulation" value={data.summary.coinsInCirculation.toLocaleString()} icon="🪙" accent="border-amber-200 dark:border-amber-800" />
+          <SummaryCard label={`${currency.softPlural} in Circulation`} value={data.summary.coinsInCirculation.toLocaleString()} icon="🪙" accent="border-amber-200 dark:border-amber-800" />
           <SummaryCard label="Revenue This Month" value={formatNgn(data.summary.revenueThisMonth)} icon="💰" accent="border-teal-200 dark:border-teal-800" />
           <SummaryCard label="Pending Payouts" value={String(data.summary.pendingPayoutsCount)} icon="⏳" accent="border-blue-200 dark:border-blue-800" />
           <SummaryCard label="Active Subscriptions" value={data.summary.activeSubscriptions.toLocaleString()} icon="🔁" accent="border-neutral-200 dark:border-neutral-800" />

@@ -34,12 +34,10 @@
   "home.feed.loading": "Inapakia ukurasa wako…",
   "rooms.title": "Vyumba",
   "rooms.discover": "Gundua vyumba",
-  "rooms.create": "Unda chumba",
   "rooms.join": "Jiunge",
   "rooms.leave": "Acha",
   "rooms.members": "mwanachama {{count}}",
   "rooms.members_other": "wanachama {{count}}",
-  "rooms.empty": "Hakuna vyumba vilivyopatikana. Kuwa wa kwanza kuunda kimoja!",
   "messages.title": "Ujumbe",
   "messages.new": "Ujumbe mpya",
   "messages.empty": "Hakuna mazungumzo bado. Anza kupiga gumzo!",
@@ -168,7 +166,6 @@
   "profile.playSince": "Anacheza tangu {{year}}",
   "profile.verified": "✓ Amethibitishwa",
   "profile.creator": "Mwandishi",
-  "profile.krediti": "Krediti",
   "profile.stars": "Nyota",
   "profile.wallet": "Mkoba →",
   "profile.joinGuild": "Jiunge na Kikundi",
@@ -824,13 +821,7 @@
   },
   "rooms": {
     "title": "Vyumba",
-    "empty": {
-      "title": "Hakuna vyumba vinavyofanya kazi sasa"
-    },
     "join": "Jiunge",
-    "create": {
-      "title": "Unda Chumba"
-    },
     "searchPlaceholder": "Tafuta vyumba…",
     "filters": "Vichujio",
     "tabTrending": "Inayotabiriwa",
@@ -981,7 +972,9 @@
     "paymentOpenFailed": "Imeshindwa kufungua ukurasa wa malipo",
     "boosterComingSoonTitle": "Inakuja Hivi Karibuni",
     "boosterComingSoonBody": "Manunuzi ya kuimarisha yanapatikana katika sasisho lijalo.",
-    "buy": "Nunua"
+    "buy": "Nunua",
+    "enterPin": "Weka PIN",
+    "enterPinBody": "Weka PIN ya tarakimu 4 kuidhinisha ununuzi huu"
   },
   "seasons": {
     "title": "Msimu",
@@ -1298,5 +1291,30 @@
   "settings.privacy.disableFriendRequests": "Zima Maombi ya Urafiki",
   "settings.privacy.disableFriendRequestsDesc": "Zuia wengine kukutumia maombi ya urafiki",
   "settings.privacy.hideSections": "Sehemu Zilizofichwa za Wasifu",
-  "settings.privacy.hideSectionsDesc": "Chagua sehemu za wasifu wako kuzificha kutoka kwa wengine"
+  "settings.privacy.hideSectionsDesc": "Chagua sehemu za wasifu wako kuzificha kutoka kwa wengine",
+  "profile.coins": "Krediti",
+  "notifications.marking": "Inaweka alama…",
+  "notifications.loadError": "Imeshindwa kupakia arifa.",
+  "notifications.unreadCount": "{{count}} bila kusomwa",
+  "prestige.nowLevel": "Sasa uko Prestige {{level}}!",
+  "prestige.progressTo": "Maendeleo kwa Prestige {{level}}",
+  "prestige.requiresIconIII": "Inahitaji Icon III (XP 100,000)",
+  "prestige.whatItDoes": "Prestige Inafanya Nini",
+  "prestige.trackLevelsPreserved": "Viwango vyote 6 vya njia vimehifadhiwa",
+  "prestige.earnBadge": "Pata beji ya kudumu ya Prestige",
+  "prestige.badgeOnProfile": "Beji ya Prestige inaonyeshwa kwenye wasifu wako",
+  "prestige.history": "Historia ya Prestige",
+  "prestige.prestigeNow": "✨ Prestige Sasa",
+  "prestige.confirmTitle": "Prestige Sasa?",
+  "prestige.confirmBody": "Daraja lako kuu la XP linarudi kwa Mwanzo, lakini viwango vyote 6 vya njia vinahifadhiwa. Utapata beji ya Prestige. Hii haiwezi kubatilishwa.",
+  "prestige.loadError": "Imeshindwa kupakia data ya prestige",
+  "prestige.mainRankResetsToNewcomer": "Daraja kuu linarudi kwa Mwanzo",
+  "leaderboards.loadError": "Imeshindwa kupakia orodha ya washindi. Angalia muunganiko wako.",
+  "nav": {
+    "quests": "Mazoezi"
+  },
+  "quests": {
+    "viewAll": "Tazama mazoezi yote →",
+    "noQuestsToday": "Hakuna mazoezi leo. Angalia hivi karibuni!"
+  }
 }

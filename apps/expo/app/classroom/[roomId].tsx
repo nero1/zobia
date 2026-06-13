@@ -6,6 +6,7 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { storage } from "@/lib/offline/store";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "";
 
@@ -45,6 +46,7 @@ interface CurriculumModule {
 export default function ClassroomScreen() {
   const { roomId } = useLocalSearchParams<{ roomId: string }>();
   const router = useRouter();
+  const currency = useCurrency();
   const [room, setRoom] = useState<ClassroomRoom | null>(null);
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [enrolment, setEnrolment] = useState<Enrolment | null>(null);
@@ -214,7 +216,7 @@ export default function ClassroomScreen() {
           <Text className="font-semibold text-gray-900 mb-1">Not yet enrolled</Text>
           <Text className="text-gray-500 text-sm mb-3">
             {room.enrolment_fee_ngn && room.enrolment_fee_ngn > 0
-              ? `Enrol for ${room.enrolment_fee_ngn} coins`
+              ? `Enrol for ${room.enrolment_fee_ngn} ${currency.softPlural.toLowerCase()}`
               : "Free enrolment — join now!"}
           </Text>
           <TouchableOpacity

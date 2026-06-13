@@ -28,6 +28,7 @@ import { Screen } from '@/components/ui/Screen';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -99,6 +100,7 @@ const EVENT_EMOJIS: Record<EventType, string> = {
 
 function EventCard({ event, onPurchase }: { event: PlatformEvent; onPurchase: (id: string) => void }) {
   const { colors: themeColors } = useTheme();
+  const currency = useCurrency();
   const countdown = useCountdown(event.isActive ? event.endsAt : null);
 
   return (
@@ -155,10 +157,10 @@ function EventCard({ event, onPurchase }: { event: PlatformEvent; onPurchase: (i
           style={styles.purchaseBtn}
           onPress={() => onPurchase(event.id)}
           accessibilityRole="button"
-          accessibilityLabel={`Purchase gift drop for ${event.purchasePrice} coins`}
+          accessibilityLabel={`Purchase gift drop for ${event.purchasePrice} ${currency.softPlural.toLowerCase()}`}
         >
           <Text style={styles.purchaseBtnText}>
-            🪙 Purchase for {event.purchasePrice} coins
+            🪙 Purchase for {event.purchasePrice} {currency.softPlural.toLowerCase()}
           </Text>
         </TouchableOpacity>
       )}

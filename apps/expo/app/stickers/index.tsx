@@ -4,6 +4,7 @@ import {
   Alert, ActivityIndicator, RefreshControl, Modal, ScrollView,
 } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { apiClient } from "@/lib/api/client";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 
@@ -31,6 +32,7 @@ async function unlockStickerPack(packId: string): Promise<void> {
 export default function StickerStoreScreen() {
   const queryClient = useQueryClient();
   const currency = useCurrency();
+  const { t } = useTranslation();
   const [previewPack, setPreviewPack] = useState<StickerPack | null>(null);
 
   const { data: packs = [], isLoading, isRefetching, refetch } = useQuery<StickerPack[]>({
@@ -56,7 +58,7 @@ export default function StickerStoreScreen() {
   function handleUnlock(pack: StickerPack) {
     if (pack.unlocked) return;
     if (pack.pack_type === "earnable") {
-      Alert.alert("Earnable Pack", pack.unlock_condition ?? "Complete special challenges to unlock.");
+      Alert.alert(t('stickers.earn'), pack.unlock_condition ?? t('stickers.earn'));
       return;
     }
     Alert.alert(`Unlock ${pack.name}`, `Cost: ${pack.coin_price} ${currency.softPlural.toLowerCase()}`, [
@@ -92,15 +94,15 @@ export default function StickerStoreScreen() {
             <TouchableOpacity className="items-center p-4" onPress={() => setPreviewPack(item)}>
               <Text className="text-5xl mb-2">{item.cover_emoji}</Text>
               <Text className="font-semibold text-gray-900 text-center">{item.name}</Text>
-              {item.unlocked && <Text className="text-xs text-emerald-600 mt-1">✓ Owned</Text>}
+              {item.unlocked && <Text className="text-xs text-emerald-600 mt-1">✓ {t('stickers.owned')}</Text>}
               {!item.unlocked && item.pack_type === "premium" && (
                 <Text className="text-xs text-violet-600 mt-1">{item.coin_price} 🪙</Text>
               )}
               {!item.unlocked && item.pack_type === "earnable" && (
-                <Text className="text-xs text-amber-600 mt-1">🏆 Earnable</Text>
+                <Text className="text-xs text-amber-600 mt-1">🏆 {t('stickers.earn')}</Text>
               )}
               {item.pack_type === "free" && !item.unlocked && (
-                <Text className="text-xs text-blue-600 mt-1">Free</Text>
+                <Text className="text-xs text-blue-600 mt-1">{t('stickers.free')}</Text>
               )}
             </TouchableOpacity>
             {!item.unlocked && (
@@ -117,10 +119,10 @@ export default function StickerStoreScreen() {
                   }`}
                 >
                   {unlockMutation.isPending && unlockMutation.variables === item.id
-                    ? "Unlocking..."
+                    ? t('stickers.unlocking')
                     : item.pack_type === "earnable"
-                    ? "How to Earn"
-                    : "Unlock"}
+                    ? t('stickers.earn')
+                    : t('stickers.unlock')}
                 </Text>
               </TouchableOpacity>
             )}

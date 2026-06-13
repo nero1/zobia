@@ -34,12 +34,10 @@
   "home.feed.loading": "Carregando seu feed…",
   "rooms.title": "Salas",
   "rooms.discover": "Descobrir salas",
-  "rooms.create": "Criar sala",
   "rooms.join": "Entrar",
   "rooms.leave": "Sair",
   "rooms.members": "{{count}} membro",
   "rooms.members_other": "{{count}} membros",
-  "rooms.empty": "Nenhuma sala encontrada. Seja o primeiro a criar uma!",
   "messages.title": "Mensagens",
   "messages.new": "Nova mensagem",
   "messages.empty": "Nenhuma conversa ainda. Comece a conversar!",
@@ -386,7 +384,6 @@
   "profile.playSince": "Playing since {{year}}",
   "profile.verified": "✓ Verified",
   "profile.creator": "Criador",
-  "profile.créditos": "Créditos",
   "profile.stars": "Estrelas",
   "profile.wallet": "Wallet →",
   "profile.joinGuild": "Entrar a Guilda",
@@ -824,13 +821,7 @@
   },
   "rooms": {
     "title": "Salas",
-    "empty": {
-      "title": "Sem salas ativas agora"
-    },
     "join": "Entrar",
-    "create": {
-      "title": "Criar Sala"
-    },
     "searchPlaceholder": "Buscar salas…",
     "filters": "Filtros",
     "tabTrending": "Em Alta",
@@ -981,7 +972,9 @@
     "paymentOpenFailed": "Falha ao abrir a página de pagamento",
     "boosterComingSoonTitle": "Em Breve",
     "boosterComingSoonBody": "As compras de reforço estão disponíveis na próxima atualização.",
-    "buy": "Comprar"
+    "buy": "Comprar",
+    "enterPin": "Inserir PIN",
+    "enterPinBody": "Insira o PIN de 4 dígitos para autorizar esta compra"
   },
   "legal": {
     "agreePrefix": "Ao continuar, você concorda com nossos",
@@ -1298,5 +1291,30 @@
   "settings.privacy.disableFriendRequests": "Desativar Pedidos de Amizade",
   "settings.privacy.disableFriendRequestsDesc": "Impedir que outros lhe enviem pedidos de amizade",
   "settings.privacy.hideSections": "Secções de Perfil Ocultas",
-  "settings.privacy.hideSectionsDesc": "Escolha quais as secções do seu perfil a ocultar dos outros"
+  "settings.privacy.hideSectionsDesc": "Escolha quais as secções do seu perfil a ocultar dos outros",
+  "profile.coins": "Créditos",
+  "notifications.marking": "Marcando…",
+  "notifications.loadError": "Não foi possível carregar as notificações.",
+  "notifications.unreadCount": "{{count}} não lidas",
+  "prestige.nowLevel": "Agora você é Prestige {{level}}!",
+  "prestige.progressTo": "Progresso para Prestige {{level}}",
+  "prestige.requiresIconIII": "Requer Ícone III (100.000 XP)",
+  "prestige.whatItDoes": "O que o Prestige Faz",
+  "prestige.trackLevelsPreserved": "Todos os 6 níveis de faixas são preservados",
+  "prestige.earnBadge": "Ganhe um emblema permanente de Prestige",
+  "prestige.badgeOnProfile": "Emblema de Prestige exibido no perfil",
+  "prestige.history": "Histórico de Prestige",
+  "prestige.prestigeNow": "✨ Prestige Agora",
+  "prestige.confirmTitle": "Prestige agora?",
+  "prestige.confirmBody": "Seu rank principal de XP volta para Iniciante, mas todos os 6 níveis de faixas são preservados. Você ganhará um emblema de Prestige. Esta ação não pode ser desfeita.",
+  "prestige.loadError": "Não foi possível carregar os dados de prestige",
+  "prestige.mainRankResetsToNewcomer": "Rank principal volta para Iniciante",
+  "leaderboards.loadError": "Não foi possível carregar o placar. Verifique sua conexão.",
+  "nav": {
+    "quests": "Missões"
+  },
+  "quests": {
+    "viewAll": "Ver todas as missões →",
+    "noQuestsToday": "Sem missões hoje. Volte em breve!"
+  }
 }

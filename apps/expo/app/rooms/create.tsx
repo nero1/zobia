@@ -28,6 +28,7 @@ import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 import { apiClient } from '@/lib/api/client';
 import { useCurrency } from '@/lib/hooks/useCurrency';
 
@@ -152,6 +153,7 @@ interface RoomTypeCardProps {
 }
 
 function RoomTypeCard({ option, selected, onSelect }: RoomTypeCardProps) {
+  const currency = useCurrency();
   return (
     <Pressable
       onPress={onSelect}
@@ -167,7 +169,7 @@ function RoomTypeCard({ option, selected, onSelect }: RoomTypeCardProps) {
         <Text style={[styles.typeLabel, selected && { color: option.color }]}>
           {option.label}
         </Text>
-        <Text style={styles.typeDesc}>{option.description}</Text>
+        <Text style={styles.typeDesc}>{option.description.replace(/\bcoin\b/gi, currency.softSingular.toLowerCase())}</Text>
       </View>
       {selected && (
         <View style={[styles.typeCheck, { backgroundColor: option.color }]}>

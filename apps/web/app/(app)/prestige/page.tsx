@@ -48,6 +48,7 @@ function PageSkeleton() {
 // ---------------------------------------------------------------------------
 
 function PrestigeExplainer() {
+  const currency = useCurrency();
   return (
     <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950/30">
       <h3 className="mb-2 text-sm font-bold text-blue-800 dark:text-blue-200">What is Prestige?</h3>
@@ -59,7 +60,7 @@ function PrestigeExplainer() {
       </p>
       <ul className="mt-3 space-y-1 text-xs text-blue-600 dark:text-blue-400">
         <li>⭐ Each prestige adds a star to your profile badge</li>
-        <li>🪙 Earn coins and exclusive frames with each prestige</li>
+        <li>🪙 Earn {currency.softPlural.toLowerCase()} and exclusive frames with each prestige</li>
         <li>🔥 3× XP boost for 7 days after prestige (from your 3rd prestige)</li>
         <li>🏆 Reach Prestige 10 to be inducted into the Hall of Fame</li>
       </ul>
@@ -195,7 +196,7 @@ function ConfirmScreen({ data, onConfirm, confirming, done }: ConfirmScreenProps
           </h3>
           <ul className="space-y-1.5 text-sm text-teal-600 dark:text-teal-400">
             <li>Track levels</li>
-            <li>Coins balance</li>
+            <li>{currency.softPlural} balance</li>
             <li>Guild membership</li>
             <li>Legacy score</li>
             <li>Season history</li>

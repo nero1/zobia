@@ -12,6 +12,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -181,6 +182,7 @@ export default function QuestsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState("");
+  const currency = useCurrency();
 
   const load = useCallback(async () => {
     try {
@@ -251,7 +253,7 @@ export default function QuestsPage() {
         <div>
           <h1 className="text-2xl font-extrabold text-neutral-900 dark:text-neutral-100">Daily Quests</h1>
           <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-            Complete quests to earn XP and Coins
+            Complete quests to earn XP and {currency.softPlural}
           </p>
         </div>
         {data && (

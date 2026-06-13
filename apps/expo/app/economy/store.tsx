@@ -29,6 +29,7 @@ import { Button } from '@/components/ui/Button';
 import { apiClient } from '@/lib/api/client';
 import { colors } from '@/lib/theme/colors';
 import { useTheme } from '@/lib/theme';
+import { useTranslation } from 'react-i18next';
 import { useCurrency } from '@/lib/hooks/useCurrency';
 
 // ---------------------------------------------------------------------------
@@ -155,6 +156,7 @@ function PackCard({
   onBuy,
 }: PackCardProps) {
   const { colors: themeColors } = useTheme();
+  const { t } = useTranslation();
   return (
     <View
       style={[
@@ -165,7 +167,7 @@ function PackCard({
     >
       {isFeatured && (
         <View style={styles.featuredBadge}>
-          <Text style={styles.featuredText}>BEST VALUE</Text>
+          <Text style={styles.featuredText}>{t('store.bestValue')}</Text>
         </View>
       )}
 
@@ -184,7 +186,7 @@ function PackCard({
       <Text style={styles.packPrice}>{formatKobo(priceKobo, currency)}</Text>
 
       <Button
-        label={isPurchasing ? 'Processing...' : 'Buy Now'}
+        label={isPurchasing ? t('store.processing') : t('store.buyNow')}
         onPress={() => onBuy(id)}
         loading={isPurchasing}
         style={styles.buyBtn}
@@ -205,6 +207,7 @@ export default function StoreScreen() {
   const router = useRouter();
   const { colors: themeColors } = useTheme();
   const currency = useCurrency();
+  const { t } = useTranslation();
   const [purchasingId, setPurchasingId] = useState<string | null>(null);
   const [purchasingStarId, setPurchasingStarId] = useState<string | null>(null);
   const [purchasingBoosterId, setPurchasingBoosterId] = useState<string | null>(null);
@@ -328,8 +331,8 @@ export default function StoreScreen() {
     return (
       <Screen>
         <View style={styles.center}>
-          <Text style={styles.errorText}>Failed to load store</Text>
-          <Button label="Retry" size="sm" variant="ghost" onPress={() => void refetch()} />
+          <Text style={styles.errorText}>{t('store.loadError')}</Text>
+          <Button label={t('action.retry')} size="sm" variant="ghost" onPress={() => void refetch()} />
         </View>
       </Screen>
     );
@@ -340,21 +343,21 @@ export default function StoreScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <Text style={styles.backText}>← Back</Text>
+          <Text style={styles.backText}>{t('store.backBtn')}</Text>
         </Pressable>
-        <Text style={styles.title}>{currency.softPlural} Store</Text>
+        <Text style={styles.title}>{t('store.title')}</Text>
       </View>
 
       {!data.paymentEnabled && (
         <View style={styles.disabledBanner}>
-          <Text style={styles.disabledText}>Payments are currently unavailable.</Text>
+          <Text style={styles.disabledText}>{t('store.paymentsDisabled')}</Text>
         </View>
       )}
 
       {/* Coin Packs */}
       {data.coinPacks.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>🪙 {currency.softPlural} Packs</Text>
+          <Text style={styles.sectionTitle}>{t('store.coinPacks')}</Text>
           <View style={styles.packGrid}>
             {data.coinPacks.map((pack) => (
               <PackCard
@@ -380,7 +383,7 @@ export default function StoreScreen() {
       {/* Star Packs */}
       {data.starPacks.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>⭐ {currency.premiumPlural} Packs</Text>
+          <Text style={styles.sectionTitle}>{t('store.starPacks')}</Text>
           <View style={styles.packGrid}>
             {data.starPacks.map((pack) => (
               <PackCard
@@ -406,7 +409,7 @@ export default function StoreScreen() {
       {/* Booster section */}
       {data.boosters.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>⚡ Booster Packs</Text>
+          <Text style={styles.sectionTitle}>{t('store.boosterPacks')}</Text>
           {data.boosters.map((booster) => (
             <View
               key={booster.id}
@@ -420,7 +423,7 @@ export default function StoreScreen() {
                 <Text style={styles.boosterCost}>🪙 {booster.coinsCost?.toLocaleString()} {currency.softPlural.toLowerCase()}</Text>
               </View>
               <Button
-                label={purchasingBoosterId === booster.id ? 'Processing...' : 'Buy'}
+                label={purchasingBoosterId === booster.id ? t('store.processing') : t('store.buy')}
                 size="sm"
                 variant="secondary"
                 loading={purchasingBoosterId === booster.id}
@@ -442,9 +445,9 @@ export default function StoreScreen() {
       >
         <View style={styles.pinOverlay}>
           <View style={[styles.pinModal, { backgroundColor: themeColors.surface }]}>
-            <Text style={[styles.pinModalTitle, { color: themeColors.text }]}>Enter PIN</Text>
+            <Text style={[styles.pinModalTitle, { color: themeColors.text }]}>{t('store.enterPin')}</Text>
             <Text style={[styles.pinModalSub, { color: themeColors.textMuted }]}>
-              Enter your 4-digit PIN to authorise this purchase
+              {t('store.enterPinBody')}
             </Text>
             <TextInput
               style={[styles.pinInput, { color: themeColors.text, borderColor: colors.neutral[300] }]}
@@ -460,14 +463,14 @@ export default function StoreScreen() {
             {pinError ? <Text style={styles.pinError}>{pinError}</Text> : null}
             <View style={styles.pinBtns}>
               <Pressable onPress={() => setPinModalVisible(false)} style={styles.pinCancelBtn}>
-                <Text style={styles.pinCancelText}>Cancel</Text>
+                <Text style={styles.pinCancelText}>{t('action.cancel')}</Text>
               </Pressable>
               <Pressable
                 onPress={submitPin}
                 style={[styles.pinConfirmBtn, pinInput.length < 4 && styles.pinConfirmDisabled]}
                 disabled={pinInput.length < 4}
               >
-                <Text style={styles.pinConfirmText}>Confirm</Text>
+                <Text style={styles.pinConfirmText}>{t('action.confirm')}</Text>
               </Pressable>
             </View>
           </View>

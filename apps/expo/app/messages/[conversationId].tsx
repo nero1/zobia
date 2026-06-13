@@ -651,7 +651,7 @@ export default function DMConversationScreen() {
         {conversation && !conversation.isUnlimited && (
           <View style={styles.costBanner}>
             <Text style={[styles.costBannerText, { color: themeColors.textMuted }]}>
-              🪙 Each reply costs {conversation.coinCostPerMessage} coin
+              🪙 Each reply costs {conversation.coinCostPerMessage} {currency.softSingular.toLowerCase()}
             </Text>
           </View>
         )}

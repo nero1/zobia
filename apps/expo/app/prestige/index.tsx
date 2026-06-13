@@ -4,6 +4,7 @@ import {
   ActivityIndicator, Alert, RefreshControl,
 } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { apiClient } from "@/lib/api/client";
 
 const ICON_III_XP_REQUIRED = 100_000;
@@ -34,6 +35,7 @@ async function doPrestigeRequest(): Promise<PrestigeData> {
 
 export default function PrestigeScreen() {
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
 
   const { data, isLoading, isError, refetch, isRefetching } = useQuery<PrestigeData>({
     queryKey: ["prestige"],
@@ -45,7 +47,7 @@ export default function PrestigeScreen() {
     mutationFn: doPrestigeRequest,
     onSuccess: (updated) => {
       queryClient.setQueryData(["prestige"], updated);
-      Alert.alert("🌟 Prestige Complete!", `You are now Prestige ${updated.prestige_level}!`);
+      Alert.alert("🌟 " + t('prestige.prestigeAchieved'), t('prestige.nowLevel', { level: updated.prestige_level }));
     },
     onError: (err) => {
       Alert.alert("Error", err.message ?? "Prestige failed. Please try again.");
@@ -55,12 +57,12 @@ export default function PrestigeScreen() {
   function handlePrestige() {
     if (!data?.can_prestige) return;
     Alert.alert(
-      "Prestige Now?",
-      "Your main XP rank resets to Newcomer, but all 6 track levels are preserved. You'll earn a Prestige badge. This cannot be undone.",
+      t('prestige.confirmTitle'),
+      t('prestige.confirmBody'),
       [
-        { text: "Cancel" },
+        { text: t('action.cancel', 'Cancel') },
         {
-          text: "Prestige!",
+          text: t('prestige.yesPrestige'),
           style: "destructive",
           onPress: () => prestigeMutation.mutate(),
         },
@@ -79,9 +81,9 @@ export default function PrestigeScreen() {
   if (isError || !data) {
     return (
       <View className="flex-1 items-center justify-center">
-        <Text className="text-gray-400 mb-4">Unable to load prestige data</Text>
+        <Text className="text-gray-400 mb-4">{t('prestige.loadError')}</Text>
         <TouchableOpacity onPress={() => void refetch()} className="px-4 py-2 bg-violet-600 rounded-lg">
-          <Text className="text-white font-semibold">Retry</Text>
+          <Text className="text-white font-semibold">{t('action.retry', 'Retry')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -97,16 +99,16 @@ export default function PrestigeScreen() {
       {/* Hero */}
       <View className="bg-gradient-to-b from-violet-700 to-violet-900 px-6 pt-8 pb-10 items-center">
         <Text className="text-5xl mb-2">{PRESTIGE_BADGES[data.prestige_level] ?? "🌟"}</Text>
-        <Text className="text-white text-2xl font-bold">Prestige {data.prestige_level}</Text>
+        <Text className="text-white text-2xl font-bold">{t('prestige.currentPrestige')} {data.prestige_level}</Text>
         <Text className="text-violet-200 text-sm mt-1">{data.current_rank}</Text>
       </View>
 
       {/* Progress to prestige */}
       <View className="bg-white mx-4 -mt-4 rounded-xl p-5 shadow-sm">
         <Text className="font-semibold text-gray-800 mb-1">
-          Progress to Prestige {data.prestige_level + 1}
+          {t('prestige.progressTo', { level: data.prestige_level + 1 })}
         </Text>
-        <Text className="text-gray-500 text-xs mb-3">Requires Icon III (100,000 XP)</Text>
+        <Text className="text-gray-500 text-xs mb-3">{t('prestige.requiresIconIII')}</Text>
         <View className="bg-gray-100 rounded-full h-3 overflow-hidden">
           <View className="bg-violet-600 h-full rounded-full" style={{ width: `${xpProgress}%` }} />
         </View>
@@ -117,12 +119,12 @@ export default function PrestigeScreen() {
 
       {/* Prestige info */}
       <View className="bg-white mx-4 mt-3 rounded-xl p-4 shadow-sm">
-        <Text className="font-semibold text-gray-800 mb-3">What Prestige Does</Text>
+        <Text className="font-semibold text-gray-800 mb-3">{t('prestige.whatItDoes')}</Text>
         {[
-          { icon: "🔄", label: "Main rank resets to Newcomer" },
-          { icon: "✅", label: "All 6 track levels preserved" },
-          { icon: "🏅", label: "Earn a permanent Prestige badge" },
-          { icon: "👑", label: "Prestige badge displayed on profile" },
+          { icon: "🔄", label: t('prestige.mainRankResetsToNewcomer') },
+          { icon: "✅", label: t('prestige.trackLevelsPreserved') },
+          { icon: "🏅", label: t('prestige.earnBadge') },
+          { icon: "👑", label: t('prestige.badgeOnProfile') },
         ].map((item) => (
           <View key={item.label} className="flex-row items-center mb-2">
             <Text className="text-lg mr-3">{item.icon}</Text>
@@ -134,10 +136,10 @@ export default function PrestigeScreen() {
       {/* History */}
       {data.prestige_history.length > 0 && (
         <View className="bg-white mx-4 mt-3 rounded-xl p-4 shadow-sm">
-          <Text className="font-semibold text-gray-800 mb-3">Prestige History</Text>
+          <Text className="font-semibold text-gray-800 mb-3">{t('prestige.history')}</Text>
           {data.prestige_history.map((h) => (
             <View key={h.level} className="flex-row justify-between py-1">
-              <Text className="text-gray-600">{PRESTIGE_BADGES[h.level]} Prestige {h.level}</Text>
+              <Text className="text-gray-600">{PRESTIGE_BADGES[h.level]} {t('prestige.currentPrestige')} {h.level}</Text>
               <Text className="text-gray-400 text-sm">
                 {h.xp_at_prestige.toLocaleString()} XP · {new Date(h.prestiged_at).toLocaleDateString()}
               </Text>
@@ -155,10 +157,10 @@ export default function PrestigeScreen() {
         >
           <Text className={`font-bold text-base ${data.can_prestige ? "text-white" : "text-gray-400"}`}>
             {prestigeMutation.isPending
-              ? "Processing..."
+              ? t('prestige.processing')
               : data.can_prestige
-              ? "✨ Prestige Now"
-              : "Reach Icon III to Prestige"}
+              ? t('prestige.prestigeNow')
+              : t('prestige.requiresLevel', { level: 'Icon III' })}
           </Text>
         </TouchableOpacity>
       </View>

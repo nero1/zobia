@@ -30,6 +30,7 @@ import { Screen } from '@/components/ui/Screen';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 import {
   initGooglePlayBilling,
   purchaseSubscription,
@@ -183,6 +184,7 @@ interface PlanCardProps {
 
 function PlanCard({ plan, isActive, onSubscribe, subscribing, isAnnual }: PlanCardProps) {
   const { colors: themeColors } = useTheme();
+  const currency = useCurrency();
   const displayPrice = plan.tier === 'free'
     ? plan.price
     : isAnnual ? plan.annualPrice : plan.price;
@@ -227,7 +229,9 @@ function PlanCard({ plan, isActive, onSubscribe, subscribing, isAnnual }: PlanCa
         {plan.features.map((f, idx) => (
           <View key={idx} style={styles.featureRow}>
             <Text style={[styles.featureCheck, { color: plan.accentColor }]}>✓</Text>
-            <Text style={[styles.featureLabel, { color: themeColors.text }]}>{f.label}</Text>
+            <Text style={[styles.featureLabel, { color: themeColors.text }]}>
+              {f.label.replace(/\bcoins\b/gi, currency.softPlural.toLowerCase())}
+            </Text>
           </View>
         ))}
       </View>
@@ -238,7 +242,7 @@ function PlanCard({ plan, isActive, onSubscribe, subscribing, isAnnual }: PlanCa
           <Text style={[styles.statValue, { color: plan.accentColor }]}>
             {plan.monthlyCoins > 0 ? `+${plan.monthlyCoins}` : '—'}
           </Text>
-          <Text style={[styles.statLabel, { color: themeColors.textMuted }]}>Coins/mo</Text>
+          <Text style={[styles.statLabel, { color: themeColors.textMuted }]}>{currency.softPlural}/mo</Text>
         </View>
         <View style={styles.statDivider} />
         <View style={styles.statCell}>

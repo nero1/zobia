@@ -27,6 +27,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -69,6 +70,7 @@ export default function FirstContactScreen() {
   const router = useRouter();
   const { t } = useTranslation();
   const { isDark } = useTheme();
+  const currency = useCurrency();
 
   const [loading, setLoading] = useState(false);
   const [zobiaContacts, setZobiaContacts] = useState<ZobiaContact[]>([]);
@@ -237,7 +239,7 @@ export default function FirstContactScreen() {
           <Text style={[styles.questDesc, { color: subTextColor }]}>
             {t(
               'onboarding.firstContact.questDesc',
-              'Complete 5 missions to earn 1,000 Coins + 2,000 XP. You can complete most right now!'
+              `Complete 5 missions to earn 1,000 ${currency.softPlural} + 2,000 XP. You can complete most right now!`
             )}
           </Text>
           {!questAccepted ? (

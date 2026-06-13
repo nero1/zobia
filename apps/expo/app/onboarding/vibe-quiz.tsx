@@ -15,6 +15,7 @@ import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -31,6 +32,7 @@ interface QuizQuestion {
 // ---------------------------------------------------------------------------
 
 function useQuizQuestions(): QuizQuestion[] {
+  const currency = useCurrency();
   return [
     {
       // PRD §4: seeds Room recommendations
@@ -60,7 +62,7 @@ function useQuizQuestions(): QuizQuestion[] {
       questionKey: 'What brings you here?',
       options: [
         { label: 'Connect with friends 👥', value: 'friends' },
-        { label: 'Stack coins 💰', value: 'money' },
+        { label: `Stack ${currency.softPlural.toLowerCase()} 💰`, value: 'money' },
         { label: 'Just vibing ✌️', value: 'vibing' },
         { label: 'All of it 🔥', value: 'all_of_it' },
       ],

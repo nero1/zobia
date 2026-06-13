@@ -37,6 +37,7 @@ import { colors } from '@/lib/theme/colors';
 import { useTheme } from '@/lib/theme';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/hooks';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -226,6 +227,7 @@ function shouldShowGuildDiscovery(
 function MemberQuestBanner({ quest }: { quest: NewMemberQuestProgress }) {
   const router = useRouter();
   const { colors: themeColors } = useTheme();
+  const currency = useCurrency();
   if (quest.rewardClaimed) return null;
 
   const completedCount = quest.steps.filter((s) => s.completed).length;
@@ -246,7 +248,7 @@ function MemberQuestBanner({ quest }: { quest: NewMemberQuestProgress }) {
             New Member Quest
           </Text>
           <Text style={[styles.memberQuestSubtitle, { color: themeColors.textMuted }]}>
-            {completedCount}/{totalCount} steps · Earn 1,000 coins + 2,000 XP
+            {completedCount}/{totalCount} steps · Earn 1,000 {currency.softPlural.toLowerCase()} + 2,000 XP
           </Text>
         </View>
         <Text style={[styles.memberQuestChevron, { color: colors.brand.blue }]}>›</Text>

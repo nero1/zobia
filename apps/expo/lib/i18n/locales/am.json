@@ -34,12 +34,10 @@
   "home.feed.loading": "ምግብዎ እየጫነ ነው…",
   "rooms.title": "ክፍሎች",
   "rooms.discover": "ክፍሎችን ያግኙ",
-  "rooms.create": "ክፍል ፍጠር",
   "rooms.join": "ይቀላቀሉ",
   "rooms.leave": "ውጣ",
   "rooms.members": "{{count}} አባል",
   "rooms.members_other": "{{count}} አባላት",
-  "rooms.empty": "ምንም ክፍሎች አልተገኙም። መጀመሪያ ይፍጠሩ!",
   "messages.title": "መልዕክቶች",
   "messages.new": "አዲስ መልዕክት",
   "messages.empty": "ገና ምንም ውይይቶች የሉም። ማውራት ጀምሩ!",
@@ -168,7 +166,6 @@
   "profile.playSince": "ከ {{year}} ጀምሮ ይጫወታሉ",
   "profile.verified": "✓ ተረጋገጠ",
   "profile.creator": "ፈጣሪ",
-  "profile.ክሬዲቶች": "ክሬዲቶች",
   "profile.stars": "ኮከቦች",
   "profile.wallet": "ቦርሳ →",
   "profile.joinGuild": "ጓድ ይቀላቀሉ",
@@ -824,13 +821,7 @@
   },
   "rooms": {
     "title": "ክፍሎች",
-    "empty": {
-      "title": "አሁን ምንም ንቁ ክፍሎች የሉም"
-    },
     "join": "ይቀላቀሉ",
-    "create": {
-      "title": "ክፍል ፍጠር"
-    },
     "searchPlaceholder": "ክፍሎችን ይፈልጉ…",
     "filters": "ማጣሪያዎች",
     "tabTrending": "ታዋቂ",
@@ -981,7 +972,9 @@
     "paymentOpenFailed": "የክፍያ ገፁን መክፈት አልተቻለም",
     "boosterComingSoonTitle": "በቅርቡ ይመጣል",
     "boosterComingSoonBody": "የማሳደጊያ ግዥዎች በሚቀጥለው ዝማኔ ይገኛሉ።",
-    "buy": "ይግዙ"
+    "buy": "ይግዙ",
+    "enterPin": "PIN አስገባ",
+    "enterPinBody": "ይህን ግዢ ለማፅደቅ 4-አሃዝ PIN አስገባ"
   },
   "seasons": {
     "title": "ወቅት",
@@ -1298,5 +1291,30 @@
   "settings.privacy.disableFriendRequests": "የጓደኝነት ጥያቄዎችን አሰናክሉ",
   "settings.privacy.disableFriendRequestsDesc": "ሌሎች ጥያቄ እንዳይልኩልዎ ያግዱ",
   "settings.privacy.hideSections": "የተደበቁ የመገለጫ ክፍሎች",
-  "settings.privacy.hideSectionsDesc": "ከሌሎች ለመደበቅ የሚፈልጓቸውን ክፍሎች ይምረጡ"
+  "settings.privacy.hideSectionsDesc": "ከሌሎች ለመደበቅ የሚፈልጓቸውን ክፍሎች ይምረጡ",
+  "profile.coins": "ክሬዲቶች",
+  "notifications.marking": "ምልክት እያደረገ…",
+  "notifications.loadError": "ማሳወቂያዎቹን መጫን አልተቻለም።",
+  "notifications.unreadCount": "{{count}} ያልተነበቡ",
+  "prestige.nowLevel": "አሁን ፕሬስቲጅ {{level}} ነዎት!",
+  "prestige.progressTo": "ወደ ፕሬስቲጅ {{level}} ሂደት",
+  "prestige.requiresIconIII": "አዶ III (XP 100,000) ያስፈልጋል",
+  "prestige.whatItDoes": "ፕሬስቲጅ ምን ያደርጋል",
+  "prestige.trackLevelsPreserved": "ሁሉም 6 ተከታታይ ደረጃዎች ተጠብቀዋል",
+  "prestige.earnBadge": "ቋሚ የፕሬስቲጅ ባጅ ያግኙ",
+  "prestige.badgeOnProfile": "የፕሬስቲጅ ባጅ በፕሮፋይልዎ ላይ ይታያል",
+  "prestige.history": "የፕሬስቲጅ ታሪክ",
+  "prestige.prestigeNow": "✨ ፕሬስቲጅ አሁን",
+  "prestige.confirmTitle": "አሁን ፕሬስቲጅ?",
+  "prestige.confirmBody": "ዋናው XP ደረጃዎ ወደ ጀማሪ ይመለሳል፣ ነገር ግን ሁሉም 6 ተከታታይ ደረጃዎች ይጠበቃሉ። የፕሬስቲጅ ባጅ ያገኛሉ። ይህ ሊቀለበስ አይችልም።",
+  "prestige.loadError": "የፕሬስቲጅ ውሂብ መጫን አልተቻለም",
+  "prestige.mainRankResetsToNewcomer": "ዋናው ደረጃ ወደ ጀማሪ ይመለሳል",
+  "leaderboards.loadError": "ሰንጠረዡን መጫን አልተቻለም። ግንኙነትዎን ይፈትሹ።",
+  "nav": {
+    "quests": "ተልእኮዎች"
+  },
+  "quests": {
+    "viewAll": "ሁሉንም ተልእኮዎች ይመልከቱ →",
+    "noQuestsToday": "ዛሬ ምንም ተልእኮ የለም። ብዙም ሳይቆዩ ፈትሹ!"
+  }
 }

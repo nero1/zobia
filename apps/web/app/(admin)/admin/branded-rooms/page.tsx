@@ -16,6 +16,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -92,6 +93,7 @@ interface CreateFormProps {
 }
 
 function CreateForm({ onSave, onCancel }: CreateFormProps) {
+  const currency = useCurrency();
   const [brandName, setBrandName] = useState("");
   const [brandLogoUrl, setBrandLogoUrl] = useState("");
   const [roomId, setRoomId] = useState("");
@@ -180,7 +182,7 @@ function CreateForm({ onSave, onCancel }: CreateFormProps) {
 
         <div>
           <label className="mb-1 block text-xs font-semibold text-neutral-700 dark:text-neutral-300">
-            Join Bonus (coins) <span className="text-red-500">*</span>
+            Join Bonus ({currency.softPlural.toLowerCase()}) <span className="text-red-500">*</span>
           </label>
           <input
             type="number"
@@ -190,12 +192,12 @@ function CreateForm({ onSave, onCancel }: CreateFormProps) {
             onChange={(e) => setJoinBonusCoins(Number(e.target.value))}
             className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
           />
-          <p className="mt-1 text-xs text-neutral-400">Coins awarded to each member who joins the room</p>
+          <p className="mt-1 text-xs text-neutral-400">{currency.softPlural} awarded to each member who joins the room</p>
         </div>
 
         <div>
           <label className="mb-1 block text-xs font-semibold text-neutral-700 dark:text-neutral-300">
-            Sponsor Budget (coins) <span className="text-red-500">*</span>
+            Sponsor Budget ({currency.softPlural.toLowerCase()}) <span className="text-red-500">*</span>
           </label>
           <input
             type="number"
@@ -205,7 +207,7 @@ function CreateForm({ onSave, onCancel }: CreateFormProps) {
             onChange={(e) => setSponsorBudgetCoins(Number(e.target.value))}
             className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
           />
-          <p className="mt-1 text-xs text-neutral-400">Total coin budget funded by the brand</p>
+          <p className="mt-1 text-xs text-neutral-400">Total {currency.softSingular.toLowerCase()} budget funded by the brand</p>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -274,6 +276,7 @@ interface EditFormProps {
 }
 
 function EditForm({ room, onSave, onCancel }: EditFormProps) {
+  const currency = useCurrency();
   const [brandName, setBrandName] = useState(room.brandName);
   const [brandLogoUrl, setBrandLogoUrl] = useState(room.brandLogoUrl ?? "");
   const [roomId, setRoomId] = useState(room.roomId ?? "");
@@ -367,7 +370,7 @@ function EditForm({ room, onSave, onCancel }: EditFormProps) {
         </div>
 
         <div>
-          <label className="mb-1 block text-xs font-semibold text-neutral-700 dark:text-neutral-300">Join Bonus (coins)</label>
+          <label className="mb-1 block text-xs font-semibold text-neutral-700 dark:text-neutral-300">Join Bonus ({currency.softPlural.toLowerCase()})</label>
           <input
             type="number"
             min={0}
@@ -378,7 +381,7 @@ function EditForm({ room, onSave, onCancel }: EditFormProps) {
         </div>
 
         <div>
-          <label className="mb-1 block text-xs font-semibold text-neutral-700 dark:text-neutral-300">Sponsor Budget (coins)</label>
+          <label className="mb-1 block text-xs font-semibold text-neutral-700 dark:text-neutral-300">Sponsor Budget ({currency.softPlural.toLowerCase()})</label>
           <input
             type="number"
             min={0}
@@ -459,6 +462,7 @@ interface RoomRowProps {
 }
 
 function RoomRow({ room, onEdit, onToggle, onDelete, busy }: RoomRowProps) {
+  const currency = useCurrency();
   const isBusy = busy === room.id;
   const status = getRoomStatus(room);
 
@@ -492,10 +496,10 @@ function RoomRow({ room, onEdit, onToggle, onDelete, busy }: RoomRowProps) {
         )}
       </td>
       <td className="px-3 py-3 text-sm text-neutral-700 dark:text-neutral-300">
-        {room.joinBonusCoins.toLocaleString()} coins
+        {room.joinBonusCoins.toLocaleString()} {currency.softPlural.toLowerCase()}
       </td>
       <td className="px-3 py-3 text-sm text-neutral-700 dark:text-neutral-300">
-        {room.sponsorBudgetCoins.toLocaleString()} coins
+        {room.sponsorBudgetCoins.toLocaleString()} {currency.softPlural.toLowerCase()}
       </td>
       <td className="px-3 py-3">
         <span
@@ -544,6 +548,7 @@ function RoomRow({ room, onEdit, onToggle, onDelete, busy }: RoomRowProps) {
  * Requires admin authentication (enforced by middleware).
  */
 export default function AdminBrandedRoomsPage() {
+  const currency = useCurrency();
   const [rooms, setRooms] = useState<BrandedRoom[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -662,7 +667,7 @@ export default function AdminBrandedRoomsPage() {
             Branded Rooms
           </h1>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-            Companies sponsor a dedicated Room. Members who join earn a coin bonus funded by the brand.
+            Companies sponsor a dedicated Room. Members who join earn a {currency.softSingular.toLowerCase()} bonus funded by the brand.
             Sponsored rooms appear in discovery with a &quot;Sponsored&quot; tag.
           </p>
         </div>

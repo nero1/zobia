@@ -14,6 +14,7 @@ import Link from "next/link";
 import { ActivityBanner } from "@/components/ui/ActivityBanner";
 import { OnlineRing } from "@/components/ui/OnlineRing";
 import { CreatorSpotlight } from "@/components/discovery/CreatorSpotlight";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -391,6 +392,7 @@ interface MemberQuestState {
 
 function MemberQuestBanner({ quest, onDismiss }: { quest: MemberQuestState; onDismiss: () => void }) {
   const [expanded, setExpanded] = useState(true);
+  const currency = useCurrency();
 
   if (quest.isComplete) {
     return (
@@ -399,7 +401,7 @@ function MemberQuestBanner({ quest, onDismiss }: { quest: MemberQuestState; onDi
         <div className="min-w-0 flex-1">
           <p className="text-sm font-bold text-teal-900 dark:text-teal-200">New Member Quest Complete!</p>
           <p className="mt-0.5 text-xs text-teal-700 dark:text-teal-400">
-            You earned <span className="font-semibold">{quest.totalCoins.toLocaleString()} Coins</span>{" "}
+            You earned <span className="font-semibold">{quest.totalCoins.toLocaleString()} {currency.softPlural}</span>{" "}
             and <span className="font-semibold">{quest.totalXp.toLocaleString()} XP</span>. Welcome to Zobia!
           </p>
         </div>
@@ -461,7 +463,7 @@ function MemberQuestBanner({ quest, onDismiss }: { quest: MemberQuestState; onDi
           </div>
           <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 dark:bg-amber-950/30">
             <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">
-              🏆 Complete all steps to earn <span className="font-bold">{quest.totalCoins.toLocaleString()} Coins</span>{" "}
+              🏆 Complete all steps to earn <span className="font-bold">{quest.totalCoins.toLocaleString()} {currency.softPlural}</span>{" "}
               + <span className="font-bold">{quest.totalXp.toLocaleString()} XP</span>!
             </p>
           </div>

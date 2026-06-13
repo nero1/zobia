@@ -30,6 +30,7 @@ import { useAuth } from '@/lib/auth/hooks';
 import { CoinBalance } from '@/components/economy/CoinBalance';
 import { colors, rankColors, type RankTier } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -136,6 +137,7 @@ export default function ProfileScreen() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const router = useRouter();
+  const currency = useCurrency();
 
   const { data: profile, isLoading } = useQuery({
     queryKey: ['ownProfile', user?.id],
@@ -305,7 +307,7 @@ export default function ProfileScreen() {
           <Text style={styles.walletIcon}>🪙</Text>
           <View style={styles.walletTextGroup}>
             <Text style={styles.walletTitle}>My Wallet</Text>
-            <Text style={styles.walletSubtitle}>Coins, stars & transactions</Text>
+            <Text style={styles.walletSubtitle}>{currency.softPlural}, {currency.premiumPlural.toLowerCase()} & transactions</Text>
           </View>
           <CoinBalance style={styles.coinChip} />
           <Text style={styles.walletChevron}>›</Text>
@@ -315,14 +317,14 @@ export default function ProfileScreen() {
       {/* ── Store shortcut ──────────────────────────────────────── */}
       <Pressable
         onPress={() => router.push('/economy/store')}
-        accessibilityLabel="Open coin store"
+        accessibilityLabel={`Open ${currency.softPlural.toLowerCase()} store`}
         style={({ pressed }) => [styles.walletCard, pressed && styles.pressed]}
       >
         <View style={styles.walletRow}>
           <Text style={styles.walletIcon}>🛒</Text>
           <View style={styles.walletTextGroup}>
-            <Text style={styles.walletTitle}>Coin Store</Text>
-            <Text style={styles.walletSubtitle}>Buy coins and star packs</Text>
+            <Text style={styles.walletTitle}>{currency.softPlural} Store</Text>
+            <Text style={styles.walletSubtitle}>Buy {currency.softPlural.toLowerCase()} and {currency.premiumPlural.toLowerCase()} packs</Text>
           </View>
           <Text style={styles.walletChevron}>›</Text>
         </View>

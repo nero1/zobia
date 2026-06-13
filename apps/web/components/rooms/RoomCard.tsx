@@ -13,6 +13,7 @@
 
 import Link from "next/link";
 import { RoomPulseBar } from "@/components/ui/RoomPulseBar";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,6 +67,7 @@ const TYPE_BADGE: Record<RoomType, { label: string; classes: string }> = {
  */
 export function RoomCard({ room, onJoin, joining }: RoomCardProps) {
   const { label, classes } = TYPE_BADGE[room.type];
+  const currency = useCurrency();
 
   return (
     <div className="flex flex-col overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
@@ -110,10 +112,10 @@ export function RoomCard({ room, onJoin, joining }: RoomCardProps) {
 
         {/* Entry cost note */}
         {room.type === "vip" && room.subscriptionPrice && (
-          <p className="mt-1 text-xs font-semibold text-amber-600">🔒 {room.subscriptionPrice.toLocaleString()} coins/mo</p>
+          <p className="mt-1 text-xs font-semibold text-amber-600">🔒 {room.subscriptionPrice.toLocaleString()} {currency.softPlural.toLowerCase()}/mo</p>
         )}
         {room.type === "drop" && room.entryFee && (
-          <p className="mt-1 text-xs font-semibold text-teal-600">🎟️ {room.entryFee.toLocaleString()} coins entry</p>
+          <p className="mt-1 text-xs font-semibold text-teal-600">🎟️ {room.entryFee.toLocaleString()} {currency.softPlural.toLowerCase()} entry</p>
         )}
         {room.type === "tipping" && (
           <p className="mt-1 text-xs font-semibold text-green-600">💰 Tipping room</p>
