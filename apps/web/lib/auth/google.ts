@@ -7,7 +7,6 @@
  * No @supabase/supabase-js or next-auth – pure OAuth using fetch.
  */
 
-import axios from "axios";
 import { env } from "@/lib/env";
 
 // ---------------------------------------------------------------------------
@@ -84,21 +83,19 @@ export async function exchangeGoogleCode(
 ): Promise<GoogleTokenResponse> {
   const redirectUri = `${env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")}/api/auth/google/callback`;
 
-  const { data } = await axios.post<GoogleTokenResponse>(
-    GOOGLE_TOKEN_ENDPOINT,
-    new URLSearchParams({
+  const res = await fetch(GOOGLE_TOKEN_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
       code,
       client_id: env.GOOGLE_CLIENT_ID,
       client_secret: env.GOOGLE_CLIENT_SECRET,
       redirect_uri: redirectUri,
       grant_type: "authorization_code",
-    }).toString(),
-    {
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    }
-  );
-
-  return data;
+    }),
+  });
+  if (!res.ok) throw new Error(`Token exchange failed: ${res.status}`);
+  return res.json();
 }
 
 // ---------------------------------------------------------------------------
@@ -114,7 +111,11 @@ export async function exchangeGoogleCode(
 export async function fetchGoogleUserProfile(
   accessToken: string
 ): Promise<GoogleUserProfile> {
-  const { data } = await axios.get<{
+  const res = await fetch(GOOGLE_USERINFO_ENDPOINT, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw new Error(`Profile fetch failed: ${res.status}`);
+  const data = await res.json() as {
     sub: string;
     email: string;
     email_verified: boolean;
@@ -122,9 +123,7 @@ export async function fetchGoogleUserProfile(
     picture: string;
     given_name: string;
     family_name: string;
-  }>(GOOGLE_USERINFO_ENDPOINT, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+  };
 
   return {
     googleId: data.sub,
@@ -135,18 +134,4 @@ export async function fetchGoogleUserProfile(
     givenName: data.given_name,
     familyName: data.family_name,
   };
-}
-
-// ---------------------------------------------------------------------------
-// CSRF state helpers
-// ---------------------------------------------------------------------------
-
-import { randomBytes } from "crypto";
-
-/**
- * Generate a cryptographically random CSRF state token.
- * Store this in a short-lived signed cookie before redirecting to Google.
- */
-export function generateOAuthState(): string {
-  return randomBytes(32).toString("hex");
 }

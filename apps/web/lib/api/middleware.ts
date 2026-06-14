@@ -104,6 +104,35 @@ function extractToken(req: NextRequest): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Geo-anomaly check helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Run geo-anomaly detection for a session.
+ * Returns true if the check passes (no anomaly or anomaly below threshold),
+ * false if the session should be invalidated due to suspicious IP activity.
+ */
+async function runGeoAnomalyCheck(
+  session: any, // eslint-disable-line
+  currentIp: string | undefined,
+  _db: any, // eslint-disable-line
+  _redis: any // eslint-disable-line
+): Promise<boolean> {
+  if (session.ip && isIpAnomalous(session.ip, currentIp)) {
+    const shouldInvalidate = await recordAndCheckAnomaly(
+      session.sid,
+      session.uid,
+      session.ip,
+      currentIp
+    );
+    if (shouldInvalidate) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // withAuth HOC
 // ---------------------------------------------------------------------------
 
@@ -214,19 +243,12 @@ export function withAuth<TParams = Record<string, string>>(
       // Compare login IP vs current request IP. After threshold of drastic
       // IP changes within 1 hour, force session invalidation.
       const currentIp = getClientIp(req);
-      if (session.ip && isIpAnomalous(session.ip, currentIp)) {
-        const shouldInvalidate = await recordAndCheckAnomaly(
-          payload.sid,
-          payload.sub,
-          session.ip,
-          currentIp
+      const geoCheckPassed = await runGeoAnomalyCheck(session, currentIp, db, redis);
+      if (!geoCheckPassed) {
+        await invalidateSession(payload.sid, payload.sub).catch(() => {});
+        throw unauthorized(
+          "Session invalidated due to suspicious IP activity. Please log in again."
         );
-        if (shouldInvalidate) {
-          await invalidateSession(payload.sid, payload.sub).catch(() => {});
-          throw unauthorized(
-            "Session invalidated due to suspicious IP activity. Please log in again."
-          );
-        }
       }
 
       const start = Date.now();
@@ -317,6 +339,16 @@ export function withAdminAuth<TParams = Record<string, string>>(
 
       if (!rows[0]?.is_admin) {
         throw forbidden("Administrator access required");
+      }
+
+      // Geolocation anomaly detection — same protection for admin routes
+      const currentIp = getClientIp(req);
+      const geoCheckPassed = await runGeoAnomalyCheck(session, currentIp, db, redis);
+      if (!geoCheckPassed) {
+        await invalidateSession(payload.sid, payload.sub).catch(() => {});
+        throw unauthorized(
+          "Session invalidated due to suspicious IP activity. Please log in again."
+        );
       }
 
       const start = Date.now();

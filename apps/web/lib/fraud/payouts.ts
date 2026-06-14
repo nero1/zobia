@@ -163,7 +163,8 @@ async function checkPayoutVelocity(
       `SELECT COUNT(*)::TEXT AS count
        FROM creator_payouts
        WHERE creator_id = $1
-         AND created_at >= NOW() - INTERVAL '24 hours'`,
+         AND created_at >= NOW() - INTERVAL '24 hours'
+         AND status NOT IN ('retrying')`,
       [creatorId]
     );
 

@@ -218,6 +218,17 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       return NextResponse.json({ success: true, duplicate: true, message: "Duplicate request - gift already sent" });
     }
 
+    // FIX-C5 (BUG-18): If a roomId is provided, ensure the sender is an active member
+    if (body.roomId) {
+      const { rows: memberRows } = await db.query(
+        `SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2 AND left_at IS NULL LIMIT 1`,
+        [body.roomId, senderId]
+      );
+      if (memberRows.length === 0) {
+        return NextResponse.json({ error: 'NOT_ROOM_MEMBER' }, { status: 403 });
+      }
+    }
+
     // Trust gate: send_gift requires minimum trust score of 20
     const trusted = await meetsMinimumTrust(senderId, "send_gift", db);
     if (!trusted) {
@@ -278,11 +289,12 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     await db.transaction(async (tx) => {
       // Debit full coin cost from sender — on failure the catch below cleans up idempKey
+      // FIX-C4 (BUG-19): pass idempotency key as referenceId to prevent duplicate ledger entries
       await debitCoins(
         senderId,
         giftItem.coin_cost,
         "gift_sent",
-        null,
+        idempKey,
         `Sent ${giftItem.emoji} ${giftItem.name} to @${recipient.username}`,
         { recipientId: body.recipientId, giftItemId: giftItem.id },
         tx
@@ -293,7 +305,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         body.recipientId,
         recipientCoins,
         "gift_received",
-        null,
+        idempKey,
         `Received ${giftItem.emoji} ${giftItem.name} from a friend`,
         { senderId, giftItemId: giftItem.id },
         tx
