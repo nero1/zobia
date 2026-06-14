@@ -49,12 +49,8 @@ interface UserPinRow {
  */
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
-    // Tighter rate limit to prevent brute-force: 10 attempts per minute
-    await enforceRateLimit(auth.user.sub, "user", {
-      limit: 10,
-      windowMs: 60 * 1000,
-      name: "pin:verify",
-    });
+    // PIN-specific rate limit: 5 attempts per 15 minutes to prevent brute-force (BUG-14)
+    await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.pinVerify);
 
     const userId = auth.user.sub;
     const body = await validateBody(req, verifyPinSchema);

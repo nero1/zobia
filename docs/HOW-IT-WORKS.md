@@ -199,7 +199,7 @@ Changes take effect within 60 seconds (Redis cache TTL).
 
 ### Guild Treasury (PRD §13)
 
-Legend-tier guilds earn a 5% share of credit gift values sent in rooms where their creator-members are active. Each qualifying gift atomically increments `guilds.treasury_balance` and appends a `guild_treasury_log` row with `source = 'room_revenue_share'`. The treasury balance is visible to guild members and spent via future guild upgrades.
+Legend-tier guilds earn a 5% share of credit gift values sent in rooms where their creator-members are active. This share is taken from the platform fee (not created new), so the total coin supply is never inflated. Each qualifying gift atomically increments `guilds.treasury_balance` and appends a `guild_treasury_log` row with `source = 'room_revenue_share'`. The treasury balance is visible to guild members and spent via future guild upgrades.
 
 ### Ad Revenue Share (PRD §10)
 
@@ -445,7 +445,7 @@ Deletion is batched by joining `messages` against the sender's subscription plan
    - **Access token** (JWT, 15-minute TTL) signed with `JWT_SECRET`. Stored in HttpOnly cookie (web) or Expo SecureStore (Android).
    - **Refresh token** (JWT, 30-day TTL) signed with `JWT_REFRESH_SECRET`. Stored in Redis under key `session:<refreshToken>` with a 30-day expiry, and in the `sessions` table for auditability.
 2. **API call with valid access token** → validates JWT → proceeds.
-3. **API call with expired access token + valid refresh token** → backend validates refresh token against Redis key → issues new access token → returns both to client.
+3. **API call with expired access token + valid refresh token** → backend validates refresh token against Redis key → issues new access token → delivers both via `Set-Cookie` (HttpOnly, Secure, SameSite=Strict). Tokens are never exposed in response headers.
 4. **Logout** → deletes the Redis `session:*` key → immediate invalidation. The old access token will still parse as valid until its 15-minute TTL expires, but the refresh token can no longer be used to extend sessions.
 5. **Ban or suspension** → admin action deletes all `session:*` keys for the user → all devices logged out immediately, without waiting for JWT expiry.
 6. **Admin sessions** → separate shorter-lived JWT (5-minute TTL), re-verified against `is_admin` in the database on every admin route call.
@@ -867,7 +867,9 @@ Business accounts start at the free `starter` tier. To upgrade to `growth` (₦1
 4. Server calls Paystack (`initializePayment`) or DodoPayments (`createPaymentSession`) and returns `{ paymentUrl }`.
 5. Client redirects user to the checkout page.
 6. On `charge.success` (Paystack) or `payment.succeeded` (DodoPayments), the webhook handler:
+   - Verifies the HMAC signature before any processing.
    - Matches the `pending_payment_ref` on the business account.
+   - For coin/star grants, looks up server-authoritative grant amounts from `store_items` using `metadata.itemSlug` — client-supplied amounts in metadata are ignored.
    - Updates `tier` to the `newTier` from metadata.
    - Clears `pending_tier` and `pending_payment_ref`.
    - Records `tier_updated_at`.

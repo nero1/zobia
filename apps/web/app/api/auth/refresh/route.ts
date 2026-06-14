@@ -65,9 +65,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Set-Cookie: use append so both cookies are sent (headers.set would overwrite)
     response.headers.append("Set-Cookie", accessCookie);
     response.headers.append("Set-Cookie", refreshCookie);
-    // Expose new tokens in headers for mobile clients (no HttpOnly cookies in native apps)
-    response.headers.set("X-Access-Token", accessToken);
-    response.headers.set("X-Refresh-Token", rotatedRefreshToken);
     return response;
   } catch (err) {
     // Surface JWT-specific error codes for the client to act on

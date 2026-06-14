@@ -68,6 +68,8 @@ export const RATE_LIMITS = {
   onboarding: { limit: 30, windowMs: 10 * 60 * 1000, name: "onboarding" } as RateLimitOptions,
   /** Admin operations. */
   admin: { limit: 120, windowMs: 60 * 1000, name: "admin" } as RateLimitOptions,
+  /** PIN verification — tight limit to prevent brute-force of 4-digit keyspace (BUG-14). */
+  pinVerify: { limit: 5, windowMs: 15 * 60 * 1000, name: "pin:verify" } as RateLimitOptions,
 } as const;
 
 // ---------------------------------------------------------------------------

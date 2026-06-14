@@ -83,10 +83,10 @@ export async function assignNemesis(
   );
   const mutualFriendIds = new Set(friendResult.rows.map((r) => r.friend_id));
 
-  // Current nemesis (to avoid re-assigning immediately after dismiss)
+  // Current nemesis (to avoid re-assigning immediately after dismiss) — BUG-11: use is_active
   const currentNemesisResult = await db.query<{ nemesis_id: string }>(
-    `SELECT nemesis_id FROM nemesis_assignments
-     WHERE user_id = $1 AND dismissed_at IS NULL
+    `SELECT nemesis_user_id AS nemesis_id FROM nemesis_assignments
+     WHERE user_id = $1 AND is_active = true
      ORDER BY assigned_at DESC LIMIT 1`,
     [userId]
   );
@@ -182,13 +182,13 @@ export async function refreshNemesisAssignments(
     }
   }
 
-  // Also assign nemeses to active users who don't have one
+  // Also assign nemeses to active users who don't have one — BUG-11: filter by is_active, not dismissed_at
   const unassignedResult = await db.query<{ id: string }>(
     `SELECT u.id FROM users u
      WHERE u.deleted_at IS NULL
        AND u.xp_total > 0
        AND u.id NOT IN (
-         SELECT user_id FROM nemesis_assignments WHERE dismissed_at IS NULL
+         SELECT user_id FROM nemesis_assignments WHERE is_active = true
        )
      LIMIT 1000`,
     []
