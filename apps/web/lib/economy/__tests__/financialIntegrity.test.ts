@@ -67,7 +67,7 @@ class InMemoryCoinLedger {
     const self = this;
     let entryId = 0;
 
-    return {
+    return ({
       query: jest.fn(async (sql: string, params: unknown[]) => {
         // Classify query
         const upper = sql.trim().toUpperCase();
@@ -145,7 +145,7 @@ class InMemoryCoinLedger {
         self.queries.push({ type: 'OTHER', sql, params });
         return { rows: [], rowCount: 0 };
       }),
-    };
+    }) as unknown as TransactionClient;
   }
 }
 
@@ -222,7 +222,7 @@ describe('Transfer math invariant', () => {
       async (fn: (tx: TransactionClient) => Promise<unknown>) => {
         callCount++;
         // Outer transfer transaction wraps sender and receiver operations
-        const txClient: TransactionClient = {
+        const txClient = {
           query: jest.fn(async (sql: string, params: unknown[]) => {
             const upper = sql.trim().toUpperCase();
 
@@ -266,7 +266,7 @@ describe('Transfer math invariant', () => {
 
             return { rows: [], rowCount: 0 };
           }),
-        };
+        } as unknown as TransactionClient;
         return fn(txClient);
       }
     );
@@ -284,7 +284,7 @@ describe('Transfer math invariant', () => {
       async (fn: (tx: TransactionClient) => Promise<unknown>) => {
         callCount++;
         const balance = callCount <= 1 ? 1000 : 0;
-        const txClient: TransactionClient = {
+        const txClient = {
           query: jest.fn(async (sql: string, params: unknown[]) => {
             const upper = sql.trim().toUpperCase();
             if (upper.startsWith('SELECT') && sql.includes('FOR UPDATE')) {
@@ -303,7 +303,7 @@ describe('Transfer math invariant', () => {
             }
             return { rows: [], rowCount: 0 };
           }),
-        };
+        } as unknown as TransactionClient;
         return fn(txClient);
       }
     );
@@ -325,7 +325,7 @@ describe('Ledger immutability', () => {
 
     mockTransaction.mockImplementation(
       async (fn: (tx: TransactionClient) => Promise<unknown>) => {
-        const tx: TransactionClient = {
+        const tx = {
           query: jest.fn(async (sql: string) => {
             queriesSeen.push(sql);
             if (sql.includes('SELECT coin_balance FROM users') && sql.includes('FOR UPDATE')) {
@@ -345,7 +345,7 @@ describe('Ledger immutability', () => {
             }
             return { rows: [], rowCount: 0 };
           }),
-        };
+        } as unknown as TransactionClient;
         return fn(tx);
       }
     );
@@ -365,7 +365,7 @@ describe('Ledger immutability', () => {
 
     mockTransaction.mockImplementation(
       async (fn: (tx: TransactionClient) => Promise<unknown>) => {
-        const tx: TransactionClient = {
+        const tx = {
           query: jest.fn(async (sql: string) => {
             queriesSeen.push(sql);
             if (sql.includes('SELECT coin_balance FROM users') && sql.includes('FOR UPDATE')) {
@@ -385,7 +385,7 @@ describe('Ledger immutability', () => {
             }
             return { rows: [], rowCount: 0 };
           }),
-        };
+        } as unknown as TransactionClient;
         return fn(tx);
       }
     );
@@ -403,7 +403,7 @@ describe('Ledger immutability', () => {
   it('creditStars never issues UPDATE on star_ledger', async () => {
     const queriesSeen: string[] = [];
 
-    const tx: TransactionClient = {
+    const tx = {
       query: jest.fn(async (sql: string) => {
         queriesSeen.push(sql);
         if (sql.includes('SELECT star_balance FROM users') && sql.includes('FOR UPDATE')) {
@@ -423,7 +423,7 @@ describe('Ledger immutability', () => {
         }
         return { rows: [], rowCount: 0 };
       }),
-    };
+    } as unknown as TransactionClient;
 
     await creditStars('user-1', 10, 'quest_reward', null, null, tx as any);
 
@@ -514,7 +514,7 @@ describe('Concurrent (sequential) credits preserve all ledger entries', () => {
     mockTransaction.mockImplementation(
       async (fn: (tx: TransactionClient) => Promise<unknown>) => {
         const capturedBalance = balance;
-        const tx: TransactionClient = {
+        const tx = {
           query: jest.fn(async (sql: string, params: unknown[]) => {
             const upper = sql.trim().toUpperCase();
 
@@ -547,7 +547,7 @@ describe('Concurrent (sequential) credits preserve all ledger entries', () => {
 
             return { rows: [], rowCount: 0 };
           }),
-        };
+        } as unknown as TransactionClient;
         return fn(tx);
       }
     );

@@ -162,7 +162,7 @@ export function withAuth<TParams = Record<string, string>>(
       const isSensitiveMutation =
         req.method !== "GET" &&
         req.method !== "HEAD" &&
-        /\/(payments|payouts|gifts|coins\/transfer|stars\/gift|economy\/webhooks)/.test(new URL(req.url).pathname);
+        /\/(payments|payouts|gifts|coins\/transfer|stars\/gift|economy\/webhooks|economy\/coins\/purchase|economy\/stars\/purchase)/.test(new URL(req.url).pathname);
 
       try {
         const cachedStatus = await redis.get(statusKey);
@@ -251,6 +251,10 @@ export function withAdminAuth<TParams = Record<string, string>>(
   handler: (req: NextRequest, ctx: { params: any; auth: any }) => Promise<NextResponse | ApiError> // eslint-disable-line
 ): (req: NextRequest, ctx: { params: Promise<TParams> }) => Promise<NextResponse> {
   return async (req, ctx) => {
+    const requestId = randomUUID();
+    const route = new URL(req.url).pathname;
+
+    return requestContext.run({ requestId, userId: null, route }, async () => {
     try {
       const token = extractToken(req);
       if (!token) throw unauthorized("No authentication token provided");
@@ -262,6 +266,10 @@ export function withAdminAuth<TParams = Record<string, string>>(
         throw unauthorized("Invalid or expired access token");
       }
 
+      // Update request context with authenticated user
+      const store = requestContext.getStore();
+      if (store) store.userId = payload.sub;
+
       // Confirm session is still alive in Redis
       const session = await getSession(payload.sid);
       if (!session) {
@@ -271,6 +279,7 @@ export function withAdminAuth<TParams = Record<string, string>>(
         );
         cleared.cookies.set(ACCESS_TOKEN_COOKIE, "", { maxAge: 0, path: "/" });
         cleared.cookies.set(REFRESH_TOKEN_COOKIE, "", { maxAge: 0, path: "/" });
+        cleared.headers.set("X-Request-Id", requestId);
         return cleared;
       }
 
@@ -289,10 +298,14 @@ export function withAdminAuth<TParams = Record<string, string>>(
         auth: { user: payload, isAdmin: true },
       });
       if (result instanceof ApiError) return handleApiError(result);
-      return result;
+
+      const response = result as NextResponse;
+      response.headers.set("X-Request-Id", requestId);
+      return response;
     } catch (err) {
       return handleApiError(err);
     }
+    });
   };
 }
 

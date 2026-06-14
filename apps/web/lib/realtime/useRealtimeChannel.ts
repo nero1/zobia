@@ -24,6 +24,7 @@ export function useRealtimeChannel(
     if (!channel) return;
 
     const provider = process.env.NEXT_PUBLIC_REALTIME_PROVIDER;
+    let cancelled = false;
     let cleanup: (() => void) | undefined;
 
     if (provider === "supabase-realtime") {
@@ -45,6 +46,10 @@ export function useRealtimeChannel(
           )
           .subscribe();
 
+        if (cancelled) {
+          supabase.removeChannel(sub).catch(() => {});
+          return;
+        }
         cleanup = () => {
           supabase.removeChannel(sub).catch(() => {});
         };
@@ -60,6 +65,11 @@ export function useRealtimeChannel(
           onEvent(msg.name, msg.data);
         });
 
+        if (cancelled) {
+          ch.unsubscribe();
+          client.close();
+          return;
+        }
         cleanup = () => {
           ch.unsubscribe();
           client.close();
@@ -95,6 +105,11 @@ export function useRealtimeChannel(
           }
         });
 
+        if (cancelled) {
+          pusher.unsubscribe(pusherChannel);
+          pusher.disconnect();
+          return;
+        }
         cleanup = () => {
           pusher.unsubscribe(pusherChannel);
           pusher.disconnect();
@@ -104,6 +119,7 @@ export function useRealtimeChannel(
     // If no provider is configured, this is a no-op — polling handles delivery.
 
     return () => {
+      cancelled = true;
       cleanup?.();
     };
   // onEvent is intentionally excluded from deps to avoid reconnecting on every

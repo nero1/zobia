@@ -21,6 +21,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { verifyWebhookSignature } from "@/lib/payments/dodopayments";
 import { db } from "@/lib/db";
+import { redis } from "@/lib/redis";
 import { creditCoins } from "@/lib/economy/coins";
 import { creditStars } from "@/lib/economy/stars";
 import { awardReferralCommissions } from "@/lib/referrals/commissions";
@@ -341,6 +342,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     event = JSON.parse(rawBody.toString("utf-8")) as DodoEvent;
   } catch {
     return NextResponse.json({ received: false }, { status: 400 });
+  }
+
+  // 3b. Replay protection — deduplicate by event ID using Redis (STRUC-04)
+  const eventId = (event as DodoPaymentSucceededEvent).data?.id
+    ?? (event as DodoPayoutEvent).data?.reference
+    ?? null;
+  const replayKey = eventId ? `webhook:dodo:${event.event}:${eventId}` : null;
+  if (replayKey) {
+    const alreadySeen = await redis.set(replayKey, "1", "EX", 86400, "NX").catch(() => null);
+    if (alreadySeen === null) {
+      console.info(`[webhook/dodopayments] Duplicate event ignored: ${replayKey}`);
+      return NextResponse.json({ received: true, duplicate: true });
+    }
   }
 
   // 4. Route to handler

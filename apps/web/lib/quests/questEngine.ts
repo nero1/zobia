@@ -109,6 +109,20 @@ export async function generateDailyDeck(
 
   const questIds = templates.map((t) => t.id);
 
+  // Persist the deck assignment so checkDeckCompletion can scope its query correctly.
+  // Uses ON CONFLICT DO NOTHING for idempotency on repeated calls within the same day.
+  if (questIds.length > 0) {
+    const values = questIds
+      .map((_, i) => `($1, $${i + 2}, $${questIds.length + 2})`)
+      .join(", ");
+    await db.query(
+      `INSERT INTO user_quest_decks (user_id, quest_id, assigned_date)
+       VALUES ${values}
+       ON CONFLICT (user_id, quest_id, assigned_date) DO NOTHING`,
+      [userId, ...questIds, today]
+    );
+  }
+
   const { rows: progresses } = await db.query<{
     quest_id: string;
     progress_count: number;

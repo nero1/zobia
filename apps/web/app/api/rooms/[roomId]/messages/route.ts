@@ -523,6 +523,17 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // structured fields that bypass the body content filter (PRD §5 anti-spam).
     const safeMetadata = isAdmin ? (body.metadata ?? null) : null;
 
+    // Validate that the reply target belongs to the same room (BUG-MSG01)
+    if (body.replyToMessageId) {
+      const { rows: replyRows } = await db.query<{ id: string }>(
+        `SELECT id FROM room_messages WHERE id = $1 AND room_id = $2 AND is_deleted = FALSE LIMIT 1`,
+        [body.replyToMessageId, roomId]
+      );
+      if (replyRows.length === 0) {
+        throw badRequest("Reply target message not found in this room");
+      }
+    }
+
     // Count today's messages for XP cap check (before insert)
     const todayMsgCount = await countTodayMessages(roomId, userId);
 

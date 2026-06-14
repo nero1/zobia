@@ -118,14 +118,14 @@ export function filterProfanity(text: string): {
   let found = false;
 
   for (const pattern of getWordlist()) {
+    pattern.lastIndex = 0;
     if (pattern.test(filtered)) {
       found = true;
+      pattern.lastIndex = 0;
       filtered = filtered.replace(pattern, (match) =>
         "*".repeat(match.length)
       );
     }
-    // Reset lastIndex for global regexes
-    pattern.lastIndex = 0;
   }
 
   return { filtered, found };

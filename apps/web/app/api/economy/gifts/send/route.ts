@@ -197,8 +197,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const body = await validateBody(req, SendGiftSchema);
 
-    // Rate-limit: prevent double-tap sends (#13)
+    // Rate-limit: prevent double-tap sends and gift spam (STRUC-09)
     await enforceRateLimit(senderId, "user", RATE_LIMITS.apiWrite);
+    await enforceRateLimit(senderId, "user", RATE_LIMITS.giftSend);
 
     if (body.recipientId === senderId) {
       throw badRequest("Cannot send a gift to yourself");
@@ -207,11 +208,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // ZB-18: Derive the idempotency key server-side so it is always bound to the
     // specific operation (sender + recipient + item). A client-only UUID is unsafe
     // because the same UUID could be reused across different operations.
-    const hourBucket = new Date().toISOString().slice(0, 13); // YYYY-MM-DDTHH
+    const tenSecBucket = Math.floor(Date.now() / 10_000);
     const opHash = `${body.recipientId}:${body.giftItemId}`;
     idempKey = body.idempotencyKey
       ? `idempotency:gift:${senderId}:${body.idempotencyKey}:${opHash}`
-      : `idempotency:gift:${senderId}:${opHash}:${hourBucket}`;
+      : `idempotency:gift:${senderId}:${opHash}:${tenSecBucket}`;
     const setResult = await redis.set(idempKey, "processing", "EX", 86400, "NX");
     if (setResult === null) {
       return NextResponse.json({ success: true, duplicate: true, message: "Duplicate request - gift already sent" });

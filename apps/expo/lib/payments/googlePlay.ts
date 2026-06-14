@@ -23,6 +23,7 @@
 import { Platform } from 'react-native';
 import * as InAppPurchases from 'expo-in-app-purchases';
 import { apiClient } from '@/lib/api/client';
+import { randomUUID } from 'expo-crypto';
 
 // ---------------------------------------------------------------------------
 // Product catalogue
@@ -157,10 +158,16 @@ async function verifyPurchaseServerSide(
 type PurchaseResolver = (result: { coinsGranted?: number; plan?: string } | null) => void;
 
 /**
- * Maps productId → pending resolver so a single global listener can dispatch
- * results to the correct caller without registering/replacing listeners per purchase.
+ * Maps sessionId → pending resolver. Each purchase gets a unique sessionId so
+ * concurrent purchases of the same productId don't overwrite each other.
  */
 const purchaseResolvers = new Map<string, PurchaseResolver>();
+
+/**
+ * Maps productId → active sessionId. Used by the listener to dispatch results
+ * to the correct resolver when a purchase completes.
+ */
+const activePurchaseSessions = new Map<string, string>();
 
 /**
  * Register the single global purchase listener.
@@ -170,11 +177,14 @@ function setupGlobalPurchaseListener(): void {
   InAppPurchases.setPurchaseListener(async ({ responseCode, results }) => {
     if (responseCode === InAppPurchases.IAPResponseCode.OK && results) {
       for (const purchase of results) {
-        const resolver = purchaseResolvers.get(purchase.productId);
+        const sessionId = activePurchaseSessions.get(purchase.productId);
+        if (!sessionId) continue;
+        const resolver = purchaseResolvers.get(sessionId);
         if (!resolver || !purchase.purchaseToken) continue;
 
         // Remove before async work to prevent double-resolution.
-        purchaseResolvers.delete(purchase.productId);
+        activePurchaseSessions.delete(purchase.productId);
+        purchaseResolvers.delete(sessionId);
 
         const isSubscription = SUBSCRIPTION_IDS.includes(purchase.productId);
 
@@ -283,8 +293,14 @@ export async function purchaseCoins(
     return { success: false, coins: 0, error: 'Unknown product ID' };
   }
 
+  // Prevent concurrent purchases of the same product overwriting the resolver map
+  if (activePurchaseSessions.has(productId)) {
+    return { success: false, coins: 0, error: 'A purchase is already in progress for this product' };
+  }
+
+  const sessionId = randomUUID();
   return new Promise((resolve) => {
-    purchaseResolvers.set(productId, (result) => {
+    purchaseResolvers.set(sessionId, (result) => {
       if (result !== null) {
         resolve({ success: true, coins: result.coinsGranted ?? 0 });
       } else {
@@ -295,9 +311,11 @@ export async function purchaseCoins(
         });
       }
     });
+    activePurchaseSessions.set(productId, sessionId);
 
     InAppPurchases.purchaseItemAsync(productId).catch((err: Error) => {
-      purchaseResolvers.delete(productId);
+      purchaseResolvers.delete(sessionId);
+      activePurchaseSessions.delete(productId);
       resolve({ success: false, coins: 0, error: err.message });
     });
   });
@@ -375,8 +393,14 @@ export async function purchaseSubscription(
     return { success: false, error: 'Unknown subscription product ID' };
   }
 
+  // Prevent concurrent purchases of the same product overwriting the resolver map
+  if (activePurchaseSessions.has(productId)) {
+    return { success: false, error: 'A purchase is already in progress for this product' };
+  }
+
+  const sessionId = randomUUID();
   return new Promise((resolve) => {
-    purchaseResolvers.set(productId, (result) => {
+    purchaseResolvers.set(sessionId, (result) => {
       if (result !== null) {
         resolve({
           success: true,
@@ -390,9 +414,11 @@ export async function purchaseSubscription(
         });
       }
     });
+    activePurchaseSessions.set(productId, sessionId);
 
     InAppPurchases.purchaseItemAsync(productId).catch((err: Error) => {
-      purchaseResolvers.delete(productId);
+      purchaseResolvers.delete(sessionId);
+      activePurchaseSessions.delete(productId);
       resolve({ success: false, error: err.message });
     });
   });

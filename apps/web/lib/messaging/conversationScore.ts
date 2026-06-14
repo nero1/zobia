@@ -198,7 +198,7 @@ export async function updateConversationScore(
   for (const su of STICKER_UNLOCK_THRESHOLDS) {
     if (previousScore < su.threshold && result.score >= su.threshold) {
       newStickerUnlocks.push(su.packName);
-      // Persist the unlock (best-effort)
+      // Persist the unlock and grant the sticker pack to both users (best-effort)
       try {
         await db.query(
           `INSERT INTO dm_score_sticker_unlocks
@@ -206,6 +206,13 @@ export async function updateConversationScore(
            VALUES ($1, $2, $3, NOW())
            ON CONFLICT DO NOTHING`,
           [u1, u2, su.packName]
+        );
+        // Grant the sticker pack to both users in the pair
+        await db.query(
+          `INSERT INTO user_sticker_packs (user_id, pack_name, granted_at)
+           VALUES ($1, $2, NOW()), ($3, $2, NOW())
+           ON CONFLICT DO NOTHING`,
+          [u1, su.packName, u2]
         );
       } catch {
         // Non-fatal

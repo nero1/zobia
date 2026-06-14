@@ -65,12 +65,12 @@ export async function awardReferralCommissions(
   if (coinAmount <= 0) return result;
 
   // Find the direct referrer (Tier 1)
-  const { rows: tier1Rows } = await db.query<{ referred_by_user_id: string | null }>(
-    `SELECT referred_by_user_id FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+  const { rows: tier1Rows } = await db.query<{ referred_by: string | null }>(
+    `SELECT referred_by FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
     [buyerId]
   );
 
-  const tier1Id = tier1Rows[0]?.referred_by_user_id ?? null;
+  const tier1Id = tier1Rows[0]?.referred_by ?? null;
   if (!tier1Id) return result;
 
   // Mark referral as qualified on first purchase and award 500 XP to referrer (PRD §referrals)
@@ -147,13 +147,13 @@ export async function awardReferralCommissions(
   }
 
   // Find Tier 2 referrer (referrer of the Tier 1 referrer)
-  const { rows: tier2Rows } = await db.query<{ referred_by_user_id: string | null }>(
-    `SELECT referred_by_user_id FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+  const { rows: tier2Rows } = await db.query<{ referred_by: string | null }>(
+    `SELECT referred_by FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
     [tier1Id]
   );
 
-  const tier2Id = tier2Rows[0]?.referred_by_user_id ?? null;
-  if (!tier2Id || tier2Id === buyerId) return result;
+  const tier2Id = tier2Rows[0]?.referred_by ?? null;
+  if (!tier2Id || tier2Id === buyerId || tier2Id === tier1Id) return result;
 
   result.tier2ReferrerId = tier2Id;
 

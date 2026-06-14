@@ -19,6 +19,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { verifyWebhookSignature } from "@/lib/payments/paystack";
 import { db } from "@/lib/db";
+import { redis } from "@/lib/redis";
 import { creditCoins } from "@/lib/economy/coins";
 import { creditStars } from "@/lib/economy/stars";
 import { awardReferralCommissions } from "@/lib/referrals/commissions";
@@ -565,6 +566,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     event = JSON.parse(rawBody.toString("utf-8")) as PaystackEvent;
   } catch {
     return NextResponse.json({ received: false }, { status: 400 });
+  }
+
+  // 3b. Replay protection — deduplicate by event reference using Redis (STRUC-04)
+  // Extract a stable event identifier (charge reference or subscription code)
+  const eventRef = (event as PaystackChargeEvent).data?.reference
+    ?? (event as PaystackTransferEvent).data?.reference
+    ?? (event as PaystackSubscriptionEvent).data?.subscription_code
+    ?? null;
+  const replayKey = eventRef ? `webhook:paystack:${event.event}:${eventRef}` : null;
+  if (replayKey) {
+    const alreadySeen = await redis.set(replayKey, "1", "EX", 86400, "NX").catch(() => null);
+    if (alreadySeen === null) {
+      // Duplicate event — already processed; return 200 without reprocessing
+      console.info(`[webhook/paystack] Duplicate event ignored: ${replayKey}`);
+      return NextResponse.json({ received: true, duplicate: true });
+    }
   }
 
   // 4. Route to handler (failures are caught so we can still return 200)

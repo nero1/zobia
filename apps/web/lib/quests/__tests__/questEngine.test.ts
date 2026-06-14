@@ -97,8 +97,9 @@ describe('generateDailyDeck', () => {
       query: jest.fn(async () => {
         callCount++;
         if (callCount === 1) return { rows: templates, rowCount: 3 };
+        if (callCount === 2) return { rows: [], rowCount: 0 }; // INSERT user_quest_decks
         return { rows: progresses, rowCount: 1 };
-      }),
+      }) as unknown as DatabaseAdapter['query'],
     });
 
     const deck = await generateDailyDeck('user-1', 'free', db);
@@ -134,7 +135,7 @@ describe('updateQuestProgress', () => {
   it('returns no-op when quest is already completed', async () => {
     const db = buildMockDb({
       transaction: jest.fn().mockImplementation(async (fn: (tx: TransactionClient) => Promise<unknown>) => {
-        const tx: TransactionClient = {
+        const tx = {
           query: jest.fn(async (sql: string) => {
             if (sql.includes('FROM quest_templates')) {
               return { rows: [makeTemplate('q1')], rowCount: 1 };
@@ -144,7 +145,7 @@ describe('updateQuestProgress', () => {
             }
             return { rows: [], rowCount: 0 };
           }),
-        };
+        } as unknown as TransactionClient;
         return fn(tx);
       }),
     });
@@ -158,9 +159,9 @@ describe('updateQuestProgress', () => {
   it('throws when quest is not found', async () => {
     const db = buildMockDb({
       transaction: jest.fn().mockImplementation(async (fn: (tx: TransactionClient) => Promise<unknown>) => {
-        const tx: TransactionClient = {
+        const tx = {
           query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
-        };
+        } as unknown as TransactionClient;
         return fn(tx);
       }),
     });
@@ -175,7 +176,7 @@ describe('updateQuestProgress', () => {
 
     const db = buildMockDb({
       transaction: jest.fn().mockImplementation(async (fn: (tx: TransactionClient) => Promise<unknown>) => {
-        const tx: TransactionClient = {
+        const tx = {
           query: jest.fn(async (sql: string) => {
             if (sql.includes('FROM quest_templates')) {
               return { rows: [template], rowCount: 1 };
@@ -189,7 +190,7 @@ describe('updateQuestProgress', () => {
             }
             return { rows: [], rowCount: 1 };
           }),
-        };
+        } as unknown as TransactionClient;
         return fn(tx);
       }),
     });
@@ -210,7 +211,8 @@ describe('resetDailyQuests', () => {
   it('calls db.query to reset user_quest_progress', async () => {
     mockQuery.mockResolvedValue({ rows: [{ count: '42' }], rowCount: 1 });
 
-    await resetDailyQuests();
+    const db = buildMockDb({ query: mockQuery as unknown as DatabaseAdapter['query'] });
+    await resetDailyQuests(db);
 
     expect(mockQuery).toHaveBeenCalled();
     const sql: string = mockQuery.mock.calls[0][0] as string;

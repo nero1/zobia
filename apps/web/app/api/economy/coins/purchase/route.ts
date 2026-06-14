@@ -22,6 +22,7 @@ import { z } from "zod";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, notFound, handleApiError } from "@/lib/api/errors";
 import { db } from "@/lib/db";
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { initializePayment } from "@/lib/payments";
 import { loadManifest } from "@/lib/manifest";
 import { env } from "@/lib/env";
@@ -78,6 +79,8 @@ interface UserRow {
  */
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
+    await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.coinPurchase);
+
     const body = await validateBody(req, PurchaseSchema);
     const userId = auth.user.sub;
 
