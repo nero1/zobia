@@ -26,57 +26,7 @@ import { createSession, buildCookieHeaders } from "@/lib/auth/session";
 import { ADMIN_REFRESH_TOKEN_TTL_SECONDS } from "@/lib/auth/jwt";
 import { decryptField } from "@/lib/security/fieldEncryption";
 import { redis } from "@/lib/redis";
-
-// ---------------------------------------------------------------------------
-// TOTP helpers (mirrors the implementation in totp/setup/route.ts)
-// ---------------------------------------------------------------------------
-
-const BASE32_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-
-function base32Decode(str: string): Buffer {
-  const clean = str.toUpperCase().replace(/=+$/, "");
-  let bits = 0;
-  let value = 0;
-  const output: number[] = [];
-  for (const char of clean) {
-    const idx = BASE32_CHARS.indexOf(char);
-    if (idx === -1) continue;
-    value = (value << 5) | idx;
-    bits += 5;
-    if (bits >= 8) {
-      output.push((value >>> (bits - 8)) & 255);
-      bits -= 8;
-    }
-  }
-  return Buffer.from(output);
-}
-
-async function computeTotp(secret: string, counter: number): Promise<string> {
-  const { createHmac } = await import("crypto");
-  const key = base32Decode(secret);
-  const msg = Buffer.alloc(8);
-  msg.writeUInt32BE(Math.floor(counter / 0x100000000), 0);
-  msg.writeUInt32BE(counter >>> 0, 4);
-  const hmac = createHmac("sha1", key);
-  hmac.update(msg);
-  const hash = hmac.digest();
-  const offset = hash[hash.length - 1] & 0x0f;
-  const code =
-    (((hash[offset] & 0x7f) << 24) |
-      ((hash[offset + 1] & 0xff) << 16) |
-      ((hash[offset + 2] & 0xff) << 8) |
-      (hash[offset + 3] & 0xff)) %
-    1_000_000;
-  return code.toString().padStart(6, "0");
-}
-
-async function verifyTotp(secret: string, code: string): Promise<boolean> {
-  const counter = Math.floor(Date.now() / 1000 / 30);
-  for (const delta of [-1, 0, 1]) {
-    if ((await computeTotp(secret, counter + delta)) === code) return true;
-  }
-  return false;
-}
+import { verifyTotp } from "@/lib/auth/totp";
 
 // ---------------------------------------------------------------------------
 // Schema

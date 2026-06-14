@@ -309,7 +309,8 @@ export function buildClearCookieHeaders(): {
   accessCookie: string;
   refreshCookie: string;
 } {
-  const flags = "HttpOnly; Path=/; SameSite=Lax; Max-Age=0";
+  const secure = process.env.NODE_ENV === "production";
+  const flags = `HttpOnly; Path=/; SameSite=Lax; Max-Age=0${secure ? "; Secure" : ""}`;
   return {
     accessCookie: `${ACCESS_TOKEN_COOKIE}=; ${flags}`,
     refreshCookie: `${REFRESH_TOKEN_COOKIE}=; ${flags}`,

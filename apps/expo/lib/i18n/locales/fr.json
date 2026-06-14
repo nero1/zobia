@@ -1389,5 +1389,8 @@
   "prestige.mainRankResetsToNewcomer": "Le rang principal revient à Débutant",
   "leaderboards.sponsored": "Sponsorisé",
   "leaderboards.loadError": "Impossible de charger le classement. Vérifiez votre connexion.",
-  "leaderboards.title": "Classements"
+  "leaderboards.title": "Classements",
+  "offline.syncFailed": "Échec de l'envoi du message. Nouvelle tentative en cours.",
+  "offline.permanentFailure": "Le message n'a pas pu être livré.",
+  "offline.permanentFailureHint": "Ce message a été rejeté par le serveur et ne sera pas réessayé."
 }

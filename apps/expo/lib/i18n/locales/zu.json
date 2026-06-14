@@ -1318,5 +1318,8 @@
   "quests": {
     "viewAll": "Buka yonke imihlomulo →",
     "noQuestsToday": "Ayikho imihlomulo namuhla. Buyela maduze!"
-  }
+  },
+  "offline.syncFailed": "Umlayezo wehluleke ukuthumelwa. Uzozama futhi.",
+  "offline.permanentFailure": "Umlayezo awukwazanga ukufika kumamukeli.",
+  "offline.permanentFailureHint": "Lo mlayezo wenqatshwa yiseva futhi ngeke uzamwe futhi."
 }

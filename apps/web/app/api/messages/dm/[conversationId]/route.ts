@@ -508,16 +508,18 @@ export const POST = withAuth(
           { plan: sender.plan, isMessagingAction: true }
         );
         const convMultiplierBP = PLAN_XP_MULTIPLIERS_BP[sender.plan];
-        db.query(
-          `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
-           VALUES ($1, $2, 'social', 'message', $3, $4, $5)`,
-          [auth.user.sub, convFinalXp, message.id, convMultiplierBP, convBaseXp]
-        ).catch(() => {});
-        db.query(
-          `UPDATE users SET xp_total = xp_total + $1, xp_social = xp_social + $1, updated_at = NOW()
-           WHERE id = $2`,
-          [convFinalXp, auth.user.sub]
-        ).catch(() => {});
+        db.transaction(async (tx) => {
+          await tx.query(
+            `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
+             VALUES ($1, $2, 'social', 'message', $3, $4, $5)`,
+            [auth.user.sub, convFinalXp, message.id, convMultiplierBP, convBaseXp]
+          );
+          await tx.query(
+            `UPDATE users SET xp_total = xp_total + $1, xp_social = xp_social + $1, updated_at = NOW()
+             WHERE id = $2`,
+            [convFinalXp, auth.user.sub]
+          );
+        }).catch((err) => console.error('[dm/xp] XP award failed', err));
       }
       incrementDailyCount(auth.user.sub, "reply").catch(() => {});
       updateConversationScore(auth.user.sub, recipientId, "message_sent").catch(() => {});

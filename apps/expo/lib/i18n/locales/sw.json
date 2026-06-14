@@ -1318,5 +1318,8 @@
   "quests": {
     "viewAll": "Tazama mazoezi yote →",
     "noQuestsToday": "Hakuna mazoezi leo. Angalia hivi karibuni!"
-  }
+  },
+  "offline.syncFailed": "Ujumbe haukutumwa. Utajaribu tena.",
+  "offline.permanentFailure": "Ujumbe haukufikia mpokeaji.",
+  "offline.permanentFailureHint": "Ujumbe huu ulikataliwa na seva na hautajaribiwa tena."
 }

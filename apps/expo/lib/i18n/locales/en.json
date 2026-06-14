@@ -1348,5 +1348,8 @@
   "quests": {
     "viewAll": "View all quests →",
     "noQuestsToday": "No quests today. Check back soon!"
-  }
+  },
+  "offline.syncFailed": "Message failed to send. Will retry.",
+  "offline.permanentFailure": "Message could not be delivered.",
+  "offline.permanentFailureHint": "This message was rejected by the server and will not be retried."
 }

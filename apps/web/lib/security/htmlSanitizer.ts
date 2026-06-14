@@ -67,7 +67,7 @@ export function sanitizeHtml(dirty: string): string {
               .replace(/&amp;/g, "&")
               .replace(/[\x00-\x1f\x7f]/g, ""); // strip control chars
             const scheme = decoded.trim().split(/[:/\s]/)[0]?.toLowerCase() ?? "";
-            const ALLOWED_SCHEMES = new Set(["https", "mailto", "http"]);
+            const ALLOWED_SCHEMES = new Set(["https", "mailto"]);
             if (!ALLOWED_SCHEMES.has(scheme) && decoded.trim().length > 0) {
               return "";
             }
@@ -91,6 +91,9 @@ export function sanitizeHtml(dirty: string): string {
 export function sanitizeAnnouncementContent(content: string, contentType: string): string {
   if (contentType === "html") {
     return sanitizeHtml(content);
+  }
+  if (contentType === "markdown") {
+    return content.replace(/\]\((javascript|vbscript|data):[^)]*\)/gi, "](about:blank)");
   }
   return content;
 }

@@ -30,8 +30,9 @@ export async function initOfflineDB(): Promise<void> {
       message_type      TEXT NOT NULL DEFAULT 'text',
       idempotency_key   TEXT,
       created_at        INTEGER NOT NULL,
+      retry_count       INTEGER NOT NULL DEFAULT 0,
       sync_status       TEXT NOT NULL DEFAULT 'pending'
-        CHECK (sync_status IN ('pending', 'sending', 'failed'))
+        CHECK (sync_status IN ('pending', 'sending', 'failed', 'permanent_failure'))
     );
 
     CREATE INDEX IF NOT EXISTS idx_offline_messages_status
@@ -43,6 +44,7 @@ export async function initOfflineDB(): Promise<void> {
   const migrations = [
     `ALTER TABLE offline_messages ADD COLUMN conversation_type TEXT NOT NULL DEFAULT 'dm'`,
     `ALTER TABLE offline_messages ADD COLUMN idempotency_key TEXT`,
+    `ALTER TABLE offline_messages ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0`,
   ];
   for (const sql of migrations) {
     try {
@@ -82,8 +84,8 @@ export async function queueMessage(
 
   await getDB().runAsync(
     `INSERT INTO offline_messages
-       (id, conversation_id, conversation_type, content, message_type, idempotency_key, created_at, sync_status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+       (id, conversation_id, conversation_type, content, message_type, idempotency_key, created_at, retry_count, sync_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'pending')`,
     [localId, conversationId, conversationType, content, messageType, idempotencyKey, Date.now()]
   );
 
@@ -139,11 +141,23 @@ export async function markMessageSent(localId: string): Promise<void> {
 }
 
 /**
- * Mark a message as failed (will retry on next sync attempt).
+ * Mark a message as transiently failed (increments retry_count; will retry on next sync).
  */
 export async function markMessageFailed(localId: string): Promise<void> {
   await getDB().runAsync(
-    `UPDATE offline_messages SET sync_status = 'failed' WHERE id = ?`,
+    `UPDATE offline_messages
+     SET sync_status = 'failed', retry_count = retry_count + 1
+     WHERE id = ?`,
+    [localId]
+  );
+}
+
+/**
+ * Mark a message as permanently failed (4xx client error — no point retrying).
+ */
+export async function markMessagePermanentlyFailed(localId: string): Promise<void> {
+  await getDB().runAsync(
+    `UPDATE offline_messages SET sync_status = 'permanent_failure' WHERE id = ?`,
     [localId]
   );
 }
@@ -159,12 +173,46 @@ export async function deleteMessage(localId: string): Promise<void> {
 }
 
 /**
- * Reset all failed messages back to pending for retry.
+ * Reset failed messages that have not yet hit the retry ceiling back to pending.
+ * Messages with retry_count >= 3 are left as 'failed' for manual review.
  */
 export async function resetFailedMessages(): Promise<void> {
   await getDB().runAsync(
-    `UPDATE offline_messages SET sync_status = 'pending' WHERE sync_status = 'failed'`
+    `UPDATE offline_messages SET sync_status = 'pending'
+     WHERE sync_status = 'failed' AND retry_count < 3`
   );
+}
+
+/**
+ * Get all messages that have permanently failed (4xx or >= 3 retries).
+ */
+export async function getPermanentlyFailedMessages(): Promise<Array<{
+  id: string;
+  conversationId: string;
+  content: string;
+  retryCount: number;
+  createdAt: number;
+}>> {
+  const rows = await getDB().getAllAsync<{
+    id: string;
+    conversation_id: string;
+    content: string;
+    retry_count: number;
+    created_at: number;
+  }>(
+    `SELECT id, conversation_id, content, retry_count, created_at
+     FROM offline_messages
+     WHERE sync_status = 'permanent_failure' OR (sync_status = 'failed' AND retry_count >= 3)
+     ORDER BY created_at ASC`
+  );
+
+  return rows.map((r) => ({
+    id: r.id,
+    conversationId: r.conversation_id,
+    content: r.content,
+    retryCount: r.retry_count,
+    createdAt: r.created_at,
+  }));
 }
 
 /**

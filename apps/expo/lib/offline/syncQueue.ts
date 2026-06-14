@@ -5,19 +5,21 @@
  *
  * Flow:
  *  1. Check if device is connected and has internet
- *  2. Reset previously-failed messages back to pending so they are retried
+ *  2. Reset previously-failed messages (under retry ceiling) back to pending
  *  3. Fetch pending messages from local SQLite queue
  *  4. Route each message to the correct endpoint based on conversation type
- *  5. Mark as sent on success, failed on error
- *  6. Silent per-message errors (don't break the sync loop for one failure)
+ *  5. Mark as sent on success
+ *  6. On 4xx: mark permanently failed (no retry); on other errors: mark failed (retry later)
  */
 
 import NetInfo from '@react-native-community/netinfo';
+import { type AxiosError } from 'axios';
 import { apiClient } from '@/lib/api/client';
 import {
   getPendingMessages,
   markMessageSent,
   markMessageFailed,
+  markMessagePermanentlyFailed,
   resetFailedMessages,
 } from './sqlite';
 
@@ -33,7 +35,7 @@ export async function syncPendingMessages(): Promise<void> {
   }
 
   try {
-    // Reset failed messages back to pending before this sync pass
+    // Reset failed messages (under retry ceiling) back to pending before this sync pass
     await resetFailedMessages();
 
     const pending = await getPendingMessages();
@@ -54,8 +56,16 @@ export async function syncPendingMessages(): Promise<void> {
 
         await markMessageSent(msg.id);
       } catch (err) {
-        await markMessageFailed(msg.id);
-        console.warn(`[offline:sync] Failed to send message ${msg.id}`, err);
+        const status = (err as AxiosError)?.response?.status;
+        if (status !== undefined && status >= 400 && status < 500) {
+          // Client error (bad request, auth failure, validation) — retrying won't help
+          await markMessagePermanentlyFailed(msg.id);
+          console.warn(`[offline:sync] Permanent failure for message ${msg.id} (HTTP ${status})`);
+        } else {
+          // Server error or network failure — schedule for retry
+          await markMessageFailed(msg.id);
+          console.warn(`[offline:sync] Transient failure for message ${msg.id}`, err);
+        }
       }
     }
   } catch (err) {

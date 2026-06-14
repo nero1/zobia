@@ -24,6 +24,7 @@ import { db } from "@/lib/db";
 import { creditCoins } from "@/lib/economy/coins";
 import { creditStars } from "@/lib/economy/stars";
 import { awardReferralCommissions } from "@/lib/referrals/commissions";
+import { moveToDeadLetterQueue } from "@/lib/payments/payouts";
 
 // ---------------------------------------------------------------------------
 // DodoPayments webhook event types
@@ -223,11 +224,13 @@ async function processPaymentSucceeded(
       const MONTHLY_PLAN_BONUS: Record<string, number> = { plus: 50, pro: 200, max: 500 };
       const bonusCoins = MONTHLY_PLAN_BONUS[planName];
       if (bonusCoins && bonusCoins > 0) {
+        // Dedup key scoped to plan + user + calendar month so re-deliveries don't double-credit
+        const monthKey = `plan:${userId}:${new Date(data.created_at).toISOString().slice(0, 7)}`;
         await creditCoins(
           userId,
           bonusCoins,
           "subscription_bonus",
-          providerReference,
+          monthKey,
           `${planName} plan subscription — monthly coin bonus`,
           { plan: planName },
           tx
@@ -276,14 +279,34 @@ async function processPaymentSucceeded(
 }
 
 async function processPayoutEvent(event: DodoPayoutEvent): Promise<void> {
-  const { reference, status } = event.data;
-  const dbStatus = event.event === "payout.completed" ? "completed" : "failed";
+  const { id: payoutId, reference, status } = event.data;
 
-  await db.query(
-    `UPDATE creator_payouts
-     SET status = $1, provider_status = $2, updated_at = NOW()
-     WHERE provider_reference = $3`,
-    [dbStatus, status, reference]
+  if (event.event === "payout.completed") {
+    await db.query(
+      `UPDATE creator_payouts
+       SET status = 'completed', provider_status = $1, updated_at = NOW()
+       WHERE provider_reference = $2`,
+      [status, reference]
+    );
+    return;
+  }
+
+  // payout.failed — look up the payout to restore the creator's earnings via DLQ
+  const { rows } = await db.query<{ id: string; creator_id: string; retry_count: number }>(
+    `SELECT id, creator_id, retry_count FROM creator_payouts WHERE provider_reference = $1 LIMIT 1`,
+    [reference]
+  );
+  const payout = rows[0];
+  if (!payout) {
+    console.warn(`[webhook/dodopayments] payout.failed for unknown reference: ${reference}`);
+    return;
+  }
+
+  await moveToDeadLetterQueue(
+    payout.id,
+    payout.creator_id,
+    payout.retry_count,
+    `DodoPayments payout.failed: provider status = ${status}`
   );
 }
 

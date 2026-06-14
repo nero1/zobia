@@ -541,7 +541,7 @@ export async function claimPassMilestone(
         [userId, val.bonusXP, referenceId]
       );
       await client.query(
-        `UPDATE users SET xp_total = xp_total + $1, legacy_score = legacy_score + $1 WHERE id = $2`,
+        `UPDATE users SET xp_total = xp_total + $1 WHERE id = $2`,
         [val.bonusXP, userId]
       );
     }

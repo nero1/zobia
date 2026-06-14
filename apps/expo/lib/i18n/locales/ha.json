@@ -1318,5 +1318,8 @@
   "quests": {
     "viewAll": "Duba dukkan ayyuka →",
     "noQuestsToday": "Babu ayyuka yau. Duba nan gaba!"
-  }
+  },
+  "offline.syncFailed": "Aikawa ta fada. Za a sake gwadawa.",
+  "offline.permanentFailure": "Ba a iya isar da sakon ba.",
+  "offline.permanentFailureHint": "Uwar garken ta ƙi wannan sakon kuma ba za a sake gwadawa ba."
 }

@@ -322,8 +322,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       await redis.setex(`pre_auth:${user.id}`, 5 * 60, preAuthToken);
 
       if (mobileRedirect) {
+        // Use an opaque code in the deep-link URL instead of the raw token to prevent
+        // the token from being captured in logs, referrer headers, or OS app-switcher history.
+        const { randomBytes } = await import("crypto");
+        const preAuthCode = randomBytes(32).toString("hex");
+        await redis.setex(`mobile_pre_auth:${preAuthCode}`, 300, preAuthToken);
         const deepLink = new URL(mobileRedirect);
-        deepLink.searchParams.set("pre_auth_token", preAuthToken);
+        deepLink.searchParams.set("pre_auth_code", preAuthCode);
         deepLink.searchParams.set("requires_2fa", "true");
         const response = NextResponse.redirect(deepLink.toString(), { status: 302 });
         for (const cookie of cookiesToClear) response.headers.append("Set-Cookie", cookie);

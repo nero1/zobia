@@ -1389,5 +1389,8 @@
   "prestige.mainRankResetsToNewcomer": "يعود المستوى الرئيسي إلى مبتدئ",
   "leaderboards.sponsored": "برعاية",
   "leaderboards.loadError": "تعذّر تحميل لوحة المتصدرين. تحقق من اتصالك.",
-  "leaderboards.title": "لوحات المتصدرين"
+  "leaderboards.title": "لوحات المتصدرين",
+  "offline.syncFailed": "فشل إرسال الرسالة. ستتم إعادة المحاولة.",
+  "offline.permanentFailure": "تعذّر تسليم الرسالة.",
+  "offline.permanentFailureHint": "تم رفض هذه الرسالة من قبل الخادم ولن تتم إعادة المحاولة."
 }
