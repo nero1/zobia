@@ -34,11 +34,10 @@ interface SubscriptionRow {
   user_id: string;
   plan: Plan;
   status: "active" | "cancelled" | "past_due" | "trialing";
-  current_period_start: string;
-  current_period_end: string | null;
+  starts_at: string;
+  ends_at: string | null;
   cancelled_at: string | null;
   provider_subscription_id: string | null;
-  store_item_id: string | null;
   created_at: string;
 }
 
@@ -66,10 +65,10 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
     const userId = auth.user.sub;
 
     const { rows } = await db.query<SubscriptionRow>(
-      `SELECT id, user_id, plan, status, current_period_start,
-              current_period_end, cancelled_at, provider_subscription_id, created_at
+      `SELECT id, user_id, plan, status, starts_at,
+              ends_at, cancelled_at, provider_subscription_id, created_at
        FROM subscriptions
-       WHERE user_id = $1 AND status IN ('active', 'trialing')
+       WHERE user_id = $1 AND status IN ('active', 'cancelled')
        ORDER BY created_at DESC
        LIMIT 1`,
       [userId]
@@ -91,8 +90,8 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
             id: subscription.id,
             plan: subscription.plan,
             status: subscription.status,
-            currentPeriodStart: subscription.current_period_start,
-            currentPeriodEnd: subscription.current_period_end,
+            currentPeriodStart: subscription.starts_at,
+            currentPeriodEnd: subscription.ends_at,
             cancelledAt: subscription.cancelled_at,
             createdAt: subscription.created_at,
           }
