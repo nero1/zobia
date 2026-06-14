@@ -1,7 +1,7 @@
 # Zobia Social — Bug Fix Plan
 
-**Generated:** June 14, 2026 12:28 PM  
-**Source:** custom-bugs-report.md (27 confirmed bugs)  
+**Generated:** June 14, 2026 1:00 PM  
+**Source:** custom-bugs-report.md (27 confirmed bugs + 10 structural improvements = 37 items total)  
 **Instruction:** DO NOT begin any fix until the plan is reviewed and approved.
 
 ---
@@ -400,13 +400,162 @@ These bugs cause runtime DB errors, silent data loss, or complete feature breakd
 
 ---
 
-### TASK-28: Fix `useAuth` hook — no polling after initial load
+### TASK-28: Fix `useAuth` hook — no polling after initial load (assess only)
 
 **Files to edit:**  
 `apps/web/lib/auth/hooks.ts`
 
 **Steps:**  
 1. The `useAuth` hook makes one `/api/auth/me` fetch on mount only — this is correct. No changes needed unless the session should be refreshed periodically. Verify the hook satisfies the use case; if session expiry needs to be detected, consider adding a `useEffect` with interval polling or WebSocket push.
+
+---
+
+---
+
+## Structural / Operational Improvements (8.5 → 9.5+)
+
+These are not bugs but architectural gaps. Completing them after the bug fixes brings the projected rating from 8.5 to 9.5+.
+
+---
+
+### TASK-29: Adopt a schema-first type-safe DB client [STRUC-01]
+
+**Files to create/edit:**  
+`apps/web/lib/db/index.ts`  
+All files using raw `db.query<{...}>(...)` calls
+
+**Steps:**  
+1. Evaluate Drizzle ORM (lightest), Kysely (query-builder with generated types), or Prisma (heaviest, most tooling). Drizzle is recommended for an existing PostgreSQL schema — it can introspect the current DB and generate a schema file with `drizzle-kit introspect`.  
+2. Generate typed schema from the existing migration files.  
+3. Replace `db.query<{...}>(sql, params)` with typed query builder calls, one module at a time, starting with the trust score and referral modules (the sources of BUG-DB01 and BUG-DB02).  
+4. Wire the generated types into CI: add a `drizzle-kit check` step that fails if the DB schema and generated types drift.  
+5. Remove manually typed result interfaces that are now redundant.
+
+---
+
+### TASK-30: Add centralized Zod input validation at all API boundaries [STRUC-02]
+
+**Files to create/edit:**  
+`apps/web/lib/api/parseBody.ts` (new helper)  
+`apps/web/app/api/` (all route handlers, incrementally)
+
+**Steps:**  
+1. Create `parseBody<T>(schema: ZodSchema<T>, request: NextRequest): Promise<T>` that calls `schema.parse(await request.json())` and maps `ZodError` to a `NextResponse.json({ error: 'Validation failed', details: ... }, { status: 422 })`.  
+2. Define Zod schemas for each route's request body, starting with economy endpoints (gifts, coin transfer, payout) and auth endpoints (login, register).  
+3. Replace ad-hoc inline `typeof` checks with `parseBody(schema, request)` calls.  
+4. Remove non-null assertions (`!`) from variables now typed by Zod schemas.
+
+---
+
+### TASK-31: Add startup environment variable validation [STRUC-03]
+
+**Files to create/edit:**  
+`apps/web/env.ts` (new or existing)
+
+**Steps:**  
+1. Install `@t3-oss/env-nextjs` or write a manual `z.object({ JWT_SECRET: z.string().min(32), REDIS_URL: z.string().url(), ... }).parse(process.env)`.  
+2. Import the env module at the top of `apps/web/lib/db/index.ts` and `apps/web/lib/redis/index.ts` (or a server entry point) so it runs at cold start.  
+3. List every environment variable used across the codebase and add it to the schema with an appropriate Zod validator (`.url()`, `.min(n)`, etc.).  
+4. Document required vs. optional variables in the project README.
+
+---
+
+### TASK-32: Add webhook replay protection to Paystack and DodoPayments handlers [STRUC-04]
+
+**Files to edit:**  
+`apps/web/app/api/webhooks/paystack/route.ts`  
+`apps/web/app/api/webhooks/dodopayments/route.ts`
+
+**Steps:**  
+1. After HMAC validation, extract the event timestamp from the payload (`data.paid_at`, `data.created_at`, or equivalent). If the timestamp is older than 5 minutes, return 200 immediately (do not re-process).  
+2. Extract the stable event reference ID (Paystack: `data.reference` or `data.id`; DodoPayments: equivalent event ID field).  
+3. Use `SET NX EX 86400` in Redis to store the event ID. If the key already exists, return 200 immediately.  
+4. Only proceed with payment processing if both timestamp and idempotency checks pass.
+
+---
+
+### TASK-33: Add structured logging with request correlation IDs [STRUC-05]
+
+**Files to create/edit:**  
+`apps/web/lib/logger.ts` (new)  
+`apps/web/lib/api/middleware.ts` (`withAuth`, `withAdminAuth`)  
+All server-side files using `console.*`
+
+**Steps:**  
+1. Create a thin `logger` wrapper around `pino` (or `console` in development) that emits JSON objects with `{ level, message, requestId, userId, timestamp }`.  
+2. In `withAuth` and `withAdminAuth`, store the `requestId` in `requestContext` (already using `AsyncLocalStorage`). Expose a `getRequestId()` helper from `requestContext`.  
+3. In `logger.ts`, call `getRequestId()` automatically so every log line is tagged without manual threading.  
+4. Do a global replace of `console.log/warn/error/info` with `logger.info/warn/error` across `apps/web/lib/`.
+
+---
+
+### TASK-34: Set DB query statement timeouts [STRUC-06]
+
+**Files to edit:**  
+`apps/web/lib/db/index.ts` (DB pool config)
+
+**Steps:**  
+1. In the database connection pool configuration, add an `afterConnect` hook that runs `SET statement_timeout = '5000'` (5 seconds) on each new connection.  
+2. For the CRON route (`apps/web/app/api/cron/daily/route.ts`), create a separate DB session or connection that runs `SET statement_timeout = '30000'` to allow longer-running aggregation queries.  
+3. Add error handling for `57014` (PostgreSQL `query_canceled` error code) in the DB adapter to surface a clear timeout error rather than a generic DB error.
+
+---
+
+### TASK-35: Audit and enforce soft-delete filtering across all queries [STRUC-07]
+
+**Files to edit:**  
+All DB query files across `apps/web/lib/` and `apps/web/app/api/`
+
+**Steps:**  
+1. Search all SQL strings for queries against `users`, `rooms`, `guilds`, `room_messages`, and any other table with a `deleted_at` column.  
+2. Confirm each query includes `deleted_at IS NULL` (or equivalent). Flag and fix any that do not.  
+3. Consider creating PostgreSQL views — `active_users AS SELECT * FROM users WHERE deleted_at IS NULL` — and updating queries to use the view so the filter is structurally enforced at the DB level.  
+4. Add a lint rule or code comment convention marking any intentional queries that do include deleted records (e.g., admin audit views).
+
+---
+
+### TASK-36: Build an integration test suite covering critical paths [STRUC-08]
+
+**Files to create:**  
+`apps/web/__tests__/integration/` (new directory)  
+`apps/web/__tests__/integration/setup.ts` (DB seeding and teardown)
+
+**Steps:**  
+1. Set up a test database that runs all migrations from `apps/web/db/migrations/` against a local or CI PostgreSQL instance.  
+2. Write integration tests (using `vitest` or `jest`) for: auth flow (register, login, refresh, logout), XP award + deduplication (`safeAwardXP` called twice with same `reference_id`), coin transfer ledger integrity, payout initiation (confirms `bank_account_snapshot` is populated), referral claim + commission calculation, trust score gating, leaderboard ranking, quest deck completion bonus.  
+3. Run the test suite in CI on every PR against a test DB spun up via Docker Compose or GitHub Actions service containers.  
+4. Fail the CI build if any integration test fails.
+
+---
+
+### TASK-37: Audit and add user-level rate limits to all sensitive economy endpoints [STRUC-09]
+
+**Files to edit:**  
+`apps/web/app/api/economy/gifts/send/route.ts`  
+`apps/web/app/api/economy/coins/purchase/route.ts`  
+`apps/web/app/api/economy/coins/transfer/route.ts`  
+`apps/web/app/api/economy/stars/gift/route.ts`  
+`apps/web/app/api/payouts/route.ts` (or equivalent)
+
+**Steps:**  
+1. Confirm which of the above endpoints already have IP-level rate limiting via the existing Redis sliding-window middleware.  
+2. For any missing, add IP-level rate limiting as the first check.  
+3. For each endpoint, add a second rate limit check keyed on `userId` (from the JWT payload) with an appropriate limit (e.g. gift: 50/hour, coin purchase: 10/hour, withdrawal: 3/day).  
+4. Return `429 Too Many Requests` with a `Retry-After` header if either limit is exceeded.
+
+---
+
+### TASK-38: Add CSP `report-to` directive and violation ingest endpoint [STRUC-10]
+
+**Files to edit:**  
+`apps/web/middleware.ts` (`buildCsp` function)  
+`apps/web/app/api/csp-report/route.ts` (new route)
+
+**Steps:**  
+1. Add `report-to g-csp-endpoint` to the CSP string in `buildCsp`.  
+2. Add a `Reporting-Endpoints: g-csp-endpoint="https://<NEXT_PUBLIC_APP_URL>/api/csp-report"` response header alongside the `Content-Security-Policy` header in the middleware.  
+3. Create `apps/web/app/api/csp-report/route.ts` as a public POST endpoint that reads the JSON body and logs it via the structured logger (TASK-33) or sends it to an error tracking service.  
+4. Ensure the `/api/csp-report` path is added to `PUBLIC_PREFIXES` in `middleware.ts` so browsers can POST to it without a JWT cookie.
 
 ---
 
@@ -446,8 +595,22 @@ Week 3 (P2 — Medium correctness and UX):
 Week 4 (P3 — Polish and edge cases):
   TASK-26  Google Play purchase resolver IDs
   TASK-27  Remove dead zobia_icon creator tier
+
+Week 5 (Structural — quick wins first):
+  TASK-31  Startup env var validation           (1 day)
+  TASK-32  Webhook replay protection            (1 day)
+  TASK-38  CSP report-to + ingest endpoint      (1 day)
+  TASK-34  DB query statement timeouts          (1 day)
+  TASK-37  User-level rate limit audit          (2 days)
+  TASK-33  Structured logging + correlation IDs (2 days)
+  TASK-35  Soft-delete filtering audit          (2 days)
+  TASK-30  Centralized Zod API validation       (ongoing, route-by-route)
+
+Week 6+ (Structural — high effort):
+  TASK-36  Integration test suite               (ongoing, path-by-path)
+  TASK-29  Schema-first DB client migration     (ongoing, module-by-module)
 ```
 
 ---
 
-*Plan end — June 14, 2026 12:28 PM*
+*Plan end — June 14, 2026 1:00 PM*

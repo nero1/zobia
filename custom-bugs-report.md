@@ -1,6 +1,6 @@
 # Zobia Social — Forensic Bug Report
 
-**Generated:** June 14, 2026 12:28 PM  
+**Generated:** June 14, 2026 1:00 PM  
 **Scope:** Full codebase — web app, PWA, Expo Android app  
 **Method:** Deep forensic manual code review + schema cross-validation against all migration files  
 
@@ -14,9 +14,13 @@ The codebase demonstrates strong architectural intent: append-only ledgers, atom
 
 However, the codebase has a systemic problem: **column and table names in application code diverge from the actual database schema**. Several critical features — trust scores, referral commissions, ledger reconciliation, and the quest deck bonus — will throw runtime DB errors because the code references columns and tables that don't exist. Additionally, the XP deduplication mechanism relies on an `ON CONFLICT DO NOTHING` clause without the underlying unique constraint to back it up.
 
-### Projected State After All Fixes: 8.5 / 10
+### Projected State After Bug Fixes (items 1–27): 8.5 / 10
 
-Applying all fixes below would bring the app to a high standard. The core architecture is sound; the bugs are mostly fixable schema mismatches and logic errors rather than fundamental design flaws.
+Applying the 27 bugs below would bring the app to a high standard. The core architecture is sound; the bugs are mostly fixable schema mismatches and logic errors rather than fundamental design flaws.
+
+### Projected State After Bug Fixes + Structural Improvements (items 1–37): 9.5+ / 10
+
+A further set of 10 structural and operational improvements (items 28–37) would push the codebase to production excellence. The highest-leverage change is adopting a schema-first DB client so column-name mismatches become compile-time errors rather than production crashes. Combined with centralized input validation, structured logging, webhook replay protection, and an integration test suite that keeps quality self-enforcing, the codebase would meet the bar for a high-scale production social platform.
 
 ---
 
@@ -49,6 +53,19 @@ Applying all fixes below would bring the app to a high standard. The core archit
 25. BUG-RT01 — `useRealtimeChannel` async cleanup race — subscription leaks if component unmounts before setup completes
 26. BUG-INF01 — Circuit breakers are in-process singletons; ineffective in serverless (no Redis-backed variant)
 27. BUG-EXPO01 — Google Play `purchaseResolvers` map unsafe for concurrent or replayed purchases
+
+**Structural / Operational Improvements (8.5 → 9.5+)**
+
+28. STRUC-01 — No type-safe DB client; schema/code mismatches are undetectable at compile time
+29. STRUC-02 — No centralized Zod input validation at API boundaries; ad-hoc per-route validation
+30. STRUC-03 — Missing environment variable validation at startup; misconfigs discovered at runtime
+31. STRUC-04 — Webhook replay attacks not prevented; captured valid webhooks can be re-POSTed indefinitely
+32. STRUC-05 — No structured logging or request correlation IDs threaded through log statements
+33. STRUC-06 — No DB query statement timeouts; slow queries hold serverless functions alive indefinitely
+34. STRUC-07 — Soft-delete filtering (`deleted_at IS NULL`) not audited across all queries on deletable tables
+35. STRUC-08 — No integration test suite; schema mismatches and regressions only caught in production
+36. STRUC-09 — Rate limiting is IP-level only on some sensitive economy endpoints; user-level limits absent
+37. STRUC-10 — CSP has no `report-to` directive; browser CSP violations are invisible in production
 
 ---
 
@@ -353,6 +370,115 @@ Apply this pattern for all three provider branches (Supabase, Ably, Pusher).
 
 ---
 
+---
+
+## Structural / Operational Improvements (8.5 → 9.5+)
+
+---
+
+### 28. STRUC-01 — No type-safe DB client; schema/code divergence is undetectable at compile time
+
+**FILES:**  
+`apps/web/lib/db/index.ts` (DB adapter)  
+All files using `db.query<{...}>(...)` raw typed queries
+
+**FIX:**  
+Six of the 27 bugs in this report are direct consequences of manually written TypeScript result types on raw SQL queries diverging from the actual database schema. Migrate to a schema-first DB client — Drizzle ORM, Prisma, or Kysely with generated types — so that column names, table names, and result types are derived from the live migration files at build time. A missing column becomes a compile-time TypeScript error rather than a production crash. This is the single highest-leverage structural change available; it makes the entire BUG-DB category impossible going forward.
+
+---
+
+### 29. STRUC-02 — No centralized Zod input validation at API boundaries
+
+**FILES:**  
+`apps/web/app/api/` (all route handlers)
+
+**FIX:**  
+Each route handler performs ad-hoc inline validation — manual `typeof` checks, loose `if (!field)` guards, and unchecked casts. There is no enforced schema at the request boundary. A centralized `parseBody(schema, request)` helper built on Zod would: (a) reject invalid inputs early with a consistent 422 error format, (b) narrow TypeScript types automatically so downstream code needs no non-null assertions, and (c) serve as self-documenting API contracts. All existing ad-hoc validation can be migrated route by route with no breaking changes.
+
+---
+
+### 30. STRUC-03 — Missing startup environment variable validation
+
+**FILES:**  
+`apps/web/env.ts` (or equivalent env config entry point)
+
+**FIX:**  
+Missing environment variables — `JWT_SECRET`, `CRON_SECRET`, AES encryption keys, Paystack and DodoPayments API keys, Redis URL — are only discovered at the moment the feature that uses them is first hit in production. A startup-time schema using `t3-env` or a simple `z.object({...}).parse(process.env)` call at module load surfaces misconfigurations immediately at deploy time. This turns a "3am production incident for one user" into a "deploy fails with a clear error message."
+
+---
+
+### 31. STRUC-04 — Webhook replay attacks not prevented
+
+**FILES:**  
+`apps/web/app/api/webhooks/paystack/route.ts`  
+`apps/web/app/api/webhooks/dodopayments/route.ts`
+
+**FIX:**  
+Both webhook handlers correctly validate HMAC signatures, but neither checks for replay attacks. An attacker who captures a valid webhook payload — via network interception, CDN log access, or a compromised intermediary — can re-POST it indefinitely, repeatedly crediting payments or triggering payouts. Fix: (1) reject webhooks whose timestamp field (`X-Paystack-Date` or equivalent) is older than 5 minutes; (2) persist the event reference ID in a Redis SET with 24h TTL and return 200 immediately for duplicates without re-processing. Both Paystack and DodoPayments include a stable event ID in their payloads.
+
+---
+
+### 32. STRUC-05 — No structured logging or request correlation IDs
+
+**FILES:**  
+All server-side files using `console.log`, `console.warn`, `console.error`
+
+**FIX:**  
+The middleware generates a per-request nonce and `withAuth` generates a `requestId`, but neither is propagated into the `console.*` calls scattered across the codebase. In a multi-instance serverless deployment, correlating all log lines from a single failing request requires guessing from timestamps. Replace all `console.*` calls with a structured logger (`pino` or a thin wrapper) that emits JSON with `{ requestId, userId, level, message }`. Propagate `requestId` via `AsyncLocalStorage` (already used for `requestContext`) so every log line in the call stack is automatically tagged with no manual threading.
+
+---
+
+### 33. STRUC-06 — No DB query statement timeouts
+
+**FILES:**  
+`apps/web/lib/db/index.ts` (DB pool/adapter config)
+
+**FIX:**  
+No `statement_timeout` is configured at the connection or session level. A slow or unindexed query (e.g. a leaderboard aggregation, a large XP ledger scan) holds the serverless function alive until Vercel's function timeout (10s hobby / 60s pro), wasting execution units and potentially exhausting the connection pool for other requests. Set `statement_timeout = '5000'` (ms) at the pool `afterConnect` hook or as a session parameter. CRON routes can selectively use a longer timeout. This bounds blast radius from any single slow query.
+
+---
+
+### 34. STRUC-07 — Soft-delete filtering not audited across all queries
+
+**FILES:**  
+All DB queries across `apps/web/` targeting soft-deletable tables
+
+**FIX:**  
+The `users` table has `deleted_at TIMESTAMPTZ` and most user queries include `WHERE u.deleted_at IS NULL`, but it is not confirmed this filter is applied consistently across all tables that support soft deletion (rooms, guilds, room messages, notifications). Queries that omit the filter surface deleted users' data in leaderboards, gift recipient lookups, message history, and notification fans — both a data correctness issue and a privacy risk (deleted accounts should be invisible). Audit every query against soft-deletable tables and add the filter where missing. Consider creating PostgreSQL views per entity that bake in `deleted_at IS NULL` to make omission structurally impossible.
+
+---
+
+### 35. STRUC-08 — No integration test suite; schema mismatches only caught in production
+
+**FILES:**  
+`apps/web/__tests__/` (or equivalent test directory)
+
+**FIX:**  
+All six DB schema mismatch bugs (BUG-DB01–06) would have been caught immediately by integration tests that connect to a real database seeded from the migration files. A suite of 40–60 integration tests covering the critical paths — auth flow, XP award + deduplication, coin transfer + ledger integrity, payout initiation, referral claim, trust score gating, leaderboard ranking, quest deck completion — would make the entire BUG-DB category self-enforcing on every PR. Use `vitest` or `jest` with `pg` against a test database. Do not mock the DB adapter; the point is to catch schema divergence.
+
+---
+
+### 36. STRUC-09 — Rate limiting is IP-level only on some sensitive economy endpoints
+
+**FILES:**  
+`apps/web/lib/rateLimit/` (rate limit middleware)  
+`apps/web/app/api/economy/` (gift, coin, star, withdrawal endpoints)
+
+**FIX:**  
+The Redis sliding-window rate limiter is well-implemented, but sensitive economy endpoints (gift sending, coin purchase, coin transfer, star gift, coin withdrawal) appear to be rate-limited only at the IP level or not at all. IP-level limits are trivially bypassed behind a VPN, proxy, or carrier-grade NAT (many mobile users share one IP). All economy endpoints should carry both IP-level and **user ID–level** rate limits. User-level limits keyed on `userId` correctly bound per-account velocity regardless of network origin. Audit every economy endpoint for dual-layer coverage.
+
+---
+
+### 37. STRUC-10 — CSP `report-to` directive absent; browser violations invisible in production
+
+**FILES:**  
+`apps/web/middleware.ts` (`buildCsp` function)
+
+**FIX:**  
+The CSP is well-constructed (nonce + `strict-dynamic`, no `unsafe-inline`, `upgrade-insecure-requests`), but has no `report-to` or `report-uri` directive. Any CSP violation in production — an injected script tag, a misconfigured third-party embed, or a browser extension interference — produces no server-side signal. Add `report-to g-csp-endpoint` to the CSP string and a `Reporting-Endpoints: g-csp-endpoint="https://<your-domain>/api/csp-report"` response header. Implement a minimal `/api/csp-report` route that logs the report body. This provides early warning on injection attempts and misconfigured integrations at zero rendering cost.
+
+---
+
 ## Informational / Minor Issues
 
 - **INFO-01**: `lib/mystery/xpDrop.ts` — `randomInt` uses `buf[0] % range` (modular bias). For range 901, bias is ~0.021% — negligible.
@@ -363,4 +489,4 @@ Apply this pattern for all three provider branches (Supabase, Ably, Pusher).
 
 ---
 
-*Report end — June 14, 2026 12:28 PM*
+*Report end — June 14, 2026 1:00 PM*
