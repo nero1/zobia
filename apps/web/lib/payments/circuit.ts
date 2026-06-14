@@ -11,6 +11,8 @@
  * state across instances, use the Redis-backed variant below.
  */
 
+import { logger } from "@/lib/logger";
+
 export type CircuitState = "CLOSED" | "OPEN" | "HALF_OPEN";
 
 export interface CircuitBreakerOptions {
@@ -97,7 +99,7 @@ export class CircuitBreaker {
       if (Date.now() - this.openedAt >= this.resetTimeoutMs) {
         this.state = "HALF_OPEN";
         this.consecutiveSuccesses = 0;
-        console.info(`[${this.name}] Circuit moved to HALF_OPEN`);
+        logger.info({ circuit: this.name }, `[${this.name}] Circuit moved to HALF_OPEN`);
       }
     }
   }
@@ -112,7 +114,7 @@ export class CircuitBreaker {
         this.state = "CLOSED";
         this.failures = [];
         this.openedAt = null;
-        console.info(`[${this.name}] Circuit CLOSED after recovery`);
+        logger.info({ circuit: this.name }, `[${this.name}] Circuit CLOSED after recovery`);
       }
     }
   }
@@ -128,11 +130,11 @@ export class CircuitBreaker {
       this.state = "OPEN";
       this.openedAt = Date.now();
       this.consecutiveSuccesses = 0;
-      console.warn(`[${this.name}] Circuit re-OPENED during probe`);
+      logger.warn({ circuit: this.name }, `[${this.name}] Circuit re-OPENED during probe`);
     } else if (this.state === "CLOSED" && failRate >= this.errorThreshold && this.failures.length >= this.windowSize) {
       this.state = "OPEN";
       this.openedAt = Date.now();
-      console.warn(`[${this.name}] Circuit OPENED (failure rate: ${failRate.toFixed(1)}%)`);
+      logger.warn({ circuit: this.name, failureRate: failRate.toFixed(1) }, `[${this.name}] Circuit OPENED (failure rate: ${failRate.toFixed(1)}%)`);
     }
   }
 
@@ -235,7 +237,7 @@ export class RedisCircuitBreaker {
       s.state = current;
       s.consecutiveSuccesses = 0;
       await this.writeState(s);
-      console.info(`[${this.opts.name}] Circuit moved to HALF_OPEN`);
+      logger.info({ circuit: this.opts.name }, `[${this.opts.name}] Circuit moved to HALF_OPEN`);
     }
 
     try {
@@ -311,7 +313,7 @@ return s.state
     ) as string;
     this.localCache = null; // Invalidate local cache so next read reflects Lua update
     if (newState === "CLOSED") {
-      console.info(`[${this.opts.name}] Circuit CLOSED after recovery`);
+      logger.info({ circuit: this.opts.name }, `[${this.opts.name}] Circuit CLOSED after recovery`);
     }
   }
 
@@ -326,7 +328,7 @@ return s.state
     ) as string;
     this.localCache = null; // Invalidate local cache
     if (newState === "OPEN") {
-      console.warn(`[${this.opts.name}] Circuit OPENED`);
+      logger.warn({ circuit: this.opts.name }, `[${this.opts.name}] Circuit OPENED`);
     }
   }
 

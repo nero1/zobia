@@ -50,7 +50,7 @@ import {
   isIpAnomalous,
   recordAndCheckAnomaly,
 } from "@/lib/security/geoAnomaly";
-import { requestContext } from "@/lib/logger";
+import { requestContext, logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -229,16 +229,26 @@ export function withAuth<TParams = Record<string, string>>(
         }
       }
 
-      const result = await handler(req, {
-        params: await ctx.params,
-        auth: { user: payload },
-      });
+      const start = Date.now();
+      let result: NextResponse | ApiError;
+      try {
+        result = await handler(req, {
+          params: await ctx.params,
+          auth: { user: payload },
+        });
+      } catch (handlerErr) {
+        logger.error({ requestId, userId: payload.sub, durationMs: Date.now() - start }, "request handler threw");
+        throw handlerErr;
+      }
+      const durationMs = Date.now() - start;
       if (result instanceof ApiError) {
         const res = handleApiError(result);
         res.headers.set("X-Request-Id", requestId);
+        logger.info({ requestId, userId: payload.sub, durationMs, status: res.status }, "request completed");
         return res;
       }
       result.headers.set("X-Request-Id", requestId);
+      logger.info({ requestId, userId: payload.sub, durationMs, status: result.status }, "request completed");
       return result;
     } catch (err) {
       const res = handleApiError(err);
@@ -309,18 +319,28 @@ export function withAdminAuth<TParams = Record<string, string>>(
         throw forbidden("Administrator access required");
       }
 
-      const result = await handler(req, {
-        params: await ctx.params,
-        auth: { user: payload, isAdmin: true },
-      });
+      const start = Date.now();
+      let result: NextResponse | ApiError;
+      try {
+        result = await handler(req, {
+          params: await ctx.params,
+          auth: { user: payload, isAdmin: true },
+        });
+      } catch (handlerErr) {
+        logger.error({ requestId, userId: payload.sub, durationMs: Date.now() - start }, "request handler threw");
+        throw handlerErr;
+      }
+      const durationMs = Date.now() - start;
       if (result instanceof ApiError) {
         const res = handleApiError(result);
         res.headers.set("X-Request-Id", requestId);
+        logger.info({ requestId, userId: payload.sub, durationMs, status: res.status }, "request completed");
         return res;
       }
 
       const response = result as NextResponse;
       response.headers.set("X-Request-Id", requestId);
+      logger.info({ requestId, userId: payload.sub, durationMs, status: response.status }, "request completed");
       return response;
     } catch (err) {
       const res = handleApiError(err);

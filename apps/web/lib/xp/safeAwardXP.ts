@@ -10,6 +10,7 @@
 
 import type { DatabaseAdapter, TransactionClient } from "@/lib/db/interface";
 import { db as globalDb } from "@/lib/db";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -83,7 +84,7 @@ export async function safeAwardXP(
     );
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
-    console.error(`[safeAwardXP] Failed to award ${amount} XP (${track}/${source}) to ${userId}:`, errorMessage);
+    logger.error({ userId, amount, track, source }, `[safeAwardXP] Failed to award ${amount} XP (${track}/${source}) to ${userId}: ${errorMessage}`);
 
     // Write to DLQ (fire-and-forget with the global db — the passed client may be closed)
     globalDb.query(
@@ -93,7 +94,7 @@ export async function safeAwardXP(
        ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
       [userId, amount, track, source, referenceId ?? null, errorMessage]
     ).catch((dlqErr) => {
-      console.error("[safeAwardXP] Failed to write to DLQ:", dlqErr);
+      logger.error({ userId, source }, `[safeAwardXP] Failed to write to DLQ: ${dlqErr}`);
     });
   }
 }

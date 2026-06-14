@@ -18,6 +18,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
+import { z } from "zod";
 import {
   exchangeGoogleCode,
   fetchGoogleUserProfile,
@@ -38,6 +39,15 @@ import {
 import { handleApiError, badRequest, unauthorized } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { env } from "@/lib/env";
+
+// ---------------------------------------------------------------------------
+// Query param schema
+// ---------------------------------------------------------------------------
+
+const CallbackQuerySchema = z.object({
+  code: z.string().min(1),
+  state: z.string().min(1),
+});
 
 // Only these schemes/hosts may be used as post-OAuth deep-link redirect targets (ZB-01).
 const ALLOWED_REDIRECT_SCHEMES = ["zobia:", "exp:"];
@@ -239,8 +249,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     await enforceRateLimit(ip, "ip", RATE_LIMITS.auth);
 
     const { searchParams } = new URL(req.url);
-    const code = searchParams.get("code");
-    const state = searchParams.get("state");
     const error = searchParams.get("error");
 
     // Google-side errors (e.g. user denied access)
@@ -250,7 +258,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    if (!code) throw badRequest("Missing authorization code");
+    // Validate required query params with Zod before any processing
+    const paramsParsed = CallbackQuerySchema.safeParse(Object.fromEntries(searchParams));
+    if (!paramsParsed.success) {
+      return NextResponse.json({ data: null, error: "Invalid query params" }, { status: 400 });
+    }
+    const { code, state } = paramsParsed.data;
 
     // Verify CSRF state
     const cookieHeader = req.headers.get("cookie");
