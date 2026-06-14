@@ -291,7 +291,9 @@ export async function checkDeckCompletion(
     // Lock user row to serialize concurrent calls
     await client.query(`SELECT id FROM users WHERE id = $1 FOR UPDATE`, [userId]);
 
-    // Check quest completion
+    // Check quest completion for the user's assigned deck only.
+    // Without the deck filter, progress on quests from other decks would
+    // incorrectly count toward completion of today's assigned deck (BUG-008).
     const result = await client.query<{
       total: string;
       completed_count: string;
@@ -306,7 +308,12 @@ export async function checkDeckCompletion(
              AND metadata->>'date' = $2
          ) AS bonus_already_awarded
        FROM user_quest_progress uqp
-       WHERE uqp.user_id = $1 AND uqp.quest_date = $2`,
+       WHERE uqp.user_id = $1
+         AND uqp.quest_date = $2
+         AND uqp.quest_id IN (
+           SELECT quest_id FROM user_quest_decks
+           WHERE user_id = $1 AND assigned_date = $2::date
+         )`,
       [userId, date]
     );
 

@@ -98,12 +98,11 @@ export const GET = async (req: NextRequest) => {
          UPDATE users
          SET login_streak_days = login_streak_days + 1,
              updated_at = NOW()
-         WHERE last_login_date = $1
-           AND last_login_at::date = $2::date
+         WHERE last_login_at::date = $1::date
          RETURNING 1
        )
        SELECT COUNT(*) AS count FROM updated`,
-      [yesterday, today]
+      [yesterday]
     );
 
     // Reset streaks for users who missed a day; preserve last streak for re-engagement gating
@@ -1210,6 +1209,17 @@ export const GET = async (req: NextRequest) => {
       telegramSent++;
     }
 
+    // Mark re-engagement events as notified so they are not re-sent
+    if (telegramUsers.length > 0) {
+      const notifiedIds = telegramUsers.map((u) => u.user_id);
+      await db.query(
+        `UPDATE user_inactivity_events
+         SET notified = true
+         WHERE user_id = ANY($1::uuid[]) AND notified = false`,
+        [notifiedIds]
+      ).catch((err: unknown) => console.error('[cron/daily] Failed to mark telegram users notified:', err));
+    }
+
     results.telegramReengagement = { sent: telegramSent };
   } catch (err) {
     errors.push(`telegramReengagement: ${String(err)}`);
@@ -1302,7 +1312,7 @@ export const GET = async (req: NextRequest) => {
                    AND NOT EXISTS (
                      SELECT 1 FROM coin_ledger
                      WHERE user_id = users.id
-                       AND transaction_type = 'monthly_plan_bonus'
+                       AND transaction_type = 'subscription_bonus'
                        AND reference_id LIKE 'plan:' || users.id::text || ':' || $4
                    )
                ),
@@ -1310,7 +1320,7 @@ export const GET = async (req: NextRequest) => {
                  INSERT INTO coin_ledger
                    (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description, created_at)
                  SELECT id, $2, coin_balance, coin_balance + $2,
-                        'monthly_plan_bonus',
+                        'subscription_bonus',
                         'plan:' || id::text || ':' || $4,
                         $3, NOW()
                  FROM eligible
@@ -2092,10 +2102,11 @@ export const GET = async (req: NextRequest) => {
           [war.id, winnerId, loserId]
         ).catch(() => {});
 
-        // Create next week's war automatically
+        // Create next week's war automatically (ON CONFLICT prevents duplicate on retry)
         await db.query(
           `INSERT INTO alliance_wars (alliance_1_id, alliance_2_id, status, started_at)
-           VALUES ($1, $2, 'active', NOW())`,
+           VALUES ($1, $2, 'active', NOW())
+           ON CONFLICT DO NOTHING`,
           [war.alliance_1_id, war.alliance_2_id]
         ).catch(() => {});
 

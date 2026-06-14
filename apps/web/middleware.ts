@@ -194,7 +194,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     pathname.startsWith("/api/auth/") &&
     !CSRF_SAFE_METHODS.has(request.method.toUpperCase());
 
-  if ((pathname.startsWith("/api/") && !isPublicRoute(pathname) || isAuthMutation) && !isCsrfSafe(request)) {
+  if (((pathname.startsWith("/api/") && !isPublicRoute(pathname)) || isAuthMutation) && !isCsrfSafe(request)) {
     const res = NextResponse.json(
       { error: "Forbidden", code: "CSRF_ORIGIN_MISMATCH" },
       { status: 403 }

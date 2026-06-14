@@ -17,6 +17,7 @@
  */
 
 import type { DatabaseAdapter } from "@/lib/db/interface";
+import { sanitizeHtml } from "@/lib/security/htmlSanitizer";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -49,72 +50,6 @@ export interface AnnouncementUser {
   id: string;
   plan_id?: string | null;
   role?: string | null;
-}
-
-// ---------------------------------------------------------------------------
-// sanitizeHtmlContent
-// ---------------------------------------------------------------------------
-
-/**
- * Sanitize HTML content from admins to prevent XSS.
- *
- * On the server side (Node.js), we perform a conservative tag allowlist.
- * For browser rendering, DOMPurify should additionally be applied client-side.
- *
- * Allowed tags: b, i, u, em, strong, p, br, ul, ol, li, a (href only),
- *               h1–h4, blockquote, code, pre
- *
- * @param content - Raw HTML string from the database
- * @returns Sanitized HTML safe for rendering
- */
-const ALLOWED_TAGS = new Set([
-  "b", "i", "u", "em", "strong", "p", "br", "ul", "ol", "li",
-  "a", "h1", "h2", "h3", "h4", "blockquote", "code", "pre", "span",
-]);
-
-const ALLOWED_ATTRS: Record<string, Set<string>> = {
-  a: new Set(["href", "title", "target", "rel"]),
-  span: new Set(["class"]),
-  p: new Set(["class"]),
-};
-
-const SAFE_URL_RE = /^https?:\/\//i;
-
-export function sanitizeHtmlContent(content: string): string {
-  // Strip comments
-  let sanitized = content.replace(/<!--[\s\S]*?-->/g, "");
-
-  // Strip script/style tags and their contents entirely
-  sanitized = sanitized.replace(/<script\b[\s\S]*?<\/script>/gi, "");
-  sanitized = sanitized.replace(/<style\b[\s\S]*?<\/style>/gi, "");
-  sanitized = sanitized.replace(/<svg\b[\s\S]*?<\/svg>/gi, "");
-
-  // Process remaining tags: keep only allowlisted tags with allowlisted attributes
-  sanitized = sanitized.replace(/<(\/?)(\w+)([^>]*)>/gi, (_, slash, tag, attrs) => {
-    const lowerTag = tag.toLowerCase();
-    if (!ALLOWED_TAGS.has(lowerTag)) return "";
-
-    if (slash) return `</${lowerTag}>`;
-
-    const allowedAttrsForTag = ALLOWED_ATTRS[lowerTag] ?? new Set<string>();
-    const safeAttrs = attrs.replace(
-      /(\w[\w-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]*)))?/gi,
-      (attrMatch: string, attrName: string, dq: string, sq: string, nq: string) => {
-        const name = attrName.toLowerCase();
-        if (!allowedAttrsForTag.has(name)) return "";
-        const val = dq ?? sq ?? nq ?? "";
-        // Validate URL attributes
-        if (name === "href" || name === "src") {
-          if (!SAFE_URL_RE.test(val.trim()) && val.trim() !== "#") return `${name}="#"`;
-        }
-        return `${name}="${val.replace(/"/g, "&quot;")}"`;
-      }
-    );
-
-    return `<${lowerTag}${safeAttrs ? " " + safeAttrs.trim() : ""}>`;
-  });
-
-  return sanitized;
 }
 
 // ---------------------------------------------------------------------------
@@ -235,7 +170,7 @@ export async function getActiveModalForUser(
     title: selected.title,
     content:
       selected.content_type === "html"
-        ? sanitizeHtmlContent(selected.content)
+        ? sanitizeHtml(selected.content)
         : selected.content,
     content_type: selected.content_type as ResolvedModal["content_type"],
     display_order: selected.display_order,
@@ -333,7 +268,7 @@ export async function getActiveBannerForUser(
     title: selected.title,
     content:
       selected.content_type === "html"
-        ? sanitizeHtmlContent(selected.content)
+        ? sanitizeHtml(selected.content)
         : selected.content,
     content_type: selected.content_type as ResolvedBanner["content_type"],
     link_url: selected.link_url,

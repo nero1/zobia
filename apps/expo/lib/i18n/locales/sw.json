@@ -105,6 +105,8 @@
   "notification.roomInvite": "{{name}} amekualika kwenye {{room}}",
   "notification.giftReceived": "{{name}} amekutumia zawadi",
   "notification.rankUp": "Umefika ngazi {{rank}}!",
+  "notification.giftDropAvailable": "A Gift Drop is Coming!",
+  "notification.giftDropAvailableBody": "A new monthly gift drop will be available soon. Stay tuned!",
   "home.nemesis.title": "Mpinzani Wako",
   "home.nemesis.you": "Wewe",
   "home.nemesis.aheadBy": "Uko mbele kwa {{diff}} XP",

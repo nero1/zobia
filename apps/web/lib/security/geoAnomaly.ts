@@ -116,16 +116,26 @@ export async function recordAndCheckAnomaly(
   loginIp: string,
   currentIp: string
 ): Promise<boolean> {
-  const counterKey = `geo_anomaly:${sessionId}`;
+  const zsetKey = `geo_anomaly:${sessionId}`;
 
   try {
-    // Increment the anomaly counter for this session
-    const count = await redis.incr(counterKey);
+    const now = Date.now();
+    const windowStart = now - ANOMALY_WINDOW_SECONDS * 1000;
+    const member = `${now}-${Math.random().toString(36).slice(2)}`;
 
-    // Set expiry only on first increment to create a sliding window
-    if (count === 1) {
-      await redis.expire(counterKey, ANOMALY_WINDOW_SECONDS);
-    }
+    // Sliding window using sorted set — same approach as rateLimit.ts
+    const count = await redis.eval(
+      `redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
+       redis.call('ZADD', KEYS[1], ARGV[2], ARGV[3])
+       redis.call('PEXPIRE', KEYS[1], ARGV[4])
+       return redis.call('ZCARD', KEYS[1])`,
+      1,
+      zsetKey,
+      String(windowStart),
+      String(now),
+      member,
+      String(ANOMALY_WINDOW_SECONDS * 1000)
+    ) as number;
 
     // Log admin alert (fire-and-forget, non-blocking)
     db.query(

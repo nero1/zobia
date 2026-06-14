@@ -250,12 +250,16 @@ export async function distributeWarRewards(
     const equalShare =
       remainingMembers > 0 ? Math.floor(remainderPool / remainingMembers) : 0;
 
+    // Distribute any remainder (from flooring) to the top contributor
+    const totalDistributed = topShare + secondShare + equalShare * remainingMembers;
+    const coinRemainder = pool - totalDistributed;
+
     const { creditCoins } = await import("@/lib/economy/coins");
 
     for (let i = 0; i < members.length; i++) {
       const { user_id } = members[i];
       let coins = 0;
-      if (i === 0) coins = topShare;
+      if (i === 0) coins = topShare + coinRemainder;
       else if (i === 1) coins = secondShare;
       else coins = equalShare;
 

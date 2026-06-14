@@ -1047,7 +1047,9 @@
     "newFollower": "{{name}} started following you",
     "newMessage": "New message from {{name}}",
     "rankUp": "You reached rank {{rank}}!",
-    "roomInvite": "{{name}} invited you to {{room}}"
+    "roomInvite": "{{name}} invited you to {{room}}",
+    "giftDropAvailable": "A Gift Drop is Coming!",
+    "giftDropAvailableBody": "A new monthly gift drop will be available soon. Stay tuned!"
   },
   "offline": {
     "banner": "You're offline. Some features may not be available.",

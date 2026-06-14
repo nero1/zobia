@@ -168,7 +168,7 @@ export async function calculateFundDistributions(
   let prevCutoff = 0;
 
   for (const tier of DISTRIBUTION_TIERS) {
-    const cutoff = Math.floor((tier.topPercent / 100) * total);
+    const cutoff = Math.max(1, Math.floor((tier.topPercent / 100) * total));
     const inTier = scored.slice(prevCutoff, cutoff);
     if (inTier.length === 0) continue;
 

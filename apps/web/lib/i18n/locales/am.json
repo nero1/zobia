@@ -121,6 +121,8 @@
   "notification.roomInvite": "{{name}} ወደ {{room}} ጋብዞዎታል",
   "notification.giftReceived": "{{name}} ስጦታ ልኮለዎታል",
   "notification.rankUp": "ወደ ደረጃ {{rank}} ደርሰዋል!",
+  "notification.giftDropAvailable": "A Gift Drop is Coming!",
+  "notification.giftDropAvailableBody": "A new monthly gift drop will be available soon. Stay tuned!",
   "home.nemesis.title": "ተቀናቃኝዎ",
   "home.nemesis.you": "እርስዎ",
   "home.nemesis.aheadBy": "{{diff}} XP ቀደምት ነዎት",

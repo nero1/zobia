@@ -510,17 +510,28 @@ async function processSubscriptionEvent(
     ).catch(() => {});
   }
 
-  // Write notification to user
+  // Write notification to user using canonical schema (title/body/metadata columns)
   let notifType = "subscription_cancelled";
-  if (event.event === "subscription.create") notifType = "subscription_activated";
-  else if (isNonRenewing) notifType = "subscription_non_renewing";
+  let notifTitle = "Subscription Cancelled";
+  let notifBody = "Your subscription has been cancelled.";
+  if (event.event === "subscription.create") {
+    notifType = "subscription_activated";
+    notifTitle = "Subscription Activated";
+    notifBody = "Your subscription is now active. Enjoy your benefits!";
+  } else if (isNonRenewing) {
+    notifType = "subscription_non_renewing";
+    notifTitle = "Subscription Ending";
+    notifBody = "Your subscription will not renew at the end of the current period.";
+  }
 
   await db.query(
-    `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-     VALUES ($1, $2, $3, false, NOW())`,
+    `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
+     VALUES ($1, $2, $3, $4, $5::jsonb, false, NOW())`,
     [
       resolvedUserId,
       notifType,
+      notifTitle,
+      notifBody,
       JSON.stringify({ subscriptionCode: subscription_code, status, nextPaymentDate: next_payment_date }),
     ]
   ).catch(() => {});

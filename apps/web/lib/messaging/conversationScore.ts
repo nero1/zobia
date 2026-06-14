@@ -42,9 +42,6 @@ export interface ConversationScore {
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Score threshold to unlock the Connection badge. */
-const CONNECTION_BADGE_THRESHOLD = 50;
-
 /** Score thresholds that unlock exclusive DM sticker reaction packs (PRD §5). */
 export const STICKER_UNLOCK_THRESHOLDS = [
   { threshold: 100, packName: "Exclusive Reactions Pack 1" },

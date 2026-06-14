@@ -348,7 +348,8 @@ export async function createSeasonCeremonyRoom(
     );
 
     return roomRows[0]?.id ?? null;
-  } catch {
+  } catch (err) {
+    console.error('[seasonEngine] createSeasonCeremonyRoom failed:', err);
     return null;
   }
 }
@@ -532,6 +533,13 @@ export async function claimPassMilestone(
       );
     } else if (milestone.reward_type === 'xp_bonus') {
       const val = milestone.reward_value as { bonusXP: number };
+      const referenceId = `season:${seasonId}:milestone:${milestoneId}:user:${userId}`;
+      await client.query(
+        `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
+         VALUES ($1, $2, 'main', 'season_milestone_bonus', $3, $2, NOW())
+         ON CONFLICT DO NOTHING`,
+        [userId, val.bonusXP, referenceId]
+      );
       await client.query(
         `UPDATE users SET xp_total = xp_total + $1, legacy_score = legacy_score + $1 WHERE id = $2`,
         [val.bonusXP, userId]

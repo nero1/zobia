@@ -17,6 +17,7 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import {
   exchangeGoogleCode,
   fetchGoogleUserProfile,
@@ -202,22 +203,29 @@ async function upsertGoogleUser(profile: {
   // Generate a unique username derived from the email
   const username = await uniqueUsername(baseUsernameFromEmail(profile.email));
 
-  // Create a brand-new user (onboarding not yet complete)
-  const inserted = await db.query<UserRow>(
-    `INSERT INTO users (google_id, email, username, display_name, avatar_url, onboarding_completed, is_admin, is_email_verified, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, false, false, true, NOW(), NOW())
-     RETURNING id, email, username, google_id, is_email_verified, is_admin, is_moderator,
-               is_banned, is_suspended, deleted_at,
-               totp_enabled, onboarding_completed,
-               display_name, avatar_emoji, city, xp_total, rank_name`,
-    [profile.googleId, profile.email, username, profile.name, profile.picture]
-  );
-
-  if (!inserted.rows[0]) {
-    throw new Error("Failed to create user record");
+  // Create a brand-new user (onboarding not yet complete).
+  // Retry on unique-violation (23505) for username — uniqueUsername() may race.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const candidateUsername = attempt === 0 ? username : await uniqueUsername(baseUsernameFromEmail(profile.email));
+    try {
+      const inserted = await db.query<UserRow>(
+        `INSERT INTO users (google_id, email, username, display_name, avatar_url, onboarding_completed, is_admin, is_email_verified, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, false, false, true, NOW(), NOW())
+         RETURNING id, email, username, google_id, is_email_verified, is_admin, is_moderator,
+                   is_banned, is_suspended, deleted_at,
+                   totp_enabled, onboarding_completed,
+                   display_name, avatar_emoji, city, xp_total, rank_name`,
+        [profile.googleId, profile.email, candidateUsername, profile.name, profile.picture]
+      );
+      if (inserted.rows[0]) return inserted.rows[0];
+    } catch (insertErr) {
+      const pgCode = (insertErr as { code?: string }).code;
+      if (pgCode === "23505" && attempt < 2) continue;
+      throw insertErr;
+    }
   }
 
-  return inserted.rows[0];
+  throw new Error("Failed to create user record after retries");
 }
 
 // ---------------------------------------------------------------------------
@@ -341,9 +349,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     );
 
     // -----------------------------------------------------------------
-    // Mobile flow: redirect to app deep-link with JWT + user payload
+    // Mobile flow: redirect to app deep-link with a one-time exchange code.
+    // Tokens are stored in Redis under mobile_exchange:{code} (90s TTL).
+    // The Expo app must POST to /api/auth/mobile-token with { code } to
+    // receive the actual accessToken and refreshToken over HTTPS — never
+    // exposed in the redirect URL.
     // -----------------------------------------------------------------
     if (mobileRedirect) {
+      const exchangeCode = crypto.randomBytes(32).toString("hex");
       const authUser = {
         id: user.id,
         username: user.username ?? "",
@@ -352,11 +365,20 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         xp: user.xp_total ?? 0,
         rankTier: "bronze",
       };
+      await redis.setex(
+        `mobile_exchange:${exchangeCode}`,
+        90,
+        JSON.stringify({
+          accessToken: authTokens.accessToken,
+          refreshToken: authTokens.refreshToken,
+          userId: user.id,
+          onboardingCompleted: user.onboarding_completed,
+          authUser,
+        })
+      );
+
       const deepLink = new URL(mobileRedirect);
-      deepLink.searchParams.set("token", authTokens.accessToken);
-      deepLink.searchParams.set("refresh_token", authTokens.refreshToken);
-      deepLink.searchParams.set("user", encodeURIComponent(JSON.stringify(authUser)));
-      deepLink.searchParams.set("onboarding_completed", String(user.onboarding_completed));
+      deepLink.searchParams.set("code", exchangeCode);
 
       const response = NextResponse.redirect(deepLink.toString(), { status: 302 });
       for (const cookie of cookiesToClear) {

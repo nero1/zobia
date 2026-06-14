@@ -121,6 +121,8 @@
   "notification.roomInvite": "{{name}} vous a invité dans {{room}}",
   "notification.giftReceived": "{{name}} vous a envoyé un cadeau",
   "notification.rankUp": "Vous avez atteint le rang {{rank}} !",
+  "notification.giftDropAvailable": "A Gift Drop is Coming!",
+  "notification.giftDropAvailableBody": "A new monthly gift drop will be available soon. Stay tuned!",
   "home.nemesis.title": "Votre Némésis",
   "home.nemesis.you": "Vous",
   "home.nemesis.aheadBy": "Vous avez {{diff}} XP d'avance",

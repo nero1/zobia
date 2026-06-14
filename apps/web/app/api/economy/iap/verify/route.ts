@@ -383,22 +383,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // Use a reference key that encodes the purchaseToken for idempotency lookup
     const referenceId = `iap:${body.purchaseToken}`;
 
-    // 1. Check idempotency — has this purchaseToken already been credited?
-    const { rows: existingRows } = await db.query<{ id: string }>(
-      `SELECT id FROM coin_ledger
-       WHERE reference_id = $1
-       LIMIT 1`,
-      [referenceId]
-    );
-
-    if (existingRows.length > 0) {
-      throw conflict(
-        "This purchase has already been processed",
-        "PURCHASE_ALREADY_PROCESSED"
-      );
-    }
-
-    // 2. Verify the purchase with Google Play Developer API
+    // 1. Verify the purchase with Google Play Developer API
     const purchase = await verifyGooglePlayPurchase(
       body.packageName,
       body.productId,
@@ -413,20 +398,30 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       );
     }
 
-    // 3. Credit coins atomically (creditCoins uses SELECT FOR UPDATE internally)
-    await creditCoins(
-      userId,
-      coinsToGrant,
-      "iap_purchase",
-      referenceId,
-      `Google Play IAP: ${body.productId}`,
-      {
-        productId: body.productId,
-        packageName: body.packageName,
-        purchaseToken: body.purchaseToken,
-        orderId: purchase.orderId,
+    // 2. Credit coins atomically — coin_ledger has a unique index on reference_id
+    //    which prevents double-credit even under concurrent requests.
+    //    Catch 23505 (unique_violation) and surface it as a 409 conflict.
+    try {
+      await creditCoins(
+        userId,
+        coinsToGrant,
+        "iap_purchase",
+        referenceId,
+        `Google Play IAP: ${body.productId}`,
+        {
+          productId: body.productId,
+          packageName: body.packageName,
+          purchaseToken: body.purchaseToken,
+          orderId: purchase.orderId,
+        }
+      );
+    } catch (creditErr) {
+      const pgCode = (creditErr as { code?: string })?.code;
+      if (pgCode === "23505") {
+        throw conflict("This purchase has already been processed", "PURCHASE_ALREADY_PROCESSED");
       }
-    );
+      throw creditErr;
+    }
 
     // 4. Acknowledge the purchase on Google Play (mark as consumed)
     //    Done after crediting so coins are never lost if acknowledgement fails.

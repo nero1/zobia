@@ -225,9 +225,7 @@ async function callGemini(
     apiKeyOverride ??
     (manifestOverride && manifestOverride.length > 0 ? manifestOverride : env.GEMINI_API_KEY);
 
-  const endpoint =
-    `${GEMINI_CONFIG.apiBaseUrl}/models/${model}:generateContent` +
-    `?key=${effectiveKey}`;
+  const endpoint = `${GEMINI_CONFIG.apiBaseUrl}/models/${model}:generateContent`;
 
   const body = {
     contents: toGeminiContents(messages, options.systemPrompt),
@@ -238,7 +236,10 @@ async function callGemini(
   };
 
   const { data } = await axios.post<GeminiResponse>(endpoint, body, {
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": effectiveKey,
+    },
     timeout: GEMINI_CONFIG.timeoutMs,
   });
 

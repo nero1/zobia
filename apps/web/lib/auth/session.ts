@@ -123,14 +123,17 @@ export async function createSession(
     JSON.stringify(record)
   );
 
-  // Track session in per-user set; refresh TTL so the set expires if the user
-  // stops logging in (matches the longest possible session lifetime)
+  // Track session in per-user set; atomically extend TTL only when the new
+  // lifetime would exceed the current one (Lua avoids a TTL→EXPIRE TOCTOU race).
   await redis.sadd(userSessionsKey(user.id), sid);
-  // Only extend the set TTL if the new TTL would be longer than the current one
-  const currentTtlSec = await redis.ttl(userSessionsKey(user.id));
-  if (currentTtlSec < refreshTtl) {
-    await redis.expire(userSessionsKey(user.id), refreshTtl);
-  }
+  await redis.eval(
+    `local current = redis.call('TTL', KEYS[1])
+     local newTtl = tonumber(ARGV[1])
+     if current < newTtl then redis.call('EXPIRE', KEYS[1], newTtl) end`,
+    1,
+    userSessionsKey(user.id),
+    String(refreshTtl)
+  );
 
   return { accessToken, refreshToken, expiresIn: accessTtl };
 }
