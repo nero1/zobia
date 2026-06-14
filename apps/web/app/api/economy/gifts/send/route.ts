@@ -197,8 +197,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const body = await validateBody(req, SendGiftSchema);
 
-    // Rate-limit: prevent double-tap sends (#13)
+    // Rate-limit: prevent double-tap sends and gift spam (STRUC-09)
     await enforceRateLimit(senderId, "user", RATE_LIMITS.apiWrite);
+    await enforceRateLimit(senderId, "user", RATE_LIMITS.giftSend);
 
     if (body.recipientId === senderId) {
       throw badRequest("Cannot send a gift to yourself");

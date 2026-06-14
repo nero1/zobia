@@ -47,6 +47,9 @@ function buildCsp(nonce: string): string {
     "form-action 'self'",
     "frame-ancestors 'self'",
     "upgrade-insecure-requests",
+    // STRUC-10: CSP violation reporting
+    "report-to csp-endpoint",
+    "report-uri /api/security/csp-report",
   ].join("; ");
 }
 
@@ -65,6 +68,8 @@ const PUBLIC_PREFIXES = [
   "/auth",
   "/api/auth",
   "/api/manifest",
+  // CSP violation reports from browsers (no auth, unauthenticated browsers send these)
+  "/api/security/csp-report",
   // CRON endpoints authenticate via CRON_SECRET (Bearer token), not JWT cookies.
   // The middleware must let them through so the route handler can verify the secret.
   "/api/cron",

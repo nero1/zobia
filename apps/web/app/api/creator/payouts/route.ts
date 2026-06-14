@@ -31,6 +31,7 @@ import { z } from "zod";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, forbidden, handleApiError } from "@/lib/api/errors";
 import { db } from "@/lib/db";
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { meetsMinimumTrust } from "@/lib/trust/trustScore";
 import { loadManifest } from "@/lib/manifest";
 import { creditCoins } from "@/lib/economy/coins";
@@ -210,6 +211,9 @@ const PayoutRequestSchema = z.object({
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
+
+    // Daily rate limit to prevent payout request abuse (STRUC-09)
+    await enforceRateLimit(userId, "user", RATE_LIMITS.payoutRequest);
 
     // Require a recent PIN verification before allowing payout initiation
     const pinOk = await requirePinVerified(userId, auth.user.sid);

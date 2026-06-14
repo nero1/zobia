@@ -105,6 +105,15 @@ const securityHeaders = [
     key: "Permissions-Policy",
     value: "camera=(), microphone=(), geolocation=(), browsing-topics=()",
   },
+  // Report-To: configure browser CSP violation reporting endpoint (STRUC-10)
+  {
+    key: "Report-To",
+    value: JSON.stringify({
+      group: "csp-endpoint",
+      max_age: 10886400,
+      endpoints: [{ url: "/api/security/csp-report" }],
+    }),
+  },
   // Content-Security-Policy is set dynamically per-request in middleware.ts
   // with a per-request nonce. Removing it here prevents duplicate CSP headers
   // which would otherwise cause browsers to AND both policies (the static one

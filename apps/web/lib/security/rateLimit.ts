@@ -70,6 +70,14 @@ export const RATE_LIMITS = {
   admin: { limit: 120, windowMs: 60 * 1000, name: "admin" } as RateLimitOptions,
   /** PIN verification — tight limit to prevent brute-force of 4-digit keyspace (BUG-14). */
   pinVerify: { limit: 5, windowMs: 15 * 60 * 1000, name: "pin:verify" } as RateLimitOptions,
+  /** Gift sending — separate hourly limit to prevent gift spam / draining (STRUC-09). */
+  giftSend: { limit: 50, windowMs: 60 * 60 * 1000, name: "gift:send" } as RateLimitOptions,
+  /** Coin purchase — hourly limit on purchase initiations (STRUC-09). */
+  coinPurchase: { limit: 10, windowMs: 60 * 60 * 1000, name: "coin:purchase" } as RateLimitOptions,
+  /** Payout request — daily limit to prevent abuse of the payout system (STRUC-09). */
+  payoutRequest: { limit: 3, windowMs: 24 * 60 * 60 * 1000, name: "payout:request" } as RateLimitOptions,
+  /** Star gifting — hourly limit (STRUC-09). */
+  starGift: { limit: 30, windowMs: 60 * 60 * 1000, name: "star:gift" } as RateLimitOptions,
 } as const;
 
 // ---------------------------------------------------------------------------

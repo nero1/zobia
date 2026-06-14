@@ -48,6 +48,7 @@ const giftStarsSchema = z.object({
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
+    await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.starGift);
 
     const body = await validateBody(req, giftStarsSchema);
     const senderId = auth.user.sub;
