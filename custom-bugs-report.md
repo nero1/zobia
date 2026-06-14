@@ -1,6 +1,7 @@
 # Zobia Codebase — Bug Report
 
 **Generated:** June 14, 2026, 12:00 PM UTC  
+**Updated:** June 14, 2026, 10:30 AM UTC (added BUG-CR01, BUG-CR02, BUG-RL01 + 5 systemic improvements)  
 **Scope:** Full forensic analysis — `apps/web` (Next.js 14 App Router), `apps/expo` (Expo Android), `apps/web/public/sw.js` (PWA Service Worker)  
 **Analyst:** Claude Code (claude-sonnet-4-6)
 
@@ -30,6 +31,17 @@
 20. BUG-GE01 — `geoAnomaly`: /8 prefix comparison too coarse for meaningful anomaly detection
 21. BUG-SE01 — `fieldEncryption`: no key versioning, KYC_ENCRYPTION_KEY rotation is destructive
 22. BUG-AU02 — TOTP anti-replay: code consumed but session not issued when `createSession` fails
+23. BUG-CR01 — Leaderboard CRON: queries non-existent `rank` column — rank-change notifications never fire
+24. BUG-CR02 — Leaderboard CRON: only materializes `main` XP track — 6 other track leaderboards permanently stale
+25. BUG-RL01 — `/api/notifications` GET has no rate limiting
+
+**Systemic Improvements**
+
+26. SYS-01 — Fire-and-forget XP awards: transient failures silently drop XP with no retry or recovery
+27. SYS-02 — No coin/star ledger reconciliation: balance drift goes undetected indefinitely
+28. SYS-03 — No structured logging or request tracing: incidents cannot be correlated across systems
+29. SYS-04 — No circuit breaker for external API calls: Paystack/Expo Push degradation cascades to full outage
+30. SYS-05 — Insufficient test coverage for financial engines, webhook handlers, and CRON flows
 
 ---
 
@@ -300,6 +312,7 @@ Prefix every ciphertext with a version tag (e.g., `"v1:" + base64ciphertext`). T
 
 ### 22: BUG-AU02 — TOTP anti-replay key is set before session creation — code is consumed if `createSession` fails
 
+
 In the admin TOTP login route, the anti-replay Redis key (`totp:used:${userId}:${code}`) is set with `SET NX EX 90` after `verifyTotp` passes but before `createSession` is called. If `createSession` fails (database error, Redis outage, etc.), the TOTP code is permanently marked as "used" in Redis for 90 seconds. The admin user receives a 500 error and must wait 30 seconds for the next TOTP code to attempt login again, even though they were never issued a session. Under repeated failure conditions this creates a 90-second window where no code will work.
 
 FILES:
@@ -310,9 +323,127 @@ In the catch block, after a `createSession` failure, immediately delete the anti
 
 ---
 
+### 23: BUG-CR01 — Leaderboard CRON queries a non-existent `rank` column — rank-change notifications never fire
+
+The leaderboard CRON handler (`app/api/cron/leaderboards/route.ts`) Step 2 executes `SELECT user_id, rank FROM leaderboard_snapshots`. The `leaderboard_snapshots` table schema is `(user_id, track, scope, city, season_id, xp_value, updated_at)` — there is no `rank` column. This query fails with a PostgreSQL `column "rank" does not exist` error on every single CRON run. The error is caught, added to the response's `errors` array, and execution continues. As a result `previousRankMap` is always empty, the condition `previousRank !== null` is never true, `rankChanges` stays permanently 0, and no leaderboard rank-change notification is ever delivered to any user. This feature has been silently broken since deployment.
+
+FILES:
+- `apps/web/app/api/cron/leaderboards/route.ts`
+
+FIX:
+Remove Step 2 entirely and instead persist the previous rank from the previous CRON run. The simplest approach: add a `last_notified_rank INTEGER` column to `leaderboard_snapshots` (or use a separate `leaderboard_rank_history` table). After computing new ranks in Step 4, compare `new_rank` against `last_notified_rank`, dispatch notifications on change, then update `last_notified_rank = new_rank`. Alternatively, store the CRON's previous-rank snapshot in Redis with a 24-hour TTL.
+
+---
+
+### 24: BUG-CR02 — Leaderboard CRON only materializes the `main` XP track — six other track leaderboards are permanently stale
+
+Step 3 of the leaderboard CRON calls `upsertLeaderboardSnapshot(user.user_id, "main", user.xp_total, db)` with the track hardcoded to `"main"`. There are 7 XP tracks: `main`, `social`, `creator`, `competitor`, `generosity`, `knowledge`, `explorer`. The `leaderboard_snapshots` rows for the six non-main tracks are either never populated or frozen at the values from an older code path. Every client reading a Social, Creator, Competitor, Generosity, Knowledge, or Explorer leaderboard receives completely stale data — in many cases the table is empty and the leaderboard shows zero results.
+
+FILES:
+- `apps/web/app/api/cron/leaderboards/route.ts`
+
+FIX:
+Extend the Step 1 user query to also `SELECT xp_social, xp_creator, xp_competitor, xp_generosity, xp_knowledge, xp_explorer` from the `users` table. In Step 3, call `upsertLeaderboardSnapshot` for all 7 tracks in parallel using `Promise.all`. The `upsertLeaderboardSnapshot` function already handles all tracks — only the call site needs updating.
+
+---
+
+### 25: BUG-RL01 — `/api/notifications` GET has no rate limiting
+
+Every other authenticated read endpoint in the codebase calls `enforceRateLimit` as its first action. The notifications route is the sole exception: `app/api/notifications/route.ts` performs no rate limit check. A client (or a script using any valid bearer token) can poll this endpoint thousands of times per second, issuing two database queries per request (the 50-row notification fetch and the unread count aggregate). Under aggressive polling this endpoint alone can saturate the database connection pool.
+
+FILES:
+- `apps/web/app/api/notifications/route.ts`
+
+FIX:
+Add `await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead)` as the first statement inside the GET handler, immediately after destructuring `auth.user.sub`, matching the pattern used by every other read endpoint. Additionally consider adding an `ETag` or `Last-Modified` response header so well-behaved clients can use conditional GET requests.
+
+---
+
+## Systemic Improvements
+
+The following items are not point bugs but architectural gaps. Each one independently limits the codebase from reaching 9.5/10. They require coordinated implementation work rather than single-file edits.
+
+---
+
+### 26: SYS-01 — Fire-and-forget XP awards: transient DB failures silently and permanently drop XP
+
+The pattern `db.query(...XP award...).catch(() => {})` (or `.catch(err => console.error(...))`) appears in approximately 30 call sites across the codebase. When a transient database error occurs during an XP award (high connection pool usage, brief network blip), the error is caught and the XP is silently and permanently lost. There is no retry mechanism, no dead-letter queue, and no alerting when XP awards fail. Over time this causes visible leaderboard drift as some users' XP totals fall below what they actually earned. Because XP is awarded after the main transaction commits, re-trying the original request is not an option.
+
+FILES:
+- `apps/web/app/api/rooms/[roomId]/messages/route.ts`
+- `apps/web/app/api/messages/dm/route.ts`
+- `apps/web/app/api/economy/gifts/send/route.ts`
+- All other route files that call `db.query` for XP inside a `.catch(() => {})`
+
+FIX:
+Replace every `.catch(() => {})` on an XP award with a `.catch(err => insertFailedXpAward(userId, amount, track, source, err))` that writes the failed award to a `failed_xp_awards` table `(id, user_id, amount, track, source, reference_id, error_message, failed_at, retry_count)`. Add a lightweight CRON step that retries rows from this table up to 5 times with exponential backoff, then moves them to a dead-letter table after exhaustion and fires a `system_alert`. This converts silent, unrecoverable data loss into observable, retryable failures.
+
+---
+
+### 27: SYS-02 — No coin or star ledger balance reconciliation
+
+The `users.coin_balance` and `users.star_balance` columns are maintained by direct `UPDATE users SET coin_balance = coin_balance ± $1` statements alongside `coin_ledger`/`star_ledger` entries. Any bug — including the race conditions found in this report — can cause the balance column to diverge from the sum of ledger entries. There is no automated process that detects or alerts on such divergence. Balance drift is invisible until a user reports it, at which point the root cause may be months old and very hard to trace.
+
+FILES:
+- New CRON step or `apps/web/app/api/cron/daily/route.ts`
+
+FIX:
+Add a nightly reconciliation step that samples users and asserts `users.coin_balance = SUM(amount) FROM coin_ledger WHERE user_id = ? AND deleted_at IS NULL`. Repeat for stars. On any discrepancy, insert a `system_alert` with the user ID, expected balance, actual balance, and delta. Never auto-correct silently — require human review of each discrepancy. Log all discrepancies to an `audit_discrepancies` table for trend analysis.
+
+---
+
+### 28: SYS-03 — No structured logging or distributed request tracing
+
+All error and diagnostic logging uses unstructured `console.error(...)` / `console.log(...)` with free-form strings. There are no request IDs, user IDs in log context, route names, or response durations attached to log lines. When a production payment incident occurs, it is impossible to correlate: which webhook event → which DB transaction → which Redis operation → which error without manually scanning and joining log lines by timestamp. The absence of a request ID means a single user's request cannot be traced end-to-end across middleware, the route handler, and the database layer.
+
+FILES:
+- `apps/web/lib/api/middleware.ts` (best place to inject request IDs)
+- All route files (consumers)
+
+FIX:
+Introduce `pino` (or a thin wrapper over `console`) that emits structured JSON: `{ level, timestamp, requestId, userId, route, durationMs, message, ...context }`. In `withAuth` middleware, generate a `requestId = crypto.randomUUID()` and attach it to the request context so all downstream logging in that request shares the same ID. Add `X-Request-Id` to response headers so client logs can be correlated with server logs.
+
+---
+
+### 29: SYS-04 — No circuit breaker for external API calls
+
+Direct HTTP calls to Paystack, DodoPayments, Expo Push Notifications API, and the configured Realtime provider (Pusher/Ably) are made without circuit breakers, bulkheads, or meaningful timeout/retry policies beyond Axios's default behavior. When Paystack experiences a 30-second degradation, the CRON payout processor queues up to `batchSize` concurrent HTTP connections simultaneously. Each holds a database transaction open while waiting. If `batchSize = 20` and the Paystack timeout is 15 seconds, 20 database transactions can pile up, exhausting the connection pool and cascading into application-wide 503 errors.
+
+FILES:
+- `apps/web/lib/payments/paystack.ts`
+- `apps/web/lib/payments/payouts.ts`
+- `apps/web/lib/realtime/providers/pusher.ts`
+
+FIX:
+Wrap each external API client behind an `opossum` circuit breaker (or equivalent). Configure: failure threshold 5 in 60s → open; half-open probe every 30s; timeout 10s per call. For the payout processor specifically, move the Paystack `initiateTransfer` call outside the database transaction — hold the lock only long enough to mark the payout as `processing`, then release the transaction before making the HTTP call. This prevents external latency from holding DB connections.
+
+---
+
+### 30: SYS-05 — Insufficient test coverage for financial engines, webhook handlers, and CRON flows
+
+The `lib/economy/__tests__/` directory contains well-written financial integrity and concurrency tests. However, there are no integration tests for: the two webhook handlers (Paystack, DodoPayments), the 5 CRON route handlers, the quest engine's deck generation and completion logic, the war engine's reward distribution, the season engine's reward distribution, or the admin auth 2FA flow. For a platform that handles real NGN payments and creator payouts, the most financially consequential code paths have zero automated test coverage.
+
+FILES:
+- `apps/web/app/api/economy/webhooks/` (no tests)
+- `apps/web/app/api/cron/` (no tests)
+- `apps/web/lib/quests/` (no tests)
+- `apps/web/lib/guilds/` (no tests)
+- `apps/web/lib/seasons/` (no tests)
+- `apps/web/lib/referrals/` (no tests)
+
+FIX:
+Prioritize test coverage in this order (highest financial risk first):
+1. Webhook handlers: idempotency (duplicate event), signature rejection, each payment event type, error paths
+2. Payout processor: pending→processing→completed state machine, retry exhaustion → DLQ, concurrent run isolation (using the SKIP LOCKED pattern)
+3. `creditCoins`/`debitCoins`/`transferCoins` under concurrency (extend the existing test)
+4. `distributeWarRewards` and `distributeSeasonRewards` payout math
+5. Quest engine deck generation per plan tier
+
+---
+
 ## Code Quality Assessment
 
-### Current State — 7.0 / 10
+### Current State — 7.0 / 10 | After 22 fixes: 8.5 | After all 30 items: 9.5+
 
 The Zobia codebase demonstrates a strong architectural foundation. Financial operations (coin credit/debit, star credit/debit, payout processing) use `SELECT FOR UPDATE` and atomic DB transactions consistently. JWT + Redis session management with refresh token rotation and grace windows is correctly implemented. Zod validation at API boundaries, idempotency keys for gift sends, and a well-structured fraud detection pipeline are all above-average for a platform of this scope. The XP engine, quest engine, war engine, nemesis engine, and season engine are each coherent and well-isolated.
 
@@ -326,11 +457,18 @@ The bugs found are primarily in the gaps between systems: a missing `FOR UPDATE 
 - One KYC security gap making key rotation impossible (BUG-SE01)
 - Service Worker serving 24h stale financial data to PWA users (BUG-SW01)
 
-### After All Recommended Fixes — 8.5 / 10
+### After All 22 Point-Bug Fixes — 8.5 / 10
 
-Applying all 22 fixes closes the identified race conditions, corrects ledger accuracy, restores alert visibility, fixes the mobile auth regression, and adds KYC key rotation support. The remaining gap to 10/10 reflects areas outside the scope of this analysis: test coverage depth, end-to-end monitoring/alerting, formal incident response runbooks, and i18n completeness.
+Applying all 22 fixes closes the identified race conditions, corrects ledger accuracy, restores alert visibility, fixes the mobile auth regression, and adds KYC key rotation support.
+
+### After All 30 Items (22 bugs + 3 new bugs + 5 systemic) — 9.5 / 10
+
+The 3 additional bugs (BUG-CR01, BUG-CR02, BUG-RL01) are straightforward single-file fixes that restore broken features. The 5 systemic improvements (SYS-01 through SYS-05) require more architectural work but deliver the biggest long-term reliability gains. Together they address: silent data loss, financial drift, incident invisibility, cascading failure from external APIs, and the absence of safety nets for the platform's most financially consequential code paths.
+
+The remaining gap to 10/10 reflects i18n completeness, formal security penetration testing, and operational runbooks — all outside the scope of a code analysis.
 
 ---
 
 *Report generated: June 14, 2026, 12:00 PM UTC*  
+*Updated: June 14, 2026, 10:30 AM UTC*  
 *Analyst: Claude Code — Repository: nero1/zobia*
