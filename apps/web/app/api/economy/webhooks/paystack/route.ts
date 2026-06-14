@@ -394,22 +394,19 @@ async function processSubscriptionEvent(
   const { subscription_code, status, customer, next_payment_date } = event.data;
   const userId = customer.metadata?.userId ?? null;
 
-  if (!userId) {
-    // Try to look up user by email
+  // Single email lookup — cache result to avoid duplicate DB round-trip (BUG-13)
+  let resolvedUserId = userId;
+  if (!resolvedUserId) {
     const { rows } = await db.query<{ id: string }>(
       `SELECT id FROM users WHERE email = $1 AND deleted_at IS NULL LIMIT 1`,
       [customer.email]
     );
-    if (!rows[0]) {
+    resolvedUserId = rows[0]?.id ?? null;
+    if (!resolvedUserId) {
       console.warn(`[webhook/paystack] Subscription event: no user for email ${customer.email}`);
       return;
     }
   }
-
-  const resolvedUserId = userId ?? (await db.query<{ id: string }>(
-    `SELECT id FROM users WHERE email = $1 AND deleted_at IS NULL LIMIT 1`,
-    [customer.email]
-  )).rows[0]?.id;
 
   if (!resolvedUserId) return;
 

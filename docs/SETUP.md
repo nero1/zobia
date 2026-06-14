@@ -604,6 +604,40 @@ Without this, `POST /api/cron/payouts` will fail on every bank transfer attempt.
 
 These can be updated from the Admin → Config panel at any time.
 
+### DodoPayments Setup (Global Payments)
+
+#### 1. Get API Keys
+
+1. Log into your [DodoPayments dashboard](https://app.dodopayments.com).
+2. Go to **Settings → API Keys**.
+3. Copy your **API Key** → `DODOPAYMENTS_API_KEY`.
+4. Copy your **Webhook Secret** → `DODOPAYMENTS_WEBHOOK_SECRET`.
+
+#### 2. Configure Webhook URL
+
+1. In the DodoPayments dashboard, go to **Settings → Webhooks**.
+2. Add a new webhook endpoint:
+   - **URL**: `https://your-domain/api/economy/webhooks/dodopayments`
+   - **Events**: `payment.succeeded`, `payout.completed`, `payout.failed`
+3. Copy the signing secret and set `DODOPAYMENTS_WEBHOOK_SECRET`.
+
+#### 3. Store Items — itemSlug Requirement
+
+When creating payment links or checkout sessions in DodoPayments, you **must** include `itemSlug` in the payment metadata. The webhook handler uses `metadata.itemSlug` to look up grant amounts from the `store_items` table server-side — client-supplied `coinsGranted`/`starsGranted` metadata values are ignored for security.
+
+```json
+// Required metadata when creating a DodoPayments payment session:
+{
+  "userId": "<user-uuid>",
+  "itemSlug": "coin_pack_500",   // must match store_items.slug
+  "itemType": "coin_pack",       // coin_pack | star_pack | subscription | room_subscription
+  "packName": "500 Coins",
+  "idempotencyKey": "<uuid>"
+}
+```
+
+Ensure every active item in `store_items` has a non-null `slug` that exactly matches the `itemSlug` sent in DodoPayments metadata.
+
 ### Creator Fund ad revenue tracking
 
 To ensure the Creator Fund pool is correctly seeded on the 1st of each month, ad revenue must be recorded in `x_manifest` using the key format `ad_revenue_YYYY_MM_kobo` (e.g. `ad_revenue_2026_05_kobo`). The admin financial dashboard records monthly ad revenue totals automatically. If integrating a third-party ad network, ensure the revenue webhook updates this key each month.

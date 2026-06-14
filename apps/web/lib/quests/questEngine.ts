@@ -16,6 +16,7 @@
 import type { DatabaseAdapter } from "@/lib/db/interface";
 import type { Plan } from "@zobia/types";
 import { ACTION_TRACKS } from "@/lib/xp/engine";
+import { creditCoins } from "@/lib/economy/coins";
 
 // Maps a ProgressionTrack name to the corresponding users table column
 const TRACK_COLUMN: Record<string, string> = {
@@ -229,18 +230,19 @@ export async function updateQuestProgress(
         ACTION_TRACKS[quest.action_type as keyof typeof ACTION_TRACKS] ?? null;
       const trackColumn = parallelTrack ? TRACK_COLUMN[parallelTrack] : null;
 
+      // Update XP columns only — coin credit goes through creditCoins() below (BUG-10)
       if (trackColumn) {
         await client.query(
           `UPDATE users SET xp_total = xp_total + $1, ${trackColumn} = ${trackColumn} + $1,
-                           coin_balance = coin_balance + $2, updated_at = NOW()
-           WHERE id = $3`,
-          [xpAwarded, coinsAwarded, userId]
+                           updated_at = NOW()
+           WHERE id = $2`,
+          [xpAwarded, userId]
         );
       } else {
         await client.query(
-          `UPDATE users SET xp_total = xp_total + $1, coin_balance = coin_balance + $2, updated_at = NOW()
-           WHERE id = $3`,
-          [xpAwarded, coinsAwarded, userId]
+          `UPDATE users SET xp_total = xp_total + $1, updated_at = NOW()
+           WHERE id = $2`,
+          [xpAwarded, userId]
         );
       }
 
@@ -250,13 +252,9 @@ export async function updateQuestProgress(
         [userId, xpAwarded, parallelTrack ?? "main", questId]
       );
 
+      // Use creditCoins() for proper SELECT FOR UPDATE locking and ledger consistency (BUG-10)
       if (coinsAwarded > 0) {
-        await client.query(
-          `INSERT INTO coin_ledger (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description, created_at)
-           SELECT $1, $2, coin_balance - $2, coin_balance, 'quest_reward', $3, 'Daily quest reward', NOW()
-           FROM users WHERE id = $1`,
-          [userId, coinsAwarded, questId]
-        );
+        await creditCoins(userId, coinsAwarded, "quest_reward", questId, "Daily quest reward", {}, client);
       }
     }
 

@@ -272,10 +272,10 @@ export async function distributeWarRewards(
       );
     }
 
-    // Top contributor bonus XP
+    // Top contributor bonus XP — update both xp_total and xp_competitor (BUG-06)
     if (members[0]) {
       await client.query(
-        `UPDATE users SET xp_total = xp_total + $1, updated_at = NOW() WHERE id = $2`,
+        `UPDATE users SET xp_total = xp_total + $1, xp_competitor = xp_competitor + $1, updated_at = NOW() WHERE id = $2`,
         [TOP_CONTRIBUTOR_BONUS_XP, members[0].user_id]
       );
       await client.query(
@@ -376,8 +376,9 @@ export async function resolveWar(
       const { user_id } = winnerMembers.rows[i];
       const scale = memberCount > 1 ? 1 - i / (memberCount - 1) : 1;
       const memberXP = Math.round(WAR_WIN_XP_MIN + scale * (WAR_WIN_XP_MAX - WAR_WIN_XP_MIN));
+      // Update both xp_total and xp_competitor so the competitor column stays in sync (BUG-06)
       await client.query(
-        `UPDATE users SET xp_total = xp_total + $1, updated_at = NOW() WHERE id = $2`,
+        `UPDATE users SET xp_total = xp_total + $1, xp_competitor = xp_competitor + $1, updated_at = NOW() WHERE id = $2`,
         [memberXP, user_id]
       );
       await client.query(

@@ -106,7 +106,27 @@ async function processPaymentSucceeded(
     );
 
     const paymentId = existing[0].id;
-    const { userId, coinsGranted, starsGranted, itemType } = metadata;
+    const { userId, itemType } = metadata;
+
+    // Resolve server-authoritative grant amounts from store_items to prevent metadata tampering (BUG-02)
+    const itemSlug = (metadata as { itemSlug?: string }).itemSlug;
+    let serverCoinsGranted = metadata.coinsGranted ?? 0;
+    let serverStarsGranted = metadata.starsGranted ?? 0;
+    if (itemSlug && (itemType === "coin_pack" || itemType === "star_pack")) {
+      const { rows: itemRows } = await tx.query<{
+        coins_granted: number | null;
+        stars_granted: number | null;
+      }>(
+        `SELECT coins_granted, stars_granted FROM store_items WHERE slug = $1 AND is_active = true LIMIT 1`,
+        [itemSlug]
+      );
+      if (!itemRows[0]) {
+        console.error(`[webhook/dodopayments] Unknown store item slug: ${itemSlug}`);
+        return;
+      }
+      if (itemRows[0].coins_granted != null) serverCoinsGranted = itemRows[0].coins_granted;
+      if (itemRows[0].stars_granted != null) serverStarsGranted = itemRows[0].stars_granted;
+    }
 
     // VIP room subscription — activate room access
     if (itemType === "room_subscription") {
@@ -164,13 +184,14 @@ async function processPaymentSucceeded(
     if (itemType === "subscription") {
       const planName = metadata.planName ?? "pro";
 
-      // Update user subscription record
+      // Write to user_subscriptions (canonical table) — BUG-04
       await tx.query(
-        `INSERT INTO subscriptions
-           (user_id, plan, status, starts_at, ends_at, provider, provider_subscription_id, created_at, updated_at)
-         VALUES ($1, $2, 'active', NOW(), NOW() + (INTERVAL '1 month'), 'dodopayments', $3, NOW(), NOW())
+        `INSERT INTO user_subscriptions
+           (user_id, plan, status, provider, provider_subscription_id, starts_at, ends_at, created_at, updated_at)
+         VALUES ($1, $2, 'active', 'dodopayments', $3, NOW(), NOW() + (INTERVAL '1 month'), NOW(), NOW())
          ON CONFLICT (user_id) DO UPDATE
-           SET plan = $2, status = 'active', updated_at = NOW()`,
+           SET plan = $2, status = 'active', provider = 'dodopayments',
+               provider_subscription_id = $3, updated_at = NOW()`,
         [userId, planName, providerReference]
       );
 
@@ -197,17 +218,17 @@ async function processPaymentSucceeded(
     } else if (itemType === "star_pack") {
       await creditStars(
         userId,
-        starsGranted ?? 0,
+        serverStarsGranted,
         "purchase",
         paymentId,
         `Purchased ${metadata.packName}`,
         tx
       );
     } else {
-      // Coin pack
+      // Coin pack — use server-authoritative amount (BUG-02)
       await creditCoins(
         userId,
-        coinsGranted ?? 0,
+        serverCoinsGranted,
         "purchase",
         paymentId,
         `Purchased ${metadata.packName}`,
@@ -215,8 +236,8 @@ async function processPaymentSucceeded(
         tx
       );
 
-      // Award referral commissions for coin purchases
-      await awardReferralCommissions(tx, userId, coinsGranted ?? 0).catch((err) =>
+      // Award referral commissions; pass paymentId as idempotency key (BUG-03)
+      await awardReferralCommissions(tx, userId, serverCoinsGranted, paymentId).catch((err) =>
         console.error("[webhook/dodo] Referral commission error:", err)
       );
     }

@@ -337,7 +337,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
             [body.recipientId]
           );
           if (legendGuildRows[0]) {
-            const guildShare = Math.floor(giftItem.coin_cost * 5 / 100);
+            // Guild share must come from the platform fee — never create new coins (BUG-05)
+            const guildShare = Math.min(Math.floor(giftItem.coin_cost * 5 / 100), platformFeeCoins);
             if (guildShare > 0) {
               const balanceBefore = legendGuildRows[0].treasury_balance ?? 0;
               // LEAST clamp ensures treasury_balance never exceeds treasury_cap (#24)

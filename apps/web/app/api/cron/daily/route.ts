@@ -176,7 +176,7 @@ export const GET = async (req: NextRequest) => {
          INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, created_at)
          SELECT id, $1, 'main', 'daily_login', $1, NOW()
          FROM users
-         WHERE last_active_at::date = NOW()::date
+         WHERE last_login_date = CURRENT_DATE
            AND deleted_at IS NULL
            AND NOT EXISTS (
              SELECT 1 FROM xp_ledger
@@ -2056,9 +2056,9 @@ export const GET = async (req: NextRequest) => {
           [winnerId]
         ).catch(() => {});
 
-        // Award victory XP to all members of winning alliance
+        // Award victory XP to all members of winning alliance (BUG-09: also update xp_competitor)
         await db.query(
-          `UPDATE users SET xp_total = xp_total + $1, updated_at = NOW()
+          `UPDATE users SET xp_total = xp_total + $1, xp_competitor = xp_competitor + $1, updated_at = NOW()
            WHERE id IN (
              SELECT DISTINCT gm.user_id
              FROM guild_members gm
@@ -2066,6 +2066,16 @@ export const GET = async (req: NextRequest) => {
              WHERE gam.alliance_id = $2 AND gm.left_at IS NULL
            )`,
           [ALLIANCE_WAR_VICTORY_XP, winnerId]
+        ).catch(() => {});
+
+        // Insert xp_ledger audit rows for alliance war victory (BUG-09: missing audit trail)
+        await db.query(
+          `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
+           SELECT DISTINCT gm.user_id, $1, 'competitor', 'alliance_war_victory', $2, $1, NOW()
+           FROM guild_members gm
+           JOIN guild_alliance_members gam ON gam.guild_id = gm.guild_id
+           WHERE gam.alliance_id = $3 AND gm.left_at IS NULL`,
+          [ALLIANCE_WAR_VICTORY_XP, war.id, winnerId]
         ).catch(() => {});
 
         // Notify losing alliance members
@@ -2273,7 +2283,8 @@ export const GET = async (req: NextRequest) => {
       }
 
       try {
-        sendBulkTelegramMessages(
+        // BUG-08: await the send so failures are caught and delivered_at is not set prematurely
+        await sendBulkTelegramMessages(
           row.telegram_ids.map((tid) => ({ telegramId: tid, text: row.message_text! }))
         );
         await db.query(
