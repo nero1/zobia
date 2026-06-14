@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "crypto";
+import { createHash, createCipheriv, createDecipheriv, randomBytes, scryptSync } from "crypto";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
@@ -26,7 +26,6 @@ function getKeyForVersion(version: string): Buffer {
   let key: Buffer;
   if (version === "v1") {
     // BUG-06 legacy: v1 used bare SHA-256 — kept for decryption of existing ciphertext only
-    const { createHash } = require("crypto") as typeof import("crypto");
     key = createHash("sha256").update(raw).digest();
   } else {
     // v2+: use scrypt KDF (N=16384, r=8, p=1) — secure key derivation with iteration cost

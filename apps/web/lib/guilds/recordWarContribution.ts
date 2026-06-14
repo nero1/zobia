@@ -73,11 +73,17 @@ export async function recordWarContribution(
 
     // Update the guild-level war points on the war row
     // This is used by the leaderboard and war resolution logic
-    const col = is_challenger ? 'challenger_points' : 'defender_points';
-    await db.query(
-      `UPDATE guild_wars SET ${col} = ${col} + $1, updated_at = NOW() WHERE id = $2`,
-      [pts, war_id]
-    );
+    if (is_challenger) {
+      await db.query(
+        'UPDATE guild_wars SET challenger_points = challenger_points + $1, updated_at = NOW() WHERE id = $2',
+        [pts, war_id]
+      );
+    } else {
+      await db.query(
+        'UPDATE guild_wars SET defender_points = defender_points + $1, updated_at = NOW() WHERE id = $2',
+        [pts, war_id]
+      );
+    }
   } catch (err) {
     // Best-effort: log but do not throw
     // Prevents war contribution failures from breaking message sends, etc.

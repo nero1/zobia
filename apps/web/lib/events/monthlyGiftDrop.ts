@@ -15,6 +15,7 @@
  */
 
 import type { DatabaseAdapter } from "@/lib/db/interface";
+import { insertNotificationBatch } from "@/lib/notifications/insert";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -228,24 +229,17 @@ export async function processPendingGiftDrops(db: DatabaseAdapter): Promise<{
 
   // Notify all active users about newly announced drops
   if (toAnnounce.length > 0) {
+    // Fetch all active, non-banned user IDs once
+    const { rows: activeUserRows } = await db.query<{ id: string }>(
+      `SELECT id FROM users WHERE deleted_at IS NULL AND COALESCE(is_banned, false) = false`
+    );
+    const activeUserIds = activeUserRows.map((r) => r.id);
+
     for (const drop of toAnnounce) {
-      await db.query(
-        `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
-         SELECT id,
-                'gift_drop_available',
-                'A Gift Drop is Coming!',
-                'A new monthly gift drop will be available soon. Stay tuned!',
-                $2::jsonb,
-                false,
-                NOW()
-         FROM users
-         WHERE deleted_at IS NULL
-           AND COALESCE(is_banned, false) = false
-         ON CONFLICT DO NOTHING`,
-        [drop.id, JSON.stringify({ giftDropId: drop.id })]
-      ).catch((err: unknown) =>
-        console.error(`[monthlyGiftDrop] Failed to send notifications for drop ${drop.id}:`, err)
-      );
+      await insertNotificationBatch(db, activeUserIds, 'gift_drop_announced', { giftDropId: drop.id })
+        .catch((err: unknown) =>
+          console.error(`[monthlyGiftDrop] Failed to send notifications for drop ${drop.id}:`, err)
+        );
     }
   }
 

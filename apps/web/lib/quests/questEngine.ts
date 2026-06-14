@@ -25,6 +25,7 @@ const TRACK_COLUMN: Record<string, string> = {
   creator: "xp_creator",
   competitor: "xp_competitor",
   generosity: "xp_generosity",
+  knowledge: "xp_knowledge",
   explorer: "xp_explorer",
 };
 
@@ -327,15 +328,7 @@ export async function checkDeckCompletion(
     }
 
     // Award bonus within the locked transaction
-    await client.query(
-      `UPDATE users SET xp_total = xp_total + $1, updated_at = NOW() WHERE id = $2`,
-      [DECK_COMPLETION_BONUS_XP, userId]
-    );
-    await client.query(
-      `INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, metadata, created_at)
-       VALUES ($1, $2, 'main', 'complete_quest_deck', $2, $3::jsonb, NOW())`,
-      [userId, DECK_COMPLETION_BONUS_XP, JSON.stringify({ date })]
-    );
+    await safeAwardXP(userId, DECK_COMPLETION_BONUS_XP, 'main', 'deck_completion', client);
 
     return { deckComplete: true, bonusAwarded: true, bonusXP: DECK_COMPLETION_BONUS_XP };
   });

@@ -392,7 +392,7 @@ export async function seedSeasonPassMilestones(
       `INSERT INTO season_pass_milestones
          (season_id, milestone_xp, tier, reward_type, reward_value, display_name, sort_order)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
-       ON CONFLICT DO NOTHING`,
+       ON CONFLICT (season_id, sort_order) DO NOTHING`,
       [seasonId, m.xp, m.tier, m.type, JSON.stringify(m.value), m.name, m.order]
     );
   }

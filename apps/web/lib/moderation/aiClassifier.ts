@@ -244,7 +244,12 @@ Classify this report according to your instructions.`;
     systemPromptOverride: '',
     cachedAt: 0,
   }));
-  const effectiveSystemPrompt = config.systemPromptOverride.trim() || CLASSIFICATION_SYSTEM_PROMPT;
+  let systemPromptOverride = config.systemPromptOverride;
+  if (systemPromptOverride && systemPromptOverride.length > 4000) {
+    console.warn('[aiClassifier] systemPromptOverride exceeds 4000 chars, ignoring override');
+    systemPromptOverride = '';
+  }
+  const effectiveSystemPrompt = systemPromptOverride.trim() || CLASSIFICATION_SYSTEM_PROMPT;
 
   // aiClient.chat() has a Redis-backed circuit breaker with automatic Gemini
   // fallback — no local circuit state needed (it was per-process anyway).

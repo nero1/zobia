@@ -947,7 +947,7 @@ export const GET = async (req: NextRequest) => {
 
     let dispatched = 0;
     for (const user of inactiveUsers) {
-      const payload = await getReengagementPayload(
+      const payload = getReengagementPayload(
         user.user_id,
         user.days_inactive,
         user.last_streak_before_break,
@@ -1246,7 +1246,7 @@ export const GET = async (req: NextRequest) => {
 
     let telegramSent = 0;
     for (const user of telegramUsers) {
-      const payload = await getReengagementPayload(
+      const payload = getReengagementPayload(
         user.user_id,
         user.days_inactive,
         user.last_streak_before_break

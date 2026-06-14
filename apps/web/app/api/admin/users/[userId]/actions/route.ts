@@ -25,6 +25,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { randomBytes } from "crypto";
 import { db } from "@/lib/db";
+import { env } from "@/lib/env";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -213,7 +214,7 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
 
           // Fire-and-forget email with reset link
           if (target.email) {
-            const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.app";
+            const baseUrl = env.NEXT_PUBLIC_APP_URL ?? "https://zobia.app";
             const resetUrl = `${baseUrl}/auth/reset-password?token=${resetToken}`;
             sendEmail(
               target.email,
