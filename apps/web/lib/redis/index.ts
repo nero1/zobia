@@ -31,6 +31,7 @@ import { env } from "@/lib/env";
  */
 export interface RedisClient {
   get(key: string): Promise<string | null>;
+  getdel(key: string): Promise<string | null>;
   set(key: string, value: string): Promise<"OK" | null>;
   set(key: string, value: string, exMode: "EX", seconds: number): Promise<"OK" | null>;
   set(key: string, value: string, pxMode: "PX", milliseconds: number): Promise<"OK" | null>;
@@ -132,6 +133,13 @@ class UpstashAdapter implements RedisClient {
     // expect a string and call JSON.parse on the result.  Re-serialize here so
     // the RedisClient contract (Promise<string | null>) is always honoured.
     const value = await this.client.get<unknown>(key);
+    if (value === null || value === undefined) return null;
+    if (typeof value === "string") return value;
+    return JSON.stringify(value);
+  }
+
+  async getdel(key: string): Promise<string | null> {
+    const value = await this.client.getdel<unknown>(key);
     if (value === null || value === undefined) return null;
     if (typeof value === "string") return value;
     return JSON.stringify(value);
