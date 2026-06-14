@@ -39,6 +39,8 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const { roomId } = await params as { roomId: string };
 
+    if (!roomId || roomId === "undefined") throw notFound("Room not found");
+
     const { rows: roomRows } = await db.query<RoomPulseRow>(
       `SELECT member_count, max_members, is_active
        FROM rooms WHERE id = $1`,
