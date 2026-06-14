@@ -98,7 +98,8 @@ const envSchema = z.object({
   CLOUDFLARE_TURNSTILE_SECRET_KEY: z.string().optional(),
 
   // ---- KYC field encryption -----------------------------------------------
-  KYC_ENCRYPTION_KEY_V1: z.string().min(1, "KYC_ENCRYPTION_KEY_V1 required"),
+  // Required at runtime for KYC operations; validated in fieldEncryption.ts when used.
+  KYC_ENCRYPTION_KEY_V1: z.string().optional(),
   KYC_ENCRYPTION_KEY_V2: z.string().optional(),
 
   // ---- Cron jobs ----------------------------------------------------------
