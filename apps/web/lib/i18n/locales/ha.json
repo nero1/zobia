@@ -121,6 +121,8 @@
   "notification.roomInvite": "{{name}} ya gayyace ka zuwa {{room}}",
   "notification.giftReceived": "{{name}} ya aiko maka kyauta",
   "notification.rankUp": "Ka kai matsayi {{rank}}!",
+  "notification.giftDropAvailable": "A Gift Drop is Coming!",
+  "notification.giftDropAvailableBody": "A new monthly gift drop will be available soon. Stay tuned!",
   "home.nemesis.title": "Abokin Hamayyarka",
   "home.nemesis.you": "Kai",
   "home.nemesis.aheadBy": "Kai gaba da {{diff}} XP",

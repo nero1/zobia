@@ -329,29 +329,15 @@ export async function upsertLeaderboardSnapshot(
   const city = options?.city ?? null;
   const seasonId = options?.seasonId ?? null;
 
-  // Try update first (IS NOT DISTINCT FROM handles NULL equality correctly)
-  const updateResult = await db.query<{ id: string }>(
-    `UPDATE leaderboard_snapshots
-     SET xp_value = $3, updated_at = NOW()
-     WHERE user_id = $1
-       AND track = $2
-       AND scope = $4
-       AND (city IS NOT DISTINCT FROM $5)
-       AND (season_id IS NOT DISTINCT FROM $6)
-     RETURNING id`,
-    [userId, track, xpValue, scope, city, seasonId]
+  // Single atomic upsert — no TOCTOU between UPDATE check and INSERT
+  await db.query(
+    `INSERT INTO leaderboard_snapshots
+       (user_id, track, scope, city, season_id, xp_value, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, NOW())
+     ON CONFLICT (user_id, track, scope, city, season_id)
+     DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()`,
+    [userId, track, scope, city, seasonId, xpValue]
   );
-
-  // Insert if no row was updated
-  if (updateResult.rows.length === 0) {
-    await db.query(
-      `INSERT INTO leaderboard_snapshots
-         (user_id, track, scope, city, season_id, xp_value, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, NOW())
-       ON CONFLICT DO NOTHING`,
-      [userId, track, scope, city, seasonId, xpValue]
-    );
-  }
 }
 
 // ---------------------------------------------------------------------------

@@ -84,8 +84,7 @@ function verifyTOTP(secret: string, code: string): boolean {
 
 const verifySchema = z.object({
   code: z.string().regex(/^\d{6}$/, "Code must be exactly 6 digits"),
-  preAuthToken: z.string().optional(),
-  sessionToken: z.string().optional(),
+  preAuthToken: z.string().min(1),
 });
 
 // ---------------------------------------------------------------------------
@@ -97,16 +96,12 @@ export async function POST(req: NextRequest) {
     const ip = getClientIp(req);
     await enforceRateLimit(ip, "ip", { ...RATE_LIMITS.apiWrite, limit: 10 });
 
-    const { code, preAuthToken, sessionToken } = await validateBody(req, verifySchema);
-
-    if (!preAuthToken && !sessionToken) {
-      throw badRequest("Either preAuthToken or sessionToken is required", "MISSING_TOKEN");
-    }
+    const { code, preAuthToken } = await validateBody(req, verifySchema);
 
     // -----------------------------------------------------------------------
     // Pre-auth flow: preAuthToken issued during OAuth callback
     // -----------------------------------------------------------------------
-    if (preAuthToken) {
+    {
       let userId: string;
       try {
         const payload = await verifyAccessToken(preAuthToken);
@@ -171,46 +166,13 @@ export async function POST(req: NextRequest) {
       const response = NextResponse.json({
         success: true,
         onboardingCompleted: user.onboarding_completed,
-        accessToken: authTokens.accessToken,
-        refreshToken: authTokens.refreshToken,
       });
       response.headers.append("Set-Cookie", accessCookie);
       response.headers.append("Set-Cookie", refreshCookie);
       return response;
     }
 
-    // -----------------------------------------------------------------------
-    // Legacy flow: sessionToken (existing access token)
-    // -----------------------------------------------------------------------
-    let userId: string;
-    try {
-      const payload = await verifyAccessToken(sessionToken!);
-      userId = payload.sub;
-    } catch {
-      throw unauthorized("Invalid session token");
-    }
-
-    const { rows: userRows } = await db.query<{ totp_secret: string | null; totp_enabled: boolean }>(
-      "SELECT totp_secret, totp_enabled FROM users WHERE id = $1",
-      [userId]
-    );
-    const row = userRows[0];
-
-    if (!row || !row.totp_enabled || !row.totp_secret) {
-      throw badRequest("2FA is not enabled for this user", "TOTP_NOT_ENABLED");
-    }
-
-    const legacySecret = row.totp_secret ? decryptField(row.totp_secret) : null;
-    const valid = legacySecret ? verifyTOTP(legacySecret, code) : false;
-
-    if (valid) {
-      const usedKey = `totp:used:${userId}:${code}`;
-      const alreadyUsed = await redis.set(usedKey, "1", "EX", 90, "NX");
-      if (alreadyUsed === null) {
-        return NextResponse.json({ valid: false, error: "TOTP code already used" }, { status: 400 });
-      }
-    }
-    return NextResponse.json({ valid }, { status: 200 });
+    throw badRequest("preAuthToken is required", "MISSING_TOKEN");
   } catch (err) {
     return handleApiError(err);
   }

@@ -68,7 +68,7 @@ interface ActiveUserRow {
 }
 
 interface PreviousSnapshotRow {
-  rank_position: number;
+  rank: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -126,8 +126,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const userIds = activeUsers.map((u) => u.user_id);
   const previousRankMap = new Map<string, number>();
   try {
-    const { rows: prevRows } = await db.query<{ user_id: string; rank_position: number }>(
-      `SELECT user_id, rank_position
+    const { rows: prevRows } = await db.query<{ user_id: string; rank: number }>(
+      `SELECT user_id, rank
        FROM leaderboard_snapshots
        WHERE user_id = ANY($1)
          AND scope = 'global'
@@ -135,7 +135,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       [userIds]
     );
     for (const row of prevRows) {
-      previousRankMap.set(row.user_id, row.rank_position);
+      previousRankMap.set(row.user_id, row.rank);
     }
   } catch (err) {
     errors.push(`previousRankFetch: ${String(err)}`);
@@ -158,13 +158,19 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   //         then dispatch rank-change notifications
   // -------------------------------------------------------------------------
   try {
+    // Compute RANK() over the full leaderboard snapshot table (not just active
+    // users) so that the absolute rank position is correct.  Then filter to the
+    // active-user subset for notification dispatch.
     const { rows: rankRows } = await db.query<{ user_id: string; new_rank: number }>(
-      `SELECT user_id,
-              RANK() OVER (PARTITION BY scope ORDER BY xp_value DESC)::int AS new_rank
-       FROM leaderboard_snapshots
-       WHERE user_id = ANY($1)
-         AND scope = 'global'
-         AND track = 'main'`,
+      `WITH all_ranks AS (
+         SELECT user_id,
+                RANK() OVER (PARTITION BY scope ORDER BY xp_value DESC)::int AS new_rank
+         FROM leaderboard_snapshots
+         WHERE scope = 'global' AND track = 'main'
+       )
+       SELECT user_id, new_rank
+       FROM all_ranks
+       WHERE user_id = ANY($1)`,
       [userIds]
     );
 

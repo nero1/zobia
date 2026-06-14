@@ -121,6 +121,8 @@
   "notification.roomInvite": "{{name}} ukumemile ku-{{room}}",
   "notification.giftReceived": "{{name}} ukuthumelele isipho",
   "notification.rankUp": "Ufike ezingeni elingu-{{rank}}!",
+  "notification.giftDropAvailable": "A Gift Drop is Coming!",
+  "notification.giftDropAvailableBody": "A new monthly gift drop will be available soon. Stay tuned!",
   "home.nemesis.title": "Isitha Sakho",
   "home.nemesis.you": "Wena",
   "home.nemesis.aheadBy": "Uphambi ngo-{{diff}} XP",

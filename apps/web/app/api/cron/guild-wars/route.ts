@@ -141,7 +141,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
             );
           }
           await db.query(
-            `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+            `INSERT INTO notifications (user_id, type, payload, is_read)
              VALUES ${values.replace(/\$(\d+)/g, (_, n) => `$${n}`)}
              ON CONFLICT DO NOTHING`,
             params

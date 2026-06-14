@@ -121,6 +121,8 @@
   "notification.roomInvite": "دعاك {{name}} إلى {{room}}",
   "notification.giftReceived": "أرسل {{name}} لك هدية",
   "notification.rankUp": "لقد وصلت إلى الرتبة {{rank}}!",
+  "notification.giftDropAvailable": "A Gift Drop is Coming!",
+  "notification.giftDropAvailableBody": "A new monthly gift drop will be available soon. Stay tuned!",
   "home.nemesis.title": "غريمك",
   "home.nemesis.you": "أنت",
   "home.nemesis.aheadBy": "أنت متقدم بـ {{diff}} XP",

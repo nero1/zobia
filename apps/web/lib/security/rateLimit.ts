@@ -277,7 +277,10 @@ export function getClientIp(request: Request): string {
         0,
         parseInt(process.env.TRUSTED_PROXY_COUNT ?? "1", 10) || 1
       );
-      const index = Math.max(0, ips.length - trustedProxyCount);
+      if (trustedProxyCount >= ips.length) {
+        console.warn(`[rateLimit] TRUSTED_PROXY_COUNT (${trustedProxyCount}) exceeds XFF depth (${ips.length}); falling back to leftmost IP`);
+      }
+      const index = Math.max(0, ips.length - trustedProxyCount - 1);
       return ips[index];
     }
   }

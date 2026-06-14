@@ -53,7 +53,7 @@ export async function awardReferralCommissions(
   db: DatabaseClient,
   buyerId: string,
   coinAmount: number,
-  paymentId: string = buyerId
+  paymentId: string
 ): Promise<CommissionResult> {
   const result: CommissionResult = {
     tier1ReferrerId: null,

@@ -8,7 +8,7 @@
  */
 
 import { awardReferralCommissions } from "../commissions";
-import type { DatabaseClient } from "@/lib/db/types";
+import type { TransactionClient as DatabaseClient } from "@/lib/db";
 
 // ---------------------------------------------------------------------------
 // Mock DB builder
@@ -76,21 +76,21 @@ describe("awardReferralCommissions — PRD §15", () => {
 
   test("Tier 1 referrer receives 5% of purchase (floor) — 1000 coins → 50", async () => {
     const db = buildMockDb(referralChain);
-    const result = await awardReferralCommissions(db, BUYER, 1000);
+    const result = await awardReferralCommissions(db, BUYER, 1000, "test-payment-id");
     expect(result.tier1ReferrerId).toBe(REFERRER);
     expect(result.tier1Coins).toBe(50); // floor(1000 * 0.05)
   });
 
   test("Tier 2 referrer receives 2% of purchase (floor) — 1000 coins → 20", async () => {
     const db = buildMockDb(referralChain);
-    const result = await awardReferralCommissions(db, BUYER, 1000);
+    const result = await awardReferralCommissions(db, BUYER, 1000, "test-payment-id");
     expect(result.tier2ReferrerId).toBe(TIER2_REFERER);
     expect(result.tier2Coins).toBe(20); // floor(1000 * 0.02)
   });
 
   test("Commission chain stops at Tier 2 — Tier 3 referrer receives nothing", async () => {
     const db = buildMockDb(referralChain);
-    const result = await awardReferralCommissions(db, BUYER, 1000);
+    const result = await awardReferralCommissions(db, BUYER, 1000, "test-payment-id");
     // Result only contains tier1 and tier2 — no tier3 field
     expect(result).not.toHaveProperty("tier3ReferrerId");
     expect(result).not.toHaveProperty("tier3Coins");
@@ -100,7 +100,7 @@ describe("awardReferralCommissions — PRD §15", () => {
 
   test("Floor rounding: 1 coin purchase → 0 coins for both tiers", async () => {
     const db = buildMockDb(referralChain);
-    const result = await awardReferralCommissions(db, BUYER, 1);
+    const result = await awardReferralCommissions(db, BUYER, 1, "test-payment-id");
     // floor(1 * 0.05) = 0, floor(1 * 0.02) = 0
     expect(result.tier1Coins).toBe(0);
     expect(result.tier2Coins).toBe(0);
@@ -108,7 +108,7 @@ describe("awardReferralCommissions — PRD §15", () => {
 
   test("Floor rounding: 20 coins → Tier 1 gets 1, Tier 2 gets 0", async () => {
     const db = buildMockDb(referralChain);
-    const result = await awardReferralCommissions(db, BUYER, 20);
+    const result = await awardReferralCommissions(db, BUYER, 20, "test-payment-id");
     // floor(20 * 0.05) = 1, floor(20 * 0.02) = 0
     expect(result.tier1Coins).toBe(1);
     expect(result.tier2Coins).toBe(0);
@@ -116,7 +116,7 @@ describe("awardReferralCommissions — PRD §15", () => {
 
   test("Zero coin purchase awards nothing", async () => {
     const db = buildMockDb(referralChain);
-    const result = await awardReferralCommissions(db, BUYER, 0);
+    const result = await awardReferralCommissions(db, BUYER, 0, "test-payment-id");
     expect(result.tier1ReferrerId).toBeNull();
     expect(result.tier1Coins).toBe(0);
     expect(result.tier2ReferrerId).toBeNull();
@@ -125,7 +125,7 @@ describe("awardReferralCommissions — PRD §15", () => {
 
   test("No referrer → no commissions awarded", async () => {
     const db = buildMockDb({ [BUYER]: null });
-    const result = await awardReferralCommissions(db, BUYER, 1000);
+    const result = await awardReferralCommissions(db, BUYER, 1000, "test-payment-id");
     expect(result.tier1ReferrerId).toBeNull();
     expect(result.tier1Coins).toBe(0);
     expect(result.tier2ReferrerId).toBeNull();
@@ -134,7 +134,7 @@ describe("awardReferralCommissions — PRD §15", () => {
 
   test("Only Tier 1 referrer (no Tier 2 exists) → only Tier 1 gets commission", async () => {
     const db = buildMockDb({ [BUYER]: REFERRER, [REFERRER]: null });
-    const result = await awardReferralCommissions(db, BUYER, 1000);
+    const result = await awardReferralCommissions(db, BUYER, 1000, "test-payment-id");
     expect(result.tier1ReferrerId).toBe(REFERRER);
     expect(result.tier1Coins).toBe(50);
     expect(result.tier2ReferrerId).toBeNull();
@@ -144,7 +144,7 @@ describe("awardReferralCommissions — PRD §15", () => {
   test("Tier 2 referrer cannot be the buyer themselves (loop guard)", async () => {
     // Edge case: buyer → referrer → buyer (circular)
     const db = buildMockDb({ [BUYER]: REFERRER, [REFERRER]: BUYER });
-    const result = await awardReferralCommissions(db, BUYER, 1000);
+    const result = await awardReferralCommissions(db, BUYER, 1000, "test-payment-id");
     expect(result.tier1Coins).toBe(50);
     // The function guards against tier2Id === buyerId
     expect(result.tier2ReferrerId).toBeNull();
@@ -153,7 +153,7 @@ describe("awardReferralCommissions — PRD §15", () => {
 
   test("Large purchase: 50000 coins → Tier 1 = 2500, Tier 2 = 1000", async () => {
     const db = buildMockDb(referralChain);
-    const result = await awardReferralCommissions(db, BUYER, 50000);
+    const result = await awardReferralCommissions(db, BUYER, 50000, "test-payment-id");
     expect(result.tier1Coins).toBe(2500); // floor(50000 * 0.05)
     expect(result.tier2Coins).toBe(1000); // floor(50000 * 0.02)
   });

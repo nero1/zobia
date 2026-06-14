@@ -112,6 +112,7 @@ async function processPaymentSucceeded(
     const itemSlug = (metadata as { itemSlug?: string }).itemSlug;
     let serverCoinsGranted = metadata.coinsGranted ?? 0;
     let serverStarsGranted = metadata.starsGranted ?? 0;
+    let grantResolvedFromDb = false;
     if (itemSlug && (itemType === "coin_pack" || itemType === "star_pack")) {
       const { rows: itemRows } = await tx.query<{
         coins_granted: number | null;
@@ -126,6 +127,23 @@ async function processPaymentSucceeded(
       }
       if (itemRows[0].coins_granted != null) serverCoinsGranted = itemRows[0].coins_granted;
       if (itemRows[0].stars_granted != null) serverStarsGranted = itemRows[0].stars_granted;
+      grantResolvedFromDb = true;
+    }
+
+    // Safety guard: if this is a coin_pack but we could not resolve an amount
+    // from the database (no itemSlug), reject silently rather than crediting 0.
+    if (itemType === "coin_pack" && !grantResolvedFromDb && serverCoinsGranted === 0) {
+      console.error(
+        `[webhook/dodopayments] coin_pack payment ${paymentId} has no itemSlug and coinsGranted=0 — queued for manual review`,
+        { paymentId, metadata }
+      );
+      await tx.query(
+        `INSERT INTO failed_webhooks (provider, event_type, payload, reason, created_at)
+         VALUES ('dodopayments', 'payment.succeeded', $1::jsonb, $2, NOW())
+         ON CONFLICT DO NOTHING`,
+        [JSON.stringify({ paymentId, metadata }), 'coin_pack_zero_grant']
+      ).catch(() => {});
+      return;
     }
 
     // VIP room subscription — activate room access

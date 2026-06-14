@@ -38,6 +38,12 @@ const PurchaseSchema = z.object({
    * Explicitly specifying allows mobile apps to force a provider.
    */
   paymentProvider: z.enum(["paystack", "dodopayments"]).optional(),
+  /**
+   * Client-generated UUID for idempotency. The same value on a retry reuses
+   * the existing pending payment; a new UUID starts a fresh payment session.
+   * If omitted, each call creates a new payment.
+   */
+  clientRequestId: z.string().uuid("clientRequestId must be a valid UUID").optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -106,24 +112,24 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const user = userRows[0];
     const email = user.email ?? `${user.username}@zobia.app`;
 
-    // 3. Generate idempotency key — deterministic per user+pack+day so duplicate
-    //    taps within the same day reuse the same pending record rather than
-    //    creating multiple payment sessions.
-    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-    const idempotencyKey = `purchase:${userId}:${body.packId}:${today}`;
+    // 3. Generate idempotency key — keyed on client-provided request ID so the
+    //    same tap (network retry) reuses the pending record while a second
+    //    intentional purchase creates a new one.
+    const requestId = body.clientRequestId ?? crypto.randomUUID();
+    const idempotencyKey = `purchase:${userId}:${body.packId}:${requestId}`;
 
-    // 4. Check for an already-pending payment for this key (within 10 minutes)
+    // 4. Check for an already-pending payment for this exact key (within 10 minutes)
     const { rows: existingRows } = await db.query<{
       payment_url: string;
       provider_reference: string;
     }>(
       `SELECT metadata->>'payment_url' AS payment_url, provider_reference
        FROM payments
-       WHERE idempotency_key LIKE $1
+       WHERE idempotency_key = $1
          AND status = 'pending'
          AND created_at > NOW() - INTERVAL '10 minutes'
        LIMIT 1`,
-      [`purchase:${userId}:${body.packId}:${today}%`]
+      [idempotencyKey]
     );
 
     if (existingRows[0]) {

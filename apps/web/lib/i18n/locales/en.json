@@ -135,6 +135,8 @@
   "notification.roomInvite": "{{name}} invited you to {{room}}",
   "notification.giftReceived": "{{name}} sent you a gift",
   "notification.rankUp": "You reached rank {{rank}}!",
+  "notification.giftDropAvailable": "A Gift Drop is Coming!",
+  "notification.giftDropAvailableBody": "A new monthly gift drop will be available soon. Stay tuned!",
 
   "home.nemesis.title": "Your Nemesis",
   "home.nemesis.you": "You",

@@ -7,8 +7,8 @@
  *
  * Auth flow for Google:
  *  1. Opens an in-app browser to the backend /api/auth/google?platform=mobile endpoint.
- *  2. Backend handles OAuth with Google, then redirects to zobia://auth/callback?token=JWT&user=...
- *  3. App catches the deep link, extracts the JWT and user payload, calls signIn().
+ *  2. Backend handles OAuth with Google, then redirects to zobia://auth/callback?code=EXCHANGE_CODE
+ *  3. App POSTs the code to /api/auth/mobile-token which returns tokens (never in URL).
  *
  * Auth flow for Telegram:
  *  1. Opens Telegram bot deep link with a random state token.
@@ -68,18 +68,36 @@ export default function LoginScreen() {
 
     try {
       const parsed = ExpoLinking.parse(url);
-      const token = parsed.queryParams?.token as string | undefined;
-      const userEncoded = parsed.queryParams?.user as string | undefined;
-      const onboardingCompleted = parsed.queryParams?.onboarding_completed as string | undefined;
+      const code = parsed.queryParams?.code as string | undefined;
 
-      if (token && userEncoded) {
-        const user: AuthUser = JSON.parse(decodeURIComponent(userEncoded));
-        await signIn(token, user);
-        if (onboardingCompleted === 'false') {
-          router.replace('/onboarding');
-        } else {
-          router.replace('/(tabs)');
-        }
+      if (!code) return;
+
+      // Exchange the one-time code for tokens via HTTPS — tokens are never
+      // exposed in the URL (prevents leakage via browser history / server logs).
+      const exchangeRes = await fetch(`${API_BASE_URL}/api/auth/mobile-token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      });
+
+      if (!exchangeRes.ok) {
+        throw new Error('Token exchange failed');
+      }
+
+      const { accessToken, refreshToken, onboardingCompleted, user: authUser } =
+        await exchangeRes.json() as {
+          accessToken: string;
+          refreshToken: string;
+          userId: string;
+          onboardingCompleted: boolean;
+          user: AuthUser;
+        };
+
+      await signIn(accessToken, authUser, refreshToken);
+      if (!onboardingCompleted) {
+        router.replace('/onboarding');
+      } else {
+        router.replace('/(tabs)');
       }
     } catch {
       Alert.alert(t('common.error'), t('auth.callbackError'));
