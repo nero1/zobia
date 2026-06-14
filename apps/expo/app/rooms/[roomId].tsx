@@ -97,7 +97,22 @@ interface SendMessagePayload {
 
 async function fetchRoom(roomId: string): Promise<Room> {
   const { data } = await apiClient.get(`/rooms/${roomId}`);
-  return data;
+  // API returns { room: {...snake_case...}, isMember, isCreator }
+  const r = data.room ?? data;
+  return {
+    id: r.id,
+    name: r.name,
+    description: r.description ?? null,
+    roomType: (r.type ?? r.roomType) as RoomType,
+    memberCount: r.member_count ?? r.memberCount ?? 0,
+    entryFeeCoin: r.entry_fee_ngn ?? r.entryFeeCoin ?? null,
+    isSubscribed: data.isMember ?? r.isSubscribed ?? false,
+    isCreator: data.isCreator ?? r.isCreator ?? false,
+    creatorId: r.creator_id ?? r.creatorId,
+    hostDisplayName: r.creator_display_name ?? r.creator_username ?? r.hostDisplayName ?? '',
+    dropEndsAt: r.drop_ends_at ?? r.dropEndsAt ?? null,
+    minGiftSpectacleCoin: r.spectacle_threshold_coins ?? r.minGiftSpectacleCoin,
+  };
 }
 
 async function fetchMessages(roomId: string): Promise<Message[]> {
@@ -106,8 +121,24 @@ async function fetchMessages(roomId: string): Promise<Message[]> {
 }
 
 async function fetchTopGifters(roomId: string): Promise<GifterEntry[]> {
-  const { data } = await apiClient.get(`/rooms/${roomId}/top-gifters`);
-  return data.gifters ?? [];
+  const { data } = await apiClient.get(`/rooms/${roomId}/gifts`);
+  return (data.topGifters ?? []).map((g: {
+    rank: number;
+    user_id: string;
+    username: string;
+    display_name: string;
+    avatar_emoji: string;
+    total_coins: number;
+    gift_count: number;
+  }) => ({
+    rank: g.rank,
+    userId: g.user_id,
+    username: g.username,
+    displayName: g.display_name ?? g.username,
+    avatarEmoji: g.avatar_emoji,
+    totalCoins: g.total_coins,
+    giftCount: g.gift_count,
+  }));
 }
 
 async function sendMessage(payload: SendMessagePayload): Promise<Message> {
