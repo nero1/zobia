@@ -18,6 +18,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { redis } from "@/lib/redis";
 import { withAuth } from "@/lib/api/middleware";
 import { requireFeatureEnabled, loadManifest } from "@/lib/manifest";
 import { handleApiError, badRequest, forbidden, notFound, conflict } from "@/lib/api/errors";
@@ -238,7 +239,19 @@ export const POST = withAuth(
           );
         }
 
-        // 8. Create war record
+        // 7b. Acquire a short-lived Redis distributed lock on the opponent guild so two
+        // concurrent declarations cannot claim the same defender between SELECT and INSERT.
+        // The unique partial index on guild_wars(defender_guild_id) is the DB-level fallback.
+        const opponentLockKey = `war:lock:opponent:${opponentId}`;
+        const lockAcquired = await redis.set(opponentLockKey, "1", "NX", "EX", 30);
+        if (!lockAcquired) {
+          throw conflict(
+            "This opponent guild was just claimed by another declaration. Please try again.",
+            "OPPONENT_CLAIMED"
+          );
+        }
+
+        // 8. Create war record — release opponent lock after INSERT (in finally)
         const startsAt = new Date(Date.now() + WAR_START_OFFSET_MS);
         const endsAt = new Date(
           startsAt.getTime() + WAR_DURATION_HOURS * 60 * 60 * 1000
@@ -247,15 +260,22 @@ export const POST = withAuth(
           endsAt.getTime() - FINAL_HOUR_OFFSET_MINUTES * 60 * 1000
         );
 
-        const warResult = await client.query<{ id: string }>(
-          `INSERT INTO guild_wars
-             (challenger_guild_id, defender_guild_id, status,
-              challenger_points, defender_points, winner_guild_id,
-              starts_at, ends_at, final_hour_starts_at, created_at, updated_at)
-           VALUES ($1, $2, 'active', 0, 0, NULL, $3, $4, $5, NOW(), NOW())
-           RETURNING id`,
-          [guildId, opponentId, startsAt.toISOString(), endsAt.toISOString(), finalHourStartsAt.toISOString()]
-        );
+        // eslint-disable-next-line prefer-const
+        let warResult!: { rows: Array<{ id: string }> };
+        try {
+          warResult = await client.query<{ id: string }>(
+            `INSERT INTO guild_wars
+               (challenger_guild_id, defender_guild_id, status,
+                challenger_points, defender_points, winner_guild_id,
+                starts_at, ends_at, final_hour_starts_at, created_at, updated_at)
+             VALUES ($1, $2, 'active', 0, 0, NULL, $3, $4, $5, NOW(), NOW())
+             RETURNING id`,
+            [guildId, opponentId, startsAt.toISOString(), endsAt.toISOString(), finalHourStartsAt.toISOString()]
+          );
+        } finally {
+          // Release the lock — TTL handles any cleanup if this fails
+          await redis.del(opponentLockKey).catch(() => {});
+        }
 
         const warId = warResult.rows[0].id;
 
