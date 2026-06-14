@@ -19,6 +19,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import { z, ZodSchema, ZodType, ZodTypeDef } from "zod";
 import {
   verifyAccessToken,
@@ -49,6 +50,7 @@ import {
   isIpAnomalous,
   recordAndCheckAnomaly,
 } from "@/lib/security/geoAnomaly";
+import { requestContext } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -116,6 +118,10 @@ export function withAuth<TParams = Record<string, string>>(
   handler: (req: NextRequest, ctx: { params: any; auth: any }) => Promise<NextResponse | ApiError> // eslint-disable-line
 ): (req: NextRequest, ctx: { params: Promise<TParams> }) => Promise<NextResponse> {
   return async (req, ctx) => {
+    const requestId = randomUUID();
+    const route = new URL(req.url).pathname;
+
+    return requestContext.run({ requestId, userId: null, route }, async () => {
     try {
       const token = extractToken(req);
       if (!token) throw unauthorized("No authentication token provided");
@@ -126,6 +132,10 @@ export function withAuth<TParams = Record<string, string>>(
       } catch {
         throw unauthorized("Invalid or expired access token");
       }
+
+      // Update request context with authenticated user
+      const store = requestContext.getStore();
+      if (store) store.userId = payload.sub;
 
       // Confirm session is still alive in Redis (not revoked)
       const session = await getSession(payload.sid);
@@ -139,6 +149,7 @@ export function withAuth<TParams = Record<string, string>>(
         );
         cleared.cookies.set(ACCESS_TOKEN_COOKIE, "", { maxAge: 0, path: "/" });
         cleared.cookies.set(REFRESH_TOKEN_COOKIE, "", { maxAge: 0, path: "/" });
+        cleared.headers.set("X-Request-Id", requestId);
         return cleared;
       }
 
@@ -206,11 +217,19 @@ export function withAuth<TParams = Record<string, string>>(
         params: await ctx.params,
         auth: { user: payload },
       });
-      if (result instanceof ApiError) return handleApiError(result);
+      if (result instanceof ApiError) {
+        const res = handleApiError(result);
+        res.headers.set("X-Request-Id", requestId);
+        return res;
+      }
+      result.headers.set("X-Request-Id", requestId);
       return result;
     } catch (err) {
-      return handleApiError(err);
+      const res = handleApiError(err);
+      res.headers.set("X-Request-Id", requestId);
+      return res;
     }
+    }); // end requestContext.run
   };
 }
 

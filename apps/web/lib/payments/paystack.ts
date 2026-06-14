@@ -13,6 +13,7 @@
 import { createHmac } from "crypto";
 import Decimal from "decimal.js";
 import { env } from "@/lib/env";
+import { paystackBreaker } from "@/lib/payments/circuit";
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -37,22 +38,24 @@ async function paystackRequest<T>(
     throw new Error("[paystack] PAYSTACK_SECRET_KEY is not configured");
   }
 
-  const res = await fetch(`${PAYSTACK_BASE}${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${secretKey}`,
-      "Content-Type": "application/json",
-    },
-    body: body ? JSON.stringify(body) : undefined,
+  return paystackBreaker.execute(async () => {
+    const res = await fetch(`${PAYSTACK_BASE}${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${secretKey}`,
+        "Content-Type": "application/json",
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    const json = (await res.json()) as { status: boolean; message: string; data: T };
+
+    if (!json.status) {
+      throw new Error(`[paystack] API error on ${method} ${path}: ${json.message}`);
+    }
+
+    return json.data;
   });
-
-  const json = (await res.json()) as { status: boolean; message: string; data: T };
-
-  if (!json.status) {
-    throw new Error(`[paystack] API error on ${method} ${path}: ${json.message}`);
-  }
-
-  return json.data;
 }
 
 // ---------------------------------------------------------------------------
