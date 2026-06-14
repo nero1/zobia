@@ -501,8 +501,17 @@ function RoomStickerPicker({ onSelect, onClose }: { onSelect: (emoji: string) =>
       try {
         const res = await fetch("/api/stickers", { credentials: "include" });
         if (!res.ok) return;
-        const data = (await res.json()) as { packs?: StickerPackRoom[] };
-        const unlocked = (data.packs ?? []).filter((p) => p.isUnlocked);
+        const json = await res.json() as { data?: { packs?: Array<Record<string, unknown>> }; packs?: Array<Record<string, unknown>> };
+        const rows = json.data?.packs ?? json.packs ?? [];
+        const unlocked: StickerPackRoom[] = rows
+          .filter((r) => r.unlocked ?? r.isUnlocked)
+          .map((r) => ({
+            id: r.id as string,
+            name: r.name as string,
+            coverEmoji: (r.cover_sticker_url ?? r.coverEmoji ?? "🎨") as string,
+            stickers: (r.stickers ?? []) as StickerPackRoom["stickers"],
+            isUnlocked: true,
+          }));
         setPacks(unlocked);
         if (unlocked.length > 0) setActivePack(unlocked[0].id);
       } catch { /* ignore */ } finally { setLoading(false); }

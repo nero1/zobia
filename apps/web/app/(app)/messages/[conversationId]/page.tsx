@@ -345,8 +345,17 @@ function StickerPicker({ onSelect, onClose }: { onSelect: (emoji: string) => voi
       try {
         const res = await fetch("/api/stickers", { credentials: "include" });
         if (!res.ok) return;
-        const data = (await res.json()) as { packs?: StickerPack[] };
-        const unlockedPacks = (data.packs ?? []).filter((p) => p.isUnlocked);
+        const json = await res.json() as { data?: { packs?: Array<Record<string, unknown>> }; packs?: Array<Record<string, unknown>> };
+        const rows = json.data?.packs ?? json.packs ?? [];
+        const unlockedPacks: StickerPack[] = rows
+          .filter((r) => r.unlocked ?? r.isUnlocked)
+          .map((r) => ({
+            id: r.id as string,
+            name: r.name as string,
+            coverEmoji: (r.cover_sticker_url ?? r.coverEmoji ?? "🎨") as string,
+            stickers: (r.stickers ?? []) as Sticker[],
+            isUnlocked: true,
+          }));
         setPacks(unlockedPacks);
         if (unlockedPacks.length > 0) setActivePack(unlockedPacks[0].id);
       } catch { /* ignore */ } finally {
