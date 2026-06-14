@@ -1,305 +1,336 @@
-# Zobia Codebase — Forensic Bug Report
+# Zobia Codebase — Bug Report
 
-**Generated:** June 14, 2026 — 12:00 PM
-**Scope:** Full forensic analysis — web app, PWA, Expo Android app
-**Analyst:** Independent codebase review (no prior bug reports consulted)
-
----
-
-## Code Quality Rating
-
-| Dimension | Current | After Fixes |
-|---|---|---|
-| Security | 7.5 / 10 | 9.0 / 10 |
-| Correctness | 6.5 / 10 | 8.5 / 10 |
-| Robustness | 7.0 / 10 | 8.5 / 10 |
-| Architecture | 8.5 / 10 | 8.5 / 10 |
-| **Overall** | **7.0 / 10** | **8.6 / 10** |
-
-The codebase is well-architected with solid patterns: atomic coin/star ledger operations using SELECT FOR UPDATE, Lua atomic sliding-window rate limiting, HMAC-based webhook signature verification (constant-time), SSRF protection with DNS pinning, CSRF origin checks in middleware, and a clean provider abstraction for realtime and payments. The critical bugs found are isolated logic errors rather than systemic design failures — the foundation is sound.
+**Generated:** June 14, 2026, 12:00 PM UTC  
+**Scope:** Full forensic analysis — `apps/web` (Next.js 14 App Router), `apps/expo` (Expo Android), `apps/web/public/sw.js` (PWA Service Worker)  
+**Analyst:** Claude Code (claude-sonnet-4-6)
 
 ---
 
-## One-Line Bug Index
+## Quick Index
 
-1. **ZBUG-01:** Season rewards distributed before season_rank_archives is populated — no end-of-season rewards ever pay out
-2. **ZBUG-02:** Expo mobile token refresh reads `x-access-token` response header that server never sends — all mobile users are always logged out on access token expiry
-3. **ZBUG-03:** DodoPayments `payout.failed` webhook handler does not restore creator earnings, unlike its Paystack equivalent
-4. **ZBUG-04:** Guild war XP reward operator precedence: `Math.round(a + b) * 2` instead of `Math.round((a + b) * 2)` — teams receive half the intended XP
-5. **ZBUG-05:** Admin TOTP setup catch-22 — new admins or admins who lost their authenticator can never complete 2FA setup through the UI
-6. **ZBUG-06:** Paystack webhook returns HTTP 500 on processing errors — triggers indefinite Paystack retry loop for non-recoverable failures
-7. **ZBUG-07:** `buildClearCookieHeaders()` omits `Secure` attribute — logout silently fails to clear secure HttpOnly cookies in production
-8. **ZBUG-08:** `COMEBACK_COIN_AMOUNT` (200 coins) hardcoded in two separate CRON locations — silent divergence risk
-9. **ZBUG-09:** Login streak increment checks `last_login_at` column; streak reset checks `last_login_date` — different column names
-10. **ZBUG-10:** CRON tasks 30 and 31 insert notifications using legacy `payload` column while rest of codebase uses `title`/`body`/`metadata`
-11. **ZBUG-11:** DodoPayments subscription bonus coin dedup key uses payment ID while Paystack uses `plan:{userId}:{YYYY-MM}` — double bonus possible when switching providers
-12. **ZBUG-12:** `awardGiftXP` runs multiple `db.query` calls via `Promise.all()` without a transaction — partial XP awards on failure
-13. **ZBUG-13:** `fieldEncryption.getKey()` recomputes SHA-256 on every invocation — no memoization
-14. **ZBUG-14:** `claimPassMilestone` XP reward also increments `legacy_score` — likely unintended
-15. **ZBUG-15:** Monthly plan bonus SQL uses `ON CONFLICT DO NOTHING` without specifying a conflict target column
-16. **ZBUG-16:** Expo offline sync queue resets ALL failed messages to `pending` on every sync pass — permanently-rejected messages retry forever
-17. **ZBUG-17:** Pre-auth token for mobile 2FA appended as URL query param in deep-link — exposed in server logs and device history
-18. **ZBUG-18:** TOTP `base32Decode`/`computeTotp`/`verifyTotp` implementation copy-pasted between two admin auth route files — security divergence risk
-19. **ZBUG-19:** CRON task 33 calls `getManifestValue()` inside per-referral transaction loop — N+1 manifest DB lookups per qualifying referral
-20. **ZBUG-20:** `isFirstGift` check queries `COUNT(*) FROM gifts LIMIT 1` — `LIMIT 1` on `COUNT(*)` is a no-op (misleading dead code)
-21. **ZBUG-21:** HTML sanitizer `ALLOWED_SCHEMES` includes `"http"` — insecure mixed-content links pass sanitization
-22. **ZBUG-22:** `sanitizeAnnouncementContent` returns `markdown` type completely unsanitized — potential XSS if rendered as HTML client-side
-23. **ZBUG-23:** SSRF `isPrivateIp()` blocks ALL IPv6 addresses containing ":" — legitimate public IPv6 hosts unreachable
-24. **ZBUG-24:** DM message XP ledger insert and user `xp_total` update are fire-and-forget outside the coin deduction transaction
-25. **ZBUG-25:** CRON leaderboard ripple task performs per-user DB upserts and push notifications in an unbatched for-loop — timeout risk at scale
-26. **ZBUG-26:** Room messages with `is_pending_approval` still count toward daily XP message cap even if they are never approved
-27. **ZBUG-27:** PIN verification Redis key is scoped to user not session — PIN verified on one device grants `pin_ok` to all active sessions for 5 minutes
+1. BUG-SW01 — Service Worker: 24h API cache TTL serves stale financial/social data
+2. BUG-WH01 — Paystack webhook: wrong column names in `system_alerts` INSERT
+3. BUG-WH02 — DodoPayments webhook: `star_pack` missing zero-amount guard
+4. BUG-EC01 — `transferCoins` hardcodes `gift_sent`/`gift_received` for all transfers
+5. BUG-QS01 — `generateDailyDeck`: `pro` plan users cannot see `plus`-tier quests
+6. BUG-LB01 — `calculateWeightedScore`: XP normalized to 10k max, caps every active user
+7. BUG-PY01 — `reconcileStuckPayouts`: missing `FOR UPDATE SKIP LOCKED`
+8. BUG-GW01 — `findWarOpponent`: TOCTOU race — two guilds can select same opponent
+9. BUG-DM01 — `dm_conversations` upsert: `::text` UUID cast breaks UNIQUE ordering
+10. BUG-LB02 — Hall of Fame users get wrong sequential rank numbers
+11. BUG-RM01 — Room message GET: does not filter `is_pending_approval` messages
+12. BUG-EC02 — `awardGiftXP`: `first_time_gifted` race condition awards bonus twice
+13. BUG-SS01 — `claimPassMilestone`: `xp_bonus` UPDATE missing `updated_at = NOW()`
+14. BUG-NE01 — `compareNemesisProgress`: fragile UUID array string interpolation
+15. BUG-MD01 — Profanity wordlist never invalidated at runtime after admin updates
+16. BUG-MD02 — `detectDuplicateMessage`: ASCII-only normalization, Unicode bypass
+17. BUG-AU01 — Telegram OAuth mobile poll: no refresh token stored, users silently logged out
+18. BUG-RF01 — Referral qualifying XP: missing `xp_social` track column update
+19. BUG-FD01 — `checkNewAccountGiftInflow`: INTERVAL built via SQL string concatenation
+20. BUG-GE01 — `geoAnomaly`: /8 prefix comparison too coarse for meaningful anomaly detection
+21. BUG-SE01 — `fieldEncryption`: no key versioning, KYC_ENCRYPTION_KEY rotation is destructive
+22. BUG-AU02 — TOTP anti-replay: code consumed but session not issued when `createSession` fails
 
 ---
 
-## Detailed Bug Entries
+## Detailed Bug Reports
 
 ---
 
-### ZBUG-01 — Season rewards distributed before rankings are archived
-**FILES:** `apps/web/app/api/cron/daily/route.ts`
+### 1: BUG-SW01 — Service Worker: 24-hour cache TTL serves stale coin balances, notifications, and user profile data
 
-`distributeSeasonRewards()` is called before `resetSeasonRankings()` in the daily CRON. `distributeSeasonRewards()` queries the `season_rank_archives` table for each user's `final_rank` to determine reward tier. But `season_rank_archives` is populated only when `resetSeasonRankings()` runs its INSERT-SELECT. At the time `distributeSeasonRewards()` executes, the archive table has no rows for the just-ended season, so the query returns nothing and zero rewards are distributed. This has been silently broken since the feature was shipped.
+The Workbox NetworkFirst strategy applied to ALL API GET routes uses `maxAgeSeconds: 86400` (24 hours) and `maxEntries: 16`. This means a coin balance, notification list, or user profile loaded up to 24 hours ago can be served from the cache while the user believes they are seeing live data. Financial endpoints (wallet balance, star balance), social endpoints (unread counts, notification list, DM inbox), and profile data are all subject to this cache. The NetworkFirst strategy does attempt the network first, but falls back to the stale cache on any network error or timeout (10 second timeout), which is frequently triggered on mobile connections.
 
-**FIX:** Swap the call order in the CRON: invoke `resetSeasonRankings()` first to archive current standings, then call `distributeSeasonRewards()`. Verify with a test assertion that `season_rank_archives` is non-empty before distributing.
+FILES:
+- `apps/web/public/sw.js`
 
----
-
-### ZBUG-02 — Expo mobile token refresh always fails silently
-**FILES:** `apps/expo/lib/api/client.ts`, `apps/web/app/api/auth/refresh/route.ts`
-
-The Expo `refreshAccessToken()` function expects to read the new access token from `res.headers['x-access-token']`. The server-side `POST /api/auth/refresh` endpoint issues the new token exclusively as a `Set-Cookie: zobia_at=...` response header (using `response.headers.append("Set-Cookie", accessCookie)`). `Set-Cookie` is a restricted header that Axios/mobile HTTP clients cannot read. No `x-access-token` header is ever set. As a result, `newToken` is always `null`, every refresh attempt "fails", credentials are wiped from SecureStore, and `notifyUnauthenticated()` fires — logging the user out on every 401. Mobile users cannot maintain a session beyond the 15-minute access token TTL.
-
-**FIX:** Detect the mobile path on the server (presence of `X-Refresh-Token` request header means it's a mobile call) and additionally return the new access token in the JSON response body or as an explicit `X-Access-Token` response header. Update the Expo client to read from whichever location is chosen. Also return the rotated refresh token in the response so the mobile client can persist it.
+FIX:
+Apply `NetworkOnly` to financially sensitive endpoints: `/api/economy/coins/balance`, `/api/economy/stars/balance`, `/api/notifications`, `/api/messages/dm`. Apply `StaleWhileRevalidate` with `maxAgeSeconds: 30` for general profile and social routes. Reserve `NetworkFirst` with a shorter TTL (60–300 seconds) for lower-priority read endpoints. Add explicit route-level overrides in the Workbox config before the catch-all API rule.
 
 ---
 
-### ZBUG-03 — DodoPayments payout failure silently drops creator earnings
-**FILES:** `apps/web/app/api/economy/webhooks/dodopayments/route.ts`, `apps/web/lib/payments/payouts.ts`
+### 2: BUG-WH01 — Paystack webhook error handler inserts into `system_alerts` with wrong column name and missing column
 
-When a payout via DodoPayments fails (`payout.failed` event), the webhook handler's `processPayoutEvent` branch for this event performs no recovery action — no retry queue, no earnings restoration, no dead-letter handling. In contrast, the Paystack `transfer.failed` handler calls `moveToDeadLetterQueue()`, which restores the creator's `available_earnings_kobo` (guarded by `earnings_restored` flag to prevent double-credit) and marks the payout for admin review. Any creator whose DodoPayments payout fails permanently loses that earnings balance with no recourse.
+The error handler block in the Paystack webhook route (around line 601 of the file) attempts to log unhandled exceptions to `system_alerts` using `alert_type` as the column name. The actual `system_alerts` schema uses `type` as the column name. Additionally, the INSERT is missing the required `severity` column. As a result, every exception in the Paystack webhook handler silently fails to log to `system_alerts`, meaning critical payment errors (failed charge processing, transfer webhook errors) are invisible to admins.
 
-**FIX:** Mirror the Paystack recovery logic in the DodoPayments `payout.failed` branch: call `moveToDeadLetterQueue()` (or equivalent) to restore earnings and flag the payout for admin review/retry.
+FILES:
+- `apps/web/app/api/economy/webhooks/paystack/route.ts`
 
----
-
-### ZBUG-04 — Guild war XP reward operator precedence error
-**FILES:** `apps/web/lib/guilds/warEngine.ts`
-
-The guild war XP reward calculation is: `Math.round(war.defender_points + war.challenger_points) * 2`. JavaScript evaluates function calls before the `*` operator, so `Math.round()` receives `(a + b)` and then the already-rounded integer is multiplied by 2. The intent is clearly to compute `Math.round((a + b) * 2)` — double the total points first, then round. For fractional point sums, the current code rounds prematurely and then doubles, producing a result half of what `Math.round((a + b) * 2)` would return in edge cases. For whole-number sums the result happens to be the same.
-
-**FIX:** Add parentheses: `Math.round((war.defender_points + war.challenger_points) * 2)`.
+FIX:
+Change the INSERT column `alert_type` to `type` and add the `severity` column (e.g., `'critical'`). Audit all other `system_alerts` INSERT statements across the codebase to ensure they all use the correct schema column names. Consider adding a TypeScript type for the `system_alerts` row to catch this at compile time.
 
 ---
 
-### ZBUG-05 — Admin TOTP setup catch-22 locks out new and reset admins
-**FILES:** `apps/web/app/api/admin/auth/login/route.ts`, `apps/web/app/api/admin/auth/totp/route.ts`, `apps/web/app/api/admin/auth/totp/setup/route.ts`
+### 3: BUG-WH02 — DodoPayments webhook: `star_pack` item type lacks zero-amount guard
 
-The admin login step 1 (`POST /api/admin/auth/login`) returns `{ needsSetup: true }` when TOTP is not configured, but issues no credential or session at this point. The TOTP setup endpoint (`GET/POST /api/admin/auth/totp/setup`) is protected by `withAdminAuth`, requiring a valid admin JWT. The admin JWT is only issued at step 2 (`POST /api/admin/auth/totp`) after a valid TOTP code is submitted — but that endpoint throws `unauthorized` if `totp_enabled = false`. Catch-22: no session without TOTP, no TOTP setup without session. A new admin or an admin whose authenticator was lost is permanently locked out of the UI.
+The DodoPayments webhook handler processes two item types: `coin_pack` and `star_pack`. The `coin_pack` handler has an explicit guard (`if (coinAmount <= 0) throw new Error(...)`) to reject zero-value grants. The `star_pack` handler is missing this identical guard. A DodoPayments webhook for a `star_pack` with a metadata value of 0 (due to misconfiguration or tampering) would result in a silent no-op instead of an error, making the bug invisible in logs.
 
-**FIX:** On a successful step-1 login when `needsSetup: true`, issue a short-lived (5-minute) single-use Redis token keyed to the admin's user ID (e.g., `admin_pre_auth:{userId}`). Create a separate endpoint (or modify the setup routes) to accept this one-time token as an alternative to `withAdminAuth` for the sole purpose of initial TOTP configuration. Invalidate the token after use.
+FILES:
+- `apps/web/app/api/economy/webhooks/dodopayments/route.ts`
 
----
-
-### ZBUG-06 — Paystack webhook returns HTTP 500 on processing errors
-**FILES:** `apps/web/app/api/economy/webhooks/paystack/route.ts`
-
-When an unexpected processing error occurs inside the webhook handler — corrupted payload, schema mismatch, missing DB record — the handler propagates the error and returns HTTP 500 (line ~595). Paystack treats any non-2xx response as a delivery failure and retries the webhook aggressively. For non-recoverable errors (e.g., malformed event data), retrying will always fail, causing hundreds of identical retry attempts and potential duplicate-processing side effects if retries eventually reach a partially-different state.
-
-**FIX:** Catch processing errors and return HTTP 200 with a response body indicating the event was received but could not be processed (e.g., `{ received: true, processed: false, error: "..." }`). Log these to `system_alerts` for manual review. Only let genuine 5xx responses through for transient infrastructure failures (DB unreachable, Redis down) where Paystack retry is meaningful.
+FIX:
+Add `if (starAmount <= 0) throw new Error('star_pack metadata contains zero or negative star amount')` to the `star_pack` handler, immediately after parsing the metadata, matching the pattern used by the `coin_pack` handler.
 
 ---
 
-### ZBUG-07 — Logout does not clear secure cookies in production
-**FILES:** `apps/web/lib/auth/session.ts`
+### 4: BUG-EC01 — `transferCoins` hardcodes `gift_sent`/`gift_received` as transaction types for all coin transfers
 
-`buildClearCookieHeaders()` clears cookies by setting `Max-Age=0` but does not include the `Secure` attribute in the Set-Cookie string. Per RFC 6265, a browser will only clear an existing HttpOnly+Secure cookie if the clearing directive also includes `Secure`. Without it, the browser interprets the clearing directive as targeting a different (non-secure) cookie and leaves the existing secure access/refresh tokens in place. Logout appears to succeed (200 response) but the tokens remain valid in the browser, leaving the session alive.
+The `transferCoins` function in the coin economy library always records ledger entries with the transaction types `gift_sent` and `gift_received`, regardless of the actual reason for the transfer (war treasury distributions, season rewards, payout reconciliation credits, etc.). This means the `coin_ledger` table misclassifies all non-gift transfers, making transaction history inaccurate, analytics misleading, and audit trails unreliable.
 
-**FIX:** Add `; Secure` to the Set-Cookie string emitted by `buildClearCookieHeaders()` when running in production (conditional on `process.env.NODE_ENV === 'production'` or a `COOKIE_SECURE=true` env var). Ensure the same conditional applies to `buildCookieHeaders()` for consistency.
+FILES:
+- `apps/web/lib/economy/coins.ts`
 
----
-
-### ZBUG-08 — COMEBACK_COIN_AMOUNT hardcoded as 200 in two CRON locations
-**FILES:** `apps/web/app/api/cron/daily/route.ts`
-
-The comeback bonus coin amount (200) appears as a magic number in two separate places in the daily CRON: once when crediting the bonus to returning users, and again in the expiry logic when debiting it from users who let their comeback streak lapse. If the product team changes the bonus amount, only one location will likely be updated, causing an accounting mismatch where the credit and debit amounts diverge.
-
-**FIX:** Extract to a single module-level constant `const COMEBACK_COIN_AMOUNT = 200` at the top of the CRON file and reference it in both credit and debit operations.
+FIX:
+Add `senderTransactionType: string` and `recipientTransactionType: string` parameters to `transferCoins`. Update all callers to pass the appropriate types (e.g., `'war_transfer'`, `'treasury_distribution'`). Gift-specific callers continue passing `'gift_sent'`/`'gift_received'`. The coin ledger `transaction_type` column will then accurately reflect the business operation.
 
 ---
 
-### ZBUG-09 — Login streak uses inconsistent column names
-**FILES:** `apps/web/app/api/cron/daily/route.ts`
+### 5: BUG-QS01 — `generateDailyDeck` plan filter: `pro` users cannot see `plus`-tier quests
 
-The streak increment branch compares `last_login_at::date = $1::date` (yesterday) to find users whose streak should grow. The streak reset branch queries `WHERE last_login_date < $1` — a different column name (`last_login_date` vs `last_login_at`). If the `users` table has only one of these columns, one branch silently matches zero rows: either streaks never increment (if `last_login_at` doesn't exist) or streaks never reset (if `last_login_date` doesn't exist).
+The quest template selection SQL uses `plan_required = $2 OR $2 = 'max'` to filter quests by plan. This treats plans as exactly equal rather than hierarchical. A `pro` user (`$2 = 'pro'`) can only see `NULL`-tier and `pro`-tier quests. They cannot see `plus`-tier quests, even though `pro` is a higher plan than `plus`. Only `max` users receive the full cascade via the `$2 = 'max'` exception. This means `pro` users receive fewer eligible quests than intended, reducing their daily deck quality.
 
-**FIX:** Audit the `users` table schema migration files to identify the authoritative column name. Update both CRON branches to reference the same column with consistent date-comparison logic. Add a migration to rename or consolidate if both columns exist.
+FILES:
+- `apps/web/lib/quests/questEngine.ts`
 
----
-
-### ZBUG-10 — CRON notification inserts use legacy `payload` column
-**FILES:** `apps/web/app/api/cron/daily/route.ts` (tasks 30, 31, 32b)
-
-CRON tasks 30 (masterTeacherAward), 31 (nemesisNotifications), and 32b (allianceWarsResolved) insert into the `notifications` table using a single `payload` JSONB column. The rest of the codebase — and other CRON tasks in the same file — use separate `title`, `body`, and `metadata` columns in the `notifications` table. If the schema has migrated to the newer column format, these notifications are being written to a column that either doesn't exist (causing silent failure) or is ignored by notification consumers, making them invisible to users.
-
-**FIX:** Update tasks 30, 31, and 32b to use the `title`/`body`/`metadata` schema consistent with the rest of the codebase. Extract a notification insert helper function to centralize the schema so future tasks use the correct format automatically.
+FIX:
+Replace the plan equality check with an explicit tier hierarchy condition:
+`plan_required IS NULL OR plan_required = 'free' OR (plan_required = 'plus' AND $2 IN ('plus','pro','max')) OR (plan_required = 'pro' AND $2 IN ('pro','max')) OR (plan_required = 'max' AND $2 = 'max')`. Alternatively, store plan tiers as integers in the DB and compare with `<=`.
 
 ---
 
-### ZBUG-11 — Subscription bonus coin dedup key inconsistent across payment providers
-**FILES:** `apps/web/app/api/economy/webhooks/dodopayments/route.ts`, `apps/web/app/api/economy/webhooks/paystack/route.ts`
+### 6: BUG-LB01 — `calculateWeightedScore` normalizes XP against 10,000 — virtually all active users hit the 100-point cap immediately
 
-When a subscription renews, both webhook handlers credit a monthly plan coin bonus to the user with an `ON CONFLICT (reference_id) DO NOTHING` dedup guard. The Paystack handler uses `plan:{userId}:{YYYY-MM}` as the `reference_id` (calendar-month keyed). The DodoPayments handler uses `providerReference` (the raw payment/transaction ID). A user paying via Paystack one month and DodoPayments the next will have two different reference IDs for the same billing month, bypassing the dedup guard and receiving double bonus coins.
+The `calculateWeightedScore` function normalizes XP with `Math.min((xpTotal / 10000) * 100, 100)`, treating 10,000 XP as the maximum. According to the XP rank thresholds in the codebase, 10,000 XP corresponds to the "Hustler" rank — a threshold reached quickly by most active users. Any user above "Hustler" level gets a normalized XP score of exactly 100, making XP (which is weighted 40% of the composite score) completely indistinguishable among the vast majority of the platform's engaged users. This effectively removes differentiation from the weighted leaderboard's most heavily weighted signal.
 
-**FIX:** Standardize both handlers to derive the `reference_id` from `plan:{userId}:{YYYY-MM}` (the calendar month of the renewal event, not the provider's transaction ID). This ensures a single dedup key regardless of which payment provider was used.
+FILES:
+- `apps/web/lib/leaderboards/engine.ts`
 
----
-
-### ZBUG-12 — awardGiftXP is non-atomic (missing transaction wrapper)
-**FILES:** `apps/web/app/api/economy/gifts/send/route.ts`
-
-`awardGiftXP` issues multiple `db.query()` calls concurrently via `Promise.all()` without wrapping them in a `db.transaction()`. Calls include: inserting into `xp_ledger`, updating `users.xp_total`, updating track-specific XP columns. If any call fails mid-way, others may have already committed, leaving partially awarded XP (ledger row inserted but user XP total not updated, or vice versa). Since `awardGiftXP` is called as fire-and-forget (`.then()` not awaited), errors are silently dropped.
-
-**FIX:** Wrap all XP-related writes inside `awardGiftXP` in a single `db.transaction()`. Ensure errors bubble up and are logged even when called fire-and-forget (`.catch((err) => console.error(...))`).
+FIX:
+Change the normalization denominator to a value that provides useful spread across the active user base — for example, 100,000 XP ("Champion" rank) or make it configurable via the manifest/config system. The denominator should be set to a value above which only a small fraction of users (the true top performers) reach the cap.
 
 ---
 
-### ZBUG-13 — fieldEncryption.getKey() recomputes SHA-256 on every call
-**FILES:** `apps/web/lib/security/fieldEncryption.ts`
+### 7: BUG-PY01 — `reconcileStuckPayouts` outer SELECT lacks `FOR UPDATE SKIP LOCKED`, allowing concurrent reconciliation to double-process payouts
 
-`getKey()` derives the AES-256 encryption key by running `crypto.createHash('sha256').update(secret).digest()` every time it is invoked. This is called for every `encryptField()` and `decryptField()` operation (e.g., every TOTP secret read during admin login, every KYC field access). The secret is a static environment variable that never changes at runtime, making the repeated SHA-256 computation pure waste.
+The Phase 1 batch processor correctly uses `FOR UPDATE SKIP LOCKED` inside a CTE to prevent concurrent CRON runs from picking the same pending payouts. However, `reconcileStuckPayouts` (which handles payouts stuck in `processing` status) performs its outer SELECT without any locking, then processes each row individually. Two concurrent reconciliation jobs can both read the same set of stuck payouts and both attempt to re-transfer them, potentially initiating duplicate bank transfers.
 
-**FIX:** Memoize: compute the key once on first call, store in a module-level `let cachedKey: Buffer | null = null`, and return the cached value on all subsequent calls. This is a performance fix; correctness is unaffected.
+FILES:
+- `apps/web/lib/payments/payouts.ts`
 
----
-
-### ZBUG-14 — claimPassMilestone XP reward unintentionally updates legacy_score
-**FILES:** `apps/web/lib/seasons/seasonEngine.ts`
-
-In `claimPassMilestone`, when an `xp_bonus` milestone is claimed, the SQL UPDATE increments both `xp_total` and `legacy_score` by the bonus amount. `legacy_score` is a permanent cumulative leaderboard metric intended for Hall-of-Fame ranking derived from real competitive play. Season pass milestone bonuses are purchased/earned rewards that arguably should not inflate the permanent competitive record alongside `xp_total`.
-
-**FIX:** Decide explicitly whether pass milestone XP should count toward `legacy_score`. If not, remove `legacy_score = legacy_score + $1` from the UPDATE. If it should, add a comment explicitly documenting this business decision so future changes don't accidentally remove it.
+FIX:
+Apply the same pattern as Phase 1: move the stuck-payout SELECT into a CTE with `FOR UPDATE SKIP LOCKED`, and wrap the status transition (`SET status = 'retrying'`) in the same atomic statement. This ensures each stuck payout is claimed by at most one reconciliation job.
 
 ---
 
-### ZBUG-15 — Monthly plan bonus ON CONFLICT missing conflict target
-**FILES:** `apps/web/app/api/cron/daily/route.ts`
+### 8: BUG-GW01 — `findWarOpponent` TOCTOU race: two guilds can simultaneously select the same opponent guild
 
-The monthly plan bonus insert uses `ON CONFLICT DO NOTHING` without specifying a conflict target column or constraint name. PostgreSQL requires either `ON CONFLICT (column)` or `ON CONFLICT ON CONSTRAINT name` — a bare `ON CONFLICT DO NOTHING` is only valid in some PostgreSQL versions and may throw a syntax error or apply to no constraint (allowing duplicates). If the dedup behavior silently doesn't work, users would receive multiple monthly bonuses.
+`findWarOpponent` fetches busy guilds in one query, then selects candidates in a second query, then filters in application memory. When two guilds declare war concurrently, both queries run before either writes the new war row. Both see the same candidate pool, both select the same top candidate, and both create wars against the same opponent guild simultaneously — violating the invariant that a guild can only be in one active war.
 
-**FIX:** Specify the exact unique constraint: `ON CONFLICT (user_id, bonus_month) DO NOTHING` (or whatever the unique columns are). Ensure the corresponding unique constraint exists in the migration for the target table.
+FILES:
+- `apps/web/lib/guilds/warEngine.ts`
 
----
-
-### ZBUG-16 — Expo offline sync retries permanently rejected messages forever
-**FILES:** `apps/expo/lib/offline/syncQueue.ts`, `apps/expo/lib/offline/sqlite.ts`
-
-`syncPendingMessages()` calls `resetFailedMessages()` at the start of every sync pass, unconditionally resetting all `failed` messages back to `pending`. If the server permanently rejects a message (400 — content policy violation, banned account, conversation deleted), the message will be marked `failed`, then reset to `pending` on next sync, then rejected again — indefinitely. There is no `retry_count` tracking or permanent-failure state, so stale messages accumulate and are retried on every network reconnection.
-
-**FIX:** Add a `retry_count INTEGER DEFAULT 0` column to `offline_messages`. Increment it on each failed attempt. After a threshold (e.g., 3 retries), set a terminal `sync_status = 'permanent_failure'` that `resetFailedMessages()` does not touch. Expose a UI indicator for permanently failed messages so the user knows to dismiss them.
+FIX:
+Use a Redis distributed lock (`SET NX EX 30`) keyed on the opponent's guild ID before committing the war declaration. If the lock cannot be acquired, retry with the next candidate. Alternatively, wrap the opponent selection and war INSERT in a single DB transaction using `FOR UPDATE SKIP LOCKED` on the opponent's guild row, and rely on a UNIQUE partial index on `guild_wars (defender_guild_id) WHERE status IN ('active', 'final_hour')` to reject duplicate wars at the DB level.
 
 ---
 
-### ZBUG-17 — Mobile 2FA pre-auth token exposed in deep-link URL
-**FILES:** `apps/web/app/api/auth/google/callback/route.ts`
+### 9: BUG-DM01 — `dm_conversations` upsert uses `LEAST($1::text, $2::text)` — UUID-to-text cast breaks the uniqueness ordering
 
-When a mobile user with 2FA enabled completes OAuth, the callback generates a `preAuthToken` JWT and appends it directly as a URL query parameter to the app deep-link: `deepLink.searchParams.set("pre_auth_token", preAuthToken)`. Tokens embedded in URLs appear in: server access logs, proxy logs, mobile OS URL history/clipboard, and can be snooped by other apps registered for the same deep-link scheme. The 5-minute TTL mitigates but does not eliminate the exposure window.
+The `dm_conversations` table is designed so `user_id_1 < user_id_2` for any given conversation (enforced by a UNIQUE constraint on the pair). The upsert uses `LEAST($1::text, $2::text)` and `GREATEST($1::text, $2::text)` where `$1` and `$2` are UUID values. PostgreSQL's text sort order for UUIDs is different from UUID type sort order (text sorts lexicographically by character, UUID sorts by byte value). The same pair of UUIDs may produce different `(user_id_1, user_id_2)` orderings depending on whether the comparison happens as text or as UUID, potentially causing the `ON CONFLICT` clause to miss existing rows and insert duplicates.
 
-**FIX:** Store the pre-auth token in Redis under a one-time opaque code (exactly the same pattern already used for the normal mobile token exchange: `mobile_exchange:{code}` with 90s TTL). Pass only the opaque code in the deep-link URL. The mobile app then POSTs the code to `/api/auth/mobile-token` (or a new `mobile-preauth-token` endpoint) to receive the actual pre-auth token over HTTPS — never in the URL.
+FILES:
+- `apps/web/app/api/messages/dm/route.ts`
+- `apps/web/app/api/economy/gifts/send/route.ts`
 
----
-
-### ZBUG-18 — TOTP implementation duplicated across two admin route files
-**FILES:** `apps/web/app/api/admin/auth/totp/setup/route.ts`, `apps/web/app/api/admin/auth/totp/route.ts`
-
-`base32Decode`, `computeTotp`, and `verifyTotp` are verbatim copy-pasted between the two files. Any future security improvement (timing-safe comparison, algorithm upgrade, clock-drift adjustment) must be applied in both files. A missed update in one file would leave a security gap in one branch of the admin 2FA flow.
-
-**FIX:** Extract these functions into a shared module `apps/web/lib/auth/totp.ts` and import from both route files. Also note: neither file currently defends against TOTP code reuse during setup; the setup POST's `verifyTotp` call does not check the `totp:used:{userId}:{code}` Redis key that the login totp route does. Consider adding the same anti-replay check to the setup verification.
+FIX:
+Cast both parameters to the `uuid` type before comparison: `LEAST($1::uuid, $2::uuid)` and `GREATEST($1::uuid, $2::uuid)`. Ensure the `dm_conversations` UNIQUE constraint is defined on `uuid`-typed columns. Audit the entire codebase for other `LEAST`/`GREATEST` patterns on UUID columns.
 
 ---
 
-### ZBUG-19 — CRON referral task calls getManifestValue inside per-iteration transaction loop
-**FILES:** `apps/web/app/api/cron/daily/route.ts` (task 33)
+### 10: BUG-LB02 — Hall of Fame users pinned to the leaderboard receive sequential slot numbers instead of their real rank
 
-Inside the `for (const referral of streakReferrals)` loop, `getManifestValue("referral_tier1_xp_bonus")` and `getManifestValue("referral_tier1_coin_bonus")` are called inside each `db.transaction()` callback. These manifest values are static for the duration of the CRON run. Calling them N times per run makes 2N unnecessary round-trips to the manifest table/store.
+When the `getLeaderboard` function injects Hall of Fame users not already present in the page results, it assigns `rank: entries.length + 1` to each successive pinned user. If the page has 100 results (full page), a Hall of Fame user could be listed as rank #101, #102, etc., even if their actual XP-based rank is #3. This produces a misleading display where the most prestigious users on the platform appear with incorrect rank numbers.
 
-**FIX:** Fetch both manifest values once before the loop. Store results in local constants `xpBonus` and `coinBonus`, and reference those constants inside each transaction.
+FILES:
+- `apps/web/lib/leaderboards/engine.ts`
 
----
-
-### ZBUG-20 — isFirstGift check has no-op LIMIT 1 on COUNT(*)
-**FILES:** `apps/web/app/api/economy/gifts/send/route.ts`
-
-The first-gift detection query is `SELECT COUNT(*) FROM gifts WHERE recipient_id = $1 LIMIT 1`. `COUNT(*)` is an aggregate that unconditionally returns exactly one row regardless of the number of matching rows; `LIMIT 1` therefore has no effect. This is dead/misleading code — it implies intent to limit rows but does nothing.
-
-**FIX:** Replace with `SELECT EXISTS(SELECT 1 FROM gifts WHERE recipient_id = $1 LIMIT 1)` which clearly expresses "has this user ever received a gift" and short-circuits after finding the first row. Remove `LIMIT 1` from COUNT queries throughout the codebase where this pattern recurs.
+FIX:
+For each injected Hall of Fame user, compute their actual rank using `getUserRank(hof.user_id, 'main', 'global', db)` before pushing to the entries array, then set `rank: actualRank`. Alternatively, order the HoF fetch by XP descending and derive rank from a `ROW_NUMBER()` subquery over the global leaderboard snapshot.
 
 ---
 
-### ZBUG-21 — HTML sanitizer allows insecure http:// links
-**FILES:** `apps/web/lib/security/htmlSanitizer.ts`
+### 11: BUG-RM01 — Room message GET handler does not filter out messages pending moderation approval
 
-The `ALLOWED_SCHEMES` set inside the href/src validation block in `sanitizeHtml()` includes `"http"` alongside `"https"` and `"mailto"`. This allows users to embed plaintext HTTP links in sanitized HTML output, which triggers browser mixed-content warnings, strips TLS protection from followed links, and can enable traffic interception in hostile network environments.
+The POST handler for room messages creates messages with `is_pending_approval = true` when the room requires creator approval. However, the GET handler (which populates the message feed) does not include a `WHERE is_pending_approval = FALSE` clause. As a result, messages awaiting creator moderation approval are immediately visible to all room participants, defeating the purpose of the approval queue entirely.
 
-**FIX:** Remove `"http"` from `ALLOWED_SCHEMES` — allow only `"https"` and `"mailto"`. If legacy HTTP URLs must be supported (e.g., old user-generated content), optionally rewrite them to HTTPS at sanitization time using a simple `value.replace(/^http:\/\//i, 'https://')` transformation before scheme validation.
+FILES:
+- `apps/web/app/api/rooms/[roomId]/messages/route.ts`
 
----
-
-### ZBUG-22 — Markdown announcement content passes through unsanitized
-**FILES:** `apps/web/lib/security/htmlSanitizer.ts`
-
-`sanitizeAnnouncementContent()` only sanitizes `contentType === "html"`. For `contentType === "markdown"`, it returns the raw content unchanged. If any downstream component renders this markdown using a parser that supports inline HTML or generates raw `<a href>` and `<img src>` elements without escaping (e.g., `marked` or `react-markdown` with `allowDangerousHtml: true`), user-controlled markdown like `[click](javascript:alert(1))` or `![x](javascript:void(0))` could execute XSS payloads.
-
-**FIX:** Either: (a) sanitize markdown content through the same `sanitizeHtml()` pipeline by first rendering it to HTML via a safe Markdown parser, then sanitizing; or (b) explicitly document and enforce that all markdown renderers in the client must disable raw HTML output and URL scheme enforcement. Audit all call sites where announcement content is rendered to confirm safe configuration.
+FIX:
+Add `AND (rm.is_pending_approval = FALSE OR rm.is_pending_approval IS NULL)` to the WHERE clause of the GET query. Ensure that the approval-queue management endpoint (admin/creator approve/reject) updates `is_pending_approval` to `FALSE` on approval and deletes or marks rejected messages accordingly.
 
 ---
 
-### ZBUG-23 — SSRF validator blocks all IPv6 public addresses
-**FILES:** `apps/web/lib/security/ssrf.ts`
+### 12: BUG-EC02 — `awardGiftXP` first_time_gifted bonus can be awarded multiple times under concurrent gifts
 
-`isPrivateIp()` returns `true` for any hostname string that contains `":"`, catching all IPv6 addresses — both private and public. The comment acknowledges this is conservative, but it also prevents `safeFetch` from reaching legitimate IPv6-only API endpoints, CDNs, or services. For example, any API that resolves to an AAAA-only record will be blocked.
+The `first_time_gifted` XP check queries `COUNT(*) FROM gifts WHERE recipient_id = $1` inside the XP transaction. Because `awardGiftXP` is called after the gift INSERT (outside the main gift transaction), concurrent gift sends to the same recipient can each see a `count <= 1` before either XP transaction completes, and both award the one-time 15 XP bonus. The recipient ends up with double (or more) first-time XP.
 
-**FIX:** Refine the IPv6 check to only block known-private ranges: loopback (`::1`), link-local (`fe80::/10`), unique-local (`fc00::/7`), and site-local (`fec0::/10`). All other IPv6 addresses should pass the string-level check and proceed to `resolveAndValidateHostname()`, which performs DNS-pinned validation. The DNS pinning already provides the defense-in-depth for any addresses that slip through string matching.
+FILES:
+- `apps/web/app/api/economy/gifts/send/route.ts`
 
----
-
-### ZBUG-24 — DM message XP updates are fire-and-forget outside the coin transaction
-**FILES:** `apps/web/app/api/messages/dm/[conversationId]/route.ts`
-
-After the atomic `db.transaction()` that deducts coins and inserts the message, XP is awarded via two fire-and-forget `db.query()` calls: an `xp_ledger` INSERT and a `users.xp_total` UPDATE, both with `.catch(() => {})`. If either fails after the coin deduction committed, the user loses coins but receives no XP. The two XP writes are also not atomic with each other — a crash between them leaves `xp_ledger` and `users.xp_total` inconsistent.
-
-**FIX:** Wrap the two XP writes in their own `db.transaction()` (separate from the coin transaction to avoid lock contention). Keep them fire-and-forget in terms of blocking the HTTP response, but catch and log errors: `.catch((err) => console.error("[dm/xp] XP award failed", err))`.
+FIX:
+Move the `first_time_gifted` XP award into the main gift transaction (before it commits). Use an `INSERT INTO first_time_gifted_users (recipient_id) ON CONFLICT DO NOTHING RETURNING recipient_id` gate, or add a boolean flag column `first_gift_received_xp_awarded` on the `users` table with `UPDATE ... SET first_gift_received_xp_awarded = true WHERE id = $1 AND first_gift_received_xp_awarded IS NOT TRUE RETURNING id` — the `RETURNING` clause confirms the award actually ran.
 
 ---
 
-### ZBUG-25 — Leaderboard ripple CRON is unbatched — timeout risk at scale
-**FILES:** `apps/web/app/api/cron/daily/route.ts` (leaderboard ripple task)
+### 13: BUG-SS01 — `claimPassMilestone` `xp_bonus` reward UPDATE missing `updated_at = NOW()`
 
-The leaderboard ripple task iterates through users whose rank changed and performs individual `db.query()` upserts and push notification calls inside a `for` loop with no batching. For platforms with thousands of active users on leaderboards, this will exhaust Vercel's function timeout or consume excessive wall-clock time blocking other CRON tasks.
+In the `xp_bonus` reward branch of `claimPassMilestone`, the UPDATE that increments the user's XP is:
+`UPDATE users SET xp_total = xp_total + $1 WHERE id = $2`
+This omits `updated_at = NOW()`. Every other `UPDATE users` statement in the codebase includes this column. The missing timestamp means the user row's `updated_at` remains stale after a season pass XP bonus is applied, which can cause cache invalidation failures and incorrect "last active" tracking.
 
-**FIX:** Batch the DB upserts into multi-row `INSERT ... ON CONFLICT DO UPDATE` statements using `unnest()` or chunked VALUES clauses. Replace per-user `sendPushNotification()` calls with the existing `sendPushNotificationBatch()` which already handles batches of 100 notifications per API call. Consider a LIMIT clause on the number of users processed per CRON run to stay within function timeout budgets.
+FILES:
+- `apps/web/lib/seasons/seasonEngine.ts`
 
----
-
-### ZBUG-26 — Pending-approval room messages count toward the daily XP message cap
-**FILES:** `apps/web/app/api/rooms/[roomId]/messages/route.ts`
-
-In rooms with `requires_approval = true`, `countTodayMessages()` executes before the message is inserted to check against the daily XP-eligible message cap. The pending (unapproved) message is then inserted and counted, even if it is later rejected by a moderator. A user in a high-moderation room can exhaust their daily XP-eligible send quota with messages that were never visible to anyone.
-
-**FIX:** Either: (a) exclude `is_pending_approval = true` messages from `countTodayMessages()` so the cap only triggers for approved/published messages; or (b) document this as intentional (prevents XP farming via mass-submit-then-reject in approval-gated rooms). If intentional, add an explicit comment to the count query.
+FIX:
+Change the UPDATE to `UPDATE users SET xp_total = xp_total + $1, updated_at = NOW() WHERE id = $2`, consistent with all other user XP updates in the codebase.
 
 ---
 
-### ZBUG-27 — PIN verification Redis key is per-user, not per-session
-**FILES:** `apps/web/lib/auth/pinGuard.ts`, `apps/web/app/api/auth/pin/verify/route.ts`
+### 14: BUG-NE01 — `compareNemesisProgress` passes UUID array as raw string interpolation
 
-The Redis key for a successful PIN verification is `pin_ok:{userId}`. If a user has multiple active sessions (web browser + mobile app + shared computer), verifying the PIN on one device grants elevated access to all devices for 5 minutes. An attacker who compromises a valid JWT for the user (session hijacking, JWT theft) but does not know the PIN could piggyback on a `pin_ok` window opened by the legitimate user on another device.
+The function builds the PostgreSQL UUID array parameter as `` `{${userId},${nemesisId}}` `` — a raw string literal constructed by interpolating two UUIDs into the `{val1,val2}` PostgreSQL array literal syntax. While UUIDs only contain hex digits and hyphens (no injection risk in practice), this is fragile: it bypasses type safety, won't work correctly if UUIDs ever contain unexpected characters, and is not idiomatic parameterized SQL. It forces PostgreSQL to parse and validate two strings as UUIDs at query time rather than having the driver handle type binding.
 
-**FIX:** Scope the key to `pin_ok:{userId}:{sid}` where `sid` is the session ID claim from the verified JWT. The session ID is already available in the JWT payload (`auth.user.sid`). Update both `markPinVerified` and `requirePinVerified` to accept and use the session ID. This ensures a PIN verification on one device/session does not unlock sensitive operations on others.
+FILES:
+- `apps/web/lib/nemesis/nemesisEngine.ts`
+
+FIX:
+Use two separate parameters and `ARRAY[$1::uuid, $2::uuid]` in the query:
+`query = \`SELECT id AS user_id, ${col} AS xp_value FROM users WHERE id = ANY(ARRAY[$1::uuid, $2::uuid])\``
+`params = [userId, nemesisId]`
+This is idiomatic, type-safe, and avoids manual string construction.
 
 ---
 
-## Footer
+### 15: BUG-MD01 — Profanity wordlist is cached at module initialization and never invalidated
 
-**Report complete.** 27 bugs documented across web app, PWA, and Expo Android client.
-**Generated:** June 14, 2026 — 12:00 PM
+The content filter loads the profanity wordlist at module initialization into a module-level variable. When an admin updates the wordlist via the admin panel, the running server process never picks up the change. The stale wordlist remains active until the Next.js process is restarted or redeployed. For a moderation-sensitive platform, this means newly added offensive terms continue to appear in messages for hours or days after being added to the blocked list.
+
+FILES:
+- `apps/web/lib/moderation/contentFilter.ts`
+
+FIX:
+Add a TTL-based re-fetch: store a `lastFetchedAt` timestamp alongside the cached wordlist and re-query the database if the cache is older than N minutes (e.g., 5 minutes). Alternatively, use a Redis-backed cache with a short TTL that is explicitly invalidated by the admin wordlist update endpoint, so the next request picks up the fresh wordlist immediately after an admin save.
+
+---
+
+### 16: BUG-MD02 — `detectDuplicateMessage` normalization strips only ASCII — Unicode homoglyphs bypass detection
+
+The duplicate-message normalization uses `.replace(/[^a-z0-9 ]/gi, '')` which only removes non-ASCII-alphanumeric characters. Cyrillic characters (е, а, о, с, etc.) are visually identical to their Latin counterparts but pass through this filter unchanged. A user can defeat duplicate detection by substituting a single character with its Cyrillic lookalike, sending the same message repeatedly without triggering the similarity check.
+
+FILES:
+- `apps/web/lib/moderation/contentFilter.ts`
+
+FIX:
+Apply `String.prototype.normalize('NFKD')` before the regex strip to decompose Unicode characters into their base forms. Add a transliteration pass to map common Cyrillic/Greek homoglyphs to their Latin equivalents before normalization. Consider using a library such as `unidecode` for a more complete mapping.
+
+---
+
+### 17: BUG-AU01 — Telegram OAuth mobile polling omits refresh token — Telegram users silently logged out after access token expires
+
+In `startTelegramPoll`, when the `/api/auth/telegram/status` endpoint returns `status: 'approved'`, the code calls `await signIn(data.token, data.user as AuthUser)` passing only the access token (no third argument for `refreshToken`). The `AuthContext.signIn` function stores the refresh token to SecureStore only when `refreshToken` is provided. Without it, the Axios interceptor's `refreshAccessToken()` function reads `null` from SecureStore on the first 401, immediately notifies `onUnauthenticated()`, and logs the user out. The default access token TTL is ~15 minutes, so every Telegram-authenticated mobile user gets silently logged out after their first session expires.
+
+FILES:
+- `apps/expo/app/auth/login.tsx`
+- `apps/expo/lib/api/client.ts`
+- `apps/expo/lib/auth/context.tsx`
+
+FIX:
+Update the `/api/auth/telegram/status` endpoint to include `refreshToken` in the `approved` response payload. In `startTelegramPoll` (login.tsx), destructure `data.refreshToken` from the response and pass it as the third argument: `await signIn(data.token, data.user as AuthUser, data.refreshToken)`.
+
+---
+
+### 18: BUG-RF01 — Referral qualifying XP updates `xp_total` only, not the `xp_social` track column
+
+When a referral is marked as "qualified" (referred user's first coin purchase), a 500 XP bonus is awarded to the referrer. The UPDATE is `UPDATE users SET xp_total = xp_total + $1, updated_at = NOW() WHERE id = $2`. The `xp_social` column is not incremented. Every other social-track XP award in the codebase updates both `xp_total` AND the track-specific column simultaneously. The referral XP shows up in the user's total XP but is invisible on the Social track leaderboard and in track-specific analytics.
+
+FILES:
+- `apps/web/lib/referrals/commissions.ts`
+
+FIX:
+Change the UPDATE to `UPDATE users SET xp_total = xp_total + $1, xp_social = COALESCE(xp_social, 0) + $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL`. The `xp_ledger` INSERT already specifies `track = 'social'`, so the users table column just needs to be kept in sync.
+
+---
+
+### 19: BUG-FD01 — `checkNewAccountGiftInflow` builds PostgreSQL INTERVAL via SQL string concatenation
+
+The fraud detection query uses `($2 || ' days')::INTERVAL` where `$2 = String(NEW_ACCOUNT_AGE_DAYS)` (currently `"7"`). Concatenating a parameterized value with a SQL string literal to form an INTERVAL is non-standard and fragile — if the constant is ever changed to a non-integer string value, the cast will throw a runtime PostgreSQL error inside an async fraud-check that is silently caught, causing this fraud check to be silently skipped without any error visibility.
+
+FILES:
+- `apps/web/lib/fraud/payouts.ts`
+
+FIX:
+Replace `($2 || ' days')::INTERVAL` with the arithmetic form `$2 * INTERVAL '1 day'` (passing `NEW_ACCOUNT_AGE_DAYS` as a number parameter), or since the value is a hardcoded constant, inline it directly as `INTERVAL '7 days'` and remove the `$2` parameter entirely from this query.
+
+---
+
+### 20: BUG-GE01 — `geoAnomaly` uses first-octet (/8) prefix comparison — too coarse for meaningful anomaly detection
+
+The IP anomaly detection compares only the first octet of the user's IP address against their previously seen IP. A `/8` block spans 16 million addresses. Large Nigerian ISPs (MTN, Airtel, Glo) routinely assign different cities to the same `/8` range. A user traveling from Lagos to Abuja on the same ISP would not trigger an anomaly alert because both cities share the same first octet. Meanwhile, the alert fires unnecessarily for users who simply switch between two ISPs in the same city if they happen to be in different `/8` ranges.
+
+FILES:
+- `apps/web/lib/security/geoAnomaly.ts`
+
+FIX:
+Compare the first three octets (a `/24` block) for a practical balance between false positives and sensitivity. For a stronger solution, integrate a GeoIP database (e.g., MaxMind GeoLite2) to compare country and city codes, and only alert on country-level changes (which indicates a genuine session hijacking risk) while suppressing alerts for expected domestic city changes.
+
+---
+
+### 21: BUG-SE01 — `fieldEncryption.ts` has no key versioning — KYC key rotation permanently destroys all existing encrypted records
+
+The `encryptField` function derives the AES-256 key by taking a SHA-256 hash of `KYC_ENCRYPTION_KEY` and uses it to encrypt KYC data (wallet addresses, bank account numbers). There is no version prefix on ciphertexts and no support for decrypting with a prior key. If `KYC_ENCRYPTION_KEY` is rotated (required periodically for security compliance), `decryptField` will fail for every previously encrypted record, returning errors or garbage data. This makes key rotation operationally impossible without a coordinated migration that would require downtime.
+
+FILES:
+- `apps/web/lib/security/fieldEncryption.ts`
+
+FIX:
+Prefix every ciphertext with a version tag (e.g., `"v1:" + base64ciphertext`). The `decryptField` function reads the prefix, selects the matching key from a key-store object (e.g., `{ v1: oldKey, v2: newKey }`), and decrypts accordingly. Provide an offline migration script that re-encrypts all stored ciphertexts under the new key version. Store old key versions in environment variables (`KYC_ENCRYPTION_KEY_V1`, `KYC_ENCRYPTION_KEY_V2`) until migration is complete.
+
+---
+
+### 22: BUG-AU02 — TOTP anti-replay key is set before session creation — code is consumed if `createSession` fails
+
+In the admin TOTP login route, the anti-replay Redis key (`totp:used:${userId}:${code}`) is set with `SET NX EX 90` after `verifyTotp` passes but before `createSession` is called. If `createSession` fails (database error, Redis outage, etc.), the TOTP code is permanently marked as "used" in Redis for 90 seconds. The admin user receives a 500 error and must wait 30 seconds for the next TOTP code to attempt login again, even though they were never issued a session. Under repeated failure conditions this creates a 90-second window where no code will work.
+
+FILES:
+- `apps/web/app/api/admin/auth/totp/route.ts`
+
+FIX:
+In the catch block, after a `createSession` failure, immediately delete the anti-replay key: `await redis.del(usedKey)` before re-throwing the error. This restores the ability to retry with the same code. Wrap this cleanup in its own try/catch to prevent Redis errors from masking the original error.
+
+---
+
+## Code Quality Assessment
+
+### Current State — 7.0 / 10
+
+The Zobia codebase demonstrates a strong architectural foundation. Financial operations (coin credit/debit, star credit/debit, payout processing) use `SELECT FOR UPDATE` and atomic DB transactions consistently. JWT + Redis session management with refresh token rotation and grace windows is correctly implemented. Zod validation at API boundaries, idempotency keys for gift sends, and a well-structured fraud detection pipeline are all above-average for a platform of this scope. The XP engine, quest engine, war engine, nemesis engine, and season engine are each coherent and well-isolated.
+
+The bugs found are primarily in the gaps between systems: a missing `FOR UPDATE SKIP LOCKED` in a secondary code path, a wrong column name in an error handler, missing guard clauses in a parallel code path, and a handful of missing column updates. There are no catastrophic design flaws. No unparameterized SQL queries were found. No missing authentication on protected routes.
+
+**Weaknesses at current state:**
+- Two concurrent-access race conditions with financial impact (BUG-PY01, BUG-EC02)
+- One financial ledger integrity issue (BUG-EC01 — misclassified transaction types)
+- One silent admin visibility failure (BUG-WH01 — system alerts never written)
+- One mobile auth regression silently logging out all Telegram users (BUG-AU01)
+- One KYC security gap making key rotation impossible (BUG-SE01)
+- Service Worker serving 24h stale financial data to PWA users (BUG-SW01)
+
+### After All Recommended Fixes — 8.5 / 10
+
+Applying all 22 fixes closes the identified race conditions, corrects ledger accuracy, restores alert visibility, fixes the mobile auth regression, and adds KYC key rotation support. The remaining gap to 10/10 reflects areas outside the scope of this analysis: test coverage depth, end-to-end monitoring/alerting, formal incident response runbooks, and i18n completeness.
+
+---
+
+*Report generated: June 14, 2026, 12:00 PM UTC*  
+*Analyst: Claude Code — Repository: nero1/zobia*
