@@ -1,331 +1,227 @@
 # Zobia Codebase — Bug Fix Plan
 
-**Generated:** 2026-06-14 at 6:06 AM UTC  
-**Scope:** All 33 bugs from `custom-bugs-report.md`  
-**Status:** Awaiting review — DO NOT implement until approved  
+**Generated:** June 14, 2026 — 12:00 PM
+**Based on:** custom-bugs-report.md (same session)
+**Status:** Review pending — DO NOT IMPLEMENT until approved
+
+> All task references map 1:1 to ZBUG-XX entries in the bug report.
+> Priority order: Critical → High → Medium → Low/Code Quality.
 
 ---
 
-## Fix Execution Order
+## Phase 1 — Critical (Fix First, Production-Breaking)
 
-Fixes are grouped by risk and dependency. Complete each phase before starting the next.
+### Task 1 — Fix ZBUG-01: Season rewards ordering
+**Files:** `apps/web/app/api/cron/daily/route.ts`
+- Find the section where `distributeSeasonRewards()` is called in the CRON
+- Find where `resetSeasonRankings()` is called
+- Swap their order so `resetSeasonRankings()` always executes first
+- Add a guard after `resetSeasonRankings()` to verify `season_rank_archives` has rows before continuing to `distributeSeasonRewards()` — log a warning and skip distribution if no rows exist (defensive)
+- Test: run both functions in sequence on a staging DB with an ended season; confirm rewards are credited
 
-- **Phase 1 — Critical Security & Financial Integrity** (BUG-002, BUG-006, BUG-021, BUG-022, BUG-025): Fix these first. They are credential exposures, a double-spend risk, and a broken user-facing feature.
-- **Phase 2 — Data Integrity & Silent Failures** (BUG-007, BUG-009, BUG-010, BUG-012, BUG-023, BUG-024, BUG-026, BUG-027, BUG-029, BUG-033): Correct data-loss bugs and silent no-ops.
-- **Phase 3 — Correctness** (BUG-003, BUG-005, BUG-008, BUG-013, BUG-016, BUG-018, BUG-019, BUG-020, BUG-030, BUG-031, BUG-032): Fix logic errors and race conditions.
-- **Phase 4 — Cleanup** (BUG-001, BUG-004, BUG-011, BUG-014, BUG-015, BUG-017, BUG-028): Dead code, misleading guards, schema consistency.
+### Task 2 — Fix ZBUG-02: Mobile token refresh broken
+**Files:** `apps/web/app/api/auth/refresh/route.ts`, `apps/expo/lib/api/client.ts`
+- On the server: detect when the request is mobile-initiated by checking for the `X-Refresh-Token` request header
+- When mobile path detected, additionally include the new access token in the JSON response body: `{ expiresIn, accessToken }`. Also include the rotated refresh token: `{ refreshToken }` (the server already computes `rotatedRefreshToken`)
+- On the Expo client (`client.ts`): change `res.headers['x-access-token']` to `res.data?.accessToken`. Also read `res.data?.refreshToken` and persist it to SecureStore if present
+- Test: sign in on Expo, wait 15 minutes, confirm a subsequent API call succeeds (triggers silent refresh) without logging the user out
 
----
-
-## Phase 1 — Critical Security & Financial Integrity
-
----
-
-**Fix 1 (BUG-002): Remove tokens from 2FA verify response body — set them as HttpOnly cookies instead**
-
-FILES: `apps/web/app/api/auth/2fa/verify/route.ts`
-
-In the 2FA verify route, locate the `return NextResponse.json({ accessToken, refreshToken })` call (or equivalent). Replace it with the same pattern used in `/api/auth/login/route.ts`: call the cookie-setting utility to write `zobia_at` and `zobia_rt` as HttpOnly, Secure, SameSite=Strict cookies, then return `NextResponse.json({ ok: true })`. The `accessToken` and `refreshToken` values must not appear as JSON fields in the response. Also update any mobile clients that currently read these from the JSON body — they should instead read from cookies (web) or use the one-time-code exchange described in Fix 6 (BUG-006).
-
----
-
-**Fix 2 (BUG-006): Replace refresh token in mobile OAuth redirect URL with a one-time exchange code**
-
-FILES: `apps/web/app/api/auth/google/callback/route.ts`, new file `apps/web/app/api/auth/mobile-token/route.ts`
-
-Step 1: In the Google OAuth callback, when a mobile client is detected, generate a cryptographically random 32-byte hex code (`crypto.randomBytes(32).toString('hex')`). Store `{ refreshToken, accessToken, userId }` in Redis under the key `mobile_exchange:{code}` with a 90-second TTL. Build the deep-link redirect with `?code=<hex>` only — no token in the URL.
-
-Step 2: Create a new route `POST /api/auth/mobile-token`. It accepts `{ code }` in the request body, looks up `mobile_exchange:{code}` in Redis, deletes the key immediately (one-time use), and returns the tokens in the response body (mobile apps cannot use HttpOnly cookies so this is the accepted pattern for native clients — the tokens arrive over HTTPS, not in a URL). Return 400 if the key is missing or expired.
-
-Step 3: Update the Expo mobile app to hit this exchange endpoint immediately after receiving the OAuth redirect.
+### Task 3 — Fix ZBUG-03: DodoPayments payout failure recovery
+**Files:** `apps/web/app/api/economy/webhooks/dodopayments/route.ts`
+- In the `processPayoutEvent` function, add a `payout.failed` case alongside any existing cases
+- In the `payout.failed` handler, look up the `creator_payouts` record by the payout's provider reference ID
+- Call `moveToDeadLetterQueue(payoutId, db)` from `apps/web/lib/payments/payouts.ts` to restore `available_earnings_kobo` and flag for admin review
+- The `earnings_restored` guard in `moveToDeadLetterQueue` already prevents double-credit — no additional guard needed
+- Test: simulate a `payout.failed` webhook on staging; confirm `available_earnings_kobo` is restored and `creator_payouts` row is in dead-letter state
 
 ---
 
-**Fix 3 (BUG-021): Make IAP idempotency check atomic with the coin credit**
+## Phase 2 — High (Fix Next Sprint)
 
-FILES: `apps/web/app/api/economy/iap/verify/route.ts`
+### Task 4 — Fix ZBUG-04: Guild war XP operator precedence
+**Files:** `apps/web/lib/guilds/warEngine.ts`
+- Locate the guild XP reward line: `Math.round(war.defender_points + war.challenger_points) * 2`
+- Change to: `Math.round((war.defender_points + war.challenger_points) * 2)`
+- Tiny change — add unit test covering fractional point totals to prevent regression
 
-Remove the pre-check `SELECT FROM coin_ledger WHERE reference_id = purchaseToken`. Instead, modify `creditCoins()` (or the inline ledger insert in this route) so the very first database operation is `INSERT INTO coin_ledger (user_id, amount, type, reference_id, …) VALUES (…) ON CONFLICT (reference_id) DO NOTHING RETURNING id`. Check whether the INSERT returned a row: if `RETURNING id` comes back empty, it was a duplicate — return HTTP 200 with a message like `{ ok: true, duplicate: true }`. Only if the INSERT succeeded proceed to `UPDATE users SET coin_balance = coin_balance + $amount WHERE id = $userId`. Wrap both operations in a single database transaction.
+### Task 5 — Fix ZBUG-05: Admin TOTP setup catch-22
+**Files:** `apps/web/app/api/admin/auth/login/route.ts`, `apps/web/app/api/admin/auth/totp/setup/route.ts`
+- In `/api/admin/auth/login` when `needsSetup: true`, generate a 5-minute single-use Redis token: `redis.set('admin_pre_auth:{userId}', '1', 'EX', 300, 'NX')`. Return its ID or derive it from the userId with a hmac
+- Create a new endpoint or add an alternative auth path to the TOTP setup GET/POST: accept a `X-Admin-Pre-Auth` header containing the one-time token. Validate it with `redis.getdel('admin_pre_auth:{userId}')` before allowing setup to proceed (no `withAdminAuth` required for this alternative path)
+- Keep `withAdminAuth` for the normal path (already-set-up admin reconfiguring 2FA)
+- Test: create a net-new admin user with no TOTP, complete full login + setup flow via API
 
----
-
-**Fix 4 (BUG-022): Fix `rank_position` → `rank` column reference in leaderboard CRON**
-
-FILES: `apps/web/app/api/cron/leaderboards/route.ts`
-
-In Step 2 of the leaderboard CRON, find every reference to `ls_prev.rank_position` and replace with `ls_prev.rank`. This single-column rename will un-break all rank-change notification queries. After deploying, verify by running the CRON once and checking the `notifications` table for newly inserted rank-change rows. Also do a project-wide grep for `rank_position` to confirm no other callers reference the wrong column name.
-
----
-
-**Fix 5 (BUG-025): Move Gemini API key from URL query parameter to request header**
-
-FILES: `apps/web/lib/ai/client.ts`
-
-Locate the Gemini API fetch call that constructs the URL with `?key=${effectiveKey}`. Remove the `key` query parameter from the URL. Add the key as an HTTP request header: `'x-goog-api-key': effectiveKey` in the fetch options headers object. Google's Generative Language API accepts authentication via this header as a documented alternative to the query parameter. After this change, rotate the Gemini API key in Google Cloud Console and in all deployment environment variables, since any existing logs may already contain the key.
-
----
-
-## Phase 2 — Data Integrity & Silent Failures
+### Task 6 — Fix ZBUG-06: Paystack webhook 500 error handling
+**Files:** `apps/web/app/api/economy/webhooks/paystack/route.ts`
+- Audit the outer try-catch and any inner error handling that currently returns a 500
+- For errors that indicate non-recoverable processing failure (payload parse errors, unexpected event type, missing reference), return `NextResponse.json({ received: true, processed: false }, { status: 200 })` and log to `system_alerts`
+- Reserve 500 status (or let the error propagate) only for transient infrastructure errors where Paystack retry is meaningful (look for `instanceof DatabaseConnectionError` or Redis timeout, etc.)
+- Document the retry behavior in a comment near the error handling
 
 ---
 
-**Fix 6 (BUG-007): Atomise Redis session-set TTL management with a Lua script**
+## Phase 3 — Medium (Fix Within Month)
 
-FILES: `apps/web/lib/auth/session.ts`
+### Task 7 — Fix ZBUG-07: Logout cookie clearing missing Secure flag
+**Files:** `apps/web/lib/auth/session.ts`
+- In `buildClearCookieHeaders()`, add `; Secure` to the Set-Cookie string when `process.env.NODE_ENV === 'production'`
+- Apply the same conditional to `buildCookieHeaders()` for consistency
+- Test: in production/staging, verify the logout response Set-Cookie headers include `Secure` and that the browser clears the tokens after logging out
 
-Replace the multi-round-trip pattern (`SCARD` → `TTL` → conditional `EXPIRE`) with a single Lua script executed via `redis.eval()`. The script should: read the current TTL of `user_sessions:{userId}`, and if it is less than some threshold (e.g., 7 days), call EXPIRE to extend it. Because Lua scripts execute atomically in Redis, no other command can interleave. This eliminates the window between the TTL read and the EXPIRE write.
+### Task 8 — Fix ZBUG-08: Extract COMEBACK_COIN_AMOUNT constant
+**Files:** `apps/web/app/api/cron/daily/route.ts`
+- Search for magic number `200` near both the comeback coin credit and expiry debit logic
+- Extract to `const COMEBACK_COIN_AMOUNT = 200` at the top of the CRON handler
+- Replace both usages with the constant reference
+- Trivial change — no functional impact
 
----
+### Task 9 — Fix ZBUG-09: Unify streak column names
+**Files:** `apps/web/app/api/cron/daily/route.ts`, DB migration
+- Check the `users` table schema in the migration files to find the authoritative column name
+- If `last_login_at` is the real column: update the streak reset branch to use `last_login_at::date < $1::date`
+- If `last_login_date` is the real column: update the streak increment branch to use `last_login_date = $1`
+- If both exist and are redundant: create a migration to drop or consolidate them and update both CRON branches
+- Test: seed a user with a login 2 days ago; confirm both streak increment and streak reset work correctly
 
-**Fix 7 (BUG-009): Distribute guild war remainder coins to the first winner**
+### Task 10 — Fix ZBUG-10: Unify notification schema in CRON
+**Files:** `apps/web/app/api/cron/daily/route.ts`
+- Determine the current notification schema by examining working notification inserts (e.g., the nemesis daily push or the council invitation notification)
+- Update CRON tasks 30 (masterTeacherAward), 31 (nemesisNotifications), and 32b (allianceWarsResolved) to use the same column format
+- Consider extracting a helper function `insertNotification(userId, type, title, body, metadata, db)` to enforce the schema across all callers
 
-FILES: `apps/web/lib/guilds/warEngine.ts`
+### Task 11 — Fix ZBUG-11: Standardize subscription bonus dedup key
+**Files:** `apps/web/app/api/economy/webhooks/dodopayments/route.ts`, `apps/web/app/api/economy/webhooks/paystack/route.ts`
+- In both handlers, when crediting the monthly plan bonus, compute the `reference_id` as `plan:${userId}:${YYYY-MM}` where the date is derived from the webhook event timestamp (not `Date.now()`, to handle late/replayed webhooks correctly)
+- Ensure both handlers use the same formula — extract to a shared helper: `planBonusReferenceId(userId, eventDate)`
+- Test: simulate a renewal via Paystack then DodoPayments for the same user in the same calendar month; confirm only one bonus coin credit appears in `coin_ledger`
 
-After calculating `perMemberReward = Math.floor(totalPool / winnerCount)`, calculate `remainder = totalPool - (perMemberReward * winnerCount)`. Add `remainder` to `winners[0].coinReward` (or whichever ledger entry corresponds to the top winner). This ensures 100% of the coin pool is distributed and the coin supply is fully conserved. Add an assertion or log statement that verifies `sum(distributed) === totalPool` to catch any future regressions.
+### Task 12 — Fix ZBUG-12: Make awardGiftXP atomic
+**Files:** `apps/web/app/api/economy/gifts/send/route.ts`
+- Wrap all writes inside `awardGiftXP` in a `db.transaction()`: xp_ledger INSERT, users.xp_total UPDATE, and any track-specific column updates
+- Change the fire-and-forget call site to: `awardGiftXP(...).catch((err) => console.error('[gifts] XP award failed', err))`
+- Ensure the transaction uses the same DB connection (not the global `db` singleton when inside an outer transaction)
 
----
+### Task 13 — Fix ZBUG-13: Memoize fieldEncryption.getKey()
+**Files:** `apps/web/lib/security/fieldEncryption.ts`
+- Add `let cachedKey: Buffer | null = null` at module scope
+- In `getKey()`, return `cachedKey` if non-null; otherwise compute, assign, and return
+- This is a pure performance fix — no behavioral change
 
-**Fix 8 (BUG-010): Write season XP-bonus milestone to `xp_ledger`**
+### Task 14 — Fix ZBUG-14: Clarify legacy_score in claimPassMilestone
+**Files:** `apps/web/lib/seasons/seasonEngine.ts`
+- Decision required from product: should season pass milestone XP count toward `legacy_score`?
+- If NO: remove `legacy_score = legacy_score + $1` from the claimPassMilestone UPDATE
+- If YES: add a comment explicitly documenting this as intentional product decision
 
-FILES: `apps/web/lib/seasons/seasonEngine.ts`
+### Task 15 — Fix ZBUG-15: Add ON CONFLICT target for monthly plan bonus
+**Files:** `apps/web/app/api/cron/daily/route.ts`, DB migration
+- Identify the unique columns for monthly plan bonus dedup (likely `user_id` + `month_key` or similar)
+- Confirm the unique constraint exists in the DB: add a migration if needed
+- Change `ON CONFLICT DO NOTHING` to `ON CONFLICT (column_a, column_b) DO NOTHING` with the actual column names
+- Test: run the CRON twice in the same calendar month; confirm second run does not add duplicate bonus entries
 
-In the `claimMilestoneReward()` path where `reward.type === 'xp_bonus'`, insert a row into `xp_ledger` before updating `users.total_xp`. The ledger row should use `type = 'season_milestone_bonus'`, `reference_id = 'season:{seasonId}:milestone:{milestoneId}:user:{userId}'` (for deduplication), and `amount = reward.xpAmount`. Then derive the user update from the new ledger balance (or add the amount atomically) to stay consistent with all other XP-granting paths. Use `ON CONFLICT (reference_id) DO NOTHING` to make it safe to call twice.
+### Task 16 — Fix ZBUG-16: Add retry limit to Expo offline sync queue
+**Files:** `apps/expo/lib/offline/sqlite.ts`, `apps/expo/lib/offline/syncQueue.ts`
+- Add migration: `ALTER TABLE offline_messages ADD COLUMN retry_count INTEGER DEFAULT 0`
+- In `markMessageFailed()`: increment retry_count alongside setting status to `failed`
+- In `resetFailedMessages()`: only reset messages where `retry_count < 3` (configurable threshold)
+- Add a new `markMessagePermanentlyFailed(localId)` function that sets `sync_status = 'permanent_failure'`
+- In `syncPendingMessages()`: after a permanent server rejection (check HTTP status in catch), call `markMessagePermanentlyFailed` instead of `markMessageFailed`
+- Add a query `getPermFailedMessages()` for UI display
 
----
+### Task 17 — Fix ZBUG-17: Move mobile pre-auth token out of deep-link URL
+**Files:** `apps/web/app/api/auth/google/callback/route.ts`, `apps/web/app/api/auth/mobile-token/route.ts`
+- Instead of `deepLink.searchParams.set("pre_auth_token", preAuthToken)`:
+  - Generate an opaque exchange code: `const preAuthCode = crypto.randomBytes(32).toString('hex')`
+  - Store in Redis: `redis.setex('mobile_pre_auth:${preAuthCode}', 300, JSON.stringify({ preAuthToken, userId }))`
+  - Set in URL: `deepLink.searchParams.set("pre_auth_code", preAuthCode)`
+- Either reuse `/api/auth/mobile-token` (adding a `pre_auth_code` field to the schema) or create `/api/auth/mobile-preauth-token` that reads the code from Redis with GETDEL and returns the pre-auth token in the JSON response body
 
-**Fix 9 (BUG-012): Mark Telegram re-engagement users as notified after sending**
+### Task 18 — Fix ZBUG-18: Extract shared TOTP utilities
+**Files:** `apps/web/lib/auth/totp.ts` (new), `apps/web/app/api/admin/auth/totp/setup/route.ts`, `apps/web/app/api/admin/auth/totp/route.ts`
+- Create `apps/web/lib/auth/totp.ts` exporting `base32Encode`, `base32Decode`, `computeTotp`, `verifyTotp`, `generateTotpSecret`
+- Import from both route files instead of duplicating
+- In the setup route's POST handler, add the same `totp:used:{userId}:{code}` Redis anti-replay check that exists in the login route (ZBUG-18 bonus fix)
 
-FILES: `apps/web/app/api/cron/daily/route.ts`
+### Task 19 — Fix ZBUG-19: Hoist manifest lookups out of CRON task 33 loop
+**Files:** `apps/web/app/api/cron/daily/route.ts`
+- Before the `for (const referral of streakReferrals)` loop, add:
+  ```
+  const xpBonusStr = await getManifestValue("referral_tier1_xp_bonus");
+  const coinBonusStr = await getManifestValue("referral_tier1_coin_bonus");
+  const xpBonus = parseInt(xpBonusStr ?? "500", 10) || 500;
+  const coinBonus = parseInt(coinBonusStr ?? "100", 10) || 100;
+  ```
+- Remove the same calls from inside the transaction callback
 
-After the `sendBulkTelegramMessages()` call in Step 19, execute a batched `UPDATE users SET telegram_reengagement_sent_at = NOW() WHERE id = ANY($1::uuid[])` where the array contains the IDs of users who were selected for the batch. In the SELECT query that identifies candidates, add a filter: `AND (telegram_reengagement_sent_at IS NULL OR telegram_reengagement_sent_at < NOW() - INTERVAL '7 days')` (or whatever cooldown period is appropriate). This prevents the same user receiving the same Telegram message on every CRON run. If the `telegram_reengagement_sent_at` column doesn't exist yet, add it in a migration.
-
----
-
-**Fix 10 (BUG-023): Compute leaderboard RANK() over the full snapshot table, not a subset**
-
-FILES: `apps/web/app/api/cron/leaderboards/route.ts`
-
-Step 4's rank-change query currently filters rows before computing `RANK()`. Restructure the query as a CTE or subquery: first compute `RANK() OVER (PARTITION BY period ORDER BY score DESC)` across ALL rows in `leaderboard_snapshots` for the current period (no WHERE filter on activity), then outer-join that result to the previous period's snapshot to detect rank changes, and finally filter to only users whose rank changed. This gives each user their true absolute rank position before doing the comparison. Alternatively, store the computed rank in the snapshot row during upsert, and the CRON simply reads pre-computed values.
-
----
-
-**Fix 11 (BUG-024): Fix Final Hour notification batch INSERT column/value mismatch**
-
-FILES: `apps/web/app/api/cron/guild-wars/route.ts`
-
-Locate the Final Hour notification batch INSERT. Either: (a) Remove `created_at` from the declared column list and rely on the table's `DEFAULT NOW()` — confirm the column has a default in the migration; or (b) add a `NOW()` literal as the fifth value in each row's `($1,$2,$3,$4,NOW())` placeholder group. Option (a) is simpler and preferred. After the fix, verify the INSERT by checking that `created_at` is populated in the `notifications` table after a test war reaches Final Hour.
-
----
-
-**Fix 12 (BUG-026): Replace UPDATE-then-INSERT with a single atomic upsert in `upsertLeaderboardSnapshot()`**
-
-FILES: `apps/web/lib/leaderboards/engine.ts`
-
-Delete the two-step `UPDATE … then INSERT … ON CONFLICT DO NOTHING` pattern. Replace with a single: `INSERT INTO leaderboard_snapshots (user_id, period, score, rank, …) VALUES ($1,$2,$3,$4,…) ON CONFLICT (user_id, period) DO UPDATE SET score = EXCLUDED.score, rank = EXCLUDED.rank, updated_at = NOW()`. PostgreSQL executes this as a single atomic operation (no gap between check and write). Ensure a unique constraint or unique index exists on `(user_id, period)`.
-
----
-
-**Fix 13 (BUG-027): Fix Creator Fund tier sizing for pools smaller than 100 creators**
-
-FILES: `apps/web/lib/creator/fund.ts`
-
-Change `Math.floor(0.01 * totalCreators)` to `Math.max(1, Math.floor(0.01 * totalCreators))` for each tier that uses a fractional multiplier, so that at minimum 1 creator occupies any tier where creators exist. Additionally, after computing all tier sizes, calculate any undistributed pool (tiers that computed to 0 after the original floor, before the fix) and add a redistribution pass: if a tier has 0 members or 0 pool share after rounding, add its share to the next largest tier. Document the intended behaviour when `totalCreators < 10` (only one tier possible) with a comment.
-
----
-
-**Fix 14 (BUG-029): Send actual user notifications when a monthly gift drop goes active**
-
-FILES: `apps/web/lib/events/monthlyGiftDrop.ts`
-
-After `UPDATE gift_drops SET announced_at = NOW()` in `processPendingGiftDrops()`, add a notification dispatch step. Query eligible users (or all active users, depending on drop eligibility rules). For each batch of users, call the in-app notification helper (`insertNotification()` from `lib/notifications/insert.ts`) with `type = 'gift_drop_available'`, a relevant title/body, and a `deep_link` pointing to the gift drop screen. For large user bases, batch this in pages of 1000 and schedule Expo push notifications via the push notification batch system already used elsewhere in the codebase. Ensure the notification is only sent once per drop by checking `announced_at IS NULL` before the UPDATE (already in place) — this is already idempotent.
-
----
-
-**Fix 15 (BUG-033): Reject DodoPayments webhook when no coin amount can be determined**
-
-FILES: `apps/web/app/api/economy/webhooks/dodopayments/route.ts`
-
-In `processPaymentSucceeded()`, after attempting to resolve `coinsGranted` from the price catalogue (by `itemSlug`), check whether the result is 0 and `itemSlug` was absent or unrecognised. If so, do not silently complete with 0 coins. Instead: log a `console.error` with the full payload for ops visibility, insert the payment reference into a `failed_webhooks` or `manual_review_queue` table, and return HTTP 200 (to prevent DodoPayments from retrying a fundamentally unresolvable payload). Raise an ops alert (Slack, email, etc.). Never deliver 0 coins silently on a successful payment.
-
----
-
-## Phase 3 — Correctness
-
----
-
-**Fix 16 (BUG-003): Implement token issuance in the `sessionToken` 2FA path**
-
-FILES: `apps/web/app/api/auth/2fa/verify/route.ts`
-
-The `sessionToken` branch currently returns `{ verified: true }` with no usable credential. Add the full token-issue path: sign a new access token and refresh token for the `userId` stored in the pending-2FA Redis record, create a Redis session entry, and return the tokens in the response body (since this path is for mobile/non-cookie callers). If the `sessionToken` concept is deprecated and all callers now use cookies, delete the entire branch and its Redis key handler — do not leave dead code that appears to authenticate but doesn't.
-
----
-
-**Fix 17 (BUG-005): Handle username uniqueness race in Google OAuth callback**
-
-FILES: `apps/web/app/api/auth/google/callback/route.ts`
-
-Add a `try/catch` around the user INSERT that specifically handles PostgreSQL error code `23505` (unique_violation on the `users.username` column). On catching a `23505`, call `uniqueUsername()` again to generate a new candidate (the previous one was taken), then retry the INSERT once more. If the second attempt also fails (highly unlikely), return a 500 with a useful error message. This makes username assignment safe under concurrent OAuth sign-ups.
-
----
-
-**Fix 18 (BUG-008): Restrict `checkDeckCompletion()` to the user's assigned deck quests only**
-
-FILES: `apps/web/lib/quests/questEngine.ts`
-
-Add a subquery or JOIN to the deck-completion check query: first get the user's active deck assignment from `user_quest_decks WHERE user_id = $1 AND assigned_date = CURRENT_DATE`, extract the quest IDs assigned to that deck, then count progress only for those specific quest IDs. If no active deck assignment is found, return false (no deck = not complete). This ensures that quest completions from other contexts (historical, different deck) do not falsely trigger the deck completion bonus.
+### Task 20 — Fix ZBUG-20: Clean up isFirstGift COUNT query
+**Files:** `apps/web/app/api/economy/gifts/send/route.ts`
+- Replace `SELECT COUNT(*) FROM gifts WHERE recipient_id = $1 LIMIT 1` with `SELECT EXISTS(SELECT 1 FROM gifts WHERE recipient_id = $1 LIMIT 1)`
+- Update the conditional that checks the result to use the boolean EXISTS result
+- Search for similar `COUNT(*) ... LIMIT 1` patterns elsewhere and fix those too
 
 ---
 
-**Fix 19 (BUG-013): Add idempotency guard to Daily CRON alliance war creation**
+## Phase 4 — Low / Code Quality (Fix As Time Allows)
 
-FILES: `apps/web/app/api/cron/daily/route.ts`
+### Task 21 — Fix ZBUG-21: Remove http:// from HTML sanitizer allowed schemes
+**Files:** `apps/web/lib/security/htmlSanitizer.ts`
+- Remove `"http"` from `ALLOWED_SCHEMES` in the href/src validation block
+- Optionally: rewrite `http://` links to `https://` before scheme validation for graceful handling of legacy content
+- Test: submit HTML with `http://` link; confirm it is stripped. Submit `https://` link; confirm it passes.
 
-Add a unique constraint on the `alliance_wars` table covering `(guild_id_a, guild_id_b, scheduled_for::date)` (or the equivalent business key) if one doesn't exist: `CREATE UNIQUE INDEX IF NOT EXISTS alliance_wars_unique_daily ON alliance_wars (LEAST(guild_id_a, guild_id_b), GREATEST(guild_id_a, guild_id_b), scheduled_for::date)`. Then change the INSERT in Step 32 to `INSERT INTO alliance_wars … ON CONFLICT DO NOTHING`. This makes the step safe to run multiple times in one day.
+### Task 22 — Fix ZBUG-22: Sanitize markdown announcement content
+**Files:** `apps/web/lib/security/htmlSanitizer.ts`, all markdown render call sites
+- Audit all client-side components that render announcement `markdown` content — confirm which Markdown library is used and whether raw HTML is enabled
+- Option A (preferred): run markdown content through a safe parser (e.g., `remark` + `rehype-sanitize`) before storage or before rendering, stripping dangerous constructs
+- Option B: document and enforce via ESLint/code review that all markdown renderers must set `allowDangerousHtml: false` (or equivalent)
 
----
+### Task 23 — Fix ZBUG-23: Allow public IPv6 in SSRF validator
+**Files:** `apps/web/lib/security/ssrf.ts`
+- In `isPrivateIp()`, replace the blanket `hostname.includes(":")` check with specific IPv6 private-range checks:
+  - `hostname === "::1"` (loopback)
+  - `hostname.toLowerCase().startsWith("fe80:")` (link-local)
+  - `hostname.toLowerCase().startsWith("fc") || hostname.toLowerCase().startsWith("fd")` (unique-local)
+  - `hostname.toLowerCase().startsWith("fec0:")` (site-local, deprecated but safe to block)
+- All other IPv6 addresses pass to `resolveAndValidateHostname()` for DNS-pinned validation
 
-**Fix 20 (BUG-016): Unify monthly plan bonus transaction type across CRON and Paystack webhook**
+### Task 24 — Fix ZBUG-24: Wrap DM message XP in its own transaction
+**Files:** `apps/web/app/api/messages/dm/[conversationId]/route.ts`
+- After the coin+message transaction commits, wrap the two XP writes in `db.transaction(async (tx) => { await tx.query(xp_ledger_insert...); await tx.query(user_xp_update...); })`
+- Add `.catch((err) => console.error('[dm/xp]', err))` to the fire-and-forget call
+- Apply the same pattern to the equivalent room messages route if it has the same issue
 
-FILES: `apps/web/app/api/cron/daily/route.ts`, `apps/web/app/api/economy/webhooks/paystack/route.ts`
+### Task 25 — Fix ZBUG-25: Batch leaderboard ripple CRON operations
+**Files:** `apps/web/app/api/cron/daily/route.ts`
+- Collect all upsert payloads into an array before looping
+- Batch DB upserts using PostgreSQL `unnest()` or chunked multi-row INSERT...ON CONFLICT (chunk size 500)
+- Collect all push notification payloads and call `sendPushNotificationBatch(allNotifications)` once outside the loop
+- Add a `LIMIT N` to the query that fetches users for ripple processing to cap per-CRON-run work
 
-Pick one canonical `type` string for the monthly subscription bonus ledger entry — `'subscription_bonus'` is preferred as it matches the Paystack context. Update the CRON to use `'subscription_bonus'`. Define the canonical string as a shared constant in `lib/economy/types.ts` (or similar shared module) and import it in both files to prevent future drift. Standardise the `reference_id` format to `sub_bonus:{userId}:{YYYY-MM}` in both paths. Verify that the `ON CONFLICT (reference_id) DO NOTHING` guard on the ledger insert prevents any accidental duplicate from the coexistence of both paths.
+### Task 26 — Fix ZBUG-26: Exclude pending-approval messages from XP cap
+**Files:** `apps/web/app/api/rooms/[roomId]/messages/route.ts`
+- In `countTodayMessages()` (or the inline query), add `AND is_pending_approval = FALSE` to the WHERE clause so only approved/published messages count toward the daily XP cap
+- Alternatively: move the XP cap check to the message approval endpoint so it only triggers when a moderator approves the message. Document whichever approach is chosen.
 
----
-
-**Fix 21 (BUG-018): Replace fixed-window geo-anomaly counter with a proper sliding window**
-
-FILES: `apps/web/lib/security/geoAnomaly.ts`
-
-Replace the `INCR` + conditional `EXPIRE` pattern with a Redis sorted-set sliding window — the same approach used in `lib/security/rateLimit.ts`. On each suspicious login from a new location: `ZADD geo_anomaly:{userId} <timestamp_ms> <timestamp_ms>`, then `ZREMRANGEBYSCORE … 0 <now - window_ms>`, then `ZCARD …` to get the count in the window. Set the sorted-set TTL to the window duration. This gives a true sliding window that cannot be gamed by straddling a fixed boundary. Keep the Lua script atomic for correctness.
-
----
-
-**Fix 22 (BUG-019): Add explicit parentheses to CSRF condition to fix operator precedence**
-
-FILES: `apps/web/middleware.ts` (line 197)
-
-Change: `if ((pathname.startsWith("/api/") && !isPublicRoute(pathname) || isAuthMutation) && !isCsrfSafe(request))`
-
-To: `if (((pathname.startsWith("/api/") && !isPublicRoute(pathname)) || isAuthMutation) && !isCsrfSafe(request))`
-
-The change adds parentheses around the `||` sub-expression to make `isAuthMutation` a peer of the `&&` expression, not a lower-precedence alternative that changes evaluation order. This is a one-character structural change — add parentheses around the left side of the `||`. Add a comment above explaining the two independent conditions to prevent future regressions.
-
----
-
-**Fix 23 (BUG-020): Remove default parameter from `awardReferralCommissions()` `paymentId`**
-
-FILES: `apps/web/lib/referrals/commissions.ts`
-
-Change the function signature from `awardReferralCommissions(buyerId, amount, paymentId = buyerId)` to `awardReferralCommissions(buyerId, amount, paymentId: string)` (required parameter, no default). TypeScript will immediately flag all call sites that omit `paymentId`. Visit each flagged call site and pass the actual Paystack payment reference, Dodo payment ID, or IAP purchase token as `paymentId`. This makes the deduplication key unambiguous at every call.
-
----
-
-**Fix 24 (BUG-030): Incorporate a unique request/payment reference into the coin purchase idempotency key**
-
-FILES: `apps/web/app/api/economy/coins/purchase/route.ts`
-
-The idempotency key is currently `purchase:{userId}:{packId}:{YYYY-MM-DD}`. Change it to `purchase:{userId}:{packId}:{clientRequestId}` where `clientRequestId` is a UUID generated by the client and sent in the request body (the mobile/web app generates a new UUID per purchase attempt). The route stores this key in Redis for 24 hours to catch accidental double-submits (network retries), but a deliberate second purchase the same day uses a new UUID and is not blocked. If a `clientRequestId` is not provided, fall back to the Paystack-returned transaction reference after payment initiation.
-
----
-
-**Fix 25 (BUG-031): Remove the duplicate HTML sanitizer from `announcements/engine.ts`**
-
-FILES: `apps/web/lib/announcements/engine.ts`, `apps/web/lib/security/htmlSanitizer.ts`
-
-Delete the local `sanitizeHtmlContent()` function in `announcements/engine.ts`. Import the canonical `sanitizeHtml()` (or equivalent) from `lib/security/htmlSanitizer.ts`. If announcement content requires `mailto:` link support that the canonical sanitizer doesn't currently allow, extend the canonical sanitizer's href-scheme allowlist to include `mailto:` rather than maintaining a separate implementation. Run a regression test on existing announcement content to confirm no previously-stored HTML is stripped differently after the switch.
+### Task 27 — Fix ZBUG-27: Scope PIN verification to session
+**Files:** `apps/web/lib/auth/pinGuard.ts`, `apps/web/app/api/auth/pin/verify/route.ts`
+- Update `pinOkKey(userId)` to `pinOkKey(userId, sessionId)`: `return 'pin_ok:${userId}:${sessionId}'`
+- Update `markPinVerified(userId)` → `markPinVerified(userId, sessionId)` — requires passing sessionId from the route
+- Update `requirePinVerified(userId)` → `requirePinVerified(userId, sessionId)` — requires the same at all call sites (gifts/send, payouts, etc.)
+- In `POST /api/auth/pin/verify`, extract `auth.user.sid` and pass to `markPinVerified`
+- At all `requirePinVerified` call sites, extract `auth.user.sid` from the JWT payload and pass it in
 
 ---
 
-**Fix 26 (BUG-032): Route AI classification through the Redis-backed circuit breaker in `lib/ai/client.ts`**
+## Implementation Notes
 
-FILES: `apps/web/lib/moderation/aiClassifier.ts`
-
-Delete the module-level `failureCount`, `circuitState`, `lastFailureTime` variables and all the manual circuit-breaker logic in `aiClassifier.ts`. Replace direct fetch/axios calls to the AI provider with calls to `aiClient.chat()` from `lib/ai/client.ts`, which already implements a Redis-backed, cross-instance circuit breaker with DeepSeek primary / Gemini fallback. This gives content moderation the same resilience as other AI calls without maintaining a separate (broken) circuit.
-
----
-
-## Phase 4 — Cleanup
+- **Phase 1 tasks are blocking**: ZBUG-01, ZBUG-02, ZBUG-03 directly cause silent data loss or prevent mobile users from authenticating. Fix before next release.
+- **Phase 2 tasks are high-priority security**: ZBUG-05 and ZBUG-06 affect admin access and payment reliability.
+- **Phase 3 tasks** can be batched into a single PR per functional area (auth, economy, CRON, Expo).
+- **Phase 4 tasks** are code quality improvements — batch into a "hardening" PR.
+- Run the full test suite after each phase. ZBUG-01 in particular may reveal downstream test failures from season reward tests that assumed the wrong order.
 
 ---
 
-**Fix 27 (BUG-001): Remove dead `dynamic` export from login page**
-
-FILES: `apps/web/app/auth/login/page.tsx`
-
-Delete the line `export const dynamic = "force-dynamic"`. It has no effect in a Client Component and misleads readers. If dynamic rendering was the intent, the component needs to be restructured as a Server Component boundary that wraps the client interaction — but given it is an auth page with no server-rendered secrets, the default static-shell behaviour is correct.
-
----
-
-**Fix 28 (BUG-004): Add bounds-check for empty `X-Forwarded-For` in rate limiter**
-
-FILES: `apps/web/lib/security/rateLimit.ts`
-
-Before the `ips[ips.length - TRUSTED_PROXY_COUNT - 1]` index, add: `if (ips.length === 0) { /* use request.ip fallback */ }`. Also add: `if (TRUSTED_PROXY_COUNT >= ips.length) { console.warn('[rateLimit] TRUSTED_PROXY_COUNT exceeds XFF depth — possible misconfiguration'); /* use ips[0] or block */ }`. These guards prevent undefined array accesses under edge configurations and make misconfiguration visible in logs rather than silently bypassing rate limiting.
-
----
-
-**Fix 29 (BUG-011): Add error logging to `createSeasonCeremonyRoom()`**
-
-FILES: `apps/web/lib/seasons/seasonEngine.ts`
-
-In the `catch` block of `createSeasonCeremonyRoom()`, add `console.error('[seasonEngine] createSeasonCeremonyRoom failed:', err)` before returning `null`. Consider adding a Sentry/error-tracking call if the platform uses one. This is a minimal one-line change that makes the silence visible. A future improvement would be to let schema/auth errors propagate while only swallowing "duplicate room" conflicts, but the immediate fix is to at least log the error.
-
----
-
-**Fix 30 (BUG-014): Fix contradictory streak-update date conditions in daily CRON**
-
-FILES: `apps/web/app/api/cron/daily/route.ts`
-
-Audit the `users` table schema to determine the single authoritative column for "last active day": is it `last_login_date` (a DATE), `last_login_at` (a TIMESTAMP), or both? Pick the single correct column for the streak-update WHERE clause. If `last_login_at` is the timestamp of the most recent login, the correct streak condition is: user logged in yesterday, i.e., `last_login_at::date = CURRENT_DATE - INTERVAL '1 day'`. Remove the contradictory `last_login_date = yesterday` filter entirely, or — if both columns must stay — ensure they are always written together in the same transaction so they are always consistent.
-
----
-
-**Fix 31 (BUG-015): Fix monthly plan bonus to use the correct subscription status predicate**
-
-FILES: `apps/web/app/api/cron/daily/route.ts`
-
-Replace `WHERE is_active = true` with the schema-appropriate active-subscription predicate. If subscriptions use soft-delete: `WHERE deleted_at IS NULL AND status = 'active'`. If they use a status enum: `WHERE status = 'active'`. Check the actual `subscriptions` table migration to confirm the correct columns and values. If no `is_active` column exists, this query currently throws a runtime error every day, which means the monthly plan bonus is never being awarded. Verify by checking logs or the coins ledger for `monthly_plan_bonus` entries.
-
----
-
-**Fix 32 (BUG-017): Use the shared `insertNotification()` helper for all notification inserts in Paystack webhook**
-
-FILES: `apps/web/app/api/economy/webhooks/paystack/route.ts`
-
-Both the subscription-event notification and the payout notification in this file should call `insertNotification()` from `lib/notifications/insert.ts` instead of writing raw INSERT SQL. The helper enforces the correct column schema (`user_id, title, body, type, metadata`) and prevents the `payload` vs `title/body/metadata` inconsistency. Update both notification INSERT calls to use the helper.
-
----
-
-**Fix 33 (BUG-028): Remove dead `CONNECTION_BADGE_THRESHOLD` constant**
-
-FILES: `apps/web/lib/messaging/conversationScore.ts`
-
-Delete `const CONNECTION_BADGE_THRESHOLD = 50`. Add a comment on `CONNECTION_BADGE_STREAK_DAYS = 7` clarifying that the Connection Badge is awarded based on a 7-consecutive-day messaging streak, not a score threshold. If a score-based badge was intended as a future feature, track it in a GitHub issue rather than leaving a dangling constant that implies implemented logic.
-
----
-
-## Migration Checklist
-
-Before deploying fixes, confirm the following database objects exist (create migrations if not):
-
-- [ ] `users.telegram_reengagement_sent_at` (TIMESTAMPTZ, nullable) — required for Fix 9
-- [ ] `leaderboard_snapshots` unique index on `(user_id, period)` — required for Fix 12
-- [ ] `alliance_wars` unique index on daily war business key — required for Fix 19
-- [ ] `coin_ledger` unique index on `reference_id` — required for Fix 3
-- [ ] `subscriptions` table: confirm correct `status` column name — required for Fix 31
-- [ ] `notifications` table: confirm column schema matches `insertNotification()` helper — required for Fix 32
-- [ ] `gift_drops.announced_at` column exists — appears to be in place already
-
-## Credential Rotation Required
-
-After Fix 5 (BUG-025 — Gemini API key in URL):
-
-- [ ] Rotate the Gemini API key in Google Cloud Console immediately after deploying the fix
-- [ ] Update the `GEMINI_API_KEY` (or equivalent) environment variable in all deployment environments (Vercel, Railway, etc.)
-- [ ] Check server access logs / CDN logs for the previous key value and confirm rotation succeeded
-
----
-
-*Plan generated: 2026-06-14 at 6:06 AM UTC*  
-*33 bugs — 33 fixes — do not begin implementation until plan is reviewed and approved*
+**Plan complete.** 27 tasks mapped to bug report entries.
+**Generated:** June 14, 2026 — 12:00 PM
