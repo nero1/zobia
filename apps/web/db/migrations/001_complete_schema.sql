@@ -758,6 +758,7 @@ CREATE TABLE IF NOT EXISTS room_messages (
   pinned_at    TIMESTAMPTZ,
   pinned_by    UUID REFERENCES users(id) ON DELETE SET NULL,
   pin_expires_at TIMESTAMPTZ,
+  reply_to_message_id UUID REFERENCES room_messages(id) ON DELETE SET NULL,
   is_pending_approval BOOLEAN NOT NULL DEFAULT false,
   created_at   TIMESTAMPTZ DEFAULT NOW(),
   updated_at   TIMESTAMPTZ DEFAULT NOW()
