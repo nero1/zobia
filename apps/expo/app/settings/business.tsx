@@ -191,7 +191,7 @@ export default function BusinessSettingsScreen() {
         <>
           <SectionHeader title="ANALYTICS" />
           <View style={styles.statsRow}>
-            <StatBox label="Members" value={data.memberCount.toLocaleString()} />
+            <StatBox label="Members" value={(data.memberCount ?? 0).toLocaleString()} />
             <StatBox label="Broadcasts left" value={data.broadcastCreditsRemaining} />
           </View>
 

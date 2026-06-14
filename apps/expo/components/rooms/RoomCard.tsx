@@ -253,8 +253,8 @@ export const RoomCard = memo(function RoomCard({
 
   const memberLabel =
     maxMembers
-      ? `${memberCount.toLocaleString()}/${maxMembers.toLocaleString()}`
-      : `${memberCount.toLocaleString()} members`;
+      ? `${(memberCount ?? 0).toLocaleString()}/${maxMembers.toLocaleString()}`
+      : `${(memberCount ?? 0).toLocaleString()} members`;
 
   return (
     <Pressable
