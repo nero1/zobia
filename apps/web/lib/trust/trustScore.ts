@@ -17,6 +17,10 @@
  */
 
 import type { DatabaseAdapter } from "@/lib/db/interface";
+// Schema-derived types: columns are guaranteed to exist in the users table.
+// When the DB schema changes, these imports break at compile time rather than
+// at runtime. Use schema.$inferSelect field names as authoritative references.
+import { schema } from "@/lib/db/schema";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -130,7 +134,16 @@ export async function calculateTrustScore(
   userId: string,
   db: DatabaseAdapter
 ): Promise<number> {
-  const { rows } = await db.query<{
+  // Compile-time schema validation: if these columns are renamed or removed in
+  // schema.ts, the type references below produce a TypeScript error before the
+  // mismatch reaches production. The raw SQL query must use snake_case aliases.
+  type _CheckColumns = {
+    isBanned: typeof schema.users.isBanned;
+    isVerified: typeof schema.users.isVerified;
+    reportedUserId: typeof schema.reports.reportedUserId;
+    targetUserId: typeof schema.moderationActions.targetUserId;
+  };
+  type TrustSignalRow = {
     account_age_days: string;
     report_count: string;
     warning_count: string;
@@ -138,7 +151,8 @@ export async function calculateTrustScore(
     is_verified: boolean;
     payment_count: string;
     moderation_action_count: string;
-  }>(
+  };
+  const { rows } = await db.query<TrustSignalRow>(
     `SELECT
        EXTRACT(DAY FROM (NOW() - u.created_at))::int::text  AS account_age_days,
        (SELECT COUNT(*)::text FROM reports WHERE reported_user_id = u.id) AS report_count,
@@ -239,11 +253,17 @@ export async function meetsMinimumTrust(
   feature: TrustGatedFeature,
   db: DatabaseAdapter
 ): Promise<boolean> {
-  const { rows } = await db.query<{
+  // Compile-time schema validation: TypeScript errors if these columns change in schema.ts.
+  type _CheckGateColumns = {
+    trustScore: typeof schema.users.trustScore;
+    isBanned: typeof schema.users.isBanned;
+  };
+  type TrustGateRow = {
     trust_score: number | null;
     account_age_days: number;
     is_banned: boolean;
-  }>(
+  };
+  const { rows } = await db.query<TrustGateRow>(
     `SELECT
        trust_score,
        EXTRACT(DAY FROM (NOW() - created_at))::int AS account_age_days,

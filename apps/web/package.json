@@ -10,10 +10,14 @@
     "type-check": "tsc --noEmit",
     "test": "jest --passWithNoTests",
     "test:unit": "jest --testPathPattern='lib/'",
+    "test:integration": "jest --testPathPattern='__tests__/integration/' --runInBand",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:security": "jest --testPathPattern='security-tests/'",
-    "test:all": "npm run test:unit && npm run test:e2e && npm run test:security"
+    "test:all": "npm run test:unit && npm run test:e2e && npm run test:security",
+    "drizzle:generate": "drizzle-kit generate",
+    "drizzle:check": "drizzle-kit check",
+    "drizzle:studio": "drizzle-kit studio"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.651.1",
@@ -28,6 +32,8 @@
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
     "decimal.js": "^10.4.3",
+    "drizzle-kit": "^0.31.10",
+    "drizzle-orm": "^0.45.2",
     "i18next": "^23.15.1",
     "i18next-browser-languagedetector": "^8.0.0",
     "i18next-resources-to-backend": "^1.2.1",
