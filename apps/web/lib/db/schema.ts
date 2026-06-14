@@ -69,8 +69,6 @@ export const users = pgTable("users", {
   googleId: text("google_id").unique(),
   telegramId: text("telegram_id").unique(),
   isEmailVerified: boolean("is_email_verified").default(false),
-  twoFaSecret: text("two_fa_secret"),
-  twoFaEnabled: boolean("two_fa_enabled").default(false),
   totpSecret: text("totp_secret"),
   totpEnabled: boolean("totp_enabled").notNull().default(false),
 
@@ -542,7 +540,7 @@ export const userQuestDecks = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    questId: uuid("quest_id").notNull(),
+    questId: uuid("quest_id").notNull().references(() => questTemplates.id, { onDelete: "cascade" }),
     assignedDate: date("assigned_date").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -575,12 +573,14 @@ export const leaderboardSnapshots = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (t) => ({
-    unique: uniqueIndex("leaderboard_snapshots_unique").on(
+    // BUG-05: Use expression index with COALESCE to handle NULL city/season_id
+    // Standard UNIQUE constraints treat each NULL as distinct; COALESCE normalises NULLs
+    unique: uniqueIndex("leaderboard_snapshots_upsert_idx").on(
       t.userId,
       t.track,
       t.scope,
-      t.city,
-      t.seasonId
+      sql`COALESCE(${t.city}, '')`,
+      sql`COALESCE(${t.seasonId}::text, '')`
     ),
   })
 );
@@ -683,6 +683,300 @@ export const userInactivityEvents = pgTable("user_inactivity_events", {
 });
 
 // ---------------------------------------------------------------------------
+// SECTION 12: Push Tokens (BUG-17)
+// ---------------------------------------------------------------------------
+
+export const userPushTokens = pgTable(
+  "user_push_tokens",
+  {
+    id: uuidPkGen(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    token: text("token").notNull(),
+    platform: text("platform").notNull().default("expo"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => ({
+    unique: uniqueIndex("user_push_tokens_user_token_idx").on(t.userId, t.token),
+  })
+);
+
+// ---------------------------------------------------------------------------
+// SECTION 13: Gifts (BUG-12)
+// ---------------------------------------------------------------------------
+
+export const giftTypes = pgTable("gift_types", {
+  id: uuidPk(),
+  name: text("name").notNull().unique(),
+  emoji: text("emoji").notNull(),
+  coinCost: integer("coin_cost").notNull(),
+  xpValue: integer("xp_value").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  isLimitedEdition: boolean("is_limited_edition").notNull().default(false),
+  isRetired: boolean("is_retired").notNull().default(false),
+  seasonId: uuid("season_id"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const gifts = pgTable("gifts", {
+  id: uuidPk(),
+  senderId: uuid("sender_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  recipientId: uuid("recipient_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  giftTypeId: uuid("gift_type_id")
+    .notNull()
+    .references(() => giftTypes.id),
+  messageId: uuid("message_id"),
+  roomId: uuid("room_id"),
+  coinCost: integer("coin_cost").notNull(),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// SECTION 14: Rooms (BUG-12)
+// ---------------------------------------------------------------------------
+
+export const rooms = pgTable("rooms", {
+  id: uuidPk(),
+  creatorId: uuid("creator_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  type: text("type").notNull().default("free_open"),
+  isActive: boolean("is_active").notNull().default(true),
+  totalMessages: integer("total_messages").notNull().default(0),
+  memberCount: integer("member_count").notNull().default(0),
+  closesAt: timestamp("closes_at", { withTimezone: true }),
+  metadata: jsonb("metadata"),
+  moderationRules: jsonb("moderation_rules"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+export const roomMembers = pgTable(
+  "room_members",
+  {
+    id: uuidPkGen(),
+    roomId: uuid("room_id")
+      .notNull()
+      .references(() => rooms.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role").notNull().default("member"),
+    isMuted: boolean("is_muted").notNull().default(false),
+    mutedUntil: timestamp("muted_until", { withTimezone: true }),
+    joinedAt: timestamp("joined_at", { withTimezone: true }).defaultNow(),
+    leftAt: timestamp("left_at", { withTimezone: true }),
+  },
+  (t) => ({
+    unique: uniqueIndex("room_members_room_user_idx").on(t.roomId, t.userId),
+  })
+);
+
+// ---------------------------------------------------------------------------
+// SECTION 15: Guild Wars (BUG-12)
+// ---------------------------------------------------------------------------
+
+export const guilds = pgTable("guilds", {
+  id: uuidPk(),
+  name: text("name").notNull().unique(),
+  description: text("description"),
+  creatorId: uuid("creator_id").references(() => users.id, { onDelete: "set null" }),
+  tier: text("tier").notNull().default("bronze_1"),
+  guildXp: integer("guild_xp").notNull().default(0),
+  city: text("city"),
+  isActive: boolean("is_active").notNull().default(true),
+  warsWon: integer("wars_won").notNull().default(0),
+  warsLost: integer("wars_lost").notNull().default(0),
+  lastWarEndedAt: timestamp("last_war_ended_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+export const guildMembers = pgTable(
+  "guild_members",
+  {
+    id: uuidPkGen(),
+    guildId: uuid("guild_id")
+      .notNull()
+      .references(() => guilds.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role").notNull().default("member"),
+    joinedAt: timestamp("joined_at", { withTimezone: true }).defaultNow(),
+    leftAt: timestamp("left_at", { withTimezone: true }),
+  },
+  (t) => ({
+    unique: uniqueIndex("guild_members_guild_user_idx").on(t.guildId, t.userId),
+  })
+);
+
+export const guildWars = pgTable("guild_wars", {
+  id: uuidPkGen(),
+  challengerGuildId: uuid("challenger_guild_id")
+    .notNull()
+    .references(() => guilds.id),
+  defenderGuildId: uuid("defender_guild_id")
+    .notNull()
+    .references(() => guilds.id),
+  status: text("status").notNull().default("active"),
+  challengerPoints: integer("challenger_points").notNull().default(0),
+  defenderPoints: integer("defender_points").notNull().default(0),
+  winnerGuildId: uuid("winner_guild_id"),
+  startsAt: timestamp("starts_at", { withTimezone: true }).notNull().defaultNow(),
+  endsAt: timestamp("ends_at", { withTimezone: true }),
+  finalHourStartsAt: timestamp("final_hour_starts_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+export const guildWarMembers = pgTable(
+  "war_contributions",
+  {
+    id: uuidPkGen(),
+    warId: uuid("war_id")
+      .notNull()
+      .references(() => guildWars.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    guildId: uuid("guild_id").notNull(),
+    warPoints: integer("war_points").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => ({
+    unique: uniqueIndex("war_contributions_war_user_idx").on(t.warId, t.userId),
+  })
+);
+
+// ---------------------------------------------------------------------------
+// SECTION 16: Audit Log (BUG-30)
+// ---------------------------------------------------------------------------
+
+export const auditLog = pgTable("audit_log", {
+  id: uuidPkGen(),
+  actorId: uuid("actor_id"),
+  action: text("action").notNull(),
+  targetType: text("target_type"),
+  targetId: text("target_id"),
+  metadata: jsonb("metadata"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// SECTION 17: Hall of Fame (BUG-11 reference)
+// ---------------------------------------------------------------------------
+
+export const hallOfFame = pgTable("hall_of_fame", {
+  id: uuidPkGen(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" })
+    .unique(),
+  inductedAt: timestamp("inducted_at", { withTimezone: true }).notNull().defaultNow(),
+  inductedBy: uuid("inducted_by").references(() => users.id, { onDelete: "set null" }),
+  reason: text("reason"),
+});
+
+// ---------------------------------------------------------------------------
+// SECTION 18: Gift Items (for season engine)
+// ---------------------------------------------------------------------------
+
+export const giftItems = pgTable("gift_items", {
+  id: uuidPk(),
+  name: text("name").notNull(),
+  emoji: text("emoji").notNull(),
+  coinCost: integer("coin_cost").notNull(),
+  isLimitedEdition: boolean("is_limited_edition").notNull().default(false),
+  isRetired: boolean("is_retired").notNull().default(false),
+  seasonId: uuid("season_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// SECTION 19: Seasons (for season engine)
+// ---------------------------------------------------------------------------
+
+export const seasons = pgTable("seasons", {
+  id: uuidPk(),
+  name: text("name").notNull(),
+  theme: text("theme").notNull().default("default"),
+  startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+  endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+  isActive: boolean("is_active").notNull().default(false),
+  passPriceCoins: integer("pass_price_coins").notNull().default(0),
+  rewardPoolCoins: integer("reward_pool_coins").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+export const seasonPassMilestones = pgTable("season_pass_milestones", {
+  id: uuidPk(),
+  seasonId: uuid("season_id")
+    .notNull()
+    .references(() => seasons.id, { onDelete: "cascade" }),
+  milestoneXp: integer("milestone_xp").notNull(),
+  tier: text("tier").notNull().default("free"),
+  rewardType: text("reward_type").notNull(),
+  rewardValue: jsonb("reward_value"),
+  displayName: text("display_name").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const userSeasonPasses = pgTable(
+  "user_season_passes",
+  {
+    id: uuidPkGen(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    seasonId: uuid("season_id")
+      .notNull()
+      .references(() => seasons.id, { onDelete: "cascade" }),
+    isPaid: boolean("is_paid").notNull().default(false),
+    seasonXp: integer("season_xp").notNull().default(0),
+    seasonRank: integer("season_rank"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => ({
+    unique: uniqueIndex("user_season_passes_user_season_idx").on(t.userId, t.seasonId),
+  })
+);
+
+export const userSeasonPassClaims = pgTable(
+  "user_season_pass_claims",
+  {
+    id: uuidPkGen(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    seasonId: uuid("season_id")
+      .notNull()
+      .references(() => seasons.id, { onDelete: "cascade" }),
+    milestoneId: uuid("milestone_id")
+      .notNull()
+      .references(() => seasonPassMilestones.id, { onDelete: "cascade" }),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    unique: uniqueIndex("user_season_pass_claims_user_milestone_idx").on(t.userId, t.milestoneId),
+  })
+);
+
+// ---------------------------------------------------------------------------
 // Inferred TypeScript types — use these in your query result annotations
 // instead of manually written interfaces.
 // ---------------------------------------------------------------------------
@@ -766,4 +1060,20 @@ export const schema = {
   roomMessages,
   userBadges,
   userInactivityEvents,
+  userPushTokens,
+  giftTypes,
+  gifts,
+  rooms,
+  roomMembers,
+  guilds,
+  guildMembers,
+  guildWars,
+  guildWarMembers,
+  auditLog,
+  hallOfFame,
+  giftItems,
+  seasons,
+  seasonPassMilestones,
+  userSeasonPasses,
+  userSeasonPassClaims,
 };

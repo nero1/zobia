@@ -39,7 +39,7 @@ function buildCsp(nonce: string): string {
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
-    "img-src 'self' data: blob: https: http:",
+    "img-src 'self' data: blob: https:",
     "connect-src 'self' https: wss:",
     "frame-src 'self' https://www.google.com https://challenges.cloudflare.com",
     "object-src 'none'",
@@ -67,6 +67,7 @@ const HOME_URL = "/home";
 const PUBLIC_PREFIXES = [
   "/auth",
   "/api/auth",
+  "/api/health",
   "/api/manifest",
   // CSP violation reports from browsers (no auth, unauthenticated browsers send these)
   "/api/security/csp-report",
@@ -157,7 +158,8 @@ function isCsrfSafe(request: NextRequest): boolean {
   if (!origin) {
     // No Origin header — only allow specific CRON paths with the CRON secret header
     const isCronPath = request.nextUrl.pathname.startsWith("/api/cron/");
-    const hasCronSecret = request.headers.has("x-cron-secret");
+    const hasCronSecret = !!process.env.CRON_SECRET &&
+      request.headers.get("x-cron-secret") === process.env.CRON_SECRET;
     return isCronPath && hasCronSecret;
   }
 
@@ -191,6 +193,11 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     requestHeaders.set("x-nonce", nonce);
     const res = NextResponse.next({ request: { headers: requestHeaders } });
     res.headers.set("Content-Security-Policy", csp);
+    // BUG-29: additional hardening headers
+    res.headers.set("Cross-Origin-Opener-Policy", "same-origin");
+    res.headers.set("Cross-Origin-Resource-Policy", "same-origin");
+    res.headers.set("Cross-Origin-Embedder-Policy", "credentialless");
+    res.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
     return res;
   }
 

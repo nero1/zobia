@@ -263,9 +263,12 @@ export async function enforceRateLimit(
  * @returns IP string (falls back to "unknown" if not determinable)
  */
 export function getClientIp(request: Request): string {
-  // Vercel sets x-vercel-forwarded-for to the actual client IP (non-spoofable)
-  const vercelIp = request.headers.get("x-vercel-forwarded-for");
-  if (vercelIp) return vercelIp.split(",")[0].trim();
+  // BUG-24: only trust x-vercel-forwarded-for when actually deployed on Vercel
+  // — otherwise clients can spoof this header to bypass IP-based rate limiting
+  if (process.env.VERCEL === "1") {
+    const vercelIp = request.headers.get("x-vercel-forwarded-for");
+    if (vercelIp) return vercelIp.split(",")[0].trim();
+  }
 
   // x-real-ip is set by nginx and other trusted reverse proxies
   const realIp = request.headers.get("x-real-ip");

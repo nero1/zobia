@@ -1,11 +1,19 @@
-import { createCipheriv, createDecipheriv, randomBytes, createHash } from "crypto";
+import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "crypto";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
 
-// Current encryption version prefix — bump to v2 when rotating keys
-const CURRENT_VERSION = "v1";
+// Bump CURRENT_VERSION to "v2" when rotating to KDF-derived keys.
+// v1 (SHA-256) remains for decryption of existing ciphertext only.
+const CURRENT_VERSION = "v2";
+
+// Per-version salts — fixed constants that bind the KDF output to this key version.
+// Changing these invalidates all existing ciphertext for that version.
+const VERSION_SALTS: Record<string, Buffer> = {
+  v1: Buffer.from("zobia-field-enc-v1"),
+  v2: Buffer.from("zobia-field-enc-v2"),
+};
 
 const keyCache = new Map<string, Buffer>();
 
@@ -14,7 +22,18 @@ function getKeyForVersion(version: string): Buffer {
   const envVar = `KYC_ENCRYPTION_KEY_${version.toUpperCase()}`;
   const raw = process.env[envVar];
   if (!raw) throw new Error(`${envVar} env var not set`);
-  const key = createHash("sha256").update(raw).digest();
+
+  let key: Buffer;
+  if (version === "v1") {
+    // BUG-06 legacy: v1 used bare SHA-256 — kept for decryption of existing ciphertext only
+    const { createHash } = require("crypto") as typeof import("crypto");
+    key = createHash("sha256").update(raw).digest();
+  } else {
+    // v2+: use scrypt KDF (N=16384, r=8, p=1) — secure key derivation with iteration cost
+    const salt = VERSION_SALTS[version] ?? Buffer.from(`zobia-field-enc-${version}`);
+    key = scryptSync(raw, salt, 32, { N: 16384, r: 8, p: 1 });
+  }
+
   keyCache.set(version, key);
   return key;
 }
@@ -35,14 +54,12 @@ export function encryptField(plaintext: string): string {
 /**
  * Decrypt a field encrypted by encryptField.
  * Reads the version prefix to select the correct key, enabling key rotation.
- * Returns plaintext, or null if the value is not encrypted (legacy plaintext passthrough).
+ * Returns plaintext, or null if decryption fails.
  */
 export function decryptField(ciphertext: string): string | null {
   try {
-    // Parse version prefix (e.g. "v1:<base64>")
     const colonIdx = ciphertext.indexOf(":");
     if (colonIdx === -1) {
-      // Legacy unversioned ciphertext — try V1 key for backward compat
       return decryptRaw(ciphertext, "v1");
     }
     const version = ciphertext.slice(0, colonIdx);

@@ -347,7 +347,8 @@ export type XPAction =
   | 'new_member_quest'
   | 'complete_classroom_quiz'
   | 'complete_classroom_module'
-  | 'host_classroom_session';
+  | 'host_classroom_session'
+  | 'bank_account_added';
 
 /** Maps an XP action to the XP track it contributes to (in addition to main). */
 export const ACTION_TRACKS: Partial<Record<XPAction, ProgressionTrack>> = {
@@ -415,6 +416,7 @@ export function calculateXPForAction(
     case 'complete_classroom_quiz': return v.complete_classroom_quiz;
     case 'complete_classroom_module': return v.complete_classroom_module;
     case 'host_classroom_session': return v.host_classroom_session;
+    case 'bank_account_added': return v.bank_account_added;
     default: return 0;
   }
 }

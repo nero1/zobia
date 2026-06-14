@@ -17,6 +17,7 @@
  */
 
 import type { DatabaseAdapter, TransactionClient } from "@/lib/db/interface";
+import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -233,7 +234,7 @@ export async function distributeWarRewards(
     const contribResult = await client.query<MemberContributionRow>(
       `SELECT wc.user_id, wc.guild_id, wc.war_points, u.username
        FROM war_contributions wc
-       JOIN users u ON u.id = wc.user_id
+       JOIN users u ON u.id = wc.user_id AND u.deleted_at IS NULL
        WHERE wc.war_id = $1 AND wc.guild_id = $2
        ORDER BY wc.war_points DESC`,
       [warId, winnerGuildId]
@@ -276,17 +277,10 @@ export async function distributeWarRewards(
       );
     }
 
-    // Top contributor bonus XP — update both xp_total and xp_competitor (BUG-06)
+    // Top contributor bonus XP
     if (members[0]) {
-      await client.query(
-        `UPDATE users SET xp_total = xp_total + $1, xp_competitor = xp_competitor + $1, updated_at = NOW() WHERE id = $2`,
-        [TOP_CONTRIBUTOR_BONUS_XP, members[0].user_id]
-      );
-      await client.query(
-        `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
-         VALUES ($1, $2, 'competitor', 'top_contributor_war', $3, $2, NOW())`,
-        [members[0].user_id, TOP_CONTRIBUTOR_BONUS_XP, warId]
-      );
+      // BUG-14: use safeAwardXP for DLQ fallback and idempotency
+      await safeAwardXP(members[0].user_id, TOP_CONTRIBUTOR_BONUS_XP, "competitor", "top_contributor_war", `war:${warId}:${members[0].user_id}:top`, client);
     }
   };
 
@@ -370,7 +364,7 @@ export async function resolveWar(
       `SELECT gm.user_id, COALESCE(wc.war_points, 0) AS war_points
        FROM guild_members gm
        LEFT JOIN war_contributions wc ON wc.user_id = gm.user_id AND wc.war_id = $2
-       WHERE gm.guild_id = $1
+       WHERE gm.guild_id = $1 AND gm.left_at IS NULL
        ORDER BY war_points DESC`,
       [winnerGuildId, warId]
     );
@@ -380,16 +374,8 @@ export async function resolveWar(
       const { user_id } = winnerMembers.rows[i];
       const scale = memberCount > 1 ? 1 - i / (memberCount - 1) : 1;
       const memberXP = Math.round(WAR_WIN_XP_MIN + scale * (WAR_WIN_XP_MAX - WAR_WIN_XP_MIN));
-      // Update both xp_total and xp_competitor so the competitor column stays in sync (BUG-06)
-      await client.query(
-        `UPDATE users SET xp_total = xp_total + $1, xp_competitor = xp_competitor + $1, updated_at = NOW() WHERE id = $2`,
-        [memberXP, user_id]
-      );
-      await client.query(
-        `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
-         VALUES ($1, $2, 'competitor', 'win_guild_war', $3, $2, NOW())`,
-        [user_id, memberXP, warId]
-      );
+      // BUG-14: use safeAwardXP for DLQ fallback and idempotency
+      await safeAwardXP(user_id, memberXP, "competitor", "win_guild_war", `war:${warId}:${user_id}:win`, client);
     }
 
     // Award Guild XP (500–5,000 based on opponent strength) for tier progression

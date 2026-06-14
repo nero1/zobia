@@ -263,19 +263,42 @@ export async function getLeaderboard(
          ORDER BY COALESCE(ls.xp_value, u.legacy_score, 0) DESC`
       );
 
+      // Mark already-present HoF users
       for (const hof of hofRows) {
         if (presentIds.has(hof.user_id)) {
-          // Already in the list — mark as Hall of Fame
           const existing = entries.find((e) => e.user_id === hof.user_id);
           if (existing) {
             existing.is_hall_of_fame = true;
             existing.custom_crest = hof.custom_crest ?? null;
           }
-        } else if (entries.length < 100) {
-          // Pin this Hall of Fame user — they always appear in the top 100
-          const hofRank = await getUserRank(hof.user_id, "main", "global", db) ?? (entries.length + 1);
+        }
+      }
+
+      // BUG-11: Batch-fetch ranks for HoF users not already in the result set —
+      // replaces one getUserRank call (2 DB round-trips) per missing user with a
+      // single COUNT(*)+1 subquery across all missing users at once.
+      const missingHof = hofRows.filter((h) => !presentIds.has(h.user_id) && entries.length < 100);
+      if (missingHof.length > 0) {
+        const missingIds = missingHof.map((h) => h.user_id);
+        const { rows: rankRows } = await db.query<{ user_id: string; rank: string }>(
+          `SELECT
+             target.user_id,
+             (SELECT COUNT(*) + 1
+              FROM leaderboard_snapshots ls2
+              JOIN users u2 ON u2.id = ls2.user_id AND u2.deleted_at IS NULL
+              WHERE ls2.track = 'main' AND ls2.scope = 'global'
+                AND ls2.season_id IS NULL
+                AND ls2.xp_value > COALESCE(ls.xp_value, 0))::text AS rank
+           FROM leaderboard_snapshots ls
+           RIGHT JOIN (SELECT unnest($1::uuid[]) AS user_id) target ON ls.user_id = target.user_id
+             AND ls.track = 'main' AND ls.scope = 'global' AND ls.season_id IS NULL`,
+          [missingIds]
+        );
+        const rankMap = new Map(rankRows.map((r) => [r.user_id, parseInt(r.rank ?? "1")]));
+
+        for (const hof of missingHof) {
           entries.push({
-            rank: hofRank,
+            rank: rankMap.get(hof.user_id) ?? (entries.length + 1),
             user_id: hof.user_id,
             username: hof.username,
             display_name: hof.display_name,
@@ -335,7 +358,7 @@ export async function upsertLeaderboardSnapshot(
     `INSERT INTO leaderboard_snapshots
        (user_id, track, scope, city, season_id, xp_value, updated_at)
      VALUES ($1, $2, $3, $4, $5, $6, NOW())
-     ON CONFLICT (user_id, track, scope, city, season_id)
+     ON CONFLICT (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))
      DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()`,
     [userId, track, scope, city, seasonId, xpValue]
   );
@@ -408,7 +431,7 @@ export async function getUserMetricsForWeighting(
 }> {
   // 1. Get total XP
   const { rows: xpRows } = await db.query<{ xp_total: string }>(
-    `SELECT COALESCE(xp_total, 0) AS xp_total FROM users WHERE id = $1`,
+    `SELECT COALESCE(xp_total, 0) AS xp_total FROM users WHERE id = $1 AND deleted_at IS NULL`,
     [userId]
   );
   const xpTotal = parseInt(xpRows[0]?.xp_total ?? '0', 10);

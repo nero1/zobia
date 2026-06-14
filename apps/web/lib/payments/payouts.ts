@@ -253,7 +253,7 @@ export async function reconcileStuckPayouts(): Promise<{ reconciled: number; fai
     id: string;
     provider_reference: string;
     creator_id: string;
-    gross_kobo: string;
+    gross_kobo: number;
   }>(
     `WITH candidates AS (
        SELECT id, provider_reference, creator_id, gross_kobo

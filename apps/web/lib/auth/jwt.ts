@@ -53,6 +53,8 @@ export interface AccessTokenPayload extends JWTPayload {
   is_admin: boolean;
   /** Session ID (matches Redis key for invalidation). */
   sid: string;
+  /** Token type — 'pre_auth' tokens are only valid for the 2FA verify endpoint. */
+  type?: 'pre_auth' | 'access';
 }
 
 /** Claims embedded in every refresh token. */
