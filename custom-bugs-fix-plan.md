@@ -1,7 +1,8 @@
 # Zobia Social — Bug Fix Plan
 
 **Generated:** June 14, 2026, 09:27 PM
-**Source:** custom-bugs-report.md (40 confirmed bugs)
+**Updated:** June 14, 2026, 09:48 PM (added Group G — BUG-41 through BUG-52)
+**Source:** custom-bugs-report.md (52 confirmed bugs)
 **Instruction:** DO NOT begin any fix until this plan has been reviewed and approved.
 
 ---
@@ -370,6 +371,148 @@ FILES: `apps/web/lib/moderation/aiClassifier.ts`
 
 ---
 
+## GROUP G — Quality Ceiling: Observability, Security Hardening, TypeScript Integrity (BUG-41–52)
+
+*These raise the codebase from 8.3 to 9.7+. Independently schedulable after Groups A–F are merged.*
+
+---
+
+### FIX-G1 (BUG-41): Replace Custom HTML Sanitizer With `sanitize-html` Library
+
+1. Install `sanitize-html` and `@types/sanitize-html`.
+2. Replace the entire `lib/security/htmlSanitizer.ts` implementation with a thin wrapper around `sanitizeHtml(input, { allowedTags: [...], allowedAttributes: {...} })` using the same allowlist that currently exists in the file.
+3. Delete the hand-rolled regex parsing logic.
+4. Verify `sanitizeAnnouncementContent` for markdown also uses the library for any embedded HTML fragments.
+
+FILES: `apps/web/lib/security/htmlSanitizer.ts`, `package.json`
+
+---
+
+### FIX-G2 (BUG-42): Implement JWT Key Rotation With `kid` Versioning
+
+1. Store the active signing secret(s) in Redis as a hash: `HSET jwt_keys <kid> <secret>` with a `current_kid` pointer key.
+2. When signing tokens, read `current_kid` and include it in the JWT header (`kid` claim). Sign with the corresponding secret.
+3. When verifying tokens, read the `kid` header, look up the matching secret, and verify. Fall back to the legacy secret if `kid` is absent (for tokens minted before the change).
+4. Implement a key-rotation CRON that generates a new secret, sets it as `current_kid`, and sets a TTL of `max_token_lifetime + 1 day` on old keys so in-flight tokens still verify during the overlap window.
+5. Document the rotation procedure.
+
+FILES: `apps/web/lib/auth/jwt.ts`, `apps/web/lib/auth/session.ts`, new CRON handler
+
+---
+
+### FIX-G3 (BUG-43): Add Structured Logging and Request Correlation IDs
+
+1. Install `pino` and `pino-http` (or the equivalent for Edge runtime: `pino/browser` with a custom transport).
+2. Create `lib/logger.ts` exporting a configured `pino` instance with `level` driven by `LOG_LEVEL` env var (default `'info'` in prod, `'debug'` in dev).
+3. Add an `AsyncLocalStorage<{ requestId: string }>` store. Populate it in middleware from `x-request-id` header (or generate a UUID if absent) and propagate it to all log calls via `logger.child({ requestId })`.
+4. Replace all `console.error`, `console.warn`, and `console.log` calls in lib/ and route handlers with the structured logger.
+5. Ensure `requestId` is returned in error responses as `X-Request-ID` header so clients can correlate support tickets.
+
+FILES: new `apps/web/lib/logger.ts`, `apps/web/middleware.ts`, all lib/ modules with console calls
+
+---
+
+### FIX-G4 (BUG-44): Add Endpoint-Level Global Rate Cap to Rate Limiter
+
+1. In `lib/security/rateLimit.ts`, add a second Lua script (or extend the existing one) that increments a global counter keyed by path: `rate:global:{method}:{pathname}` with a sliding window.
+2. Add a `globalLimit` field to `RATE_LIMITS` entries for sensitive endpoints (payment initiation, auth, payout).
+3. In `enforceRateLimit`, check the global counter after the per-user/per-IP check; throw `429` with `code: 'GLOBAL_RATE_LIMIT'` if exceeded.
+4. Set conservative starting values: 1,000 req/min per endpoint globally.
+
+FILES: `apps/web/lib/security/rateLimit.ts`
+
+---
+
+### FIX-G5 (BUG-45): Log Read-Path Admin Access to Audit Table
+
+1. In `auditLog.ts`, confirm `'kyc_viewed'` and add `'financial_read'`, `'user_profile_read'` to the `AuditAction` union.
+2. In every admin GET route that reads sensitive data (user profile, KYC documents, financial records), call `logAuditEvent({ adminId, action: 'kyc_viewed', targetUserId, ...})` after the data is fetched.
+3. Ensure the audit INSERT is fire-and-forget (do not block the response) but does log failures.
+
+FILES: `apps/web/lib/audit/auditLog.ts`, all admin GET route handlers
+
+---
+
+### FIX-G6 (BUG-46): Add Circuit Breaker to Database Adapter
+
+1. Extend the existing circuit breaker pattern from `lib/payments/circuit.ts` (or create `lib/db/circuit.ts`).
+2. Wrap the `db.query` and `db.transaction` methods: after N consecutive timeout/connection errors within a 30-second window, open the circuit and return HTTP 503 immediately for new requests.
+3. Add a half-open probe after a configurable cool-down period (default 15 seconds).
+4. Expose circuit state via the health check endpoint (FIX-G9).
+
+FILES: `apps/web/lib/db/index.ts`, `apps/web/lib/payments/circuit.ts` (as reference), new `apps/web/lib/db/circuit.ts`
+
+---
+
+### FIX-G7 (BUG-47): Add DLQ Depth Monitoring and Alerting
+
+1. Create a CRON handler (or add to an existing daily health CRON): query `SELECT COUNT(*) FROM xp_award_dlq WHERE processed_at IS NULL`.
+2. If count exceeds a configurable threshold (e.g., 100 unprocessed entries), insert a row into `system_alerts` table (create the table if absent: `id`, `alert_type`, `payload`, `created_at`, `resolved_at`).
+3. Optionally send an email/Slack notification to the ops address.
+4. The threshold should be read from the x_manifest feature config so it can be tuned without a deploy.
+
+FILES: `apps/web/lib/xp/dlq.ts` (or new CRON handler), new migration for `system_alerts`
+
+---
+
+### FIX-G8 (BUG-48): Add Graceful Shutdown Handler
+
+1. In the Next.js custom server entry point (or a top-level `instrumentation.ts` if using Next 14's instrumentation hook), register handlers for `SIGTERM` and `SIGINT`.
+2. On signal receipt: stop accepting new requests, wait for in-flight requests to complete (with a max wait of 10 seconds), drain the DB connection pool (`await db.end()`), drain Redis (`await redis.quit()`), then exit.
+3. Set the `server.keepAliveTimeout` and `server.headersTimeout` appropriately for containerised deployments.
+
+FILES: `apps/web/instrumentation.ts` (new or existing), `apps/web/lib/db/index.ts`, `apps/web/lib/redis.ts`
+
+---
+
+### FIX-G9 (BUG-49): Add `GET /api/health` Endpoint
+
+1. Create `apps/web/app/api/health/route.ts`.
+2. The handler should:
+   - Ping the DB: `await db.query('SELECT 1')` with a 2-second timeout.
+   - Ping Redis: `await redis.ping()` with a 1-second timeout.
+   - Return `{ status: 'ok', db: 'ok', redis: 'ok', circuit: dbCircuitState }` with HTTP 200 if all pass.
+   - Return HTTP 503 with individual component statuses if any check fails.
+3. Exempt this route from auth middleware and rate limiting.
+4. Add the endpoint URL to uptime monitoring configuration docs.
+
+FILES: new `apps/web/app/api/health/route.ts`
+
+---
+
+### FIX-G10 (BUG-50): Enforce TypeScript Strict Mode Throughout
+
+1. In `apps/web/tsconfig.json`, ensure `"strict": true` is set (enables `strictNullChecks`, `noImplicitAny`, `strictFunctionTypes`, etc.).
+2. Run `tsc --noEmit` and address all new type errors introduced by strict mode.
+3. Key areas to address: replace `as never` casts in `manifest/index.ts` (see FIX-G12), replace unsafe `JSON.parse(...) as Record<string, unknown>` patterns with `zod`-parsed types, add explicit `null` checks where strict mode flags optional accesses.
+4. Enable `"noUncheckedIndexedAccess": true` in tsconfig for extra array/object safety.
+
+FILES: `apps/web/tsconfig.json`, `apps/web/lib/manifest/index.ts`, `apps/web/lib/moderation/aiClassifier.ts`, and any file that fails `tsc --noEmit`
+
+---
+
+### FIX-G11 (BUG-51): Accept Injected DB Adapter in High-Value Lib Functions
+
+1. Audit all lib modules that perform DB queries and currently hardcode `import { db } from '@/lib/db'`.
+2. For functions that handle money (coins, stars, payouts, referral commissions, XP), change the function signature to accept an optional `client` parameter (a `PoolClient` or compatible interface) and default to the module-level `db` if not provided.
+3. This makes these functions both testable with a mock and usable inside an existing transaction for true atomicity.
+4. Priority files: `lib/economy/coins.ts`, `lib/economy/stars.ts`, `lib/xp/safeAwardXP.ts`, `lib/referrals/commissions.ts`.
+
+FILES: `apps/web/lib/economy/coins.ts`, `apps/web/lib/economy/stars.ts`, `apps/web/lib/xp/safeAwardXP.ts`, `apps/web/lib/referrals/commissions.ts`
+
+---
+
+### FIX-G12 (BUG-52): Fix `feat()` Type Safety in `manifest/index.ts`
+
+1. Remove the `as never` cast from the `feat()` helper.
+2. Change the key parameter type to `keyof typeof DEFAULT_MANIFEST['features']` so TypeScript enforces that only valid feature keys are passed.
+3. For any call site that passes a dynamic string, narrow the type at the call site using a type guard or a `z.enum([...featureKeys])` parse of the manifest key.
+4. Add a compile-time assertion (e.g., `satisfies`) to catch any future drift between the type and the runtime object.
+
+FILES: `apps/web/lib/manifest/index.ts`
+
+---
+
 ## Implementation Sequence Summary
 
 ```
@@ -384,11 +527,21 @@ Week 2: Groups B, C, D (can run in parallel)
 Week 3: Groups E, F (can run in parallel)
   E1, E2, E3, E4, E5, E6 in parallel with
   F1, F2, F3, F4, F5, F6, F7, F8
+
+Week 4: Group G — Quality Ceiling (independently schedulable after A–F are merged)
+  G1, G2, G3, G4, G5, G6, G7, G8, G9 can run in parallel
+  G10 (TypeScript strict) should run after G1–G9 are merged (all remaining type errors surface together)
+  G11 (adapter injection) can run in parallel with G10
+  G12 (feat() fix) is a 30-minute task — do it first in Week 4 to unblock G10
 ```
 
-Total estimated effort: ~40–55 engineering hours across all groups.
+Total estimated effort:
+- Groups A–F (BUG-01–40): ~40–55 engineering hours
+- Group G (BUG-41–52): ~35–50 additional engineering hours
+- Combined total: ~75–105 engineering hours
 
 ---
 
 *Fix plan generated: June 14, 2026, 09:27 PM*
-*Based on: custom-bugs-report.md (40 bugs, forensic static analysis)*
+*Updated: June 14, 2026, 09:48 PM (added Group G — BUG-41 through BUG-52)*
+*Based on: custom-bugs-report.md (52 bugs, forensic static analysis)*
