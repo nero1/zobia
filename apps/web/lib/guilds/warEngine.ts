@@ -234,7 +234,7 @@ export async function distributeWarRewards(
     const contribResult = await client.query<MemberContributionRow>(
       `SELECT wc.user_id, wc.guild_id, wc.war_points, u.username
        FROM war_contributions wc
-       JOIN users u ON u.id = wc.user_id
+       JOIN users u ON u.id = wc.user_id AND u.deleted_at IS NULL
        WHERE wc.war_id = $1 AND wc.guild_id = $2
        ORDER BY wc.war_points DESC`,
       [warId, winnerGuildId]
@@ -364,7 +364,7 @@ export async function resolveWar(
       `SELECT gm.user_id, COALESCE(wc.war_points, 0) AS war_points
        FROM guild_members gm
        LEFT JOIN war_contributions wc ON wc.user_id = gm.user_id AND wc.war_id = $2
-       WHERE gm.guild_id = $1
+       WHERE gm.guild_id = $1 AND gm.left_at IS NULL
        ORDER BY war_points DESC`,
       [winnerGuildId, warId]
     );

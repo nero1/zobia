@@ -399,9 +399,18 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // -----------------------------------------------------------------
     const { accessCookie, refreshCookie } = buildCookieHeaders(authTokens);
 
-    const destination = user.onboarding_completed
-      ? new URL("/home", reqOrigin)
-      : new URL("/onboarding", reqOrigin);
+    // BUG-35: Validate the redirect param as a same-origin relative path before use.
+    // Rejects protocol-relative (//evil.com) and absolute (https://evil.com) values.
+    const redirectParam = req.nextUrl.searchParams.get("redirect");
+    const safeRedirect = typeof redirectParam === "string" && /^\/[^/]/.test(redirectParam)
+      ? redirectParam
+      : null;
+
+    const destination = safeRedirect
+      ? new URL(safeRedirect, reqOrigin)
+      : user.onboarding_completed
+        ? new URL("/home", reqOrigin)
+        : new URL("/onboarding", reqOrigin);
 
     const response = NextResponse.redirect(destination, { status: 302 });
     for (const cookie of [accessCookie, refreshCookie, ...cookiesToClear]) {

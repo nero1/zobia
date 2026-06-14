@@ -287,7 +287,7 @@ export async function checkDeckCompletion(
 ): Promise<{ deckComplete: boolean; bonusAwarded: boolean; bonusXP: number }> {
   return db.transaction(async (client) => {
     // Lock user row to serialize concurrent calls
-    await client.query(`SELECT id FROM users WHERE id = $1 FOR UPDATE`, [userId]);
+    await client.query(`SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`, [userId]);
 
     // Check quest completion for the user's assigned deck only.
     // Without the deck filter, progress on quests from other decks would
