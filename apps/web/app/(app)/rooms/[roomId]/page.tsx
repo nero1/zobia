@@ -232,9 +232,9 @@ function ClassRoomCurriculum({
           {data.endDate ? new Date(data.endDate).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : ""}
         </p>
       )}
-      {data.modules.length > 0 && (
+      {(data.modules ?? []).length > 0 && (
         <div className="mb-3 space-y-1.5">
-          {data.modules.slice().sort((a, b) => a.order - b.order).map((mod) => (
+          {(data.modules ?? []).slice().sort((a, b) => a.order - b.order).map((mod) => (
             <label key={mod.id} className="flex cursor-pointer items-start gap-2 rounded-lg p-1.5 hover:bg-neutral-50 dark:hover:bg-neutral-800">
               <input
                 type="checkbox"
@@ -1172,7 +1172,7 @@ export default function RoomPage() {
             <div className="flex items-center gap-2">
               <h1 className="truncate text-base font-bold text-neutral-900 dark:text-neutral-50">{room.name}</h1>
               <span className="shrink-0 rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-semibold capitalize text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
-                {room.type.replace("_", " ")}
+                {(room.type ?? "").replace("_", " ")}
               </span>
             </div>
             <p className="truncate text-xs text-neutral-500">{(room.memberCount ?? 0).toLocaleString()} members</p>
@@ -1324,11 +1324,11 @@ export default function RoomPage() {
             {replay && replay.isPublished ? (
               <div className="space-y-2">
                 <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{replay.title}</p>
-                {replay.replayFeeKobo > 0 && !replayPurchased && room.creatorId !== currentUserId ? (
+                {(replay.replayFeeKobo ?? 0) > 0 && !replayPurchased && room.creatorId !== currentUserId ? (
                   <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40">
                     <p className="mb-2 text-xs text-amber-800 dark:text-amber-300">
                       🔒 Replay requires a one-time fee of{" "}
-                      <strong>{(replay.replayFeeKobo / 100).toLocaleString()} {currency.softPlural.toLowerCase()}</strong>
+                      <strong>{((replay.replayFeeKobo ?? 0) / 100).toLocaleString()} {currency.softPlural?.toLowerCase()}</strong>
                     </p>
                     <button
                       type="button"

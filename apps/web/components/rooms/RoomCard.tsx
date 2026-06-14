@@ -111,11 +111,11 @@ export function RoomCard({ room, onJoin, joining }: RoomCardProps) {
         )}
 
         {/* Entry cost note */}
-        {room.type === "vip" && room.subscriptionPrice && (
-          <p className="mt-1 text-xs font-semibold text-amber-600">🔒 {room.subscriptionPrice.toLocaleString()} {currency.softPlural.toLowerCase()}/mo</p>
+        {room.type === "vip" && room.subscriptionPrice != null && (
+          <p className="mt-1 text-xs font-semibold text-amber-600">🔒 {room.subscriptionPrice.toLocaleString()} {currency.softPlural?.toLowerCase()}/mo</p>
         )}
-        {room.type === "drop" && room.entryFee && (
-          <p className="mt-1 text-xs font-semibold text-teal-600">🎟️ {room.entryFee.toLocaleString()} {currency.softPlural.toLowerCase()} entry</p>
+        {room.type === "drop" && room.entryFee != null && (
+          <p className="mt-1 text-xs font-semibold text-teal-600">🎟️ {room.entryFee.toLocaleString()} {currency.softPlural?.toLowerCase()} entry</p>
         )}
         {room.type === "tipping" && (
           <p className="mt-1 text-xs font-semibold text-green-600">💰 Tipping room</p>

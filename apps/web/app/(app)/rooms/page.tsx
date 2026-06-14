@@ -113,7 +113,7 @@ function DropRoomCard({ room }: { room: DropRoomFomo }) {
       <p className="line-clamp-1 text-sm font-bold text-neutral-900 dark:text-neutral-50">{room.name}</p>
       <div className="mt-1.5 flex items-center gap-2 text-xs text-neutral-500">
         <span>{room.memberCount} inside</span>
-        {room.entryFee ? <span>· {room.entryFee.toLocaleString()} {currency.softPlural.toLowerCase()} entry</span> : <span>· Free entry</span>}
+        {room.entryFee != null ? <span>· {room.entryFee.toLocaleString()} {currency.softPlural?.toLowerCase()} entry</span> : <span>· Free entry</span>}
       </div>
     </Link>
   );
