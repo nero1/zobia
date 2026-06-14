@@ -255,12 +255,17 @@ export async function reconcileStuckPayouts(): Promise<{ reconciled: number; fai
     creator_id: string;
     gross_kobo: string;
   }>(
-    `SELECT id, provider_reference, creator_id, gross_kobo
-     FROM creator_payouts
-     WHERE status = 'processing'
-       AND updated_at < NOW() - INTERVAL '30 minutes'
-       AND provider_reference IS NOT NULL
-     LIMIT 50`
+    `WITH candidates AS (
+       SELECT id, provider_reference, creator_id, gross_kobo
+       FROM creator_payouts
+       WHERE status = 'processing'
+         AND updated_at < NOW() - INTERVAL '30 minutes'
+         AND provider_reference IS NOT NULL
+       ORDER BY updated_at ASC
+       LIMIT 50
+       FOR UPDATE SKIP LOCKED
+     )
+     SELECT * FROM candidates`
   );
 
   let reconciled = 0;

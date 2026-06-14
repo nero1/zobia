@@ -90,7 +90,7 @@ export async function awardReferralCommissions(
 
     // Award XP
     await db.query(
-      `UPDATE users SET xp_total = xp_total + $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL`,
+      `UPDATE users SET xp_total = xp_total + $1, xp_social = COALESCE(xp_social, 0) + $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL`,
       [xpBonus, tier1Id]
     );
     await db.query(

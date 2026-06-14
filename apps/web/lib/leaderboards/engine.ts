@@ -273,8 +273,9 @@ export async function getLeaderboard(
           }
         } else if (entries.length < 100) {
           // Pin this Hall of Fame user — they always appear in the top 100
+          const hofRank = await getUserRank(hof.user_id, "main", "global", db) ?? (entries.length + 1);
           entries.push({
-            rank: entries.length + 1,
+            rank: hofRank,
             user_id: hof.user_id,
             username: hof.username,
             display_name: hof.display_name,
@@ -370,8 +371,8 @@ export function calculateWeightedScore(
   const questWeight = 0.2;
   const consistencyWeight = 0.1;
 
-  // Normalize XP to 0-100 scale (assuming 10k XP = 100 points)
-  const normalizedXP = Math.min((xpTotal / 10000) * 100, 100);
+  // Normalize XP to 0-100 scale (assuming 100k XP = 100 points)
+  const normalizedXP = Math.min((xpTotal / 100000) * 100, 100);
 
   // Growth rate is already 0-1, scale to 0-100
   const normalizedGrowth = memberGrowthRate * 100;

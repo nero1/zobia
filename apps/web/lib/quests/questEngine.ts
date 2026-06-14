@@ -96,7 +96,10 @@ export async function generateDailyDeck(
      FROM quest_templates
      WHERE is_active = TRUE
        AND (valid_date IS NULL OR valid_date = $1)
-       AND (plan_required IS NULL OR plan_required = $2 OR $2 = 'max')
+       AND (plan_required IS NULL OR plan_required = 'free'
+            OR (plan_required = 'plus' AND $2 IN ('plus','pro','max'))
+            OR (plan_required = 'pro' AND $2 IN ('pro','max'))
+            OR (plan_required = 'max' AND $2 = 'max'))
      ORDER BY HASHTEXT(CONCAT($3, id::text)) -- deterministic shuffle per user
      LIMIT $4`,
     [today, plan, userId, deckSize]

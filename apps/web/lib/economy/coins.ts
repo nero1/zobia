@@ -248,7 +248,9 @@ export async function transferCoins(
   toUserId: string,
   amount: number,
   feePercent: number = 5,
-  txClient?: TransactionClient
+  txClient?: TransactionClient,
+  senderTransactionType: string = "gift_sent",
+  recipientTransactionType: string = "gift_received"
 ): Promise<{ debit: CoinLedgerEntry; credit: CoinLedgerEntry; feeCoins: number }> {
   const gross = new Decimal(amount);
   if (!gross.isInteger() || gross.lte(0)) {
@@ -277,7 +279,7 @@ export async function transferCoins(
     const debit = await debitCoins(
       fromUserId,
       gross.toNumber(),
-      "gift_sent",
+      senderTransactionType,
       transferRef,
       `Transfer to user ${toUserId} (${feePercent}% fee)`,
       { toUserId, feePercent, feeCoins: fee.toNumber() },
@@ -287,7 +289,7 @@ export async function transferCoins(
     const credit = await creditCoins(
       toUserId,
       net.toNumber(),
-      "gift_received",
+      recipientTransactionType,
       transferRef,
       `Transfer from user ${fromUserId}`,
       { fromUserId, feePercent, feeCoins: fee.toNumber() },

@@ -32,25 +32,25 @@ const ANOMALY_WINDOW_SECONDS = 3600; // 1 hour
 // ---------------------------------------------------------------------------
 
 /**
- * Parse the first octet of an IPv4 address string.
+ * Parse the first three octets (/24 prefix) of an IPv4 address string.
  * Returns null for IPv6 or unparseable addresses.
  */
-function getFirstOctet(ip: string): number | null {
+function getFirstThreeOctets(ip: string): string | null {
   if (!ip || ip === "unknown" || ip.includes(":")) {
     return null; // IPv6 — skip comparison
   }
   const parts = ip.split(".");
-  if (parts.length < 1) return null;
-  const octet = parseInt(parts[0], 10);
-  return isNaN(octet) ? null : octet;
+  if (parts.length < 3) return null;
+  return parts.slice(0, 3).join(".");
 }
 
 /**
  * Determine whether two IP addresses represent a "drastic" network change.
  *
- * Conservative definition: the first octet (Class A network) differs AND
- * both IPs are public (non-loopback, non-private). This avoids false positives
- * for mobile users roaming between ISP subnets in the same region.
+ * Conservative definition: the /24 prefix (first three octets) differs AND
+ * both IPs are public (non-loopback, non-private). Comparing /24 rather than
+ * just the Class A reduces false positives for users with dynamic IPs within
+ * the same ISP while still catching cross-city/country relocations.
  *
  * @param loginIp   - IP stored in the session at login time
  * @param currentIp - IP of the current request
@@ -61,14 +61,13 @@ export function isIpAnomalous(loginIp: string | undefined, currentIp: string): b
     return false; // Cannot compare — assume safe
   }
 
-  const loginOctet = getFirstOctet(loginIp);
-  const currentOctet = getFirstOctet(currentIp);
+  const loginPrefix = getFirstThreeOctets(loginIp);
+  const currentPrefix = getFirstThreeOctets(currentIp);
 
-  if (loginOctet === null || currentOctet === null) {
+  if (loginPrefix === null || currentPrefix === null) {
     return false; // IPv6 or unparseable — skip
   }
 
-  // Use full CIDR ranges for private IP detection (BUG-33)
   const loginParts = loginIp.split('.').map(Number);
   const currentParts = currentIp.split('.').map(Number);
 
@@ -87,8 +86,8 @@ export function isIpAnomalous(loginIp: string | undefined, currentIp: string): b
     return false;
   }
 
-  // Flag only if the Class A network (first octet) changed completely
-  return loginOctet !== currentOctet;
+  // Flag if the /24 network prefix changed completely
+  return loginPrefix !== currentPrefix;
 }
 
 // ---------------------------------------------------------------------------

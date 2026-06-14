@@ -25,6 +25,8 @@ import { getCurrentSeason, distributeSeasonRewards, resetSeasonRankings, createS
 import { XP_VALUES } from "@/lib/xp/engine";
 import { processPendingGiftDrops } from "@/lib/events/monthlyGiftDrop";
 import { sendBulkTelegramMessages } from "@/lib/notifications/telegram";
+import { retryFailedXPAwards } from "@/lib/xp/safeAwardXP";
+import { getAllCircuitMetrics } from "@/lib/payments/circuit";
 
 // ---------------------------------------------------------------------------
 // Auth
@@ -2371,6 +2373,83 @@ export const GET = async (req: NextRequest) => {
   } catch (err) {
     errors.push(`dropRoomExpiry: ${String(err)}`);
   }
+
+  // SYS-01: Retry failed XP awards from dead-letter queue
+  try {
+    await retryFailedXPAwards();
+    results.xpDlqRetry = { ok: true };
+  } catch (err) {
+    errors.push(`xpDlqRetry: ${String(err)}`);
+  }
+
+  // SYS-02: Nightly coin + star ledger reconciliation
+  try {
+    // Coins: compare ledger sum against users.coins_balance
+    const coinDiscrepancies = await db.query<{
+      user_id: string;
+      ledger_sum: string;
+      wallet_balance: string;
+    }>(
+      `SELECT cl.user_id,
+              SUM(CASE WHEN cl.direction = 'credit' THEN cl.amount ELSE -cl.amount END)::bigint AS ledger_sum,
+              w.coins_balance AS wallet_balance
+         FROM coin_ledger cl
+         JOIN wallets w ON w.user_id = cl.user_id
+        GROUP BY cl.user_id, w.coins_balance
+       HAVING SUM(CASE WHEN cl.direction = 'credit' THEN cl.amount ELSE -cl.amount END) <> w.coins_balance`
+    );
+
+    // Stars: compare ledger sum against users.stars_balance
+    const starDiscrepancies = await db.query<{
+      user_id: string;
+      ledger_sum: string;
+      wallet_balance: string;
+    }>(
+      `SELECT sl.user_id,
+              SUM(CASE WHEN sl.direction = 'credit' THEN sl.amount ELSE -sl.amount END)::bigint AS ledger_sum,
+              w.stars_balance AS wallet_balance
+         FROM star_ledger sl
+         JOIN wallets w ON w.user_id = sl.user_id
+        GROUP BY sl.user_id, w.stars_balance
+       HAVING SUM(CASE WHEN sl.direction = 'credit' THEN sl.amount ELSE -sl.amount END) <> w.stars_balance`
+    );
+
+    // Write discrepancies to audit table
+    for (const row of coinDiscrepancies.rows) {
+      await db.query(
+        `INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at)
+         VALUES ($1, 'coins', $2, $3, NOW())
+         ON CONFLICT (user_id, asset_type) DO UPDATE
+           SET ledger_sum = EXCLUDED.ledger_sum,
+               wallet_balance = EXCLUDED.wallet_balance,
+               detected_at = EXCLUDED.detected_at,
+               resolved = FALSE`,
+        [row.user_id, row.ledger_sum, row.wallet_balance]
+      );
+    }
+    for (const row of starDiscrepancies.rows) {
+      await db.query(
+        `INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at)
+         VALUES ($1, 'stars', $2, $3, NOW())
+         ON CONFLICT (user_id, asset_type) DO UPDATE
+           SET ledger_sum = EXCLUDED.ledger_sum,
+               wallet_balance = EXCLUDED.wallet_balance,
+               detected_at = EXCLUDED.detected_at,
+               resolved = FALSE`,
+        [row.user_id, row.ledger_sum, row.wallet_balance]
+      );
+    }
+
+    results.ledgerReconciliation = {
+      coinDiscrepancies: coinDiscrepancies.rows.length,
+      starDiscrepancies: starDiscrepancies.rows.length,
+    };
+  } catch (err) {
+    errors.push(`ledgerReconciliation: ${String(err)}`);
+  }
+
+  // SYS-04: Include circuit breaker health in CRON output
+  results.circuitMetrics = getAllCircuitMetrics();
 
   return NextResponse.json({
     success: errors.length === 0,

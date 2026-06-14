@@ -185,7 +185,7 @@ export default function LoginScreen() {
         const { data } = await apiClient.get(`/auth/telegram/status?state=${state}`);
         if (data.status === 'approved' && data.token && data.user) {
           stopTelegramPoll();
-          await signIn(data.token, data.user as AuthUser);
+          await signIn(data.token, data.user as AuthUser, data.refreshToken);
           router.replace('/(tabs)');
         } else if (data.status === 'expired' || attempts >= MAX_ATTEMPTS) {
           stopTelegramPoll();

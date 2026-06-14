@@ -64,11 +64,13 @@ const ACTIVE_WINDOW_MINUTES = 15;
 interface ActiveUserRow {
   user_id: string;
   xp_total: number;
+  xp_social: number;
+  xp_creator: number;
+  xp_competitor: number;
+  xp_generosity: number;
+  xp_knowledge: number;
+  xp_explorer: number;
   rank_name: string;
-}
-
-interface PreviousSnapshotRow {
-  rank: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -102,6 +104,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       `SELECT DISTINCT ON (xl.user_id)
               xl.user_id,
               u.xp_total,
+              u.xp_social,
+              u.xp_creator,
+              u.xp_competitor,
+              u.xp_generosity,
+              u.xp_knowledge,
+              u.xp_explorer,
               u.rank_name
        FROM xp_ledger xl
        JOIN users u ON u.id = xl.user_id
@@ -126,16 +134,17 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const userIds = activeUsers.map((u) => u.user_id);
   const previousRankMap = new Map<string, number>();
   try {
-    const { rows: prevRows } = await db.query<{ user_id: string; rank: number }>(
-      `SELECT user_id, rank
+    const { rows: prevRows } = await db.query<{ user_id: string; last_notified_rank: number }>(
+      `SELECT user_id, last_notified_rank
        FROM leaderboard_snapshots
        WHERE user_id = ANY($1)
          AND scope = 'global'
-         AND track = 'main'`,
+         AND track = 'main'
+         AND last_notified_rank IS NOT NULL`,
       [userIds]
     );
     for (const row of prevRows) {
-      previousRankMap.set(row.user_id, row.rank);
+      previousRankMap.set(row.user_id, row.last_notified_rank);
     }
   } catch (err) {
     errors.push(`previousRankFetch: ${String(err)}`);
@@ -146,7 +155,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // -------------------------------------------------------------------------
   for (const user of activeUsers) {
     try {
-      await upsertLeaderboardSnapshot(user.user_id, "main", user.xp_total, db);
+      await Promise.all([
+        upsertLeaderboardSnapshot(user.user_id, "main", user.xp_total, db),
+        upsertLeaderboardSnapshot(user.user_id, "social", user.xp_social ?? 0, db),
+        upsertLeaderboardSnapshot(user.user_id, "creator", user.xp_creator ?? 0, db),
+        upsertLeaderboardSnapshot(user.user_id, "competitor", user.xp_competitor ?? 0, db),
+        upsertLeaderboardSnapshot(user.user_id, "generosity", user.xp_generosity ?? 0, db),
+        upsertLeaderboardSnapshot(user.user_id, "knowledge", user.xp_knowledge ?? 0, db),
+        upsertLeaderboardSnapshot(user.user_id, "explorer", user.xp_explorer ?? 0, db),
+      ]);
       usersUpdated++;
     } catch (err) {
       errors.push(`upsertSnapshot(${user.user_id}): ${String(err)}`);
@@ -176,6 +193,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     for (const { user_id, new_rank: newRank } of rankRows) {
       const previousRank = previousRankMap.get(user_id) ?? null;
+
+      // Always persist the new rank so future runs have a baseline
+      await db.query(
+        `UPDATE leaderboard_snapshots
+         SET last_notified_rank = $1
+         WHERE user_id = $2 AND scope = 'global' AND track = 'main'`,
+        [newRank, user_id]
+      ).catch(() => {});
 
       if (previousRank !== null && newRank !== previousRank) {
         rankChanges++;

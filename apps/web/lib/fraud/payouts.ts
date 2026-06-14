@@ -120,7 +120,7 @@ async function checkNewAccountGiftInflow(
          JOIN rooms r ON r.id = g.room_id
          JOIN users sender ON sender.id = g.sender_id
          WHERE r.creator_id = $1
-           AND sender.created_at >= NOW() - ($2 || ' days')::INTERVAL
+           AND sender.created_at >= NOW() - ($2 * INTERVAL '1 day')
            AND g.created_at >= NOW() - INTERVAL '7 days'
 
          UNION ALL
@@ -131,10 +131,10 @@ async function checkNewAccountGiftInflow(
          JOIN users sender2 ON sender2.id = g2.sender_id
          WHERE g2.recipient_id = $1
            AND g2.room_id IS NULL
-           AND sender2.created_at >= NOW() - ($2 || ' days')::INTERVAL
+           AND sender2.created_at >= NOW() - ($2 * INTERVAL '1 day')
            AND g2.created_at >= NOW() - INTERVAL '7 days'
        ) combined`,
-      [creatorId, String(NEW_ACCOUNT_AGE_DAYS)]
+      [creatorId, NEW_ACCOUNT_AGE_DAYS]
     );
 
     const totalCoins = parseInt(rows[0]?.total_coins ?? "0", 10);

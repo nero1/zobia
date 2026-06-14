@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -59,6 +60,7 @@ interface Notification {
 export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
+    await enforceRateLimit(userId, "user", RATE_LIMITS.apiRead);
 
     const [result, countResult] = await Promise.all([
       db.query<NotificationRow>(
