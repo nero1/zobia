@@ -26,6 +26,7 @@ import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateL
 
 const ExchangeSchema = z.object({
   code: z.string().min(1).max(128),
+  pre_auth_code: z.string().min(1).max(128).optional(),
 });
 
 interface ExchangePayload {
@@ -41,7 +42,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const ip = getClientIp(req);
     await enforceRateLimit(ip, "ip", RATE_LIMITS.auth);
 
-    const { code } = await validateBody(req, ExchangeSchema);
+    const { code, pre_auth_code } = await validateBody(req, ExchangeSchema);
+
+    // If a pre_auth_code is present, resolve it to the actual pre-auth token first.
+    // This allows the mobile 2FA flow to pass an opaque code in the deep-link URL
+    // rather than the raw JWT, preventing token exposure in logs/history.
+    if (pre_auth_code) {
+      const preAuthToken = await redis.getdel(`mobile_pre_auth:${pre_auth_code}`);
+      if (!preAuthToken) {
+        throw badRequest("Invalid or expired pre-auth code", "INVALID_PRE_AUTH_CODE");
+      }
+      return NextResponse.json({ preAuthToken });
+    }
 
     // Atomically GET-and-DEL to make the code single-use (no getdel in interface)
     const raw = await redis.eval(

@@ -1318,5 +1318,8 @@
   "quests": {
     "viewAll": "Ver todas as missões →",
     "noQuestsToday": "Sem missões hoje. Volte em breve!"
-  }
+  },
+  "offline.syncFailed": "Falha ao enviar mensagem. Será tentado novamente.",
+  "offline.permanentFailure": "A mensagem não pôde ser entregue.",
+  "offline.permanentFailureHint": "Esta mensagem foi rejeitada pelo servidor e não será tentada novamente."
 }

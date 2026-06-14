@@ -591,8 +591,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         console.info(`[webhook/paystack] Ignoring unhandled event: ${(event as { event: string }).event}`);
     }
   } catch (err) {
-    console.error("[webhook/paystack] Processing error:", err);
-    return NextResponse.json({ received: false, error: "Processing failed" }, { status: 500 });
+    const errCode = (err as NodeJS.ErrnoException).code;
+    const isTransient = errCode === "ECONNREFUSED" || errCode === "ETIMEDOUT" || errCode === "ECONNRESET";
+    if (isTransient) {
+      console.error("[webhook/paystack] Transient error (Paystack will retry):", err);
+      return NextResponse.json({ received: false, error: "Processing failed" }, { status: 500 });
+    }
+    // Non-recoverable error — log for ops review but return 200 to stop Paystack retry loops
+    console.error("[webhook/paystack] Non-recoverable processing error:", err);
+    db.query(
+      `INSERT INTO system_alerts (alert_type, message, metadata, created_at)
+       VALUES ('webhook_processing_error', $1, $2::jsonb, NOW())`,
+      [(err as Error).message, JSON.stringify({ webhook: "paystack", error: (err as Error).message })]
+    ).catch(() => {});
+    return NextResponse.json({ received: true });
   }
 
   return NextResponse.json({ received: true });

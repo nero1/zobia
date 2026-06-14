@@ -1318,5 +1318,8 @@
   "quests": {
     "viewAll": "ሁሉንም ተልእኮዎች ይመልከቱ →",
     "noQuestsToday": "ዛሬ ምንም ተልእኮ የለም። ብዙም ሳይቆዩ ፈትሹ!"
-  }
+  },
+  "offline.syncFailed": "መልዕክቱ መላክ አልተቻለም። እንደገና ይሞክራል።",
+  "offline.permanentFailure": "መልዕክቱ ሊደርስ አልቻለም።",
+  "offline.permanentFailureHint": "ይህ መልዕክት በሰርቨሩ ተቀባይነት አላገኘም እና እንደገና አይሞከርም።"
 }

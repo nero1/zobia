@@ -4,11 +4,14 @@ const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
 
+let cachedKey: Buffer | null = null;
+
 function getKey(): Buffer {
+  if (cachedKey) return cachedKey;
   const raw = process.env.KYC_ENCRYPTION_KEY;
   if (!raw) throw new Error("KYC_ENCRYPTION_KEY env var not set");
-  // Derive a 32-byte key via SHA-256 so any string works as the key material
-  return createHash("sha256").update(raw).digest();
+  cachedKey = createHash("sha256").update(raw).digest();
+  return cachedKey;
 }
 
 /**

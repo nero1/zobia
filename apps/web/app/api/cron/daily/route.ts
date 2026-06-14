@@ -60,6 +60,8 @@ function validateCronSecret(req: NextRequest): boolean {
 
 const INACTIVITY_TRIGGERS = [3, 7, 14, 30, 90] as const;
 
+const COMEBACK_COIN_AMOUNT = 200;
+
 // ---------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------
@@ -112,7 +114,7 @@ export const GET = async (req: NextRequest) => {
          SET last_streak_before_break = login_streak_days,
              login_streak_days = 0,
              updated_at = NOW()
-         WHERE last_login_date < $1
+         WHERE last_login_at::date < $1::date
            AND login_streak_days > 0
          RETURNING 1
        )
@@ -319,8 +321,8 @@ export const GET = async (req: NextRequest) => {
 
     for (const season of endedSeasons.rows) {
       try {
-        await distributeSeasonRewards(season.id, db);
         await resetSeasonRankings(season.id, db);
+        await distributeSeasonRewards(season.id, db);
         try {
           await createSeasonCeremonyRoom(season.id, season.name, db);
         } catch (err) {
@@ -681,7 +683,6 @@ export const GET = async (req: NextRequest) => {
 
   // 14. Leaderboard ripple notifications — notify users of passive rank changes
   try {
-    // Compute current global rankings from leaderboard_snapshots
     const { rows: currentRanks } = await db.query<{
       user_id: string; rank: string; xp_value: string;
     }>(
@@ -694,46 +695,79 @@ export const GET = async (req: NextRequest) => {
     );
 
     let notified = 0;
-    for (const current of currentRanks) {
-      const currentRank = parseInt(current.rank);
 
-      // Get previous snapshot
-      const { rows: prev } = await db.query<{ rank: number; xp: number }>(
-        `SELECT rank, xp FROM leaderboard_rank_snapshots
-         WHERE user_id = $1 AND scope = 'global'`,
-        [current.user_id]
+    if (currentRanks.length > 0) {
+      const userIds = currentRanks.map((r) => r.user_id);
+
+      // Batch-fetch all previous snapshots in one query instead of one query per user
+      const { rows: prevSnapshots } = await db.query<{ user_id: string; rank: number; xp: number }>(
+        `SELECT user_id, rank, xp FROM leaderboard_rank_snapshots
+         WHERE scope = 'global' AND user_id = ANY($1::uuid[])`,
+        [userIds]
       );
+      const prevByUser = new Map(prevSnapshots.map((p) => [p.user_id, p]));
 
-      const prevRank = prev[0]?.rank ?? null;
+      const notifUserIds: string[] = [];
+      const notifDirections: string[] = [];
+      const notifFromRanks: number[] = [];
+      const notifToRanks: number[] = [];
+      const snapUserIds: string[] = [];
+      const snapRanks: number[] = [];
+      const snapXps: number[] = [];
 
-      if (prevRank !== null && prevRank !== currentRank) {
-        const direction = currentRank < prevRank ? 'up' : 'down';
-        // Only notify for meaningful passive changes (moved 5+ positions)
-        if (Math.abs(prevRank - currentRank) >= 5) {
-          await db.query(
-            `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-             VALUES ($1, 'rank_change', $2, false, NOW())`,
-            [
-              current.user_id,
-              JSON.stringify({
-                direction,
-                fromRank: prevRank,
-                toRank: currentRank,
-              }),
-            ]
-          ).catch(() => {});
-          notified++;
+      for (const current of currentRanks) {
+        const currentRank = parseInt(current.rank);
+        const currentXp = parseInt(current.xp_value);
+        const prev = prevByUser.get(current.user_id);
+        const prevRank = prev?.rank ?? null;
+
+        if (prevRank !== null && prevRank !== currentRank && Math.abs(prevRank - currentRank) >= 5) {
+          const direction = currentRank < prevRank ? 'up' : 'down';
+          notifUserIds.push(current.user_id);
+          notifDirections.push(direction);
+          notifFromRanks.push(prevRank);
+          notifToRanks.push(currentRank);
         }
+
+        snapUserIds.push(current.user_id);
+        snapRanks.push(currentRank);
+        snapXps.push(currentXp);
       }
 
-      // Upsert the new snapshot
-      await db.query(
-        `INSERT INTO leaderboard_rank_snapshots (user_id, scope, rank, xp, snapped_at)
-         VALUES ($1, 'global', $2, $3, NOW())
-         ON CONFLICT (user_id, scope)
-         DO UPDATE SET rank = $2, xp = $3, snapped_at = NOW()`,
-        [current.user_id, currentRank, parseInt(current.xp_value)]
-      ).catch(() => {});
+      // Batch upsert all snapshots in a single query using unnest()
+      if (snapUserIds.length > 0) {
+        await db.query(
+          `INSERT INTO leaderboard_rank_snapshots (user_id, scope, rank, xp, snapped_at)
+           SELECT unnest($1::uuid[]), 'global', unnest($2::int[]), unnest($3::int[]), NOW()
+           ON CONFLICT (user_id, scope)
+           DO UPDATE SET rank = EXCLUDED.rank, xp = EXCLUDED.xp, snapped_at = NOW()`,
+          [snapUserIds, snapRanks, snapXps]
+        ).catch(() => {});
+      }
+
+      // Batch insert all notifications in a single query using unnest()
+      if (notifUserIds.length > 0) {
+        await db.query(
+          `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
+           SELECT
+             sub.user_id,
+             'rank_change',
+             CASE WHEN sub.direction = 'up' THEN 'Your rank improved!' ELSE 'Your rank dropped' END,
+             'Your position on the global leaderboard changed.',
+             jsonb_build_object('direction', sub.direction, 'fromRank', sub.from_rank, 'toRank', sub.to_rank),
+             false,
+             NOW()
+           FROM (
+             SELECT
+               unnest($1::uuid[]) AS user_id,
+               unnest($2::text[]) AS direction,
+               unnest($3::int[]) AS from_rank,
+               unnest($4::int[]) AS to_rank
+           ) sub`,
+          [notifUserIds, notifDirections, notifFromRanks, notifToRanks]
+        ).catch(() => {});
+        notified = notifUserIds.length;
+      }
     }
 
     results.leaderboardRipple = { notified, snapshotCount: currentRanks.length };
@@ -817,7 +851,6 @@ export const GET = async (req: NextRequest) => {
     // 11a. Credit 200 comeback coins for users who just hit 90-day inactivity threshold
     //      Coins are "reserved" — if the user doesn't log in within 7 days they will be
     //      reversed by the expiry task below.
-    const COMEBACK_COIN_AMOUNT = 200;
     for (const user of inactiveUsers) {
       if (user.days_inactive === 90) {
         try {
@@ -1324,7 +1357,7 @@ export const GET = async (req: NextRequest) => {
                         'plan:' || id::text || ':' || $4,
                         $3, NOW()
                  FROM eligible
-                 ON CONFLICT DO NOTHING
+                 ON CONFLICT (reference_id) DO NOTHING
                  RETURNING user_id
                )
                UPDATE users
@@ -1364,8 +1397,6 @@ export const GET = async (req: NextRequest) => {
   //     Users who received the comeback bonus but never logged in within 7 days
   //     have their reserved coins reversed to keep economy consistent.
   try {
-    const COMEBACK_COIN_AMOUNT = 200;
-
     // Find users with a comeback_bonus_reserved entry older than 7 days
     // who have NOT logged in since the bonus was issued
     const { rows: expiredBonusUsers } = await db.query<{
@@ -1902,8 +1933,8 @@ export const GET = async (req: NextRequest) => {
           [elderId, JSON.stringify({ seasonId, menteeCount: parseInt(topElders[0].mentee_count) })]
         ).catch(() => {});
         await db.query(
-          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-           VALUES ($1, 'master_teacher_award', $2, false, NOW())`,
+          `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
+           VALUES ($1, 'master_teacher_award', 'Master Teacher Award', 'You have been awarded the Master Teacher badge for this season!', $2, false, NOW())`,
           [elderId, JSON.stringify({ seasonId, menteeCount: parseInt(topElders[0].mentee_count) })]
         ).catch(() => {});
         results.masterTeacherAward = { elderId, seasonId };
@@ -1933,8 +1964,8 @@ export const GET = async (req: NextRequest) => {
 
       for (const row of overtakeRows) {
         await db.query(
-          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-           VALUES ($1, 'nemesis_overtook_you', $2, false, NOW())
+          `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
+           VALUES ($1, 'nemesis_overtook_you', 'Your Nemesis pulled ahead!', 'Your rival has overtaken you in XP. Time to catch up!', $2, false, NOW())
            ON CONFLICT DO NOTHING`,
           [
             row.user_id,
@@ -1949,8 +1980,8 @@ export const GET = async (req: NextRequest) => {
 
         // Notify nemesis of triumph
         await db.query(
-          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-           VALUES ($1, 'nemesis_triumph', $2, false, NOW())
+          `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
+           VALUES ($1, 'nemesis_triumph', 'You overtook your Nemesis!', 'You have surpassed your rival in XP. Keep the lead!', $2, false, NOW())
            ON CONFLICT DO NOTHING`,
           [
             row.nemesis_id,
@@ -2088,11 +2119,13 @@ export const GET = async (req: NextRequest) => {
           [ALLIANCE_WAR_VICTORY_XP, war.id, winnerId]
         ).catch(() => {});
 
-        // Notify losing alliance members
+        // Notify all members of both alliances about the war result
         await db.query(
-          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+          `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
            SELECT DISTINCT gm.user_id,
                   'alliance_war_result',
+                  CASE WHEN gam.alliance_id = $2 THEN 'Alliance War Victory!' ELSE 'Alliance War Ended' END,
+                  CASE WHEN gam.alliance_id = $2 THEN 'Your alliance won the war this week!' ELSE 'Your alliance was defeated this week. Regroup and fight back!' END,
                   jsonb_build_object('warId', $1::text, 'won', gam.alliance_id = $2,
                                      'winnerAllianceId', $2::text),
                   false, NOW()
@@ -2199,16 +2232,17 @@ export const GET = async (req: NextRequest) => {
            AND u.deleted_at IS NULL`
       );
 
+      // Hoist manifest reads out of the loop — these values are global config and
+      // should not be fetched once per referral (each call hits Redis/DB).
+      const xpBonusStr = await getManifestValue("referral_tier1_xp_bonus");
+      const coinBonusStr = await getManifestValue("referral_tier1_coin_bonus");
+      const xpBonus = parseInt(xpBonusStr ?? "500", 10) || 500;
+      const coinBonus = parseInt(coinBonusStr ?? "100", 10) || 100;
+
       let streakQualified = 0;
 
       for (const referral of streakReferrals) {
         await db.transaction(async (tx) => {
-          // Mark as qualified
-          const xpBonusStr = await getManifestValue("referral_tier1_xp_bonus");
-          const coinBonusStr = await getManifestValue("referral_tier1_coin_bonus");
-
-          const xpBonus = parseInt(xpBonusStr ?? "500", 10) || 500;
-          const coinBonus = parseInt(coinBonusStr ?? "100", 10) || 100;
 
           // Update referral record
           await tx.query(

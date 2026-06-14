@@ -395,7 +395,7 @@ export async function resolveWar(
     // Award Guild XP (500–5,000 based on opponent strength) for tier progression
     const guildXPReward = Math.min(
       WAR_WIN_GUILD_XP_MAX,
-      Math.max(WAR_WIN_GUILD_XP_MIN, Math.round(war.defender_points + war.challenger_points) * 2)
+      Math.max(WAR_WIN_GUILD_XP_MIN, Math.round((war.defender_points + war.challenger_points) * 2))
     );
     await client.query(
       `UPDATE guilds SET guild_xp = guild_xp + $1, updated_at = NOW() WHERE id = $2`,

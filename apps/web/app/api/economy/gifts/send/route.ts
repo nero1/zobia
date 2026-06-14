@@ -94,16 +94,6 @@ async function awardGiftXP(
       { plan: 'free', isMessagingAction: false }
     );
 
-    // PRD §6: Check if recipient has ever received a gift before (first_time_gifted = 15 XP)
-    const { rows: prevGiftRows } = await db.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count FROM gifts WHERE recipient_id = $1 LIMIT 1`,
-      [recipientId]
-    );
-    const isFirstGift = parseInt(prevGiftRows[0]?.count ?? "0") <= 1; // <= 1 because the new gift is already inserted
-
-    // PRD §6: being_tipped_in_room = 25 XP for creator when gift is sent in a room
-    const isTippedInRoom = !!roomId;
-
     // first_time_gifted XP (non-messaging, flat)
     const { baseXp: firstGiftBaseXp, finalXp: firstGiftXP } = calculateFinalXP(
       'first_time_gifted',
@@ -116,71 +106,62 @@ async function awardGiftXP(
       { plan: 'free', isMessagingAction: false }
     );
 
-    const xpLedgerInserts = [
-      db.query(
+    const isTippedInRoom = !!roomId;
+
+    await db.transaction(async (tx) => {
+      // PRD §6: Check if recipient has ever received a gift before (first_time_gifted = 15 XP)
+      const { rows: prevGiftRows } = await tx.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM gifts WHERE recipient_id = $1`,
+        [recipientId]
+      );
+      const isFirstGift = parseInt(prevGiftRows[0]?.count ?? "0") <= 1; // <= 1 because the new gift is already inserted
+
+      // Sender XP (generosity track)
+      await tx.query(
         `INSERT INTO xp_ledger (user_id, amount, track, source, multiplier, base_amount)
          VALUES ($1, $2, 'generosity', 'gift_sent', $3, $4)`,
         [senderId, senderXP, senderMultiplierBP, senderBaseXp]
-      ),
-      db.query(
+      );
+      await tx.query(
+        `UPDATE users SET xp_total = xp_total + $2, xp_generosity = xp_generosity + $2, updated_at = NOW() WHERE id = $1`,
+        [senderId, senderXP]
+      );
+
+      // Recipient base XP (social track)
+      await tx.query(
         `INSERT INTO xp_ledger (user_id, amount, track, source, multiplier, base_amount)
          VALUES ($1, $2, 'social', 'gift_received', 100, $3)`,
         [recipientId, recipientXP, recipBaseXp]
-      ),
-    ];
+      );
+      await tx.query(
+        `UPDATE users SET xp_total = xp_total + $2, xp_social = xp_social + $2, updated_at = NOW() WHERE id = $1`,
+        [recipientId, recipientXP]
+      );
 
-    if (isFirstGift) {
-      xpLedgerInserts.push(
-        db.query(
+      if (isFirstGift) {
+        await tx.query(
           `INSERT INTO xp_ledger (user_id, amount, track, source, multiplier, base_amount)
            VALUES ($1, $2, 'social', 'first_time_gifted', 100, $3)`,
           [recipientId, firstGiftXP, firstGiftBaseXp]
-        )
-      );
-    }
+        );
+        await tx.query(
+          `UPDATE users SET xp_total = xp_total + $2, xp_social = xp_social + $2, updated_at = NOW() WHERE id = $1`,
+          [recipientId, firstGiftXP]
+        );
+      }
 
-    if (isTippedInRoom) {
-      xpLedgerInserts.push(
-        db.query(
+      if (isTippedInRoom) {
+        await tx.query(
           `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
            VALUES ($1, $2, 'creator', 'being_tipped_in_room', $3, 100, $4)`,
           [recipientId, tippedXP, roomId, tippedBaseXp]
-        )
-      );
-    }
-
-    await Promise.all(xpLedgerInserts);
-
-    const userUpdates = [
-      db.query(
-        `UPDATE users SET xp_total = xp_total + $2, xp_generosity = xp_generosity + $2, updated_at = NOW() WHERE id = $1`,
-        [senderId, senderXP]
-      ),
-      db.query(
-        `UPDATE users SET xp_total = xp_total + $2, xp_social = xp_social + $2, updated_at = NOW() WHERE id = $1`,
-        [recipientId, recipientXP]
-      ),
-    ];
-
-    if (isFirstGift) {
-      userUpdates.push(
-        db.query(
-          `UPDATE users SET xp_total = xp_total + $2, xp_social = xp_social + $2, updated_at = NOW() WHERE id = $1`,
-          [recipientId, firstGiftXP]
-        )
-      );
-    }
-
-    if (isTippedInRoom) {
-      userUpdates.push(
-        db.query(
+        );
+        await tx.query(
           `UPDATE users SET xp_total = xp_total + $2, xp_creator = xp_creator + $2, updated_at = NOW() WHERE id = $1`,
           [recipientId, tippedXP]
-        )
-      );
-    }
-
-    await Promise.all(userUpdates);
+        );
+      }
+    });
   } catch (err) {
     console.error("[gifts/send] Failed to award XP:", err);
   }
@@ -203,7 +184,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const senderId = auth.user.sub;
 
     // Require a recent PIN verification before allowing gift sends
-    const pinOk = await requirePinVerified(senderId);
+    const pinOk = await requirePinVerified(senderId, auth.user.sid);
     if (!pinOk) {
       return NextResponse.json(
         { error: "PIN verification required", code: "PIN_REQUIRED" },

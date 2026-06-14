@@ -144,6 +144,7 @@ async function countTodayMessages(roomId: string, userId: string): Promise<numbe
      FROM room_messages
      WHERE room_id = $1
        AND sender_id = $2
+       AND is_pending_approval = FALSE
        AND created_at >= CURRENT_DATE`,
     [roomId, userId]
   );

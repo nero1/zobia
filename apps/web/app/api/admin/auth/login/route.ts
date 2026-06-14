@@ -19,8 +19,10 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { randomBytes } from "crypto";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { redis } from "@/lib/redis";
 import { handleApiError, unauthorized } from "@/lib/api/errors";
 import { validateBody } from "@/lib/api/middleware";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -81,7 +83,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     // Check if admin has completed TOTP setup
     if (!user.totp_enabled || !user.totp_secret) {
-      return NextResponse.json({ success: true, needsSetup: true }, { status: 200 });
+      // Issue a one-time pre-auth setup token so the client can access the TOTP
+      // setup endpoint without a full session. The token is stored in Redis with
+      // a 5-minute TTL and consumed (GETDEL) by the setup endpoint.
+      const setupToken = randomBytes(32).toString("hex");
+      await redis.setex(`admin_pre_auth:setup:${setupToken}`, 300, user.id);
+      return NextResponse.json({ success: true, needsSetup: true, setupToken }, { status: 200 });
     }
 
     return NextResponse.json({ success: true, needsSetup: false }, { status: 200 });

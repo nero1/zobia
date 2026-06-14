@@ -95,7 +95,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     } else {
       // On success, clear the failure counter and record the verified session
       await redis.del(failKey);
-      await markPinVerified(userId);
+      await markPinVerified(userId, auth.user.sid);
     }
 
     return NextResponse.json({ verified }, { status: 200 });

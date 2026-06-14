@@ -45,14 +45,12 @@ function ip4ToInt(ip: string): number {
 }
 
 function isPrivateIp(hostname: string): boolean {
-  // IPv6 loopback and link-local
-  if (hostname === "::1" || hostname.startsWith("fe80:") || hostname.startsWith("fc") || hostname.startsWith("fd")) {
-    return true;
-  }
-  // Reject raw IPv6 except public addresses
-  if (hostname.includes(":")) {
-    return true; // conservative: block all IPv6 by default
-  }
+  // IPv6 private/loopback ranges
+  if (hostname === "::1") return true;
+  if (hostname.startsWith("fe80:")) return true;
+  if (hostname.startsWith("fc") || hostname.startsWith("fd")) return true;
+  if (hostname.startsWith("fec0:")) return true;
+  if (hostname.includes(":")) return false; // public IPv6 — allow
 
   // Parse IPv4
   const parts = hostname.split(".");

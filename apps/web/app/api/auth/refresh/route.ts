@@ -61,7 +61,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       refreshTtl
     );
 
-    const response = NextResponse.json({ expiresIn }, { status: 200 });
+    // Mobile clients (detected by X-Refresh-Token header) cannot use HttpOnly cookies,
+    // so include the new tokens in the JSON body as well.
+    const isMobile = !!request.headers.get("x-refresh-token");
+    const responseBody: Record<string, unknown> = { expiresIn };
+    if (isMobile) {
+      responseBody.accessToken = accessToken;
+      responseBody.refreshToken = rotatedRefreshToken;
+    }
+
+    const response = NextResponse.json(responseBody, { status: 200 });
     // Set-Cookie: use append so both cookies are sent (headers.set would overwrite)
     response.headers.append("Set-Cookie", accessCookie);
     response.headers.append("Set-Cookie", refreshCookie);

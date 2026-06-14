@@ -212,7 +212,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const userId = auth.user.sub;
 
     // Require a recent PIN verification before allowing payout initiation
-    const pinOk = await requirePinVerified(userId);
+    const pinOk = await requirePinVerified(userId, auth.user.sid);
     if (!pinOk) {
       return NextResponse.json(
         { error: "PIN verification required", code: "PIN_REQUIRED" },
