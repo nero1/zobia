@@ -1,7 +1,7 @@
 # Zobia Social — Comprehensive Bug & Code Quality Report
 
 **Generated:** June 14, 2026, 09:27 PM  
-**Updated:** June 14, 2026, 09:48 PM (added BUG-41 through BUG-52 — quality-ceiling improvements)
+**Updated:** June 14, 2026, 10:05 PM (added BUG-53 — monitoring provider abstraction)
 **Scope:** Full forensic analysis — `apps/web` (Next.js 14 App Router, all API routes, all lib/ modules)
 **Method:** Deep static analysis, three full sweeps of all files
 
@@ -61,6 +61,7 @@
 50. TypeScript strict mode not fully enforced — `any` casts, `as never` type lies, and inexact optional types exist throughout
 51. Inconsistent DB access pattern — high-value lib functions accept an injected adapter but many modules hardcode the `db` import, making them untestable and environment-inflexible
 52. `feat()` helper in `manifest/index.ts` uses `as never` to index into `DEFAULT_MANIFEST.features` — a type lie that silently returns wrong values for unmatched keys
+53. No monitoring provider abstraction — no Sentry, New Relic, or equivalent; errors and transactions are invisible in production
 
 ---
 
@@ -578,6 +579,23 @@ FIX: The `feat()` helper strips the `feature_` prefix from a key with `canonical
 
 ---
 
+### BUG-53: No Monitoring Provider Abstraction — Production Errors and Transactions Are Invisible
+
+FILES:
+- `apps/web/lib/` (no monitoring module exists)
+- `apps/web/instrumentation.ts` (does not exist yet)
+
+FIX: The codebase has no error monitoring or APM integration. Unhandled exceptions, slow DB queries, and payment failures surface only in raw server logs (if they surface at all). Implement a provider abstraction at `lib/monitoring/`:
+
+- **Interface** (`lib/monitoring/interface.ts`): define `MonitoringProvider` with `captureError(err, context?)`, `captureMessage(msg, level, context?)`, `setUser(id, traits?)`, and `startTransaction(name, op)` returning a span with `.finish()`.
+- **Providers**: `lib/monitoring/providers/sentry.ts`, `lib/monitoring/providers/newrelic.ts`, and `lib/monitoring/providers/null.ts` (no-op implementation for when the feature is disabled — zero overhead).
+- **Factory** (`lib/monitoring/index.ts`): reads `MONITORING_PROVIDER=sentry|newrelic|none` from the validated `env` object; exports a singleton `monitoring` instance. Adding a new provider requires only one new file and one new `case` in the factory.
+- **Logger integration**: wire `captureError()` into the structured logger (FIX-G3) so any `logger.error(...)` call automatically reports to the monitoring provider — avoids scattering `monitoring.captureError()` calls throughout business logic.
+- **Deep APM**: let each provider's native Next.js instrumentation (`instrumentation.ts` hook with `registerOTelInstrumentation` for New Relic, `Sentry.init()` for Sentry) handle distributed tracing and sourcemap uploads outside the abstraction. The abstraction covers error capture and basic transaction timing; provider-native hooks handle the deep plumbing. This avoids the abstraction becoming leaky when dealing with raw span objects.
+- **Env vars**: `MONITORING_PROVIDER`, `SENTRY_DSN`, `NEW_RELIC_LICENSE_KEY`, `NEW_RELIC_APP_NAME`. Default to `none` when `MONITORING_PROVIDER` is unset.
+
+---
+
 ## Code Quality Ratings
 
 ### Current State
@@ -604,20 +622,20 @@ FIX: The `feat()` helper strips the `feature_` prefix from a key with `canonical
 
 **Overall Post-Fix (BUG-01–40): 8.3/10**
 
-### Projected Post-All-Fixes State (BUG-01 through BUG-52)
+### Projected Post-All-Fixes State (BUG-01 through BUG-53)
 
 | Dimension | Score | Assessment |
 |-----------|-------|-----------|
-| Architecture | 9.5/10 | DB circuit breaker, graceful shutdown, adapter injection, health endpoint, fully testable modules |
+| Architecture | 9.5/10 | DB circuit breaker, graceful shutdown, adapter injection, health endpoint, monitoring abstraction, fully testable modules |
 | Security | 9.5/10 | Library-grade HTML sanitization, JWT key rotation, distributed rate limiting, complete read-path audit trail |
-| Performance | 9.0/10 | Structured logging with correlation IDs enables precise bottleneck tracing; DLQ alerting surfaces silent failures |
-| Reliability | 9.5/10 | DB circuit breaker prevents cascade failures; graceful shutdown protects in-flight transactions; DLQ monitored |
+| Performance | 9.0/10 | Structured logging + APM integration enables precise bottleneck tracing; DLQ alerting surfaces silent failures |
+| Reliability | 9.5/10 | DB circuit breaker prevents cascade failures; graceful shutdown protects in-flight transactions; DLQ monitored; production errors captured |
 | Correctness | 9.5/10 | TypeScript strict mode eliminates type lies; manifest typing sound; all logging and audit paths enforced |
 
-**Overall Post-All-Fixes (BUG-01–52): 9.7/10**
+**Overall Post-All-Fixes (BUG-01–53): 9.7/10**
 
 ---
 
 *Report generated: June 14, 2026, 09:27 PM*
-*Updated: June 14, 2026, 09:48 PM (added BUG-41 through BUG-52 and 9.7+ rating target)*
+*Updated: June 14, 2026, 10:05 PM (added BUG-53 — monitoring provider abstraction)*
 *Scope: Full forensic static analysis — apps/web (Next.js 14 App Router + all lib/ modules)*

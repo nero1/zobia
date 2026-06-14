@@ -1,8 +1,8 @@
 # Zobia Social — Bug Fix Plan
 
 **Generated:** June 14, 2026, 09:27 PM
-**Updated:** June 14, 2026, 09:48 PM (added Group G — BUG-41 through BUG-52)
-**Source:** custom-bugs-report.md (52 confirmed bugs)
+**Updated:** June 14, 2026, 10:05 PM (added BUG-53 — monitoring provider abstraction)
+**Source:** custom-bugs-report.md (53 confirmed bugs)
 **Instruction:** DO NOT begin any fix until this plan has been reviewed and approved.
 
 ---
@@ -513,6 +513,62 @@ FILES: `apps/web/lib/manifest/index.ts`
 
 ---
 
+### FIX-G13 (BUG-53): Implement Monitoring Provider Abstraction
+
+1. Create `apps/web/lib/monitoring/interface.ts` — define the `MonitoringProvider` interface:
+   - `captureError(err: unknown, context?: Record<string, unknown>): void`
+   - `captureMessage(msg: string, level: 'info' | 'warning' | 'error', context?: Record<string, unknown>): void`
+   - `setUser(id: string, traits?: Record<string, unknown>): void`
+   - `startTransaction(name: string, op: string): { finish(): void }`
+
+2. Create `apps/web/lib/monitoring/providers/null.ts` — all methods are no-ops. This is the default when `MONITORING_PROVIDER` is unset or `'none'`.
+
+3. Create `apps/web/lib/monitoring/providers/sentry.ts`:
+   - Install `@sentry/nextjs`.
+   - `captureError` → `Sentry.captureException(err, { extra: context })`.
+   - `captureMessage` → `Sentry.captureMessage(msg, { level, extra: context })`.
+   - `setUser` → `Sentry.setUser({ id, ...traits })`.
+   - `startTransaction` → `Sentry.startInactiveSpan({ name, op })` (Sentry v8 API).
+   - `Sentry.init()` called here from `instrumentation.ts` separately — keep the provider file thin.
+
+4. Create `apps/web/lib/monitoring/providers/newrelic.ts`:
+   - Install `newrelic`.
+   - `captureError` → `newrelic.noticeError(err instanceof Error ? err : new Error(String(err)), context)`.
+   - `captureMessage` → `newrelic.recordLogEvent({ message: msg, level, ...context })`.
+   - `setUser` → `newrelic.addCustomAttribute('userId', id)` + additional traits.
+   - `startTransaction` → wrap with `newrelic.startWebTransaction(name, ...)` returning a handle.
+   - New Relic agent init is handled by requiring `newrelic` at server startup in `instrumentation.ts`.
+
+5. Create `apps/web/lib/monitoring/index.ts` — factory singleton:
+   - Read `env.MONITORING_PROVIDER` (add to `lib/env.ts` as optional, default `'none'`).
+   - `switch` on value → return the appropriate provider instance.
+   - Export as `export const monitoring: MonitoringProvider`.
+
+6. Wire into logger (FIX-G3): in `lib/logger.ts`, add a `pino` hook on the `error` level that calls `monitoring.captureError(loggedError, { requestId })`. This means all `logger.error()` calls automatically reach the monitoring provider without any call-site changes.
+
+7. Add `instrumentation.ts` at `apps/web/instrumentation.ts` (Next.js 14 instrumentation hook):
+   - Call `Sentry.init(...)` when provider is `'sentry'`.
+   - `require('newrelic')` at the top of the file when provider is `'newrelic'` (must be the very first require).
+
+8. Add to `lib/env.ts`:
+   - `MONITORING_PROVIDER: z.enum(['sentry', 'newrelic', 'none']).default('none')`
+   - `SENTRY_DSN: z.string().url().optional()`
+   - `NEW_RELIC_LICENSE_KEY: z.string().optional()`
+   - `NEW_RELIC_APP_NAME: z.string().optional()`
+
+FILES:
+- new `apps/web/lib/monitoring/interface.ts`
+- new `apps/web/lib/monitoring/providers/null.ts`
+- new `apps/web/lib/monitoring/providers/sentry.ts`
+- new `apps/web/lib/monitoring/providers/newrelic.ts`
+- new `apps/web/lib/monitoring/index.ts`
+- new `apps/web/instrumentation.ts`
+- `apps/web/lib/env.ts`
+- `apps/web/lib/logger.ts` (after FIX-G3)
+- `package.json`
+
+---
+
 ## Implementation Sequence Summary
 
 ```
@@ -529,19 +585,19 @@ Week 3: Groups E, F (can run in parallel)
   F1, F2, F3, F4, F5, F6, F7, F8
 
 Week 4: Group G — Quality Ceiling (independently schedulable after A–F are merged)
-  G1, G2, G3, G4, G5, G6, G7, G8, G9 can run in parallel
-  G10 (TypeScript strict) should run after G1–G9 are merged (all remaining type errors surface together)
-  G11 (adapter injection) can run in parallel with G10
-  G12 (feat() fix) is a 30-minute task — do it first in Week 4 to unblock G10
+  G12 (feat() fix) — do first, unblocks G10
+  G1, G2, G3, G4, G5, G6, G7, G8, G9, G11, G13 — run in parallel
+  G3 must complete before G13 wiring step (logger integration)
+  G10 (TypeScript strict) — run last, after all other G fixes are merged
 ```
 
 Total estimated effort:
 - Groups A–F (BUG-01–40): ~40–55 engineering hours
-- Group G (BUG-41–52): ~35–50 additional engineering hours
-- Combined total: ~75–105 engineering hours
+- Group G (BUG-41–53): ~40–58 additional engineering hours
+- Combined total: ~80–113 engineering hours
 
 ---
 
 *Fix plan generated: June 14, 2026, 09:27 PM*
-*Updated: June 14, 2026, 09:48 PM (added Group G — BUG-41 through BUG-52)*
-*Based on: custom-bugs-report.md (52 bugs, forensic static analysis)*
+*Updated: June 14, 2026, 10:05 PM (added BUG-53 — monitoring provider abstraction)*
+*Based on: custom-bugs-report.md (53 bugs, forensic static analysis)*
