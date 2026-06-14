@@ -15,6 +15,9 @@ import type { TransactionClient as DatabaseClient } from "@/lib/db";
 import Decimal from "decimal.js";
 import { XP_VALUES } from "@/lib/xp/engine";
 import { getManifestValue } from "@/lib/manifest";
+// Schema-derived types: column name validation at compile time.
+// schema.users.referredBy.name === "referred_by" — any rename triggers a TS error.
+import { schema } from "@/lib/db/schema";
 
 // ---------------------------------------------------------------------------
 // Commission rates
@@ -64,8 +67,10 @@ export async function awardReferralCommissions(
 
   if (coinAmount <= 0) return result;
 
-  // Find the direct referrer (Tier 1)
-  const { rows: tier1Rows } = await db.query<{ referred_by: string | null }>(
+  // Find the direct referrer (Tier 1).
+  // Column name validated via schema.users.referredBy.name === "referred_by".
+  type ReferredByRow = { [K in typeof schema.users.referredBy.name]: string | null };
+  const { rows: tier1Rows } = await db.query<ReferredByRow>(
     `SELECT referred_by FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
     [buyerId]
   );
@@ -146,8 +151,9 @@ export async function awardReferralCommissions(
     );
   }
 
-  // Find Tier 2 referrer (referrer of the Tier 1 referrer)
-  const { rows: tier2Rows } = await db.query<{ referred_by: string | null }>(
+  // Find Tier 2 referrer (referrer of the Tier 1 referrer).
+  // Same column, same schema-validated type.
+  const { rows: tier2Rows } = await db.query<ReferredByRow>(
     `SELECT referred_by FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
     [tier1Id]
   );
