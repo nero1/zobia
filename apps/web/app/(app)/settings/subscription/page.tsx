@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 
 // ---------------------------------------------------------------------------
@@ -169,6 +170,7 @@ interface PlanCardProps {
 }
 
 function PlanCard({ plan, interval, isCurrent, currentPlanRank, onUpgrade, onManage, upgrading }: PlanCardProps) {
+  const { t } = useTranslation();
   const currency = useCurrency();
   const price = interval === "annual" ? plan.annualPrice : plan.monthlyPrice * 12;
   const displayMonthly = interval === "monthly" ? plan.monthlyPrice : Math.round(plan.annualPrice / 12);
@@ -184,7 +186,7 @@ function PlanCard({ plan, interval, isCurrent, currentPlanRank, onUpgrade, onMan
       {isCurrent && (
         <div className="absolute -top-3 left-1/2 -translate-x-1/2">
           <span className="rounded-full bg-blue-600 px-3 py-0.5 text-xs font-semibold text-white shadow">
-            Current Plan
+            {t('subscription.currentPlanBadge')}
           </span>
         </div>
       )}
@@ -203,13 +205,13 @@ function PlanCard({ plan, interval, isCurrent, currentPlanRank, onUpgrade, onMan
             <>
               <p className="text-3xl font-extrabold text-neutral-900 dark:text-neutral-50">
                 {formatPrice(displayMonthly)}
-                <span className="ml-1 text-sm font-normal text-neutral-400">/mo</span>
+                <span className="ml-1 text-sm font-normal text-neutral-400">{t('subscription.perMonth')}</span>
               </p>
               {interval === "annual" && (
                 <p className="mt-0.5 text-xs text-neutral-500">
-                  {formatPrice(price)} billed annually
+                  {t('subscription.billedAnnually', { price: formatPrice(price) })}
                   <span className="ml-1.5 rounded-full bg-teal-100 px-1.5 py-0.5 text-xs font-semibold text-teal-700 dark:bg-teal-900 dark:text-teal-300">
-                    2 months free
+                    {t('subscription.twoMonthsFree')}
                   </span>
                 </p>
               )}
@@ -246,7 +248,7 @@ function PlanCard({ plan, interval, isCurrent, currentPlanRank, onUpgrade, onMan
             onClick={onManage}
             className="w-full rounded-xl border border-neutral-300 py-2.5 text-sm font-semibold text-neutral-700 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
           >
-            Manage
+            {t('subscription.manage')}
           </button>
         ) : isUpgrade ? (
           <button
@@ -254,7 +256,7 @@ function PlanCard({ plan, interval, isCurrent, currentPlanRank, onUpgrade, onMan
             disabled={upgrading !== null}
             className="w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-60"
           >
-            {upgrading === plan.id ? "Redirecting…" : `Upgrade to ${plan.name}`}
+            {upgrading === plan.id ? t('subscription.redirecting') : t('subscription.upgradeTo', { plan: plan.name })}
           </button>
         ) : isDowngrade ? (
           <button
@@ -262,7 +264,7 @@ function PlanCard({ plan, interval, isCurrent, currentPlanRank, onUpgrade, onMan
             disabled={upgrading !== null}
             className="w-full rounded-xl border border-neutral-300 py-2.5 text-sm font-semibold text-neutral-500 transition-colors hover:bg-neutral-50 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
           >
-            {upgrading === plan.id ? "Redirecting…" : `Switch to ${plan.name}`}
+            {upgrading === plan.id ? t('subscription.redirecting') : t('subscription.switchTo', { plan: plan.name })}
           </button>
         ) : null}
       </div>
@@ -278,6 +280,7 @@ function PlanCard({ plan, interval, isCurrent, currentPlanRank, onUpgrade, onMan
  * Subscription & Billing settings page.
  */
 export default function SubscriptionPage() {
+  const { t } = useTranslation();
   const router = useRouter();
   const [planData, setPlanData] = useState<CurrentPlanData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -300,7 +303,7 @@ export default function SubscriptionPage() {
           fetch("/api/economy/subscriptions", { credentials: "include" }),
         ]);
         if (meRes.status === 401) { router.push("/auth/login"); return; }
-        if (!meRes.ok) throw new Error("Failed to load subscription info");
+        if (!meRes.ok) throw new Error(t('subscription.loadError'));
         const meJson = (await meRes.json()) as MeResponse;
         const subJson = subRes.ok ? (await subRes.json()) as SubscriptionResponse : null;
         const rawUser = meJson.user ?? meJson;
@@ -329,8 +332,6 @@ export default function SubscriptionPage() {
   async function handleUpgrade(targetPlan: PlanId) {
     const currentPlanAtTime = (planData?.plan ?? "free") as PlanId;
     const isUpgrading = planRank(targetPlan) > planRank(currentPlanAtTime);
-    const actionVerb = isUpgrading ? "upgrade" : "downgrade";
-    const actionPast = isUpgrading ? "Upgraded" : "Downgraded";
 
     setUpgrading(targetPlan);
     try {
@@ -342,14 +343,14 @@ export default function SubscriptionPage() {
       });
       if (!res.ok) {
         const d = (await res.json()) as { message?: string };
-        throw new Error(d.message ?? `Failed to initiate ${actionVerb}`);
+        throw new Error(d.message ?? t(isUpgrading ? 'subscription.upgradeFailed' : 'subscription.downgradeFailed'));
       }
       const d = (await res.json()) as { checkoutUrl?: string; redirectUrl?: string };
       const url = d.checkoutUrl ?? d.redirectUrl;
       if (url) {
         window.location.href = url;
       } else {
-        showToast(`${actionPast} to ${targetPlan}!`);
+        showToast(t(isUpgrading ? 'subscription.upgradedSuccess' : 'subscription.downgradedSuccess', { plan: targetPlan }));
         // Refetch plan data
         const [meRes2, subRes2] = await Promise.all([
           fetch("/api/users/me", { credentials: "include" }),
@@ -367,14 +368,14 @@ export default function SubscriptionPage() {
         }
       }
     } catch (e) {
-      showToast(e instanceof Error ? e.message : `${actionPast.charAt(0) + actionVerb.slice(1)} failed`, "error");
+      showToast(e instanceof Error ? e.message : t(isUpgrading ? 'subscription.upgradeFailed' : 'subscription.downgradeFailed'), "error");
     } finally {
       setUpgrading(null);
     }
   }
 
   async function handleCancel() {
-    if (!confirm("Are you sure you want to cancel your subscription? You'll keep your plan until the end of the billing period.")) return;
+    if (!confirm(t('subscription.cancelConfirm'))) return;
     setCancelling(true);
     try {
       const res = await fetch("/api/economy/subscriptions", {
@@ -383,9 +384,9 @@ export default function SubscriptionPage() {
       });
       if (!res.ok) {
         const d = (await res.json()) as { message?: string };
-        throw new Error(d.message ?? "Failed to cancel subscription");
+        throw new Error(d.message ?? t('subscription.cancelFailed'));
       }
-      showToast("Subscription cancelled. You'll retain access until the period ends.");
+      showToast(t('subscription.cancelledSuccess'));
       // Refetch
       const [meRes3, subRes3] = await Promise.all([
         fetch("/api/users/me", { credentials: "include" }),
@@ -402,7 +403,7 @@ export default function SubscriptionPage() {
         });
       }
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Cancel failed", "error");
+      showToast(e instanceof Error ? e.message : t('subscription.cancelFailed'), "error");
     } finally {
       setCancelling(false);
     }
@@ -465,25 +466,25 @@ export default function SubscriptionPage() {
         </div>
       )}
 
-      <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">Subscription &amp; Billing</h1>
+      <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">{t('subscription.title')}</h1>
 
       {/* Current plan status banner */}
       <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Current Plan</p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">{t('subscription.currentPlan')}</p>
             <div className="mt-1.5 flex items-center gap-2">
               <span className={`rounded-full px-2.5 py-0.5 text-sm font-bold capitalize ${PLANS.find((p) => p.id === currentPlan)?.badgeClass ?? ""}`}>
                 {currentPlan}
               </span>
               {isCancelled && (
                 <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-600 dark:bg-red-900 dark:text-red-300">
-                  Cancels {currentPeriodEnd ? formatDate(currentPeriodEnd) : "soon"}
+                  {t('subscription.cancels', { date: currentPeriodEnd ? formatDate(currentPeriodEnd) : '…' })}
                 </span>
               )}
               {!isCancelled && currentPeriodEnd && isPaidPlan && (
                 <span className="text-xs text-neutral-500">
-                  Renews {formatDate(currentPeriodEnd)}
+                  {t('subscription.renews', { date: formatDate(currentPeriodEnd) })}
                 </span>
               )}
             </div>
@@ -495,7 +496,7 @@ export default function SubscriptionPage() {
               disabled={cancelling}
               className="rounded-xl border border-red-300 px-4 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:opacity-60 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950"
             >
-              {cancelling ? "Cancelling…" : "Cancel Subscription"}
+              {cancelling ? t('subscription.cancelling') : t('subscription.cancelSubscription')}
             </button>
           )}
         </div>
@@ -504,23 +505,23 @@ export default function SubscriptionPage() {
       {/* Billing interval toggle */}
       <div className="flex items-center justify-between gap-4 rounded-xl border border-neutral-200 bg-white px-5 py-4 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
         <div>
-          <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Billing Period</p>
-          <p className="text-xs text-neutral-500">Annual billing gives you 2 months free (pay for 10, get 12).</p>
+          <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t('subscription.billingPeriod')}</p>
+          <p className="text-xs text-neutral-500">{t('subscription.billingHint')}</p>
         </div>
         <div className="flex rounded-xl border border-neutral-200 bg-neutral-100 p-1 dark:border-neutral-700 dark:bg-neutral-800">
           <button
             onClick={() => handleIntervalToggle("monthly")}
             className={`rounded-lg px-4 py-1.5 text-sm font-semibold transition-colors ${interval === "monthly" ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-900 dark:text-neutral-50" : "text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"}`}
           >
-            Monthly
+            {t('subscription.monthly')}
           </button>
           <button
             onClick={() => handleIntervalToggle("annual")}
             className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-semibold transition-colors ${interval === "annual" ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-900 dark:text-neutral-50" : "text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"}`}
           >
-            Annual
+            {t('subscription.annual')}
             <span className="rounded-full bg-teal-100 px-1.5 py-0.5 text-xs font-bold text-teal-700 dark:bg-teal-900 dark:text-teal-300">
-              2 free
+              {t('subscription.monthsFree')}
             </span>
           </button>
         </div>
@@ -543,10 +544,7 @@ export default function SubscriptionPage() {
       </div>
 
       {/* Fine print */}
-      <p className="text-center text-xs text-neutral-400">
-        Prices are in Nigerian Naira (NGN). Subscriptions renew automatically and can be cancelled at any time.
-        Annual plans are billed as a single payment.
-      </p>
+      <p className="text-center text-xs text-neutral-400">{t('subscription.finePrint')}</p>
     </div>
   );
 }

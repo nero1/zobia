@@ -771,6 +771,11 @@
   "subscription.cancelConfirm": "Are you sure you want to cancel your subscription? You'll keep your plan until the end of the billing period.",
   "subscription.cancelledSuccess": "Subscription cancelled. You'll retain access until the period ends.",
   "subscription.upgradedSuccess": "Upgraded to {{plan}}!",
+  "subscription.downgradedSuccess": "Downgraded to {{plan}}!",
+  "subscription.upgradeFailed": "Upgrade failed",
+  "subscription.downgradeFailed": "Downgrade failed",
+  "subscription.loadError": "Failed to load subscription info",
+  "subscription.cancelFailed": "Cancel failed",
   "subscription.finePrint": "Prices are in Nigerian Naira (NGN). Subscriptions renew automatically and can be cancelled at any time. Annual plans are billed as a single payment.",
 
   "groups.title": "Group Chats",
