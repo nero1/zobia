@@ -51,12 +51,28 @@ export function TopGifters({ roomId, limit = 5 }: TopGiftersProps) {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`/api/rooms/${roomId}/top-gifters?limit=${limit}`, {
+        const res = await fetch(`/api/rooms/${roomId}/gifts`, {
           credentials: "include",
         });
         if (!res.ok) throw new Error("Failed to load");
-        const data = (await res.json()) as { gifters: Gifter[] };
-        setGifters(data.gifters);
+        const data = (await res.json()) as {
+          topGifters: Array<{
+            rank: number;
+            user_id: string;
+            username: string;
+            avatar_emoji: string;
+            total_coins: number;
+          }>;
+        };
+        setGifters(
+          (data.topGifters ?? []).slice(0, limit).map((g) => ({
+            rank: g.rank,
+            userId: g.user_id,
+            username: g.username,
+            avatarEmoji: g.avatar_emoji,
+            totalCoins: g.total_coins,
+          }))
+        );
       } catch (e) {
         setError(e instanceof Error ? e.message : "Error");
       } finally {
