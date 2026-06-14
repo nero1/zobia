@@ -335,7 +335,7 @@ export async function upsertLeaderboardSnapshot(
     `INSERT INTO leaderboard_snapshots
        (user_id, track, scope, city, season_id, xp_value, updated_at)
      VALUES ($1, $2, $3, $4, $5, $6, NOW())
-     ON CONFLICT (user_id, track, scope, city, season_id)
+     ON CONFLICT (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))
      DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()`,
     [userId, track, scope, city, seasonId, xpValue]
   );

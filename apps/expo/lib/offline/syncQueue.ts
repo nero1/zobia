@@ -20,7 +20,9 @@ import {
   markMessageSent,
   markMessageFailed,
   markMessagePermanentlyFailed,
+  markMessageSending,
   resetFailedMessages,
+  resetSendingMessages,
 } from './sqlite';
 
 /**
@@ -37,11 +39,16 @@ export async function syncPendingMessages(): Promise<void> {
   try {
     // Reset failed messages (under retry ceiling) back to pending before this sync pass
     await resetFailedMessages();
+    // BUG-20: reset any messages interrupted mid-send back to pending
+    await resetSendingMessages();
 
     const pending = await getPendingMessages();
 
     for (const msg of pending) {
       try {
+        // BUG-20: mark in-flight before calling API to prevent double-send on crash-restart
+        await markMessageSending(msg.id);
+
         // Route to the correct endpoint based on conversation type
         const endpoint =
           msg.conversationType === 'group'

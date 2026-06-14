@@ -534,8 +534,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       }
     }
 
-    // Count today's messages for XP cap check (before insert)
-    const todayMsgCount = await countTodayMessages(roomId, userId);
+    // todayMsgCount is counted AFTER the insert below (inclusive) to prevent off-by-one (BUG-18)
 
     // Determine if message needs approval (approval-required rooms, non-admin)
     const requiresApproval = Boolean(modRules.requireApproval) && !isAdmin;
@@ -571,6 +570,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     });
 
     const message = msgRows[0] as { id: string; sender_id: string; created_at: string; message_type: string };
+
+    // BUG-18: count AFTER insert so the cap is inclusive of the current message
+    const todayMsgCount = await countTodayMessages(roomId, userId);
 
     // Award XP (non-blocking)
     void maybeAwardMessageXP(roomId, userId, todayMsgCount, senderStatus?.plan ?? 'free');

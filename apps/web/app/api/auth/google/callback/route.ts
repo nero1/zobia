@@ -24,6 +24,7 @@ import {
 } from "@/lib/auth/google";
 import {
   createSession,
+  rotateSession,
   buildCookieHeaders,
 } from "@/lib/auth/session";
 import { signAccessToken } from "@/lib/auth/jwt";
@@ -316,7 +317,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     if (needsTwoFaVerify) {
       // Issue a 5-minute pre-auth token and redirect to the 2FA verify page
       const preAuthToken = await signAccessToken(
-        { sub: user.id, email: user.email, username: user.username ?? "", is_admin: user.is_admin, sid: "pre_auth", type: "pre_auth" } as Parameters<typeof signAccessToken>[0],
+        { sub: user.id, email: user.email, username: user.username ?? "", is_admin: user.is_admin, sid: "pre_auth", type: "pre_auth" },
         5 * 60
       );
       await redis.setex(`pre_auth:${user.id}`, 5 * 60, preAuthToken);
@@ -343,7 +344,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     }
 
     // Create platform session (no 2FA required)
-    const authTokens = await createSession(
+    const authTokens = await rotateSession(
+      null,
       {
         id: user.id,
         email: user.email,

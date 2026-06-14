@@ -138,6 +138,31 @@ export async function createSession(
   return { accessToken, refreshToken, expiresIn: accessTtl };
 }
 
+/**
+ * Rotate the session ID after successful authentication or 2FA completion.
+ * Prevents session fixation by invalidating the pre-auth session and issuing
+ * a brand-new session with a new UUID. (BUG-27)
+ *
+ * @param oldSid  - The pre-auth session ID to invalidate (or "pre_auth" literal)
+ * @param user    - Authenticated user record
+ * @param options - IP / UA for audit
+ * @returns New auth tokens with a fresh session ID
+ */
+export async function rotateSession(
+  oldSid: string | null,
+  user: { id: string; email: string; username: string; is_admin: boolean },
+  options: { ip?: string; ua?: string; adminSession?: boolean } = {}
+): Promise<AuthTokens> {
+  // Invalidate the old session before creating the new one
+  if (oldSid && oldSid !== "pre_auth") {
+    await invalidateSession(oldSid, user.id).catch(() => {});
+  }
+  // Clean up pre-auth Redis key if it exists
+  await redis.del(`pre_auth:${user.id}`).catch(() => {});
+
+  return createSession(user, options);
+}
+
 // ---------------------------------------------------------------------------
 // Session validation
 // ---------------------------------------------------------------------------

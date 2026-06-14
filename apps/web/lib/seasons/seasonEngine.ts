@@ -536,15 +536,17 @@ export async function claimPassMilestone(
     } else if (milestone.reward_type === 'xp_bonus') {
       const val = milestone.reward_value as { bonusXP: number };
       const referenceId = `season:${seasonId}:milestone:${milestoneId}:user:${userId}`;
+      // BUG-03: CTE gate — UPDATE only fires when INSERT actually inserts
       await client.query(
-        `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
-         VALUES ($1, $2, 'main', 'season_milestone_bonus', $3, $2, NOW())
-         ON CONFLICT DO NOTHING`,
+        `WITH ins AS (
+           INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
+           VALUES ($1, $2, 'main', 'season_milestone_bonus', $3, $2, NOW())
+           ON CONFLICT DO NOTHING
+           RETURNING id
+         )
+         UPDATE users SET xp_total = xp_total + $2, updated_at = NOW()
+         WHERE id = $1 AND EXISTS (SELECT 1 FROM ins)`,
         [userId, val.bonusXP, referenceId]
-      );
-      await client.query(
-        `UPDATE users SET xp_total = xp_total + $1, updated_at = NOW() WHERE id = $2`,
-        [val.bonusXP, userId]
       );
     }
 

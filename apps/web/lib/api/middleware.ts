@@ -133,6 +133,11 @@ export function withAuth<TParams = Record<string, string>>(
         throw unauthorized("Invalid or expired access token");
       }
 
+      // BUG-19: reject pre-auth tokens on all routes except the 2FA verify endpoint
+      if (payload.type === 'pre_auth' && !new URL(req.url).pathname.endsWith('/2fa/verify')) {
+        throw unauthorized("Pre-authentication token cannot be used for this endpoint");
+      }
+
       // Update request context with authenticated user
       const store = requestContext.getStore();
       if (store) store.userId = payload.sub;
@@ -172,13 +177,24 @@ export function withAuth<TParams = Record<string, string>>(
           const { rows: statusRows } = await db.query<{
             is_banned: boolean;
             is_suspended: boolean;
+            suspended_until: string | null;
             deleted_at: string | null;
           }>(
-            `SELECT is_banned, is_suspended, deleted_at FROM users WHERE id = $1 LIMIT 1`,
+            `SELECT is_banned, is_suspended, suspended_until, deleted_at FROM users WHERE id = $1 LIMIT 1`,
             [payload.sub]
           );
           const s = statusRows[0];
-          accountBlocked = !s || !!s.deleted_at || s.is_banned || s.is_suspended;
+          // BUG-10: evaluate suspended_until — if expiry has passed, treat as not suspended
+          const suspensionActive = s?.is_suspended &&
+            (!s.suspended_until || new Date(s.suspended_until) > new Date());
+          accountBlocked = !s || !!s.deleted_at || s.is_banned || suspensionActive;
+          // Fire-and-forget: clear stale is_suspended flag when expiry has passed
+          if (s?.is_suspended && s.suspended_until && new Date(s.suspended_until) <= new Date()) {
+            db.query(
+              `UPDATE users SET is_suspended = false WHERE id = $1 AND suspended_until <= NOW()`,
+              [payload.sub]
+            ).catch(() => {});
+          }
           await redis.setex(statusKey, 30, accountBlocked ? "blocked" : "ok").catch(() => {});
         }
       } catch {
@@ -297,13 +313,19 @@ export function withAdminAuth<TParams = Record<string, string>>(
         params: await ctx.params,
         auth: { user: payload, isAdmin: true },
       });
-      if (result instanceof ApiError) return handleApiError(result);
+      if (result instanceof ApiError) {
+        const res = handleApiError(result);
+        res.headers.set("X-Request-Id", requestId);
+        return res;
+      }
 
       const response = result as NextResponse;
       response.headers.set("X-Request-Id", requestId);
       return response;
     } catch (err) {
-      return handleApiError(err);
+      const res = handleApiError(err);
+      res.headers.set("X-Request-Id", requestId);
+      return res;
     }
     });
   };

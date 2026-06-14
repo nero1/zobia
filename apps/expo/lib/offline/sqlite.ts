@@ -216,6 +216,28 @@ export async function getPermanentlyFailedMessages(): Promise<Array<{
 }
 
 /**
+ * Mark a message as in-flight (sending) before the API call to prevent
+ * double-send on crash-restart. (BUG-20)
+ */
+export async function markMessageSending(localId: string): Promise<void> {
+  await getDB().runAsync(
+    `UPDATE offline_messages SET sync_status = 'sending' WHERE id = ?`,
+    [localId]
+  );
+}
+
+/**
+ * On app startup, reset any messages stuck in 'sending' (interrupted mid-send)
+ * back to 'pending' so they are retried. (BUG-20)
+ */
+export async function resetSendingMessages(): Promise<void> {
+  await getDB().runAsync(
+    `UPDATE offline_messages SET sync_status = 'pending'
+     WHERE sync_status = 'sending'`
+  );
+}
+
+/**
  * Count pending messages (useful for badge display).
  */
 export async function getPendingMessageCount(): Promise<number> {

@@ -261,46 +261,73 @@ export class RedisCircuitBreaker {
     });
   }
 
-  private async onSuccess(): Promise<void> {
-    const s = await this.readState();
-    s.failures.push(false);
-    if (s.failures.length > this.opts.windowSize) s.failures.shift();
+  // BUG-09: Atomic Lua scripts prevent read-modify-write race between concurrent serverless instances
+  private static readonly SUCCESS_LUA = `
+local raw = redis.call('GET', KEYS[1])
+local s = raw and cjson.decode(raw) or {state='CLOSED',failures={},consecutiveSuccesses=0,openedAt=false}
+local windowSize = tonumber(ARGV[1])
+local successThreshold = tonumber(ARGV[2])
+local ttl = 3600
+table.insert(s.failures, false)
+while #s.failures > windowSize do table.remove(s.failures, 1) end
+if s.state == 'HALF_OPEN' then
+  s.consecutiveSuccesses = (s.consecutiveSuccesses or 0) + 1
+  if s.consecutiveSuccesses >= successThreshold then
+    s.state = 'CLOSED'; s.failures = {}; s.openedAt = false; s.consecutiveSuccesses = 0
+  end
+end
+redis.call('SET', KEYS[1], cjson.encode(s), 'EX', ttl)
+return s.state
+`;
 
-    if (s.state === "HALF_OPEN") {
-      s.consecutiveSuccesses++;
-      if (s.consecutiveSuccesses >= this.opts.successThreshold) {
-        s.state = "CLOSED";
-        s.failures = [];
-        s.openedAt = null;
-        console.info(`[${this.opts.name}] Circuit CLOSED after recovery`);
-      }
+  private static readonly FAILURE_LUA = `
+local raw = redis.call('GET', KEYS[1])
+local s = raw and cjson.decode(raw) or {state='CLOSED',failures={},consecutiveSuccesses=0,openedAt=false}
+local windowSize = tonumber(ARGV[1])
+local threshold = tonumber(ARGV[2])
+local nowMs = tonumber(ARGV[3])
+local ttl = 3600
+table.insert(s.failures, true)
+while #s.failures > windowSize do table.remove(s.failures, 1) end
+local failCount = 0
+for _, v in ipairs(s.failures) do if v then failCount = failCount + 1 end end
+local failRate = (#s.failures > 0) and (failCount / #s.failures * 100) or 0
+if s.state == 'HALF_OPEN' then
+  s.state = 'OPEN'; s.openedAt = nowMs; s.consecutiveSuccesses = 0
+elseif s.state == 'CLOSED' and failRate >= threshold and #s.failures >= windowSize then
+  s.state = 'OPEN'; s.openedAt = nowMs
+end
+redis.call('SET', KEYS[1], cjson.encode(s), 'EX', ttl)
+return s.state
+`;
+
+  private async onSuccess(): Promise<void> {
+    const newState = await redis.eval(
+      RedisCircuitBreaker.SUCCESS_LUA,
+      1,
+      this.stateKey,
+      String(this.opts.windowSize),
+      String(this.opts.successThreshold)
+    ) as string;
+    this.localCache = null; // Invalidate local cache so next read reflects Lua update
+    if (newState === "CLOSED") {
+      console.info(`[${this.opts.name}] Circuit CLOSED after recovery`);
     }
-    await this.writeState(s);
   }
 
   private async onFailure(): Promise<void> {
-    const s = await this.readState();
-    s.failures.push(true);
-    if (s.failures.length > this.opts.windowSize) s.failures.shift();
-
-    const failCount = s.failures.filter(Boolean).length;
-    const failRate = (failCount / s.failures.length) * 100;
-
-    if (s.state === "HALF_OPEN") {
-      s.state = "OPEN";
-      s.openedAt = Date.now();
-      s.consecutiveSuccesses = 0;
-      console.warn(`[${this.opts.name}] Circuit re-OPENED during probe`);
-    } else if (
-      s.state === "CLOSED" &&
-      failRate >= this.opts.errorThresholdPercentage &&
-      s.failures.length >= this.opts.windowSize
-    ) {
-      s.state = "OPEN";
-      s.openedAt = Date.now();
-      console.warn(`[${this.opts.name}] Circuit OPENED (failure rate: ${failRate.toFixed(1)}%)`);
+    const newState = await redis.eval(
+      RedisCircuitBreaker.FAILURE_LUA,
+      1,
+      this.stateKey,
+      String(this.opts.windowSize),
+      String(this.opts.errorThresholdPercentage),
+      String(Date.now())
+    ) as string;
+    this.localCache = null; // Invalidate local cache
+    if (newState === "OPEN") {
+      console.warn(`[${this.opts.name}] Circuit OPENED`);
     }
-    await this.writeState(s);
   }
 
   async getMetrics() {

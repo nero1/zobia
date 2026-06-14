@@ -62,20 +62,24 @@ export async function safeAwardXP(
   try {
     const col = TRACK_COLUMN[track];
 
-    await (client as DatabaseAdapter).query(
-      `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
-       VALUES ($1, $2, $3, $4, $5, $2, NOW())
-       ON CONFLICT DO NOTHING`,
-      [userId, amount, track, source, referenceId ?? null]
-    );
+    // BUG-38: runtime allowlist guard before interpolating col into SQL
+    const SAFE_XP_COLS = new Set(Object.values(TRACK_COLUMN));
+    if (!SAFE_XP_COLS.has(col)) throw new Error(`[safeAwardXP] Unsafe XP track column: ${col}`);
 
+    // BUG-01: single CTE — UPDATE only fires when INSERT actually inserts a row
     await (client as DatabaseAdapter).query(
-      `UPDATE users
-       SET xp_total = xp_total + $1,
-           ${col === "xp_total" ? "" : `${col} = COALESCE(${col}, 0) + $1,`}
-           updated_at = NOW()
-       WHERE id = $2 AND deleted_at IS NULL`,
-      [amount, userId]
+      `WITH ins AS (
+         INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
+         VALUES ($1, $2, $3, $4, $5, $2, NOW())
+         ON CONFLICT DO NOTHING
+         RETURNING id
+       )
+       UPDATE users
+         SET xp_total = xp_total + $2,
+             ${col === "xp_total" ? "" : `${col} = COALESCE(${col}, 0) + $2,`}
+             updated_at = NOW()
+       WHERE id = $1 AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM ins)`,
+      [userId, amount, track, source, referenceId ?? null]
     );
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
@@ -137,19 +141,22 @@ export async function retryFailedXPAwards(): Promise<{
     try {
       const col = TRACK_COLUMN[row.track] ?? "xp_total";
 
+      // BUG-02: same CTE fix as safeAwardXP — UPDATE only fires when INSERT inserts
+      const SAFE_XP_COLS_RETRY = new Set(Object.values(TRACK_COLUMN));
+      if (!SAFE_XP_COLS_RETRY.has(col)) throw new Error(`[retryFailedXPAwards] Unsafe XP track column: ${col}`);
       await globalDb.query(
-        `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
-         VALUES ($1, $2, $3, $4, $5, $2, NOW())
-         ON CONFLICT DO NOTHING`,
+        `WITH ins AS (
+           INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
+           VALUES ($1, $2, $3, $4, $5, $2, NOW())
+           ON CONFLICT DO NOTHING
+           RETURNING id
+         )
+         UPDATE users
+           SET xp_total = xp_total + $2,
+               ${col === "xp_total" ? "" : `${col} = COALESCE(${col}, 0) + $2,`}
+               updated_at = NOW()
+         WHERE id = $1 AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM ins)`,
         [row.user_id, row.amount, row.track, row.source, row.reference_id]
-      );
-      await globalDb.query(
-        `UPDATE users
-         SET xp_total = xp_total + $1,
-             ${col === "xp_total" ? "" : `${col} = COALESCE(${col}, 0) + $1,`}
-             updated_at = NOW()
-         WHERE id = $2 AND deleted_at IS NULL`,
-        [row.amount, row.user_id]
       );
 
       await globalDb.query(

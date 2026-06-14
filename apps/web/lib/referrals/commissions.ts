@@ -15,6 +15,7 @@ import type { TransactionClient as DatabaseClient } from "@/lib/db";
 import Decimal from "decimal.js";
 import { XP_VALUES } from "@/lib/xp/engine";
 import { getManifestValue } from "@/lib/manifest";
+import { creditCoins } from "@/lib/economy/coins";
 // Schema-derived types: column name validation at compile time.
 // schema.users.referredBy.name === "referred_by" — any rename triggers a TS error.
 import { schema } from "@/lib/db/schema";
@@ -106,7 +107,6 @@ export async function awardReferralCommissions(
 
     // Award one-time coin bonus
     if (coinBonus > 0) {
-      const { creditCoins } = await import("@/lib/economy/coins");
       await creditCoins(
         tier1Id,
         coinBonus,
@@ -131,7 +131,6 @@ export async function awardReferralCommissions(
   const tier1Coins = new Decimal(coinAmount).mul(TIER_1_RATE).toDecimalPlaces(0, Decimal.ROUND_DOWN).toNumber();
 
   if (tier1Coins > 0) {
-    const { creditCoins } = await import("@/lib/economy/coins");
     await creditCoins(
       tier1Id,
       tier1Coins,
@@ -145,9 +144,10 @@ export async function awardReferralCommissions(
 
     await db.query(
       `INSERT INTO referral_commissions
-         (referrer_id, referee_id, tier, coin_amount, purchase_coin_amount, created_at)
-       VALUES ($1, $2, 1, $3, $4, NOW())`,
-      [tier1Id, buyerId, tier1Coins, coinAmount]
+         (referrer_id, referred_user_id, trigger_event_id, purchase_amount_kobo, commission_kobo, commission_coins, status, created_at)
+       VALUES ($1, $2, $3, 0, 0, $4, 'credited', NOW())
+       ON CONFLICT DO NOTHING`,
+      [tier1Id, buyerId, `${paymentId}:t1`, tier1Coins]
     );
   }
 
@@ -166,7 +166,6 @@ export async function awardReferralCommissions(
   const tier2Coins = new Decimal(coinAmount).mul(TIER_2_RATE).toDecimalPlaces(0, Decimal.ROUND_DOWN).toNumber();
 
   if (tier2Coins > 0) {
-    const { creditCoins } = await import("@/lib/economy/coins");
     await creditCoins(
       tier2Id,
       tier2Coins,
@@ -180,9 +179,10 @@ export async function awardReferralCommissions(
 
     await db.query(
       `INSERT INTO referral_commissions
-         (referrer_id, referee_id, tier, coin_amount, purchase_coin_amount, created_at)
-       VALUES ($1, $2, 2, $3, $4, NOW())`,
-      [tier2Id, buyerId, tier2Coins, coinAmount]
+         (referrer_id, referred_user_id, trigger_event_id, purchase_amount_kobo, commission_kobo, commission_coins, status, created_at)
+       VALUES ($1, $2, $3, 0, 0, $4, 'credited', NOW())
+       ON CONFLICT DO NOTHING`,
+      [tier2Id, buyerId, `${paymentId}:t2`, tier2Coins]
     );
   }
 
@@ -206,7 +206,7 @@ export async function getCommissionStats(
     total_coins: string;
     count: string;
   }>(
-    `SELECT tier, SUM(coin_amount)::text AS total_coins, COUNT(*)::text AS count
+    `SELECT tier, SUM(commission_coins)::text AS total_coins, COUNT(*)::text AS count
      FROM referral_commissions
      WHERE referrer_id = $1
      GROUP BY tier`,

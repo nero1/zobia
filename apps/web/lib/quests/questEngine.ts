@@ -17,6 +17,7 @@ import type { DatabaseAdapter } from "@/lib/db/interface";
 import type { Plan } from "@zobia/types";
 import { ACTION_TRACKS } from "@/lib/xp/engine";
 import { creditCoins } from "@/lib/economy/coins";
+import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 
 // Maps a ProgressionTrack name to the corresponding users table column
 const TRACK_COLUMN: Record<string, string> = {
@@ -242,32 +243,12 @@ export async function updateQuestProgress(
       xpAwarded = quest.xp_reward;
       coinsAwarded = quest.coin_reward;
 
-      // Determine the parallel track for this quest's action type
+      // BUG-15: use safeAwardXP for DLQ fallback and stable referenceId for idempotency
       const parallelTrack =
         ACTION_TRACKS[quest.action_type as keyof typeof ACTION_TRACKS] ?? null;
-      const trackColumn = parallelTrack ? TRACK_COLUMN[parallelTrack] : null;
-
-      // Update XP columns only — coin credit goes through creditCoins() below (BUG-10)
-      if (trackColumn) {
-        await client.query(
-          `UPDATE users SET xp_total = xp_total + $1, ${trackColumn} = ${trackColumn} + $1,
-                           updated_at = NOW()
-           WHERE id = $2`,
-          [xpAwarded, userId]
-        );
-      } else {
-        await client.query(
-          `UPDATE users SET xp_total = xp_total + $1, updated_at = NOW()
-           WHERE id = $2`,
-          [xpAwarded, userId]
-        );
-      }
-
-      await client.query(
-        `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
-         VALUES ($1, $2, $3, 'quest_complete', $4, $2, NOW())`,
-        [userId, xpAwarded, parallelTrack ?? "main", questId]
-      );
+      const xpTrack = (parallelTrack as import("@/lib/xp/safeAwardXP").XPTrack) ?? "main";
+      const questCompletionRef = `quest:${questId}:${userId}:${today}`;
+      await safeAwardXP(userId, xpAwarded, xpTrack, "quest_complete", questCompletionRef, client);
 
       // Use creditCoins() for proper SELECT FOR UPDATE locking and ledger consistency (BUG-10)
       if (coinsAwarded > 0) {

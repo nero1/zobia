@@ -64,7 +64,7 @@ export interface SenderContext {
  * Override at runtime by setting PROFANITY_WORDLIST env var as
  * a comma-separated string of words.
  */
-function buildWordlist(): RegExp[] {
+function buildWordlistPatterns(): string[] {
   const envList = process.env.PROFANITY_WORDLIST ?? "";
   const envWords = envList
     .split(",")
@@ -79,22 +79,21 @@ function buildWordlist(): RegExp[] {
   ];
 
   const allWords = [...new Set([...baselineWords, ...envWords])];
-
+  // Store pattern strings — not RegExp objects — to avoid shared mutable lastIndex state (BUG-23)
   return allWords.map(
-    (word) => new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi")
+    (word) => `\\b${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`
   );
 }
 
-const WORDLIST_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const WORDLIST_TTL_MS = 5 * 60 * 1000;
+let _wordlistCache: { patterns: string[]; fetchedAt: number } | null = null;
 
-let _wordlistCache: { words: RegExp[]; fetchedAt: number } | null = null;
-
-function getWordlist(): RegExp[] {
+function getWordlistPatterns(): string[] {
   const now = Date.now();
   if (!_wordlistCache || now - _wordlistCache.fetchedAt > WORDLIST_TTL_MS) {
-    _wordlistCache = { words: buildWordlist(), fetchedAt: now };
+    _wordlistCache = { patterns: buildWordlistPatterns(), fetchedAt: now };
   }
-  return _wordlistCache.words;
+  return _wordlistCache.patterns;
 }
 
 // ---------------------------------------------------------------------------
@@ -110,19 +109,17 @@ function getWordlist(): RegExp[] {
  * @param text - Raw user message content
  * @returns Object with the cleaned text and whether any profanity was found
  */
-export function filterProfanity(text: string): {
-  filtered: string;
-  found: boolean;
-} {
+export function filterProfanity(text: string): { filtered: string; found: boolean } {
   let filtered = text;
   let found = false;
 
-  for (const pattern of getWordlist()) {
-    pattern.lastIndex = 0;
-    if (pattern.test(filtered)) {
+  for (const patternStr of getWordlistPatterns()) {
+    // BUG-23: compile fresh RegExp per call — avoids shared mutable lastIndex state
+    const re = new RegExp(patternStr, "gi");
+    if (re.test(filtered)) {
       found = true;
-      pattern.lastIndex = 0;
-      filtered = filtered.replace(pattern, (match) =>
+      // Compile again — test() advances lastIndex for sticky patterns
+      filtered = filtered.replace(new RegExp(patternStr, "gi"), (match) =>
         "*".repeat(match.length)
       );
     }
