@@ -378,7 +378,7 @@ describe('getGuildXPBoostPercent', () => {
 describe('All multiplier basis points are integers', () => {
   it('PLAN_XP_MULTIPLIERS_BP values are all integers', () => {
     for (const [plan, bp] of Object.entries(PLAN_XP_MULTIPLIERS_BP)) {
-      expect(Number.isInteger(bp)).toBe(true, `${plan} multiplier is not an integer`);
+      expect(Number.isInteger(bp)).toBe(true);
     }
   });
 });
