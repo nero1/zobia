@@ -98,7 +98,7 @@ export function RoomCard({ room, onJoin, joining }: RoomCardProps) {
 
         <div className="mt-auto flex items-center justify-between text-xs text-neutral-400">
           <span>@{room.creatorUsername}</span>
-          <span>{room.memberCount.toLocaleString()} members</span>
+          <span>{(room.memberCount ?? 0).toLocaleString()} members</span>
         </div>
 
         {/* Activity pulse bar — shows recent message volume vs capacity */}

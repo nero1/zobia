@@ -381,7 +381,7 @@ export default function RoomScreen() {
               </Text>
             ) : null}
             <Text style={styles.memberCountHeader}>
-              👥 {room.memberCount.toLocaleString()}
+              👥 {(room.memberCount ?? 0).toLocaleString()}
             </Text>
           </View>
         ),

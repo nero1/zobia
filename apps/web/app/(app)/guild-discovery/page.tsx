@@ -135,7 +135,7 @@ function GuildCard({
           )}
 
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
-            <span>{guild.memberCount.toLocaleString()} members</span>
+            <span>{(guild.memberCount ?? 0).toLocaleString()} members</span>
             {guild.warWins > 0 && <span>· {guild.warWins} wars won</span>}
             <span className="rounded-full bg-blue-50 px-2 py-0.5 font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-300">
               +{xpBoost}% XP

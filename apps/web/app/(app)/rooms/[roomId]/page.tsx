@@ -1175,7 +1175,7 @@ export default function RoomPage() {
                 {room.type.replace("_", " ")}
               </span>
             </div>
-            <p className="truncate text-xs text-neutral-500">{room.memberCount.toLocaleString()} members</p>
+            <p className="truncate text-xs text-neutral-500">{(room.memberCount ?? 0).toLocaleString()} members</p>
             <LiveRoomPulseBar roomId={room.id} initialActiveCount={0} initialMaxCapacity={room.memberCount || 10000} className="mt-1" />
           </div>
           {/* Top gifter display — PRD §12 */}
