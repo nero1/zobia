@@ -249,8 +249,8 @@ export async function transferCoins(
   amount: number,
   feePercent: number = 5,
   txClient?: TransactionClient,
-  senderTransactionType: string = "gift_sent",
-  recipientTransactionType: string = "gift_received"
+  senderTransactionType: CoinTransactionType = "gift_sent",
+  recipientTransactionType: CoinTransactionType = "gift_received"
 ): Promise<{ debit: CoinLedgerEntry; credit: CoinLedgerEntry; feeCoins: number }> {
   const gross = new Decimal(amount);
   if (!gross.isInteger() || gross.lte(0)) {
