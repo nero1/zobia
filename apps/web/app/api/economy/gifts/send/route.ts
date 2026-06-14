@@ -109,12 +109,15 @@ async function awardGiftXP(
     const isTippedInRoom = !!roomId;
 
     await db.transaction(async (tx) => {
-      // PRD §6: Check if recipient has ever received a gift before (first_time_gifted = 15 XP)
-      const { rows: prevGiftRows } = await tx.query<{ count: string }>(
-        `SELECT COUNT(*)::text AS count FROM gifts WHERE recipient_id = $1`,
+      // PRD §6: Atomically claim the first_time_gifted bonus — avoids race conditions
+      // when concurrent gifts arrive simultaneously for the same recipient.
+      const { rows: firstGiftRows } = await tx.query<{ id: string }>(
+        `UPDATE users SET first_gift_received_xp_awarded = TRUE
+         WHERE id = $1 AND first_gift_received_xp_awarded IS NOT TRUE
+         RETURNING id`,
         [recipientId]
       );
-      const isFirstGift = parseInt(prevGiftRows[0]?.count ?? "0") <= 1; // <= 1 because the new gift is already inserted
+      const isFirstGift = firstGiftRows.length > 0;
 
       // Sender XP (generosity track)
       await tx.query(
@@ -404,8 +407,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         const { rows: convUpsert } = await tx.query<{ id: string }>(
           `INSERT INTO dm_conversations (user_id_1, user_id_2)
            VALUES (
-             LEAST($1::text, $2::text),
-             GREATEST($1::text, $2::text)
+             LEAST($1::uuid, $2::uuid),
+             GREATEST($1::uuid, $2::uuid)
            )
            ON CONFLICT (user_id_1, user_id_2) DO UPDATE SET updated_at = NOW()
            RETURNING id`,

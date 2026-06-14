@@ -85,13 +85,16 @@ function buildWordlist(): RegExp[] {
   );
 }
 
-let _wordlistCache: RegExp[] | null = null;
+const WORDLIST_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+let _wordlistCache: { words: RegExp[]; fetchedAt: number } | null = null;
 
 function getWordlist(): RegExp[] {
-  if (!_wordlistCache) {
-    _wordlistCache = buildWordlist();
+  const now = Date.now();
+  if (!_wordlistCache || now - _wordlistCache.fetchedAt > WORDLIST_TTL_MS) {
+    _wordlistCache = { words: buildWordlist(), fetchedAt: now };
   }
-  return _wordlistCache;
+  return _wordlistCache.words;
 }
 
 // ---------------------------------------------------------------------------
@@ -153,7 +156,7 @@ export async function detectDuplicateMessage(
   db: DatabaseAdapter
 ): Promise<boolean> {
   const normalise = (s: string) =>
-    s.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+    s.normalize("NFKD").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
 
   const normContent = normalise(content);
   const windowSeconds = Math.ceil(windowMs / 1000);

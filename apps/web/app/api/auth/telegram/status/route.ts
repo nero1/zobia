@@ -35,6 +35,7 @@ interface TelegramLoginStateRow {
   state: string;
   status: "pending" | "approved" | "expired";
   token: string | null;
+  refresh_token: string | null;
   user_payload: string | null;
   created_at: string;
 }
@@ -56,9 +57,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     }
 
     const { rows } = await db.query<TelegramLoginStateRow>(
-      `SELECT state, status, token, user_payload, created_at
-       FROM telegram_login_states
-       WHERE state = $1
+      `SELECT tls.state, tls.status, tls.token, tls.user_payload, tls.created_at,
+              s.refresh_token
+       FROM telegram_login_states tls
+       LEFT JOIN sessions s ON s.user_id = tls.user_id AND s.is_active = TRUE
+       WHERE tls.state = $1
+       ORDER BY s.created_at DESC
        LIMIT 1`,
       [state]
     );
@@ -88,7 +92,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         return NextResponse.json({ status: "pending" }, { status: 200 });
       }
       return NextResponse.json(
-        { status: "approved", token: row.token, user },
+        { status: "approved", token: row.token, refreshToken: row.refresh_token, user },
         { status: 200 }
       );
     }

@@ -105,10 +105,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     // Issue admin session (shorter TTL: 30 min access, 1 hour refresh)
-    const tokens = await createSession(
-      { id: user.id, email: user.email, username: user.username, is_admin: true },
-      { ip, ua: req.headers.get("user-agent") ?? undefined, adminSession: true }
-    );
+    let tokens: Awaited<ReturnType<typeof createSession>>;
+    try {
+      tokens = await createSession(
+        { id: user.id, email: user.email, username: user.username, is_admin: true },
+        { ip, ua: req.headers.get("user-agent") ?? undefined, adminSession: true }
+      );
+    } catch (sessionErr) {
+      // Roll back the anti-replay mark so the user can retry with the same code
+      await redis.del(usedKey).catch(() => {});
+      throw sessionErr;
+    }
 
     const { accessCookie, refreshCookie } = buildCookieHeaders(tokens, undefined, ADMIN_REFRESH_TOKEN_TTL_SECONDS);
     const response = NextResponse.json({ success: true }, { status: 200 });

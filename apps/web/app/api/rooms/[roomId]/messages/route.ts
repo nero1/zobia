@@ -254,6 +254,8 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       "m.is_deleted = FALSE",
       // Moments expire after 24 hours (PRD §5 — Zobia Moments)
       "(m.message_type != 'moment' OR m.created_at > NOW() - INTERVAL '24 hours')",
+      // Hide messages awaiting moderator approval (BUG-RM01)
+      "(m.is_pending_approval = FALSE OR m.is_pending_approval IS NULL)",
     ];
     const queryArgs: SqlParam[] = [roomId];
     let paramIdx = 2;

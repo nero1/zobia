@@ -214,7 +214,7 @@ async function handleDMGift(
 
     const { rows: convUpsert } = await tx.query<{ id: string }>(
       `INSERT INTO dm_conversations (user_id_1, user_id_2)
-       VALUES (LEAST($1::text, $2::text), GREATEST($1::text, $2::text))
+       VALUES (LEAST($1::uuid, $2::uuid), GREATEST($1::uuid, $2::uuid))
        ON CONFLICT (user_id_1, user_id_2) DO UPDATE SET updated_at = NOW()
        RETURNING id`,
       [senderId, recipientId]
@@ -527,8 +527,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       const { rows: convUpsertRows } = await tx.query<{ id: string }>(
         `INSERT INTO dm_conversations (user_id_1, user_id_2)
          VALUES (
-           LEAST($1::text, $2::text),
-           GREATEST($1::text, $2::text)
+           LEAST($1::uuid, $2::uuid),
+           GREATEST($1::uuid, $2::uuid)
          )
          ON CONFLICT (user_id_1, user_id_2) DO UPDATE
            SET updated_at = NOW()

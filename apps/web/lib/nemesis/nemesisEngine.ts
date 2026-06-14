@@ -245,8 +245,8 @@ export async function compareNemesisProgress(
     explorer: "xp_explorer",
   };
   const col = trackColumnMap[track] ?? "xp_total";
-  query = `SELECT id AS user_id, ${col} AS xp_value FROM users WHERE id = ANY($1::uuid[])`;
-  params = [`{${userId},${nemesisId}}`];
+  query = `SELECT id AS user_id, ${col} AS xp_value FROM users WHERE id = ANY(ARRAY[$1::uuid, $2::uuid])`;
+  params = [userId, nemesisId];
 
   const result = await db.query<XPRow>(query, params);
 

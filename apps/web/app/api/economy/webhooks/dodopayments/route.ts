@@ -237,6 +237,9 @@ async function processPaymentSucceeded(
         );
       }
     } else if (itemType === "star_pack") {
+      if (serverStarsGranted <= 0) {
+        throw new Error(`star_pack starAmount must be positive, got: ${serverStarsGranted}`);
+      }
       await creditStars(
         userId,
         serverStarsGranted,
