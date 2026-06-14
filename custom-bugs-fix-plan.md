@@ -1,14 +1,14 @@
 # Zobia Codebase — Bug Fix Plan
 
 **Generated:** 2026-06-14 at 02:58 PM
-**Source:** `custom-bugs-report.md` (25 confirmed bugs across Critical / Moderate / Minor severity tiers)
+**Source:** `custom-bugs-report.md` (38 confirmed bugs across Critical / Moderate / Minor severity tiers)
 **Instruction:** DO NOT begin any fix until this plan is reviewed and approved.
 
 ---
 
 ## Overview
 
-25 bugs are organized into 4 fix phases by risk and dependency order. Critical data-integrity bugs are addressed first (Phases 1–2), followed by moderate operational bugs (Phase 3), and minor/housekeeping issues last (Phase 4). Some fixes are prerequisites for others and are noted explicitly.
+38 bugs are organized into 5 fix phases by risk and dependency order. Critical data-integrity and security bugs are addressed first (Phases 1–2), followed by moderate operational bugs (Phase 3), minor housekeeping (Phase 4), and the structural 9.7+ improvements (Phase 5). Some fixes are prerequisites for others and are noted explicitly.
 
 ---
 
@@ -356,42 +356,254 @@ Option A is preferred as it closes a real double-send race condition on crash-re
 
 ---
 
-### TASK-25 — Atomize `RedisCircuitBreaker` Pending Note: Pre-auth Token Guard Already Included Above
+---
 
-*(This task was already captured as TASK-06.)*
+## Phase 5 — 9.7+ Quality: Security Hardening, Observability, and Structural Completeness
+
+---
+
+### TASK-25 — Add Unique Partial Index on `xp_ledger` to Enable `ON CONFLICT` (BUG-26)
+
+**Priority:** P0 — Without this index, all idempotency logic in BUG-01/02/03 fixes is inoperative; duplicate ledger entries are inserted unconditionally
+**Files to edit:** `apps/web/lib/db/schema.ts`
+**Depends on:** Must be done alongside or before TASK-01/02/03
+**Estimated effort:** Trivial (1 index definition + migration)
+
+Add to `schema.ts`: a Drizzle `uniqueIndex('xp_ledger_reference_id_uq').on(xpLedger.userId, xpLedger.source, xpLedger.referenceId).where(sql\`reference_id IS NOT NULL\`)`. Generate and apply the migration. Verify with an `EXPLAIN` that the `ON CONFLICT DO NOTHING` in the CTE now correctly detects duplicates. This is a prerequisite for TASK-01 to work — without the index, the RETURNING-based CTE detects no conflict and the UPDATE still fires on every call.
+
+---
+
+### TASK-26 — Implement Session ID Rotation After Login and 2FA Completion (BUG-27)
+
+**Priority:** P1 — Session fixation allows pre-login session hijack
+**Files to edit:** `apps/web/lib/auth/session.ts`, `apps/web/app/api/auth/google/callback/route.ts`, and any other auth completion handlers
+**Depends on:** Nothing
+**Estimated effort:** Small-Medium
+
+Steps:
+1. Add a `rotateSession(oldSessionId: string, userId: string, newPayload: SessionPayload)` function to `session.ts` that: writes the new session payload to a new random session key in Redis, sets the new key's TTL, deletes the old session key, and returns the new session ID.
+2. In the Google OAuth callback (and any other auth completion point), call `rotateSession` instead of simply writing to the existing session. Set the updated session cookie with the new session ID.
+3. After 2FA verification, if the pre-auth session ID is preserved into the fully-authenticated state, rotate again at that point.
+4. Audit all `response.cookies.set(ACCESS_TOKEN_COOKIE, ...)` and `response.cookies.set(REFRESH_TOKEN_COOKIE, ...)` calls to ensure `Secure: true` and `SameSite: 'Lax'` (minimum) are explicitly set in every call, not relying on browser defaults.
+
+---
+
+### TASK-27 — Fix CSP `img-src` to Remove `http:` (BUG-28)
+
+**Priority:** P2
+**Files to edit:** `apps/web/middleware.ts`
+**Depends on:** Nothing
+**Estimated effort:** Trivial
+
+In `buildCsp`, change:
+`"img-src 'self' data: blob: https: http:"`
+to:
+`"img-src 'self' data: blob: https:"`
+
+Verify that no legitimate app image sources are served over plain HTTP. If any are, fix them at the source (enforce HTTPS on all image CDN origins) rather than loosening the CSP.
+
+---
+
+### TASK-28 — Add Missing Security Response Headers (BUG-29)
+
+**Priority:** P2
+**Files to edit:** `apps/web/middleware.ts`
+**Depends on:** Nothing
+**Estimated effort:** Small
+
+Add the following headers to the `withCsp` helper (or extract a `addSecurityHeaders(res: NextResponse)` utility):
+
+1. `Cross-Origin-Opener-Policy: same-origin`
+2. `Cross-Origin-Resource-Policy: same-origin`
+3. `Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()`
+4. `Cross-Origin-Embedder-Policy: credentialless` (start here, not `require-corp`, to avoid breaking Paystack iframe and Google OAuth popup; upgrade to `require-corp` after verifying those providers send correct CORP headers)
+
+Test each header against the Paystack coin purchase flow, Google OAuth login, and any other third-party iframe/popup integrations before shipping to production.
+
+---
+
+### TASK-29 — Validate OAuth `redirect` Parameter Against Same-Origin Paths (BUG-35)
+
+**Priority:** P1 — Open redirect enables phishing post-authentication
+**Files to edit:** `apps/web/app/api/auth/google/callback/route.ts` (and any other OAuth callback handlers)
+**Depends on:** Nothing
+**Estimated effort:** Trivial
+
+In each OAuth callback handler, before redirecting to the `redirect` query param, validate it:
+`const safePath = typeof redirect === 'string' && /^\/[^/]/.test(redirect) ? redirect : HOME_URL`
+
+The regex requires the path to start with exactly one `/` — this rejects `//evil.com` (protocol-relative), `https://evil.com` (absolute URL), and empty strings, while allowing all valid internal paths like `/home`, `/rooms/123`, etc. Use `safePath` as the redirect target.
+
+---
+
+### TASK-30 — Create Audit Log Infrastructure (BUG-30)
+
+**Priority:** P2
+**Files to edit:** `apps/web/lib/db/schema.ts` (new table), new file `apps/web/lib/audit/auditLog.ts`, all admin route handlers, `apps/web/app/api/auth/` handlers
+**Depends on:** Nothing
+**Estimated effort:** Medium-Large
+
+Steps:
+1. Add `audit_log` table to `schema.ts`: `id` (UUID), `actor_id` (UUID, nullable for system), `action` (text), `target_type` (text, nullable), `target_id` (text, nullable), `metadata` (JSONB, nullable), `ip_address` (text, nullable), `user_agent` (text, nullable), `created_at` (timestamptz, not null, default NOW()).
+2. Create `lib/audit/auditLog.ts` with a `writeAuditLog(params)` async helper that inserts fire-and-forget (`.catch(err => console.error('[audit]', err))` — non-blocking).
+3. Define an `AuditAction` enum or string union covering: `login_success`, `login_failure`, `logout`, `admin_ban_user`, `admin_unban_user`, `kyc_viewed`, `kyc_updated`, `payout_approved`, `payout_rejected`, `pin_changed`, `pin_verify_failed`, `user_suspended`, `user_unsuspended`, `2fa_enabled`, `2fa_disabled`.
+4. Instrument all admin route handlers (add `writeAuditLog` calls), auth completion handlers, and PIN/KYC endpoints.
+
+---
+
+### TASK-31 — Create Balance Reconciliation CRON Job (BUG-31)
+
+**Priority:** P2
+**Files to edit:** New file `apps/web/app/api/cron/reconcile-balances/route.ts`
+**Depends on:** Nothing
+**Estimated effort:** Medium
+
+Create a CRON route at `/api/cron/reconcile-balances` that:
+1. Selects batches of users (e.g., 500 at a time, paginated by `last_reconciled_at` or alphabetically by ID) to avoid full-table scans in a single run.
+2. For each batch: runs `SELECT user_id, SUM(amount) as ledger_xp FROM xp_ledger GROUP BY user_id WHERE user_id = ANY($1)` and similarly for `coin_ledger`. Compares to `users.xp_total` and `users.coin_balance`.
+3. On mismatch: inserts a `system_alerts` row with `type = 'balance_discrepancy'`, the user ID, both values, and the delta. Also logs structured output.
+4. For discrepancies below a small threshold (e.g., < 50 XP, likely from the double-credit bug before it was fixed): auto-corrects the balance column to the ledger sum.
+5. For large discrepancies: flags for human review only — do not auto-correct.
+
+---
+
+### TASK-32 — Audit and Fix Raw SQL for Missing `deleted_at IS NULL` Filters (BUG-32)
+
+**Priority:** P2
+**Files to edit:** `apps/web/lib/guilds/warEngine.ts`, `apps/web/lib/quests/questEngine.ts`, `apps/web/lib/leaderboards/engine.ts`, and other engine files with raw SQL
+**Depends on:** Nothing (but long-term fix is TASK-14 migration to Drizzle)
+**Estimated effort:** Small-Medium
+
+Run: `grep -rn "FROM users\|JOIN users\|FROM guild_members\|JOIN guild_members\|FROM room_members\|JOIN room_members" apps/web/lib/` and review each match. Verify that every query that could return soft-deleted entities includes `AND [table_alias].deleted_at IS NULL`. Add the missing filters. Document which tables use soft deletes in a comment at the top of `schema.ts` so future developers know which queries need the filter.
+
+---
+
+### TASK-33 — Add Zod Input Validation to All API Route Handlers (BUG-33)
+
+**Priority:** P1 (for financial routes) / P2 (for all others)
+**Files to edit:** All files under `apps/web/app/api/`
+**Depends on:** Nothing
+**Estimated effort:** Large (many files, mechanical)
+
+Prioritize in this order:
+1. Financial routes first: `/api/economy/gifts/send`, `/api/economy/coins/purchase`, `/api/economy/payouts/request`, `/api/economy/webhooks/paystack`.
+2. Auth routes: `/api/auth/google/callback`, `/api/auth/telegram/callback`, `/api/auth/2fa/verify`.
+3. All remaining POST/PUT/PATCH routes.
+4. GET routes with query parameters (pagination, filters).
+
+For each route: define a Zod schema for the request body (and query params for GETs), call `schema.safeParse(...)`, and return 400 with `{ data: null, error: "Invalid request body", issues: parsed.error.flatten() }` on failure. Use `z.string().uuid()` for ID fields, `z.number().int().positive()` for amounts, `z.string().max(N)` for text fields — enforcing both type and business-rule constraints at the boundary.
+
+---
+
+### TASK-34 — Add Structured Observability: Logging, DLQ Alerting, and Key Metrics (BUG-34)
+
+**Priority:** P2
+**Files to edit:** `apps/web/lib/api/middleware.ts`, `apps/web/lib/xp/safeAwardXP.ts`, `apps/web/app/api/cron/retry-xp-awards/route.ts`, and other engine files
+**Depends on:** Nothing (but pairs well with TASK-30 audit log)
+**Estimated effort:** Medium-Large
+
+Three incremental steps:
+
+**Step 1 — Structured logging:** Install Pino (`pino`, `pino-pretty` for dev). Create `lib/logger.ts` exporting a configured Pino instance. Replace all `console.error/log/warn` calls in `lib/` and `app/api/` with `logger.error/info/warn({requestId, userId, ...context}, message)`. Wire `requestId` from `withAuth`'s existing generation into a Node.js `AsyncLocalStorage` context so all downstream calls within a request emit the same `requestId` without threading it manually.
+
+**Step 2 — DLQ alerting:** In the `retryFailedXPAwards` CRON response handler, if `permanentlyFailed > 0` or total `failed_xp_awards` rows exceed a threshold (e.g., 100), post a Slack webhook or insert a high-severity `system_alerts` row. Add equivalent alerting for `failed_payouts`.
+
+**Step 3 — Key metrics:** Add response-time logging to `withAuth` and `withAdminAuth` (already have `requestId`, add `durationMs = Date.now() - start`). Log 4xx/5xx counts per route. Consider a lightweight `/api/metrics` endpoint (protected, admin-only) returning current DLQ depths and circuit breaker states.
+
+---
+
+### TASK-35 — Standardize API Response Envelopes (BUG-36)
+
+**Priority:** P3
+**Files to edit:** New file `apps/web/lib/api/response.ts`, all API route handlers
+**Depends on:** Nothing
+**Estimated effort:** Large (many files, mechanical)
+
+Create `lib/api/response.ts` with:
+```
+apiSuccess<T>(data: T, status = 200): NextResponse
+apiError(message: string, code: string, status: number): NextResponse
+```
+Both return `NextResponse.json({ data: T | null, error: string | null, code?: string }, { status })`. Migrate all `NextResponse.json(...)` calls in route handlers to use these helpers. This is a mechanical refactor — do it route-file by route-file, verifying client-side code handles the new shape. Update any frontend `fetch` wrappers to expect the standard envelope.
+
+---
+
+### TASK-36 — Create Health Check Endpoint (BUG-37)
+
+**Priority:** P3
+**Files to edit:** New file `apps/web/app/api/health/route.ts`, `apps/web/middleware.ts`
+**Depends on:** Nothing
+**Estimated effort:** Small
+
+Create `GET /api/health`:
+1. `SELECT 1` on the DB with a 2-second timeout. Record latency and success/failure.
+2. `PING` on Redis. Record latency and success/failure.
+3. Check that `process.env.JWT_SECRET`, `DATABASE_URL`, `REDIS_URL` are non-empty.
+4. Return 200 `{ status: "ok", checks: { db: "ok", redis: "ok" }, latencyMs: { db: N, redis: N } }` on full health.
+5. Return 503 `{ status: "degraded", checks: { db: "error", redis: "ok" }, error: "DB timeout" }` on any failure. Keep error messages generic (no connection strings, no stack traces).
+
+Add `/api/health` to `PUBLIC_PREFIXES` in `middleware.ts`.
+
+---
+
+### TASK-37 — Add Runtime Allowlist Guard to `TRACK_COLUMN` SQL Interpolation (BUG-38)
+
+**Priority:** P4
+**Files to edit:** `apps/web/lib/xp/safeAwardXP.ts`
+**Depends on:** Nothing
+**Estimated effort:** Trivial
+
+Before the SQL string interpolation of `col`, add:
+`const SAFE_XP_COLS = new Set(Object.values(TRACK_COLUMN)); if (!SAFE_XP_COLS.has(col)) throw new Error(\`[safeAwardXP] Unsafe column name: ${col}\`);`
+
+This makes the safety invariant explicit, documents the intent, and provides defense-in-depth if the `TRACK_COLUMN` map is ever populated from an external or user-controlled source.
 
 ---
 
 ## Fix Sequence Summary
 
-| Order | Task | Bug(s) | Priority |
-|---|---|---|---|
-| 1 | TASK-01 | BUG-01, BUG-02 | P0 |
-| 2 | TASK-02 | BUG-03 | P0 |
-| 3 | TASK-03 | BUG-04 | P0 |
-| 4 | TASK-04 | BUG-05 | P1 |
-| 5 | TASK-05 | BUG-06 | P0 (coordinate migration) |
-| 6 | TASK-06 | BUG-19 | P1 |
-| 7 | TASK-07 | BUG-10 | P1 |
-| 8 | TASK-08 | BUG-09 | P1 |
-| 9 | TASK-09 | BUG-13 | P1 |
-| 10 | TASK-10 | BUG-11 | P2 |
-| 11 | TASK-11 | BUG-14 | P2 |
-| 12 | TASK-12 | BUG-15 | P2 |
-| 13 | TASK-13 | BUG-07 | P2 |
-| 14 | TASK-14 | BUG-12 | P2 |
-| 15 | TASK-15 | BUG-08 | P2 (after TASK-14) |
-| 16 | TASK-16 | BUG-17 | P3 (after TASK-14) |
-| 17 | TASK-17 | BUG-16 | P3 |
-| 18 | TASK-18 | BUG-18 | P3 |
-| 19 | TASK-19 | BUG-24 | P3 |
-| 20 | TASK-20 | BUG-25 | P3 |
-| 21 | TASK-21 | BUG-21 | P4 (after TASK-03) |
-| 22 | TASK-22 | BUG-22 | P4 |
-| 23 | TASK-23 | BUG-23 | P4 |
-| 24 | TASK-24 | BUG-20 | P4 |
+| Order | Task | Bug(s) | Priority | Notes |
+|---|---|---|---|---|
+| 1 | TASK-25 | BUG-26 | P0 | Must run before or with TASK-01/02/03 |
+| 2 | TASK-01 | BUG-01, BUG-02 | P0 | Depends on TASK-25 (unique index) |
+| 3 | TASK-02 | BUG-03 | P0 | Depends on TASK-25 |
+| 4 | TASK-03 | BUG-04 | P0 | |
+| 5 | TASK-04 | BUG-05 | P1 | |
+| 6 | TASK-05 | BUG-06 | P0 | Coordinate KYC migration separately |
+| 7 | TASK-26 | BUG-27 | P1 | Session fixation |
+| 8 | TASK-29 | BUG-35 | P1 | Open redirect |
+| 9 | TASK-06 | BUG-19 | P1 | Pre-auth token type |
+| 10 | TASK-07 | BUG-10 | P1 | Suspension expiry check |
+| 11 | TASK-08 | BUG-09 | P1 | Circuit breaker atomicity |
+| 12 | TASK-09 | BUG-13 | P1 | CSRF CRON bypass |
+| 13 | TASK-33 | BUG-33 | P1 (financial routes first) | Zod validation |
+| 14 | TASK-27 | BUG-28 | P2 | CSP img-src http: |
+| 15 | TASK-28 | BUG-29 | P2 | Missing security headers |
+| 16 | TASK-10 | BUG-11 | P2 | N+1 HoF |
+| 17 | TASK-11 | BUG-14 | P2 | War XP DLQ |
+| 18 | TASK-12 | BUG-15 | P2 | Quest XP DLQ |
+| 19 | TASK-13 | BUG-07 | P2 | Duplicate 2FA columns |
+| 20 | TASK-14 | BUG-12 | P2 | Complete Drizzle schema |
+| 21 | TASK-15 | BUG-08 | P2 | FK on questId (after TASK-14) |
+| 22 | TASK-30 | BUG-30 | P2 | Audit log |
+| 23 | TASK-31 | BUG-31 | P2 | Balance reconciliation CRON |
+| 24 | TASK-32 | BUG-32 | P2 | soft-delete filter audit |
+| 25 | TASK-34 | BUG-34 | P2 | Structured observability |
+| 26 | TASK-16 | BUG-17 | P3 | push.ts Drizzle migration (after TASK-14) |
+| 27 | TASK-17 | BUG-16 | P3 | Missing XP switch case |
+| 28 | TASK-18 | BUG-18 | P3 | Message cap off-by-one |
+| 29 | TASK-19 | BUG-24 | P3 | Vercel IP header scoping |
+| 30 | TASK-20 | BUG-25 | P3 | Admin request ID |
+| 31 | TASK-35 | BUG-36 | P3 | API response envelopes |
+| 32 | TASK-36 | BUG-37 | P3 | Health check endpoint |
+| 33 | TASK-21 | BUG-21 | P4 | Dynamic import (after TASK-03) |
+| 34 | TASK-22 | BUG-22 | P4 | gross_kobo type |
+| 35 | TASK-23 | BUG-23 | P4 | RegExp cache |
+| 36 | TASK-24 | BUG-20 | P4 | SQLite 'sending' state |
+| 37 | TASK-37 | BUG-38 | P4 | TRACK_COLUMN allowlist |
 
 ---
 
 *Plan generated: 2026-06-14 at 02:58 PM*
+*Updated: 2026-06-14 at 02:58 PM — 13 additional tasks added (TASK-25 through TASK-37) covering BUG-26 through BUG-38*
 *DO NOT begin any fix until this plan is reviewed and approved.*
