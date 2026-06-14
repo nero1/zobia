@@ -1,616 +1,397 @@
-# Zobia Social — Bug Fix Plan
+# Zobia Codebase — Bug Fix Plan
 
-**Generated:** June 14, 2026 1:00 PM  
-**Source:** custom-bugs-report.md (27 confirmed bugs + 10 structural improvements = 37 items total)  
-**Instruction:** DO NOT begin any fix until the plan is reviewed and approved.
-
----
-
-## Priority Tiers
-
-| Tier | Description |
-|------|-------------|
-| P0 — Critical | Runtime crashes / features completely broken in production |
-| P1 — High | Silent data loss, security holes, or broken user-facing features |
-| P2 — Medium | Degraded functionality, incorrect behaviour under specific conditions |
-| P3 — Low | Cosmetic, minor logic gaps, informational |
+**Generated:** 2026-06-14 at 02:58 PM
+**Source:** `custom-bugs-report.md` (25 confirmed bugs across Critical / Moderate / Minor severity tiers)
+**Instruction:** DO NOT begin any fix until this plan is reviewed and approved.
 
 ---
 
-## P0 — Critical (Fix First)
+## Overview
 
-These bugs cause runtime DB errors, silent data loss, or complete feature breakdowns every time the affected code paths are executed.
-
----
-
-### TASK-01: Fix `trustScore.ts` — replace missing columns with correlated subqueries [BUG-DB01]
-
-**Files to edit:**  
-`apps/web/lib/trust/trustScore.ts`
-
-**Steps:**  
-1. In `calculateTrustScore`, replace `COALESCE(u.report_count, 0)::text AS report_count` with a correlated subquery: `(SELECT COUNT(*)::text FROM reports WHERE reported_user_id = u.id) AS report_count`.  
-2. Replace `COALESCE(u.warning_count, 0)::text AS warning_count` with: `(SELECT COUNT(*)::text FROM moderation_actions WHERE target_user_id = u.id AND action_type = 'warning') AS warning_count`.  
-3. Run the trust score tests to confirm they pass.  
-4. Manually verify that `meetsMinimumTrust` resolves without DB errors for a sample user.
+25 bugs are organized into 4 fix phases by risk and dependency order. Critical data-integrity bugs are addressed first (Phases 1–2), followed by moderate operational bugs (Phase 3), and minor/housekeeping issues last (Phase 4). Some fixes are prerequisites for others and are noted explicitly.
 
 ---
 
-### TASK-02: Fix referral column name mismatch — `referred_by_user_id` vs `referred_by` [BUG-DB02]
+## Phase 1 — Critical: Data Integrity (Fix First)
 
-**Files to edit:**  
-`apps/web/lib/referrals/commissions.ts`  
-`apps/web/app/api/referrals/claim/route.ts`
-
-**Steps (preferred: rename in code, keep schema):**  
-1. In `commissions.ts` lines 68–69 and 150–151, change `referred_by_user_id` to `referred_by` in both the SELECT and the TypeScript type.  
-2. In `referrals/claim/route.ts`, change all four references to `referred_by_user_id` (lines 49, 70, 115, 130–131) to `referred_by`.  
-3. Confirm the referral claim and commission flows work end-to-end.  
-
-*Alternative: create a migration `ALTER TABLE users RENAME COLUMN referred_by TO referred_by_user_id` and keep the code unchanged — only if other code that correctly uses `referred_by` also needs updating.*
+These bugs cause incorrect data to be written to the database on live traffic. They must be fixed before any other phase.
 
 ---
 
-### TASK-03: Create `user_quest_decks` table and populate it in `generateDailyDeck` [BUG-DB03 / BUG-XP01]
+### TASK-01 — Fix Double XP Credit in `safeAwardXP` (BUG-01, BUG-02)
 
-**Files to create/edit:**  
-`apps/web/db/migrations/006_user_quest_decks.sql` (new migration)  
-`apps/web/lib/quests/questEngine.ts`
+**Priority:** P0 — Fix immediately; XP balances are being corrupted on every idempotency collision
+**Files to edit:** `apps/web/lib/xp/safeAwardXP.ts`
+**Depends on:** Nothing
+**Estimated effort:** Small (2 SQL rewrites)
 
-**Steps:**  
-1. Create migration with:
-   ```sql
-   CREATE TABLE IF NOT EXISTS user_quest_decks (
-     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-     user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-     quest_id      UUID NOT NULL REFERENCES quest_templates(id) ON DELETE CASCADE,
-     assigned_date DATE NOT NULL,
-     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-     UNIQUE(user_id, quest_id, assigned_date)
-   );
-   CREATE INDEX IF NOT EXISTS idx_user_quest_decks_user_date
-     ON user_quest_decks(user_id, assigned_date);
-   ```
-2. In `generateDailyDeck`, after selecting the deck's quest IDs, INSERT them into `user_quest_decks` for the current date using `ON CONFLICT DO NOTHING`.  
-3. Verify `checkDeckCompletion` now runs without error and awards 500 XP on deck completion.
+Both the primary award path and the `retryFailedXPAwards` path have the same flaw: an `INSERT ... ON CONFLICT DO NOTHING` followed by an unconditional `UPDATE users SET xp_total = xp_total + $1`. When the INSERT is a no-op (idempotency hit), the UPDATE still fires, double-crediting the balance.
+
+For each affected location:
+1. Replace the two separate queries with a single CTE:
+   `WITH ins AS (INSERT INTO xp_ledger ... ON CONFLICT DO NOTHING RETURNING id) UPDATE users SET xp_total = xp_total + $1, [track_col] = COALESCE([track_col], 0) + $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM ins)`
+2. Verify the CTE approach works with the existing `DatabaseAdapter` interface (it should, since it's a single SQL string).
+3. Run a one-time audit query to count `xp_ledger` rows with duplicate `(user_id, source, reference_id)` tuples where `reference_id IS NOT NULL` — these are evidence of past double-awards. Decide whether to reconcile affected user balances.
 
 ---
 
-### TASK-04: Fix SYS-02 reconciliation — remove `wallets` join, fix column names [BUG-DB04]
+### TASK-02 — Fix Double XP Credit in `claimPassMilestone` (BUG-03)
 
-**Files to edit:**  
-`apps/web/app/api/cron/daily/route.ts` (SYS-02 block)
+**Priority:** P0
+**Files to edit:** `apps/web/lib/seasons/seasonEngine.ts`
+**Depends on:** Nothing
+**Estimated effort:** Small (1 SQL rewrite)
 
-**Steps:**  
-1. Replace `JOIN wallets w ON w.user_id = cl.user_id` → `JOIN users u ON u.id = cl.user_id`.  
-2. For coin reconciliation, replace `SUM(CASE WHEN cl.direction = 'credit' THEN cl.amount ELSE -cl.amount END)` → `SUM(cl.amount)` (already signed), and compare against `u.coin_balance`.  
-3. For star reconciliation, replace `wallets.stars_balance` → `u.star_balance`.  
-4. Verify SYS-02 no longer errors in the CRON log.
+The `xp_bonus` branch in `claimPassMilestone` has the identical flaw. Apply the same CTE fix: merge the INSERT and UPDATE into a single statement gated on the INSERT returning a row. Ensure the `referenceId` used for the xp_ledger entry is stable across retries (should already be `milestone:{milestoneId}:{userId}` or similar — verify this).
 
 ---
 
-### TASK-05: Add unique index to `xp_ledger` for deduplication [BUG-DB06]
+### TASK-03 — Fix `referral_commissions` INSERT Column Mismatch (BUG-04)
 
-**Files to create:**  
-`apps/web/db/migrations/007_xp_ledger_unique_ref.sql` (new migration)
+**Priority:** P0 — Every referral commission attempt fails at runtime; referrers have received zero commissions
+**Files to edit:** `apps/web/lib/referrals/commissions.ts`
+**Depends on:** Confirming the intended schema (see below)
+**Estimated effort:** Small-Medium (1 SQL rewrite + schema verification)
 
-**Steps:**  
-1. Add migration:
-   ```sql
-   CREATE UNIQUE INDEX IF NOT EXISTS uidx_xp_ledger_source_ref
-     ON xp_ledger(user_id, source, reference_id)
-     WHERE reference_id IS NOT NULL;
-   ```
-2. Run the migration on the database.  
-3. Verify that `safeAwardXP` correctly no-ops when called twice with the same `reference_id`.
-
----
-
-### TASK-06: Fix automated payout CRON — populate `bank_account_snapshot` [BUG-EC01]
-
-**Files to edit:**  
-`apps/web/app/api/cron/daily/route.ts` (step 32)
-
-**Steps:**  
-1. Locate the `creator_payouts` INSERT in step 32.  
-2. In the SELECT that fetches creator data, ensure `u.payout_recipient_code` and `u.payout_account_last4` are included.  
-3. Add `bank_account_snapshot = jsonb_build_object('recipient_code', u.payout_recipient_code, 'account_last4', COALESCE(u.payout_account_last4, ''))` to the INSERT.  
-4. Add a guard: only INSERT a payout row if `u.payout_recipient_code IS NOT NULL`.  
-5. Test by triggering a manual payout CRON run in a staging environment and confirming payouts progress past the dead-letter check.
+Steps:
+1. Confirm the canonical column names in `schema.ts` for `referralCommissions`: `referred_user_id`, `trigger_event_id`, `purchase_amount_kobo`, `commission_kobo`, `commission_coins`, and `tier` (if it exists).
+2. Identify what `trigger_event_id` should reference — likely a `coin_purchases.id` or `payments.id` value. Thread this value through the commission calculation call chain.
+3. Rewrite the INSERT to use the correct column names and supply all NOT NULL columns.
+4. Add an `ON CONFLICT DO NOTHING` or `ON CONFLICT (referrer_id, trigger_event_id) DO NOTHING` clause if one doesn't exist, to ensure idempotency on retries.
+5. After fixing, run a manual check to assess whether any commissions from the live period need to be backfilled. This requires reviewing the coin purchase log against the referral relationships.
 
 ---
 
-## P1 — High (Fix After P0)
+### TASK-04 — Fix Leaderboard NULL Upsert (BUG-05)
+
+**Priority:** P1 — Global and all-time leaderboards are accumulating duplicate rows on every update
+**Files to edit:** `apps/web/lib/db/schema.ts`, `apps/web/lib/leaderboards/engine.ts`
+**Depends on:** Nothing
+**Estimated effort:** Medium (schema change + migration + query update)
+
+Steps:
+1. In `schema.ts`, change the unique index on `leaderboard_snapshots` from a standard unique constraint to an expression-based unique index using `COALESCE` to handle NULLs: `UNIQUE (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))`.
+2. Generate and apply the Drizzle migration (drop old constraint, add new index).
+3. In `engine.ts`, update the `ON CONFLICT` clause to target the new index name.
+4. Run a one-time deduplication query to remove the spurious duplicate rows already accumulated in production: `DELETE FROM leaderboard_snapshots WHERE id NOT IN (SELECT DISTINCT ON (user_id, track, scope, COALESCE(city,''), COALESCE(season_id::text,'')) id FROM leaderboard_snapshots ORDER BY user_id, track, scope, city, season_id, updated_at DESC)`.
 
 ---
 
-### TASK-07: Fix `getUserMetricsForWeighting` — wrong table name `followers` → `follows` [BUG-DB05]
-
-**Files to edit:**  
-`apps/web/lib/leaderboards/engine.ts` (line 422)
-
-**Steps:**  
-1. Change `LEFT JOIN followers f ON f.user_id = u.id` to `LEFT JOIN follows f ON f.following_id = u.id`.  
-2. Update the column reference: `COUNT(DISTINCT f.follower_id)` → `COUNT(DISTINCT f.follower_id)` (column name on `follows` table is `follower_id`, so this stays the same if the follows table uses that column). Confirm by checking migration 001 for the `follows` schema (`follower_id`, `following_id` columns).
+## Phase 2 — Critical: Security
 
 ---
 
-### TASK-08: Implement Redis-backed circuit breaker [BUG-INF01]
+### TASK-05 — Replace SHA-256 Key Derivation with Proper KDF (BUG-06)
 
-**Files to create/edit:**  
-`apps/web/lib/payments/circuit.ts`  
-`apps/web/lib/redis/index.ts` (reference)
+**Priority:** P0 — KYC field ciphertext is vulnerable to offline brute-force if raw keys are weak
+**Files to edit:** `apps/web/lib/security/fieldEncryption.ts`
+**Depends on:** Coordinated migration plan for existing ciphertext (see below)
+**Estimated effort:** Medium (code change) + Large (data migration)
 
-**Steps:**  
-1. Create a `RedisCircuitBreaker` class that stores `{ state, openedAt, failures, windowStart }` in a Redis hash keyed by `circuit:{name}`.  
-2. Implement state transitions (CLOSED → OPEN → HALF_OPEN → CLOSED) atomically using a Lua script or WATCH/MULTI.  
-3. Replace `paystackBreaker`, `expoPushBreaker`, and `dodoPaymentsBreaker` singletons with `RedisCircuitBreaker` instances.  
-4. Keep the existing in-memory `CircuitBreaker` class for unit testing.  
-5. Add TTL on the Redis keys (e.g., `resetTimeoutMs * 3`) so stale state is automatically cleaned up.
+Steps:
+1. In `getKeyForVersion`, replace `createHash("sha256").update(raw).digest()` with `crypto.scrypt(raw, versionSalt, 32, { N: 16384, r: 8, p: 1 })`. Define `versionSalt` as a per-version constant (e.g., `Buffer.from("zobia-field-enc-v1")`) stored in the function alongside the version table.
+2. Cache the derived key in a module-level `Map<string, Buffer>` keyed by version, so the KDF cost is paid once per process cold start, not per encryption/decryption call.
+3. Add a new key version (e.g., `v2`) using the KDF-derived key. Keep the old `v1` (SHA-256) entry for decryption only, so existing ciphertext can still be read.
+4. Write a migration script that: reads every encrypted field from the DB, decrypts with the old v1 key, re-encrypts with the new v2 key, and writes back. Run in a transaction with a dry-run mode first.
+5. After confirming all rows are migrated to v2, remove the v1 key entry from the code and drop decryption support for v1 in a follow-up deployment.
 
----
-
-### TASK-09: Fix announcement targeting for null plan/role users [BUG-SEC03]
-
-**Files to edit:**  
-`apps/web/lib/announcements/engine.ts`
-
-**Steps:**  
-1. In `matchesTargeting`, change:
-   ```ts
-   if (targetPlans.length > 0 && user.plan_id) {
-     if (!targetPlans.includes(user.plan_id)) return false;
-   }
-   ```
-   to:
-   ```ts
-   if (targetPlans.length > 0 && (!user.plan_id || !targetPlans.includes(user.plan_id))) return false;
-   ```
-2. Apply the same fix for `targetRoles`.  
-3. Write a unit test with a user who has `plan_id = null` and a plan-targeted announcement; confirm they don't see it.
+**Warning:** This migration touches PII/KYC data. Coordinate with any DPA/compliance requirements before running it. Test thoroughly in staging first.
 
 ---
 
-### TASK-10: Fix `useRealtimeChannel` async cleanup race condition [BUG-RT01]
-
-**Files to edit:**  
-`apps/web/lib/realtime/useRealtimeChannel.ts`
-
-**Steps:**  
-1. Add a `cancelled` flag before each async IIFE.  
-2. In each provider's async IIFE, check `if (cancelled) { unsubscribe(); return; }` before assigning `cleanup`.  
-3. In the `useEffect` return, set `cancelled = true` before calling `cleanup?.()`.  
-4. Apply this to all three provider branches (Supabase, Ably, Pusher).
+## Phase 3 — Moderate: Operational Reliability
 
 ---
 
-### TASK-11: Fix `replyToMessageId` cross-room injection [BUG-MSG01]
+### TASK-06 — Add `type` Field to `AccessTokenPayload` and Reject Pre-Auth Tokens in `withAuth` (BUG-19)
 
-**Files to edit:**  
-`apps/web/app/api/rooms/[roomId]/messages/route.ts`
+**Priority:** P1 — Pre-auth tokens can be used as full access credentials against any authenticated route
+**Files to edit:** `apps/web/app/api/auth/google/callback/route.ts`, `apps/web/lib/auth/jwt.ts` (or wherever `AccessTokenPayload` is defined), `apps/web/lib/api/middleware.ts`
+**Depends on:** Nothing
+**Estimated effort:** Small
 
-**Steps:**  
-1. After parsing `body.replyToMessageId`, add a DB validation query:
-   ```sql
-   SELECT id FROM room_messages WHERE id = $replyToMessageId AND room_id = $roomId LIMIT 1
-   ```
-2. If no row is returned, return `422 Unprocessable Entity` with `{ error: 'Reply target message not found in this room' }`.
-
----
-
-### TASK-12: Fix `withAdminAuth` — add request context and `X-Request-Id` [BUG-AUTH01]
-
-**Files to edit:**  
-`apps/web/lib/api/middleware.ts`
-
-**Steps:**  
-1. In `withAdminAuth`, replicate the same `requestId` generation and `requestContext.run()` wrapping used in `withAuth`.  
-2. Set `X-Request-Id: requestId` on all responses (success and error) from `withAdminAuth`.  
-3. Confirm admin route logs now include correlation IDs.
+Steps:
+1. Add `type?: 'pre_auth' | 'access'` to the `AccessTokenPayload` interface.
+2. In the Google OAuth callback, remove the unsafe TypeScript cast and set `type: 'pre_auth'` explicitly.
+3. In `withAuth`, after verifying the token, check `if (payload.type === 'pre_auth') return unauthorized(...)`. This ensures pre-auth tokens are rejected on all normal routes.
+4. Check whether the 2FA verification endpoint itself needs to specifically accept `pre_auth` tokens — if so, add an explicit allowance there only.
 
 ---
 
-### TASK-13: Fix `withAuth` sensitive-mutation regex — add purchase endpoints [BUG-AUTH02]
+### TASK-07 — Fix `withAuth` Suspension Check to Evaluate `suspended_until` (BUG-10)
 
-**Files to edit:**  
-`apps/web/lib/api/middleware.ts`
+**Priority:** P1
+**Files to edit:** `apps/web/lib/api/middleware.ts`
+**Depends on:** Nothing
+**Estimated effort:** Small
 
-**Steps:**  
-1. Extend the `isSensitiveMutation` regex to include `economy\/coins\/purchase` and `economy\/stars\/purchase`.  
-2. Or replace the regex with an explicit prefix array and `pathname.startsWith()` checks — more readable and less fragile.
-
----
-
-### TASK-14: Prevent circular referral chains [BUG-EC03]
-
-**Files to edit:**  
-`apps/web/lib/referrals/commissions.ts`
-
-**Steps:**  
-1. Add `if (tier2Id === buyerId || tier2Id === tier1Id) return result;` to stop the 2-hop case where tier-1 and tier-2 referrers are the same person.  
-2. At referral claim time (`app/api/referrals/claim/route.ts`), before setting `referred_by`, walk the referral chain upward (up to a max depth of 5) and reject the claim if the new user's ID already appears in the chain.  
-3. Add a test for the A→B→C→A circular chain scenario.
+In `withAuth`, after loading the user record (from Redis cache or DB), add: `if (user.is_suspended && user.suspended_until && new Date(user.suspended_until) <= new Date()) { treat as not suspended; optionally fire background DB update to clear the flag }`. This makes the middleware consistent with the room messages route, which already checks `suspended_until` directly.
 
 ---
 
-### TASK-15: Fix SYS-02 CRON reconciliation `wallets` reference and column naming — combine with TASK-04
+### TASK-08 — Atomize `RedisCircuitBreaker` State Transitions (BUG-09)
 
-*(Already covered in TASK-04.)*
+**Priority:** P1
+**Files to edit:** `apps/web/lib/payments/circuit.ts`
+**Depends on:** Nothing
+**Estimated effort:** Medium
 
----
+Replace the non-atomic read-modify-write in `onSuccess()` and `onFailure()` with Lua scripts evaluated via `redis.eval`. Write two scripts:
+- `failure.lua`: Atomically read the current state, increment failure count, transition to `OPEN` if threshold reached, write back. Return new state.
+- `success.lua`: Atomically read state, reset failure count, transition to `CLOSED` if currently `HALF_OPEN`, write back. Return new state.
 
-## P2 — Medium
-
----
-
-### TASK-16: Fix season-discriminated badge keys [BUG-XP02, BUG-XP03]
-
-**Files to edit:**  
-`apps/web/app/api/cron/daily/route.ts` (weekly snapshot step)  
-`apps/web/lib/seasons/seasonEngine.ts` (`claimPassMilestone`)
-
-**Steps:**  
-1. In the weekly top-100 snapshot step, change `badge_key = 'season_top100_frame'` to `badge_key = 'season_top100_frame:' || current_season_id`.  
-2. In `claimPassMilestone`, change the badge INSERT's `badge_key` from `badgeType` to `badgeType || ':s' || seasonId`.  
-3. Update any frontend badge display logic that looks up the badge by the old static key.  
-4. Optionally backfill existing badges with the season-specific key if you want historical data to be accurate.
+This eliminates the race between concurrent serverless instances and ensures the circuit breaker behaves correctly under load.
 
 ---
 
-### TASK-17: Fix guild quest reset logic [BUG-GW01]
+### TASK-09 — Fix CSRF Middleware CRON Bypass to Check Header Value (BUG-13)
 
-**Files to edit:**  
-`apps/web/app/api/cron/daily/route.ts` (step 23)  
-`apps/web/db/migrations/` (potentially new migration)
+**Priority:** P1
+**Files to edit:** `apps/web/middleware.ts`
+**Depends on:** Nothing
+**Estimated effort:** Trivial (1-line change)
 
-**Steps:**  
-1. If the intent is to retire old quests: add `is_active BOOLEAN NOT NULL DEFAULT TRUE` to `guild_quests` (new migration), then in step 23 set `is_active = FALSE` for quests where `week_end < weekStart AND completed = FALSE`.  
-2. If the intent is to delete stale progress: DELETE from `guild_quest_contributions` and `guild_quests` where they are from a previous week and incomplete.  
-3. Confirm the reset step now produces a non-zero `rowCount` each week.
+In `isCsrfSafe`, change:
+`const hasCronSecret = request.headers.has("x-cron-secret");`
+to:
+`const hasCronSecret = request.headers.get("x-cron-secret") === process.env.CRON_SECRET && !!process.env.CRON_SECRET;`
 
----
-
-### TASK-18: Add unique constraint for alliance wars [BUG-GW02]
-
-**Files to create/edit:**  
-`apps/web/db/migrations/008_alliance_wars_unique.sql` (new migration)  
-`apps/web/app/api/cron/daily/route.ts` (alliance war step)
-
-**Steps:**  
-1. Identify the actual column names in `alliance_wars` (check migration 001).  
-2. Add a migration: `CREATE UNIQUE INDEX IF NOT EXISTS uidx_alliance_wars_pair_week ON alliance_wars(guild_id_1, guild_id_2, week_of);` (adjust to actual column names).  
-3. Update the CRON INSERT to use `ON CONFLICT (guild_id_1, guild_id_2, week_of) DO NOTHING`.
+The guard on `!!process.env.CRON_SECRET` prevents accidentally bypassing CSRF in environments where the env var is not set.
 
 ---
 
-### TASK-19: Fix gift idempotency bucket granularity [BUG-MSG02]
+### TASK-10 — Fix N+1 Queries in Hall of Fame Leaderboard Injection (BUG-11)
 
-**Files to edit:**  
-`apps/web/app/api/economy/gifts/send/route.ts`
+**Priority:** P2
+**Files to edit:** `apps/web/lib/leaderboards/engine.ts`
+**Depends on:** Nothing
+**Estimated effort:** Small-Medium
 
-**Steps:**  
-1. Narrow the hourly bucket to a per-minute bucket (`YYYY-MM-DDTHH:mm`) or remove the time-based fallback entirely.  
-2. Rely on the client-supplied idempotency key for true deduplication, and use the server-side bucket only for detecting mis-fired duplicate requests within a very short window (e.g., 10 seconds: `:${Math.floor(Date.now() / 10_000)}`).
-
----
-
-### TASK-20: Fix DM sticker unlock individual grant [BUG-MSG03]
-
-**Files to edit:**  
-`apps/web/app/api/cron/daily/route.ts` (step 22)  
-`apps/web/db/migrations/` (add `processed_at` column if needed)
-
-**Steps:**  
-1. In CRON step 22, fetch unprocessed `dm_score_sticker_unlocks` rows (add `processed_at TIMESTAMPTZ` column).  
-2. For each unprocessed row, find the sticker pack by name; if it doesn't exist, create it.  
-3. INSERT into `user_sticker_packs` for both `user_id_1` and `user_id_2` with `ON CONFLICT DO NOTHING`.  
-4. Mark the `dm_score_sticker_unlocks` row as processed (`processed_at = NOW()`).
+Refactor the HoF injection logic:
+1. After building the paginated result set, collect the IDs of all HoF users not already present.
+2. If any are missing, fetch all of their rank data in a single `WHERE user_id = ANY($1::uuid[])` query (joining against `leaderboard_snapshots` or computing rank inline).
+3. Merge the results in-process, applying HoF pin ordering.
+4. Cache the final merged result at the leaderboard page level so HoF injection is free for subsequent requests within the TTL.
 
 ---
 
-### TASK-21: Fix profanity regex `lastIndex` reset location [BUG-SEC01]
+### TASK-11 — Add `safeAwardXP` to Guild War Resolution (BUG-14)
 
-**Files to edit:**  
-`apps/web/lib/moderation/contentFilter.ts`
+**Priority:** P2
+**Files to edit:** `apps/web/lib/guilds/warEngine.ts`
+**Depends on:** TASK-01 (for correct behavior of `safeAwardXP` itself)
+**Estimated effort:** Small
 
-**Steps:**  
-1. Move `pattern.lastIndex = 0` to be the first statement inside the word-iteration loop, before `if (pattern.test(filtered))`.  
-2. Run the profanity filter tests to confirm repeated filtering of the same content works correctly.
-
----
-
-### TASK-22: Fix `safeFetch` SSRF — preserve hostname for TLS/SNI [BUG-SEC02]
-
-**Files to edit:**  
-`apps/web/lib/security/ssrf.ts`
-
-**Steps:**  
-1. Remove the `fetchParsed.hostname = pinnedIp` substitution from `validateOutboundUrl`.  
-2. Keep the DNS resolution and IP validation as-is (this still prevents SSRF by ensuring the hostname only resolves to public IPs), but use the original URL for the fetch so TLS SNI works.  
-3. Remove the `Host` header override in `safeFetch` since it is no longer needed.  
-4. Add a comment explaining the trade-off: DNS rebinding is mitigated by the fact that DNS resolution is validated once before the request, and in a controlled serverless environment further rebinding is not a realistic attack vector for outbound calls to allowlisted hosts.
+Replace raw `INSERT INTO xp_ledger` + `UPDATE users` in `resolveWar` with calls to `safeAwardXP(memberId, xpAmount, 'competitor', 'guild_war_win', \`war:${warId}:${memberId}\`)`. Do the same for any loser consolation XP if applicable. This routes failures to the DLQ automatically.
 
 ---
 
-### TASK-23: Fix Creator Fund tier leakage for small pools [BUG-EC02]
+### TASK-12 — Add `safeAwardXP` to Quest Progress Completion (BUG-15)
 
-**Files to edit:**  
-`apps/web/lib/creator/fund.ts`
+**Priority:** P2
+**Files to edit:** `apps/web/lib/quests/questEngine.ts`
+**Depends on:** TASK-01
+**Estimated effort:** Small
 
-**Steps:**  
-1. After iterating all tiers, compute `distributedKobo = distributions.reduce((sum, d) => sum + d.amountKobo, 0)`.  
-2. If `distributedKobo < poolKobo`, distribute the remainder equally among all creators in the last tier, or roll it into the next month's pool via a database credit.  
-3. Remove `'zobia_icon'` from the `creator_tier IN (...)` filter since the schema constraint only allows tiers up to `'icon'`.
-
----
-
-### TASK-24: Fix re-engagement steps shared `notified` flag [BUG-CRON01]
-
-**Files to create/edit:**  
-`apps/web/db/migrations/009_inactivity_notification_flags.sql` (new migration)  
-`apps/web/app/api/cron/daily/route.ts` (steps 11 and 19)
-
-**Steps:**  
-1. Add migration: `ALTER TABLE user_inactivity_events ADD COLUMN IF NOT EXISTS telegram_notified BOOLEAN NOT NULL DEFAULT FALSE;` (rename existing `notified` to `push_email_notified` or keep it as is and add a second column).  
-2. Step 11 reads `WHERE push_email_notified = FALSE` and marks `push_email_notified = TRUE`.  
-3. Step 19 reads `WHERE telegram_notified = FALSE` and marks `telegram_notified = TRUE`.
+Replace the raw XP SQL in `updateQuestProgress` with `safeAwardXP(userId, amount, 'main', 'quest_completion', \`quest:${questId}:${userId}:${deckDate}\`)`. The `referenceId` must be stable and unique per completion event to provide idempotency.
 
 ---
 
-### TASK-25: Standardize CRON notification inserts to use `insertNotification` helper [BUG-CRON02]
+### TASK-13 — Fix Duplicate 2FA Columns in Schema (BUG-07)
 
-**Files to edit:**  
-`apps/web/app/api/cron/daily/route.ts` (all raw `INSERT INTO notifications` statements)  
-`apps/web/lib/notifications/insert.ts`
+**Priority:** P2
+**Files to edit:** `apps/web/lib/db/schema.ts`, auth route handlers, 2FA setup/verify code
+**Depends on:** Nothing
+**Estimated effort:** Medium
 
-**Steps:**  
-1. Import `insertNotification` and `insertNotificationBatch` at the top of `cron/daily/route.ts`.  
-2. Replace all raw `INSERT INTO notifications (user_id, type, title, body, ...)` statements with calls to `insertNotification(db, userId, type, { title, body, ... })`.  
-3. Identify any cases where a batch `SELECT ... FROM users` is used to mass-insert notifications; replace those with `insertNotificationBatch(db, userIds, type, payload)`.  
-4. Update the API response serializer (`/api/notifications` GET) to handle both `payload` and `COALESCE(payload, jsonb_build_object('title', title, 'body', body))` for backward compatibility with any existing rows.
-
----
-
-## P3 — Low
+1. Audit all code that reads or writes `twoFaSecret`, `twoFaEnabled`, `totpSecret`, `totpEnabled`. Map which routes use which column pair.
+2. Determine the canonical pair (likely `totpSecret`/`totpEnabled` based on naming convention).
+3. Write a migration: copy data from the deprecated pair to the canonical pair for any users where the canonical columns are NULL.
+4. Drop the deprecated columns from `schema.ts` and generate the Drizzle migration.
+5. Update all code to use only the canonical column names.
 
 ---
 
-### TASK-26: Fix Google Play `purchaseResolvers` map — use purchase-session IDs [BUG-EXPO01]
+### TASK-14 — Add Missing Tables to Drizzle `schema.ts` (BUG-12, BUG-08, BUG-17)
 
-**Files to edit:**  
-`apps/expo/lib/payments/googlePlay.ts`
+**Priority:** P2 — Prerequisite for proper FK enforcement (BUG-08) and for migrating raw SQL to Drizzle
+**Files to edit:** `apps/web/lib/db/schema.ts`
+**Depends on:** Nothing (but unlocks TASK-15, TASK-17)
+**Estimated effort:** Large (mechanical but extensive)
 
-**Steps:**  
-1. In `purchaseCoins` and `purchaseSubscription`, generate a unique `sessionId = crypto.randomUUID()`.  
-2. Store `purchaseResolvers.set(sessionId, resolver)` instead of `productId`.  
-3. Pass `sessionId` as `developerPayload` in the `purchaseItemAsync` call (check `expo-in-app-purchases` API for the correct parameter).  
-4. In the global listener, read `purchase.developerPayload` to get the `sessionId` and dispatch to the correct resolver.  
-5. Handle replayed transactions (purchases with no matching resolver) by verifying server-side and finishing the transaction without resolving a local promise.
+Add `pgTable` definitions for all tables currently missing from `schema.ts`:
+- `gifts` / `gift_types`
+- `rooms` / `room_members`
+- `guild_wars` / `guild_war_members`
+- `user_push_tokens`
+- Any others referenced via raw SQL but absent from schema
 
----
-
-### TASK-27: Remove dead `'zobia_icon'` creator tier value [BUG-EC02 cleanup]
-
-**Files to edit:**  
-`apps/web/lib/creator/fund.ts` (line 133)
-
-**Steps:**  
-1. Remove `'zobia_icon'` from `AND u.creator_tier IN ('elite', 'icon', 'zobia_icon')`.  
-2. The schema constraint only allows `'rookie','rising','verified','elite','icon'`.
+Match column names, types, and constraints exactly to the migration SQL. Once done, add the FK reference on `userQuestDecks.questId` → `quests.id` (BUG-08) and migrate `push.ts` raw queries to Drizzle (BUG-17).
 
 ---
 
-### TASK-28: Fix `useAuth` hook — no polling after initial load (assess only)
+### TASK-15 — Add FK Reference on `userQuestDecks.questId` (BUG-08)
 
-**Files to edit:**  
-`apps/web/lib/auth/hooks.ts`
+**Priority:** P2
+**Files to edit:** `apps/web/lib/db/schema.ts`
+**Depends on:** TASK-14 (quests table must be in schema first)
+**Estimated effort:** Trivial once TASK-14 is done
 
-**Steps:**  
-1. The `useAuth` hook makes one `/api/auth/me` fetch on mount only — this is correct. No changes needed unless the session should be refreshed periodically. Verify the hook satisfies the use case; if session expiry needs to be detected, consider adding a `useEffect` with interval polling or WebSocket push.
-
----
-
----
-
-## Structural / Operational Improvements (8.5 → 9.5+)
-
-These are not bugs but architectural gaps. Completing them after the bug fixes brings the projected rating from 8.5 to 9.5+.
+Add `.references(() => quests.id, { onDelete: 'cascade' })` to the `questId` column in `userQuestDecks`. Generate and apply the Drizzle migration.
 
 ---
 
-### TASK-29: Adopt a schema-first type-safe DB client [STRUC-01]
+### TASK-16 — Migrate `push.ts` Raw SQL to Drizzle Query Builder (BUG-17)
 
-**Files to create/edit:**  
-`apps/web/lib/db/index.ts`  
-All files using raw `db.query<{...}>(...)` calls
+**Priority:** P3
+**Files to edit:** `apps/web/lib/notifications/push.ts`
+**Depends on:** TASK-14
+**Estimated effort:** Small once TASK-14 is done
 
-**Steps:**  
-1. Evaluate Drizzle ORM (lightest), Kysely (query-builder with generated types), or Prisma (heaviest, most tooling). Drizzle is recommended for an existing PostgreSQL schema — it can introspect the current DB and generate a schema file with `drizzle-kit introspect`.  
-2. Generate typed schema from the existing migration files.  
-3. Replace `db.query<{...}>(sql, params)` with typed query builder calls, one module at a time, starting with the trust score and referral modules (the sources of BUG-DB01 and BUG-DB02).  
-4. Wire the generated types into CI: add a `drizzle-kit check` step that fails if the DB schema and generated types drift.  
-5. Remove manually typed result interfaces that are now redundant.
+After `user_push_tokens` is defined in `schema.ts`, replace raw SQL strings in `push.ts` with Drizzle query builder calls for type safety and consistency.
 
 ---
 
-### TASK-30: Add centralized Zod input validation at all API boundaries [STRUC-02]
-
-**Files to create/edit:**  
-`apps/web/lib/api/parseBody.ts` (new helper)  
-`apps/web/app/api/` (all route handlers, incrementally)
-
-**Steps:**  
-1. Create `parseBody<T>(schema: ZodSchema<T>, request: NextRequest): Promise<T>` that calls `schema.parse(await request.json())` and maps `ZodError` to a `NextResponse.json({ error: 'Validation failed', details: ... }, { status: 422 })`.  
-2. Define Zod schemas for each route's request body, starting with economy endpoints (gifts, coin transfer, payout) and auth endpoints (login, register).  
-3. Replace ad-hoc inline `typeof` checks with `parseBody(schema, request)` calls.  
-4. Remove non-null assertions (`!`) from variables now typed by Zod schemas.
+## Phase 4 — Minor: Code Quality and Correctness
 
 ---
 
-### TASK-31: Add startup environment variable validation [STRUC-03]
+### TASK-17 — Add Missing `bank_account_added` Case to XP Switch (BUG-16)
 
-**Files to create/edit:**  
-`apps/web/env.ts` (new or existing)
+**Priority:** P3
+**Files to edit:** `apps/web/lib/xp/engine.ts`
+**Depends on:** Nothing
+**Estimated effort:** Trivial
 
-**Steps:**  
-1. Install `@t3-oss/env-nextjs` or write a manual `z.object({ JWT_SECRET: z.string().min(32), REDIS_URL: z.string().url(), ... }).parse(process.env)`.  
-2. Import the env module at the top of `apps/web/lib/db/index.ts` and `apps/web/lib/redis/index.ts` (or a server entry point) so it runs at cold start.  
-3. List every environment variable used across the codebase and add it to the schema with an appropriate Zod validator (`.url()`, `.min(n)`, etc.).  
-4. Document required vs. optional variables in the project README.
+Add `case 'bank_account_added': return XP_VALUES.bank_account_added;` to the switch statement in `calculateXPForAction`. Also do a full audit: list all keys in `XP_VALUES` and verify each has a corresponding `case`.
 
 ---
 
-### TASK-32: Add webhook replay protection to Paystack and DodoPayments handlers [STRUC-04]
+### TASK-18 — Fix Room Message XP Cap Off-by-One (BUG-18)
 
-**Files to edit:**  
-`apps/web/app/api/webhooks/paystack/route.ts`  
-`apps/web/app/api/webhooks/dodopayments/route.ts`
+**Priority:** P3
+**Files to edit:** `apps/web/app/api/rooms/[roomId]/messages/route.ts`
+**Depends on:** Nothing
+**Estimated effort:** Small
 
-**Steps:**  
-1. After HMAC validation, extract the event timestamp from the payload (`data.paid_at`, `data.created_at`, or equivalent). If the timestamp is older than 5 minutes, return 200 immediately (do not re-process).  
-2. Extract the stable event reference ID (Paystack: `data.reference` or `data.id`; DodoPayments: equivalent event ID field).  
-3. Use `SET NX EX 86400` in Redis to store the event ID. If the key already exists, return 200 immediately.  
-4. Only proceed with payment processing if both timestamp and idempotency checks pass.
+Move the `todayMsgCount` fetch to after the message insert (within the same transaction), or use an atomic `UPDATE users SET today_msg_count = today_msg_count + 1 WHERE ... RETURNING today_msg_count` pattern and check the returned value. This ensures the cap accounts for the message being sent right now.
 
 ---
 
-### TASK-33: Add structured logging with request correlation IDs [STRUC-05]
+### TASK-19 — Scope `x-vercel-forwarded-for` Trust to Vercel Deployments (BUG-24)
 
-**Files to create/edit:**  
-`apps/web/lib/logger.ts` (new)  
-`apps/web/lib/api/middleware.ts` (`withAuth`, `withAdminAuth`)  
-All server-side files using `console.*`
+**Priority:** P3
+**Files to edit:** `apps/web/lib/security/rateLimit.ts`
+**Depends on:** Nothing
+**Estimated effort:** Trivial
 
-**Steps:**  
-1. Create a thin `logger` wrapper around `pino` (or `console` in development) that emits JSON objects with `{ level, message, requestId, userId, timestamp }`.  
-2. In `withAuth` and `withAdminAuth`, store the `requestId` in `requestContext` (already using `AsyncLocalStorage`). Expose a `getRequestId()` helper from `requestContext`.  
-3. In `logger.ts`, call `getRequestId()` automatically so every log line is tagged without manual threading.  
-4. Do a global replace of `console.log/warn/error/info` with `logger.info/warn/error` across `apps/web/lib/`.
+In `getClientIp`, wrap the `x-vercel-forwarded-for` check with `if (process.env.VERCEL === '1')`. This is a free env variable Vercel sets on all its deployments. When absent (local dev, staging, Docker), skip this header and fall through to `x-real-ip` and `x-forwarded-for`.
 
 ---
 
-### TASK-34: Set DB query statement timeouts [STRUC-06]
+### TASK-20 — Add `X-Request-Id` to `withAdminAuth` Error Responses (BUG-25)
 
-**Files to edit:**  
-`apps/web/lib/db/index.ts` (DB pool config)
+**Priority:** P3
+**Files to edit:** `apps/web/lib/api/middleware.ts`
+**Depends on:** Nothing
+**Estimated effort:** Trivial
 
-**Steps:**  
-1. In the database connection pool configuration, add an `afterConnect` hook that runs `SET statement_timeout = '5000'` (5 seconds) on each new connection.  
-2. For the CRON route (`apps/web/app/api/cron/daily/route.ts`), create a separate DB session or connection that runs `SET statement_timeout = '30000'` to allow longer-running aggregation queries.  
-3. Add error handling for `57014` (PostgreSQL `query_canceled` error code) in the DB adapter to surface a clear timeout error rather than a generic DB error.
-
----
-
-### TASK-35: Audit and enforce soft-delete filtering across all queries [STRUC-07]
-
-**Files to edit:**  
-All DB query files across `apps/web/lib/` and `apps/web/app/api/`
-
-**Steps:**  
-1. Search all SQL strings for queries against `users`, `rooms`, `guilds`, `room_messages`, and any other table with a `deleted_at` column.  
-2. Confirm each query includes `deleted_at IS NULL` (or equivalent). Flag and fix any that do not.  
-3. Consider creating PostgreSQL views — `active_users AS SELECT * FROM users WHERE deleted_at IS NULL` — and updating queries to use the view so the filter is structurally enforced at the DB level.  
-4. Add a lint rule or code comment convention marking any intentional queries that do include deleted records (e.g., admin audit views).
+Generate a `requestId` at the start of `withAdminAuth` (same way `withAuth` does it) and attach it to all 401/403 error responses as `X-Request-Id`. This makes admin API errors traceable in logs.
 
 ---
 
-### TASK-36: Build an integration test suite covering critical paths [STRUC-08]
+### TASK-21 — Fix `commissions.ts` Dynamic Import (BUG-21)
 
-**Files to create:**  
-`apps/web/__tests__/integration/` (new directory)  
-`apps/web/__tests__/integration/setup.ts` (DB seeding and teardown)
+**Priority:** P4 (after BUG-04 is fixed)
+**Files to edit:** `apps/web/lib/referrals/commissions.ts`
+**Depends on:** TASK-03 (fix the column mismatch first, confirm commissions work)
+**Estimated effort:** Trivial
 
-**Steps:**  
-1. Set up a test database that runs all migrations from `apps/web/db/migrations/` against a local or CI PostgreSQL instance.  
-2. Write integration tests (using `vitest` or `jest`) for: auth flow (register, login, refresh, logout), XP award + deduplication (`safeAwardXP` called twice with same `reference_id`), coin transfer ledger integrity, payout initiation (confirms `bank_account_snapshot` is populated), referral claim + commission calculation, trust score gating, leaderboard ranking, quest deck completion bonus.  
-3. Run the test suite in CI on every PR against a test DB spun up via Docker Compose or GitHub Actions service containers.  
-4. Fail the CI build if any integration test fails.
+Replace `await import("@/lib/economy/coins")` inside the function body with a static top-level `import { creditCoins } from "@/lib/economy/coins"`.
 
 ---
 
-### TASK-37: Audit and add user-level rate limits to all sensitive economy endpoints [STRUC-09]
+### TASK-22 — Fix `gross_kobo` TypeScript Type in `reconcileStuckPayouts` (BUG-22)
 
-**Files to edit:**  
-`apps/web/app/api/economy/gifts/send/route.ts`  
-`apps/web/app/api/economy/coins/purchase/route.ts`  
-`apps/web/app/api/economy/coins/transfer/route.ts`  
-`apps/web/app/api/economy/stars/gift/route.ts`  
-`apps/web/app/api/payouts/route.ts` (or equivalent)
+**Priority:** P4
+**Files to edit:** `apps/web/lib/payments/payouts.ts`
+**Depends on:** Nothing
+**Estimated effort:** Trivial
 
-**Steps:**  
-1. Confirm which of the above endpoints already have IP-level rate limiting via the existing Redis sliding-window middleware.  
-2. For any missing, add IP-level rate limiting as the first check.  
-3. For each endpoint, add a second rate limit check keyed on `userId` (from the JWT payload) with an appropriate limit (e.g. gift: 50/hour, coin purchase: 10/hour, withdrawal: 3/day).  
-4. Return `429 Too Many Requests` with a `Retry-After` header if either limit is exceeded.
+Change the query result type for `gross_kobo` from `string` to `number`. Add a `Number(row.gross_kobo)` parse at the point of use if the pg driver returns it as a string. Verify with a quick test that arithmetic operations on this value produce numeric results.
 
 ---
 
-### TASK-38: Add CSP `report-to` directive and violation ingest endpoint [STRUC-10]
+### TASK-23 — Harden `filterProfanity` RegExp Cache (BUG-23)
 
-**Files to edit:**  
-`apps/web/middleware.ts` (`buildCsp` function)  
-`apps/web/app/api/csp-report/route.ts` (new route)
+**Priority:** P4
+**Files to edit:** `apps/web/lib/moderation/contentFilter.ts`
+**Depends on:** Nothing
+**Estimated effort:** Small
 
-**Steps:**  
-1. Add `report-to g-csp-endpoint` to the CSP string in `buildCsp`.  
-2. Add a `Reporting-Endpoints: g-csp-endpoint="https://<NEXT_PUBLIC_APP_URL>/api/csp-report"` response header alongside the `Content-Security-Policy` header in the middleware.  
-3. Create `apps/web/app/api/csp-report/route.ts` as a public POST endpoint that reads the JSON body and logs it via the structured logger (TASK-33) or sends it to an error tracking service.  
-4. Ensure the `/api/csp-report` path is added to `PUBLIC_PREFIXES` in `middleware.ts` so browsers can POST to it without a JWT cookie.
-
----
-
-## Execution Order Recommendation
-
-```
-Week 1 (P0 — Block ship-critical bugs):
-  TASK-01  Fix trust score non-existent columns
-  TASK-02  Fix referral column name (referred_by_user_id)
-  TASK-03  Create user_quest_decks table
-  TASK-04  Fix SYS-02 reconciliation
-  TASK-05  Add xp_ledger unique index
-  TASK-06  Fix automated payout CRON
-
-Week 2 (P1 — High-impact correctness):
-  TASK-07  Fix leaderboard followers table name
-  TASK-08  Redis-backed circuit breakers
-  TASK-09  Fix announcement targeting for null plan/role
-  TASK-10  Fix useRealtimeChannel cleanup race
-  TASK-11  Validate replyToMessageId against roomId
-  TASK-12  Add withAdminAuth request context
-  TASK-13  Extend sensitive-mutation regex
-  TASK-14  Prevent circular referral chains
-
-Week 3 (P2 — Medium correctness and UX):
-  TASK-16  Season-discriminated badge keys
-  TASK-17  Fix guild quest reset logic
-  TASK-18  Add alliance wars unique constraint
-  TASK-19  Fix gift idempotency granularity
-  TASK-20  Fix DM sticker unlock individual grant
-  TASK-21  Fix profanity regex lastIndex
-  TASK-22  Fix safeFetch SSRF/TLS hostname
-  TASK-23  Fix Creator Fund pool leakage
-  TASK-24  Split re-engagement notification flags
-  TASK-25  Standardize CRON notification inserts
-
-Week 4 (P3 — Polish and edge cases):
-  TASK-26  Google Play purchase resolver IDs
-  TASK-27  Remove dead zobia_icon creator tier
-
-Week 5 (Structural — quick wins first):
-  TASK-31  Startup env var validation           (1 day)
-  TASK-32  Webhook replay protection            (1 day)
-  TASK-38  CSP report-to + ingest endpoint      (1 day)
-  TASK-34  DB query statement timeouts          (1 day)
-  TASK-37  User-level rate limit audit          (2 days)
-  TASK-33  Structured logging + correlation IDs (2 days)
-  TASK-35  Soft-delete filtering audit          (2 days)
-  TASK-30  Centralized Zod API validation       (ongoing, route-by-route)
-
-Week 6+ (Structural — high effort):
-  TASK-36  Integration test suite               (ongoing, path-by-path)
-  TASK-29  Schema-first DB client migration     (ongoing, module-by-module)
-```
+Replace the global regex cache approach with one of:
+- (Preferred) Store pattern strings in the cache and compile a fresh `new RegExp(pattern, 'gi')` on each call — avoids shared `lastIndex` state entirely.
+- (Alternative) Keep the cache but change `replace()` to use `String.prototype.replaceAll` or ensure `lastIndex` is explicitly reset to 0 before each use (add a defensive comment explaining why).
 
 ---
 
-*Plan end — June 14, 2026 1:00 PM*
+### TASK-24 — Implement `'sending'` Status in Expo Offline Queue or Remove It (BUG-20)
+
+**Priority:** P4
+**Files to edit:** `apps/expo/lib/offline/sqlite.ts`, `apps/expo/lib/offline/syncQueue.ts`
+**Depends on:** Nothing
+**Estimated effort:** Small-Medium
+
+Option A (implement properly):
+1. Before calling the API, update the queued message status to `'sending'`.
+2. On success, delete the row as before.
+3. On terminal failure, set to `'failed'` as before.
+4. On app startup, find any rows stuck in `'sending'` (from a crashed mid-send) and reset them to `'pending'` for retry.
+
+Option B (remove dead state):
+1. Remove `'sending'` from the CHECK constraint in the SQLite migration.
+2. Add the migration via the ALTER TABLE try/catch pattern already in use.
+
+Option A is preferred as it closes a real double-send race condition on crash-restart.
+
+---
+
+### TASK-25 — Atomize `RedisCircuitBreaker` Pending Note: Pre-auth Token Guard Already Included Above
+
+*(This task was already captured as TASK-06.)*
+
+---
+
+## Fix Sequence Summary
+
+| Order | Task | Bug(s) | Priority |
+|---|---|---|---|
+| 1 | TASK-01 | BUG-01, BUG-02 | P0 |
+| 2 | TASK-02 | BUG-03 | P0 |
+| 3 | TASK-03 | BUG-04 | P0 |
+| 4 | TASK-04 | BUG-05 | P1 |
+| 5 | TASK-05 | BUG-06 | P0 (coordinate migration) |
+| 6 | TASK-06 | BUG-19 | P1 |
+| 7 | TASK-07 | BUG-10 | P1 |
+| 8 | TASK-08 | BUG-09 | P1 |
+| 9 | TASK-09 | BUG-13 | P1 |
+| 10 | TASK-10 | BUG-11 | P2 |
+| 11 | TASK-11 | BUG-14 | P2 |
+| 12 | TASK-12 | BUG-15 | P2 |
+| 13 | TASK-13 | BUG-07 | P2 |
+| 14 | TASK-14 | BUG-12 | P2 |
+| 15 | TASK-15 | BUG-08 | P2 (after TASK-14) |
+| 16 | TASK-16 | BUG-17 | P3 (after TASK-14) |
+| 17 | TASK-17 | BUG-16 | P3 |
+| 18 | TASK-18 | BUG-18 | P3 |
+| 19 | TASK-19 | BUG-24 | P3 |
+| 20 | TASK-20 | BUG-25 | P3 |
+| 21 | TASK-21 | BUG-21 | P4 (after TASK-03) |
+| 22 | TASK-22 | BUG-22 | P4 |
+| 23 | TASK-23 | BUG-23 | P4 |
+| 24 | TASK-24 | BUG-20 | P4 |
+
+---
+
+*Plan generated: 2026-06-14 at 02:58 PM*
+*DO NOT begin any fix until this plan is reviewed and approved.*

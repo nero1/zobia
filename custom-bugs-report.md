@@ -1,71 +1,51 @@
-# Zobia Social — Forensic Bug Report
+# Zobia Codebase — Forensic Bug Report
 
-**Generated:** June 14, 2026 1:00 PM  
-**Scope:** Full codebase — web app, PWA, Expo Android app  
-**Method:** Deep forensic manual code review + schema cross-validation against all migration files  
-
----
-
-## Code Quality Rating
-
-### Current State: 6.5 / 10
-
-The codebase demonstrates strong architectural intent: append-only ledgers, atomic Lua scripts for rate limiting, deterministic lock ordering for deadlock prevention, circuit breakers, XP dead-letter queues, CSRF/SSRF protections, per-request CSP nonces, and constant-time HMAC comparison. These are the marks of a thoughtful engineering team.
-
-However, the codebase has a systemic problem: **column and table names in application code diverge from the actual database schema**. Several critical features — trust scores, referral commissions, ledger reconciliation, and the quest deck bonus — will throw runtime DB errors because the code references columns and tables that don't exist. Additionally, the XP deduplication mechanism relies on an `ON CONFLICT DO NOTHING` clause without the underlying unique constraint to back it up.
-
-### Projected State After Bug Fixes (items 1–27): 8.5 / 10
-
-Applying the 27 bugs below would bring the app to a high standard. The core architecture is sound; the bugs are mostly fixable schema mismatches and logic errors rather than fundamental design flaws.
-
-### Projected State After Bug Fixes + Structural Improvements (items 1–37): 9.5+ / 10
-
-A further set of 10 structural and operational improvements (items 28–37) would push the codebase to production excellence. The highest-leverage change is adopting a schema-first DB client so column-name mismatches become compile-time errors rather than production crashes. Combined with centralized input validation, structured logging, webhook replay protection, and an integration test suite that keeps quality self-enforcing, the codebase would meet the bar for a high-scale production social platform.
+**Generated:** 2026-06-14 at 02:58 PM  
+**Scope:** Web app (Next.js 14), PWA, Expo Android  
+**Analyst:** Independent forensic pass — three full sweeps, no prior bug reports consulted  
 
 ---
 
-## Complete Bug List (Quick Reference)
+## Pre-Fix Code Quality Rating
 
-1. BUG-DB01 — `trustScore.ts` queries non-existent columns `users.report_count` and `users.warning_count`
-2. BUG-DB02 — Referrals code queries `referred_by_user_id` column but schema column is `referred_by`
-3. BUG-DB03 — `user_quest_decks` table referenced in `checkDeckCompletion` does not exist in any migration
-4. BUG-DB04 — SYS-02 reconciliation queries a `wallets` table and `coin_ledger.direction` column that do not exist
-5. BUG-DB05 — `getUserMetricsForWeighting` queries `followers` table; schema uses `follows`
-6. BUG-DB06 — `xp_ledger` has no unique index on `(user_id, source, reference_id)` — `safeAwardXP` deduplication is a no-op
-7. BUG-EC01 — Automated payout CRON creates records without `bank_account_snapshot` — every auto-payout is immediately dead-lettered
-8. BUG-EC02 — Creator Fund tier math leaves 60%+ of pool undistributed for small eligible creator sets
-9. BUG-EC03 — Referral circular chain (A→B→C→A) not prevented; only direct 2-hop cycles checked
-10. BUG-XP01 — Quest deck completion bonus (500 XP) never awarded because `user_quest_decks` table is missing
-11. BUG-XP02 — `season_top100_frame` badge uses static badge_key with no season discriminator
-12. BUG-XP03 — `claimPassMilestone` season pass badge_key collision — second-season badge silently no-ops
-13. BUG-GW01 — Weekly guild quest reset is a SQL no-op — old incomplete quests never marked inactive
-14. BUG-GW02 — Alliance war `ON CONFLICT DO NOTHING` has no unique constraint target — duplicate war rows can be inserted
-15. BUG-MSG01 — `replyToMessageId` not validated against the current `roomId` — cross-room reply injection possible
-16. BUG-MSG02 — Gift hourly idempotency bucket too aggressive — one gift per type per recipient per hour
-17. BUG-MSG03 — DM conversation score sticker unlocks never actually grant individual user sticker packs
-18. BUG-AUTH01 — `withAdminAuth` missing request context wrapper and `X-Request-Id` correlation header
-19. BUG-AUTH02 — `withAuth` sensitive-mutation regex misses economy coin/star purchase endpoints
-20. BUG-SEC01 — Profanity regex `lastIndex` not reset before `.test()` call — can miss matches
-21. BUG-SEC02 — `safeFetch` SSRF protection breaks HTTPS via TLS SNI mismatch when connecting to pinned IP
-22. BUG-SEC03 — Announcement targeting bypasses plan/role filter when user has null plan or null role
-23. BUG-CRON01 — Re-engagement push/email (step 11) and Telegram (step 19) share one `notified` flag
-24. BUG-CRON02 — CRON notification inserts inconsistently use `payload` vs `title`/`body` columns
-25. BUG-RT01 — `useRealtimeChannel` async cleanup race — subscription leaks if component unmounts before setup completes
-26. BUG-INF01 — Circuit breakers are in-process singletons; ineffective in serverless (no Redis-backed variant)
-27. BUG-EXPO01 — Google Play `purchaseResolvers` map unsafe for concurrent or replayed purchases
+| Dimension | Rating | Notes |
+|---|---|---|
+| Architecture | 7/10 | Well-structured monorepo, good separation of concerns, DLQ pattern is thoughtful |
+| Security | 5/10 | KDF flaw is serious; CSRF bypass, spoofable IP header, and pre-auth type cast are significant |
+| Data Integrity | 4/10 | Double XP credit (three locations), referral INSERT column mismatch, leaderboard NULL upsert are critical |
+| Performance | 6/10 | N+1 HoF injection, non-atomic circuit breaker are notable; most paths are otherwise well-optimized |
+| Code Quality | 6/10 | Generally clean; incomplete Drizzle schema, dead states, and inconsistent patterns drag it down |
+| **Overall** | **5.5/10** | Solid foundation undermined by several critical runtime and data-integrity failures |
 
-**Structural / Operational Improvements (8.5 → 9.5+)**
+---
 
-28. STRUC-01 — No type-safe DB client; schema/code mismatches are undetectable at compile time
-29. STRUC-02 — No centralized Zod input validation at API boundaries; ad-hoc per-route validation
-30. STRUC-03 — Missing environment variable validation at startup; misconfigs discovered at runtime
-31. STRUC-04 — Webhook replay attacks not prevented; captured valid webhooks can be re-POSTed indefinitely
-32. STRUC-05 — No structured logging or request correlation IDs threaded through log statements
-33. STRUC-06 — No DB query statement timeouts; slow queries hold serverless functions alive indefinitely
-34. STRUC-07 — Soft-delete filtering (`deleted_at IS NULL`) not audited across all queries on deletable tables
-35. STRUC-08 — No integration test suite; schema mismatches and regressions only caught in production
-36. STRUC-09 — Rate limiting is IP-level only on some sensitive economy endpoints; user-level limits absent
-37. STRUC-10 — CSP has no `report-to` directive; browser CSP violations are invisible in production
+## All Bugs — Quick Reference List
+
+1. **BUG-01 [CRITICAL]:** `safeAwardXP` double-credits XP — `ON CONFLICT DO NOTHING` silently skips the ledger INSERT but the `UPDATE users` balance increment always runs
+2. **BUG-02 [CRITICAL]:** Same double-credit bug in `retryFailedXPAwards` — identical independent query pair, same structural flaw
+3. **BUG-03 [CRITICAL]:** Same double-credit bug in `claimPassMilestone` for `xp_bonus` reward type in the season engine
+4. **BUG-04 [CRITICAL]:** `referral_commissions` INSERT uses completely wrong column names — will throw a PostgreSQL column-not-found error at runtime, silently breaking the entire referral payout system
+5. **BUG-05 [CRITICAL]:** `leaderboard_snapshots` upsert is broken for NULL `city`/`season_id` — PostgreSQL treats NULLs as distinct in unique constraints so `ON CONFLICT` never fires, causing duplicate rows to accumulate
+6. **BUG-06 [CRITICAL]:** AES-256-GCM key derivation uses a bare SHA-256 hash instead of a proper KDF — no salt, no iteration count, low-entropy keys are brute-forceable
+7. **BUG-07 [MODERATE]:** Duplicate 2FA columns in `users` schema — both `twoFaSecret`/`twoFaEnabled` and `totpSecret`/`totpEnabled` exist; ambiguous which is authoritative
+8. **BUG-08 [MODERATE]:** `userQuestDecks.questId` has no foreign key reference — referential integrity is not enforced at the database level
+9. **BUG-09 [MODERATE]:** `RedisCircuitBreaker.onSuccess()` and `onFailure()` are non-atomic — concurrent serverless invocations can clobber each other's state updates
+10. **BUG-10 [MODERATE]:** `withAuth` middleware checks `is_suspended` boolean but ignores `suspended_until` timestamp — expired suspensions are enforced for up to 30s beyond their end time due to Redis cache
+11. **BUG-11 [MODERATE]:** Hall of Fame leaderboard injection triggers an N+1 query pattern — each missing HoF user costs 2 additional DB round-trips on a hot read path
+12. **BUG-12 [MODERATE]:** Many core tables are absent from `schema.ts` (gifts, rooms, guild_wars, user_push_tokens, etc.) — Drizzle schema is structurally incomplete, undermining type safety and migration tooling
+13. **BUG-13 [MODERATE]:** CSRF middleware CRON bypass checks only for the presence of `x-cron-secret` header, not its value — any request to a CRON path with that header name set skips CSRF validation
+14. **BUG-14 [MODERATE]:** `warEngine.ts` member XP awards on war resolution use raw SQL without `safeAwardXP` or any DLQ fallback — XP failures are silently dropped
+15. **BUG-15 [MODERATE]:** `questEngine.updateQuestProgress` awards XP via raw SQL without `safeAwardXP`, no DLQ fallback, and no `referenceId` on the ledger entry — XP can be lost or double-awarded
+16. **BUG-16 [MINOR]:** `calculateXPForAction` has no `case` for `'bank_account_added'` despite `XP_VALUES.bank_account_added` being defined — this action always awards 0 XP
+17. **BUG-17 [MINOR]:** `push.ts` queries `user_push_tokens` table that does not exist in `schema.ts` — Drizzle type safety and schema tooling are blind to this table
+18. **BUG-18 [MINOR]:** Room message XP daily cap check fetches `todayMsgCount` before the message is inserted — the cap is off by one, allowing one extra message beyond the configured limit
+19. **BUG-19 [MINOR]:** Google OAuth callback emits a `pre_auth` JWT with a `type` field not declared in `AccessTokenPayload`, bypassed with an unsafe TypeScript cast — undocumented token type leaks into the system
+20. **BUG-20 [MINOR]:** Expo SQLite offline queue defines `'sending'` as a valid status in its CHECK constraint but no code path ever sets this status — dead state creates schema/code mismatch and leaves a real double-send race unaddressed
+21. **BUG-21 [MINOR]:** `commissions.ts` dynamically imports `creditCoins` inside the function body on every call rather than as a static top-level import — unnecessary per-invocation overhead
+22. **BUG-22 [MINOR]:** `reconcileStuckPayouts` declares `gross_kobo` as TypeScript `string` but uses it in arithmetic SQL expressions — misleading type, potential silent JS concatenation if ever used in-process
+23. **BUG-23 [MINOR]:** `filterProfanity` caches `RegExp` objects with the `/g` flag globally — shared mutable `lastIndex` state is fragile and will cause intermittent false negatives if the function is ever made async or called concurrently
+24. **BUG-24 [MINOR]:** `getClientIp` trusts `x-vercel-forwarded-for` unconditionally — when not deployed on Vercel, clients can spoof this header and bypass IP-based rate limiting entirely
+25. **BUG-25 [MINOR]:** `withAdminAuth` does not attach `X-Request-Id` to error responses, unlike `withAuth` — inconsistency breaks request tracing for admin endpoints
 
 ---
 
@@ -73,420 +53,297 @@ A further set of 10 structural and operational improvements (items 28–37) woul
 
 ---
 
-### 1. BUG-DB01 — `trustScore.ts` queries non-existent columns `report_count` / `warning_count`
+### BUG-01 [CRITICAL] — `safeAwardXP` Double XP Credit on Idempotency Collision
 
-**FILES:**  
-`apps/web/lib/trust/trustScore.ts`  
-`apps/web/db/migrations/001_complete_schema.sql`
+**FILES:**
+`apps/web/lib/xp/safeAwardXP.ts`
 
-**FIX:**  
-`calculateTrustScore` fetches `COALESCE(u.report_count, 0)` and `COALESCE(u.warning_count, 0)` directly from the `users` table. These columns do not exist in the schema. Every call to `calculateTrustScore` (and by extension `meetsMinimumTrust` when the score is null) throws a PostgreSQL "column does not exist" error. This silently breaks the entire trust gate system — gifts, coin withdrawals, classroom creation, guild creation, and moderator nomination all depend on `meetsMinimumTrust`. Replace the direct column reads with correlated subqueries: `(SELECT COUNT(*) FROM reports WHERE reported_user_id = u.id)` for `report_count`, and `(SELECT COUNT(*) FROM moderation_actions WHERE target_user_id = u.id AND action_type = 'warning')` for `warning_count`. Also re-examine whether `is_banned` on users and `moderation_actions` cover all the trust signal categories the scoring formula intends.
+**FIX:**
+The INSERT into `xp_ledger` uses `ON CONFLICT DO NOTHING`, which silently skips the insert when a duplicate `reference_id` exists (idempotency retry scenario). However, the immediately following `UPDATE users SET xp_total = xp_total + $1` is a completely independent query that runs unconditionally regardless of whether the INSERT fired. Every call with a previously-seen `reference_id` increments the user's balance while the ledger stays correct — classic double-credit.
 
----
-
-### 2. BUG-DB02 — Referrals code queries `referred_by_user_id`; schema column is `referred_by`
-
-**FILES:**  
-`apps/web/lib/referrals/commissions.ts` (lines 68–69, 150–151)  
-`apps/web/app/api/referrals/claim/route.ts` (lines 70, 130–131)  
-`apps/web/db/migrations/001_complete_schema.sql`
-
-**FIX:**  
-The `users` schema defines the column as `referred_by UUID`. Both `commissions.ts` and `referrals/claim/route.ts` query and write `referred_by_user_id`, which does not exist. Every referral claim and every commission calculation fails with a DB column error. Either rename the schema column (`ALTER TABLE users RENAME COLUMN referred_by TO referred_by_user_id;` in a new migration) or update all application references to use `referred_by`. Whichever direction is chosen, verify there are no other files with either name before making the change.
+Fix by merging both queries into a single CTE: `WITH ins AS (INSERT INTO xp_ledger ... ON CONFLICT DO NOTHING RETURNING id) UPDATE users SET xp_total = xp_total + $1 WHERE id = $2 AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM ins)`. This is atomic in one round-trip and the UPDATE only runs when the INSERT actually inserted a row. Apply the same fix to the `xp_total` update and the per-track column update if they are separate statements.
 
 ---
 
-### 3. BUG-DB03 — `user_quest_decks` table does not exist; `checkDeckCompletion` queries it
+### BUG-02 [CRITICAL] — `retryFailedXPAwards` Double XP Credit on Idempotency Collision
 
-**FILES:**  
-`apps/web/lib/quests/questEngine.ts`  
-`apps/web/db/migrations/001_complete_schema.sql`
+**FILES:**
+`apps/web/lib/xp/safeAwardXP.ts`
 
-**FIX:**  
-`generateDailyDeck` never inserts into a `user_quest_decks` table, and no such table exists in any migration. `checkDeckCompletion` filters using `WHERE uqp.quest_id IN (SELECT quest_id FROM user_quest_decks WHERE user_id = $1 AND assigned_date = $2::date)` — this subquery throws "relation does not exist" at runtime, so the 500 XP deck completion bonus is never awarded. Either create the missing table with a migration and populate it in `generateDailyDeck`, or rewrite `checkDeckCompletion` to identify the deck entirely from `user_quest_progress` by `(user_id, quest_date)` without a separate decks table.
-
----
-
-### 4. BUG-DB04 — SYS-02 reconciliation queries non-existent `wallets` table and `coin_ledger.direction` column
-
-**FILES:**  
-`apps/web/app/api/cron/daily/route.ts` (SYS-02 step, lines ~2385–2435)  
-`apps/web/db/migrations/001_complete_schema.sql`
-
-**FIX:**  
-The nightly SYS-02 step joins `JOIN wallets w ON w.user_id = cl.user_id` and aggregates `cl.direction`. Neither the `wallets` table nor a `direction` column on `coin_ledger` exist. Balances live on `users.coin_balance` and `users.star_balance`; `coin_ledger.amount` is a signed BIGINT (positive = credit, negative = debit). Rewrite the reconciliation to `JOIN users u ON u.id = cl.user_id` and compare `SUM(cl.amount)` against `u.coin_balance` / `u.star_balance`. Every CRON run silently fails this step without this fix.
+**FIX:**
+The retry path in `retryFailedXPAwards` has the identical structural flaw as BUG-01. The INSERT uses `ON CONFLICT DO NOTHING` followed by an unconditional `UPDATE users SET xp_total = xp_total + $1`. If the ledger entry already exists from a prior partial-success run, the balance is incremented again on retry. Apply the same CTE-based fix: make the UPDATE conditional on the INSERT having returned a row, so retries that encounter a pre-existing ledger entry are truly no-ops.
 
 ---
 
-### 5. BUG-DB05 — `getUserMetricsForWeighting` queries non-existent `followers` table
+### BUG-03 [CRITICAL] — `claimPassMilestone` Double XP Credit for `xp_bonus` Rewards
 
-**FILES:**  
-`apps/web/lib/leaderboards/engine.ts` (line 422)  
-`apps/web/db/migrations/001_complete_schema.sql`
+**FILES:**
+`apps/web/lib/seasons/seasonEngine.ts`
 
-**FIX:**  
-The query uses `LEFT JOIN followers f ON f.user_id = u.id`. The schema table is `follows` with columns `follower_id` and `following_id`. Fix the join: `LEFT JOIN follows f ON f.following_id = u.id`. This function provides weighted scoring metrics used by leaderboard analytics; currently it throws a DB error on every call.
-
----
-
-### 6. BUG-DB06 — `xp_ledger` missing unique constraint; `safeAwardXP` deduplication is a no-op
-
-**FILES:**  
-`apps/web/lib/xp/safeAwardXP.ts`  
-`apps/web/db/migrations/001_complete_schema.sql`
-
-**FIX:**  
-`safeAwardXP` inserts with `ON CONFLICT DO NOTHING` intending to prevent double XP awards on retry when a `reference_id` is supplied. No unique constraint exists on `xp_ledger(user_id, source, reference_id)` — unlike `failed_xp_awards` which correctly has `CONSTRAINT uq_failed_xp_reference UNIQUE (user_id, source, reference_id)`. Without the constraint, `ON CONFLICT DO NOTHING` is inert; retries insert duplicate rows and double-credit XP. Add a new migration: `CREATE UNIQUE INDEX IF NOT EXISTS uidx_xp_ledger_source_ref ON xp_ledger(user_id, source, reference_id) WHERE reference_id IS NOT NULL;`
+**FIX:**
+The season pass milestone claim for `reward_type === 'xp_bonus'` follows the same pattern: INSERT into `xp_ledger` with `ON CONFLICT DO NOTHING`, then unconditionally UPDATE `users.xp_total`. A user who claims the same milestone twice (network retry, duplicate request) gets double-credited on their balance while the ledger correctly deduplicates. Apply the same CTE fix as BUG-01 — gate the UPDATE on the INSERT having returned a row.
 
 ---
 
-### 7. BUG-EC01 — Automated payout CRON omits `bank_account_snapshot`; all auto-payouts are dead-lettered
+### BUG-04 [CRITICAL] — `referral_commissions` INSERT Uses Wrong Column Names
 
-**FILES:**  
-`apps/web/app/api/cron/daily/route.ts` (step 32, weekly automated payouts)  
-`apps/web/lib/payments/payouts.ts`
-
-**FIX:**  
-CRON step 32 inserts `creator_payouts` rows without populating `bank_account_snapshot`. The `attemptTransfer` function immediately checks `if (!snapshot?.recipient_code)` and calls `moveToDeadLetterQueue`, so every auto-initiated payout is dead-lettered before the first transfer attempt. The payout query already fetches `payout_recipient_code` and `payout_account_last4` from `users` but never passes them to the INSERT. Fix: include `bank_account_snapshot = jsonb_build_object('recipient_code', u.payout_recipient_code, 'account_last4', COALESCE(u.payout_account_last4, ''))` in the payout row INSERT.
-
----
-
-### 8. BUG-EC02 — Creator Fund pool leakage: small eligible creator pools leave most funds undistributed
-
-**FILES:**  
-`apps/web/lib/creator/fund.ts`
-
-**FIX:**  
-`calculateFundDistributions` slices creators into 5 tiers using `Math.floor((tier.topPercent / 100) * total)` cutoffs. With fewer than ~20 eligible creators, tiers 2–4 produce empty slices and their pool shares (25% + 20% + 15% = 60%) go undistributed. With 5 eligible creators, only 40% of the monthly fund is paid out. Add a redistribution step: after all tier slices are computed, if any pool share goes unclaimed, distribute it proportionally across all eligible creators (or add it to the next tier's allocation). Also remove the dead-code `'zobia_icon'` value from the `creator_tier IN (...)` filter — the schema only allows tiers up to `'icon'`.
-
----
-
-### 9. BUG-EC03 — Referral circular chain (3-hop) enables commission loops
-
-**FILES:**  
+**FILES:**
 `apps/web/lib/referrals/commissions.ts`
+`apps/web/lib/db/schema.ts`
 
-**FIX:**  
-`awardReferralCommissions` prevents a buyer from being their own tier-2 referrer (`tier2Id === buyerId`) but does not prevent 3-hop cycles (A refers B, B refers C, C refers A). When C buys, tier1=B, tier2=A — since `A !== C` the check passes, and A receives perpetual tier-2 commission on all of C's purchases. Add `if (tier2Id === buyerId || tier2Id === tier1Id) return result;` to also prevent the case where the tier-2 and tier-1 referrer are the same person. For more complete protection, enforce a maximum referral chain depth at claim time (prevent claiming a referral code from any user already in your own referral chain).
+**FIX:**
+The INSERT statement specifies columns `(referrer_id, referee_id, tier, coin_amount, purchase_coin_amount, created_at)`. The actual schema defines `referred_user_id`, `trigger_event_id` (NOT NULL, no default), `purchase_amount_kobo`, `commission_kobo` (NOT NULL), and `commission_coins`. None of the column names in the INSERT match the schema. PostgreSQL will throw a column-not-found error at runtime, meaning every referral commission attempt fails — and if that error is caught silently upstream, no commission is ever paid and no alert fires.
 
----
-
-### 10. BUG-XP01 — Quest deck completion bonus (500 XP) never awarded
-
-**FILES:**  
-`apps/web/lib/quests/questEngine.ts`
-
-**FIX:**  
-This is the symptom of BUG-DB03. `checkDeckCompletion` queries the non-existent `user_quest_decks` table and throws at runtime. Even if the error is caught silently, the bonus XP is never awarded. Fix by resolving BUG-DB03; additionally, add explicit try-catch logging inside `checkDeckCompletion` and ensure callers surface the error if it occurs, rather than swallowing it.
+Fix by rewriting the INSERT to use the correct column names from `schema.ts` and supplying values for the NOT NULL columns (`trigger_event_id`, `commission_kobo`). Clarify what `trigger_event_id` should reference (a purchase event ID or similar) and ensure that value is threaded through the call chain.
 
 ---
 
-### 11. BUG-XP02 — `season_top100_frame` badge uses static key with no season discriminator
+### BUG-05 [CRITICAL] — Leaderboard Upsert Broken for NULL `city`/`season_id`
 
-**FILES:**  
-`apps/web/app/api/cron/daily/route.ts` (weekly leaderboard snapshot step, ~line 284)
+**FILES:**
+`apps/web/lib/leaderboards/engine.ts`
+`apps/web/lib/db/schema.ts`
 
-**FIX:**  
-The weekly top-100 snapshot awards `badge_key = 'season_top100_frame'` to leaderboard ranks 11–100. The `user_badges` unique partial index `ON (user_id, badge_key) WHERE badge_key IS NOT NULL` means a user in the top 100 for Season 2 gets `ON CONFLICT DO NOTHING` if they were already awarded this badge in Season 1 — no new badge is created, and the `granted_at` date is not updated. Compare with how `distributeSeasonRewards` correctly uses `'season_top10:' || season.id`. Fix: use `'season_top100_frame:' || season_id` as the badge key, and update any frontend display logic to handle the season-specific key format.
+**FIX:**
+`upsertLeaderboardSnapshot` uses `ON CONFLICT (user_id, track, scope, city, season_id) DO UPDATE`. Standard PostgreSQL unique constraints treat each NULL as distinct from every other NULL, so two rows with `(userId='X', track='main', scope='global', city=NULL, season_id=NULL)` are not considered conflicting — the `ON CONFLICT` clause never fires, and instead of updating, a new row is inserted every time. Global and all-time leaderboards accumulate unbounded duplicate rows.
 
----
-
-### 12. BUG-XP03 — Season pass milestone badge_key collision across seasons
-
-**FILES:**  
-`apps/web/lib/seasons/seasonEngine.ts` (`claimPassMilestone`)
-
-**FIX:**  
-For `badge` and `title` reward types, `claimPassMilestone` inserts with `badge_key = badgeType` (e.g., `'season_pass_holder'`). Due to the unique index, a Season 2 claim by a user who already claimed this badge in Season 1 silently no-ops. The user gets no feedback that their Season 2 badge grant failed. Append the season or milestone ID to make the key unique per-season: `badge_key = badgeType || ':s' || seasonId`. Update any badge display queries accordingly.
+Fix by replacing the regular unique constraint with a partial or expression unique index that handles NULLs correctly. The most portable approach: `CREATE UNIQUE INDEX leaderboard_snapshots_upsert_idx ON leaderboard_snapshots (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))`. Change the Drizzle `ON CONFLICT` target to reference this index name. The schema.ts unique index definition must be updated to use the same expression so Drizzle migration generates it correctly.
 
 ---
 
-### 13. BUG-GW01 — Weekly guild quest reset is a SQL no-op
+### BUG-06 [CRITICAL] — AES Key Derivation Uses Bare SHA-256 (No KDF)
 
-**FILES:**  
-`apps/web/app/api/cron/daily/route.ts` (step 23, weekly guild quest reset)
+**FILES:**
+`apps/web/lib/security/fieldEncryption.ts`
 
-**FIX:**  
-The reset query sets `completed = CASE WHEN completed THEN completed ELSE false END` on old incomplete quests — which sets `completed = false` where `completed` was already `false`. No rows change. Old quests are never marked expired or retired. The fix depends on the intended behavior: if old quests should be expired and not visible, either add an `is_active`/`expired_at` column to `guild_quests` and set it in this step, or DELETE the stale progress records and INSERT new quest assignments for the week. Also confirm whether complete guild quests should be archived or deleted.
+**FIX:**
+`getKeyForVersion` derives the 32-byte AES-256-GCM key with `createHash("sha256").update(rawKey).digest()`. This is not a key derivation function — it applies no salt, no iteration count, and no memory hardness. An attacker who captures any ciphertext can brute-force a short or predictable raw key offline in seconds with commodity hardware.
 
----
-
-### 14. BUG-GW02 — Alliance war insertion `ON CONFLICT DO NOTHING` has no backing unique constraint
-
-**FILES:**  
-`apps/web/app/api/cron/daily/route.ts` (alliance war creation step)  
-`apps/web/db/migrations/001_complete_schema.sql`
-
-**FIX:**  
-Alliance war rows are inserted with `ON CONFLICT DO NOTHING` with no conflict target. Without a relevant unique constraint on the `alliance_wars` table (e.g., on `(guild_id, opponent_id, week_start)` or similar), this clause only catches primary key collisions — which never happen for new UUIDs. Each CRON run that triggers the alliance war step can insert duplicate war rows. Add a unique constraint to the table: `UNIQUE(guild_id_1, guild_id_2, week_of)` (adjusting to actual column names), and reference it in the `ON CONFLICT` clause.
+Replace with `crypto.scrypt(rawKey, versionSalt, 32, { N: 16384, r: 8, p: 1 })` where `versionSalt` is a per-key-version constant (e.g., derived from the version number, stored in code). Cache the derived key after first computation so the KDF cost is only paid once per process lifetime. This fix requires a one-time re-encryption migration for all existing KYC field ciphertext — plan and execute this carefully as a separate, coordinated deployment step.
 
 ---
 
-### 15. BUG-MSG01 — `replyToMessageId` not validated against current room
+### BUG-07 [MODERATE] — Duplicate 2FA Columns in `users` Schema
 
-**FILES:**  
-`apps/web/app/api/rooms/[roomId]/messages/route.ts`
+**FILES:**
+`apps/web/lib/db/schema.ts`
 
-**FIX:**  
-When a message POST body includes `replyToMessageId`, it is passed directly to the INSERT without verifying that the referenced message belongs to the same `roomId`. A malicious user can reply to a message from any room, creating semantically invalid reply links that expose message IDs from rooms the user may not have access to. Before inserting, validate: `SELECT 1 FROM room_messages WHERE id = $replyToMessageId AND room_id = $roomId` and return a 422 if not found.
-
----
-
-### 16. BUG-MSG02 — Gift hourly idempotency bucket too aggressive — blocks legitimate repeat gifts
-
-**FILES:**  
-`apps/web/app/api/economy/gifts/send/route.ts`
-
-**FIX:**  
-The fallback idempotency key `idempotency:gift:{senderId}:{recipientId}:{giftItemId}:{YYYY-MM-DDTHH}` limits any specific gift type to one per recipient per hour. Users who want to send the same gift twice in an hour (a legitimate use case, e.g., cheering repeatedly during a live event) are silently blocked. Consider: either narrow the bucket to per-minute, use only the client-supplied idempotency key (no server-side fallback bucket), or make the bucket broader (24h) but tie it to explicit retry detection.
+**FIX:**
+The `users` table has two parallel TOTP column pairs: `twoFaSecret`/`twoFaEnabled` and `totpSecret`/`totpEnabled`. Code that writes to one pair and reads from the other silently produces incorrect 2FA behavior (users appearing to have 2FA disabled even after enabling it, or vice versa). Audit all 2FA code paths across auth routes, settings handlers, and middleware to determine which pair is actually read for verification and which is written during setup. Drop the unused pair via migration, copy any live data from the deprecated columns to the canonical ones first, and add a `NOT NULL DEFAULT false` constraint to the surviving boolean column once the schema is normalized.
 
 ---
 
-### 17. BUG-MSG03 — DM conversation score sticker unlocks never grant individual sticker packs
+### BUG-08 [MODERATE] — `userQuestDecks.questId` Has No Foreign Key
 
-**FILES:**  
-`apps/web/lib/messaging/conversationScore.ts`  
-`apps/web/app/api/cron/daily/route.ts` (step 22, DM sticker unlocks)
+**FILES:**
+`apps/web/lib/db/schema.ts`
 
-**FIX:**  
-When a conversation score crosses a threshold (100 / 250 points), the pair achievement is recorded in `dm_score_sticker_unlocks` but neither user's `user_sticker_packs` is updated. The daily CRON step 22 should read unprocessed `dm_score_sticker_unlocks` rows and grant the pack to each user individually. Verify that step 22 actually does this — if it only sends a notification without inserting into `user_sticker_packs`, add the INSERT for both `user_id_1` and `user_id_2`. Add a `processed_at` column to `dm_score_sticker_unlocks` to prevent re-processing.
-
----
-
-### 18. BUG-AUTH01 — `withAdminAuth` missing request context and `X-Request-Id` correlation
-
-**FILES:**  
-`apps/web/lib/api/middleware.ts`
-
-**FIX:**  
-`withAuth` wraps each request in `requestContext.run()`, generating and forwarding a correlation ID, and sets `X-Request-Id` on every response. `withAdminAuth` skips both. Admin request logs have no correlation ID, making production incident tracing nearly impossible. Apply the same `requestContext.run()` pattern and `X-Request-Id` header logic from `withAuth` to `withAdminAuth`. This is a low-risk, copy-and-adapt change.
+**FIX:**
+The `questId` column in `userQuestDecks` is defined without a `.references()` call, so PostgreSQL enforces no referential integrity. Quest deck rows can reference non-existent quest IDs, and deleting a quest (if that path ever exists) will leave orphan deck rows that cause silent query failures downstream. Add `.references(() => quests.id, { onDelete: 'cascade' })` (or `restrict` depending on the desired behavior) to `questId`. This also requires ensuring the `quests` table is defined in `schema.ts` (related to BUG-12).
 
 ---
 
-### 19. BUG-AUTH02 — `withAuth` sensitive-mutation regex misses purchase endpoints
+### BUG-09 [MODERATE] — `RedisCircuitBreaker` Non-Atomic State Updates (Race Condition)
 
-**FILES:**  
-`apps/web/lib/api/middleware.ts`
-
-**FIX:**  
-The `isSensitiveMutation` check `/\/(payments|payouts|gifts|coins\/transfer|stars\/gift|economy\/webhooks)/` is used to decide whether to re-validate account status (checking suspension, ban) on each request. Coin purchase (`/api/economy/coins/purchase`) and star purchase (`/api/economy/stars/purchase`) are not matched. A suspended user could complete a purchase. Expand the regex to include `economy\/coins\/purchase` and `economy\/stars\/purchase`, or replace the regex with an explicit path-prefix allow-list.
-
----
-
-### 20. BUG-SEC01 — Profanity regex `lastIndex` not reset before `.test()` — can skip matches
-
-**FILES:**  
-`apps/web/lib/moderation/contentFilter.ts`
-
-**FIX:**  
-Inside the profanity word iteration, `pattern.test(filtered)` is called in an `if` condition. After a global regex's `.test()` returns `true`, `lastIndex` advances. On a subsequent call to `filterProfanity` for the same cached regex object (5-min TTL cache), `.test()` starts from the advanced `lastIndex` and can miss a match at the start of the string, returning `false` and skipping the replacement. The explicit `pattern.lastIndex = 0` after the block runs only once per iteration and only if `test()` matched. Move the reset to immediately before the `if (pattern.test(filtered))` line.
-
----
-
-### 21. BUG-SEC02 — `safeFetch` SSRF protection breaks HTTPS via TLS SNI mismatch
-
-**FILES:**  
-`apps/web/lib/security/ssrf.ts`
-
-**FIX:**  
-`validateOutboundUrl` replaces the URL hostname with the pinned resolved IP. In Node.js's native `fetch` and Vercel's Edge Runtime, TLS SNI is derived from the URL's hostname — which is now the IP address. Connecting to `https://104.21.0.1/...` sends SNI `104.21.0.1`, failing certificate validation for domain-certified API servers. All URLs in `HOSTNAME_ALLOWLIST` are HTTPS-only APIs, so `safeFetch` with `requireAllowlist: true` will always fail in production. Short-term fix: validate the resolved DNS IPs without substituting the IP into the URL (keep the original hostname in the URL so TLS works normally). This accepts a theoretical DNS-rebinding risk that is minimal for server-to-server calls to trusted external APIs behind Vercel's edge network. Long-term, use `node:https` with `servername` to pin SNI separately from the connection target.
-
----
-
-### 22. BUG-SEC03 — Announcement targeting bypasses plan/role filter when user has null plan or role
-
-**FILES:**  
-`apps/web/lib/announcements/engine.ts`
-
-**FIX:**  
-`matchesTargeting` checks `if (targetPlans.length > 0 && user.plan_id)`. If `user.plan_id` is `null` (free/unassigned users), the plan-restriction check is skipped and the announcement is shown regardless of targeting. Same pattern for `user.role`. Change to unconditional membership check:
-```ts
-if (targetPlans.length > 0 && (!user.plan_id || !targetPlans.includes(user.plan_id))) return false;
-if (targetRoles.length > 0 && (!user.role || !targetRoles.includes(user.role))) return false;
-```
-This correctly excludes users with no plan from plan-targeted announcements.
-
----
-
-### 23. BUG-CRON01 — Push/email and Telegram re-engagement steps share `notified` flag
-
-**FILES:**  
-`apps/web/app/api/cron/daily/route.ts` (steps 11 and 19)
-
-**FIX:**  
-Steps 11 (push + email) and 19 (Telegram queue) both query `user_inactivity_events WHERE notified = false` and mark `notified = true`. If step 11 fails for a specific user but step 19 succeeds, that user gets Telegram but never gets push/email, and the `notified = true` flag prevents any future retry. Use separate columns — `push_email_notified BOOLEAN` and `telegram_notified BOOLEAN` — or process both steps atomically so a partial failure is not masked by the shared flag.
-
----
-
-### 24. BUG-CRON02 — Notification inserts inconsistently populate `payload` vs `title`/`body` columns
-
-**FILES:**  
-`apps/web/app/api/cron/daily/route.ts`  
-`apps/web/lib/notifications/insert.ts`
-
-**FIX:**  
-The `notifications` schema has both a `payload JSONB` and separate `title TEXT`, `body TEXT`, `metadata JSONB` columns (all nullable). The `insertNotification` helper and most routes populate only `payload`. Some CRON steps (guild discovery, guild low contribution, guild tier demotion) do raw SQL with `title`/`body`/`metadata`. If the frontend API serialises only `payload`, those notifications render empty. Standardise all inserts to use the `insertNotification(db, userId, type, { ... })` helper so all notifications use the same column, and update the API response serializer to read from `COALESCE(payload, jsonb_build_object('title', title, 'body', body, 'metadata', metadata))` to handle legacy rows.
-
----
-
-### 25. BUG-RT01 — `useRealtimeChannel` async cleanup races with component unmount
-
-**FILES:**  
-`apps/web/lib/realtime/useRealtimeChannel.ts`
-
-**FIX:**  
-The `cleanup` variable is assigned inside an async IIFE. The `useEffect` cleanup function (`return () => { cleanup?.(); }`) executes synchronously on unmount. If the component unmounts before the async IIFE resolves (dynamic import pending or subscription setup in-flight), `cleanup` is still `undefined`, the subscription is never torn down, and event listeners leak. Add a cancellation flag:
-```ts
-let cancelled = false;
-let cleanup: (() => void) | undefined;
-(async () => {
-  const unsub = await subscribeToProvider(...);
-  if (cancelled) { unsub?.(); return; }
-  cleanup = unsub;
-})();
-return () => { cancelled = true; cleanup?.(); };
-```
-Apply this pattern for all three provider branches (Supabase, Ably, Pusher).
-
----
-
-### 26. BUG-INF01 — Circuit breakers are in-process singletons; reset on every cold start in serverless
-
-**FILES:**  
+**FILES:**
 `apps/web/lib/payments/circuit.ts`
 
-**FIX:**  
-`paystackBreaker`, `expoPushBreaker`, and `dodoPaymentsBreaker` are module-level `CircuitBreaker` instances that hold state in-memory. In Vercel serverless, each function invocation can spin up a fresh process, resetting circuit state to CLOSED regardless of how many failures recently occurred. The file comments acknowledge the problem ("For distributed state across instances, use the Redis-backed variant below") but no Redis variant was implemented. Build a Redis-backed circuit breaker that stores `{ state, openedAt, failureCount, windowStart }` in a Redis hash with atomic WATCH/MULTI updates or a Lua script, keyed by circuit name. This is the only way the breaker actually protects against cascading failures in a serverless deployment.
+**FIX:**
+Both `onSuccess()` and `onFailure()` read the current circuit state from Redis, modify it in-process, and write it back — a read-modify-write race. In a serverless environment, two concurrent instances can read the same stale state, each increment their local copy, and each write back `failureCount=3` instead of `4`. The circuit breaker may never open when it should, or may oscillate incorrectly.
+
+Replace both methods with atomic Lua scripts (one per transition type) that perform the full state read, modify, and write in a single Redis eval round-trip — the same technique already used in the sliding-window rate limiter. The failure Lua script should atomically increment the failure count and transition to `OPEN` if the threshold is reached; the success script should atomically reset the count and transition to `CLOSED`.
 
 ---
 
-### 27. BUG-EXPO01 — Google Play `purchaseResolvers` map unsafe for concurrent or replayed purchases
+### BUG-10 [MODERATE] — `withAuth` Ignores `suspended_until` Expiry Timestamp
 
-**FILES:**  
-`apps/expo/lib/payments/googlePlay.ts`
+**FILES:**
+`apps/web/lib/api/middleware.ts`
 
-**FIX:**  
-`purchaseResolvers` maps `productId → resolver`. Two issues: (1) Two simultaneous purchases of the same product ID overwrite each other's resolver — the first caller's promise never resolves. (2) Google Play can replay unacknowledged transactions from prior sessions; the global listener dispatches them to the current resolver for that product, potentially crediting the wrong purchase flow or resolving a stale promise. Fix: generate a unique purchase-session ID (`crypto.randomUUID()`) per `purchaseCoins`/`purchaseSubscription` call, store it in the purchase request metadata, and use it as the resolver map key. In the listener, read the purchase-session ID from `purchase.developerPayload` or metadata and dispatch accordingly. Also guard against replayed transactions by checking `purchase.purchaseState` and whether the session's resolver is still active.
+**FIX:**
+`withAuth` checks `user.is_suspended` (a boolean) to block suspended users, but does not evaluate `suspended_until`. If a user's suspension has expired but the boolean flag hasn't been cleared yet (e.g., by a scheduled job), the user is incorrectly blocked for up to 30 seconds (the Redis user-cache TTL). Meanwhile, the room messages route correctly evaluates `suspended_until < NOW()` at the handler level — so the behavior is inconsistent across routes.
 
----
-
----
-
-## Structural / Operational Improvements (8.5 → 9.5+)
+Fix by adding a check in `withAuth`: if `user.suspended_until` is non-null and `new Date(user.suspended_until) <= new Date()`, treat the suspension as expired and allow the request through. Optionally fire a background `UPDATE users SET is_suspended = false WHERE id = $1 AND suspended_until <= NOW()` to clear the stale flag asynchronously.
 
 ---
 
-### 28. STRUC-01 — No type-safe DB client; schema/code divergence is undetectable at compile time
+### BUG-11 [MODERATE] — N+1 Queries in Hall of Fame Leaderboard Injection
 
-**FILES:**  
-`apps/web/lib/db/index.ts` (DB adapter)  
-All files using `db.query<{...}>(...)` raw typed queries
+**FILES:**
+`apps/web/lib/leaderboards/engine.ts`
 
-**FIX:**  
-Six of the 27 bugs in this report are direct consequences of manually written TypeScript result types on raw SQL queries diverging from the actual database schema. Migrate to a schema-first DB client — Drizzle ORM, Prisma, or Kysely with generated types — so that column names, table names, and result types are derived from the live migration files at build time. A missing column becomes a compile-time TypeScript error rather than a production crash. This is the single highest-leverage structural change available; it makes the entire BUG-DB category impossible going forward.
+**FIX:**
+When building the leaderboard response, HoF pinned users not already present in the paginated result set each trigger a separate `getUserRank(hof.user_id, ...)` call. Each such call makes 2 DB round-trips (one for the user's XP/rank data, one for their position count). For N missing HoF users, this is 2N extra queries on what should be a fast, cached read path.
 
----
-
-### 29. STRUC-02 — No centralized Zod input validation at API boundaries
-
-**FILES:**  
-`apps/web/app/api/` (all route handlers)
-
-**FIX:**  
-Each route handler performs ad-hoc inline validation — manual `typeof` checks, loose `if (!field)` guards, and unchecked casts. There is no enforced schema at the request boundary. A centralized `parseBody(schema, request)` helper built on Zod would: (a) reject invalid inputs early with a consistent 422 error format, (b) narrow TypeScript types automatically so downstream code needs no non-null assertions, and (c) serve as self-documenting API contracts. All existing ad-hoc validation can be migrated route by route with no breaking changes.
+Fix by collecting the IDs of all missing HoF users first, then fetching all of them in a single `WHERE user_id = ANY($1)` query, and merging the results in-process. This reduces the cost from 2N queries to 1 query regardless of HoF size. The combined leaderboard result (main page + HoF injections) should also be cached at the full-page level so the HoF injection cost is paid at most once per cache TTL.
 
 ---
 
-### 30. STRUC-03 — Missing startup environment variable validation
+### BUG-12 [MODERATE] — Core Tables Missing from Drizzle `schema.ts`
 
-**FILES:**  
-`apps/web/env.ts` (or equivalent env config entry point)
+**FILES:**
+`apps/web/lib/db/schema.ts`
+`apps/web/lib/notifications/push.ts`
+`apps/web/lib/guilds/warEngine.ts`
+(and other files that query tables only defined in SQL migrations)
 
-**FIX:**  
-Missing environment variables — `JWT_SECRET`, `CRON_SECRET`, AES encryption keys, Paystack and DodoPayments API keys, Redis URL — are only discovered at the moment the feature that uses them is first hit in production. A startup-time schema using `t3-env` or a simple `z.object({...}).parse(process.env)` call at module load surfaces misconfigurations immediately at deploy time. This turns a "3am production incident for one user" into a "deploy fails with a clear error message."
+**FIX:**
+Multiple critical tables exist only in SQL migration files and are absent from `schema.ts`: gifts, gift_types, rooms, room_members, guild_wars, guild_war_members, user_push_tokens, and likely others. Raw SQL strings must be used everywhere these tables are referenced, bypassing all Drizzle type safety. Foreign key references from schema-defined tables (e.g., `userQuestDecks.questId` from BUG-08) cannot resolve because the target table is not in schema.
 
----
-
-### 31. STRUC-04 — Webhook replay attacks not prevented
-
-**FILES:**  
-`apps/web/app/api/webhooks/paystack/route.ts`  
-`apps/web/app/api/webhooks/dodopayments/route.ts`
-
-**FIX:**  
-Both webhook handlers correctly validate HMAC signatures, but neither checks for replay attacks. An attacker who captures a valid webhook payload — via network interception, CDN log access, or a compromised intermediary — can re-POST it indefinitely, repeatedly crediting payments or triggering payouts. Fix: (1) reject webhooks whose timestamp field (`X-Paystack-Date` or equivalent) is older than 5 minutes; (2) persist the event reference ID in a Redis SET with 24h TTL and return 200 immediately for duplicates without re-processing. Both Paystack and DodoPayments include a stable event ID in their payloads.
+Add Drizzle `pgTable` definitions for all missing tables to `schema.ts`, matching column names and types exactly as in the migration SQL. This is a large but mechanical task. Once done, migrate raw SQL queries in the affected files to Drizzle query builder calls. As a minimum first step, add the table definitions (even as stubs) so that FK references and Drizzle introspection tools work correctly.
 
 ---
 
-### 32. STRUC-05 — No structured logging or request correlation IDs
+### BUG-13 [MODERATE] — CSRF Middleware CRON Bypass Checks Header Presence, Not Value
 
-**FILES:**  
-All server-side files using `console.log`, `console.warn`, `console.error`
+**FILES:**
+`apps/web/middleware.ts`
 
-**FIX:**  
-The middleware generates a per-request nonce and `withAuth` generates a `requestId`, but neither is propagated into the `console.*` calls scattered across the codebase. In a multi-instance serverless deployment, correlating all log lines from a single failing request requires guessing from timestamps. Replace all `console.*` calls with a structured logger (`pino` or a thin wrapper) that emits JSON with `{ requestId, userId, level, message }`. Propagate `requestId` via `AsyncLocalStorage` (already used for `requestContext`) so every log line in the call stack is automatically tagged with no manual threading.
+**FIX:**
+In `isCsrfSafe`, when there is no Origin header and the path starts with `/api/cron/`, the CSRF check is bypassed if the request has an `x-cron-secret` header present — regardless of its value. `request.headers.has("x-cron-secret")` is the check, not `request.headers.get("x-cron-secret") === process.env.CRON_SECRET`. A server-side or same-network attacker can append `x-cron-secret: anything` to bypass CSRF at the middleware layer, then only face the actual secret check in the route handler. While the route handler is the real gate, CSRF middleware should provide defense-in-depth.
 
----
-
-### 33. STRUC-06 — No DB query statement timeouts
-
-**FILES:**  
-`apps/web/lib/db/index.ts` (DB pool/adapter config)
-
-**FIX:**  
-No `statement_timeout` is configured at the connection or session level. A slow or unindexed query (e.g. a leaderboard aggregation, a large XP ledger scan) holds the serverless function alive until Vercel's function timeout (10s hobby / 60s pro), wasting execution units and potentially exhausting the connection pool for other requests. Set `statement_timeout = '5000'` (ms) at the pool `afterConnect` hook or as a session parameter. CRON routes can selectively use a longer timeout. This bounds blast radius from any single slow query.
+Fix by changing the bypass condition to check the actual value: `request.headers.get("x-cron-secret") === process.env.CRON_SECRET`. `process.env` is available in Edge middleware, so this requires no additional infrastructure.
 
 ---
 
-### 34. STRUC-07 — Soft-delete filtering not audited across all queries
+### BUG-14 [MODERATE] — Guild War XP Awards Have No DLQ Fallback
 
-**FILES:**  
-All DB queries across `apps/web/` targeting soft-deletable tables
+**FILES:**
+`apps/web/lib/guilds/warEngine.ts`
 
-**FIX:**  
-The `users` table has `deleted_at TIMESTAMPTZ` and most user queries include `WHERE u.deleted_at IS NULL`, but it is not confirmed this filter is applied consistently across all tables that support soft deletion (rooms, guilds, room messages, notifications). Queries that omit the filter surface deleted users' data in leaderboards, gift recipient lookups, message history, and notification fans — both a data correctness issue and a privacy risk (deleted accounts should be invisible). Audit every query against soft-deletable tables and add the filter where missing. Consider creating PostgreSQL views per entity that bake in `deleted_at IS NULL` to make omission structurally impossible.
-
----
-
-### 35. STRUC-08 — No integration test suite; schema mismatches only caught in production
-
-**FILES:**  
-`apps/web/__tests__/` (or equivalent test directory)
-
-**FIX:**  
-All six DB schema mismatch bugs (BUG-DB01–06) would have been caught immediately by integration tests that connect to a real database seeded from the migration files. A suite of 40–60 integration tests covering the critical paths — auth flow, XP award + deduplication, coin transfer + ledger integrity, payout initiation, referral claim, trust score gating, leaderboard ranking, quest deck completion — would make the entire BUG-DB category self-enforcing on every PR. Use `vitest` or `jest` with `pg` against a test database. Do not mock the DB adapter; the point is to catch schema divergence.
+**FIX:**
+When a guild war resolves, member XP is awarded with raw `INSERT INTO xp_ledger` + `UPDATE users` queries, not through `safeAwardXP`. If the database is temporarily unavailable or any query fails mid-loop, some members silently lose their earned XP with no recovery path — no DLQ entry, no retry, no alert. Replace all raw XP queries in `resolveWar` with `safeAwardXP` calls, using `warId` as the `referenceId` suffix so that idempotency and DLQ fallback are handled automatically.
 
 ---
 
-### 36. STRUC-09 — Rate limiting is IP-level only on some sensitive economy endpoints
+### BUG-15 [MODERATE] — Quest Progress XP Awards Have No DLQ Fallback and No `referenceId`
 
-**FILES:**  
-`apps/web/lib/rateLimit/` (rate limit middleware)  
-`apps/web/app/api/economy/` (gift, coin, star, withdrawal endpoints)
+**FILES:**
+`apps/web/lib/quests/questEngine.ts`
 
-**FIX:**  
-The Redis sliding-window rate limiter is well-implemented, but sensitive economy endpoints (gift sending, coin purchase, coin transfer, star gift, coin withdrawal) appear to be rate-limited only at the IP level or not at all. IP-level limits are trivially bypassed behind a VPN, proxy, or carrier-grade NAT (many mobile users share one IP). All economy endpoints should carry both IP-level and **user ID–level** rate limits. User-level limits keyed on `userId` correctly bound per-account velocity regardless of network origin. Audit every economy endpoint for dual-layer coverage.
-
----
-
-### 37. STRUC-10 — CSP `report-to` directive absent; browser violations invisible in production
-
-**FILES:**  
-`apps/web/middleware.ts` (`buildCsp` function)
-
-**FIX:**  
-The CSP is well-constructed (nonce + `strict-dynamic`, no `unsafe-inline`, `upgrade-insecure-requests`), but has no `report-to` or `report-uri` directive. Any CSP violation in production — an injected script tag, a misconfigured third-party embed, or a browser extension interference — produces no server-side signal. Add `report-to g-csp-endpoint` to the CSP string and a `Reporting-Endpoints: g-csp-endpoint="https://<your-domain>/api/csp-report"` response header. Implement a minimal `/api/csp-report` route that logs the report body. This provides early warning on injection attempts and misconfigured integrations at zero rendering cost.
+**FIX:**
+XP awarded on quest completion is inserted directly via raw SQL in `updateQuestProgress` without calling `safeAwardXP` and without a `referenceId` on the ledger entry. Two consequences: (1) if the XP insert fails, the XP is silently lost with no retry path; (2) if `updateQuestProgress` is called twice for the same completion event (duplicate request, retry), the XP is double-awarded because there is no idempotency key. Replace with `safeAwardXP(userId, amount, 'main', 'quest_completion', questCompletionId)` where `questCompletionId` is a stable identifier for this specific quest-user completion instance (e.g., `${questId}:${userId}:${deckDate}`).
 
 ---
 
-## Informational / Minor Issues
+### BUG-16 [MINOR] — `calculateXPForAction` Missing Case for `bank_account_added`
 
-- **INFO-01**: `lib/mystery/xpDrop.ts` — `randomInt` uses `buf[0] % range` (modular bias). For range 901, bias is ~0.021% — negligible.
-- **INFO-02**: `lib/auth/google.ts` uses Axios while most server-side code uses native `fetch`. No functional issue, but adds a dependency for no reason.
-- **INFO-03**: `lib/payments/dodopayments.ts:verifyWebhookSignature` does a length check before the constant-time loop. Safe, since the expected HMAC is always 64 hex chars.
-- **INFO-04**: `apps/expo/lib/offline/syncQueue.ts` — `state.isInternetReachable === null` (unknown) skips sync. Conservative and correct.
-- **INFO-05**: `lib/security/htmlSanitizer.ts` — Relative URLs, HTTP links, anchors, and relative paths are all stripped by the sanitizer. Only `https://` and `mailto:` pass. May be intentional but should be documented so content editors know.
+**FILES:**
+`apps/web/lib/xp/engine.ts`
+
+**FIX:**
+`XP_VALUES.bank_account_added` is defined in the constants map but the `switch` statement in `calculateXPForAction` has no corresponding `case 'bank_account_added':`. When this action is passed, the function falls through to the `default` case and returns `0`, silently denying users their XP reward for adding a bank account. Add the missing case. Also audit the full set of keys in `XP_VALUES` against the switch cases to check for any other missing entries.
 
 ---
 
-*Report end — June 14, 2026 1:00 PM*
+### BUG-17 [MINOR] — `push.ts` References `user_push_tokens` Table Not in Schema
+
+**FILES:**
+`apps/web/lib/notifications/push.ts`
+`apps/web/lib/db/schema.ts`
+
+**FIX:**
+`push.ts` queries `user_push_tokens` using raw SQL, but the table has no Drizzle definition in `schema.ts`. This is a specific critical instance of BUG-12. If the schema is ever regenerated from `schema.ts`, this table will be dropped. Add the `user_push_tokens` table definition to `schema.ts` with the correct columns (at minimum: `id`, `user_id`, `token`, `platform`, `created_at`, `last_seen_at`), then migrate the raw queries in `push.ts` to Drizzle query builder calls.
+
+---
+
+### BUG-18 [MINOR] — Room Message XP Daily Cap Off-by-One
+
+**FILES:**
+`apps/web/app/api/rooms/[roomId]/messages/route.ts`
+
+**FIX:**
+The daily message XP cap reads `todayMsgCount` from the database before the current message is inserted into the messages table. The count therefore reflects all prior messages but not the one being sent right now. If the cap is 50 and the user has sent exactly 50 messages, `todayMsgCount` reads 50 before insert — the check fires correctly. But if `todayMsgCount` is 49, the check allows the 50th message through. The actual off-by-one occurs when the count is already at the limit but was read pre-insert: conceptually the count should include the current message. Fix by fetching `todayMsgCount` after the insert within the same transaction, or by using an atomic increment-and-check pattern so the count always includes the current request.
+
+---
+
+### BUG-19 [MINOR] — Google OAuth Pre-Auth JWT Uses Undeclared `type` Field with Unsafe Cast
+
+**FILES:**
+`apps/web/app/api/auth/google/callback/route.ts`
+
+**FIX:**
+The Google OAuth callback creates a short-lived pre-auth token for 2FA challenges by injecting `type: "pre_auth"` into the JWT payload. This field is not declared in the `AccessTokenPayload` TypeScript interface, so it is bypassed with an unsafe cast. Risks: (1) if `signAccessToken` is refactored to validate its input type strictly, this cast silently fails; (2) route handlers that check for a valid access token will incorrectly accept a pre-auth token as a full access credential, since nothing verifies `payload.type !== 'pre_auth'` before granting access. Fix by adding `type?: 'pre_auth' | 'access'` to `AccessTokenPayload`, removing the cast, and ensuring `withAuth` (and any other auth check) explicitly rejects tokens where `type === 'pre_auth'`.
+
+---
+
+### BUG-20 [MINOR] — Expo SQLite Offline Queue Has Dead `'sending'` Status State
+
+**FILES:**
+`apps/expo/lib/offline/sqlite.ts`
+`apps/expo/lib/offline/syncQueue.ts`
+
+**FIX:**
+The SQLite schema defines a CHECK constraint allowing `status` values of `'pending'`, `'sending'`, and `'failed'`. However, no code path in either `sqlite.ts` or `syncQueue.ts` ever sets a message to `'sending'`. Messages go directly from `'pending'` to deleted (on success) or `'failed'`. The intended purpose was clearly to mark in-flight messages to prevent double-sends on app restart — but this was never implemented, leaving a real race condition open (app crashes mid-send, restarts, re-sends the same message).
+
+Either implement `'sending'` properly — set the status before making the API call, clear it (delete the row) on success, set it to `'failed'` on terminal error, and on startup treat any `'sending'` rows as `'pending'` (they were interrupted) — or remove `'sending'` from the CHECK constraint entirely to keep the schema honest. The full implementation of `'sending'` is preferred as it closes a genuine UX bug.
+
+---
+
+### BUG-21 [MINOR] — `commissions.ts` Dynamic Import of `creditCoins` on Every Call
+
+**FILES:**
+`apps/web/lib/referrals/commissions.ts`
+
+**FIX:**
+`commissions.ts` uses `await import("@/lib/economy/coins")` inside the function body to load `creditCoins`. While Node.js caches module imports, the dynamic import syntax adds per-call overhead, obscures the module dependency graph, and confuses tree-shaking tools. Replace with a static top-level `import { creditCoins } from "@/lib/economy/coins"`. Note: this is secondary to BUG-04 — fix the column mismatch first, since without that fix `creditCoins` is never reached anyway.
+
+---
+
+### BUG-22 [MINOR] — `reconcileStuckPayouts` Types `gross_kobo` as `string` in TypeScript
+
+**FILES:**
+`apps/web/lib/payments/payouts.ts`
+
+**FIX:**
+The query result row type in `reconcileStuckPayouts` declares `gross_kobo` as TypeScript `string`. Downstream SQL uses it arithmetically (`SET net_kobo = gross_kobo - fee_kobo`) which works at the DB level, but any in-process arithmetic on `row.gross_kobo` would produce string concatenation instead of numeric addition, causing silent bugs. Change the TypeScript type declaration to `number` and add a `Number(row.gross_kobo)` coercion at the point of use if the `pg` driver returns numeric columns as strings in this context, to make intent explicit and guard against JS arithmetic bugs.
+
+---
+
+### BUG-23 [MINOR] — `filterProfanity` Global Regex Cache with `/g` Flag Has Shared Mutable State
+
+**FILES:**
+`apps/web/lib/moderation/contentFilter.ts`
+
+**FIX:**
+RegExp objects with the `/g` flag maintain a `lastIndex` property that advances with each successful match. Cached globally and reused across calls, a call that ends mid-string leaves `lastIndex` non-zero, causing the next call to start matching from that offset and miss profanity at the start of the string. The current synchronous code resets `lastIndex = 0` before each use, which is correct but fragile — one future async refactor or missing reset will introduce intermittent false negatives. Fix by either constructing fresh RegExp objects per call (safe, marginal performance cost), using `String.prototype.replace` with a non-global regex and the `/gi` flags in a way that doesn't mutate shared state, or converting the cache to store pattern strings and compiling fresh RegExp on each call.
+
+---
+
+### BUG-24 [MINOR] — `getClientIp` Trusts Spoofable `x-vercel-forwarded-for` Header Off-Platform
+
+**FILES:**
+`apps/web/lib/security/rateLimit.ts`
+
+**FIX:**
+`getClientIp` checks `x-vercel-forwarded-for` first and returns it unconditionally. On Vercel's infrastructure this header is set by Vercel's edge network and is non-spoofable. In any other deployment (staging, Docker, bare VPS), a client can inject `x-vercel-forwarded-for: 1.2.3.4` and bypass IP-based rate limiting by rotating fake source IPs.
+
+Fix by only trusting this header when `process.env.VERCEL === '1'` (an environment variable Vercel sets automatically on its platform). When that flag is absent, skip `x-vercel-forwarded-for` and fall through to `x-real-ip` and `x-forwarded-for` with the TRUSTED_PROXY_COUNT logic.
+
+---
+
+### BUG-25 [MINOR] — `withAdminAuth` Missing `X-Request-Id` on Error Responses
+
+**FILES:**
+`apps/web/lib/api/middleware.ts`
+
+**FIX:**
+`withAuth` generates a `requestId` and attaches it to all error responses (401, 403) so that client-side error handlers and support tooling can correlate frontend error messages with backend logs. `withAdminAuth` omits this — its 401 and 403 responses carry no request identifier. This makes admin API errors harder to trace. Fix by adding the same `requestId` generation and header attachment pattern to `withAdminAuth`, mirroring the existing pattern in `withAuth`.
+
+---
+
+## Post-Fix Code Quality Rating (Projected)
+
+| Dimension | Rating | Notes |
+|---|---|---|
+| Architecture | 8/10 | DLQ pattern extended consistently; schema fully defined in one place |
+| Security | 8/10 | Proper KDF, CSRF depth restored, IP header trust scoped correctly to platform |
+| Data Integrity | 9/10 | Idempotent XP awards, correct leaderboard upserts, referral INSERT fixed |
+| Performance | 8/10 | N+1 HoF resolved, circuit breaker atomic, RegExp cache hardened |
+| Code Quality | 8/10 | Dead states removed, type annotations correct, unsafe casts eliminated |
+| **Overall** | **8.2/10** | Significantly safer, more reliable, and easier to maintain |
+
+---
+
+*Report generated: 2026-06-14 at 02:58 PM*
+*All findings are based on static code analysis only. No bugs have been fixed — fixes are planned in `custom-bugs-fix-plan.md`.*
