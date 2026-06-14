@@ -199,8 +199,23 @@ export default function MomentsPage() {
         const res = await fetch("/api/moments", { credentials: "include" });
         if (res.status === 401) { window.location.href = "/auth/login"; return; }
         if (!res.ok) throw new Error("Failed to load moments");
-        const data = (await res.json()) as { moments?: Moment[] };
-        setMoments(data.moments ?? []);
+        // API returns { success, data: { moments: [...snake_case rows] }, error }
+        const json = await res.json() as {
+          data?: { moments?: Array<Record<string, unknown>> };
+          moments?: Array<Record<string, unknown>>;
+        };
+        const rows = json.data?.moments ?? json.moments ?? [];
+        setMoments(rows.map((r) => ({
+          id: r.id as string,
+          authorId: (r.user_id ?? r.authorId) as string,
+          authorUsername: (r.username ?? r.authorUsername) as string,
+          authorAvatarEmoji: (r.avatar_emoji ?? r.authorAvatarEmoji) as string,
+          content: r.content as string,
+          imageUrl: (r.media_url ?? r.imageUrl ?? null) as string | null,
+          caption: (r.caption ?? null) as string | null,
+          reactionsCount: (r.reactions_count ?? r.reactionsCount ?? 0) as number,
+          createdAt: (r.created_at ?? r.createdAt) as string,
+        })));
       } catch (e) {
         setError(e instanceof Error ? e.message : "Unknown error");
         setMoments([]);

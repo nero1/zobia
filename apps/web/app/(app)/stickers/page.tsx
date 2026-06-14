@@ -146,8 +146,27 @@ export default function StickersPage() {
         const res = await fetch("/api/stickers", { credentials: "include" });
         if (res.status === 401) { router.push("/auth/login"); return; }
         if (!res.ok) throw new Error("Failed to load sticker packs");
-        const data = (await res.json()) as { packs: StickerPack[] };
-        setPacks(data.packs);
+        // API returns { success, data: { packs: [...snake_case rows] }, error }
+        const json = await res.json() as {
+          data?: { packs?: Array<Record<string, unknown>> };
+          packs?: Array<Record<string, unknown>>;
+        };
+        const rows = json.data?.packs ?? json.packs ?? [];
+        setPacks(rows.map((r): StickerPack => {
+          const packType = (r.pack_type ?? r.unlockType) as string;
+          const unlockType: PackUnlockType =
+            packType === "earnable" ? "earn" : packType === "premium" ? "coins" : "free";
+          return {
+            id: r.id as string,
+            name: r.name as string,
+            coverEmoji: (r.cover_sticker_url ?? r.coverEmoji ?? "🎨") as string,
+            unlockType,
+            coinPrice: (r.coin_price ?? r.coinPrice ?? null) as number | null,
+            earnCondition: (r.unlock_condition ?? r.earnCondition ?? null) as string | null,
+            stickerCount: (r.sticker_count ?? r.stickerCount ?? 0) as number,
+            owned: (r.unlocked ?? r.owned ?? false) as boolean,
+          };
+        }));
       } catch (e) {
         setError(e instanceof Error ? e.message : "Unknown error");
       } finally {

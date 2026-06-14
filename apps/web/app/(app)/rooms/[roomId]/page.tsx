@@ -501,8 +501,17 @@ function RoomStickerPicker({ onSelect, onClose }: { onSelect: (emoji: string) =>
       try {
         const res = await fetch("/api/stickers", { credentials: "include" });
         if (!res.ok) return;
-        const data = (await res.json()) as { packs?: StickerPackRoom[] };
-        const unlocked = (data.packs ?? []).filter((p) => p.isUnlocked);
+        const json = await res.json() as { data?: { packs?: Array<Record<string, unknown>> }; packs?: Array<Record<string, unknown>> };
+        const rows = json.data?.packs ?? json.packs ?? [];
+        const unlocked: StickerPackRoom[] = rows
+          .filter((r) => r.unlocked ?? r.isUnlocked)
+          .map((r) => ({
+            id: r.id as string,
+            name: r.name as string,
+            coverEmoji: (r.cover_sticker_url ?? r.coverEmoji ?? "🎨") as string,
+            stickers: (r.stickers ?? []) as StickerPackRoom["stickers"],
+            isUnlocked: true,
+          }));
         setPacks(unlocked);
         if (unlocked.length > 0) setActivePack(unlocked[0].id);
       } catch { /* ignore */ } finally { setLoading(false); }
@@ -914,9 +923,10 @@ export default function RoomPage() {
       try {
         const res = await fetch(`/api/rooms/${roomId}/gifts`, { credentials: "include" });
         if (!res.ok || cancelled) return;
-        const data = (await res.json()) as { gifters?: TopGifterRow[] };
-        if (!cancelled && data.gifters && data.gifters.length > 0) {
-          setTopGifter(data.gifters[0]);
+        const data = (await res.json()) as { topGifters?: Array<{ user_id: string; username: string; avatar_emoji: string; total_coins: number }> };
+        if (!cancelled && data.topGifters && data.topGifters.length > 0) {
+          const g = data.topGifters[0];
+          setTopGifter({ userId: g.user_id, username: g.username, avatarEmoji: g.avatar_emoji, totalCoins: g.total_coins });
         }
       } catch { /* non-fatal */ }
     };
@@ -940,7 +950,43 @@ export default function RoomPage() {
         const res = await fetch(`/api/rooms/${roomId}`, { credentials: "include" });
         if (res.status === 401) { router.push("/auth/login"); return; }
         if (!res.ok) throw new Error("Room not found");
-        setRoom((await res.json()) as RoomInfo);
+        const data = await res.json() as {
+          room: {
+            id: string;
+            name: string;
+            description: string | null;
+            type: string;
+            creator_id: string;
+            creator_username: string;
+            creator_avatar_emoji: string;
+            member_count: number;
+            subscription_price_ngn: number | null;
+            entry_fee_ngn: number | null;
+            drop_ends_at: string | null;
+            cover_emoji: string;
+            spectacle_threshold_coins?: number | null;
+          };
+          isMember: boolean;
+          isCreator: boolean;
+        };
+        const r = data.room;
+        setRoom({
+          id: r.id,
+          name: r.name,
+          description: r.description ?? "",
+          type: r.type as RoomType,
+          creatorId: r.creator_id,
+          creatorUsername: r.creator_username,
+          creatorAvatarEmoji: r.creator_avatar_emoji,
+          memberCount: r.member_count,
+          isSubscribed: data.isMember,
+          entryFeePaid: data.isMember,
+          subscriptionPrice: r.subscription_price_ngn ?? 0,
+          entryFee: r.entry_fee_ngn ?? 0,
+          dropExpiresAt: r.drop_ends_at,
+          coverEmoji: r.cover_emoji,
+          minGiftSpectacleCoin: r.spectacle_threshold_coins ?? undefined,
+        });
       } catch (e) {
         setError(e instanceof Error ? e.message : "Error loading room");
       } finally {
@@ -1146,7 +1192,7 @@ export default function RoomPage() {
 
   if (loadingRoom) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex h-[100dvh] items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
       </div>
     );
@@ -1154,7 +1200,7 @@ export default function RoomPage() {
 
   if (error || !room) {
     return (
-      <div className="flex h-screen flex-col items-center justify-center gap-4">
+      <div className="flex h-[100dvh] flex-col items-center justify-center gap-4">
         <p className="text-neutral-500">{error ?? "Room not found"}</p>
         <Link href="/rooms" className="text-sm text-blue-600 hover:underline">← Back to Rooms</Link>
       </div>
@@ -1162,7 +1208,7 @@ export default function RoomPage() {
   }
 
   return (
-    <div className="relative flex h-screen flex-col overflow-hidden lg:flex-row">
+    <div className="relative flex h-[100dvh] flex-col overflow-hidden lg:flex-row">
       {/* Main content */}
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Room header */}
