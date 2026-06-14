@@ -1,6 +1,7 @@
 # Zobia Codebase — Bug Fix Plan
 
 **Generated:** June 14, 2026, 12:00 PM UTC  
+**Updated:** June 14, 2026, 10:30 AM UTC (added FIX-23–FIX-30 covering BUG-CR01/CR02/RL01 + systemic items)  
 **Based on:** custom-bugs-report.md (same session)  
 **Status:** Awaiting review — DO NOT IMPLEMENT until approved
 
@@ -220,6 +221,62 @@
 
 ---
 
+#### FIX-23 — BUG-CR01: Fix leaderboard CRON rank-change detection (broken — never fires)
+
+**Steps:**
+1. In `app/api/cron/leaderboards/route.ts`, remove Step 2's `SELECT user_id, rank FROM leaderboard_snapshots` entirely (the `rank` column does not exist in this table).
+2. Add a `last_notified_rank INTEGER` column to `leaderboard_snapshots` via migration (nullable, default NULL).
+3. After Step 4 computes new ranks via the `RANK() OVER (...)` window function, compare each user's `new_rank` against `last_notified_rank` from the snapshot table (query it after Step 3 upserts).
+4. For each rank change, insert the notification as before, then `UPDATE leaderboard_snapshots SET last_notified_rank = $newRank WHERE user_id = $id AND track = 'main' AND scope = 'global'`.
+5. Verify notifications are now inserted by checking `notifications` table after a CRON run in staging.
+
+**Files to change:**
+- `apps/web/app/api/cron/leaderboards/route.ts`
+- New migration: add `last_notified_rank INTEGER` to `leaderboard_snapshots`
+
+---
+
+#### FIX-24 — BUG-CR02: Update leaderboard CRON to materialize all 7 XP track snapshots
+
+**Steps:**
+1. In `app/api/cron/leaderboards/route.ts`, update the Step 1 user query to also `SELECT xp_social, xp_creator, xp_competitor, xp_generosity, xp_knowledge, xp_explorer` alongside `xp_total`.
+2. In Step 3, replace the single `upsertLeaderboardSnapshot(user.user_id, "main", user.xp_total, db)` call with 7 parallel calls via `Promise.all`:
+
+```
+await Promise.all([
+  upsertLeaderboardSnapshot(user.user_id, "main",       user.xp_total,       db),
+  upsertLeaderboardSnapshot(user.user_id, "social",     user.xp_social,      db),
+  upsertLeaderboardSnapshot(user.user_id, "creator",    user.xp_creator,     db),
+  upsertLeaderboardSnapshot(user.user_id, "competitor", user.xp_competitor,  db),
+  upsertLeaderboardSnapshot(user.user_id, "generosity", user.xp_generosity,  db),
+  upsertLeaderboardSnapshot(user.user_id, "knowledge",  user.xp_knowledge,   db),
+  upsertLeaderboardSnapshot(user.user_id, "explorer",   user.xp_explorer,    db),
+]);
+```
+
+3. Update the `ActiveUserRow` interface to include the 6 new columns.
+4. Verify Social/Creator/etc. leaderboard GET endpoints return fresh data after a CRON run.
+
+**Files to change:**
+- `apps/web/app/api/cron/leaderboards/route.ts`
+
+---
+
+#### FIX-25 — BUG-RL01: Add rate limiting to `/api/notifications` GET
+
+**Steps:**
+1. In `app/api/notifications/route.ts`, add `await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead)` as the first line inside the GET handler (after `const userId = auth.user.sub`).
+2. Optionally add `Cache-Control: private, max-age=10` and an `ETag` based on the latest `created_at` timestamp to support conditional GETs and reduce load.
+
+**Files to change:**
+- `apps/web/app/api/notifications/route.ts`
+
+---
+
+### P1 — High (Fix This Sprint)
+
+---
+
 #### FIX-13 — BUG-WH02: Add zero-amount guard to DodoPayments `star_pack` handler
 
 **Steps:**
@@ -292,6 +349,124 @@
 
 ---
 
+### P1 — High (Systemic — Fix Next Sprint)
+
+---
+
+#### FIX-26 — SYS-01: XP dead-letter queue for failed fire-and-forget awards
+
+**Steps:**
+1. Create a `failed_xp_awards` table: `(id UUID PK, user_id UUID, amount INT, track TEXT, source TEXT, reference_id TEXT, error_message TEXT, failed_at TIMESTAMPTZ, retry_count INT DEFAULT 0, last_retried_at TIMESTAMPTZ, resolved_at TIMESTAMPTZ)`.
+2. Write a shared `safeAwardXP(userId, amount, track, source, referenceId, db)` helper that wraps the XP ledger INSERT + users UPDATE. On failure, inserts into `failed_xp_awards` instead of swallowing the error.
+3. Replace all `db.query(...XP...).catch(() => {})` patterns across the codebase with `safeAwardXP(...)`.
+4. Add a step to the daily CRON that retries rows from `failed_xp_awards` with `retry_count < 5`, using exponential backoff (`last_retried_at < NOW() - INTERVAL '2^retry_count minutes'`). On success, set `resolved_at = NOW()`. After 5 failures, insert a `system_alert` and stop retrying.
+
+**Files to change:**
+- New: `apps/web/lib/xp/safeAwardXP.ts`
+- `apps/web/app/api/cron/daily/route.ts` (add retry step)
+- All route files that fire-and-forget XP (30+ files — use `grep -r "\.catch.*XP\|xp_ledger.*catch" apps/web/app/api/`)
+- New migration: `failed_xp_awards` table
+
+---
+
+#### FIX-27 — SYS-02: Nightly coin and star ledger balance reconciliation
+
+**Steps:**
+1. Add a reconciliation step to the daily CRON that samples 500 users per run (or all users for small platforms) and checks:
+   `SELECT user_id, coin_balance, (SELECT COALESCE(SUM(amount),0) FROM coin_ledger WHERE user_id = u.id) AS ledger_sum FROM users u WHERE ...`
+2. For any user where `ABS(coin_balance - ledger_sum) > 0`, insert a row into a new `audit_discrepancies` table: `(user_id, column_name, stored_value, expected_value, delta, detected_at)` and insert a `system_alert`.
+3. Never auto-correct silently — require a human to review and approve any balance adjustment.
+4. Repeat for `star_balance` vs `star_ledger`.
+5. Add a Grafana/monitoring dashboard metric for "open discrepancies count".
+
+**Files to change:**
+- `apps/web/app/api/cron/daily/route.ts`
+- New migration: `audit_discrepancies` table
+
+---
+
+#### FIX-28 — SYS-03: Introduce structured logging with per-request tracing
+
+**Steps:**
+1. Add `pino` to `apps/web` dependencies.
+2. Create `apps/web/lib/logger.ts` that exports a configured pino instance emitting JSON with fields: `level`, `timestamp`, `requestId`, `userId`, `route`, `durationMs`, `message`.
+3. In `apps/web/lib/api/middleware.ts` (`withAuth` HOC), generate `requestId = crypto.randomUUID()` and add it to a request-scoped context (Next.js `AsyncLocalStorage` or pass it as a parameter to the handler).
+4. Replace all `console.error(...)` and `console.log(...)` in route files with `logger.error(...)` / `logger.info(...)`, including `requestId` and `userId` in every log call.
+5. Add `X-Request-Id: ${requestId}` to all API responses so client errors can be correlated with server logs.
+
+**Files to change:**
+- New: `apps/web/lib/logger.ts`
+- `apps/web/lib/api/middleware.ts`
+- All route files (systematic replacement of `console.*`)
+
+---
+
+### P2 — Medium (Systemic — Next Quarter)
+
+---
+
+#### FIX-29 — SYS-04: Add circuit breakers for external API calls
+
+**Steps:**
+1. Add `opossum` to dependencies.
+2. Create circuit-breaker-wrapped client wrappers for: Paystack (`initiateTransfer`, `verifyTransfer`), Expo Push (`sendPushNotification`), and the active Realtime provider.
+3. Configure each breaker: `timeout: 10000`, `errorThresholdPercentage: 50`, `resetTimeout: 30000` (30s half-open probe).
+4. In `lib/payments/payouts.ts`, refactor `attemptTransfer` to call Paystack AFTER releasing the database transaction — not inside it. Current code holds a DB connection open during the HTTP call to Paystack.
+5. Add circuit state metrics to the daily CRON health check response.
+
+**Files to change:**
+- New: `apps/web/lib/payments/circuit.ts`
+- `apps/web/lib/payments/payouts.ts`
+- `apps/web/lib/payments/paystack.ts`
+- Push notification service file
+
+---
+
+### P2 — Medium (Systemic — Ongoing)
+
+---
+
+#### FIX-30 — SYS-05: Expand test coverage to financial engines and webhook handlers
+
+**Prioritized test list (highest financial risk first):**
+
+1. **Webhook idempotency tests** (`app/api/economy/webhooks/paystack/route.ts`, `dodopayments/route.ts`):
+   - Duplicate event with same reference → must credit only once
+   - Invalid signature → must return 401, no DB writes
+   - Each payment event type (charge.success, transfer.success, transfer.failed)
+   - Zero-amount pack → must throw
+
+2. **Payout state machine tests** (`lib/payments/payouts.ts`):
+   - Pending → processing → completed happy path
+   - Retry exhaustion → DLQ
+   - Concurrent CRON runs don't double-process (use real transaction + FOR UPDATE SKIP LOCKED with two concurrent test clients)
+
+3. **Ledger integrity tests** (extend `lib/economy/__tests__/`):
+   - `transferCoins` with custom transaction types records correct ledger entries
+   - `creditCoins` + `debitCoins` under concurrency: balance never negative, sum of ledger = final balance
+
+4. **Quest engine tests** (`lib/quests/questEngine.ts`):
+   - `generateDailyDeck` per plan tier (free=3, plus=4, pro=5, max=6)
+   - Plan hierarchy: pro sees plus-tier quests after BUG-QS01 fix
+   - `checkDeckCompletion` idempotency: completing twice doesn't double-award
+
+5. **War reward distribution tests** (`lib/guilds/warEngine.ts`):
+   - `distributeWarRewards` coin splits sum to exactly `WAR_WIN_TREASURY_COINS`
+   - `resolveWar` concurrent call: second call throws "already resolved"
+
+**Files to add:**
+- `apps/web/app/api/economy/webhooks/__tests__/paystack.test.ts`
+- `apps/web/app/api/economy/webhooks/__tests__/dodopayments.test.ts`
+- `apps/web/lib/payments/__tests__/payouts.test.ts`
+- `apps/web/lib/quests/__tests__/questEngine.test.ts`
+- `apps/web/lib/guilds/__tests__/warEngine.test.ts`
+
+---
+
+### P3 — Low (Fix When Convenient)
+
+---
+
 #### FIX-19 — BUG-NE01: Use proper parameterized UUID array in `compareNemesisProgress`
 
 **Steps:**
@@ -340,32 +515,41 @@
 
 ## Implementation Order Summary
 
-| Order | Fix ID | Bug | Priority | Est. Effort |
+| Order | Fix ID | Item | Priority | Est. Effort |
 |---|---|---|---|---|
 | 1 | FIX-01 | BUG-SE01: Field encryption key versioning | P0 | Large |
 | 2 | FIX-02 | BUG-PY01: Payout reconciliation locking | P0 | Small |
 | 3 | FIX-03 | BUG-EC02: first_time_gifted atomicity | P0 | Medium |
-| 4 | FIX-04 | BUG-SW01: SW cache TTL | P1 | Small |
-| 5 | FIX-05 | BUG-AU01: Telegram refresh token | P1 | Small |
-| 6 | FIX-06 | BUG-WH01: system_alerts column names | P1 | Small |
-| 7 | FIX-07 | BUG-GW01: War opponent locking | P1 | Medium |
-| 8 | FIX-08 | BUG-RM01: Filter pending messages | P1 | Small |
-| 9 | FIX-09 | BUG-DM01: UUID cast in DM upsert | P1 | Small |
-| 10 | FIX-10 | BUG-EC01: transferCoins type params | P1 | Medium |
-| 11 | FIX-11 | BUG-RF01: Referral xp_social column | P1 | Small |
-| 12 | FIX-12 | BUG-QS01: Quest plan hierarchy | P1 | Small |
-| 13 | FIX-13 | BUG-WH02: star_pack zero guard | P2 | XSmall |
-| 14 | FIX-14 | BUG-LB01: XP normalization cap | P2 | Small |
-| 15 | FIX-15 | BUG-LB02: HoF real rank | P2 | Small |
-| 16 | FIX-16 | BUG-MD01: Wordlist TTL | P2 | Medium |
-| 17 | FIX-17 | BUG-SS01: updated_at in milestone | P2 | XSmall |
-| 18 | FIX-18 | BUG-AU02: TOTP replay key cleanup | P2 | XSmall |
-| 19 | FIX-19 | BUG-NE01: UUID array param | P3 | XSmall |
-| 20 | FIX-20 | BUG-FD01: Hardcode INTERVAL | P3 | XSmall |
-| 21 | FIX-21 | BUG-GE01: /24 IP comparison | P3 | Small |
-| 22 | FIX-22 | BUG-MD02: Unicode normalization | P3 | Small |
+| 4 | FIX-23 | BUG-CR01: Leaderboard CRON rank detection | P0 | Small |
+| 5 | FIX-04 | BUG-SW01: SW cache TTL | P1 | Small |
+| 6 | FIX-05 | BUG-AU01: Telegram refresh token | P1 | Small |
+| 7 | FIX-06 | BUG-WH01: system_alerts column names | P1 | Small |
+| 8 | FIX-24 | BUG-CR02: Leaderboard CRON all 7 tracks | P1 | Small |
+| 9 | FIX-25 | BUG-RL01: Notifications rate limiting | P1 | XSmall |
+| 10 | FIX-07 | BUG-GW01: War opponent locking | P1 | Medium |
+| 11 | FIX-08 | BUG-RM01: Filter pending messages | P1 | Small |
+| 12 | FIX-09 | BUG-DM01: UUID cast in DM upsert | P1 | Small |
+| 13 | FIX-10 | BUG-EC01: transferCoins type params | P1 | Medium |
+| 14 | FIX-11 | BUG-RF01: Referral xp_social column | P1 | Small |
+| 15 | FIX-12 | BUG-QS01: Quest plan hierarchy | P1 | Small |
+| 16 | FIX-26 | SYS-01: XP dead-letter queue | P1 | Large |
+| 17 | FIX-27 | SYS-02: Ledger reconciliation CRON | P1 | Medium |
+| 18 | FIX-28 | SYS-03: Structured logging + request IDs | P1 | Medium |
+| 19 | FIX-13 | BUG-WH02: star_pack zero guard | P2 | XSmall |
+| 20 | FIX-14 | BUG-LB01: XP normalization cap | P2 | Small |
+| 21 | FIX-15 | BUG-LB02: HoF real rank | P2 | Small |
+| 22 | FIX-16 | BUG-MD01: Wordlist TTL | P2 | Medium |
+| 23 | FIX-17 | BUG-SS01: updated_at in milestone | P2 | XSmall |
+| 24 | FIX-18 | BUG-AU02: TOTP replay key cleanup | P2 | XSmall |
+| 25 | FIX-29 | SYS-04: Circuit breakers for external APIs | P2 | Large |
+| 26 | FIX-30 | SYS-05: Test coverage expansion | P2 | XLarge |
+| 27 | FIX-19 | BUG-NE01: UUID array param | P3 | XSmall |
+| 28 | FIX-20 | BUG-FD01: Hardcode INTERVAL | P3 | XSmall |
+| 29 | FIX-21 | BUG-GE01: /24 IP comparison | P3 | Small |
+| 30 | FIX-22 | BUG-MD02: Unicode normalization | P3 | Small |
 
 ---
 
 *Plan generated: June 14, 2026, 12:00 PM UTC*  
+*Updated: June 14, 2026, 10:30 AM UTC*  
 *Analyst: Claude Code — Repository: nero1/zobia*
