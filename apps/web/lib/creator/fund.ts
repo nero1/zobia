@@ -130,7 +130,7 @@ export async function calculateFundDistributions(
      LEFT JOIN grw ON grw.user_id = u.id
      LEFT JOIN qst ON qst.user_id = u.id
      WHERE u.is_creator = TRUE
-       AND u.creator_tier IN ('elite', 'icon', 'zobia_icon')
+       AND u.creator_tier IN ('elite', 'icon')
        AND u.deleted_at IS NULL
        AND COALESCE(eng.xp_earned_30d, 0) > 0
      ORDER BY u.id`
@@ -166,6 +166,7 @@ export async function calculateFundDistributions(
   const total = scored.length;
   const distributions: CreatorFundDistribution[] = [];
   let prevCutoff = 0;
+  let distributedKobo = new Decimal(0);
 
   for (const tier of DISTRIBUTION_TIERS) {
     const cutoff = Math.max(1, Math.floor((tier.topPercent / 100) * total));
@@ -183,8 +184,20 @@ export async function calculateFundDistributions(
         sharePercent: tier.poolShare / inTier.length,
         amountKobo: perCreator.toNumber(),
       });
+      distributedKobo = distributedKobo.add(perCreator);
     }
     prevCutoff = cutoff;
+  }
+
+  // Redistribute any undistributed remainder evenly across all recipients
+  const remainder = new Decimal(poolKobo).sub(distributedKobo).floor();
+  if (remainder.gt(0) && distributions.length > 0) {
+    const bonusPerCreator = remainder.div(distributions.length).floor();
+    if (bonusPerCreator.gt(0)) {
+      for (const dist of distributions) {
+        dist.amountKobo += bonusPerCreator.toNumber();
+      }
+    }
   }
 
   return distributions;

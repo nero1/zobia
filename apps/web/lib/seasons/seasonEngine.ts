@@ -526,10 +526,12 @@ export async function claimPassMilestone(
     } else if (milestone.reward_type === 'badge' || milestone.reward_type === 'title') {
       const val = milestone.reward_value as { badgeType?: string; title?: string };
       const badgeType = val.badgeType ?? val.title ?? 'season_reward';
+      // Include season discriminator in badge_key to prevent cross-season deduplication collisions
+      const badgeKey = `${badgeType}:s${seasonId}`;
       await client.query(
         `INSERT INTO user_badges (user_id, badge_type, badge_key, reference_id, granted_at, awarded_at)
-         VALUES ($1, $2, $2, $3, NOW(), NOW()) ON CONFLICT DO NOTHING`,
-        [userId, badgeType, milestoneId]
+         VALUES ($1, $2, $3, $4, NOW(), NOW()) ON CONFLICT DO NOTHING`,
+        [userId, badgeType, badgeKey, milestoneId]
       );
     } else if (milestone.reward_type === 'xp_bonus') {
       const val = milestone.reward_value as { bonusXP: number };

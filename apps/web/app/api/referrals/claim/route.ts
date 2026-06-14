@@ -46,7 +46,7 @@ const claimSchema = z.object({
 
 interface ReferrerRow {
   id: string;
-  referred_by_user_id: string | null;
+  referred_by: string | null;
 }
 
 interface ExistingReferralRow {
@@ -67,7 +67,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     // Resolve the referrer
     const referrerResult = await db.query<ReferrerRow>(
-      `SELECT id, referred_by_user_id
+      `SELECT id, referred_by
        FROM users
        WHERE referral_code = $1 AND deleted_at IS NULL LIMIT 1`,
       [body.referralCode]
@@ -108,18 +108,18 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       // Tier-2: if the referrer was themselves referred by someone else,
       // create a tier-2 record so that original referrer can be rewarded
       // when the new user qualifies (e.g. completes first action).
-      if (referrer.referred_by_user_id) {
+      if (referrer.referred_by) {
         const existingTier2 = await client.query<ExistingReferralRow>(
           `SELECT id FROM referrals
            WHERE referrer_id = $1 AND referred_id = $2 AND tier = 2 LIMIT 1`,
-          [referrer.referred_by_user_id, newUserId]
+          [referrer.referred_by, newUserId]
         );
 
         if (existingTier2.rows.length === 0) {
           await client.query(
             `INSERT INTO referrals (referrer_id, referred_id, tier, qualified, created_at)
              VALUES ($1, $2, 2, false, NOW())`,
-            [referrer.referred_by_user_id, newUserId]
+            [referrer.referred_by, newUserId]
           );
         }
       }
@@ -127,8 +127,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       // Store the referrer on the new user's record (idempotent update)
       await client.query(
         `UPDATE users
-         SET referred_by_user_id = $1, updated_at = NOW()
-         WHERE id = $2 AND referred_by_user_id IS NULL`,
+         SET referred_by = $1, updated_at = NOW()
+         WHERE id = $2 AND referred_by IS NULL`,
         [referrer.id, newUserId]
       );
     });

@@ -419,7 +419,7 @@ export async function getUserMetricsForWeighting(
        COUNT(DISTINCT f.follower_id)::text AS follower_count,
        CEIL(EXTRACT(EPOCH FROM (NOW() - u.created_at)) / (7 * 86400))::text AS weeks_active
      FROM users u
-     LEFT JOIN followers f ON f.user_id = u.id
+     LEFT JOIN follows f ON f.following_id = u.id
      WHERE u.id = $1
      GROUP BY u.id, u.created_at`,
     [userId]

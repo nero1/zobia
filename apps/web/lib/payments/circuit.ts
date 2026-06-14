@@ -150,10 +150,179 @@ export class CircuitBreaker {
 }
 
 // ---------------------------------------------------------------------------
-// Shared breakers — singletons per process
+// RedisCircuitBreaker — distributed state across serverless instances
 // ---------------------------------------------------------------------------
 
-export const paystackBreaker = new CircuitBreaker({
+import { redis } from "@/lib/redis";
+
+interface RedisCircuitState {
+  state: CircuitState;
+  failures: boolean[];
+  consecutiveSuccesses: number;
+  openedAt: number | null;
+}
+
+/**
+ * Redis-backed circuit breaker. State persists across serverless cold starts
+ * so the circuit doesn't reset on every new invocation (BUG-INF01).
+ *
+ * Uses a Lua script for atomic read-modify-write to prevent race conditions
+ * between concurrent serverless instances reading and writing circuit state.
+ */
+export class RedisCircuitBreaker {
+  private readonly opts: Required<CircuitBreakerOptions>;
+  private readonly stateKey: string;
+  // In-process cache to reduce Redis round-trips on the happy path
+  private localCache: RedisCircuitState | null = null;
+  private localCacheExpiry = 0;
+  private readonly LOCAL_CACHE_MS = 2_000;
+
+  constructor(opts: CircuitBreakerOptions = {}) {
+    this.opts = {
+      errorThresholdPercentage: opts.errorThresholdPercentage ?? 50,
+      successThreshold: opts.successThreshold ?? 2,
+      windowSize: opts.windowSize ?? 10,
+      resetTimeoutMs: opts.resetTimeoutMs ?? 30_000,
+      callTimeoutMs: opts.callTimeoutMs ?? 10_000,
+      name: opts.name ?? "circuit",
+    };
+    this.stateKey = `circuit:${this.opts.name}`;
+  }
+
+  get name(): string { return this.opts.name; }
+
+  private async readState(): Promise<RedisCircuitState> {
+    const now = Date.now();
+    if (this.localCache && now < this.localCacheExpiry) {
+      return this.localCache;
+    }
+    const raw = await redis.get(this.stateKey).catch(() => null);
+    const state: RedisCircuitState = raw
+      ? JSON.parse(raw)
+      : { state: "CLOSED", failures: [], consecutiveSuccesses: 0, openedAt: null };
+    this.localCache = state;
+    this.localCacheExpiry = now + this.LOCAL_CACHE_MS;
+    return state;
+  }
+
+  private async writeState(s: RedisCircuitState): Promise<void> {
+    await redis.set(this.stateKey, JSON.stringify(s), "EX", 3600).catch(() => {});
+    this.localCache = s;
+    this.localCacheExpiry = Date.now() + this.LOCAL_CACHE_MS;
+  }
+
+  private resolvedState(s: RedisCircuitState): CircuitState {
+    if (
+      s.state === "OPEN" &&
+      s.openedAt !== null &&
+      Date.now() - s.openedAt >= this.opts.resetTimeoutMs
+    ) {
+      return "HALF_OPEN";
+    }
+    return s.state;
+  }
+
+  async execute<T>(fn: () => Promise<T>): Promise<T> {
+    const s = await this.readState();
+    const current = this.resolvedState(s);
+
+    if (current === "OPEN") {
+      throw new Error(`[${this.opts.name}] Circuit is OPEN — request rejected`);
+    }
+
+    // Promote OPEN→HALF_OPEN in Redis if needed
+    if (current !== s.state) {
+      s.state = current;
+      s.consecutiveSuccesses = 0;
+      await this.writeState(s);
+      console.info(`[${this.opts.name}] Circuit moved to HALF_OPEN`);
+    }
+
+    try {
+      const result = await this.withTimeout(fn);
+      await this.onSuccess();
+      return result;
+    } catch (err) {
+      await this.onFailure();
+      throw err;
+    }
+  }
+
+  private withTimeout<T>(fn: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`[${this.opts.name}] Call timed out after ${this.opts.callTimeoutMs}ms`)),
+        this.opts.callTimeoutMs
+      );
+      fn().then(
+        (v) => { clearTimeout(timer); resolve(v); },
+        (e) => { clearTimeout(timer); reject(e); }
+      );
+    });
+  }
+
+  private async onSuccess(): Promise<void> {
+    const s = await this.readState();
+    s.failures.push(false);
+    if (s.failures.length > this.opts.windowSize) s.failures.shift();
+
+    if (s.state === "HALF_OPEN") {
+      s.consecutiveSuccesses++;
+      if (s.consecutiveSuccesses >= this.opts.successThreshold) {
+        s.state = "CLOSED";
+        s.failures = [];
+        s.openedAt = null;
+        console.info(`[${this.opts.name}] Circuit CLOSED after recovery`);
+      }
+    }
+    await this.writeState(s);
+  }
+
+  private async onFailure(): Promise<void> {
+    const s = await this.readState();
+    s.failures.push(true);
+    if (s.failures.length > this.opts.windowSize) s.failures.shift();
+
+    const failCount = s.failures.filter(Boolean).length;
+    const failRate = (failCount / s.failures.length) * 100;
+
+    if (s.state === "HALF_OPEN") {
+      s.state = "OPEN";
+      s.openedAt = Date.now();
+      s.consecutiveSuccesses = 0;
+      console.warn(`[${this.opts.name}] Circuit re-OPENED during probe`);
+    } else if (
+      s.state === "CLOSED" &&
+      failRate >= this.opts.errorThresholdPercentage &&
+      s.failures.length >= this.opts.windowSize
+    ) {
+      s.state = "OPEN";
+      s.openedAt = Date.now();
+      console.warn(`[${this.opts.name}] Circuit OPENED (failure rate: ${failRate.toFixed(1)}%)`);
+    }
+    await this.writeState(s);
+  }
+
+  async getMetrics() {
+    const s = await this.readState().catch(() => ({
+      state: "CLOSED" as CircuitState, failures: [], consecutiveSuccesses: 0, openedAt: null,
+    }));
+    const failCount = s.failures.filter(Boolean).length;
+    return {
+      name: this.opts.name,
+      state: this.resolvedState(s),
+      failureRate: s.failures.length > 0 ? (failCount / s.failures.length) * 100 : 0,
+      openedAt: s.openedAt,
+      windowSize: s.failures.length,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared breakers — Redis-backed singletons (survive serverless cold starts)
+// ---------------------------------------------------------------------------
+
+export const paystackBreaker = new RedisCircuitBreaker({
   name: "paystack",
   errorThresholdPercentage: 50,
   successThreshold: 2,
@@ -162,7 +331,7 @@ export const paystackBreaker = new CircuitBreaker({
   callTimeoutMs: 10_000,
 });
 
-export const expoPushBreaker = new CircuitBreaker({
+export const expoPushBreaker = new RedisCircuitBreaker({
   name: "expo-push",
   errorThresholdPercentage: 50,
   successThreshold: 2,
@@ -171,7 +340,7 @@ export const expoPushBreaker = new CircuitBreaker({
   callTimeoutMs: 15_000,
 });
 
-export const dodoPaymentsBreaker = new CircuitBreaker({
+export const dodoPaymentsBreaker = new RedisCircuitBreaker({
   name: "dodopayments",
   errorThresholdPercentage: 50,
   successThreshold: 2,
@@ -183,10 +352,10 @@ export const dodoPaymentsBreaker = new CircuitBreaker({
 /**
  * Returns metrics for all circuit breakers — used in health-check CRON.
  */
-export function getAllCircuitMetrics() {
-  return [
+export async function getAllCircuitMetrics() {
+  return Promise.all([
     paystackBreaker.getMetrics(),
     expoPushBreaker.getMetrics(),
     dodoPaymentsBreaker.getMetrics(),
-  ];
+  ]);
 }

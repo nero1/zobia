@@ -70,12 +70,8 @@ function matchesTargeting(
   targetPlans: string[],
   targetRoles: string[]
 ): boolean {
-  if (targetPlans.length > 0 && user.plan_id) {
-    if (!targetPlans.includes(user.plan_id)) return false;
-  }
-  if (targetRoles.length > 0 && user.role) {
-    if (!targetRoles.includes(user.role)) return false;
-  }
+  if (targetPlans.length > 0 && (!user.plan_id || !targetPlans.includes(user.plan_id))) return false;
+  if (targetRoles.length > 0 && (!user.role || !targetRoles.includes(user.role))) return false;
   return true;
 }
 

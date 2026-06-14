@@ -281,7 +281,7 @@ export const GET = async (req: NextRequest) => {
           if (weekNum >= 6) {
             await db.query(
               `INSERT INTO user_badges (user_id, badge_type, badge_key, reference_id, granted_at, awarded_at)
-               SELECT ls.user_id, 'season_top100_frame', 'season_top100_frame', $1, NOW(), NOW()
+               SELECT ls.user_id, 'season_top100_frame', 'season_top100_frame:s' || $1::text, $1, NOW(), NOW()
                FROM (
                  SELECT ls.user_id, ROW_NUMBER() OVER (ORDER BY ls.xp_value DESC) AS rank
                  FROM leaderboard_snapshots ls
@@ -407,13 +407,13 @@ export const GET = async (req: NextRequest) => {
     let guildDiscoveryNotified = 0;
     for (const row of newUsersResult.rows) {
       await db.query(
-        `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-         VALUES ($1, 'guild_discovery', $2, false, NOW())`,
+        `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
+         VALUES ($1, 'guild_discovery', $2, $3, $4, false, NOW())`,
         [
           row.id,
-          JSON.stringify({
-            message: "Crews near you are recruiting! Join a Guild to earn XP boosts.",
-          }),
+          "Join a Guild",
+          "Crews near you are recruiting! Join a Guild to earn XP boosts.",
+          JSON.stringify({}),
         ]
       );
       guildDiscoveryNotified++;
@@ -569,10 +569,12 @@ export const GET = async (req: NextRequest) => {
             [guild.id, newTier]
           );
           await db.query(
-            `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-             VALUES ($1, 'guild_tier_demoted', $2, false, NOW())`,
+            `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
+             VALUES ($1, 'guild_tier_demoted', $2, $3, $4, false, NOW())`,
             [
               guild.captain_id,
+              "Guild Tier Update",
+              `Your guild has moved from ${guild.tier} to ${newTier} tier.`,
               JSON.stringify({ guildId: guild.id, fromTier: guild.tier, toTier: newTier }),
             ]
           ).catch(() => {});
@@ -626,10 +628,12 @@ export const GET = async (req: NextRequest) => {
           [guild.id, fromTier, toTier, guild.guild_xp]
         ).catch(() => {});
         await db.query(
-          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-           VALUES ($1, 'guild_tier_promoted', $2, false, NOW())`,
+          `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
+           VALUES ($1, 'guild_tier_promoted', $2, $3, $4, false, NOW())`,
           [
             guild.captain_id,
+            "Guild Promoted!",
+            `Your guild has been promoted from ${fromTier} to ${toTier} tier.`,
             JSON.stringify({ guildId: guild.id, fromTier, toTier, guildXp: guild.guild_xp }),
           ]
         ).catch(() => {});
@@ -841,7 +845,7 @@ export const GET = async (req: NextRequest) => {
          COALESCE(u.last_streak_before_break, 0) AS last_streak_before_break
        FROM user_inactivity_events uie
        JOIN users u ON u.id = uie.user_id
-       WHERE uie.notified = false
+       WHERE uie.push_email_notified = false
          AND uie.created_at >= NOW() - INTERVAL '25 hours'
        ORDER BY uie.user_id, uie.inactive_days DESC`
     );
@@ -970,11 +974,11 @@ export const GET = async (req: NextRequest) => {
         }
       }
 
-      // Mark as notified
+      // Mark push/email as notified
       await db.query(
         `UPDATE user_inactivity_events
-         SET notified = true
-         WHERE user_id = $1 AND inactive_days = $2 AND notified = false`,
+         SET push_email_notified = true
+         WHERE user_id = $1 AND inactive_days = $2 AND push_email_notified = false`,
         [user.user_id, user.days_inactive]
       );
       dispatched++;
@@ -1101,10 +1105,12 @@ export const GET = async (req: NextRequest) => {
 
         // Send notification to the member
         await db.query(
-          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-           VALUES ($1, 'guild_low_contribution', $2, false, NOW())`,
+          `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
+           VALUES ($1, 'guild_low_contribution', $2, $3, $4, false, NOW())`,
           [
             member.user_id,
+            "Guild Contribution Alert",
+            `Your contribution score is below the guild average for ${weeksBelowCount} week${weeksBelowCount !== 1 ? 's' : ''}.`,
             JSON.stringify({
               guildId: guild.id,
               contributionScore: member.contribution_score,
@@ -1176,17 +1182,27 @@ export const GET = async (req: NextRequest) => {
           [convo.user_id_1, convo.user_id_2, milestone]
         ).catch(() => {});
 
+        // Grant the sticker pack to both users (BUG-MSG03)
+        const packName = `dm_streak_${milestone}`;
+        await db.query(
+          `INSERT INTO user_sticker_packs (user_id, pack_name, granted_at)
+           VALUES ($1, $2, NOW()), ($3, $2, NOW())
+           ON CONFLICT DO NOTHING`,
+          [convo.user_id_1, packName, convo.user_id_2]
+        ).catch(() => {});
+
         // Notify both participants
         for (const uid of [convo.user_id_1, convo.user_id_2]) {
           await db.query(
-            `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-             VALUES ($1, 'dm_sticker_unlock', $2, false, NOW())`,
+            `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
+             VALUES ($1, 'dm_sticker_unlock', $2, $3, $4, false, NOW())`,
             [
               uid,
+              "Sticker Pack Unlocked!",
+              `Your ${milestone}-day conversation streak unlocked exclusive sticker reactions!`,
               JSON.stringify({
                 milestone,
                 otherUserId: uid === convo.user_id_1 ? convo.user_id_2 : convo.user_id_1,
-                message: `Your ${milestone}-day conversation streak unlocked exclusive sticker reactions!`,
               }),
             ]
           ).catch(() => {});
@@ -1218,7 +1234,7 @@ export const GET = async (req: NextRequest) => {
          COALESCE(u.last_streak_before_break, 0) AS last_streak_before_break
        FROM user_inactivity_events uie
        JOIN users u ON u.id = uie.user_id
-       WHERE uie.notified = false
+       WHERE uie.telegram_notified = false
          AND uie.created_at >= NOW() - INTERVAL '25 hours'
          AND u.telegram_id IS NOT NULL
          AND u.deleted_at IS NULL
@@ -1244,13 +1260,13 @@ export const GET = async (req: NextRequest) => {
       telegramSent++;
     }
 
-    // Mark re-engagement events as notified so they are not re-sent
+    // Mark telegram re-engagement events as notified so they are not re-sent
     if (telegramUsers.length > 0) {
       const notifiedIds = telegramUsers.map((u) => u.user_id);
       await db.query(
         `UPDATE user_inactivity_events
-         SET notified = true
-         WHERE user_id = ANY($1::uuid[]) AND notified = false`,
+         SET telegram_notified = true
+         WHERE user_id = ANY($1::uuid[]) AND telegram_notified = false`,
         [notifiedIds]
       ).catch((err: unknown) => console.error('[cron/daily] Failed to mark telegram users notified:', err));
     }
@@ -1499,14 +1515,14 @@ export const GET = async (req: NextRequest) => {
       let guildQuestsCreated = 0;
 
       for (const guild of guilds) {
-        // Mark last week's quests as inactive (soft-expire without deleting)
+        // Expire last week's incomplete quests (mark is_completed = false is already the state;
+        // set is_active = false to exclude them from display)
         await db.query(
           `UPDATE guild_quests
-           SET completed = CASE WHEN completed THEN completed ELSE false END,
-               updated_at = NOW()
+           SET is_active = false
            WHERE guild_id = $1
              AND week_end < $2
-             AND completed = false`,
+             AND is_completed = false`,
           [guild.id, weekStart]
         ).catch(() => {});
 
@@ -1515,9 +1531,9 @@ export const GET = async (req: NextRequest) => {
           await db.query(
             `INSERT INTO guild_quests
                (guild_id, title, description, quest_type, target_count,
-                current_progress, xp_reward, coin_reward,
-                week_start, week_end, completed, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $8, $9, false, NOW(), NOW())
+                current_count, reward_guild_xp, reward_coins,
+                week_start, week_end, is_completed, is_active, created_at)
+             VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $8, $9, false, true, NOW())
              ON CONFLICT DO NOTHING`,
             [
               guild.id,
@@ -1536,9 +1552,11 @@ export const GET = async (req: NextRequest) => {
 
         // Notify guild captain + veterans about new weekly quests
         await db.query(
-          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+          `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
            SELECT gm.user_id,
                   'guild_quests_reset',
+                  'New Weekly Quests',
+                  'Your guild''s weekly quests have been reset. Complete them to earn rewards!',
                   jsonb_build_object('guildId', $1::text, 'weekStart', $2::text),
                   false,
                   NOW()
@@ -1657,8 +1675,10 @@ export const GET = async (req: NextRequest) => {
           if ((rowCount ?? 0) > 0) {
             // Notify the creator
             await db.query(
-              `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+              `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
                SELECT creator_id, 'ad_revenue_enrolled',
+                      'Ad Revenue Enabled',
+                      'Your room has been enrolled in ad revenue sharing based on monthly active users.',
                       jsonb_build_object('roomId', $1::text, 'mauCount', $2),
                       false, NOW()
                FROM rooms WHERE id = $1`,
@@ -2044,8 +2064,17 @@ export const GET = async (req: NextRequest) => {
       for (let i = 0; i + 1 < unpairedAlliances.length; i += 2) {
         await db.query(
           `INSERT INTO alliance_wars (alliance_1_id, alliance_2_id, status, started_at)
-           VALUES ($1, $2, 'active', NOW())
-           ON CONFLICT DO NOTHING`,
+           SELECT $1, $2, 'active', NOW()
+           WHERE NOT EXISTS (
+             SELECT 1 FROM alliance_wars
+             WHERE status = 'active'
+               AND (
+                 (alliance_1_id = $1 AND alliance_2_id = $2) OR
+                 (alliance_1_id = $2 AND alliance_2_id = $1) OR
+                 alliance_1_id = $1 OR alliance_2_id = $1 OR
+                 alliance_1_id = $2 OR alliance_2_id = $2
+               )
+           )`,
           [unpairedAlliances[i].id, unpairedAlliances[i + 1].id]
         ).catch(() => {});
       }
@@ -2187,12 +2216,34 @@ export const GET = async (req: NextRequest) => {
           const fraudResult = await checkPayoutFraud(candidate.creator_id, candidate.balance_kobo, db);
           const status = fraudResult.forceManual ? 'awaiting_approval' : 'pending';
           await db.transaction(async (tx) => {
+            // Snapshot bank account details at payout time for audit trail
+            const { rows: bankRows } = await tx.query<{
+              bank_name: string | null;
+              account_number: string | null;
+              account_name: string | null;
+            }>(
+              `SELECT bank_name, account_number, account_name
+               FROM creator_bank_accounts
+               WHERE creator_id = $1 AND is_primary = TRUE AND deleted_at IS NULL
+               LIMIT 1`,
+              [candidate.creator_id]
+            );
+            const bankSnapshot = bankRows[0]
+              ? {
+                  bank_name: bankRows[0].bank_name,
+                  account_number: bankRows[0].account_number,
+                  account_name: bankRows[0].account_name,
+                }
+              : null;
+
             await tx.query(
               `INSERT INTO creator_payouts
-                 (creator_id, net_kobo, gross_kobo, status, idempotency_key, created_at)
-               VALUES ($1, $2, $2, $3, $4, NOW())
+                 (creator_id, net_kobo, gross_kobo, status, idempotency_key,
+                  bank_account_snapshot, created_at)
+               VALUES ($1, $2, $2, $3, $4, $5, NOW())
                ON CONFLICT (idempotency_key) DO NOTHING`,
-              [candidate.creator_id, candidate.balance_kobo, status, idempotencyKey]
+              [candidate.creator_id, candidate.balance_kobo, status, idempotencyKey,
+               bankSnapshot ? JSON.stringify(bankSnapshot) : null]
             );
           });
           payoutsInitiated++;
@@ -2384,34 +2435,37 @@ export const GET = async (req: NextRequest) => {
 
   // SYS-02: Nightly coin + star ledger reconciliation
   try {
-    // Coins: compare ledger sum against users.coins_balance
+    // Coins: compare ledger sum (signed amounts) against users.coin_balance
+    // coin_ledger.amount is a signed BIGINT (positives = credits, negatives = debits)
     const coinDiscrepancies = await db.query<{
       user_id: string;
       ledger_sum: string;
       wallet_balance: string;
     }>(
       `SELECT cl.user_id,
-              SUM(CASE WHEN cl.direction = 'credit' THEN cl.amount ELSE -cl.amount END)::bigint AS ledger_sum,
-              w.coins_balance AS wallet_balance
+              SUM(cl.amount)::bigint AS ledger_sum,
+              u.coin_balance AS wallet_balance
          FROM coin_ledger cl
-         JOIN wallets w ON w.user_id = cl.user_id
-        GROUP BY cl.user_id, w.coins_balance
-       HAVING SUM(CASE WHEN cl.direction = 'credit' THEN cl.amount ELSE -cl.amount END) <> w.coins_balance`
+         JOIN users u ON u.id = cl.user_id
+        WHERE u.deleted_at IS NULL
+        GROUP BY cl.user_id, u.coin_balance
+       HAVING SUM(cl.amount) <> u.coin_balance`
     );
 
-    // Stars: compare ledger sum against users.stars_balance
+    // Stars: compare ledger sum against users.star_balance
     const starDiscrepancies = await db.query<{
       user_id: string;
       ledger_sum: string;
       wallet_balance: string;
     }>(
       `SELECT sl.user_id,
-              SUM(CASE WHEN sl.direction = 'credit' THEN sl.amount ELSE -sl.amount END)::bigint AS ledger_sum,
-              w.stars_balance AS wallet_balance
+              SUM(sl.amount)::bigint AS ledger_sum,
+              u.star_balance AS wallet_balance
          FROM star_ledger sl
-         JOIN wallets w ON w.user_id = sl.user_id
-        GROUP BY sl.user_id, w.stars_balance
-       HAVING SUM(CASE WHEN sl.direction = 'credit' THEN sl.amount ELSE -sl.amount END) <> w.stars_balance`
+         JOIN users u ON u.id = sl.user_id
+        WHERE u.deleted_at IS NULL
+        GROUP BY sl.user_id, u.star_balance
+       HAVING SUM(sl.amount) <> u.star_balance`
     );
 
     // Write discrepancies to audit table
@@ -2449,7 +2503,7 @@ export const GET = async (req: NextRequest) => {
   }
 
   // SYS-04: Include circuit breaker health in CRON output
-  results.circuitMetrics = getAllCircuitMetrics();
+  results.circuitMetrics = await getAllCircuitMetrics().catch(() => []);
 
   return NextResponse.json({
     success: errors.length === 0,
