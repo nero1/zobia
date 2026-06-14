@@ -58,7 +58,6 @@ import { verifyWebhookSignature } from '@/lib/payments/dodopayments';
 import { creditCoins } from '@/lib/economy/coins';
 import { creditStars } from '@/lib/economy/stars';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { POST } = require('@/app/api/economy/webhooks/dodopayments/route');
 
 // ---------------------------------------------------------------------------

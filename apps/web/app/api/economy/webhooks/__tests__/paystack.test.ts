@@ -54,7 +54,6 @@ import { verifyWebhookSignature } from '@/lib/payments/paystack';
 import { creditCoins } from '@/lib/economy/coins';
 
 // The route module is imported after mocks are set up
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { POST } = require('@/app/api/economy/webhooks/paystack/route');
 
 // ---------------------------------------------------------------------------
