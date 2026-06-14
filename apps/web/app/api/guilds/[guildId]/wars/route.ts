@@ -243,7 +243,7 @@ export const POST = withAuth(
         // concurrent declarations cannot claim the same defender between SELECT and INSERT.
         // The unique partial index on guild_wars(defender_guild_id) is the DB-level fallback.
         const opponentLockKey = `war:lock:opponent:${opponentId}`;
-        const lockAcquired = await redis.set(opponentLockKey, "1", "NX", "EX", 30);
+        const lockAcquired = await redis.set(opponentLockKey, "1", "EX", 30, "NX");
         if (!lockAcquired) {
           throw conflict(
             "This opponent guild was just claimed by another declaration. Please try again.",
