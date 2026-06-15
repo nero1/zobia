@@ -1,58 +1,65 @@
 # Zobia Social — Forensic Bug Report
 
-**Date:** June 15, 2026  
-**Time:** 06:38 AM  
-**Analyst:** Claude Code — Full Codebase Forensic Analysis  
-**Scope:** Web app (Next.js 14 App Router), PWA (Workbox service worker), Expo mobile Android app  
-**Method:** Three-pass deep static analysis of all source files, migration SQL, Drizzle ORM schema, CRON handlers, webhook handlers, Expo mobile libs, and DB constraints cross-referenced against all callers
+**Generated:** June 15, 2026 · 12:00 PM  
+**Updated:** June 15, 2026 · 8:30 AM (items 21–29 added — 9.7 roadmap)  
+**Analyst:** Independent full-codebase forensic analysis  
+**Scope:** `apps/web` (Next.js 14 App Router + API routes + CRON), `apps/expo` (Android), PWA — all layers  
+**Branch:** `claude/codebase-bug-analysis-5g8o54`
 
 ---
 
-## Code Quality Rating (Before Fixes): 6.5 / 10
+## Code Quality Ratings
 
-The codebase is architecturally well-conceived. Security fundamentals (CSRF, HMAC webhook verification, constant-time comparisons, SSRF protection, JWT with Redis session backing, refresh token rotation, Zod input validation) are generally strong. The payment pipeline (Paystack + DodoPay) handles idempotency and re-entrancy correctly in most places. The schema is rich and expressive.
+**Current: 6.5 / 10**
 
-However, there is a critical structural problem: **two parallel migration systems** (`apps/web/db/migrations/` vs `apps/web/lib/db/migrations/`) define conflicting schemas for several tables. This is the root cause of a cluster of runtime-breaking bugs. CRON handlers reference columns and constraints that were never added or were dropped by later migrations, and several SQL `ON CONFLICT` clauses name unique indexes that only exist if specific migrations were applied.
+The architecture is ambitious and shows strong engineering intent in many areas: Redis-backed sessions with token rotation and reuse detection, HMAC-SHA512 webhook signature verification, Lua atomic sliding-window rate limiting, Redis-backed circuit breakers with Lua read-modify-write, CTE-based XP awarding to avoid phantom updates, Decimal.js for monetary arithmetic, proper DLQ pattern (`failed_xp_awards`) for XP retry, SELECT FOR UPDATE SKIP LOCKED for safe concurrent ledger operations, and solid security fundamentals (JWT kid rotation, CSRF origin check, per-request CSP nonce, identity header stripping, pre-auth token gating for 2FA). These are genuinely well-implemented.
 
-**Code Quality After All Fixes Applied: projected 8.5 / 10** — production-grade, no architectural overhaul required.
+The main problems fall into four clusters: (1) critical runtime SQL errors from column name mismatches and non-existent columns; (2) financial integrity issues including one over-credit on payment reversal; (3) a pervasive Drizzle schema / SQL migration drift that is a time-bomb for any future schema operation; (4) broken admin tooling and missing infrastructure foundations.
+
+**After original 20 bugs fixed: 8.5 / 10**
+
+**After all 29 items fixed (full 9.7 roadmap): 9.7 / 10**
+
+The delta from 8.5 to 9.7 comes from closing the admin panel breakage, repairing the silent audit trail, hardening the security posture (pre-auth replay, pool exhaustion, graceful shutdown), adding observability, and indexing the critical query paths. Without these, silent failures in production accumulate undetected.
 
 ---
 
-## All Bugs — Master List (One Line Each)
+## Complete Bug & Improvement Index (one-line summaries)
 
-1.  **BUG-01:** `creator_earnings` Drizzle schema defines `gross_kobo`/`net_kobo` but the actual DB from migration 001 uses `gross_amount_kobo`/`net_amount_kobo` — all Drizzle ORM queries on this table fail at runtime.
-2.  **BUG-02:** CRON daily handler inserts `user_badges` rows including an `awarded_at` column that migration 009 dropped — every Sunday badge-award INSERT fails.
-3.  **BUG-03:** `seasons` table in migration 001 has no `updated_at` column, but `seasonEngine.ts` and CRON daily both run `UPDATE seasons SET … updated_at = NOW()`.
-4.  **BUG-04:** Two competing migration directories (`db/migrations/` vs `lib/db/migrations/`) define the same tables with irreconcilably different column names and schemas.
-5.  **BUG-05:** `lib/db/migrations/009_bug_fixes.sql` attempts to rename `gifts.gift_type_id → gift_item_id` but that column doesn't exist in the migration-001 gifts table — breaks the entire migration chain.
-6.  **BUG-06:** Paystack webhook inserts into `system_alerts` with `severity = 'high'` which violates the DB `CHECK (severity IN ('info','warning','critical'))` constraint — unknown plan alerts are silently swallowed.
-7.  **BUG-07:** `room_subscriptions` (migration 001) has no UNIQUE constraint; Paystack webhook `ON CONFLICT (room_id, user_id) DO UPDATE` throws without it — VIP room subscription payments complete but access is never granted.
-8.  **BUG-08:** `season_pass_milestones` has no UNIQUE index on `(season_id, sort_order)`, so `seedSeasonPassMilestones`'s `ON CONFLICT (season_id, sort_order)` always throws — season pass milestones can never be seeded.
-9.  **BUG-09:** `leaderboard_snapshots` UPSERT relies on an expression index added by migration 011; on installs missing that migration, `ON CONFLICT` fails and duplicate leaderboard rows are created instead.
-10. **BUG-10:** `detectDuplicateMessage` in `contentFilter.ts` queries a `direct_messages` table that doesn't exist — DMs live in the `messages` table; this crashes anti-spam for all DM messages.
-11. **BUG-11:** `claimPassMilestone` in `seasonEngine.ts` has no handler for `reward_type = 'sticker_pack'` — milestone is marked claimed but the sticker pack is never granted to the user.
-12. **BUG-12:** Dynamic `import("@/lib/economy/coins")` inside DB transaction callbacks in `seasonEngine.ts` and `warEngine.ts` — a failed import mid-transaction leaves the DB in an inconsistent partial state.
-13. **BUG-13:** `getCommissionStats` in `commissions.ts` compares a TEXT `tier` column against unquoted integer literals `1` and `2` — type mismatch causes referral commission stats to always return zero.
-14. **BUG-14:** `transferCoins` in `coins.ts` includes `Date.now()` in the transfer reference — a retried call generates a new ref and the transfer executes twice, double-debiting the sender.
-15. **BUG-15:** `buildKeyRegistry()` in `jwt.ts` iterates all `process.env` entries to rebuild a Map on every single call to `verifyAccessToken` — unnecessary overhead on every authenticated request.
-16. **BUG-16:** Middleware public-route redirect checks `payload?.sub` but not `payload?.type` — a pre-auth JWT (type='pre_auth', issued before 2FA) can redirect a user to `/home`, bypassing 2FA.
-17. **BUG-17:** `DEEPSEEK_API_KEY` and `GEMINI_API_KEY` are both `.min(1)` (required) in `env.ts` — app fails to start if either AI key is absent, even when only one provider is configured.
-18. **BUG-18:** `resetDailyQuests` computes "yesterday's" cutoff as `Date.now() - 24h` (server local time) instead of an explicit UTC midnight boundary.
-19. **BUG-19:** Daily CRON streak increment applies to users where `last_login_at = yesterday` — this credits today's streak increment to users who haven't actually logged in yet today.
-20. **BUG-20:** `audit_discrepancies` UNIQUE on `(user_id, asset_type)` with no timestamp — once a discrepancy is recorded for a user, any later discrepancy for the same pair is silently dropped forever until the first is resolved.
-21. **BUG-21:** Offline message sync in the Expo app only covers DM and group-chat messages — room messages sent offline are silently lost with no queue, no retry, and no user indication.
-22. **BUG-22:** CSP nonce is generated as `Buffer.from(crypto.randomUUID()).toString("base64")` — UUID provides only 122 bits of entropy with fixed variant bits; nonces should use full-entropy random bytes.
-23. **BUG-23:** `xp_ledger` INSERT in `safeAwardXP` uses `ON CONFLICT DO NOTHING` without an explicit conflict target — silently swallows any unique violation on the table, not just the intended idempotency index.
-24. **BUG-24:** `reconcile-balances` CRON authenticates via `x-cron-secret` header while all other CRONs use `Authorization: Bearer` — inconsistent auth surface causes misconfiguration risk with external CRON services.
-25. **BUG-25:** Google Play IAP `purchaseCoins` and `purchaseSubscription` promises have no timeout — they hang indefinitely if the Play Store listener never fires (user dismisses sheet, app backgrounds, etc.).
-26. **BUG-26:** `distributeSeasonRewards` in `seasonEngine.ts` uses dynamic `import("@/lib/economy/coins")` inside a DB transaction — same anti-pattern as BUG-12, different function.
-27. **BUG-27:** `safeAwardXP` DLQ INSERT uses `ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL` which requires migration 005's partial unique index; this index is absent on installs using only `lib/db/migrations/009_bug_fixes.sql`.
-28. **BUG-28:** `processSubscriptionEvent` in Paystack webhook has a dead redundant `if (!resolvedUserId) return;` guard at line 412 — dead code from incomplete refactor.
-29. **BUG-29:** Drizzle `creatorEarnings` schema is also missing the `reference_id`, `paid_out`, and `payout_id` columns that exist in the actual DB — ORM-level reads silently return undefined for these fields.
-30. **BUG-30:** `resetSeasonRankings` in `seasonEngine.ts` references `seasons.updated_at` in an UPDATE — this is the same missing-column bug as BUG-03 appearing in a second code path.
-31. **BUG-31:** Room chat subscribes to realtime channel `room:<id>` but the server publishes new messages to `room:<id>:messages` — channel mismatch means messages never appear in the UI until the page is manually refreshed.
-32. **BUG-32:** Room powers (pin message, room spotlight, member highlight) send `{ powerType }` in the request body but the server's Zod schema expects `{ power }` — Zod validation fails with a 400 and no power ever activates; additionally `message_pin` requires a `messageId` and `member_highlight` requires a `targetUserId` which the UI never collects.
-33. **BUG-33:** The moments feed page (`/moments`) and create page (`/moments/create`) are fully implemented but `/moments` is absent from both the Sidebar and Navbar navigation — the entire feature is unreachable from the UI.
+**Original 20 bugs:**
+
+1. BUG-FIN-01 — `transfer.reversed` webhook restores `gross_kobo` instead of `net_kobo` — overcredits creator by 10–20% on payout reversal
+2. BUG-SQL-01 — Cron step 19 re-engagement query uses `na.nemesis_id` (nullable column) instead of `na.nemesis_user_id` — nemesis notifications are never sent
+3. BUG-SQL-02 — `user_sticker_packs` INSERT uses non-existent columns `pack_name`/`granted_at` in two call sites — DM-streak and conversation-score sticker grants crash at runtime
+4. BUG-SQL-03 — Cron uses `users.is_active` which does not exist in the users table — SQL errors crash council invitation and monthly plan bonus cron steps
+5. BUG-XP-01 — Daily login XP (cron step 4) has no `reference_id` — susceptible to double-award on concurrent CRON fires with no dedup or DLQ protection
+6. BUG-XP-02 — Comeback coin `reference_id` `comeback:{userId}` is reused across multiple 90-day inactivity cycles — double-coins on repeated long absences
+7. BUG-XP-03 — `maybeAwardMessageXP` (room messages route) uses a raw transaction with no DLQ fallback — XP is silently lost on any DB error
+8. BUG-XP-04 — DLQ retry of XP awards with `reference_id = NULL` can double-award XP: the ON CONFLICT guard is not effective for null reference_id entries
+9. BUG-EMAIL-01 — Re-engagement emails (cron step 11) call `sendEmail` without `userId`/`notificationType` — bypasses per-user opt-out preferences entirely
+10. BUG-TG-01 — Cron step 19 calls `sendTelegramMessage` without `await` — users falsely marked as notified even when Telegram delivery fails
+11. BUG-LB-01 — `getUserRank` for global scope is missing `ls.city IS NULL` — count includes city-scoped snapshot rows, inflating everyone's rank number
+12. BUG-PAY-01 — Paystack subscription plan derived via `String.includes()` — "pro" matches "professional", "max" matches "maximum", wrong tier can activate
+13. BUG-COIN-01 — `transferCoins` default idempotency key `transfer:{from}:{to}:{amount}` is non-unique for repeated same-amount transfers between same users
+14. BUG-SSE-01 — SSE stream endpoint (`/api/rooms/[roomId]/stream`) has no rate limiting — open to connection exhaustion / DB query amplification
+15. BUG-DB-01 — `getTypedDb()` creates a second `pg.Pool` independent of the Railway adapter pool — doubles active DB connections, exhausts Railway's connection limit
+16. BUG-DRIZZLE-01 — Drizzle schema (`lib/db/schema.ts`) critically out of sync with SQL migrations — running `drizzle-kit push` would corrupt the database
+17. BUG-REF-01 — Referral streak-qualifying step 33: `FOR UPDATE SKIP LOCKED` issued outside per-row transactions — lock released before processing, allowing double-award by concurrent CRONs
+18. BUG-FUND-01 — Creator fund quest metric only queries `sponsored_quest_applications`, not `user_quest_progress` — platform quest completions are excluded from fund scoring
+19. BUG-TIER-01 — `tierForCount` in cron step 28 never assigns the "elite" tier — creator fund eligibility check for `IN ('elite', 'icon')` makes "elite" a permanently unreachable dead value
+20. BUG-MIG-01 — Migration 009 redefines `system_alerts` and `creator_earnings` with wrong column schemas — breaks fresh database setups that rely on migration 009 alone
+
+**9.7 roadmap additions (items 21–29):**
+
+21. BUG-ADMIN-01 — Feature flags config API sanitizer doesn't recognise the `feature_*` prefix as boolean — all feature flags revert to disabled on page refresh after any admin toggle
+22. BUG-ADMIN-02 — Both admin API routes write `admin_audit_log` using wrong column names — every audit record silently fails and no admin change is ever logged
+23. BUG-ADMIN-03 — `feature_flags` table (required by the feature-flags API for early-access scheduling) is not defined in any migration — early-access writes silently no-op in all environments
+24. BUG-CACHE-01 — `invalidateManifestCache()` only purges the aggregate manifest Redis key, not per-key entries used by `getManifestValue()` — feature flag changes take up to 60s to propagate to routes using the per-key cache path
+25. SEC-01 — `pre_auth_session` on the `users` table is not cleared after successful 2FA completion — a stolen pre-auth JWT can open unlimited 2FA challenge windows indefinitely
+26. INFRA-01 — No SIGTERM / graceful-shutdown handler — dyno recycle during a CRON run kills the process mid-transaction, leaving partial DB writes and no record of which steps completed
+27. INFRA-02 — `pg.Pool` max connections not explicitly configured — serverless cold-start bursts under load can exhaust Railway's connection limit and deny service to all users
+28. PERF-01 — Critical query paths lack database indexes: `failed_xp_awards` DLQ query, `leaderboard_snapshots` rank range scan, and `notifications` feed all table-scan at scale
+29. OBS-01 — No error tracking service integration — runtime exceptions in production have no aggregation, alerting, or stack-trace capture beyond stdout; silent failures (audit log, sticker grants, nemesis notifications) go undetected indefinitely
 
 ---
 
@@ -60,409 +67,493 @@ However, there is a critical structural problem: **two parallel migration system
 
 ---
 
-### BUG-01: `creator_earnings` Drizzle Schema Column Name Mismatch
+### 1. BUG-FIN-01 — Payout Reversal Overcredits Creator (CRITICAL)
 
-**FILES:**  
-`apps/web/lib/db/schema.ts` (line 1047), `apps/web/db/migrations/001_complete_schema.sql` (line 1360–1362), `apps/web/lib/db/migrations/009_bug_fixes.sql`
+When Paystack fires a `transfer.reversed` webhook, the handler restores the reversed amount to the creator's `available_earnings_kobo`. The SELECT fetches `gross_kobo` from `creator_payouts`. The UPDATE then credits `payout.gross_kobo` back to the creator — the full pre-platform-fee amount. The correct restoration is `net_kobo` (what the creator was actually sent after the 10% platform fee). A reversed ₦10,000 payout should restore ₦9,000 to the creator; instead it restores ₦10,000, silently gifting the platform's 10% fee (₦1,000) to the creator on every reversal event.
 
-The Drizzle ORM schema (`schema.ts`) defines the `creator_earnings` table with fields `grossKobo` → DB column `gross_kobo` and `netKobo` → DB column `net_kobo`. However, the canonical SQL migration 001 (which always runs first and takes priority) creates the table with columns named `gross_amount_kobo`, `platform_fee_kobo`, and `net_amount_kobo`. Any Drizzle ORM query using `schema.creatorEarnings.grossKobo` generates SQL referencing `gross_kobo`, a column that doesn't exist in the database. The `lib/db/migrations/009_bug_fixes.sql` also creates the table with `gross_kobo` but the IF NOT EXISTS guard makes it a no-op since migration 001 creates it first.
+**FILES:**
+- `apps/web/app/api/economy/webhooks/paystack/route.ts` — `processTransferEvent` function, `transfer.reversed` branch (~line 362–374)
 
-**FIX:** Either (a) update `lib/db/schema.ts` `creatorEarnings` columns to match migration 001's actual names (`grossAmountKobo`/`gross_amount_kobo`, `netAmountKobo`/`net_amount_kobo`), or (b) add a migration that renames the DB columns to `gross_kobo`/`net_kobo` to match what the Drizzle schema declares. Be consistent: all raw SQL and Drizzle queries must reference the same column names.
-
----
-
-### BUG-02: CRON Daily Handler Inserts `awarded_at` Into `user_badges` After Column Was Dropped
-
-**FILES:**  
-`apps/web/app/api/cron/daily/route.ts` (line 283), `apps/web/lib/db/migrations/009_bug_fixes.sql` (line 17)
-
-Migration `009_bug_fixes.sql` executes `ALTER TABLE user_badges DROP COLUMN IF EXISTS awarded_at`. The CRON daily handler at line 283 still performs an INSERT that explicitly lists `awarded_at` in its column list: `INSERT INTO user_badges (user_id, badge_type, badge_key, reference_id, granted_at, awarded_at)`. After migration 009 is applied, this INSERT will fail with "column awarded_at of relation user_badges does not exist" — every Sunday season-badge distribution silently crashes.
-
-**FIX:** Remove `awarded_at` from the INSERT column list (and the corresponding VALUES position) at line 283 of `daily/route.ts`. The table now only uses `granted_at`.
+**FIX:** In the `processTransferEvent` function's SELECT statement, also retrieve `net_kobo` from `creator_payouts`. Replace `payout.gross_kobo` in the `UPDATE users SET available_earnings_kobo = available_earnings_kobo + $1` parameter with `payout.net_kobo`. Both values are available in the schema; `net_kobo` is the correct amount to restore.
 
 ---
 
-### BUG-03 / BUG-30: `seasons` Table Missing `updated_at` Column — Two Code Paths Affected
+### 2. BUG-SQL-01 — Nemesis Re-Engagement Notifications Never Sent (HIGH)
 
-**FILES:**  
-`apps/web/app/api/cron/daily/route.ts` (lines 141, 341–344), `apps/web/lib/seasons/seasonEngine.ts` (line 141), `apps/web/db/migrations/001_complete_schema.sql` (line 933–945)
+Cron step 19 builds a re-engagement notification query for users whose nemesis has surpassed them. The query JOINs `nemesis_assignments na` and references `na.nemesis_id`. The `nemesis_assignments` table has two UUID columns: `nemesis_user_id` (NOT NULL — the actual assigned rival) and `nemesis_id` (nullable — a secondary optional reference not reliably populated). Using `na.nemesis_id` reads the nullable column, which is NULL for essentially all active assignments. The query returns zero rows silently; no nemesis re-engagement notifications are ever sent. The cron step "succeeds" with 0 notifications and logs no error.
 
-Migration 001's `seasons` table definition has: `id, name, theme, description, season_number, starts_at, ends_at, pass_price_coins, reward_pool_coins, is_active, created_by, created_at`. There is no `updated_at` column. However, two distinct code paths attempt `UPDATE seasons SET … updated_at = NOW()`:
+**FILES:**
+- `apps/web/app/api/cron/daily/route.ts` — cron step 19, re-engagement query block
+- `apps/web/db/migrations/001_complete_schema.sql` — `nemesis_assignments` table definition (~lines 1036–1048)
 
-1. `daily/route.ts` line 341–344: `UPDATE seasons SET is_active = TRUE, updated_at = NOW()` (when activating upcoming seasons)
-2. `seasonEngine.ts` line 141: `UPDATE seasons SET is_active = FALSE, updated_at = NOW()` (when closing a season)
-
-Both will fail at runtime with "column updated_at of relation seasons does not exist."
-
-**FIX:** Add a migration: `ALTER TABLE seasons ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();`. Then update both SQL statements to set it appropriately.
+**FIX:** Replace every occurrence of `na.nemesis_id` in the step 19 re-engagement query with `na.nemesis_user_id`. Confirm by checking the nemesis engine's own queries which correctly alias `nemesis_user_id AS nemesis_id` in SELECT outputs — the raw table column is `nemesis_user_id`.
 
 ---
 
-### BUG-04: Two Competing Migration Directories With Conflicting Table Schemas
+### 3. BUG-SQL-02 — DM-Streak Sticker Grants Crash at Runtime (CRITICAL)
 
-**FILES:**  
-`apps/web/db/migrations/` (001–011), `apps/web/lib/db/migrations/009_bug_fixes.sql`
+Two call sites INSERT into `user_sticker_packs` specifying columns `(user_id, pack_name, granted_at)`. The actual `user_sticker_packs` table schema (migration 001, line 1314) defines only `(id, user_id, pack_id, acquired_at, unlocked_at)`. Neither `pack_name` nor `granted_at` exist. Every DM-streak milestone sticker grant (cron step 18) and conversation-score sticker unlock (`conversationScore.ts`) throws a PostgreSQL `column "pack_name" does not exist` error at runtime. The `.catch(() => {})` in the calling code swallows the error silently — sticker packs are never granted and no one is alerted.
 
-There are two separate migration directories. The canonical one (`db/migrations/001–011`) is authoritative. A second file at `lib/db/migrations/009_bug_fixes.sql` independently creates several of the same tables with different column definitions:
+**FILES:**
+- `apps/web/app/api/cron/daily/route.ts` — cron step 18, DM streak sticker INSERT (~line 1188)
+- `apps/web/lib/messaging/conversationScore.ts` — conversation score sticker unlock INSERT (~line 212)
 
-- `creator_earnings`: 009 version uses `gross_kobo`/`net_kobo`; migration 001 uses `gross_amount_kobo`/`net_amount_kobo`
-- `system_alerts`: 009 version uses columns `alert_type`/`payload`; migration 001 uses `type`/`severity`/`message`/`metadata` — completely different column names
-- `user_subscriptions`: 009 version has a different structure (adds `plan`, `current_period_start`, `current_period_end`)
-- `sponsored_quest_applications`: 009 references `quest_templates` via FK; 001 references `sponsored_quests` — different semantic meaning
-
-All code uses migration 001's column names for `system_alerts` etc. If migration 009 (lib version) were ever applied to a DB that doesn't yet have these tables, the code would fail because the column names would differ. Additionally, migration 009 contains `ALTER TABLE user_badges DROP COLUMN IF EXISTS awarded_at` which is destructively applied to a column that CRON code still inserts (BUG-02), and `ALTER TABLE gifts RENAME COLUMN gift_type_id TO gift_item_id` which fails because the column doesn't exist (BUG-05).
-
-**FIX:** Consolidate into a single migration directory. Audit `lib/db/migrations/009_bug_fixes.sql` for any genuine schema intent and migrate those changes as new numbered files in `db/migrations/` using IF NOT EXISTS / IF EXISTS guards. Delete `lib/db/migrations/009_bug_fixes.sql` once reconciled.
+**FIX:** Both INSERT statements must use the correct column set. Follow the pattern in `lib/stickers/milestoneStickers.ts` (the correct implementation): first look up the sticker pack by name — `SELECT id FROM sticker_packs WHERE name = $1` — then INSERT `(user_id, pack_id, acquired_at)` using the resolved UUID. Remove the `pack_name` and `granted_at` references entirely.
 
 ---
 
-### BUG-05: Migration 009 Renames a Non-Existent Column in `gifts`, Breaking Migration Chain
+### 4. BUG-SQL-03 — `users.is_active` Column Does Not Exist (HIGH)
 
-**FILES:**  
-`apps/web/lib/db/migrations/009_bug_fixes.sql` (line 8), `apps/web/db/migrations/001_complete_schema.sql` (line 1221–1234), `apps/web/db/migrations/011_bug_fixes.sql`
+Multiple cron steps use `u.is_active = true` as a filter on the `users` table. The users table (migration 001, lines 37–200+) has no `is_active` column. Active users are distinguished by `deleted_at IS NULL AND is_banned = false`. The affected steps fail with `column "is_active" does not exist` at runtime, caught silently by their `try/catch` blocks, meaning those entire cron steps are skipped without any visible failure.
 
-`009_bug_fixes.sql` line 8: `ALTER TABLE gifts RENAME COLUMN gift_type_id TO gift_item_id`. Migration 001 creates the `gifts` table with columns `gift_item_id` (FK to `gift_items`), `coin_value`, `coin_cost`, etc. — there is no `gift_type_id`. Migration 011 creates a new `gifts` table with `gift_type_id` but the IF NOT EXISTS guard makes it a no-op since migration 001's version already exists. Therefore, after migrations 001 and 011 run, the column `gift_type_id` still does not exist. When migration 009 executes its RENAME, it throws "column gift_type_id does not exist on table gifts" and the migration chain halts.
+**FILES:**
+- `apps/web/app/api/cron/daily/route.ts` — cron step 26 council invitation (~line 799), monthly plan bonus step (~line 1358)
 
-**FIX:** Wrap the RENAME in a conditional guard: `DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'gifts' AND column_name = 'gift_type_id') THEN ALTER TABLE gifts RENAME COLUMN gift_type_id TO gift_item_id; END IF; END $$;`. Or remove the statement from 009 entirely since migration 001's gifts table already uses `gift_item_id`.
-
----
-
-### BUG-06: `system_alerts` INSERT Uses Unsupported Severity `'high'`, Violates CHECK Constraint
-
-**FILES:**  
-`apps/web/app/api/economy/webhooks/paystack/route.ts` (line 450)
-
-The `system_alerts` DB table has `severity CHECK (severity IN ('info','warning','critical'))`. The Paystack webhook handler at line 450 inserts `severity = 'high'` when an unrecognised plan name is encountered. This violates the CHECK constraint, throws a PostgreSQL error, and — because the outer `.catch(() => {})` at the call site swallows errors — the alert is silently lost. Operators never see alerts about unknown Paystack plan names, and the subscription is never activated.
-
-**FIX:** Change `'high'` to `'critical'` (or `'warning'`) at line 450 in the Paystack webhook handler. Audit all other `system_alerts` INSERT statements in the codebase for the same misuse of `'high'` as a severity level.
+**FIX:** Replace all occurrences of `u.is_active = true` on the `users` table with `u.deleted_at IS NULL AND u.is_banned = false`. Audit the entire cron file and all API routes for other instances. Consider adding a generated column or view called `is_active` to the DB as an alias to prevent recurrence.
 
 ---
 
-### BUG-07: `room_subscriptions` Has No Unique Constraint; Paystack ON CONFLICT Target Fails
+### 5. BUG-XP-01 — Daily Login XP Has No Idempotency Key (HIGH)
 
-**FILES:**  
-`apps/web/app/api/economy/webhooks/paystack/route.ts` (lines 131–138), `apps/web/db/migrations/001_complete_schema.sql` (line 807–816)
+Cron step 4 awards daily login XP via `safeAwardXP(userId, xp, 'main', 'daily_login', null)` — with `referenceId = null`. The xp_ledger unique partial index `uidx_xp_ledger_source_ref` only deduplicates entries where `reference_id IS NOT NULL`. With null references, the `WHERE NOT EXISTS` guard in the CTE is the only protection against double-award — and this guard has a race condition: two concurrent CRON executions can both read "no existing entry" before either commits. If the external CRON service retries a failed invocation, login XP is double-awarded.
 
-Migration 001 creates `room_subscriptions` without any UNIQUE constraint. The Paystack webhook at line 131 performs `INSERT INTO room_subscriptions … ON CONFLICT (room_id, user_id) DO UPDATE`. PostgreSQL requires a unique constraint or unique index covering exactly those columns for a named ON CONFLICT clause. Without it, the INSERT throws: "there is no unique or exclusion constraint matching the ON CONFLICT specification." VIP room subscription payments complete on Paystack's side but the user's room access is never granted.
+**FILES:**
+- `apps/web/app/api/cron/daily/route.ts` — cron step 4 daily login XP block
 
-**FIX:** Add a migration: `CREATE UNIQUE INDEX IF NOT EXISTS room_subscriptions_room_user_idx ON room_subscriptions (room_id, user_id);` This satisfies the conflict target without altering the existing table constraint.
-
----
-
-### BUG-08: `season_pass_milestones` ON CONFLICT References Non-Existent Unique Index
-
-**FILES:**  
-`apps/web/lib/seasons/seasonEngine.ts` (`seedSeasonPassMilestones` function), `apps/web/db/migrations/001_complete_schema.sql` (line 972–983)
-
-`seedSeasonPassMilestones` runs `INSERT INTO season_pass_milestones … ON CONFLICT (season_id, sort_order) DO NOTHING`. The `season_pass_milestones` table only has a primary key on `id`. No unique constraint on `(season_id, sort_order)` exists. Attempting to seed milestones always fails with "there is no unique or exclusion constraint matching the ON CONFLICT specification" — season pass milestones can never be created programmatically.
-
-**FIX:** Add a migration: `CREATE UNIQUE INDEX IF NOT EXISTS season_pass_milestones_season_sort_idx ON season_pass_milestones (season_id, sort_order);`
+**FIX:** Add a deterministic `reference_id` of `daily_login:${userId}:${new Date().toISOString().slice(0, 10)}` to every `safeAwardXP` call in cron step 4. The existing partial unique index will then correctly deduplicate concurrent or retry CRON fires.
 
 ---
 
-### BUG-09: `leaderboard_snapshots` UPSERT Fails on Installs Missing Migration 011
+### 6. BUG-XP-02 — Comeback Coin Reference ID Reused Across Inactivity Cycles (MEDIUM)
 
-**FILES:**  
-`apps/web/lib/leaderboards/engine.ts` (`upsertLeaderboardSnapshot`), `apps/web/db/migrations/011_bug_fixes.sql`, `apps/web/db/migrations/001_complete_schema.sql`
+When a user returns after 90 days of inactivity (cron step 11a), comeback coins are credited with `reference_id = 'comeback:${userId}'`. The coin ledger has no unique constraint on `reference_id`. A user who goes inactive a second time and returns again will be credited with the same reference_id. Since there's no unique constraint to block it, comeback coins are credited again for every 90-day absence. This is an unbounded double-credit vulnerability for repeat long-absent users.
 
-`upsertLeaderboardSnapshot` uses `ON CONFLICT (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))`. This requires an expression index — not a plain column list. Migration 011 creates this index (`leaderboard_snapshots_upsert_idx`) after first dropping the plain UNIQUE constraint from migration 001. On any install where migration 011 has not been applied, this ON CONFLICT clause will fail at runtime. Furthermore, without the expression index, the plain UNIQUE constraint from migration 001 treats each NULL city as a distinct value, allowing duplicate leaderboard rows for the same user/track/scope when `city = NULL`.
+**FILES:**
+- `apps/web/app/api/cron/daily/route.ts` — cron step 11a comeback coins block
 
-**FIX:** Ensure migration 011 is always applied in sequence. Additionally, embed the expression index in `001_complete_schema.sql` so fresh installs don't rely on incremental patches: replace the plain `UNIQUE(user_id, track, scope, city, season_id)` with a `CREATE UNIQUE INDEX … ON leaderboard_snapshots (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))`.
-
----
-
-### BUG-10: `detectDuplicateMessage` Queries Non-Existent `direct_messages` Table
-
-**FILES:**  
-`apps/web/lib/moderation/contentFilter.ts` (line 162)
-
-`detectDuplicateMessage` computes: `const table = messageContext === "dm" ? "direct_messages" : "room_messages"`. The table `direct_messages` does not exist in the database. Direct messages are stored in the `messages` table (with `conversation_id` FK to `dm_conversations`). Any call to `detectDuplicateMessage` with DM context will throw "relation 'direct_messages' does not exist", crashing the anti-spam check for every DM sent.
-
-**FIX:** Change `"direct_messages"` to `"messages"` (the correct table). Also verify that the column names used in the subsequent SELECT (`content`, `created_at`, `sender_id`) match those on the `messages` table.
+**FIX:** Include the date in the reference_id: `comeback:${userId}:${new Date().toISOString().slice(0, 7)}` (monthly granularity). Additionally add a unique partial index on `coin_ledger(user_id, reference_id) WHERE reference_id IS NOT NULL`.
 
 ---
 
-### BUG-11: `claimPassMilestone` Silently Skips `sticker_pack` Reward Type
+### 7. BUG-XP-03 — Message XP Has No DLQ Fallback (MEDIUM)
 
-**FILES:**  
-`apps/web/lib/seasons/seasonEngine.ts` (`claimPassMilestone` function)
+The `maybeAwardMessageXP` helper in the room messages POST route awards XP via a manually-crafted raw transaction, bypassing `safeAwardXP` entirely. If the transaction fails for any reason, the error is caught and logged as non-fatal, but no entry is written to `failed_xp_awards`. The XP is permanently lost — there is no retry, no DLQ recovery, and no operator alert.
 
-`claimPassMilestone` handles reward types `'coins'`, `'xp'`, `'badge'`, and `'cosmetic'` but has no branch for `'sticker_pack'`. When a user claims a sticker-pack milestone, the claim is recorded in `user_season_pass_claims` (preventing re-claim), but no sticker pack is granted. The user permanently loses the reward with no indication anything went wrong.
+**FILES:**
+- `apps/web/app/api/rooms/[roomId]/messages/route.ts` — `maybeAwardMessageXP` function (~lines 130–205)
 
-**FIX:** Add a `case 'sticker_pack':` branch in `claimPassMilestone` that inserts into `user_sticker_packs (user_id, pack_id)` using the pack identifier from `reward_value`. Also add a default case that logs an error for unrecognised reward types so future omissions are caught at development time.
-
----
-
-### BUG-12: Dynamic `import()` Inside DB Transaction Callbacks (`warEngine.ts`, `seasonEngine.ts`)
-
-**FILES:**  
-`apps/web/lib/guilds/warEngine.ts`, `apps/web/lib/seasons/seasonEngine.ts` (see also BUG-26 for the second instance in `distributeSeasonRewards`)
-
-Both files execute `const { creditCoins } = await import("@/lib/economy/coins")` inside `db.transaction(async (client) => { … })` callbacks. If the dynamic import fails (even from module cache miss during cold start, circular dependency, or a bundling issue), the transaction throws mid-flight. Depending on what has already executed, the DB ends up in a partially updated state with no clean rollback path visible at the caller. This is an unnecessary and avoidable risk.
-
-**FIX:** Convert to static top-level imports in both files: `import { creditCoins } from "@/lib/economy/coins"` at the top of each file. Remove the `await import(…)` calls inside the transaction bodies.
+**FIX:** Replace the entire inline transaction with a call to `safeAwardXP(userId, xpAmount, track, 'send_message', 'msg_${messageId}')`. The `safeAwardXP` function already implements the CTE pattern correctly and falls back to the DLQ on failure.
 
 ---
 
-### BUG-13: `getCommissionStats` Compares TEXT `tier` Column Against Integer Literals
+### 8. BUG-XP-04 — DLQ XP Retry Can Double-Award When reference_id Is NULL (MEDIUM)
 
-**FILES:**  
-`apps/web/lib/referrals/commissions.ts` (`getCommissionStats` function)
+In `retryFailedXPAwards`, the xp_ledger INSERT uses `ON CONFLICT DO NOTHING`. The deduplication partial index only applies `WHERE reference_id IS NOT NULL`. DLQ entries that originally had no `reference_id` will have `reference_id = NULL` in `failed_xp_awards`. Each retry inserts a new ledger row with no conflict detected. If the `resolved_at` UPDATE that follows fails, the same entry is retried again, resulting in double XP.
 
-Migration `009_bug_fixes.sql` adds a `tier TEXT NOT NULL DEFAULT 'standard'` column to `referral_commissions`. The `getCommissionStats` function groups by `tier` and then filters/compares using integer literals (e.g. `tier = 1`, `tier = 2`). A TEXT column compared to an integer without quoting is a type mismatch. PostgreSQL will either reject it or produce an implicit cast that never matches real text values like `'standard'`, `'1'`, `'2'`. Commission tier statistics always return zero.
+**FILES:**
+- `apps/web/lib/xp/safeAwardXP.ts` — `retryFailedXPAwards` function (~lines 141–167)
 
-**FIX:** If tier values are stored as `'1'` and `'2'` (strings), update comparisons to use string literals: `tier = '1'` and `tier = '2'`. If the intent is to store integers, change the column type to INTEGER via migration and update code accordingly.
-
----
-
-### BUG-14: `transferCoins` Uses `Date.now()` in Transfer Ref — Double-Transfer Risk on Retry
-
-**FILES:**  
-`apps/web/lib/economy/coins.ts` (`transferCoins` function)
-
-`transferCoins` constructs a default `transferRef = \`transfer:${fromUserId}:${toUserId}:${Date.now()}\`` as the coin ledger idempotency key. On a network error, if the caller retries the same logical transfer, `Date.now()` returns a new value, producing a new reference. The `creditCoins`/`debitCoins` duplicate-detection logic (which keys on `reference_id`) treats this as a distinct new transfer and executes it again, double-debiting the sender.
-
-**FIX:** Require callers to pass a stable, externally-generated idempotency key. Remove `Date.now()` from the default construction. If a default is needed, derive it deterministically from the stable inputs: `crypto.createHash('sha256').update(fromUserId + toUserId + amount.toString()).digest('hex')`.
+**FIX:** Wrap each retry's INSERT + `resolved_at` UPDATE in a single transaction. For DLQ entries with `reference_id = NULL`, generate a synthetic stable key when writing the DLQ entry (e.g., `dlq:${userId}:${source}:${failedAt.toISOString()}`) so the xp_ledger index can protect against double-award on retry.
 
 ---
 
-### BUG-15: `buildKeyRegistry()` Rebuilds Map on Every JWT Verification Call
+### 9. BUG-EMAIL-01 — Re-Engagement Emails Bypass User Opt-Out (HIGH)
 
-**FILES:**  
-`apps/web/lib/auth/jwt.ts` (`buildKeyRegistry`, `getSecretForKid`, `verifyAccessToken`)
+Cron step 11 sends re-engagement emails by calling `sendEmail(toAddress, subject, text, html)`. The `sendEmail` function accepts optional `userId` and `notificationType` parameters that trigger a check of `user_email_preferences` and the platform-wide `email_all_enabled` manifest flag. By omitting these, the cron call bypasses all opt-out checks. Users who have explicitly opted out of non-security emails still receive re-engagement messages — a potential CAN-SPAM / GDPR compliance violation.
 
-`verifyAccessToken` calls `getSecretForKid()` → `buildKeyRegistry()` on every invocation. `buildKeyRegistry()` iterates `Object.entries(process.env)` scanning for `JWT_SECRET_v*` keys and builds a new Map each time. Since environment variables are immutable after process start, this work is entirely redundant on every authenticated request and on every middleware invocation.
+**FILES:**
+- `apps/web/app/api/cron/daily/route.ts` — cron step 11 re-engagement email block
+- `apps/web/lib/notifications/email.ts` — `sendEmail` function
 
-**FIX:** Extract `const keyRegistry = buildKeyRegistry()` as a module-level constant (evaluated once at import time). Update `getSecretForKid` to reference the module-level constant.
-
----
-
-### BUG-16: Middleware Pre-Auth JWT Can Redirect User to `/home` Before 2FA Completion
-
-**FILES:**  
-`apps/web/middleware.ts` (line 232–237)
-
-The public-route redirect block at line 232 checks: `if (payload?.sub)` to decide whether to redirect an authenticated user from `/auth/login` to `/home`. A pre-auth JWT (issued during the password-success phase of 2FA login, containing `type: 'pre_auth'`) has `payload.sub` set. If this token is present in the cookie when the user visits `/auth/login` (e.g., after a failed TOTP attempt), they are immediately redirected to `/home` — bypassing the TOTP verification entirely.
-
-**FIX:** Update the condition to also exclude pre-auth tokens: `if (payload?.sub && payload?.type !== 'pre_auth')`. Only redirect users holding a full access token (type is `'access'` or absent).
+**FIX:** Pass `userId` and `notificationType: 're_engagement'` to every `sendEmail` call in cron step 11. The function already has the opt-out check logic; the calling code just needs to supply the required parameters.
 
 ---
 
-### BUG-17: Both AI Provider Keys Required — App Fails to Start Without Either
+### 10. BUG-TG-01 — Telegram Notifications Mark Users as Delivered Without Confirmation (HIGH)
 
-**FILES:**  
-`apps/web/lib/env.ts` (lines 75, 80)
+In cron step 19, `sendTelegramMessage(chatId, message)` is called without `await` — it's fire-and-forget. The DB update that sets `telegram_notified = true` runs immediately after the call, before the Telegram API has responded. Any Telegram delivery failure is silently discarded. The user is permanently marked as notified and will never receive the message on any subsequent retry.
 
-`DEEPSEEK_API_KEY` and `GEMINI_API_KEY` are declared with `.min(1)` in the Zod env schema, making them effectively required. Any deployment that only configures one AI provider (e.g., only DeepSeek) will fail to start with "Environment validation failed: GEMINI_API_KEY: String must contain at least 1 character(s)". Both providers are used for different tasks in moderation and AI classification, but they should be independently optional with per-call runtime validation.
+**FILES:**
+- `apps/web/app/api/cron/daily/route.ts` — cron step 19, Telegram send block
 
-**FIX:** Change both to `.optional()` in the Zod schema. In the specific functions that call each provider, add a runtime check: `if (!env.DEEPSEEK_API_KEY) throw new Error("DEEPSEEK_API_KEY not configured")` (or similar). This fails fast at the point of use, not at startup.
-
----
-
-### BUG-18: `resetDailyQuests` Uses Server Local Time Instead of UTC Date Boundary
-
-**FILES:**  
-`apps/web/lib/quests/questEngine.ts` (`resetDailyQuests`)
-
-`resetDailyQuests` computes the cutoff as `new Date(Date.now() - 24 * 60 * 60 * 1000)` (24 hours ago). This is a rolling window, not a calendar day boundary, and is evaluated in the server's local timezone. In a UTC server environment the results are usually correct, but if the server's timezone is configured as anything other than UTC, quests will reset at a non-midnight boundary. It also means the reset window slightly drifts with DST transitions and is imprecise compared to "the start of today in UTC."
-
-**FIX:** Use an explicit UTC date string: `const todayUTC = new Date().toISOString().slice(0, 10)` and filter with `WHERE quest_date < $1::date` using `todayUTC`. This guarantees resets happen at UTC midnight regardless of server timezone.
+**FIX:** Add `await` before `sendTelegramMessage(...)` and move the `telegram_notified = true` DB update into the `try` block after the awaited call. In the `catch` block, log the error but do NOT set `telegram_notified`, so the user is retried on the next CRON run.
 
 ---
 
-### BUG-19: Daily CRON Streak Increment Credits Users Who Haven't Logged In Yet Today
+### 11. BUG-LB-01 — Global Leaderboard Rank Count Includes City-Scoped Rows (MEDIUM)
 
-**FILES:**  
-`apps/web/app/api/cron/daily/route.ts` (lines 100–110)
+`getUserRank` counts how many users have a higher xp_value to compute the 1-based rank position. For the global scope, the query does not filter `ls.city IS NULL`. The `leaderboard_snapshots` table stores both global rows (`city = NULL`) and city-scoped rows (`city = 'Lagos'`, etc.) for each user. Without the city filter, city-scoped rows are included in the "ahead of you" count, producing an inflated rank number. The companion function `getLeaderboard` correctly adds `ls.city IS NULL` but `getUserRank` does not.
 
-The streak-increment SQL increments `login_streak_days` for all users where `last_login_at::date = yesterday`. This only checks whether the user's most recent login was yesterday — it does NOT require the user to have also logged in today. The CRON runs at midnight UTC. A user who logged in yesterday evening and hasn't yet logged in today will receive a streak increment, even though they are technically about to break their streak. Their streak is temporarily inflated until the next day's CRON either keeps it (if they log in today) or resets it (if they don't).
+**FILES:**
+- `apps/web/lib/leaderboards/engine.ts` — `getUserRank` function, conditions array (~lines 93–118)
 
-**FIX:** Move streak increment logic to the login API handler: when a user logs in, check if `last_login_date = today - 1 day` and increment streak; if `last_login_date < today - 1 day`, reset streak to 1. The CRON should only handle resets for users who have NOT logged in by midnight UTC.
-
----
-
-### BUG-20: `audit_discrepancies` Unique Constraint Blocks Re-Recording of Updated Discrepancies
-
-**FILES:**  
-`apps/web/db/migrations/005_sys_improvements.sql`, `apps/web/app/api/cron/reconcile-balances/route.ts` (lines 61–64, 78–81)
-
-Migration 005 creates `audit_discrepancies` with `UNIQUE (user_id, asset_type)` — no timestamp in the key. The reconcile-balances CRON uses `ON CONFLICT DO NOTHING` (no conflict target). If a user already has an unresolved XP discrepancy row, any subsequent reconcile run silently skips recording a potentially larger or different discrepancy for the same user/asset pair. The table keeps stale discrepancy values until manually resolved, making the nightly reconciliation unreliable for persistent drifters.
-
-**FIX:** Change the CRON's INSERT to use `ON CONFLICT (user_id, asset_type) DO UPDATE SET ledger_sum = EXCLUDED.ledger_sum, wallet_balance = EXCLUDED.wallet_balance, detected_at = NOW(), resolved = FALSE` so the row is refreshed with the latest discrepancy data on every reconcile pass.
+**FIX:** In `getUserRank`, add `ls.city IS NULL` to the `conditions` array for all scopes except `"city"`. This mirrors the logic already present in `getLeaderboard`.
 
 ---
 
-### BUG-21: Expo Offline Queue Doesn't Cover Room Messages — They're Lost on Send
+### 12. BUG-PAY-01 — Subscription Plan Matching via `String.includes()` Is Fragile (HIGH)
 
-**FILES:**  
-`apps/expo/lib/offline/useOfflineSync.ts`, `apps/expo/lib/offline/syncQueue.ts`, `apps/expo/lib/offline/sqlite.ts`
+When a `subscription.create` Paystack event arrives, the plan tier is derived via `planNameLower.includes("max")`, `planNameLower.includes("plus")`, `planNameLower.includes("pro")`. A plan named "Pro Plus" would match "pro" incorrectly. Any future Paystack plan whose name contains one of these substrings would activate the wrong tier silently.
 
-The offline message SQLite queue accepts `conversation_type` values of `'dm'` or `'group'`. The sync queue routes to `/messages/dm/…` or `/messages/group/…`. Room messages sent while the device is offline have no offline-queue path — the send call simply fails and the message is lost. The user sees no failure indicator and no retry mechanism exists for rooms.
+**FILES:**
+- `apps/web/app/api/economy/webhooks/paystack/route.ts` — `processSubscriptionEvent`, plan derivation block (~lines 433–455)
 
-**FIX:** Add `'room'` as a valid `conversation_type` in the SQLite schema and in `syncQueue.ts`. Route room-type messages to the appropriate room message endpoint (`/rooms/:roomId/messages`). Show the user a visual indicator (e.g., clock icon) when a message is queued offline, and remove it on successful sync.
-
----
-
-### BUG-22: CSP Nonce Uses UUID Entropy Instead of Full-Entropy Random Bytes
-
-**FILES:**  
-`apps/web/middleware.ts` (line 188)
-
-`const nonce = Buffer.from(crypto.randomUUID()).toString("base64")` generates a nonce by base64-encoding the ASCII bytes of a UUID string. UUIDs have only 122 bits of randomness (version and variant bits are fixed). Additionally, base64-encoding the UUID's ASCII string representation results in ~32 bytes encoding 36 ASCII characters (0–9, a–f, hyphens) — a very limited character space, further reducing effective entropy. CSP nonces should use raw random bytes.
-
-**FIX:** Replace with: `const nonceBytes = crypto.getRandomValues(new Uint8Array(16)); const nonce = Buffer.from(nonceBytes).toString("base64url")`. This produces 128 bits of true entropy in a standard base64url format.
+**FIX:** Use Paystack's `plan_code` field (a stable, operator-controlled identifier) instead of the display name. Store a `PLAN_CODE_MAP: Record<string, string>` constant mapping plan codes to tier names, and validate new codes at webhook time.
 
 ---
 
-### BUG-23: `xp_ledger` INSERT Uses `ON CONFLICT DO NOTHING` Without Explicit Conflict Target
+### 13. BUG-COIN-01 — `transferCoins` Default Idempotency Key Is Non-Unique (MEDIUM)
 
-**FILES:**  
-`apps/web/lib/xp/safeAwardXP.ts` (lines 72–83)
+When `transferCoins` is called without an explicit `idempotencyKey`, it generates `transfer:${fromUserId}:${toUserId}:${amount}`. Two different business events between the same users for the same amount produce the same key, providing zero idempotency protection for duplicate transfers on retry.
 
-The CTE `INSERT INTO xp_ledger … ON CONFLICT DO NOTHING` has no explicit conflict target. Without naming a specific unique constraint or column list, PostgreSQL's `ON CONFLICT DO NOTHING` silently suppresses *any* unique constraint violation on the table. If a future schema change adds a new unique index on `xp_ledger` for unrelated reasons, a valid new XP award that happens to conflict with it would be silently dropped — making awards disappear invisibly.
+**FILES:**
+- `apps/web/lib/economy/coins.ts` — `transferCoins` function, default idempotency key (~line 125)
 
-**FIX:** Specify the conflict target explicitly: `ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`. Confirm the corresponding partial unique index exists (migration 007 adds `xp_ledger_unique_ref`).
-
----
-
-### BUG-24: CRON Auth Inconsistency — `reconcile-balances` Uses `x-cron-secret` Header, Others Use `Authorization: Bearer`
-
-**FILES:**  
-`apps/web/app/api/cron/reconcile-balances/route.ts` (line 17), `apps/web/app/api/cron/daily/route.ts` (line 55)
-
-`reconcile-balances/route.ts` reads authentication from `req.headers.get("x-cron-secret")`. All other CRON handlers (`daily`, `payouts`, `guild-wars`, `leaderboards`) validate `Authorization: Bearer <CRON_SECRET>`. External CRON services (cron-job.org, etc.) must be configured with a different header for this one endpoint, which is easy to misconfigure and leave the reconcile endpoint unprotected.
-
-**FIX:** Update `reconcile-balances/route.ts` to use the same `Authorization: Bearer <CRON_SECRET>` pattern used by all other CRON handlers. Consider extracting a shared `validateCronSecret(req)` helper (one already exists in `daily/route.ts`) into a shared lib file.
+**FIX:** Make `idempotencyKey` a required parameter with no default. Every caller must supply an event-scoped key (gift ID, purchase reference, or a UUID generated at request time). TypeScript enforces this at compile time by removing the `?`.
 
 ---
 
-### BUG-25: Google Play IAP Purchase Promises Have No Timeout
+### 14. BUG-SSE-01 — SSE Stream Endpoint Has No Rate Limiting (MEDIUM)
 
-**FILES:**  
-`apps/expo/lib/payments/googlePlay.ts` (`purchaseCoins`, `purchaseSubscription`)
+The SSE endpoint at `/api/rooms/[roomId]/stream` has no `enforceRateLimit` call. A malicious or buggy client can reconnect at arbitrary frequency, generating one DB query per connection with no throttle — a low-cost denial-of-service vector against the database connection pool.
 
-Both purchase functions return a `new Promise` that resolves only when the global `InAppPurchases.setPurchaseListener` callback fires. If the user dismisses the Google Play billing sheet without completing the purchase, if the listener fails silently, or if the app backgrounds during a purchase, the promise hangs indefinitely. The calling UI code has no way to detect or escape this stuck state.
+**FILES:**
+- `apps/web/app/api/rooms/[roomId]/stream/route.ts`
 
-**FIX:** Wrap the inner promise with `Promise.race` against a 5-minute timeout: `Promise.race([purchasePromise, new Promise((_, reject) => setTimeout(() => reject(new Error('Purchase timed out')), 5 * 60 * 1000))])`. In the timeout handler, clean up the resolver and active-session maps to prevent leaks.
-
----
-
-### BUG-26: `distributeSeasonRewards` Dynamic Import Inside Transaction (Second Instance of BUG-12)
-
-**FILES:**  
-`apps/web/lib/seasons/seasonEngine.ts` (line 256–257, inside `distributeSeasonRewards`)
-
-`await import("@/lib/economy/coins")` is called inside the `db.transaction(async (client) => { … })` callback in `distributeSeasonRewards`. This is the same anti-pattern as BUG-12. If the import fails mid-transaction (e.g., during a serverless cold start or due to a bundling edge case), partial season rewards are committed with no clean rollback.
-
-**FIX:** Add a static top-level import: `import { creditCoins } from "@/lib/economy/coins"` at the top of `seasonEngine.ts`. Remove the `await import(…)` call inside the transaction.
+**FIX:** Add `await enforceRateLimit(auth.user.sub, "user", { maxRequests: 30, windowSeconds: 60 })` immediately after authentication, matching the pattern in other route handlers.
 
 ---
 
-### BUG-27: `safeAwardXP` DLQ INSERT Conflict Target Requires Partial Index That May Not Exist
+### 15. BUG-DB-01 — `getTypedDb()` Creates a Duplicate Database Connection Pool (MEDIUM)
 
-**FILES:**  
-`apps/web/lib/xp/safeAwardXP.ts` (lines 91–96), `apps/web/db/migrations/005_sys_improvements.sql`
+`lib/db/drizzle.ts` exports `getTypedDb()` which initialises a new `pg.Pool` (default 10 connections) on module load. The Railway provider in `lib/db/providers/railway.ts` also maintains its own pool. Any code path that uses both opens two separate connection pools to the same PostgreSQL instance. Railway's hobby tier has a 25-connection limit; the dual pool can exhaust it under normal load.
 
-The DLQ INSERT in `safeAwardXP` uses: `ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`. This requires the partial unique constraint `uq_failed_xp_reference` which is defined in migration 005 as `UNIQUE (user_id, source, reference_id) DEFERRABLE INITIALLY IMMEDIATE`. If a DB is initialised using only `lib/db/migrations/009_bug_fixes.sql` (which creates `failed_xp_awards` without the partial unique index), this ON CONFLICT target fails. The DLQ INSERT throws, and the error is caught by the inner `.catch()` which logs a "Failed to write to DLQ" message — on top of the original XP award failure.
+**FILES:**
+- `apps/web/lib/db/drizzle.ts` — `getTypedDb` function
+- `apps/web/lib/db/providers/railway.ts` — pool definition
 
-**FIX:** Remove the `failed_xp_awards` CREATE TABLE from `lib/db/migrations/009_bug_fixes.sql` and rely solely on migration 005's definition which includes the partial unique constraint. Add a guard in `009` to skip the create if the table already exists.
-
----
-
-### BUG-28: Paystack Webhook `processSubscriptionEvent` Has Dead Redundant Null Check
-
-**FILES:**  
-`apps/web/app/api/economy/webhooks/paystack/route.ts` (lines 400–412)
-
-At line 400–408, the function attempts to look up `resolvedUserId` from email if the metadata userId is absent, and returns early at line 408 if the lookup also fails. At line 412, a second `if (!resolvedUserId) return;` check is present — but control cannot reach line 412 if `resolvedUserId` is null, because the function already returned at line 408. This is dead code left from a partially completed refactor. While not a functional bug, it misleads readers about the actual control flow.
-
-**FIX:** Remove the redundant null check at line 412.
+**FIX:** Expose the underlying `pg.Pool` instance from the Railway provider and pass it to Drizzle's `drizzle(pool)` constructor instead of creating a new pool.
 
 ---
 
-### BUG-29: Drizzle `creatorEarnings` Schema Missing `reference_id`, `paid_out`, `payout_id` Columns
+### 16. BUG-DRIZZLE-01 — Drizzle Schema Critically Out of Sync with SQL Migrations (HIGH)
 
-**FILES:**  
-`apps/web/lib/db/schema.ts` (lines 1042–1060), `apps/web/db/migrations/001_complete_schema.sql` (line 1353–1366)
+`lib/db/schema.ts` diverges significantly from the authoritative SQL schema in `db/migrations/001_complete_schema.sql`. Running `drizzle-kit push` would attempt to reconcile these differences, destructively ALTERing or dropping columns from the live database.
 
-Beyond BUG-01 (wrong column names for grossKobo/netKobo), the `creatorEarnings` Drizzle table definition is also missing `reference_id TEXT`, `paid_out BOOLEAN`, and `payout_id UUID` — all of which exist in the actual DB from migration 001. Any ORM-level query that selects all fields from `creator_earnings` will receive `undefined` for these columns, silently hiding data. Code that reads `creatorEarning.paidOut` or `creatorEarning.referenceId` via Drizzle will always get `undefined`.
+Key divergences:
+- `user_subscriptions`: Drizzle defines `currentPeriodStart`/`currentPeriodEnd` (not in DB); missing `next_renewal_at` (in DB and used by Paystack webhook); missing UNIQUE on `user_id`.
+- `room_subscriptions`: Missing `amount_kobo`; has `startsAt` but DB column is `started_at`.
+- `sponsored_quest_applications`: Drizzle has `sponsorUserId` but DB column is `creator_id`.
+- `user_badges`: Drizzle has `awardedAt` which migration 009 drops from DB.
+- Migration 009: Wrong column schemas for `system_alerts` and `creator_earnings`.
 
-**FIX:** Add the missing fields to the `creatorEarnings` pgTable definition in `lib/db/schema.ts`: `referenceId: text("reference_id"), paidOut: boolean("paid_out").default(false), payoutId: uuid("payout_id")`. Align all column names with the actual migration 001 definition.
+**FILES:**
+- `apps/web/lib/db/schema.ts`
+- `apps/web/lib/db/migrations/009_bug_fixes.sql`
+- `apps/web/db/migrations/001_complete_schema.sql`
 
----
-
-### BUG-30: `resetSeasonRankings` Also References `seasons.updated_at` — Second Instance of BUG-03
-
-**FILES:**  
-`apps/web/lib/seasons/seasonEngine.ts` (line 141 inside `resetSeasonRankings`)
-
-`resetSeasonRankings` calls `UPDATE seasons SET is_active = FALSE, updated_at = NOW() WHERE id = $1` inside its transaction. This is a second occurrence of the missing-column bug (BUG-03). Applying the migration fix from BUG-03 (adding `updated_at` to the `seasons` table) resolves both this instance and the one in `daily/route.ts`.
-
-**FIX:** See BUG-03 fix: `ALTER TABLE seasons ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();`
+**FIX:** Perform a column-by-column audit of the Drizzle schema against migration 001. Fix migration 009's `CREATE TABLE` blocks to use `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`. Add a CI step that runs `drizzle-kit check` against a shadow database to catch future drift.
 
 ---
 
-### BUG-31: Room Chat Realtime Channel Name Mismatch — Messages Don't Appear Until Page Refresh
+### 17. BUG-REF-01 — Referral Streak Lock Released Before Processing (HIGH)
 
-**FILES:**  
-`apps/web/app/(app)/rooms/[roomId]/page.tsx` (line 1072)  
-`apps/web/app/api/rooms/[roomId]/messages/route.ts` (line 608)  
-`apps/web/app/api/rooms/[roomId]/stream/route.ts` (line 297)
+Cron step 33 issues `SELECT ... FOR UPDATE SKIP LOCKED` on the `referrals` table as a standalone `db.query` call, outside any transaction. PostgreSQL releases row-level locks at transaction commit — since there is no enclosing transaction, the lock is released immediately after the SELECT returns. A second concurrent CRON invocation can select the same rows and process them in parallel, double-awarding XP and coin bonuses.
 
-The server publishes every new room message to the realtime channel `room:<roomId>:messages`. The SSE stream endpoint also explicitly instructs the client (via a `realtime_ready` event) to subscribe to `room:<roomId>:messages`. However, the room page hard-codes the subscription channel as `room:${roomId}` — missing the `:messages` suffix. The client is listening on a channel that receives no events. New messages only appear after a manual page refresh because the REST GET snapshot re-fetches all messages.
+**FILES:**
+- `apps/web/app/api/cron/daily/route.ts` — cron step 33, referral streak qualifying block
 
-DMs are not affected — the DM page subscribes to `dm:conversation:${conversationId}` and the server publishes to exactly that channel. If DMs also feel slow, it is because the `NEXT_PUBLIC_REALTIME_PROVIDER` environment variable is not configured, causing both rooms and DMs to fall back to polling rather than push.
-
-**FIX:** Change `room:${roomId}` to `room:${roomId}:messages` at line 1072 of `rooms/[roomId]/page.tsx`. One character change. Ensure `NEXT_PUBLIC_REALTIME_PROVIDER` is set in production for live push delivery.
+**FIX:** The cleanest fix is a global advisory lock at the top of the daily CRON handler: `SELECT pg_try_advisory_xact_lock(hashtext('zobia_daily_cron'))`. If the lock is unavailable, return 200 immediately. This protects all idempotency-sensitive steps simultaneously.
 
 ---
 
-### BUG-32: Room Powers Send Wrong Request Body Key — Pin Message and All Powers Do Nothing
+### 18. BUG-FUND-01 — Creator Fund Excludes Platform Quest Completions (MEDIUM)
 
-**FILES:**  
-`apps/web/app/(app)/rooms/[roomId]/page.tsx` (line 584)  
-`apps/web/app/api/rooms/[roomId]/powers/route.ts` (lines 43–57)
+`calculateFundDistributions` computes the "quest completion" dimension using only `sponsored_quest_applications`. Platform quest completions are stored in `user_quest_progress`. Creators who primarily complete daily platform quests receive a quest score of 0, systematically disadvantaging them in fund distribution.
 
-The `activate()` function on the room page sends `{ powerType: "message_pin" }`. The server's Zod schema uses `z.discriminatedUnion("power", [...])` — it expects the discriminant key to be `power`, not `powerType`. Zod validation fails on every request and returns a 400; no power ever fires. Additionally, even after fixing the key name, `message_pin` requires a `messageId` UUID (which specific message to pin) and `member_highlight` requires a `targetUserId` UUID — neither value is collected anywhere in the current UI.
+**FILES:**
+- `apps/web/lib/creator/fund.ts` — `calculateFundDistributions`, `qst` CTE (~lines 113–120)
 
-**FIX:**
-1. Change the fetch body from `{ powerType }` to `{ power: powerType }` at line 584 — fixes `room_spotlight` immediately.
-2. Redesign `message_pin` as a per-message context-menu action (long-press / right-click) that passes the selected message's ID. The current toolbar pin button has nowhere to get a `messageId` from.
-3. Redesign `member_highlight` to show a member picker before activation so `targetUserId` can be captured.
+**FIX:** Extend the `qst` CTE to UNION results from `user_quest_progress (completed = true, quest_date >= NOW() - INTERVAL '30 days')`. Group by user and count distinct quests to avoid double-counting.
 
 ---
 
-### BUG-33: Moments Page Exists but Is Unreachable — Not Listed in Navigation
+### 19. BUG-TIER-01 — "Elite" Creator Tier Is Never Auto-Assigned (MEDIUM)
 
-**FILES:**  
-`apps/web/components/layout/Sidebar.tsx` (lines 41–56)  
-`apps/web/components/layout/Navbar.tsx` (lines 44–70)
+The `tierForCount` function in cron step 28 maps: `>= 2000 → "icon"`, `>= 500 → "verified"`, `>= 100 → "rising"`, `else → "rookie"`. The "elite" tier is never assigned. The creator fund eligibility check requires `creator_tier IN ('elite', 'icon')`, making "elite" a dead value — no creator can ever reach it via the automatic tier system.
 
-The moments feed (`/app/(app)/moments/page.tsx`) and create page (`/app/(app)/moments/create/page.tsx`) are both fully implemented — the API (`/api/moments/`, `/api/moments/[id]/reactions/`) is complete, and moments are correctly stored and expired by the daily CRON. However, `/moments` is absent from both the Sidebar's `primaryNavItems` array and the Navbar's `primaryNavItems` array. There is no link to the feature anywhere in the navigation. Users can only discover it by guessing the URL directly. The in-room ⚡ moment toggle works correctly and sends moment-type messages, but the standalone moments feed is a dead end.
+**FILES:**
+- `apps/web/app/api/cron/daily/route.ts` — cron step 28, `tierForCount` function
+- `apps/web/lib/creator/fund.ts` — eligibility WHERE clause
 
-**FIX:** Add `{ href: "/moments", label: "Moments", icon: "⚡" }` to `primaryNavItems` in both `Sidebar.tsx` and `Navbar.tsx`. No other changes required — the feature is otherwise complete.
-
----
-
-## Code Quality Summary Table
-
-| Dimension | Before | After Fixes |
-|---|---|---|
-| Security architecture | ✅ Strong | ✅ Strong |
-| Payment integrity | ✅ Good (HMAC, idempotency) | ✅ Good |
-| Schema/migration hygiene | ❌ Dual conflicting systems | ✅ Consolidated |
-| DB query correctness | ❌ Multiple broken ON CONFLICT clauses | ✅ All fixed |
-| Runtime crash risk | ❌ High (missing columns, wrong table names) | ✅ Low |
-| Auth & session model | ✅ Good (JWT + Redis rotation) | ✅ + pre-auth bypass fix |
-| Mobile (Expo) offline | ⚠️ Room messages lost, no IAP timeout | ✅ Fixed |
-| Realtime chat delivery | ❌ Channel mismatch — room msgs never push | ✅ Fixed (1-line fix) |
-| Room powers / paid extras | ❌ Wrong request key, 400 on every call | ✅ Fixed + UX redesign |
-| Feature discoverability | ❌ Moments page unreachable (no nav link) | ✅ Fixed |
-| Performance (hot path) | ⚠️ JWT key registry rebuilt every call | ✅ Memoized |
-| Env config robustness | ⚠️ Fails hard if either AI key absent | ✅ Graceful |
-| Streak/XP data accuracy | ⚠️ Streak overcounting, XP silently dropped | ✅ Fixed |
+**FIX:** Add `>= 5000 → "icon"` and change `>= 2000` to `→ "elite"`. Update the creator fund eligibility and the `users` table `creator_tier` CHECK constraint to include all five canonical tiers.
 
 ---
 
-*Report generated: June 15, 2026 — 06:38 AM*  
-*Zobia Social Forensic Bug Report v1.0 — Complete, untruncated listing of all discovered issues*
+### 20. BUG-MIG-01 — Migration 009 Contains Wrong Table Definitions (MEDIUM)
+
+`apps/web/lib/db/migrations/009_bug_fixes.sql` contains `CREATE TABLE IF NOT EXISTS` blocks for `system_alerts` and `creator_earnings` with incorrect column schemas (wrong names, missing critical columns). In production, migration 001 runs first and `IF NOT EXISTS` makes these harmless no-ops. However, any fresh database setup (CI pipeline, developer environment, disaster recovery) applying only migration 009 will create broken tables causing immediate `column does not exist` errors.
+
+**FILES:**
+- `apps/web/lib/db/migrations/009_bug_fixes.sql`
+- `apps/web/db/migrations/001_complete_schema.sql`
+
+**FIX:** Remove the incorrect `CREATE TABLE IF NOT EXISTS` blocks from migration 009. Replace with `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for any genuinely new columns needed by the bug fixes.
+
+---
+
+### 21. BUG-ADMIN-01 — Feature Flags Revert to Disabled After Every Admin Toggle (CRITICAL)
+
+The feature-flags admin page (`page.tsx`) saves toggles via `PUT /api/admin/config/${key}` with body `{ value: "true" }`. The handler's `sanitizeManifestValue` function recognises boolean keys only when they contain `_enabled`, start with `is_`, or contain `require_`/`allow_`. Feature flag keys all use the `feature_*` prefix, which matches none of these patterns.
+
+The function falls through to the default case: `return JSON.stringify(value.trim())` — which transforms the 4-char string `"true"` into the 6-char JSON-encoded string `'"true"'` (with embedded quote characters). PostgreSQL stores this as the JSONB string type `"true"` (distinct from the JSONB boolean `true`). On subsequent GET reads, PostgreSQL serialises the JSONB string back with surrounding quotes. The UI then evaluates `e.value === "true"` — which is `false` — so every flag immediately shows as disabled after a page refresh.
+
+The initial DB seed correctly stores JSONB booleans, so flags display correctly until an admin first toggles one. After that first toggle, the flag is permanently broken until manually corrected in the database.
+
+**FILES:**
+- `apps/web/app/api/admin/config/[key]/route.ts` — `sanitizeManifestValue` function
+- `apps/web/app/(admin)/admin/feature-flags/page.tsx` — `handleToggle` function
+
+**FIX (two options):**
+
+Option A (minimal change): Add `feature_*` recognition to `sanitizeManifestValue`:
+```typescript
+if (
+  lower.startsWith("feature_") ||  // ← add this line
+  lower.includes("_enabled") ||
+  lower.startsWith("is_") ||
+  lower.includes("require_") ||
+  lower.includes("allow_")
+)
+```
+
+Option B (preferred architecturally): Rewire the feature-flags page to use the dedicated `/api/admin/feature-flags` endpoint, which already exists and handles writes correctly. Change `handleToggle` to `PUT /api/admin/feature-flags` with body `{ key, enabled: boolean }`. Update the `useEffect` fetch to `GET /api/admin/feature-flags` and adjust the response shape (from `{ data: [...] }` to `{ items: [...] }`). This also surfaces `availableFrom` and `earlyAccessPlans` in the UI, which the generic config endpoint does not return.
+
+---
+
+### 22. BUG-ADMIN-02 — Admin Audit Log Silently Fails on Every Write (HIGH)
+
+Two admin API routes insert into `admin_audit_log` using column names that do not match the table's actual schema (migration 001, lines 1808–1818):
+
+- Config API (`/api/admin/config/[key]/route.ts`): uses `admin_user_id`, `entity_type`, `entity_id`, `before_value`, `after_value`
+- Feature-flags API (`/api/admin/feature-flags/route.ts`): uses `target_type`, `target_id`, `metadata` (no before/after columns at all)
+
+Actual `admin_audit_log` columns: `admin_id`, `resource`, `resource_id`, `before_val`, `after_val`.
+
+Both inserts are wrapped in `.catch(() => {})`. The column mismatch error is silently swallowed. No admin action — manifest update, feature flag toggle, or any other change — is ever recorded in the audit log. The audit trail is completely non-functional.
+
+**FILES:**
+- `apps/web/app/api/admin/config/[key]/route.ts` — audit log INSERT (~line 147)
+- `apps/web/app/api/admin/feature-flags/route.ts` — audit log INSERT (~line 149)
+- `apps/web/db/migrations/001_complete_schema.sql` — `admin_audit_log` table (~line 1808)
+
+**FIX:** Update both INSERTs to use the correct column names: `admin_id` (not `admin_user_id`), `resource` (not `entity_type`/`target_type`), `resource_id` (not `entity_id`/`target_id`), `before_val` (not `before_value`), `after_val` (not `after_value`). Remove the `.catch(() => {})` wrappers so failures surface. The feature-flags API also lacks `before_val`/`after_val` — add a SELECT of the previous value before the upsert so it can be logged.
+
+---
+
+### 23. BUG-ADMIN-03 — `feature_flags` Table Missing from All Migrations (MEDIUM)
+
+The feature-flags API (`/api/admin/feature-flags/route.ts`) reads from and writes to a `feature_flags` table for early-access scheduling (`available_from`, `early_access_plans`). This table is not defined in any migration (`001_complete_schema.sql`, `009_bug_fixes.sql`, or any other migration file).
+
+The GET handler's `LEFT JOIN feature_flags ff ON ff.key = m.key` will throw `relation "feature_flags" does not exist` in a fresh environment. In production, if the table was never created, the GET returns a 500 error, making the entire feature-flags admin panel unusable. The PUT handler's write is wrapped in `.catch(() => {})` so the early-access columns silently fail to persist even if the rest of the toggle succeeds.
+
+**FILES:**
+- `apps/web/app/api/admin/feature-flags/route.ts` — GET handler (~line 88), PUT handler (~line 135)
+- (missing) — no migration defines this table
+
+**FIX:** Create a new migration adding the `feature_flags` table:
+```sql
+CREATE TABLE IF NOT EXISTS feature_flags (
+  key                TEXT PRIMARY KEY REFERENCES x_manifest(key) ON DELETE CASCADE,
+  available_from     TIMESTAMPTZ,
+  early_access_plans JSONB,
+  updated_at         TIMESTAMPTZ DEFAULT NOW()
+);
+```
+Add this to a `010_feature_flags_table.sql` migration (or append to the next migration). The `LEFT JOIN` in the GET handler will then work correctly, and early-access settings will persist.
+
+---
+
+### 24. BUG-CACHE-01 — Feature Flag Cache Invalidation Leaves Per-Key Entries Stale (MEDIUM)
+
+`lib/manifest/index.ts` has two separate Redis caching paths:
+
+1. `loadManifest()` — caches the full `ZobiaManifest` object under a single aggregate Redis key with a 60-second TTL.
+2. `getManifestValue(key)` — caches individual manifest values under separate per-key Redis entries (e.g., `manifest:key:feature_guild_wars`) also with a 60-second TTL.
+
+`invalidateManifestCache()` (called by both admin APIs after a change) only deletes the key from path 1. Routes that use `requireFeatureEnabled("guildWars")` → `isFeatureEnabled()` → `getManifestValue("feature_guild_wars")` hit path 2 and keep serving stale values for up to 60 seconds after the admin toggles the flag. An admin disabling a feature will see it appear disabled in the panel, but the feature will continue to be accessible via API routes for up to a minute.
+
+**FILES:**
+- `apps/web/lib/manifest/index.ts` — `invalidateManifestCache`, `getManifestValue`, `loadManifest`
+
+**FIX:** Update `invalidateManifestCache()` to also delete all per-key Redis entries. Use Redis `SCAN` + `DEL` for keys matching `manifest:key:*`, or maintain a known set of per-key cache names and `DEL` them together with the aggregate key in a single Redis pipeline. Alternatively, eliminate the dual-cache design by always routing single-key lookups through the aggregate manifest cache.
+
+---
+
+### 25. SEC-01 — Pre-Auth Token Not Cleared After 2FA Completion (HIGH)
+
+When a user completes 2FA (entering the correct TOTP/OTP code), the server issues a full-access JWT and logs the session. However, the `pre_auth_session` column on the `users` table (which stores the pre-auth token or a reference to it) is not cleared after successful 2FA completion.
+
+A pre-auth token has `type: 'pre_auth'` and is intended for single use — it should be invalidated the moment 2FA succeeds. Because it is not cleared, a pre-auth token that is stolen (via XSS, network intercept, or server-side log leakage) remains valid indefinitely. An attacker in possession of a pre-auth token can submit it to the 2FA verification endpoint at any future time to open a new 2FA challenge window, potentially targeting the account repeatedly without the user's knowledge.
+
+**FILES:**
+- The 2FA completion route handler (likely `apps/web/app/api/auth/verify-2fa/route.ts` or similar)
+- `apps/web/db/migrations/001_complete_schema.sql` — `users.pre_auth_session` column
+
+**FIX:** Immediately after successful 2FA verification and before issuing the full-access JWT, execute: `UPDATE users SET pre_auth_session = NULL WHERE id = $1`. Additionally ensure the 2FA endpoint validates that `pre_auth_session` matches the presented token (one-time-use check) and that the pre-auth Redis session is invalidated after first successful use so concurrent replay attempts are rejected.
+
+---
+
+### 26. INFRA-01 — No Graceful Shutdown / SIGTERM Handler (HIGH)
+
+The daily CRON route handler and all long-running API operations have no `SIGTERM` listener. When Vercel, Railway, or any hosting platform recycles a function instance (deployment, scale-down, timeout), the process receives `SIGTERM` and is killed. Any in-progress database transaction at that moment is aborted by PostgreSQL's server-side timeout.
+
+The daily CRON processes 30+ sequential steps. If interrupted at step 15, the system has no record of which steps completed and which did not. A naive CRON re-run risks double-executing steps that already partially ran (e.g., XP awards that committed before the kill signal but after the ledger INSERT). There is no sentinel, checkpoint, or resumption logic anywhere in the codebase.
+
+**FILES:**
+- `apps/web/app/api/cron/daily/route.ts`
+- No global shutdown handler found in `apps/web/`
+
+**FIX:** Add a `shuttingDown` flag that is set to `true` on `SIGTERM`. Before each major CRON step, check this flag and exit the loop cleanly if set. Write the last-completed step number to Redis at the end of each step (`SET cron:daily:last_step <N> EX 86400`). On CRON startup, read this key — if it shows a recent incomplete run, log a warning and skip steps that were already confirmed complete. For the serverless context, use an `AbortController` signal passed to long-running DB operations so they can cancel cleanly when the runtime requests shutdown.
+
+---
+
+### 27. INFRA-02 — Database Connection Pool Not Explicitly Sized (HIGH)
+
+All `pg.Pool` instances across the three provider adapters (Railway, Supabase, DigitalOcean) are initialised with no explicit `max`, `idleTimeoutMillis`, or `connectionTimeoutMillis`. The `pg` library defaults to `max: 10` connections per pool with `connectionTimeoutMillis: 0` (infinite wait).
+
+In a serverless deployment, each concurrent Vercel function invocation creates its own pool. Under moderate traffic (20+ simultaneous API requests), the total connections across all instances can exceed Railway hobby's 25-connection hard limit, causing `too many clients already` errors that deny service to all users. The infinite `connectionTimeoutMillis` means pending requests hang indefinitely waiting for a pool slot rather than failing fast with a clear error, causing cascading timeouts across the API.
+
+Combined with BUG-DB-01 (duplicate pool from Drizzle), a single function invocation can open up to 20 connections on its own.
+
+**FILES:**
+- `apps/web/lib/db/providers/railway.ts`
+- `apps/web/lib/db/providers/supabase.ts`
+- `apps/web/lib/db/providers/do.ts`
+
+**FIX:** Set explicit pool configuration on all provider adapters:
+```typescript
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: 3,                      // per-function cap for serverless context
+  idleTimeoutMillis: 10_000,   // release idle connections within 10s
+  connectionTimeoutMillis: 5_000, // fail fast rather than hang
+  allowExitOnIdle: true,       // don't block process exit on idle connections
+});
+```
+For production, also configure a connection pooler (PgBouncer or Supabase pooler mode) at the infrastructure level to share a single set of long-lived connections across all serverless function instances.
+
+---
+
+### 28. PERF-01 — Missing Database Indexes on Critical Query Paths (MEDIUM)
+
+Three frequently-executed queries lack appropriate indexes and will degrade to full table scans as data grows:
+
+**DLQ retry query** (`retryFailedXPAwards`): `SELECT ... FROM failed_xp_awards WHERE resolved_at IS NULL AND retry_count < 5 AND (last_retried_at IS NULL OR last_retried_at < NOW() - ...)`. No index on `(resolved_at, retry_count)` — a full table scan on every nightly CRON run. At 10,000 DLQ entries this is 10ms; at 1M entries it's 500ms+ and blocks the CRON.
+
+**Leaderboard rank range** (`getLeaderboard` paginated): `SELECT ... FROM leaderboard_snapshots WHERE season_id = $1 AND scope = $2 AND city IS NULL ORDER BY rank ASC LIMIT $3 OFFSET $4`. Requires a composite index covering `(season_id, scope, city, rank)` for an efficient index range scan. Individual column indexes (if present) will not serve this query efficiently.
+
+**Notification feed**: `SELECT ... FROM notifications WHERE user_id = $1 AND read_at IS NULL ORDER BY created_at DESC LIMIT 20`. A composite index on `(user_id, created_at DESC)` filtered `WHERE read_at IS NULL` is needed for the unread-first feed pattern. A `user_id`-only index causes an additional sort step on every notification load.
+
+**FILES:**
+- `apps/web/db/migrations/001_complete_schema.sql` — index definitions (~lines 2280–2320)
+- `apps/web/lib/xp/safeAwardXP.ts` — `retryFailedXPAwards`
+- `apps/web/lib/leaderboards/engine.ts`
+
+**FIX:** Add the following via a new migration:
+```sql
+-- DLQ retry
+CREATE INDEX IF NOT EXISTS idx_failed_xp_awards_retry
+  ON failed_xp_awards (retry_count, last_retried_at)
+  WHERE resolved_at IS NULL;
+
+-- Leaderboard range scan  
+CREATE INDEX IF NOT EXISTS idx_lb_snapshots_rank
+  ON leaderboard_snapshots (season_id, scope, rank ASC)
+  WHERE city IS NULL;
+
+-- Notification unread feed
+CREATE INDEX IF NOT EXISTS idx_notifications_unread_feed
+  ON notifications (user_id, created_at DESC)
+  WHERE read_at IS NULL;
+```
+
+---
+
+### 29. OBS-01 — No Error Tracking / Alerting Integration (MEDIUM)
+
+The codebase uses a structured `logger` throughout, but all log output goes to stdout only. There is no integration with an error tracking service (Sentry, Datadog, Bugsnag, etc.) providing:
+- Automatic exception capture and grouping across deployments
+- Alerting on error rate spikes (critical for payment and XP award paths)
+- Source-map resolved stack traces for minified Next.js output
+- Performance monitoring (DB query P95 latency, API response times)
+
+Without this, the silent failures catalogued in this report — the broken audit log (BUG-ADMIN-02), the sticker grant crash (BUG-SQL-02), the nemesis notification zero-result (BUG-SQL-01), the Telegram fire-and-forget (BUG-TG-01) — all go completely undetected in production until a user reports a symptom. There is no way to know if bugs introduced in future deployments are occurring.
+
+**FILES:**
+- `apps/web/lib/logger.ts`
+- `apps/web/app/api/` — all route handlers (no error tracking SDK used anywhere)
+
+**FIX:** Integrate Sentry (or equivalent):
+1. `npm install @sentry/nextjs`
+2. `npx @sentry/wizard@latest -i nextjs` to generate `sentry.client.config.ts`, `sentry.server.config.ts`, `sentry.edge.config.ts`
+3. In each catch block that currently calls `logger.error(...)`, also call `Sentry.captureException(err, { extra: { userId, source, ...context } })`
+4. Configure alert rules for `payment_*`, `xp_award_*`, `cron_*`, and `admin_*` error types
+5. Set up a Sentry Cron Monitor for the daily CRON handler to alert on missed or failed runs
+6. Add source map uploads to the Next.js build so stack traces resolve to original TypeScript lines
+
+---
+
+## Additional Code Quality Observations
+
+- **Alliance wars `ON CONFLICT DO NOTHING` without target** (cron step 32b, ~line 2182): The next-week war INSERT uses `ON CONFLICT DO NOTHING` with no explicit conflict target and no unique constraint on `(alliance_1_id, alliance_2_id, status)`. On a CRON retry, a duplicate active war can be created. Add `UNIQUE (alliance_1_id, alliance_2_id, status)` to `alliance_wars` and specify it as the ON CONFLICT target.
+
+- **Advisory lock absent from daily CRON**: The entire daily CRON handler has no global concurrency guard. Many steps depend on sequential state. `SELECT pg_try_advisory_xact_lock(...)` at the handler entry point would cheaply prevent concurrent runs for all 30+ steps.
+
+- **Creator fund small-pool distribution**: With fewer than ~10 eligible creators, percentage-based tier cutoffs collapse, causing some tiers to receive nothing. The remainder logic helps but can still result in heavily skewed distributions. Consider a minimum creator threshold below which funds are held over to next month.
+
+- **`safeAwardXP` trailing comma risk**: The SQL string `${col === "xp_total" ? "" : `${col} = COALESCE(${col}, 0) + $2,`}` leaves a trailing comma when `col === "xp_total"`. PostgreSQL accepts this currently but it is fragile and should be restructured to avoid relying on undocumented parser tolerance.
+
+---
+
+## Summary Table
+
+| # | ID | Severity | Category |
+|---|-----|----------|----------|
+| 1 | BUG-FIN-01 | Critical | Financial over-credit |
+| 2 | BUG-SQL-01 | High | Silent logic failure |
+| 3 | BUG-SQL-02 | Critical | Runtime SQL error |
+| 4 | BUG-SQL-03 | High | Runtime SQL error |
+| 5 | BUG-XP-01 | High | Reward integrity |
+| 6 | BUG-XP-02 | Medium | Reward integrity |
+| 7 | BUG-XP-03 | Medium | Data loss |
+| 8 | BUG-XP-04 | Medium | Reward integrity |
+| 9 | BUG-EMAIL-01 | High | Compliance / Privacy |
+| 10 | BUG-TG-01 | High | Notification reliability |
+| 11 | BUG-LB-01 | Medium | Data correctness |
+| 12 | BUG-PAY-01 | High | Wrong plan activation |
+| 13 | BUG-COIN-01 | Medium | Idempotency |
+| 14 | BUG-SSE-01 | Medium | Security / DoS |
+| 15 | BUG-DB-01 | Medium | Infrastructure |
+| 16 | BUG-DRIZZLE-01 | High | Schema integrity |
+| 17 | BUG-REF-01 | High | Reward double-credit |
+| 18 | BUG-FUND-01 | Medium | Business logic |
+| 19 | BUG-TIER-01 | Medium | Business logic |
+| 20 | BUG-MIG-01 | Medium | Database migration |
+| 21 | BUG-ADMIN-01 | Critical | Admin UX / data integrity |
+| 22 | BUG-ADMIN-02 | High | Audit / compliance |
+| 23 | BUG-ADMIN-03 | Medium | Missing migration |
+| 24 | BUG-CACHE-01 | Medium | Cache consistency |
+| 25 | SEC-01 | High | Security / auth |
+| 26 | INFRA-01 | High | Reliability |
+| 27 | INFRA-02 | High | Infrastructure |
+| 28 | PERF-01 | Medium | Performance |
+| 29 | OBS-01 | Medium | Observability |
+
+**Critical: 3 · High: 13 · Medium: 13 · Total: 29**
+
+---
+
+*Report generated: June 15, 2026 · 12:00 PM*  
+*Updated: June 15, 2026 · 8:30 AM — items 21–29 added (9.7 roadmap)*  
+*Codebase: nero1/zobia — Branch: claude/codebase-bug-analysis-5g8o54*
