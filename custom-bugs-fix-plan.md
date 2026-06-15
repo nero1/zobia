@@ -1,6 +1,6 @@
 # Zobia Codebase Bug Fix Plan
-**Date:** 2026-06-15 | **Time:** 11:13 AM
-**Scope:** Fix plan for all 33 bugs identified in `custom-bugs-report.md`
+**Date:** 2026-06-15 | **Time:** 11:35 AM (updated — second pass, 37 total bugs)
+**Scope:** Fix plan for all 37 bugs identified in `custom-bugs-report.md`
 **Branch:** claude/codebase-bug-analysis-ulrfvp
 **Do not implement until this plan is reviewed and approved.**
 
@@ -119,6 +119,33 @@ Steps:
 
 ---
 
+### TASK 1.10 — Fix CRON Monthly Plan Bonus: Wrong ON CONFLICT Target
+**Fixes:** N-02
+**Files:** `apps/web/app/api/cron/daily/route.ts`
+
+Steps:
+1. Locate the monthly plan bonus distribution step (Step 21) in the CRON daily route.
+2. The current `ON CONFLICT (reference_id) DO NOTHING` clause fails at runtime because there is no unique index on `reference_id` alone; the actual index on `coin_ledger` is a partial composite: `(transaction_type, reference_id) WHERE reference_id IS NOT NULL`.
+3. Change the ON CONFLICT clause to: `ON CONFLICT (transaction_type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`.
+4. Ensure the INSERT supplies a `transaction_type` value consistent with the one used in the index (e.g. `'monthly_plan_bonus'`).
+5. Verify the monthly bonus reference_id pattern is unique per user per month so the deduplication is effective across retries.
+
+---
+
+### TASK 1.11 — Fix Admin Banner Routes: Missing DB Columns
+**Fixes:** N-04 (extends B-07, B-08)
+**Files:** `apps/web/app/api/admin/announcements/banners/route.ts`, `apps/web/app/api/admin/announcements/banners/[bannerId]/route.ts`
+
+Steps:
+1. Create a new migration that adds the missing columns to `announcement_banners`: `title TEXT`, `link_url TEXT`, `deleted_at TIMESTAMPTZ`. (Same columns also need to be added to `announcement_modals` if the modals route has the same issue.)
+2. In the banner LIST route GET handler, re-add `title`, `link_url` to the SELECT and restore `AND deleted_at IS NULL` to the WHERE clause once the migration adds those columns.
+3. In the banner CREATE route POST handler, ensure `title` and `link_url` are in the INSERT only after the migration adds them.
+4. In the banner UPDATE route PUT handler, restore the `title = $N` / `link_url = $N` SET clause and the `WHERE deleted_at IS NULL` guard once the migration is applied.
+5. In the banner DELETE route DELETE handler, restore `SET deleted_at = NOW()` once `deleted_at` exists. Until then, use a hard `DELETE FROM announcement_banners WHERE id = $1` to prevent silent 500 errors on admin soft-deletes.
+6. Coordinate with TASK 1.6 (announcement engine) — both the engine queries and admin routes need the same migration before re-enabling deleted_at filters.
+
+---
+
 ## GROUP 2 — Security Bugs
 
 Fix these immediately after Group 1.
@@ -193,6 +220,19 @@ Steps:
 2. Apply `withCircuitBreaker` to all external API calls in `dodopayments.ts`.
 3. Replace the existing inline circuit breaker in `paystack.ts` with calls to the shared module.
 4. Ensure the Redis keys used for DodoPay and Paystack circuit breakers are distinct (e.g. `cb:dodopay` vs `cb:paystack`).
+
+---
+
+### TASK 2.7 — Fix Expo Telegram Login: Use Crypto-Secure State Token
+**Fixes:** N-03
+**Files:** `apps/expo/app/auth/login.tsx`
+
+Steps:
+1. Replace the current state token generation: `SHA-256(Date.now() + '-' + Math.random())` truncated to 16 chars.
+2. Use `expo-crypto`'s `getRandomBytesAsync(16)` (or `expo-random`) to generate 16 cryptographically secure random bytes.
+3. Hex-encode those bytes to produce a 32-character state token. This is already a dependency in most Expo projects; verify it is installed in `apps/expo/package.json`.
+4. The full 32 chars is sufficient; no need to truncate. If a shorter token is desired for URL budget, use 12 bytes (24 hex chars) — still cryptographically unguessable.
+5. Ensure the state token is stored in component state (already done) and compared against the deep-link callback value before proceeding with authentication.
 
 ---
 
@@ -314,6 +354,18 @@ Steps:
 
 ---
 
+### TASK 3.12 — Fix CRON Patron Badge: Wrong Gift Column Name
+**Fixes:** N-01
+**Files:** `apps/web/app/api/cron/daily/route.ts`
+
+Steps:
+1. Locate the patron badge award step (Step 13) in the CRON daily route.
+2. The query aggregates gift spend with `SUM(g.coin_value)` but the `gifts` table (created in migration 011) has a `coin_cost` column, not `coin_value`. The query therefore returns `NULL` for all users and no patron badges are ever awarded.
+3. Change `SUM(g.coin_value)` to `SUM(g.coin_cost)` in the patron badge eligibility query.
+4. Verify any other references to gift monetary value in the CRON file also use `coin_cost` (not `coin_value`).
+
+---
+
 ## GROUP 4 — Architectural Cleanup
 
 These improve maintainability and type safety.
@@ -370,31 +422,35 @@ Steps:
 | 7 | TASK 1.7 | B-09, B-12 |
 | 8 | TASK 1.8 | B-10 |
 | 9 | TASK 1.9 | B-11 |
-| 10 | TASK 2.1 | S-01 |
-| 11 | TASK 2.2 | S-02 |
-| 12 | TASK 2.3 | S-03 |
-| 13 | TASK 2.4 | S-04, L-01 (partial) |
-| 14 | TASK 2.5 | S-06 |
-| 15 | TASK 2.6 | S-07 |
-| 16 | TASK 3.1 | L-02 |
-| 17 | TASK 3.2 | L-03 |
-| 18 | TASK 3.3 | L-04 |
-| 19 | TASK 3.4 | L-05 |
-| 20 | TASK 3.5 | L-06 |
-| 21 | TASK 3.6 | L-07 |
-| 22 | TASK 3.7 | L-08 |
-| 23 | TASK 3.8 | L-09 |
-| 24 | TASK 3.9 | L-10 |
-| 25 | TASK 3.10 | L-11 |
-| 26 | TASK 3.11 | L-12 |
-| 27 | TASK 4.1 | L-01 (complete) |
-| 28 | TASK 4.2 | A-02 |
-| 29 | TASK 4.3 | A-01 |
+| 10 | TASK 1.10 | N-02 |
+| 11 | TASK 1.11 | N-04 (extends B-07, B-08) |
+| 12 | TASK 2.1 | S-01 |
+| 13 | TASK 2.2 | S-02 |
+| 14 | TASK 2.3 | S-03 |
+| 15 | TASK 2.4 | S-04, L-01 (partial) |
+| 16 | TASK 2.5 | S-06 |
+| 17 | TASK 2.6 | S-07 |
+| 18 | TASK 2.7 | N-03 |
+| 19 | TASK 3.1 | L-02 |
+| 20 | TASK 3.2 | L-03 |
+| 21 | TASK 3.3 | L-04 |
+| 22 | TASK 3.4 | L-05 |
+| 23 | TASK 3.5 | L-06 |
+| 24 | TASK 3.6 | L-07 |
+| 25 | TASK 3.7 | L-08 |
+| 26 | TASK 3.8 | L-09 |
+| 27 | TASK 3.9 | L-10 |
+| 28 | TASK 3.10 | L-11 |
+| 29 | TASK 3.11 | L-12 |
+| 30 | TASK 3.12 | N-01 |
+| 31 | TASK 4.1 | L-01 (complete) |
+| 32 | TASK 4.2 | A-02 |
+| 33 | TASK 4.3 | A-01 |
 
-Total: 33 bugs across 29 fix tasks (some tasks fix multiple bugs).
+Total: 37 bugs across 33 fix tasks (some tasks fix multiple bugs).
 
 ---
 
-*Fix plan generated: 2026-06-15 at 11:13 AM*
-*Analyst: Claude (claude-sonnet-4-6) — Zobia Codebase Forensic Analysis*
+*Fix plan generated: 2026-06-15 at 11:13 AM | Updated (second pass): 2026-06-15 at 12:10 PM*
+*Analyst: Claude — Zobia Codebase Forensic Analysis*
 *Branch: claude/codebase-bug-analysis-ulrfvp*

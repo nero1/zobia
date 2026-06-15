@@ -1,6 +1,6 @@
 # Zobia Codebase Bug Report
-**Date:** 2026-06-15 | **Time:** 11:13 AM
-**Scope:** Full forensic analysis — web app, PWA, shared types, SQL migrations
+**Date:** 2026-06-15 | **Time:** 11:35 AM (updated — second pass complete)
+**Scope:** Full forensic analysis — web app, PWA, Expo mobile, shared types, SQL migrations, CRON route
 **Branch:** claude/codebase-bug-analysis-ulrfvp
 **Analyst:** Claude (claude-sonnet-4-6) — independent self-conducted analysis
 
@@ -12,10 +12,10 @@
 2. **B-02** — `creator/bank-account/route.ts`: Same encrypted-secret TOTP bug in `verifySecurityGate()` — bank account TOTP gate always rejects valid codes
 3. **B-03** — `creator/payouts/route.ts`: Both coin-path and bank/crypto-path INSERTs omit NOT NULL columns `provider` and `amount_kobo` — all payout requests crash at DB level
 4. **B-04** — `creator/bank-account/route.ts`: XP ledger INSERT uses non-existent column `action` (NOT NULL `source` is omitted); users UPDATE uses non-existent column `xp` (correct: `xp_total`)
-5. **B-05** — `admin/overview/route.ts`: Queries non-existent table `user_reports` (correct: `reports`) — admin overview always returns 500; also queries non-existent `guilds.deleted_at` and wrong column `last_seen_at` (correct: `last_active_at`)
+5. **B-05** — `admin/overview/route.ts`: Queries non-existent table `user_reports` (correct: `reports`) and wrong column `last_seen_at` (correct: `last_active_at`) — admin overview always returns 500
 6. **B-06** — `admin/users/route.ts`: Same `user_reports` → `reports` wrong table name — pending report count always errors
-7. **B-07** — `lib/announcements/engine.ts`: `announcement_banners` queried for non-existent columns `title` and `link_url` — banner engine throws at runtime
-8. **B-08** — `lib/announcements/engine.ts`: Both `announcement_modals` and `announcement_banners` filtered by non-existent `deleted_at` column — queries always error
+7. **B-07** — `lib/announcements/engine.ts` + all `admin/announcements/banners/` routes: `announcement_banners` queried/written with non-existent columns `title` and `link_url` — entire banner subsystem (user-facing and admin) throws at runtime
+8. **B-08** — `lib/announcements/engine.ts` + `admin/announcements/banners/` routes: `deleted_at` column referenced on `announcement_banners` and `announcement_modals` — doesn't exist; every query/update errors
 9. **B-09** — `api/economy/webhooks/dodopayments/route.ts`: References non-existent `failed_webhooks` table (absent from all migrations) — DodoPay webhook handler crashes on any error path
 10. **B-10** — `lib/fraud/payouts.ts`: Gift fraud check uses `g.coin_value` instead of correct column `g.coin_cost` — fraud scoring always reads wrong gift value
 11. **B-11** — `api/economy/webhooks/paystack/route.ts`: `room_subscriptions` INSERT uses wrong column names; code also references `user_subscriptions` but actual table is `subscriptions`
@@ -41,6 +41,10 @@
 31. **L-12** — `shared/types/index.ts`: `CoinTransactionType` union has duplicate `'gift_received'` entry
 32. **A-01** — `lib/db/schema.ts`: Drizzle TypeScript schema is massively out of sync with the SQL migrations — missing dozens of tables and hundreds of columns
 33. **A-02** — `lib/auth/totp.ts`: `computeTotp()` declared `async` despite being entirely synchronous — unnecessary microtask overhead
+34. **N-01** — `api/cron/daily/route.ts` step 13 (Patron badge): Same `coin_value` vs `coin_cost` column error on the `gifts` table as B-10 — patron badge recipients are always computed wrong
+35. **N-02** — `api/cron/daily/route.ts` step 21 (Monthly plan bonus): `ON CONFLICT (reference_id) DO NOTHING` doesn't match the actual unique index `(transaction_type, reference_id) WHERE reference_id IS NOT NULL` — Postgres rejects the entire INSERT; monthly coin bonuses are never distributed
+36. **N-03** — `apps/expo/app/auth/login.tsx`: Telegram login state token uses `Math.random()` as entropy source — not cryptographically secure; state token can be predicted
+37. **N-04** — `admin/announcements/banners/route.ts` POST + `[bannerId]/route.ts` PUT/DELETE: INSERT/UPDATE/soft-delete all fail because they write `title`, `link_url`, `deleted_at` columns that don't exist on `announcement_banners` — entire admin banner CRUD is broken at the DB level
 
 ---
 
@@ -94,7 +98,7 @@ Two separate column name errors exist in this route. First, the XP ledger INSERT
 - `apps/web/app/api/admin/overview/route.ts`
 
 **FIX:**
-Three distinct errors exist in this route. First, it queries `FROM user_reports WHERE status = 'pending'` — the correct table name is `reports`. This causes a "relation does not exist" error making the entire admin overview endpoint return 500. Second, it queries `FROM guilds WHERE ... deleted_at IS NULL` but the `guilds` table has no `deleted_at` column in the SQL migration. Third, the DAU/WAU/MAU activity queries use `last_seen_at` as the activity timestamp column, but the actual column is `last_active_at`. Fix: rename `user_reports` to `reports`, remove the `deleted_at IS NULL` condition on guilds (or add the column via migration if soft-delete is needed), and rename `last_seen_at` to `last_active_at` in the activity queries.
+Two distinct errors exist in this route. First, it queries `FROM user_reports WHERE status = 'pending'` — the correct table name is `reports`. This causes a "relation does not exist" error making the entire admin overview endpoint return 500. Second, the DAU/WAU/MAU activity queries use `last_seen_at` as the activity timestamp column, but the actual column is `last_active_at` (confirmed throughout the SQL migration and CRON route). Note: `guilds.deleted_at` DOES exist in the migration and is not a bug. Fix: rename `user_reports` to `reports` and rename `last_seen_at` to `last_active_at` in the activity queries.
 
 ---
 
@@ -108,23 +112,27 @@ The admin users endpoint queries `FROM user_reports WHERE status = 'pending'` to
 
 ---
 
-### B-07 — Announcement Banners: Missing `title` and `link_url` Columns
+### B-07 — Announcement Banners: Missing `title` and `link_url` Columns Across All Banner Routes
 
 **FILES:**
 - `apps/web/lib/announcements/engine.ts`
+- `apps/web/app/api/admin/announcements/banners/route.ts`
+- `apps/web/app/api/admin/announcements/banners/[bannerId]/route.ts`
 
 **FIX:**
-The banner query fetches `SELECT id, title, content, content_type, link_url, cta_text, ...` from `announcement_banners`. However, the `announcement_banners` table definition in `001_complete_schema.sql` has no `title` or `link_url` columns — it has `target_url` (not `link_url`) and no `title` at all. Postgres will return an "undefined column" error at runtime, breaking the announcement banner engine for all users. Fix: remove `title` from the SELECT (or add the column via migration), and replace `link_url` with `target_url`.
+The banner-related code — both the user-facing engine and the admin CRUD routes — all operate on two columns that don't exist in `announcement_banners`: `title` and `link_url`. The table has `target_url` (not `link_url`) and no `title` at all. This means: (1) the user-facing `getActiveBanner()` throws on every call; (2) the admin GET list SELECT fails; (3) the admin POST INSERT includes these columns (runtime Postgres error); (4) the admin PUT UPDATE tries to set `title` and `link_url` dynamically (fails if either is in the request). The entire banner subsystem — user-facing and admin — is broken at the database level. Fix: add `title VARCHAR(200)` and `link_url TEXT` (or alias `target_url` as `link_url`) to `announcement_banners` via a new migration so the schema aligns with what all callers uniformly expect.
 
 ---
 
-### B-08 — Announcement Tables: Filtering by Non-Existent `deleted_at`
+### B-08 — Announcement Tables: `deleted_at` Column Referenced But Never Defined
 
 **FILES:**
 - `apps/web/lib/announcements/engine.ts`
+- `apps/web/app/api/admin/announcements/banners/route.ts`
+- `apps/web/app/api/admin/announcements/banners/[bannerId]/route.ts`
 
 **FIX:**
-Both `getActiveModal()` and `getActiveBanner()` add `AND deleted_at IS NULL` to their WHERE clauses. Neither `announcement_modals` nor `announcement_banners` has a `deleted_at` column in the SQL migration. Postgres will throw an "undefined column" error on every call to both functions, making the entire announcement engine inoperable. Fix: remove `deleted_at IS NULL` from both queries. If soft-delete is needed, add `deleted_at TIMESTAMPTZ` to both tables via a new migration.
+Multiple places reference `deleted_at` on `announcement_modals` and `announcement_banners`: the user-facing engine filters `WHERE deleted_at IS NULL`; the admin GET, PUT, and DELETE all use `deleted_at IS NULL` as an existence check; the admin DELETE soft-deletes via `SET deleted_at = NOW()`. Neither table has this column. Results: the user-facing engine errors on every call; admin list, update, and delete all fail at the DB layer. Fix: add `deleted_at TIMESTAMPTZ` to both tables via a new migration. Every caller consistently expects soft-delete semantics; the column just needs to be created.
 
 ---
 
@@ -387,28 +395,97 @@ The `CoinTransactionType` union type lists `'gift_received'` twice. TypeScript s
 
 ---
 
-## Code Quality Rating
+---
 
-### Current State
+### N-01 — CRON Patron Badge: Wrong Column `coin_value` on `gifts` Table
 
-| Dimension | Rating | Notes |
-|---|---|---|
-| **Performance** | 7/10 | Solid Redis caching, atomic SQL CTEs, connection pooling. Minor waste: unnecessary async in TOTP hot path; mystery drop runs without idempotency controls causing potential retry amplification. |
-| **Structure / Architecture** | 6/10 | Good lib/ vs app/api/ separation in most areas. Undermined by 4+ copies of TOTP code, several dead code functions, and a Drizzle schema that falsely implies type safety. |
-| **Implementation Correctness** | 5/10 | Several critical runtime-breaking bugs mean core features are entirely non-functional: payout always crashes (B-03), 2FA disable always fails (B-01), bank account gate always rejects (B-02), admin dashboard always 500s (B-05), announcement engine errors on every call (B-07, B-08), DodoPay webhook crashes on error path (B-09), fraud check errors (B-10), all commissions are zero (L-02). |
-| **Security** | 7/10 | Strong foundations: JWT key rotation design, CSRF state tokens, Redis anti-replay, SSRF guard, CSP nonces, timing-safe comparisons in most places. Gaps: middleware bypasses JWT rotation (S-01), safeFetch breaks TLS (S-02), Telegram bot timing-unsafe (S-03), 2FA setup/disable lack replay protection (S-04, S-05). |
+**FILES:**
+- `apps/web/app/api/cron/daily/route.ts` (step 13)
 
-### Projected Post-Fix State
-
-| Dimension | Rating | Notes |
-|---|---|---|
-| **Performance** | 8/10 | Mystery drop idempotency, synchronous TOTP, circuit breaker for DodoPay, correct randomInt — removes hidden failure amplification and redundant microtasks. |
-| **Structure / Architecture** | 9/10 | Single shared TOTP module, weighted scoring wired or removed, dead code cleared, schema.ts regenerated — substantially cleaner and maintainable. |
-| **Implementation Correctness** | 9/10 | All runtime-breaking bugs resolved: payouts work, 2FA disable works, bank account security gate works, admin dashboard works, announcement engine works, DodoPay webhook is stable, fraud detection fires correctly, commissions are recorded accurately. |
-| **Security** | 9/10 | JWT multi-key rotation wired through middleware, TLS-preserving SSRF, timing-safe everywhere, replay protection on all TOTP endpoints. Near production-hardened. |
+**FIX:**
+The patron badge CRON step queries `SUM(coin_value) AS total_coins FROM gifts` to identify the top gifter per room. The `gifts` table (created in migration 011) has a column `coin_cost`, not `coin_value`. Postgres will throw "undefined column", the entire step fails silently (swallowed by the try/catch), and no patron badges are ever awarded. This is the same pattern as B-10. Fix: replace `coin_value` with `coin_cost` in the patron badge query.
 
 ---
 
-*Report generated: 2026-06-15 at 11:13 AM*
-*Analyst: Claude (claude-sonnet-4-6) — Zobia Codebase Forensic Analysis*
+### N-02 — CRON Monthly Plan Bonus: `ON CONFLICT` Target Mismatch on `coin_ledger`
+
+**FILES:**
+- `apps/web/app/api/cron/daily/route.ts` (step 21)
+
+**FIX:**
+The monthly plan bonus INSERT uses `ON CONFLICT (reference_id) DO NOTHING`, targeting a single-column conflict on `reference_id`. The actual unique index on `coin_ledger` is `uidx_coin_ledger_type_ref` defined as `(transaction_type, reference_id) WHERE reference_id IS NOT NULL` — a composite partial index, not a single-column index. In PostgreSQL, `ON CONFLICT (reference_id)` fails with "there is no unique or exclusion constraint matching the ON CONFLICT specification" because no index exists on `reference_id` alone. This error is caught by the transaction's try/catch, but it is not a `23505` (unique violation) code, so it falls into the `else` branch, which appends it to `errors`. The result: monthly coin bonuses for all plan tiers are never distributed. Fix: replace `ON CONFLICT (reference_id) DO NOTHING` with `ON CONFLICT (transaction_type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING` to match the actual partial unique index.
+
+---
+
+### N-03 — Expo Mobile: Telegram Login State Token Uses `Math.random()`
+
+**FILES:**
+- `apps/expo/app/auth/login.tsx`
+
+**FIX:**
+The Telegram login flow generates a state token by computing `SHA-256(Date.now() + '-' + Math.random())` then truncating to 16 hex characters. `Math.random()` is not cryptographically secure — in V8 (the JS engine used by React Native/Hermes), it uses a seeded PRNG that can be predicted given knowledge of prior output or initial seed. Combined with `Date.now()` as the only other entropy source, the state token may be predictable by an attacker who can observe timing. A predicted state token could be used to forge a Telegram login callback. Fix: replace `Math.random()` with `Crypto.getRandomValues()` from `expo-crypto` (or use `Crypto.getRandomBytesAsync(16)`) to generate the state directly from a CSPRNG, then hex-encode. Remove the unnecessary SHA-256 step.
+
+---
+
+### N-04 — Admin Banner CRUD: POST, PUT, DELETE All Write Non-Existent Columns
+
+**FILES:**
+- `apps/web/app/api/admin/announcements/banners/route.ts`
+- `apps/web/app/api/admin/announcements/banners/[bannerId]/route.ts`
+
+**FIX:**
+Beyond the GET read issue (B-07), the write operations are also broken at the DB level. The POST INSERT includes `title` and `link_url` in the column list and parameterises their values — Postgres rejects the INSERT with "column does not exist". The PUT UPDATE's dynamic SET clause builder adds `title = $N` and `link_url = $N` when those fields are in the request body — same error. The DELETE soft-deletes via `SET deleted_at = NOW()` — Postgres rejects this because `deleted_at` doesn't exist (B-08). All admin banner management operations fail. Fix: apply the migration from B-07 (add `title`, `link_url`) and B-08 (add `deleted_at`) so all CRUD operations have the columns they expect.
+
+---
+
+## Code Quality Rating
+
+### Current State (37 total bugs found)
+
+| Dimension | Rating | Notes |
+|---|---|---|
+| **Performance** | 7/10 | Solid Redis caching, atomic SQL CTEs, connection pooling. Gaps: unnecessary async in TOTP hot path; mystery drop has no idempotency causing potential retry double-awards; CRON guild loops run N×M DB queries per guild instead of batch SQL; re-engagement context fetches fire N concurrent DB queries per inactive user. |
+| **Structure / Architecture** | 6/10 | Good lib/ vs app/api/ separation in most areas. Undermined by 4+ copies of TOTP code, several dead-code functions, a Drizzle schema that falsely implies type safety, and the announcement banner subsystem with multiple callers all expecting the same missing columns. |
+| **Implementation Correctness** | 4.5/10 | Multiple core features are entirely non-functional at runtime: payout crashes (B-03), 2FA disable always fails (B-01), bank account gate always rejects (B-02), admin overview always 500s (B-05), entire announcement subsystem broken (B-07, B-08, N-04), DodoPay webhook crashes on error path (B-09), fraud scoring errors (B-10, N-01), commissions always zero (L-02), monthly plan bonuses never distributed (N-02). |
+| **Security** | 7/10 | Strong foundations: JWT key rotation design, CSRF state tokens, Redis anti-replay, SSRF guard, CSP nonces, timing-safe comparisons in most places. Gaps: middleware bypasses JWT rotation (S-01), safeFetch breaks TLS (S-02), Telegram bot timing-unsafe (S-03), 2FA setup/disable lack replay protection (S-04, S-05), Expo state token weak randomness (N-03). |
+
+### Projected Rating After All Bug Fixes Applied
+
+| Dimension | Rating | Notes |
+|---|---|---|
+| **Performance** | 8/10 | Mystery drop idempotency, synchronous TOTP, DodoPay circuit breaker, correct randomInt — removes failure amplification and redundant microtasks. CRON batching remains a future improvement. |
+| **Structure / Architecture** | 8.5/10 | Single shared TOTP module, weighted scoring wired or removed, dead code cleared, schema.ts regenerated. The announcement subsystem fully operational with correct schema. |
+| **Implementation Correctness** | 9/10 | All runtime-breaking bugs resolved: payouts work, 2FA disable works, bank account security gate works, admin dashboard works, full announcement system works, DodoPay webhook stable, fraud detection fires correctly, commissions and monthly bonuses recorded accurately. |
+| **Security** | 9/10 | JWT multi-key rotation wired through middleware, TLS-preserving SSRF, timing-safe everywhere, replay protection on all TOTP endpoints, CSPRNG for Expo state tokens. Near production-hardened. |
+
+---
+
+## What Would Get to 9.5+
+
+Fixing all 37 bugs reaches approximately 8.5–9/10. The remaining gap to 9.5+ requires the following improvements beyond bug fixes:
+
+**Performance (to reach 8.5+ on that dimension):**
+- CRON guild tier demotion/promotion loops run N sequential DB queries per guild (one for demotion check, one for notification, one for tier_history INSERT). With 500+ guilds this becomes thousands of sequential round-trips. Refactor into batch-capable set SQL using `UPDATE ... FROM (VALUES ...) WHERE` patterns or temporary tables.
+- The re-engagement CRON step fires `Promise.all(inactiveUsers.map(async (user) => db.query(...)))` — N concurrent DB connections for potentially hundreds of inactive users simultaneously. Cap concurrency with a semaphore or batch into a single SQL query using `unnest`.
+- `sendEmail()` in the re-engagement loop is called individually per user rather than batched. Batch email sends to the email provider.
+
+**Correctness / Completeness (to reach 9.5+ on that dimension):**
+- Add a unique constraint on `dm_conversation_score_milestones(user_id_a, user_id_b, milestone_score)` so the ON CONFLICT guard in the CRON actually provides dedup protection rather than relying solely on the SELECT check.
+- `coin_ledger`'s unique index is `(transaction_type, reference_id)` but `ON CONFLICT (reference_id)` appears in multiple places — audit all coin_ledger INSERTs for correct ON CONFLICT target usage.
+- Regenerate Drizzle `schema.ts` from the live database (A-01) so TypeScript type safety covers all tables.
+
+**Security (to reach 9.5+ on that dimension):**
+- Add `JWT_SECRET_<kid>` environment variables to `lib/env.ts` so key rotation variables are validated at startup (currently the env schema only declares `JWT_SECRET`).
+- Add rate limiting to the Telegram login state polling endpoint in the Expo app to prevent enumeration of short state tokens.
+- Review and enforce `Content-Security-Policy` nonce propagation to the Expo mobile WebView if used.
+
+**Testing (to reach 9.5+ overall):**
+- Integration tests for the critical payment flows (Paystack webhook → coin credit → subscription activation) and XP award paths (`safeAwardXP` + DLQ retry).
+- Unit tests for `verifyToken` multi-key path, `safeFetch` SSRF guard, and `enforceRateLimit` Lua script correctness.
+- End-to-end tests for auth flows: Google OAuth, Telegram bot login, 2FA setup/verify/disable cycle, PIN setup/verify.
+
+---
+
+*Report updated: 2026-06-15 at 11:35 AM*
+*Analyst: Claude (claude-sonnet-4-6) — Zobia Codebase Forensic Analysis (second pass complete)*
 *Branch: claude/codebase-bug-analysis-ulrfvp*
