@@ -62,6 +62,8 @@ Rooms can be city-scoped or global. Guild captains can create guild-exclusive ro
 
 Guilds are persistent groups of up to N members. Creating a guild costs 500 Credits (deducted atomically). Members earn `competitor` track XP from guild activities. Guilds have a treasury (credit pool) funded by member donations and war rewards. Guild tiers (bronze → silver → gold → platinum → diamond) unlock higher treasury caps and XP multipliers. See **Guild War Engine** below.
 
+`guild_members.left_at` records the timestamp when a member left or was removed, enabling accurate membership duration queries and historical analytics. `guild_tier_history` records a `war_id` (FK to `guild_wars`) so each tier snapshot is tied to the specific war that triggered it; the partial unique index on `(guild_id, war_id) WHERE war_id IS NOT NULL` prevents duplicate snapshots per war.
+
 ### XP System
 
 XP is earned on seven tracks: `main` (overall), `social`, `creator`, `competitor`, `generosity`, `knowledge`, and `explorer`. Each action type maps to a specific track (e.g. sending a message → social; publishing content → creator; winning a guild war → competitor). The XP Engine applies a multiplier stack — plan bonus → guild bonus → season pass bonus → active booster — using integer basis-point arithmetic. All XP flows through `/api/xp`, which writes to `xp_ledger` and updates `users.xp_total` and the relevant track field.
@@ -265,6 +267,8 @@ Referral stats are visible at `/api/referrals`.
 
 In-app notifications stored in the `notifications` table. Notification types include: guild war updates, nemesis rank changes, leaderboard rank changes, quest completions, friend activity, DM received, gift received, streak milestones, and season events. Telegram bot notifications are sent for high-priority events if the user has linked their Telegram account (`telegram_id` on users table).
 
+**Deduplication:** The `notifications` table has a `reference_id TEXT` column and a partial unique index on `(user_id, type, reference_id) WHERE reference_id IS NOT NULL`. Any batch notification INSERT (e.g. Flash XP announcements) uses `ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING` so re-running the same event never creates duplicate notifications.
+
 ### Deep Links
 
 All deep-linkable routes are defined in `lib/deeplinks/routes.ts` — the single source of truth. Universal links via Android App Links use `/.well-known/assetlinks.json`. Referral links use `?r=<referralCode>`. Notification taps carry a route payload that maps to the correct screen via the deep link router.
@@ -374,6 +378,8 @@ Two tables record XP; they must be kept in sync at all times:
 
 **Invariant:** every XP mutation MUST write an `xp_ledger` row AND update `users.xp_total` (plus the track column) inside the same database transaction. Updating `users.xp_total` without a matching `xp_ledger` row, or vice-versa, breaks the audit trail.
 
+**Idempotency:** XP writes use a CTE pattern to prevent double-awards. The `xp_ledger` table has a partial unique index on `(user_id, source, reference_id) WHERE reference_id IS NOT NULL`. Callers supply a stable `reference_id` (e.g. `gift:<id>:sender`) and use `INSERT ... ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING RETURNING id`. The `users.xp_total` update is chained as `WHERE EXISTS (SELECT 1 FROM ins)` so it only fires if the ledger row was actually inserted — retrying the same event is safe.
+
 **Never** sum `xp_ledger.amount` to compute a user's XP — read `users.xp_total` instead. Summing the ledger is expensive (full table scan) and will diverge if any direct `users.xp_total` update is missed.
 
 ### Coin Ledger
@@ -401,7 +407,7 @@ Atomicity: every debit operation pairs the `UPDATE users SET coin_balance = ...`
 6. For `coins`: immediate `creditCoins()` call inside a transaction; status set to `completed`.
 7. For `bank_transfer` in auto-approve mode: status set to `pending` (CRON picks it up). In manual mode: `awaiting_approval`.
 8. For `crypto`: always `awaiting_approval` (manual admin processing).
-9. `available_earnings_kobo` deducted atomically inside a `db.transaction()`.
+9. The balance check (`SELECT FOR UPDATE`), pending-payout guard, balance deduction, and `creator_payouts` INSERT all occur inside a single `db.transaction()`. The `FOR UPDATE` row lock is held through COMMIT, preventing concurrent requests from overdrafting the balance or bypassing the one-pending-payout-at-a-time rule.
 
 **CRON Batch Processing (`POST /api/cron/payouts`, every 30 min):**
 - Phase 1: SELECT up to `payout_batch_size` records with `status = 'pending'` AND `payout_method = 'bank_transfer'`, ordered by `created_at ASC`.
@@ -500,7 +506,7 @@ Deletion is batched by joining `room_messages` against the sender's subscription
 5. **Ban or suspension** → admin action deletes all `session:*` keys for the user → all devices logged out immediately, without waiting for JWT expiry.
 6. **Admin sessions** → separate shorter-lived JWT (5-minute TTL), re-verified against `is_admin` in the database on every admin route call.
 
-**Session limit:** Users are limited to **10 concurrent sessions** (`MAX_SESSIONS=10`). When a new login would exceed this limit, the oldest session (by creation time) is evicted from Redis and the `sessions` table before the new session is issued.
+**Session limit:** Users are limited to **10 concurrent sessions** (`MAX_SESSIONS=10`). When a new login would exceed this limit, the oldest session(s) by creation time are evicted: their `session:{sid}` Redis keys are deleted first, then removed from the `user_sessions:{uid}` sorted set. This order prevents a race where an evicted session could briefly appear valid.
 
 ### Health Check Endpoint
 

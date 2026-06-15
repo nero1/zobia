@@ -392,11 +392,14 @@ export async function resolveWar(
       `UPDATE guilds SET guild_xp = guild_xp + $1, updated_at = NOW() WHERE id = $2`,
       [guildXPReward, winnerGuildId]
     );
+    // FIX-H07: include war_id so each war produces at most one tier history entry
+    // per guild. ON CONFLICT (guild_id, war_id) WHERE war_id IS NOT NULL prevents
+    // duplicate inserts if resolveWar is called concurrently for the same war.
     await client.query(
-      `INSERT INTO guild_tier_history (guild_id, from_tier, to_tier, guild_xp_at)
-       SELECT $1, tier, tier, guild_xp FROM guilds WHERE id = $1
-       ON CONFLICT DO NOTHING`,
-      [winnerGuildId]
+      `INSERT INTO guild_tier_history (guild_id, from_tier, to_tier, guild_xp_at, war_id)
+       SELECT $1, tier, tier, guild_xp, $2::uuid FROM guilds WHERE id = $1
+       ON CONFLICT (guild_id, war_id) WHERE war_id IS NOT NULL DO NOTHING`,
+      [winnerGuildId, warId]
     ).catch(() => {});
 
     // Distribute coin rewards within the same transaction (ZB-03)

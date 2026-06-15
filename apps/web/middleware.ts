@@ -184,7 +184,17 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     requestHeaders.set("x-nonce", nonce);
     const res = NextResponse.next({ request: { headers: requestHeaders } });
     res.headers.set("Content-Security-Policy", csp);
-    // BUG-29: additional hardening headers
+    // FIX-M02: Report-To header activates the Reporting API for modern browsers.
+    // Without this, the CSP `report-to csp-endpoint` directive is silently ignored.
+    res.headers.set(
+      "Report-To",
+      JSON.stringify({
+        group: "csp-endpoint",
+        max_age: 86400,
+        endpoints: [{ url: "/api/security/csp-report" }],
+      })
+    );
+    // additional hardening headers
     res.headers.set("Cross-Origin-Opener-Policy", "same-origin");
     res.headers.set("Cross-Origin-Resource-Policy", "same-origin");
     res.headers.set("Cross-Origin-Embedder-Policy", "credentialless");

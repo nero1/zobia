@@ -222,10 +222,17 @@ export async function enforceRateLimit(
   type: "user" | "ip",
   options: RateLimitOptions
 ): Promise<void> {
-  // If the subject is the "unknown" fallback IP, skip rate limiting rather than
-  // bucketing all unidentifiable clients together (collateral throttling, #27).
-  // This is safe because authenticated routes already have per-user limits.
+  // FIX-M01: requests with no resolvable IP share a strict sentinel bucket
+  // instead of bypassing rate limiting entirely. Uses a very tight quota so
+  // that unauthenticated endpoints are not open to anonymous flooding.
   if (type === "ip" && subject === "unknown") {
+    const sentinelOptions: RateLimitOptions = { ...options, limit: Math.min(options.limit, 10), name: `${options.name}:unknown_ip` };
+    const sentinelResult = await checkIpRateLimit("unknown", sentinelOptions);
+    if (!sentinelResult.allowed) {
+      throw tooManyRequests(
+        `Rate limit exceeded for ${options.name} (unresolvable IP). Try again later.`
+      );
+    }
     return;
   }
 

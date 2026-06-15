@@ -386,12 +386,14 @@ export async function seedSeasonPassMilestones(
     ...paidMilestones.map(m => ({ ...m, tier: 'paid' })),
   ];
 
+  // FIX-H04: ON CONFLICT now targets (season_id, tier, sort_order) so free and
+  // paid milestones with the same sort_order do not conflict with each other.
   for (const m of allMilestones) {
     await db.query(
       `INSERT INTO season_pass_milestones
          (season_id, milestone_xp, tier, reward_type, reward_value, display_name, sort_order)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
-       ON CONFLICT (season_id, sort_order) DO NOTHING`,
+       ON CONFLICT (season_id, tier, sort_order) DO NOTHING`,
       [seasonId, m.xp, m.tier, m.type, JSON.stringify(m.value), m.name, m.order]
     );
   }

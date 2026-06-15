@@ -136,8 +136,14 @@ export async function createSession(
     String(refreshTtl)
   );
 
-  // Enforce per-user session limit (BUG-22): evict the oldest sessions beyond MAX_SESSIONS.
+  // Enforce per-user session limit: evict oldest sessions beyond MAX_SESSIONS.
+  // FIX-H05: fetch SIDs that will be evicted and delete their session hash keys
+  // BEFORE removing them from the sorted set so evicted sessions cannot be replayed.
   const MAX_SESSIONS = 10;
+  const evictedSids = await redis.zrange(userSessionsKey(user.id), 0, -(MAX_SESSIONS + 1));
+  if (evictedSids.length > 0) {
+    await redis.del(...evictedSids.map(sessionKey));
+  }
   await redis.zremrangebyrank(userSessionsKey(user.id), 0, -(MAX_SESSIONS + 1));
 
   return { accessToken, refreshToken, expiresIn: accessTtl };
