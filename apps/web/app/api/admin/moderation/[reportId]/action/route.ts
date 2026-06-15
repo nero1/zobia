@@ -251,8 +251,8 @@ export const POST = withAdminAuth(
         // 1. Log the moderation action
         await tx.query(
           `INSERT INTO moderation_actions
-             (report_id, target_user_id, action, note, duration_hours,
-              actioned_by, created_at)
+             (report_id, target_user_id, action_type, reason, duration_hours,
+              moderator_id, created_at)
            VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
           [
             reportId,

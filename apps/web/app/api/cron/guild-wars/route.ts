@@ -172,13 +172,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     for (const war of completedWars.rows) {
       try {
+        // resolveWar() sets status = 'completed' internally within its own transaction
         const result = await resolveWar(war.id, db);
-
-        await db.query(
-          `UPDATE guild_wars SET status = 'completed', updated_at = NOW()
-           WHERE id = $1 AND status != 'completed'`,
-          [war.id]
-        );
 
         // Award rematch token to the losing guild
         const loserGuildId = result.winnerGuildId === war.challenger_guild_id

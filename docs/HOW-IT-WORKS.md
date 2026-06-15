@@ -70,7 +70,9 @@ XP is earned on seven tracks: `main` (overall), `social`, `creator`, `competitor
 
 **Credits** (soft currency, previously "Coins") — Earned from quests, daily logins, season rewards, gifts received, rewarded ads (free users only, capped at 5/day). Spent on guilds, gifts, store items, and room creation. Stored in `users.coin_balance`; all mutations go through `coin_ledger` (append-only audit trail). The display name is admin-configurable via `x_manifest` keys `currency_soft_name_singular` / `currency_soft_name_plural` (defaults: Credit / Credits).
 
-**Stars** (premium currency) — Purchased via Paystack or DodoPayments. Used for exclusive cosmetics and season pass upgrades. Stored in `users.star_balance`; all mutations go through `star_ledger`. The display name is admin-configurable via `currency_premium_name_singular` / `currency_premium_name_plural` (defaults: Star / Stars).
+**Stars** (premium currency) — Purchased via Paystack or DodoPayments. Used for exclusive cosmetics and season pass upgrades. Stored in `users.star_balance` (bigint — safe up to ~9.2 × 10¹⁸); all mutations go through `star_ledger`. The display name is admin-configurable via `currency_premium_name_singular` / `currency_premium_name_plural` (defaults: Star / Stars).
+
+**Subscription lifecycle:** Paystack fires webhook events for all subscription state changes (`subscription.create`, `subscription.disable`, `subscription.not_renew`, `invoice.payment_failed`). The webhook handler maps each event's `isActive` flag to either `"active"` or `"inactive"` in the `subscriptions` table. Cancelled or failed subscriptions are correctly reflected as `status = "inactive"` — users do not retain access after cancelling or missing a payment.
 
 ### Gifting
 
@@ -239,6 +241,8 @@ Once enrolled, future revenue from the in-room AdMob/ad network is shared with t
 
 Every week, each user can be assigned a Nemesis: another user within 10% of their XP on their highest active track. The algorithm prefers users in the same city, excludes mutual friends. The Nemesis is displayed on the home screen with an XP delta. Notifications fire when the Nemesis overtakes the user or falls behind. A **Challenge** button starts a 7-day XP sprint between the two users.
 
+**Atomicity:** The nemesis assignment (deactivate old record + insert new) is performed inside a single database transaction. Either both succeed or neither does — users can never be left without an active nemesis due to a partial write.
+
 ### Elder System
 
 The Elder is the highest-XP user in a given city. The Elder badge appears on their profile and in the city leaderboard. The Elder title changes whenever the city leaderboard rank-1 changes.
@@ -252,6 +256,8 @@ A small group of top users (selected by trust score + XP) who can vote on policy
 Each user gets a unique referral code after onboarding. Sharing `?r=<code>` when a new user signs up creates:
 - **Tier 1 referral**: The referrer earns coins + XP when the new user qualifies (completes first action).
 - **Tier 2 referral**: If the referrer was themselves referred, the original referrer also earns a smaller bonus.
+
+Referral commissions are tracked in `referral_commissions` with both coin and monetary (kobo) fields. `commission_kobo` stores the actual naira value of the commission in kobos (smallest currency unit); `commission_coins` stores the coin equivalent. These are computed from the actual Paystack/DodoPayments charge amount, not from coin quantities.
 
 Referral stats are visible at `/api/referrals`.
 
@@ -486,6 +492,8 @@ Deletion is batched by joining `room_messages` against the sender's subscription
 1. **Login** → backend issues two tokens:
    - **Access token** (JWT, 15-minute TTL) signed with `JWT_SECRET`. Stored in HttpOnly cookie (web) or Expo SecureStore (Android).
    - **Refresh token** (JWT, 30-day TTL) signed with `JWT_REFRESH_SECRET`. Stored in Redis under key `session:<refreshToken>` with a 30-day expiry, and in the `sessions` table for auditability.
+
+**Key rotation for refresh tokens:** Both access tokens and refresh tokens embed a `kid` (key ID) in their JWT header. During a key rotation, verification looks up the matching secret from a registry keyed by `kid` (built from `JWT_REFRESH_SECRET` and any `JWT_REFRESH_SECRET_v{N}` env vars). This allows old refresh tokens to remain valid through the rotation grace period without requiring forced logouts. See `SETUP.md` → Environment Variables Reference for rotation procedure.
 2. **API call with valid access token** → validates JWT → proceeds.
 3. **API call with expired access token + valid refresh token** → backend validates refresh token against Redis key → issues new access token → delivers both via `Set-Cookie` (HttpOnly, Secure, SameSite=Strict). Tokens are never exposed in response headers.
 4. **Logout** → deletes the Redis `session:*` key → immediate invalidation. The old access token will still parse as valid until its 15-minute TTL expires, but the refresh token can no longer be used to extend sessions.
@@ -603,6 +611,7 @@ This applies to any `"use client"` page that reads search params. Examples in th
   - **If 2FA is not enabled**: the backend issues the Zobia JWT pair directly.
 - **Telegram Login**: Telegram Login Widget posts data to `/api/auth/telegram` → backend performs HMAC-SHA256 verification using the bot token as key → creates or retrieves user by `telegram_id` → issues JWT pair.
 - **JWT validation**: `lib/auth/jwt.ts` using the `jose` library. No third-party auth SDK.
+- **CSRF protection (mobile):** The Next.js middleware enforces an `Origin` header check on all mutating requests. The Expo Axios client sends `Origin: <API_BASE_URL>` on every request (including the token refresh call), so mobile clients pass the CSRF check without requiring a server-side exemption.
 
 ### Deep Link Structure
 

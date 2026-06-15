@@ -73,14 +73,36 @@ function buildKeyRegistry(): Map<string, Uint8Array> {
   return registry;
 }
 
-// Module-level cache — env vars are immutable after process start so
-// rebuilding the registry on every verifyAccessToken call is wasteful.
+/**
+ * Registry mapping key IDs to their encoded refresh secrets.
+ * Add JWT_REFRESH_SECRET_v2, JWT_REFRESH_SECRET_v3, etc. during key rotation.
+ */
+function buildRefreshKeyRegistry(): Map<string, Uint8Array> {
+  const registry = new Map<string, Uint8Array>();
+  registry.set(getCurrentKeyId(), encodeSecret(env.JWT_REFRESH_SECRET));
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key.startsWith('JWT_REFRESH_SECRET_') && value && key !== 'JWT_REFRESH_SECRET') {
+      const kid = key.replace('JWT_REFRESH_SECRET_', '');
+      registry.set(kid, encodeSecret(value));
+    }
+  }
+  return registry;
+}
+
+// Module-level caches — env vars are immutable after process start.
 const keyRegistry: Map<string, Uint8Array> = buildKeyRegistry();
+const refreshKeyRegistry: Map<string, Uint8Array> = buildRefreshKeyRegistry();
 
 function getSecretForKid(kid: string | undefined): Uint8Array {
   const secret = kid ? keyRegistry.get(kid) : null;
   // Fall back to current secret for tokens without a kid claim (backward compat)
   return secret ?? encodeSecret(env.JWT_SECRET);
+}
+
+function getRefreshSecretForKid(kid: string | undefined): Uint8Array {
+  const secret = kid ? refreshKeyRegistry.get(kid) : null;
+  // Fall back to current refresh secret for tokens without a kid claim
+  return secret ?? encodeSecret(env.JWT_REFRESH_SECRET);
 }
 
 // ---------------------------------------------------------------------------
@@ -204,7 +226,11 @@ export async function verifyRefreshToken(token: string): Promise<RefreshTokenPay
   if (!token) throw new JwtVerificationError("No token provided", "MISSING");
 
   try {
-    const { payload } = await jwtVerify(token, refreshSecret(), {
+    // Extract kid from header to select the correct refresh secret for key rotation,
+    // mirroring the approach used in verifyAccessToken.
+    const header = decodeProtectedHeader(token);
+    const secret = getRefreshSecretForKid(header.kid as string | undefined);
+    const { payload } = await jwtVerify(token, secret, {
       issuer: ISSUER,
       audience: AUDIENCE,
     });

@@ -305,17 +305,17 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
     const { rows: achievementRows } = await db.query<{
       badge_key: string;
       badge_type: string;
-      granted_at: string;
+      awarded_at: string;
       metadata: Record<string, unknown> | null;
     }>(
-      `SELECT badge_key, badge_type, granted_at, metadata
+      `SELECT badge_key, badge_type, awarded_at, metadata
        FROM user_badges
        WHERE user_id = $1
-       ORDER BY granted_at ASC
+       ORDER BY awarded_at ASC
        LIMIT 12`,
       [userId]
     ).catch(() => ({
-      rows: [] as Array<{ badge_key: string; badge_type: string; granted_at: string; metadata: Record<string, unknown> | null }>,
+      rows: [] as Array<{ badge_key: string; badge_type: string; awarded_at: string; metadata: Record<string, unknown> | null }>,
     }));
 
     // 6. Past seasons (up to 12 most recent)
@@ -380,7 +380,7 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       achievements: hidden.includes("badges") ? [] : achievementRows.map((a) => ({
         key: a.badge_key,
         type: a.badge_type,
-        grantedAt: a.granted_at,
+        grantedAt: a.awarded_at,
         label: (a.metadata as Record<string, string> | null)?.title ?? a.badge_key.replace(/_/g, " "),
       })),
       isFriend,

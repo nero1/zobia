@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic';
  * POST /api/admin/sponsored-quests
  *   Publish a new sponsored quest on behalf of a brand. Admin only.
  *   Body: { brandName, brandLogoUrl?, title, description, requirements,
- *           rewardAmountCoins, creatorSharePercent?, platformSharePercent?,
+ *           rewardCoins, creatorSharePercent?, platformSharePercent?,
  *           maxApplications, deadline, minCreatorTier? }
  *
  * PATCH /api/admin/sponsored-quests/:questId
@@ -42,7 +42,7 @@ const createQuestSchema = z.object({
   title:               z.string().min(3).max(150),
   description:         z.string().min(10).max(2000),
   requirements:        z.string().min(10).max(2000),
-  rewardAmountCoins:   z.number().int().positive(),
+  rewardCoins:   z.number().int().positive(),
   creatorSharePercent: z.number().int().min(50).max(90).default(70),
   platformSharePercent:z.number().int().min(10).max(50).default(30),
   maxApplications:     z.number().int().positive().default(10),
@@ -61,7 +61,7 @@ interface SponsoredQuestAdminRow {
   title: string;
   description: string;
   requirements: string;
-  reward_amount_coins: number;
+  reward_coins: number;
   creator_share_percent: number;
   platform_share_percent: number;
   max_applications: number;
@@ -96,7 +96,7 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
          sq.title,
          sq.description,
          sq.requirements,
-         sq.reward_amount_coins,
+         sq.reward_coins,
          sq.creator_share_percent,
          sq.platform_share_percent,
          sq.max_applications,
@@ -150,7 +150,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
     const { rows } = await db.query<{ id: string }>(
       `INSERT INTO sponsored_quests
          (brand_name, brand_logo_url, title, description, requirements,
-          reward_amount_coins, creator_share_percent, platform_share_percent,
+          reward_coins, creator_share_percent, platform_share_percent,
           max_applications, deadline, min_creator_tier, is_active, created_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,TRUE,NOW())
        RETURNING id`,
@@ -160,7 +160,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
         body.title,
         body.description,
         body.requirements,
-        body.rewardAmountCoins,
+        body.rewardCoins,
         body.creatorSharePercent,
         body.platformSharePercent,
         body.maxApplications,

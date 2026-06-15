@@ -304,8 +304,8 @@ async function processPaymentSucceeded(
         tx
       );
 
-      // Award referral commissions; pass paymentId as idempotency key (BUG-03)
-      await awardReferralCommissions(tx, userId, serverCoinsGranted, paymentId).catch((err) =>
+      // Award referral commissions; pass actual kobo amount for monetary audit records
+      await awardReferralCommissions(tx, userId, serverCoinsGranted, paymentId, amount).catch((err) =>
         console.error("[webhook/dodo] Referral commission error:", err)
       );
     }

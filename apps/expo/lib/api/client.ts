@@ -66,6 +66,9 @@ export const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
     Accept: 'application/json',
+    // Mobile HTTP clients don't send Origin automatically; set it explicitly so
+    // the server-side CSRF origin check accepts requests from the app.
+    Origin: env.API_BASE_URL,
   },
 });
 
@@ -85,10 +88,9 @@ async function refreshAccessToken(): Promise<string | null> {
         null,
         {
           headers: {
-            // Pass refresh token as a custom header so the server can use it
-            // (mobile doesn't use HttpOnly cookies)
             'X-Refresh-Token': refreshToken,
             'Content-Type': 'application/json',
+            Origin: env.API_BASE_URL,
           },
           timeout: 10_000,
         }

@@ -272,8 +272,8 @@ async function processChargeSuccess(
         tx
       );
 
-      // Award referral commissions using server-derived amount, not client metadata (#17)
-      await awardReferralCommissions(tx, userId, serverCoinsGranted, paymentId).catch((err) =>
+      // Award referral commissions; pass actual kobo amount for monetary audit records
+      await awardReferralCommissions(tx, userId, serverCoinsGranted, paymentId, amount).catch((err) =>
         console.error("[webhook/paystack] Referral commission error:", err)
       );
     }
@@ -496,8 +496,8 @@ async function processSubscriptionEvent(
        VALUES ($1, $2, 'paystack', $3, $4, NOW(), $5, NOW())
        ON CONFLICT (user_id) DO UPDATE
          SET plan = $2, provider_subscription_id = $3, status = $4, ends_at = $5, updated_at = NOW()`,
-      [resolvedUserId, derivedPlan, subscription_code, isActive ? "active" : "active", endsAt]
-    ).catch(() => {});
+      [resolvedUserId, derivedPlan, subscription_code, isActive ? "active" : "inactive", endsAt]
+    ).catch((err) => console.error("[webhook/paystack] subscriptions upsert failed:", err));
 
     await db.transaction(async (tx) => {
       // Update plan
