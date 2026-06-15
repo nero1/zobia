@@ -47,10 +47,10 @@ cp apps/web/.env.example apps/web/.env.local
 
 # 5. Run database migrations
 cd apps/web
-npx prisma migrate deploy
-# OR if using raw SQL migrations:
-psql $DATABASE_URL < db/migrations/001_initial_schema.sql
-psql $DATABASE_URL < db/migrations/002_rls_policies.sql
+for f in apps/web/lib/db/migrations/*.sql; do
+  echo "Applying $f..."
+  psql "$DATABASE_URL" < "$f"
+done
 
 # 6. Start the development server
 pnpm dev
@@ -69,6 +69,18 @@ vercel link
 vercel env pull apps/web/.env.local   # sync env vars from Vercel dashboard
 vercel deploy --prod
 ```
+
+### Verify deployment
+
+After deploying, confirm the app is healthy:
+
+```bash
+# Health check — returns 200 when DB and Redis are reachable
+curl https://your-domain.com/api/health
+# Expected: { "status": "ok", "db": "ok", "redis": "ok", "circuit": "closed", "timestamp": "..." }
+```
+
+`GET /api/health` returns HTTP 200 when all backing services (database and Redis) are reachable. It returns HTTP 503 with `"status": "degraded"` if any service is unavailable. Configure your load balancer or uptime monitor to poll this endpoint.
 
 ### Building without a full set of env vars (CI / local type-check)
 
@@ -149,6 +161,10 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `NEXT_PUBLIC_PWA_WEB_ENABLED` | No | Set to `"false"` to disable PWA/service-worker generation at build time. Default: `"true"` | `"true"` or `"false"` |
 | `NODE_ENV` | Auto | Runtime environment — set automatically by Next.js (`development` \| `test` \| `production`) | Set by Next.js |
 | `SKIP_ENV_VALIDATION` | Build only | Set to `"1"` to bypass env-var validation at build time (CI type-check only). Never set in production. | `"1"` |
+| `MONITORING_PROVIDER` | No | Error monitoring provider: `sentry` \| `newrelic` \| `none` (default: `none`) | Choose your provider |
+| `SENTRY_DSN` | If sentry | Sentry Data Source Name — required when `MONITORING_PROVIDER=sentry` | Sentry → Project Settings → Client Keys (DSN) |
+| `NEW_RELIC_LICENSE_KEY` | If newrelic | New Relic ingest licence key — required when `MONITORING_PROVIDER=newrelic` | New Relic → API keys |
+| `JWT_KEY_ID` | No | Key ID embedded in JWT headers for key-rotation versioning (default: `v1`). Increment when rotating `JWT_SECRET` to allow grace-period validation of old tokens. | Choose (e.g. `v1`, `v2`) |
 | `SECURITY_TEST_BASE_URL` | Testing only | Base URL for security/penetration tests (e.g. `http://localhost:3000`) | Local dev server |
 | `SECURITY_TEST_USER_TOKEN` | Testing only | Valid JWT for a regular (non-admin) test user | Login as test user and copy token |
 | `SECURITY_TEST_ADMIN_TOKEN` | Testing only | Valid JWT for an admin test user | Login as admin and copy token |
@@ -177,7 +193,7 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    Copy the **direct connection string** → paste as `DIRECT_URL`.
 6. Run all migrations in order:
    ```bash
-   for f in apps/web/db/migrations/*.sql; do
+   for f in apps/web/lib/db/migrations/*.sql; do
      echo "Applying $f..."
      psql "$DIRECT_URL" < "$f"
    done
@@ -185,7 +201,13 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    Migrations are numbered 001 onwards. Always apply them in order. Each migration is idempotent (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`).
 
    Migration `008_profile_privacy.sql` adds three columns to `users` (`profile_private`, `profile_hidden_sections`, `disable_friend_requests`) and seeds the four `x_manifest` privacy feature-flag keys. These are required for the Profile Privacy system.
-7. Optional seed data: `psql "$DIRECT_URL" < apps/web/db/seed.sql`
+
+   Migration `009_bug_fixes.sql` (in `apps/web/lib/db/migrations/`) applies the following schema changes from recent bug fixes:
+   - Adds `is_active` column to `gift_items`
+   - Adds `tier` column to `referral_commissions`
+   - Creates 5 previously missing tables
+   - Drops the `awarded_at` column from `user_badges`
+7. Optional seed data: `psql "$DIRECT_URL" < apps/web/lib/db/seed.sql`
 
 ### Option B: Railway PostgreSQL
 

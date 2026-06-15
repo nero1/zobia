@@ -1033,5 +1033,10 @@
   "messages.coinError.buyCoins": "Saya Kirediti",
   "messages.coinError.upgrade": "Haɓaka zuwa Pro",
   "settings.twoFaDisabledByAdmin": "Tabbacin abubuwa biyu an kashe shi a halin yanzu ta mai gudanar da dandali.",
-  "settings.pinDisabledByAdmin": "Tabbacin PIN an kashe shi a halin yanzu ta mai gudanar da dandali."
+  "settings.pinDisabledByAdmin": "Tabbacin PIN an kashe shi a halin yanzu ta mai gudanar da dandali.",
+
+  "errors.not_room_member": "Ba ku zama memba na wannan ɗakin ba.",
+  "errors.global_rate_limit": "Buƙatun da yawa. Don Allah sake gwadawa daga baya.",
+  "health.status_ok": "Duk tsarin na aiki",
+  "health.status_degraded": "Wasu sabis na da matsala"
 }

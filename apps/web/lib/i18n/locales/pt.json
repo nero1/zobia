@@ -1033,5 +1033,11 @@
   "messages.coinError.buyCoins": "Comprar Créditos",
   "messages.coinError.upgrade": "Fazer Upgrade para Pro",
   "settings.twoFaDisabledByAdmin": "A autenticação em dois fatores está atualmente desabilitada pelo administrador da plataforma.",
-  "settings.pinDisabledByAdmin": "A autenticação por PIN está atualmente desabilitada pelo administrador da plataforma."
+  "settings.pinDisabledByAdmin": "A autenticação por PIN está atualmente desabilitada pelo administrador da plataforma.",
+
+  "errors.not_room_member": "Você não é membro desta sala.",
+  "errors.global_rate_limit": "Muitas solicitações. Por favor, tente novamente mais tarde.",
+
+  "health.status_ok": "Todos os sistemas operacionais",
+  "health.status_degraded": "Alguns serviços estão degradados"
 }

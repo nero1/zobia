@@ -1033,5 +1033,10 @@
   "messages.coinError.buyCoins": "Thenga Amakhrediti",
   "messages.coinError.upgrade": "Dlulela ku-Pro",
   "settings.twoFaDisabledByAdmin": "Ukuqinisekiswa kwezinyathelo ezimbili njengamanje kukhubazwe umphathi wenkundla.",
-  "settings.pinDisabledByAdmin": "Ukuqinisekiswa kwe-PIN njengamanje kukhubazwe umphathi wenkundla."
+  "settings.pinDisabledByAdmin": "Ukuqinisekiswa kwe-PIN njengamanje kukhubazwe umphathi wenkundla.",
+
+  "errors.not_room_member": "Awunalo ulungu lwale ndlu.",
+  "errors.global_rate_limit": "Izicelo eziningi kakhulu. Sicela uzame futhi kamuva.",
+  "health.status_ok": "Wonke amasistimu asebenza",
+  "health.status_degraded": "Ezinye izinsiza zehlelwe yinkinga"
 }
