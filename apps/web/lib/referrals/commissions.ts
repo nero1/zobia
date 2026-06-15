@@ -16,6 +16,7 @@ import Decimal from "decimal.js";
 import { XP_VALUES } from "@/lib/xp/engine";
 import { getManifestValue } from "@/lib/manifest";
 import { creditCoins } from "@/lib/economy/coins";
+import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 // Schema-derived types: column name validation at compile time.
 // schema.users.referredBy.name === "referred_by" — any rename triggers a TS error.
 import { schema } from "@/lib/db/schema";
@@ -95,15 +96,7 @@ export async function awardReferralCommissions(
     const coinBonus = parseInt(coinBonusStr ?? "100", 10) || 100;
 
     // Award XP
-    await db.query(
-      `UPDATE users SET xp_total = xp_total + $1, xp_social = COALESCE(xp_social, 0) + $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL`,
-      [xpBonus, tier1Id]
-    );
-    await db.query(
-      `INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, created_at)
-       VALUES ($1, $2, 'social', 'referral_qualified', $2, NOW())`,
-      [tier1Id, xpBonus]
-    );
+    await safeAwardXP(tier1Id, xpBonus, 'social', 'referral_first_purchase', `referral_qualified:${qualifyRows[0].id}`, db);
 
     // Award one-time coin bonus
     if (coinBonus > 0) {
@@ -144,8 +137,8 @@ export async function awardReferralCommissions(
 
     await db.query(
       `INSERT INTO referral_commissions
-         (referrer_id, referred_user_id, trigger_event_id, purchase_amount_kobo, commission_kobo, commission_coins, status, created_at)
-       VALUES ($1, $2, $3, 0, 0, $4, 'credited', NOW())
+         (referrer_id, referred_user_id, trigger_event_id, purchase_amount_kobo, commission_kobo, commission_coins, tier, status, created_at)
+       VALUES ($1, $2, $3, 0, 0, $4, 'standard', 'credited', NOW())
        ON CONFLICT DO NOTHING`,
       [tier1Id, buyerId, `${paymentId}:t1`, tier1Coins]
     );
@@ -179,8 +172,8 @@ export async function awardReferralCommissions(
 
     await db.query(
       `INSERT INTO referral_commissions
-         (referrer_id, referred_user_id, trigger_event_id, purchase_amount_kobo, commission_kobo, commission_coins, status, created_at)
-       VALUES ($1, $2, $3, 0, 0, $4, 'credited', NOW())
+         (referrer_id, referred_user_id, trigger_event_id, purchase_amount_kobo, commission_kobo, commission_coins, tier, status, created_at)
+       VALUES ($1, $2, $3, 0, 0, $4, 'standard', 'credited', NOW())
        ON CONFLICT DO NOTHING`,
       [tier2Id, buyerId, `${paymentId}:t2`, tier2Coins]
     );

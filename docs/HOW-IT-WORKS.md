@@ -8,7 +8,7 @@ New users choose a username, select their city and country, pick an avatar emoji
 
 ### Direct Messages (DMs)
 
-1-to-1 private messaging between any two users. Messages are stored in the `messages` table with `recipient_id` set. Conversations are fetched from `/api/inbox`.
+1-to-1 private messaging between any two users. Messages are stored in the `room_messages` table with `recipient_id` set. Conversations are fetched from `/api/inbox`.
 
 **Realtime delivery flow:**
 1. The sender's POST to `/api/messages/dm/[conversationId]` saves the message to the database.
@@ -421,7 +421,7 @@ Plan-based message retention limits are enforced nightly:
 - **Plus plan**: Messages older than 180 days are permanently deleted.
 - **Pro / Max plan**: No deletion — unlimited history.
 
-Deletion is batched by joining `messages` against the sender's subscription plan. Results (`freeDeleted`, `plusDeleted`) are included in the CRON response JSON for monitoring.
+Deletion is batched by joining `room_messages` against the sender's subscription plan. Results (`freeDeleted`, `plusDeleted`) are included in the CRON response JSON for monitoring.
 
 ### Offline Sync
 
@@ -449,6 +449,35 @@ Deletion is batched by joining `messages` against the sender's subscription plan
 4. **Logout** → deletes the Redis `session:*` key → immediate invalidation. The old access token will still parse as valid until its 15-minute TTL expires, but the refresh token can no longer be used to extend sessions.
 5. **Ban or suspension** → admin action deletes all `session:*` keys for the user → all devices logged out immediately, without waiting for JWT expiry.
 6. **Admin sessions** → separate shorter-lived JWT (5-minute TTL), re-verified against `is_admin` in the database on every admin route call.
+
+**Session limit:** Users are limited to **10 concurrent sessions** (`MAX_SESSIONS=10`). When a new login would exceed this limit, the oldest session (by creation time) is evicted from Redis and the `sessions` table before the new session is issued.
+
+### Health Check Endpoint
+
+`GET /api/health` — used by load balancers and uptime monitors.
+
+**Response shape:**
+```json
+{
+  "status": "ok" | "degraded",
+  "db": "ok" | "error",
+  "redis": "ok" | "error",
+  "circuit": "closed" | "open" | "half-open",
+  "timestamp": "ISO8601"
+}
+```
+
+Returns HTTP 200 when all systems are reachable. Returns HTTP 503 when one or more services are unreachable (status will be `"degraded"`). Load balancers should poll this endpoint and remove the instance from rotation when a 503 is received.
+
+### Graceful Shutdown
+
+`apps/web/instrumentation.ts` registers handlers for `SIGTERM` and `SIGINT`. On receipt of either signal the process:
+1. Stops accepting new requests.
+2. Waits for in-flight requests to complete (up to a configurable drain timeout).
+3. Closes the database connection pool and Redis client.
+4. Exits with code 0.
+
+This ensures zero dropped requests during rolling deploys on Vercel and other container-based platforms.
 
 ### Database Provider Abstraction
 
@@ -525,7 +554,9 @@ This applies to any `"use client"` page that reads search params. Examples in th
 
 **No Supabase Auth anywhere.** All auth is platform-managed.
 
-- **Google OAuth**: Frontend redirects to Google → Google calls `/api/auth/google/callback?code=...` → backend exchanges code for Google tokens → backend verifies Google ID token → creates or retrieves Zobia user by `google_id` → issues Zobia JWT pair.
+- **Google OAuth**: Frontend redirects to Google → Google calls `/api/auth/google/callback?code=...` → backend exchanges code for Google tokens → backend verifies Google ID token → creates or retrieves Zobia user by `google_id`.
+  - **If the user has 2FA enabled**: instead of issuing a JWT pair immediately, the backend issues a short-lived opaque pre-auth code and redirects the browser to `/auth/2fa/verify`. The frontend then calls `POST /api/auth/2fa/pre-auth-token` with the opaque code to exchange it for a TOTP challenge. After the user enters a valid TOTP code, the backend issues the full Zobia JWT pair. The opaque code is never placed in the URL query string.
+  - **If 2FA is not enabled**: the backend issues the Zobia JWT pair directly.
 - **Telegram Login**: Telegram Login Widget posts data to `/api/auth/telegram` → backend performs HMAC-SHA256 verification using the bot token as key → creates or retrieves user by `telegram_id` → issues JWT pair.
 - **JWT validation**: `lib/auth/jwt.ts` using the `jose` library. No third-party auth SDK.
 

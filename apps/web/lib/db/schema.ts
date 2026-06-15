@@ -41,10 +41,6 @@ const updatedAt = () =>
 const uuidPk = () =>
   uuid("id")
     .primaryKey()
-    .default(sql`uuid_generate_v4()`);
-const uuidPkGen = () =>
-  uuid("id")
-    .primaryKey()
     .default(sql`gen_random_uuid()`);
 
 // ---------------------------------------------------------------------------
@@ -284,7 +280,7 @@ export const moderationActions = pgTable("moderation_actions", {
 // ---------------------------------------------------------------------------
 
 export const notifications = pgTable("notifications", {
-  id: uuidPkGen(),
+  id: uuidPk(),
   userId: uuid("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
@@ -346,7 +342,7 @@ export const xpLedger = pgTable(
 );
 
 export const failedXpAwards = pgTable("failed_xp_awards", {
-  id: uuidPkGen(),
+  id: uuidPk(),
   userId: uuid("user_id").notNull(),
   amount: integer("amount").notNull(),
   track: text("track").notNull(),
@@ -380,7 +376,7 @@ export const payments = pgTable("payments", {
 });
 
 export const auditDiscrepancies = pgTable("audit_discrepancies", {
-  id: uuidPkGen(),
+  id: uuidPk(),
   userId: uuid("user_id").notNull(),
   assetType: text("asset_type").notNull(),
   ledgerSum: bigint("ledger_sum", { mode: "number" }).notNull(),
@@ -422,7 +418,7 @@ export const referrals = pgTable(
 );
 
 export const referralCommissions = pgTable("referral_commissions", {
-  id: uuidPkGen(),
+  id: uuidPk(),
   referrerId: uuid("referrer_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
@@ -430,6 +426,7 @@ export const referralCommissions = pgTable("referral_commissions", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   triggerEventId: text("trigger_event_id").notNull(),
+  tier: text("tier").notNull().default("standard"),
   purchaseAmountKobo: bigint("purchase_amount_kobo", { mode: "number" }).notNull(),
   commissionKobo: bigint("commission_kobo", { mode: "number" }).notNull(),
   commissionCoins: integer("commission_coins").notNull().default(0),
@@ -536,7 +533,7 @@ export const userQuestProgress = pgTable(
 export const userQuestDecks = pgTable(
   "user_quest_decks",
   {
-    id: uuidPkGen(),
+    id: uuidPk(),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -608,7 +605,7 @@ export const guildQuests = pgTable("guild_quests", {
 });
 
 export const allianceWars = pgTable("alliance_wars", {
-  id: uuidPkGen(),
+  id: uuidPk(),
   alliance1Id: uuid("alliance_1_id").notNull(),
   alliance2Id: uuid("alliance_2_id").notNull(),
   status: text("status").notNull().default("active"),
@@ -662,7 +659,6 @@ export const userBadges = pgTable("user_badges", {
   badgeKey: text("badge_key"),
   referenceId: text("reference_id"),
   metadata: jsonb("metadata"),
-  awardedAt: timestamp("awarded_at", { withTimezone: true }).defaultNow(),
   grantedAt: timestamp("granted_at", { withTimezone: true }).defaultNow(),
 });
 
@@ -689,7 +685,7 @@ export const userInactivityEvents = pgTable("user_inactivity_events", {
 export const userPushTokens = pgTable(
   "user_push_tokens",
   {
-    id: uuidPkGen(),
+    id: uuidPk(),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -729,9 +725,9 @@ export const gifts = pgTable("gifts", {
   recipientId: uuid("recipient_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
-  giftTypeId: uuid("gift_type_id")
+  giftItemId: uuid("gift_item_id")
     .notNull()
-    .references(() => giftTypes.id),
+    .references(() => giftItems.id),
   messageId: uuid("message_id"),
   roomId: uuid("room_id"),
   coinCost: integer("coin_cost").notNull(),
@@ -764,7 +760,7 @@ export const rooms = pgTable("rooms", {
 export const roomMembers = pgTable(
   "room_members",
   {
-    id: uuidPkGen(),
+    id: uuidPk(),
     roomId: uuid("room_id")
       .notNull()
       .references(() => rooms.id, { onDelete: "cascade" }),
@@ -805,7 +801,7 @@ export const guilds = pgTable("guilds", {
 export const guildMembers = pgTable(
   "guild_members",
   {
-    id: uuidPkGen(),
+    id: uuidPk(),
     guildId: uuid("guild_id")
       .notNull()
       .references(() => guilds.id, { onDelete: "cascade" }),
@@ -822,7 +818,7 @@ export const guildMembers = pgTable(
 );
 
 export const guildWars = pgTable("guild_wars", {
-  id: uuidPkGen(),
+  id: uuidPk(),
   challengerGuildId: uuid("challenger_guild_id")
     .notNull()
     .references(() => guilds.id),
@@ -839,10 +835,10 @@ export const guildWars = pgTable("guild_wars", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
-export const guildWarMembers = pgTable(
+export const warContributions = pgTable(
   "war_contributions",
   {
-    id: uuidPkGen(),
+    id: uuidPk(),
     warId: uuid("war_id")
       .notNull()
       .references(() => guildWars.id, { onDelete: "cascade" }),
@@ -857,13 +853,15 @@ export const guildWarMembers = pgTable(
     unique: uniqueIndex("war_contributions_war_user_idx").on(t.warId, t.userId),
   })
 );
+// Backward-compat alias (BUG-27)
+export const guildWarMembers = warContributions;
 
 // ---------------------------------------------------------------------------
 // SECTION 16: Audit Log (BUG-30)
 // ---------------------------------------------------------------------------
 
 export const auditLog = pgTable("audit_log", {
-  id: uuidPkGen(),
+  id: uuidPk(),
   actorId: uuid("actor_id"),
   action: text("action").notNull(),
   targetType: text("target_type"),
@@ -879,7 +877,7 @@ export const auditLog = pgTable("audit_log", {
 // ---------------------------------------------------------------------------
 
 export const hallOfFame = pgTable("hall_of_fame", {
-  id: uuidPkGen(),
+  id: uuidPk(),
   userId: uuid("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" })
@@ -898,6 +896,7 @@ export const giftItems = pgTable("gift_items", {
   name: text("name").notNull(),
   emoji: text("emoji").notNull(),
   coinCost: integer("coin_cost").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
   isLimitedEdition: boolean("is_limited_edition").notNull().default(false),
   isRetired: boolean("is_retired").notNull().default(false),
   seasonId: uuid("season_id"),
@@ -938,7 +937,7 @@ export const seasonPassMilestones = pgTable("season_pass_milestones", {
 export const userSeasonPasses = pgTable(
   "user_season_passes",
   {
-    id: uuidPkGen(),
+    id: uuidPk(),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -959,7 +958,7 @@ export const userSeasonPasses = pgTable(
 export const userSeasonPassClaims = pgTable(
   "user_season_pass_claims",
   {
-    id: uuidPkGen(),
+    id: uuidPk(),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -974,6 +973,88 @@ export const userSeasonPassClaims = pgTable(
   (t) => ({
     unique: uniqueIndex("user_season_pass_claims_user_milestone_idx").on(t.userId, t.milestoneId),
   })
+);
+
+// ---------------------------------------------------------------------------
+// SECTION 20: Store & Subscriptions
+// ---------------------------------------------------------------------------
+
+export const storeItems = pgTable("store_items", {
+  id: uuidPk(),
+  name: text("name").notNull(),
+  description: text("description"),
+  itemType: text("item_type").notNull(),
+  priceCoins: integer("price_coins").notNull().default(0),
+  priceKobo: bigint("price_kobo", { mode: "number" }).notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+export const roomSubscriptions = pgTable(
+  "room_subscriptions",
+  {
+    id: uuidPk(),
+    roomId: uuid("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    tier: text("tier").notNull().default("standard"),
+    status: text("status").notNull().default("active"),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => ({
+    unique: uniqueIndex("room_subscriptions_room_user_idx").on(t.roomId, t.userId),
+  })
+);
+
+export const userSubscriptions = pgTable(
+  "user_subscriptions",
+  {
+    id: uuidPk(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    plan: text("plan").notNull(),
+    status: text("status").notNull().default("active"),
+    provider: text("provider").notNull(),
+    providerSubscriptionId: text("provider_subscription_id"),
+    currentPeriodStart: timestamp("current_period_start", { withTimezone: true }),
+    currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  }
+);
+
+export const creatorEarnings = pgTable("creator_earnings", {
+  id: uuidPk(),
+  creatorId: uuid("creator_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  sourceType: text("source_type").notNull(),
+  sourceId: uuid("source_id"),
+  grossKobo: bigint("gross_kobo", { mode: "number" }).notNull(),
+  platformFeeKobo: bigint("platform_fee_kobo", { mode: "number" }).notNull().default(0),
+  netKobo: bigint("net_kobo", { mode: "number" }).notNull(),
+  status: text("status").notNull().default("pending"),
+  settledAt: timestamp("settled_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const sponsoredQuestApplications = pgTable(
+  "sponsored_quest_applications",
+  {
+    id: uuidPk(),
+    questId: uuid("quest_id").notNull().references(() => questTemplates.id, { onDelete: "cascade" }),
+    sponsorUserId: uuid("sponsor_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    budgetCoins: integer("budget_coins").notNull(),
+    status: text("status").notNull().default("pending"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    reviewedBy: uuid("reviewed_by").references(() => users.id, { onDelete: "set null" }),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  }
 );
 
 // ---------------------------------------------------------------------------
@@ -1035,6 +1116,14 @@ export type GuildQuest = typeof guildQuests.$inferSelect;
 export type UserBadge = typeof userBadges.$inferSelect;
 export type RoomMessage = typeof roomMessages.$inferSelect;
 
+export type StoreItem = typeof storeItems.$inferSelect;
+export type RoomSubscription = typeof roomSubscriptions.$inferSelect;
+export type UserSubscription = typeof userSubscriptions.$inferSelect;
+export type CreatorEarning = typeof creatorEarnings.$inferSelect;
+export type SponsoredQuestApplication = typeof sponsoredQuestApplications.$inferSelect;
+export type WarContribution = typeof warContributions.$inferSelect;
+export type GiftItem = typeof giftItems.$inferSelect;
+
 // Convenience namespace so callers can do: import { schema } from '@/lib/db/schema'
 export const schema = {
   users,
@@ -1068,6 +1157,7 @@ export const schema = {
   guilds,
   guildMembers,
   guildWars,
+  warContributions,
   guildWarMembers,
   auditLog,
   hallOfFame,
@@ -1076,4 +1166,9 @@ export const schema = {
   seasonPassMilestones,
   userSeasonPasses,
   userSeasonPassClaims,
+  storeItems,
+  roomSubscriptions,
+  userSubscriptions,
+  creatorEarnings,
+  sponsoredQuestApplications,
 };

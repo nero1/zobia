@@ -1033,5 +1033,11 @@
   "messages.coinError.buyCoins": "Acheter des crédits",
   "messages.coinError.upgrade": "Passer à Pro",
   "settings.twoFaDisabledByAdmin": "L'authentification à deux facteurs est actuellement désactivée par l'administrateur de la plateforme.",
-  "settings.pinDisabledByAdmin": "L'authentification par PIN est actuellement désactivée par l'administrateur de la plateforme."
+  "settings.pinDisabledByAdmin": "L'authentification par PIN est actuellement désactivée par l'administrateur de la plateforme.",
+
+  "errors.not_room_member": "Vous n'êtes pas membre de ce salon.",
+  "errors.global_rate_limit": "Trop de requêtes. Veuillez réessayer plus tard.",
+
+  "health.status_ok": "Tous les systèmes sont opérationnels",
+  "health.status_degraded": "Certains services sont dégradés"
 }

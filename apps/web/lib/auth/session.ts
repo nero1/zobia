@@ -123,9 +123,10 @@ export async function createSession(
     JSON.stringify(record)
   );
 
-  // Track session in per-user set; atomically extend TTL only when the new
-  // lifetime would exceed the current one (Lua avoids a TTL→EXPIRE TOCTOU race).
-  await redis.sadd(userSessionsKey(user.id), sid);
+  // Track session in per-user sorted set, scored by creation time.
+  // Atomically extend TTL only when the new lifetime would exceed the current one
+  // (Lua avoids a TTL→EXPIRE TOCTOU race).
+  await redis.zadd(userSessionsKey(user.id), Date.now(), sid);
   await redis.eval(
     `local current = redis.call('TTL', KEYS[1])
      local newTtl = tonumber(ARGV[1])
@@ -134,6 +135,10 @@ export async function createSession(
     userSessionsKey(user.id),
     String(refreshTtl)
   );
+
+  // Enforce per-user session limit (BUG-22): evict the oldest sessions beyond MAX_SESSIONS.
+  const MAX_SESSIONS = 10;
+  await redis.zremrangebyrank(userSessionsKey(user.id), 0, -(MAX_SESSIONS + 1));
 
   return { accessToken, refreshToken, expiresIn: accessTtl };
 }
@@ -274,7 +279,7 @@ export async function refreshAccessToken(
  */
 export async function invalidateSession(sid: string, uid: string): Promise<void> {
   await redis.del(sessionKey(sid));
-  await redis.srem(userSessionsKey(uid), sid);
+  await redis.zrem(userSessionsKey(uid), sid);
 }
 
 /**
@@ -283,7 +288,7 @@ export async function invalidateSession(sid: string, uid: string): Promise<void>
  * @param uid - User ID
  */
 export async function invalidateAllSessions(uid: string): Promise<void> {
-  const sids = await redis.smembers(userSessionsKey(uid));
+  const sids = await redis.zrange(userSessionsKey(uid), 0, -1);
   if (sids.length > 0) {
     await redis.del(...sids.map(sessionKey));
   }

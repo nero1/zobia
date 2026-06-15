@@ -350,7 +350,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       }
 
       const destination = new URL("/auth/2fa", reqOrigin);
-      destination.searchParams.set("token", preAuthToken);
+      const preAuthCode = crypto.randomBytes(32).toString("hex");
+      await redis.setex(`web_pre_auth:${preAuthCode}`, 300, preAuthToken);
+      destination.searchParams.set("code", preAuthCode);
       const response = NextResponse.redirect(destination, { status: 302 });
       for (const cookie of cookiesToClear) response.headers.append("Set-Cookie", cookie);
       return response;

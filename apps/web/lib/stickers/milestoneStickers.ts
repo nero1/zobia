@@ -146,7 +146,7 @@ export async function awardMilestoneStickers(
     await db.query(
       `INSERT INTO user_sticker_packs (user_id, pack_id)
        VALUES ($1, $2)
-       ON CONFLICT DO NOTHING`,
+       ON CONFLICT (user_id, pack_id) DO NOTHING`,
       [userId, packId]
     );
 
@@ -188,7 +188,7 @@ export async function checkStickerCollectorBadges(
     if (totalPacks >= threshold) {
       const badgeKey = `sticker_collector_${threshold}`;
       await db.query(
-        `INSERT INTO user_badges (user_id, badge_key, awarded_at)
+        `INSERT INTO user_badges (user_id, badge_key, granted_at)
          VALUES ($1, $2, NOW())
          ON CONFLICT (user_id, badge_key) DO NOTHING`,
         [userId, badgeKey]

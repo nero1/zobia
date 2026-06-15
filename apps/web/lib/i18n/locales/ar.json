@@ -1033,5 +1033,11 @@
   "messages.coinError.buyCoins": "شراء كريديت",
   "messages.coinError.upgrade": "الترقية إلى Pro",
   "settings.twoFaDisabledByAdmin": "المصادقة الثنائية معطَّلة حالياً من قِبَل مسؤول المنصة.",
-  "settings.pinDisabledByAdmin": "مصادقة PIN معطَّلة حالياً من قِبَل مسؤول المنصة."
+  "settings.pinDisabledByAdmin": "مصادقة PIN معطَّلة حالياً من قِبَل مسؤول المنصة.",
+
+  "errors.not_room_member": "أنت لست عضواً في هذه الغرفة.",
+  "errors.global_rate_limit": "طلبات كثيرة جداً. يرجى المحاولة مرة أخرى لاحقاً.",
+
+  "health.status_ok": "جميع الأنظمة تعمل بشكل طبيعي",
+  "health.status_degraded": "بعض الخدمات تعاني من انخفاض في الأداء"
 }

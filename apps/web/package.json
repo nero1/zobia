@@ -26,6 +26,7 @@
     "@tanstack/react-query": "^5.56.2",
     "@tanstack/react-query-devtools": "^5.56.2",
     "@types/bcryptjs": "^2.4.6",
+    "@types/sanitize-html": "^2.13.0",
     "@upstash/redis": "^1.38.0",
     "ably": "^2.6.1",
     "axios": "^1.7.7",
@@ -50,6 +51,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-i18next": "^15.0.2",
+    "sanitize-html": "^2.13.0",
     "tailwind-merge": "^2.5.2",
     "zod": "^3.23.8"
   },

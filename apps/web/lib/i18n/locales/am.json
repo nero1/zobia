@@ -1033,5 +1033,10 @@
   "messages.coinError.buyCoins": "ክሬዲቶች ግዙ",
   "messages.coinError.upgrade": "ወደ Pro አሻሽሉ",
   "settings.twoFaDisabledByAdmin": "የሁለት ደረጃ ማረጋገጫ በአሁኑ ጊዜ በመድረኩ አስተዳዳሪ ተሰናክሏል።",
-  "settings.pinDisabledByAdmin": "የ PIN ማረጋገጫ በአሁኑ ጊዜ በመድረኩ አስተዳዳሪ ተሰናክሏል።"
+  "settings.pinDisabledByAdmin": "የ PIN ማረጋገጫ በአሁኑ ጊዜ በመድረኩ አስተዳዳሪ ተሰናክሏል።",
+
+  "errors.not_room_member": "የዚህ ክፍል አባል አይደሉም።",
+  "errors.global_rate_limit": "በጣም ብዙ ጥያቄዎች። እባክዎ ቆይተው እንደገና ይሞክሩ።",
+  "health.status_ok": "ሁሉም ስርዓቶች ሥራ ላይ ናቸው",
+  "health.status_degraded": "አንዳንድ አገልግሎቶች ተዳክመዋል"
 }

@@ -154,27 +154,24 @@ export type EmailNotificationType =
  * Check if a user has opted out of a specific email notification type.
  * Returns true (enabled) if no preference found (opt-in by default).
  * Security emails cannot be disabled.
+ *
+ * FIX-E4 (BUG-20): Accepts userId and queries user_email_preferences directly
+ * by user_id, avoiding an unnecessary JOIN through the users table on email.
  */
 async function isEmailTypeEnabledForUser(
-  userEmail: string,
-  type?: EmailNotificationType
+  userId: string,
+  type: string,
+  db: import("@/lib/db/interface").DatabaseAdapter
 ): Promise<boolean> {
   if (!type) return true;
   if (type === "security") return true; // security emails always sent
 
   try {
-    const { db } = await import("@/lib/db");
     const { rows } = await db.query<{ is_enabled: boolean }>(
-      `SELECT uep.is_enabled
-       FROM user_email_preferences uep
-       JOIN users u ON u.id = uep.user_id
-       WHERE u.email = $1
-         AND uep.notification_type = $2
-       LIMIT 1`,
-      [userEmail, type]
+      `SELECT is_enabled FROM user_email_preferences WHERE user_id = $1 AND notification_type = $2 LIMIT 1`,
+      [userId, type]
     );
-    if (!rows[0]) return true; // no preference = opted-in
-    return rows[0].is_enabled;
+    return rows.length === 0 || rows[0].is_enabled;
   } catch {
     return true;
   }
@@ -185,11 +182,15 @@ export async function sendEmail(
   subject: string,
   text: string,
   html?: string,
-  notificationType?: EmailNotificationType
+  notificationType?: EmailNotificationType,
+  userId?: string
 ): Promise<void> {
   if (!hasMailgunConfig()) return;
   if (!(await isPlatformEmailEnabled())) return;
-  if (!(await isEmailTypeEnabledForUser(to, notificationType))) return;
+  if (userId && notificationType) {
+    const { db } = await import("@/lib/db");
+    if (!(await isEmailTypeEnabledForUser(userId, notificationType, db))) return;
+  }
 
   await postToMailgun({ to, subject, text, html });
 }
@@ -204,16 +205,19 @@ export async function sendEmail(
  * @param emails - Array of email payloads to send in order
  */
 export async function sendEmailBatch(
-  emails: Array<{ to: string; subject: string; text: string; html?: string; notificationType?: EmailNotificationType }>
+  emails: Array<{ to: string; subject: string; text: string; html?: string; notificationType?: EmailNotificationType; userId?: string }>
 ): Promise<void> {
   if (!hasMailgunConfig()) return;
   if (emails.length === 0) return;
   if (!(await isPlatformEmailEnabled())) return;
 
+  const { db } = await import("@/lib/db");
   for (let i = 0; i < emails.length; i++) {
     const email = emails[i];
-    if (!(await isEmailTypeEnabledForUser(email.to, email.notificationType))) {
-      continue;
+    if (email.userId && email.notificationType) {
+      if (!(await isEmailTypeEnabledForUser(email.userId, email.notificationType, db))) {
+        continue;
+      }
     }
     await postToMailgun(email);
 

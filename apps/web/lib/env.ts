@@ -123,6 +123,14 @@ const envSchema = z.object({
   NEXT_PUBLIC_PUSHER_KEY: z.string().optional(),
   NEXT_PUBLIC_PUSHER_CLUSTER: z.string().optional(),
 
+  // ---- Monitoring ---------------------------------------------------------
+  MONITORING_PROVIDER: z.enum(["sentry", "newrelic", "none"]).default("none"),
+  SENTRY_DSN: z.string().optional(),
+  NEW_RELIC_LICENSE_KEY: z.string().optional(),
+
+  // ---- JWT key rotation ---------------------------------------------------
+  JWT_KEY_ID: z.string().default("v1"),
+
   // ---- Runtime ------------------------------------------------------------
   NODE_ENV: z
     .enum(["development", "test", "production"])

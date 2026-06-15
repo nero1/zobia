@@ -69,24 +69,26 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       ? (trackParam as LeaderboardTrack)
       : "main";
 
+    // Resolve user profile fields needed for scope-specific filtering
+    const userProfileResult = await db.query<{ city: string | null; guild_id: string | null; country: string | null }>(
+      `SELECT city, guild_id, country FROM users WHERE id = $1`,
+      [auth.user.sub]
+    );
+    const userProfile = userProfileResult.rows[0];
+
     // Resolve city — use param, fall back to user's city
     let city: string | null = cityParam;
     if (scope === "city" && !city) {
-      const userResult = await db.query<{ city: string | null }>(
-        `SELECT city FROM users WHERE id = $1`,
-        [auth.user.sub]
-      );
-      city = userResult.rows[0]?.city ?? null;
+      city = userProfile?.city ?? null;
     }
+
+    // Resolve country for national leaderboard
+    const country: string = userProfile?.country ?? 'NG';
 
     // Resolve guild
     let guildId: string | null = null;
     if (scope === "guild") {
-      const userResult = await db.query<{ guild_id: string | null }>(
-        `SELECT guild_id FROM users WHERE id = $1`,
-        [auth.user.sub]
-      );
-      guildId = userResult.rows[0]?.guild_id ?? null;
+      guildId = userProfile?.guild_id ?? null;
     }
 
     // Resolve season
@@ -103,12 +105,14 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       pageSize: limit,
       guildId: guildId ?? undefined,
       seasonId: seasonId ?? undefined,
+      country,
     });
 
     const userRank = await getUserRank(auth.user.sub, track, scope, db, {
       city: city ?? undefined,
       guildId: guildId ?? undefined,
       seasonId: seasonId ?? undefined,
+      country,
     });
 
     return NextResponse.json({

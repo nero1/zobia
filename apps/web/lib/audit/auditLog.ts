@@ -26,7 +26,10 @@ export type AuditAction =
   | "2fa_enabled"
   | "2fa_disabled"
   | "session_rotated"
-  | "account_reactivated";
+  | "account_reactivated"
+  // Read-path admin access auditing (BUG-45)
+  | "financial_read"
+  | "user_profile_read";
 
 export interface AuditLogParams {
   actorId?: string | null;

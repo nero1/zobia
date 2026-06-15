@@ -16,7 +16,6 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import crypto from "crypto";
 import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
 import { validateBody } from "@/lib/api/middleware";
@@ -25,58 +24,7 @@ import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateL
 import { verifyAccessToken } from "@/lib/auth/jwt";
 import { createSession, buildCookieHeaders } from "@/lib/auth/session";
 import { decryptField } from "@/lib/security/fieldEncryption";
-
-// ---------------------------------------------------------------------------
-// TOTP helpers
-// ---------------------------------------------------------------------------
-
-function base32Decode(input: string): Uint8Array {
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-  const str = input.toUpperCase().replace(/=+$/, "");
-  const bytes: number[] = [];
-  let bits = 0;
-  let value = 0;
-  for (const char of str) {
-    const idx = alphabet.indexOf(char);
-    if (idx === -1) continue;
-    value = (value << 5) | idx;
-    bits += 5;
-    if (bits >= 8) {
-      bytes.push((value >>> (bits - 8)) & 0xff);
-      bits -= 8;
-    }
-  }
-  return new Uint8Array(bytes);
-}
-
-function generateTOTP(secret: string, counter?: number): string {
-  const timeStep = 30;
-  const t = counter ?? Math.floor(Date.now() / 1000 / timeStep);
-  const buf = Buffer.alloc(8);
-  let tmp = t;
-  for (let i = 7; i >= 0; i--) {
-    buf[i] = tmp & 0xff;
-    tmp >>= 8;
-  }
-  const key = Buffer.from(base32Decode(secret));
-  const hmac = crypto.createHmac("sha1", key).update(buf).digest();
-  const offset = hmac[hmac.length - 1] & 0x0f;
-  const code =
-    ((hmac[offset] & 0x7f) << 24) |
-    ((hmac[offset + 1] & 0xff) << 16) |
-    ((hmac[offset + 2] & 0xff) << 8) |
-    (hmac[offset + 3] & 0xff);
-  return String(code % 1_000_000).padStart(6, "0");
-}
-
-function verifyTOTP(secret: string, code: string): boolean {
-  const timeStep = 30;
-  const t = Math.floor(Date.now() / 1000 / timeStep);
-  for (const drift of [-1, 0, 1]) {
-    if (generateTOTP(secret, t + drift) === code) return true;
-  }
-  return false;
-}
+import { verifyTotp } from "@/lib/auth/totp";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -142,7 +90,7 @@ export async function POST(req: NextRequest) {
       }
 
       const secret = user.totp_secret ? decryptField(user.totp_secret) : null;
-      if (!secret || !verifyTOTP(secret, code)) {
+      if (!secret || !(await verifyTotp(secret, code))) {
         return NextResponse.json({ success: false, error: "Invalid code" }, { status: 400 });
       }
 

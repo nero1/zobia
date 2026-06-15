@@ -178,12 +178,12 @@ const REENGAGEMENT_BUCKETS: Array<{
     messages: [
       {
         title: "Long time no see 🙏",
-        body: "We saved 200 Coins for you. They expire in 7 days. Coins are real and are actually reserved — log in to claim them.",
+        body: "Your friends are still here — come see what you've missed!",
         action: "/economy/coins",
       },
       {
         title: "Your old friends are still here",
-        body: "We reserved 200 Coins just for you — come back within 7 days to claim them and reconnect with your crew.",
+        body: "Your friends are still here — come see what you've missed!",
         action: "/friends",
       },
     ],
@@ -219,12 +219,12 @@ const REENGAGEMENT_BUCKETS: Array<{
  *                                 before calling this function (see PersonalisedContext).
  * @returns A notification payload or null if daysSinceActive < 3 or streak gate not met.
  */
-export async function getReengagementPayload(
+export function getReengagementPayload(
   userId: string,
   daysSinceActive: number,
   loginStreakBeforeBreak: number = 0,
   personalContext?: PersonalisedContext
-): Promise<ReengagementPayload | null> {
+): ReengagementPayload | null {
   if (daysSinceActive < 3) return null;
 
   // 3-day bucket is only a streak-at-risk alert — skip if the user had no meaningful streak

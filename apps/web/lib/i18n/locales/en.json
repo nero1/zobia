@@ -1089,5 +1089,11 @@
   "messages.coinError.upgrade": "Upgrade to Pro",
 
   "settings.twoFaDisabledByAdmin": "Two-factor authentication is currently disabled by the platform administrator.",
-  "settings.pinDisabledByAdmin": "PIN authentication is currently disabled by the platform administrator."
+  "settings.pinDisabledByAdmin": "PIN authentication is currently disabled by the platform administrator.",
+
+  "errors.not_room_member": "You are not a member of this room.",
+  "errors.global_rate_limit": "Too many requests. Please try again later.",
+
+  "health.status_ok": "All systems operational",
+  "health.status_degraded": "Some services are degraded"
 }

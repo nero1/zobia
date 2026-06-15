@@ -160,7 +160,7 @@ export async function advanceFlashXPLifecycle(): Promise<FlashXPLifecycleResult>
         `INSERT INTO platform_events
            (name, description, event_type, xp_multiplier, starts_at, ends_at, is_active, metadata, created_at, updated_at)
          VALUES ($1, 'Double XP event', 'flash_xp', $2::numeric, $3, $4, TRUE, jsonb_build_object('source_flash_xp_id', $5::text), NOW(), NOW())
-         ON CONFLICT DO NOTHING`,
+         ON CONFLICT (name, starts_at) DO NOTHING`,
         [evt.name, evt.multiplier, evt.fires_at, evt.ends_at, evt.id]
       ).catch(() => {});
 

@@ -85,10 +85,29 @@ export async function triggerMysteryXPDrop(
     [activeSince, batchSize]
   );
 
+  let eligibleRows = eligibleResult.rows;
+  if (eligibleRows.length < Math.ceil(batchSize / 2)) {
+    const fallback = await db.query<{ id: string }>(
+      `SELECT u.id
+       FROM users u
+       WHERE u.deleted_at IS NULL
+         AND u.last_active_at >= $1
+         AND u.id NOT IN (
+           SELECT user_id FROM xp_ledger
+           WHERE action = 'mystery_drop'
+             AND created_at >= NOW() - INTERVAL '24 hours'
+         )
+       ORDER BY RANDOM()
+       LIMIT $2`,
+      [activeSince, batchSize]
+    );
+    eligibleRows = fallback.rows;
+  }
+
   const recipients: string[] = [];
   let totalXP = 0;
 
-  for (const { id } of eligibleResult.rows) {
+  for (const { id } of eligibleRows) {
     const xpAmount = randomInt(MIN_XP, MAX_XP);
 
     try {

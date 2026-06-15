@@ -20,6 +20,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { db } from "@/lib/db";
+import { writeAuditLog } from "@/lib/audit/auditLog";
 
 // ---------------------------------------------------------------------------
 // Helper: coin economy summary
@@ -271,6 +272,13 @@ export const GET = withAdminAuth(async (_req: NextRequest, _ctx) => {
         getPayoutSummary(),
         detectAnomalies(),
       ]);
+
+    // BUG-45: audit read-path admin access to financial records
+    writeAuditLog({
+      actorId: _ctx.auth.user.sub,
+      action: "financial_read",
+      metadata: { generatedAt: new Date().toISOString() },
+    });
 
     return NextResponse.json({
       coinEconomy,

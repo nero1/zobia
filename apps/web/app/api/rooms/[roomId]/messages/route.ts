@@ -74,6 +74,9 @@ interface Message {
   message_type: string;
   giftEmoji?: string;
   giftAmount?: number;
+  isPinned?: boolean;
+  pinnedAt?: string | null;
+  pinExpiresAt?: string | null;
 }
 
 function rowToMessage(row: MessageRow): Message {
@@ -88,6 +91,9 @@ function rowToMessage(row: MessageRow): Message {
     message_type: row.message_type,
     giftEmoji: typeof meta.giftEmoji === "string" ? meta.giftEmoji : undefined,
     giftAmount: typeof meta.giftAmount === "number" ? meta.giftAmount : undefined,
+    isPinned: row.is_pinned && (!row.pin_expires_at || new Date(row.pin_expires_at) > new Date()),
+    pinnedAt: row.pinned_at ?? null,
+    pinExpiresAt: row.pin_expires_at ?? null,
   };
 }
 
@@ -105,6 +111,9 @@ interface MessageRow {
   reply_to_message_id: string | null;
   is_deleted: boolean;
   created_at: string;
+  is_pinned: boolean;
+  pinned_at: string | null;
+  pin_expires_at: string | null;
 }
 
 interface MemberRow {
@@ -558,13 +567,17 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         ]
       );
 
-      // Increment room's total_messages
-      await tx.query(
-        `UPDATE rooms
-         SET total_messages = total_messages + 1, updated_at = NOW()
-         WHERE id = $1`,
-        [roomId]
-      );
+      // Increment room's total_messages only for immediately-approved messages.
+      // Pending messages (requiresApproval = true) are hidden until a moderator
+      // approves them, so we must not count them here (BUG-10 / FIX-E2).
+      if (!requiresApproval) {
+        await tx.query(
+          `UPDATE rooms
+           SET total_messages = total_messages + 1, updated_at = NOW()
+           WHERE id = $1`,
+          [roomId]
+        );
+      }
 
       return { rows };
     });

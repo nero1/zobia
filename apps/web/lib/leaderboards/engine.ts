@@ -73,7 +73,7 @@ export async function getUserRank(
   track: LeaderboardTrack,
   scope: LeaderboardScope,
   db: DatabaseAdapter,
-  options?: { city?: string; guildId?: string; seasonId?: string }
+  options?: { city?: string; guildId?: string; seasonId?: string; country?: string }
 ): Promise<number | null> {
   // Get the user's own xp_value from the snapshot for this track/scope
   const { rows: userRows } = await db.query<{ xp_value: string }>(
@@ -101,7 +101,8 @@ export async function getUserRank(
   let paramIdx = 5;
 
   if (scope === "national") {
-    conditions.push(`COALESCE(u.country, '') = 'NG'`);
+    conditions.push(`COALESCE(u.country, '') = $${paramIdx++}`);
+    params.push(options?.country ?? 'NG');
   } else if (scope === "city" && options?.city) {
     conditions.push(`ls.city = $${paramIdx++}`);
     params.push(options.city);
@@ -156,6 +157,7 @@ export async function getLeaderboard(
     pageSize?: number;
     guildId?: string;
     seasonId?: string;
+    country?: string;
   }
 ): Promise<LeaderboardPage> {
   const pageSize = Math.min(options?.pageSize ?? 100, 200);
@@ -173,7 +175,8 @@ export async function getLeaderboard(
   let paramIdx = 3;
 
   if (scope === "national") {
-    conditions.push(`COALESCE(u.country, '') = 'NG'`);
+    conditions.push(`COALESCE(u.country, '') = $${paramIdx++}`);
+    params.push(options?.country ?? 'NG');
   } else if (scope === "city" && city) {
     conditions.push(`ls.city = $${paramIdx++}`);
     params.push(city);
@@ -469,10 +472,10 @@ export async function getUserMetricsForWeighting(
   // Measure: posts per week over last 12 weeks (0-100 scale, where 7+ posts/week = 100)
   const { rows: contentRows } = await db.query<{ posts_count: string }>(
     `SELECT COUNT(*)::text AS posts_count
-     FROM messages
+     FROM room_messages
      WHERE sender_id = $1
        AND created_at >= CURRENT_DATE - INTERVAL '84 days'
-       AND is_deleted = false`,
+       AND is_deleted = FALSE`,
     [userId]
   );
   const postsLast12Weeks = parseInt(contentRows[0]?.posts_count ?? '0', 10);

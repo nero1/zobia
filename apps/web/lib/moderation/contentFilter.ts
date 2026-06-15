@@ -158,21 +158,13 @@ export async function detectDuplicateMessage(
   const normContent = normalise(content);
   const windowSeconds = Math.ceil(windowMs / 1000);
 
-  // Check both DM messages and room messages so duplicate detection
-  // catches copy-paste spam across both channels.
+  // Check room messages for duplicate detection.
   const { rows } = await db.query<{ content: string }>(
     `SELECT content
-     FROM (
-       SELECT content FROM messages
-       WHERE sender_id = $1
-         AND created_at >= NOW() - ($2 * INTERVAL '1 second')
-         AND deleted_at IS NULL
-       UNION ALL
-       SELECT content FROM room_messages
-       WHERE sender_id = $1
-         AND created_at >= NOW() - ($2 * INTERVAL '1 second')
-         AND is_deleted = FALSE
-     ) combined
+     FROM room_messages
+     WHERE sender_id = $1
+       AND created_at >= NOW() - ($2 * INTERVAL '1 second')
+       AND is_deleted = FALSE
      LIMIT 20`,
     [userId, windowSeconds]
   );
@@ -220,21 +212,13 @@ export async function detectBotBehavior(
   const messageLimit = relaxed ? 60 : 30;
   const windowSeconds = 60;
 
-  // Count across both DM messages and room messages so velocity checks
-  // can't be gamed by splitting activity between the two.
+  // Count room messages for velocity checks.
   const { rows } = await db.query<{ count: string }>(
     `SELECT COUNT(*)::text AS count
-     FROM (
-       SELECT id FROM messages
-       WHERE sender_id = $1
-         AND created_at >= NOW() - ($2 * INTERVAL '1 second')
-         AND deleted_at IS NULL
-       UNION ALL
-       SELECT id FROM room_messages
-       WHERE sender_id = $1
-         AND created_at >= NOW() - ($2 * INTERVAL '1 second')
-         AND is_deleted = FALSE
-     ) combined`,
+     FROM room_messages
+     WHERE sender_id = $1
+       AND created_at >= NOW() - ($2 * INTERVAL '1 second')
+       AND is_deleted = FALSE`,
     [userId, windowSeconds]
   );
 
