@@ -529,8 +529,8 @@ export async function claimPassMilestone(
       // Include season discriminator in badge_key to prevent cross-season deduplication collisions
       const badgeKey = `${badgeType}:s${seasonId}`;
       await client.query(
-        `INSERT INTO user_badges (user_id, badge_type, badge_key, reference_id, granted_at, awarded_at)
-         VALUES ($1, $2, $3, $4, NOW(), NOW()) ON CONFLICT DO NOTHING`,
+        `INSERT INTO user_badges (user_id, badge_type, badge_key, reference_id, granted_at)
+         VALUES ($1, $2, $3, $4, NOW()) ON CONFLICT (user_id, badge_key) DO NOTHING`,
         [userId, badgeType, badgeKey, milestoneId]
       );
     } else if (milestone.reward_type === 'xp_bonus') {
@@ -541,7 +541,7 @@ export async function claimPassMilestone(
         `WITH ins AS (
            INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
            VALUES ($1, $2, 'main', 'season_milestone_bonus', $3, $2, NOW())
-           ON CONFLICT DO NOTHING
+           ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
            RETURNING id
          )
          UPDATE users SET xp_total = xp_total + $2, updated_at = NOW()

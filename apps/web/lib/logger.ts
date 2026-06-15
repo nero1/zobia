@@ -79,3 +79,12 @@ export function getContextLogger(): Logger {
   if (!ctx) return logger;
   return logger.child({ requestId: ctx.requestId, userId: ctx.userId ?? "anonymous", route: ctx.route });
 }
+
+/**
+ * Alias for getContextLogger() — returns a child logger with the requestId
+ * from the current AsyncLocalStorage context, or root logger if absent.
+ */
+export function getRequestLogger(): Logger {
+  const ctx = requestContext.getStore();
+  return logger.child({ requestId: ctx?.requestId });
+}

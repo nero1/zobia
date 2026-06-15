@@ -17,6 +17,7 @@ import { db } from "@/lib/db";
 import { withAdminAuth, validateSearchParams } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { writeAuditLog } from "@/lib/audit/auditLog";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -127,6 +128,13 @@ export const GET = withAdminAuth(async (req, { params, auth }) => {
        LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
       [...params, limit, offset]
     );
+
+    // BUG-45: audit read-path admin access to user profiles
+    writeAuditLog({
+      actorId: auth.user.sub,
+      action: "user_profile_read",
+      metadata: { query: q ?? null, page, limit, total },
+    });
 
     return NextResponse.json(
       { users, total, page, limit, pages: Math.ceil(total / limit) },

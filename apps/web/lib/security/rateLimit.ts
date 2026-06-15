@@ -36,6 +36,12 @@ export interface RateLimitOptions {
    * and error messages). E.g. "auth:google", "xp:award".
    */
   name: string;
+  /**
+   * Optional endpoint-level global cap (requests per 60 s across all users).
+   * Applied after the per-user/IP check in enforceRateLimit.
+   * Set on sensitive endpoints (payment, auth, payout) to bound total traffic.
+   */
+  globalLimit?: number;
 }
 
 /** Result of a rate-limit check. */
@@ -55,7 +61,7 @@ export interface RateLimitResult {
 /** Rate limit presets – import these in route handlers for consistency. */
 export const RATE_LIMITS = {
   /** OAuth initiation / callback endpoints. */
-  auth: { limit: 20, windowMs: 15 * 60 * 1000, name: "auth" } as RateLimitOptions,
+  auth: { limit: 20, windowMs: 15 * 60 * 1000, name: "auth", globalLimit: 1000 } as RateLimitOptions,
   /** General authenticated API reads. */
   apiRead: { limit: 300, windowMs: 60 * 1000, name: "api:read" } as RateLimitOptions,
   /** General authenticated API mutations. */
@@ -73,9 +79,9 @@ export const RATE_LIMITS = {
   /** Gift sending — separate hourly limit to prevent gift spam / draining (STRUC-09). */
   giftSend: { limit: 50, windowMs: 60 * 60 * 1000, name: "gift:send" } as RateLimitOptions,
   /** Coin purchase — hourly limit on purchase initiations (STRUC-09). */
-  coinPurchase: { limit: 10, windowMs: 60 * 60 * 1000, name: "coin:purchase" } as RateLimitOptions,
+  coinPurchase: { limit: 10, windowMs: 60 * 60 * 1000, name: "coin:purchase", globalLimit: 1000 } as RateLimitOptions,
   /** Payout request — daily limit to prevent abuse of the payout system (STRUC-09). */
-  payoutRequest: { limit: 3, windowMs: 24 * 60 * 60 * 1000, name: "payout:request" } as RateLimitOptions,
+  payoutRequest: { limit: 3, windowMs: 24 * 60 * 60 * 1000, name: "payout:request", globalLimit: 1000 } as RateLimitOptions,
   /** Star gifting — hourly limit (STRUC-09). */
   starGift: { limit: 30, windowMs: 60 * 60 * 1000, name: "star:gift" } as RateLimitOptions,
 } as const;
@@ -232,6 +238,18 @@ export async function enforceRateLimit(
     throw tooManyRequests(
       `Rate limit exceeded for ${options.name}. Try again after ${new Date(result.resetAt).toISOString()}.`
     );
+  }
+
+  // Global endpoint cap — applied after per-user/IP check.
+  if (options.globalLimit) {
+    const globalKey = `rate:global:${options.name}`;
+    const globalCount = await redis.incr(globalKey);
+    if (globalCount === 1) await redis.expire(globalKey, 60);
+    if (globalCount > options.globalLimit) {
+      throw tooManyRequests(
+        `Global rate limit exceeded for ${options.name}. Please try again later.`
+      );
+    }
   }
 }
 

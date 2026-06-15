@@ -42,6 +42,21 @@ const accessSecret = () => encodeSecret(env.JWT_SECRET);
 const refreshSecret = () => encodeSecret(env.JWT_REFRESH_SECRET);
 
 // ---------------------------------------------------------------------------
+// Key ID (kid) support — forward-compatible with key rotation
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the current key ID used when signing tokens.
+ * Set JWT_KEY_ID env var when rotating keys so new tokens carry the new kid
+ * and verification can route to the correct secret.
+ *
+ * Future work: maintain a kid→secret map in Redis for true multi-key rotation.
+ */
+export function getCurrentKeyId(): string {
+  return process.env.JWT_KEY_ID ?? 'v1';
+}
+
+// ---------------------------------------------------------------------------
 // Payload types
 // ---------------------------------------------------------------------------
 
@@ -79,7 +94,7 @@ export async function signAccessToken(
   ttlSeconds = ACCESS_TOKEN_TTL_SECONDS
 ): Promise<string> {
   return new SignJWT({ ...payload })
-    .setProtectedHeader({ alg: "HS256" })
+    .setProtectedHeader({ alg: "HS256", kid: getCurrentKeyId() })
     .setIssuedAt()
     .setIssuer(ISSUER)
     .setAudience(AUDIENCE)
@@ -97,7 +112,7 @@ export async function signAccessToken(
  */
 export async function signRefreshToken(sub: string, sid: string, ttlSeconds = REFRESH_TOKEN_TTL_SECONDS): Promise<string> {
   return new SignJWT({ sub, sid })
-    .setProtectedHeader({ alg: "HS256" })
+    .setProtectedHeader({ alg: "HS256", kid: getCurrentKeyId() })
     .setIssuedAt()
     .setIssuer(ISSUER)
     .setAudience(AUDIENCE)
@@ -131,6 +146,9 @@ export async function verifyAccessToken(token: string): Promise<AccessTokenPaylo
   if (!token) throw new JwtVerificationError("No token provided", "MISSING");
 
   try {
+    // TODO(key-rotation): decode the header first, read kid, and select the
+    // appropriate secret from a kid→secret registry (e.g. Redis). For now all
+    // tokens are verified against the current secret regardless of kid.
     const { payload } = await jwtVerify(token, accessSecret(), {
       issuer: ISSUER,
       audience: AUDIENCE,
