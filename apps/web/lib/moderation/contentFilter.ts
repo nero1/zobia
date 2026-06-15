@@ -159,7 +159,7 @@ export async function detectDuplicateMessage(
   const normContent = normalise(content);
   const windowSeconds = Math.ceil(windowMs / 1000);
 
-  const table = messageContext === "dm" ? "direct_messages" : "room_messages";
+  const table = messageContext === "dm" ? "messages" : "room_messages";
 
   const { rows } = await db.query<{ content: string }>(
     `SELECT content

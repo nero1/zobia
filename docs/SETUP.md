@@ -45,9 +45,9 @@ cp apps/web/.env.example apps/web/.env.local
 # 4. Fill in all required env vars (see Environment Variables Reference below)
 #    At minimum: DATABASE_URL, DIRECT_URL, JWT_SECRET, JWT_REFRESH_SECRET, REDIS_URL
 
-# 5. Run database migrations
+# 5. Run database migrations (canonical directory — numbered 001 onwards, always in order)
 cd apps/web
-for f in apps/web/lib/db/migrations/*.sql; do
+for f in db/migrations/*.sql; do
   echo "Applying $f..."
   psql "$DATABASE_URL" < "$f"
 done
@@ -130,9 +130,9 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `TELEGRAM_BOT_TOKEN` | Yes | Telegram bot token for Telegram Login | @BotFather → /newbot |
 | `TELEGRAM_WEBHOOK_SECRET` | No | Secret for authenticating incoming Telegram webhook requests | Generate a random string |
 | `NEXT_PUBLIC_TELEGRAM_BOT_USERNAME` | Yes | Bot username **without** the `@` (e.g. `ZobiaBot`) — used by the Telegram Login Widget on the frontend. Without this, the widget is hidden. | @BotFather → `/mybots` → select your bot → username shown at the top |
-| `DEEPSEEK_API_KEY` | Yes | DeepSeek API key for AI moderation | platform.deepseek.com → API Keys |
+| `DEEPSEEK_API_KEY` | No* | DeepSeek API key for AI moderation. Optional — app starts without it, but AI moderation calls will fail if not set. | platform.deepseek.com → API Keys |
 | `DEEPSEEK_API_ENDPOINT` | No | Override endpoint (default: `https://api.deepseek.com/v1`) | DeepSeek docs |
-| `GEMINI_API_KEY` | Yes | Google Gemini API key (AI fallback) | aistudio.google.com → Get API key |
+| `GEMINI_API_KEY` | No* | Google Gemini API key (AI fallback). Optional — at least one AI key should be set for moderation to work. | aistudio.google.com → Get API key |
 | `MAILGUN_API_KEY` | No | Mailgun API key for transactional email | Mailgun → Account → API Keys |
 | `MAILGUN_DOMAIN` | No | Mailgun sending domain (e.g. `mg.yourdomain.com`) | Mailgun → Sending → Domains |
 | `PAYSTACK_SECRET_KEY` | No | Paystack secret key — must have Transfers permission enabled | Paystack dashboard → Settings → API Keys |
@@ -191,22 +191,23 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 
    Copy the **pooler transaction mode** string → paste as `DATABASE_URL`.  
    Copy the **direct connection string** → paste as `DIRECT_URL`.
-6. Run all migrations in order:
+6. Run all migrations in order (use the canonical `db/migrations/` directory, **not** `lib/db/migrations/`):
    ```bash
-   for f in apps/web/lib/db/migrations/*.sql; do
+   cd apps/web
+   for f in db/migrations/*.sql; do
      echo "Applying $f..."
      psql "$DIRECT_URL" < "$f"
    done
    ```
    Migrations are numbered 001 onwards. Always apply them in order. Each migration is idempotent (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`).
 
-   Migration `008_profile_privacy.sql` adds three columns to `users` (`profile_private`, `profile_hidden_sections`, `disable_friend_requests`) and seeds the four `x_manifest` privacy feature-flag keys. These are required for the Profile Privacy system.
-
-   Migration `009_bug_fixes.sql` (in `apps/web/lib/db/migrations/`) applies the following schema changes from recent bug fixes:
-   - Adds `is_active` column to `gift_items`
-   - Adds `tier` column to `referral_commissions`
-   - Creates 5 previously missing tables
-   - Adds the `awarded_at` column to `user_badges`
+   Migration `012_session_bug_fixes.sql` adds:
+   - `updated_at` column to `seasons` table
+   - UNIQUE index on `room_subscriptions (room_id, user_id)` — required for Paystack VIP room subscription webhook
+   - UNIQUE index on `season_pass_milestones (season_id, sort_order)` — required for season pass seeding
+   - `tier` column to `referral_commissions`
+   - Partial unique index on `failed_xp_awards` for XP DLQ idempotency
+   - Broadened `audit_discrepancies.asset_type` CHECK constraint to include `'xp'`
 7. Optional seed data: `psql "$DIRECT_URL" < apps/web/lib/db/seed.sql`
 
 ### Option B: Railway PostgreSQL
@@ -560,6 +561,12 @@ All sub-daily CRON jobs must be driven by an external scheduler because Vercel H
 - URL: `https://your-domain.com/api/cron/payouts`
 - Schedule: Every 30 minutes
 - HTTP Method: POST
+- Header: `Authorization: Bearer YOUR_CRON_SECRET`
+
+**Nightly Balance Reconciliation**
+- URL: `https://your-domain.com/api/cron/reconcile-balances`
+- Schedule: Every night at 02:00 UTC (or any off-peak time)
+- HTTP Method: GET
 - Header: `Authorization: Bearer YOUR_CRON_SECRET`
 
 All CRON handlers verify the `Authorization: Bearer <CRON_SECRET>` header and return 401 if it does not match. Never expose `CRON_SECRET` publicly.

@@ -105,6 +105,7 @@ interface TokenPayload {
   sub?: string;
   is_admin?: boolean;
   sid?: string;
+  type?: string;
 }
 
 async function verifyToken(token: string): Promise<TokenPayload | null> {
@@ -185,7 +186,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   const token = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
 
   // Generate a per-request nonce for Content-Security-Policy.
-  const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
+  const nonce = Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString("base64");
   const csp = buildCsp(nonce);
 
   // Helper: wrap any NextResponse.next() with the CSP header and nonce.
@@ -231,7 +232,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     // Redirect authenticated users away from login page and root landing page
     if ((pathname.startsWith("/auth/login") || pathname === "/" || pathname === "") && token) {
       const payload = await verifyToken(token);
-      if (payload?.sub) {
+      if (payload?.sub && payload?.type !== 'pre_auth') {
         return NextResponse.redirect(new URL(HOME_URL, request.url));
       }
     }

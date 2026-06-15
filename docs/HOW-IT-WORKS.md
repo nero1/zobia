@@ -28,6 +28,21 @@ The DM page also runs a 3-second baseline poll as a guaranteed fallback in case 
 
 Each message sent earns XP on the `social` track.
 
+### Moments
+
+Moments are short-lived posts (photos, GIFs, text snippets, or in-room ⚡ clips) that expire after 24 hours. The feature is accessible via the `/moments` feed page and `/moments/create`.
+
+**How they work:**
+- Users create moments via `POST /api/moments` (web) or the in-room ⚡ button (both platforms).
+- The feed is served by `GET /api/moments` — sorted by recency, filtered to non-expired content.
+- The daily CRON expires moments by comparing `expires_at` against `NOW()`. No data is deleted — rows remain in the DB with `expires_at` in the past.
+- Reactions (`❤️`, `🔥`, `😂`, `😮`, `😢`) are stored in `moment_reactions` and served via `GET /api/moments/[id]/reactions`.
+- Moments are available in the Sidebar and Navbar navigation (`/moments`).
+
+**Offline support (Expo):** Moments are not queued for offline send — they require an active connection to upload media. The room ⚡ button is disabled while offline.
+
+---
+
 ### Rooms
 
 Zobia has six room types, each with different XP earn mechanics:

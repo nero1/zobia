@@ -72,12 +72,12 @@ const envSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().min(1, "TELEGRAM_BOT_TOKEN is required"),
 
   // ---- AI providers -------------------------------------------------------
-  DEEPSEEK_API_KEY: z.string().min(1, "DEEPSEEK_API_KEY is required"),
+  DEEPSEEK_API_KEY: z.string().optional(),
   DEEPSEEK_API_ENDPOINT: z
     .string()
     .url()
     .default("https://api.deepseek.com/v1"),
-  GEMINI_API_KEY: z.string().min(1, "GEMINI_API_KEY is required"),
+  GEMINI_API_KEY: z.string().optional(),
 
   // ---- Email --------------------------------------------------------------
   MAILGUN_API_KEY: z.string().optional(),

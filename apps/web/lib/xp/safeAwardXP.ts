@@ -72,7 +72,7 @@ export async function safeAwardXP(
       `WITH ins AS (
          INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
          VALUES ($1, $2, $3, $4, $5, $2, NOW())
-         ON CONFLICT DO NOTHING
+         ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
          RETURNING id
        )
        UPDATE users

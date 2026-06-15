@@ -1,6 +1,7 @@
 {
   "app.name": "Zobia Social",
   "app.tagline": "Unganika, Shiriki, Miliki.",
+  "nav.moments": "Wakati",
   "nav.home": "Nyumbani",
   "nav.rooms": "Vyumba",
   "nav.messages": "Ujumbe",

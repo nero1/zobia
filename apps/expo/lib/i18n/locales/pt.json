@@ -1,6 +1,7 @@
 {
   "app.name": "Zobia Social",
   "app.tagline": "Conecte-se, Envolva-se, Pertença.",
+  "nav.moments": "Momentos",
   "nav.home": "Início",
   "nav.rooms": "Salas",
   "nav.messages": "Mensagens",

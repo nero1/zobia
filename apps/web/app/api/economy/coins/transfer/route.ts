@@ -188,12 +188,18 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       throw forbidden("Cannot transfer coins to this user", "USER_BLOCKED");
     }
 
-    // Perform the atomic transfer with 5% platform fee
+    // Perform the atomic transfer with 5% platform fee.
+    // Pass the idempKey as the stable idempotency ref so retried calls with the
+    // same key generate the same coin_ledger reference_id (prevents double-debit).
     const transferResult = await transferCoins(
       senderId,
       body.recipientId,
       body.amount,
-      5 // 5% platform fee
+      5,         // 5% platform fee
+      undefined, // no external txClient — transferCoins creates its own transaction
+      "gift_sent",
+      "gift_received",
+      idempKey ?? undefined
     ).catch(async (err) => {
       // Transfer failed — remove the idempotency key so a legitimate retry can proceed
       if (idempKey) await redis.del(idempKey).catch(() => {});

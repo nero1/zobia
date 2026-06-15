@@ -299,7 +299,7 @@ export async function purchaseCoins(
   }
 
   const sessionId = randomUUID();
-  return new Promise((resolve) => {
+  const purchasePromise = new Promise<{ success: boolean; coins: number; purchaseToken?: string; error?: string }>((resolve) => {
     purchaseResolvers.set(sessionId, (result) => {
       if (result !== null) {
         resolve({ success: true, coins: result.coinsGranted ?? 0 });
@@ -319,6 +319,16 @@ export async function purchaseCoins(
       resolve({ success: false, coins: 0, error: err.message });
     });
   });
+
+  const timeoutPromise = new Promise<{ success: boolean; coins: number; error: string }>((resolve) =>
+    setTimeout(() => {
+      purchaseResolvers.delete(sessionId);
+      activePurchaseSessions.delete(productId);
+      resolve({ success: false, coins: 0, error: 'Purchase timed out — please try again' });
+    }, 5 * 60 * 1000)
+  );
+
+  return Promise.race([purchasePromise, timeoutPromise]);
 }
 
 /**
@@ -399,7 +409,7 @@ export async function purchaseSubscription(
   }
 
   const sessionId = randomUUID();
-  return new Promise((resolve) => {
+  const purchasePromise = new Promise<{ success: boolean; plan?: string; coinsGranted?: number; purchaseToken?: string; error?: string }>((resolve) => {
     purchaseResolvers.set(sessionId, (result) => {
       if (result !== null) {
         resolve({
@@ -422,4 +432,14 @@ export async function purchaseSubscription(
       resolve({ success: false, error: err.message });
     });
   });
+
+  const timeoutPromise = new Promise<{ success: boolean; error: string }>((resolve) =>
+    setTimeout(() => {
+      purchaseResolvers.delete(sessionId);
+      activePurchaseSessions.delete(productId);
+      resolve({ success: false, error: 'Purchase timed out — please try again' });
+    }, 5 * 60 * 1000)
+  );
+
+  return Promise.race([purchasePromise, timeoutPromise]);
 }

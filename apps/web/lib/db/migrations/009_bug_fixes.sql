@@ -4,10 +4,18 @@
 -- BUG-26: Add is_active to gift_items
 ALTER TABLE gift_items ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
 
--- BUG-26: Update gifts table FK column name
-ALTER TABLE gifts RENAME COLUMN gift_type_id TO gift_item_id;
-ALTER TABLE gifts DROP CONSTRAINT IF EXISTS gifts_gift_type_id_fkey;
-ALTER TABLE gifts ADD CONSTRAINT gifts_gift_item_id_fkey FOREIGN KEY (gift_item_id) REFERENCES gift_items(id);
+-- BUG-26: Update gifts table FK column name (guard: migration 001 already uses gift_item_id)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'gifts' AND column_name = 'gift_type_id'
+  ) THEN
+    ALTER TABLE gifts RENAME COLUMN gift_type_id TO gift_item_id;
+    ALTER TABLE gifts DROP CONSTRAINT IF EXISTS gifts_gift_type_id_fkey;
+    ALTER TABLE gifts ADD CONSTRAINT gifts_gift_item_id_fkey FOREIGN KEY (gift_item_id) REFERENCES gift_items(id);
+  END IF;
+END $$;
 
 -- BUG-03: Add tier column to referral_commissions
 ALTER TABLE referral_commissions ADD COLUMN IF NOT EXISTS tier TEXT NOT NULL DEFAULT 'standard';

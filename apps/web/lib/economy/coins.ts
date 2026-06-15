@@ -250,7 +250,8 @@ export async function transferCoins(
   feePercent: number = 5,
   txClient?: TransactionClient,
   senderTransactionType: CoinTransactionType = "gift_sent",
-  recipientTransactionType: CoinTransactionType = "gift_received"
+  recipientTransactionType: CoinTransactionType = "gift_received",
+  idempotencyRef?: string
 ): Promise<{ debit: CoinLedgerEntry; credit: CoinLedgerEntry; feeCoins: number }> {
   const gross = new Decimal(amount);
   if (!gross.isInteger() || gross.lte(0)) {
@@ -259,7 +260,7 @@ export async function transferCoins(
   const fee = gross.times(feePercent).dividedBy(100).floor();
   const net = gross.minus(fee);
 
-  const transferRef = `transfer:${fromUserId}:${toUserId}:${Date.now()}`;
+  const transferRef = idempotencyRef ?? `transfer:${fromUserId}:${toUserId}:${amount}`;
 
   const run = async (tx: TransactionClient) => {
     // Lock both rows in deterministic ascending UUID order to prevent deadlocks (BUG-20)

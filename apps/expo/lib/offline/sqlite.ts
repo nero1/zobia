@@ -77,7 +77,7 @@ export async function queueMessage(
   conversationId: string,
   content: string,
   messageType: string = 'text',
-  conversationType: 'dm' | 'group' = 'dm'
+  conversationType: 'dm' | 'group' | 'room' = 'dm'
 ): Promise<string> {
   const localId = `offline_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   const idempotencyKey = `${localId}_${Date.now()}`;
@@ -98,7 +98,7 @@ export async function queueMessage(
 export async function getPendingMessages(): Promise<Array<{
   id: string;
   conversationId: string;
-  conversationType: 'dm' | 'group';
+  conversationType: 'dm' | 'group' | 'room';
   content: string;
   messageType: string;
   idempotencyKey: string | null;
@@ -122,7 +122,7 @@ export async function getPendingMessages(): Promise<Array<{
   return rows.map((r) => ({
     id: r.id,
     conversationId: r.conversation_id,
-    conversationType: (r.conversation_type === 'group' ? 'group' : 'dm') as 'dm' | 'group',
+    conversationType: (r.conversation_type === 'group' ? 'group' : r.conversation_type === 'room' ? 'room' : 'dm') as 'dm' | 'group' | 'room',
     content: r.content,
     messageType: r.message_type,
     idempotencyKey: r.idempotency_key,

@@ -53,6 +53,7 @@ const bottomTabItems = [
 // Full nav for desktop + drawer
 const primaryNavItems = [
   { href: "/home",         label: "Home",         icon: "🏠" },
+  { href: "/moments",      label: "Moments",      icon: "⚡" },
   { href: "/quests",       label: "Quests",       icon: "🎯" },
   { href: "/rooms",        label: "Rooms",        icon: "🚪" },
   { href: "/messages",     label: "Messages",     icon: "💬" },

@@ -351,19 +351,17 @@ export async function checkDeckCompletion(
 export async function resetDailyQuests(
   db: DatabaseAdapter
 ): Promise<{ clearedRows: number }> {
-  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
+  const todayUTC = new Date().toISOString().slice(0, 10);
 
   const result = await db.query<{ count: string }>(
     `WITH deleted AS (
        UPDATE user_quest_progress
        SET expired_at = NOW()
-       WHERE quest_date <= $1 AND expired_at IS NULL
+       WHERE quest_date < $1::date AND expired_at IS NULL
        RETURNING 1
      )
      SELECT COUNT(*) AS count FROM deleted`,
-    [yesterday]
+    [todayUTC]
   );
 
   return { clearedRows: parseInt(result.rows[0]?.count ?? "0") };
