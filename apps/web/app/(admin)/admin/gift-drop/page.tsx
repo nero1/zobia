@@ -37,7 +37,7 @@ interface GiftItem {
   name: string;
   emoji: string;
   tier: number;
-  coin_price: number;
+  coinCost: number;
   is_retired: boolean;
 }
 
@@ -201,7 +201,7 @@ export default function AdminGiftDropPage() {
                 <option value="">Select a gift item…</option>
                 {giftItems.map((g) => (
                   <option key={g.id} value={g.id}>
-                    {g.emoji} {g.name} — {g.coin_price.toLocaleString()} {currency.softPlural.toLowerCase()} (Tier {g.tier})
+                    {g.emoji} {g.name} — {g.coinCost.toLocaleString()} {currency.softPlural.toLowerCase()} (Tier {g.tier})
                   </option>
                 ))}
               </select>
