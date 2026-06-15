@@ -122,9 +122,9 @@ export const POST = withAuth(
 
         // 2. Load the milestone definition
         const { rows: milestoneRows } = await client.query<SeasonMilestoneRow>(
-          `SELECT id, season_id, xp_required, is_paid_only, required_plan, reward_type,
-                  reward_value, label, sort_order
-           FROM season_milestones
+          `SELECT id, season_id, milestone_xp AS xp_required, (tier = 'paid') AS is_paid_only,
+                  required_plan, reward_type, reward_value, display_name AS label, sort_order
+           FROM season_pass_milestones
            WHERE id = $1 AND season_id = $2`,
           [milestoneId, seasonId]
         );
@@ -306,9 +306,9 @@ export const GET = withAuth(
 
       // Load milestone definition
       const { rows: milestoneRows } = await db.query<SeasonMilestoneRow>(
-        `SELECT id, season_id, xp_required, is_paid_only, required_plan,
-                reward_type, reward_value, label, sort_order
-         FROM season_milestones
+        `SELECT id, season_id, milestone_xp AS xp_required, (tier = 'paid') AS is_paid_only,
+                required_plan, reward_type, reward_value, display_name AS label, sort_order
+         FROM season_pass_milestones
          WHERE id = $1 AND season_id = $2`,
         [milestoneId, seasonId]
       );

@@ -334,7 +334,7 @@ export async function createSeasonCeremonyRoom(
 
     const { rows: roomRows } = await db.query<{ id: string }>(
       `INSERT INTO rooms
-         (creator_id, name, description, type, is_active, closes_at, metadata)
+         (creator_id, name, description, type, is_active, ends_at, metadata)
        VALUES ($1, $2, $3, 'free_open', TRUE, $4, $5)
        RETURNING id`,
       [
@@ -549,7 +549,7 @@ export async function claimPassMilestone(
     } else if (milestone.reward_type === 'sticker_pack') {
       const val = milestone.reward_value as { packId: string };
       await client.query(
-        `INSERT INTO user_sticker_packs (user_id, pack_id, granted_at)
+        `INSERT INTO user_sticker_packs (user_id, pack_id, unlocked_at)
          VALUES ($1, $2, NOW())
          ON CONFLICT (user_id, pack_id) DO NOTHING`,
         [userId, val.packId]

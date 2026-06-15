@@ -201,7 +201,7 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
          aal.created_at,
          aal.reversed_at,
          aal.reversed_by,
-         aal.reversal_note
+         aal.reverse_note AS reversal_note
        FROM automated_actions_log aal
        LEFT JOIN users u ON u.id = aal.user_id
        ${autoWhere}
@@ -357,7 +357,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
       `UPDATE automated_actions_log
        SET reversed_at = NOW(),
            reversed_by = $1,
-           reversal_note = $2,
+           reverse_note = $2,
            updated_at = NOW()
        WHERE id = $3
          AND reversed_at IS NULL

@@ -20,9 +20,12 @@ export async function checkDlqDepth(
   if (depth >= DLQ_ALERT_THRESHOLD) {
     await db
       .query(
-        `INSERT INTO system_alerts (alert_type, payload, created_at)
-         VALUES ('dlq_depth_exceeded', $1::jsonb, NOW())`,
-        [JSON.stringify({ depth, threshold: DLQ_ALERT_THRESHOLD })]
+        `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
+         VALUES ('dlq_depth_exceeded', 'critical', $1, $2::jsonb, NOW())`,
+        [
+          `XP dead-letter queue depth ${depth} exceeds threshold ${DLQ_ALERT_THRESHOLD}`,
+          JSON.stringify({ depth, threshold: DLQ_ALERT_THRESHOLD }),
+        ]
       )
       .catch(() => {});
 

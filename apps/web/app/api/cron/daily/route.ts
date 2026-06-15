@@ -1177,7 +1177,7 @@ export const GET = async (req: NextRequest) => {
       score: number;
     }>(
       `SELECT user_id_1, user_id_2, score
-       FROM dm_conversation_scores
+       FROM conversation_scores
        WHERE score >= $1`,
       [STICKER_UNLOCK_MILESTONES[0]]
     );

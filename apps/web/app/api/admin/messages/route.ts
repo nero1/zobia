@@ -89,7 +89,7 @@ async function resolveRecipients(
       const placeholders = targetRoles.map((_, i) => `$${i + 1}`).join(", ");
       const { rows } = await db.query<{ id: string; telegram_id: string | null }>(
         `SELECT u.id, u.telegram_id FROM users u
-         JOIN user_roles r ON r.user_id = u.id
+         JOIN admin_roles r ON r.user_id = u.id
          WHERE r.role IN (${placeholders})
            AND u.is_banned = false
            AND u.deleted_at IS NULL`,

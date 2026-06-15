@@ -230,6 +230,14 @@ export const users = pgTable("users", {
     .notNull()
     .default(false),
 
+  // Moderation / plan / 2FA-setup state (admin + moderation tools)
+  warningCount: integer("warning_count").notNull().default(0),
+  bannedAt: timestamp("banned_at", { withTimezone: true }),
+  bannedBy: uuid("banned_by"),
+  seasonXp: integer("season_xp").notNull().default(0),
+  planActivatedAt: timestamp("plan_activated_at", { withTimezone: true }),
+  require2faSetup: boolean("require_2fa_setup").notNull().default(false),
+
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
@@ -282,8 +290,9 @@ export const userPushTokens = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     token: text("token").notNull(),
-    platform: text("platform").notNull().default("expo"),
+    platform: text("platform").notNull().default("android"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow(),
   },
   (t) => ({
@@ -437,15 +446,21 @@ export const messages = pgTable("messages", {
     () => dmConversations.id,
     { onDelete: "set null" }
   ),
+  groupChatId: uuid("group_chat_id").references(() => groupChats.id, {
+    onDelete: "cascade",
+  }),
   messageType: text("message_type").notNull().default("text"),
   content: text("content"),
   mediaUrl: text("media_url"),
   metadata: jsonb("metadata"),
   coinCost: bigint("coin_cost", { mode: "number" }).default(0),
   replyCountFromRecipient: integer("reply_count_from_recipient").default(0),
+  idempotencyKey: text("idempotency_key"),
   isRead: boolean("is_read").notNull().default(false),
   isDeleted: boolean("is_deleted").default(false),
   isFlagged: boolean("is_flagged").default(false),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  deletedBy: uuid("deleted_by"),
   senderPlanAtCreation: text("sender_plan_at_creation").default("free"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
@@ -588,6 +603,7 @@ export const notifications = pgTable("notifications", {
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
 export const userMessages = pgTable("user_messages", {
@@ -629,6 +645,7 @@ export const moments = pgTable("moments", {
   thumbnailUrl: text("thumbnail_url"),
   caption: text("caption"),
   viewCount: integer("view_count").notNull().default(0),
+  reactionsCount: integer("reactions_count").notNull().default(0),
   expiresAt: timestamp("expires_at", { withTimezone: true })
     .notNull()
     .default(sql`NOW() + INTERVAL '24 hours'`),
@@ -1232,14 +1249,10 @@ export const roomSubscriptions = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    tier: text("tier").notNull().default("standard"),
     status: text("status").notNull().default("active"),
     amountKobo: bigint("amount_kobo", { mode: "number" }),
-    startsAt: timestamp("starts_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }).defaultNow(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (t) => ({
@@ -1932,8 +1945,11 @@ export const payments = pgTable("payments", {
   coinsCredited: bigint("coins_credited", { mode: "number" }),
   amountReceivedKobo: bigint("amount_received_kobo", { mode: "number" }),
   idempotencyKey: text("idempotency_key").unique(),
+  referenceId: text("reference_id"),
+  paymentUrl: text("payment_url"),
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
 });
 
@@ -1954,6 +1970,7 @@ export const giftItems = pgTable("gift_items", {
   // Migration 009 (lib): added is_active
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
 // Migration 011 (db): new gift_types catalogue (separate from legacy gift_items)
@@ -2057,9 +2074,11 @@ export const userXpBoosters = pgTable("user_xp_boosters", {
   userId: uuid("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
+  boosterType: text("booster_type"),
   multiplier: decimal("multiplier", { precision: 4, scale: 2 })
     .notNull()
     .default("2.0"),
+  isActive: boolean("is_active").notNull().default(true),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
@@ -2198,7 +2217,6 @@ export const creatorEarnings = pgTable("creator_earnings", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   sourceType: text("source_type").notNull(),
-  sourceId: uuid("source_id"),
   grossAmountKobo: bigint("gross_amount_kobo", { mode: "number" })
     .notNull()
     .default(0),
@@ -2211,8 +2229,6 @@ export const creatorEarnings = pgTable("creator_earnings", {
   referenceId: text("reference_id"),
   paidOut: boolean("paid_out").default(false),
   payoutId: uuid("payout_id"),
-  status: text("status").notNull().default("pending"),
-  settledAt: timestamp("settled_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -2253,6 +2269,9 @@ export const creatorPayouts = pgTable("creator_payouts", {
     onDelete: "set null",
   }),
   earningsRestored: boolean("earnings_restored").notNull().default(false),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  rejectedAt: timestamp("rejected_at", { withTimezone: true }),
+  rejectionReason: text("rejection_reason"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   processedAt: timestamp("processed_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
@@ -2345,6 +2364,7 @@ export const referrals = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     tier: integer("tier").notNull().default(1),
+    code: text("code"),
     qualified: boolean("qualified").notNull().default(false),
     qualifiedAt: timestamp("qualified_at", { withTimezone: true }),
     coinReward: integer("coin_reward"),
@@ -2384,20 +2404,25 @@ export const referralCommissions = pgTable("referral_commissions", {
 export const sponsoredQuests = pgTable("sponsored_quests", {
   id: uuidPk(),
   brandName: text("brand_name").notNull(),
+  brandLogoUrl: text("brand_logo_url"),
   title: text("title").notNull(),
   description: text("description").notNull(),
-  targetAction: text("target_action").notNull(),
-  targetValue: integer("target_value").notNull(),
-  rewardCoins: integer("reward_coins").notNull(),
-  creatorPayoutKobo: bigint("creator_payout_kobo", { mode: "number" }).notNull(),
-  platformFeeKobo: bigint("platform_fee_kobo", { mode: "number" }).notNull(),
+  requirements: text("requirements"),
+  targetAction: text("target_action"),
+  targetValue: integer("target_value"),
+  rewardCoins: integer("reward_coins"),
+  rewardAmountCoins: integer("reward_amount_coins"),
+  creatorPayoutKobo: bigint("creator_payout_kobo", { mode: "number" }),
+  platformFeeKobo: bigint("platform_fee_kobo", { mode: "number" }),
   platformSharePercent: integer("platform_share_percent").notNull().default(30),
   creatorSharePercent: integer("creator_share_percent").notNull().default(70),
   minCreatorTier: text("min_creator_tier").notNull().default("verified"),
   startsAt: timestamp("starts_at", { withTimezone: true }),
   endsAt: timestamp("ends_at", { withTimezone: true }),
+  deadline: timestamp("deadline", { withTimezone: true }),
   isActive: boolean("is_active").default(true),
   maxCreators: integer("max_creators").default(10),
+  maxApplications: integer("max_applications"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
@@ -2427,6 +2452,7 @@ export const sponsoredQuestApplications = pgTable(
     payoutCoins: integer("payout_coins"),
     paidAt: timestamp("paid_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (t) => ({
     unique: uniqueIndex("sponsored_quest_applications_quest_creator_idx").on(
@@ -2438,11 +2464,19 @@ export const sponsoredQuestApplications = pgTable(
 
 export const creatorBroadcasts = pgTable("creator_broadcasts", {
   id: uuidPk(),
-  creatorId: uuid("creator_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
+  creatorId: uuid("creator_id").references(() => users.id, {
+    onDelete: "cascade",
+  }),
+  senderId: uuid("sender_id").references(() => users.id, {
+    onDelete: "cascade",
+  }),
+  recipientId: uuid("recipient_id").references(() => users.id, {
+    onDelete: "cascade",
+  }),
   subject: text("subject"),
   content: text("content").notNull(),
+  messageType: text("message_type"),
+  referenceId: text("reference_id"),
   recipientCount: integer("recipient_count").notNull().default(0),
   costCoins: integer("cost_coins").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
@@ -2476,6 +2510,7 @@ export const merchStores = pgTable("merch_stores", {
   physicalGoodsEnabled: boolean("physical_goods_enabled").default(false),
   defaultFulfillmentMethod: text("default_fulfillment_method").default("manual"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
 export const merchProducts = pgTable("merch_products", {
@@ -2491,6 +2526,7 @@ export const merchProducts = pgTable("merch_products", {
   isActive: boolean("is_active").default(true),
   stock: integer("stock"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
 export const merchOrders = pgTable("merch_orders", {
@@ -2501,12 +2537,18 @@ export const merchOrders = pgTable("merch_orders", {
   buyerId: uuid("buyer_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
-  creatorId: uuid("creator_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
-  creatorShareKobo: bigint("creator_share_kobo", { mode: "number" }).notNull(),
+  creatorId: uuid("creator_id").references(() => users.id, {
+    onDelete: "cascade",
+  }),
+  storeId: uuid("store_id").references(() => merchStores.id, {
+    onDelete: "set null",
+  }),
+  amountKobo: bigint("amount_kobo", { mode: "number" }),
+  priceKobo: bigint("price_kobo", { mode: "number" }),
+  creatorShareKobo: bigint("creator_share_kobo", { mode: "number" }),
+  creatorNetKobo: bigint("creator_net_kobo", { mode: "number" }),
   platformFeeKobo: bigint("platform_fee_kobo", { mode: "number" }).notNull(),
+  paymentMethod: text("payment_method"),
   status: text("status").notNull().default("pending"),
   shippingName: text("shipping_name"),
   shippingAddress: text("shipping_address"),
@@ -2518,7 +2560,9 @@ export const merchOrders = pgTable("merch_orders", {
   deliveredAt: timestamp("delivered_at", { withTimezone: true }),
   confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
   trackingUpdates: jsonb("tracking_updates").default(sql`'[]'::jsonb`),
+  providerReference: text("provider_reference"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
 export const classroomEnrolments = pgTable(
@@ -2608,15 +2652,25 @@ export const learningCertificates = pgTable(
   "learning_certificates",
   {
     id: uuidPk(),
-    classroomRoomId: uuid("classroom_room_id")
-      .notNull()
-      .references(() => rooms.id, { onDelete: "cascade" }),
-    studentId: uuid("student_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+    classroomRoomId: uuid("classroom_room_id").references(() => rooms.id, {
+      onDelete: "cascade",
+    }),
+    studentId: uuid("student_id").references(() => users.id, {
+      onDelete: "cascade",
+    }),
+    // Canonical columns used by the certificate-issuing API
+    roomId: uuid("room_id").references(() => rooms.id, { onDelete: "cascade" }),
+    recipientUserId: uuid("recipient_user_id").references(() => users.id, {
+      onDelete: "cascade",
+    }),
+    issuerUserId: uuid("issuer_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     issuerId: uuid("issuer_id").references(() => users.id, {
       onDelete: "set null",
     }),
+    title: text("title"),
+    note: text("note"),
     issuedAt: timestamp("issued_at", { withTimezone: true }).defaultNow(),
     certificateUrl: text("certificate_url"),
     metadata: jsonb("metadata"),
@@ -2858,8 +2912,11 @@ export const adminAuditLog = pgTable("admin_audit_log", {
   action: text("action").notNull(),
   resource: text("resource"),
   resourceId: text("resource_id"),
+  targetType: text("target_type"),
+  targetId: text("target_id"),
   beforeVal: jsonb("before_val"),
   afterVal: jsonb("after_val"),
+  metadata: jsonb("metadata"),
   ipAddress: text("ip_address"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
@@ -2894,6 +2951,7 @@ export const systemAlerts = pgTable("system_alerts", {
   }),
   resolutionNote: text("resolution_note"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
 export const moderationAiEscalations = pgTable("moderation_ai_escalations", {
@@ -3078,6 +3136,7 @@ export const moderationReports = pgTable("moderation_reports", {
   }),
   resolutionNote: text("resolution_note"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
 export const moderationActions = pgTable("moderation_actions", {
@@ -3088,15 +3147,27 @@ export const moderationActions = pgTable("moderation_actions", {
   moderatorId: uuid("moderator_id").references(() => users.id, {
     onDelete: "set null",
   }),
-  actionType: text("action_type").notNull(),
+  actionType: text("action_type"),
+  action: text("action"),
   reason: text("reason"),
+  note: text("note"),
   reportId: uuid("report_id").references(() => reports.id, {
     onDelete: "set null",
   }),
+  durationHours: integer("duration_hours"),
+  actionedBy: uuid("actioned_by").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  actorType: text("actor_type").notNull().default("manual"),
   expiresAt: timestamp("expires_at", { withTimezone: true }),
   metadata: jsonb("metadata"),
-  duration: integer("duration"),
+  reversedAt: timestamp("reversed_at", { withTimezone: true }),
+  reversedBy: uuid("reversed_by").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  reversalNote: text("reversal_note"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
 // ---------------------------------------------------------------------------
@@ -3122,6 +3193,7 @@ export const platformEvents = pgTable("platform_events", {
   recurrenceAnchorMonthEnd: integer("recurrence_anchor_month_end"),
   recurrenceAnchorDayEnd: integer("recurrence_anchor_day_end"),
   metadata: jsonb("metadata"),
+  createdBy: uuid("created_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
@@ -3129,6 +3201,7 @@ export const platformEvents = pgTable("platform_events", {
 export const flashXpEvents = pgTable("flash_xp_events", {
   id: uuidPk(),
   name: text("name").notNull(),
+  description: text("description"),
   multiplier: decimal("multiplier", { precision: 3, scale: 1 })
     .notNull()
     .default("2.0"),
@@ -3142,6 +3215,7 @@ export const flashXpEvents = pgTable("flash_xp_events", {
     .default(false),
   notificationSentAt: timestamp("notification_sent_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
 export const monthlyGiftDrops = pgTable("monthly_gift_drops", {
@@ -3186,6 +3260,9 @@ export const communityNotes = pgTable("community_notes", {
   helpfulVotes: integer("helpful_votes").notNull().default(0),
   unhelpfulVotes: integer("unhelpful_votes").notNull().default(0),
   status: text("status").notNull().default("needs_review"),
+  adminComment: text("admin_comment"),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  reviewedBy: uuid("reviewed_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
@@ -3232,6 +3309,7 @@ export const platformCouncilIdeas = pgTable("platform_council_ideas", {
   description: text("description").notNull(),
   votes: integer("votes").notNull().default(0),
   status: text("status").notNull().default("open"),
+  metadata: jsonb("metadata"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
@@ -3289,6 +3367,48 @@ export const failedWebhooks = pgTable("failed_webhooks", {
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
+});
+
+// Audit trail for AI / automated moderation actions (admin tools)
+export const automatedActionsLog = pgTable("automated_actions_log", {
+  id: uuidPk(),
+  actionType: text("action_type").notNull(),
+  targetType: text("target_type"),
+  targetId: text("target_id"),
+  targetUserId: uuid("target_user_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  description: text("description"),
+  metadata: jsonb("metadata"),
+  reverseNote: text("reverse_note"),
+  reversedAt: timestamp("reversed_at", { withTimezone: true }),
+  reversedBy: uuid("reversed_by").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+// Admin coin-refund ledger (used by /api/admin/refunds)
+export const refunds = pgTable("refunds", {
+  id: uuidPk(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  amountCoins: bigint("amount_coins", { mode: "number" }).notNull(),
+  reason: text("reason"),
+  referenceId: text("reference_id"),
+  status: text("status").notNull().default("processed"),
+  processedBy: uuid("processed_by").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
 });
 
 // ---------------------------------------------------------------------------
@@ -3630,6 +3750,10 @@ export type FeatureFlag = typeof featureFlags.$inferSelect;
 export type NewFeatureFlag = typeof featureFlags.$inferInsert;
 export type FailedWebhook = typeof failedWebhooks.$inferSelect;
 export type NewFailedWebhook = typeof failedWebhooks.$inferInsert;
+export type Refund = typeof refunds.$inferSelect;
+export type NewRefund = typeof refunds.$inferInsert;
+export type AutomatedActionLog = typeof automatedActionsLog.$inferSelect;
+export type NewAutomatedActionLog = typeof automatedActionsLog.$inferInsert;
 
 // ---------------------------------------------------------------------------
 // Schema namespace — pass to drizzle(pool, { schema }) for relational queries
@@ -3815,4 +3939,6 @@ export const schema = {
   auditLog,
   featureFlags,
   failedWebhooks,
+  refunds,
+  automatedActionsLog,
 } as const;
