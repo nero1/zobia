@@ -776,6 +776,22 @@ export default function SettingsPage() {
         </div>
       </Section>
 
+      {/* Business Account */}
+      <Section title="Business Account">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Business tools</p>
+            <p className="text-xs text-neutral-500">Verified badge, broadcasts, analytics and more.</p>
+          </div>
+          <Link
+            href="/settings/business"
+            className="shrink-0 rounded-xl border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+          >
+            Manage →
+          </Link>
+        </div>
+      </Section>
+
       {/* Subscription & Billing */}
       <Section title="Subscription &amp; Billing">
         <div className="flex items-center justify-between gap-3">

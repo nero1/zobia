@@ -41,8 +41,10 @@ interface PaystackChargeEvent {
       packId: string;
       coinsGranted?: number;
       starsGranted?: number;
-      itemType: "coin_pack" | "star_pack" | "subscription" | "room_subscription" | "room_entry";
+      itemType: "coin_pack" | "star_pack" | "subscription" | "room_subscription" | "room_entry" | "business_upgrade";
       packName: string;
+      businessAccountId?: string;
+      newTier?: string;
     };
     paid_at: string;
   };
@@ -174,6 +176,43 @@ async function processChargeSuccess(
     // Drop-room entry payment — payment is already marked completed above.
     // The join route validates payment.status='completed'; no coin credit needed.
     if (itemType === "room_entry") {
+      return;
+    }
+
+    // Business tier upgrade — activate the pending tier on the business account
+    if (itemType === "business_upgrade") {
+      const { businessAccountId, newTier } = metadata;
+      if (!businessAccountId || !newTier) {
+        console.error(`[webhook/paystack] business_upgrade missing businessAccountId or newTier in metadata`, { reference, metadata });
+        return;
+      }
+
+      await tx.query(
+        `UPDATE business_accounts
+         SET tier = $1,
+             pending_tier = NULL,
+             pending_payment_ref = NULL,
+             tier_updated_at = NOW(),
+             updated_at = NOW()
+         WHERE id = $2 AND pending_payment_ref = $3`,
+        [newTier, businessAccountId, reference]
+      );
+
+      // Notify the user
+      await tx.query(
+        `INSERT INTO notifications
+           (user_id, type, title, body, metadata, is_read, created_at)
+         SELECT user_id, 'business_tier_activated',
+                'Business Account Upgraded',
+                $1,
+                $2::jsonb, false, NOW()
+         FROM business_accounts WHERE id = $3`,
+        [
+          `Your business account has been upgraded to the ${newTier.charAt(0).toUpperCase() + newTier.slice(1)} tier.`,
+          JSON.stringify({ businessAccountId, tier: newTier, reference }),
+          businessAccountId,
+        ]
+      );
       return;
     }
 
