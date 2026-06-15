@@ -1,236 +1,289 @@
-# Zobia Codebase Bug Report
-**Date:** 2026-06-15 | **Time:** 10:24 PM UTC  
-**Scope:** Full forensic analysis — Next.js web app, PWA, Expo mobile Android, shared libs, DB schema/migrations  
-**Analyst:** Claude (claude-sonnet-4-6) — independent self-conducted analysis, no sub-agents  
-**Branch:** `claude/codebase-bug-analysis-6qz2q4`
+# Zobia Codebase — Forensic Bug Report
+
+**Generated:** Monday, June 15, 2026 11:31 PM UTC  
+**Scope:** Full monorepo — `apps/web` (Next.js), `apps/expo` (React Native/Android), `shared/`  
+**Methodology:** Source-level static analysis. All files read directly; no existing bug reports consulted.
 
 ---
 
-## Code Quality Assessment (Before Fixes)
+## Current Code Quality Rating: **6.5 / 10**
 
-**Current Rating: 6.5 / 10**
+The codebase is architecturally ambitious and shows deliberate design in areas like atomic Lua rate limiting, CTE-based XP idempotency, circuit-breaker patterns, AES-256-GCM field encryption, and dead-letter queues. The security posture is above average (CSRF middleware, header stripping, timing-safe comparisons, HMAC webhook verification). However, a cluster of data-integrity issues in the CRON subsystem, residual schema inconsistencies from rapid iteration, and several high-impact logic errors bring the rating down.
 
-The codebase demonstrates solid architectural thinking in most areas: the coin economy is well-guarded with `SELECT FOR UPDATE`, JWT rotation with `kid`-based key registry is correctly implemented, AES-256-GCM field encryption with scrypt KDF shows security awareness, the sliding-window rate limiter uses atomic Lua scripts, and the XP dead-letter queue pattern is thoughtful. The problem is that a cluster of foundational bugs — schema drift between raw migrations and the Drizzle ORM schema, missing database constraints, and a critical race condition in the payout pipeline — can cause silent data corruption and runtime crashes in production. Some high-severity issues (the flashXP notification crash, the XP ledger double-award window) are invisible in development because PostgreSQL raises the error and the app swallows it. The codebase rates higher-than-average for a startup because the architecture is sound; the bugs are implementation gaps, not design flaws.
-
-**Projected Rating After All Fixes: 8.5 / 10**
-
-Applying all recommended fixes closes every identified data-integrity hole, hardens the security surface (session eviction, CSP reporting, CSRF edge case, rate-limit bypass), and brings the migration file in sync with the ORM schema. The remaining 1.5-point gap from a perfect 10 reflects the inherent complexity of managing concurrent serverless functions without a dedicated task queue.
+**Expected rating after all recommended fixes: 8.5 / 10**
 
 ---
 
-## Summary — All Bugs (one-line descriptions)
+## Bug / Issue Index (one-line descriptions)
 
-1. BUG-C01: `guild_members` table missing `left_at` column — `IS NULL` guard always passes for departed members
-2. BUG-C02: `payout_dead_letter_queue.payout_id` has no UNIQUE constraint — `ON CONFLICT (payout_id)` crashes at runtime
-3. BUG-C03: `flashXP.ts` notification INSERT references non-existent `reference_id` column on `notifications` table — crash swallowed, flash XP notifications never delivered
-4. BUG-C04: Schema drift — raw SQL migration creates a **non-UNIQUE** index on `xp_ledger(user_id, source, reference_id)` but Drizzle schema and application code both require a **UNIQUE** index — `ON CONFLICT` silently never deduplicates, enabling double-awards
-5. BUG-C05: `xpDrop.ts` uses `ON CONFLICT (source, reference_id)` with no matching unique index — runtime PostgreSQL error, mystery XP drops never insert
-6. BUG-H01: `awardGiftXP` fires unconditional `UPDATE users SET xp_total = xp_total + $2` after a conditional INSERT — on duplicate gift retry the XP UPDATE runs even when no row was inserted, double-awarding XP
-7. BUG-H02: `being_tipped_in_room` ledger INSERT in `gifts/send` route has no `ON CONFLICT` — duplicate gifts create duplicate room-tip ledger entries
-8. BUG-H03: Idempotency key is deleted on `INSUFFICIENT_BALANCE` in `gifts/send` — retrying the failed request can proceed as a fresh request and double-charge if balance is briefly replenished
-9. BUG-H04: `seedSeasonPassMilestones` assigns overlapping `sort_order` values 1–5 to both free **and** paid milestone sets, violating any unique constraint and scrambling milestone ordering
-10. BUG-H05: Session eviction removes SIDs from the Redis sorted set but never deletes the `session:{sid}` hash keys — evicted sessions remain valid for up to 30 days
-11. BUG-H06: `creator/payouts` route calls `SELECT FOR UPDATE` on `users.available_earnings_kobo` **outside** any transaction — the row lock is released immediately in autocommit mode; concurrent requests can overdraft and create multiple simultaneous payouts
-12. BUG-H07: `guild_tier_history` INSERT uses `ON CONFLICT (guild_id, season_id)` in `warEngine.ts` but no such unique constraint exists in the table definition — runtime error on every war-tier save
-13. BUG-H08: `aiClassifier.ts` calls `parseFloat()` on an LLM response string without checking for `NaN` — a malformed AI response silently passes moderation with a 0.0 score
-14. BUG-M01: `rateLimit.ts` skips rate-limiting entirely for requests with an unresolvable or unknown IP — requests that reach the edge with no `x-forwarded-for` bypass all rate limits
-15. BUG-M02: `middleware.ts` emits `report-to csp-endpoint` in the CSP header but never sets the `Report-To` HTTP header defining the endpoint — CSP violation reports are never actually delivered
-16. BUG-M03: `referrals/commissions.ts` uses `ON CONFLICT DO NOTHING` without specifying a conflict target — PostgreSQL rejects the statement if no UNIQUE constraint is unambiguous
-17. BUG-M04: `distributeCreatorFund` in `creator/fund.ts` performs its idempotency read (`SELECT` counting existing distributions) inside a transaction but **without** an advisory lock — two concurrent CRON runs can both read 0 rows and both distribute, doubling payouts
-18. BUG-M05: `advanceMysteryXPDropLifecycle` in `xpDrop.ts` checks eligibility and then awards XP in separate steps without an atomic lock — concurrent CRON invocations can both pass the eligibility check and both award XP for the same drop
-
----
-
-## Detailed Bug Descriptions
-
----
-
-### 1. BUG-C01: `guild_members` missing `left_at` column
-
-**FILES:**
-- `apps/web/lib/guilds/warEngine.ts`
-- `apps/web/lib/guilds/recordWarContribution.ts`
-- `apps/web/db/migrations/0001_consolidated_schema.sql` (guild_members table definition)
-- `apps/web/lib/db/schema.ts` (guildMembers Drizzle table)
-
-**FIX:** The `guild_members` table has no `left_at` column anywhere — not in the Drizzle schema, not in the raw migration. Both `warEngine.ts` and `recordWarContribution.ts` query `WHERE gm.left_at IS NULL` to filter active members, but since the column does not exist PostgreSQL will throw "column gm.left_at does not exist" at runtime and the entire query fails. Add a nullable `left_at TIMESTAMPTZ` column to the `guild_members` table (both in a new migration and in the Drizzle schema). Also add a `deletedAt`/`leftAt` field to the Drizzle `guildMembers` table definition. Update all guild-member queries to set `left_at = NOW()` when a user leaves a guild (soft-delete pattern) rather than hard-deleting the row. Until then, replace `gm.left_at IS NULL` with a check on active membership via a flag column or by removing departed members via hard delete and removing the filter.
+1. EXPO-AUTH-01: Expo cold-start token refresh blocked by CSRF check — missing Origin header in fetch()
+2. DODO-PLAN-01: DodoPayments webhook accepts unvalidated planName from metadata — plan injection risk
+3. CRON-PAYOUT-01: Weekly payout INSERT omits required NOT NULL columns (amount_kobo, provider) — always throws
+4. CRON-PAYOUT-02: Weekly payout CRON never deducts available_earnings_kobo — double-payout the following week
+5. SW-API-01: Service worker precaches server-side API route JS chunks — useless on client, wastes storage
+6. SW-ADMIN-01: Service worker precaches admin page JS bundles — admin UI code cached on every PWA user's device
+7. XP-STREAK-01: getDailyMessageStreakXP off-by-one — day 7 earns tier-0 XP instead of advancing to tier 1
+8. CRON-STREAK-01: Daily CRON updates login_streak_days but never touches login_streak column
+9. CRON-STREAK-02: Streak query uses last_login_at::date unindexed cast instead of indexed last_login_date column
+10. SCHEMA-STREAK-01: longest_streak not updated when a streak resets — persists stale record forever
+11. CRON-COIN-01: Comeback-coin expiry step silently swallows INSUFFICIENT_BALANCE — reversals fail invisibly
+12. CRON-IDEMPOTENCY-01: Daily CRON has no run-guard — non-idempotent steps run multiple times on duplicate triggers
+13. SCHEMA-DM-01: dm_conversations unique index has no enforced pair-ordering — duplicate conversation rows possible
+14. SCHEMA-BANK-01: creator_bank_accounts.creator_id is unique-per-row but CRON queries is_primary — schema contradicts multi-account design
+15. SCHEMA-XP-01: x_manifest.value typed as jsonb but manifest loader treats it as plain text — parseBool/parseInt break
+16. SCHEMA-SEASON-01: Duplicate season-pass and milestone-claim tables with overlapping purposes
+17. ECONOMY-TRANSFER-01: transferCoins() with no idempotencyRef generates Date.now() key — network retry double-transfers
+18. CRON-MONTHLY-01: Monthly plan coin-bonus CTE uses ON CONFLICT on a non-existent unique constraint
+19. CRON-TIER-01: Creator tier update counter increments unconditionally — reports false update counts
+20. CRON-ALLIANCE-01: Alliance war re-insertion uses ON CONFLICT DO NOTHING with no matching unique constraint
+21. CRON-ORDER-01: CRON step numbers are out of order (step 10 after 14, 32 after 32b)
+22. CRON-GUILD-01: Guild tier promotion and demotion use two separate hardcoded maps — diverge when tiers added
+23. REDIS-RL-01: Global rate limit EXPIRE is hardcoded to 60 s regardless of endpoint window
+24. SESSION-EVICT-01: Session eviction uses multiple non-atomic Redis calls — race leaves orphaned sorted-set entries
+25. SW-STALE-01: StaleWhileRevalidate on /api/users/me and /api/creator/wallet — shared-device users may see each other's data
+26. EXPO-AUTH-02: purchaseCoins/purchaseSubscription packageName param unused by global listener — silently ignored
+27. CRON-DIGEST-01: Moderation digest counts open/escalated only within new-report WHERE filter — metric is misleading
+28. CRON-NEMESIS-01: Nemesis overtake query filters on assignment created_at not overtake date — most users never notified
 
 ---
 
-### 2. BUG-C02: `payout_dead_letter_queue.payout_id` no UNIQUE constraint
-
-**FILES:**
-- `apps/web/lib/payments/payouts.ts` (`moveToDeadLetterQueue` function)
-- `apps/web/db/migrations/0001_consolidated_schema.sql` (payout_dead_letter_queue table, line ~1440)
-- `apps/web/lib/db/schema.ts` (payoutDeadLetterQueue table definition)
-
-**FIX:** `moveToDeadLetterQueue` calls `INSERT INTO payout_dead_letter_queue ... ON CONFLICT (payout_id) DO UPDATE ...`. PostgreSQL requires the conflict target column to be covered by a unique index or unique constraint — without one the statement throws "there is no unique or exclusion constraint matching the ON CONFLICT specification". Add `UNIQUE (payout_id)` to the `payout_dead_letter_queue` table in a new migration and add the corresponding `unique()` call to the Drizzle schema. This also prevents multiple DLQ entries for the same original payout.
+## Detailed Bug Entries
 
 ---
 
-### 3. BUG-C03: `flashXP.ts` notification INSERT references non-existent `reference_id` column
+### 1. EXPO-AUTH-01 — Expo cold-start token refresh blocked by CSRF check
 
-**FILES:**
-- `apps/web/lib/events/flashXP.ts` (lines ~97 and ~146)
-- `apps/web/db/migrations/0001_consolidated_schema.sql` (notifications table, line ~376)
-- `apps/web/lib/db/schema.ts` (notifications table definition)
+FILES: apps/expo/lib/auth/context.tsx (lines 122–128)
 
-**FIX:** Two notification INSERTs in `advanceFlashXPLifecycle` use `ON CONFLICT (user_id, type, reference_id) DO NOTHING`. The `notifications` table has no `reference_id` column in either the Drizzle schema or the raw migration — the conflict target is invalid and PostgreSQL throws a runtime error. The error is caught by the surrounding `try/catch` and logged but swallowed, meaning flash XP event notifications are **never delivered**. Fix by either: (a) adding a `reference_id TEXT` column to the notifications table (in a new migration and Drizzle schema) and adding a unique index on `(user_id, type, reference_id)`, or (b) switching the conflict target to an existing unique constraint on notifications. Option (a) is preferred for idempotency. Also consider using the shared `insertNotification` helper from `lib/notifications/insert.ts` rather than raw SQL for all notification inserts to avoid future drift.
+FIX: The cold-start silent refresh in AuthProvider uses a raw fetch() call instead of the shared apiClient. The apiClient explicitly sets Origin: env.API_BASE_URL in its default headers, satisfying the server-side CSRF check in middleware.ts. The bare fetch() sends no Origin header, so isCsrfSafe() returns false, the POST is rejected 403 CSRF_ORIGIN_MISMATCH, and every user who opens the app with an expired token is force-logged out instead of silently refreshed. Add 'Origin': env.API_BASE_URL to the headers object on that fetch() call, or refactor the cold-start refresh to reuse the refreshAccessToken function already defined in apps/expo/lib/api/client.ts.
 
 ---
 
-### 4. BUG-C04: Schema drift — `xp_ledger` unique index is NON-UNIQUE in the raw migration
+### 2. DODO-PLAN-01 — DodoPayments webhook accepts unvalidated planName from metadata
 
-**FILES:**
-- `apps/web/db/migrations/0001_consolidated_schema.sql` (lines ~2901–2908, `idx_xp_ledger_user_source_ref`)
-- `apps/web/lib/db/schema.ts` (`xpLedger` table, `sourceRefIdx` index)
-- `apps/web/lib/xp/safeAwardXP.ts`
-- `apps/web/lib/xp/safeAwardXP.ts` (`retryFailedXPAwards`)
+FILES: apps/web/app/api/economy/webhooks/dodopayments/route.ts
 
-**FIX:** The Drizzle schema defines `sourceRefIdx` as `uniqueIndex("uidx_xp_ledger_source_ref").on(...).where(sql\`reference_id IS NOT NULL\`)` — a partial UNIQUE index. The raw migration file instead creates `idx_xp_ledger_user_source_ref` as a plain non-unique index on the same columns. Both `safeAwardXP` and `retryFailedXPAwards` rely on `ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING` to prevent double-awards; without the UNIQUE index, PostgreSQL will silently ignore the conflict clause and insert every row unconditionally, making XP idempotency completely inoperative. Fix by adding a new migration that: (1) drops `idx_xp_ledger_user_source_ref`, and (2) creates `CREATE UNIQUE INDEX uidx_xp_ledger_source_ref ON xp_ledger(user_id, source, reference_id) WHERE reference_id IS NOT NULL`. Verify the migration is idempotent (it may fail if duplicate rows already exist — deduplicate first if needed).
+FIX: The Paystack webhook handler derives the subscription plan safely from the provider's plan.name field using keyword matching (pro/plus/max). The DodoPayments handler reads metadata.planName ?? "pro" verbatim. A tampered or misconfigured payload could set planName to any arbitrary string, granting an unrecognised plan tier to a user. Apply the same keyword-based plan derivation used in the Paystack handler: check the value against known keywords and reject or flag unknown values rather than passing them through unchecked.
 
 ---
 
-### 5. BUG-C05: `xpDrop.ts` `ON CONFLICT (source, reference_id)` — no matching unique index
+### 3. CRON-PAYOUT-01 — Weekly payout INSERT missing NOT NULL columns
 
-**FILES:**
-- `apps/web/lib/mystery/xpDrop.ts`
-- `apps/web/db/migrations/0001_consolidated_schema.sql` (mystery_xp_drop_grants table, if it exists)
-- `apps/web/lib/db/schema.ts` (corresponding Drizzle table)
+FILES:
+- apps/web/app/api/cron/daily/route.ts (step 32, weekly payout INSERT ~line 2288)
+- apps/web/lib/db/schema.ts (creatorPayouts table)
 
-**FIX:** `advanceMysteryXPDropLifecycle` inserts into a grants/audit table using `ON CONFLICT (source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`. There is no unique index on `(source, reference_id)` for that table anywhere in the schema — PostgreSQL throws "there is no unique or exclusion constraint matching the ON CONFLICT specification" and the INSERT fails (error is swallowed). Add `CREATE UNIQUE INDEX` on `(source, reference_id) WHERE reference_id IS NOT NULL` to the relevant grants table in a new migration and reflect it in the Drizzle schema.
-
----
-
-### 6. BUG-H01: `awardGiftXP` unconditional XP UPDATE after conditional INSERT
-
-**FILES:**
-- `apps/web/app/api/economy/gifts/send/route.ts` (`awardGiftXP` logic)
-
-**FIX:** The gift-send route inserts an `xp_ledger` row with `ON CONFLICT ... DO NOTHING` (conditional), then **always** runs `UPDATE users SET xp_total = xp_total + $2` regardless of whether the INSERT produced a row. On a duplicate request the INSERT is skipped but the UPDATE still fires, incrementing `xp_total` again. Fix by using the same CTE pattern already used in `safeAwardXP`: wrap both the INSERT and UPDATE in a single CTE so the UPDATE only executes `WHERE EXISTS (SELECT 1 FROM ins)`. This makes the entire XP award atomic and idempotent in a single round-trip.
+FIX: The creatorPayouts schema declares amount_kobo BIGINT NOT NULL and provider TEXT NOT NULL with no database defaults. The CRON INSERT at step 32 lists columns (creator_id, net_kobo, gross_kobo, platform_fee_kobo, status, idempotency_key, bank_account_snapshot, created_at) and omits both. Every Friday this INSERT throws a NOT NULL constraint violation and the per-creator catch block swallows it silently — zero payouts are ever initiated. Add amount_kobo (use grossKobo value) and provider ('paystack' or read from manifest) to both the column list and the VALUES clause.
 
 ---
 
-### 7. BUG-H02: `being_tipped_in_room` INSERT has no `ON CONFLICT` clause
+### 4. CRON-PAYOUT-02 — Weekly payout CRON never deducts available_earnings_kobo
 
-**FILES:**
-- `apps/web/app/api/economy/gifts/send/route.ts`
+FILES: apps/web/app/api/cron/daily/route.ts (step 32)
 
-**FIX:** The gift-send route records room-tip events with a plain INSERT into a `being_tipped_in_room` (or equivalent) ledger table, with no idempotency guard. On a client retry or network duplicate, the same tip is recorded twice. Add `ON CONFLICT (gift_transaction_id) DO NOTHING` (or equivalent unique key for the tip event) to this INSERT, and ensure the underlying table has the corresponding unique constraint/index.
-
----
-
-### 8. BUG-H03: Idempotency key deleted on `INSUFFICIENT_BALANCE`
-
-**FILES:**
-- `apps/web/app/api/economy/gifts/send/route.ts`
-
-**FIX:** The route writes an idempotency key to Redis before processing, then deletes it in the `INSUFFICIENT_BALANCE` error branch. The intent is presumably to allow the user to retry after topping up, but the side-effect is that a race condition window exists: if two identical requests arrive simultaneously, both pass the idempotency check, the first one hits `INSUFFICIENT_BALANCE` and deletes the key, and the second one can now re-enter. Fix by either (a) keeping the idempotency key on `INSUFFICIENT_BALANCE` and returning a specific error code for the client to handle differently, or (b) use a short TTL on the key (e.g. 60 seconds) rather than explicit deletion so concurrent retries are still blocked, and let the client treat `INSUFFICIENT_BALANCE` as terminal without re-attempting with the same idempotency key.
+FIX: After inserting the creator_payouts row, the CRON does not decrement users.available_earnings_kobo. The eligibility query filters `status IN ('awaiting_approval', 'processing')` to avoid duplicate payouts within the same CRON run, but once the payout completes and that status moves to 'completed', the user's balance is unchanged. The next week's CRON sees the full original balance and initiates a second payout. Inside the transaction that creates the payout row, add UPDATE users SET available_earnings_kobo = available_earnings_kobo - $gross, updated_at = NOW() WHERE id = $creator_id. Restore the balance only if the payout is permanently abandoned in the DLQ.
 
 ---
 
-### 9. BUG-H04: `seedSeasonPassMilestones` overlapping `sort_order` values
+### 5. SW-API-01 — Service worker precaches server-side API route JS chunks
 
-**FILES:**
-- `apps/web/lib/seasons/seasonEngine.ts` (`seedSeasonPassMilestones` function)
+FILES: apps/web/public/sw.js
 
-**FIX:** The function seeds both free-tier milestones and paid-tier milestones, assigning `sort_order` values 1 through 5 to each set independently. If there is a unique constraint on `(season_id, tier, sort_order)` the second batch will conflict; if not, milestone ordering will be ambiguous when both tiers are queried together. Fix by ensuring the two milestone sets use non-overlapping sort orders (e.g. free: 1–5, paid: 6–10), or by scoping sort_order to be unique within `(season_id, tier)` only, with appropriate unique index reflecting that scope.
-
----
-
-### 10. BUG-H05: Session eviction leaks `session:{sid}` Redis keys
-
-**FILES:**
-- `apps/web/lib/auth/session.ts` (eviction logic, `createSession` function)
-
-**FIX:** When the session count exceeds `MAX_SESSIONS`, the code calls `redis.zremrangebyrank(userSessionsKey(userId), 0, -(MAX_SESSIONS + 1))` to remove the oldest SIDs from the sorted set. However, it never calls `redis.del(sessionKey(sid))` for each evicted SID. `getSession()` looks up sessions via `redis.get(sessionKey(sid))` — not the sorted set — so evicted sessions remain fully valid until their 30-day TTL expires. An attacker who captured an old session token can continue using it indefinitely past the session limit. Fix by fetching the SIDs that will be evicted with `zrange` **before** calling `zremrangebyrank`, then deleting those `session:{sid}` keys with `redis.del(...evictedSids.map(sessionKey))` in the same operation (or as a pipeline for efficiency).
+FIX: The Workbox precache manifest includes all /_next/static/chunks/app/api/** entries. These are Next.js server-component/route-handler JS bundles that execute only on the server and are never run by the browser. Precaching them wastes client storage (can be multiple MB) and bandwidth. Update the Workbox build config (next.config.js or a dedicated workbox-config.js) to exclude app/api/** from the precache glob patterns, e.g. add '!/_next/static/chunks/app/api/**' to the exclusions.
 
 ---
 
-### 11. BUG-H06: Creator payout `SELECT FOR UPDATE` outside any transaction
+### 6. SW-ADMIN-01 — Service worker precaches admin page JS bundles
 
-**FILES:**
-- `apps/web/app/api/creator/payouts/route.ts`
+FILES: apps/web/public/sw.js
 
-**FIX:** The route locks `users.available_earnings_kobo` with `SELECT ... FOR UPDATE`, checks if the balance is sufficient, and checks for an existing pending payout — all **outside** any database transaction. In PostgreSQL's autocommit mode, the row lock from `FOR UPDATE` is released the moment the query completes, not when an explicit `COMMIT` occurs. By the time the subsequent INSERT (which initiates the payout) runs, the lock is gone. Two concurrent HTTP requests can both read a sufficient balance, both see no pending payout, and both proceed to create a payout and deduct the balance — resulting in overdraft and duplicate payout requests. Fix by wrapping the entire sequence (balance SELECT FOR UPDATE → pending-payout check → payout INSERT → balance deduction) inside a single `db.transaction(async (tx) => { ... })` block so the row lock is held for the duration.
-
----
-
-### 12. BUG-H07: `guild_tier_history` ON CONFLICT without matching unique constraint
-
-**FILES:**
-- `apps/web/lib/guilds/warEngine.ts` (guild tier history upsert)
-- `apps/web/db/migrations/0001_consolidated_schema.sql` (guild_tier_history table)
-- `apps/web/lib/db/schema.ts` (guildTierHistory Drizzle table)
-
-**FIX:** The war engine inserts into `guild_tier_history` with `ON CONFLICT (guild_id, season_id) DO UPDATE ...`. The `guild_tier_history` table has no unique constraint or unique index on `(guild_id, season_id)` in either the migration or the Drizzle schema. PostgreSQL throws "there is no unique or exclusion constraint matching the ON CONFLICT specification" at runtime — every war-tier save fails. Add `UNIQUE (guild_id, season_id)` to the `guild_tier_history` table (new migration + Drizzle schema) so the upsert can resolve conflicts correctly.
+FIX: Admin page chunks (/_next/static/chunks/app/admin/**) appear in the precache manifest and are downloaded and stored on the device of every PWA user, regardless of their admin status. This leaks admin UI code (endpoint names, field names, UI flows) to all users' devices. Exclude app/admin/** from the Workbox precache glob patterns. Admin pages should never be cached offline since they always require live server access.
 
 ---
 
-### 13. BUG-H08: `aiClassifier.ts` `parseFloat()` without NaN guard
+### 7. XP-STREAK-01 — getDailyMessageStreakXP off-by-one in tier calculation
 
-**FILES:**
-- `apps/web/lib/moderation/aiClassifier.ts`
+FILES: apps/web/lib/xp/engine.ts (getDailyMessageStreakXP function)
 
-**FIX:** The classifier calls `parseFloat(responseText)` on the raw string returned by the LLM (DeepSeek or Gemini). If the model returns a non-numeric response (explanation text, an error string, an empty string), `parseFloat` returns `NaN`. Downstream comparisons like `score > THRESHOLD` evaluate to `false` when `score` is `NaN`, causing the content to silently pass moderation with an apparent score of 0.0 rather than being flagged or escalated. Fix by adding a NaN check immediately after parsing: `if (isNaN(score)) throw new Error(\`Non-numeric moderation score: "${responseText}"\`)`. The existing circuit breaker will then correctly count this as a failure and activate the fallback provider, which is the right behavior.
-
----
-
-### 14. BUG-M01: Unknown IP bypasses rate limiting
-
-**FILES:**
-- `apps/web/lib/security/rateLimit.ts`
-
-**FIX:** When the client IP cannot be determined (no `x-forwarded-for`, no `request.ip`), `rateLimit.ts` logs a warning and returns `{ allowed: true, remaining: limit }` — effectively skipping rate limiting entirely for that request. On platforms like Vercel Edge, a missing `x-forwarded-for` is uncommon but possible (e.g. internal health checks, misconfigured proxies, or attackers crafting requests). Fix by: (a) configuring Vercel to always inject the client IP header (check `x-real-ip` as a fallback), and (b) returning `{ allowed: false }` — or using a shared sentinel key like `"unknown"` that has its own strict quota — when no IP can be resolved, rather than allowing the request unconditionally.
+FIX: The formula tier = Math.floor((day - 1) / 7) computes tier 0 for days 1–7 and tier 1 for days 8–14. The milestone advertised to users is every 7 days, so day 7 should be the first day of tier 1. The formula should be Math.floor(day / 7) so days 1–6 are tier 0 and day 7 is tier 1. Confirm the exact breakpoints against the PRD and adjust accordingly. As written, every tier milestone is one day late.
 
 ---
 
-### 15. BUG-M02: CSP `report-to` directive missing `Report-To` HTTP header
+### 8. CRON-STREAK-01 — CRON updates login_streak_days but leaves login_streak stale
 
-**FILES:**
-- `apps/web/middleware.ts` (`buildCsp` function)
+FILES:
+- apps/web/app/api/cron/daily/route.ts (step 2 — streak increment UPDATE)
+- apps/web/lib/db/schema.ts (users table, both columns)
 
-**FIX:** The CSP string includes `report-to csp-endpoint` and `report-uri /api/security/csp-report`. The `report-to` directive requires a corresponding `Report-To` HTTP response header that defines the named endpoint group (`csp-endpoint`) with the collector URL. Without it, browsers that support the newer Reporting API silently drop violation reports (browsers fall back to `report-uri` only if `Report-To` is absent but `report-uri` is present). Fix by adding to the `withCsp` helper: `res.headers.set("Report-To", JSON.stringify({ group: "csp-endpoint", max_age: 86400, endpoints: [{ url: "/api/security/csp-report" }] }))`. This activates the Reporting API for modern browsers while the legacy `report-uri` directive continues to serve older browsers.
-
----
-
-### 16. BUG-M03: `referrals/commissions.ts` `ON CONFLICT DO NOTHING` without explicit target
-
-**FILES:**
-- `apps/web/lib/referrals/commissions.ts`
-
-**FIX:** The commissions INSERT uses `ON CONFLICT DO NOTHING` with no conflict target (no `ON CONFLICT (column_list) DO NOTHING`). PostgreSQL accepts this syntax only when there is exactly one unique constraint on the table, and it uses that constraint implicitly. If the `referral_commissions` table has more than one unique constraint (e.g. a primary key plus a business-logic unique index), PostgreSQL throws an error. More importantly, the intent is ambiguous — it's unclear which uniqueness property the deduplication is supposed to enforce. Fix by specifying the explicit conflict target column(s), e.g. `ON CONFLICT (referrer_id, referred_user_id, source) DO NOTHING`, and ensuring the matching unique index exists in the schema.
+FIX: The streak-increment UPDATE sets login_streak_days = login_streak_days + 1 but never touches login_streak. Any code path that reads users.login_streak for display, XP multiplier lookups, or badge awards will see a perpetually stale value (whatever was last written by an older code path). Either consolidate on one column (migrate all references to login_streak_days and drop login_streak), or update both columns in the same UPDATE statement.
 
 ---
 
-### 17. BUG-M04: `distributeCreatorFund` has no advisory lock — double-distribution on concurrent CRON runs
+### 9. CRON-STREAK-02 — Streak query casts timestamp to date, bypassing index
 
-**FILES:**
-- `apps/web/lib/creator/fund.ts` (`distributeCreatorFund` function)
+FILES: apps/web/app/api/cron/daily/route.ts (step 2 — eligibility WHERE clause)
 
-**FIX:** The function checks whether distributions already exist for the current period inside a transaction, and only distributes if the count is zero. However, two concurrent CRON invocations can both start their transactions, both read a count of zero (the snapshot is taken before either commits), and both proceed to distribute — effectively doubling the payout for every eligible creator. Fix by acquiring a PostgreSQL advisory lock at the start of the function using `SELECT pg_try_advisory_lock($1)` with a stable integer key (e.g. `hashtext('distributeCreatorFund')`). If the lock cannot be acquired, return early (another instance is running). Release with `pg_advisory_unlock` in a `finally` block. This is the same pattern used elsewhere in the codebase for concurrency-sensitive CRON steps.
-
----
-
-### 18. BUG-M05: Mystery XP drop concurrent CRON TOCTOU
-
-**FILES:**
-- `apps/web/lib/mystery/xpDrop.ts` (`advanceMysteryXPDropLifecycle` function)
-
-**FIX:** The function reads the current drop state (eligibility, whether already awarded), then awards XP and updates state in a separate step. Between these two steps, a second concurrent invocation can also pass the eligibility check. Both invocations then call `safeAwardXP`, which has its own `ON CONFLICT DO NOTHING` guard — but only if `reference_id` is populated and the unique index exists (see BUG-C04/C05). Until those schema bugs are fixed, the XP CTE guard is inoperative and double-award is possible. Even after those fixes, the drop status update (`UPDATE mystery_xp_drops SET awarded_at = NOW()`) should be inside an atomic CTE or the same transaction as the XP ledger INSERT to eliminate the race window. Fix by wrapping the eligibility check UPDATE and the XP award in a single CTE: `UPDATE mystery_xp_drops SET awarded_at = NOW() WHERE id = $1 AND awarded_at IS NULL RETURNING id`, then check the RETURNING count before proceeding with the XP award. No separate eligibility SELECT is needed.
+FIX: The streak eligibility filter is WHERE last_login_at::date = CURRENT_DATE - 1. Casting last_login_at to date prevents PostgreSQL from using any index on that column, resulting in a sequential scan of the users table. The schema has a dedicated last_login_date DATE column intended for exactly this. Replacing the condition with WHERE last_login_date = CURRENT_DATE - 1 allows use of a B-tree index and will scale orders of magnitude better as user count grows.
 
 ---
 
-## Final Counts
+### 10. SCHEMA-STREAK-01 — longest_streak not updated before streak reset
 
-| Severity | Count |
-|---|---|
-| Critical (C) — runtime crash or data loss | 5 |
-| High (H) — security or integrity issue | 8 |
-| Medium (M) — robustness / edge-case gap | 5 |
-| **Total** | **18** |
+FILES: apps/web/app/api/cron/daily/route.ts (step 2 — streak-reset branch)
+
+FIX: The streak-reset UPDATE zeroes login_streak_days without first checking whether the current streak exceeds longest_streak. A user who breaks their personal record then misses a day will never see their new record reflected. Before the reset, add: UPDATE users SET longest_streak = GREATEST(COALESCE(longest_streak, 0), login_streak_days) WHERE id = ANY($missed_users), or fold it into the reset UPDATE as: SET login_streak_days = 0, longest_streak = GREATEST(COALESCE(longest_streak, 0), login_streak_days).
 
 ---
 
-*Report generated: 2026-06-15 10:24 PM UTC*  
-*Analyst: Claude (claude-sonnet-4-6) — Zobia Forensic Code Review*
+### 11. CRON-COIN-01 — Comeback-coin expiry swallows INSUFFICIENT_BALANCE silently
+
+FILES: apps/web/app/api/cron/daily/route.ts (step 22 — comeback coin expiry)
+
+FIX: When a user received comeback coins and subsequently spent them before expiry, debitCoins() throws INSUFFICIENT_BALANCE. The catch block swallows every error identically — the user keeps coins they shouldn't and no alert is emitted. In the catch block, check if error.code === 'INSUFFICIENT_BALANCE': if so, log it as expected and mark the expiry as processed (so the CRON doesn't retry it tomorrow). For all other errors, insert a system_alerts row so the ops team can investigate actual DB failures.
+
+---
+
+### 12. CRON-IDEMPOTENCY-01 — Daily CRON has no run-guard against duplicate invocations
+
+FILES:
+- apps/web/app/api/cron/daily/route.ts
+- apps/web/lib/db/schema.ts (cronState table defined but unused by daily handler)
+
+FIX: The schema exports a cronState table but the daily CRON handler never writes to it. If the external CRON service fires twice the same day (misconfiguration, retry), non-idempotent steps execute twice: guild tier promotions/demotions, annual event cloning, Master Teacher awards, weekly Alliance War pairings, moderation digest emails, etc. At the very start of the handler, attempt an atomic INSERT INTO cron_state (key, last_run_at) VALUES ('daily', NOW()) ON CONFLICT (key) DO UPDATE SET last_run_at = NOW() WHERE last_run_at < NOW()::date RETURNING key. If no rows returned, another run already completed today — return 200 immediately.
+
+---
+
+### 13. SCHEMA-DM-01 — dm_conversations lacks enforced canonical pair ordering
+
+FILES: apps/web/lib/db/schema.ts (dmConversations table and unique index)
+
+FIX: The unique index is on (user_id_1, user_id_2) but there is no CHECK constraint enforcing user_id_1 < user_id_2. If any code path inserts a DM conversation without sorting the pair, two rows are created for the same pair of users and messages are silently split between them. Add a CHECK constraint: CHECK (user_id_1 < user_id_2). Audit all INSERT paths to ensure they sort the pair as [min(a, b), max(a, b)] before inserting.
+
+---
+
+### 14. SCHEMA-BANK-01 — creator_bank_accounts unique-per-creator contradicts multi-account query pattern
+
+FILES:
+- apps/web/lib/db/schema.ts (creatorBankAccounts — .unique() on creatorId)
+- apps/web/app/api/cron/daily/route.ts (step 32 — WHERE is_primary = TRUE AND deleted_at IS NULL)
+- apps/web/lib/payments/payouts.ts
+
+FIX: The Drizzle schema adds a unique constraint on creator_id, so a creator can only ever have one bank account row in the database. However, payout and CRON logic queries for is_primary = TRUE AND deleted_at IS NULL, which implies the system was designed to support multiple accounts per creator with one marked as primary and soft-deletable. These two contracts are mutually exclusive. Decide on the correct model: if multiple accounts are needed, drop the unique constraint and add a partial unique index on (creator_id) WHERE is_primary = TRUE AND deleted_at IS NULL; if only one account is needed, remove is_primary and deleted_at.
+
+---
+
+### 15. SCHEMA-XP-01 — x_manifest.value typed as jsonb but used as plain text strings
+
+FILES:
+- apps/web/lib/db/schema.ts (xManifest table — value: jsonb("value"))
+- apps/web/lib/manifest/index.ts (parseBool, parseInt10 helpers)
+
+FIX: The manifest loader does SELECT key, value FROM x_manifest and passes each value to parseBool() (checks === "true") and parseInt10() (calls parseInt(v, 10)). PostgreSQL returns jsonb string values with surrounding quotes (e.g. the jsonb string true is returned as the JSON literal true without quotes, but the jsonb string "hello" is returned as "hello" with quotes). This causes parseBool("true") to match correctly for jsonb boolean literals but break for jsonb string values like "true". Change the column type to text (more appropriate since all manifest values are scalar strings), align the migration, and update any existing jsonb-typed rows.
+
+---
+
+### 16. SCHEMA-SEASON-01 — Duplicate season-pass and milestone-claim table pairs
+
+FILES: apps/web/lib/db/schema.ts (seasonPasses, userSeasonPasses, userSeasonPassClaims, userSeasonMilestoneClaims)
+
+FIX: The schema defines two tables that appear to serve overlapping purposes: season_passes (template-like) and user_season_passes (ownership-like), plus user_season_pass_claims and user_season_milestone_claims. seasonEngine.ts resets user_season_passes; other code appears to use user_season_pass_claims. This creates ambiguity about the authoritative table for each concept, making it easy to write a query against the wrong one. Conduct an audit of every read and write to all four tables, identify the canonical table for each concept, migrate data from the redundant tables, and remove the unused ones with a clear migration comment.
+
+---
+
+### 17. ECONOMY-TRANSFER-01 — transferCoins() default idempotency key is not retry-safe
+
+FILES: apps/web/lib/economy/coins.ts (transferCoins function)
+
+FIX: When called without an idempotencyRef, the function generates transfer:${from}:${to}:${amount}:${Date.now()}. A network timeout followed by a client retry generates a different Date.now() value, bypasses the duplicate-detection partial index on coin_ledger, and executes a second transfer. All callers in API route handlers must supply a stable, request-scoped idempotency key (e.g. derived from the gift ID, payment reference, or a UUID generated at request entry and stored in the request body). Consider making idempotencyRef a required parameter at the TypeScript level to prevent accidental omission.
+
+---
+
+### 18. CRON-MONTHLY-01 — Monthly plan bonus CTE references a non-existent unique constraint
+
+FILES: apps/web/app/api/cron/daily/route.ts (monthly plan coin-bonus step)
+
+FIX: The monthly plan coin-bonus INSERT uses ON CONFLICT (transaction_type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING. The coin_ledger table has no unique index on (transaction_type, reference_id) — that clause is from a different table. PostgreSQL will throw "there is no unique or exclusion constraint matching the ON CONFLICT specification" and the monthly bonus fails for all users every month. Either add the missing partial unique index on coin_ledger (transaction_type, reference_id) WHERE reference_id IS NOT NULL, or change the ON CONFLICT clause to match an existing unique index such as a (user_id, source, reference_id) partial index.
+
+---
+
+### 19. CRON-TIER-01 — Creator tier update counter over-counts unchanged tiers
+
+FILES: apps/web/app/api/cron/daily/route.ts (step 28 — creator tier progression)
+
+FIX: tierUpdates++ is called unconditionally for every creator in the loop, even when the UPDATE's WHERE COALESCE(creator_tier, 'rookie') != $1 condition matches zero rows (i.e. the tier is unchanged). The reported metric results.creatorTierUpdates.updated equals the total number of creators with active rooms rather than the actual number of tier changes, rendering it useless for monitoring. Add RETURNING id to the UPDATE and increment tierUpdates only when rows.length > 0, or use the rowcount from pg's commandResult.
+
+---
+
+### 20. CRON-ALLIANCE-01 — Alliance war re-insertion ON CONFLICT DO NOTHING has no matching constraint
+
+FILES: apps/web/app/api/cron/daily/route.ts (step 32b — Alliance War weekly re-pairing)
+
+FIX: After resolving a war, the CRON inserts next week's war with INSERT INTO alliance_wars ... ON CONFLICT DO NOTHING. The alliance_wars table has no unique constraint on (alliance_1_id, alliance_2_id) or any column subset that would match, so PostgreSQL's ON CONFLICT DO NOTHING only catches PK conflicts (duplicate UUID). A concurrent or duplicate CRON run inserts multiple active war rows for the same pair. Add a partial unique index on (alliance_1_id, alliance_2_id) WHERE status = 'active' and use ON CONFLICT ON CONSTRAINT <constraint_name> DO NOTHING.
+
+---
+
+### 21. CRON-ORDER-01 — CRON step numbers are discontiguous and out of order
+
+FILES: apps/web/app/api/cron/daily/route.ts
+
+FIX: Step comments are not sequential with execution: step 10 (Platform Council invitation) appears in the code after step 14 (leaderboard ripple), and step 32b (Alliance Wars) appears before the labelled step 32 (automated payouts). This is a pure maintainability issue but causes confusion when referencing steps in bug reports, logs, or code reviews. Renumber all steps sequentially in the order they execute, and consider extracting each step into a named async function so the main handler reads as an ordered list of step calls.
+
+---
+
+### 22. CRON-GUILD-01 — Guild tier promotion and demotion use separate hardcoded maps
+
+FILES: apps/web/app/api/cron/daily/route.ts (guild tier promotion step and demotion step)
+
+FIX: Two separate objects/maps define guild tier boundaries for promotions and demotions independently. Adding, removing, or renaming a tier requires editing both, and there is no compile-time guarantee they stay in sync. Consolidate into a single ordered array of tier definitions — e.g. const GUILD_TIERS = [{ name: 'bronze', minXP: 0 }, ...] — and derive both promotion and demotion targets programmatically from the same structure.
+
+---
+
+### 23. REDIS-RL-01 — Global rate limit EXPIRE hardcoded to 60 seconds
+
+FILES: apps/web/lib/security/rateLimit.ts (enforceRateLimit, GLOBAL_RATE_LUA script)
+
+FIX: The global endpoint cap Lua script calls redis.call('EXPIRE', KEYS[1], ARGV[1]) where ARGV[1] is always the string "60" (60 seconds). Endpoints with globalLimit that use windowMs longer than 60 000 ms — specifically coinPurchase (1-hour window) and payoutRequest (24-hour window) — will have their global counter reset every 60 seconds rather than over the intended window, making the global cap almost entirely ineffective. Pass Math.round(options.windowMs / 1000).toString() as the TTL argument instead of the hardcoded "60".
+
+---
+
+### 24. SESSION-EVICT-01 — Session eviction uses non-atomic Redis calls
+
+FILES: apps/web/lib/auth/session.ts (createSession function — eviction block)
+
+FIX: When the MAX_SESSIONS limit is reached, the code calls redis.del(...evictedKeys) and then separately redis.zremrangebyrank(...) as two independent commands. If the process crashes between them (or Redis connection drops), the sorted set retains entries pointing to deleted session hashes — or vice versa — causing phantom sessions that never expire and waste memory. Wrap both operations in a redis.multi() / .exec() pipeline (or a Lua script) so they execute atomically in a single round-trip.
+
+---
+
+### 25. SW-STALE-01 — StaleWhileRevalidate on authenticated profile/wallet endpoints
+
+FILES: apps/web/public/sw.js (StaleWhileRevalidate handler for /api/users/me, /api/creator/wallet)
+
+FIX: The service worker caches /api/users/me and /api/creator/wallet responses for 60 seconds with StaleWhileRevalidate. On a shared device, if user A logs out and user B logs in within 60 seconds, user B briefly sees user A's cached profile and wallet balance. Switch these routes to NetworkOnly, or key the cache entry by session: add a cache key that includes the Authorization header value or a session ID query param so cached responses are never served across session boundaries.
+
+---
+
+### 26. EXPO-AUTH-02 — purchaseCoins/purchaseSubscription packageName param silently ignored
+
+FILES: apps/expo/lib/payments/googlePlay.ts (setupGlobalPurchaseListener, purchaseCoins, purchaseSubscription)
+
+FIX: Both purchaseCoins(productId, packageName) and purchaseSubscription(productId, packageName) accept a packageName parameter. However the global purchase listener calls verifyPurchaseServerSide(..., 'com.zobia.app', ...) with a hardcoded literal, making the caller-supplied packageName unreachable. If the package name changes (white-label build, staging environment), all server-side verifications will use the wrong package name. Either remove the parameter and declare a module-level constant, or store the packageName in a module-level variable set by purchaseCoins/purchaseSubscription and read by the listener.
+
+---
+
+### 27. CRON-DIGEST-01 — Moderation digest open/escalated counts only cover new reports
+
+FILES: apps/web/app/api/cron/daily/route.ts (step 29 — moderation digest)
+
+FIX: The digest query adds WHERE created_at >= NOW() - INTERVAL '7 days' to the reports table and then counts rows WHERE status = 'open' OR status = 'escalated'. This silently excludes older unresolved reports — a report opened three weeks ago and still unresolved would be invisible in the digest. For a meaningful weekly digest, the open and escalated counts should query the full reports table without the created_at filter: COUNT(*) FILTER (WHERE status = 'open') across all unresolved reports, with the filter applied only to the new-reports-this-week metric.
+
+---
+
+### 28. CRON-NEMESIS-01 — Nemesis overtake notification filters on assignment date, not overtake date
+
+FILES: apps/web/app/api/cron/daily/route.ts (step 31 — nemesis notifications)
+
+FIX: The query finds nemesis pairs where nemesis_xp > user_xp AND na.created_at >= NOW() - INTERVAL '24 hours'. The created_at filter is on when the nemesis assignment row was created, not on when the XP overtake actually occurred. Since nemesis assignments persist across weeks, most pairs have created_at well before 24 hours ago and will never satisfy the filter — they never receive notifications. The intended logic is: notify about overtakes that occurred since the last Sunday nemesis refresh. Replace the filter with a nemesis_assignments.last_notified_at IS NULL OR last_notified_at < NOW() - INTERVAL '6 days' condition (add a last_notified_at column to nemesis_assignments), and set it to NOW() after sending notifications for that pair.
+
+---
+
+*Report generated: Monday, June 15, 2026 11:31 PM UTC*

@@ -1,310 +1,375 @@
-# Zobia Codebase Bug Fix Plan
-**Date:** 2026-06-15 | **Time:** 10:24 PM UTC  
-**Scope:** Fix plan for all 18 bugs identified in `custom-bugs-report.md`  
-**Branch:** `claude/codebase-bug-analysis-6qz2q4`
+# Zobia Codebase — Bug Fix Plan
 
-> **IMPORTANT:** Do not begin any fix until the bug report has been reviewed and this plan approved. Fixes are ordered by severity (Critical first), then by dependency (schema migrations before application code).
-
----
-
-## Execution Order
-
-Fix critical bugs before high and medium ones. Schema migrations must always precede application-code fixes that depend on the new columns/indexes. Several bugs share a root cause (missing schema constraints) so grouping migrations is efficient.
+**Generated:** Monday, June 15, 2026 11:31 PM UTC  
+**Based on:** custom-bugs-report.md (same date)  
+**Note:** Do NOT begin any fix until the report has been reviewed and confirmed.
 
 ---
 
-## Phase 1 — Database Schema Migrations (do these first, in a single migration file)
+## Fix Priority Tiers
 
-These fixes require new SQL migrations (`apps/web/db/migrations/`). All corresponding Drizzle schema changes must be made in `apps/web/lib/db/schema.ts` in the same PR so the ORM definition and the live database stay in sync.
-
----
-
-### FIX-C01: Add `left_at` column to `guild_members`
-
-**Bugs fixed:** BUG-C01
-
-**Migration steps:**
-1. Add `ALTER TABLE guild_members ADD COLUMN IF NOT EXISTS left_at TIMESTAMPTZ DEFAULT NULL;`
-2. Add index: `CREATE INDEX IF NOT EXISTS idx_guild_members_left_at ON guild_members(left_at) WHERE left_at IS NULL;`
-3. Populate historical rows: `UPDATE guild_members SET left_at = NULL WHERE left_at IS NULL;` (no-op, just to confirm column exists)
-4. In `apps/web/lib/db/schema.ts`, add `leftAt: timestamp("left_at")` to the `guildMembers` table object.
-
-**Application code changes (after migration):**
-- `apps/web/lib/guilds/warEngine.ts`: The `WHERE gm.left_at IS NULL` filter is now valid; no code change needed.
-- `apps/web/lib/guilds/recordWarContribution.ts`: Same — filter is now valid.
-- Add logic in the guild-leave endpoint/function to set `left_at = NOW()` instead of hard-deleting the `guild_members` row (soft-delete pattern). If the current code hard-deletes, the `WHERE left_at IS NULL` filter will return all rows anyway — still correct, but soft-delete is preferred for audit trails.
+- **P0 — Critical (fix before next deploy)**
+- **P1 — High (fix within current sprint)**
+- **P2 — Medium (fix this quarter)**
+- **P3 — Low / Maintainability (batch with other cleanup)**
 
 ---
 
-### FIX-C02: Add UNIQUE constraint to `payout_dead_letter_queue.payout_id`
+## P0 — Critical: Fix Before Next Deploy
 
-**Bugs fixed:** BUG-C02
+### Fix 1 · CRON-PAYOUT-01 — Add missing NOT NULL columns to weekly payout INSERT
 
-**Migration steps:**
-1. Deduplicate first (in case duplicates exist): `DELETE FROM payout_dead_letter_queue WHERE id NOT IN (SELECT MIN(id) FROM payout_dead_letter_queue GROUP BY payout_id);`
-2. `ALTER TABLE payout_dead_letter_queue ADD CONSTRAINT uq_pdlq_payout_id UNIQUE (payout_id);`
-3. In `apps/web/lib/db/schema.ts`, add `.unique()` to the `payoutId` column or add `uniqueIndex('uq_pdlq_payout_id').on(t.payoutId)` to `payoutDeadLetterQueue`.
-
-**No application code changes required** — `payouts.ts` already uses the correct `ON CONFLICT (payout_id) DO UPDATE` syntax; it just needs the constraint to exist.
-
----
-
-### FIX-C03: Add `reference_id` column to `notifications` table
-
-**Bugs fixed:** BUG-C03
-
-**Migration steps:**
-1. `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS reference_id TEXT DEFAULT NULL;`
-2. `CREATE UNIQUE INDEX IF NOT EXISTS uidx_notifications_user_type_ref ON notifications(user_id, type, reference_id) WHERE reference_id IS NOT NULL;`
-3. In `apps/web/lib/db/schema.ts`, add `referenceId: text("reference_id")` to the `notifications` table and add the corresponding `uniqueIndex` with the partial `WHERE` clause.
-
-**No application code changes required for flashXP** — `apps/web/lib/events/flashXP.ts` already uses the correct `ON CONFLICT (user_id, type, reference_id) DO NOTHING` syntax; it just needs the column and index to exist.
-
----
-
-### FIX-C04: Replace non-unique `xp_ledger` index with UNIQUE partial index
-
-**Bugs fixed:** BUG-C04
-
-**Migration steps:**
-1. Check for and remove duplicate rows first (if any): `DELETE FROM xp_ledger WHERE id NOT IN (SELECT MIN(id) FROM xp_ledger WHERE reference_id IS NOT NULL GROUP BY user_id, source, reference_id) AND reference_id IS NOT NULL;`
-2. Drop old index: `DROP INDEX IF EXISTS idx_xp_ledger_user_source_ref;`
-3. Create UNIQUE partial index: `CREATE UNIQUE INDEX uidx_xp_ledger_source_ref ON xp_ledger(user_id, source, reference_id) WHERE reference_id IS NOT NULL;`
-4. In `apps/web/lib/db/schema.ts`, confirm the Drizzle `sourceRefIdx` definition is already `uniqueIndex("uidx_xp_ledger_source_ref")...` — no change needed to schema.ts if the Drizzle definition already uses the correct index name. Verify names match.
-
-**No application code changes required** — `safeAwardXP.ts` and `retryFailedXPAwards` already use the correct `ON CONFLICT` clause; they just need the UNIQUE index to exist.
-
----
-
-### FIX-C05: Add UNIQUE partial index for mystery XP drop grants table
-
-**Bugs fixed:** BUG-C05
-
-**Migration steps:**
-1. Identify the exact table name used in `apps/web/lib/mystery/xpDrop.ts` for the grants INSERT.
-2. `CREATE UNIQUE INDEX IF NOT EXISTS uidx_mystery_xp_grants_source_ref ON <grants_table>(source, reference_id) WHERE reference_id IS NOT NULL;`
-3. Update Drizzle schema to add the matching `uniqueIndex` with partial WHERE clause.
-
----
-
-### FIX-H07: Add UNIQUE constraint to `guild_tier_history(guild_id, season_id)`
-
-**Bugs fixed:** BUG-H07
-
-**Migration steps:**
-1. Deduplicate: `DELETE FROM guild_tier_history WHERE id NOT IN (SELECT MIN(id) FROM guild_tier_history GROUP BY guild_id, season_id);`
-2. `ALTER TABLE guild_tier_history ADD CONSTRAINT uq_guild_tier_history_guild_season UNIQUE (guild_id, season_id);`
-3. In `apps/web/lib/db/schema.ts`, add `uniqueIndex('uq_guild_tier_history_guild_season').on(t.guildId, t.seasonId)` to `guildTierHistory`.
-
-**No application code changes required** — `warEngine.ts` already uses the correct `ON CONFLICT (guild_id, season_id) DO UPDATE` syntax.
-
----
-
-### FIX-M03: Add explicit UNIQUE constraint for `referral_commissions` dedup
-
-**Bugs fixed:** BUG-M03
-
-**Migration steps:**
-1. Determine the intended unique key for referral commission deduplication (likely `(referrer_id, referred_user_id, source)` or `(referrer_id, transaction_id)`).
-2. Add the appropriate unique index.
-3. Update `apps/web/lib/referrals/commissions.ts` to change `ON CONFLICT DO NOTHING` to `ON CONFLICT (referrer_id, referred_user_id, source) DO NOTHING` (or whichever columns constitute the business key).
-4. Update Drizzle schema accordingly.
-
----
-
-## Phase 2 — Application Code Fixes (after Phase 1 migrations are applied)
-
----
-
-### FIX-H01 + FIX-H02: Fix `awardGiftXP` double-award and missing `ON CONFLICT` in gift-send route
-
-**Bugs fixed:** BUG-H01, BUG-H02
-
-**File:** `apps/web/app/api/economy/gifts/send/route.ts`
+**Files to change:** `apps/web/app/api/cron/daily/route.ts` (step 32)
 
 **Steps:**
-1. For BUG-H01: Rewrite `awardGiftXP` to use the same CTE pattern as `safeAwardXP`. Combine the `xp_ledger` INSERT and the `users` UPDATE into a single SQL statement:
+1. In the INSERT into `creator_payouts`, add `amount_kobo` and `provider` to the column list.
+2. Set `amount_kobo = grossKobo` (the gross amount before fee deduction).
+3. Set `provider = 'paystack'` (or read the active payment provider from the manifest: `await getManifestValue('payment_primary_provider') ?? 'paystack'`).
+4. Also add `amount_kobo` column to the VALUES clause in the corresponding position.
+5. Verify against the schema definition to ensure all other NOT NULL columns are covered.
+
+---
+
+### Fix 2 · EXPO-AUTH-01 — Add Origin header to cold-start token refresh fetch()
+
+**Files to change:** `apps/expo/lib/auth/context.tsx` (lines 122–128)
+
+**Steps:**
+1. Import `env` at the top of the file (already dynamically imported inside the block — hoist it or use the dynamic import result).
+2. Add `'Origin': env.API_BASE_URL` to the `headers` object in the `fetch()` call.
+3. Alternatively, extract the cold-start refresh into the `refreshAccessToken` function in `apps/expo/lib/api/client.ts` (which already sets the correct Origin) and call it from the AuthProvider effect.
+4. Test by simulating an expired access token on app open — verify the user is silently refreshed rather than redirected to login.
+
+---
+
+### Fix 3 · CRON-PAYOUT-02 — Deduct available_earnings_kobo when creating weekly payout row
+
+**Files to change:** `apps/web/app/api/cron/daily/route.ts` (step 32, inside the transaction)
+
+**Steps:**
+1. Inside the transaction that inserts the `creator_payouts` row, add:
+   `UPDATE users SET available_earnings_kobo = available_earnings_kobo - $gross, updated_at = NOW() WHERE id = $creator_id`
+2. Use a WHERE clause with a floor check to prevent going negative:
+   `WHERE id = $creator_id AND available_earnings_kobo >= $gross`
+3. If the UPDATE returns 0 rows (balance changed since the eligibility query), roll back and skip this creator.
+4. In `processPendingPayouts()` (payouts.ts), when a payout permanently fails and earnings are restored via `moveToDeadLetterQueue()`, ensure `available_earnings_kobo` is credited back — verify `earningsRestored` flag logic covers this.
+
+---
+
+## P1 — High Priority
+
+### Fix 4 · DODO-PLAN-01 — Validate planName in DodoPayments webhook
+
+**Files to change:** `apps/web/app/api/economy/webhooks/dodopayments/route.ts`
+
+**Steps:**
+1. After reading `metadata.planName`, validate it against the known plan keywords (`['pro', 'plus', 'max']`).
+2. Apply the same keyword-matching logic used in the Paystack webhook handler.
+3. If the value doesn't match any known plan, log a warning and default to `'pro'` (or reject the event and write to `failed_webhooks` for manual review).
+
+---
+
+### Fix 5 · CRON-IDEMPOTENCY-01 — Add daily CRON run-guard using cronState table
+
+**Files to change:** `apps/web/app/api/cron/daily/route.ts`
+
+**Steps:**
+1. At the very start of the POST handler (after auth check), attempt:
    ```sql
-   WITH ins AS (
-     INSERT INTO xp_ledger (...) VALUES (...)
-     ON CONFLICT ... DO NOTHING
-     RETURNING id
-   )
-   UPDATE users SET xp_total = xp_total + $2
-   WHERE id = $1 AND EXISTS (SELECT 1 FROM ins)
+   INSERT INTO cron_state (key, last_run_at)
+   VALUES ('daily', NOW())
+   ON CONFLICT (key) DO UPDATE
+     SET last_run_at = NOW()
+     WHERE cron_state.last_run_at < NOW()::date
+   RETURNING key
    ```
-   Alternatively, call `safeAwardXP()` directly rather than duplicating the XP award logic.
-
-2. For BUG-H02: Add `ON CONFLICT (gift_transaction_id) DO NOTHING` (or the appropriate unique column) to the `being_tipped_in_room` INSERT. Confirm the unique column/index exists on that table; if not, add it in Phase 1.
-
----
-
-### FIX-H03: Do not delete idempotency key on `INSUFFICIENT_BALANCE`
-
-**Bugs fixed:** BUG-H03
-
-**File:** `apps/web/app/api/economy/gifts/send/route.ts`
-
-**Steps:**
-1. Remove the `redis.del(idempotencyKey)` call from the `INSUFFICIENT_BALANCE` error branch.
-2. Let the idempotency key expire naturally via its TTL.
-3. Ensure the error response to the client includes a distinct error code (`INSUFFICIENT_BALANCE`) so the client can present appropriate UI without retrying with the same key.
+2. If `rows.length === 0` (already ran today), return `200 { skipped: true, reason: 'already_ran_today' }` immediately.
+3. Confirm `cron_state` has a primary key on `key` — add migration if missing.
 
 ---
 
-### FIX-H04: Fix overlapping `sort_order` in `seedSeasonPassMilestones`
+### Fix 6 · SCHEMA-XP-01 — Change x_manifest.value from jsonb to text
 
-**Bugs fixed:** BUG-H04
-
-**File:** `apps/web/lib/seasons/seasonEngine.ts`
+**Files to change:**
+- `apps/web/lib/db/schema.ts`
+- Migration file (new migration needed)
 
 **Steps:**
-1. Change the paid-tier milestone seed to use `sort_order` values 6–10 (or any non-overlapping range).
-2. Alternatively, if the unique constraint on `season_pass_milestones` is scoped to `(season_id, tier, sort_order)`, then overlapping is fine as long as the unique index reflects that scope. Verify the constraint and adjust accordingly.
-3. Review any queries that sort milestones to ensure they filter by `tier` before applying `ORDER BY sort_order` if sort_order is tier-scoped.
+1. Change `value: jsonb("value")` to `value: text("value")` in the `xManifest` table definition.
+2. Generate a migration: `ALTER TABLE x_manifest ALTER COLUMN value TYPE TEXT`.
+3. Verify that existing rows store plain scalar strings (they should — manifest values are booleans, numbers, and short strings stored as text in JSON format, which would need to be unquoted). Run a pre-migration check: `SELECT key, value FROM x_manifest WHERE value !~ '^[a-zA-Z0-9_. /-]+$'` to identify any values that need transformation.
+4. No code changes needed — the manifest loader already treats values as plain strings.
 
 ---
 
-### FIX-H05: Delete evicted `session:{sid}` Redis keys on eviction
+### Fix 7 · ECONOMY-TRANSFER-01 — Make idempotencyRef required in transferCoins
 
-**Bugs fixed:** BUG-H05
-
-**File:** `apps/web/lib/auth/session.ts`
+**Files to change:** `apps/web/lib/economy/coins.ts`
 
 **Steps:**
-1. Before calling `zremrangebyrank`, fetch the SIDs that will be removed using `redis.zrange(userSessionsKey(userId), 0, -(MAX_SESSIONS + 1))`.
-2. After `zremrangebyrank`, delete those session keys: `await redis.del(...evictedSids.map(sid => sessionKey(sid)))`. Use a pipeline for atomic efficiency: `const pipe = redis.pipeline(); evictedSids.forEach(sid => pipe.del(sessionKey(sid))); await pipe.exec()`.
-3. Add a unit test for the eviction path that verifies `session:{sid}` keys no longer exist in Redis after eviction.
+1. Change the function signature to make `idempotencyRef` a required parameter (remove the `?` and `null` default).
+2. Find all callers with `grep -r "transferCoins"` and supply a stable key at each call site (typically the gift/transaction/request UUID).
+3. For any caller that genuinely cannot provide a stable key, generate a UUID at request entry time and thread it through to the call.
 
 ---
 
-### FIX-H06: Wrap creator payout balance check and deduction in a transaction
+### Fix 8 · CRON-MONTHLY-01 — Fix ON CONFLICT clause in monthly plan bonus CTE
 
-**Bugs fixed:** BUG-H06
-
-**File:** `apps/web/app/api/creator/payouts/route.ts`
+**Files to change:** `apps/web/app/api/cron/daily/route.ts` (monthly plan coin-bonus step)
 
 **Steps:**
-1. Wrap the entire payout initiation sequence in `db.transaction(async (tx) => { ... })`:
-   - Move `SELECT ... FOR UPDATE` on `users.available_earnings_kobo` inside the transaction.
-   - Move the "existing pending payout" check inside the transaction.
-   - Move the payout INSERT and balance deduction UPDATE inside the transaction.
-2. The `FOR UPDATE` lock is now held until `COMMIT`, preventing concurrent requests from passing both checks simultaneously.
-3. Return appropriate error responses (`INSUFFICIENT_BALANCE`, `PAYOUT_ALREADY_PENDING`) from inside the transaction based on the locked reads.
+1. Add a partial unique index to `coin_ledger`: `CREATE UNIQUE INDEX IF NOT EXISTS uidx_coin_ledger_source_ref ON coin_ledger (user_id, source, reference_id) WHERE reference_id IS NOT NULL`.
+2. Update the ON CONFLICT clause to: `ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`.
+3. Ensure the `reference_id` value used in the INSERT is stable and unique per user per month (e.g. `monthly_plan_bonus:${userId}:${yearMonth}`).
+4. Add the matching Drizzle schema index definition for the new index.
 
 ---
 
-### FIX-H08: Add NaN guard to `aiClassifier.ts` score parsing
+### Fix 9 · SCHEMA-BANK-01 — Reconcile creator_bank_accounts schema with multi-account design
 
-**Bugs fixed:** BUG-H08
-
-**File:** `apps/web/lib/moderation/aiClassifier.ts`
+**Files to change:**
+- `apps/web/lib/db/schema.ts`
+- Migration file (new migration)
+- `apps/web/app/api/cron/daily/route.ts` (step 32 bank account query)
+- `apps/web/lib/payments/payouts.ts`
 
 **Steps:**
-1. After `const score = parseFloat(responseText)`, add: `if (!Number.isFinite(score)) throw new Error(\`Non-numeric moderation score: "${responseText.slice(0, 100)}"\`);`
-2. The circuit breaker will record the failure and activate the fallback provider (Gemini/DeepSeek), which is the correct escalation path.
-3. Optionally add a regex pre-check on `responseText` to extract a float if the LLM wraps the number in explanation text (e.g. `responseText.match(/\d+\.?\d*/)?.[0]`), but throwing on non-numeric is the safe default.
+1. Decide on the model (multiple accounts supported based on `is_primary` usage in CRON).
+2. Drop the `unique()` constraint on `creator_id` in `creatorBankAccounts`.
+3. Add a partial unique index: `CREATE UNIQUE INDEX ... ON creator_bank_accounts (creator_id) WHERE is_primary = TRUE AND deleted_at IS NULL`.
+4. Update the Drizzle schema to remove `.unique()` and add the partial index definition.
+5. Verify all queries that look up bank accounts use the correct `is_primary = TRUE AND deleted_at IS NULL` filter.
 
 ---
 
-### FIX-M01: Reject or restrict requests with unknown IP in rate limiter
+### Fix 10 · REDIS-RL-01 — Fix global rate limit window TTL
 
-**Bugs fixed:** BUG-M01
-
-**File:** `apps/web/lib/security/rateLimit.ts`
+**Files to change:** `apps/web/lib/security/rateLimit.ts`
 
 **Steps:**
-1. Change the unknown-IP fallback from `return { allowed: true }` to either:
-   - `return { allowed: false, remaining: 0, error: 'UNRESOLVABLE_IP' }` (safest — blocks the request), or
-   - Use a shared sentinel key `"ip:unknown"` with a very low quota (e.g. 5 req/min) so any requests without a resolvable IP share a single strict bucket.
-2. In the middleware or request handler, check `x-real-ip` as a fallback before `x-forwarded-for`.
-3. Ensure Vercel's edge config always injects the real client IP header.
+1. In `enforceRateLimit`, change the Lua eval call from:
+   `redis.eval(GLOBAL_RATE_LUA, 1, globalKey, "60")`
+   to:
+   `redis.eval(GLOBAL_RATE_LUA, 1, globalKey, Math.round(options.windowMs / 1000).toString())`
+2. Verify all endpoints with `globalLimit` use the correct `windowMs` for their intended global window.
 
 ---
 
-### FIX-M02: Add `Report-To` HTTP header for CSP endpoint
+### Fix 11 · SESSION-EVICT-01 — Atomicise session eviction in Redis
 
-**Bugs fixed:** BUG-M02
-
-**File:** `apps/web/middleware.ts` (`withCsp` helper function)
+**Files to change:** `apps/web/lib/auth/session.ts` (createSession)
 
 **Steps:**
-1. In the `withCsp` function, after setting the `Content-Security-Policy` header, add:
+1. Replace the separate `redis.del(evictedKeys)` + `redis.zremrangebyrank(...)` calls with a single `redis.multi()` pipeline:
+   ```ts
+   const pipeline = redis.multi();
+   pipeline.del(...evictedKeys);
+   pipeline.zremrangebyrank(userSessionsKey, 0, -(MAX_SESSIONS + 1));
+   await pipeline.exec();
    ```
-   res.headers.set("Report-To", JSON.stringify({
-     group: "csp-endpoint",
-     max_age: 86400,
-     endpoints: [{ url: "/api/security/csp-report" }]
-   }));
-   ```
-2. This activates the Reporting API for Chrome/Firefox and modern Safari, while the existing `report-uri` directive continues to cover older browsers.
+2. Ensure the pipeline is only executed when there are actually sessions to evict (avoid empty multi() calls).
 
 ---
 
-### FIX-M04: Add advisory lock to `distributeCreatorFund`
+### Fix 12 · CRON-COIN-01 — Handle INSUFFICIENT_BALANCE in comeback-coin expiry
 
-**Bugs fixed:** BUG-M04
-
-**File:** `apps/web/lib/creator/fund.ts`
+**Files to change:** `apps/web/app/api/cron/daily/route.ts` (step 22)
 
 **Steps:**
-1. At the top of `distributeCreatorFund`, acquire a PostgreSQL advisory lock:
-   ```sql
-   SELECT pg_try_advisory_lock(hashtext('distributeCreatorFund'))
-   ```
-2. If the result is `false`, log and return early (another instance is running).
-3. Wrap the entire distribution logic in a `try/finally` block, releasing the lock in `finally`:
-   ```sql
-   SELECT pg_advisory_unlock(hashtext('distributeCreatorFund'))
-   ```
-4. This is the same pattern used in other CRON-sensitive operations in the codebase.
+1. In the catch block for `debitCoins()`, check `if (err?.code === 'INSUFFICIENT_BALANCE')`.
+2. If so, log the event at info level ("User already spent comeback coins — skipping reversal") and mark the expiry as processed (update a `processed_at` column or remove the expiry record).
+3. For all other errors, insert a `system_alerts` row with severity 'warning' so the ops team is informed.
 
 ---
 
-### FIX-M05: Eliminate TOCTOU in mystery XP drop lifecycle
+## P2 — Medium Priority
 
-**Bugs fixed:** BUG-M05
+### Fix 13 · SW-API-01 and SW-ADMIN-01 — Fix service worker precache exclusions
 
-**File:** `apps/web/lib/mystery/xpDrop.ts`
+**Files to change:** `next.config.js` or `workbox-config.js` (whichever drives sw.js generation), `apps/web/public/sw.js`
 
 **Steps:**
-1. Replace the two-step "check eligibility → award XP" pattern with a single atomic CTE:
-   ```sql
-   WITH claim AS (
-     UPDATE mystery_xp_drops
-     SET awarded_at = NOW()
-     WHERE id = $1 AND awarded_at IS NULL
-     RETURNING id, user_id, amount
-   )
-   INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, ...)
-   SELECT user_id, amount, 'main', 'mystery_drop', id::text, ...
-   FROM claim
-   ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
-   ```
-2. This makes the eligibility check (the `WHERE awarded_at IS NULL` UPDATE) and the XP ledger INSERT atomic. Only one concurrent caller will get a row back from the CTE; the other sees 0 rows and inserts nothing.
-3. Requires BUG-C04 and BUG-C05 schema fixes to be in place first so the `ON CONFLICT` index exists.
+1. In the Workbox build configuration, add glob exclusions for server-side chunks:
+   - Exclude `**/_next/static/chunks/app/api/**`
+   - Exclude `**/_next/static/chunks/app/admin/**`
+2. Rebuild the service worker: `next build`.
+3. Bump the service worker version/cache name so clients with the old sw.js invalidate and re-download.
 
 ---
 
-## Phase 3 — Verification Checklist
+### Fix 14 · XP-STREAK-01 — Fix tier formula in getDailyMessageStreakXP
 
-After all fixes are applied:
+**Files to change:** `apps/web/lib/xp/engine.ts`
 
-- [ ] Run the full Drizzle migration set on a staging database and verify no errors
-- [ ] Confirm `xp_ledger` UNIQUE partial index exists in staging DB via `\d xp_ledger`
-- [ ] Confirm `notifications.reference_id` column exists and unique index is active
-- [ ] Confirm `guild_members.left_at` column exists
-- [ ] Confirm `payout_dead_letter_queue` unique constraint on `payout_id` exists
-- [ ] Confirm `guild_tier_history` unique constraint on `(guild_id, season_id)` exists
-- [ ] Send a duplicate gift request and verify XP is awarded exactly once
-- [ ] Trigger a flash XP event and verify the notification is delivered
-- [ ] Simulate concurrent payout requests and verify only one succeeds
-- [ ] Check Redis after session eviction to confirm old `session:{sid}` keys are gone
-- [ ] Send a request with no `x-forwarded-for` header and verify rate limiter blocks it
-- [ ] Inspect response headers for CSP-protected routes and confirm `Report-To` header is present
-- [ ] Send a non-numeric string to the AI classifier test endpoint and confirm it is rejected (not silently passed)
+**Steps:**
+1. Verify intended tier breakpoints from PRD.
+2. If day 7 should be first day of tier 1: change formula from `Math.floor((day - 1) / 7)` to `Math.floor(day / 7)`.
+3. Update the corresponding unit tests in `apps/web/lib/xp/__tests__/engine.test.ts` to match the corrected behaviour.
 
 ---
 
-*Plan generated: 2026-06-15 10:24 PM UTC*  
-*Analyst: Claude (claude-sonnet-4-6) — Zobia Forensic Code Review*
+### Fix 15 · CRON-STREAK-01 + SCHEMA-STREAK-01 — Fix streak column sync and longest_streak update
+
+**Files to change:** `apps/web/app/api/cron/daily/route.ts` (step 2)
+
+**Steps:**
+1. In the streak-increment UPDATE, add `login_streak = login_streak_days + 1` (or consolidate on one column and remove the other with a migration).
+2. In the streak-reset UPDATE, add: `longest_streak = GREATEST(COALESCE(longest_streak, 0), login_streak_days)` before zeroing `login_streak_days`.
+3. Ensure both the increment and reset branches update `login_streak` consistently.
+
+---
+
+### Fix 16 · CRON-STREAK-02 — Use indexed last_login_date in streak query
+
+**Files to change:** `apps/web/app/api/cron/daily/route.ts` (step 2)
+
+**Steps:**
+1. Replace `last_login_at::date = CURRENT_DATE - 1` with `last_login_date = CURRENT_DATE - 1` in the streak eligibility query.
+2. Confirm a B-tree index exists on `last_login_date` (add one via migration if not).
+3. Ensure the application updates `last_login_date` in addition to `last_login_at` on every login.
+
+---
+
+### Fix 17 · SCHEMA-DM-01 — Enforce canonical pair ordering in dm_conversations
+
+**Files to change:**
+- `apps/web/lib/db/schema.ts`
+- Migration file
+- All code paths that INSERT into `dm_conversations`
+
+**Steps:**
+1. Add a CHECK constraint via migration: `ALTER TABLE dm_conversations ADD CHECK (user_id_1 < user_id_2)`.
+2. Update the Drizzle schema to add the check expression.
+3. Find all INSERT paths with `grep -r "dm_conversations"` and ensure both user IDs are sorted before insert: `const [id1, id2] = [userA, userB].sort()`.
+
+---
+
+### Fix 18 · SW-STALE-01 — Switch authenticated endpoints to NetworkOnly in service worker
+
+**Files to change:** `apps/web/public/sw.js` (or the Workbox config that generates it)
+
+**Steps:**
+1. Change the `/api/users/me` and `/api/creator/wallet` route strategy from `StaleWhileRevalidate` to `NetworkOnly`.
+2. Alternatively, add a cache key plugin that varies on the `Authorization` header or a session-specific cookie value.
+3. Rebuild the service worker.
+
+---
+
+### Fix 19 · CRON-NEMESIS-01 — Fix nemesis overtake notification filter
+
+**Files to change:**
+- `apps/web/lib/db/schema.ts` (nemesisAssignments — add last_notified_at column)
+- Migration file
+- `apps/web/app/api/cron/daily/route.ts` (step 31)
+
+**Steps:**
+1. Add `last_notified_at TIMESTAMPTZ` column to `nemesis_assignments`.
+2. Change the overtake query WHERE clause from `na.created_at >= NOW() - INTERVAL '24 hours'` to `n.xp_total > u.xp_total AND (na.last_notified_at IS NULL OR na.last_notified_at < NOW() - INTERVAL '6 days')`.
+3. After sending notifications for a pair, UPDATE the `last_notified_at` to NOW() for those nemesis_assignments rows.
+
+---
+
+### Fix 20 · CRON-ALLIANCE-01 — Add unique constraint to prevent duplicate alliance war rows
+
+**Files to change:**
+- `apps/web/lib/db/schema.ts` (allianceWars)
+- Migration file
+- `apps/web/app/api/cron/daily/route.ts` (step 32b)
+
+**Steps:**
+1. Add a partial unique index: `CREATE UNIQUE INDEX uidx_alliance_wars_active ON alliance_wars (alliance_1_id, alliance_2_id) WHERE status = 'active'`.
+2. Update the Drizzle schema definition.
+3. Update the ON CONFLICT clause in the CRON INSERT to reference this constraint explicitly.
+
+---
+
+### Fix 21 · CRON-DIGEST-01 — Fix moderation digest open/escalated counts
+
+**Files to change:** `apps/web/app/api/cron/daily/route.ts` (step 29)
+
+**Steps:**
+1. Separate the new-reports count (filtered by `created_at >= NOW() - INTERVAL '7 days'`) from the total-open/escalated count (unfiltered).
+2. Update the query to return both: `new_this_week`, `total_open`, `total_escalated`, `actions_taken`.
+3. Update the email body template to use the correct metrics for each statistic.
+
+---
+
+### Fix 22 · REDIS-RL-01 (already in P1 above) — covered
+
+---
+
+### Fix 23 · CRON-TIER-01 — Fix creator tier counter to only count actual changes
+
+**Files to change:** `apps/web/app/api/cron/daily/route.ts` (step 28)
+
+**Steps:**
+1. Add `RETURNING id` to the `UPDATE users SET creator_tier = $1` query.
+2. Move `tierUpdates++` inside a check on `rows.length > 0`.
+3. Optionally also track `tierUnchanged` for observability.
+
+---
+
+### Fix 24 · SCHEMA-SEASON-01 — Audit and consolidate season-pass tables
+
+**Files to change:** `apps/web/lib/db/schema.ts`, multiple migration files, all route handlers referencing these tables
+
+**Steps:**
+1. Map every read/write to `season_passes`, `user_season_passes`, `user_season_pass_claims`, `user_season_milestone_claims` across the entire codebase.
+2. Identify which two tables are the intended canonical tables and which are duplicates or legacy.
+3. Write a migration to move data, add necessary indexes, and DROP the redundant tables.
+4. Update all query references to use the canonical tables.
+
+---
+
+## P3 — Low / Maintainability
+
+### Fix 25 · CRON-ORDER-01 — Renumber CRON steps sequentially
+
+**Files to change:** `apps/web/app/api/cron/daily/route.ts`
+
+**Steps:**
+1. List all steps in execution order.
+2. Renumber comment headers sequentially (// 1., // 2., etc.).
+3. Optionally extract each step into a named async function: `async function stepStreakUpdate(db, results, errors)` etc., and have the main handler call them in order.
+
+---
+
+### Fix 26 · CRON-GUILD-01 — Consolidate guild tier maps
+
+**Files to change:** `apps/web/app/api/cron/daily/route.ts`
+
+**Steps:**
+1. Define a single constant: `const GUILD_TIERS = [{ name: 'bronze', min: 0, max: 999 }, { name: 'silver', min: 1000, max: 4999 }, ...]`.
+2. Write helper functions `getTierForXP(xp)` and `getNextTier(current)` / `getPrevTier(current)` that read from this single source.
+3. Replace the two separate promotion/demotion map objects with calls to these helpers.
+
+---
+
+### Fix 27 · EXPO-AUTH-02 — Fix packageName parameter in Google Play purchase flow
+
+**Files to change:** `apps/expo/lib/payments/googlePlay.ts`
+
+**Steps:**
+1. Define `const APP_PACKAGE_NAME = 'com.zobia.app'` as a module-level constant.
+2. Remove the `packageName` parameter from `purchaseCoins` and `purchaseSubscription` (breaking change — update all call sites).
+3. Use `APP_PACKAGE_NAME` in `setupGlobalPurchaseListener`'s `verifyPurchaseServerSide` call.
+4. If white-label support is needed, read from an env variable instead: `const APP_PACKAGE_NAME = env.APP_PACKAGE_NAME ?? 'com.zobia.app'`.
+
+---
+
+## Execution Order Recommendation
+
+Work in this sequence to minimise risk:
+
+1. **P0 fixes first** (Fixes 1–3) — these are production-critical financial bugs.
+2. **Fix 2 (EXPO-AUTH-01)** in parallel with Fix 1 — independent change.
+3. **Fix 5 (CRON idempotency)** before any CRON is next run.
+4. **Fixes 4, 6, 7, 8, 9, 10, 11, 12** — P1 batch, can be done in a single PR.
+5. **Fixes 13–24** — P2 batch, schedule for next sprint.
+6. **Fixes 25–27** — P3, merge with next cleanup PR.
+
+Each fix should be accompanied by at minimum a unit test covering the corrected behaviour and a regression test for the previously broken case.
+
+---
+
+*Plan generated: Monday, June 15, 2026 11:31 PM UTC*
