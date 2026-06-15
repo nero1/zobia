@@ -1,456 +1,327 @@
 # Zobia Codebase Bug Fix Plan
-**Date:** 2026-06-15 | **Time:** 11:35 AM (updated — second pass, 37 total bugs)
-**Scope:** Fix plan for all 37 bugs identified in `custom-bugs-report.md`
-**Branch:** claude/codebase-bug-analysis-ulrfvp
+**Date:** 2026-06-15 | **Time:** 12:00 PM
+**Scope:** Fix plan for all 20 bugs identified in `custom-bugs-report.md`
 **Do not implement until this plan is reviewed and approved.**
 
 ---
 
-## Fix Priority Groups
+## Execution Order
 
-Bugs are grouped by dependency order. Fix critical runtime bugs first (Group 1), then security hardening (Group 2), then logic/data bugs (Group 3), then architectural cleanup (Group 4).
-
----
-
-## GROUP 1 — Critical Runtime Bugs (App-Breaking)
-
-These bugs cause 500 errors or silent data corruption at runtime. Fix these first.
+Fixes are ordered by: (1) severity — critical and high first; (2) dependency — schema migrations before application code that depends on them; (3) risk — isolated changes before cross-cutting ones.
 
 ---
 
-### TASK 1.1 — Fix 2FA Disable: Decrypt TOTP Secret Before Verification
-**Fixes:** B-01, S-05
-**Files:** `apps/web/app/api/auth/2fa/disable/route.ts`
-
-Steps:
-1. Import `decryptField` from `lib/security/fieldEncryption.ts`.
-2. After fetching `row.totp_secret` from the DB, add: `const secret = await decryptField(row.totp_secret);`
-3. Replace `verifyTOTP(row.totp_secret, code)` with `verifyTOTP(secret, code)`.
-4. Remove all inline TOTP code (`base32Decode`, `computeTotp`, `generateTOTP`, `verifyTOTP`) from this file.
-5. Import `verifyTOTP` from `lib/auth/totp.ts`.
-6. Add Redis replay protection: before returning success, set `totp:used:${userId}:${code}` in Redis with 90s TTL. Reject if the key already exists.
+## Phase 1 — Critical Fixes (ship ASAP, zero downtime risk)
 
 ---
 
-### TASK 1.2 — Fix Bank Account TOTP Gate: Decrypt TOTP Secret, Fix Column Names
-**Fixes:** B-02, B-04
-**Files:** `apps/web/app/api/creator/bank-account/route.ts`
+### Fix BUG-01 — Subscription status copy-paste error
 
-Steps:
-1. In `verifySecurityGate()`, import and call `await decryptField(row.totp_secret)` before passing the secret to the TOTP verifier.
-2. Remove all inline TOTP code from this file and import `verifyTOTP` from `lib/auth/totp.ts`.
-3. In the xp_ledger INSERT, rename the `action` column parameter to `source` (which is the correct NOT NULL column). Ensure `source` is passed a value (e.g. `'bank_account_added'`).
-4. In the `UPDATE users` statement, rename `SET xp = xp + $1` to `SET xp_total = xp_total + $1`.
+**Files to change:**
+- `apps/web/app/api/economy/webhooks/paystack/route.ts`
 
----
+**Steps:**
+1. Find the ternary at line 499: `isActive ? "active" : "active"`
+2. Change the falsy branch to match your DB enum — `"inactive"` or `"cancelled"` depending on the value defined in `schema.ts` for the subscriptions status column.
+3. Verify the subscription status enum in `schema.ts` to confirm the correct string.
+4. Add a unit test (or at minimum a manual test) that fires a `subscription.disable` webhook payload and asserts the DB record status becomes `"inactive"`/`"cancelled"`.
 
-### TASK 1.3 — Fix Creator Payouts: Add Missing NOT NULL Columns
-**Fixes:** B-03
-**Files:** `apps/web/app/api/creator/payouts/route.ts`
-
-Steps:
-1. In the coins-payout path INSERT into `creator_payouts`, add the `provider` column (value: the payment provider string appropriate to the user's context, e.g. `'paystack'` for Nigeria, `'dodopayments'` for international) and `amount_kobo` (the computed gross payout amount in kobo).
-2. In the bank-transfer/crypto path INSERT, add the same two columns with appropriate values.
-3. Verify all other NOT NULL columns in `creator_payouts` are supplied in both INSERTs: `creator_id`, `amount`, `payout_method`, `status`, `provider`, `amount_kobo`.
+**Risk:** Low. Single-line change. Zero schema migration needed.
 
 ---
 
-### TASK 1.4 — Fix Admin Overview: Wrong Table Name and Wrong Column Names
-**Fixes:** B-05
-**Files:** `apps/web/app/api/admin/overview/route.ts`
+### Fix BUG-02 — Missing unique constraint on `subscriptions.user_id`
 
-Steps:
-1. Replace all references to `user_reports` with `reports`.
-2. Remove `AND deleted_at IS NULL` from the guilds query (the column doesn't exist). If filtering inactive guilds is needed, use `WHERE is_active = true` (which does exist on the guilds table).
-3. Replace `last_seen_at` with `last_active_at` in all DAU/WAU/MAU activity timestamp queries.
+**Files to change:**
+- `apps/web/lib/db/schema.ts`
+- New Drizzle migration file
 
----
+**Steps:**
+1. In `schema.ts`, add `.unique()` to the `userId` column of the `subscriptions` table, OR add a separate `uniqueIndex('subscriptions_user_id_idx').on(subscriptions.userId)` declaration.
+2. Run `pnpm drizzle-kit generate` to produce the migration SQL.
+3. Inspect the generated migration — it should be `CREATE UNIQUE INDEX subscriptions_user_id_idx ON subscriptions (user_id);`. This is safe to apply on a live table (PostgreSQL builds the index without locking writes in modern versions, but verify your PG version).
+4. Apply the migration.
+5. In the webhook handler's `.catch` block, change `() => {}` to `(err) => logger.error(err, 'subscriptions upsert failed')` so future silent failures are visible.
 
-### TASK 1.5 — Fix Admin Users: Wrong Table Name
-**Fixes:** B-06
-**Files:** `apps/web/app/api/admin/users/route.ts`
-
-Steps:
-1. Replace all references to `user_reports` with `reports`.
+**Risk:** Low. Index creation is non-destructive. If duplicate `user_id` rows exist (due to the pre-existing bug), the migration will fail — run `SELECT user_id, COUNT(*) FROM subscriptions GROUP BY user_id HAVING COUNT(*) > 1` first and resolve duplicates manually before applying.
 
 ---
 
-### TASK 1.6 — Fix Announcement Engine: Missing Columns and Missing `deleted_at`
-**Fixes:** B-07, B-08
-**Files:** `apps/web/lib/announcements/engine.ts`
-
-Steps:
-1. In the `getActiveBanner()` query, remove `title` from the SELECT list (or add the column via migration if it is genuinely needed). Replace `link_url` with `target_url`.
-2. Remove `AND deleted_at IS NULL` from both the modal query and the banner query.
-3. If soft-delete is required for announcements, create a new migration that adds `deleted_at TIMESTAMPTZ` to both `announcement_modals` and `announcement_banners`, then re-add the filter.
+## Phase 2 — High Severity Fixes
 
 ---
 
-### TASK 1.7 — Fix DodoPay Webhook: Non-Existent `failed_webhooks` Table
-**Fixes:** B-09, B-12
-**Files:** `apps/web/app/api/economy/webhooks/dodopayments/route.ts`
-**New file:** `apps/web/db/migrations/015_failed_webhooks.sql`
+### Fix BUG-03 — `verifyRefreshToken` ignores `kid`
 
-Steps:
-1. Create migration `015_failed_webhooks.sql` with: `CREATE TABLE IF NOT EXISTS failed_webhooks (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), provider TEXT NOT NULL, event_type TEXT, payload JSONB, error TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());`
-2. In the webhook route error path, update the INSERT to use the column names from that migration.
-3. Fix `user_subscriptions` table name references: replace with `subscriptions`.
-4. Audit all column names in the subscriptions upsert against the `subscriptions` table definition in `001_complete_schema.sql` and align them exactly.
+**Files to change:**
+- `apps/web/lib/auth/jwt.ts`
 
----
+**Steps:**
+1. Inside `verifyRefreshToken`, before calling `jwtVerify`, decode the JWT header with `decodeProtectedHeader(token)` (already imported via `jose`).
+2. Extract `kid` from the decoded header.
+3. Call `getSecretForKid(kid)` (or a dedicated `getRefreshSecretForKid` function if refresh keys are stored separately from access keys) to get the correct secret.
+4. Pass that secret to `jwtVerify` instead of calling `refreshSecret()` unconditionally.
+5. If `kid` is missing or not found in the registry, throw an appropriate auth error.
+6. Test: issue a refresh token with key K1, rotate to K2, confirm `verifyRefreshToken` still validates the K1 token correctly without logging the user out.
 
-### TASK 1.8 — Fix Fraud Payouts: Wrong Column Name
-**Fixes:** B-10
-**Files:** `apps/web/lib/fraud/payouts.ts`
-
-Steps:
-1. In the gift fraud scoring query, replace `g.coin_value` with `g.coin_cost`.
+**Risk:** Low. This is additive — adds a key lookup step. The only regression risk is if the key registry doesn't contain the refresh secret for historical tokens, which would already be a problem at rotation time.
 
 ---
 
-### TASK 1.9 — Fix Paystack Webhook: Table and Column Mismatches
-**Fixes:** B-11
-**Files:** `apps/web/app/api/economy/webhooks/paystack/route.ts`
+### Fix BUG-04 — Gift XP no `reference_id`
 
-Steps:
-1. Replace `user_subscriptions` with `subscriptions` everywhere in this route.
-2. In the `room_subscriptions` INSERT, confirm the column names against `001_complete_schema.sql`. The correct columns are `room_id`, `user_id`, `status`, `amount_kobo`, `started_at`, `expires_at`. Update the INSERT to use these exact names.
-3. Ensure the ON CONFLICT target references the `room_subscriptions_room_user_idx` unique index (added in migration 012).
+**Files to change:**
+- `apps/web/app/api/economy/gifts/send/route.ts`
 
----
+**Steps:**
+1. Locate the `safeAwardXP` call inside the gift send handler.
+2. Pass the gift transaction ID or gift record ID as the `referenceId` parameter — e.g. `safeAwardXP(userId, xpAmount, 'social', 'send_gift', giftId)`.
+3. Ensure `giftId` is available at that point in the handler (it should be, since the gift record is inserted before XP is awarded).
+4. Verify the same deduplication approach for the recipient's XP award if one exists.
 
-### TASK 1.10 — Fix CRON Monthly Plan Bonus: Wrong ON CONFLICT Target
-**Fixes:** N-02
-**Files:** `apps/web/app/api/cron/daily/route.ts`
-
-Steps:
-1. Locate the monthly plan bonus distribution step (Step 21) in the CRON daily route.
-2. The current `ON CONFLICT (reference_id) DO NOTHING` clause fails at runtime because there is no unique index on `reference_id` alone; the actual index on `coin_ledger` is a partial composite: `(transaction_type, reference_id) WHERE reference_id IS NOT NULL`.
-3. Change the ON CONFLICT clause to: `ON CONFLICT (transaction_type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`.
-4. Ensure the INSERT supplies a `transaction_type` value consistent with the one used in the index (e.g. `'monthly_plan_bonus'`).
-5. Verify the monthly bonus reference_id pattern is unique per user per month so the deduplication is effective across retries.
+**Risk:** Zero. Adding a non-null `referenceId` only enables deduplication — it cannot cause double-awards to be lost.
 
 ---
 
-### TASK 1.11 — Fix Admin Banner Routes: Missing DB Columns
-**Fixes:** N-04 (extends B-07, B-08)
-**Files:** `apps/web/app/api/admin/announcements/banners/route.ts`, `apps/web/app/api/admin/announcements/banners/[bannerId]/route.ts`
+### Fix BUG-05 — CSRF blocks mobile auth POST mutations
 
-Steps:
-1. Create a new migration that adds the missing columns to `announcement_banners`: `title TEXT`, `link_url TEXT`, `deleted_at TIMESTAMPTZ`. (Same columns also need to be added to `announcement_modals` if the modals route has the same issue.)
-2. In the banner LIST route GET handler, re-add `title`, `link_url` to the SELECT and restore `AND deleted_at IS NULL` to the WHERE clause once the migration adds those columns.
-3. In the banner CREATE route POST handler, ensure `title` and `link_url` are in the INSERT only after the migration adds them.
-4. In the banner UPDATE route PUT handler, restore the `title = $N` / `link_url = $N` SET clause and the `WHERE deleted_at IS NULL` guard once the migration is applied.
-5. In the banner DELETE route DELETE handler, restore `SET deleted_at = NOW()` once `deleted_at` exists. Until then, use a hard `DELETE FROM announcement_banners WHERE id = $1` to prevent silent 500 errors on admin soft-deletes.
-6. Coordinate with TASK 1.6 (announcement engine) — both the engine queries and admin routes need the same migration before re-enabling deleted_at filters.
+**Files to change:**
+- `apps/expo/lib/api/client.ts` (preferred fix)
 
----
+**Steps:**
+1. Add a default request header to the Axios instance: `'Origin': process.env.EXPO_PUBLIC_APP_URL`.
+2. Ensure `EXPO_PUBLIC_APP_URL` is set in the Expo `.env` / EAS environment and matches `NEXT_PUBLIC_APP_URL` used in the server's `isCsrfSafe()` check.
+3. Test: make a POST to `/api/auth/refresh` from the Expo app and confirm a 200 response (not 403).
 
-## GROUP 2 — Security Bugs
+**Alternative (server-side):** If adding an Origin header to the Expo client is not feasible, add a carve-out in `isCsrfSafe()` for requests to `/api/auth/refresh` and `/api/auth/mobile-token` that carry a valid Bearer JWT — mobile clients are authenticated via the token, so the CSRF risk is already mitigated. This is a viable fallback but less clean than the client-side fix.
 
-Fix these immediately after Group 1.
+**Risk:** Low. Adding an `Origin` header to mobile requests is standard practice. Verify the value matches the server-side check exactly (protocol + host, no trailing slash).
 
 ---
 
-### TASK 2.1 — Fix Middleware JWT Multi-Key Support
-**Fixes:** S-01
-**Files:** `apps/web/middleware.ts`, `apps/web/lib/api/middleware.ts`, `apps/web/lib/auth/jwt.ts`
+### Fix BUG-06 — `assignNemesis` not in transaction
 
-Steps:
-1. Export a `verifyJWT(token: string): Promise<TokenPayload | null>` function from `lib/auth/jwt.ts` that reads the `kid` header from the token, looks up the matching key from the key registry (environment variables or key store), and verifies with jose's `jwtVerify`.
-2. In `apps/web/middleware.ts`, remove the local `verifyToken()` function and replace all calls with the imported `verifyJWT()`.
-3. In `apps/web/lib/api/middleware.ts`, do the same replacement.
-4. Ensure the env schema in `lib/env.ts` includes any additional JWT_SECRET_* rotation key variables needed by the key registry.
+**Files to change:**
+- `apps/web/lib/nemesis/nemesisEngine.ts`
 
----
+**Steps:**
+1. Wrap the deactivation UPDATE and the new nemesis INSERT in a single `db.transaction(async (tx) => { ... })` call.
+2. Replace both `db.query(...)` calls inside the function with `tx.query(...)`.
+3. Ensure the transaction client type (`TransactionClient`) is compatible with the queries used.
+4. Test failure scenario: mock the INSERT to throw, verify the old nemesis relationship is not deactivated.
 
-### TASK 2.2 — Fix SSRF `safeFetch()`: Preserve TLS Hostname
-**Fixes:** S-02
-**Files:** `apps/web/lib/security/ssrf.ts`
-
-Steps:
-1. Remove the logic that rewrites `requestUrl.hostname` to the resolved IP address.
-2. Instead, create a custom Node.js `http.Agent` / `https.Agent` with a `lookup` override function. In the `lookup` callback, resolve the hostname, validate the resolved IP is not in a private/loopback CIDR range (reuse the existing `isPrivateIP()` helper), and if it is safe, pass the IP to the callback. If it is private/loopback, call the callback with an error to abort the connection.
-3. Pass this custom agent to the `fetch()` call so DNS is intercepted but the original hostname is preserved for TLS SNI.
-4. Note: Node.js's built-in `fetch` may not support custom agents — use `undici`'s `fetch` with a custom dispatcher, or use `node-fetch` with the agent option.
+**Risk:** Low. Wrapping in a transaction only makes the operation safer — it cannot break the happy path.
 
 ---
 
-### TASK 2.3 — Fix Telegram Bot: Timing-Safe Secret Comparison
-**Fixes:** S-03
-**Files:** `apps/web/app/api/auth/telegram/bot/route.ts`
+### Fix BUG-07 — Referral commission kobo columns store coin counts
 
-Steps:
-1. Import `timingSafeEqual` from `node:crypto`.
-2. In `verifyBotSecret()`, convert both the incoming header value and `process.env.TELEGRAM_BOT_SECRET` to `Buffer` using `Buffer.from(str, 'utf8')`.
-3. If lengths differ, return `false` immediately (length mismatch is not secret, but avoids crashing `timingSafeEqual` which requires equal-length buffers).
-4. Use `timingSafeEqual(headerBuf, secretBuf)` for the comparison.
+**Files to change:**
+- `apps/web/lib/referrals/commissions.ts`
 
----
+**Steps:**
+1. Identify the variable holding the actual Paystack payment amount in kobo (likely passed in from the webhook handler — e.g. `paymentAmountKobo`).
+2. In the commission INSERT, replace the `purchase_amount_kobo` parameter value with `paymentAmountKobo`.
+3. Compute `tier1CommissionKobo = Math.round(paymentAmountKobo * TIER1_RATE)` and `tier2CommissionKobo = Math.round(paymentAmountKobo * TIER2_RATE)`.
+4. Pass these computed values to `commission_kobo`.
+5. Leave `commission_coins` values unchanged — those are correct.
+6. If `paymentAmountKobo` is not available at the call site, trace back to the Paystack webhook event data where the amount is present (Paystack's event body has `data.amount` in kobo).
+7. Consider a one-time data migration to fix historical rows if monetary reporting matters for past records.
 
-### TASK 2.4 — Fix 2FA Setup: Add TOTP Replay Protection, Remove Inline TOTP
-**Fixes:** S-04, L-01 (partial)
-**Files:** `apps/web/app/api/auth/2fa/setup/route.ts`
-
-Steps:
-1. Remove all inline TOTP code (`base32Decode`, `computeTotp`, `generateTOTP`, `verifyTOTP`).
-2. Import `verifyTOTP`, `generateTOTP` from `lib/auth/totp.ts`.
-3. After successful TOTP verification during setup confirmation, write `totp:used:${userId}:${code}` to Redis with 90s TTL.
-4. At the start of the verification step, check if `totp:used:${userId}:${code}` exists in Redis and reject if so.
+**Risk:** Medium. Requires verifying the data flow from Paystack webhook → commission call. Test carefully to confirm `paymentAmountKobo` is the right variable and not off by any unit conversion.
 
 ---
 
-### TASK 2.5 — Fix Telegram Bot: Empty Email and Missing Username
-**Fixes:** S-06
-**Files:** `apps/web/app/api/auth/telegram/bot/route.ts`
-
-Steps:
-1. In the user creation INSERT, change `email: ""` to `email: null`.
-2. Ensure `username` is set for new Telegram-bot users. Use the Telegram `username` field if provided by the bot payload; if absent, generate a unique handle (e.g. `tg_${telegram_id}` or call the `uniqueUsername()` helper with the Telegram first name as base).
+## Phase 3 — Medium Severity Fixes
 
 ---
 
-### TASK 2.6 — Add DodoPay Circuit Breaker
-**Fixes:** S-07
-**Files:** `apps/web/lib/payments/dodopayments.ts`, `apps/web/lib/payments/paystack.ts`
-**New file:** `apps/web/lib/payments/circuitBreaker.ts`
+### Fix BUG-08 — DB circuit breaker in-memory only
 
-Steps:
-1. Extract the circuit breaker logic from `paystack.ts` into a standalone `circuitBreaker.ts` module with a generic `withCircuitBreaker<T>(key: string, fn: () => Promise<T>): Promise<T>` wrapper.
-2. Apply `withCircuitBreaker` to all external API calls in `dodopayments.ts`.
-3. Replace the existing inline circuit breaker in `paystack.ts` with calls to the shared module.
-4. Ensure the Redis keys used for DodoPay and Paystack circuit breakers are distinct (e.g. `cb:dodopay` vs `cb:paystack`).
+**Files to change:**
+- `apps/web/lib/db/circuit.ts`
 
----
+**Steps:**
+1. Refactor `DatabaseCircuitBreaker` to use Redis for state storage, mirroring the `RedisCircuitBreaker` pattern in `apps/web/lib/payments/circuit.ts`.
+2. Use the same Lua atomic compare-and-set scripts to ensure consistent state transitions across serverless instances.
+3. Store state under a Redis key like `circuit:db:state`, with matching `circuit:db:failure_count` and `circuit:db:last_failure_time` keys.
+4. Update the `DatabaseCircuitBreaker` constructor to accept a Redis client and key prefix.
+5. Update wherever `DatabaseCircuitBreaker` is instantiated to pass the Redis client.
+6. Test: simulate DB failures across multiple instances and verify the circuit opens globally.
 
-### TASK 2.7 — Fix Expo Telegram Login: Use Crypto-Secure State Token
-**Fixes:** N-03
-**Files:** `apps/expo/app/auth/login.tsx`
-
-Steps:
-1. Replace the current state token generation: `SHA-256(Date.now() + '-' + Math.random())` truncated to 16 chars.
-2. Use `expo-crypto`'s `getRandomBytesAsync(16)` (or `expo-random`) to generate 16 cryptographically secure random bytes.
-3. Hex-encode those bytes to produce a 32-character state token. This is already a dependency in most Expo projects; verify it is installed in `apps/expo/package.json`.
-4. The full 32 chars is sufficient; no need to truncate. If a shorter token is desired for URL budget, use 12 bytes (24 hex chars) — still cryptographically unguessable.
-5. Ensure the state token is stored in component state (already done) and compared against the deep-link callback value before proceeding with authentication.
+**Risk:** Medium. Changing circuit breaker persistence affects operational behaviour. Test the open/half-open/closed transitions thoroughly. Ensure the Redis client used here is the same connected instance used elsewhere (avoid creating a second connection).
 
 ---
 
-## GROUP 3 — Logic and Data Bugs
+### Fix BUG-09 — `img` tag in HTML sanitizer allowlist
+
+**Files to change:**
+- `apps/web/lib/security/htmlSanitizer.ts`
+
+**Steps:**
+1. Remove `"img"` from the `ALLOWED_TAGS` set/array.
+2. Check all callers of the sanitizer to confirm none rely on `img` being allowed for a product feature.
+3. If inline images are a product requirement, implement a media upload endpoint and convert the UX to upload-then-embed (render via `/api/media/<id>`) rather than allowing arbitrary `src` URLs.
+4. Run existing sanitizer tests to confirm no regressions.
+
+**Risk:** Low. Removing a tag is purely restrictive. The only risk is breaking a product feature that actually uses `img` in rich text — verify with product before shipping.
 
 ---
 
-### TASK 3.1 — Fix Referral Commissions: Pass Actual Amount Values
-**Fixes:** L-02
-**Files:** `apps/web/lib/referrals/commissions.ts`
+### Fix BUG-10 — Table name interpolated in SQL
 
-Steps:
-1. Identify the computed `commissionKobo` and `purchaseAmountKobo` variables in `recordReferralCommission()`.
-2. Verify these are bound to the correct positional parameters (`$N`) in the INSERT statement. Currently both are set to `0` or bound to the wrong parameter slot.
-3. Fix the parameter binding so `commission_kobo = $N` receives the computed commission amount and `purchase_amount_kobo = $M` receives the actual purchase amount.
+**Files to change:**
+- `apps/web/lib/moderation/contentFilter.ts`
 
----
+**Steps:**
+1. Define an explicit allowlist: `const ALLOWED_CONTENT_TABLES = new Set(['messages', 'posts', 'comments'])` (add any other tables this function legitimately queries).
+2. At the top of the function, before building the query: `if (!ALLOWED_CONTENT_TABLES.has(table)) throw new Error(\`contentFilter: unknown table '${table}'\`)`.
+3. The interpolation itself can remain (the value is now guaranteed safe) — or switch to using `pg`/Drizzle identifier quoting for defense in depth.
+4. Review all call sites to ensure the `table` parameter is always a string literal at the call site, not a user-derived value.
 
-### TASK 3.2 — Fix Mystery XP Drop: Add Idempotency Key
-**Fixes:** L-03
-**Files:** `apps/web/lib/mystery/xpDrop.ts`
-
-Steps:
-1. Add a `batchId` parameter to `triggerMysteryDrop()` (or generate one at the start of the function using `crypto.randomUUID()`).
-2. For each user in the batch, pass `reference_id = \`mystery_drop:${batchId}:${userId}\`` to `safeAwardXP()`.
-3. This ensures the partial unique index on `xp_ledger` deduplicates retry awards for the same drop batch.
+**Risk:** Zero. Adding an allowlist check before interpolation only hardens the code — no behaviour change on the happy path.
 
 ---
 
-### TASK 3.3 — Fix Mystery XP Drop: Unbiased Random Integer
-**Fixes:** L-04
-**Files:** `apps/web/lib/mystery/xpDrop.ts`
+### Fix BUG-11 — National leaderboard silent 'NG' default
 
-Steps:
-1. Replace the custom `randomInt(min, max)` implementation that uses `% N` modulo with Node.js's built-in: `const { randomInt } = await import('node:crypto'); return randomInt(min, max + 1);`
-2. Since `randomInt` is synchronous in Node.js, the import can be hoisted to the top of the file or imported statically.
+**Files to change:**
+- `apps/web/lib/leaderboards/engine.ts`
 
----
+**Steps:**
+1. Remove the `?? 'NG'` fallback on both the snapshot path (lines ~104–105) and the query path (lines ~183–184).
+2. Replace with an explicit guard: if `scope === 'national'` and `!options?.country`, throw `new Error('country is required for national leaderboard scope')`.
+3. Audit all call sites to either always pass a country or to handle the error gracefully.
+4. If the leaderboard API endpoint is user-facing, return a 400 with a clear error rather than throwing internally.
 
-### TASK 3.4 — Fix Flash XP Notifications: Explicit ON CONFLICT Target
-**Fixes:** L-05
-**Files:** `apps/web/lib/events/flashXP.ts`
-
-Steps:
-1. Determine the correct unique constraint for deduplicating flash XP notifications — if notifications have a `(user_id, reference_id)` unique constraint, use that.
-2. Change `ON CONFLICT DO NOTHING` to `ON CONFLICT (user_id, reference_id) DO NOTHING` with the explicit target.
-3. If no suitable unique constraint exists, add one via a migration before making this change.
+**Risk:** Low. This is a correctness fix. Any callers that were relying on the silent 'NG' default will now fail loudly — which is the desired behaviour; they need to be updated to pass an explicit country.
 
 ---
 
-### TASK 3.5 — Fix Google Auth Username Generator
-**Fixes:** L-06
-**Files:** `apps/web/app/api/auth/google/callback/route.ts`
+### Fix BUG-12 — `learningCertificates` duplicate column pairs
 
-Steps:
-1. In `uniqueUsername()`, change the lookup query from `WHERE username LIKE '${base}%'` to a parameterised query that matches only the exact base name and numerically suffixed variants: `WHERE username = $1 OR username ~ ('^' || $1 || '[0-9]+$')`.
-2. Pass `base` as the parameterised value `$1` to prevent SQL injection.
+**Files to change:**
+- `apps/web/lib/db/schema.ts`
+- New migration file
 
----
+**Steps:**
+1. Determine the canonical column names for each pair. Suggested: `roomId`, `recipientUserId`, `issuerUserId`.
+2. Generate a migration that:
+   - Copies non-null data from legacy columns to canonical ones where canonical is null.
+   - Drops the unique index on the legacy column if present.
+   - Adds the unique index to the canonical column.
+   - Drops the legacy columns (`classroomRoomId`, `studentId`, `issuerId`).
+3. Update all query sites in the codebase to reference only the canonical column names.
+4. Update the Drizzle schema definition to remove the legacy column declarations.
 
-### TASK 3.6 — Fix Offline Message Queue: `getQueueCounts()` Non-Pending Statuses
-**Fixes:** L-07
-**Files:** `apps/web/lib/offline/messageQueue.ts`
-
-Steps:
-1. In `getQueueCounts()`, audit the status accumulation logic.
-2. Ensure there is an explicit counter increment for `'failed'` status, `'sent'` status, and any other expected statuses.
-3. Return an object with all status buckets correctly populated.
-
----
-
-### TASK 3.7 — Fix Re-engagement: Remove Duplicate 90-Day Message
-**Fixes:** L-08
-**Files:** `apps/web/lib/notifications/reengagement.ts`
-
-Steps:
-1. In the 90-day bucket message array, identify the two entries with identical body text.
-2. Replace the second (duplicate) entry with a new, distinct message that is meaningfully different from the first.
+**Risk:** Medium. Schema migration with data movement. Run in a transaction. Take a backup before applying. Verify row counts before and after.
 
 ---
 
-### TASK 3.8 — Fix Leaderboard: Wire or Remove Dead Weighted Scoring
-**Fixes:** L-09
-**Files:** `apps/web/lib/leaderboards/engine.ts`
+## Phase 4 — Low Severity Fixes (schema cleanup)
 
-Steps:
-1. Decide: should leaderboards use weighted scoring (combining XP with gift sends, messages, room time) or plain XP ordering?
-2. If weighted scoring: call `calculateWeightedScore()` during the snapshot materialization step and store the result as the `xp_value` used for ranking.
-3. If plain XP: delete `calculateWeightedScore()` and `getUserMetricsForWeighting()` entirely, and add a comment explaining that rankings are based on raw XP.
+These can be batched into a single "schema cleanup" PR/migration.
 
 ---
 
-### TASK 3.9 — Fix Manifest: Remove or Wire `feat()` Dead Code
-**Fixes:** L-10
-**Files:** `apps/web/lib/manifest/index.ts`
+### Fix BUG-13 — `userBadges` awardedAt vs grantedAt
 
-Steps:
-1. If `feat()` is meant to be a convenience wrapper for feature flag lookups: replace direct `getManifest()` key checks throughout the codebase with `await feat('feature_key_name')` calls.
-2. If `feat()` is not needed: delete the function and its export.
-
----
-
-### TASK 3.10 — Fix AI Classifier: Correct Fallback Label
-**Fixes:** L-11
-**Files:** `apps/web/lib/moderation/aiClassifier.ts`
-
-Steps:
-1. Find the call to `fallbackResult("gemini")` that is made when both DeepSeek and Gemini have failed.
-2. Change `fallbackResult("gemini")` to `fallbackResult("none")` (or introduce a `"fallback"` provider label if that is more descriptive).
+**Steps:**
+1. Migration: `UPDATE user_badges SET awarded_at = granted_at WHERE awarded_at IS NULL AND granted_at IS NOT NULL`.
+2. Drop `granted_at` column.
+3. Update schema and any query sites referencing `grantedAt`.
 
 ---
 
-### TASK 3.11 — Fix Shared Types: Remove Duplicate CoinTransactionType Entry
-**Fixes:** L-12
-**Files:** `shared/types/index.ts`
+### Fix BUG-14 — Dual reports tables
 
-Steps:
-1. In the `CoinTransactionType` union, find and remove the second `'gift_received'` entry (keep only one occurrence).
-
----
-
-### TASK 3.12 — Fix CRON Patron Badge: Wrong Gift Column Name
-**Fixes:** N-01
-**Files:** `apps/web/app/api/cron/daily/route.ts`
-
-Steps:
-1. Locate the patron badge award step (Step 13) in the CRON daily route.
-2. The query aggregates gift spend with `SUM(g.coin_value)` but the `gifts` table (created in migration 011) has a `coin_cost` column, not `coin_value`. The query therefore returns `NULL` for all users and no patron badges are ever awarded.
-3. Change `SUM(g.coin_value)` to `SUM(g.coin_cost)` in the patron badge eligibility query.
-4. Verify any other references to gift monetary value in the CRON file also use `coin_cost` (not `coin_value`).
+**Steps:**
+1. Decide canonical table (recommend `reports` since the trust score queries it).
+2. Migrate any rows from `moderationReports` that are not already in `reports`.
+3. Update all moderation tooling to query `reports`.
+4. Drop `moderationReports`.
+5. If the two tables genuinely serve different purposes, rename them unambiguously (e.g. `user_reports` vs `admin_reports`) and document the distinction clearly in the schema file.
 
 ---
 
-## GROUP 4 — Architectural Cleanup
+### Fix BUG-15 — `starBalance` integer overflow risk
 
-These improve maintainability and type safety.
-
----
-
-### TASK 4.1 — Consolidate TOTP: Single Shared Implementation
-**Fixes:** L-01
-**Files:** `apps/web/lib/auth/totp.ts`, all route files with inline TOTP
-
-Steps:
-1. Ensure `lib/auth/totp.ts` exports: `verifyTOTP(secret: string, code: string): Promise<boolean>` and `generateTOTP(secret: string): Promise<{ code: string, expiresIn: number }>`.
-2. Remove all inline TOTP implementations from: `api/auth/2fa/setup/route.ts` (already done in TASK 2.4), `api/auth/2fa/disable/route.ts` (already done in TASK 1.1), `api/creator/bank-account/route.ts` (already done in TASK 1.2).
-3. Verify `api/admin/auth/totp/route.ts` already correctly imports from `lib/auth/totp.ts`; if it has its own copy, consolidate it too.
-4. Search the codebase for any other inline `base32Decode` or `computeTotp` functions and consolidate.
+**Steps:**
+1. `ALTER TABLE users ALTER COLUMN star_balance TYPE bigint;`
+2. Update Drizzle schema: `bigint('star_balance', { mode: 'number' })` or `bigint('star_balance')`.
+3. Generate and apply migration.
 
 ---
 
-### TASK 4.2 — Fix `computeTotp()`: Remove Unnecessary Async
-**Fixes:** A-02
-**Files:** `apps/web/lib/auth/totp.ts`
+### Fix BUG-16 — `moderationActions` duplicate columns
 
-Steps:
-1. Change `async function computeTotp(...)` to `function computeTotp(...)`.
-2. Change the return type from `Promise<string>` to `string`.
-3. Update all callers: remove any `await` before `computeTotp(...)` calls. (Since it's called internally within `lib/auth/totp.ts`, this should be straightforward.)
-4. Adjust `verifyTOTP` and `generateTOTP` signatures if they also became unnecessarily async as a result.
+**Steps:**
+1. Canonical columns: `moderatorId`, `actionType`, `reason`.
+2. Migration: copy non-null values from `actionedBy` → `moderatorId`, `action` → `actionType`, `note` → `reason` where canonical is null.
+3. Drop `actionedBy`, `action`, `note`.
+4. Update schema and all query sites.
 
 ---
 
-### TASK 4.3 — Regenerate Drizzle Schema from SQL Migrations
-**Fixes:** A-01
-**Files:** `apps/web/lib/db/schema.ts`
+### Fix BUG-17 — `sponsoredQuests` dual reward coin columns
 
-Steps:
-1. Run `drizzle-kit introspect --config drizzle.config.ts` against the live database to generate a fresh `schema.ts` that reflects all tables and columns from the applied migrations.
-2. Alternatively, run all migrations (`001` through the latest) in a clean Postgres instance and introspect that.
-3. Replace the contents of `apps/web/lib/db/schema.ts` with the generated output.
-4. If the codebase uses Drizzle query builder anywhere, re-run TypeScript compilation (`tsc --noEmit`) to surface any type mismatches that the regenerated schema reveals.
-5. Ensure the Drizzle config file (`drizzle.config.ts`) is set to track the canonical migrations directory so future `drizzle-kit generate` commands do not create conflicting migrations.
+**Steps:**
+1. Keep `rewardCoins`.
+2. Migration: `UPDATE sponsored_quests SET reward_coins = reward_amount_coins WHERE reward_coins IS NULL AND reward_amount_coins IS NOT NULL`.
+3. Drop `rewardAmountCoins`.
+4. Update schema and all query sites.
 
 ---
 
-## Implementation Order Summary
+### Fix BUG-18 — Redundant status update in guild wars CRON
 
-| Priority | Task | Bug(s) Fixed |
-|---|---|---|
-| 1 | TASK 1.1 | B-01, S-05 |
-| 2 | TASK 1.2 | B-02, B-04 |
-| 3 | TASK 1.3 | B-03 |
-| 4 | TASK 1.4 | B-05 |
-| 5 | TASK 1.5 | B-06 |
-| 6 | TASK 1.6 | B-07, B-08 |
-| 7 | TASK 1.7 | B-09, B-12 |
-| 8 | TASK 1.8 | B-10 |
-| 9 | TASK 1.9 | B-11 |
-| 10 | TASK 1.10 | N-02 |
-| 11 | TASK 1.11 | N-04 (extends B-07, B-08) |
-| 12 | TASK 2.1 | S-01 |
-| 13 | TASK 2.2 | S-02 |
-| 14 | TASK 2.3 | S-03 |
-| 15 | TASK 2.4 | S-04, L-01 (partial) |
-| 16 | TASK 2.5 | S-06 |
-| 17 | TASK 2.6 | S-07 |
-| 18 | TASK 2.7 | N-03 |
-| 19 | TASK 3.1 | L-02 |
-| 20 | TASK 3.2 | L-03 |
-| 21 | TASK 3.3 | L-04 |
-| 22 | TASK 3.4 | L-05 |
-| 23 | TASK 3.5 | L-06 |
-| 24 | TASK 3.6 | L-07 |
-| 25 | TASK 3.7 | L-08 |
-| 26 | TASK 3.8 | L-09 |
-| 27 | TASK 3.9 | L-10 |
-| 28 | TASK 3.10 | L-11 |
-| 29 | TASK 3.11 | L-12 |
-| 30 | TASK 3.12 | N-01 |
-| 31 | TASK 4.1 | L-01 (complete) |
-| 32 | TASK 4.2 | A-02 |
-| 33 | TASK 4.3 | A-01 |
+**Files to change:**
+- `apps/web/app/api/cron/guild-wars/route.ts`
 
-Total: 37 bugs across 33 fix tasks (some tasks fix multiple bugs).
+**Steps:**
+1. Delete the `UPDATE guild_wars SET status = 'completed' WHERE id = $1` query that runs after `resolveWar(war.id, db)`.
+2. Add a comment near the `resolveWar` call noting that `resolveWar` sets `status = 'completed'` internally.
+
+**Risk:** Zero. This is dead code removal.
 
 ---
 
-*Fix plan generated: 2026-06-15 at 11:13 AM | Updated (second pass): 2026-06-15 at 12:10 PM*
-*Analyst: Claude — Zobia Codebase Forensic Analysis*
-*Branch: claude/codebase-bug-analysis-ulrfvp*
+### Fix BUG-19 — `compareNemesisProgress` no throw on unknown track
+
+**Files to change:**
+- `apps/web/lib/nemesis/nemesisEngine.ts`
+
+**Steps:**
+1. Import or inline the same `TRACK_COLUMN` map used in `safeAwardXP`.
+2. Resolve `col = TRACK_COLUMN[track]`.
+3. Add the allowlist guard: `if (!new Set(Object.values(TRACK_COLUMN)).has(col)) throw new Error(...)`.
+4. Remove the `?? "xp_total"` fallback.
+
+---
+
+### Fix BUG-20 — `giftItems` coinPrice vs coinCost
+
+**Steps:**
+1. Keep `coinCost` (aligns with the "cost" naming convention for buyer-facing prices).
+2. Migration: `UPDATE gift_items SET coin_cost = coin_price WHERE coin_cost IS NULL AND coin_price IS NOT NULL`.
+3. Drop `coinPrice`.
+4. Update schema and all query sites.
+
+---
+
+## Suggested Execution Batches
+
+| Batch | Bugs | Description |
+|-------|------|-------------|
+| **Hotfix** | BUG-01, BUG-02 | Critical — ship immediately; no schema change needed for BUG-01, fast index for BUG-02 |
+| **Auth & Security** | BUG-03, BUG-05, BUG-09, BUG-10 | Security hardening; all low-risk file-level changes |
+| **Economy & XP** | BUG-04, BUG-07 | Economy correctness; verify with Paystack data before shipping BUG-07 |
+| **Atomicity** | BUG-06, BUG-08 | Transactional correctness; BUG-08 needs Redis client plumbing |
+| **Leaderboards** | BUG-11, BUG-19 | Correctness fixes; audit call sites |
+| **Schema Cleanup** | BUG-12, BUG-13, BUG-14, BUG-15, BUG-16, BUG-17, BUG-18, BUG-20 | Single migration PR; lower risk but requires backup |
+
+---
+
+*Plan generated: 2026-06-15 at 12:00 PM*
+*Analyst: Claude (claude-sonnet-4-6) — Zobia forensic bug fix plan*
+*DO NOT implement until this plan has been reviewed and approved.*
