@@ -1352,5 +1352,13 @@
   },
   "offline.syncFailed": "Message failed to send. Will retry.",
   "offline.permanentFailure": "Message could not be delivered.",
-  "offline.permanentFailureHint": "This message was rejected by the server and will not be retried."
+  "offline.permanentFailureHint": "This message was rejected by the server and will not be retried.",
+
+  "creator.tier.rookie": "Rookie",
+  "creator.tier.rising": "Rising",
+  "creator.tier.verified": "Verified Creator",
+  "creator.tier.elite": "Elite Creator",
+  "creator.tier.icon": "Icon Creator",
+
+  "subscription.nextRenewal": "Next renewal: {{date}}"
 }

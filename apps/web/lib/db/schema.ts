@@ -180,6 +180,9 @@ export const users = pgTable("users", {
   emailAllEnabled: boolean("email_all_enabled").notNull().default(true),
   emailNonCritical: boolean("email_non_critical").notNull().default(true),
 
+  // Auth session state
+  preAuthSession: text("pre_auth_session"),
+
   // Misc
   pidginSuggestionsEnabled: boolean("pidgin_suggestions_enabled"),
   avatarUrl: text("avatar_url"),
@@ -1032,6 +1035,7 @@ export const userSubscriptions = pgTable(
     providerSubscriptionId: text("provider_subscription_id"),
     currentPeriodStart: timestamp("current_period_start", { withTimezone: true }),
     currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+    nextRenewalAt: timestamp("next_renewal_at", { withTimezone: true }),
     cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
     metadata: jsonb("metadata"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
@@ -1138,6 +1142,18 @@ export type SponsoredQuestApplication = typeof sponsoredQuestApplications.$infer
 export type WarContribution = typeof warContributions.$inferSelect;
 export type GiftItem = typeof giftItems.$inferSelect;
 
+export const systemAlerts = pgTable("system_alerts", {
+  id: uuidPk(),
+  type: text("type").notNull(),
+  severity: text("severity").notNull().default("warning"),
+  message: text("message"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+});
+
+export type SystemAlert = typeof systemAlerts.$inferSelect;
+
 // Convenience namespace so callers can do: import { schema } from '@/lib/db/schema'
 export const schema = {
   users,
@@ -1185,4 +1201,5 @@ export const schema = {
   userSubscriptions,
   creatorEarnings,
   sponsoredQuestApplications,
+  systemAlerts,
 };

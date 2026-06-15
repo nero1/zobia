@@ -178,27 +178,12 @@ async function maybeAwardMessageXP(
 ): Promise<void> {
   if (todayMsgCount >= ROOM_MESSAGE_XP_DAILY_CAP) return;
   try {
-    const { baseXp, finalXp } = calculateFinalXP(
+    const { finalXp } = calculateFinalXP(
       'send_room_message',
       { plan, isMessagingAction: true }
     );
-    const multiplierBP = PLAN_XP_MULTIPLIERS_BP[plan];
-    await db.transaction(async (tx) => {
-      await tx.query(
-        `UPDATE users
-         SET xp_total = xp_total + $1,
-             xp_social = xp_social + $1,
-             updated_at = NOW()
-         WHERE id = $2`,
-        [finalXp, userId]
-      );
-      await tx.query(
-        `INSERT INTO xp_ledger
-           (user_id, amount, track, source, reference_id, multiplier, base_amount)
-         VALUES ($1, $2, 'social', 'message', $3, $4, $5)`,
-        [userId, finalXp, `msg_${messageId}`, multiplierBP, baseXp]
-      );
-    });
+    const { safeAwardXP } = await import("@/lib/xp/safeAwardXP");
+    await safeAwardXP(userId, finalXp, "social", "send_message", `msg_${messageId}`);
   } catch (err) {
     console.error("[rooms/messages] XP award failed (non-fatal):", err);
   }

@@ -1039,5 +1039,18 @@
   "errors.not_room_member": "የዚህ ክፍል አባል አይደሉም።",
   "errors.global_rate_limit": "በጣም ብዙ ጥያቄዎች። እባክዎ ቆይተው እንደገና ይሞክሩ።",
   "health.status_ok": "ሁሉም ስርዓቶች ሥራ ላይ ናቸው",
-  "health.status_degraded": "አንዳንድ አገልግሎቶች ተዳክመዋል"
+  "health.status_degraded": "አንዳንድ አገልግሎቶች ተዳክመዋል",
+
+  "creator.tier.rookie": "ጀማሪ",
+  "creator.tier.rising": "እያደገ",
+  "creator.tier.verified": "የተረጋገጠ ፈጣሪ",
+  "creator.tier.elite": "ልሂቃን ፈጣሪ",
+  "creator.tier.icon": "ምልክት ፈጣሪ",
+
+  "admin.featureFlags": "የባህሪ ምልክቶች",
+  "admin.featureFlags.description": "የመድረክ ባህሪያትን በዓለም አቀፍ ደረጃ ያስቃጥሉ ወይም ያጥፉ።",
+  "admin.featureFlags.availableFrom": "ከ ይገኛል",
+  "admin.featureFlags.earlyAccessPlans": "የቅድሚያ ፕሮግራሞች",
+
+  "subscription.nextRenewal": "ቀጣይ ታደሰ: {{date}}"
 }

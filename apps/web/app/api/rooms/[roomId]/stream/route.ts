@@ -45,6 +45,7 @@ import {
   extractBearerToken,
 } from "@/lib/auth/jwt";
 import { getSession, ACCESS_TOKEN_COOKIE } from "@/lib/auth/session";
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -197,6 +198,13 @@ export async function GET(
     userId = payload.sub;
   } catch {
     return new Response("Invalid token", { status: 401 });
+  }
+
+  // Rate-limit SSE connections per user
+  try {
+    await enforceRateLimit(userId, "user", RATE_LIMITS.apiRead);
+  } catch {
+    return new Response("Too Many Requests", { status: 429 });
   }
 
   const { roomId } = await params;

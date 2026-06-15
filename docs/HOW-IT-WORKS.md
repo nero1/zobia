@@ -150,6 +150,18 @@ Creators (marked `is_creator = true`) earn revenue from:
 
 Revenue accrues to `creator_earnings`. The daily CRON (on payout day) checks creators above the minimum payout threshold (default: ₦5,000 via Paystack). Creators above the manual-approval threshold (default: ₦100,000) require admin approval before disbursement. Completed payouts record to `creator_payouts`.
 
+**Creator Tiers:** The `creator_tier` column on the `users` table follows five levels based on follower count:
+
+| Tier | Minimum followers | Creator Fund eligible |
+|---|---|---|
+| `rookie` | 0 | No |
+| `rising` | 100 | No |
+| `verified` | 500 | No |
+| `elite` | 2 000 | Yes |
+| `icon` | 5 000 | Yes |
+
+Tier boundaries are re-evaluated by the daily CRON (step 28). Creator Fund distributions go to `elite` and `icon` tier creators only. The `elite` tier was added to fill the gap between `verified` (500) and `icon` (5 000); the daily CRON assigns it correctly when a creator reaches 2 000 followers.
+
 **Creator Fund (monthly):** The platform sets aside 5% of advertising revenue each month into the Creator Fund. On the **1st of each month**, the daily CRON seeds the fund pool by reading `ad_revenue_YYYY_MM_kobo` from `x_manifest` and writing 5% to `creator_fund_balance_kobo`. On the **5th of each month**, the daily CRON distributes the pool to eligible creators (Elite tier+) proportional to their engagement score, then resets the pool to 0. During **International Women's Month** (first week of March), female creators receive a 1.5× boost to their Creator Fund allocation.
 
 **RIZE Coin conversion (PRD §14):** Instead of a bank payout, creators can request `asCoins: true` when calling `POST /api/creator/payouts`. The net earnings are converted to Credits at the admin-configurable `kobo_per_coin` rate (default 100 kobo = 1 Credit) and credited to the creator's wallet in the same atomic transaction.
@@ -287,8 +299,23 @@ View AI-classified reports queue. Accept or reject AI decisions. Bulk-action com
 ### Automated Actions Log
 All automated moderation actions (auto-hide, auto-suspend triggered by trust score drop) logged with AI confidence score and DeepSeek/Gemini classification category.
 
-### Feature Flags (`/api/admin/config`)
-All `x_manifest` keys are editable from the admin panel. Changes take effect within seconds via Redis cache invalidation. Feature flags include: rooms enabled, DMs enabled, live streaming, AI assistant, marketplace, gifts, rankings.
+### Feature Flags (`/api/admin/feature-flags`)
+Feature flags are stored as boolean values in the `x_manifest` table (key `feature_*` convention) and augmented with metadata in the `feature_flags` table (keys match `x_manifest`). The dedicated endpoint `GET/PUT /api/admin/feature-flags` returns enriched flag objects:
+
+```json
+{
+  "key": "feature_guild_wars",
+  "enabled": true,
+  "description": "Enable Guild Wars feature",
+  "availableFrom": null,
+  "earlyAccessPlans": null
+}
+```
+
+`availableFrom` and `earlyAccessPlans` can be set via `PUT /api/admin/feature-flags` to schedule flags for a future date or gate them to specific subscription plans. All changes are logged to `admin_audit_log`.
+
+### Configuration (`/api/admin/config`)
+All other `x_manifest` keys are editable from the admin panel. Changes take effect within seconds via Redis cache invalidation. Feature flags include: rooms enabled, DMs enabled, live streaming, AI assistant, marketplace, gifts, rankings.
 
 ### Configuration (x_manifest)
 Admin-editable app-level settings: payment provider selection, max file upload size, rate limit thresholds, payout minimum thresholds, moderation settings.
@@ -493,6 +520,8 @@ Returns HTTP 200 when all systems are reachable. Returns HTTP 503 when one or mo
 4. Exits with code 0.
 
 This ensures zero dropped requests during rolling deploys on Vercel and other container-based platforms.
+
+**CRON SIGTERM handling:** The daily CRON handler (`/api/cron/daily`) additionally registers a module-level `process.once('SIGTERM', ...)` handler that sets a `_shuttingDown` flag and schedules `process.exit(0)` after a 10-second drain window. The GET handler checks this flag at its entry point and returns immediately with `{ success: false, reason: 'SHUTTING_DOWN' }` if a shutdown is already in progress, preventing any new CRON work from starting mid-deploy.
 
 ### Database Provider Abstraction
 

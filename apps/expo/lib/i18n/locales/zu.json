@@ -1322,5 +1322,13 @@
   },
   "offline.syncFailed": "Umlayezo wehluleke ukuthumelwa. Uzozama futhi.",
   "offline.permanentFailure": "Umlayezo awukwazanga ukufika kumamukeli.",
-  "offline.permanentFailureHint": "Lo mlayezo wenqatshwa yiseva futhi ngeke uzamwe futhi."
+  "offline.permanentFailureHint": "Lo mlayezo wenqatshwa yiseva futhi ngeke uzamwe futhi.",
+
+  "creator.tier.rookie": "Umqalisi",
+  "creator.tier.rising": "Onyukayo",
+  "creator.tier.verified": "Umsunguli Oqinisekisiwe",
+  "creator.tier.elite": "Umsunguli Wabakhethiwe",
+  "creator.tier.icon": "Isithonjana Somsunguli",
+
+  "subscription.nextRenewal": "Ukuphinda Kuvuswe Okulandelayo: {{date}}"
 }

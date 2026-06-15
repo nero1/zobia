@@ -207,13 +207,19 @@ export async function updateConversationScore(
            ON CONFLICT DO NOTHING`,
           [u1, u2, su.packName]
         );
-        // Grant the sticker pack to both users in the pair
-        await db.query(
-          `INSERT INTO user_sticker_packs (user_id, pack_name, granted_at)
-           VALUES ($1, $2, NOW()), ($3, $2, NOW())
-           ON CONFLICT DO NOTHING`,
-          [u1, su.packName, u2]
+        // Grant the sticker pack to both users in the pair (look up pack_id by name)
+        const { rows: packRows } = await db.query<{ id: string }>(
+          `SELECT id FROM sticker_packs WHERE name = $1 LIMIT 1`,
+          [su.packName]
         );
+        if (packRows[0]) {
+          await db.query(
+            `INSERT INTO user_sticker_packs (user_id, pack_id)
+             VALUES ($1, $2), ($3, $2)
+             ON CONFLICT (user_id, pack_id) DO NOTHING`,
+            [u1, packRows[0].id, u2]
+          );
+        }
       } catch {
         // Non-fatal
       }

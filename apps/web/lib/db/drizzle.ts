@@ -74,22 +74,19 @@ export async function getTypedDb(): Promise<DrizzleDb | null> {
     return null;
   }
 
-  // Dynamically import to avoid bundling pg in environments that don't need it
-  const [{ Pool }, { drizzle }] = await Promise.all([
-    import("pg"),
-    import("drizzle-orm/node-postgres"),
-  ]);
+  // Reuse the pool from the active provider adapter rather than creating a second one.
+  // Creating a new Pool here would duplicate connections against the same DB endpoint.
+  const { drizzle } = await import("drizzle-orm/node-postgres");
 
-  const pool = new Pool({
-    connectionString: env.DATABASE_URL,
-    ssl:
-      env.NODE_ENV === "production" ? { rejectUnauthorized: false } : undefined,
-    max: parseInt(process.env.DB_POOL_SIZE ?? "2", 10),
-    idleTimeoutMillis: 20_000,
-    connectionTimeoutMillis: 8_000,
-    options:
-      "-c statement_timeout=10000 -c idle_in_transaction_session_timeout=15000",
-  });
+  let pool: import("pg").Pool;
+  if (provider === "digitalocean") {
+    const { getPool } = await import("./providers/digitalocean");
+    pool = getPool();
+  } else {
+    // Default: railway (or any pg-compatible provider)
+    const { getPool } = await import("./providers/railway");
+    pool = getPool();
+  }
 
   _drizzleDb = drizzle(pool, { schema }) as DrizzleDb;
   return _drizzleDb;

@@ -118,6 +118,11 @@ export async function getUserRank(
     conditions.push(`ls.season_id IS NULL`);
   }
 
+  // For non-city scopes, exclude rows that have a city value (those belong to city leaderboards)
+  if (scope !== "city") {
+    conditions.push(`ls.city IS NULL`);
+  }
+
   const { rows } = await db.query<{ rank: string }>(
     `SELECT COUNT(*) + 1 AS rank
      FROM leaderboard_snapshots ls

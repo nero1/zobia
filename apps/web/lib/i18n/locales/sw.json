@@ -1039,5 +1039,18 @@
   "errors.not_room_member": "Wewe si mwanachama wa chumba hiki.",
   "errors.global_rate_limit": "Maombi mengi sana. Tafadhali jaribu tena baadaye.",
   "health.status_ok": "Mifumo yote inafanya kazi",
-  "health.status_degraded": "Baadhi ya huduma zimeathirika"
+  "health.status_degraded": "Baadhi ya huduma zimeathirika",
+
+  "creator.tier.rookie": "Mwanzilishi",
+  "creator.tier.rising": "Anayepanda",
+  "creator.tier.verified": "Muundaji Aliyethibitishwa",
+  "creator.tier.elite": "Muundaji wa Wasomi",
+  "creator.tier.icon": "Ikoni ya Muundaji",
+
+  "admin.featureFlags": "Bendera za Vipengele",
+  "admin.featureFlags.description": "Washa au zima vipengele vya jukwaa duniani kote.",
+  "admin.featureFlags.availableFrom": "Inapatikana Kutoka",
+  "admin.featureFlags.earlyAccessPlans": "Mipango ya Ufikiaji wa Mapema",
+
+  "subscription.nextRenewal": "Upyaji Unaofuata: {{date}}"
 }

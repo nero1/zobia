@@ -1393,5 +1393,13 @@
   "leaderboards.title": "Classements",
   "offline.syncFailed": "Échec de l'envoi du message. Nouvelle tentative en cours.",
   "offline.permanentFailure": "Le message n'a pas pu être livré.",
-  "offline.permanentFailureHint": "Ce message a été rejeté par le serveur et ne sera pas réessayé."
+  "offline.permanentFailureHint": "Ce message a été rejeté par le serveur et ne sera pas réessayé.",
+
+  "creator.tier.rookie": "Débutant",
+  "creator.tier.rising": "En Progression",
+  "creator.tier.verified": "Créateur Vérifié",
+  "creator.tier.elite": "Créateur Élite",
+  "creator.tier.icon": "Créateur Icône",
+
+  "subscription.nextRenewal": "Prochain renouvellement : {{date}}"
 }

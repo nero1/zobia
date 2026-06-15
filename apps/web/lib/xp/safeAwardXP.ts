@@ -142,28 +142,37 @@ export async function retryFailedXPAwards(): Promise<{
     try {
       const col = TRACK_COLUMN[row.track] ?? "xp_total";
 
-      // BUG-02: same CTE fix as safeAwardXP — UPDATE only fires when INSERT inserts
       const SAFE_XP_COLS_RETRY = new Set(Object.values(TRACK_COLUMN));
       if (!SAFE_XP_COLS_RETRY.has(col)) throw new Error(`[retryFailedXPAwards] Unsafe XP track column: ${col}`);
-      await globalDb.query(
-        `WITH ins AS (
-           INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
-           VALUES ($1, $2, $3, $4, $5, $2, NOW())
-           ON CONFLICT DO NOTHING
-           RETURNING id
-         )
-         UPDATE users
-           SET xp_total = xp_total + $2,
-               ${col === "xp_total" ? "" : `${col} = COALESCE(${col}, 0) + $2,`}
-               updated_at = NOW()
-         WHERE id = $1 AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM ins)`,
-        [row.user_id, row.amount, row.track, row.source, row.reference_id]
-      );
 
-      await globalDb.query(
-        `UPDATE failed_xp_awards SET resolved_at = NOW() WHERE id = $1`,
-        [row.id]
-      );
+      // Use a synthetic reference_id for rows that have NULL to enable ON CONFLICT dedup.
+      // Rows with NULL reference_id use a deterministic key so concurrent retries can't
+      // double-award (partial-index ON CONFLICT only fires when reference_id IS NOT NULL).
+      const effectiveRef = row.reference_id ?? `dlq_retry:${row.user_id}:${row.source}:${row.id}`;
+
+      // Wrap both the XP ledger INSERT and the resolved_at UPDATE in a single transaction
+      // so a partial failure can't leave the award applied but the DLQ row unresolved.
+      await globalDb.transaction(async (tx) => {
+        await tx.query(
+          `WITH ins AS (
+             INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
+             VALUES ($1, $2, $3, $4, $5, $2, NOW())
+             ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
+             RETURNING id
+           )
+           UPDATE users
+             SET xp_total = xp_total + $2,
+                 ${col === "xp_total" ? "" : `${col} = COALESCE(${col}, 0) + $2,`}
+                 updated_at = NOW()
+           WHERE id = $1 AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM ins)`,
+          [row.user_id, row.amount, row.track, row.source, effectiveRef]
+        );
+
+        await tx.query(
+          `UPDATE failed_xp_awards SET resolved_at = NOW() WHERE id = $1`,
+          [row.id]
+        );
+      });
       resolved++;
     } catch (err) {
       const newRetryCount = row.retry_count + 1;

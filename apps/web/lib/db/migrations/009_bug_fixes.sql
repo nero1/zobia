@@ -71,9 +71,10 @@ CREATE TABLE IF NOT EXISTS creator_earnings (
   creator_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   source_type TEXT NOT NULL,
   source_id UUID,
-  gross_kobo BIGINT NOT NULL,
+  gross_amount_kobo BIGINT NOT NULL,
   platform_fee_kobo BIGINT NOT NULL DEFAULT 0,
-  net_kobo BIGINT NOT NULL,
+  net_amount_kobo BIGINT NOT NULL,
+  reference_id TEXT,
   status TEXT NOT NULL DEFAULT 'pending',
   settled_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW()
@@ -95,8 +96,10 @@ CREATE TABLE IF NOT EXISTS sponsored_quest_applications (
 -- BUG-35: system_alerts table (needed for DLQ monitoring - BUG-47)
 CREATE TABLE IF NOT EXISTS system_alerts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  alert_type TEXT NOT NULL,
-  payload JSONB,
+  type TEXT NOT NULL,
+  severity TEXT NOT NULL DEFAULT 'warning',
+  message TEXT,
+  metadata JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   resolved_at TIMESTAMPTZ
 );

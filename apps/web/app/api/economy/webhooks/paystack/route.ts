@@ -268,9 +268,10 @@ async function processTransferEvent(
     id: string;
     creator_id: string;
     gross_kobo: number;
+    net_kobo: number;
     retry_count: number;
   }>(
-    `SELECT id, creator_id, gross_kobo, retry_count
+    `SELECT id, creator_id, gross_kobo, net_kobo, retry_count
      FROM creator_payouts
      WHERE provider_reference = $1
      LIMIT 1`,
@@ -368,7 +369,7 @@ async function processTransferEvent(
           `UPDATE users
            SET available_earnings_kobo = available_earnings_kobo + $1, updated_at = NOW()
            WHERE id = $2`,
-          [payout.gross_kobo, payout.creator_id]
+          [payout.net_kobo, payout.creator_id]
         );
       }
     });
@@ -427,15 +428,17 @@ async function processSubscriptionEvent(
       [resolvedUserId, subscription_code, isActive ? "active" : status, next_payment_date ?? null]
     ).catch(() => {});
 
-    // Derive plan tier from Paystack plan name.
-    // If the plan name is unrecognised, log a system alert and skip plan activation
-    // to prevent silently granting the wrong tier.
+    // Derive plan tier from Paystack plan name using word-boundary matching to prevent
+    // false positives (e.g. "express" matching "pro", "maximum" matching "max").
     const planNameLower = (event.data.plan?.name ?? "").toLowerCase();
-    const derivedPlan: string | null = planNameLower.includes("max")
+    const planCodeLower = (event.data.plan?.plan_code ?? "").toLowerCase();
+    const planMatches = (keyword: string): boolean =>
+      new RegExp(`\\b${keyword}\\b`).test(planNameLower) || planCodeLower.includes(keyword);
+    const derivedPlan: string | null = planMatches("max")
       ? "max"
-      : planNameLower.includes("plus")
+      : planMatches("plus")
       ? "plus"
-      : planNameLower.includes("pro")
+      : planMatches("pro")
       ? "pro"
       : null;
 

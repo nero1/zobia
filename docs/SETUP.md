@@ -208,6 +208,18 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    - `tier` column to `referral_commissions`
    - Partial unique index on `failed_xp_awards` for XP DLQ idempotency
    - Broadened `audit_discrepancies.asset_type` CHECK constraint to include `'xp'`
+
+   Migration `010_feature_flags_table.sql` adds:
+   - `feature_flags` table (key, available_from, early_access_plans) for admin-controlled feature gating beyond the boolean toggle in `x_manifest`
+   - `next_renewal_at TIMESTAMPTZ` column to `user_subscriptions` — written by the Paystack subscription webhook
+   - `pre_auth_session TEXT` column to `users` — stores the active pre-auth JWT during 2FA verification; cleared after successful 2FA to prevent token reuse
+   - Seeds standard feature flags (`feature_guild_wars`, `feature_mystery_xp_drops`, `feature_alliance_wars`, etc.) into `x_manifest`
+
+   Migration `011_performance_indexes.sql` adds:
+   - Covering indexes on `xp_ledger (user_id, source, reference_id)`, `(user_id, source, created_at::date)`, and `(user_id, track, created_at)` for dedup and leaderboard queries
+   - Unique index on `coin_ledger (reference_id)` for idempotent coin credits
+   - Indexes on `leaderboard_snapshots`, `leaderboard_rank_snapshots`, `nemesis_assignments`, `referrals`, `user_inactivity_events`, `failed_xp_awards`, `guild_members`, `creator_payouts`, and `payments`
+   - All indexes use `IF NOT EXISTS` and are safe to apply on a live database
 7. Optional seed data: `psql "$DIRECT_URL" < apps/web/lib/db/seed.sql`
 
 ### Option B: Railway PostgreSQL
