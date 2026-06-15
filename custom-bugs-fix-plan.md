@@ -1,327 +1,310 @@
 # Zobia Codebase Bug Fix Plan
-**Date:** 2026-06-15 | **Time:** 12:00 PM
-**Scope:** Fix plan for all 20 bugs identified in `custom-bugs-report.md`
-**Status:** ✅ All 20 bugs fixed — branch `claude/custom-bugs-gaps-fixes-lm2j1z`
+**Date:** 2026-06-15 | **Time:** 10:24 PM UTC  
+**Scope:** Fix plan for all 18 bugs identified in `custom-bugs-report.md`  
+**Branch:** `claude/codebase-bug-analysis-6qz2q4`
+
+> **IMPORTANT:** Do not begin any fix until the bug report has been reviewed and this plan approved. Fixes are ordered by severity (Critical first), then by dependency (schema migrations before application code).
 
 ---
 
 ## Execution Order
 
-Fixes are ordered by: (1) severity — critical and high first; (2) dependency — schema migrations before application code that depends on them; (3) risk — isolated changes before cross-cutting ones.
+Fix critical bugs before high and medium ones. Schema migrations must always precede application-code fixes that depend on the new columns/indexes. Several bugs share a root cause (missing schema constraints) so grouping migrations is efficient.
 
 ---
 
-## Phase 1 — Critical Fixes (ship ASAP, zero downtime risk)
+## Phase 1 — Database Schema Migrations (do these first, in a single migration file)
+
+These fixes require new SQL migrations (`apps/web/db/migrations/`). All corresponding Drizzle schema changes must be made in `apps/web/lib/db/schema.ts` in the same PR so the ORM definition and the live database stay in sync.
 
 ---
 
-### Fix BUG-01 — Subscription status copy-paste error
+### FIX-C01: Add `left_at` column to `guild_members`
 
-**Files to change:**
-- `apps/web/app/api/economy/webhooks/paystack/route.ts`
+**Bugs fixed:** BUG-C01
+
+**Migration steps:**
+1. Add `ALTER TABLE guild_members ADD COLUMN IF NOT EXISTS left_at TIMESTAMPTZ DEFAULT NULL;`
+2. Add index: `CREATE INDEX IF NOT EXISTS idx_guild_members_left_at ON guild_members(left_at) WHERE left_at IS NULL;`
+3. Populate historical rows: `UPDATE guild_members SET left_at = NULL WHERE left_at IS NULL;` (no-op, just to confirm column exists)
+4. In `apps/web/lib/db/schema.ts`, add `leftAt: timestamp("left_at")` to the `guildMembers` table object.
+
+**Application code changes (after migration):**
+- `apps/web/lib/guilds/warEngine.ts`: The `WHERE gm.left_at IS NULL` filter is now valid; no code change needed.
+- `apps/web/lib/guilds/recordWarContribution.ts`: Same — filter is now valid.
+- Add logic in the guild-leave endpoint/function to set `left_at = NOW()` instead of hard-deleting the `guild_members` row (soft-delete pattern). If the current code hard-deletes, the `WHERE left_at IS NULL` filter will return all rows anyway — still correct, but soft-delete is preferred for audit trails.
+
+---
+
+### FIX-C02: Add UNIQUE constraint to `payout_dead_letter_queue.payout_id`
+
+**Bugs fixed:** BUG-C02
+
+**Migration steps:**
+1. Deduplicate first (in case duplicates exist): `DELETE FROM payout_dead_letter_queue WHERE id NOT IN (SELECT MIN(id) FROM payout_dead_letter_queue GROUP BY payout_id);`
+2. `ALTER TABLE payout_dead_letter_queue ADD CONSTRAINT uq_pdlq_payout_id UNIQUE (payout_id);`
+3. In `apps/web/lib/db/schema.ts`, add `.unique()` to the `payoutId` column or add `uniqueIndex('uq_pdlq_payout_id').on(t.payoutId)` to `payoutDeadLetterQueue`.
+
+**No application code changes required** — `payouts.ts` already uses the correct `ON CONFLICT (payout_id) DO UPDATE` syntax; it just needs the constraint to exist.
+
+---
+
+### FIX-C03: Add `reference_id` column to `notifications` table
+
+**Bugs fixed:** BUG-C03
+
+**Migration steps:**
+1. `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS reference_id TEXT DEFAULT NULL;`
+2. `CREATE UNIQUE INDEX IF NOT EXISTS uidx_notifications_user_type_ref ON notifications(user_id, type, reference_id) WHERE reference_id IS NOT NULL;`
+3. In `apps/web/lib/db/schema.ts`, add `referenceId: text("reference_id")` to the `notifications` table and add the corresponding `uniqueIndex` with the partial `WHERE` clause.
+
+**No application code changes required for flashXP** — `apps/web/lib/events/flashXP.ts` already uses the correct `ON CONFLICT (user_id, type, reference_id) DO NOTHING` syntax; it just needs the column and index to exist.
+
+---
+
+### FIX-C04: Replace non-unique `xp_ledger` index with UNIQUE partial index
+
+**Bugs fixed:** BUG-C04
+
+**Migration steps:**
+1. Check for and remove duplicate rows first (if any): `DELETE FROM xp_ledger WHERE id NOT IN (SELECT MIN(id) FROM xp_ledger WHERE reference_id IS NOT NULL GROUP BY user_id, source, reference_id) AND reference_id IS NOT NULL;`
+2. Drop old index: `DROP INDEX IF EXISTS idx_xp_ledger_user_source_ref;`
+3. Create UNIQUE partial index: `CREATE UNIQUE INDEX uidx_xp_ledger_source_ref ON xp_ledger(user_id, source, reference_id) WHERE reference_id IS NOT NULL;`
+4. In `apps/web/lib/db/schema.ts`, confirm the Drizzle `sourceRefIdx` definition is already `uniqueIndex("uidx_xp_ledger_source_ref")...` — no change needed to schema.ts if the Drizzle definition already uses the correct index name. Verify names match.
+
+**No application code changes required** — `safeAwardXP.ts` and `retryFailedXPAwards` already use the correct `ON CONFLICT` clause; they just need the UNIQUE index to exist.
+
+---
+
+### FIX-C05: Add UNIQUE partial index for mystery XP drop grants table
+
+**Bugs fixed:** BUG-C05
+
+**Migration steps:**
+1. Identify the exact table name used in `apps/web/lib/mystery/xpDrop.ts` for the grants INSERT.
+2. `CREATE UNIQUE INDEX IF NOT EXISTS uidx_mystery_xp_grants_source_ref ON <grants_table>(source, reference_id) WHERE reference_id IS NOT NULL;`
+3. Update Drizzle schema to add the matching `uniqueIndex` with partial WHERE clause.
+
+---
+
+### FIX-H07: Add UNIQUE constraint to `guild_tier_history(guild_id, season_id)`
+
+**Bugs fixed:** BUG-H07
+
+**Migration steps:**
+1. Deduplicate: `DELETE FROM guild_tier_history WHERE id NOT IN (SELECT MIN(id) FROM guild_tier_history GROUP BY guild_id, season_id);`
+2. `ALTER TABLE guild_tier_history ADD CONSTRAINT uq_guild_tier_history_guild_season UNIQUE (guild_id, season_id);`
+3. In `apps/web/lib/db/schema.ts`, add `uniqueIndex('uq_guild_tier_history_guild_season').on(t.guildId, t.seasonId)` to `guildTierHistory`.
+
+**No application code changes required** — `warEngine.ts` already uses the correct `ON CONFLICT (guild_id, season_id) DO UPDATE` syntax.
+
+---
+
+### FIX-M03: Add explicit UNIQUE constraint for `referral_commissions` dedup
+
+**Bugs fixed:** BUG-M03
+
+**Migration steps:**
+1. Determine the intended unique key for referral commission deduplication (likely `(referrer_id, referred_user_id, source)` or `(referrer_id, transaction_id)`).
+2. Add the appropriate unique index.
+3. Update `apps/web/lib/referrals/commissions.ts` to change `ON CONFLICT DO NOTHING` to `ON CONFLICT (referrer_id, referred_user_id, source) DO NOTHING` (or whichever columns constitute the business key).
+4. Update Drizzle schema accordingly.
+
+---
+
+## Phase 2 — Application Code Fixes (after Phase 1 migrations are applied)
+
+---
+
+### FIX-H01 + FIX-H02: Fix `awardGiftXP` double-award and missing `ON CONFLICT` in gift-send route
+
+**Bugs fixed:** BUG-H01, BUG-H02
+
+**File:** `apps/web/app/api/economy/gifts/send/route.ts`
 
 **Steps:**
-1. Find the ternary at line 499: `isActive ? "active" : "active"`
-2. Change the falsy branch to match your DB enum — `"inactive"` or `"cancelled"` depending on the value defined in `schema.ts` for the subscriptions status column.
-3. Verify the subscription status enum in `schema.ts` to confirm the correct string.
-4. Add a unit test (or at minimum a manual test) that fires a `subscription.disable` webhook payload and asserts the DB record status becomes `"inactive"`/`"cancelled"`.
+1. For BUG-H01: Rewrite `awardGiftXP` to use the same CTE pattern as `safeAwardXP`. Combine the `xp_ledger` INSERT and the `users` UPDATE into a single SQL statement:
+   ```sql
+   WITH ins AS (
+     INSERT INTO xp_ledger (...) VALUES (...)
+     ON CONFLICT ... DO NOTHING
+     RETURNING id
+   )
+   UPDATE users SET xp_total = xp_total + $2
+   WHERE id = $1 AND EXISTS (SELECT 1 FROM ins)
+   ```
+   Alternatively, call `safeAwardXP()` directly rather than duplicating the XP award logic.
 
-**Risk:** Low. Single-line change. Zero schema migration needed.
+2. For BUG-H02: Add `ON CONFLICT (gift_transaction_id) DO NOTHING` (or the appropriate unique column) to the `being_tipped_in_room` INSERT. Confirm the unique column/index exists on that table; if not, add it in Phase 1.
 
 ---
 
-### Fix BUG-02 — Missing unique constraint on `subscriptions.user_id`
+### FIX-H03: Do not delete idempotency key on `INSUFFICIENT_BALANCE`
 
-**Files to change:**
-- `apps/web/lib/db/schema.ts`
-- New Drizzle migration file
+**Bugs fixed:** BUG-H03
+
+**File:** `apps/web/app/api/economy/gifts/send/route.ts`
 
 **Steps:**
-1. In `schema.ts`, add `.unique()` to the `userId` column of the `subscriptions` table, OR add a separate `uniqueIndex('subscriptions_user_id_idx').on(subscriptions.userId)` declaration.
-2. Run `pnpm drizzle-kit generate` to produce the migration SQL.
-3. Inspect the generated migration — it should be `CREATE UNIQUE INDEX subscriptions_user_id_idx ON subscriptions (user_id);`. This is safe to apply on a live table (PostgreSQL builds the index without locking writes in modern versions, but verify your PG version).
-4. Apply the migration.
-5. In the webhook handler's `.catch` block, change `() => {}` to `(err) => logger.error(err, 'subscriptions upsert failed')` so future silent failures are visible.
-
-**Risk:** Low. Index creation is non-destructive. If duplicate `user_id` rows exist (due to the pre-existing bug), the migration will fail — run `SELECT user_id, COUNT(*) FROM subscriptions GROUP BY user_id HAVING COUNT(*) > 1` first and resolve duplicates manually before applying.
+1. Remove the `redis.del(idempotencyKey)` call from the `INSUFFICIENT_BALANCE` error branch.
+2. Let the idempotency key expire naturally via its TTL.
+3. Ensure the error response to the client includes a distinct error code (`INSUFFICIENT_BALANCE`) so the client can present appropriate UI without retrying with the same key.
 
 ---
 
-## Phase 2 — High Severity Fixes
+### FIX-H04: Fix overlapping `sort_order` in `seedSeasonPassMilestones`
 
----
+**Bugs fixed:** BUG-H04
 
-### Fix BUG-03 — `verifyRefreshToken` ignores `kid`
-
-**Files to change:**
-- `apps/web/lib/auth/jwt.ts`
+**File:** `apps/web/lib/seasons/seasonEngine.ts`
 
 **Steps:**
-1. Inside `verifyRefreshToken`, before calling `jwtVerify`, decode the JWT header with `decodeProtectedHeader(token)` (already imported via `jose`).
-2. Extract `kid` from the decoded header.
-3. Call `getSecretForKid(kid)` (or a dedicated `getRefreshSecretForKid` function if refresh keys are stored separately from access keys) to get the correct secret.
-4. Pass that secret to `jwtVerify` instead of calling `refreshSecret()` unconditionally.
-5. If `kid` is missing or not found in the registry, throw an appropriate auth error.
-6. Test: issue a refresh token with key K1, rotate to K2, confirm `verifyRefreshToken` still validates the K1 token correctly without logging the user out.
-
-**Risk:** Low. This is additive — adds a key lookup step. The only regression risk is if the key registry doesn't contain the refresh secret for historical tokens, which would already be a problem at rotation time.
+1. Change the paid-tier milestone seed to use `sort_order` values 6–10 (or any non-overlapping range).
+2. Alternatively, if the unique constraint on `season_pass_milestones` is scoped to `(season_id, tier, sort_order)`, then overlapping is fine as long as the unique index reflects that scope. Verify the constraint and adjust accordingly.
+3. Review any queries that sort milestones to ensure they filter by `tier` before applying `ORDER BY sort_order` if sort_order is tier-scoped.
 
 ---
 
-### Fix BUG-04 — Gift XP no `reference_id`
+### FIX-H05: Delete evicted `session:{sid}` Redis keys on eviction
 
-**Files to change:**
-- `apps/web/app/api/economy/gifts/send/route.ts`
+**Bugs fixed:** BUG-H05
+
+**File:** `apps/web/lib/auth/session.ts`
 
 **Steps:**
-1. Locate the `safeAwardXP` call inside the gift send handler.
-2. Pass the gift transaction ID or gift record ID as the `referenceId` parameter — e.g. `safeAwardXP(userId, xpAmount, 'social', 'send_gift', giftId)`.
-3. Ensure `giftId` is available at that point in the handler (it should be, since the gift record is inserted before XP is awarded).
-4. Verify the same deduplication approach for the recipient's XP award if one exists.
-
-**Risk:** Zero. Adding a non-null `referenceId` only enables deduplication — it cannot cause double-awards to be lost.
+1. Before calling `zremrangebyrank`, fetch the SIDs that will be removed using `redis.zrange(userSessionsKey(userId), 0, -(MAX_SESSIONS + 1))`.
+2. After `zremrangebyrank`, delete those session keys: `await redis.del(...evictedSids.map(sid => sessionKey(sid)))`. Use a pipeline for atomic efficiency: `const pipe = redis.pipeline(); evictedSids.forEach(sid => pipe.del(sessionKey(sid))); await pipe.exec()`.
+3. Add a unit test for the eviction path that verifies `session:{sid}` keys no longer exist in Redis after eviction.
 
 ---
 
-### Fix BUG-05 — CSRF blocks mobile auth POST mutations
+### FIX-H06: Wrap creator payout balance check and deduction in a transaction
 
-**Files to change:**
-- `apps/expo/lib/api/client.ts` (preferred fix)
+**Bugs fixed:** BUG-H06
+
+**File:** `apps/web/app/api/creator/payouts/route.ts`
 
 **Steps:**
-1. Add a default request header to the Axios instance: `'Origin': process.env.EXPO_PUBLIC_APP_URL`.
-2. Ensure `EXPO_PUBLIC_APP_URL` is set in the Expo `.env` / EAS environment and matches `NEXT_PUBLIC_APP_URL` used in the server's `isCsrfSafe()` check.
-3. Test: make a POST to `/api/auth/refresh` from the Expo app and confirm a 200 response (not 403).
-
-**Alternative (server-side):** If adding an Origin header to the Expo client is not feasible, add a carve-out in `isCsrfSafe()` for requests to `/api/auth/refresh` and `/api/auth/mobile-token` that carry a valid Bearer JWT — mobile clients are authenticated via the token, so the CSRF risk is already mitigated. This is a viable fallback but less clean than the client-side fix.
-
-**Risk:** Low. Adding an `Origin` header to mobile requests is standard practice. Verify the value matches the server-side check exactly (protocol + host, no trailing slash).
+1. Wrap the entire payout initiation sequence in `db.transaction(async (tx) => { ... })`:
+   - Move `SELECT ... FOR UPDATE` on `users.available_earnings_kobo` inside the transaction.
+   - Move the "existing pending payout" check inside the transaction.
+   - Move the payout INSERT and balance deduction UPDATE inside the transaction.
+2. The `FOR UPDATE` lock is now held until `COMMIT`, preventing concurrent requests from passing both checks simultaneously.
+3. Return appropriate error responses (`INSUFFICIENT_BALANCE`, `PAYOUT_ALREADY_PENDING`) from inside the transaction based on the locked reads.
 
 ---
 
-### Fix BUG-06 — `assignNemesis` not in transaction
+### FIX-H08: Add NaN guard to `aiClassifier.ts` score parsing
 
-**Files to change:**
-- `apps/web/lib/nemesis/nemesisEngine.ts`
+**Bugs fixed:** BUG-H08
+
+**File:** `apps/web/lib/moderation/aiClassifier.ts`
 
 **Steps:**
-1. Wrap the deactivation UPDATE and the new nemesis INSERT in a single `db.transaction(async (tx) => { ... })` call.
-2. Replace both `db.query(...)` calls inside the function with `tx.query(...)`.
-3. Ensure the transaction client type (`TransactionClient`) is compatible with the queries used.
-4. Test failure scenario: mock the INSERT to throw, verify the old nemesis relationship is not deactivated.
-
-**Risk:** Low. Wrapping in a transaction only makes the operation safer — it cannot break the happy path.
+1. After `const score = parseFloat(responseText)`, add: `if (!Number.isFinite(score)) throw new Error(\`Non-numeric moderation score: "${responseText.slice(0, 100)}"\`);`
+2. The circuit breaker will record the failure and activate the fallback provider (Gemini/DeepSeek), which is the correct escalation path.
+3. Optionally add a regex pre-check on `responseText` to extract a float if the LLM wraps the number in explanation text (e.g. `responseText.match(/\d+\.?\d*/)?.[0]`), but throwing on non-numeric is the safe default.
 
 ---
 
-### Fix BUG-07 — Referral commission kobo columns store coin counts
+### FIX-M01: Reject or restrict requests with unknown IP in rate limiter
 
-**Files to change:**
-- `apps/web/lib/referrals/commissions.ts`
+**Bugs fixed:** BUG-M01
+
+**File:** `apps/web/lib/security/rateLimit.ts`
 
 **Steps:**
-1. Identify the variable holding the actual Paystack payment amount in kobo (likely passed in from the webhook handler — e.g. `paymentAmountKobo`).
-2. In the commission INSERT, replace the `purchase_amount_kobo` parameter value with `paymentAmountKobo`.
-3. Compute `tier1CommissionKobo = Math.round(paymentAmountKobo * TIER1_RATE)` and `tier2CommissionKobo = Math.round(paymentAmountKobo * TIER2_RATE)`.
-4. Pass these computed values to `commission_kobo`.
-5. Leave `commission_coins` values unchanged — those are correct.
-6. If `paymentAmountKobo` is not available at the call site, trace back to the Paystack webhook event data where the amount is present (Paystack's event body has `data.amount` in kobo).
-7. Consider a one-time data migration to fix historical rows if monetary reporting matters for past records.
-
-**Risk:** Medium. Requires verifying the data flow from Paystack webhook → commission call. Test carefully to confirm `paymentAmountKobo` is the right variable and not off by any unit conversion.
+1. Change the unknown-IP fallback from `return { allowed: true }` to either:
+   - `return { allowed: false, remaining: 0, error: 'UNRESOLVABLE_IP' }` (safest — blocks the request), or
+   - Use a shared sentinel key `"ip:unknown"` with a very low quota (e.g. 5 req/min) so any requests without a resolvable IP share a single strict bucket.
+2. In the middleware or request handler, check `x-real-ip` as a fallback before `x-forwarded-for`.
+3. Ensure Vercel's edge config always injects the real client IP header.
 
 ---
 
-## Phase 3 — Medium Severity Fixes
+### FIX-M02: Add `Report-To` HTTP header for CSP endpoint
 
----
+**Bugs fixed:** BUG-M02
 
-### Fix BUG-08 — DB circuit breaker in-memory only
-
-**Files to change:**
-- `apps/web/lib/db/circuit.ts`
+**File:** `apps/web/middleware.ts` (`withCsp` helper function)
 
 **Steps:**
-1. Refactor `DatabaseCircuitBreaker` to use Redis for state storage, mirroring the `RedisCircuitBreaker` pattern in `apps/web/lib/payments/circuit.ts`.
-2. Use the same Lua atomic compare-and-set scripts to ensure consistent state transitions across serverless instances.
-3. Store state under a Redis key like `circuit:db:state`, with matching `circuit:db:failure_count` and `circuit:db:last_failure_time` keys.
-4. Update the `DatabaseCircuitBreaker` constructor to accept a Redis client and key prefix.
-5. Update wherever `DatabaseCircuitBreaker` is instantiated to pass the Redis client.
-6. Test: simulate DB failures across multiple instances and verify the circuit opens globally.
-
-**Risk:** Medium. Changing circuit breaker persistence affects operational behaviour. Test the open/half-open/closed transitions thoroughly. Ensure the Redis client used here is the same connected instance used elsewhere (avoid creating a second connection).
+1. In the `withCsp` function, after setting the `Content-Security-Policy` header, add:
+   ```
+   res.headers.set("Report-To", JSON.stringify({
+     group: "csp-endpoint",
+     max_age: 86400,
+     endpoints: [{ url: "/api/security/csp-report" }]
+   }));
+   ```
+2. This activates the Reporting API for Chrome/Firefox and modern Safari, while the existing `report-uri` directive continues to cover older browsers.
 
 ---
 
-### Fix BUG-09 — `img` tag in HTML sanitizer allowlist
+### FIX-M04: Add advisory lock to `distributeCreatorFund`
 
-**Files to change:**
-- `apps/web/lib/security/htmlSanitizer.ts`
+**Bugs fixed:** BUG-M04
+
+**File:** `apps/web/lib/creator/fund.ts`
 
 **Steps:**
-1. Remove `"img"` from the `ALLOWED_TAGS` set/array.
-2. Check all callers of the sanitizer to confirm none rely on `img` being allowed for a product feature.
-3. If inline images are a product requirement, implement a media upload endpoint and convert the UX to upload-then-embed (render via `/api/media/<id>`) rather than allowing arbitrary `src` URLs.
-4. Run existing sanitizer tests to confirm no regressions.
-
-**Risk:** Low. Removing a tag is purely restrictive. The only risk is breaking a product feature that actually uses `img` in rich text — verify with product before shipping.
+1. At the top of `distributeCreatorFund`, acquire a PostgreSQL advisory lock:
+   ```sql
+   SELECT pg_try_advisory_lock(hashtext('distributeCreatorFund'))
+   ```
+2. If the result is `false`, log and return early (another instance is running).
+3. Wrap the entire distribution logic in a `try/finally` block, releasing the lock in `finally`:
+   ```sql
+   SELECT pg_advisory_unlock(hashtext('distributeCreatorFund'))
+   ```
+4. This is the same pattern used in other CRON-sensitive operations in the codebase.
 
 ---
 
-### Fix BUG-10 — Table name interpolated in SQL
+### FIX-M05: Eliminate TOCTOU in mystery XP drop lifecycle
 
-**Files to change:**
-- `apps/web/lib/moderation/contentFilter.ts`
+**Bugs fixed:** BUG-M05
+
+**File:** `apps/web/lib/mystery/xpDrop.ts`
 
 **Steps:**
-1. Define an explicit allowlist: `const ALLOWED_CONTENT_TABLES = new Set(['messages', 'posts', 'comments'])` (add any other tables this function legitimately queries).
-2. At the top of the function, before building the query: `if (!ALLOWED_CONTENT_TABLES.has(table)) throw new Error(\`contentFilter: unknown table '${table}'\`)`.
-3. The interpolation itself can remain (the value is now guaranteed safe) — or switch to using `pg`/Drizzle identifier quoting for defense in depth.
-4. Review all call sites to ensure the `table` parameter is always a string literal at the call site, not a user-derived value.
-
-**Risk:** Zero. Adding an allowlist check before interpolation only hardens the code — no behaviour change on the happy path.
-
----
-
-### Fix BUG-11 — National leaderboard silent 'NG' default
-
-**Files to change:**
-- `apps/web/lib/leaderboards/engine.ts`
-
-**Steps:**
-1. Remove the `?? 'NG'` fallback on both the snapshot path (lines ~104–105) and the query path (lines ~183–184).
-2. Replace with an explicit guard: if `scope === 'national'` and `!options?.country`, throw `new Error('country is required for national leaderboard scope')`.
-3. Audit all call sites to either always pass a country or to handle the error gracefully.
-4. If the leaderboard API endpoint is user-facing, return a 400 with a clear error rather than throwing internally.
-
-**Risk:** Low. This is a correctness fix. Any callers that were relying on the silent 'NG' default will now fail loudly — which is the desired behaviour; they need to be updated to pass an explicit country.
+1. Replace the two-step "check eligibility → award XP" pattern with a single atomic CTE:
+   ```sql
+   WITH claim AS (
+     UPDATE mystery_xp_drops
+     SET awarded_at = NOW()
+     WHERE id = $1 AND awarded_at IS NULL
+     RETURNING id, user_id, amount
+   )
+   INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, ...)
+   SELECT user_id, amount, 'main', 'mystery_drop', id::text, ...
+   FROM claim
+   ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
+   ```
+2. This makes the eligibility check (the `WHERE awarded_at IS NULL` UPDATE) and the XP ledger INSERT atomic. Only one concurrent caller will get a row back from the CTE; the other sees 0 rows and inserts nothing.
+3. Requires BUG-C04 and BUG-C05 schema fixes to be in place first so the `ON CONFLICT` index exists.
 
 ---
 
-### Fix BUG-12 — `learningCertificates` duplicate column pairs
+## Phase 3 — Verification Checklist
 
-**Files to change:**
-- `apps/web/lib/db/schema.ts`
-- New migration file
+After all fixes are applied:
 
-**Steps:**
-1. Determine the canonical column names for each pair. Suggested: `roomId`, `recipientUserId`, `issuerUserId`.
-2. Generate a migration that:
-   - Copies non-null data from legacy columns to canonical ones where canonical is null.
-   - Drops the unique index on the legacy column if present.
-   - Adds the unique index to the canonical column.
-   - Drops the legacy columns (`classroomRoomId`, `studentId`, `issuerId`).
-3. Update all query sites in the codebase to reference only the canonical column names.
-4. Update the Drizzle schema definition to remove the legacy column declarations.
-
-**Risk:** Medium. Schema migration with data movement. Run in a transaction. Take a backup before applying. Verify row counts before and after.
-
----
-
-## Phase 4 — Low Severity Fixes (schema cleanup)
-
-These can be batched into a single "schema cleanup" PR/migration.
+- [ ] Run the full Drizzle migration set on a staging database and verify no errors
+- [ ] Confirm `xp_ledger` UNIQUE partial index exists in staging DB via `\d xp_ledger`
+- [ ] Confirm `notifications.reference_id` column exists and unique index is active
+- [ ] Confirm `guild_members.left_at` column exists
+- [ ] Confirm `payout_dead_letter_queue` unique constraint on `payout_id` exists
+- [ ] Confirm `guild_tier_history` unique constraint on `(guild_id, season_id)` exists
+- [ ] Send a duplicate gift request and verify XP is awarded exactly once
+- [ ] Trigger a flash XP event and verify the notification is delivered
+- [ ] Simulate concurrent payout requests and verify only one succeeds
+- [ ] Check Redis after session eviction to confirm old `session:{sid}` keys are gone
+- [ ] Send a request with no `x-forwarded-for` header and verify rate limiter blocks it
+- [ ] Inspect response headers for CSP-protected routes and confirm `Report-To` header is present
+- [ ] Send a non-numeric string to the AI classifier test endpoint and confirm it is rejected (not silently passed)
 
 ---
 
-### Fix BUG-13 — `userBadges` awardedAt vs grantedAt
-
-**Steps:**
-1. Migration: `UPDATE user_badges SET awarded_at = granted_at WHERE awarded_at IS NULL AND granted_at IS NOT NULL`.
-2. Drop `granted_at` column.
-3. Update schema and any query sites referencing `grantedAt`.
-
----
-
-### Fix BUG-14 — Dual reports tables
-
-**Steps:**
-1. Decide canonical table (recommend `reports` since the trust score queries it).
-2. Migrate any rows from `moderationReports` that are not already in `reports`.
-3. Update all moderation tooling to query `reports`.
-4. Drop `moderationReports`.
-5. If the two tables genuinely serve different purposes, rename them unambiguously (e.g. `user_reports` vs `admin_reports`) and document the distinction clearly in the schema file.
-
----
-
-### Fix BUG-15 — `starBalance` integer overflow risk
-
-**Steps:**
-1. `ALTER TABLE users ALTER COLUMN star_balance TYPE bigint;`
-2. Update Drizzle schema: `bigint('star_balance', { mode: 'number' })` or `bigint('star_balance')`.
-3. Generate and apply migration.
-
----
-
-### Fix BUG-16 — `moderationActions` duplicate columns
-
-**Steps:**
-1. Canonical columns: `moderatorId`, `actionType`, `reason`.
-2. Migration: copy non-null values from `actionedBy` → `moderatorId`, `action` → `actionType`, `note` → `reason` where canonical is null.
-3. Drop `actionedBy`, `action`, `note`.
-4. Update schema and all query sites.
-
----
-
-### Fix BUG-17 — `sponsoredQuests` dual reward coin columns
-
-**Steps:**
-1. Keep `rewardCoins`.
-2. Migration: `UPDATE sponsored_quests SET reward_coins = reward_amount_coins WHERE reward_coins IS NULL AND reward_amount_coins IS NOT NULL`.
-3. Drop `rewardAmountCoins`.
-4. Update schema and all query sites.
-
----
-
-### Fix BUG-18 — Redundant status update in guild wars CRON
-
-**Files to change:**
-- `apps/web/app/api/cron/guild-wars/route.ts`
-
-**Steps:**
-1. Delete the `UPDATE guild_wars SET status = 'completed' WHERE id = $1` query that runs after `resolveWar(war.id, db)`.
-2. Add a comment near the `resolveWar` call noting that `resolveWar` sets `status = 'completed'` internally.
-
-**Risk:** Zero. This is dead code removal.
-
----
-
-### Fix BUG-19 — `compareNemesisProgress` no throw on unknown track
-
-**Files to change:**
-- `apps/web/lib/nemesis/nemesisEngine.ts`
-
-**Steps:**
-1. Import or inline the same `TRACK_COLUMN` map used in `safeAwardXP`.
-2. Resolve `col = TRACK_COLUMN[track]`.
-3. Add the allowlist guard: `if (!new Set(Object.values(TRACK_COLUMN)).has(col)) throw new Error(...)`.
-4. Remove the `?? "xp_total"` fallback.
-
----
-
-### Fix BUG-20 — `giftItems` coinPrice vs coinCost
-
-**Steps:**
-1. Keep `coinCost` (aligns with the "cost" naming convention for buyer-facing prices).
-2. Migration: `UPDATE gift_items SET coin_cost = coin_price WHERE coin_cost IS NULL AND coin_price IS NOT NULL`.
-3. Drop `coinPrice`.
-4. Update schema and all query sites.
-
----
-
-## Suggested Execution Batches
-
-| Batch | Bugs | Description |
-|-------|------|-------------|
-| **Hotfix** | BUG-01, BUG-02 | Critical — ship immediately; no schema change needed for BUG-01, fast index for BUG-02 |
-| **Auth & Security** | BUG-03, BUG-05, BUG-09, BUG-10 | Security hardening; all low-risk file-level changes |
-| **Economy & XP** | BUG-04, BUG-07 | Economy correctness; verify with Paystack data before shipping BUG-07 |
-| **Atomicity** | BUG-06, BUG-08 | Transactional correctness; BUG-08 needs Redis client plumbing |
-| **Leaderboards** | BUG-11, BUG-19 | Correctness fixes; audit call sites |
-| **Schema Cleanup** | BUG-12, BUG-13, BUG-14, BUG-15, BUG-16, BUG-17, BUG-18, BUG-20 | Single migration PR; lower risk but requires backup |
-
----
-
-*Plan generated: 2026-06-15 at 12:00 PM*
-*Analyst: Claude (claude-sonnet-4-6) — Zobia forensic bug fix plan*
-*DO NOT implement until this plan has been reviewed and approved.*
+*Plan generated: 2026-06-15 10:24 PM UTC*  
+*Analyst: Claude (claude-sonnet-4-6) — Zobia Forensic Code Review*
