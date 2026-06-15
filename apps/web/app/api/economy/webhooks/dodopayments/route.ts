@@ -142,9 +142,8 @@ async function processPaymentSucceeded(
         { paymentId, metadata }
       );
       await tx.query(
-        `INSERT INTO failed_webhooks (provider, event_type, payload, reason, created_at)
-         VALUES ('dodopayments', 'payment.succeeded', $1::jsonb, $2, NOW())
-         ON CONFLICT DO NOTHING`,
+        `INSERT INTO failed_webhooks (provider, event_type, payload, error, created_at)
+         VALUES ('dodopayments', 'payment.succeeded', $1::jsonb, $2, NOW())`,
         [JSON.stringify({ paymentId, metadata }), 'coin_pack_zero_grant']
       ).catch(() => {});
       return;
@@ -248,11 +247,11 @@ async function processPaymentSucceeded(
     if (itemType === "subscription") {
       const planName = metadata.planName ?? "pro";
 
-      // Write to user_subscriptions (canonical table) — BUG-04
+      // Write to subscriptions (canonical table) — B-12
       await tx.query(
-        `INSERT INTO user_subscriptions
+        `INSERT INTO subscriptions
            (user_id, plan, status, provider, provider_subscription_id, starts_at, ends_at, created_at, updated_at)
-         VALUES ($1, $2, 'active', 'dodopayments', $3, NOW(), NOW() + (INTERVAL '1 month'), NOW(), NOW())
+         VALUES ($1, $2, 'active', 'dodopayments', $3, NOW(), NOW() + INTERVAL '1 month', NOW(), NOW())
          ON CONFLICT (user_id) DO UPDATE
            SET plan = $2, status = 'active', provider = 'dodopayments',
                provider_subscription_id = $3, updated_at = NOW()`,

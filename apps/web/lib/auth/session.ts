@@ -35,7 +35,7 @@ import { randomUUID, createHash } from "crypto";
 export interface SessionRecord {
   uid: string;
   sid: string;
-  email: string;
+  email: string | null;
   username: string;
   is_admin: boolean;
   adminSession?: boolean;
@@ -81,7 +81,7 @@ const userSessionsKey = (uid: string) => `user_sessions:${uid}`;
 export async function createSession(
   user: {
     id: string;
-    email: string;
+    email: string | null;
     username: string;
     is_admin: boolean;
   },
@@ -95,7 +95,7 @@ export async function createSession(
   const [accessToken, refreshToken] = await Promise.all([
     signAccessToken({
       sub: user.id,
-      email: user.email,
+      email: user.email ?? "",
       username: user.username,
       is_admin: user.is_admin,
       sid,
@@ -155,7 +155,7 @@ export async function createSession(
  */
 export async function rotateSession(
   oldSid: string | null,
-  user: { id: string; email: string; username: string; is_admin: boolean },
+  user: { id: string; email: string | null; username: string; is_admin: boolean },
   options: { ip?: string; ua?: string; adminSession?: boolean } = {}
 ): Promise<AuthTokens> {
   // Invalidate the old session before creating the new one

@@ -94,7 +94,7 @@ export async function advanceFlashXPLifecycle(): Promise<FlashXPLifecycleResult>
          FROM users
          WHERE deleted_at IS NULL
            AND last_active_at > NOW() - INTERVAL '30 days'
-         ON CONFLICT DO NOTHING`,
+         ON CONFLICT (user_id, type, reference_id) DO NOTHING`,
         [
           JSON.stringify({
             eventId: evt.id,
@@ -143,7 +143,7 @@ export async function advanceFlashXPLifecycle(): Promise<FlashXPLifecycleResult>
          FROM users
          WHERE deleted_at IS NULL
            AND last_active_at > NOW() - INTERVAL '7 days'
-         ON CONFLICT DO NOTHING`,
+         ON CONFLICT (user_id, type, reference_id) DO NOTHING`,
         [
           JSON.stringify({
             eventId: evt.id,

@@ -263,15 +263,6 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       ? rawProvider
       : "paystack";
 
-  // Helper that checks the canonical key first, then legacy fallback keys
-  const feat = (canonical: string, ...legacyKeys: string[]) => {
-    const keys = [canonical, ...legacyKeys];
-    for (const k of keys) {
-      if (k in kv) return parseBool(kv[k], DEFAULT_MANIFEST.features[canonical.replace("feature_", "") as keyof typeof DEFAULT_MANIFEST.features] as boolean ?? true);
-    }
-    return DEFAULT_MANIFEST.features[canonical.replace("feature_", "") as keyof typeof DEFAULT_MANIFEST.features] as boolean ?? true;
-  };
-
   return {
     features: {
       rooms:            parseBool(kv["feature_rooms"]            ?? "true",  DEFAULT_MANIFEST.features.rooms),

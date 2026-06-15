@@ -18,7 +18,6 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import crypto from "crypto";
 import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
 import { withAuth, validateBody } from "@/lib/api/middleware";
@@ -26,108 +25,14 @@ import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getManifestValue } from "@/lib/manifest";
 import { encryptField } from "@/lib/security/fieldEncryption";
+import { verifyTotp, generateTotpSecret } from "@/lib/auth/totp";
 
 // ---------------------------------------------------------------------------
-// TOTP helpers (manual HMAC-SHA1 implementation — no external library needed)
-// ---------------------------------------------------------------------------
-
-/**
- * Decode a Base32-encoded string to a Uint8Array.
- * Supports standard RFC 4648 Base32 alphabet (A-Z, 2-7).
- */
-function base32Decode(input: string): Uint8Array {
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-  const str = input.toUpperCase().replace(/=+$/, "");
-  const bytes: number[] = [];
-  let bits = 0;
-  let value = 0;
-  for (const char of str) {
-    const idx = alphabet.indexOf(char);
-    if (idx === -1) continue;
-    value = (value << 5) | idx;
-    bits += 5;
-    if (bits >= 8) {
-      bytes.push((value >>> (bits - 8)) & 0xff);
-      bits -= 8;
-    }
-  }
-  return new Uint8Array(bytes);
-}
-
-/**
- * Encode a buffer as Base32 (RFC 4648, no padding).
- */
-function base32Encode(buf: Buffer): string {
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-  let bits = 0;
-  let value = 0;
-  let output = "";
-  for (const byte of buf) {
-    value = (value << 8) | byte;
-    bits += 8;
-    while (bits >= 5) {
-      output += alphabet[(value >>> (bits - 5)) & 31];
-      bits -= 5;
-    }
-  }
-  if (bits > 0) {
-    output += alphabet[(value << (5 - bits)) & 31];
-  }
-  return output;
-}
-
-/**
- * Generate a TOTP code for the given Base32-encoded secret and counter (TOTP window).
- * Uses RFC 6238: HOTP with time step of 30 seconds.
- */
-function generateTOTP(secret: string, counter?: number): string {
-  const timeStep = 30;
-  const t = counter ?? Math.floor(Date.now() / 1000 / timeStep);
-
-  const buf = Buffer.alloc(8);
-  let tmp = t;
-  for (let i = 7; i >= 0; i--) {
-    buf[i] = tmp & 0xff;
-    tmp >>= 8;
-  }
-
-  const key = Buffer.from(base32Decode(secret));
-  const hmac = crypto.createHmac("sha1", key).update(buf).digest();
-  const offset = hmac[hmac.length - 1] & 0x0f;
-  const code =
-    ((hmac[offset] & 0x7f) << 24) |
-    ((hmac[offset + 1] & 0xff) << 16) |
-    ((hmac[offset + 2] & 0xff) << 8) |
-    (hmac[offset + 3] & 0xff);
-
-  return String(code % 1_000_000).padStart(6, "0");
-}
-
-/**
- * Verify a 6-digit TOTP code against a secret.
- * Accepts a 1-window drift in both directions (±30 seconds).
- */
-function verifyTOTP(secret: string, code: string): boolean {
-  const timeStep = 30;
-  const t = Math.floor(Date.now() / 1000 / timeStep);
-  for (const drift of [-1, 0, 1]) {
-    if (generateTOTP(secret, t + drift) === code) return true;
-  }
-  return false;
-}
-
-/**
- * Generate a random 20-byte Base32-encoded TOTP secret.
- */
-function generateTOTPSecret(): string {
-  return base32Encode(crypto.randomBytes(20));
-}
-
-// ---------------------------------------------------------------------------
-// Redis key helper
+// Redis key helpers
 // ---------------------------------------------------------------------------
 
 const pendingTotpKey = (userId: string) => `totp:pending:${userId}`;
+const usedTotpKey = (userId: string, code: string) => `totp:used:${userId}:${code}`;
 
 // ---------------------------------------------------------------------------
 // GET /api/auth/2fa/setup
@@ -149,7 +54,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
       );
     }
 
-    const secret = generateTOTPSecret();
+    const secret = generateTotpSecret();
     const userId = auth.user.sub;
 
     // Fetch username for the QR code label
@@ -203,14 +108,23 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const { code } = await validateBody(req, confirmSchema);
     const userId = auth.user.sub;
 
+    // Replay protection: reject codes that were already used in the last 90s (S-04)
+    const alreadyUsed = await redis.get(usedTotpKey(userId, code));
+    if (alreadyUsed) {
+      throw badRequest("TOTP code already used. Please wait for a new code.", "TOTP_REPLAY");
+    }
+
     const pendingSecret = await redis.get(pendingTotpKey(userId));
     if (!pendingSecret) {
       throw badRequest("No pending 2FA setup found. Please restart the setup process.", "TOTP_NO_PENDING");
     }
 
-    if (!verifyTOTP(pendingSecret, code)) {
+    if (!verifyTotp(pendingSecret, code)) {
       throw badRequest("Invalid TOTP code. Please try again.", "TOTP_INVALID_CODE");
     }
+
+    // Mark code as used to prevent replay (90s covers the TOTP window)
+    await redis.set(usedTotpKey(userId, code), "1", "EX", 90);
 
     // Persist secret and enable TOTP
     await db.query(

@@ -33,6 +33,7 @@ import { badRequest, forbidden, notFound, handleApiError } from "@/lib/api/error
 import { db } from "@/lib/db";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { encryptField, decryptField } from "@/lib/security/fieldEncryption";
+import { verifyTotp } from "@/lib/auth/totp";
 import { resolveAccount, createTransferRecipient } from "@/lib/payments/paystack";
 import { getBankByCode } from "@/lib/payments/supported-banks";
 import { loadManifest } from "@/lib/manifest";
@@ -133,7 +134,11 @@ async function verifySecurityGate(
     }
 
     if (!verified && hasTotp && /^\d{6}$/.test(pinOrCode)) {
-      verified = verifyTotp(row!.totp_secret!, pinOrCode);
+      // Decrypt the stored AES-256-GCM secret before TOTP verification (B-02)
+      const plainSecret = decryptField(row!.totp_secret!);
+      if (plainSecret) {
+        verified = verifyTotp(plainSecret, pinOrCode);
+      }
     }
 
     if (!verified && hasPassword) {
@@ -146,47 +151,6 @@ async function verifySecurityGate(
   }
 
   return hasAnyAuth;
-}
-
-/** Simple TOTP verification (±1 window). */
-function verifyTotp(secret: string, code: string): boolean {
-  try {
-    const { createHmac } = require("crypto");
-    const base32Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-    let bits = 0;
-    let bitsLen = 0;
-    const bytes: number[] = [];
-    for (const c of secret.toUpperCase().replace(/=+$/, "")) {
-      const val = base32Chars.indexOf(c);
-      if (val === -1) continue;
-      bits = (bits << 5) | val;
-      bitsLen += 5;
-      if (bitsLen >= 8) {
-        bytes.push((bits >> (bitsLen - 8)) & 0xff);
-        bitsLen -= 8;
-      }
-    }
-    const keyBuf = Buffer.from(bytes);
-    const now = Math.floor(Date.now() / 1000 / 30);
-    for (const offset of [-1, 0, 1]) {
-      const counter = now + offset;
-      const buf = Buffer.alloc(8);
-      buf.writeUInt32BE(Math.floor(counter / 0x100000000), 0);
-      buf.writeUInt32BE(counter >>> 0, 4);
-      const hmac = createHmac("sha1", keyBuf).update(buf).digest();
-      const offset2 = hmac[hmac.length - 1] & 0x0f;
-      const hotp =
-        (((hmac[offset2] & 0x7f) << 24) |
-          ((hmac[offset2 + 1] & 0xff) << 16) |
-          ((hmac[offset2 + 2] & 0xff) << 8) |
-          (hmac[offset2 + 3] & 0xff)) %
-        1_000_000;
-      if (hotp.toString().padStart(6, "0") === code) return true;
-    }
-    return false;
-  } catch {
-    return false;
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -330,7 +294,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       await db
         .query(
           `INSERT INTO xp_ledger
-             (user_id, amount, track, action, reference_id, created_at)
+             (user_id, amount, track, source, reference_id, created_at)
            VALUES ($1, $2, 'main', 'bank_account_added', $3, NOW()),
                   ($1, $4, 'creator', 'bank_account_added', $3, NOW())`,
           [userId, mainXp, `bank_account:${userId}`, creatorXp]
@@ -340,7 +304,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       await db
         .query(
           `UPDATE users
-           SET xp = xp + $1, updated_at = NOW()
+           SET xp_total = xp_total + $1, updated_at = NOW()
            WHERE id = $2`,
           [mainXp, userId]
         )

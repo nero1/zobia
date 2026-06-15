@@ -18,6 +18,7 @@
  */
 
 import { promises as dns } from "dns";
+import { Agent as UndiciAgent, fetch as undiciFetch } from "undici";
 
 // ---------------------------------------------------------------------------
 // Private IP ranges (CIDR notation as tuple pairs for fast comparison)
@@ -182,6 +183,8 @@ export interface ValidatedUrl {
   originalHostname: string;
   /** The parsed original URL (for allowlist checks etc.). */
   parsed: URL;
+  /** The resolved and validated IPv4 address to pin fetch() to. */
+  pinnedIp: string;
 }
 
 /**
@@ -247,6 +250,7 @@ export async function validateOutboundUrl(rawUrl: string): Promise<ValidatedUrl>
     fetchUrl,
     originalHostname: hostname,
     parsed,
+    pinnedIp,
   };
 }
 
@@ -296,7 +300,7 @@ export async function safeFetch(
   }
 
   // BUG-19 fix: resolve + validate hostname once, get pinned IP
-  const { fetchUrl, originalHostname, parsed } = await validateOutboundUrl(url);
+  const { parsed, pinnedIp } = await validateOutboundUrl(url);
 
   if (options?.requireAllowlist) {
     const allowed = HOSTNAME_ALLOWLIST.some(
@@ -308,29 +312,37 @@ export async function safeFetch(
   }
 
   const callerHeaders = new Headers((init?.headers as HeadersInit | undefined) ?? {});
-  // Set the Host header to the original hostname so that TLS SNI and virtual
-  // hosting resolve correctly even though the URL contains the pinned IP.
-  if (!callerHeaders.has("Host")) {
-    callerHeaders.set("Host", originalHostname);
-  }
+
+  // Create an undici Agent that intercepts DNS for this hostname and returns
+  // the pinned IP, preventing a second DNS lookup (DNS rebinding TOCTOU) while
+  // keeping the original URL so TLS SNI uses the correct hostname (S-02).
+  const pinnedAgent = new UndiciAgent({
+    connect: {
+      lookup(_hostname: string, _options: unknown, callback: (err: Error | null, address: string, family: number) => void) {
+        callback(null, pinnedIp, 4);
+      },
+    },
+  });
 
   // Disable automatic redirect following — we validate each hop
-  const response = await fetch(fetchUrl, {
+  const response = await (undiciFetch as unknown as typeof fetch)(url, {
     ...init,
     headers: callerHeaders,
     redirect: "manual",
-  });
+    // @ts-expect-error undici dispatcher option
+    dispatcher: pinnedAgent,
+  }) as Response;
 
   // Handle redirects manually to prevent SSRF via 302.
-  // BUG-19 fix: each redirect target is re-validated by the recursive call to
-  // safeFetch, which will resolve + validate DNS afresh for the new hostname.
+  // Each redirect target is re-validated by the recursive call to safeFetch,
+  // which will resolve + validate DNS afresh for the new hostname.
   if (response.status >= 300 && response.status < 400) {
     const location = response.headers.get("location");
     if (!location) {
       throw new SSRFError("Redirect without Location header");
     }
-    // Resolve relative redirects against the original (non-pinned) URL so the
-    // hostname is correctly preserved for re-validation.
+    // Resolve relative redirects against the original URL so the hostname is
+    // correctly preserved for re-validation.
     const redirectUrl = new URL(location, url).toString();
     return safeFetch(redirectUrl, init, { ...options, _hops: hops + 1 });
   }

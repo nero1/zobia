@@ -452,7 +452,6 @@ export type CoinTransactionType =
   | 'replay_access'
   | 'cosmetic_purchase'
   | 'friend_gift'
-  | 'gift_received'
   | 'star_purchase'
   | 'payout_request'
   | 'coin_balance_adjustment'

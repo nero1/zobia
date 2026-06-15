@@ -119,9 +119,12 @@ const DB_USERNAME_MAX_LENGTH = 30;
 
 /** Find a unique username by appending a numeric suffix if the base is taken. */
 async function uniqueUsername(base: string): Promise<string> {
+  // Use exact match + numeric-suffix pattern to avoid over-fetching unrelated usernames (L-06)
   const { rows } = await db.query<{ username: string }>(
-    `SELECT username FROM users WHERE username LIKE $1 AND deleted_at IS NULL`,
-    [`${base}%`]
+    `SELECT username FROM users
+     WHERE (username = $1 OR username ~ ('^' || $1 || '[0-9]+$'))
+       AND deleted_at IS NULL`,
+    [base]
   );
   const taken = new Set(rows.map((r) => r.username));
   if (!taken.has(base)) return base;
@@ -130,8 +133,8 @@ async function uniqueUsername(base: string): Promise<string> {
     const candidate = `${base.slice(0, DB_USERNAME_MAX_LENGTH - suffix.length)}${suffix}`;
     if (!taken.has(candidate)) return candidate;
   }
-  // Last-resort fallback: 4-char random suffix, sliced to fit (BUG-58)
-  const suffix = Math.random().toString(36).slice(2, 6); // 4 char suffix
+  // Last-resort fallback: 4-char random suffix, sliced to fit
+  const suffix = Math.random().toString(36).slice(2, 6);
   return `${base.slice(0, DB_USERNAME_MAX_LENGTH - suffix.length)}${suffix}`;
 }
 

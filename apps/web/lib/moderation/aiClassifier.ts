@@ -44,8 +44,8 @@ export interface ClassificationResult {
    * Does NOT automatically execute — a human must approve.
    */
   recommendation: ModerationRecommendation;
-  /** Which AI provider produced this result. */
-  provider: "deepseek" | "gemini";
+  /** Which AI provider produced this result. "none" means both providers failed. */
+  provider: "deepseek" | "gemini" | "none";
 }
 
 /** Canonical categories stored in the moderation_reports table. */
@@ -197,7 +197,7 @@ function parseClassificationResponse(
   return { category, confidence, recommendation, provider };
 }
 
-function fallbackResult(provider: "deepseek" | "gemini"): ClassificationResult {
+function fallbackResult(provider: "deepseek" | "gemini" | "none"): ClassificationResult {
   return {
     category: "other",
     confidence: 0.3,
@@ -265,6 +265,6 @@ Classify this report according to your instructions.`;
     return parseClassificationResponse(response.content, "deepseek");
   } catch (err) {
     console.error("[aiClassifier] AI classify failed:", err);
-    return fallbackResult("gemini");
+    return fallbackResult("none");
   }
 }

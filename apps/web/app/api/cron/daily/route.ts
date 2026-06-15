@@ -667,10 +667,10 @@ export const GET = async (req: NextRequest) => {
 
   // 13. "The Patron" badge — award to users who are top gifter in 3+ rooms in last 24h
   try {
-    // Find users who are the top gifter (by coin_value) in 3+ rooms in the last 24 hours
+    // Find users who are the top gifter (by coin_cost) in 3+ rooms in the last 24 hours
     const { rows: patronCandidates } = await db.query<{ user_id: string; room_count: string }>(
       `WITH room_totals AS (
-         SELECT room_id, sender_id, SUM(coin_value) AS total_coins
+         SELECT room_id, sender_id, SUM(coin_cost) AS total_coins
          FROM gifts
          WHERE created_at >= NOW() - INTERVAL '24 hours'
            AND room_id IS NOT NULL
@@ -1409,7 +1409,7 @@ export const GET = async (req: NextRequest) => {
                         'plan:' || id::text || ':' || $4,
                         $3, NOW()
                  FROM eligible
-                 ON CONFLICT (reference_id) DO NOTHING
+                 ON CONFLICT (transaction_type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
                  RETURNING user_id
                )
                UPDATE users

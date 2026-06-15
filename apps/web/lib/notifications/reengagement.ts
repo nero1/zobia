@@ -183,7 +183,7 @@ const REENGAGEMENT_BUCKETS: Array<{
       },
       {
         title: "Your old friends are still here",
-        body: "Your friends are still here — come see what you've missed!",
+        body: "So much has happened since you left. Come back and catch up with your crew!",
         action: "/friends",
       },
     ],
