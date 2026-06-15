@@ -172,15 +172,22 @@ export async function findWarOpponent(
     Date.now() - WAR_COOLDOWN_HOURS * 60 * 60 * 1000
   ).toISOString();
 
-  // Try same-city first, then any city
+  // Build the busy guild exclusion list for use in the SQL query.
+  // Using = ALL with an empty array is always TRUE in PostgreSQL, so we can
+  // always pass busyGuildIds as $4 without conditionally changing the query.
+  const busyGuildIds = [...busyGuilds];
+
+  // Try same-city first, then any city — exclusions are in the SQL so LIMIT 5
+  // applies to post-filtered eligible opponents (WAR-LIMIT-01).
   for (const cityFilter of [true, false]) {
     const conditions = [
       `g.is_active = TRUE`,
       `g.guild_xp BETWEEN $1 AND $2`,
       `(g.last_war_ended_at IS NULL OR g.last_war_ended_at < $3)`,
+      `g.id != ALL($4::uuid[])`,
     ];
-    const params: (string | number)[] = [minXP, maxXP, cooldownCutoff];
-    let paramIdx = 4;
+    const params: (string | number | string[])[] = [minXP, maxXP, cooldownCutoff, busyGuildIds];
+    let paramIdx = 5;
 
     if (cityFilter && self.city) {
       conditions.push(`g.city = $${paramIdx++}`);
@@ -191,13 +198,12 @@ export async function findWarOpponent(
       `SELECT g.id FROM guilds g
        WHERE ${conditions.join(" AND ")}
        ORDER BY ABS(g.guild_xp - $${paramIdx}) ASC
-       LIMIT 20`,
+       LIMIT 5`,
       [...params, self.guild_xp]
     );
 
-    const candidates = candidateResult.rows.filter((r) => !busyGuilds.has(r.id));
-    if (candidates.length > 0) {
-      return candidates[0].id;
+    if (candidateResult.rows.length > 0) {
+      return candidateResult.rows[0].id;
     }
   }
 

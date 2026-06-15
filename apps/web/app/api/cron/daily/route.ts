@@ -179,7 +179,7 @@ export const GET = async (req: NextRequest) => {
          INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, created_at)
          SELECT id, $1, 'main', 'daily_login', $1, NOW()
          FROM users
-         WHERE last_login_date = CURRENT_DATE
+         WHERE DATE(last_login_at AT TIME ZONE 'UTC') = CURRENT_DATE
            AND deleted_at IS NULL
            AND NOT EXISTS (
              SELECT 1 FROM xp_ledger
@@ -1802,17 +1802,28 @@ export const GET = async (req: NextRequest) => {
       const track = match[1];  // e.g. "social"
       const level = parseInt(match[2], 10);
 
-      // Find users who have reached this track level but don't have this pack
+      // Find users who have reached this track level but don't have this pack.
+      // Track XP and levels are stored directly on the users table (xp_social, level_social, etc.)
+      const trackLevelColumn: Record<string, string> = {
+        social:      "level_social",
+        creator:     "level_creator",
+        competitor:  "level_competitor",
+        generosity:  "level_generosity",
+        knowledge:   "level_knowledge",
+        explorer:    "level_explorer",
+      };
+      const levelCol = trackLevelColumn[track];
+      if (!levelCol) continue;
       const { rows: eligible } = await db.query<{ user_id: string }>(
-        `SELECT uxp.user_id
-         FROM user_xp_tracks uxp
-         WHERE uxp.track = $1
-           AND uxp.current_level >= $2
+        `SELECT u.id AS user_id
+         FROM users u
+         WHERE u.${levelCol} >= $1
+           AND u.deleted_at IS NULL
            AND NOT EXISTS (
              SELECT 1 FROM user_sticker_packs usp
-             WHERE usp.user_id = uxp.user_id AND usp.pack_id = $3
+             WHERE usp.user_id = u.id AND usp.pack_id = $2
            )`,
-        [track, level, pack.id]
+        [level, pack.id]
       );
 
       for (const row of eligible) {
@@ -2128,27 +2139,25 @@ export const GET = async (req: NextRequest) => {
           [winnerId]
         ).catch(() => {});
 
-        // Award victory XP to all members of winning alliance (BUG-09: also update xp_competitor)
-        await db.query(
-          `UPDATE users SET xp_total = xp_total + $1, xp_competitor = xp_competitor + $1, updated_at = NOW()
-           WHERE id IN (
-             SELECT DISTINCT gm.user_id
-             FROM guild_members gm
-             JOIN guild_alliance_members gam ON gam.guild_id = gm.guild_id
-             WHERE gam.alliance_id = $2 AND gm.left_at IS NULL
-           )`,
-          [ALLIANCE_WAR_VICTORY_XP, winnerId]
-        ).catch(() => {});
-
-        // Insert xp_ledger audit rows for alliance war victory (BUG-09: missing audit trail)
-        await db.query(
-          `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
-           SELECT DISTINCT gm.user_id, $1, 'competitor', 'alliance_war_victory', $2, $1, NOW()
+        // Award victory XP to all members of winning alliance using safeAwardXP for
+        // atomicity and idempotency (per-user reference_id prevents double-award on retry).
+        const { rows: warWinners } = await db.query<{ user_id: string }>(
+          `SELECT DISTINCT gm.user_id
            FROM guild_members gm
            JOIN guild_alliance_members gam ON gam.guild_id = gm.guild_id
-           WHERE gam.alliance_id = $3 AND gm.left_at IS NULL`,
-          [ALLIANCE_WAR_VICTORY_XP, war.id, winnerId]
-        ).catch(() => {});
+           WHERE gam.alliance_id = $1 AND gm.left_at IS NULL`,
+          [winnerId]
+        );
+        const { safeAwardXP } = await import("@/lib/xp/safeAwardXP");
+        for (const winner of warWinners) {
+          await safeAwardXP(
+            winner.user_id,
+            ALLIANCE_WAR_VICTORY_XP,
+            "competitor",
+            "alliance_war_victory",
+            `war_${war.id}_participant_${winner.user_id}`
+          ).catch(() => {});
+        }
 
         // Notify all members of both alliances about the war result
         await db.query(
@@ -2236,13 +2245,18 @@ export const GET = async (req: NextRequest) => {
                 }
               : null;
 
+            const PLATFORM_FEE_RATE = 0.10;
+            const grossKobo = candidate.balance_kobo;
+            const platformFeeKobo = Math.round(grossKobo * PLATFORM_FEE_RATE);
+            const netKobo = grossKobo - platformFeeKobo;
+
             await tx.query(
               `INSERT INTO creator_payouts
-                 (creator_id, net_kobo, gross_kobo, status, idempotency_key,
+                 (creator_id, net_kobo, gross_kobo, platform_fee_kobo, status, idempotency_key,
                   bank_account_snapshot, created_at)
-               VALUES ($1, $2, $2, $3, $4, $5, NOW())
+               VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
                ON CONFLICT (idempotency_key) DO NOTHING`,
-              [candidate.creator_id, candidate.balance_kobo, status, idempotencyKey,
+              [candidate.creator_id, netKobo, grossKobo, platformFeeKobo, status, idempotencyKey,
                bankSnapshot ? JSON.stringify(bankSnapshot) : null]
             );
           });
@@ -2270,7 +2284,9 @@ export const GET = async (req: NextRequest) => {
     const qualifyingAction = qualifyingActionStr ?? "coin_purchase";
 
     if (qualifyingAction === "login_streak_7" || qualifyingAction === "both") {
-      // Find unqualified Tier 1 referrals where referred user has streak >= 7
+      // Find unqualified Tier 1 referrals where referred user has streak >= 7.
+      // FOR UPDATE SKIP LOCKED prevents concurrent CRON runs from processing the
+      // same referral twice (REFERRAL-RACE-01).
       const { rows: streakReferrals } = await db.query<{
         id: string;
         referrer_id: string;
@@ -2282,7 +2298,8 @@ export const GET = async (req: NextRequest) => {
          WHERE r.qualified = false
            AND r.tier = 1
            AND u.login_streak_days >= 7
-           AND u.deleted_at IS NULL`
+           AND u.deleted_at IS NULL
+         FOR UPDATE OF r SKIP LOCKED`
       );
 
       // Hoist manifest reads out of the loop — these values are global config and
@@ -2305,16 +2322,18 @@ export const GET = async (req: NextRequest) => {
             [coinBonus, xpBonus, referral.id]
           );
 
-          // Award XP
-          await tx.query(
-            `UPDATE users SET xp_total = xp_total + $1, updated_at = NOW()
-             WHERE id = $2 AND deleted_at IS NULL`,
-            [xpBonus, referral.referrer_id]
-          );
-          await tx.query(
-            `INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, created_at)
-             VALUES ($1, $2, 'social', 'referral_qualified_streak', $2, NOW())`,
-            [referral.referrer_id, xpBonus]
+          // Award XP with deterministic referenceId for idempotency (REFERRAL-XP-01).
+          // Use safeAwardXP so the CTE pattern handles the UPDATE + INSERT atomically.
+          const { safeAwardXP: _safeXP } = await import("@/lib/xp/safeAwardXP");
+          const cronDate = new Date().toISOString().slice(0, 10);
+          const referralXpRef = `referral_streak_${referral.id}_${cronDate}`;
+          await _safeXP(
+            referral.referrer_id,
+            xpBonus,
+            "social",
+            "referral_qualified_streak",
+            referralXpRef,
+            tx
           );
 
           // Award coins

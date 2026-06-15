@@ -165,13 +165,13 @@ async function countTodayMessages(roomId: string, userId: string): Promise<numbe
  * Applies the user's plan multiplier per PRD §6.
  * Silently swallows errors.
  *
- * @param roomId          - Room UUID
+ * @param messageId       - The newly inserted message UUID (used as reference_id for idempotency)
  * @param userId          - Sender UUID
  * @param todayMsgCount   - How many messages they have already sent today
  * @param plan            - The sender's current plan (for multiplier)
  */
 async function maybeAwardMessageXP(
-  roomId: string,
+  messageId: string,
   userId: string,
   todayMsgCount: number,
   plan: Plan
@@ -196,7 +196,7 @@ async function maybeAwardMessageXP(
         `INSERT INTO xp_ledger
            (user_id, amount, track, source, reference_id, multiplier, base_amount)
          VALUES ($1, $2, 'social', 'message', $3, $4, $5)`,
-        [userId, finalXp, roomId, multiplierBP, baseXp]
+        [userId, finalXp, `msg_${messageId}`, multiplierBP, baseXp]
       );
     });
   } catch (err) {
@@ -587,8 +587,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // BUG-18: count AFTER insert so the cap is inclusive of the current message
     const todayMsgCount = await countTodayMessages(roomId, userId);
 
-    // Award XP (non-blocking)
-    void maybeAwardMessageXP(roomId, userId, todayMsgCount, senderStatus?.plan ?? 'free');
+    // Award XP (non-blocking) — use the message UUID as reference_id so each
+    // message gets a unique idempotency key and doesn't collide on the xp_ledger index.
+    void maybeAwardMessageXP(message.id, userId, todayMsgCount, senderStatus?.plan ?? 'free');
 
     // Publish to realtime provider (non-blocking — never delays the HTTP response)
     if (senderStatus && !requiresApproval) {

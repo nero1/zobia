@@ -350,8 +350,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     ?? null;
   const replayKey = eventId ? `webhook:dodo:${event.event}:${eventId}` : null;
   if (replayKey) {
-    const alreadySeen = await redis.set(replayKey, "1", "EX", 86400, "NX").catch(() => null);
+    // If Redis SET throws, return 500 so DodoPayments retries the webhook rather
+    // than silently treating a Redis failure as a duplicate event.
+    const alreadySeen = await redis.set(replayKey, "1", "EX", 86400, "NX");
     if (alreadySeen === null) {
+      // null = NX condition not met → key already existed → duplicate event
       console.info(`[webhook/dodopayments] Duplicate event ignored: ${replayKey}`);
       return NextResponse.json({ received: true, duplicate: true });
     }

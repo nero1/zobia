@@ -233,12 +233,18 @@ export async function validateOutboundUrl(rawUrl: string): Promise<ValidatedUrl>
   }
 
   // DNS resolution + validation (eliminates TOCTOU/DNS-rebinding).
-  // We resolve and validate the hostname but use the original URL for the actual fetch
-  // so that TLS SNI and certificate validation work correctly.
-  await resolveAndValidateHostname(hostname);
+  // The resolved IP is pinned into fetchUrl so that fetch() uses the validated
+  // address rather than performing a second DNS lookup (which enables rebinding).
+  const { pinnedIp } = await resolveAndValidateHostname(hostname);
+
+  // Build the fetch URL with the hostname replaced by the pinned IP, preserving
+  // the rest of the URL (path, query, fragment, port, protocol).
+  const pinnedUrl = new URL(rawUrl);
+  pinnedUrl.hostname = pinnedIp;
+  const fetchUrl = pinnedUrl.toString();
 
   return {
-    fetchUrl: rawUrl,
+    fetchUrl,
     originalHostname: hostname,
     parsed,
   };
@@ -302,6 +308,11 @@ export async function safeFetch(
   }
 
   const callerHeaders = new Headers((init?.headers as HeadersInit | undefined) ?? {});
+  // Set the Host header to the original hostname so that TLS SNI and virtual
+  // hosting resolve correctly even though the URL contains the pinned IP.
+  if (!callerHeaders.has("Host")) {
+    callerHeaders.set("Host", originalHostname);
+  }
 
   // Disable automatic redirect following — we validate each hop
   const response = await fetch(fetchUrl, {

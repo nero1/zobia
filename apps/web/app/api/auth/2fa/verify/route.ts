@@ -119,8 +119,6 @@ export async function POST(req: NextRequest) {
       response.headers.append("Set-Cookie", refreshCookie);
       return response;
     }
-
-    throw badRequest("preAuthToken is required", "MISSING_TOKEN");
   } catch (err) {
     return handleApiError(err);
   }

@@ -241,10 +241,15 @@ export async function enforceRateLimit(
   }
 
   // Global endpoint cap — applied after per-user/IP check.
+  // Uses an atomic Lua script to increment and conditionally set TTL in a single
+  // round-trip, eliminating the INCR + EXPIRE race (RL-GLOBAL-01).
   if (options.globalLimit) {
     const globalKey = `rate:global:${options.name}`;
-    const globalCount = await redis.incr(globalKey);
-    if (globalCount === 1) await redis.expire(globalKey, 60);
+    const GLOBAL_RATE_LUA = `
+local n = redis.call('INCR', KEYS[1])
+if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+return n`;
+    const globalCount = await redis.eval(GLOBAL_RATE_LUA, 1, globalKey, "60") as number;
     if (globalCount > options.globalLimit) {
       throw tooManyRequests(
         `Global rate limit exceeded for ${options.name}. Please try again later.`

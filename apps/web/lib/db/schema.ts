@@ -650,17 +650,24 @@ export const roomMessages = pgTable("room_messages", {
 // SECTION 10: Badges & Cosmetics
 // ---------------------------------------------------------------------------
 
-export const userBadges = pgTable("user_badges", {
-  id: uuidPk(),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  badgeType: text("badge_type"),
-  badgeKey: text("badge_key"),
-  referenceId: text("reference_id"),
-  metadata: jsonb("metadata"),
-  grantedAt: timestamp("granted_at", { withTimezone: true }).defaultNow(),
-});
+export const userBadges = pgTable(
+  "user_badges",
+  {
+    id: uuidPk(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    badgeType: text("badge_type"),
+    badgeKey: text("badge_key"),
+    referenceId: text("reference_id"),
+    metadata: jsonb("metadata"),
+    awardedAt: timestamp("awarded_at", { withTimezone: true }).notNull().defaultNow(),
+    grantedAt: timestamp("granted_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => ({
+    userBadgeUnique: uniqueIndex("user_badges_user_badge_key_idx").on(t.userId, t.badgeKey),
+  })
+);
 
 // ---------------------------------------------------------------------------
 // SECTION 11: User Inactivity
@@ -747,10 +754,12 @@ export const rooms = pgTable("rooms", {
   name: text("name").notNull(),
   description: text("description"),
   type: text("type").notNull().default("free_open"),
+  status: text("status").notNull().default("active"),
   isActive: boolean("is_active").notNull().default(true),
   totalMessages: integer("total_messages").notNull().default(0),
   memberCount: integer("member_count").notNull().default(0),
   closesAt: timestamp("closes_at", { withTimezone: true }),
+  dropEndsAt: timestamp("drop_ends_at", { withTimezone: true }),
   metadata: jsonb("metadata"),
   moderationRules: jsonb("moderation_rules"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
@@ -986,6 +995,8 @@ export const storeItems = pgTable("store_items", {
   itemType: text("item_type").notNull(),
   priceCoins: integer("price_coins").notNull().default(0),
   priceKobo: bigint("price_kobo", { mode: "number" }).notNull().default(0),
+  coinsGranted: integer("coins_granted").notNull().default(0),
+  currency: text("currency").notNull().default("NGN"),
   isActive: boolean("is_active").notNull().default(true),
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
