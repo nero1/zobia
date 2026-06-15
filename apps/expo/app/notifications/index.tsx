@@ -48,6 +48,8 @@ type NotificationType =
   | 'announcement'
   | 'prestige_complete'
   | 'mystery_xp_drop'
+  | 'flash_xp_announced'
+  | 'flash_xp_live'
   | 'leaderboard_ripple'
   | 'platform_council_invite'
   | 'reengagement'
@@ -82,6 +84,8 @@ function formatNotification(n: AppNotification & { payload?: Record<string, unkn
     case 'guild_war': title = '⚔️ Guild War Update'; body = str('message', 'Your guild has a war update.'); break;
     case 'prestige_complete': title = `🔥 Prestige ${num('prestigeCount')} Achieved!`; body = str('title', 'You have been reborn.'); break;
     case 'mystery_xp_drop': title = '✨ Mystery XP Drop!'; body = `You earned ${num('xpAmount').toLocaleString()} bonus XP.`; break;
+    case 'flash_xp_announced': title = '⚡ Flash XP Coming Soon'; body = str('message', `${str('name', 'Double XP')} is happening soon — stay active!`); break;
+    case 'flash_xp_live': title = `⚡ ${str('name', 'Flash XP')} is LIVE!`; body = str('message', `${num('multiplier', 2)}× XP is active now. Go earn!`); break;
     case 'leaderboard_ripple': title = '📊 Leaderboard Change'; body = str('message', 'Your rank has changed.'); break;
     case 'platform_council_invite': title = '🏛️ Council Invitation'; body = 'You\'ve been invited to the Platform Council!'; break;
     case 'reengagement': title = '👋 Welcome back!'; body = str('message', 'Things happened while you were away.'); break;
@@ -129,6 +133,8 @@ const TYPE_ICON: Partial<Record<string, IoniconName>> & { default: IoniconName }
   announcement: 'megaphone-outline',
   prestige_complete: 'flame-outline',
   mystery_xp_drop: 'sparkles-outline',
+  flash_xp_announced: 'flash-outline',
+  flash_xp_live: 'flash-outline',
   leaderboard_ripple: 'podium-outline',
   platform_council_invite: 'business-outline',
   reengagement: 'hand-left-outline',
@@ -150,6 +156,8 @@ const TYPE_COLOR: Partial<Record<string, string>> = {
   announcement: colors.semantic.info,
   prestige_complete: '#F97316',
   mystery_xp_drop: colors.brand.gold,
+  flash_xp_announced: '#F59E0B',
+  flash_xp_live: '#F59E0B',
   leaderboard_ripple: colors.brand.blue,
   platform_council_invite: colors.brand.blue,
   reengagement: colors.brand.green,
