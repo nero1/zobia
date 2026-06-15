@@ -118,7 +118,7 @@ async function runGeoAnomalyCheck(
   _db: any, // eslint-disable-line
   _redis: any // eslint-disable-line
 ): Promise<boolean> {
-  if (session.ip && isIpAnomalous(session.ip, currentIp)) {
+  if (session.ip && currentIp && isIpAnomalous(session.ip, currentIp)) {
     const shouldInvalidate = await recordAndCheckAnomaly(
       session.sid,
       session.uid,
