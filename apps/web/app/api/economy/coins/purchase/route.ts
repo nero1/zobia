@@ -172,7 +172,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       email,
       idempotencyKey,
       metadata,
-      returnUrl
+      returnUrl,
+      provider
     );
 
     const metadataWithUrl = { ...metadata, payment_url: paymentResult.paymentUrl };

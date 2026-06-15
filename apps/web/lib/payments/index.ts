@@ -95,6 +95,7 @@ async function getActiveProvider(): Promise<Provider> {
  * @param idempotencyKey     - Unique key to prevent duplicate charges
  * @param metadata           - Arbitrary metadata to attach to the payment
  * @param returnUrl          - URL to redirect after payment (required for DodoPayments)
+ * @param providerOverride   - Explicitly select a provider instead of reading from the manifest
  * @returns Unified payment initiation result
  * @throws If payments are disabled or the provider fails
  */
@@ -104,9 +105,10 @@ export async function initializePayment(
   email: string,
   idempotencyKey: string,
   metadata: Record<string, unknown>,
-  returnUrl: string
+  returnUrl: string,
+  providerOverride?: "paystack" | "dodopayments"
 ): Promise<PaymentInitResult> {
-  const provider = await getActiveProvider();
+  const provider = providerOverride ?? await getActiveProvider();
 
   if (provider === "paystack") {
     const { initializePayment: psInit } = await import("./paystack");
