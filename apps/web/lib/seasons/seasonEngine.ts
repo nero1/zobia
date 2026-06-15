@@ -276,8 +276,8 @@ export async function distributeSeasonRewards(
 
       // Award season badge with a season-specific key so each season's badge is unique (BUG-12)
       await client.query(
-        `INSERT INTO user_badges (user_id, badge_type, badge_key, reference_id, granted_at, awarded_at)
-         VALUES ($1, 'season_top10', 'season_top10:' || $2::text, $2, NOW(), NOW())
+        `INSERT INTO user_badges (user_id, badge_type, badge_key, reference_id, granted_at)
+         VALUES ($1, 'season_top10', 'season_top10:' || $2::text, $2, NOW())
          ON CONFLICT (user_id, badge_key) WHERE badge_key IS NOT NULL DO NOTHING`,
         [user_id, seasonId]
       );

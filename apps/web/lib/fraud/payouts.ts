@@ -164,7 +164,7 @@ async function checkPayoutVelocity(
        FROM creator_payouts
        WHERE creator_id = $1
          AND created_at >= NOW() - INTERVAL '24 hours'
-         AND status NOT IN ('retrying')`,
+         AND status NOT IN ('retrying', 'system_retry')`,
       [creatorId]
     );
 

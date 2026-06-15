@@ -327,8 +327,9 @@ export async function checkDeckCompletion(
       return { deckComplete, bonusAwarded: false, bonusXP: 0 };
     }
 
-    // Award bonus within the locked transaction
-    await safeAwardXP(userId, DECK_COMPLETION_BONUS_XP, 'main', 'deck_completion', client);
+    // Award bonus within the locked transaction — use date-scoped referenceId for idempotency
+    const deckRef = `deck_completion:${userId}:${date}`;
+    await safeAwardXP(userId, DECK_COMPLETION_BONUS_XP, 'main', 'deck_completion', deckRef, client);
 
     return { deckComplete: true, bonusAwarded: true, bonusXP: DECK_COMPLETION_BONUS_XP };
   });
