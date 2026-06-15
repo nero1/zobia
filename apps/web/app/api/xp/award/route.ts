@@ -479,7 +479,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             completed: boolean;
           }>(
             `SELECT id, progress, completed
-             FROM user_quests
+             FROM new_member_quests
              WHERE user_id = $1 AND quest_type = 'new_member' AND completed = FALSE
              LIMIT 1`,
             [body.userId]
@@ -506,7 +506,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           const allDone = progress.steps.every((s) => s.completed);
 
           await db.query(
-            `UPDATE user_quests
+            `UPDATE new_member_quests
              SET progress = $1, updated_at = NOW()${allDone ? ", completed = TRUE, completed_at = NOW()" : ""}
              WHERE id = $2`,
             [JSON.stringify(progress), quest.id]

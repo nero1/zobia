@@ -132,11 +132,11 @@ export async function awardMilestoneStickers(
     } else {
       const { rows: newPack } = await db.query<{ id: string }>(
         `INSERT INTO sticker_packs
-           (name, description, pack_type, sticker_count, is_earnable, price_coins)
-         VALUES ($1, $2, 'earnable', $3, TRUE, 0)
+           (name, description, pack_type, coin_price)
+         VALUES ($1, $2, 'earnable', 0)
          ON CONFLICT (name) DO NOTHING
          RETURNING id`,
-        [grant.packName, grant.packDescription, grant.stickerCount]
+        [grant.packName, grant.packDescription]
       );
       if (!newPack[0]) return []; // race condition — skip
       packId = newPack[0].id;

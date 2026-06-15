@@ -205,14 +205,14 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       // Create in-app notification for the recipient
       await tx.query(
         `INSERT INTO notifications
-           (user_id, notification_type, title, body, reference_id, metadata)
-         VALUES ($1, 'certificate_issued', $2, $3, $4, $5)`,
+           (user_id, type, title, body, metadata)
+         VALUES ($1, 'certificate_issued', $2, $3, $4)`,
         [
           body.recipientUserId,
           "Certificate Issued!",
           `Congratulations! You've received a Learning Certificate for "${room.name}".`,
-          cert.id,
           JSON.stringify({
+            referenceId: cert.id,
             roomId,
             roomName: room.name,
             issuerId: callerId,

@@ -153,11 +153,12 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     let xpEligibleUserIds: string[] = [];
     if (enrolledUserIds.length > 0) {
       const { rows: quizRows } = await db.query<PassedQuizStudentRow>(
-        `SELECT DISTINCT user_id
-         FROM quiz_attempts
-         WHERE room_id = $1
-           AND passed = TRUE
-           AND user_id = ANY($2::uuid[])`,
+        `SELECT DISTINCT qa.user_id
+         FROM classroom_quiz_attempts qa
+         JOIN classroom_quizzes q ON q.id = qa.quiz_id
+         WHERE q.room_id = $1
+           AND qa.passed = TRUE
+           AND qa.user_id = ANY($2::uuid[])`,
         [roomId, enrolledUserIds]
       );
       xpEligibleUserIds = quizRows.map((r) => r.user_id);

@@ -87,7 +87,7 @@ INSERT INTO rooms (
   creator_id,
   name,
   description,
-  room_type,
+  type,
   category,
   is_public,
   is_featured,
@@ -110,7 +110,7 @@ INSERT INTO rooms (
   creator_id,
   name,
   description,
-  room_type,
+  type,
   category,
   city,
   is_public,
@@ -133,7 +133,7 @@ INSERT INTO rooms (
   creator_id,
   name,
   description,
-  room_type,
+  type,
   category,
   is_public
 ) VALUES (
@@ -152,7 +152,7 @@ INSERT INTO rooms (
   creator_id,
   name,
   description,
-  room_type,
+  type,
   category,
   is_public
 ) VALUES (
@@ -171,7 +171,7 @@ INSERT INTO rooms (
   creator_id,
   name,
   description,
-  room_type,
+  type,
   category,
   is_public
 ) VALUES (
@@ -190,7 +190,7 @@ INSERT INTO rooms (
   creator_id,
   name,
   description,
-  room_type,
+  type,
   category,
   is_public
 ) VALUES (
@@ -209,7 +209,7 @@ INSERT INTO rooms (
   creator_id,
   name,
   description,
-  room_type,
+  type,
   category,
   is_public
 ) VALUES (
@@ -228,7 +228,7 @@ INSERT INTO rooms (
   creator_id,
   name,
   description,
-  room_type,
+  type,
   category,
   is_public
 ) VALUES (
@@ -454,7 +454,7 @@ ON CONFLICT DO NOTHING;
 
 -- Flash XP events tied to African public holidays / cultural days
 INSERT INTO platform_events (
-  id, title, description, type, starts_at, ends_at,
+  id, name, description, event_type, starts_at, ends_at,
   xp_multiplier, is_active, created_by
 ) VALUES
 

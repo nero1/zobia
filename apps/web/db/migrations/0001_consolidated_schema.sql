@@ -52,10 +52,9 @@ CREATE TABLE IF NOT EXISTS users (
   google_id         TEXT UNIQUE,
   telegram_id       TEXT UNIQUE,
   is_email_verified BOOLEAN DEFAULT false,
-  two_fa_secret     TEXT,
-  two_fa_enabled    BOOLEAN DEFAULT false,
   totp_secret       TEXT,
   totp_enabled      BOOLEAN NOT NULL DEFAULT false,
+  pre_auth_session  TEXT,
 
   -- Status
   plan          TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free','plus','pro','max')),
@@ -166,6 +165,7 @@ CREATE TABLE IF NOT EXISTS users (
   nudge_email_dismissed_at TIMESTAMPTZ,
 
   -- Misc personalisation & privacy
+  first_gift_received_xp_awarded BOOLEAN DEFAULT FALSE,
   pidgin_suggestions_enabled BOOLEAN DEFAULT NULL,
   avatar_url                 TEXT,
   profile_private            BOOLEAN NOT NULL DEFAULT FALSE,
@@ -181,7 +181,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   user_id            UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   refresh_token_hash TEXT NOT NULL,
   device_info        JSONB,
-  ip_address         INET,
+  ip_address         TEXT,
   is_admin_session   BOOLEAN DEFAULT false,
   expires_at         TIMESTAMPTZ NOT NULL,
   created_at         TIMESTAMPTZ DEFAULT NOW(),
@@ -244,8 +244,8 @@ CREATE TABLE IF NOT EXISTS data_export_requests (
 );
 
 CREATE TABLE IF NOT EXISTS telegram_login_states (
-  state        VARCHAR(64) PRIMARY KEY,
-  status       VARCHAR(16) NOT NULL DEFAULT 'pending'
+  state        TEXT PRIMARY KEY,
+  status       TEXT NOT NULL DEFAULT 'pending'
                  CHECK (status IN ('pending','approved','expired')),
   token        TEXT,
   user_payload TEXT,
@@ -987,7 +987,7 @@ CREATE TABLE IF NOT EXISTS user_season_pass_claims (
   user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   season_id    UUID NOT NULL REFERENCES seasons(id) ON DELETE CASCADE,
   milestone_id UUID NOT NULL REFERENCES season_pass_milestones(id) ON DELETE CASCADE,
-  claimed_at   TIMESTAMPTZ DEFAULT NOW(),
+  claimed_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE(user_id, milestone_id)
 );
 
@@ -1214,7 +1214,7 @@ CREATE TABLE IF NOT EXISTS gift_items (
   is_limited_edition        BOOLEAN DEFAULT false,
   season_id                 UUID REFERENCES seasons(id) ON DELETE SET NULL,
   is_retired                BOOLEAN DEFAULT false,
-  is_active                 BOOLEAN DEFAULT true,
+  is_active                 BOOLEAN NOT NULL DEFAULT true,
   created_at                TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -2864,3 +2864,426 @@ INSERT INTO platform_events (name, description, event_type, xp_multiplier, start
    '{"female_creator_only":true,"boost_tracks":["creator","social"]}')
 ON CONFLICT DO NOTHING;
 
+
+-- ============================================================
+-- SECTION 16: Consolidated incremental migrations
+-- (folds former migrations 002–015 + lib/db/migrations 009–011
+--  + schema/code reconciliation fixes). Idempotent: safe to re-run.
+-- ============================================================
+
+-- ----- Rooms: limited-type support (former 002) -----
+ALTER TABLE rooms ADD COLUMN IF NOT EXISTS duration_minutes INTEGER;
+ALTER TABLE rooms DROP CONSTRAINT IF EXISTS rooms_type_check;
+ALTER TABLE rooms ADD CONSTRAINT rooms_type_check
+  CHECK (type IN ('free_open','vip','drop','tipping','classroom','guild','limited'));
+
+-- ----- Subscriptions: cancel-flow + webhook upsert (former 002/015) -----
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ;
+CREATE UNIQUE INDEX IF NOT EXISTS subscriptions_user_id_uq ON subscriptions (user_id);
+
+-- ----- Leaderboard rank-change tracking + NULL-safe upsert (former 004/011) -----
+ALTER TABLE leaderboard_snapshots ADD COLUMN IF NOT EXISTS last_notified_rank INTEGER;
+CREATE UNIQUE INDEX IF NOT EXISTS leaderboard_snapshots_upsert_idx
+  ON leaderboard_snapshots (
+    user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, '')
+  );
+
+-- ----- Guild war / quest hardening (former 004/010/011) -----
+CREATE UNIQUE INDEX IF NOT EXISTS idx_guild_wars_defender_active
+  ON guild_wars (defender_guild_id) WHERE status IN ('active','final_hour');
+ALTER TABLE guild_wars ADD COLUMN IF NOT EXISTS final_hour_starts_at TIMESTAMPTZ;
+ALTER TABLE guild_wars ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE guild_quests ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+CREATE INDEX IF NOT EXISTS idx_guild_quests_active
+  ON guild_quests (guild_id, is_active) WHERE is_active = TRUE;
+
+-- ----- XP / coin ledger dedup indexes (former 007/011) -----
+CREATE UNIQUE INDEX IF NOT EXISTS idx_xp_ledger_user_reference
+  ON xp_ledger (user_id, reference_id) WHERE reference_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_xp_ledger_user_source_ref
+  ON xp_ledger (user_id, source, reference_id) WHERE reference_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_xp_ledger_user_source_date
+  ON xp_ledger (user_id, source, ((created_at AT TIME ZONE 'UTC')::date));
+CREATE INDEX IF NOT EXISTS idx_xp_ledger_user_track_created
+  ON xp_ledger (user_id, track, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_coin_ledger_reference_id_unique
+  ON coin_ledger (reference_id) WHERE reference_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_coin_ledger_user_type_created
+  ON coin_ledger (user_id, transaction_type, created_at);
+
+-- ----- Alliance wars: one active war per pair (former 008) -----
+CREATE UNIQUE INDEX IF NOT EXISTS idx_alliance_wars_active_pair
+  ON alliance_wars (
+    LEAST(alliance_1_id::text, alliance_2_id::text),
+    GREATEST(alliance_1_id::text, alliance_2_id::text)
+  ) WHERE status = 'active';
+
+-- ----- Inactivity per-channel notification flags (former 009/011) -----
+ALTER TABLE user_inactivity_events
+  ADD COLUMN IF NOT EXISTS push_email_notified BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS telegram_notified   BOOLEAN NOT NULL DEFAULT FALSE;
+CREATE INDEX IF NOT EXISTS idx_user_inactivity_events_notified
+  ON user_inactivity_events (push_email_notified, created_at) WHERE push_email_notified = FALSE;
+CREATE INDEX IF NOT EXISTS idx_user_inactivity_events_telegram
+  ON user_inactivity_events (telegram_notified, created_at) WHERE telegram_notified = FALSE;
+
+-- ----- Seasons / season pass / room subscription upsert targets (former 012) -----
+ALTER TABLE seasons ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+UPDATE seasons SET updated_at = created_at WHERE updated_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS room_subscriptions_room_user_idx
+  ON room_subscriptions (room_id, user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS season_pass_milestones_season_sort_idx
+  ON season_pass_milestones (season_id, sort_order);
+ALTER TABLE referral_commissions ADD COLUMN IF NOT EXISTS tier TEXT NOT NULL DEFAULT 'standard';
+
+-- ----- Business accounts verification workflow (former 013) -----
+ALTER TABLE business_accounts
+  ADD COLUMN IF NOT EXISTS verification_status TEXT NOT NULL DEFAULT 'unverified'
+    CHECK (verification_status IN ('unverified','pending','verified','rejected')),
+  ADD COLUMN IF NOT EXISTS verification_requested_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS verification_reviewed_at  TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS verification_reject_reason TEXT;
+UPDATE business_accounts SET verification_status = 'verified'
+  WHERE verified = TRUE AND verification_status = 'unverified';
+CREATE INDEX IF NOT EXISTS idx_business_accounts_verification_status
+  ON business_accounts (verification_status) WHERE verification_status IN ('pending','rejected');
+
+-- ----- Payments: business_upgrade type + reference/url columns (former 014 + reconciliation) -----
+ALTER TABLE payments DROP CONSTRAINT IF EXISTS payments_payment_type_check;
+ALTER TABLE payments ADD CONSTRAINT payments_payment_type_check
+  CHECK (payment_type IN (
+    'coin_purchase','subscription','season_pass','booster_pack',
+    'room_entry','room_subscription','business_upgrade'
+  ));
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS reference_id TEXT;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS payment_url  TEXT;
+
+-- ----- Announcements: missing columns (former 015) -----
+ALTER TABLE announcement_banners
+  ADD COLUMN IF NOT EXISTS title      TEXT,
+  ADD COLUMN IF NOT EXISTS link_url   TEXT,
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS created_by TEXT;
+ALTER TABLE announcement_modals
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS created_by TEXT;
+
+-- ----- user_push_tokens: per-token model (former 011) -----
+ALTER TABLE user_push_tokens ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE user_push_tokens DROP CONSTRAINT IF EXISTS user_push_tokens_user_id_platform_key;
+CREATE UNIQUE INDEX IF NOT EXISTS user_push_tokens_user_token_idx
+  ON user_push_tokens (user_id, token);
+
+-- ============================================================
+-- New tables (former 005/011/015 + lib/db/migrations + reconciliation)
+-- ============================================================
+
+-- failed_xp_awards: XP dead-letter queue (former 005/011)
+CREATE TABLE IF NOT EXISTS failed_xp_awards (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         UUID        NOT NULL,
+  amount          INTEGER     NOT NULL CHECK (amount > 0),
+  track           TEXT        NOT NULL,
+  source          TEXT        NOT NULL,
+  reference_id    TEXT,
+  error_message   TEXT,
+  failed_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  retry_count     INTEGER     NOT NULL DEFAULT 0,
+  last_retried_at TIMESTAMPTZ,
+  resolved_at     TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_failed_xp_awards_pending
+  ON failed_xp_awards (retry_count, last_retried_at) WHERE resolved_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_failed_xp_awards_retry
+  ON failed_xp_awards (resolved_at, retry_count, last_retried_at) WHERE resolved_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_failed_xp_reference_partial
+  ON failed_xp_awards (user_id, source, reference_id) WHERE reference_id IS NOT NULL;
+
+-- audit_discrepancies: nightly ledger reconciliation (former 005/011/012)
+CREATE TABLE IF NOT EXISTS audit_discrepancies (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id        UUID        NOT NULL,
+  asset_type     TEXT        NOT NULL CHECK (asset_type IN ('coins','stars','xp')),
+  ledger_sum     BIGINT      NOT NULL,
+  wallet_balance BIGINT      NOT NULL,
+  detected_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  resolved       BOOLEAN     NOT NULL DEFAULT FALSE,
+  resolved_at    TIMESTAMPTZ,
+  notes          TEXT,
+  CONSTRAINT uq_audit_discrepancy_user_asset UNIQUE (user_id, asset_type)
+);
+CREATE INDEX IF NOT EXISTS idx_audit_discrepancies_unresolved
+  ON audit_discrepancies (detected_at) WHERE resolved = FALSE;
+
+-- audit_log: immutable audit trail for sensitive operations (former 011)
+CREATE TABLE IF NOT EXISTS audit_log (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  actor_id    UUID,
+  action      TEXT NOT NULL,
+  target_type TEXT,
+  target_id   TEXT,
+  metadata    JSONB,
+  ip_address  TEXT,
+  user_agent  TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_audit_log_actor  ON audit_log (actor_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log (action, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_log_target ON audit_log (target_type, target_id, created_at DESC);
+
+-- gift_types: gift catalogue used by the gifting catalogue API (former 011)
+CREATE TABLE IF NOT EXISTS gift_types (
+  id                 UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name               TEXT NOT NULL UNIQUE,
+  emoji              TEXT NOT NULL,
+  coin_cost          INTEGER NOT NULL,
+  xp_value           INTEGER NOT NULL DEFAULT 0,
+  is_active          BOOLEAN NOT NULL DEFAULT TRUE,
+  is_limited_edition BOOLEAN NOT NULL DEFAULT FALSE,
+  is_retired         BOOLEAN NOT NULL DEFAULT FALSE,
+  season_id          UUID REFERENCES seasons(id) ON DELETE SET NULL,
+  metadata           JSONB,
+  created_at         TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- failed_webhooks: webhook DLQ (former 015)
+CREATE TABLE IF NOT EXISTS failed_webhooks (
+  id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider   TEXT        NOT NULL,
+  event_type TEXT,
+  payload    JSONB,
+  error      TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- feature_flags: extended feature-flag metadata (former lib/db 010)
+CREATE TABLE IF NOT EXISTS feature_flags (
+  key                TEXT PRIMARY KEY,
+  available_from     TIMESTAMPTZ,
+  early_access_plans TEXT[],
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_feature_flags_early_access_plans
+  ON feature_flags USING GIN (early_access_plans);
+
+-- refunds: admin coin-refund ledger (reconciliation: admin/refunds route)
+CREATE TABLE IF NOT EXISTS refunds (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  amount_coins BIGINT NOT NULL,
+  reason       TEXT,
+  reference_id TEXT,
+  status       TEXT NOT NULL DEFAULT 'processed',
+  processed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  processed_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_refunds_user ON refunds (user_id, created_at DESC);
+
+-- user_quest_decks: daily deck assignment (former 006, FK corrected to quest_templates)
+CREATE TABLE IF NOT EXISTS user_quest_decks (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  quest_id      UUID NOT NULL REFERENCES quest_templates(id) ON DELETE CASCADE,
+  assigned_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id, quest_id, assigned_date)
+);
+CREATE INDEX IF NOT EXISTS idx_user_quest_decks_user_date
+  ON user_quest_decks (user_id, assigned_date);
+
+-- ============================================================
+-- Schema/code reconciliation: columns the application reads/writes
+-- ============================================================
+
+-- messages: group-chat fan-out + idempotent sends
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS group_chat_id UUID REFERENCES group_chats(id) ON DELETE CASCADE;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
+CREATE INDEX IF NOT EXISTS idx_messages_group_chat ON messages (group_chat_id, created_at DESC)
+  WHERE group_chat_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uidx_messages_sender_idempotency
+  ON messages (sender_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
+
+-- user_xp_boosters: typed, deactivatable boosters
+ALTER TABLE user_xp_boosters ADD COLUMN IF NOT EXISTS booster_type TEXT;
+ALTER TABLE user_xp_boosters ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+
+-- flash_xp_events: admin-authored description
+ALTER TABLE flash_xp_events ADD COLUMN IF NOT EXISTS description TEXT;
+
+-- referrals: capture the referral code used
+ALTER TABLE referrals ADD COLUMN IF NOT EXISTS code TEXT;
+
+-- admin_audit_log: generic target + metadata (used by leaderboard admin tools)
+ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS target_type TEXT;
+ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS target_id   TEXT;
+ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS metadata    JSONB;
+
+-- moderation_actions: full action/reversal audit trail used by the moderation APIs
+ALTER TABLE moderation_actions ALTER COLUMN action_type DROP NOT NULL;
+ALTER TABLE moderation_actions ADD COLUMN IF NOT EXISTS action        TEXT;
+ALTER TABLE moderation_actions ADD COLUMN IF NOT EXISTS note          TEXT;
+ALTER TABLE moderation_actions ADD COLUMN IF NOT EXISTS duration_hours INTEGER;
+ALTER TABLE moderation_actions ADD COLUMN IF NOT EXISTS actioned_by   UUID REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE moderation_actions ADD COLUMN IF NOT EXISTS metadata      JSONB;
+ALTER TABLE moderation_actions ADD COLUMN IF NOT EXISTS actor_type    TEXT NOT NULL DEFAULT 'manual';
+ALTER TABLE moderation_actions ADD COLUMN IF NOT EXISTS reversed_at   TIMESTAMPTZ;
+ALTER TABLE moderation_actions ADD COLUMN IF NOT EXISTS reversed_by   UUID REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE moderation_actions ADD COLUMN IF NOT EXISTS reversal_note TEXT;
+ALTER TABLE moderation_actions ADD COLUMN IF NOT EXISTS updated_at    TIMESTAMPTZ DEFAULT NOW();
+CREATE INDEX IF NOT EXISTS idx_moderation_actions_actor_type ON moderation_actions (actor_type, created_at DESC);
+
+-- sponsored_quest_applications: explicit applied_at timestamp
+ALTER TABLE sponsored_quest_applications ADD COLUMN IF NOT EXISTS applied_at TIMESTAMPTZ DEFAULT NOW();
+
+-- creator_broadcasts: per-recipient delivery rows
+ALTER TABLE creator_broadcasts ALTER COLUMN creator_id DROP NOT NULL;
+ALTER TABLE creator_broadcasts ADD COLUMN IF NOT EXISTS sender_id    UUID REFERENCES users(id) ON DELETE CASCADE;
+ALTER TABLE creator_broadcasts ADD COLUMN IF NOT EXISTS recipient_id UUID REFERENCES users(id) ON DELETE CASCADE;
+ALTER TABLE creator_broadcasts ADD COLUMN IF NOT EXISTS message_type TEXT;
+ALTER TABLE creator_broadcasts ADD COLUMN IF NOT EXISTS reference_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_creator_broadcasts_recipient
+  ON creator_broadcasts (recipient_id, created_at DESC) WHERE recipient_id IS NOT NULL;
+
+-- merch_orders: store-scoped order shape used by the merch checkout flow
+ALTER TABLE merch_orders ALTER COLUMN amount_kobo DROP NOT NULL;
+ALTER TABLE merch_orders ALTER COLUMN creator_share_kobo DROP NOT NULL;
+ALTER TABLE merch_orders ALTER COLUMN creator_id DROP NOT NULL;
+ALTER TABLE merch_orders ADD COLUMN IF NOT EXISTS store_id        UUID REFERENCES merch_stores(id) ON DELETE SET NULL;
+ALTER TABLE merch_orders ADD COLUMN IF NOT EXISTS price_kobo      BIGINT;
+ALTER TABLE merch_orders ADD COLUMN IF NOT EXISTS creator_net_kobo BIGINT;
+ALTER TABLE merch_orders ADD COLUMN IF NOT EXISTS payment_method  TEXT;
+CREATE INDEX IF NOT EXISTS idx_merch_orders_store ON merch_orders (store_id) WHERE store_id IS NOT NULL;
+
+-- sponsored_quests: brand brief shape used by the sponsored-quest APIs
+ALTER TABLE sponsored_quests ALTER COLUMN target_action DROP NOT NULL;
+ALTER TABLE sponsored_quests ALTER COLUMN target_value DROP NOT NULL;
+ALTER TABLE sponsored_quests ALTER COLUMN reward_coins DROP NOT NULL;
+ALTER TABLE sponsored_quests ALTER COLUMN creator_payout_kobo DROP NOT NULL;
+ALTER TABLE sponsored_quests ALTER COLUMN platform_fee_kobo DROP NOT NULL;
+ALTER TABLE sponsored_quests ADD COLUMN IF NOT EXISTS brand_logo_url      TEXT;
+ALTER TABLE sponsored_quests ADD COLUMN IF NOT EXISTS requirements        TEXT;
+ALTER TABLE sponsored_quests ADD COLUMN IF NOT EXISTS reward_amount_coins INTEGER;
+ALTER TABLE sponsored_quests ADD COLUMN IF NOT EXISTS max_applications    INTEGER;
+ALTER TABLE sponsored_quests ADD COLUMN IF NOT EXISTS deadline            TIMESTAMPTZ;
+
+-- learning_certificates: aligned to the certificate-issuing API (sole consumer)
+ALTER TABLE learning_certificates ALTER COLUMN classroom_room_id DROP NOT NULL;
+ALTER TABLE learning_certificates ALTER COLUMN student_id DROP NOT NULL;
+ALTER TABLE learning_certificates ADD COLUMN IF NOT EXISTS room_id           UUID REFERENCES rooms(id) ON DELETE CASCADE;
+ALTER TABLE learning_certificates ADD COLUMN IF NOT EXISTS recipient_user_id UUID REFERENCES users(id) ON DELETE CASCADE;
+ALTER TABLE learning_certificates ADD COLUMN IF NOT EXISTS issuer_user_id    UUID REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE learning_certificates ADD COLUMN IF NOT EXISTS title             TEXT;
+ALTER TABLE learning_certificates ADD COLUMN IF NOT EXISTS note              TEXT;
+CREATE INDEX IF NOT EXISTS idx_learning_certs_recipient ON learning_certificates (recipient_user_id);
+CREATE INDEX IF NOT EXISTS idx_learning_certs_room_id   ON learning_certificates (room_id);
+
+-- ============================================================
+-- Performance indexes (former lib/db/migrations 011)
+-- ============================================================
+CREATE INDEX IF NOT EXISTS idx_nemesis_assignments_user_id
+  ON nemesis_assignments (user_id);
+CREATE INDEX IF NOT EXISTS idx_nemesis_assignments_nemesis_user_id
+  ON nemesis_assignments (nemesis_user_id);
+CREATE INDEX IF NOT EXISTS idx_referrals_qualified_tier
+  ON referrals (qualified, tier) WHERE qualified = FALSE;
+CREATE INDEX IF NOT EXISTS idx_user_sticker_packs_user_pack
+  ON user_sticker_packs (user_id, pack_id);
+CREATE INDEX IF NOT EXISTS idx_conversation_scores_score
+  ON conversation_scores (score DESC) WHERE score > 0;
+CREATE INDEX IF NOT EXISTS idx_guild_members_guild_contribution
+  ON guild_members (guild_id, contribution_score);
+CREATE INDEX IF NOT EXISTS idx_creator_payouts_provider_ref
+  ON creator_payouts (provider_reference);
+CREATE INDEX IF NOT EXISTS idx_lb_snapshots_scope_track_city
+  ON leaderboard_snapshots (scope, track, city, xp_value DESC);
+CREATE INDEX IF NOT EXISTS idx_lb_rank_snapshots_scope
+  ON leaderboard_rank_snapshots (scope, user_id);
+CREATE INDEX IF NOT EXISTS idx_users_plan_deleted
+  ON users (plan, deleted_at) WHERE deleted_at IS NULL;
+
+-- ============================================================
+-- Feature-flag manifest seeds (former lib/db/migrations 010)
+-- ============================================================
+INSERT INTO x_manifest (key, value, description, updated_at) VALUES
+  ('feature_mystery_xp_drops',     'true',  'Enable Mystery XP Drop events',        NOW()),
+  ('feature_alliance_wars',        'true',  'Enable National Alliance Wars',        NOW()),
+  ('feature_creator_fund',         'true',  'Enable Creator Fund distributions',    NOW()),
+  ('feature_leaderboard_seasons',  'true',  'Enable seasonal leaderboard mode',     NOW()),
+  ('feature_telegram_integration', 'false', 'Enable Telegram notification channel', NOW()),
+  ('feature_sentry_tracing',       'false', 'Enable Sentry performance tracing',    NOW())
+ON CONFLICT (key) DO NOTHING;
+
+-- ============================================================
+-- SECTION 17: Further schema/code reconciliation (write-path columns)
+-- ============================================================
+
+-- rooms: lifecycle status (set by Drop-room expiry CRON)
+ALTER TABLE rooms ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
+
+-- updated_at columns expected by update paths
+ALTER TABLE system_alerts              ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE moderation_reports         ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE sponsored_quest_applications ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE payments                   ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE merch_stores               ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE merch_orders               ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE merch_products             ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE notifications              ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE flash_xp_events            ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE gift_items                 ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+-- users: moderation + plan + 2FA setup state used by admin/moderation tools
+ALTER TABLE users ADD COLUMN IF NOT EXISTS warning_count     INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS banned_at         TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS banned_by         UUID REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS season_xp         INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_activated_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS require_2fa_setup BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- messages: soft-delete audit columns (moderation)
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_by UUID REFERENCES users(id) ON DELETE SET NULL;
+
+-- community_notes: admin review workflow
+ALTER TABLE community_notes ADD COLUMN IF NOT EXISTS admin_comment TEXT;
+ALTER TABLE community_notes ADD COLUMN IF NOT EXISTS reviewed_at   TIMESTAMPTZ;
+ALTER TABLE community_notes ADD COLUMN IF NOT EXISTS reviewed_by   UUID REFERENCES users(id) ON DELETE SET NULL;
+
+-- creator_payouts: approval / rejection audit
+ALTER TABLE creator_payouts ADD COLUMN IF NOT EXISTS approved_at      TIMESTAMPTZ;
+ALTER TABLE creator_payouts ADD COLUMN IF NOT EXISTS rejected_at      TIMESTAMPTZ;
+ALTER TABLE creator_payouts ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
+
+-- platform_council_ideas: arbitrary metadata captured on vote
+ALTER TABLE platform_council_ideas ADD COLUMN IF NOT EXISTS metadata JSONB;
+
+-- moments: denormalised reaction counter
+ALTER TABLE moments ADD COLUMN IF NOT EXISTS reactions_count INTEGER NOT NULL DEFAULT 0;
+
+-- merch_orders: payment provider reference
+ALTER TABLE merch_orders ADD COLUMN IF NOT EXISTS provider_reference TEXT;
+
+-- automated_actions_log: audit trail for AI/automated moderation actions
+CREATE TABLE IF NOT EXISTS automated_actions_log (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  action_type    TEXT NOT NULL,
+  target_type    TEXT,
+  target_id      TEXT,
+  target_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  user_id        UUID REFERENCES users(id) ON DELETE SET NULL,
+  description    TEXT,
+  metadata       JSONB,
+  reverse_note   TEXT,
+  reversed_at    TIMESTAMPTZ,
+  reversed_by    UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at     TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_automated_actions_log_created ON automated_actions_log (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_automated_actions_log_target_user ON automated_actions_log (target_user_id)
+  WHERE target_user_id IS NOT NULL;
+
+-- platform_events: creator audit column (used by seed + admin tooling)
+ALTER TABLE platform_events ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id) ON DELETE SET NULL;

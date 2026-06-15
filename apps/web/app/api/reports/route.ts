@@ -165,13 +165,13 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
             if (data.reportedUserId) {
               await db.query(
                 `INSERT INTO community_notes
-                   (reported_user_id, reported_content_id, content_type, summary, created_at)
-                 VALUES ($1, $2, $3, $4, NOW())
+                   (target_type, target_id, author_id, content, status, created_at, updated_at)
+                 VALUES ($1, $2, $3, $4, 'needs_review', NOW(), NOW())
                  ON CONFLICT DO NOTHING`,
                 [
-                  data.reportedUserId,
-                  data.reportedMessageId ?? data.reportedRoomId ?? data.reportedGuildId ?? null,
                   data.reportedMessageId ? 'message' : data.reportedRoomId ? 'room' : 'user',
+                  data.reportedMessageId ?? data.reportedRoomId ?? data.reportedGuildId ?? data.reportedUserId,
+                  auth.user.sub,
                   `AI flagged: ${classification.category} (confidence ${Math.round(classification.confidence * 100)}%)`,
                 ]
               ).catch(() => {});
