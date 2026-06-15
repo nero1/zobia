@@ -267,7 +267,7 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
   const feat = (canonical: string, ...legacyKeys: string[]) => {
     const keys = [canonical, ...legacyKeys];
     for (const k of keys) {
-      if (k in kv) return parseBool(kv[k], DEFAULT_MANIFEST.features[canonical.replace("feature_", "") as never] as boolean ?? true);
+      if (k in kv) return parseBool(kv[k], DEFAULT_MANIFEST.features[canonical.replace("feature_", "") as keyof typeof DEFAULT_MANIFEST.features] as boolean ?? true);
     }
     return DEFAULT_MANIFEST.features[canonical.replace("feature_", "") as keyof typeof DEFAULT_MANIFEST.features] as boolean ?? true;
   };
