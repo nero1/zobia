@@ -165,6 +165,7 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `SENTRY_DSN` | If sentry | Sentry Data Source Name — required when `MONITORING_PROVIDER=sentry` | Sentry → Project Settings → Client Keys (DSN) |
 | `NEW_RELIC_LICENSE_KEY` | If newrelic | New Relic ingest licence key — required when `MONITORING_PROVIDER=newrelic` | New Relic → API keys |
 | `JWT_KEY_ID` | No | Key ID embedded in JWT headers for key-rotation versioning (default: `v1`). Increment when rotating `JWT_SECRET` to allow grace-period validation of old tokens. | Choose (e.g. `v1`, `v2`) |
+| `JWT_REFRESH_SECRET_v{N}` | No | Previous refresh token signing secret(s) kept during key rotation grace period (e.g. `JWT_REFRESH_SECRET_v1`, `JWT_REFRESH_SECRET_v2`). The server accepts refresh tokens signed with any key in the registry. When rotating, set the old secret as `JWT_REFRESH_SECRET_v{old_kid}`, update `JWT_REFRESH_SECRET` to the new value, and update `JWT_KEY_ID`. Old secrets can be removed after the refresh token TTL expires. | `openssl rand -hex 64` |
 | `SECURITY_TEST_BASE_URL` | Testing only | Base URL for security/penetration tests (e.g. `http://localhost:3000`) | Local dev server |
 | `SECURITY_TEST_USER_TOKEN` | Testing only | Valid JWT for a regular (non-admin) test user | Login as test user and copy token |
 | `SECURITY_TEST_ADMIN_TOKEN` | Testing only | Valid JWT for an admin test user | Login as admin and copy token |
@@ -200,6 +201,15 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    done
    ```
    Migrations are numbered 001 onwards. Always apply them in order. Each migration is idempotent (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`).
+
+   Migration `0002_bug_fixes.sql` adds:
+   - UNIQUE index on `subscriptions (user_id)` — required for `ON CONFLICT (user_id)` upserts in the Paystack webhook to work correctly
+   - Widens `users.star_balance` from `integer` to `bigint` — prevents overflow at ~2.1 billion stars
+   - Backfills `user_badges.awarded_at` from `granted_at` and drops the legacy `granted_at` column
+   - Consolidates `learning_certificates` legacy columns (`classroom_room_id`, `student_id`, `issuer_id`) into canonical columns; recreates unique index on `(room_id, recipient_user_id)`
+   - Consolidates `moderation_actions` duplicate columns: drops `actioned_by`, `action`, `note`; keeps `moderator_id`, `action_type`, `reason`
+   - Removes `sponsored_quests.reward_amount_coins` (duplicate of `reward_coins`)
+   - Removes `gift_items.coin_price` (duplicate of `coin_cost`)
 
    Migration `012_session_bug_fixes.sql` adds:
    - `updated_at` column to `seasons` table

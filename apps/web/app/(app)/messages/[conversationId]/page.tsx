@@ -71,7 +71,7 @@ interface GiftItem {
   id: string;
   name: string;
   emoji: string;
-  coinPrice: number;
+  coinCost: number;
   tier: number;
 }
 
@@ -473,7 +473,7 @@ function GiftPicker({
         const d = (await res.json()) as { message?: string };
         throw new Error(d.message ?? "Failed to send gift");
       }
-      onSent(gift.name, gift.emoji, gift.coinPrice);
+      onSent(gift.name, gift.emoji, gift.coinCost);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to send gift");
     } finally {
@@ -510,7 +510,7 @@ function GiftPicker({
                 <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{gift.name}</p>
               </div>
               <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700 dark:bg-amber-900 dark:text-amber-200">
-                🪙 {gift.coinPrice.toLocaleString()}
+                🪙 {gift.coinCost.toLocaleString()}
               </span>
             </button>
           ))}

@@ -229,8 +229,8 @@ export const POST = withAuth(
         // Badge reward
         if (milestone.reward_type === "badge" && reward.badgeId) {
           await client.query(
-            `INSERT INTO user_badges (user_id, badge_type, badge_key, granted_at, awarded_at)
-             VALUES ($1, $2, $2, NOW(), NOW())
+            `INSERT INTO user_badges (user_id, badge_type, badge_key, awarded_at)
+             VALUES ($1, $2, $2, NOW())
              ON CONFLICT (user_id, badge_type, reference_id) DO NOTHING`,
             [userId, reward.badgeId]
           );

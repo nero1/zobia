@@ -123,23 +123,25 @@ export async function assignNemesis(
 
     const chosenId = candidates[0].id;
 
-    // Dismiss any existing nemesis assignment (set is_active=false)
-    await db.query(
-      `UPDATE nemesis_assignments SET is_active = false
-       WHERE user_id = $1 AND is_active = true`,
-      [userId]
-    );
-
     // expires_at = 7 days from now (weekly refresh cycle)
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
-    // Insert new assignment using schema-correct column names
-    const insertResult = await db.query<NemesisAssignment>(
-      `INSERT INTO nemesis_assignments (user_id, nemesis_user_id, assigned_at, expires_at, is_active)
-       VALUES ($1, $2, NOW(), $3, true)
-       RETURNING user_id, nemesis_user_id AS nemesis_id, assigned_at, NULL::timestamptz AS dismissed_at`,
-      [userId, chosenId, expiresAt]
-    );
+    // Wrap deactivation + insert atomically — if the insert fails, the old
+    // nemesis must not be deactivated (guards against inconsistent state).
+    const insertResult = await db.transaction(async (tx) => {
+      await tx.query(
+        `UPDATE nemesis_assignments SET is_active = false
+         WHERE user_id = $1 AND is_active = true`,
+        [userId]
+      );
+
+      return tx.query<NemesisAssignment>(
+        `INSERT INTO nemesis_assignments (user_id, nemesis_user_id, assigned_at, expires_at, is_active)
+         VALUES ($1, $2, NOW(), $3, true)
+         RETURNING user_id, nemesis_user_id AS nemesis_id, assigned_at, NULL::timestamptz AS dismissed_at`,
+        [userId, chosenId, expiresAt]
+      );
+    });
 
     return insertResult.rows[0] ?? null;
   }
@@ -244,7 +246,10 @@ export async function compareNemesisProgress(
     knowledge: "xp_knowledge",
     explorer: "xp_explorer",
   };
-  const col = trackColumnMap[track] ?? "xp_total";
+  const col = trackColumnMap[track];
+  if (!col || !new Set(Object.values(trackColumnMap)).has(col)) {
+    throw new Error(`compareNemesisProgress: unknown XP track '${track}'`);
+  }
   query = `SELECT id AS user_id, ${col} AS xp_value FROM users WHERE id = ANY(ARRAY[$1::uuid, $2::uuid])`;
   params = [userId, nemesisId];
 

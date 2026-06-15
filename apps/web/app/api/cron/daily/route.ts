@@ -299,7 +299,7 @@ export const GET = async (req: NextRequest) => {
 
           if (weekNum >= 6) {
             await db.query(
-              `INSERT INTO user_badges (user_id, badge_type, badge_key, reference_id, granted_at)
+              `INSERT INTO user_badges (user_id, badge_type, badge_key, reference_id, awarded_at)
                SELECT ls.user_id, 'season_top100_frame', 'season_top100_frame:s' || $1::text, $1, NOW()
                FROM (
                  SELECT ls.user_id, ROW_NUMBER() OVER (ORDER BY ls.xp_value DESC) AS rank
@@ -690,9 +690,9 @@ export const GET = async (req: NextRequest) => {
     let patronAwarded = 0;
     for (const candidate of patronCandidates) {
       await db.query(
-        `INSERT INTO user_badges (user_id, badge_type, badge_key, granted_at, metadata)
+        `INSERT INTO user_badges (user_id, badge_type, badge_key, awarded_at, metadata)
          VALUES ($1, 'patron', 'patron', NOW(), $2)
-         ON CONFLICT (user_id, badge_key) DO UPDATE SET granted_at = NOW(), metadata = $2`,
+         ON CONFLICT (user_id, badge_key) DO UPDATE SET awarded_at = NOW(), metadata = $2`,
         [
           candidate.user_id,
           JSON.stringify({ roomCount: parseInt(candidate.room_count), awardedAt: new Date().toISOString() }),
@@ -1995,9 +1995,9 @@ export const GET = async (req: NextRequest) => {
       if (topElders[0]) {
         const elderId = topElders[0].elder_id;
         await db.query(
-          `INSERT INTO user_badges (user_id, badge_type, badge_key, granted_at, metadata)
+          `INSERT INTO user_badges (user_id, badge_type, badge_key, awarded_at, metadata)
            VALUES ($1, 'master_teacher', 'master_teacher', NOW(), $2)
-           ON CONFLICT (user_id, badge_key) DO UPDATE SET granted_at = NOW(), metadata = $2`,
+           ON CONFLICT (user_id, badge_key) DO UPDATE SET awarded_at = NOW(), metadata = $2`,
           [elderId, JSON.stringify({ seasonId, menteeCount: parseInt(topElders[0].mentee_count) })]
         ).catch(() => {});
         await db.query(

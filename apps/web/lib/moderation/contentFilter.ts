@@ -159,7 +159,11 @@ export async function detectDuplicateMessage(
   const normContent = normalise(content);
   const windowSeconds = Math.ceil(windowMs / 1000);
 
+  const ALLOWED_CONTENT_TABLES = new Set(['messages', 'room_messages']);
   const table = messageContext === "dm" ? "messages" : "room_messages";
+  if (!ALLOWED_CONTENT_TABLES.has(table)) {
+    throw new Error(`contentFilter: unknown table '${table}'`);
+  }
 
   const { rows } = await db.query<{ content: string }>(
     `SELECT content

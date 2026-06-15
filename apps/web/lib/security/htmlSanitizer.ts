@@ -8,12 +8,11 @@ import sanitizeHtmlLib from 'sanitize-html';
 const SANITIZE_OPTIONS: sanitizeHtmlLib.IOptions = {
   allowedTags: [
     'a', 'b', 'br', 'code', 'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-    'hr', 'i', 'img', 'li', 'ol', 'p', 'pre', 's', 'small', 'span',
+    'hr', 'i', 'li', 'ol', 'p', 'pre', 's', 'small', 'span',
     'strong', 'table', 'tbody', 'td', 'th', 'thead', 'tr', 'u', 'ul',
   ],
   allowedAttributes: {
     'a': ['href', 'title', 'target', 'rel'],
-    'img': ['src', 'alt', 'width', 'height'],
     'td': ['colspan', 'rowspan'],
     'th': ['colspan', 'rowspan'],
     '*': ['class', 'id'],

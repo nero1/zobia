@@ -29,7 +29,7 @@ interface SponsoredQuestDetailRow {
   title: string;
   description: string;
   requirements: string;
-  reward_amount_coins: number;
+  reward_coins: number;
   creator_share_percent: number;
   platform_share_percent: number;
   max_applications: number;
@@ -84,7 +84,7 @@ export const GET = withAuth(
       // Fetch quest
       const questResult = await db.query<SponsoredQuestDetailRow>(
         `SELECT id, brand_name, title, description, requirements,
-                reward_amount_coins, creator_share_percent, platform_share_percent,
+                reward_coins, creator_share_percent, platform_share_percent,
                 max_applications, deadline, is_active, created_at
          FROM sponsored_quests
          WHERE id = $1`,

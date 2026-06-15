@@ -49,16 +49,18 @@ export interface CommissionResult {
  * Called inside the payment webhook handler after a successful payment.
  * Must be passed a transaction client to ensure atomicity.
  *
- * @param db         Transaction-capable database client
- * @param buyerId    ID of the user who purchased coins
- * @param coinAmount Total coins purchased
- * @param paymentId  ID of the payment record — used to make each commission reference unique per purchase
+ * @param db                 Transaction-capable database client
+ * @param buyerId            ID of the user who purchased coins
+ * @param coinAmount         Total coins purchased
+ * @param paymentId          ID of the payment record — used to make each commission reference unique per purchase
+ * @param paymentAmountKobo  Actual payment amount in kobo (smallest currency unit) for monetary audit records
  */
 export async function awardReferralCommissions(
   db: DatabaseClient,
   buyerId: string,
   coinAmount: number,
-  paymentId: string
+  paymentId: string,
+  paymentAmountKobo: number = 0
 ): Promise<CommissionResult> {
   const result: CommissionResult = {
     tier1ReferrerId: null,
@@ -135,12 +137,15 @@ export async function awardReferralCommissions(
     );
     result.tier1Coins = tier1Coins;
 
+    const tier1CommissionKobo = paymentAmountKobo > 0
+      ? Math.round(paymentAmountKobo * Number(TIER_1_RATE))
+      : 0;
     await db.query(
       `INSERT INTO referral_commissions
          (referrer_id, referred_user_id, trigger_event_id, purchase_amount_kobo, commission_kobo, commission_coins, tier, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $5, '1', 'credited', NOW())
+       VALUES ($1, $2, $3, $4, $5, $6, '1', 'credited', NOW())
        ON CONFLICT DO NOTHING`,
-      [tier1Id, buyerId, `${paymentId}:t1`, coinAmount, tier1Coins]
+      [tier1Id, buyerId, `${paymentId}:t1`, paymentAmountKobo, tier1CommissionKobo, tier1Coins]
     );
   }
 
@@ -170,12 +175,15 @@ export async function awardReferralCommissions(
     );
     result.tier2Coins = tier2Coins;
 
+    const tier2CommissionKobo = paymentAmountKobo > 0
+      ? Math.round(paymentAmountKobo * Number(TIER_2_RATE))
+      : 0;
     await db.query(
       `INSERT INTO referral_commissions
          (referrer_id, referred_user_id, trigger_event_id, purchase_amount_kobo, commission_kobo, commission_coins, tier, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $5, '2', 'credited', NOW())
+       VALUES ($1, $2, $3, $4, $5, $6, '2', 'credited', NOW())
        ON CONFLICT DO NOTHING`,
-      [tier2Id, buyerId, `${paymentId}:t2`, coinAmount, tier2Coins]
+      [tier2Id, buyerId, `${paymentId}:t2`, paymentAmountKobo, tier2CommissionKobo, tier2Coins]
     );
   }
 

@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
  * Body: { applicationId, action: 'approve' | 'reject', rejectionReason? }
  *
  * On approval:
- *  1. Calculate creator share: rewardAmountCoins × creatorSharePercent / 100
+ *  1. Calculate creator share: rewardCoins × creatorSharePercent / 100
  *  2. Credit coins to creator atomically.
  *  3. Record coin_ledger entry.
  *  4. Mark application as 'paid'.
@@ -94,10 +94,10 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
     const { rows: questRows } = await db.query<{
       id: string;
       title: string;
-      reward_amount_coins: number;
+      reward_coins: number;
       creator_share_percent: number;
     }>(
-      `SELECT id, title, reward_amount_coins, creator_share_percent
+      `SELECT id, title, reward_coins, creator_share_percent
        FROM sponsored_quests WHERE id = $1 LIMIT 1`,
       [app.quest_id]
     );
@@ -105,7 +105,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
     if (!quest) throw notFound("Quest not found");
 
     const payoutCoins = Math.floor(
-      quest.reward_amount_coins * (quest.creator_share_percent / 100)
+      quest.reward_coins * (quest.creator_share_percent / 100)
     );
 
     await db.transaction(async (tx) => {
@@ -143,7 +143,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
       );
 
       // Record creator earnings (coins → kobo: 1 coin = 100 kobo)
-      const grossKobo = quest.reward_amount_coins * 100;
+      const grossKobo = quest.reward_coins * 100;
       const netKobo = payoutCoins * 100;
       const platformFeeKobo = grossKobo - netKobo;
       await tx.query(

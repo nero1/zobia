@@ -1,78 +1,23 @@
 /**
  * Circuit breaker for database connections.
- * After N consecutive failures within a window, opens the circuit.
+ *
+ * Uses the same Redis-backed RedisCircuitBreaker from lib/payments/circuit.ts
+ * so the circuit state is shared across all serverless instances (rather than
+ * being in-process only, which meant each cold-start instance was always CLOSED
+ * even when the DB was degraded).
  */
 
-type CircuitState = 'closed' | 'open' | 'half-open';
+import { RedisCircuitBreaker } from "@/lib/payments/circuit";
 
-interface CircuitConfig {
-  failureThreshold: number;
-  successThreshold: number;
-  cooldownMs: number;
-}
-
-const DEFAULT_CONFIG: CircuitConfig = {
-  failureThreshold: 5,
+export const dbCircuit = new RedisCircuitBreaker({
+  name: "database",
+  errorThresholdPercentage: 50,
   successThreshold: 2,
-  cooldownMs: 15_000,
-};
-
-class DatabaseCircuitBreaker {
-  private state: CircuitState = 'closed';
-  private failures = 0;
-  private successes = 0;
-  private lastFailureTime = 0;
-  private config: CircuitConfig;
-
-  constructor(config: Partial<CircuitConfig> = {}) {
-    this.config = { ...DEFAULT_CONFIG, ...config };
-  }
-
-  getState(): CircuitState {
-    if (this.state === 'open') {
-      if (Date.now() - this.lastFailureTime >= this.config.cooldownMs) {
-        this.state = 'half-open';
-        this.successes = 0;
-      }
-    }
-    return this.state;
-  }
-
-  recordSuccess(): void {
-    this.failures = 0;
-    if (this.state === 'half-open') {
-      this.successes++;
-      if (this.successes >= this.config.successThreshold) {
-        this.state = 'closed';
-      }
-    }
-  }
-
-  recordFailure(): void {
-    this.lastFailureTime = Date.now();
-    this.failures++;
-    if (this.failures >= this.config.failureThreshold) {
-      this.state = 'open';
-    }
-  }
-
-  isOpen(): boolean {
-    return this.getState() === 'open';
-  }
-}
-
-export const dbCircuit = new DatabaseCircuitBreaker();
+  windowSize: 10,
+  resetTimeoutMs: 15_000,
+  callTimeoutMs: 10_000,
+});
 
 export async function withCircuitBreaker<T>(fn: () => Promise<T>): Promise<T> {
-  if (dbCircuit.isOpen()) {
-    throw new Error('Database circuit breaker is open — service unavailable');
-  }
-  try {
-    const result = await fn();
-    dbCircuit.recordSuccess();
-    return result;
-  } catch (err) {
-    dbCircuit.recordFailure();
-    throw err;
-  }
+  return dbCircuit.execute(fn);
 }

@@ -78,6 +78,7 @@ async function awardGiftXP(
   recipientId: string,
   giftTier: number,
   senderPlan: Plan,
+  giftId: string,
   roomId?: string | null
 ): Promise<void> {
   try {
@@ -119,22 +120,24 @@ async function awardGiftXP(
       );
       const isFirstGift = firstGiftRows.length > 0;
 
-      // Sender XP (generosity track)
+      // Sender XP (generosity track) — reference_id prevents double-award on retry
       await tx.query(
-        `INSERT INTO xp_ledger (user_id, amount, track, source, multiplier, base_amount)
-         VALUES ($1, $2, 'generosity', 'gift_sent', $3, $4)`,
-        [senderId, senderXP, senderMultiplierBP, senderBaseXp]
+        `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
+         VALUES ($1, $2, 'generosity', 'gift_sent', $3, $4, $5)
+         ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
+        [senderId, senderXP, `gift:${giftId}:sender`, senderMultiplierBP, senderBaseXp]
       );
       await tx.query(
         `UPDATE users SET xp_total = xp_total + $2, xp_generosity = xp_generosity + $2, updated_at = NOW() WHERE id = $1`,
         [senderId, senderXP]
       );
 
-      // Recipient base XP (social track)
+      // Recipient base XP (social track) — reference_id prevents double-award on retry
       await tx.query(
-        `INSERT INTO xp_ledger (user_id, amount, track, source, multiplier, base_amount)
-         VALUES ($1, $2, 'social', 'gift_received', 100, $3)`,
-        [recipientId, recipientXP, recipBaseXp]
+        `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
+         VALUES ($1, $2, 'social', 'gift_received', $3, 100, $4)
+         ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
+        [recipientId, recipientXP, `gift:${giftId}:recipient`, recipBaseXp]
       );
       await tx.query(
         `UPDATE users SET xp_total = xp_total + $2, xp_social = xp_social + $2, updated_at = NOW() WHERE id = $1`,
@@ -143,9 +146,10 @@ async function awardGiftXP(
 
       if (isFirstGift) {
         await tx.query(
-          `INSERT INTO xp_ledger (user_id, amount, track, source, multiplier, base_amount)
-           VALUES ($1, $2, 'social', 'first_time_gifted', 100, $3)`,
-          [recipientId, firstGiftXP, firstGiftBaseXp]
+          `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
+           VALUES ($1, $2, 'social', 'first_time_gifted', $3, 100, $4)
+           ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
+          [recipientId, firstGiftXP, `gift:${giftId}:first`, firstGiftBaseXp]
         );
         await tx.query(
           `UPDATE users SET xp_total = xp_total + $2, xp_social = xp_social + $2, updated_at = NOW() WHERE id = $1`,
@@ -451,7 +455,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       [senderId]
     ).then(({ rows }) => {
       const senderPlan: Plan = rows[0]?.plan ?? 'free';
-      return awardGiftXP(senderId, body.recipientId, giftItem.tier, senderPlan, body.roomId);
+      return awardGiftXP(senderId, body.recipientId, giftItem.tier, senderPlan, giftId, body.roomId);
     }).catch((err) => console.error('[gifts:POST] XP award failed', err));
 
     // 5. Record guild war contribution (fire-and-forget)

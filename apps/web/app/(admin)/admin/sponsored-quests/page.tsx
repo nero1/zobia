@@ -24,7 +24,7 @@ interface SponsoredQuest {
   title: string;
   description: string;
   requirements: string;
-  reward_amount_coins: number;
+  reward_coins: number;
   creator_share_percent: number;
   platform_share_percent: number;
   max_applications: number;
@@ -42,7 +42,7 @@ interface FormData {
   title: string;
   description: string;
   requirements: string;
-  rewardAmountCoins: number;
+  rewardCoins: number;
   creatorSharePercent: number;
   platformSharePercent: number;
   maxApplications: number;
@@ -56,7 +56,7 @@ const EMPTY_FORM: FormData = {
   title: "",
   description: "",
   requirements: "",
-  rewardAmountCoins: 5000,
+  rewardCoins: 5000,
   creatorSharePercent: 70,
   platformSharePercent: 30,
   maxApplications: 10,
@@ -132,7 +132,7 @@ export default function AdminSponsoredQuestsPage() {
           title: form.title,
           description: form.description,
           requirements: form.requirements,
-          rewardAmountCoins: Number(form.rewardAmountCoins),
+          rewardCoins: Number(form.rewardCoins),
           creatorSharePercent: Number(form.creatorSharePercent),
           platformSharePercent: Number(form.platformSharePercent),
           maxApplications: Number(form.maxApplications),
@@ -255,8 +255,8 @@ export default function AdminSponsoredQuestsPage() {
                 required
                 type="number"
                 min="100"
-                value={form.rewardAmountCoins}
-                onChange={(e) => handleFormChange("rewardAmountCoins", e.target.value)}
+                value={form.rewardCoins}
+                onChange={(e) => handleFormChange("rewardCoins", e.target.value)}
                 className="w-full px-3 py-2 border border-neutral-200 dark:border-neutral-700 rounded-lg text-sm bg-white dark:bg-neutral-800"
               />
             </div>
@@ -355,7 +355,7 @@ export default function AdminSponsoredQuestsPage() {
                 </div>
                 <div className="ml-4 text-right flex-shrink-0">
                   <div className="text-lg font-bold text-neutral-900 dark:text-white">
-                    {q.reward_amount_coins.toLocaleString()} Coins
+                    {q.reward_coins.toLocaleString()} Coins
                   </div>
                   <div className="text-xs text-neutral-500">
                     {q.creator_share_percent}% creator / {q.platform_share_percent}% platform

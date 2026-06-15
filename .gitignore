@@ -154,6 +154,7 @@ dist
 
 # pnpm
 .pnpm-store
+pnpm-lock.yaml
 
 # yarn v3
 .pnp.*

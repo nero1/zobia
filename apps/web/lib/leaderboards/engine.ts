@@ -101,8 +101,11 @@ export async function getUserRank(
   let paramIdx = 5;
 
   if (scope === "national") {
+    if (!options?.country) {
+      throw new Error("country is required for national leaderboard scope");
+    }
     conditions.push(`COALESCE(u.country, '') = $${paramIdx++}`);
-    params.push(options?.country ?? 'NG');
+    params.push(options.country);
   } else if (scope === "city" && options?.city) {
     conditions.push(`ls.city = $${paramIdx++}`);
     params.push(options.city);
@@ -180,8 +183,11 @@ export async function getLeaderboard(
   let paramIdx = 3;
 
   if (scope === "national") {
+    if (!options?.country) {
+      throw new Error("country is required for national leaderboard scope");
+    }
     conditions.push(`COALESCE(u.country, '') = $${paramIdx++}`);
-    params.push(options?.country ?? 'NG');
+    params.push(options.country);
   } else if (scope === "city" && city) {
     conditions.push(`ls.city = $${paramIdx++}`);
     params.push(city);

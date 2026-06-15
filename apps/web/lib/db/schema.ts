@@ -151,7 +151,7 @@ export const users = pgTable("users", {
 
   // Economy
   coinBalance: bigint("coin_balance", { mode: "number" }).notNull().default(0),
-  starBalance: integer("star_balance").notNull().default(0),
+  starBalance: bigint("star_balance", { mode: "number" }).notNull().default(0),
   availableEarningsKobo: bigint("available_earnings_kobo", {
     mode: "number",
   })
@@ -1752,7 +1752,6 @@ export const userBadges = pgTable(
     referenceId: text("reference_id"),
     metadata: jsonb("metadata"),
     awardedAt: timestamp("awarded_at", { withTimezone: true }).defaultNow(),
-    grantedAt: timestamp("granted_at", { withTimezone: true }).defaultNow(),
   },
   (t) => ({
     // Partial unique: only when badge_key is present
@@ -1957,7 +1956,6 @@ export const giftItems = pgTable("gift_items", {
   id: uuidPk(),
   name: text("name").notNull().unique(),
   emoji: text("emoji").notNull(),
-  coinPrice: integer("coin_price").notNull(),
   coinCost: integer("coin_cost").notNull().default(0),
   tier: integer("tier").notNull(),
   spectacleThresholdCoins: integer("spectacle_threshold_coins"),
@@ -2411,7 +2409,6 @@ export const sponsoredQuests = pgTable("sponsored_quests", {
   targetAction: text("target_action"),
   targetValue: integer("target_value"),
   rewardCoins: integer("reward_coins"),
-  rewardAmountCoins: integer("reward_amount_coins"),
   creatorPayoutKobo: bigint("creator_payout_kobo", { mode: "number" }),
   platformFeeKobo: bigint("platform_fee_kobo", { mode: "number" }),
   platformSharePercent: integer("platform_share_percent").notNull().default(30),
@@ -2652,21 +2649,11 @@ export const learningCertificates = pgTable(
   "learning_certificates",
   {
     id: uuidPk(),
-    classroomRoomId: uuid("classroom_room_id").references(() => rooms.id, {
-      onDelete: "cascade",
-    }),
-    studentId: uuid("student_id").references(() => users.id, {
-      onDelete: "cascade",
-    }),
-    // Canonical columns used by the certificate-issuing API
     roomId: uuid("room_id").references(() => rooms.id, { onDelete: "cascade" }),
     recipientUserId: uuid("recipient_user_id").references(() => users.id, {
       onDelete: "cascade",
     }),
     issuerUserId: uuid("issuer_user_id").references(() => users.id, {
-      onDelete: "set null",
-    }),
-    issuerId: uuid("issuer_id").references(() => users.id, {
       onDelete: "set null",
     }),
     title: text("title"),
@@ -2676,9 +2663,9 @@ export const learningCertificates = pgTable(
     metadata: jsonb("metadata"),
   },
   (t) => ({
-    unique: uniqueIndex("learning_certificates_room_student_idx").on(
-      t.classroomRoomId,
-      t.studentId
+    unique: uniqueIndex("learning_certificates_room_recipient_idx").on(
+      t.roomId,
+      t.recipientUserId
     ),
   })
 );
@@ -2974,7 +2961,9 @@ export const moderationAiEscalations = pgTable("moderation_ai_escalations", {
 // SECTION 10: Subscriptions & Plans
 // ---------------------------------------------------------------------------
 
-export const subscriptions = pgTable("subscriptions", {
+export const subscriptions = pgTable(
+  "subscriptions",
+  {
   id: uuidPk(),
   userId: uuid("user_id")
     .notNull()
@@ -2993,7 +2982,11 @@ export const subscriptions = pgTable("subscriptions", {
   cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-});
+  },
+  (t) => ({
+    userIdUniq: uniqueIndex("subscriptions_user_id_idx").on(t.userId),
+  })
+);
 
 export const subscriptionPlans = pgTable(
   "subscription_plans",
@@ -3075,6 +3068,10 @@ export const businessAccounts = pgTable("business_accounts", {
 // SECTION 11: Moderation & Reports
 // ---------------------------------------------------------------------------
 
+// Two distinct report tables serve different purposes:
+//   reports            — User-submitted content/user reports. Used by trust score calculations.
+//   moderation_reports — AI-pipeline moderation queue with ai_classification columns.
+// They are NOT duplicates; do NOT merge them.
 export const reports = pgTable("reports", {
   id: uuidPk(),
   reporterId: uuid("reporter_id")
@@ -3148,16 +3145,11 @@ export const moderationActions = pgTable("moderation_actions", {
     onDelete: "set null",
   }),
   actionType: text("action_type"),
-  action: text("action"),
   reason: text("reason"),
-  note: text("note"),
   reportId: uuid("report_id").references(() => reports.id, {
     onDelete: "set null",
   }),
   durationHours: integer("duration_hours"),
-  actionedBy: uuid("actioned_by").references(() => users.id, {
-    onDelete: "set null",
-  }),
   actorType: text("actor_type").notNull().default("manual"),
   expiresAt: timestamp("expires_at", { withTimezone: true }),
   metadata: jsonb("metadata"),

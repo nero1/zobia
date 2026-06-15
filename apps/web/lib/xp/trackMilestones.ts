@@ -10,7 +10,7 @@
  *
  * Database tables expected:
  *   track_milestone_unlocks  (user_id, track, milestone_level, unlocked_at)
- *   user_badges              (user_id, badge_key, granted_at)   — optional
+ *   user_badges              (user_id, badge_key, awarded_at)   — optional
  *
  * All writes are best-effort: if a table doesn't exist yet the error is caught
  * and logged rather than surfaced to the caller. The function still returns the
@@ -255,7 +255,7 @@ export async function checkAndAwardTrackMilestones(
     try {
       await db.query(
         `INSERT INTO user_badges
-           (user_id, badge_type, badge_key, granted_at, metadata)
+           (user_id, badge_type, badge_key, awarded_at, metadata)
          VALUES ($1, 'title', $2, NOW(), $3)
          ON CONFLICT (user_id, badge_key) DO NOTHING`,
         [

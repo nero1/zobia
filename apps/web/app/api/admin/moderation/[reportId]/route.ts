@@ -112,21 +112,21 @@ export const GET = withAdminAuth(
       // Fetch prior moderation actions against the reported user
       const { rows: priorActions } = await db.query<{
         id: string;
-        action: string;
-        note: string | null;
-        actioned_by: string;
-        actioned_by_username: string;
+        action_type: string;
+        reason: string | null;
+        moderator_id: string;
+        moderator_username: string;
         created_at: string;
       }>(
         `SELECT
            ma.id,
-           ma.action,
-           ma.note,
-           ma.actioned_by,
-           actor.username AS actioned_by_username,
+           ma.action_type,
+           ma.reason,
+           ma.moderator_id,
+           actor.username AS moderator_username,
            ma.created_at
          FROM moderation_actions ma
-         LEFT JOIN users actor ON actor.id = ma.actioned_by
+         LEFT JOIN users actor ON actor.id = ma.moderator_id
          WHERE ma.target_user_id = $1
          ORDER BY ma.created_at DESC
          LIMIT 20`,

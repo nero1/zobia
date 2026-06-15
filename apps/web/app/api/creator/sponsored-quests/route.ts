@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
  *
  * POST /api/creator/sponsored-quests
  *   - Admin creates a new sponsored quest.
- *   - Body: { brandName, title, description, requirements, rewardAmountCoins,
+ *   - Body: { brandName, title, description, requirements, rewardCoins,
  *             creatorSharePercent?, platformSharePercent?, maxApplications, deadline }
  *   - Requires admin auth.
  */
@@ -34,7 +34,7 @@ interface SponsoredQuestRow {
   title: string;
   description: string;
   requirements: string;
-  reward_amount_coins: number;
+  reward_coins: number;
   creator_share_percent: number;
   platform_share_percent: number;
   max_applications: number;
@@ -54,7 +54,7 @@ const createSponsoredQuestSchema = z.object({
   title: z.string().min(3).max(150),
   description: z.string().min(1).max(2000),
   requirements: z.string().min(1).max(2000),
-  rewardAmountCoins: z.number().int().positive(),
+  rewardCoins: z.number().int().positive(),
   creatorSharePercent: z.number().int().min(0).max(100).default(70),
   platformSharePercent: z.number().int().min(0).max(100).default(30),
   maxApplications: z.number().int().positive(),
@@ -82,7 +82,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
          sq.title,
          sq.description,
          sq.requirements,
-         sq.reward_amount_coins,
+         sq.reward_coins,
          sq.creator_share_percent,
          sq.platform_share_percent,
          sq.max_applications,
@@ -127,7 +127,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
 
     const insertResult = await db.query<{ id: string }>(
       `INSERT INTO sponsored_quests
-         (brand_name, title, description, requirements, reward_amount_coins,
+         (brand_name, title, description, requirements, reward_coins,
           creator_share_percent, platform_share_percent, max_applications,
           deadline, is_active, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, NOW())
@@ -137,7 +137,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
         body.title,
         body.description,
         body.requirements,
-        body.rewardAmountCoins,
+        body.rewardCoins,
         body.creatorSharePercent,
         body.platformSharePercent,
         body.maxApplications,
