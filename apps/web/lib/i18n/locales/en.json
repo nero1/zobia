@@ -1,7 +1,6 @@
 {
   "app.name": "Zobia Social",
   "app.tagline": "Connect, Engage, Belong.",
-
   "nav.home": "Home",
   "nav.moments": "Moments",
   "nav.rooms": "Rooms",
@@ -15,7 +14,6 @@
   "nav.openMenu": "Open navigation menu",
   "nav.closeMenu": "Close menu",
   "nav.userArea": "User Area",
-
   "auth.login": "Log in",
   "auth.logout": "Log out",
   "auth.register": "Create account",
@@ -42,11 +40,9 @@
   "auth.signUpWithGoogle": "Sign up with Google",
   "auth.signingInWithTelegram": "Signing in with Telegram…",
   "auth.signingUpWithTelegram": "Signing up with Telegram…",
-
   "home.title": "Home",
   "home.feed.empty": "Nothing here yet. Follow people or join rooms to see posts.",
   "home.feed.loading": "Loading your feed…",
-
   "rooms.title": "Rooms",
   "rooms.discover": "Discover rooms",
   "rooms.create": "Create room",
@@ -55,13 +51,11 @@
   "rooms.members": "{{count}} member",
   "rooms.members_other": "{{count}} members",
   "rooms.empty": "No rooms found. Be the first to create one!",
-
   "messages.title": "Messages",
   "messages.new": "New message",
   "messages.empty": "No conversations yet. Start chatting!",
   "messages.typeHere": "Type a message…",
   "messages.send": "Send",
-
   "profile.title": "Profile",
   "profile.edit": "Edit profile",
   "profile.followers": "Followers",
@@ -70,7 +64,6 @@
   "profile.rank": "Rank",
   "profile.joinedOn": "Joined {{date}}",
   "profile.bio.placeholder": "Tell the world about yourself…",
-
   "settings.title": "Settings",
   "settings.profile": "Profile settings",
   "settings.privacy": "Privacy",
@@ -81,7 +74,6 @@
   "settings.theme.light": "Light",
   "settings.theme.dark": "Dark",
   "settings.theme.system": "System",
-
   "admin.dashboard": "Dashboard",
   "admin.users": "Users",
   "admin.rooms": "Rooms",
@@ -97,17 +89,14 @@
   "admin.openMenu": "Open admin menu",
   "admin.closeMenu": "Close admin menu",
   "admin.panel": "Admin Panel",
-
   "error.generic": "Something went wrong. Please try again.",
   "error.notFound": "Page not found.",
   "error.unauthorized": "You must be logged in to view this page.",
   "error.forbidden": "You don't have permission to do that.",
   "error.networkError": "Network error. Please check your connection.",
   "error.sessionExpired": "Your session has expired. Please log in again.",
-
   "offline.banner": "You're offline. Some features may not be available.",
   "offline.reconnected": "You're back online!",
-
   "action.save": "Save",
   "action.cancel": "Cancel",
   "action.delete": "Delete",
@@ -118,19 +107,16 @@
   "action.submit": "Submit",
   "action.loading": "Loading…",
   "action.retry": "Retry",
-
   "validation.required": "This field is required.",
   "validation.email": "Please enter a valid email address.",
   "validation.minLength": "Must be at least {{min}} characters.",
   "validation.maxLength": "Must be no more than {{max}} characters.",
   "validation.passwordMatch": "Passwords do not match.",
-
   "upload.dragDrop": "Drag and drop a file, or click to browse",
   "upload.maxSize": "Maximum file size: {{size}}",
   "upload.uploading": "Uploading…",
   "upload.success": "Uploaded successfully.",
   "upload.error": "Upload failed. Please try again.",
-
   "notification.newMessage": "New message from {{name}}",
   "notification.newFollower": "{{name}} started following you",
   "notification.roomInvite": "{{name}} invited you to {{room}}",
@@ -138,7 +124,6 @@
   "notification.rankUp": "You reached rank {{rank}}!",
   "notification.giftDropAvailable": "A Gift Drop is Coming!",
   "notification.giftDropAvailableBody": "A new monthly gift drop will be available soon. Stay tuned!",
-
   "home.nemesis.title": "Your Nemesis",
   "home.nemesis.you": "You",
   "home.nemesis.aheadBy": "You're ahead by {{diff}} XP",
@@ -169,7 +154,6 @@
   "home.activityCount": "{{count}} user earned XP in the last hour",
   "home.activityCount_other": "{{count}} users earned XP in the last hour",
   "home.pageTitle": "Home",
-
   "rooms.createRoom": "+ Create Room",
   "rooms.tab.trending": "Trending",
   "rooms.tab.nearby": "Near Me",
@@ -187,7 +171,6 @@
   "rooms.empty.createButton": "Create a Room",
   "rooms.loadMore": "Load more",
   "rooms.loading": "Loading…",
-
   "messages.groups": "👥 Groups",
   "messages.newMessage": "+ New Message",
   "messages.search.placeholder": "Search conversations…",
@@ -199,7 +182,6 @@
   "messages.noSearchResults": "No conversations match your search",
   "messages.noSearchResultsHint": "Try a different name or keyword",
   "messages.noMessagesYet": "No messages yet",
-
   "profile.playSince": "Playing since {{year}}",
   "profile.verified": "✓ Verified",
   "profile.creator": "Creator",
@@ -221,7 +203,6 @@
   "profile.actions.upgrade": "Upgrade Plan",
   "profile.notFound": "Profile not found",
   "profile.backHome": "← Home",
-
   "settings.account": "Account",
   "settings.displayName": "Display Name",
   "settings.displayNamePlaceholder": "Your name",
@@ -304,7 +285,6 @@
   "settings.privacyDmOptOut": "Disable direct messages",
   "settings.privacyDmOptOutDesc": "Prevent non-friends from sending you DMs",
   "settings.saved": "Saved",
-
   "guild.joinTitle": "Join a Guild",
   "guild.joinSubtitle": "Guilds near you — compete in wars and climb the tiers",
   "guild.joining": "Joining…",
@@ -324,7 +304,6 @@
   "guild.allianceJoined": "Joined",
   "guild.allianceLeft": "Left {{date}}",
   "guild.guildLabel": "Guild",
-
   "leaderboards.title": "Leaderboards",
   "leaderboards.scope.global": "Global",
   "leaderboards.scope.city": "City",
@@ -349,7 +328,6 @@
   "leaderboards.page": "Page {{page}} of {{total}}",
   "leaderboards.prevPage": "← Prev",
   "leaderboards.nextPage": "Next →",
-
   "wallet.title": "Wallet",
   "wallet.coinBalance": "Credit Balance",
   "wallet.starBalance": "Star Balance",
@@ -378,7 +356,6 @@
   "wallet.maxTransfer": "Maximum single transfer is 100,000 credits",
   "wallet.purchaseInitiated": "Purchase initiated — check your email for confirmation.",
   "wallet.premiumCurrency": "Premium currency",
-
   "quests.title": "Daily Quests",
   "quests.subtitle": "Complete quests to earn XP and Credits",
   "quests.resetsIn": "Resets in",
@@ -388,7 +365,6 @@
   "quests.sponsoredQuests": "Sponsored Quests",
   "quests.sponsored": "Sponsored",
   "quests.retry": "Retry",
-
   "seasons.title": "Seasons",
   "seasons.activeSeason": "Active Season",
   "seasons.daysLeft": "days left",
@@ -423,7 +399,6 @@
   "seasons.confirmGift": "Confirm Gift",
   "seasons.giftSuccess": "Pass gifted to @{{username}}!",
   "seasons.done": "Done",
-
   "prestige.title": "Prestige",
   "prestige.notYet": "Not Yet",
   "prestige.currentRank": "You are currently {{rank}} (Level {{level}}).",
@@ -453,7 +428,6 @@
   "prestige.yesPrestige": "Yes, Prestige",
   "prestige.processing": "Processing…",
   "prestige.notYetButton": "Not yet",
-
   "nemesis.title": "Your Nemesis",
   "nemesis.subtitle": "A rival matched to your XP level. Outperform them to climb.",
   "nemesis.nextRefresh": "Next refresh:",
@@ -471,7 +445,6 @@
   "nemesis.rule3": "Sprint tracks XP earned since the match started",
   "nemesis.rule4": "Outrank your nemesis to earn bonus Legacy XP",
   "nemesis.retry": "Retry",
-
   "rooms.create.title": "Create Room",
   "rooms.create.chooseType": "Choose the type of room you want to create.",
   "rooms.create.continue": "Continue →",
@@ -513,7 +486,6 @@
   "rooms.create.enrolmentCoins": "Enrolment: {{coins}} credits",
   "rooms.create.nameRequired": "Room name is required",
   "rooms.create.moduleRequired": "Add at least one curriculum module",
-
   "room.about": "About",
   "room.noDescription": "No description.",
   "room.creator": "Creator",
@@ -560,7 +532,6 @@
   "room.saved": "Saved",
   "room.save": "Save",
   "room.roomPowers": "Room Powers",
-
   "creator.title": "Creator Dashboard",
   "creator.revenueToday": "Today",
   "creator.revenueWeek": "This Week",
@@ -586,7 +557,6 @@
   "creator.processed": "Processed",
   "creator.accessDenied": "Access denied",
   "creator.payoutRequested": "Payout requested — pending admin approval",
-
   "creator.broadcasts.title": "Creator Broadcasts",
   "creator.broadcasts.sendBtn": "Send Broadcast",
   "creator.broadcasts.monthlyAllowance": "Monthly Allowance",
@@ -617,7 +587,6 @@
   "creator.broadcasts.accessDeniedTitle": "Creator Broadcasts",
   "creator.broadcasts.accessDeniedDesc": "You need to be a Rising tier creator or above to send broadcasts.",
   "creator.broadcasts.loadError": "Failed to load broadcasts",
-
   "notifications.title": "Notifications",
   "notifications.unread": "{{count}} unread",
   "notifications.markAllRead": "Mark all read",
@@ -627,7 +596,6 @@
   "notifications.view": "View →",
   "notifications.loadMore": "Load more",
   "notifications.loading": "Loading…",
-
   "referrals.title": "Referrals",
   "referrals.linkCard.title": "Your Referral Link",
   "referrals.linkCard.copy": "Copy",
@@ -656,7 +624,6 @@
   "referrals.table.tier": "Tier {{tier}}",
   "referrals.table.qualified": "✓ Yes",
   "referrals.table.pending": "Pending",
-
   "elder.title": "Elder System",
   "elder.dashboard.menteesLabel": "Mentees",
   "elder.dashboard.mentorshipXpLabel": "Mentorship XP",
@@ -682,7 +649,6 @@
   "elder.nonEligible.requestSent": "Request sent! An Elder will be assigned to you soon.",
   "elder.nonEligible.requesting": "Sending…",
   "elder.nonEligible.requestButton": "Request a Mentor",
-
   "council.title": "Platform Council",
   "council.subtitle": "Elected members who guide platform direction through voted ideas.",
   "council.membersSection": "Council Members",
@@ -699,7 +665,6 @@
   "council.submitting": "Submitting…",
   "council.submitSuccess": "Idea submitted successfully!",
   "council.voteFailed": "Vote failed",
-
   "stickers.title": "Sticker Store",
   "stickers.subtitle": "Unlock sticker packs to use in messages and rooms",
   "stickers.owned": "Owned",
@@ -713,7 +678,6 @@
   "stickers.unlocked": "Sticker pack unlocked!",
   "stickers.empty": "No sticker packs yet",
   "stickers.emptyHint": "Check back soon!",
-
   "moments.title": "Moments",
   "moments.subtitle": "Short clips and photos from the community",
   "moments.share": "Share a Moment",
@@ -733,7 +697,6 @@
   "moments.create.cancel": "Cancel",
   "moments.create.post": "Post Moment",
   "moments.create.posting": "Posting…",
-
   "publicProfile.playingSince": "Playing since {{year}}",
   "publicProfile.legacyScore": "Legacy Score:",
   "publicProfile.rankXp": "Rank XP — Level {{level}}",
@@ -751,7 +714,6 @@
   "publicProfile.gift": "Gift",
   "publicProfile.notFound": "Profile not found",
   "publicProfile.backHome": "← Home",
-
   "subscription.title": "Subscription & Billing",
   "subscription.currentPlan": "Current Plan",
   "subscription.cancels": "Cancels {{date}}",
@@ -780,7 +742,6 @@
   "subscription.loadError": "Failed to load subscription info",
   "subscription.cancelFailed": "Cancel failed",
   "subscription.finePrint": "Prices are in Nigerian Naira (NGN). Subscriptions renew automatically and can be cancelled at any time. Annual plans are billed as a single payment.",
-
   "groups.title": "Group Chats",
   "groups.createGroup": "+ Create Group",
   "groups.noGroups": "No group chats yet",
@@ -806,7 +767,6 @@
   "groups.conversation.noMessages": "No messages yet. Start the conversation!",
   "groups.conversation.typeMessage": "Type a message…",
   "groups.conversation.send": "Send",
-
   "events.title": "Events",
   "events.activeNow": "Active Now",
   "events.upcoming": "Upcoming",
@@ -822,13 +782,11 @@
   "events.xpMultiplier": "{{multiplier}}× XP multiplier",
   "events.startingSoon": "Starting soon",
   "events.startsIn": "Starts in {{time}}",
-
   "inbox.title": "Inbox",
   "inbox.unread": "{{count}} unread",
   "inbox.fromZobia": "From Zobia",
   "inbox.noMessages": "No messages",
   "inbox.noMessagesHint": "You have no messages from Zobia yet. Check back soon!",
-
   "communityNotes.title": "Community Notes",
   "communityNotes.subtitle": "Community-sourced context on flagged content. Anyone can contribute helpful notes.",
   "communityNotes.addNote": "+ Add Note",
@@ -852,23 +810,19 @@
   "communityNotes.modal.submit": "Submit Note",
   "communityNotes.modal.submitting": "Submitting…",
   "communityNotes.modal.minLength": "Note must be at least 20 characters.",
-
   "terms.title": "Terms of Service",
   "terms.lastUpdated": "Last updated: {{date}}",
   "terms.backHome": "← Back to Home",
   "terms.toc": "Table of Contents",
-
   "privacy.title": "Privacy Policy",
   "privacy.lastUpdated": "Last updated: {{date}}",
   "privacy.backHome": "← Back to Home",
   "privacy.toc": "Table of Contents",
-
   "notFound.title": "Page Not Found",
   "notFound.description": "The page you're looking for doesn't exist or has been moved.",
   "notFound.backHome": "Go back home",
   "notFound.login": "Log in",
   "notFound.quickLinks": "Or try one of these pages:",
-
   "guildDiscovery.stepBadge": "Almost There",
   "guildDiscovery.title": "Crews near you are recruiting",
   "guildDiscovery.subtitle": "Joining a Guild earns you bonus XP on everything you do.",
@@ -889,11 +843,9 @@
   "guildDiscovery.emptyHint": "Check back soon — or browse all guilds.",
   "guildDiscovery.tooNew": "Come back soon!",
   "guildDiscovery.tooNewBody": "Guild recommendations unlock after your first 24 hours on Zobia.",
-
   "landing.footer.terms": "Terms of Service",
   "landing.footer.privacy": "Privacy Policy",
   "landing.footer.copyright": "© {{year}} Zobia Social. All rights reserved.",
-
   "admin.aiSettings": "AI Settings",
   "admin.aiSettings.subtitle": "Manage API keys and connection status for AI providers.",
   "admin.aiSettings.deepseek": "DeepSeek (Primary)",
@@ -916,7 +868,6 @@
   "admin.aiSettings.clearSuccess": "Override cleared.",
   "admin.aiSettings.saveError": "Failed to save key.",
   "admin.aiSettings.loadError": "Failed to load AI settings.",
-
   "onboarding.progress": "Step {{step}} of {{total}}",
   "onboarding.step1.title": "Create your identity",
   "onboarding.step1.subtitle": "Your username is permanent. Make it count.",
@@ -997,11 +948,9 @@
   "onboarding.error.usernameTaken": "That username is already taken. Please choose another.",
   "onboarding.error.network": "Network error. Please check your connection and try again.",
   "onboarding.error.generic": "Something went wrong. Please try again.",
-
   "wallet.xpBalance": "XP",
   "wallet.coinsBalance": "Credits",
   "wallet.starsBalance": "Stars",
-
   "auth.twoFaVerify.title": "Two-factor authentication",
   "auth.twoFaVerify.instructions": "Enter the 6-digit code from your authenticator app to continue.",
   "auth.twoFaVerify.placeholder": "000000",
@@ -1011,7 +960,6 @@
   "auth.require2Fa.body": "Your account has moderator privileges. Platform policy requires all moderators to have two-factor authentication enabled before logging in.",
   "auth.require2Fa.settingsLink": "Back to login",
   "auth.featureDisabled": "This feature is not currently enabled on this platform.",
-
   "friends.title": "Friends",
   "friends.tabs.myFriends": "My Friends",
   "friends.tabs.requests": "Requests",
@@ -1034,7 +982,6 @@
   "friends.mutualFriends": "mutual friends",
   "nav.friends": "Friends",
   "nav.gifts": "Gifts",
-
   "gifts.title": "Gifts",
   "gifts.subtitle": "Send gifts to friends and see your gift history",
   "gifts.sendBtn": "🎁 Send a Gift",
@@ -1078,9 +1025,7 @@
   "settings.privacy.disableFriendRequestsPlanRequired": "Available on Plus plan and above",
   "settings.privacy.hideSections": "Hidden profile sections",
   "settings.privacy.hideSectionsDesc": "Choose which sections to hide from other users",
-
   "quests.sendFriendRequests": "Send 3 friend requests",
-
   "messages.groupTypes.personal": "Personal",
   "messages.groupTypes.general": "General",
   "messages.groupTypes.other": "Other",
@@ -1088,26 +1033,113 @@
   "messages.coinError.cannotInitiate": "Upgrade to Pro to start new conversations.",
   "messages.coinError.buyCoins": "Buy Credits",
   "messages.coinError.upgrade": "Upgrade to Pro",
-
   "settings.twoFaDisabledByAdmin": "Two-factor authentication is currently disabled by the platform administrator.",
   "settings.pinDisabledByAdmin": "PIN authentication is currently disabled by the platform administrator.",
-
   "errors.not_room_member": "You are not a member of this room.",
   "errors.global_rate_limit": "Too many requests. Please try again later.",
-
   "health.status_ok": "All systems operational",
   "health.status_degraded": "Some services are degraded",
-
   "creator.tier.rookie": "Rookie",
   "creator.tier.rising": "Rising",
   "creator.tier.verified": "Verified Creator",
   "creator.tier.elite": "Elite Creator",
   "creator.tier.icon": "Icon Creator",
-
   "admin.featureFlags": "Feature Flags",
   "admin.featureFlags.description": "Enable or disable platform features globally.",
   "admin.featureFlags.availableFrom": "Available from",
   "admin.featureFlags.earlyAccessPlans": "Early access plans",
-
-  "subscription.nextRenewal": "Next renewal: {{date}}"
+  "subscription.nextRenewal": "Next renewal: {{date}}",
+  "business.sectionTitle": "Business Account",
+  "business.sectionDescription": "Verified badge, broadcasts, analytics and more",
+  "business.manageButton": "Manage →",
+  "business.createTitle": "Create Business Account",
+  "business.editTitle": "Edit Business Account",
+  "business.noAccount": "You don't have a business account yet",
+  "business.createButton": "Create Business Account",
+  "business.saving": "Saving...",
+  "business.saveChanges": "Save Changes",
+  "business.createAccount": "Create Account",
+  "business.form.businessName": "Business Name",
+  "business.form.businessNamePlaceholder": "Enter your business name",
+  "business.form.businessType": "Business Type",
+  "business.form.description": "Description",
+  "business.form.descriptionPlaceholder": "Describe your business",
+  "business.form.website": "Website",
+  "business.form.websitePlaceholder": "https://example.com",
+  "business.form.contactEmail": "Contact Email",
+  "business.form.contactPhone": "Contact Phone",
+  "business.form.address": "Address",
+  "business.form.logoUrl": "Logo URL",
+  "business.type.brand": "Brand",
+  "business.type.creator": "Creator",
+  "business.type.retailer": "Retailer",
+  "business.type.service": "Service Provider",
+  "business.type.ngo": "NGO / Non-Profit",
+  "business.type.other": "Other",
+  "business.tier.title": "Account Tier",
+  "business.tier.current": "Current Tier",
+  "business.tier.upgrade": "Upgrade",
+  "business.tier.starter": "Starter",
+  "business.tier.growth": "Growth",
+  "business.tier.enterprise": "Enterprise",
+  "business.tier.starterPrice": "Free",
+  "business.tier.growthPrice": "₦15,000/month",
+  "business.tier.enterprisePrice": "₦50,000/month",
+  "business.tier.upgradeButton": "Upgrade to {{tier}}",
+  "business.tier.upgrading": "Initiating upgrade...",
+  "business.tier.upgraded": "Tier upgraded successfully",
+  "business.tier.starterFeatures": "Basic business profile, custom business type",
+  "business.tier.growthFeatures": "Everything in Starter, paid broadcasts, verified badge eligibility",
+  "business.tier.enterpriseFeatures": "Everything in Growth, priority support, advanced analytics",
+  "business.verification.title": "Verification",
+  "business.verification.status": "Status",
+  "business.verification.unverified": "Unverified",
+  "business.verification.pending": "Pending Review",
+  "business.verification.verified": "Verified",
+  "business.verification.rejected": "Rejected",
+  "business.verification.requestButton": "Request Verification",
+  "business.verification.cancelButton": "Cancel Request",
+  "business.verification.requesting": "Submitting...",
+  "business.verification.requestedSuccess": "Verification request submitted",
+  "business.verification.cancelledSuccess": "Verification request cancelled",
+  "business.verification.badge": "Verified Badge",
+  "business.verification.rejectReason": "Rejection reason",
+  "business.analytics.title": "Analytics",
+  "business.analytics.followers": "Followers",
+  "business.analytics.rooms": "Rooms",
+  "business.analytics.roomMembers": "Room Members",
+  "business.analytics.earnings": "Lifetime Earnings",
+  "business.analytics.broadcasts": "Broadcasts Sent",
+  "business.analytics.subscribers": "Active Subscribers",
+  "business.analytics.loading": "Loading analytics...",
+  "business.status.active": "Active",
+  "business.status.suspended": "Suspended",
+  "business.status.suspended_notice": "Your business account has been suspended. Contact support.",
+  "business.success.created": "Business account created successfully",
+  "business.success.updated": "Business account updated successfully",
+  "business.error.notFound": "Business account not found",
+  "business.error.nameRequired": "Business name is required",
+  "business.error.upgradeInProgress": "An upgrade payment is already in progress",
+  "business.error.generic": "Something went wrong. Please try again.",
+  "admin.business.title": "Business Accounts",
+  "admin.business.filters.all": "All",
+  "admin.business.filters.pending": "Pending Verification",
+  "admin.business.filters.verified": "Verified",
+  "admin.business.filters.rejected": "Rejected",
+  "admin.business.filters.tier": "Filter by tier",
+  "admin.business.table.name": "Business Name",
+  "admin.business.table.owner": "Owner",
+  "admin.business.table.tier": "Tier",
+  "admin.business.table.status": "Status",
+  "admin.business.table.verification": "Verification",
+  "admin.business.table.created": "Created",
+  "admin.business.table.actions": "Actions",
+  "admin.business.action.verify": "Verify",
+  "admin.business.action.reject": "Reject",
+  "admin.business.action.suspend": "Suspend",
+  "admin.business.action.restore": "Restore",
+  "admin.business.action.rejectReason": "Rejection Reason (optional)",
+  "admin.business.action.confirm": "Confirm",
+  "admin.business.action.cancel": "Cancel",
+  "admin.business.empty": "No business accounts found"
 }

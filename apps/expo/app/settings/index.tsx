@@ -977,6 +977,25 @@ export default function SettingsScreen() {
         </Pressable>
       </View>
 
+      {/* Business Account */}
+      <SectionHeader title="BUSINESS" />
+      <View style={[styles.card, { backgroundColor: themeColors.surface }]}>
+        <Pressable
+          style={[styles.settingsRow, { borderBottomColor: 'transparent' }]}
+          onPress={() => router.push('/settings/business' as never)}
+          accessibilityRole="button"
+          accessibilityLabel="Business account"
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.settingsRowLabel, { color: themeColors.text }]}>Business Account</Text>
+            <Text style={[styles.toggleDesc, { color: themeColors.textMuted }]}>
+              Verified badge, broadcasts, analytics and more
+            </Text>
+          </View>
+          <Text style={[styles.chevron, { color: themeColors.textMuted }]}>›</Text>
+        </Pressable>
+      </View>
+
       {/* Legal */}
       <SectionHeader title="LEGAL" />
       <View style={[styles.card, { backgroundColor: themeColors.surface }]}>

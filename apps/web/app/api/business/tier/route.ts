@@ -124,6 +124,7 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
 
     // Initiate payment
     let paymentUrl: string;
+    let providerReference: string = reference;
     if (provider === "paystack") {
       const ps = await paystackInit(priceKobo, userEmail, reference, {
         userId,
@@ -133,6 +134,7 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
         itemType: "business_upgrade",
       });
       paymentUrl = ps.authorization_url;
+      providerReference = ps.reference ?? reference;
     } else {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.social";
       const dd = await dodoCreateSession(priceKobo, "NGN", `${appUrl}/settings/business?upgraded=1`, {
@@ -144,7 +146,32 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
         reference,
       });
       paymentUrl = dd.payment_url;
+      providerReference = dd.payment_id ?? reference;
     }
+
+    // Create a pending payment record so the webhook handler can locate it.
+    // The webhook checks for this record before activating the tier upgrade.
+    await db.query(
+      `INSERT INTO payments
+         (user_id, payment_type, amount_kobo, currency, provider,
+          status, idempotency_key, provider_reference, metadata)
+       VALUES ($1, 'business_upgrade', $2, 'NGN', $3,
+               'pending', $4, $5, $6::jsonb)
+       ON CONFLICT (idempotency_key) DO NOTHING`,
+      [
+        userId,
+        priceKobo,
+        provider,
+        reference,
+        providerReference,
+        JSON.stringify({
+          businessAccountId: rows[0].id,
+          newTier,
+          itemType: "business_upgrade",
+          userId,
+        }),
+      ]
+    );
 
     return NextResponse.json({
       success: true,

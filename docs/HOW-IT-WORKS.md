@@ -940,14 +940,16 @@ Business accounts start at the free `starter` tier. To upgrade to `growth` (₦1
 2. Server looks up the tier price from `x_manifest` (admin-configurable; falls back to PRD defaults).
 3. Server stores `pending_tier` and `pending_payment_ref` on the business account record.
 4. Server calls Paystack (`initializePayment`) or DodoPayments (`createPaymentSession`) and returns `{ paymentUrl }`.
-5. Client redirects user to the checkout page.
-6. On `charge.success` (Paystack) or `payment.succeeded` (DodoPayments), the webhook handler:
+5. Server inserts a `pending` record in the `payments` table (`payment_type = 'business_upgrade'`) with `idempotency_key = reference` and `provider_reference` set to the payment provider's own reference. This record is required for the webhook handler's idempotency check; without it the webhook would bail out before activating the upgrade.
+6. Client redirects user to the checkout page.
+7. On `charge.success` (Paystack) or `payment.succeeded` (DodoPayments), the webhook handler:
    - Verifies the HMAC signature before any processing.
+   - Looks up the `payments` row by `provider_reference` and acquires a `FOR UPDATE` row lock to prevent duplicate processing.
    - Matches the `pending_payment_ref` on the business account.
-   - For coin/star grants, looks up server-authoritative grant amounts from `store_items` using `metadata.itemSlug` — client-supplied amounts in metadata are ignored.
    - Updates `tier` to the `newTier` from metadata.
    - Clears `pending_tier` and `pending_payment_ref`.
    - Records `tier_updated_at`.
+   - Sends an in-app notification to the business account owner confirming the tier activation.
 
 Tier prices are admin-configurable via `x_manifest` keys `business_growth_price_kobo` and `business_enterprise_price_kobo`.
 

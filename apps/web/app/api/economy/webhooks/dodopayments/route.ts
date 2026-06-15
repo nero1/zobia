@@ -43,8 +43,10 @@ interface DodoPaymentSucceededEvent {
       packId?: string;
       coinsGranted?: number;
       starsGranted?: number;
-      itemType: "coin_pack" | "star_pack" | "subscription" | "room_subscription";
+      itemType: "coin_pack" | "star_pack" | "subscription" | "room_subscription" | "business_upgrade";
       packName?: string;
+      businessAccountId?: string;
+      newTier?: string;
       idempotencyKey: string;
       planId?: string;
       planName?: string;
@@ -145,6 +147,48 @@ async function processPaymentSucceeded(
          ON CONFLICT DO NOTHING`,
         [JSON.stringify({ paymentId, metadata }), 'coin_pack_zero_grant']
       ).catch(() => {});
+      return;
+    }
+
+    // Business tier upgrade — activate the pending tier on the business account
+    if (itemType === "business_upgrade") {
+      const { businessAccountId, newTier, reference } = metadata as unknown as {
+        businessAccountId?: string;
+        newTier?: string;
+        reference?: string;
+      };
+      if (!businessAccountId || !newTier) {
+        console.error(`[webhook/dodopayments] business_upgrade missing businessAccountId or newTier`, { providerReference, metadata });
+        return;
+      }
+
+      const paymentRef = reference ?? providerReference;
+
+      await tx.query(
+        `UPDATE business_accounts
+         SET tier = $1,
+             pending_tier = NULL,
+             pending_payment_ref = NULL,
+             tier_updated_at = NOW(),
+             updated_at = NOW()
+         WHERE id = $2 AND pending_payment_ref = $3`,
+        [newTier, businessAccountId, paymentRef]
+      );
+
+      await tx.query(
+        `INSERT INTO notifications
+           (user_id, type, title, body, metadata, is_read, created_at)
+         SELECT user_id, 'business_tier_activated',
+                'Business Account Upgraded',
+                $1,
+                $2::jsonb, false, NOW()
+         FROM business_accounts WHERE id = $3`,
+        [
+          `Your business account has been upgraded to the ${newTier.charAt(0).toUpperCase() + newTier.slice(1)} tier.`,
+          JSON.stringify({ businessAccountId, tier: newTier, reference: paymentRef }),
+          businessAccountId,
+        ]
+      );
       return;
     }
 
