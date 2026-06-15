@@ -108,7 +108,7 @@ const adminActionSchema = z.object({
 
 export const PATCH = withAdminAuth(async (req: NextRequest, { auth }) => {
   try {
-    await enforceRateLimit(auth.user.sub, "admin", RATE_LIMITS.apiWrite);
+    await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
     const body = await validateBody(req, adminActionSchema);
     const { id, action, reason } = body;
