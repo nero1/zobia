@@ -110,23 +110,23 @@ export const GET = withAdminAuth(async (req, { params, auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
     const stats = await runCountQueries([
-      // Active users (last_seen within window)
+      // Active users (last_active_at within window)
       {
         label: "dau",
         sql: `SELECT COUNT(*)::text AS value FROM users
-              WHERE last_seen_at >= NOW() - INTERVAL '1 day'
+              WHERE last_active_at >= NOW() - INTERVAL '1 day'
                 AND deleted_at IS NULL`,
       },
       {
         label: "wau",
         sql: `SELECT COUNT(*)::text AS value FROM users
-              WHERE last_seen_at >= NOW() - INTERVAL '7 days'
+              WHERE last_active_at >= NOW() - INTERVAL '7 days'
                 AND deleted_at IS NULL`,
       },
       {
         label: "mau",
         sql: `SELECT COUNT(*)::text AS value FROM users
-              WHERE last_seen_at >= NOW() - INTERVAL '30 days'
+              WHERE last_active_at >= NOW() - INTERVAL '30 days'
                 AND deleted_at IS NULL`,
       },
 
@@ -191,7 +191,7 @@ export const GET = withAdminAuth(async (req, { params, auth }) => {
       // Moderation queue
       {
         label: "pending_reports",
-        sql: `SELECT COUNT(*)::text AS value FROM user_reports
+        sql: `SELECT COUNT(*)::text AS value FROM reports
               WHERE status = 'pending'`,
       },
     ]);

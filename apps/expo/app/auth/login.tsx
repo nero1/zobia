@@ -147,15 +147,14 @@ export default function LoginScreen() {
   async function handleTelegramLogin() {
     setTelegramLoading(true);
     try {
-      // Generate a random state token to identify this login session
-      const state = await Crypto.digestStringAsync(
-        Crypto.CryptoDigestAlgorithm.SHA256,
-        `${Date.now()}-${Math.random()}`
-      );
-      const shortState = state.slice(0, 16);
+      // Generate a cryptographically secure random state token (N-03)
+      const randomBytes = await Crypto.getRandomBytesAsync(16);
+      const shortState = Array.from(randomBytes)
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
       telegramStateRef.current = shortState;
 
-      // Open Telegram bot with the state token
+      // Open Telegram bot with the state token (32-char hex from 16 secure random bytes)
       const telegramUrl = `https://t.me/${TELEGRAM_BOT}?start=login_${shortState}`;
       const canOpen = await Linking.canOpenURL(telegramUrl);
 

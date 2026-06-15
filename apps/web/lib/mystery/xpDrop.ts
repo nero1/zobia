@@ -13,6 +13,7 @@
  *  - A user can receive at most one mystery drop per 24-hour window.
  */
 
+import { randomInt as cryptoRandomInt, randomUUID } from "node:crypto";
 import type { DatabaseAdapter } from "@/lib/db/interface";
 import { XP_VALUES } from "@/lib/xp/engine";
 
@@ -33,20 +34,6 @@ const MIN_XP = XP_VALUES.mystery_xp_drop_min;
 const MAX_XP = XP_VALUES.mystery_xp_drop_max;
 
 // ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Generates a random integer in [min, max] (inclusive) using crypto.getRandomValues.
- */
-function randomInt(min: number, max: number): number {
-  const range = max - min + 1;
-  const buf = new Uint32Array(1);
-  crypto.getRandomValues(buf);
-  return min + (buf[0] % range);
-}
-
-// ---------------------------------------------------------------------------
 // triggerMysteryXPDrop
 // ---------------------------------------------------------------------------
 
@@ -65,6 +52,9 @@ export async function triggerMysteryXPDrop(
   db: DatabaseAdapter,
   batchSize: number = DEFAULT_BATCH_SIZE
 ): Promise<{ totalAwarded: number; totalXP: number; recipients: string[] }> {
+  // Batch ID for idempotency — prevents duplicate awards on retry (L-03)
+  const batchId = randomUUID();
+
   const activeSince = new Date(
     Date.now() - ACTIVE_WITHIN_DAYS * 24 * 60 * 60 * 1000
   ).toISOString();
@@ -108,7 +98,10 @@ export async function triggerMysteryXPDrop(
   let totalXP = 0;
 
   for (const { id } of eligibleRows) {
-    const xpAmount = randomInt(MIN_XP, MAX_XP);
+    // Use Node.js built-in crypto.randomInt — no modulo bias (L-04)
+    const xpAmount = cryptoRandomInt(MIN_XP, MAX_XP + 1);
+    // Unique reference per user per batch for idempotency (L-03)
+    const referenceId = `mystery_drop:${batchId}:${id}`;
 
     try {
       await db.transaction(async (client) => {
@@ -118,11 +111,12 @@ export async function triggerMysteryXPDrop(
           [xpAmount, id]
         );
 
-        // Insert xp_ledger entry (action mirrors source for dedup queries)
+        // Insert xp_ledger entry with reference_id for dedup via partial unique index
         await client.query(
-          `INSERT INTO xp_ledger (user_id, amount, track, source, action, base_amount, created_at)
-           VALUES ($1, $2, 'main', 'mystery_drop', 'mystery_drop', $2, NOW())`,
-          [id, xpAmount]
+          `INSERT INTO xp_ledger (user_id, amount, track, source, action, base_amount, reference_id, created_at)
+           VALUES ($1, $2, 'main', 'mystery_drop', 'mystery_drop', $2, $3, NOW())
+           ON CONFLICT (source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
+          [id, xpAmount, referenceId]
         );
       });
 

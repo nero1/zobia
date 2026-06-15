@@ -111,11 +111,11 @@ async function checkNewAccountGiftInflow(
     // Union room gifts AND direct DM gifts so wash-trading via DMs is caught too
     const { rows } = await db.query<{ total_coins: string; account_count: string }>(
       `SELECT
-         COALESCE(SUM(combined.coin_value), 0)::TEXT  AS total_coins,
+         COALESCE(SUM(combined.coin_cost), 0)::TEXT  AS total_coins,
          COUNT(DISTINCT combined.sender_id)::TEXT      AS account_count
        FROM (
          -- Room gifts received in the creator's rooms
-         SELECT g.coin_value, g.sender_id
+         SELECT g.coin_cost, g.sender_id
          FROM gifts g
          JOIN rooms r ON r.id = g.room_id
          JOIN users sender ON sender.id = g.sender_id
@@ -126,7 +126,7 @@ async function checkNewAccountGiftInflow(
          UNION ALL
 
          -- Direct (DM) gifts sent to the creator
-         SELECT g2.coin_value, g2.sender_id
+         SELECT g2.coin_cost, g2.sender_id
          FROM gifts g2
          JOIN users sender2 ON sender2.id = g2.sender_id
          WHERE g2.recipient_id = $1

@@ -138,9 +138,9 @@ export async function awardReferralCommissions(
     await db.query(
       `INSERT INTO referral_commissions
          (referrer_id, referred_user_id, trigger_event_id, purchase_amount_kobo, commission_kobo, commission_coins, tier, status, created_at)
-       VALUES ($1, $2, $3, 0, 0, $4, '1', 'credited', NOW())
+       VALUES ($1, $2, $3, $4, $5, $5, '1', 'credited', NOW())
        ON CONFLICT DO NOTHING`,
-      [tier1Id, buyerId, `${paymentId}:t1`, tier1Coins]
+      [tier1Id, buyerId, `${paymentId}:t1`, coinAmount, tier1Coins]
     );
   }
 
@@ -173,9 +173,9 @@ export async function awardReferralCommissions(
     await db.query(
       `INSERT INTO referral_commissions
          (referrer_id, referred_user_id, trigger_event_id, purchase_amount_kobo, commission_kobo, commission_coins, tier, status, created_at)
-       VALUES ($1, $2, $3, 0, 0, $4, '2', 'credited', NOW())
+       VALUES ($1, $2, $3, $4, $5, $5, '2', 'credited', NOW())
        ON CONFLICT DO NOTHING`,
-      [tier2Id, buyerId, `${paymentId}:t2`, tier2Coins]
+      [tier2Id, buyerId, `${paymentId}:t2`, coinAmount, tier2Coins]
     );
   }
 

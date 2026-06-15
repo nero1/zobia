@@ -15,6 +15,7 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { timingSafeEqual } from "node:crypto";
 import { db } from "@/lib/db";
 import { createSession } from "@/lib/auth/session";
 
@@ -57,7 +58,13 @@ interface UserRow {
 function verifyBotSecret(req: NextRequest): boolean {
   const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
   if (!secret) return false;
-  return req.headers.get("x-telegram-bot-api-secret-token") === secret;
+  const incoming = req.headers.get("x-telegram-bot-api-secret-token");
+  if (!incoming) return false;
+  // Timing-safe comparison to prevent timing oracle attacks (S-03)
+  const incomingBuf = Buffer.from(incoming, "utf8");
+  const secretBuf = Buffer.from(secret, "utf8");
+  if (incomingBuf.length !== secretBuf.length) return false;
+  return timingSafeEqual(incomingBuf, secretBuf);
 }
 
 // ---------------------------------------------------------------------------
@@ -137,11 +144,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // Upsert user
     const user = await upsertUser(message.from);
 
-    // Create platform session token
+    // Create platform session token (S-06: use null not "" for missing email/username)
     const session = await createSession({
       id: user.id,
-      email: user.email ?? "",
-      username: user.username ?? message.from.username ?? "",
+      email: user.email ?? null,
+      username: user.username ?? (message.from.username ? `tg_${message.from.username}` : `tg_${message.from.id}`),
       is_admin: user.is_admin,
     });
 

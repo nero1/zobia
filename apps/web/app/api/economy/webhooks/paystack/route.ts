@@ -457,18 +457,7 @@ async function processSubscriptionEvent(
   const isCancelled = status === "cancelled" || status === "completed";
 
   if (event.event === "subscription.create") {
-    // New subscription — update or insert user subscription record
-    await db.query(
-      `INSERT INTO user_subscriptions
-         (user_id, provider, provider_subscription_id, status, next_renewal_at, updated_at)
-       VALUES ($1, 'paystack', $2, $3, $4, NOW())
-       ON CONFLICT (user_id) DO UPDATE
-         SET provider_subscription_id = $2, status = $3, next_renewal_at = $4, updated_at = NOW()`,
-      [resolvedUserId, subscription_code, isActive ? "active" : status, next_payment_date ?? null]
-    ).catch(() => {});
-
-    // Derive plan tier from Paystack plan name using word-boundary matching to prevent
-    // false positives (e.g. "express" matching "pro", "maximum" matching "max").
+    // Derive plan tier first so it can be included in the subscription upsert (B-11)
     const planNameLower = (event.data.plan?.name ?? "").toLowerCase();
     const planCodeLower = (event.data.plan?.plan_code ?? "").toLowerCase();
     const planMatches = (keyword: string): boolean =>
@@ -495,6 +484,20 @@ async function processSubscriptionEvent(
       ).catch(() => {});
       return;
     }
+
+    const endsAt = next_payment_date
+      ? new Date(next_payment_date).toISOString()
+      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Upsert canonical subscription record (B-11)
+    await db.query(
+      `INSERT INTO subscriptions
+         (user_id, plan, provider, provider_subscription_id, status, starts_at, ends_at, updated_at)
+       VALUES ($1, $2, 'paystack', $3, $4, NOW(), $5, NOW())
+       ON CONFLICT (user_id) DO UPDATE
+         SET plan = $2, provider_subscription_id = $3, status = $4, ends_at = $5, updated_at = NOW()`,
+      [resolvedUserId, derivedPlan, subscription_code, isActive ? "active" : "active", endsAt]
+    ).catch(() => {});
 
     await db.transaction(async (tx) => {
       // Update plan
@@ -547,10 +550,10 @@ async function processSubscriptionEvent(
 
   } else if (isNonRenewing) {
     // Subscription will not renew but is still active until period end.
-    // Mark as 'cancelling' and keep plan; the daily cron downgrades when period lapses (#16).
+    // Set auto_renew=false; daily cron downgrades plan when ends_at lapses.
     await db.query(
-      `UPDATE user_subscriptions
-       SET status = 'cancelling', updated_at = NOW()
+      `UPDATE subscriptions
+       SET auto_renew = false, updated_at = NOW()
        WHERE user_id = $1`,
       [resolvedUserId]
     ).catch(() => {});
@@ -558,8 +561,8 @@ async function processSubscriptionEvent(
   } else if (isCancelled || event.event === "subscription.disable") {
     // Hard cancellation or provider-disabled — downgrade immediately
     await db.query(
-      `UPDATE user_subscriptions
-       SET status = 'cancelled', cancelled_at = NOW(), updated_at = NOW()
+      `UPDATE subscriptions
+       SET status = 'cancelled', updated_at = NOW()
        WHERE user_id = $1`,
       [resolvedUserId]
     ).catch(() => {});

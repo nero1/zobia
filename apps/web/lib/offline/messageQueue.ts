@@ -145,12 +145,24 @@ export async function dequeueMessage(id: string): Promise<void> {
 }
 
 /**
+ * Fetch all messages in the queue regardless of status.
+ */
+async function getAllMessages(): Promise<PendingMessage[]> {
+  const db = await openDB();
+  const store = txStore(db, "readonly");
+  return promisify(store.getAll());
+}
+
+/**
  * Count messages by status.
  */
 export async function getQueueCounts(): Promise<Record<PendingMessageStatus, number>> {
-  const all = await getPendingMessages();
+  // Use getAllMessages so failed/sending counts are not always 0 (L-07)
+  const all = await getAllMessages();
   const counts: Record<PendingMessageStatus, number> = { pending: 0, sending: 0, failed: 0 };
-  for (const m of all) counts[m.status]++;
+  for (const m of all) {
+    if (m.status in counts) counts[m.status]++;
+  }
   return counts;
 }
 

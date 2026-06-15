@@ -45,7 +45,7 @@ export function base32Decode(str: string): Buffer {
   return Buffer.from(output);
 }
 
-export async function computeTotp(secret: string, counter: number): Promise<string> {
+export function computeTotp(secret: string, counter: number): string {
   const key = base32Decode(secret);
   const msg = Buffer.alloc(8);
   msg.writeUInt32BE(Math.floor(counter / 0x100000000), 0);
@@ -63,10 +63,10 @@ export async function computeTotp(secret: string, counter: number): Promise<stri
   return code.toString().padStart(6, "0");
 }
 
-export async function verifyTotp(secret: string, code: string): Promise<boolean> {
+export function verifyTotp(secret: string, code: string): boolean {
   const counter = Math.floor(Date.now() / 1000 / 30);
   for (const delta of [-1, 0, 1]) {
-    if ((await computeTotp(secret, counter + delta)) === code) return true;
+    if (computeTotp(secret, counter + delta) === code) return true;
   }
   return false;
 }

@@ -119,7 +119,7 @@ export const GET = withAdminAuth(async (req, { params, auth }) => {
        FROM users u
        LEFT JOIN (
          SELECT reported_user_id, COUNT(*) AS report_count
-         FROM user_reports
+         FROM reports
          WHERE status = 'pending'
          GROUP BY reported_user_id
        ) r ON r.reported_user_id = u.id

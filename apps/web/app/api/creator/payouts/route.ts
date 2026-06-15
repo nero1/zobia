@@ -379,9 +379,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         );
         await tx.query(
           `INSERT INTO creator_payouts
-             (creator_id, gross_kobo, net_kobo, platform_fee_kobo, payout_method, region,
-              status, idempotency_key)
-           VALUES ($1, $2, $2, 0, 'coins', $3, 'completed', $4)`,
+             (creator_id, amount_kobo, gross_kobo, net_kobo, platform_fee_kobo, payout_method,
+              provider, region, status, idempotency_key)
+           VALUES ($1, $2, $2, $2, 0, 'coins', 'internal', $3, 'completed', $4)`,
           [userId, requestedKobo, region, idempotencyKey]
         );
         await creditCoins(
@@ -415,15 +415,17 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         [requestedKobo, userId]
       );
 
+      const payoutProvider = body.method === "bank_transfer" ? "paystack" : "dodopayments";
       await tx.query(
         `INSERT INTO creator_payouts
-           (creator_id, gross_kobo, net_kobo, platform_fee_kobo, payout_method, region,
-            status, idempotency_key, bank_account_snapshot, wallet_address_snapshot)
-         VALUES ($1, $2, $2, 0, $3, $4, $5, $6, $7::jsonb, $8)`,
+           (creator_id, amount_kobo, gross_kobo, net_kobo, platform_fee_kobo, payout_method,
+            provider, region, status, idempotency_key, bank_account_snapshot, wallet_address_snapshot)
+         VALUES ($1, $2, $2, $2, 0, $3, $4, $5, $6, $7, $8::jsonb, $9)`,
         [
           userId,
           requestedKobo,
           body.method,
+          payoutProvider,
           region,
           status,
           idempotencyKey,

@@ -17,7 +17,7 @@
  */
 
 import { type NextRequest, NextResponse } from "next/server";
-import { jwtVerify, errors as JoseErrors } from "jose";
+import { verifyAccessToken } from "@/lib/auth/jwt";
 
 // ---------------------------------------------------------------------------
 // CSP nonce helpers
@@ -97,10 +97,6 @@ const ADMIN_PREFIXES = ["/admin"];
 // Helpers
 // ---------------------------------------------------------------------------
 
-function encodeSecret(secret: string): Uint8Array {
-  return new TextEncoder().encode(secret);
-}
-
 interface TokenPayload {
   sub?: string;
   is_admin?: boolean;
@@ -109,17 +105,11 @@ interface TokenPayload {
 }
 
 async function verifyToken(token: string): Promise<TokenPayload | null> {
-  const secret = process.env["JWT_SECRET"];
-  if (!secret) return null;
-
   try {
-    const { payload } = await jwtVerify(token, encodeSecret(secret), {
-      issuer: "zobia-social",
-      audience: "zobia-web",
-    });
+    // Uses kid-based key registry for multi-key rotation support (S-01)
+    const payload = await verifyAccessToken(token);
     return payload as TokenPayload;
-  } catch (err) {
-    if (err instanceof JoseErrors.JWTExpired) return null;
+  } catch {
     return null;
   }
 }

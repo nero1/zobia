@@ -13,6 +13,7 @@
 import { createHmac } from "crypto";
 import Decimal from "decimal.js";
 import { env } from "@/lib/env";
+import { dodoPaymentsBreaker } from "@/lib/payments/circuit";
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -37,23 +38,26 @@ async function dodoRequest<T>(
     throw new Error("[dodopayments] DODOPAYMENTS_API_KEY is not configured");
   }
 
-  const res = await fetch(`${DODO_BASE}${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: body ? JSON.stringify(body) : undefined,
+  // Wrap in circuit breaker to prevent cascade failures (S-07)
+  return dodoPaymentsBreaker.execute(async () => {
+    const res = await fetch(`${DODO_BASE}${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(
+        `[dodopayments] API error ${res.status} on ${method} ${path}: ${text}`
+      );
+    }
+
+    return res.json() as Promise<T>;
   });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(
-      `[dodopayments] API error ${res.status} on ${method} ${path}: ${text}`
-    );
-  }
-
-  return res.json() as Promise<T>;
 }
 
 // ---------------------------------------------------------------------------
