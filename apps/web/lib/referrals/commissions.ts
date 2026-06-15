@@ -144,7 +144,7 @@ export async function awardReferralCommissions(
       `INSERT INTO referral_commissions
          (referrer_id, referred_user_id, trigger_event_id, purchase_amount_kobo, commission_kobo, commission_coins, tier, status, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, '1', 'credited', NOW())
-       ON CONFLICT DO NOTHING`,
+       ON CONFLICT (trigger_event_id) DO NOTHING`,
       [tier1Id, buyerId, `${paymentId}:t1`, paymentAmountKobo, tier1CommissionKobo, tier1Coins]
     );
   }
@@ -182,7 +182,7 @@ export async function awardReferralCommissions(
       `INSERT INTO referral_commissions
          (referrer_id, referred_user_id, trigger_event_id, purchase_amount_kobo, commission_kobo, commission_coins, tier, status, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, '2', 'credited', NOW())
-       ON CONFLICT DO NOTHING`,
+       ON CONFLICT (trigger_event_id) DO NOTHING`,
       [tier2Id, buyerId, `${paymentId}:t2`, paymentAmountKobo, tier2CommissionKobo, tier2Coins]
     );
   }

@@ -84,17 +84,19 @@ export async function advanceFlashXPLifecycle(): Promise<FlashXPLifecycleResult>
       );
       if (!rowCount || rowCount === 0) continue;
 
+      // FIX-C03: include reference_id in INSERT so the ON CONFLICT target is valid
       await db.query(
-        `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+        `INSERT INTO notifications (user_id, type, payload, is_read, reference_id, created_at)
          SELECT id,
                 'flash_xp_announced',
                 $1::jsonb,
                 FALSE,
+                $2,
                 NOW()
          FROM users
          WHERE deleted_at IS NULL
            AND last_active_at > NOW() - INTERVAL '30 days'
-         ON CONFLICT (user_id, type, reference_id) DO NOTHING`,
+         ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
         [
           JSON.stringify({
             eventId: evt.id,
@@ -103,6 +105,7 @@ export async function advanceFlashXPLifecycle(): Promise<FlashXPLifecycleResult>
             windowEnd: evt.ends_at,
             message: `⚡ Double XP is happening sometime before ${new Date(evt.ends_at).toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" })} today! Stay active.`,
           }),
+          `flash_xp:${evt.id}:announced`,
         ]
       ).catch(() => {});
       result.announced++;
@@ -132,18 +135,19 @@ export async function advanceFlashXPLifecycle(): Promise<FlashXPLifecycleResult>
       );
       if (!rowCount || rowCount === 0) continue;
 
-      // Notify all recently active users that the event is live
+      // FIX-C03: include reference_id so the ON CONFLICT target is valid
       await db.query(
-        `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+        `INSERT INTO notifications (user_id, type, payload, is_read, reference_id, created_at)
          SELECT id,
                 'flash_xp_live',
                 $1::jsonb,
                 FALSE,
+                $2,
                 NOW()
          FROM users
          WHERE deleted_at IS NULL
            AND last_active_at > NOW() - INTERVAL '7 days'
-         ON CONFLICT (user_id, type, reference_id) DO NOTHING`,
+         ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
         [
           JSON.stringify({
             eventId: evt.id,
@@ -152,6 +156,7 @@ export async function advanceFlashXPLifecycle(): Promise<FlashXPLifecycleResult>
             endsAt: evt.ends_at,
             message: `⚡ ${evt.name} is LIVE NOW! ${evt.multiplier}× XP until ${new Date(evt.ends_at).toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" })}. Go earn!`,
           }),
+          `flash_xp:${evt.id}:live`,
         ]
       ).catch(() => {});
 

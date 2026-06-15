@@ -589,22 +589,32 @@ export const groupChatMembers = pgTable(
   })
 );
 
-export const notifications = pgTable("notifications", {
-  id: uuidPk(),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  type: text("type").notNull(),
-  payload: jsonb("payload"),
-  title: text("title"),
-  body: text("body"),
-  metadata: jsonb("metadata"),
-  isRead: boolean("is_read").notNull().default(false),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-});
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuidPk(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    type: text("type").notNull(),
+    payload: jsonb("payload"),
+    title: text("title"),
+    body: text("body"),
+    metadata: jsonb("metadata"),
+    isRead: boolean("is_read").notNull().default(false),
+    // FIX-C03: reference_id enables ON CONFLICT dedup for event notifications
+    referenceId: text("reference_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => ({
+    userTypeRefIdx: uniqueIndex("uidx_notifications_user_type_ref")
+      .on(t.userId, t.type, t.referenceId)
+      .where(sql`reference_id IS NOT NULL`),
+  })
+);
 
 export const userMessages = pgTable("user_messages", {
   id: uuidPk(),
@@ -748,6 +758,8 @@ export const guildMembers = pgTable(
       .notNull()
       .default(0),
     joinedAt: timestamp("joined_at", { withTimezone: true }).defaultNow(),
+    // FIX-C01: soft-delete column so WHERE left_at IS NULL filters active members
+    leftAt: timestamp("left_at", { withTimezone: true }),
   },
   (t) => ({
     unique: uniqueIndex("guild_members_guild_user_idx").on(t.guildId, t.userId),
@@ -912,18 +924,28 @@ export const guildTreasuryLedger = pgTable("guild_treasury_ledger", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
-export const guildTierHistory = pgTable("guild_tier_history", {
-  id: uuidPk(),
-  guildId: uuid("guild_id")
-    .notNull()
-    .references(() => guilds.id, { onDelete: "cascade" }),
-  fromTier: text("from_tier").notNull(),
-  toTier: text("to_tier").notNull(),
-  guildXpAt: bigint("guild_xp_at", { mode: "number" }).notNull(),
-  changedAt: timestamp("changed_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const guildTierHistory = pgTable(
+  "guild_tier_history",
+  {
+    id: uuidPk(),
+    guildId: uuid("guild_id")
+      .notNull()
+      .references(() => guilds.id, { onDelete: "cascade" }),
+    fromTier: text("from_tier").notNull(),
+    toTier: text("to_tier").notNull(),
+    guildXpAt: bigint("guild_xp_at", { mode: "number" }).notNull(),
+    changedAt: timestamp("changed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    // FIX-H07: tie history rows to wars so ON CONFLICT (guild_id, war_id) prevents duplicates
+    warId: uuid("war_id").references(() => guildWars.id, { onDelete: "set null" }),
+  },
+  (t) => ({
+    guildWarIdx: uniqueIndex("uidx_guild_tier_history_guild_war")
+      .on(t.guildId, t.warId)
+      .where(sql`war_id IS NOT NULL`),
+  })
+);
 
 export const guildAlliances = pgTable("guild_alliances", {
   id: uuidPk(),
@@ -1565,8 +1587,10 @@ export const seasonPassMilestones = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (t) => ({
-    seasonSortIdx: uniqueIndex("season_pass_milestones_season_sort_idx").on(
+    // FIX-H04: include tier so free and paid milestones can share sort_order values
+    seasonTierSortIdx: uniqueIndex("season_pass_milestones_season_tier_sort_idx").on(
       t.seasonId,
+      t.tier,
       t.sortOrder
     ),
   })
@@ -2316,8 +2340,10 @@ export const creatorWalletAddresses = pgTable("creator_wallet_addresses", {
 
 export const payoutDeadLetterQueue = pgTable("payout_dead_letter_queue", {
   id: uuidPk(),
+  // FIX-C02: unique constraint so ON CONFLICT (payout_id) DO UPDATE works
   payoutId: uuid("payout_id")
     .notNull()
+    .unique()
     .references(() => creatorPayouts.id, { onDelete: "cascade" }),
   creatorId: uuid("creator_id")
     .notNull()

@@ -105,17 +105,19 @@ export async function triggerMysteryXPDrop(
 
     try {
       await db.transaction(async (client) => {
-        // Update user's XP total
+        // FIX-C05/M05: atomic CTE — the UPDATE only fires when the ledger INSERT
+        // actually inserts a new row (eliminates TOCTOU for concurrent CRON runs).
+        // ON CONFLICT target now matches the actual partial unique index columns
+        // (user_id, source, reference_id) added in migration 0003.
         await client.query(
-          `UPDATE users SET xp_total = xp_total + $1, updated_at = NOW() WHERE id = $2`,
-          [xpAmount, id]
-        );
-
-        // Insert xp_ledger entry with reference_id for dedup via partial unique index
-        await client.query(
-          `INSERT INTO xp_ledger (user_id, amount, track, source, action, base_amount, reference_id, created_at)
-           VALUES ($1, $2, 'main', 'mystery_drop', 'mystery_drop', $2, $3, NOW())
-           ON CONFLICT (source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
+          `WITH ins AS (
+             INSERT INTO xp_ledger (user_id, amount, track, source, action, base_amount, reference_id, created_at)
+             VALUES ($1, $2, 'main', 'mystery_drop', 'mystery_drop', $2, $3, NOW())
+             ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
+             RETURNING id
+           )
+           UPDATE users SET xp_total = xp_total + $2, updated_at = NOW()
+           WHERE id = $1 AND EXISTS (SELECT 1 FROM ins)`,
           [id, xpAmount, referenceId]
         );
       });

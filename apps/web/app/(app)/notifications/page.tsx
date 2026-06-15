@@ -62,6 +62,8 @@ function notificationIcon(type: NotificationType): string {
     friend_request: "👋",
     prestige_complete: "🔥",
     mystery_xp_drop: "✨",
+    flash_xp_announced: "⚡",
+    flash_xp_live: "⚡",
     leaderboard_ripple: "📊",
     platform_council_invite: "🏛️",
     reengagement: "👋",
@@ -161,6 +163,14 @@ function formatNotification(n: RawNotification): Notification {
     case "mystery_xp_drop":
       title = "✨ Mystery XP Drop!";
       body = `You earned ${num("xpAmount").toLocaleString()} bonus XP from a mystery drop.`;
+      break;
+    case "flash_xp_announced":
+      title = "⚡ Flash XP Coming Soon";
+      body = str("message", `${str("name", "Double XP")} is happening soon — stay active!`);
+      break;
+    case "flash_xp_live":
+      title = `⚡ ${str("name", "Flash XP")} is LIVE!`;
+      body = str("message", `${num("multiplier", 2)}× XP is active now. Go earn!`);
       break;
     case "leaderboard_ripple":
       title = "📊 Leaderboard Change";

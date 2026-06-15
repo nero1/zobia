@@ -120,52 +120,62 @@ async function awardGiftXP(
       );
       const isFirstGift = firstGiftRows.length > 0;
 
-      // Sender XP (generosity track) — reference_id prevents double-award on retry
+      // FIX-H01: CTE pattern — UPDATE only fires when the INSERT actually inserts
+      // a new row, preventing double-award on duplicate gift requests.
+
+      // Sender XP (generosity track)
       await tx.query(
-        `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
-         VALUES ($1, $2, 'generosity', 'gift_sent', $3, $4, $5)
-         ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
+        `WITH ins AS (
+           INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
+           VALUES ($1, $2, 'generosity', 'gift_sent', $3, $4, $5)
+           ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
+           RETURNING id
+         )
+         UPDATE users SET xp_total = xp_total + $2, xp_generosity = xp_generosity + $2, updated_at = NOW()
+         WHERE id = $1 AND EXISTS (SELECT 1 FROM ins)`,
         [senderId, senderXP, `gift:${giftId}:sender`, senderMultiplierBP, senderBaseXp]
       );
-      await tx.query(
-        `UPDATE users SET xp_total = xp_total + $2, xp_generosity = xp_generosity + $2, updated_at = NOW() WHERE id = $1`,
-        [senderId, senderXP]
-      );
 
-      // Recipient base XP (social track) — reference_id prevents double-award on retry
+      // Recipient base XP (social track)
       await tx.query(
-        `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
-         VALUES ($1, $2, 'social', 'gift_received', $3, 100, $4)
-         ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
+        `WITH ins AS (
+           INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
+           VALUES ($1, $2, 'social', 'gift_received', $3, 100, $4)
+           ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
+           RETURNING id
+         )
+         UPDATE users SET xp_total = xp_total + $2, xp_social = xp_social + $2, updated_at = NOW()
+         WHERE id = $1 AND EXISTS (SELECT 1 FROM ins)`,
         [recipientId, recipientXP, `gift:${giftId}:recipient`, recipBaseXp]
-      );
-      await tx.query(
-        `UPDATE users SET xp_total = xp_total + $2, xp_social = xp_social + $2, updated_at = NOW() WHERE id = $1`,
-        [recipientId, recipientXP]
       );
 
       if (isFirstGift) {
         await tx.query(
-          `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
-           VALUES ($1, $2, 'social', 'first_time_gifted', $3, 100, $4)
-           ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
+          `WITH ins AS (
+             INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
+             VALUES ($1, $2, 'social', 'first_time_gifted', $3, 100, $4)
+             ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
+             RETURNING id
+           )
+           UPDATE users SET xp_total = xp_total + $2, xp_social = xp_social + $2, updated_at = NOW()
+           WHERE id = $1 AND EXISTS (SELECT 1 FROM ins)`,
           [recipientId, firstGiftXP, `gift:${giftId}:first`, firstGiftBaseXp]
-        );
-        await tx.query(
-          `UPDATE users SET xp_total = xp_total + $2, xp_social = xp_social + $2, updated_at = NOW() WHERE id = $1`,
-          [recipientId, firstGiftXP]
         );
       }
 
       if (isTippedInRoom) {
+        // FIX-H02: add ON CONFLICT guard and use gift-specific reference_id so
+        // duplicate gift requests cannot produce duplicate room-tip ledger entries.
         await tx.query(
-          `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
-           VALUES ($1, $2, 'creator', 'being_tipped_in_room', $3, 100, $4)`,
-          [recipientId, tippedXP, roomId, tippedBaseXp]
-        );
-        await tx.query(
-          `UPDATE users SET xp_total = xp_total + $2, xp_creator = xp_creator + $2, updated_at = NOW() WHERE id = $1`,
-          [recipientId, tippedXP]
+          `WITH ins AS (
+             INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
+             VALUES ($1, $2, 'creator', 'being_tipped_in_room', $3, 100, $4)
+             ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
+             RETURNING id
+           )
+           UPDATE users SET xp_total = xp_total + $2, xp_creator = xp_creator + $2, updated_at = NOW()
+           WHERE id = $1 AND EXISTS (SELECT 1 FROM ins)`,
+          [recipientId, tippedXP, `gift:${giftId}:tipped_in_room`, tippedBaseXp]
         );
       }
     });
@@ -480,13 +490,18 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       spectacleTriggered,
     });
   } catch (err) {
-    // On any error, remove the idempotency key so the client can retry
-    if (idempKey) await redis.del(idempKey).catch(() => {});
-    if ((err as NodeJS.ErrnoException).code === "INSUFFICIENT_BALANCE") {
+    const isInsufficientBalance = (err as NodeJS.ErrnoException).code === "INSUFFICIENT_BALANCE";
+    if (isInsufficientBalance) {
+      // FIX-H03: do NOT delete the idempotency key on INSUFFICIENT_BALANCE.
+      // Deleting it opens a race window where a concurrent retry could re-enter
+      // if the balance is topped up between requests. Let the key expire naturally
+      // so a deliberate retry uses a new key (client must use a new idempotencyKey).
       return handleApiError(
         badRequest("Not enough coins to send this gift", "INSUFFICIENT_BALANCE")
       );
     }
+    // On other errors, remove the key so the client can legitimately retry.
+    if (idempKey) await redis.del(idempKey).catch(() => {});
     return handleApiError(err);
   }
 });

@@ -97,9 +97,14 @@ async function getManifestConfig(): Promise<ManifestCache> {
        )`
     );
     const map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+    // FIX-H08: guard against NaN when the DB value is a non-numeric string
+    const parseThreshold = (raw: string | undefined, fallback: number): number => {
+      const v = parseFloat(raw ?? String(fallback));
+      return Number.isFinite(v) ? v : fallback;
+    };
     manifestCache = {
-      autoActionThreshold: parseFloat(map['ai_moderation_auto_action_threshold'] ?? '0.9'),
-      communityThreshold: parseFloat(map['ai_moderation_community_threshold'] ?? '0.7'),
+      autoActionThreshold: parseThreshold(map['ai_moderation_auto_action_threshold'], 0.9),
+      communityThreshold: parseThreshold(map['ai_moderation_community_threshold'], 0.7),
       systemPromptOverride: map['ai_moderation_system_prompt'] ?? '',
       cachedAt: Date.now(),
     };

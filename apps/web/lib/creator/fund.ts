@@ -217,38 +217,50 @@ export async function calculateFundDistributions(
 // ---------------------------------------------------------------------------
 
 export async function distributeCreatorFund(poolKobo: number): Promise<number> {
-  const distributions = await calculateFundDistributions(poolKobo);
-  if (distributions.length === 0) return 0;
+  // FIX-M04: acquire a PostgreSQL advisory lock so concurrent CRON invocations
+  // cannot both read zero existing distributions and both distribute (double-payout).
+  // hashtext('distributeCreatorFund') = stable integer key for this function.
+  const { rows: lockRows } = await db.query<{ acquired: boolean }>(
+    `SELECT pg_try_advisory_lock(hashtext('distributeCreatorFund')) AS acquired`
+  );
+  if (!lockRows[0]?.acquired) {
+    // Another CRON instance is running — skip silently.
+    return 0;
+  }
 
-  const period = new Date().toISOString().slice(0, 7); // YYYY-MM
+  try {
+    const distributions = await calculateFundDistributions(poolKobo);
+    if (distributions.length === 0) return 0;
 
-  await db.transaction(async (tx) => {
-    // ZB-23: Idempotency guard — if any distribution for this period already exists, skip.
-    // All inserts are in a single transaction, so a partial run leaves nothing; a full run
-    // leaves reference_id 'fund:{period}:rank1' as the sentinel.
-    const { rows: existing } = await tx.query<{ count: string }>(
-      `SELECT COUNT(*)::TEXT AS count FROM creator_earnings
-       WHERE source_type = 'creator_fund' AND reference_id LIKE $1`,
-      [`fund:${period}:%`]
-    );
-    if (parseInt(existing[0]?.count ?? '0', 10) > 0) return;
+    const period = new Date().toISOString().slice(0, 7); // YYYY-MM
 
-    for (const dist of distributions) {
-      await tx.query(
-        `INSERT INTO creator_earnings
-           (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo, reference_id)
-         VALUES ($1, 'creator_fund', $2, 0, $2, $3)`,
-        [dist.creatorId, dist.amountKobo, `fund:${period}:rank${dist.rank}`]
+    await db.transaction(async (tx) => {
+      // Idempotency guard — if any distribution for this period already exists, skip.
+      const { rows: existing } = await tx.query<{ count: string }>(
+        `SELECT COUNT(*)::TEXT AS count FROM creator_earnings
+         WHERE source_type = 'creator_fund' AND reference_id LIKE $1`,
+        [`fund:${period}:%`]
       );
-      // Credit net amount to available balance so creator can request payout
-      await tx.query(
-        `UPDATE users SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1,
-                          updated_at = NOW()
-         WHERE id = $2`,
-        [dist.amountKobo, dist.creatorId]
-      );
-    }
-  });
+      if (parseInt(existing[0]?.count ?? '0', 10) > 0) return;
 
-  return distributions.length;
+      for (const dist of distributions) {
+        await tx.query(
+          `INSERT INTO creator_earnings
+             (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo, reference_id)
+           VALUES ($1, 'creator_fund', $2, 0, $2, $3)`,
+          [dist.creatorId, dist.amountKobo, `fund:${period}:rank${dist.rank}`]
+        );
+        await tx.query(
+          `UPDATE users SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1,
+                            updated_at = NOW()
+           WHERE id = $2`,
+          [dist.amountKobo, dist.creatorId]
+        );
+      }
+    });
+
+    return distributions.length;
+  } finally {
+    await db.query(`SELECT pg_advisory_unlock(hashtext('distributeCreatorFund'))`).catch(() => {});
+  }
 }
