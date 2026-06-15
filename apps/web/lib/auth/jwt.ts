@@ -13,6 +13,7 @@
 import {
   SignJWT,
   jwtVerify,
+  decodeProtectedHeader,
   type JWTPayload,
   errors as JoseErrors,
 } from "jose";
@@ -42,18 +43,41 @@ const accessSecret = () => encodeSecret(env.JWT_SECRET);
 const refreshSecret = () => encodeSecret(env.JWT_REFRESH_SECRET);
 
 // ---------------------------------------------------------------------------
-// Key ID (kid) support — forward-compatible with key rotation
+// Key ID (kid) support — multi-key rotation registry
 // ---------------------------------------------------------------------------
 
 /**
  * Returns the current key ID used when signing tokens.
- * Set JWT_KEY_ID env var when rotating keys so new tokens carry the new kid
- * and verification can route to the correct secret.
- *
- * Future work: maintain a kid→secret map in Redis for true multi-key rotation.
+ * Set JWT_KEY_ID env var when rotating keys so new tokens carry the new kid.
  */
 export function getCurrentKeyId(): string {
   return process.env.JWT_KEY_ID ?? 'v1';
+}
+
+/**
+ * Registry mapping key IDs to their encoded secrets.
+ * Add JWT_SECRET_v2, JWT_SECRET_v3, etc. during key rotation; tokens signed
+ * with the old kid remain verifiable for up to the access token TTL (15 min).
+ */
+function buildKeyRegistry(): Map<string, Uint8Array> {
+  const registry = new Map<string, Uint8Array>();
+  // Current key — always present
+  registry.set(getCurrentKeyId(), encodeSecret(env.JWT_SECRET));
+  // Previous keys during rotation window — scan env vars matching JWT_SECRET_v*
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key.startsWith('JWT_SECRET_') && value && key !== 'JWT_SECRET') {
+      const kid = key.replace('JWT_SECRET_', '');
+      registry.set(kid, encodeSecret(value));
+    }
+  }
+  return registry;
+}
+
+function getSecretForKid(kid: string | undefined): Uint8Array {
+  const registry = buildKeyRegistry();
+  const secret = kid ? registry.get(kid) : null;
+  // Fall back to current secret for tokens without a kid claim (backward compat)
+  return secret ?? encodeSecret(env.JWT_SECRET);
 }
 
 // ---------------------------------------------------------------------------
@@ -146,10 +170,11 @@ export async function verifyAccessToken(token: string): Promise<AccessTokenPaylo
   if (!token) throw new JwtVerificationError("No token provided", "MISSING");
 
   try {
-    // TODO(key-rotation): decode the header first, read kid, and select the
-    // appropriate secret from a kid→secret registry (e.g. Redis). For now all
-    // tokens are verified against the current secret regardless of kid.
-    const { payload } = await jwtVerify(token, accessSecret(), {
+    // Decode the JWT header to extract the kid claim, then select the
+    // corresponding secret from the key registry for rotation support.
+    const header = decodeProtectedHeader(token);
+    const secret = getSecretForKid(header.kid as string | undefined);
+    const { payload } = await jwtVerify(token, secret, {
       issuer: ISSUER,
       audience: AUDIENCE,
     });

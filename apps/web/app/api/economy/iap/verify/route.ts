@@ -49,6 +49,9 @@ const SUBSCRIPTION_PRODUCTS: Record<string, { plan: string; monthlyCoins: number
   sub_plus_monthly:  { plan: "plus", monthlyCoins: 50 },
   sub_pro_monthly:   { plan: "pro",  monthlyCoins: 200 },
   sub_max_monthly:   { plan: "max",  monthlyCoins: 500 },
+  sub_plus_annual:   { plan: "plus", monthlyCoins: 50 },
+  sub_pro_annual:    { plan: "pro",  monthlyCoins: 200 },
+  sub_max_annual:    { plan: "max",  monthlyCoins: 500 },
 };
 
 const GOOGLE_PLAY_API_BASE =
@@ -69,10 +72,14 @@ const verifyIapSchema = z.object({
       "coins_baller",
       "coins_boss",
       "coins_legend",
-      // Subscription plans
+      // Monthly subscription plans
       "sub_plus_monthly",
       "sub_pro_monthly",
       "sub_max_monthly",
+      // Annual subscription plans
+      "sub_plus_annual",
+      "sub_pro_annual",
+      "sub_max_annual",
     ],
     { errorMap: () => ({ message: "Unknown productId" }) }
   ),

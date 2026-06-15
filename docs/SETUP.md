@@ -206,7 +206,7 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    - Adds `is_active` column to `gift_items`
    - Adds `tier` column to `referral_commissions`
    - Creates 5 previously missing tables
-   - Drops the `awarded_at` column from `user_badges`
+   - Adds the `awarded_at` column to `user_badges`
 7. Optional seed data: `psql "$DIRECT_URL" < apps/web/lib/db/seed.sql`
 
 ### Option B: Railway PostgreSQL

@@ -429,13 +429,32 @@ async function processSubscriptionEvent(
       [resolvedUserId, subscription_code, isActive ? "active" : status, next_payment_date ?? null]
     ).catch(() => {});
 
-    // Derive plan tier from Paystack plan name (max → max, plus → plus, else → pro)
+    // Derive plan tier from Paystack plan name.
+    // If the plan name is unrecognised, log a system alert and skip plan activation
+    // to prevent silently granting the wrong tier.
     const planNameLower = (event.data.plan?.name ?? "").toLowerCase();
-    const derivedPlan = planNameLower.includes("max")
+    const derivedPlan: string | null = planNameLower.includes("max")
       ? "max"
       : planNameLower.includes("plus")
       ? "plus"
-      : "pro";
+      : planNameLower.includes("pro")
+      ? "pro"
+      : null;
+
+    if (!derivedPlan) {
+      console.error(
+        `[webhook/paystack] Unrecognised plan name '${event.data.plan?.name}' for subscription ${subscription_code}. No plan activated.`
+      );
+      await db.query(
+        `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
+         VALUES ('unknown_plan_code', 'high', $1, $2::jsonb, NOW())`,
+        [
+          `Unknown Paystack plan name: ${event.data.plan?.name}`,
+          JSON.stringify({ subscriptionCode: subscription_code, planName: event.data.plan?.name, userId: resolvedUserId }),
+        ]
+      ).catch(() => {});
+      return;
+    }
 
     await db.transaction(async (tx) => {
       // Update plan
@@ -576,9 +595,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     ?? null;
   const replayKey = eventRef ? `webhook:paystack:${event.event}:${eventRef}` : null;
   if (replayKey) {
-    const alreadySeen = await redis.set(replayKey, "1", "EX", 86400, "NX").catch(() => null);
+    // If Redis SET throws, return 500 so Paystack retries the webhook rather than
+    // silently treating a Redis failure as a duplicate event.
+    const alreadySeen = await redis.set(replayKey, "1", "EX", 86400, "NX");
     if (alreadySeen === null) {
-      // Duplicate event — already processed; return 200 without reprocessing
+      // null = NX condition not met → key already existed → duplicate event
       console.info(`[webhook/paystack] Duplicate event ignored: ${replayKey}`);
       return NextResponse.json({ received: true, duplicate: true });
     }

@@ -154,7 +154,17 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     };
 
     const manifest = await loadManifest();
-    const provider = manifest.payment.primaryProvider as "paystack" | "dodopayments";
+    const VALID_PROVIDERS = ["paystack", "dodopayments"] as const;
+    type Provider = typeof VALID_PROVIDERS[number];
+    const requestedProvider = body.paymentProvider;
+    let provider: Provider;
+    if (requestedProvider && (VALID_PROVIDERS as readonly string[]).includes(requestedProvider)) {
+      provider = requestedProvider as Provider;
+    } else if (requestedProvider) {
+      throw badRequest(`Payment provider '${requestedProvider}' is not active`, "INVALID_PROVIDER");
+    } else {
+      provider = manifest.payment.primaryProvider as Provider;
+    }
 
     const paymentResult = await initializePayment(
       pack.price_kobo,
@@ -162,7 +172,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       email,
       idempotencyKey,
       metadata,
-      returnUrl
+      returnUrl,
+      provider
     );
 
     const metadataWithUrl = { ...metadata, payment_url: paymentResult.paymentUrl };

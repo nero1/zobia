@@ -253,10 +253,11 @@ export async function reconcileStuckPayouts(): Promise<{ reconciled: number; fai
     id: string;
     provider_reference: string;
     creator_id: string;
+    net_kobo: number;
     gross_kobo: number;
   }>(
     `WITH candidates AS (
-       SELECT id, provider_reference, creator_id, gross_kobo
+       SELECT id, provider_reference, creator_id, net_kobo, gross_kobo
        FROM creator_payouts
        WHERE status = 'processing'
          AND updated_at < NOW() - INTERVAL '30 minutes'
@@ -293,6 +294,7 @@ export async function reconcileStuckPayouts(): Promise<{ reconciled: number; fai
             [payout.id]
           );
           if (cur[0] && !cur[0].earnings_restored) {
+            const restoreAmount = payout.net_kobo ?? payout.gross_kobo;
             await tx.query(
               `UPDATE creator_payouts SET earnings_restored = true WHERE id = $1`,
               [payout.id]
@@ -302,7 +304,7 @@ export async function reconcileStuckPayouts(): Promise<{ reconciled: number; fai
                SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1,
                    updated_at = NOW()
                WHERE id = $2`,
-              [payout.gross_kobo, payout.creator_id]
+              [restoreAmount, payout.creator_id]
             );
           }
         });
@@ -330,8 +332,8 @@ export async function moveToDeadLetterQueue(
 ): Promise<void> {
   await db.transaction(async (tx) => {
     // Lock the payout row so concurrent callers (cron + webhook) don't both restore earnings (#7)
-    const { rows: current } = await tx.query<{ gross_kobo: number; earnings_restored: boolean; status: string }>(
-      `SELECT gross_kobo, earnings_restored, status FROM creator_payouts WHERE id = $1 FOR UPDATE`,
+    const { rows: current } = await tx.query<{ net_kobo: number; gross_kobo: number; earnings_restored: boolean; status: string }>(
+      `SELECT net_kobo, gross_kobo, earnings_restored, status FROM creator_payouts WHERE id = $1 FOR UPDATE`,
       [payoutId]
     );
     if (!current[0]) return;
@@ -347,9 +349,11 @@ export async function moveToDeadLetterQueue(
       [retryCount, payoutId]
     );
 
-    // Restore creator's earnings only once. earnings_restored guards against
-    // double-credit when both the DLQ cron and the transfer.failed webhook fire.
+    // Restore creator's earnings only once using net_kobo (the actual amount sent to creator).
+    // earnings_restored guards against double-credit when both the DLQ cron and the
+    // transfer.failed webhook fire.
     if (!current[0].earnings_restored) {
+      const restoreAmount = current[0].net_kobo ?? current[0].gross_kobo;
       await tx.query(
         `UPDATE creator_payouts SET earnings_restored = true WHERE id = $1`,
         [payoutId]
@@ -358,7 +362,7 @@ export async function moveToDeadLetterQueue(
         `UPDATE users
          SET available_earnings_kobo = available_earnings_kobo + $1, updated_at = NOW()
          WHERE id = $2`,
-        [current[0].gross_kobo, creatorId]
+        [restoreAmount, creatorId]
       );
     }
 

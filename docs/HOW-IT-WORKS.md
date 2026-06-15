@@ -361,12 +361,12 @@ Atomicity: every debit operation pairs the `UPDATE users SET coin_balance = ...`
 - On success: `status → 'processing'`, store `transfer_code` as `provider_reference`.
 - On failure: increment `retry_count`, set `next_retry_at` using exponential backoff (5 min → 15 min → 45 min).
 - Phase 2: SELECT records with `status = 'failed'` AND `next_retry_at <= NOW()` AND `retry_count < max_retries`; re-attempt transfer.
-- After `payout_max_retries` (default 3) failures: move to `payout_dead_letter_queue`, restore `gross_kobo` to creator's `available_earnings_kobo`, notify creator and create admin `system_alert`.
+- After `payout_max_retries` (default 3) failures: move to `payout_dead_letter_queue`, restore `net_kobo` (falling back to `gross_kobo`) to creator's `available_earnings_kobo`, notify creator and create admin `system_alert`.
 
 **Paystack Webhook (`POST /api/economy/webhooks/paystack`):**
 - `transfer.success` → payout status `completed`, creator notified.
 - `transfer.failed` → retry logic or DLQ (same as CRON failure path).
-- `transfer.reversed` → payout status `reversed`, `gross_kobo` restored to creator's `available_earnings_kobo`, creator notified.
+- `transfer.reversed` → payout status `reversed`, `net_kobo` (falling back to `gross_kobo`) restored to creator's `available_earnings_kobo`, creator notified.
 
 **Manual Mode (Nigeria) / Global crypto:**
 Admin reviews payouts in the admin panel. For bank transfers: Approve → status `pending` (CRON processes). Admin can also manually advance status: `processing → completed/failed`. For crypto: Approve → admin sees the decrypted wallet address snapshot and manually sends USDT; then marks `completed` via the status PATCH endpoint.

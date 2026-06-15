@@ -303,8 +303,8 @@ export async function checkDeckCompletion(
          COUNT(*) FILTER (WHERE uqp.completed = TRUE) AS completed_count,
          EXISTS (
            SELECT 1 FROM xp_ledger
-           WHERE user_id = $1 AND source = 'complete_quest_deck'
-             AND metadata->>'date' = $2
+           WHERE user_id = $1 AND source = 'deck_completion'
+             AND reference_id = $3
          ) AS bonus_already_awarded
        FROM user_quest_progress uqp
        WHERE uqp.user_id = $1
@@ -313,7 +313,7 @@ export async function checkDeckCompletion(
            SELECT quest_id FROM user_quest_decks
            WHERE user_id = $1 AND assigned_date = $2::date
          )`,
-      [userId, date]
+      [userId, date, `deck_completion:${userId}:${date}`]
     );
 
     const row = result.rows[0];

@@ -136,21 +136,22 @@ export function filterProfanity(text: string): { filtered: string; found: boolea
  * Detect if a user is sending the same (or very similar) message
  * repeatedly within a rolling time window.
  *
- * Compares against the user's recent messages in the same room using
- * a simple normalised equality check. Tolerates minor punctuation
- * differences.
+ * Compares against the user's recent messages in the same room or DM conversation
+ * using a simple normalised equality check. Tolerates minor punctuation differences.
  *
- * @param userId    - Sender's user ID
- * @param content   - Raw message content
- * @param windowMs  - Rolling window in milliseconds (default: 60_000)
- * @param db        - Database adapter
+ * @param userId         - Sender's user ID
+ * @param content        - Raw message content
+ * @param windowMs       - Rolling window in milliseconds (default: 60_000)
+ * @param db             - Database adapter
+ * @param messageContext - Whether this is a 'room' or 'dm' message (DM-DEDUP-01)
  * @returns true if this looks like a duplicate
  */
 export async function detectDuplicateMessage(
   userId: string,
   content: string,
   windowMs: number = 60_000,
-  db: DatabaseAdapter
+  db: DatabaseAdapter,
+  messageContext: "room" | "dm" = "room"
 ): Promise<boolean> {
   const normalise = (s: string) =>
     s.normalize("NFKD").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
@@ -158,10 +159,11 @@ export async function detectDuplicateMessage(
   const normContent = normalise(content);
   const windowSeconds = Math.ceil(windowMs / 1000);
 
-  // Check room messages for duplicate detection.
+  const table = messageContext === "dm" ? "direct_messages" : "room_messages";
+
   const { rows } = await db.query<{ content: string }>(
     `SELECT content
-     FROM room_messages
+     FROM ${table}
      WHERE sender_id = $1
        AND created_at >= NOW() - ($2 * INTERVAL '1 second')
        AND is_deleted = FALSE

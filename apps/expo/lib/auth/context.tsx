@@ -22,6 +22,28 @@ import * as SecureStore from 'expo-secure-store';
 import { JWT_KEY, REFRESH_TOKEN_KEY, onUnauthenticated } from '@/lib/api/client';
 
 // ---------------------------------------------------------------------------
+// JWT expiry helpers (no signature verification — just payload inspection)
+// ---------------------------------------------------------------------------
+
+function getJwtExp(token: string): number | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(atob(parts[1])) as { exp?: number };
+    return typeof payload.exp === 'number' ? payload.exp : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Returns true if the token is expired or will expire within the next 60 seconds. */
+function isTokenExpiredOrExpiring(token: string): boolean {
+  const exp = getJwtExp(token);
+  if (exp === null) return true;
+  return exp * 1000 < Date.now() + 60_000;
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -79,6 +101,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   // Restore persisted session on app start.
+  // If the stored access token is expired or expiring within 60 s, attempt a
+  // silent refresh before setting authenticated state (EXPO-TOKEN-01).
   useEffect(() => {
     (async () => {
       try {
@@ -86,7 +110,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           SecureStore.getItemAsync(JWT_KEY),
           SecureStore.getItemAsync('zobia_user'),
         ]);
-        if (storedToken && storedUser) {
+        if (!storedToken || !storedUser) return;
+
+        if (isTokenExpiredOrExpiring(storedToken)) {
+          // Attempt a silent token refresh using the persisted refresh token.
+          const storedRefreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+          if (!storedRefreshToken) return; // no refresh token — require re-login
+
+          try {
+            const { env } = await import('@/lib/env');
+            const resp = await fetch(`${env.API_BASE_URL}/api/auth/refresh`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Refresh-Token': storedRefreshToken,
+              },
+            });
+            if (!resp.ok) return; // refresh failed — clear state, require re-login
+            const data = (await resp.json()) as { accessToken?: string; refreshToken?: string };
+            if (!data.accessToken) return;
+
+            await SecureStore.setItemAsync(JWT_KEY, data.accessToken);
+            if (data.refreshToken) {
+              await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, data.refreshToken);
+            }
+            setToken(data.accessToken);
+            setUser(JSON.parse(storedUser) as AuthUser);
+          } catch {
+            // Network failure — clear session and require re-login
+            await Promise.all([
+              SecureStore.deleteItemAsync(JWT_KEY),
+              SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY),
+              SecureStore.deleteItemAsync('zobia_user'),
+            ]).catch(() => {});
+          }
+        } else {
           setToken(storedToken);
           setUser(JSON.parse(storedUser) as AuthUser);
         }
