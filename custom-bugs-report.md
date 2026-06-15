@@ -50,6 +50,9 @@ However, there is a critical structural problem: **two parallel migration system
 28. **BUG-28:** `processSubscriptionEvent` in Paystack webhook has a dead redundant `if (!resolvedUserId) return;` guard at line 412 — dead code from incomplete refactor.
 29. **BUG-29:** Drizzle `creatorEarnings` schema is also missing the `reference_id`, `paid_out`, and `payout_id` columns that exist in the actual DB — ORM-level reads silently return undefined for these fields.
 30. **BUG-30:** `resetSeasonRankings` in `seasonEngine.ts` references `seasons.updated_at` in an UPDATE — this is the same missing-column bug as BUG-03 appearing in a second code path.
+31. **BUG-31:** Room chat subscribes to realtime channel `room:<id>` but the server publishes new messages to `room:<id>:messages` — channel mismatch means messages never appear in the UI until the page is manually refreshed.
+32. **BUG-32:** Room powers (pin message, room spotlight, member highlight) send `{ powerType }` in the request body but the server's Zod schema expects `{ power }` — Zod validation fails with a 400 and no power ever activates; additionally `message_pin` requires a `messageId` and `member_highlight` requires a `targetUserId` which the UI never collects.
+33. **BUG-33:** The moments feed page (`/moments`) and create page (`/moments/create`) are fully implemented but `/moments` is absent from both the Sidebar and Navbar navigation — the entire feature is unreachable from the UI.
 
 ---
 
@@ -399,6 +402,48 @@ Beyond BUG-01 (wrong column names for grossKobo/netKobo), the `creatorEarnings` 
 
 ---
 
+### BUG-31: Room Chat Realtime Channel Name Mismatch — Messages Don't Appear Until Page Refresh
+
+**FILES:**  
+`apps/web/app/(app)/rooms/[roomId]/page.tsx` (line 1072)  
+`apps/web/app/api/rooms/[roomId]/messages/route.ts` (line 608)  
+`apps/web/app/api/rooms/[roomId]/stream/route.ts` (line 297)
+
+The server publishes every new room message to the realtime channel `room:<roomId>:messages`. The SSE stream endpoint also explicitly instructs the client (via a `realtime_ready` event) to subscribe to `room:<roomId>:messages`. However, the room page hard-codes the subscription channel as `room:${roomId}` — missing the `:messages` suffix. The client is listening on a channel that receives no events. New messages only appear after a manual page refresh because the REST GET snapshot re-fetches all messages.
+
+DMs are not affected — the DM page subscribes to `dm:conversation:${conversationId}` and the server publishes to exactly that channel. If DMs also feel slow, it is because the `NEXT_PUBLIC_REALTIME_PROVIDER` environment variable is not configured, causing both rooms and DMs to fall back to polling rather than push.
+
+**FIX:** Change `room:${roomId}` to `room:${roomId}:messages` at line 1072 of `rooms/[roomId]/page.tsx`. One character change. Ensure `NEXT_PUBLIC_REALTIME_PROVIDER` is set in production for live push delivery.
+
+---
+
+### BUG-32: Room Powers Send Wrong Request Body Key — Pin Message and All Powers Do Nothing
+
+**FILES:**  
+`apps/web/app/(app)/rooms/[roomId]/page.tsx` (line 584)  
+`apps/web/app/api/rooms/[roomId]/powers/route.ts` (lines 43–57)
+
+The `activate()` function on the room page sends `{ powerType: "message_pin" }`. The server's Zod schema uses `z.discriminatedUnion("power", [...])` — it expects the discriminant key to be `power`, not `powerType`. Zod validation fails on every request and returns a 400; no power ever fires. Additionally, even after fixing the key name, `message_pin` requires a `messageId` UUID (which specific message to pin) and `member_highlight` requires a `targetUserId` UUID — neither value is collected anywhere in the current UI.
+
+**FIX:**
+1. Change the fetch body from `{ powerType }` to `{ power: powerType }` at line 584 — fixes `room_spotlight` immediately.
+2. Redesign `message_pin` as a per-message context-menu action (long-press / right-click) that passes the selected message's ID. The current toolbar pin button has nowhere to get a `messageId` from.
+3. Redesign `member_highlight` to show a member picker before activation so `targetUserId` can be captured.
+
+---
+
+### BUG-33: Moments Page Exists but Is Unreachable — Not Listed in Navigation
+
+**FILES:**  
+`apps/web/components/layout/Sidebar.tsx` (lines 41–56)  
+`apps/web/components/layout/Navbar.tsx` (lines 44–70)
+
+The moments feed (`/app/(app)/moments/page.tsx`) and create page (`/app/(app)/moments/create/page.tsx`) are both fully implemented — the API (`/api/moments/`, `/api/moments/[id]/reactions/`) is complete, and moments are correctly stored and expired by the daily CRON. However, `/moments` is absent from both the Sidebar's `primaryNavItems` array and the Navbar's `primaryNavItems` array. There is no link to the feature anywhere in the navigation. Users can only discover it by guessing the URL directly. The in-room ⚡ moment toggle works correctly and sends moment-type messages, but the standalone moments feed is a dead end.
+
+**FIX:** Add `{ href: "/moments", label: "Moments", icon: "⚡" }` to `primaryNavItems` in both `Sidebar.tsx` and `Navbar.tsx`. No other changes required — the feature is otherwise complete.
+
+---
+
 ## Code Quality Summary Table
 
 | Dimension | Before | After Fixes |
@@ -410,6 +455,9 @@ Beyond BUG-01 (wrong column names for grossKobo/netKobo), the `creatorEarnings` 
 | Runtime crash risk | ❌ High (missing columns, wrong table names) | ✅ Low |
 | Auth & session model | ✅ Good (JWT + Redis rotation) | ✅ + pre-auth bypass fix |
 | Mobile (Expo) offline | ⚠️ Room messages lost, no IAP timeout | ✅ Fixed |
+| Realtime chat delivery | ❌ Channel mismatch — room msgs never push | ✅ Fixed (1-line fix) |
+| Room powers / paid extras | ❌ Wrong request key, 400 on every call | ✅ Fixed + UX redesign |
+| Feature discoverability | ❌ Moments page unreachable (no nav link) | ✅ Fixed |
 | Performance (hot path) | ⚠️ JWT key registry rebuilt every call | ✅ Memoized |
 | Env config robustness | ⚠️ Fails hard if either AI key absent | ✅ Graceful |
 | Streak/XP data accuracy | ⚠️ Streak overcounting, XP silently dropped | ✅ Fixed |

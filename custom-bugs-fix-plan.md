@@ -561,6 +561,73 @@ Quest reset uses `Date.now() - 24 * 60 * 60 * 1000` which is server-local time. 
 
 ---
 
+## Phase 5 — UI / Real-Time Issues (New Bugs BUG-31 to BUG-33)
+
+---
+
+### TASK-29 · Fix BUG-31 — Correct room chat realtime channel subscription
+
+**Priority:** CRITICAL  
+**Files:** `apps/web/app/(app)/rooms/[roomId]/page.tsx` (line 1072)  
+**Effort:** Trivial
+
+The room page subscribes to `room:${roomId}` but the server publishes new messages to `room:${roomId}:messages`. The client receives zero realtime events — users see messages only after a manual page refresh.
+
+**Steps:**
+
+1. On line 1072, change the channel argument from:
+   ```
+   `room:${roomId}`
+   ```
+   to:
+   ```
+   `room:${roomId}:messages`
+   ```
+
+2. Verify in staging that sending a message immediately renders it in the chat view without a refresh.
+
+3. If realtime delivery is still unreliable, confirm `NEXT_PUBLIC_REALTIME_PROVIDER` is set in the deployment environment. Without it the app falls back to polling-only — DMs also will not receive push updates (their channel names are already correct in code).
+
+---
+
+### TASK-30 · Fix BUG-32 — Fix room powers request body and add missing UI inputs
+
+**Priority:** HIGH  
+**Files:** `apps/web/app/(app)/rooms/[roomId]/page.tsx` (line 584), `apps/web/app/api/rooms/[roomId]/powers/route.ts`  
+**Effort:** Medium
+
+The `activate()` function sends `{ powerType }` but the server's Zod discriminated union expects `{ power }`. Every power activation fails with a 400 before any coin cost is even checked.
+
+**Steps:**
+
+1. **Immediate fix (unblocks `room_spotlight`):** Change the fetch body on line 584 from `{ powerType }` to `{ power: powerType }`. This alone fixes Room Spotlight — it needs no additional fields.
+
+2. **For `message_pin`:** Remove the pin option from the general powers toolbar. Reimplement it as a per-message context-menu action (long-press on a message bubble, or a `⋯` menu per message). When triggered, pass `{ power: "message_pin", messageId: <that message's id> }` to the powers endpoint. The toolbar pin button has no way to identify which message to pin and must be removed until this UX is in place.
+
+3. **For `member_highlight`:** Before calling the endpoint, show a member picker (fetch from the room's member list via `/api/rooms/[roomId]/members`) so the user can select a target. Pass `{ power: "member_highlight", targetUserId: <selected user's id> }`.
+
+4. Optional UX improvement: disable power buttons and show a coin-cost tooltip when the user's balance is below the required cost (fetched from the existing wallet endpoint).
+
+---
+
+### TASK-31 · Fix BUG-33 — Add Moments to navigation
+
+**Priority:** MEDIUM  
+**Files:** `apps/web/components/layout/Sidebar.tsx` (line ~41), `apps/web/components/layout/Navbar.tsx` (line ~44)  
+**Effort:** Trivial
+
+The moments feed page and create page are fully built but completely unreachable because `/moments` is absent from all navigation lists.
+
+**Steps:**
+
+1. In `Sidebar.tsx`, add `{ href: "/moments", label: "Moments" }` to the `primaryNavItems` array in a sensible position (e.g. after Home or after Rooms).
+
+2. In `Navbar.tsx`, add `{ href: "/moments", label: "Moments", icon: "⚡" }` to the `primaryNavItems` array in the same relative position.
+
+3. Optionally add `/moments` to the mobile bottom tab bar in `Navbar.tsx` if a slot is available (currently 6 items use all 6 grid columns — a slot may need to be freed or the grid widened to 7).
+
+---
+
 ## Recommended Fix Sequence
 
 Apply fixes in this order to minimise the chance of one fix breaking another:
@@ -601,6 +668,11 @@ Phase 3:
 Phase 4:
   TASK-27 (dead code removal)
   TASK-28 (Expo room offline UX)
+
+Phase 5 (UI/realtime — can be done in parallel with any Phase 2+ work):
+  TASK-29 (room realtime channel fix)       ← do immediately, trivial
+  TASK-30 (room powers request body fix)
+  TASK-31 (moments navigation link)
 ```
 
 ---
@@ -617,6 +689,9 @@ Phase 4:
 - [ ] Complete a Google Play IAP — confirm the flow doesn't hang; dismiss the sheet and confirm timeout fires
 - [ ] Confirm `system_alerts` inserts succeed (no CHECK constraint violations)
 - [ ] Verify commission stats return non-zero values for users with referrals
+- [ ] Send a room message — confirm it appears instantly in the chat view without a page refresh
+- [ ] Activate Room Spotlight power — confirm it deducts coins and returns a success response
+- [ ] Navigate to `/moments` from the sidebar — confirm the moments feed loads
 
 ---
 
