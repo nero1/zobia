@@ -1322,5 +1322,13 @@
   },
   "offline.syncFailed": "Falha ao enviar mensagem. Será tentado novamente.",
   "offline.permanentFailure": "A mensagem não pôde ser entregue.",
-  "offline.permanentFailureHint": "Esta mensagem foi rejeitada pelo servidor e não será tentada novamente."
+  "offline.permanentFailureHint": "Esta mensagem foi rejeitada pelo servidor e não será tentada novamente.",
+
+  "creator.tier.rookie": "Iniciante",
+  "creator.tier.rising": "Em Ascensão",
+  "creator.tier.verified": "Criador Verificado",
+  "creator.tier.elite": "Criador Elite",
+  "creator.tier.icon": "Criador Ícone",
+
+  "subscription.nextRenewal": "Próxima renovação: {{date}}"
 }

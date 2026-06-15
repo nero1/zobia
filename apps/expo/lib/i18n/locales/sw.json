@@ -1322,5 +1322,13 @@
   },
   "offline.syncFailed": "Ujumbe haukutumwa. Utajaribu tena.",
   "offline.permanentFailure": "Ujumbe haukufikia mpokeaji.",
-  "offline.permanentFailureHint": "Ujumbe huu ulikataliwa na seva na hautajaribiwa tena."
+  "offline.permanentFailureHint": "Ujumbe huu ulikataliwa na seva na hautajaribiwa tena.",
+
+  "creator.tier.rookie": "Mwanzilishi",
+  "creator.tier.rising": "Anayepanda",
+  "creator.tier.verified": "Muundaji Aliyethibitishwa",
+  "creator.tier.elite": "Muundaji wa Wasomi",
+  "creator.tier.icon": "Ikoni ya Muundaji",
+
+  "subscription.nextRenewal": "Upyaji Unaofuata: {{date}}"
 }

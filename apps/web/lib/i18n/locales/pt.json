@@ -1040,5 +1040,18 @@
   "errors.global_rate_limit": "Muitas solicitações. Por favor, tente novamente mais tarde.",
 
   "health.status_ok": "Todos os sistemas operacionais",
-  "health.status_degraded": "Alguns serviços estão degradados"
+  "health.status_degraded": "Alguns serviços estão degradados",
+
+  "creator.tier.rookie": "Iniciante",
+  "creator.tier.rising": "Em Ascensão",
+  "creator.tier.verified": "Criador Verificado",
+  "creator.tier.elite": "Criador Elite",
+  "creator.tier.icon": "Criador Ícone",
+
+  "admin.featureFlags": "Sinalizadores de Recursos",
+  "admin.featureFlags.description": "Ativar ou desativar recursos da plataforma globalmente.",
+  "admin.featureFlags.availableFrom": "Disponível a partir de",
+  "admin.featureFlags.earlyAccessPlans": "Planos de acesso antecipado",
+
+  "subscription.nextRenewal": "Próxima renovação: {{date}}"
 }

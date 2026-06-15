@@ -1096,5 +1096,18 @@
   "errors.global_rate_limit": "Too many requests. Please try again later.",
 
   "health.status_ok": "All systems operational",
-  "health.status_degraded": "Some services are degraded"
+  "health.status_degraded": "Some services are degraded",
+
+  "creator.tier.rookie": "Rookie",
+  "creator.tier.rising": "Rising",
+  "creator.tier.verified": "Verified Creator",
+  "creator.tier.elite": "Elite Creator",
+  "creator.tier.icon": "Icon Creator",
+
+  "admin.featureFlags": "Feature Flags",
+  "admin.featureFlags.description": "Enable or disable platform features globally.",
+  "admin.featureFlags.availableFrom": "Available from",
+  "admin.featureFlags.earlyAccessPlans": "Early access plans",
+
+  "subscription.nextRenewal": "Next renewal: {{date}}"
 }

@@ -29,8 +29,10 @@ let _directPool: Pool | null = null;
 /**
  * Returns the shared pooled pg Pool for DO, creating it on first call.
  * DATABASE_URL should point to the DO PgBouncer pooler endpoint.
+ *
+ * Exported so drizzle.ts can reuse the same pool instead of creating a duplicate.
  */
-function getPool(): Pool {
+export function getPool(): Pool {
   if (!_pool) {
     _pool = new Pool({
       connectionString: env.DATABASE_URL,

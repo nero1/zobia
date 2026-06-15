@@ -19,6 +19,24 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { db } from "@/lib/db";
+
+// ---------------------------------------------------------------------------
+// INFRA-01: Graceful shutdown on SIGTERM
+// ---------------------------------------------------------------------------
+
+let _shuttingDown = false;
+
+if (typeof process !== "undefined") {
+  process.once("SIGTERM", () => {
+    _shuttingDown = true;
+    console.warn("[cron/daily] SIGTERM received — completing current task then exiting");
+    // Allow up to 10 seconds for in-flight DB queries to complete before hard exit
+    setTimeout(() => {
+      console.error("[cron/daily] Graceful shutdown timeout exceeded — forcing exit");
+      process.exit(0);
+    }, 10_000).unref();
+  });
+}
 import { resetDailyQuests } from "@/lib/quests/questEngine";
 import { refreshNemesisAssignments } from "@/lib/nemesis/nemesisEngine";
 import { getCurrentSeason, distributeSeasonRewards, resetSeasonRankings, createSeasonCeremonyRoom } from "@/lib/seasons/seasonEngine";
@@ -75,6 +93,10 @@ const COMEBACK_COIN_AMOUNT = 200;
 export const GET = async (req: NextRequest) => {
   if (!validateCronSecret(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (_shuttingDown) {
+    return NextResponse.json({ error: "Server shutting down" }, { status: 503 });
   }
 
   const results: Record<string, unknown> = {};
@@ -176,17 +198,14 @@ export const GET = async (req: NextRequest) => {
 
     const loginXpResult = await db.query<{ count: string }>(
       `WITH awarded AS (
-         INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, created_at)
-         SELECT id, $1, 'main', 'daily_login', $1, NOW()
+         INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
+         SELECT id, $1, 'main', 'daily_login',
+                'daily_login:' || id::text || ':' || CURRENT_DATE::text,
+                $1, NOW()
          FROM users
          WHERE DATE(last_login_at AT TIME ZONE 'UTC') = CURRENT_DATE
            AND deleted_at IS NULL
-           AND NOT EXISTS (
-             SELECT 1 FROM xp_ledger
-             WHERE user_id = users.id
-               AND source = 'daily_login'
-               AND created_at::date = NOW()::date
-           )
+         ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
          RETURNING user_id
        ),
        updated AS (
@@ -796,7 +815,8 @@ export const GET = async (req: NextRequest) => {
          FROM users u
          LEFT JOIN platform_council_members pcm ON pcm.user_id = u.id
          WHERE pcm.user_id IS NULL
-           AND u.is_active = true
+           AND u.deleted_at IS NULL
+           AND COALESCE(u.is_banned, false) = false
            AND u.login_streak_days > 0
            AND u.prestige_count >= 5
          ORDER BY u.legacy_score DESC
@@ -863,11 +883,12 @@ export const GET = async (req: NextRequest) => {
           // ZB-05: use creditCoins so balance_before/after are tracked correctly
           const { creditCoins } = await import("@/lib/economy/coins");
           await db.transaction(async (tx) => {
+            const comebackMonthKey = new Date().toISOString().slice(0, 7); // YYYY-MM
             await creditCoins(
               user.user_id,
               COMEBACK_COIN_AMOUNT,
               "comeback_bonus_reserved",
-              `comeback:${user.user_id}`,
+              `comeback:${user.user_id}:${comebackMonthKey}`,
               "Comeback bonus — expires in 7 days if unused",
               {},
               tx
@@ -909,11 +930,11 @@ export const GET = async (req: NextRequest) => {
               : `Your guild "${guild_name}" fought hard in your absence — come back and help them win the next one.`;
           }
           // Nemesis XP delta
-          const { rows: nemesisRows } = await db.query<{ nemesis_id: string; xp_delta: number }>(
-            `SELECT na.nemesis_id, (nu.xp_total - u.xp_total) AS xp_delta
+          const { rows: nemesisRows } = await db.query<{ nemesis_user_id: string; xp_delta: number }>(
+            `SELECT na.nemesis_user_id, (nu.xp_total - u.xp_total) AS xp_delta
              FROM nemesis_assignments na
              JOIN users u  ON u.id  = na.user_id
-             JOIN users nu ON nu.id = na.nemesis_id
+             JOIN users nu ON nu.id = na.nemesis_user_id
              WHERE na.user_id = $1
              LIMIT 1`,
             [user.user_id]
@@ -967,7 +988,9 @@ export const GET = async (req: NextRequest) => {
             user.email,
             payload.title,
             payload.body,
-            `<p>${payload.body}</p>`
+            `<p>${payload.body}</p>`,
+            'reengagement',
+            user.user_id
           ).catch(() => {});
         } catch {
           // Non-fatal — email errors must not block other CRON tasks
@@ -1182,14 +1205,20 @@ export const GET = async (req: NextRequest) => {
           [convo.user_id_1, convo.user_id_2, milestone]
         ).catch(() => {});
 
-        // Grant the sticker pack to both users (BUG-MSG03)
+        // Grant the sticker pack to both users — look up pack_id by name first
         const packName = `dm_streak_${milestone}`;
-        await db.query(
-          `INSERT INTO user_sticker_packs (user_id, pack_name, granted_at)
-           VALUES ($1, $2, NOW()), ($3, $2, NOW())
-           ON CONFLICT DO NOTHING`,
-          [convo.user_id_1, packName, convo.user_id_2]
-        ).catch(() => {});
+        const { rows: packRows } = await db.query<{ id: string }>(
+          `SELECT id FROM sticker_packs WHERE name = $1 LIMIT 1`,
+          [packName]
+        ).catch(() => ({ rows: [] as Array<{ id: string }> }));
+        if (packRows[0]) {
+          await db.query(
+            `INSERT INTO user_sticker_packs (user_id, pack_id)
+             VALUES ($1, $2), ($3, $2)
+             ON CONFLICT (user_id, pack_id) DO NOTHING`,
+            [convo.user_id_1, packRows[0].id, convo.user_id_2]
+          ).catch(() => {});
+        }
 
         // Notify both participants
         for (const uid of [convo.user_id_1, convo.user_id_2]) {
@@ -1245,6 +1274,7 @@ export const GET = async (req: NextRequest) => {
     const { sendTelegramMessage } = await import('@/lib/notifications/telegram');
 
     let telegramSent = 0;
+    const successfullyNotifiedIds: string[] = [];
     for (const user of telegramUsers) {
       const payload = getReengagementPayload(
         user.user_id,
@@ -1253,21 +1283,25 @@ export const GET = async (req: NextRequest) => {
       );
       if (!payload) continue;
 
-      sendTelegramMessage(
-        user.telegram_id,
-        `<b>${payload.title}</b>\n\n${payload.body}`
-      );
-      telegramSent++;
+      try {
+        await sendTelegramMessage(
+          user.telegram_id,
+          `<b>${payload.title}</b>\n\n${payload.body}`
+        );
+        successfullyNotifiedIds.push(user.user_id);
+        telegramSent++;
+      } catch (err) {
+        console.error('[cron/daily] Telegram delivery failed for user', user.user_id, err);
+      }
     }
 
-    // Mark telegram re-engagement events as notified so they are not re-sent
-    if (telegramUsers.length > 0) {
-      const notifiedIds = telegramUsers.map((u) => u.user_id);
+    // Only mark as notified users whose Telegram message was actually delivered
+    if (successfullyNotifiedIds.length > 0) {
       await db.query(
         `UPDATE user_inactivity_events
          SET telegram_notified = true
          WHERE user_id = ANY($1::uuid[]) AND telegram_notified = false`,
-        [notifiedIds]
+        [successfullyNotifiedIds]
       ).catch((err: unknown) => console.error('[cron/daily] Failed to mark telegram users notified:', err));
     }
 
@@ -1358,8 +1392,8 @@ export const GET = async (req: NextRequest) => {
               `WITH eligible AS (
                  SELECT id, coin_balance FROM users
                  WHERE plan = $1
-                   AND is_active = true
                    AND deleted_at IS NULL
+                   AND COALESCE(is_banned, false) = false
                    AND NOT EXISTS (
                      SELECT 1 FROM coin_ledger
                      WHERE user_id = users.id
@@ -1873,7 +1907,8 @@ export const GET = async (req: NextRequest) => {
     );
 
     const tierForCount = (count: number): string => {
-      if (count >= 2000) return "icon";
+      if (count >= 5000) return "icon";
+      if (count >= 2000) return "elite";
       if (count >= 500)  return "verified";
       if (count >= 100)  return "rising";
       return "rookie";
@@ -1983,14 +2018,14 @@ export const GET = async (req: NextRequest) => {
     if (dayForNemesis === 0) {
       // After refresh, check for users whose nemesis has overtaken them in XP
       const { rows: overtakeRows } = await db.query<{
-        user_id: string; nemesis_id: string;
+        user_id: string; nemesis_user_id: string;
         user_xp: number; nemesis_xp: number;
       }>(
-        `SELECT na.user_id, na.nemesis_id,
+        `SELECT na.user_id, na.nemesis_user_id,
                 u.xp_total AS user_xp, n.xp_total AS nemesis_xp
          FROM nemesis_assignments na
          JOIN users u ON u.id = na.user_id
-         JOIN users n ON n.id = na.nemesis_id
+         JOIN users n ON n.id = na.nemesis_user_id
          WHERE n.xp_total > u.xp_total
            AND na.created_at >= NOW() - INTERVAL '24 hours'`
       );
@@ -2003,7 +2038,7 @@ export const GET = async (req: NextRequest) => {
           [
             row.user_id,
             JSON.stringify({
-              nemesisId: row.nemesis_id,
+              nemesisId: row.nemesis_user_id,
               userXp: row.user_xp,
               nemesisXp: row.nemesis_xp,
               gap: row.nemesis_xp - row.user_xp,
@@ -2017,7 +2052,7 @@ export const GET = async (req: NextRequest) => {
            VALUES ($1, 'nemesis_triumph', 'You overtook your Nemesis!', 'You have surpassed your rival in XP. Keep the lead!', $2, false, NOW())
            ON CONFLICT DO NOTHING`,
           [
-            row.nemesis_id,
+            row.nemesis_user_id,
             JSON.stringify({
               targetId: row.user_id,
               gap: row.nemesis_xp - row.user_xp,
@@ -2037,7 +2072,7 @@ export const GET = async (req: NextRequest) => {
             data: { action: '/nemesis', type: 'nemesis_overtook_you' },
           })),
           ...overtakeRows.map((row) => ({
-            userId: row.nemesis_id,
+            userId: row.nemesis_user_id,
             title: '🏆 You overtook your Nemesis!',
             body: `You're ${row.nemesis_xp - row.user_xp} XP ahead of your rival. Keep the lead!`,
             data: { action: '/nemesis', type: 'nemesis_triumph' },
@@ -2284,76 +2319,77 @@ export const GET = async (req: NextRequest) => {
     const qualifyingAction = qualifyingActionStr ?? "coin_purchase";
 
     if (qualifyingAction === "login_streak_7" || qualifyingAction === "both") {
-      // Find unqualified Tier 1 referrals where referred user has streak >= 7.
-      // FOR UPDATE SKIP LOCKED prevents concurrent CRON runs from processing the
-      // same referral twice (REFERRAL-RACE-01).
-      const { rows: streakReferrals } = await db.query<{
-        id: string;
-        referrer_id: string;
-        referred_id: string;
-      }>(
-        `SELECT r.id, r.referrer_id, r.referred_id
-         FROM referrals r
-         JOIN users u ON u.id = r.referred_id
-         WHERE r.qualified = false
-           AND r.tier = 1
-           AND u.login_streak_days >= 7
-           AND u.deleted_at IS NULL
-         FOR UPDATE OF r SKIP LOCKED`
-      );
-
-      // Hoist manifest reads out of the loop — these values are global config and
+      // Hoist manifest reads before the transaction — they're global config and
       // should not be fetched once per referral (each call hits Redis/DB).
       const xpBonusStr = await getManifestValue("referral_tier1_xp_bonus");
       const coinBonusStr = await getManifestValue("referral_tier1_coin_bonus");
       const xpBonus = parseInt(xpBonusStr ?? "500", 10) || 500;
       const coinBonus = parseInt(coinBonusStr ?? "100", 10) || 100;
 
+      const { safeAwardXP: _safeXP } = await import("@/lib/xp/safeAwardXP");
+      const cronDate = new Date().toISOString().slice(0, 10);
       let streakQualified = 0;
 
-      for (const referral of streakReferrals) {
-        await db.transaction(async (tx) => {
+      // Wrap the SELECT + processing in a single transaction so that FOR UPDATE
+      // SKIP LOCKED holds the row locks until all updates are committed — without
+      // a surrounding transaction the locks are released immediately after the
+      // SELECT returns, allowing concurrent CRON runs to pick up the same rows.
+      await db.transaction(async (tx) => {
+        const { rows: streakReferrals } = await tx.query<{
+          id: string;
+          referrer_id: string;
+          referred_id: string;
+        }>(
+          `SELECT r.id, r.referrer_id, r.referred_id
+           FROM referrals r
+           JOIN users u ON u.id = r.referred_id
+           WHERE r.qualified = false
+             AND r.tier = 1
+             AND u.login_streak_days >= 7
+             AND u.deleted_at IS NULL
+           FOR UPDATE OF r SKIP LOCKED`
+        );
 
-          // Update referral record
-          await tx.query(
-            `UPDATE referrals SET qualified = true, qualified_at = NOW(),
-                                 coin_reward = $1, xp_reward = $2
-             WHERE id = $3`,
-            [coinBonus, xpBonus, referral.id]
-          );
+        for (const referral of streakReferrals) {
+          try {
+            // Update referral record
+            await tx.query(
+              `UPDATE referrals SET qualified = true, qualified_at = NOW(),
+                                   coin_reward = $1, xp_reward = $2
+               WHERE id = $3`,
+              [coinBonus, xpBonus, referral.id]
+            );
 
-          // Award XP with deterministic referenceId for idempotency (REFERRAL-XP-01).
-          // Use safeAwardXP so the CTE pattern handles the UPDATE + INSERT atomically.
-          const { safeAwardXP: _safeXP } = await import("@/lib/xp/safeAwardXP");
-          const cronDate = new Date().toISOString().slice(0, 10);
-          const referralXpRef = `referral_streak_${referral.id}_${cronDate}`;
-          await _safeXP(
-            referral.referrer_id,
-            xpBonus,
-            "social",
-            "referral_qualified_streak",
-            referralXpRef,
-            tx
-          );
-
-          // Award coins
-          if (coinBonus > 0) {
-            await creditCoins(
+            // Award XP inside the same transaction for atomicity
+            const referralXpRef = `referral_streak_${referral.id}_${cronDate}`;
+            await _safeXP(
               referral.referrer_id,
-              coinBonus,
-              "referral_bonus",
-              referral.id,
-              "One-time referral bonus (7-day streak qualification)",
-              {},
+              xpBonus,
+              "social",
+              "referral_qualified_streak",
+              referralXpRef,
               tx
             );
-          }
 
-          streakQualified++;
-        }).catch((err) => {
-          console.error("[cron/33] Referral streak bonus error:", err);
-        });
-      }
+            // Award coins
+            if (coinBonus > 0) {
+              await creditCoins(
+                referral.referrer_id,
+                coinBonus,
+                "referral_bonus",
+                referral.id,
+                "One-time referral bonus (7-day streak qualification)",
+                {},
+                tx
+              );
+            }
+
+            streakQualified++;
+          } catch (err) {
+            console.error("[cron/33] Referral streak bonus error:", err);
+          }
+        }
+      });
 
       results.referralStreakQualifying = { qualified: streakQualified };
     }

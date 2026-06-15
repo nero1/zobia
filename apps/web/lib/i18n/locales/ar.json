@@ -1040,5 +1040,18 @@
   "errors.global_rate_limit": "طلبات كثيرة جداً. يرجى المحاولة مرة أخرى لاحقاً.",
 
   "health.status_ok": "جميع الأنظمة تعمل بشكل طبيعي",
-  "health.status_degraded": "بعض الخدمات تعاني من انخفاض في الأداء"
+  "health.status_degraded": "بعض الخدمات تعاني من انخفاض في الأداء",
+
+  "creator.tier.rookie": "مبتدئ",
+  "creator.tier.rising": "صاعد",
+  "creator.tier.verified": "منشئ موثَّق",
+  "creator.tier.elite": "منشئ نخبة",
+  "creator.tier.icon": "أيقونة المنشئين",
+
+  "admin.featureFlags": "إشارات الميزات",
+  "admin.featureFlags.description": "تمكين أو تعطيل ميزات المنصة بشكل عالمي.",
+  "admin.featureFlags.availableFrom": "متاح من",
+  "admin.featureFlags.earlyAccessPlans": "خطط الوصول المبكر",
+
+  "subscription.nextRenewal": "التجديد القادم: {{date}}"
 }

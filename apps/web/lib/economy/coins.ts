@@ -260,7 +260,7 @@ export async function transferCoins(
   const fee = gross.times(feePercent).dividedBy(100).floor();
   const net = gross.minus(fee);
 
-  const transferRef = idempotencyRef ?? `transfer:${fromUserId}:${toUserId}:${amount}`;
+  const transferRef = idempotencyRef ?? `transfer:${fromUserId}:${toUserId}:${amount}:${Date.now()}`;
 
   const run = async (tx: TransactionClient) => {
     // Lock both rows in deterministic ascending UUID order to prevent deadlocks (BUG-20)

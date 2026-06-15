@@ -1393,5 +1393,13 @@
   "leaderboards.title": "لوحات المتصدرين",
   "offline.syncFailed": "فشل إرسال الرسالة. ستتم إعادة المحاولة.",
   "offline.permanentFailure": "تعذّر تسليم الرسالة.",
-  "offline.permanentFailureHint": "تم رفض هذه الرسالة من قبل الخادم ولن تتم إعادة المحاولة."
+  "offline.permanentFailureHint": "تم رفض هذه الرسالة من قبل الخادم ولن تتم إعادة المحاولة.",
+
+  "creator.tier.rookie": "مبتدئ",
+  "creator.tier.rising": "صاعد",
+  "creator.tier.verified": "منشئ موثَّق",
+  "creator.tier.elite": "منشئ نخبة",
+  "creator.tier.icon": "أيقونة المنشئين",
+
+  "subscription.nextRenewal": "التجديد القادم: {{date}}"
 }

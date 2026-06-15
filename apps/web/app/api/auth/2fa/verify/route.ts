@@ -101,8 +101,12 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, error: "TOTP code already used" }, { status: 400 });
       }
 
-      // Consume the pre-auth token
+      // Consume the pre-auth token — clear both Redis key and DB column
       await redis.del(redisKey);
+      await db.query(
+        `UPDATE users SET pre_auth_session = NULL, updated_at = NOW() WHERE id = $1`,
+        [userId]
+      );
 
       // Create full session
       const authTokens = await createSession(

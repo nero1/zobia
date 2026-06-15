@@ -110,13 +110,22 @@ export async function calculateFundDistributions(
        WHERE created_at >= NOW() - INTERVAL '30 days'
        GROUP BY following_id
      ),
-     qst AS (
-       SELECT creator_id AS user_id,
-              COUNT(*)::INTEGER                           AS quests_completed_30d
+     qst_raw AS (
+       SELECT creator_id AS user_id
        FROM sponsored_quest_applications
        WHERE updated_at >= NOW() - INTERVAL '30 days'
          AND status IN ('paid', 'approved')
-       GROUP BY creator_id
+       UNION ALL
+       SELECT uqp.user_id
+       FROM user_quest_progress uqp
+       WHERE uqp.completed = true
+         AND uqp.completed_at >= NOW() - INTERVAL '30 days'
+     ),
+     qst AS (
+       SELECT user_id,
+              COUNT(*)::INTEGER AS quests_completed_30d
+       FROM qst_raw
+       GROUP BY user_id
      )
      SELECT
        u.id,

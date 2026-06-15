@@ -1040,5 +1040,18 @@
   "errors.global_rate_limit": "Trop de requêtes. Veuillez réessayer plus tard.",
 
   "health.status_ok": "Tous les systèmes sont opérationnels",
-  "health.status_degraded": "Certains services sont dégradés"
+  "health.status_degraded": "Certains services sont dégradés",
+
+  "creator.tier.rookie": "Débutant",
+  "creator.tier.rising": "En Progression",
+  "creator.tier.verified": "Créateur Vérifié",
+  "creator.tier.elite": "Créateur Élite",
+  "creator.tier.icon": "Créateur Icône",
+
+  "admin.featureFlags": "Drapeaux de fonctionnalités",
+  "admin.featureFlags.description": "Activer ou désactiver les fonctionnalités de la plateforme globalement.",
+  "admin.featureFlags.availableFrom": "Disponible à partir de",
+  "admin.featureFlags.earlyAccessPlans": "Plans d'accès anticipé",
+
+  "subscription.nextRenewal": "Prochain renouvellement : {{date}}"
 }

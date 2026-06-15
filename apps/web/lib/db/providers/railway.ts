@@ -27,8 +27,10 @@ let _pool: Pool | null = null;
  * Returns the shared pg Pool for Railway, creating it on first call.
  * Uses DATABASE_URL for pooled connections (PgBouncer if configured),
  * and DIRECT_URL for transactions that require a persistent connection.
+ *
+ * Exported so drizzle.ts can reuse the same pool instead of creating a duplicate.
  */
-function getPool(): Pool {
+export function getPool(): Pool {
   if (!_pool) {
     _pool = new Pool({
       connectionString: env.DATABASE_URL,

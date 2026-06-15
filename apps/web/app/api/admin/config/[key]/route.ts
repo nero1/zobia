@@ -67,8 +67,9 @@ interface ManifestKeyRow {
 function sanitizeManifestValue(key: string, value: string): string {
   const lower = key.toLowerCase();
 
-  // Boolean keys
+  // Boolean keys (feature_ prefix, _enabled suffix, is_ prefix, require_/allow_ keywords)
   if (
+    lower.startsWith("feature_") ||
     lower.includes("_enabled") ||
     lower.startsWith("is_") ||
     lower.includes("require_") ||
@@ -146,10 +147,9 @@ export const PUT = withAdminAuth(
         // Log the change to audit table (best-effort; table may not exist in all environments)
         await client.query(
           `INSERT INTO admin_audit_log
-             (admin_user_id, action, entity_type, entity_id, before_value, after_value, created_at)
-           VALUES ($1, 'update_manifest', 'x_manifest', $2, $3, $4, NOW())
-           ON CONFLICT DO NOTHING`,
-          [auth.user.sub, key, previousValue, sanitizedValue]
+             (admin_id, action, resource, resource_id, before_val, after_val, created_at)
+           VALUES ($1, 'update_manifest', 'x_manifest', $2, $3::jsonb, $4::jsonb, NOW())`,
+          [auth.user.sub, key, JSON.stringify(previousValue), JSON.stringify(sanitizedValue)]
         ).catch(() => {
           // Silently ignore if admin_audit_log table doesn't exist yet
         });

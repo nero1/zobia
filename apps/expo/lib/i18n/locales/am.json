@@ -1322,5 +1322,13 @@
   },
   "offline.syncFailed": "መልዕክቱ መላክ አልተቻለም። እንደገና ይሞክራል።",
   "offline.permanentFailure": "መልዕክቱ ሊደርስ አልቻለም።",
-  "offline.permanentFailureHint": "ይህ መልዕክት በሰርቨሩ ተቀባይነት አላገኘም እና እንደገና አይሞከርም።"
+  "offline.permanentFailureHint": "ይህ መልዕክት በሰርቨሩ ተቀባይነት አላገኘም እና እንደገና አይሞከርም።",
+
+  "creator.tier.rookie": "ጀማሪ",
+  "creator.tier.rising": "እያደገ",
+  "creator.tier.verified": "የተረጋገጠ ፈጣሪ",
+  "creator.tier.elite": "ልሂቃን ፈጣሪ",
+  "creator.tier.icon": "ምልክት ፈጣሪ",
+
+  "subscription.nextRenewal": "ቀጣይ ታደሰ: {{date}}"
 }

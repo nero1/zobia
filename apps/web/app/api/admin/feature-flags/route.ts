@@ -90,14 +90,38 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
          m.value,
          m.description,
          m.updated_at,
-         ff.available_from,
-         ff.early_access_plans
+         NULL::timestamptz AS available_from,
+         NULL::text[]      AS early_access_plans
        FROM x_manifest m
-       LEFT JOIN feature_flags ff ON ff.key = m.key
        WHERE m.key LIKE 'feature_%'
        ORDER BY m.key ASC`,
       []
-    );
+    ).catch(async () => {
+      // Fallback if query fails for any reason
+      const fallback = await db.query<FeatureFlagRow>(
+        `SELECT key, value, description, updated_at,
+                NULL::timestamptz AS available_from, NULL::text[] AS early_access_plans
+         FROM x_manifest WHERE key LIKE 'feature_%' ORDER BY key ASC`
+      );
+      return fallback;
+    }).then(async (base) => {
+      // Enrich with feature_flags table data if it exists
+      try {
+        const { rows: ffRows } = await db.query<{ key: string; available_from: string | null; early_access_plans: string[] | null }>(
+          `SELECT key, available_from, early_access_plans FROM feature_flags`
+        );
+        const ffMap = new Map(ffRows.map((r) => [r.key, r]));
+        return {
+          rows: base.rows.map((r) => ({
+            ...r,
+            available_from: ffMap.get(r.key)?.available_from ?? null,
+            early_access_plans: ffMap.get(r.key)?.early_access_plans ?? null,
+          })),
+        };
+      } catch {
+        return base;
+      }
+    });
 
     return NextResponse.json({
       success: true,
@@ -119,6 +143,13 @@ export const PUT = withAdminAuth(async (req: NextRequest, { params, auth }) => {
 
     const body = await validateBody(req, toggleSchema);
     const newValue = body.enabled ? "true" : "false";
+
+    // Capture the before value for the audit log
+    const { rows: beforeRows } = await db.query<{ value: string }>(
+      `SELECT value FROM x_manifest WHERE key = $1 LIMIT 1`,
+      [body.key]
+    );
+    const beforeVal = beforeRows[0]?.value ?? null;
 
     // Upsert the feature flag toggle in x_manifest
     await db.query(
@@ -145,19 +176,16 @@ export const PUT = withAdminAuth(async (req: NextRequest, { params, auth }) => {
       ).catch(() => {}); // Non-fatal if feature_flags table doesn't yet have these columns
     }
 
-    // Audit log
+    // Audit log — use canonical column names from admin_audit_log schema
     await db.query(
-      `INSERT INTO admin_audit_log (admin_id, action, target_type, target_id, metadata, created_at)
-       VALUES ($1, 'feature_flag_toggle', 'x_manifest', $2, $3, NOW())`,
+      `INSERT INTO admin_audit_log
+         (admin_id, action, resource, resource_id, before_val, after_val, created_at)
+       VALUES ($1, 'feature_flag_toggle', 'x_manifest', $2, $3::jsonb, $4::jsonb, NOW())`,
       [
         auth.user.sub,
         body.key,
-        JSON.stringify({
-          key: body.key,
-          enabled: body.enabled,
-          available_from: body.available_from ?? null,
-          early_access_plans: body.early_access_plans ?? null,
-        }),
+        JSON.stringify(beforeVal),
+        JSON.stringify(newValue),
       ]
     ).catch(() => {}); // Non-fatal if audit log table doesn't exist
 
