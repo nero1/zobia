@@ -146,7 +146,7 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
         reference,
       });
       paymentUrl = dd.payment_url;
-      providerReference = dd.payment_id ?? reference;
+      providerReference = dd.id ?? reference;
     }
 
     // Create a pending payment record so the webhook handler can locate it.
