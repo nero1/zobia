@@ -55,6 +55,10 @@ export interface RedisClient {
   decr(key: string): Promise<number>;
   incrby(key: string, increment: number): Promise<number>;
   decrby(key: string, decrement: number): Promise<number>;
+  zadd(key: string, score: number, member: string): Promise<number>;
+  zrem(key: string, ...members: string[]): Promise<number>;
+  zrange(key: string, start: number, stop: number): Promise<string[]>;
+  zremrangebyrank(key: string, start: number, stop: number): Promise<number>;
   /** Execute a Lua script atomically. Compatible with ioredis eval(script, numkeys, ...args). */
   eval(script: string, numkeys: number, ...args: (string | number)[]): Promise<unknown>;
   ping(): Promise<string>;
@@ -234,6 +238,24 @@ class UpstashAdapter implements RedisClient {
 
   decrby(key: string, decrement: number): Promise<number> {
     return this.client.decrby(key, decrement);
+  }
+
+  zadd(key: string, score: number, member: string): Promise<number> {
+    return this.client.zadd(key, { score, member }) as Promise<number>;
+  }
+
+  zrem(key: string, ...members: string[]): Promise<number> {
+    const [first, ...rest] = members;
+    if (first === undefined) return Promise.resolve(0);
+    return this.client.zrem(key, first, ...rest) as Promise<number>;
+  }
+
+  zrange(key: string, start: number, stop: number): Promise<string[]> {
+    return this.client.zrange(key, start, stop) as Promise<string[]>;
+  }
+
+  zremrangebyrank(key: string, start: number, stop: number): Promise<number> {
+    return this.client.zremrangebyrank(key, start, stop) as Promise<number>;
   }
 
   async eval(script: string, numkeys: number, ...args: (string | number)[]): Promise<unknown> {
