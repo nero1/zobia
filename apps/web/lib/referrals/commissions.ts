@@ -138,7 +138,7 @@ export async function awardReferralCommissions(
     await db.query(
       `INSERT INTO referral_commissions
          (referrer_id, referred_user_id, trigger_event_id, purchase_amount_kobo, commission_kobo, commission_coins, tier, status, created_at)
-       VALUES ($1, $2, $3, 0, 0, $4, 'standard', 'credited', NOW())
+       VALUES ($1, $2, $3, 0, 0, $4, '1', 'credited', NOW())
        ON CONFLICT DO NOTHING`,
       [tier1Id, buyerId, `${paymentId}:t1`, tier1Coins]
     );
@@ -173,7 +173,7 @@ export async function awardReferralCommissions(
     await db.query(
       `INSERT INTO referral_commissions
          (referrer_id, referred_user_id, trigger_event_id, purchase_amount_kobo, commission_kobo, commission_coins, tier, status, created_at)
-       VALUES ($1, $2, $3, 0, 0, $4, 'standard', 'credited', NOW())
+       VALUES ($1, $2, $3, 0, 0, $4, '2', 'credited', NOW())
        ON CONFLICT DO NOTHING`,
       [tier2Id, buyerId, `${paymentId}:t2`, tier2Coins]
     );
@@ -195,7 +195,7 @@ export async function getCommissionStats(
   tier2Count: number;
 }> {
   const { rows } = await db.query<{
-    tier: number;
+    tier: string;
     total_coins: string;
     count: string;
   }>(
@@ -206,8 +206,8 @@ export async function getCommissionStats(
     [referrerId]
   );
 
-  const t1 = rows.find((r) => r.tier === 1);
-  const t2 = rows.find((r) => r.tier === 2);
+  const t1 = rows.find((r) => r.tier === '1');
+  const t2 = rows.find((r) => r.tier === '2');
 
   return {
     totalTier1Coins: t1 ? parseInt(t1.total_coins) : 0,

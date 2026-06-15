@@ -409,8 +409,6 @@ async function processSubscriptionEvent(
     }
   }
 
-  if (!resolvedUserId) return;
-
   // Map Paystack status to internal plan status.
   // non-renewing = paid-up but will not auto-renew; user keeps access until period end.
   // completed / cancelled = hard cancellation; downgrade immediately.
@@ -447,7 +445,7 @@ async function processSubscriptionEvent(
       );
       await db.query(
         `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-         VALUES ('unknown_plan_code', 'high', $1, $2::jsonb, NOW())`,
+         VALUES ('unknown_plan_code', 'critical', $1, $2::jsonb, NOW())`,
         [
           `Unknown Paystack plan name: ${event.data.plan?.name}`,
           JSON.stringify({ subscriptionCode: subscription_code, planName: event.data.plan?.name, userId: resolvedUserId }),

@@ -9,6 +9,7 @@
  */
 
 import type { DatabaseAdapter } from "@/lib/db/interface";
+import { creditCoins } from "@/lib/economy/coins";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -254,8 +255,6 @@ export async function distributeSeasonRewards(
   }
 
   await db.transaction(async (client) => {
-    const { creditCoins } = await import("@/lib/economy/coins");
-
     for (let i = 0; i < topUsers.length; i++) {
       const { user_id } = topUsers[i];
       const coins = userCoins[i];
@@ -513,7 +512,6 @@ export async function claimPassMilestone(
     // Apply reward only when the insert actually happened
     if (milestone.reward_type === 'coins') {
       const val = milestone.reward_value as { amount: number };
-      const { creditCoins } = await import("@/lib/economy/coins");
       await creditCoins(
         userId,
         val.amount,
@@ -548,6 +546,16 @@ export async function claimPassMilestone(
          WHERE id = $1 AND EXISTS (SELECT 1 FROM ins)`,
         [userId, val.bonusXP, referenceId]
       );
+    } else if (milestone.reward_type === 'sticker_pack') {
+      const val = milestone.reward_value as { packId: string };
+      await client.query(
+        `INSERT INTO user_sticker_packs (user_id, pack_id, granted_at)
+         VALUES ($1, $2, NOW())
+         ON CONFLICT (user_id, pack_id) DO NOTHING`,
+        [userId, val.packId]
+      );
+    } else {
+      console.error(`[claimPassMilestone] Unhandled reward_type '${milestone.reward_type}' for milestone ${milestoneId}`);
     }
 
     claimed = { rewardType: milestone.reward_type, rewardValue: milestone.reward_value };

@@ -18,6 +18,7 @@
 
 import type { DatabaseAdapter, TransactionClient } from "@/lib/db/interface";
 import { safeAwardXP } from "@/lib/xp/safeAwardXP";
+import { creditCoins } from "@/lib/economy/coins";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -260,8 +261,6 @@ export async function distributeWarRewards(
     // Distribute any remainder (from flooring) to the top contributor
     const totalDistributed = topShare + secondShare + equalShare * remainingMembers;
     const coinRemainder = pool - totalDistributed;
-
-    const { creditCoins } = await import("@/lib/economy/coins");
 
     for (let i = 0; i < members.length; i++) {
       const { user_id } = members[i];

@@ -51,7 +51,9 @@ export async function syncPendingMessages(): Promise<void> {
 
         // Route to the correct endpoint based on conversation type
         const endpoint =
-          msg.conversationType === 'group'
+          msg.conversationType === 'room'
+            ? `/rooms/${msg.conversationId}/messages`
+            : msg.conversationType === 'group'
             ? `/messages/group/${msg.conversationId}`
             : `/messages/dm/${msg.conversationId}`;
 

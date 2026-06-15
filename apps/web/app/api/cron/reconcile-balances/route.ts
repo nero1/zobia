@@ -14,7 +14,8 @@ const BATCH_SIZE = 500;
 const AUTO_CORRECT_THRESHOLD = 50; // auto-correct discrepancies smaller than this
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
-  const secret = req.headers.get("x-cron-secret");
+  const authHeader = req.headers.get("authorization");
+  const secret = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
   if (!secret || secret !== process.env.CRON_SECRET) {
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   }
@@ -60,7 +61,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         discrepanciesFound++;
         await db.query(
           `INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at)
-           VALUES ($1, 'xp', $2, $3, NOW()) ON CONFLICT DO NOTHING`,
+           VALUES ($1, 'xp', $2, $3, NOW())
+           ON CONFLICT (user_id, asset_type) DO UPDATE
+             SET ledger_sum = EXCLUDED.ledger_sum,
+                 wallet_balance = EXCLUDED.wallet_balance,
+                 detected_at = NOW(),
+                 resolved = FALSE`,
           [user.id, ledgerXp, user.xp_total]
         ).catch(() => {});
 
@@ -77,7 +83,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         discrepanciesFound++;
         await db.query(
           `INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at)
-           VALUES ($1, 'coins', $2, $3, NOW()) ON CONFLICT DO NOTHING`,
+           VALUES ($1, 'coins', $2, $3, NOW())
+           ON CONFLICT (user_id, asset_type) DO UPDATE
+             SET ledger_sum = EXCLUDED.ledger_sum,
+                 wallet_balance = EXCLUDED.wallet_balance,
+                 detected_at = NOW(),
+                 resolved = FALSE`,
           [user.id, ledgerCoins, user.coin_balance]
         ).catch(() => {});
 

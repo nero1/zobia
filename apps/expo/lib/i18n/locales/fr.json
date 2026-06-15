@@ -1029,6 +1029,7 @@
   },
   "nav": {
     "home": "Home",
+    "moments": "Moments",
     "logout": "Log Out",
     "messages": "Messages",
     "notifications": "Notifications",

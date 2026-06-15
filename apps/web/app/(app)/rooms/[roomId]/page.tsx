@@ -581,7 +581,7 @@ function RoomPowersPanel({
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ powerType }),
+        body: JSON.stringify({ power: powerType }),
       });
       const d = (await res.json()) as { message?: string };
       setResult(res.ok ? "✅ Power activated!" : `❌ ${d.message ?? "Failed"}`);
@@ -1069,7 +1069,7 @@ export default function RoomPage() {
     if (event === "new_message") handleIncomingMessage(data as Message);
   }, [handleIncomingMessage]);
 
-  useRealtimeChannel(REALTIME_PROVIDER ? `room:${roomId}` : null, onRealtimeEvent);
+  useRealtimeChannel(REALTIME_PROVIDER ? `room:${roomId}:messages` : null, onRealtimeEvent);
 
   useEffect(() => {
     void fetchMessages().then(() => {

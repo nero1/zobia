@@ -73,9 +73,12 @@ function buildKeyRegistry(): Map<string, Uint8Array> {
   return registry;
 }
 
+// Module-level cache — env vars are immutable after process start so
+// rebuilding the registry on every verifyAccessToken call is wasteful.
+const keyRegistry: Map<string, Uint8Array> = buildKeyRegistry();
+
 function getSecretForKid(kid: string | undefined): Uint8Array {
-  const registry = buildKeyRegistry();
-  const secret = kid ? registry.get(kid) : null;
+  const secret = kid ? keyRegistry.get(kid) : null;
   // Fall back to current secret for tokens without a kid claim (backward compat)
   return secret ?? encodeSecret(env.JWT_SECRET);
 }

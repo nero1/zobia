@@ -40,6 +40,7 @@ function useSidebarUser() {
 
 const primaryNavItems = [
   { href: "/home", label: "Home" },
+  { href: "/moments", label: "Moments" },
   { href: "/quests", label: "Quests" },
   { href: "/rooms", label: "Rooms" },
   { href: "/messages", label: "Messages" },
