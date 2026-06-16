@@ -3,7 +3,9 @@ import {
   View, Text, ScrollView, TouchableOpacity,
   ActivityIndicator, RefreshControl, Alert, TextInput, Modal,
 } from "react-native";
+import { useTranslation } from "react-i18next";
 import { storage } from "@/lib/offline/store";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "";
 
@@ -25,6 +27,7 @@ function formatDate(iso: string) {
 }
 
 export default function FlashXpAdminScreen() {
+  const { t } = useTranslation();
   const [events, setEvents] = useState<FlashXpEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -82,7 +85,7 @@ export default function FlashXpAdminScreen() {
         setName(""); setDescription(""); setMultiplier("2"); setFiresAt(""); setEndsAt("");
         void load();
       } else {
-        Alert.alert("Error", data.error?.message ?? "Failed to create event");
+        Alert.alert("Error", translateApiError(t, data.error?.code, data.error?.message ?? "Failed to create event"));
       }
     } catch {
       Alert.alert("Error", "Network error");

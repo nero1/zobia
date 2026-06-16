@@ -11,10 +11,12 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 import { ActivityBanner } from "@/components/ui/ActivityBanner";
 import { OnlineRing } from "@/components/ui/OnlineRing";
 import { CreatorSpotlight } from "@/components/discovery/CreatorSpotlight";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -568,6 +570,7 @@ function ActivityCountBanner({ count }: { count: number }) {
  * Home feed page — nemesis, quests, presence, friends, leaderboard.
  */
 export default function HomePage() {
+  const { t } = useTranslation();
   const [platformEvent, setPlatformEvent] = useState<PlatformEvent | null>(null);
   const [activeCount, setActiveCount] = useState<number>(0);
   const [nemesis, setNemesis] = useState<NemesisData | null | undefined>(undefined);
@@ -696,9 +699,17 @@ export default function HomePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "challenge" }),
       });
-      if (!res.ok) throw new Error("Challenge failed");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const errMsg = typeof body.error === "string" ? body.error : body.error?.message;
+        const errCode = typeof body.error === "string" ? null : body.error?.code ?? null;
+        const err = new Error(errMsg ?? body.message ?? "Challenge failed") as Error & { code?: string | null };
+        err.code = errCode;
+        throw err;
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to challenge rival");
+      const err = e as Error & { code?: string | null };
+      setError(e instanceof Error ? translateApiError(t, err.code, err.message || "Failed to challenge rival") : "Failed to challenge rival");
     } finally {
       setChallenging(false);
     }

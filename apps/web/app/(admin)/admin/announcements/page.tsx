@@ -8,7 +8,9 @@
  * audience targeting, and display mode configuration.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -263,6 +265,12 @@ function AnnRow({ ann, onToggle, onDelete, onEdit, busy }: AnnRowProps) {
  * Requires admin authentication (enforced by middleware).
  */
 export default function AdminAnnouncementsPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
+
   const [tab, setTab] = useState<TabKey>("modals");
   const [displayMode, setDisplayMode] = useState<DisplayMode>("serial");
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
@@ -284,12 +292,18 @@ export default function AdminAnnouncementsPage() {
     try {
       const res = await fetch(`/api/admin/announcements?type=${tab === "modals" ? "modal" : "banner"}`, { credentials: "include" });
       if (res.status === 401 || res.status === 403) { window.location.href = "/admin/login"; return; }
-      if (!res.ok) throw new Error("Failed to load announcements");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const err = new Error(body.error?.message ?? "Failed to load announcements") as Error & { code?: string | null };
+        err.code = body.error?.code ?? null;
+        throw err;
+      }
       const data = (await res.json()) as { announcements: Announcement[]; displayMode: DisplayMode };
       setAnnouncements(data.announcements);
       setDisplayMode(data.displayMode);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      const err = e as Error & { code?: string | null };
+      setError(e instanceof Error ? translateApiError(tRef.current, err.code, err.message || "Unknown error") : "Unknown error");
     } finally {
       setLoading(false);
     }
@@ -347,11 +361,17 @@ export default function AdminAnnouncementsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       });
-      if (!res.ok) throw new Error("Failed to update status");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const err = new Error(body.error?.message ?? "Failed to update status") as Error & { code?: string | null };
+        err.code = body.error?.code ?? null;
+        throw err;
+      }
       showToast("Status updated");
       await fetchAnnouncements();
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Error", "error");
+      const err = e as Error & { code?: string | null };
+      showToast(e instanceof Error ? translateApiError(t, err.code, err.message || "Error") : "Error", "error");
     } finally {
       setBusy(null);
     }

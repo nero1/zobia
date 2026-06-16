@@ -12,6 +12,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
+
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -72,8 +75,18 @@ async function joinGuild(guildId: string): Promise<void> {
     credentials: "include",
   });
   if (!res.ok) {
-    const json = (await res.json()) as { message?: string };
-    throw new Error(json.message ?? "Failed to join guild");
+    const json = (await res.json().catch(() => ({}))) as {
+      message?: string;
+      error?: string | { code?: string | null; message?: string };
+    };
+    const errMsg =
+      typeof json.error === "string" ? json.error : json.error?.message;
+    const errCode = typeof json.error === "string" ? null : json.error?.code ?? null;
+    const err = new Error(errMsg ?? json.message ?? "Failed to join guild") as Error & {
+      code?: string | null;
+    };
+    err.code = errCode;
+    throw err;
   }
 }
 
@@ -195,6 +208,7 @@ function GuildCardSkeleton() {
 export default function GuildDiscoveryPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
 
   const [joinedId, setJoinedId] = useState<string | null>(null);
   const [joiningId, setJoiningId] = useState<string | null>(null);
@@ -219,7 +233,12 @@ export default function GuildDiscoveryPage() {
     },
     onError: (err) => {
       setJoiningId(null);
-      setJoinError(err instanceof Error ? err.message : "Failed to join guild");
+      const error = err as Error & { code?: string | null };
+      setJoinError(
+        err instanceof Error
+          ? translateApiError(t, error.code, error.message || "Failed to join guild")
+          : "Failed to join guild"
+      );
     },
   });
 

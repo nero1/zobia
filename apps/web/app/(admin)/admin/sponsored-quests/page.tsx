@@ -12,6 +12,8 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,6 +81,8 @@ function formatDate(iso: string): string {
 // ---------------------------------------------------------------------------
 
 export default function AdminSponsoredQuestsPage() {
+  const { t } = useTranslation();
+
   const [quests, setQuests] = useState<SponsoredQuest[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -142,14 +146,19 @@ export default function AdminSponsoredQuestsPage() {
       });
 
       const json = await res.json();
-      if (!json.success) throw new Error(json.error?.message ?? "Failed to create quest");
+      if (!json.success) {
+        const e = new Error(json.error?.message ?? "Failed to create quest") as Error & { code?: string | null };
+        e.code = json.error?.code ?? null;
+        throw e;
+      }
 
       setSuccess("Sponsored quest published successfully");
       setShowForm(false);
       setForm(EMPTY_FORM);
       await fetchQuests();
     } catch (err) {
-      setError(String(err instanceof Error ? err.message : err));
+      const e = err as Error & { code?: string | null };
+      setError(err instanceof Error ? translateApiError(t, e.code, e.message || "Failed to create quest") : String(err));
     } finally {
       setCreating(false);
     }

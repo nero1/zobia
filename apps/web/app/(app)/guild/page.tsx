@@ -8,8 +8,10 @@
  * If in a guild: guild header, tier progress, treasury, war status, members, history.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -342,6 +344,11 @@ function GuildDashboard({ guild }: GuildDashboardProps) {
  * Guild page — shows discovery or dashboard depending on guild membership.
  */
 export default function GuildPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [myGuild, setMyGuild] = useState<MyGuild | null | undefined>(undefined); // undefined = loading
   const [nearbyGuilds, setNearbyGuilds] = useState<GuildSummary[]>([]);
   const [loadingNearby, setLoadingNearby] = useState(false);
@@ -362,10 +369,18 @@ export default function GuildPage() {
           setLoadingNearby(false);
           return;
         }
-        if (!res.ok) throw new Error("Failed to load guild");
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          const errMsg = typeof body.error === "string" ? body.error : body.error?.message;
+          const errCode = typeof body.error === "string" ? null : body.error?.code ?? null;
+          const err = new Error(errMsg ?? body.message ?? "Failed to load guild") as Error & { code?: string | null };
+          err.code = errCode;
+          throw err;
+        }
         setMyGuild((await res.json()) as MyGuild);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Unknown error");
+        const err = e as Error & { code?: string | null };
+        setError(e instanceof Error ? translateApiError(tRef.current, err.code, err.message || "Unknown error") : "Unknown error");
       }
     })();
   }, []);
@@ -374,12 +389,20 @@ export default function GuildPage() {
     setJoiningId(guildId);
     try {
       const res = await fetch(`/api/guilds/${guildId}/join`, { method: "POST", credentials: "include" });
-      if (!res.ok) throw new Error("Failed to join");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const errMsg = typeof body.error === "string" ? body.error : body.error?.message;
+        const errCode = typeof body.error === "string" ? null : body.error?.code ?? null;
+        const err = new Error(errMsg ?? body.message ?? "Failed to join") as Error & { code?: string | null };
+        err.code = errCode;
+        throw err;
+      }
       // Reload page state after joining
       const gRes = await fetch("/api/guild/mine", { credentials: "include" });
       setMyGuild((await gRes.json()) as MyGuild);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Error joining guild");
+      const err = e as Error & { code?: string | null };
+      setError(e instanceof Error ? translateApiError(t, err.code, err.message || "Error joining guild") : "Error joining guild");
     } finally {
       setJoiningId(null);
     }

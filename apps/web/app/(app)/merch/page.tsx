@@ -7,8 +7,10 @@
  * Links to /merch/[creatorId] for individual stores.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -96,16 +98,30 @@ export default function MerchDirectoryPage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
+
   useEffect(() => {
     (async () => {
       try {
         const res = await fetch("/api/merch/stores", { credentials: "include" });
         if (res.status === 401) { window.location.href = "/auth/login"; return; }
-        if (!res.ok) throw new Error("Failed to load stores");
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({} as { message?: string; error?: { message?: string; code?: string } | string }));
+          const errMsg = typeof body.error === "string" ? body.error : body.error?.message;
+          const errCode = typeof body.error === "string" ? null : body.error?.code ?? null;
+          const err = new Error(errMsg ?? body.message ?? "Failed to load stores") as Error & { code?: string | null };
+          err.code = errCode;
+          throw err;
+        }
         const data = (await res.json()) as { stores: MerchStore[] };
         setStores(data.stores);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Unknown error");
+        const err = e as Error & { code?: string | null };
+        setError(e instanceof Error ? translateApiError(tRef.current, err.code, err.message || "Unknown error") : "Unknown error");
       } finally {
         setLoading(false);
       }

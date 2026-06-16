@@ -6,9 +6,11 @@
  * Admin dashboard overview — fetches live stats from GET /api/admin/overview.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import type { Metadata } from "next";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -102,6 +104,12 @@ function StatSkeleton() {
 // ---------------------------------------------------------------------------
 
 export default function AdminDashboardPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
+
   const [stats, setStats] = useState<OverviewStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -111,11 +119,17 @@ export default function AdminDashboardPage() {
       try {
         const res = await fetch("/api/admin/overview", { credentials: "include" });
         if (res.status === 401 || res.status === 403) { window.location.href = "/admin/login"; return; }
-        if (!res.ok) throw new Error("Failed to load overview");
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          const err = new Error(body.error?.message ?? "Failed to load overview") as Error & { code?: string | null };
+          err.code = body.error?.code ?? null;
+          throw err;
+        }
         const data = (await res.json()) as { data: OverviewStats };
         setStats(data.data);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Error loading dashboard");
+        const err = e as Error & { code?: string | null };
+        setError(e instanceof Error ? translateApiError(tRef.current, err.code, err.message || "Error loading dashboard") : "Error loading dashboard");
       } finally {
         setLoading(false);
       }

@@ -12,7 +12,9 @@
  */
 
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { SUPPORTED_NIGERIAN_BANKS } from "@/lib/payments/supported-banks";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 type Step = "idle" | "confirm" | "success";
 

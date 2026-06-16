@@ -10,8 +10,10 @@
  * - Mentee management: accept/remove via API
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -261,18 +263,32 @@ export default function ElderPage() {
   const [requesting, setRequesting] = useState(false);
   const [requested, setRequested] = useState(false);
 
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
+
   useEffect(() => {
     (async () => {
       try {
         const res = await fetch("/api/elder", { credentials: "include" });
         if (res.status === 401) { window.location.href = "/auth/login"; return; }
-        if (!res.ok) throw new Error("Failed to load Elder data");
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({} as { error?: { code?: string; message?: string } | string; message?: string }));
+          const errMsg = typeof body.error === "string" ? body.error : body.error?.message;
+          const errCode = typeof body.error === "string" ? null : body.error?.code ?? null;
+          const err = new Error(errMsg ?? body.message ?? "Failed to load Elder data") as Error & { code?: string | null };
+          err.code = errCode;
+          throw err;
+        }
         const json = (await res.json()) as ElderData | { data?: ElderData };
         const elderData: ElderData =
           (json as { data?: ElderData }).data ?? (json as ElderData);
         setData(elderData);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Unknown error");
+        const err = e as Error & { code?: string | null };
+        setError(e instanceof Error ? translateApiError(tRef.current, err.code, err.message || "Unknown error") : "Unknown error");
       } finally {
         setLoading(false);
       }

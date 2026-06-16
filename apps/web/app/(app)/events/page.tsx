@@ -11,7 +11,10 @@
  * - Upcoming events: relative time
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useTranslation } from "react-i18next";
+
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -259,6 +262,12 @@ export default function EventsPage() {
   const [error, setError] = useState<string | null>(null);
   const [purchasingDrop, setPurchasingDrop] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
 
   function showToast(msg: string) {
     setToast(msg);

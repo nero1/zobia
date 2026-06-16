@@ -18,9 +18,11 @@
  *  - Links: create room → guild room (if Platinum+)
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -414,17 +416,31 @@ export default function GuildProfilePage() {
   const [actionPending, setActionPending] = useState(false);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
 
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
+
   const load = useCallback(async () => {
     if (!guildId) return;
     try {
       const res = await fetch(`/api/guilds/${guildId}`, { credentials: "include" });
       if (res.status === 401) { window.location.href = "/auth/login"; return; }
       if (res.status === 404) { setGuild(null); return; }
-      if (!res.ok) throw new Error("Failed to load guild");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const errMsg = typeof body.error === "string" ? body.error : body.error?.message;
+        const errCode = typeof body.error === "string" ? null : body.error?.code ?? null;
+        const err = new Error(errMsg ?? body.message ?? "Failed to load guild") as Error & { code?: string | null };
+        err.code = errCode;
+        throw err;
+      }
       const json = (await res.json()) as { guild?: GuildDetail; data?: GuildDetail };
       setGuild(json.guild ?? json.data ?? null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      const err = e as Error & { code?: string | null };
+      setError(e instanceof Error ? translateApiError(tRef.current, err.code, err.message || "Unknown error") : "Unknown error");
     }
   }, [guildId]);
 
@@ -436,12 +452,19 @@ export default function GuildProfilePage() {
     setActionMsg(null);
     try {
       const res = await fetch(`/api/guilds/${guildId}/join`, { method: "POST", credentials: "include" });
-      const json = (await res.json()) as { message?: string };
-      if (!res.ok) throw new Error(json.message ?? "Failed to join guild");
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const errMsg = typeof body.error === "string" ? body.error : body.error?.message;
+        const errCode = typeof body.error === "string" ? null : body.error?.code ?? null;
+        const err = new Error(errMsg ?? body.message ?? "Failed to join guild") as Error & { code?: string | null };
+        err.code = errCode;
+        throw err;
+      }
       setActionMsg("You have joined the guild!");
       await load();
     } catch (e) {
-      setActionMsg(e instanceof Error ? e.message : "Error joining guild");
+      const err = e as Error & { code?: string | null };
+      setActionMsg(e instanceof Error ? translateApiError(t, err.code, err.message || "Error joining guild") : "Error joining guild");
     } finally {
       setActionPending(false);
     }
@@ -453,12 +476,19 @@ export default function GuildProfilePage() {
     setActionMsg(null);
     try {
       const res = await fetch(`/api/guilds/${guildId}/members`, { method: "DELETE", credentials: "include" });
-      const json = (await res.json()) as { message?: string };
-      if (!res.ok) throw new Error(json.message ?? "Failed to leave guild");
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const errMsg = typeof body.error === "string" ? body.error : body.error?.message;
+        const errCode = typeof body.error === "string" ? null : body.error?.code ?? null;
+        const err = new Error(errMsg ?? body.message ?? "Failed to leave guild") as Error & { code?: string | null };
+        err.code = errCode;
+        throw err;
+      }
       setActionMsg("You have left the guild.");
       router.push("/guild");
     } catch (e) {
-      setActionMsg(e instanceof Error ? e.message : "Error leaving guild");
+      const err = e as Error & { code?: string | null };
+      setActionMsg(e instanceof Error ? translateApiError(t, err.code, err.message || "Error leaving guild") : "Error leaving guild");
       setActionPending(false);
     }
   }

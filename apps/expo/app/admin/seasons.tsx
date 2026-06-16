@@ -3,8 +3,10 @@ import {
   View, Text, FlatList, TouchableOpacity,
   Alert, ActivityIndicator, RefreshControl, TextInput, Modal, KeyboardAvoidingView, Platform
 } from "react-native";
+import { useTranslation } from "react-i18next";
 import { storage } from "@/lib/offline/store";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "";
 
@@ -50,6 +52,7 @@ export default function AdminSeasonsScreen() {
   const [form, setForm] = useState<CreateForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const currency = useCurrency();
+  const { t } = useTranslation();
 
   async function loadSeasons() {
     const token = storage.getString("authToken");
@@ -108,7 +111,7 @@ export default function AdminSeasonsScreen() {
       setForm(EMPTY_FORM);
     } else {
       const err = await res?.json().catch(() => null);
-      Alert.alert("Error", err?.error?.message ?? "Failed to create season.");
+      Alert.alert("Error", translateApiError(t, err?.error?.code, err?.error?.message ?? "Failed to create season."));
     }
   }
 

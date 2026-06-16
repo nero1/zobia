@@ -10,6 +10,8 @@
  */
 
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 interface WalletData {
   hasWallet: boolean;
@@ -19,6 +21,7 @@ interface WalletData {
 }
 
 export default function WalletAddressPage() {
+  const { t } = useTranslation();
   const [wallet, setWallet] = useState<WalletData | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -57,7 +60,10 @@ export default function WalletAddressPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error?.message ?? "Failed to save wallet address.");
+        const errCode = typeof data.error === "string" ? null : data.error?.code ?? null;
+        setError(
+          translateApiError(t, errCode, data.error?.message ?? "Failed to save wallet address.")
+        );
         return;
       }
       setWallet({
@@ -89,7 +95,10 @@ export default function WalletAddressPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error?.message ?? "Failed to remove wallet.");
+        const errCode = typeof data.error === "string" ? null : data.error?.code ?? null;
+        setError(
+          translateApiError(t, errCode, data.error?.message ?? "Failed to remove wallet.")
+        );
         return;
       }
       setWallet({ hasWallet: false });

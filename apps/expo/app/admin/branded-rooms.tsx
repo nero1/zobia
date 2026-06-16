@@ -3,8 +3,10 @@ import {
   View, Text, ScrollView, TouchableOpacity,
   ActivityIndicator, RefreshControl, Alert, TextInput, Modal,
 } from "react-native";
+import { useTranslation } from "react-i18next";
 import { storage } from "@/lib/offline/store";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "";
 
@@ -28,6 +30,7 @@ function formatDate(iso: string) {
 
 export default function BrandedRoomsAdminScreen() {
   const currency = useCurrency();
+  const { t } = useTranslation();
   const [rooms, setRooms] = useState<BrandedRoom[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -84,7 +87,7 @@ export default function BrandedRoomsAdminScreen() {
         setBrandName(""); setRoomName(""); setEntryFee("0"); setStartsAt(""); setEndsAt("");
         void load();
       } else {
-        Alert.alert("Error", data.error?.message ?? "Failed to create branded room");
+        Alert.alert("Error", translateApiError(t, data.error?.code, data.error?.message ?? "Failed to create branded room"));
       }
     } catch {
       Alert.alert("Error", "Network error");

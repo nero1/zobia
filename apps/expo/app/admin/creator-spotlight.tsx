@@ -3,7 +3,9 @@ import {
   View, Text, ScrollView, FlatList, TouchableOpacity,
   Alert, ActivityIndicator, RefreshControl, TextInput, Modal, KeyboardAvoidingView, Platform
 } from "react-native";
+import { useTranslation } from "react-i18next";
 import { storage } from "@/lib/offline/store";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "";
 
@@ -28,6 +30,7 @@ function formatMonthYear(my: string) {
 }
 
 export default function AdminCreatorSpotlightScreen() {
+  const { t } = useTranslation();
   const [spotlights, setSpotlights] = useState<Spotlight[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -82,7 +85,7 @@ export default function AdminCreatorSpotlightScreen() {
       setForm(EMPTY_FORM);
     } else {
       const err = await res?.json().catch(() => null);
-      Alert.alert("Error", err?.error?.message ?? "Failed to create spotlight.");
+      Alert.alert("Error", translateApiError(t, err?.error?.code, err?.error?.message ?? "Failed to create spotlight."));
     }
   }
 

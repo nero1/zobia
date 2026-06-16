@@ -9,6 +9,8 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -257,6 +259,7 @@ function DlqRow({ item, onRetry, busy }: DlqRowProps) {
 // ---------------------------------------------------------------------------
 
 export default function AdminPayoutsPage() {
+  const { t } = useTranslation();
   const [tab, setTab] = useState<TabKey>("awaiting_approval");
   const [payouts, setPayouts] = useState<Payout[]>([]);
   const [dlqItems, setDlqItems] = useState<DlqItem[]>([]);
@@ -311,12 +314,20 @@ export default function AdminPayoutsPage() {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error((body as { error?: string }).error ?? `Failed to ${action} payout`);
+        const err = new Error(
+          (body as { error?: { message?: string } }).error?.message ?? `Failed to ${action} payout`
+        ) as Error & { code?: string | null };
+        err.code = (body as { error?: { code?: string } }).error?.code ?? null;
+        throw err;
       }
       showToast(`Payout ${action}d`);
       await fetchPayouts(tab);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Error", "error");
+      const err = e as Error & { code?: string | null };
+      showToast(
+        e instanceof Error ? translateApiError(t, err.code, err.message || "Error") : "Error",
+        "error"
+      );
     } finally {
       setBusy(null);
     }
@@ -331,12 +342,20 @@ export default function AdminPayoutsPage() {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error((body as { error?: string }).error ?? "Failed to re-queue payout");
+        const err = new Error(
+          (body as { error?: { message?: string } }).error?.message ?? "Failed to re-queue payout"
+        ) as Error & { code?: string | null };
+        err.code = (body as { error?: { code?: string } }).error?.code ?? null;
+        throw err;
       }
       showToast("Payout re-queued for processing");
       await fetchPayouts("dlq");
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Error", "error");
+      const err = e as Error & { code?: string | null };
+      showToast(
+        e instanceof Error ? translateApiError(t, err.code, err.message || "Error") : "Error",
+        "error"
+      );
     } finally {
       setBusy(null);
     }
