@@ -1,342 +1,294 @@
-# Zobia Codebase — Bug Fix Plan
+# Zobia Social — Bug Fix Plan
 
-**Date:** June 16, 2026  
-**Time:** 02:26 AM UTC  
-**Based on:** custom-bugs-report.md (same session)
+**Generated:** June 16, 2026 · 5:11 AM UTC  
+**Based on:** `custom-bugs-report.md` (same analysis session)
 
 > **IMPORTANT: Do NOT begin any fix until the report has been reviewed and approved.**
 
-Fixes are ordered by severity. Within each severity tier, fix order is listed from most impactful to least. Each task is self-contained and can be worked independently unless a dependency is noted.
+Fixes are grouped by priority tier (P0 → P2) and then by theme. Each task is self-contained unless a dependency is noted. Estimate times assume one developer familiar with the codebase.
 
 ---
 
-## CRITICAL Fixes
+## Priority Tiers
+
+| Tier | Criteria |
+|------|----------|
+| **P0 — Critical** | Broken user-facing feature OR money correctness issue |
+| **P1 — High** | Silent data corruption, notification spam, or data loss |
+| **P2 — Medium** | Security hardening, tech debt, deferred safety work |
 
 ---
 
-### TASK-01 — Add Payment Webhook Paths to `PUBLIC_PREFIXES`
-
-**Fixes:** BUG-01  
-**Risk:** Low — adding to an allowlist, not removing a check. The route handlers already verify HMAC signatures.  
-**Effort:** ~5 minutes
-
-**Steps:**
-1. Open `apps/web/middleware.ts`.
-2. In the `PUBLIC_PREFIXES` array, add these two entries:
-   - `"/api/economy/webhooks/paystack"`
-   - `"/api/economy/webhooks/dodopayments"`
-3. Deploy and verify with a Paystack test event and a DodoPayments test event — both should now reach the route handler and return 200.
-4. Confirm that sending a POST to either path without a valid HMAC signature still returns 400 (rejected by the route handler, not by middleware).
+## P0 — Critical (Fix Immediately)
 
 ---
 
-### TASK-02 — Fix `transferCoins` Parameter Order
+### TASK-01 · Fix Expo mobile login CSRF block (BUG-CSRF-01)
 
-**Fixes:** BUG-02  
-**Risk:** Medium — every call site must be updated to use the corrected argument order.  
-**Effort:** ~15 minutes
+**Effort:** ~1 hour  
+**Files:** `apps/expo/app/auth/login.tsx`
 
-**Steps:**
-1. Open `apps/web/lib/economy/coins.ts`.
-2. In the `transferCoins` function signature, move `idempotencyRef: string` before `txClient?: TransactionClient`. The corrected order should be: `(fromUserId, toUserId, amount, type, referenceId, idempotencyRef, txClient?)`.
-3. Search the entire `apps/web` directory for all calls to `transferCoins` and update argument positions at each call site.
-4. If any call site legitimately needs to pass `txClient` without an `idempotencyRef`, make `idempotencyRef` optional (type `string | null`, default `null`) and verify the partial-unique constraint in `coin_ledger` still provides protection for non-null refs.
-5. Run TypeScript type checking (`tsc --noEmit`) and confirm zero TS2016 errors.
+In `handleDeepLink`, find the `fetch()` call that POSTs to `/api/auth/mobile-token`. Add `'Origin': process.env.EXPO_PUBLIC_API_BASE_URL` to the `headers` object. Verify the env var name matches what is declared in the Expo config. Optionally, refactor this call to use the shared Axios client (which already sets Origin) to prevent the pattern recurring.
+
+Test: perform a full Google/Telegram OAuth login on a physical Android device or emulator and confirm a session token is issued without a 403 error.
 
 ---
 
-## HIGH Fixes
+### TASK-02 · Fix double platform-fee deduction on creator payouts (BUG-FIN-01)
+
+**Effort:** ~2 hours  
+**Files:** `apps/web/app/api/cron/daily/route.ts` (Section 33 — weekly payout aggregation)
+
+**Step 1 — Understand the intent:** Determine whether the weekly payout step should charge any fee at all. Given that `available_earnings_kobo` is already net (fee taken at credit time in `creator_earnings`), the correct answer for most flows is NO second fee.
+
+**Step 2 — Fix the calculation:** Remove the `platformFeeKobo = grossKobo * 0.10` line. Set `netKobo = grossKobo` (pass the full available earnings through to the payout record). Update `platformFeeKobo` to `0` in the payout INSERT.
+
+**Step 3 — Audit historic records:** Query `creator_payouts` for rows created by the weekly CRON after the first deployment of this code, compare `gross_kobo` vs `net_kobo` to identify under-paid creators, and issue correction payouts or `available_earnings_kobo` adjustments as appropriate.
+
+**Step 4 — Add a test:** In `apps/web/lib/payments/__tests__/payouts.test.ts`, add a test case asserting that `net_kobo === gross_kobo` when no secondary fee is applied.
 
 ---
 
-### TASK-03 — Fix DodoPayments Webhook Error Handling
-
-**Fixes:** BUG-03  
-**Risk:** Low — changing catch block response code; no business logic changes.  
-**Effort:** ~20 minutes
-
-**Steps:**
-1. Open `apps/web/app/api/economy/webhooks/dodopayments/route.ts`.
-2. In the catch block, replace the unconditional `return NextResponse.json({ received: true }, { status: 200 })` with conditional logic:
-   - If the caught error is a Postgres unique-violation (`err.code === '23505'`), return `{ status: 200 }` — the event was already processed, idempotent success.
-   - For all other errors, log the full error with event type and return `{ status: 500 }` so DodoPayments retries delivery.
-3. Add structured error logging (`logger.error(...)`) in the generic catch branch with enough context to diagnose the failure type.
-4. Test with a simulated DB error (mock DB failure) and verify the endpoint returns 500. Test with a duplicate event and verify 200.
+## P1 — High (Fix Within Sprint)
 
 ---
 
-### TASK-04 — Add Idempotency Key to DM Gift Transfers
+### TASK-03 · Deduplicate council invitation notifications (BUG-NOTIF-01)
 
-**Fixes:** BUG-04  
-**Risk:** Medium — requires a per-request idempotency key and handler reordering.  
-**Effort:** ~30 minutes
+**Effort:** ~30 minutes  
+**Files:** `apps/web/app/api/cron/daily/route.ts`
 
-**Steps:**
-1. Open `apps/web/app/api/messages/dm/route.ts`.
-2. Ensure the client sends a stable `clientMessageId` or `idempotencyKey` in the request body for gift sends. If it does not, generate a server-side key using a composite of `conversationId + senderId + requestTimestamp` and store it in the idempotency Redis key at step 8.
-3. Construct `giftRef = "dm_gift:${conversationId}:${senderId}:${clientMessageId}"`.
-4. Move the `handleDMGift()` call to after the idempotency Redis check (step 8), not before it.
-5. Pass `giftRef` as the `idempotencyRef` (and as `referenceId`) to both `debitCoins` and `creditCoins` inside `handleDMGift`. The partial unique index on `coin_ledger (transactionType, referenceId)` will prevent duplicate ledger entries on retry.
-6. Confirm by sending the same gift request twice: the second call should return the idempotency-cached response without any coin movement.
+In the council invitation notification INSERT, add a `reference_id` parameter. Use a deterministic key scoped to the user and the current period, e.g. `council_invite:<userId>:<YYYY-WW>`. Add `reference_id` to the INSERT column list and the `$N` bind parameter list. The existing `ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING` will then correctly deduplicate.
 
 ---
 
-### TASK-05 — Fix Group Chat XP `reference_id`
+### TASK-04 · Deduplicate guild war final-hour notifications (BUG-NOTIF-02)
 
-**Fixes:** BUG-05  
-**Risk:** Medium — changes the XP deduplication key for group messages; existing ledger rows with `groupId` references are unaffected (they remain valid historical records).  
-**Effort:** ~20 minutes
+**Effort:** ~20 minutes  
+**Files:** `apps/web/app/api/cron/guild-wars/route.ts`
 
-**Steps:**
-1. Open `apps/web/app/api/messages/group/[groupId]/route.ts`.
-2. Find the `xp_ledger` INSERT for `source = 'group_message'`.
-3. Replace `reference_id = $groupId` with `reference_id = 'group_msg:' + messageId` where `messageId` is the UUID of the message row just inserted. This ensures uniqueness per message.
-4. Wrap the XP award in a `safeAwardXP(userId, amount, 'social', 'group_message', 'group_msg:' + messageId)` call instead of raw SQL, so failures fall to the DLQ instead of rolling back silently.
-5. Verify: send two messages in the same group as the same user — both should earn XP. Send the same message twice (simulate retry by calling the endpoint with the same `messageId`) — only one XP award should be recorded.
+Add `reference_id = 'war_final_hour:<warId>'` to the final-hour notification INSERT. This makes the partial unique index effective. Confirm the war ID is available in scope at the insert site.
 
 ---
 
-### TASK-06 — Replace DM Text XP Raw Queries with `safeAwardXP`
+### TASK-05 · Deduplicate guild tier-downgrade notifications (BUG-NOTIF-03)
 
-**Fixes:** BUG-06  
-**Risk:** Low — `safeAwardXP` is already used elsewhere; this is a like-for-like replacement.  
-**Effort:** ~20 minutes
+**Effort:** ~20 minutes  
+**Files:** `apps/web/app/api/cron/guild-wars/route.ts`
 
-**Steps:**
-1. Open `apps/web/app/api/messages/dm/route.ts`.
-2. Locate the two-query pattern for text message XP (`INSERT INTO xp_ledger` + `UPDATE users SET xp_total`).
-3. Replace both queries with a single `await safeAwardXP(userId, xpAmount, 'social', 'dm_text', 'dm_text:' + messageId)` call.
-4. Remove the now-unused raw query imports/variables for the XP section.
-5. Confirm the `xp_ledger` and `users` tables stay in sync by checking both tables after a test DM.
+Add `reference_id = 'guild_tier_downgrade:<guildId>:<warId>'` to the downgrade notification INSERT. Use the same pattern as TASK-04.
 
 ---
 
-### TASK-07 — Replace DM Gift XP Raw Queries with `safeAwardXP`
+### TASK-06 · Stamp nemesis's `last_notified_at` on overtake events (BUG-NOTIF-04)
 
-**Fixes:** BUG-07  
-**Risk:** Low — same pattern as TASK-06.  
-**Effort:** ~20 minutes
+**Effort:** ~30 minutes  
+**Files:** `apps/web/app/api/cron/daily/route.ts`
 
-**Steps:**
-1. In `apps/web/app/api/messages/dm/route.ts`, inside `handleDMGift` (or wherever the gift XP awards happen).
-2. Locate both the sender XP and the recipient XP two-query patterns.
-3. Replace sender XP with `await safeAwardXP(senderId, senderXp, 'generosity', 'dm_gift_sent', 'dm_gift_sent:' + giftId)`.
-4. Replace recipient XP with `await safeAwardXP(recipientId, recipientXp, 'social', 'dm_gift_received', 'dm_gift_received:' + giftId)`.
-5. Remove unused raw XP query code.
-
----
-
-### TASK-08 — Fix DM Coin Ledger `balance_before` TOCTOU
-
-**Fixes:** BUG-08  
-**Risk:** Low — audit data fix; no change to coin movement logic.  
-**Effort:** ~15 minutes
-
-**Steps:**
-1. Open `apps/web/lib/economy/coins.ts`. In `debitCoins`, the function already performs `SELECT ... FOR UPDATE` to lock the row. After the lock, the actual `coin_balance` at that moment is read — expose this as part of the return value or use it directly within the function when writing `balance_before` to the ledger.
-2. In `apps/web/app/api/messages/dm/route.ts`, remove the use of `sender.coin_balance` from the pre-transaction outer query as the `balance_before` source.
-3. Ensure the `balance_before` value recorded in the ledger INSERT comes from the locked row inside the transaction, not from the outer read. The easiest way is to compute it inside the `debitCoins` function itself where the lock is already held.
+After the nemesis overtake notification is sent, the existing UPDATE only stamps `user_id = ANY($userIds)`. Collect the nemesis user IDs (the `nemesis_id` field on each winning assignment row) into a separate array and issue a second UPDATE:
+```sql
+UPDATE nemesis_assignments SET last_notified_at = NOW()
+WHERE user_id = ANY($nemesisIds::uuid[])
+```
+Or combine both into a single UPDATE with `WHERE user_id = ANY(($userIds || $nemesisIds)::uuid[])`.
 
 ---
 
-## MEDIUM Fixes
+### TASK-07 · Fix `guild_quests` missing unique constraint (BUG-DB-01)
+
+**Effort:** ~1 hour (schema change + migration)  
+**Files:** `apps/web/lib/db/schema.ts`, new migration file
+
+Add a unique constraint to the `guildQuests` table. Identify the correct idempotency key columns (likely `guild_id`, `quest_type`, `week_start`). Write and apply a Drizzle migration:
+```sql
+ALTER TABLE guild_quests ADD CONSTRAINT guild_quests_guild_questtype_weekstart_unique
+  UNIQUE (guild_id, quest_type, week_start);
+```
+Update the `ON CONFLICT` clause in the CRON section to reference these columns. Delete any existing duplicate rows before applying the migration (`DELETE ... WHERE id NOT IN (SELECT MIN(id) FROM guild_quests GROUP BY guild_id, quest_type, week_start)`).
 
 ---
 
-### TASK-09 — Fix Push Token Deletion to Target Only the Failing Token
+### TASK-08 · Fix `guild_tier_history` missing coverage for non-war tier changes (BUG-DB-02)
 
-**Fixes:** BUG-09  
-**Risk:** Low — scope reduction; only removes the single stale token.  
-**Effort:** ~20 minutes
+**Effort:** ~45 minutes  
+**Files:** `apps/web/lib/db/schema.ts`, new migration file
 
-**Steps:**
-1. Open `apps/web/lib/notifications/push.ts`.
-2. In the `push_tickets` table INSERT (where tickets are created), add the `token` field so each ticket row stores the specific device token used to send that notification.
-3. In `apps/web/lib/db/schema.ts`, add a `token` column to the `push_tickets` table.
-4. In the receipt polling loop, when a `DeviceNotRegistered` receipt is processed, read `ticket.token` (the stored token for that specific ticket) and add only that token to `staleTokens`. Remove the secondary `SELECT token FROM user_push_tokens WHERE user_id = $1` query that fetches all tokens.
-5. Verify: simulate a `DeviceNotRegistered` receipt for one device; confirm only that device's token is deleted and the other device's token remains.
+The existing partial unique index covers `WHERE war_id IS NOT NULL`. Add a complementary partial index for the null-war case. A practical approach is a full unique index on `(guild_id, new_tier, changed_at::date) WHERE war_id IS NULL`. Write a migration for this index. Update the non-war promotion/demotion CRON section to include the `ON CONFLICT` column list matching the new index.
 
 ---
 
-### TASK-10 — Fix Service Worker Root Route Caching
+### TASK-09 · Fix `platform_events.name` constraint breaking recurrence and Flash XP (BUG-DB-03)
 
-**Fixes:** BUG-10  
-**Risk:** Low — tightening the cache strategy; no new features.  
-**Effort:** ~20 minutes
+**Effort:** ~2 hours (schema change + dual fix)  
+**Files:** `apps/web/lib/db/schema.ts`, `apps/web/app/api/cron/daily/route.ts`, `apps/web/lib/events/flashXP.ts`, new migration
 
-**Steps:**
-1. Open `apps/web/public/sw.js`.
-2. Locate the `NetworkFirst` registration for root `/`.
-3. Replace it with either:
-   - `NetworkOnly` for the root URL (no caching of navigation responses to `/`), OR
-   - Add a response plugin that filters out `opaqueredirect` responses: before caching any response, check `response.type !== 'opaqueredirect'` and skip caching if it is.
-4. If the app has a PWA shell HTML file (e.g., `/offline.html` or the precached app shell), use `NavigationRoute` with `createHandlerBoundToURL('/index.html')` for all navigation requests and let the client-side router handle auth redirects after hydration.
-5. Test by loading the app while unauthenticated, checking the browser cache for the root URL — confirm no opaque response is stored.
+**Step 1:** Write a migration that drops the single-column `UNIQUE(name)` constraint from `platform_events` and replaces it with a composite unique constraint on `(name, starts_at)`.
+
+**Step 2:** Update the annual recurrence cloning INSERT in the daily CRON to use `ON CONFLICT (name, starts_at) DO NOTHING`. Verify that cloned events get their `starts_at` advanced by exactly 1 year.
+
+**Step 3:** The Flash XP `platform_events` upsert already uses `ON CONFLICT (name, starts_at) DO NOTHING` — once the composite index exists it will start working automatically. Remove the `.catch(() => {})` that was silently swallowing the error (or keep it but log at `warn` level to catch future schema drift).
+
+**Step 4:** Test by manually inserting two `platform_events` rows with the same name but different `starts_at` — both should succeed. Inserting a third row with the same `(name, starts_at)` pair should conflict correctly.
 
 ---
 
-### TASK-11 — Batch Nemesis Refresh into Single SQL Operation
+### TASK-10 · Fix alliance wars duplicate creation (BUG-DB-04)
 
-**Fixes:** BUG-11  
-**Risk:** Medium — significant rewrite of the refresh query; test thoroughly with large user counts.  
-**Effort:** ~1 hour
+**Effort:** ~1 hour  
+**Files:** `apps/web/lib/db/schema.ts`, `apps/web/app/api/cron/daily/route.ts`, new migration
 
-**Steps:**
-1. Open `apps/web/lib/nemesis/nemesisEngine.ts`.
-2. Identify the outer loop that iterates user pairs and issues one transaction per pair.
-3. Replace the loop with a single CTE-based query:
-   - Use a ranked window function to identify each user's closest XP competitor (nemesis candidate) in a single pass over the `users` table.
-   - Build the full assignments array in one SELECT with `ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY ABS(u.xp_total - candidate.xp_total) ASC)`.
-   - Issue a single `INSERT INTO nemesis_assignments (...) SELECT ... ON CONFLICT DO UPDATE` with the full result set.
-4. Wrap in one transaction (not N transactions).
-5. Benchmark the batch query against the current loop on a dataset of 1,000 and 10,000 users to confirm the improvement.
+Add a unique constraint to `alliance_wars` that identifies a unique matchup per week. Normalise the alliance pair order (use LEAST/GREATEST or enforce `alliance_1_id < alliance_2_id` via a migration CHECK constraint). Example migration:
+```sql
+ALTER TABLE alliance_wars ADD CONSTRAINT alliance_wars_pair_week_unique
+  UNIQUE (LEAST(alliance_1_id, alliance_2_id), GREATEST(alliance_1_id, alliance_2_id), scheduled_week);
+```
+If expression-based unique constraints are not desired, add an application-layer normalisation step before INSERT and use a column-based unique index. Update the CRON `ON CONFLICT` clause to match.
 
 ---
 
-### TASK-12 — Handle Paystack `subscription.not_renew` Event
+### TASK-11 · Fix Web PWA "sending" messages stranded after crash (BUG-SYNC-01)
 
-**Fixes:** BUG-12  
-**Risk:** Low — adding a new handler branch, no changes to existing logic.  
-**Effort:** ~20 minutes
+**Effort:** ~1.5 hours  
+**Files:** `apps/web/lib/offline/messageQueue.ts`, `apps/web/lib/offline/useOfflineSync.ts`
 
-**Steps:**
-1. Open `apps/web/app/api/economy/webhooks/paystack/route.ts`.
-2. In the event-type switch/if block, add a case for `subscription.not_renew`.
-3. In the handler:
-   - Look up the subscription by Paystack `subscription_code` from the event payload.
-   - Set `cancel_at_period_end = true` on the matching subscription record in the database.
-   - Optionally trigger a notification to the user (push/email) informing them their subscription will not renew.
-4. Return HTTP 200 after processing.
-5. Test with a Paystack test event of type `subscription.not_renew` and verify the DB row is updated.
+**Step 1:** Add `resetSendingMessages()` to `messageQueue.ts`. This function opens the `messages` IndexedDB object store and updates all records with `status === "sending"` back to `status === "pending"`. Use the existing pattern from `apps/expo/lib/offline/syncQueue.ts` as a reference.
+
+**Step 2:** In `useOfflineSync.ts`, call `resetSendingMessages()` before the sync loop starts — either on component mount or at the point where the online/reconnect event fires, whichever comes first.
+
+**Step 3:** Verify in a browser: open the app, start sending a message, hard-kill the tab, reopen, confirm the message retries rather than disappearing.
 
 ---
 
-### TASK-13 — Add Idempotency Guard to `insertNotification`
+### TASK-12 · Fix DeviceNotRegistered push receipt purging all user tokens (BUG-PUSH-01)
 
-**Fixes:** BUG-13  
-**Risk:** Medium — requires a schema migration to add the `reference_id` column and unique index.  
-**Effort:** ~45 minutes
+**Effort:** ~2 hours  
+**Files:** `apps/web/lib/notifications/push.ts`
 
-**Steps:**
-1. Open `apps/web/lib/db/schema.ts`. Add a `reference_id` column (`varchar(255), nullable`) to the `notifications` table.
-2. Add a unique partial index: `CREATE UNIQUE INDEX uidx_notifications_ref ON notifications (reference_id) WHERE reference_id IS NOT NULL`.
-3. Write and run the migration.
-4. Open `apps/web/lib/notifications/insert.ts`. Update `insertNotification` and `insertNotificationBatch` to:
-   - Accept an optional `referenceId` parameter.
-   - Include `reference_id` in the INSERT.
-   - Append `ON CONFLICT (reference_id) WHERE reference_id IS NOT NULL DO NOTHING`.
-5. Update all callers to pass a deterministic `referenceId` where available (e.g., `xp_award:${userId}:${source}:${date}`, `gift_received:${giftId}`).
-6. For notification types without a natural dedup key, leave `referenceId` null — they will not be deduplicated, but this is an improvement over the current state where every notification is duplicate-prone.
+At batch-send time, store a mapping from Expo ticket ID to device token. A short-TTL Redis hash (`push_ticket:<ticketId> → token`) or a DB column (`push_tickets.token`) works. When the receipt loop detects `DeviceNotRegistered`, look up only the specific token for that ticket ID and delete only that row from `user_push_tokens`. This ensures users retain push notification delivery on all other devices.
 
 ---
 
-### TASK-14 — Verify and Harden Leaderboard `ON CONFLICT` Expression
+### TASK-13 · Consolidate duplicate login-streak columns (BUG-DB-05)
 
-**Fixes:** BUG-14  
-**Risk:** Low to verify; medium if the index actually mismatches and needs correction.  
-**Effort:** ~30 minutes
+**Effort:** ~1 hour  
+**Files:** `apps/web/lib/db/schema.ts`, all files referencing `loginStreak` or `loginStreakDays`, new migration
 
-**Steps:**
-1. On a staging or production Postgres instance, run `\d leaderboard_snapshots` and examine the index definition for the `COALESCE`-based unique index.
-2. Compare the exact expression string to the `ON CONFLICT` clause in `apps/web/lib/leaderboards/engine.ts`.
-3. If they differ in any whitespace, type cast format, or quoting, update the raw SQL `ON CONFLICT` clause to exactly match what Postgres shows for the index.
-4. Long-term: add a surrogate `snapshot_key` column populated as a deterministic hash or concatenation of the composite key, add a unique index on that column, and change `ON CONFLICT (snapshot_key) DO UPDATE` to eliminate reliance on expression matching.
-5. Add an integration test that inserts two rows with the same logical key and verifies the `ON CONFLICT` upsert fires correctly rather than raising an error.
+Run a project-wide search for all references to both `loginStreak` and `loginStreakDays` (and their snake_case SQL equivalents). Determine which column has the most up-to-date values across existing rows. Write a migration that sets the canonical column (e.g. `login_streak_days`) to `MAX(login_streak, login_streak_days)` for each user, drops `login_streak`, and updates all application references to the single canonical column.
 
 ---
 
-## LOW Fixes
+### TASK-14 · Fix null email in JWT signing (BUG-AUTH-01)
+
+**Effort:** ~30 minutes  
+**Files:** `apps/web/lib/auth/session.ts`, `apps/web/app/api/auth/2fa/verify/route.ts`
+
+In `createSession`, guard the email before it reaches `signAccessToken`:
+- Option A (simple): `email: user.email ?? ''`
+- Option B (correct): omit the `email` claim from the JWT when it is null; update `signAccessToken` to make `email` optional; update the `TokenPayload` interface in `middleware.ts` accordingly.
+
+Option B is recommended because an empty-string claim would misrepresent the account state. After the change, add a test in the auth suite for a Telegram-only user (null email) confirming the session is created without error.
 
 ---
 
-### TASK-15 — Make `CRON_SECRET` Required in Env Validation
-
-**Fixes:** BUG-15  
-**Risk:** Low — boot-time validation change; any deployment without the var will fail fast at startup instead of silently at runtime.  
-**Effort:** ~10 minutes
-
-**Steps:**
-1. Open `apps/web/lib/env.ts`.
-2. Change `CRON_SECRET: z.string().optional()` to `CRON_SECRET: z.string().min(32)`.
-3. In `apps/web/app/api/cron/daily/route.ts` (and any other cron route), update `validateCronSecret` to throw a descriptive error if `process.env.CRON_SECRET` is undefined at runtime rather than silently returning false.
-4. Ensure `CRON_SECRET` is documented in `.env.example` with a note that it must be at least 32 characters.
-5. Verify deployment pipeline sets the var; add it to the Vercel environment variable list if not already there.
+## P2 — Medium (Fix Before Next Release)
 
 ---
 
-### TASK-16 — Fix Creator Fund Pool Distribution for Small Cohorts
+### TASK-15 · Encrypt Expo MMKV offline store (BUG-SEC-03)
 
-**Fixes:** BUG-16  
-**Risk:** Low — edge-case math fix; production cohorts above ~20 creators are unaffected.  
-**Effort:** ~30 minutes
+**Effort:** ~1 day  
+**Files:** `apps/expo/lib/offline/store.ts`, new `apps/expo/lib/storage/mmkvKey.ts` helper
 
-**Steps:**
-1. Open `apps/web/lib/creator/fund.ts`.
-2. Add a guard at the top of the distribution function: if `totalCreators < 5` (or a configurable threshold), skip the tier structure and distribute the entire pool equally among all eligible creators (`perCreator = pool / totalCreators`).
-3. If keeping the tier structure for small cohorts is required, detect empty tier slices after computing cutoffs and redistribute their allocation proportionally to the non-empty tiers.
-4. Add unit tests covering 1, 2, 3, 5, and 10 creators that assert the sum of all payouts equals the input pool amount.
+**Step 1:** Add `react-native-keychain` or use `expo-secure-store` to persist a randomly-generated 256-bit encryption key securely in the Android Keystore.
 
----
+**Step 2:** Create a helper `getMmkvEncryptionKey()` that: (a) attempts to load the key from secure storage; (b) if absent, generates `crypto.getRandomValues(new Uint8Array(32))`, encodes to base64, stores it, and returns it.
 
-### TASK-17 — Pass `blockLinks` Flag to Content Filter
+**Step 3:** Await the key before creating the MMKV instance and pass it as `encryptionKey`. Because MMKV cannot be re-keyed in-place, existing stores must be migrated: read all values before encryption, delete the old store, create the encrypted store, write values back. Gate this migration on a persisted flag.
 
-**Fixes:** BUG-17  
-**Risk:** Very low — single-line change, no new logic.  
-**Effort:** ~5 minutes
-
-**Steps:**
-1. Open `apps/web/app/api/rooms/[roomId]/messages/route.ts`.
-2. Find the call to `filterPublicContent(content)` (or equivalent).
-3. Change it to `filterPublicContent(content, { blockLinks })`.
-4. Open the content filter module (`apps/web/lib/moderation/contentFilter.ts` or similar). Verify the `blockLinks` option is implemented as a code path that strips or rejects URLs. If not, implement it: when `blockLinks` is true, run a URL-stripping regex over the content (or reject the message) before returning.
-5. Test by sending a message containing a URL to a room configured with `blockLinks = true` — it should be filtered or rejected.
+**Step 4:** Test on a real device: confirm the MMKV backing file is not readable in plaintext via ADB or file manager.
 
 ---
 
-### TASK-18 — URL-Decode Cookie Values in `parseCookies`
+### TASK-16 · Remove `id` attribute from HTML sanitizer allowlist (BUG-SEC-01)
 
-**Fixes:** BUG-18  
-**Risk:** Very low — purely additive decoding; valid unencoded cookies are unaffected.  
-**Effort:** ~10 minutes
+**Effort:** ~30 minutes  
+**Files:** `apps/web/lib/security/htmlSanitizer.ts`
 
-**Steps:**
-1. Open `apps/web/lib/security/csrf.ts`.
-2. In `parseCookies`, after splitting each name=value pair, wrap the value assignment in `decodeURIComponent`:
-   - `value = decodeURIComponent(rawValue)` inside a try/catch that falls back to the raw value on `URIError`.
-3. Add a test that sets a cookie with a URL-encoded value (e.g., `state=abc%2Bdef`) and asserts `parseCookies` returns `abc+def`.
+Remove `'id'` from the `'*': ['class', 'id']` entry in `SANITIZE_OPTIONS`. Search the codebase for any UI code that relies on user-generated IDs for anchor navigation; if found, allowlist `id` only on the specific safe elements (e.g. `'h2': ['id', 'class']`). Add a test case to the sanitizer suite asserting that `<div id="foo">` is stripped to `<div>` in output.
 
 ---
 
-### TASK-19 — Improve Reengagement Variant Distribution
+### TASK-17 · Harden markdown link sanitizer with an allow-list (BUG-SEC-02)
 
-**Fixes:** BUG-19  
-**Risk:** Very low — notification content change; no security or financial impact.  
-**Effort:** ~10 minutes
+**Effort:** ~1 hour  
+**Files:** `apps/web/lib/security/htmlSanitizer.ts`
 
-**Steps:**
-1. Open `apps/web/lib/notifications/reengagement.ts`.
-2. Replace the char-code sum variant selector with a more uniform approach:
-   - Option A (simplest): `parseInt(userId.replace(/-/g, '').slice(-6), 16) % messages.length` — uses the last 6 hex characters of the UUID, which are uniformly random in v4 UUIDs.
-   - Option B (more robust): Implement a 32-bit FNV-1a hash of the `userId` string and modulo by `messages.length`.
-3. The change is purely cosmetic — no DB migrations or API changes needed.
-4. Verify by generating 10,000 random UUIDs and confirming the variant distribution is close to uniform (within ±5% of expected for each variant).
+Replace the deny-list scheme filter with an allow-list that only passes `https:`, `http:`, and `mailto:` in link `href` and image `src` values. After running markdown through the chosen markdown parser, pipe the rendered HTML through the same DOMPurify instance already used for `sanitizeHtml`, with `ALLOWED_URI_REGEXP` set to `^(https?|mailto):`. Add tests for `blob:`, `file:`, and a custom-scheme URI confirming they are stripped.
 
 ---
 
-## Recommended Fix Order
+### TASK-18 · Tighten pre-auth 2FA path guard to exact match (BUG-AUTH-02)
 
-For a production hotfix sequence:
+**Effort:** ~15 minutes  
+**Files:** `apps/web/lib/api/middleware.ts`
 
-1. **Deploy TASK-01 immediately** (5 min, CRITICAL — restores all payment processing)
-2. **Deploy TASK-02** (15 min, CRITICAL — fixes TypeScript error)
-3. **Deploy TASK-03** (20 min, HIGH — DodoPayments retry reliability)
-4. **Deploy TASK-04 + TASK-05 + TASK-06 + TASK-07 + TASK-08 together** in a single PR (DM and group message fixes — they touch related files and should be tested together)
-5. **Deploy TASK-09** (push notification fix)
-6. **Deploy TASK-10** (service worker fix)
-7. Remaining medium and low tasks can be batched into a single cleanup PR.
+Change:
+```ts
+pathname.endsWith('/2fa/verify')
+```
+to:
+```ts
+pathname === '/api/auth/2fa/verify'
+```
+Verify that the 2FA verify route still works end-to-end after the change.
 
 ---
 
-*Fix plan generated: June 16, 2026 — 02:26 AM UTC*  
-*Based on: custom-bugs-report.md (same session)*  
-*Repository: nero1/zobia*
+### TASK-19 · Migrate legacy v1 field-encryption ciphertext to v2 (BUG-SEC-04)
+
+**Effort:** ~1 day (migration job) + ~2 hours (deprecation)  
+**Files:** `apps/web/lib/security/fieldEncryption.ts`, new migration script
+
+**Step 1:** Write a one-shot migration script (can be a CRON or admin-triggered CLI command) that:
+1. Queries all columns known to use field encryption (audit `fieldEncryption.ts` call sites to enumerate them).
+2. For each row, checks if the ciphertext starts with `v1:`.
+3. Decrypts with the v1 path.
+4. Re-encrypts with the v2 path.
+5. UPDATEs the row in a transaction.
+6. Logs a progress counter.
+
+**Step 2:** After all rows are confirmed migrated (counter reaches 0 v1 rows), remove the v1 decryption code path from `fieldEncryption.ts` and the corresponding test stubs.
+
+**Step 3:** Confirm the master encryption key is stored in a hardware-backed secret manager (Doppler, AWS Secrets Manager, GCP Secret Manager) and is not present in any `.env` file committed to the repository.
+
+---
+
+## Summary Table
+
+| Task | Bug | Priority | Effort |
+|------|-----|----------|--------|
+| TASK-01 | BUG-CSRF-01 | P0 | ~1 hr |
+| TASK-02 | BUG-FIN-01 | P0 | ~2 hrs |
+| TASK-03 | BUG-NOTIF-01 | P1 | ~30 min |
+| TASK-04 | BUG-NOTIF-02 | P1 | ~20 min |
+| TASK-05 | BUG-NOTIF-03 | P1 | ~20 min |
+| TASK-06 | BUG-NOTIF-04 | P1 | ~30 min |
+| TASK-07 | BUG-DB-01 | P1 | ~1 hr |
+| TASK-08 | BUG-DB-02 | P1 | ~45 min |
+| TASK-09 | BUG-DB-03 | P1 | ~2 hrs |
+| TASK-10 | BUG-DB-04 | P1 | ~1 hr |
+| TASK-11 | BUG-SYNC-01 | P1 | ~1.5 hrs |
+| TASK-12 | BUG-PUSH-01 | P1 | ~2 hrs |
+| TASK-13 | BUG-DB-05 | P1 | ~1 hr |
+| TASK-14 | BUG-AUTH-01 | P1 | ~30 min |
+| TASK-15 | BUG-SEC-03 | P2 | ~1 day |
+| TASK-16 | BUG-SEC-01 | P2 | ~30 min |
+| TASK-17 | BUG-SEC-02 | P2 | ~1 hr |
+| TASK-18 | BUG-AUTH-02 | P2 | ~15 min |
+| TASK-19 | BUG-SEC-04 | P2 | ~1 day |
+
+**Total estimated effort:** ~3 days for P0+P1 fixes, ~2–3 additional days for P2 hardening.
+
+---
+
+*Plan generated: June 16, 2026 · 5:11 AM UTC*

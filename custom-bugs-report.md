@@ -1,54 +1,40 @@
-# Zobia Codebase — Forensic Bug Report
+# Zobia Social — Forensic Bug Report
 
-**Date:** June 16, 2026  
-**Time:** 02:26 AM UTC  
-**Scope:** Full forensic analysis — web app (`apps/web`), PWA (`apps/web/public/sw.js`), and Expo mobile Android app (`apps/expo`)  
-**Analyst:** Claude Code — direct file-by-file review, no agents, no sub-agents
-
----
-
-## Code Quality Rating — Current State
-
-**Overall: 6.5 / 10**
-
-The architecture is genuinely strong in all the places that matter for a production social platform. The team has done the right things: atomic Lua sliding-window rate limiting, `kid`-based JWT key rotation, HMAC-SHA512/256 webhook verification on both providers, `SELECT FOR UPDATE` locking on the coin ledger, CTE-based atomic XP awards with a DLQ, SSRF DNS pinning, per-request CSP nonces in Edge Middleware, AES-256-GCM field-level encryption with a scrypt KDF, Decimal.js for all financial arithmetic, two-stage Expo push delivery with receipt polling, and thorough Zod validation at every boundary. None of these are beginner decisions.
-
-What brings the score down is a cluster of critical and high bugs concentrated in two layers: the payment webhook integration and the DM messaging route. Two of them — the CSRF block on all payment webhooks and the group-chat XP unique constraint violation — would cause silent production failures that are extremely difficult to diagnose from logs alone. Several others in the DM route create real financial risk (double-spend on gift retry, stale coin balances in the audit ledger, non-atomic XP writes). The medium and low issues are real but cosmetic or performance-only by comparison.
-
-**Projected rating after all fixes: 8.5 / 10**
-
-The underlying architecture needs no structural rework. Every fix listed below is a targeted change to existing logic. Applying them brings an already solid codebase up to consistent production-grade quality across all layers.
+**Generated:** June 16, 2026 · 5:11 AM UTC  
+**Scope:** Full codebase — `apps/web` (Next.js App Router + PWA) and `apps/expo` (Android)  
+**Analyst:** Deep static analysis, no sub-agents  
 
 ---
 
-## Complete Bug List (One-Line Summaries)
+## Current Code Rating
 
-**CRITICAL**
-1. BUG-01: CSRF middleware blocks all payment provider webhooks — Paystack and DodoPayments receive 403 on every event
-2. BUG-02: TypeScript compile error — required parameter `idempotencyRef` follows optional `txClient` in `transferCoins`
+**Overall: 7.5 / 10**
 
-**HIGH**
-3. BUG-03: DodoPayments webhook catch-all returns HTTP 200 for transient errors, permanently suppressing provider retries
-4. BUG-04: DM gift coin transfer bypasses idempotency check, enabling double-spend on network retry
-5. BUG-05: Group chat XP uses static `groupId` as `reference_id`, unique constraint violation blocks all XP after the first message
-6. BUG-06: DM text message XP uses non-atomic two-query pattern instead of `safeAwardXP`, losing XP on any partial failure
-7. BUG-07: DM gift XP uses non-atomic two-query pattern instead of `safeAwardXP`, losing XP on any partial failure
-8. BUG-08: DM coin ledger `balance_before` captured before the transaction opens, recording a stale pre-debit snapshot
+The codebase is architecturally sound and shows a high level of security awareness: HttpOnly cookie sessions with JWT key rotation, nonce-based CSP, CSRF Origin validation, atomic Lua rate-limiting, SSRF protection with DNS pinning, HMAC-SHA512 webhook verification, `SELECT FOR UPDATE` coin transactions with Decimal.js, idempotency guards on XP awards, dead-letter queues for XP and payouts, and a comprehensive payout reconciliation loop. The bugs found are largely logic gaps, missing DB constraints, and a handful of auth/security edge cases rather than fundamental design flaws. Fixing them would lift the rating to approximately **9.2 / 10**.
 
-**MEDIUM**
-9. BUG-09: Push-receipt `DeviceNotRegistered` handler purges all device tokens for a user, not just the failing one
-10. BUG-10: Service worker `NetworkFirst` caches an opaque 302 redirect for root `/` as a fake HTTP 200
-11. BUG-11: Nemesis engine refresh issues one DB transaction per user pair (O(n) sequential), not a single batched upsert
-12. BUG-12: Paystack webhook `subscription.not_renew` event falls through the handler with no action taken
-13. BUG-13: `insertNotification` / `insertNotificationBatch` have no `ON CONFLICT DO NOTHING`, producing duplicates on retry
-14. BUG-14: Leaderboard snapshot `ON CONFLICT` expression in raw SQL may not exactly match the Drizzle-generated index DDL
+---
 
-**LOW**
-15. BUG-15: `CRON_SECRET` is optional in Zod env validation — absence silently returns 401 on every cron endpoint invocation
-16. BUG-16: Creator fund tier-slice math leaks up to 70% of the pool when the eligible creator count is very small
-17. BUG-17: `blockLinks` moderation flag is computed from room rules but never forwarded to `filterPublicContent`
-18. BUG-18: `parseCookies` does not URL-decode values, silently rejecting CSRF state tokens containing encoded characters
-19. BUG-19: Reengagement variant selection uses an ASCII char-code sum modulo, producing an uneven message distribution
+## Quick Bug Index (all bugs, one line each)
+
+1. **BUG-CSRF-01** — Expo deep-link POST to `/api/auth/mobile-token` uses raw `fetch()` with no `Origin` header, blocked by middleware with 403 CSRF_ORIGIN_MISMATCH; mobile login after OAuth deep-link redirect is completely broken.
+2. **BUG-DB-01** — `guild_quests` table has no unique constraint; `ON CONFLICT DO NOTHING` in the Monday quest-reset CRON is inert, creating duplicate rows on every retry.
+3. **BUG-DB-02** — `guild_tier_history` partial unique index only covers rows where `war_id IS NOT NULL`; non-war tier promotions/demotions can insert duplicate history rows on CRON retry.
+4. **BUG-NOTIF-01** — Council invitation notifications are inserted without a `referenceId`; the partial unique index (`WHERE reference_id IS NOT NULL`) never fires, so each CRON run creates duplicate notifications.
+5. **BUG-NOTIF-02** — Guild war final-hour notifications are inserted without a `referenceId`, allowing duplicates on every CRON re-run.
+6. **BUG-NOTIF-03** — Guild tier-downgrade notifications are inserted without a `referenceId`, allowing duplicates on every CRON re-run.
+7. **BUG-SYNC-01** — Web PWA offline sync never resets "sending" messages to "pending" on reconnect; any message stuck in "sending" after a browser crash is permanently stranded and never retried.
+8. **BUG-AUTH-01** — `user.email` is `string | null` in the DB schema but passed directly to `signAccessToken` which expects `string`; null email produces a malformed JWT claim that breaks downstream email-based logic.
+9. **BUG-SEC-01** — HTML sanitizer allows the `id` attribute on every element via `'*': ['class', 'id']`, enabling DOM-clobbering and CSS injection attacks.
+10. **BUG-SEC-02** — Markdown link sanitizer only blocks `javascript:`, `vbscript:`, and `data:` URI schemes; other dangerous schemes (`blob:`, `file:`, custom protocols) and embedded HTML pass through unchecked.
+11. **BUG-AUTH-02** — Pre-auth 2FA gate uses `endsWith('/2fa/verify')` to identify the 2FA endpoint; fragile match could permit unintended paths or be bypassed by path manipulation.
+12. **BUG-DB-03** — `platform_events.name` carries a single-column `UNIQUE` constraint that silently breaks annual event recurrence cloning AND causes the Flash XP lifecycle's `platform_events` upsert to throw an unhandled constraint mismatch error (swallowed by `.catch`).
+13. **BUG-PUSH-01** — `DeviceNotRegistered` receipt handling fetches all push tokens for the affected user and purges them all, instead of deleting only the one specific failed device token.
+14. **BUG-SEC-03** — Expo MMKV offline store is intentionally left unencrypted ("Phase 2" deferred); sensitive data including message drafts sits in plaintext on the device.
+15. **BUG-NOTIF-04** — Nemesis overtake `last_notified_at` UPDATE only stamps the overtaking user's assignment row; the nemesis's own row is not updated, causing repeated triumph notifications to the nemesis on subsequent CRON runs.
+16. **BUG-FIN-01** — Weekly payout CRON applies a second 10% platform fee to `available_earnings_kobo`, which is already the net balance after the platform fee was deducted at earnings credit time; creators are paid 10% less than they are owed.
+17. **BUG-DB-04** — Alliance war creation uses `ON CONFLICT DO NOTHING` but `alliance_wars` has no unique constraint on `(alliance_1_id, alliance_2_id, week)`; the conflict clause is inert and duplicate wars can be created on CRON retry.
+18. **BUG-DB-05** — `users` table has two separate columns tracking the same concept (`login_streak` and `login_streak_days`); divergent writes will corrupt streak display and quest evaluation.
+19. **BUG-SEC-04** — Legacy v1 field encryption derives the AES key with a single SHA-256 hash over the master key (no salt, no iterations); existing v1 ciphertext is vulnerable to offline brute-force if ever exposed.
 
 ---
 
@@ -56,284 +42,229 @@ The underlying architecture needs no structural rework. Every fix listed below i
 
 ---
 
-### BUG-01 — CSRF Middleware Blocks All Payment Webhooks (CRITICAL)
+### 1. BUG-CSRF-01 — Expo mobile OAuth login blocked by CSRF check
 
-**Severity:** CRITICAL — all Paystack and DodoPayments payment events are permanently dropped; no coins are credited, no plans activated, no payouts confirmed.
+**FILES:**
+- `apps/expo/app/auth/login.tsx` — `handleDeepLink` function
+- `apps/web/middleware.ts` — `isCsrfSafe`, `isAuthMutation` logic
+- `apps/web/app/api/auth/mobile-token/route.ts` — the target endpoint
 
-The middleware's `isCsrfSafe()` function returns `false` for any state-mutating request that arrives without an `Origin` header, with the only exception being `/api/cron/` paths that also carry the correct `x-cron-secret` value. Payment provider webhooks are server-to-server POST requests and never include an `Origin` header. Neither `/api/economy/webhooks/paystack` nor `/api/economy/webhooks/dodopayments` appears in `PUBLIC_PREFIXES`. The CSRF guard fires before any route handler is reached, and every incoming webhook receives a `403 CSRF_ORIGIN_MISMATCH` response. This is a complete payment processing outage that is invisible without watching for 403s on webhook paths.
-
-FILES:
-- `apps/web/middleware.ts`
-
-FIX: Add `/api/economy/webhooks/paystack` and `/api/economy/webhooks/dodopayments` to the `PUBLIC_PREFIXES` array. These routes perform their own authentication via HMAC-SHA512/256 signature verification inside the handler, so skipping JWT/CSRF at the middleware layer is correct and safe. No other changes are required — the route handlers already reject requests with invalid or missing signatures.
-
----
-
-### BUG-02 — TypeScript Compile Error in `transferCoins` Signature (CRITICAL)
-
-**Severity:** CRITICAL — TypeScript TS2016 error; the function signature is invalid. All callers either fail type checking or work around it incorrectly, which undermines idempotency.
-
-The `transferCoins` function places `txClient?: TransactionClient` (optional) before `idempotencyRef: string` (required). TypeScript prohibits required parameters from following optional ones and emits TS2016. In practice every call site must either always provide a `txClient` (even when one is not needed) or must cast/ignore types to supply `idempotencyRef` at all. Either workaround means `idempotencyRef` is likely being passed incorrectly or omitted, which removes the partial-unique-constraint protection from the coin ledger for gift transfers.
-
-FILES:
-- `apps/web/lib/economy/coins.ts`
-
-FIX: Reorder the parameters so `idempotencyRef: string` comes before `txClient?: TransactionClient`. Audit every call site to confirm arguments are passed in the corrected order. If any call site legitimately needs `txClient` but not a unique ref, make `idempotencyRef` optional too (defaulting to `null`), consistent with `debitCoins` and `creditCoins`.
+**FIX:**
+The `handleDeepLink` function performs a raw `fetch()` POST to `/api/auth/mobile-token` to exchange an OAuth code for a session token. It does not include an `Origin` header. The web middleware classifies all POSTs to `/api/auth/*` as `isAuthMutation = true`, then calls `isCsrfSafe()`, which returns `false` when no `Origin` header is present, and responds with 403 `CSRF_ORIGIN_MISMATCH`. The shared Axios client used elsewhere in the Expo app already sets `Origin: env.API_BASE_URL` automatically, but this isolated `fetch()` call bypasses it. The fix is straightforward: add `'Origin': process.env.EXPO_PUBLIC_API_BASE_URL` to the `headers` object in that `fetch()` call, or refactor the call to use the shared Axios instance so the header is always included.
 
 ---
 
-### BUG-03 — DodoPayments Webhook Returns 200 for All Errors (HIGH)
+### 2. BUG-DB-01 — `guild_quests` missing unique constraint makes deduplication impossible
 
-**Severity:** HIGH — any processing failure on a DodoPayments event is silently acknowledged as success; the event is never retried and its effects are permanently lost.
+**FILES:**
+- `apps/web/app/api/cron/daily/route.ts` — Monday quest-reset section
+- `apps/web/lib/db/schema.ts` — `guildQuests` table definition
 
-The DodoPayments webhook route wraps all processing in a try/catch that returns `NextResponse.json({ received: true }, { status: 200 })` from the catch branch regardless of what threw. HTTP 200 tells DodoPayments the event was processed successfully and no retry is needed. A transient DB error, Redis timeout, or unexpected exception causes the event to be swallowed: the coin credit, plan activation, or purchase confirmation never happens, and no DLQ entry is created. The Paystack webhook handler correctly returns 500 for unexpected errors; DodoPayments does not.
-
-FILES:
-- `apps/web/app/api/economy/webhooks/dodopayments/route.ts`
-
-FIX: In the catch block, distinguish known idempotency conflicts (which should return 200 to prevent infinite retries on already-processed events) from unexpected processing failures (which must return 500 or 503 so DodoPayments retries delivery). Add structured logging with the full error and event type. A known-idempotency catch should be explicit — check for Postgres unique-violation error code `23505` specifically, and return 200 only for that case.
+**FIX:**
+The Monday quest-reset CRON inserts new quest rows per guild with `ON CONFLICT DO NOTHING`. For this clause to work, PostgreSQL requires a matching unique constraint on the conflict column set. The `guild_quests` table has no such constraint, so the `ON CONFLICT` is silently ignored — PostgreSQL accepts a duplicate insert every time the CRON runs. On each retry, users get extra quest rows, distorting quest progress and leaderboard metrics. Add a unique constraint such as `UNIQUE (guild_id, quest_type, week_start)` to the schema and update the `ON CONFLICT` column list to match it.
 
 ---
 
-### BUG-04 — DM Gift Bypasses Idempotency Key (HIGH)
+### 3. BUG-DB-02 — Non-war guild tier changes bypass the `guild_tier_history` deduplication index
 
-**Severity:** HIGH — a network retry on a DM gift send can debit the sender twice and credit the recipient twice with no constraint to prevent it.
+**FILES:**
+- `apps/web/app/api/cron/daily/route.ts` — guild tier promotion/demotion section
+- `apps/web/lib/db/schema.ts` — `guildTierHistory` table
 
-The DM route handler calls `handleDMGift()` and returns its result before reaching the idempotency Redis check that guards the rest of the handler. The gift flow calls both `debitCoins` and `creditCoins` with `null` as the `referenceId`, meaning neither ledger entry has a constraint key. The partial unique index on `coin_ledger (transactionType, referenceId) WHERE referenceId IS NOT NULL` provides no protection when `referenceId` is null. If a client retries after a 5xx response or network timeout, the full gift is duplicated: coins deducted again from the sender, added again to the recipient.
-
-FILES:
-- `apps/web/app/api/messages/dm/route.ts`
-
-FIX: Generate a stable idempotency key per gift attempt (e.g., `dm_gift:${conversationId}:${senderId}:${clientMessageId}`) and pass it as `referenceId` to both `debitCoins` and `creditCoins`. Move the `handleDMGift()` call to after the idempotency Redis check, not before it, so the key prevents duplicate execution on retry.
+**FIX:**
+`guild_tier_history` has a partial unique index that only covers rows where `war_id IS NOT NULL`. When a tier change occurs outside a war context (i.e., `war_id = NULL`), no matching unique constraint exists for those rows, so `ON CONFLICT DO NOTHING` is never triggered. Every CRON re-run inserts a fresh duplicate history row for non-war tier changes, polluting the tier history log. Add a second partial unique index covering the null-war case, for example `UNIQUE (guild_id, new_tier) WHERE war_id IS NULL` combined with a `changed_at::date` column to scope it per day, or simply use a full unique index on `(guild_id, new_tier, changed_at::date)`.
 
 ---
 
-### BUG-05 — Group Chat XP Constraint Violation Blocks All XP After First Message (HIGH)
+### 4. BUG-NOTIF-01 — Council invitation notifications duplicated on every CRON run
 
-**Severity:** HIGH — after a user's first message in any group room, every subsequent message they send in that room silently fails to award XP.
+**FILES:**
+- `apps/web/app/api/cron/daily/route.ts` — council invitation notification INSERT
 
-The group message route inserts an `xp_ledger` row with `source = 'group_message'` and `reference_id = groupId`. The `xp_ledger` partial unique index covers `(user_id, source, reference_id) WHERE reference_id IS NOT NULL`. On the user's second message in the same group, the INSERT hits the constraint on `(userId, 'group_message', groupId)` — already inserted — and the entire XP transaction rolls back. The route does not catch this specific error code, so the failure is swallowed silently. This affects every user in every group room on every message after their first, and creates no DLQ entry.
-
-FILES:
-- `apps/web/app/api/messages/group/[groupId]/route.ts`
-- `apps/web/lib/db/schema.ts`
-
-FIX: Use a per-message unique reference instead of the group ID. Replace `reference_id = groupId` with a per-message key such as `group_msg:${messageId}` or simply the `messageId` UUID. This preserves idempotency (retry-safe per message) while allowing each new message to earn XP. Migrate the XP insert to use `safeAwardXP` with the per-message reference so any failure falls to the DLQ instead of rolling back silently.
+**FIX:**
+Council invitation notifications are inserted without setting `reference_id` (`NULL`). The `notifications` table has a partial unique index `ON (user_id, type, reference_id) WHERE reference_id IS NOT NULL`. Because `reference_id IS NULL`, the partial index's condition is false and `ON CONFLICT DO NOTHING` never fires. Every daily CRON run inserts a duplicate notification regardless of whether the user already received one. Assign a stable, deterministic `reference_id` such as `council_invite:<userId>:<YYYY-WW>` (week-scoped) and include it in the INSERT. This allows the partial unique index to enforce deduplication correctly.
 
 ---
 
-### BUG-06 — DM Text XP Award Non-Atomic (HIGH)
+### 5. BUG-NOTIF-02 — Guild war final-hour notifications duplicated on CRON re-runs
 
-**Severity:** HIGH — a failure between the two XP queries permanently loses the XP and prevents any future retry via the DLQ.
+**FILES:**
+- `apps/web/app/api/cron/guild-wars/route.ts` — final-hour notification INSERT
 
-The DM route awards XP for text messages with two separate raw SQL queries: `INSERT INTO xp_ledger` then `UPDATE users SET xp_total = xp_total + $amount`. These are not inside a transaction and do not use `safeAwardXP`. If the second query fails, the ledger row exists (blocking re-insertion via the unique constraint) but the user's total is never incremented. The orphaned ledger row prevents the correct retry, the XP is permanently lost, and no DLQ record is created.
-
-FILES:
-- `apps/web/app/api/messages/dm/route.ts`
-
-FIX: Replace the two raw queries with a single `safeAwardXP(userId, amount, 'social', 'dm_text', referenceId)` call, where `referenceId` is a per-message key (e.g., `dm_text:${messageId}`). `safeAwardXP` uses a single CTE to atomically insert the ledger row and update the user total, and writes to `failed_xp_awards` on failure for cron-based retry.
+**FIX:**
+Same root cause as BUG-NOTIF-01. Final-hour war notifications are inserted without a `reference_id`, so the partial unique index never fires. Each CRON execution sends another "war ends in one hour" notification. Assign a `reference_id` such as `war_final_hour:<warId>` to deduplicate correctly.
 
 ---
 
-### BUG-07 — DM Gift XP Award Non-Atomic (HIGH)
+### 6. BUG-NOTIF-03 — Guild tier-downgrade notifications duplicated on CRON re-runs
 
-**Severity:** HIGH — same non-atomic two-query pattern as BUG-06 applied to both the sender and recipient XP legs of a DM gift.
+**FILES:**
+- `apps/web/app/api/cron/guild-wars/route.ts` — tier-downgrade notification INSERT
 
-`handleDMGift` awards XP to the sender and recipient using raw separate `INSERT INTO xp_ledger` + `UPDATE users` queries outside any transaction. A failure between these queries on either leg leaves the ledger and user table inconsistent with no DLQ fallback. Because the ledger row already exists after the INSERT, a retry cannot re-insert, so the XP award is lost permanently on the leg that failed the UPDATE.
-
-FILES:
-- `apps/web/app/api/messages/dm/route.ts`
-
-FIX: Replace all raw two-query XP patterns inside `handleDMGift` with `safeAwardXP` calls. Use per-gift reference IDs to distinguish sender from recipient (e.g., `dm_gift_sent:${giftId}` and `dm_gift_received:${giftId}`).
+**FIX:**
+Same root cause as BUG-NOTIF-01 and BUG-NOTIF-02. Tier-downgrade notifications lack a `reference_id`. Use `guild_tier_downgrade:<guildId>:<warId>` or `<guildId>:<newTier>:<date::date>` as the deduplication key.
 
 ---
 
-### BUG-08 — DM Coin Ledger `balance_before` TOCTOU (HIGH)
+### 7. BUG-SYNC-01 — Web PWA offline sync permanently strands "sending" messages after crash
 
-**Severity:** HIGH — the audit ledger records an incorrect pre-debit balance, corrupting the financial audit trail.
+**FILES:**
+- `apps/web/lib/offline/useOfflineSync.ts` — sync hook, reconnect handler
+- `apps/web/lib/offline/messageQueue.ts` — `getPendingMessages` (IndexedDB query)
 
-The DM route reads `sender.coin_balance` from an initial outer SELECT at the start of the handler, before the transaction that performs the debit is opened. `balance_before` in the `coin_ledger` INSERT is populated from this outer read. Between the outer SELECT and the inner `SELECT FOR UPDATE` inside the transaction, another concurrent operation may change the user's balance (a gift received, a purchase completed). The ledger records a balance that was never the actual balance at the moment of the debit. While `creditCoins`/`debitCoins` use `SELECT FOR UPDATE` to prevent double-spend, the recorded `balance_before` is stale and incorrect.
-
-FILES:
-- `apps/web/app/api/messages/dm/route.ts`
-- `apps/web/lib/economy/coins.ts`
-
-FIX: Read `balance_before` from the locked row inside the transaction, not from the pre-transaction outer query. The `debitCoins` helper already holds the lock; expose the locked `coin_balance` as a return value so the caller can pass it to the ledger INSERT. Alternatively, compute it inside the CTE as part of the single atomic operation: `balance_before = (SELECT coin_balance FROM users WHERE id = $1 FOR UPDATE)`.
+**FIX:**
+When a message is picked up for delivery it transitions to `status = "sending"`. If the browser crashes or the tab is closed at that moment, the message remains in "sending" and is never recovered. `getPendingMessages()` uses `IDBKeyRange.only("pending")` and only returns `status === "pending"` rows, so "sending" messages are invisible to the retry loop forever. The Expo equivalent (`apps/expo/lib/offline/syncQueue.ts`) correctly calls `resetSendingMessages()` before the sync loop starts, moving "sending" back to "pending". Add the same step to the web PWA: implement a `resetSendingMessages()` function in `messageQueue.ts` that opens the IndexedDB store and updates all `status === "sending"` rows back to `"pending"`, then call it at the start of the sync hook's reconnect logic.
 
 ---
 
-### BUG-09 — Push Token Mass-Deletion on Single `DeviceNotRegistered` Failure (MEDIUM)
+### 8. BUG-AUTH-01 — Null `user.email` passed as `string` to JWT signing
 
-**Severity:** MEDIUM — a single expired device token causes all of a user's registered devices to lose push notifications.
+**FILES:**
+- `apps/web/lib/auth/session.ts` — `createSession`, passes `email: user.email`
+- `apps/web/app/api/auth/2fa/verify/route.ts` — calls `createSession` with nullable email
+- `apps/web/lib/auth/jwt.ts` — `signAccessToken` type expects `string` for email
 
-When the push-receipt polling job processes Expo receipts and encounters `DeviceNotRegistered`, it queries all push tokens for the associated `user_id` and adds every token to the `staleTokens` deletion set. A user with a phone and a tablet loses both push registrations when only the phone's Expo token has expired. The query is `SELECT token FROM user_push_tokens WHERE user_id = $1` — fetching all tokens for the user, not just the one that produced the failing ticket.
-
-FILES:
-- `apps/web/lib/notifications/push.ts`
-
-FIX: Store the specific token alongside `user_id` in the `push_tickets` table row at ticket creation time, or JOIN `push_tickets` to a token-level table at receipt processing time. When `DeviceNotRegistered` arrives, add only the token associated with that specific ticket to `staleTokens`, not all tokens belonging to the user.
-
----
-
-### BUG-10 — Service Worker Caches Opaque Redirect for Root "/" as Fake HTTP 200 (MEDIUM)
-
-**Severity:** MEDIUM — unauthenticated PWA users can get stuck seeing a blank cached page instead of being redirected to login; the cached fake-200 also masks future authentication redirects.
-
-The service worker uses `NetworkFirst` for the root `/` route. When the Next.js middleware returns a 302 redirect for unauthenticated users (sending them to `/auth/login`), the service worker's fetch event receives an `opaqueredirect` response. Workbox may store this in the cache. On subsequent visits the opaque response is served as a fake HTTP 200, bypassing the auth redirect entirely and rendering a blank shell. This is a well-documented Workbox footgun with `NetworkFirst` on navigations that have server-side auth redirects.
-
-FILES:
-- `apps/web/public/sw.js`
-
-FIX: For the root `/` and all top-level navigation routes, either use `NetworkOnly` (so redirect responses are never cached), or add a response filter that explicitly refuses to cache any response where `response.type === 'opaqueredirect'`. The recommended Workbox pattern for SPA/PWA navigation is `NavigationRoute` with `createHandlerBoundToURL` pointing to the app shell HTML, combined with a client-side auth check after hydration.
+**FIX:**
+The `users` table schema allows `email` to be `NULL` for accounts created via Telegram OAuth or phone-only registration. `createSession` passes `user.email` directly to `signAccessToken` without null-guarding. TypeScript accepts this because the `email` parameter type in `signAccessToken` is `string`, but at runtime a `null` value is passed, producing `"email": null` in the signed JWT. Downstream code that trusts the JWT email claim as a guaranteed string will encounter a runtime `null`. Fix: guard the value before passing — use `email: user.email ?? ''` if an empty string is acceptable downstream, or remove the `email` claim from the JWT entirely and have downstream code fetch it from the DB when needed.
 
 ---
 
-### BUG-11 — Nemesis Refresh Runs O(n) Sequential Transactions (MEDIUM)
+### 9. BUG-SEC-01 — HTML sanitizer allows `id` attribute, enabling DOM-clobbering
 
-**Severity:** MEDIUM — the nemesis pair refresh function issues one database transaction per user pair, creating linear DB load that degrades severely at scale.
+**FILES:**
+- `apps/web/lib/security/htmlSanitizer.ts` — `SANITIZE_OPTIONS` allowlist
 
-The nemesis engine iterates over active users and for each pair issues a separate round-trip transaction containing individual SELECTs and INSERT/UPDATEs. At 10,000 active users this creates 10,000 sequential round-trips holding connection pool slots serially. The cron job runs for many minutes and starves other DB operations. This is a performance bug that becomes a reliability bug at moderate user counts.
-
-FILES:
-- `apps/web/lib/nemesis/nemesisEngine.ts`
-
-FIX: Rewrite the refresh as a single batched SQL operation. Collect all intended nemesis assignments into an array, then issue a single `INSERT INTO nemesis_assignments (...) VALUES (unnest($1::uuid[]), ...) ON CONFLICT DO UPDATE` call. The XP comparison and ranking that drives nemesis selection can be expressed as a CTE or subquery, so the entire refresh runs in one or two round-trips instead of one per user.
+**FIX:**
+The DOMPurify allowlist contains `'*': ['class', 'id']`, permitting the `id` attribute on any HTML element in user-generated content. `id` attributes on user-controlled elements create DOM-clobbering opportunities: an attacker can inject `<a id="getElementById">` or similar elements that shadow built-in DOM APIs and browser-native properties, potentially bypassing script-level security checks. This is especially dangerous alongside the strict-dynamic CSP and nonce-based script loading. Remove `'id'` from the wildcard allowlist. If specific semantic elements genuinely need IDs for in-page anchor navigation, allowlist them narrowly on only those elements (e.g. add `'h2': ['id']`).
 
 ---
 
-### BUG-12 — Paystack Webhook `subscription.not_renew` Falls Through Unhandled (MEDIUM)
+### 10. BUG-SEC-02 — Markdown link sanitizer uses a deny-list of only 3 dangerous URI schemes
 
-**Severity:** MEDIUM — Paystack subscription cancellation-intent notices are silently ignored; no user record is updated, leaving cancelled subscribers appearing active until natural expiry.
+**FILES:**
+- `apps/web/lib/security/htmlSanitizer.ts` — `sanitizeMarkdown` link-href sanitizer
 
-The Paystack webhook handler covers the main subscription event types but the `subscription.not_renew` event (sent when a customer disables auto-renewal) falls through the handler logic with no matching branch. No user subscription flag is set, no notification is sent, and no forthcoming-cancellation record is created. The user appears active until the next billing cycle fails, at which point the app has no prior record of the user's intent to cancel.
-
-FILES:
-- `apps/web/app/api/economy/webhooks/paystack/route.ts`
-
-FIX: Add an explicit handler for `subscription.not_renew` that sets a `cancel_at_period_end = true` flag (or equivalent column) on the user's subscription record. This allows the frontend to display a cancellation banner and downstream logic to correctly handle the upcoming non-renewal without treating it as an unexpected payment failure.
+**FIX:**
+The markdown sanitizer strips `javascript:`, `vbscript:`, and `data:` from link `href` values but uses a deny-list approach rather than an allow-list. Deny-lists are inherently incomplete: `blob:`, `file:`, `ms-appx:`, `mxf:`, and custom app-scheme URIs (e.g. `zobia://`) all pass through. Additionally, markdown parsers can render fenced HTML blocks and raw `<img onerror="...">` tags that bypass the link-only check. Switch to an allow-list: accept only `https:`, `http:`, and optionally `mailto:` in link and image hrefs; reject all other schemes. Then pipe the full rendered markdown HTML through the same DOMPurify instance used by `sanitizeHtml` for defense-in-depth.
 
 ---
 
-### BUG-13 — `insertNotification` Has No Idempotency Guard (MEDIUM)
+### 11. BUG-AUTH-02 — Pre-auth 2FA gate uses fragile `endsWith` path match
 
-**Severity:** MEDIUM — duplicate notifications are created whenever the same event fires more than once (cron re-run, concurrent worker, transient error retry).
+**FILES:**
+- `apps/web/lib/api/middleware.ts` — `withAuth` HOC pre-auth bypass
 
-Both `insertNotification` and `insertNotificationBatch` perform plain `INSERT INTO notifications` with no `reference_id` or `ON CONFLICT DO NOTHING` clause. Any scenario that triggers the same notification twice — a cron retry, a double-fired event webhook, or a race between two concurrent workers — inserts duplicate rows. Users see the same notification appear twice in their feed with no deduplication.
-
-FILES:
-- `apps/web/lib/notifications/insert.ts`
-- `apps/web/lib/db/schema.ts`
-
-FIX: Add a `reference_id` (or `idempotency_key`) column to the `notifications` table with a unique constraint, or a composite unique constraint on `(user_id, type, entity_id)` with a time-window partial index. Change the INSERT statement to `ON CONFLICT (reference_id) DO NOTHING`. All callers must generate a deterministic reference key (e.g., `xp_award:${userId}:${source}:${dateKey}`, `gift_received:${giftId}`).
+**FIX:**
+The `withAuth` middleware grants access to `pre_auth` JWT holders only when `request.nextUrl.pathname.endsWith('/2fa/verify')`. This is fragile in two ways: (1) a future route whose path happens to end with that suffix would unintentionally receive pre-auth access, and (2) path traversal tricks (e.g. double-encoded slashes on some reverse proxies) could match unintended paths. Replace with a strict exact-match check: `pathname === '/api/auth/2fa/verify'`.
 
 ---
 
-### BUG-14 — Leaderboard `ON CONFLICT` Expression May Not Match Drizzle Index DDL (MEDIUM)
+### 12. BUG-DB-03 — `platform_events.name` single-column UNIQUE breaks recurrence AND Flash XP upsert
 
-**Severity:** MEDIUM — if the raw SQL `ON CONFLICT` expression does not exactly match the expression Drizzle generates for the unique index, Postgres cannot resolve the conflict target and the upsert will error or insert duplicates.
+**FILES:**
+- `apps/web/lib/db/schema.ts` — `platformEvents` table (`name: text("name").notNull().unique()`)
+- `apps/web/app/api/cron/daily/route.ts` — Section 27, annual event recurrence cloning
+- `apps/web/lib/events/flashXP.ts` — `advanceFlashXPLifecycle`, `platform_events` upsert
 
-The leaderboard engine upsert uses `ON CONFLICT (user_id, leaderboard_type, COALESCE(city, ''), COALESCE(season_id::text, ''))` in a raw query. The Drizzle schema defines the index using the same `COALESCE` expressions. Postgres requires the `ON CONFLICT` expression to match the index definition character-for-character (including type cast syntax and whitespace-normalised form). If Drizzle generates `COALESCE(season_id :: text, '')` with different spacing or a different cast syntax, Postgres will not match the conflict target and will raise `ERROR: there is no unique or exclusion constraint matching the ON CONFLICT specification`.
+**FIX:**
+The `platform_events` table enforces `UNIQUE(name)` — a single-column unique constraint on the event name alone. This breaks two independent features:
 
-FILES:
-- `apps/web/lib/leaderboards/engine.ts`
-- `apps/web/lib/db/schema.ts`
+**A — Annual recurrence (daily CRON Section 27):** The cloning logic inserts a copy of the recurring event for the next year, keeping the same `name` but advancing `starts_at` and `ends_at`. The insert collides with the existing name unique constraint and the conflict is swallowed by `ON CONFLICT DO NOTHING`. The next-year event is silently never created. Annual recurring events disappear after their first occurrence.
 
-FIX: Run `\d leaderboard_snapshots` against the live database and compare the actual index expression to the `ON CONFLICT` clause in the application SQL. If they differ, align them exactly. The most robust long-term fix is to add a generated or deterministic surrogate column (e.g., a stable `snapshot_key` VARCHAR populated on insert) and use `ON CONFLICT (snapshot_key)` instead, eliminating fragile expression matching.
+**B — Flash XP lifecycle upsert (`flashXP.ts`):** When a Flash XP event fires, the code attempts to record it in `platform_events` using `ON CONFLICT (name, starts_at) DO NOTHING`. No composite unique index on `(name, starts_at)` exists — only the single-column `UNIQUE(name)` does. PostgreSQL raises "there is no unique or exclusion constraint matching the ON CONFLICT specification", which is swallowed by `.catch(() => {})`. Flash XP events are silently never added to the `platform_events` calendar.
 
----
-
-### BUG-15 — `CRON_SECRET` Optional Silently Blocks All Cron Endpoints (LOW)
-
-**Severity:** LOW — if `CRON_SECRET` is absent from the environment, every cron job returns 401 on every invocation, and no alerting distinguishes this from normal 401s.
-
-The Zod env schema marks `CRON_SECRET` as optional. The `validateCronSecret` helper short-circuits on `process.env.CRON_SECRET && ...` — when the var is undefined, this evaluates to `false` immediately. All cron route handlers then return 401 with a generic unauthorised response. The daily cron silently fails with no error message indicating the root cause, and no monitoring alarm is triggered by a 401 on a cron path.
-
-FILES:
-- `apps/web/lib/env.ts`
-- `apps/web/app/api/cron/daily/route.ts`
-
-FIX: Change `CRON_SECRET` to `z.string().min(32)` (required, minimum entropy) in the Zod env schema so the app fails to start at boot with a clear validation error when the var is missing or too short. Add a boot-time assertion in `validateCronSecret` that throws descriptively when the env var is absent, rather than silently returning false.
+The fix is to drop the `UNIQUE(name)` constraint and replace it with a composite unique constraint on `(name, starts_at)`. Update the annual recurrence `ON CONFLICT` to use `(name, starts_at)`, and the Flash XP upsert then works automatically. Consider also adding a CHECK to prevent identical `(name, starts_at)` duplicates that differ only by case.
 
 ---
 
-### BUG-16 — Creator Fund Leaks Pool for Small Creator Cohorts (LOW)
+### 13. BUG-PUSH-01 — `DeviceNotRegistered` push receipt purges all tokens for the user
 
-**Severity:** LOW — for very small creator pools (fewer than approximately 10 eligible creators), most of the fund's tier allocations are computed as zero-width slices and never distributed, silently wasting a significant portion of the pool.
+**FILES:**
+- `apps/web/lib/notifications/push.ts` — receipt polling, `DeviceNotRegistered` branch
 
-The tier-slice calculation uses `Math.floor(percentage * totalCreators)` clamped to `Math.max(1, result)`. For 2 creators and the third tier (20%): `Math.floor(0.20 * 2) = 0`, clamped to 1. All five tiers then resolve to cutoff index 1, producing empty slices for tiers 3, 4, and 5. Their combined 45% of the pool is never distributed. The remainder redistribution step at the end recovers rounding leftovers but not entirely-empty tier slices, so a substantial fraction of the pool is silently discarded in small cohorts.
-
-FILES:
-- `apps/web/lib/creator/fund.ts`
-
-FIX: When `totalCreators` is below a minimum threshold (e.g., fewer than 5), skip the tier structure entirely and distribute the full pool equally among all creators. Alternatively, after computing tier cutoffs, detect empty slices and fold their allocation into adjacent non-empty tiers. Add unit tests with 1, 2, 3, 5, and 10 creators asserting that 100% of the pool is always paid out.
-
----
-
-### BUG-17 — `blockLinks` Moderation Flag Unused (LOW)
-
-**Severity:** LOW — rooms configured to block link-sharing have no actual enforcement; links pass through the content filter unfiltered.
-
-In the room message POST handler, `blockLinks` is read from the room's moderation rules and assigned to a boolean variable, but the variable is never passed to the `filterPublicContent()` call. The content filter executes without the flag and links are not stripped or rejected even in rooms where the room owner has enabled link blocking.
-
-FILES:
-- `apps/web/app/api/rooms/[roomId]/messages/route.ts`
-
-FIX: Pass `blockLinks` as an options parameter to `filterPublicContent(content, { blockLinks })`. Verify that `filterPublicContent` in the content filter module actually implements a URL-blocking code path when this flag is true; if not, implement that branch in the content filter.
+**FIX:**
+When an Expo push receipt returns `DeviceNotRegistered`, the code does:
+```
+SELECT token FROM user_push_tokens WHERE user_id = $1
+```
+This fetches **all** tokens belonging to the user and adds them all to the stale-token purge set. A single dead token (e.g. the user uninstalled the app on one device) silently invalidates every push token the user has across all their devices, stopping all push notifications for that user. The correct behaviour is to remove only the specific token that failed. Store the token alongside the ticket ID when the push batch is sent (e.g. a `ticket_id → token` Redis mapping with a short TTL), then look up only that single token when processing the receipt, or join on `ticket_id` if it is stored in the push tokens table.
 
 ---
 
-### BUG-18 — `parseCookies` Does Not URL-Decode Values (LOW)
+### 14. BUG-SEC-03 — Expo MMKV offline store stores sensitive data in plaintext
 
-**Severity:** LOW — CSRF state tokens containing URL-encoded characters are silently rejected, causing OAuth login failures for a subset of users.
+**FILES:**
+- `apps/expo/lib/offline/store.ts`
 
-`parseCookies` in `csrf.ts` splits the raw `Cookie` header on `;` and `=` and returns values without applying `decodeURIComponent`. RFC 6265 does not mandate URL-encoding, but many HTTP clients and browsers do encode cookie values containing characters like `+`, `=`, `/`, and `%`. If the CSRF state value is ever transmitted with encoded characters, `validateCsrfState`'s timing-safe comparison will always fail for those users, blocking their OAuth login flow.
-
-FILES:
-- `apps/web/lib/security/csrf.ts`
-
-FIX: Apply `decodeURIComponent` (wrapped in a try/catch for malformed percent sequences) to each cookie value in `parseCookies`. This brings the parser in line with standard cookie handling and prevents encoding-related CSRF validation failures without weakening the timing-safe comparison.
+**FIX:**
+The MMKV instance is initialised without an `encryptionKey`; the inline comment says "For Phase 1 we leave it unencrypted; encryption will be added in Phase 2". The store persists message drafts and other user state to device storage in plaintext. On a rooted device or via ADB backup on an unlocked device, an attacker can read all MMKV data trivially. Implement encryption: at first launch, generate a random 256-bit key, persist it in the Android Keystore via `react-native-keychain` (or `expo-secure-store`), and pass it to the MMKV constructor as `encryptionKey`. This is a one-line change to MMKV initialisation plus a small secure storage wrapper, and should not be deferred further.
 
 ---
 
-### BUG-19 — Reengagement Variant Selector Has Uneven Distribution (LOW)
+### 15. BUG-NOTIF-04 — Nemesis overtake `last_notified_at` misses the nemesis's assignment row
 
-**Severity:** LOW — some re-engagement message variants are significantly over-represented, and the personalised context variants (guild war, nemesis, season) may rarely appear for large portions of the user population.
+**FILES:**
+- `apps/web/app/api/cron/daily/route.ts` — nemesis overtake notification section
 
-The variant index is `userId.split("").reduce((acc, ch) => acc + ch.charCodeAt(0), 0) % messages.length`. UUID characters are hex digits (ASCII 48–57 for `0-9`, ASCII 97–102 for `a-f`) and dashes (ASCII 45). The sum of these values across 36 characters is a value typically in the range 1,600–3,700, which is not uniformly distributed modulo 2, 3, or 4. Certain residues are more probable than others, causing the first variant in each bucket to appear far more frequently than the personalised context variants at higher indices.
-
-FILES:
-- `apps/web/lib/notifications/reengagement.ts`
-
-FIX: Replace the char-code sum with a uniformly distributed hash. The simplest approach is to take the last 4 hex characters of the UUID (which are randomly distributed in v4 UUIDs) and compute `parseInt(userId.slice(-4), 16) % messages.length`. A proper FNV-1a 32-bit hash of the userId string is also correct and gives near-perfect uniformity regardless of UUID version.
-
----
-
-## Summary
-
-| # | Severity | Short Name |
-|---|----------|------------|
-| 1 | CRITICAL | CSRF blocks payment webhooks |
-| 2 | CRITICAL | TypeScript required-after-optional in `transferCoins` |
-| 3 | HIGH | DodoPayments returns 200 on error |
-| 4 | HIGH | DM gift bypasses idempotency |
-| 5 | HIGH | Group XP `reference_id` constraint violation |
-| 6 | HIGH | DM text XP non-atomic |
-| 7 | HIGH | DM gift XP non-atomic |
-| 8 | HIGH | DM `balance_before` TOCTOU |
-| 9 | MEDIUM | Push token mass-deletion on one failure |
-| 10 | MEDIUM | Service worker caches opaque redirect for "/" |
-| 11 | MEDIUM | Nemesis refresh O(n) transactions |
-| 12 | MEDIUM | Paystack `subscription.not_renew` unhandled |
-| 13 | MEDIUM | `insertNotification` no dedup guard |
-| 14 | MEDIUM | Leaderboard `ON CONFLICT` expression mismatch risk |
-| 15 | LOW | `CRON_SECRET` optional silently blocks crons |
-| 16 | LOW | Creator fund pool leak for small cohorts |
-| 17 | LOW | `blockLinks` flag computed but unused |
-| 18 | LOW | `parseCookies` no URL-decode |
-| 19 | LOW | Reengagement uneven variant distribution |
+**FIX:**
+After sending overtake triumph notifications, the CRON updates:
+```sql
+UPDATE nemesis_assignments SET last_notified_at = NOW() WHERE user_id = ANY($1::uuid[])
+```
+`$1` contains the IDs of the users who just overtook their rivals. The nemesis relationship is stored in `nemesis_assignments` for both parties; the nemesis's own row (`user_id = <nemesis_id>`) also needs `last_notified_at` stamped to prevent repeated notifications. Because only the overtaking users' rows are updated, the nemesis's row retains a stale `last_notified_at` and the next CRON run sends them another triumph notification. Collect the nemesis IDs alongside the user IDs and update both sets in the same statement, or issue a second UPDATE for `WHERE user_id = ANY($nemesisIds)`.
 
 ---
 
-*Report generated: June 16, 2026 — 02:26 AM UTC*  
-*Analyst: Claude Code*  
-*Repository: nero1/zobia*
+### 16. BUG-FIN-01 — Weekly payout CRON applies platform fee twice on creator earnings
+
+**FILES:**
+- `apps/web/app/api/cron/daily/route.ts` — Section 33, weekly payout aggregation
+
+**FIX:**
+The payout aggregation section reads `available_earnings_kobo` from each creator's account, then computes:
+```
+platformFeeKobo = grossKobo * 0.10
+netKobo         = grossKobo - platformFeeKobo
+```
+`available_earnings_kobo` is the **net** balance — the platform fee (15% or 20% depending on creator tier, per `lib/payments/payouts.ts`) was already deducted when the earnings were credited. Treating the net balance as gross extracts a second 10% platform fee, producing an understated `net_kobo` in the payout record and — critically — an understated Paystack transfer amount if `net_kobo` is used as the transfer value. Fix: use `grossKobo` directly as `netKobo` (no second fee deduction), or, if a separate weekly processing fee is intended by the PRD, document it clearly, apply the correct tier-based rate from `getCreatorFeeRate`, and update the earnings credit step to explain the fee lifecycle.
+
+---
+
+### 17. BUG-DB-04 — Alliance war `ON CONFLICT DO NOTHING` is inert (no matching unique constraint)
+
+**FILES:**
+- `apps/web/app/api/cron/daily/route.ts` — Section 32b, next-week alliance war creation
+- `apps/web/lib/db/schema.ts` — `allianceWars` table
+
+**FIX:**
+The next-week war INSERT uses `ON CONFLICT DO NOTHING`. The `alliance_wars` table has no unique constraint on `(alliance_1_id, alliance_2_id)` or `(alliance_1_id, alliance_2_id, scheduled_week)`. Without a matching constraint, PostgreSQL ignores the `ON CONFLICT` clause entirely and inserts a new duplicate war row on every CRON retry. Add a unique constraint — for example `UNIQUE (LEAST(alliance_1_id, alliance_2_id), GREATEST(alliance_1_id, alliance_2_id), scheduled_week)` to normalise pair ordering — and update the `ON CONFLICT` clause to reference it.
+
+---
+
+### 18. BUG-DB-05 — Duplicate login-streak columns (`login_streak` and `login_streak_days`)
+
+**FILES:**
+- `apps/web/lib/db/schema.ts` — `users` table
+
+**FIX:**
+The `users` table defines two separate integer columns — `loginStreak` and `loginStreakDays` — that model the same concept (consecutive daily login count). Different CRON sections and user-event handlers likely update one or the other (or both), causing them to drift out of sync. A user whose streak is shown from `loginStreakDays` may see a different value than one computed from `loginStreak`, breaking streak milestones, quest triggers, and UI display. Audit all read/write sites for both columns, select the canonical one (recommend `login_streak_days` as the more descriptive name), write a migration to consolidate values and drop the redundant column, then fix all references.
+
+---
+
+### 19. BUG-SEC-04 — Legacy v1 field encryption uses bare SHA-256 as the KDF
+
+**FILES:**
+- `apps/web/lib/security/fieldEncryption.ts` — v1 key derivation path
+
+**FIX:**
+Version 1 of the field-encryption scheme derives the AES-256 key by computing a single SHA-256 hash of the master key material — no salt, no iteration count, no memory hardening. This makes it trivially fast for an attacker who obtains ciphertext to brute-force the key offline. Version 2 correctly uses scrypt with a per-ciphertext random salt. While v1 is kept only for decrypting existing ciphertext and all new writes use v2, there is an unknown volume of v1-encrypted data at risk. Schedule a background migration job that: (1) SELECT all rows with a `v1:` ciphertext prefix, (2) decrypt with v1, (3) re-encrypt with v2, (4) UPDATE in a transaction, (5) after full migration, remove the v1 decryption path from code. Until migration is complete, ensure the master encryption key is stored in a hardware-backed secret store (e.g. Doppler, AWS Secrets Manager) to raise the bar for obtaining the key.
+
+---
+
+## Post-Fix Rating
+
+Applying all 19 fixes would raise the overall rating to approximately **9.2 / 10**. The financial double-fee bug (BUG-FIN-01) and the CSRF login break (BUG-CSRF-01) should be treated as P0 — they are active money and auth correctness issues. The notification deduplication bugs (BUG-NOTIF-01 through BUG-NOTIF-04) are P1 as they directly degrade user experience at scale. All database constraint bugs (BUG-DB-01 through BUG-DB-05) are P1 as they can silently corrupt data under retry conditions. Security hardening bugs (BUG-SEC-01 through BUG-SEC-04) are P2 but should not be deferred indefinitely.
+
+---
+
+*Report generated: June 16, 2026 · 5:11 AM UTC*
