@@ -140,7 +140,7 @@ export default function CreatorMerchStoreScreen() {
         ]
       );
     },
-    [purchaseMutation]
+    [purchaseMutation, currency.softPlural]
   );
 
   // ---------------------------------------------------------------------------
@@ -196,7 +196,7 @@ export default function CreatorMerchStoreScreen() {
         </View>
       );
     },
-    [handlePurchase, purchaseMutation.isPending, themedStyles]
+    [handlePurchase, purchaseMutation.isPending, themedStyles, currency.softPlural]
   );
 
   // ---------------------------------------------------------------------------

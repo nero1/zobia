@@ -122,7 +122,7 @@ export default function QuizScreen() {
   }
 
   const question = quiz.questions[currentIndex];
-  const options: Array<{ key: OptionKey; text: string }> = [
+  const options: { key: OptionKey; text: string }[] = [
     { key: "a", text: question.option_a },
     { key: "b", text: question.option_b },
     { key: "c", text: question.option_c },

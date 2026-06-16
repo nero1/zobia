@@ -5,7 +5,7 @@
  * Real-time chat channel for guild members.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -90,7 +90,7 @@ export default function GuildChatScreen() {
       });
       return res.data;
     },
-    onSuccess: (result) => {
+    onSuccess: () => {
       // Optimistically append and invalidate
       queryClient.invalidateQueries({ queryKey: ['guild-chat', guildId] });
       setInputText('');

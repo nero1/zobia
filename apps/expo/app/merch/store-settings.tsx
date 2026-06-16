@@ -67,7 +67,7 @@ async function fetchManifestFeatures(): Promise<ManifestFeatures> {
 
 export default function StoreSettingsScreen() {
   const { creatorId } = useLocalSearchParams<{ creatorId: string }>();
-  const { isDark, colors: themeColors } = useTheme();
+  const { isDark } = useTheme();
   const router = useRouter();
   const queryClient = useQueryClient();
   const { t } = useTranslation();

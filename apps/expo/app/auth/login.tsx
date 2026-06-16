@@ -17,7 +17,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { Ionicons } from '@expo/vector-icons';
@@ -169,7 +169,7 @@ export default function LoginScreen() {
 
       // Poll the backend for the Telegram login result
       startTelegramPoll(shortState);
-    } catch (err) {
+    } catch {
       Alert.alert(t('common.error'), t('auth.telegramError'));
       setTelegramLoading(false);
     }

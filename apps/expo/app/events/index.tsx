@@ -13,10 +13,8 @@
 
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   FlatList,
-  Pressable,
   RefreshControl,
   StyleSheet,
   Text,

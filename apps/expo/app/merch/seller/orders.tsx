@@ -156,7 +156,7 @@ interface OrderCardProps {
 }
 
 function OrderCard({ order, onRefresh }: OrderCardProps) {
-  const { isDark, colors: themeColors } = useTheme();
+  const { isDark } = useTheme();
   const [showShipModal, setShowShipModal] = useState(false);
   const [showTrackingInput, setShowTrackingInput] = useState(false);
   const [trackingNote, setTrackingNote] = useState('');

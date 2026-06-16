@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   Alert, ActivityIndicator, RefreshControl
@@ -15,7 +15,7 @@ interface Alliance {
   name: string;
   description: string | null;
   wars_won: number;
-  member_guilds: Array<{ guild_id: string; guild_name: string; joined_at: string }>;
+  member_guilds: { guild_id: string; guild_name: string; joined_at: string }[];
 }
 
 export default function AllianceScreen() {
@@ -29,7 +29,7 @@ export default function AllianceScreen() {
   const [allianceDesc, setAllianceDesc] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  async function loadAlliance() {
+  const loadAlliance = useCallback(async () => {
     if (!guildId) return;
     const token = storage.getString("authToken");
     const res = await fetch(`${API_BASE}/api/guilds/${guildId}/alliances`, {
@@ -41,7 +41,7 @@ export default function AllianceScreen() {
     }
     setLoading(false);
     setRefreshing(false);
-  }
+  }, [guildId]);
 
   async function createAlliance() {
     if (!allianceName.trim()) return;
@@ -81,7 +81,7 @@ export default function AllianceScreen() {
     ]);
   }
 
-  useEffect(() => { void loadAlliance(); }, [guildId]);
+  useEffect(() => { void loadAlliance(); }, [loadAlliance]);
 
   if (loading) return <View className="flex-1 items-center justify-center"><ActivityIndicator color="#2563EB" /></View>;
 

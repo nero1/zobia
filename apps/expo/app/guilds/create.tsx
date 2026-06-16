@@ -15,7 +15,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Alert,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
