@@ -76,12 +76,10 @@ class SequentialLedger {
           const balBefore = Number(params[2]);
           const balAfter = Number(params[3]);
 
-          // Validate the ledger math
-          if (type === "credit") {
-            expect(balAfter).toBe(balBefore + amount);
-          } else {
-            expect(balAfter).toBe(balBefore - amount);
-          }
+          // Validate the ledger math. Debit amounts are stored negated
+          // (see debitCoins), so balance_after = balance_before + amount
+          // holds uniformly for both credit and debit entries.
+          expect(balAfter).toBe(balBefore + amount);
 
           self.balance = balAfter;
           const id = `entry-${++self.seq}`;
@@ -182,8 +180,9 @@ describe("Concurrency — Sequential Debit Operations", () => {
     const entries = ledger.getEntries();
     expect(entries).toHaveLength(count);
 
+    // Debit amounts are stored negated in the ledger (see debitCoins)
     const totalDebited = entries.reduce((sum, e) => sum + e.amount, 0);
-    expect(totalDebited).toBe(debitAmount * count);
+    expect(totalDebited).toBe(-debitAmount * count);
     expect(ledger.getBalance()).toBe(initial - debitAmount * count);
   });
 
@@ -254,17 +253,19 @@ describe("Concurrency — Transfer Fee Math", () => {
     const recipientId = "recipient-fee-1";
     const gross = 99; // 5% of 99 = 4.95 → floored to 4, net = 95
 
-    let callCount = 0;
     mockTransaction.mockImplementation(async (fn: (client: TransactionClient) => Promise<unknown>) => {
       // transferCoins calls a single transaction with multiple queries
       const client: TransactionClient = {
         query: jest.fn(async (sql: string, params: unknown[]) => {
           const upper = sql.trim().toUpperCase();
 
-          if (upper.startsWith("SELECT") && sql.includes("FOR UPDATE")) {
-            callCount++;
+          // The two generic "SELECT id FROM users ... FOR UPDATE" deadlock-prevention
+          // pre-locks don't need a real response — only the coin_balance fetch does.
+          if (upper.startsWith("SELECT") && sql.includes("FOR UPDATE") && sql.includes("coin_balance")) {
+            const userId = params[0];
+            const balance = userId === senderId ? senderLedger.getBalance() : recipientLedger.getBalance();
             return {
-              rows: [{ coin_balance: callCount === 1 ? String(senderLedger.getBalance()) : String(recipientLedger.getBalance()) }],
+              rows: [{ coin_balance: String(balance) }],
               rowCount: 1,
             };
           }
@@ -299,7 +300,7 @@ describe("Concurrency — Transfer Fee Math", () => {
     const { debit, credit, feeCoins } = await transferCoins(senderId, recipientId, gross, 'idem-ref', 5);
 
     expect(feeCoins).toBe(Math.floor(gross * 0.05)); // 4
-    expect(debit.amount).toBe(gross); // sender pays full gross
+    expect(debit.amount).toBe(-gross); // sender pays full gross (stored negated in the ledger)
     expect(credit.amount).toBe(gross - feeCoins); // recipient gets net
     expect(feeCoins + credit.amount).toBe(gross); // fee + net = gross (no coins lost)
   });

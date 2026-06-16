@@ -54,18 +54,18 @@ function buildMockTxClient(initialBalance = 1000) {
       if (sql.includes('SELECT coin_balance FROM users') && sql.includes('FOR UPDATE')) {
         return { rows: [{ coin_balance: String(initialBalance) }], rowCount: 1 };
       }
-      // SELECT after INSERT (fetch latest ledger entry)
-      if (sql.includes('SELECT * FROM coin_ledger')) {
+      // INSERT ... RETURNING * (writeLedgerEntry creates and returns the row in one query)
+      if (sql.includes('INSERT INTO coin_ledger')) {
         const mockEntry = {
           id: 'ledger-entry-id',
-          user_id: 'test-user',
-          amount: 100,
-          balance_before: initialBalance,
-          balance_after: initialBalance + 100,
-          transaction_type: 'quest_reward',
-          reference_id: null,
-          description: null,
-          metadata: null,
+          user_id: params[0],
+          amount: params[1],
+          balance_before: params[2],
+          balance_after: params[3],
+          transaction_type: params[4],
+          reference_id: params[5] ?? null,
+          description: params[6] ?? null,
+          metadata: params[7] ?? null,
           created_at: new Date().toISOString(),
         };
         return { rows: [mockEntry], rowCount: 1 };
@@ -196,10 +196,10 @@ describe('debitCoins', () => {
     await debitCoins('user-1', 100, 'dm_cost');
     const insertCall = txClient.queries.find((q) => q.sql.includes('INSERT INTO coin_ledger'));
     expect(insertCall).toBeDefined();
-    // The negated amount is passed as the second parameter
-    const params = insertCall!.params as number[];
-    // params[1] is the amount passed to writeLedgerEntry — it should be -100
-    expect(params[1]).toBe(-100);
+    // The negated amount is passed as the second parameter (as a string — Decimal.toFixed(0))
+    const params = insertCall!.params as string[];
+    // params[1] is the amount passed to writeLedgerEntry — it should be "-100"
+    expect(params[1]).toBe('-100');
   });
 });
 
@@ -282,18 +282,17 @@ describe('transferCoins', () => {
           return { rows: [{ coin_balance: String(bal) }], rowCount: 1 };
         }
 
-        if (sql.includes('SELECT * FROM coin_ledger')) {
-          const amount = lockCallCount === 1 ? -100 : 95;
+        if (sql.includes('INSERT INTO coin_ledger')) {
           const mockEntry = {
             id: `ledger-${lockCallCount}`,
             user_id: params[0],
-            amount,
-            balance_before: lockCallCount === 1 ? senderBalance : receiverBalance,
-            balance_after: lockCallCount === 1 ? senderBalance - 100 : receiverBalance + 95,
-            transaction_type: lockCallCount === 1 ? 'gift_sent' : 'gift_received',
-            reference_id: null,
-            description: null,
-            metadata: null,
+            amount: params[1],
+            balance_before: params[2],
+            balance_after: params[3],
+            transaction_type: params[4],
+            reference_id: params[5] ?? null,
+            description: params[6] ?? null,
+            metadata: params[7] ?? null,
             created_at: new Date().toISOString(),
           };
           return { rows: [mockEntry], rowCount: 1 };
