@@ -1558,29 +1558,6 @@ export const seasons = pgTable("seasons", {
   updatedAt: timestamp("updated_at", { withTimezone: true }),
 });
 
-export const seasonPasses = pgTable(
-  "season_passes",
-  {
-    id: uuidPk(),
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
-    seasonId: uuid("season_id")
-      .notNull()
-      .references(() => seasons.id, { onDelete: "cascade" }),
-    tier: text("tier").notNull().default("free"),
-    seasonXp: integer("season_xp").notNull().default(0),
-    seasonRank: integer("season_rank"),
-    purchasedAt: timestamp("purchased_at", { withTimezone: true }).defaultNow(),
-  },
-  (t) => ({
-    unique: uniqueIndex("season_passes_user_season_idx").on(
-      t.userId,
-      t.seasonId
-    ),
-  })
-);
-
 export const userSeasonPasses = pgTable(
   "user_season_passes",
   {
@@ -1628,31 +1605,6 @@ export const seasonPassMilestones = pgTable(
       t.seasonId,
       t.tier,
       t.sortOrder
-    ),
-  })
-);
-
-export const userSeasonPassClaims = pgTable(
-  "user_season_pass_claims",
-  {
-    id: uuidPk(),
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
-    seasonId: uuid("season_id")
-      .notNull()
-      .references(() => seasons.id, { onDelete: "cascade" }),
-    milestoneId: uuid("milestone_id")
-      .notNull()
-      .references(() => seasonPassMilestones.id, { onDelete: "cascade" }),
-    claimedAt: timestamp("claimed_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  },
-  (t) => ({
-    unique: uniqueIndex("user_season_pass_claims_user_milestone_idx").on(
-      t.userId,
-      t.milestoneId
     ),
   })
 );
@@ -3641,14 +3593,10 @@ export type UserQuestDeck = typeof userQuestDecks.$inferSelect;
 export type NewUserQuestDeck = typeof userQuestDecks.$inferInsert;
 export type Season = typeof seasons.$inferSelect;
 export type NewSeason = typeof seasons.$inferInsert;
-export type SeasonPass = typeof seasonPasses.$inferSelect;
-export type NewSeasonPass = typeof seasonPasses.$inferInsert;
 export type UserSeasonPass = typeof userSeasonPasses.$inferSelect;
 export type NewUserSeasonPass = typeof userSeasonPasses.$inferInsert;
 export type SeasonPassMilestone = typeof seasonPassMilestones.$inferSelect;
 export type NewSeasonPassMilestone = typeof seasonPassMilestones.$inferInsert;
-export type UserSeasonPassClaim = typeof userSeasonPassClaims.$inferSelect;
-export type NewUserSeasonPassClaim = typeof userSeasonPassClaims.$inferInsert;
 export type UserSeasonMilestoneClaim = typeof userSeasonMilestoneClaims.$inferSelect;
 export type NewUserSeasonMilestoneClaim = typeof userSeasonMilestoneClaims.$inferInsert;
 export type SeasonRankArchive = typeof seasonRankArchives.$inferSelect;
@@ -3925,10 +3873,8 @@ export const schema = {
   userQuestProgress,
   userQuestDecks,
   seasons,
-  seasonPasses,
   userSeasonPasses,
   seasonPassMilestones,
-  userSeasonPassClaims,
   userSeasonMilestoneClaims,
   seasonRankArchives,
   leaderboardSnapshots,

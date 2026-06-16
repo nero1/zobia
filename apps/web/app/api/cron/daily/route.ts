@@ -83,6 +83,27 @@ const INACTIVITY_TRIGGERS = [3, 7, 14, 30, 90] as const;
 const COMEBACK_COIN_AMOUNT = 200;
 
 // ---------------------------------------------------------------------------
+// CRON-GUILD-01: Single source of truth for all guild tier thresholds.
+// Used by both the demotion step (minMembers) and the promotion step (promotionXP, next).
+// ---------------------------------------------------------------------------
+
+const GUILD_TIERS = [
+  { name: 'bronze_1',   minMembers: 5,  promotionXP: 1_000,   next: 'bronze_2'   as string | null },
+  { name: 'bronze_2',   minMembers: 7,  promotionXP: 2_500,   next: 'bronze_3'   as string | null },
+  { name: 'bronze_3',   minMembers: 9,  promotionXP: 5_000,   next: 'silver_1'   as string | null },
+  { name: 'silver_1',   minMembers: 10, promotionXP: 10_000,  next: 'silver_2'   as string | null },
+  { name: 'silver_2',   minMembers: 12, promotionXP: 20_000,  next: 'silver_3'   as string | null },
+  { name: 'silver_3',   minMembers: 14, promotionXP: 35_000,  next: 'gold_1'     as string | null },
+  { name: 'gold_1',     minMembers: 15, promotionXP: 50_000,  next: 'gold_2'     as string | null },
+  { name: 'gold_2',     minMembers: 17, promotionXP: 75_000,  next: 'gold_3'     as string | null },
+  { name: 'gold_3',     minMembers: 19, promotionXP: 100_000, next: 'platinum_1' as string | null },
+  { name: 'platinum_1', minMembers: 20, promotionXP: 150_000, next: 'platinum_2' as string | null },
+  { name: 'platinum_2', minMembers: 22, promotionXP: 200_000, next: 'platinum_3' as string | null },
+  { name: 'platinum_3', minMembers: 24, promotionXP: 300_000, next: 'legend'     as string | null },
+  { name: 'legend',     minMembers: 25, promotionXP: Infinity, next: null },
+];
+
+// ---------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------
 
@@ -545,36 +566,11 @@ export const GET = async (req: NextRequest) => {
 
   // 10. Guild tier demotion — demote guilds below minimum after 7 days
   try {
-    // CRON-GUILD-01: single source of truth for all guild tier thresholds.
-    // minMembers = lower bound for demotion; promotionXP = XP needed to reach next tier.
-    // Ordering is ascending (bronze_1 first, legend last) so index math works.
-    const GUILD_TIERS = [
-      { name: 'bronze_1',   minMembers: 5,  promotionXP: 1_000 },
-      { name: 'bronze_2',   minMembers: 7,  promotionXP: 2_500 },
-      { name: 'bronze_3',   minMembers: 9,  promotionXP: 5_000 },
-      { name: 'silver_1',   minMembers: 10, promotionXP: 10_000 },
-      { name: 'silver_2',   minMembers: 12, promotionXP: 20_000 },
-      { name: 'silver_3',   minMembers: 14, promotionXP: 35_000 },
-      { name: 'gold_1',     minMembers: 15, promotionXP: 50_000 },
-      { name: 'gold_2',     minMembers: 17, promotionXP: 75_000 },
-      { name: 'gold_3',     minMembers: 19, promotionXP: 100_000 },
-      { name: 'platinum_1', minMembers: 20, promotionXP: 150_000 },
-      { name: 'platinum_2', minMembers: 22, promotionXP: 200_000 },
-      { name: 'platinum_3', minMembers: 24, promotionXP: 300_000 },
-      { name: 'legend',     minMembers: 25, promotionXP: Infinity },
-    ] as const;
-
-    type GuildTierName = typeof GUILD_TIERS[number]['name'];
+    // CRON-GUILD-01: uses module-level GUILD_TIERS constant (single source of truth).
+    type GuildTierName = (typeof GUILD_TIERS)[number]['name'];
 
     function getTierConfig(tier: string) {
       return GUILD_TIERS.find((t) => t.name === tier);
-    }
-
-    function getNextTier(tier: string): GuildTierName | null {
-      const idx = GUILD_TIERS.findIndex((t) => t.name === tier);
-      return idx >= 0 && idx < GUILD_TIERS.length - 1
-        ? GUILD_TIERS[idx + 1].name
-        : null;
     }
 
     // Demotion goes down one full tier group (e.g. any gold → silver_3).
@@ -657,9 +653,8 @@ export const GET = async (req: NextRequest) => {
   }
 
   // Guild tier promotion
-  // CRON-GUILD-01: uses the same GUILD_TIERS array defined in the demotion block above
-  // via the shared helper getNextTier() / getTierConfig(). This is declared separately
-  // in a new try block so a failure here doesn't affect demotion results.
+  // CRON-GUILD-01: uses module-level GUILD_TIERS constant (single source of truth).
+  // Kept in a separate try block so promotion failures don't affect demotion results.
   try {
     const { rows: promotionCandidates } = await db.query<{
       id: string; captain_id: string; tier: string; guild_xp: number;
@@ -667,28 +662,12 @@ export const GET = async (req: NextRequest) => {
       `SELECT id, captain_id, tier, guild_xp FROM guilds WHERE tier != 'legend' AND deleted_at IS NULL`
     );
 
-    // Re-declare GUILD_TIERS helpers in this block's scope (separate try block)
-    const GUILD_TIERS_PROMO = [
-      { name: 'bronze_1',   promotionXP: 1_000,   next: 'bronze_2'   },
-      { name: 'bronze_2',   promotionXP: 2_500,   next: 'bronze_3'   },
-      { name: 'bronze_3',   promotionXP: 5_000,   next: 'silver_1'   },
-      { name: 'silver_1',   promotionXP: 10_000,  next: 'silver_2'   },
-      { name: 'silver_2',   promotionXP: 20_000,  next: 'silver_3'   },
-      { name: 'silver_3',   promotionXP: 35_000,  next: 'gold_1'     },
-      { name: 'gold_1',     promotionXP: 50_000,  next: 'gold_2'     },
-      { name: 'gold_2',     promotionXP: 75_000,  next: 'gold_3'     },
-      { name: 'gold_3',     promotionXP: 100_000, next: 'platinum_1' },
-      { name: 'platinum_1', promotionXP: 150_000, next: 'platinum_2' },
-      { name: 'platinum_2', promotionXP: 200_000, next: 'platinum_3' },
-      { name: 'platinum_3', promotionXP: 300_000, next: 'legend'     },
-    ] as const;
-
-    const promoMap = new Map(GUILD_TIERS_PROMO.map((t) => [t.name, t]));
+    const promoMap = new Map(GUILD_TIERS.map((t) => [t.name, t]));
 
     let promoted = 0;
     for (const guild of promotionCandidates) {
-      const threshold = promoMap.get(guild.tier as typeof GUILD_TIERS_PROMO[number]['name']);
-      if (!threshold) continue;
+      const threshold = promoMap.get(guild.tier);
+      if (!threshold || !threshold.next) continue;
       if (guild.guild_xp >= threshold.promotionXP) {
         const fromTier = guild.tier;
         const toTier = threshold.next;

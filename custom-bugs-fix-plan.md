@@ -309,15 +309,21 @@
 
 ---
 
-### Fix 24 · SCHEMA-SEASON-01 — Audit and consolidate season-pass tables
+### Fix 24 · SCHEMA-SEASON-01 — Audit and consolidate season-pass tables ✅ DONE
 
-**Files to change:** `apps/web/lib/db/schema.ts`, multiple migration files, all route handlers referencing these tables
+**Files changed:**
+- `apps/web/lib/db/schema.ts` — removed `seasonPasses` and `userSeasonPassClaims` table definitions and their type exports
+- `apps/web/lib/seasons/seasonEngine.ts` — `getPassMilestones()` now LEFT JOINs `user_season_milestone_claims`; `claimPassMilestone()` now INSERTs into `user_season_milestone_claims` with correct `ON CONFLICT (user_id, season_id, milestone_id)`
+- `apps/web/lib/seasons/__tests__/seasonEngine.test.ts` — fixed test assertions that checked for `UPDATE season_passes` (wrong table) → `UPDATE user_season_passes`
+- `apps/web/app/(app)/seasons/page.tsx` — fixed `handleClaimMilestone` to call the correct endpoint `/api/seasons/${seasonId}/pass/milestones/${milestoneId}/claim` (was calling non-existent `/api/seasons/${seasonId}/pass/claim`)
+- `apps/web/app/api/seasons/[seasonId]/pass/gift/route.ts` — fixed stale comment
+- `apps/web/db/migrations/0005_schema_season_01.sql` — migrates orphaned `user_season_pass_claims` rows into `user_season_milestone_claims`, then drops `user_season_pass_claims` and `season_passes`
+- `apps/web/lib/i18n/locales/*.json` + `apps/expo/lib/i18n/locales/*.json` — added missing claim-flow i18n keys (`seasons.claimSuccess`, `seasons.alreadyClaimed`, `seasons.paidPassRequired`, `seasons.insufficientXp`, `seasons.claimError`) across all 8 locales for both apps
+- `docs/HOW-IT-WORKS.md` — documented canonical tables and why the legacy ones were dropped
 
-**Steps:**
-1. Map every read/write to `season_passes`, `user_season_passes`, `user_season_pass_claims`, `user_season_milestone_claims` across the entire codebase.
-2. Identify which two tables are the intended canonical tables and which are duplicates or legacy.
-3. Write a migration to move data, add necessary indexes, and DROP the redundant tables.
-4. Update all query references to use the canonical tables.
+**Canonical tables post-fix:**
+- `user_season_passes` — pass ownership, XP, rank
+- `user_season_milestone_claims` — milestone claim records (unique on user_id + season_id + milestone_id)
 
 ---
 

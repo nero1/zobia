@@ -374,8 +374,11 @@ export interface SeasonPass {
   userId: string;
   seasonId: string;
   season?: Season;
-  tier: 'free' | 'paid';
-  purchasedAt: string;
+  isPaid: boolean;
+  seasonXp: number;
+  seasonRank: number | null;
+  purchasedAt: string | null;
+  createdAt: string;
 }
 
 // ─── Gift ─────────────────────────────────────────────────────────────────────

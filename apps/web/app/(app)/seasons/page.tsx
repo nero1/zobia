@@ -644,12 +644,10 @@ export default function SeasonsPage() {
     try {
       const seasonId = data?.activeSeason?.id;
       if (!seasonId) return;
-      const res = await fetch(`/api/seasons/${seasonId}/pass/claim`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ milestoneId }),
-      });
+      const res = await fetch(
+        `/api/seasons/${seasonId}/pass/milestones/${milestoneId}/claim`,
+        { method: "POST", credentials: "include" }
+      );
       if (!res.ok) return;
       setPassData((prev) =>
         prev

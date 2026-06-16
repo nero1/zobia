@@ -426,10 +426,10 @@ export async function getPassMilestones(
   }>(
     `SELECT spm.id, spm.milestone_xp, spm.tier, spm.reward_type, spm.reward_value,
             spm.display_name, spm.sort_order,
-            uspc.claimed_at
+            usmc.claimed_at
      FROM season_pass_milestones spm
-     LEFT JOIN user_season_pass_claims uspc
-       ON uspc.milestone_id = spm.id AND uspc.user_id = $2
+     LEFT JOIN user_season_milestone_claims usmc
+       ON usmc.milestone_id = spm.id AND usmc.user_id = $2 AND usmc.season_id = $1
      WHERE spm.season_id = $1
      ORDER BY spm.sort_order ASC, spm.milestone_xp ASC`,
     [seasonId, userId]
@@ -501,9 +501,9 @@ export async function claimPassMilestone(
 
     // Attempt claim; RETURNING lets us detect whether the row was actually inserted
     const { rows: claimRows } = await client.query<{ user_id: string }>(
-      `INSERT INTO user_season_pass_claims (user_id, season_id, milestone_id)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (user_id, milestone_id) DO NOTHING
+      `INSERT INTO user_season_milestone_claims (user_id, season_id, milestone_id, claimed_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (user_id, season_id, milestone_id) DO NOTHING
        RETURNING user_id`,
       [userId, seasonId, milestoneId]
     );

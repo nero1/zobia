@@ -251,7 +251,7 @@ export async function transferCoins(
   txClient?: TransactionClient,
   senderTransactionType: CoinTransactionType = "gift_sent",
   recipientTransactionType: CoinTransactionType = "gift_received",
-  idempotencyRef?: string
+  idempotencyRef: string
 ): Promise<{ debit: CoinLedgerEntry; credit: CoinLedgerEntry; feeCoins: number }> {
   const gross = new Decimal(amount);
   if (!gross.isInteger() || gross.lte(0)) {
@@ -260,14 +260,7 @@ export async function transferCoins(
   const fee = gross.times(feePercent).dividedBy(100).floor();
   const net = gross.minus(fee);
 
-  if (!idempotencyRef) {
-    // Callers MUST supply a stable idempotencyRef for safe retries. A random
-    // UUID is used as a last-resort fallback so that tests and ad-hoc calls
-    // still work, but each invocation without a ref is effectively non-idempotent.
-    console.warn('[coins] transferCoins called without idempotencyRef — retries will not be safe');
-  }
-  const { randomUUID } = await import('crypto');
-  const transferRef = idempotencyRef ?? randomUUID();
+  const transferRef = idempotencyRef;
 
   const run = async (tx: TransactionClient) => {
     // Lock both rows in deterministic ascending UUID order to prevent deadlocks (BUG-20)
