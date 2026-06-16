@@ -332,7 +332,7 @@ export function buildCookieHeaders(
   secure = process.env.NODE_ENV === "production",
   refreshTtl: number = REFRESH_TOKEN_TTL_SECONDS
 ): { accessCookie: string; refreshCookie: string } {
-  const flags = `HttpOnly; Path=/; SameSite=Strict${secure ? "; Secure" : ""}`;
+  const flags = `HttpOnly; Path=/; SameSite=Lax${secure ? "; Secure" : ""}`;
 
   const accessCookie =
     `${ACCESS_TOKEN_COOKIE}=${tokens.accessToken}; ` +

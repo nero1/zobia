@@ -28,6 +28,7 @@ import {
   uniqueIndex,
   index,
   primaryKey,
+  check,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -163,7 +164,6 @@ export const users = pgTable("users", {
 
   // Streaks
   loginStreak: integer("login_streak").notNull().default(0),
-  loginStreakDays: integer("login_streak_days").notNull().default(0),
   longestStreak: integer("longest_streak").notNull().default(0),
   lastStreakBeforeBreak: integer("last_streak_before_break")
     .notNull()
@@ -192,7 +192,6 @@ export const users = pgTable("users", {
   // Cosmetics (FK to store_items established at DB level)
   activeCosmeticFrameId: uuid("active_cosmetic_frame_id"),
   activeCosmeticTitle: text("active_cosmetic_title"),
-  activeFrameId: text("active_frame_id"),
   hdSendEnabled: boolean("hd_send_enabled").notNull().default(false),
 
   // Push & notification preferences
@@ -2030,7 +2029,12 @@ export const giftItems = pgTable("gift_items", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
-// Migration 011 (db): new gift_types catalogue (separate from legacy gift_items)
+// Migration 011 (db): new gift_types catalogue (separate from legacy gift_items).
+// TODO: `gifts` currently FK-references `gift_items` (the 001 legacy catalogue),
+// not `gift_types`. To migrate: add a `gift_type_id uuid REFERENCES gift_types(id)`
+// column to `gifts`, backfill from `gift_items`, then drop `gift_item_id` in a
+// follow-up migration. Until then `gift_types` is a standalone catalogue and is
+// not referenced by any FK — treat as partially active / in-progress.
 export const giftTypes = pgTable("gift_types", {
   id: uuidPk(),
   name: text("name").notNull().unique(),
@@ -2456,6 +2460,11 @@ export const referrals = pgTable(
     unique: uniqueIndex("referrals_referrer_referred_idx").on(
       t.referrerId,
       t.referredId
+    ),
+    // Prevent self-referrals: a user cannot refer themselves.
+    noSelfReferral: check(
+      "referrals_no_self_referral",
+      sql`${t.referrerId} <> ${t.referredId}`
     ),
   })
 );
@@ -3043,6 +3052,12 @@ export const moderationAiEscalations = pgTable("moderation_ai_escalations", {
 // SECTION 10: Subscriptions & Plans
 // ---------------------------------------------------------------------------
 
+// `subscriptions` — tracks a user's *app plan* subscription (free/pro/etc).
+// One row per user (unique on user_id). Holds billing period, provider
+// subscription ID, and renewal/cancellation timestamps. Referenced by
+// `businessAccounts.subscription_id` for business-tier plan upgrades.
+// Do NOT confuse with `userSubscriptions` (payment-provider link) or
+// `roomSubscriptions` (paid access to a specific room).
 export const subscriptions = pgTable(
   "subscriptions",
   {
@@ -3096,6 +3111,12 @@ export const subscriptionPlans = pgTable(
   })
 );
 
+// `userSubscriptions` — links a user to an external payment-provider
+// subscription (e.g. Paystack recurring charge). One row per user (unique on
+// user_id). Tracks provider subscription ID, renewal date, and cancellation.
+// This is NOT a duplicate of `subscriptions`: `subscriptions` models the
+// plan-level entitlement; `userSubscriptions` models the payment-provider
+// contract that funds it. Both may coexist for the same user.
 // 001 canonical user_subscriptions (simple, with unique user_id)
 export const userSubscriptions = pgTable("user_subscriptions", {
   id: uuidPk(),
@@ -3461,6 +3482,9 @@ export const failedWebhooks = pgTable("failed_webhooks", {
   eventType: text("event_type"),
   payload: jsonb("payload"),
   error: text("error"),
+  retryCount: integer("retry_count").default(0).notNull(),
+  nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

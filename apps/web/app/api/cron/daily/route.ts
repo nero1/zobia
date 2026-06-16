@@ -250,7 +250,7 @@ export const GET = async (req: NextRequest) => {
                 'daily_login:' || id::text || ':' || CURRENT_DATE::text,
                 $1, NOW()
          FROM users
-         WHERE DATE(last_login_at AT TIME ZONE 'UTC') = CURRENT_DATE
+         WHERE last_login_date = CURRENT_DATE - 1
            AND deleted_at IS NULL
          ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
          RETURNING user_id
@@ -657,9 +657,14 @@ export const GET = async (req: NextRequest) => {
   // Kept in a separate try block so promotion failures don't affect demotion results.
   try {
     const { rows: promotionCandidates } = await db.query<{
-      id: string; captain_id: string; tier: string; guild_xp: number;
+      id: string; captain_id: string; tier: string; guild_xp: number; member_count: number;
     }>(
-      `SELECT id, captain_id, tier, guild_xp FROM guilds WHERE tier != 'legend' AND deleted_at IS NULL`
+      `SELECT g.id, g.captain_id, g.tier, g.guild_xp,
+              COUNT(gm.user_id)::int AS member_count
+       FROM guilds g
+       LEFT JOIN guild_members gm ON gm.guild_id = g.id AND gm.left_at IS NULL
+       WHERE g.tier != 'legend' AND g.deleted_at IS NULL
+       GROUP BY g.id, g.captain_id, g.tier, g.guild_xp`
     );
 
     const promoMap = new Map(GUILD_TIERS.map((t) => [t.name, t]));
@@ -668,7 +673,7 @@ export const GET = async (req: NextRequest) => {
     for (const guild of promotionCandidates) {
       const threshold = promoMap.get(guild.tier);
       if (!threshold || !threshold.next) continue;
-      if (guild.guild_xp >= threshold.promotionXP) {
+      if (guild.guild_xp >= threshold.promotionXP && guild.member_count >= threshold.minMembers) {
         const fromTier = guild.tier;
         const toTier = threshold.next;
         await db.query(
@@ -2171,7 +2176,7 @@ export const GET = async (req: NextRequest) => {
       for (let i = 0; i + 1 < unpairedAlliances.length; i += 2) {
         await db.query(
           `INSERT INTO alliance_wars (alliance_1_id, alliance_2_id, status, started_at)
-           SELECT $1, $2, 'active', NOW()
+           SELECT LEAST($1, $2), GREATEST($1, $2), 'active', NOW()
            WHERE NOT EXISTS (
              SELECT 1 FROM alliance_wars
              WHERE status = 'active'
@@ -2181,7 +2186,8 @@ export const GET = async (req: NextRequest) => {
                  alliance_1_id = $1 OR alliance_2_id = $1 OR
                  alliance_1_id = $2 OR alliance_2_id = $2
                )
-           )`,
+           )
+           ON CONFLICT DO NOTHING`,
           [unpairedAlliances[i].id, unpairedAlliances[i + 1].id]
         ).catch(() => {});
       }
@@ -2327,8 +2333,9 @@ export const GET = async (req: NextRequest) => {
               bank_name: string | null;
               account_number: string | null;
               account_name: string | null;
+              recipient_code: string | null;
             }>(
-              `SELECT bank_name, account_number, account_name
+              `SELECT bank_name, account_number, account_name, recipient_code
                FROM creator_bank_accounts
                WHERE creator_id = $1 AND is_primary = TRUE AND deleted_at IS NULL
                LIMIT 1`,
@@ -2339,6 +2346,7 @@ export const GET = async (req: NextRequest) => {
                   bank_name: bankRows[0].bank_name,
                   account_number: bankRows[0].account_number,
                   account_name: bankRows[0].account_name,
+                  recipient_code: bankRows[0].recipient_code,
                 }
               : null;
 
@@ -2543,7 +2551,7 @@ export const GET = async (req: NextRequest) => {
       `WITH closed AS (
          UPDATE rooms
          SET is_active = FALSE, status = 'closed', updated_at = NOW()
-         WHERE type = 'drop'
+         WHERE type IN ('drop', 'ceremony', 'event')
            AND drop_ends_at IS NOT NULL
            AND drop_ends_at < NOW()
            AND is_active = TRUE

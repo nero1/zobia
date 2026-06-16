@@ -38,6 +38,8 @@ const querySchema = z.object({
     .transform((v) => (v ? Math.min(parseInt(v, 10), 100) : 30)),
   /** Cursor: ISO-8601 timestamp of the oldest message from the previous page. */
   before: z.string().optional(),
+  /** Cursor: ID of the oldest message from the previous page (used with `before` for tie-breaking). */
+  beforeId: z.string().optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -119,7 +121,7 @@ export const GET = withAuth(
       }
 
       // 2. Parse query params
-      const { limit, before } = validateSearchParams(
+      const { limit, before, beforeId } = validateSearchParams(
         req.nextUrl.searchParams,
         querySchema
       );
@@ -141,7 +143,10 @@ export const GET = withAuth(
       let nextParam = 3;
 
       let cursorClause = "";
-      if (before) {
+      if (before && beforeId) {
+        cursorClause = `AND (m.created_at, m.id) < ($${nextParam++}, $${nextParam++})`;
+        params2.push(before, beforeId);
+      } else if (before) {
         cursorClause = `AND m.created_at < $${nextParam++}`;
         params2.push(before);
       }
@@ -203,10 +208,10 @@ export const GET = withAuth(
         console.error("[dm/[conversationId]:GET] Mark read failed", err)
       );
 
-      const nextCursor =
-        rows.length === limit
-          ? rows[rows.length - 1]?.created_at ?? null
-          : null;
+      const lastRow = rows.length === limit ? rows[rows.length - 1] : null;
+      const nextCursor = lastRow
+        ? { before: lastRow.created_at, beforeId: lastRow.id }
+        : null;
 
       // 5. Check if the OTHER participant can reply (sufficient coins)
       //    and fetch their profile for the conversation metadata object
@@ -270,7 +275,7 @@ export const GET = withAuth(
             ...row,
             reactions: row.reactions ? JSON.parse(row.reactions) : [],
           })),
-          nextCursor,
+          nextCursor: nextCursor ?? null,
           hasMore: nextCursor !== null,
           total: rows.length,
           recipientCanReply,

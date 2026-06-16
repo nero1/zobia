@@ -9,36 +9,38 @@
 
 ## Quick-Reference Index (30 issues)
 
-1. BUG-CRON-01 — Daily login XP awarded for wrong date (CURRENT_DATE at midnight cron)
-2. BUG-PAYOUT-01 — All automated weekly payouts go to DLQ (missing recipient_code in snapshot)
-3. BUG-SEASON-01 — Season rewards never distributed (season_rank never written during season)
-4. BUG-CRON-02 — Streak increment and login-XP award query different date populations
-5. BUG-SEC-01 — 2FA TOTP verify rate-limits by IP only; distributed brute-force possible
-6. BUG-SEC-02 — Webhook replay protection skipped when eventRef is null
-7. BUG-SEC-03 — room_subscription webhook inserts unvalidated roomId from metadata
-8. BUG-SEC-04 — CSRF cron exemption checks x-cron-secret; actual handler uses Authorization Bearer
-9. BUG-QUEST-01 — Quest progress can be triggered on quests not in user's assigned deck
-10. BUG-LB-01 — Leaderboard 'national' scope: snapshot lookup and rank count use different scope strings
-11. BUG-ROOM-01 — Ceremony rooms never auto-closed (cron only closes type='drop')
-12. BUG-GUILD-01 — Guild tier promotion does not check minimum member count
-13. BUG-GUILD-02 — Alliance war pairing allows reverse-order duplicates (A,B) + (B,A)
-14. BUG-SEASON-02 — Season pass sticker-pack reward inserts string pack name into UUID FK column
-15. BUG-DM-01 — DM message pagination uses single-column cursor (created_at only); skips/duplicates on same-ms timestamps
-16. BUG-SEASON-03 — Integer division in rank 4–10 season reward split discards coins
-17. BUG-QUEST-02 — Stale user_quest_decks rows accumulate indefinitely (never cleaned up)
-18. BUG-FRAUD-01 — Fraud audit log INSERT uses nil UUID as admin_id; FK violation silently swallowed
-19. BUG-PUSH-01 — Push ticket receipts: all tickets marked checked_at before polling Expo; partial failures strand tickets
-20. BUG-AUTH-01 — SameSite=Strict on cookie set, SameSite=Lax on cookie clear — inconsistency
-21. BUG-SCHEMA-01 — Duplicate loginStreak / loginStreakDays columns on users table; can diverge
-22. BUG-SCHEMA-02 — Duplicate activeCosmeticFrameId (UUID) / activeFrameId (text) on users table
-23. BUG-SCHEMA-03 — Two subscription tables (subscriptions + user_subscriptions) with no consistency guarantee
-24. BUG-SCHEMA-04 — giftTypes table is orphaned — no FK from gifts; second catalogue unusable
-25. BUG-SCHEMA-05 — failedWebhooks has no retry_count / resolved_at; logged but never retried
-26. BUG-SCHEMA-06 — No DB CHECK constraint preventing self-referral in referrals table
-27. BUG-PERF-01 — /api/messages/link-preview has no Redis caching; same URL fetched fresh every time
-28. BUG-PERF-02 — useAuth hook fetches /api/auth/me on every component mount; no shared cache
-29. BUG-SEC-05 — Markdown announcement sanitizer does not strip embedded HTML tags; XSS risk
-30. BUG-LOGIC-01 — War draw tie-breaking (challenger wins) undocumented; contradicts expected neutrality
+> **Status key:** ✅ Fixed · 🟡 Partial · 🔵 Not fixed
+
+1. ✅ BUG-CRON-01 — Daily login XP awarded for wrong date (CURRENT_DATE at midnight cron)
+2. ✅ BUG-PAYOUT-01 — All automated weekly payouts go to DLQ (missing recipient_code in snapshot)
+3. ✅ BUG-SEASON-01 — Season rewards never distributed (season_rank never written during season)
+4. ✅ BUG-CRON-02 — Streak increment and login-XP award query different date populations
+5. ✅ BUG-SEC-01 — 2FA TOTP verify rate-limits by IP only; distributed brute-force possible
+6. ✅ BUG-SEC-02 — Webhook replay protection skipped when eventRef is null
+7. ✅ BUG-SEC-03 — room_subscription webhook inserts unvalidated roomId from metadata
+8. ✅ BUG-SEC-04 — CSRF cron exemption checks x-cron-secret; actual handler uses Authorization Bearer
+9. ✅ BUG-QUEST-01 — Quest progress can be triggered on quests not in user's assigned deck
+10. ✅ BUG-LB-01 — Leaderboard 'national' scope: snapshot lookup and rank count use different scope strings
+11. ✅ BUG-ROOM-01 — Ceremony rooms never auto-closed (cron only closes type='drop')
+12. ✅ BUG-GUILD-01 — Guild tier promotion does not check minimum member count
+13. ✅ BUG-GUILD-02 — Alliance war pairing allows reverse-order duplicates (A,B) + (B,A)
+14. ✅ BUG-SEASON-02 — Season pass sticker-pack reward inserts string pack name into UUID FK column
+15. ✅ BUG-DM-01 — DM message pagination uses single-column cursor (created_at only); skips/duplicates on same-ms timestamps
+16. ✅ BUG-SEASON-03 — Integer division in rank 4–10 season reward split discards coins
+17. ✅ BUG-QUEST-02 — Stale user_quest_decks rows accumulate indefinitely (never cleaned up)
+18. ✅ BUG-FRAUD-01 — Fraud audit log INSERT uses nil UUID as admin_id; FK violation silently swallowed
+19. ✅ BUG-PUSH-01 — Push ticket receipts: all tickets marked checked_at before polling Expo; partial failures strand tickets
+20. ✅ BUG-AUTH-01 — SameSite=Strict on cookie set, SameSite=Lax on cookie clear — inconsistency
+21. ✅ BUG-SCHEMA-01 — Duplicate loginStreak / loginStreakDays columns on users table; can diverge
+22. ✅ BUG-SCHEMA-02 — Duplicate activeCosmeticFrameId (UUID) / activeFrameId (text) on users table
+23. ✅ BUG-SCHEMA-03 — Two subscription tables (subscriptions + user_subscriptions) with no consistency guarantee
+24. 🟡 BUG-SCHEMA-04 — giftTypes table is orphaned — no FK from gifts; second catalogue unusable (documented migration path; FK requires data backfill migration)
+25. ✅ BUG-SCHEMA-05 — failedWebhooks has no retry_count / resolved_at; logged but never retried
+26. ✅ BUG-SCHEMA-06 — No DB CHECK constraint preventing self-referral in referrals table
+27. ✅ BUG-PERF-01 — /api/messages/link-preview has no Redis caching; same URL fetched fresh every time
+28. ✅ BUG-PERF-02 — useAuth hook fetches /api/auth/me on every component mount; no shared cache
+29. ✅ BUG-SEC-05 — Markdown announcement sanitizer does not strip embedded HTML tags; XSS risk
+30. ✅ BUG-LOGIC-01 — War draw tie-breaking (challenger wins) undocumented; contradicts expected neutrality
 
 ---
 

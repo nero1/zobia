@@ -108,12 +108,28 @@ export async function processChargeSuccess(
 
     // VIP room subscription — activate room access
     if (itemType === "room_subscription") {
-      const { roomId, grossKobo: subGrossKobo, subscriptionDays = 30 } = metadata as unknown as {
+      let { roomId, grossKobo: subGrossKobo, subscriptionDays = 30 } = metadata as unknown as {
         roomId: string;
         grossKobo: number;
         subscriptionDays?: number;
       };
       const expiresAt = new Date(Date.now() + subscriptionDays * 24 * 60 * 60 * 1000).toISOString();
+
+      // Verify the room exists before inserting a subscription
+      if (roomId) {
+        const roomCheck = await tx.query(
+          `SELECT id FROM rooms WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+          [roomId]
+        );
+        if (!roomCheck.rows[0]) {
+          console.warn(`[paystackWebhook] Room ${roomId} not found, skipping room subscription`);
+          roomId = null as unknown as string;
+        }
+      }
+
+      if (!roomId) {
+        return;
+      }
 
       await tx.query(
         `INSERT INTO room_subscriptions
