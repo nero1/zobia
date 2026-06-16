@@ -138,8 +138,17 @@ export async function awardMilestoneStickers(
          RETURNING id`,
         [grant.packName, grant.packDescription]
       );
-      if (!newPack[0]) return []; // race condition — skip
-      packId = newPack[0].id;
+      if (!newPack[0]) {
+        // Concurrent insert won the race — fetch the row that was inserted instead.
+        const { rows: racedRows } = await db.query<{ id: string }>(
+          "SELECT id FROM sticker_packs WHERE name = $1 LIMIT 1",
+          [grant.packName]
+        );
+        if (!racedRows[0]) return []; // should never happen
+        packId = racedRows[0].id;
+      } else {
+        packId = newPack[0].id;
+      }
     }
 
     // Grant the pack to the user

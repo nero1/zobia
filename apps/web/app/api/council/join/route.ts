@@ -75,28 +75,36 @@ export const POST = withAuth(async (_req: NextRequest, { auth }) => {
 
     const cycleMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
 
-    // Close out any previous council seat for this user (handles re-joiners)
-    await db.query(
-      `UPDATE platform_council_members
-       SET left_at = NOW()
-       WHERE user_id = $1 AND left_at IS NULL`,
-      [userId]
-    );
+    await db.transaction(async (tx) => {
+      // Close out any previous council seat for this user (handles re-joiners)
+      await tx.query(
+        `UPDATE platform_council_members
+         SET left_at = NOW()
+         WHERE user_id = $1 AND left_at IS NULL`,
+        [userId]
+      );
 
-    // Insert the new membership
-    await db.query(
-      `INSERT INTO platform_council_members
-         (user_id, cycle_month, legacy_score, joined_at)
-       VALUES ($1, $2, $3, NOW())`,
-      [userId, cycleMonth, userRows[0].legacy_score]
-    );
+      // Insert the new membership — ON CONFLICT prevents duplicates from
+      // concurrent requests racing past the outer existence check (IMP-IDMP-01).
+      const { rows: insertRows } = await tx.query<{ id: string }>(
+        `INSERT INTO platform_council_members
+           (user_id, cycle_month, legacy_score, joined_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (user_id, cycle_month) DO NOTHING
+         RETURNING id`,
+        [userId, cycleMonth, userRows[0].legacy_score]
+      );
+      if (!insertRows[0]) {
+        throw conflict("You have already joined the Platform Council this cycle");
+      }
 
-    // Mark the invitation notification as read
-    await db.query(
-      `UPDATE notifications SET is_read = true
-       WHERE user_id = $1 AND type = 'council_invitation'`,
-      [userId]
-    ).catch(() => {});
+      // Mark the invitation notification as read
+      await tx.query(
+        `UPDATE notifications SET is_read = true
+         WHERE user_id = $1 AND type = 'council_invitation'`,
+        [userId]
+      );
+    });
 
     return NextResponse.json({
       success: true,

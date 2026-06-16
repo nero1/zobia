@@ -76,7 +76,7 @@ export default function LoginScreen() {
       // exposed in the URL (prevents leakage via browser history / server logs).
       const exchangeRes = await fetch(`${API_BASE_URL}/api/auth/mobile-token`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Origin': API_BASE_URL },
         body: JSON.stringify({ code }),
       });
 

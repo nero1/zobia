@@ -168,13 +168,14 @@ export const POST = withAuth(async (req: NextRequest, { auth }: { params: Record
       // Update user record
       await client.query(
         `UPDATE users
-         SET login_streak    = $1,
-             longest_streak  = $2,
-             last_login_date = $3,
-             last_login_at   = NOW(),
-             last_active_at  = NOW(),
-             xp_total        = $4,
-             updated_at      = NOW()
+         SET login_streak      = $1,
+             login_streak_days = $1,
+             longest_streak    = $2,
+             last_login_date   = $3,
+             last_login_at     = NOW(),
+             last_active_at    = NOW(),
+             xp_total          = $4,
+             updated_at        = NOW()
          WHERE id = $5`,
         [newStreak, newLongestStreak, today, newXpTotal, userId]
       );

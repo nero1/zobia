@@ -163,7 +163,7 @@ export function withAuth<TParams = Record<string, string>>(
       }
 
       // BUG-19: reject pre-auth tokens on all routes except the 2FA verify endpoint
-      if (payload.type === 'pre_auth' && !new URL(req.url).pathname.endsWith('/2fa/verify')) {
+      if (payload.type === 'pre_auth' && new URL(req.url).pathname !== '/api/auth/2fa/verify') {
         throw unauthorized("Pre-authentication token cannot be used for this endpoint");
       }
 

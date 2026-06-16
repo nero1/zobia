@@ -76,8 +76,19 @@ export const GET = withAuth(
       }
 
       const url = new URL(req.url);
-      const cursor = url.searchParams.get('cursor') ?? null;
+      // Composite cursor: "<iso-timestamp>_<uuid>" (IMP-CURSOR-01)
+      // Using (created_at, id) pair eliminates pagination gaps when messages
+      // share the same millisecond timestamp.
+      const cursorParam = url.searchParams.get('cursor') ?? null;
       const limit  = Math.min(parseInt(url.searchParams.get('limit') ?? `${DEFAULT_LIMIT}`), MAX_LIMIT);
+
+      let cursorTs: string | null = null;
+      let cursorId: string | null = null;
+      if (cursorParam) {
+        const sep = cursorParam.lastIndexOf('_');
+        cursorTs = sep > 0 ? cursorParam.slice(0, sep) : cursorParam;
+        cursorId = sep > 0 ? cursorParam.slice(sep + 1) : null;
+      }
 
       const { rows: messages } = await db.query<{
         id: string;
@@ -107,14 +118,23 @@ export const GET = withAuth(
          JOIN users u ON u.id = gm.sender_id
          WHERE gm.guild_id = $1
            AND gm.is_deleted = FALSE
-           ${cursor ? `AND gm.created_at < $3` : ''}
-         ORDER BY gm.created_at DESC
+           ${cursorTs && cursorId
+             ? `AND (gm.created_at, gm.id) < ($3::timestamptz, $4::uuid)`
+             : cursorTs
+               ? `AND gm.created_at < $3::timestamptz`
+               : ''}
+         ORDER BY gm.created_at DESC, gm.id DESC
          LIMIT $2`,
-        cursor ? [guildId, limit, cursor] : [guildId, limit]
+        cursorTs && cursorId
+          ? [guildId, limit, cursorTs, cursorId]
+          : cursorTs
+            ? [guildId, limit, cursorTs]
+            : [guildId, limit]
       );
 
-      const nextCursor = messages.length === limit
-        ? messages[messages.length - 1].created_at
+      const lastMsg = messages[messages.length - 1];
+      const nextCursor = messages.length === limit && lastMsg
+        ? `${lastMsg.created_at}_${lastMsg.id}`
         : null;
 
       return NextResponse.json({
@@ -176,11 +196,14 @@ export const POST = withAuth(
 
         // Award XP — 2 Social + 2 Competitor per message, capped daily
         const today = new Date().toISOString().slice(0, 10);
+        // Count only social-track entries (one per message) to avoid double-counting
+        // the concurrent competitor-track insert and firing at half the intended cap (BUG-XP-01).
         const { rows: xpCountRows } = await client.query<{ daily_count: string }>(
           `SELECT COUNT(*) AS daily_count
            FROM xp_ledger
            WHERE user_id = $1
              AND source = 'guild_chat'
+             AND track = 'social'
              AND created_at::date = $2::date`,
           [userId, today]
         );

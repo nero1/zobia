@@ -175,6 +175,24 @@ export async function clearQueue(): Promise<void> {
 }
 
 /**
+ * Reset all 'sending' messages back to 'pending'.
+ * Call this on app start / reconnect to recover messages that were in-flight
+ * when the tab crashed or the browser was closed mid-send.
+ */
+export async function resetSendingMessages(): Promise<number> {
+  const db = await openDB();
+  const store = txStore(db, "readwrite");
+  const index = store.index("status");
+  const sendingMessages = await promisify<PendingMessage[]>(
+    index.getAll(IDBKeyRange.only("sending"))
+  );
+  for (const msg of sendingMessages) {
+    await promisify(store.put({ ...msg, status: "pending" as PendingMessageStatus }));
+  }
+  return sendingMessages.length;
+}
+
+/**
  * Reset all 'failed' messages back to 'pending' so they are retried.
  * Returns the number of messages re-queued.
  */

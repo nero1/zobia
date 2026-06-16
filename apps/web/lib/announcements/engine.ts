@@ -161,6 +161,14 @@ export async function getActiveModalForUser(
     selected = eligible[Math.floor(Math.random() * eligible.length)];
   }
 
+  // Record that the user has seen this modal so serial mode advances correctly.
+  await db.query(
+    `INSERT INTO user_modal_views (user_id, modal_id, viewed_at)
+     VALUES ($1, $2, NOW())
+     ON CONFLICT (user_id, modal_id) DO UPDATE SET viewed_at = NOW()`,
+    [userId, selected.id]
+  ).catch(() => {});
+
   return {
     id: selected.id,
     title: selected.title,

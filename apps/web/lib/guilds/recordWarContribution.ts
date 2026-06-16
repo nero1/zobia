@@ -61,29 +61,29 @@ export async function recordWarContribution(
     // Calculate war points for this activity (doubled in Final Hour)
     const pts = calculateWarPoints(activity, status === 'final_hour');
 
-    // Upsert member contribution row
-    // If the user already has a row for this war, add to their existing points
-    await db.query(
-      `INSERT INTO war_contributions (war_id, user_id, guild_id, war_points, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, NOW(), NOW())
-       ON CONFLICT (war_id, user_id)
-       DO UPDATE SET war_points = war_contributions.war_points + EXCLUDED.war_points, updated_at = NOW()`,
-      [war_id, userId, guild_id, pts]
-    );
+    // Atomically upsert member contribution and update guild-level totals.
+    // Both writes must succeed together — a partial update would corrupt war scores.
+    await db.transaction(async (tx) => {
+      await tx.query(
+        `INSERT INTO war_contributions (war_id, user_id, guild_id, war_points, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, NOW(), NOW())
+         ON CONFLICT (war_id, user_id)
+         DO UPDATE SET war_points = war_contributions.war_points + EXCLUDED.war_points, updated_at = NOW()`,
+        [war_id, userId, guild_id, pts]
+      );
 
-    // Update the guild-level war points on the war row
-    // This is used by the leaderboard and war resolution logic
-    if (is_challenger) {
-      await db.query(
-        'UPDATE guild_wars SET challenger_points = challenger_points + $1, updated_at = NOW() WHERE id = $2',
-        [pts, war_id]
-      );
-    } else {
-      await db.query(
-        'UPDATE guild_wars SET defender_points = defender_points + $1, updated_at = NOW() WHERE id = $2',
-        [pts, war_id]
-      );
-    }
+      if (is_challenger) {
+        await tx.query(
+          'UPDATE guild_wars SET challenger_points = challenger_points + $1, updated_at = NOW() WHERE id = $2',
+          [pts, war_id]
+        );
+      } else {
+        await tx.query(
+          'UPDATE guild_wars SET defender_points = defender_points + $1, updated_at = NOW() WHERE id = $2',
+          [pts, war_id]
+        );
+      }
+    });
   } catch (err) {
     // Best-effort: log but do not throw
     // Prevents war contribution failures from breaking message sends, etc.
