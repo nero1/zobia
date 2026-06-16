@@ -273,13 +273,11 @@ export async function getCoinProducts(): Promise<CoinProduct[]> {
  *  2. Opens the Google Play billing sheet for the given product
  *  3. Global listener receives the result, verifies server-side, then resolves
  *
- * @param productId   - Play Store product ID (e.g. 'coins_starter')
- * @param packageName - App package name (e.g. 'com.zobia.app')
+ * @param productId - Play Store product ID (e.g. 'coins_starter')
  * @returns Purchase result with coins granted, or failure info
  */
 export async function purchaseCoins(
-  productId: string,
-  packageName = 'com.zobia.app'
+  productId: string
 ): Promise<{
   success: boolean;
   coins: number;
@@ -381,12 +379,10 @@ export async function getSubscriptionProducts(annual = false): Promise<Subscript
  *  2. Opens the Google Play billing sheet for the subscription product
  *  3. Global listener receives the result, verifies server-side, then resolves
  *
- * @param productId   - Subscription product ID (e.g. 'sub_plus_monthly')
- * @param packageName - App package name (e.g. 'com.zobia.app')
+ * @param productId - Subscription product ID (e.g. 'sub_plus_monthly')
  */
 export async function purchaseSubscription(
-  productId: string,
-  packageName = 'com.zobia.app'
+  productId: string
 ): Promise<{
   success: boolean;
   plan?: string;

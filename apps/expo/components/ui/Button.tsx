@@ -88,7 +88,7 @@ export function Button({
 
   // Build variant-dependent styles dynamically so we can factor in dark mode.
   const variantContainer = getVariantContainerStyle(variant, isDark, isDisabled);
-  const variantLabel = getVariantLabelStyle(variant, isDark, isDisabled);
+  const variantLabel = getVariantLabelStyle(variant, isDark);
   const spinnerColor = variant === 'primary' || variant === 'danger'
     ? colors.neutral[0]
     : colors.brand.blue;
@@ -155,7 +155,6 @@ function getVariantContainerStyle(
 function getVariantLabelStyle(
   variant: ButtonVariant,
   isDark: boolean,
-  disabled: boolean | undefined,
 ): TextStyle {
   switch (variant) {
     case 'primary':

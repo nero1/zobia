@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity,
   ActivityIndicator, RefreshControl, Alert, Modal,
@@ -66,7 +66,7 @@ export default function ClassroomScreen() {
   const [moduleResources, setModuleResources] = useState("");
   const [savingModule, setSavingModule] = useState(false);
 
-  async function loadData() {
+  const loadData = useCallback(async () => {
     if (!roomId) return;
     const token = storage.getString("authToken");
     const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
@@ -93,7 +93,7 @@ export default function ClassroomScreen() {
 
     setLoading(false);
     setRefreshing(false);
-  }
+  }, [roomId]);
 
   async function handleAddModule() {
     if (!moduleTitle.trim()) {
@@ -188,7 +188,7 @@ export default function ClassroomScreen() {
     }
   }
 
-  useEffect(() => { void loadData(); }, [roomId]);
+  useEffect(() => { void loadData(); }, [loadData]);
 
   const isCreator = currentUserId != null && room != null && currentUserId === room.creator_id;
 
@@ -286,7 +286,7 @@ export default function ClassroomScreen() {
             <TouchableOpacity
               key={quiz.id}
               className="bg-white rounded-xl p-4 mb-3 shadow-sm"
-              onPress={() => enrolment && router.push(`/classroom/quiz/${quiz.id}` as any)}
+              onPress={() => enrolment && router.push(`/classroom/quiz/${quiz.id}` as Parameters<typeof router.push>[0])}
               disabled={!enrolment}
             >
               <View className="flex-row items-start justify-between">

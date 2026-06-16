@@ -13,7 +13,6 @@ import React, {
   createContext,
   useCallback,
   useContext,
-  useRef,
   useState,
 } from 'react';
 import {
@@ -35,7 +34,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
-import { useAuth } from '@/lib/auth/hooks';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 
@@ -199,7 +197,6 @@ export function AdminSwipeDrawer({ children }: AdminSwipeDrawerProps) {
   const backdropOpacity = useSharedValue(0);
   const isDrawerOpen = useSharedValue(false);
   const canHandle = useSharedValue(false);
-  const { isDark } = useTheme();
 
   const openDrawer = useCallback(() => {
     translateX.value = withSpring(0, SPRING);

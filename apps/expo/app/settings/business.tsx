@@ -14,7 +14,6 @@ import React, { useState } from 'react';
 import {
   Alert,
   Linking,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,

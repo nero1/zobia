@@ -22,8 +22,6 @@ import { colors } from '@/lib/theme/colors';
 // Types
 // ---------------------------------------------------------------------------
 
-type BannerSeverity = 'info' | 'warning' | 'success';
-
 interface BannerData {
   id: string;
   content: string;
@@ -49,12 +47,6 @@ function stripHtml(html: string): string {
 function getBannerDismissKey(id: string): string {
   return `announcement_banner_dismissed_${id}`;
 }
-
-const SEVERITY_COLORS: Record<BannerSeverity, string> = {
-  info: colors.brand.blue,
-  warning: colors.brand.gold,
-  success: colors.brand.green,
-};
 
 // ---------------------------------------------------------------------------
 // Component

@@ -14,9 +14,7 @@
 import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
-  FlatList,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,

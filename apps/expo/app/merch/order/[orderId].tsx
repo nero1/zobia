@@ -8,7 +8,6 @@
 import React from 'react';
 import {
   ActivityIndicator,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -94,7 +93,7 @@ async function confirmReceipt(orderId: string): Promise<void> {
 
 export default function OrderTrackingScreen() {
   const { orderId } = useLocalSearchParams<{ orderId: string }>();
-  const { isDark, colors: themeColors } = useTheme();
+  const { isDark } = useTheme();
   const router = useRouter();
   const queryClient = useQueryClient();
 

@@ -19,7 +19,7 @@ interface StickerPack {
   coin_price: number;
   unlock_condition: string | null;
   unlocked: boolean;
-  stickers?: Array<{ id: string; name: string; emoji: string }>;
+  stickers?: { id: string; name: string; emoji: string }[];
 }
 
 async function fetchStickerPacks(): Promise<StickerPack[]> {

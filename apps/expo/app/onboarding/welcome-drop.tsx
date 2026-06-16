@@ -66,18 +66,20 @@ export default function WelcomeDrop() {
   /** CTA fade in last */
   const ctaOpacity = useSharedValue(0);
 
+  const { username, emoji, city, vibeAnswers: vibeAnswersParam, birthYear } = params;
+
   useEffect(() => {
     // Mark onboarding complete in MMKV.
     setItem(STORE_KEYS.ONBOARDING_COMPLETE, true);
 
     // Persist onboarding data to the server.
-    const vibeAnswers = params.vibeAnswers ? JSON.parse(params.vibeAnswers) : {};
+    const vibeAnswers = vibeAnswersParam ? JSON.parse(vibeAnswersParam) : {};
     apiClient
       .post('/onboarding/complete', {
-        username: params.username,
-        avatar_emoji: params.emoji,
-        city: params.city,
-        birth_year: parseInt(params.birthYear ?? '0', 10),
+        username: username,
+        avatar_emoji: emoji,
+        city: city,
+        birth_year: parseInt(birthYear ?? '0', 10),
         vibe_answers: vibeAnswers,
       })
       .catch(() => {
@@ -100,7 +102,7 @@ export default function WelcomeDrop() {
       1000,
       withTiming(1, { duration: 400, easing: Easing.out(Easing.quad) }),
     );
-  }, [avatarScale, xpOpacity, xpScale, ctaOpacity]);
+  }, [avatarScale, xpOpacity, xpScale, ctaOpacity, username, emoji, city, vibeAnswersParam, birthYear]);
 
   const avatarAnimStyle = useAnimatedStyle(() => ({
     transform: [{ scale: avatarScale.value }],

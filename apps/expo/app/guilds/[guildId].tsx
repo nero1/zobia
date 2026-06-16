@@ -16,9 +16,7 @@
 import React, { useCallback, useEffect, useRef } from 'react';
 import { Animated } from 'react-native';
 import {
-  ActivityIndicator,
   Alert,
-  FlatList,
   Pressable,
   SectionList,
   StyleSheet,
@@ -291,7 +289,7 @@ export default function GuildDetailScreen() {
           { title: 'members', data: guild.members },
           { title: 'wars', data: guild.warHistory },
         ]}
-        keyExtractor={(item, idx) =>
+        keyExtractor={(item) =>
           'userId' in item ? item.userId : (item as WarRecord).warId
         }
         stickySectionHeadersEnabled={false}

@@ -21,7 +21,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
-  FlatList,
   Pressable,
   RefreshControl,
   ScrollView,

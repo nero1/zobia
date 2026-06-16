@@ -115,7 +115,7 @@ function UserRow({ user, onSelect }: { user: SearchUser | Friend; onSelect: () =
  */
 export default function NewDMScreen() {
   const router = useRouter();
-  const { colors: themeColors, isDark } = useTheme();
+  const { colors: themeColors } = useTheme();
 
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');

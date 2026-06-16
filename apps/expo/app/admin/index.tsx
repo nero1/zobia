@@ -27,7 +27,7 @@ function StatCard({
   return (
     <TouchableOpacity
       className={`flex-1 m-2 p-4 rounded-xl ${color}`}
-      onPress={() => router.push(route as any)}
+      onPress={() => router.push(route as Parameters<typeof router.push>[0])}
     >
       <Text className="text-white text-2xl font-bold">{value}</Text>
       <Text className="text-white/80 text-sm mt-1">{title}</Text>
@@ -112,7 +112,7 @@ export default function AdminOverviewScreen() {
           <TouchableOpacity
             key={action.route}
             className="flex-row items-center bg-white rounded-xl px-4 py-3 mb-2 shadow-sm"
-            onPress={() => router.push(action.route as any)}
+            onPress={() => router.push(action.route as Parameters<typeof router.push>[0])}
           >
             <Text className="text-xl mr-3">{action.icon}</Text>
             <Text className="text-gray-800 font-medium">{action.label}</Text>

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View, Text, FlatList, TextInput, TouchableOpacity,
   ActivityIndicator, RefreshControl, Alert, Modal, Pressable,
@@ -182,7 +182,7 @@ export default function AdminUsersScreen() {
     onConfirm: (reason: string) => void;
   }>({ visible: false, title: "", onConfirm: () => {} });
 
-  async function loadUsers(reset = false) {
+  const loadUsers = useCallback(async (reset = false) => {
     const token = storage.getString("authToken");
     const params = new URLSearchParams({ limit: "30" });
     if (search) params.set("search", search);
@@ -199,9 +199,9 @@ export default function AdminUsersScreen() {
     setCursor(data.data?.nextCursor ?? null);
     setLoading(false);
     setRefreshing(false);
-  }
+  }, [search, cursor]);
 
-  useEffect(() => { void loadUsers(true); }, [search]);
+  useEffect(() => { void loadUsers(true); }, [loadUsers]);
 
   function promptReason(title: string, onConfirm: (reason: string) => void) {
     setReasonModal({ visible: true, title, onConfirm });

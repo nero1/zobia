@@ -32,7 +32,6 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useTranslation } from 'react-i18next';
 import { Screen } from '@/components/ui/Screen';
 import { RoomCard, type RoomCardData } from '@/components/rooms/RoomCard';
 import { colors } from '@/lib/theme/colors';
@@ -64,7 +63,7 @@ const TABS: DiscoveryTabConfig[] = [
   { key: 'friends', label: 'friends' },
 ];
 
-const FILTER_CHIPS: Array<{ key: FilterChip; label: string }> = [
+const FILTER_CHIPS: { key: FilterChip; label: string }[] = [
   { key: 'all', label: 'all' },
   { key: 'free_open', label: 'free' },
   { key: 'vip', label: 'vip' },
@@ -250,7 +249,6 @@ function useRoomsQuery(
  */
 export default function RoomsScreen() {
   const router = useRouter();
-  const { t } = useTranslation();
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<DiscoveryTab>('trending');
   const [typeFilter, setTypeFilter] = useState<FilterChip>('all');

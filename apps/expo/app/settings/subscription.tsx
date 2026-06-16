@@ -19,7 +19,6 @@ import {
   Linking,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Switch,
   Text,
@@ -350,7 +349,7 @@ export default function SubscriptionScreen() {
         } else if (result.error && result.error !== 'Purchase cancelled') {
           Alert.alert('Subscription Failed', result.error);
         }
-      } catch (err) {
+      } catch {
         Alert.alert('Error', 'An unexpected error occurred. Please try again.');
       } finally {
         setSubscribingTier(null);

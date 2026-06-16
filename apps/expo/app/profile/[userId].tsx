@@ -15,7 +15,7 @@
  *  - Creator card if is_creator
  */
 
-import React, { useState } from 'react';
+import React from 'react';
 import {
   Alert,
   Pressable,
