@@ -199,7 +199,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       undefined, // no external txClient — transferCoins creates its own transaction
       "gift_sent",
       "gift_received",
-      idempKey ?? undefined
+      idempKey
     ).catch(async (err) => {
       // Transfer failed — remove the idempotency key so a legitimate retry can proceed
       if (idempKey) await redis.del(idempKey).catch(() => {});

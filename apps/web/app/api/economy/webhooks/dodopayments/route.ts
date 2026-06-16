@@ -245,7 +245,11 @@ async function processPaymentSucceeded(
 
     // Handle subscription activation (PRD §3)
     if (itemType === "subscription") {
-      const planName = metadata.planName ?? "pro";
+      const VALID_PLANS = ["plus", "pro", "max"] as const;
+      const rawPlanName = metadata.planName ?? "pro";
+      const planName = VALID_PLANS.includes(rawPlanName as (typeof VALID_PLANS)[number])
+        ? rawPlanName
+        : "pro";
 
       // Write to subscriptions (canonical table) — B-12
       await tx.query(

@@ -124,6 +124,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               headers: {
                 'Content-Type': 'application/json',
                 'X-Refresh-Token': storedRefreshToken,
+                'Origin': env.API_BASE_URL,
               },
             });
             if (!resp.ok) return; // refresh failed — clear state, require re-login

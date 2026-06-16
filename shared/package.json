@@ -5,6 +5,15 @@
   "main": "./types/index.ts",
   "types": "./types/index.ts",
   "exports": {
-    "./types": "./types/index.ts"
+    "./types": "./types/index.ts",
+    "./schemas": "./schemas/index.ts",
+    "./schemas/auth": "./schemas/api/auth.ts",
+    "./schemas/coins": "./schemas/api/coins.ts",
+    "./schemas/user": "./schemas/api/user.ts",
+    "./schemas/notifications": "./schemas/api/notifications.ts",
+    "./schemas/economy": "./schemas/api/economy.ts"
+  },
+  "peerDependencies": {
+    "zod": ">=3.0.0"
   }
 }

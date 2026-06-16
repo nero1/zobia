@@ -32,12 +32,14 @@ export class ApiError extends Error {
    * @param code    - Machine-readable error code (e.g. "NOT_FOUND")
    * @param message - Human-readable description
    * @param details - Optional additional detail (not sent to client in production)
+   * @param headers - Optional response headers to include (e.g. Retry-After)
    */
   constructor(
     public readonly status: number,
     public readonly code: string,
     message: string,
-    public readonly details?: unknown
+    public readonly details?: unknown,
+    public readonly headers?: Record<string, string>
   ) {
     super(message);
     this.name = "ApiError";
@@ -145,7 +147,13 @@ export function handleApiError(error: unknown): NextResponse<ErrorResponseBody> 
     const body: ErrorResponseBody = {
       error: { code: error.code, message: error.message },
     };
-    return NextResponse.json(body, { status: error.status });
+    const res = NextResponse.json(body, { status: error.status });
+    if (error.headers) {
+      for (const [key, value] of Object.entries(error.headers)) {
+        res.headers.set(key, value);
+      }
+    }
+    return res;
   }
 
   // Zod validation error

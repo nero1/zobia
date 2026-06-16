@@ -1,10 +1,13 @@
 /**
  * lib/notifications/push.ts
  *
- * Expo Push Notification sender.
- * Sends push notifications via the Expo Push API.
- * Reads push tokens from user_push_tokens table.
- * Fire-and-forget for non-critical notifications.
+ * Expo Push Notification sender — two-stage delivery with receipt polling.
+ *
+ * Stage 1: POST to /v2/push/send → receive push ticket IDs.
+ *          Tickets are persisted in push_tickets for deferred receipt polling.
+ * Stage 2: (PUSH-RECEIPT-01) poll /v2/push/getReceipts with ticket IDs
+ *          (at least 15 minutes after stage 1) to confirm delivery or detect
+ *          permanent failures (DeviceNotRegistered, MessageTooBig, etc.).
  */
 
 import { db } from "@/lib/db";
@@ -14,8 +17,11 @@ import { db } from "@/lib/db";
 // ---------------------------------------------------------------------------
 
 const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
+const EXPO_RECEIPTS_URL = "https://exp.host/--/api/v2/push/getReceipts";
 const EXPO_TOKEN_PATTERN = /^ExponentPushToken\[.+\]$/;
 const EXPO_BATCH_SIZE = 100;
+/** Minimum age for a pending ticket before we poll its receipt (Expo SLA). */
+const RECEIPT_POLL_DELAY_MS = 15 * 60 * 1000; // 15 minutes
 
 // ---------------------------------------------------------------------------
 // Types
@@ -82,6 +88,16 @@ interface ExpoPushResponse {
   data: ExpoTicket[];
 }
 
+interface ExpoReceipt {
+  status: "ok" | "error";
+  message?: string;
+  details?: { error?: string };
+}
+
+interface ExpoReceiptsResponse {
+  data: Record<string, ExpoReceipt>;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -142,14 +158,16 @@ function isValidExpoToken(token: string): boolean {
 
 /**
  * Send a batch of Expo push messages. Handles up to 100 per request.
- * Returns a list of tokens that Expo flagged as DeviceNotRegistered
- * so callers can clean them from the DB.
  *
- * @param messages        - Array of { message, token } pairs (max 100)
+ * After a successful send, persists ticket IDs in push_tickets for stage 2
+ * receipt polling. Returns the set of tokens that Expo flagged as
+ * DeviceNotRegistered at stage 1 so callers can clean them from the DB.
+ *
+ * @param messages - Array of { msg, token, userId } tuples (max 100)
  * @returns Set of stale tokens that should be removed from user_push_tokens
  */
 async function sendExpoBatch(
-  messages: Array<{ msg: ExpoMessage; token: string }>
+  messages: Array<{ msg: ExpoMessage; token: string; userId: string }>
 ): Promise<Set<string>> {
   const staleTokens = new Set<string>();
   if (messages.length === 0) return staleTokens;
@@ -171,13 +189,17 @@ async function sendExpoBatch(
 
     const result = (await response.json()) as ExpoPushResponse;
 
-    // Inspect per-message tickets; collect DeviceNotRegistered tokens for cleanup
+    // Collect ticket IDs to persist for stage 2 receipt polling
+    const ticketsToSave: Array<{ userId: string; ticketId: string }> = [];
+
     for (let i = 0; i < (result.data ?? []).length; i++) {
       const ticket = result.data[i];
-      if (ticket.status === "error") {
+      if (ticket.status === "ok" && ticket.id) {
+        // Stage 1 ok — save ticket ID for receipt polling
+        ticketsToSave.push({ userId: messages[i].userId, ticketId: ticket.id });
+      } else if (ticket.status === "error") {
         const errCode = ticket.details?.error ?? "";
         if (errCode === "DeviceNotRegistered") {
-          // Mark this token for removal — app uninstalled or token expired
           staleTokens.add(messages[i].token);
         } else {
           console.error(
@@ -185,6 +207,23 @@ async function sendExpoBatch(
           );
         }
       }
+    }
+
+    // Persist tickets for stage 2 polling (best-effort, don't fail the send)
+    if (ticketsToSave.length > 0) {
+      const values = ticketsToSave
+        .map((_, idx) => `($${idx * 2 + 1}, $${idx * 2 + 2})`)
+        .join(", ");
+      const params = ticketsToSave.flatMap((t) => [t.userId, t.ticketId]);
+      await db
+        .query(
+          `INSERT INTO push_tickets (user_id, ticket_id) VALUES ${values}
+           ON CONFLICT (ticket_id) DO NOTHING`,
+          params
+        )
+        .catch((err) =>
+          console.error("[push] Failed to persist push tickets:", err)
+        );
     }
   } catch (err) {
     console.error("[push] Failed to send Expo push batch:", err);
@@ -214,6 +253,135 @@ async function purgeStaleTokens(tokens: Set<string>): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Stage 2: Receipt polling (PUSH-RECEIPT-01)
+// ---------------------------------------------------------------------------
+
+/**
+ * Poll Expo's /v2/push/getReceipts for all pending push tickets older than
+ * RECEIPT_POLL_DELAY_MS (15 minutes).
+ *
+ * Designed to be called from the daily CRON job. Processes tickets in
+ * batches of 100. On receipt error:
+ * - DeviceNotRegistered → purge token, mark ticket resolved
+ * - Other errors → mark ticket as error with the error code
+ * - ok → mark ticket resolved
+ *
+ * @returns Count of tickets resolved in this run
+ */
+export async function pollPushReceipts(): Promise<number> {
+  let totalResolved = 0;
+
+  try {
+    // Fetch pending tickets old enough for Expo to have a receipt
+    const { rows: pendingTickets } = await db.query<{
+      id: string;
+      user_id: string;
+      ticket_id: string;
+    }>(
+      `SELECT id, user_id, ticket_id
+       FROM push_tickets
+       WHERE status = 'pending'
+         AND created_at < NOW() - INTERVAL '15 minutes'
+       ORDER BY created_at ASC
+       LIMIT 1000`
+    );
+
+    if (pendingTickets.length === 0) return 0;
+
+    // Mark all as checked now to prevent duplicate polls on concurrent runs
+    const pendingIds = pendingTickets.map((r) => r.id);
+    await db.query(
+      `UPDATE push_tickets SET checked_at = NOW() WHERE id = ANY($1)`,
+      [pendingIds]
+    );
+
+    // Poll in batches of 100 (Expo limit)
+    for (let i = 0; i < pendingTickets.length; i += EXPO_BATCH_SIZE) {
+      const batch = pendingTickets.slice(i, i + EXPO_BATCH_SIZE);
+      const ticketIds = batch.map((r) => r.ticket_id);
+
+      try {
+        const response = await fetch(EXPO_RECEIPTS_URL, {
+          method: "POST",
+          headers: buildExpoHeaders(),
+          body: JSON.stringify({ ids: ticketIds }),
+        });
+
+        if (!response.ok) {
+          console.error(
+            `[push/receipts] Expo receipts API returned ${response.status}`
+          );
+          continue;
+        }
+
+        const result = (await response.json()) as ExpoReceiptsResponse;
+        const staleTokens = new Set<string>();
+
+        for (const ticket of batch) {
+          const receipt = result.data?.[ticket.ticket_id];
+          if (!receipt) continue;
+
+          if (receipt.status === "ok") {
+            await db.query(
+              `UPDATE push_tickets
+               SET status = 'ok', resolved_at = NOW()
+               WHERE id = $1`,
+              [ticket.id]
+            );
+            totalResolved++;
+          } else if (receipt.status === "error") {
+            const errCode = receipt.details?.error ?? "unknown";
+
+            if (errCode === "DeviceNotRegistered") {
+              // Token is dead — purge from user_push_tokens
+              const { rows: tokenRows } = await db.query<{ token: string }>(
+                `SELECT token FROM user_push_tokens WHERE user_id = $1`,
+                [ticket.user_id]
+              );
+              for (const { token } of tokenRows) {
+                staleTokens.add(token);
+              }
+
+              await db.query(
+                `UPDATE push_tickets
+                 SET status = 'device_not_registered',
+                     error_code = $2,
+                     resolved_at = NOW()
+                 WHERE id = $1`,
+                [ticket.id, errCode]
+              );
+            } else {
+              await db.query(
+                `UPDATE push_tickets
+                 SET status = 'error',
+                     error_code = $2,
+                     resolved_at = NOW()
+                 WHERE id = $1`,
+                [ticket.id, errCode]
+              );
+              console.error(
+                `[push/receipts] Delivery error for ticket ${ticket.ticket_id}: ${receipt.message ?? "unknown"} (${errCode})`
+              );
+            }
+            totalResolved++;
+          }
+        }
+
+        if (staleTokens.size > 0) {
+          await purgeStaleTokens(staleTokens);
+        }
+      } catch (batchErr) {
+        console.error("[push/receipts] Failed to process receipt batch:", batchErr);
+      }
+    }
+  } catch (err) {
+    console.error("[push/receipts] pollPushReceipts failed:", err);
+  }
+
+  return totalResolved;
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -223,6 +391,9 @@ async function purgeStaleTokens(tokens: Set<string>): Promise<void> {
  * Looks up the user's push token from user_push_tokens and sends the
  * notification via the Expo Push API. Fire-and-forget: errors are
  * logged but never thrown.
+ *
+ * Stage 1 ticket IDs are persisted to push_tickets for deferred receipt
+ * polling (stage 2).
  *
  * @param userId  - Target user UUID
  * @param title   - Notification title
@@ -255,6 +426,7 @@ export async function sendPushNotification(
       .filter((r) => isValidExpoToken(r.token))
       .map((r) => ({
         token: r.token,
+        userId,
         msg: {
           to: r.token,
           title,
@@ -282,9 +454,8 @@ export async function sendPushNotification(
  * tokens, and sends up to 100 messages per Expo API request.
  * Errors are logged but never thrown.
  *
- * Each notification entry can specify its own priority and badge. When
- * priority is `low` or `silent`, the notification is delivered without
- * sound (badge-only display on device).
+ * Stage 1 ticket IDs are persisted to push_tickets for deferred receipt
+ * polling (stage 2).
  *
  * @param notifications - Array of notification payloads per user
  */
@@ -319,13 +490,14 @@ export async function sendPushNotificationBatch(
     }
 
     // Build one Expo message per (notification × device token) pair
-    const messages: Array<{ msg: ExpoMessage; token: string }> = [];
+    const messages: Array<{ msg: ExpoMessage; token: string; userId: string }> = [];
     for (const notification of notifications) {
       const tokens = tokenMap.get(notification.userId) ?? [];
       for (const token of tokens) {
         const { sound, priority } = resolveExpoPriority(notification.priority);
         messages.push({
           token,
+          userId: notification.userId,
           msg: {
             to: token,
             title: notification.title,

@@ -38,6 +38,7 @@ function buildCsp(nonce: string): string {
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "worker-src 'self'",
     "font-src 'self' https://fonts.gstatic.com",
     "img-src 'self' data: blob: https:",
     "connect-src 'self' https: wss:",
@@ -179,11 +180,16 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   const nonce = Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString("base64");
   const csp = buildCsp(nonce);
 
+  // Generate a per-request trace ID for observability (OBS-TRACE-01).
+  const requestId = crypto.randomUUID();
+
   // Helper: wrap any NextResponse.next() with the CSP header and nonce.
   function withCsp(requestHeaders: Headers): NextResponse {
     requestHeaders.set("x-nonce", nonce);
+    requestHeaders.set("x-request-id", requestId);
     const res = NextResponse.next({ request: { headers: requestHeaders } });
     res.headers.set("Content-Security-Policy", csp);
+    res.headers.set("X-Request-ID", requestId);
     // FIX-M02: Report-To header activates the Reporting API for modern browsers.
     // Without this, the CSP `report-to csp-endpoint` directive is silently ignored.
     res.headers.set(
@@ -199,6 +205,10 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     res.headers.set("Cross-Origin-Resource-Policy", "same-origin");
     res.headers.set("Cross-Origin-Embedder-Policy", "credentialless");
     res.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
+    // SEC-HSTS-01: HSTS in production only (non-prod may be HTTP).
+    if (process.env.NODE_ENV === "production") {
+      res.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload");
+    }
     return res;
   }
 
