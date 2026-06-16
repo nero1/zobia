@@ -1,11 +1,11 @@
-# Zobia Social — Bug Fix Plan
+# Zobia Social — Bug Fix Plan (Rev 2)
 
-**Generated:** June 16, 2026 · 5:11 AM UTC  
-**Based on:** `custom-bugs-report.md` (same analysis session)
+**Generated:** June 16, 2026 · 5:36 AM UTC  
+**Based on:** `custom-bugs-report.md` Rev 2 — 24 bugs + 6 quality improvements  
 
 > **IMPORTANT: Do NOT begin any fix until the report has been reviewed and approved.**
 
-Fixes are grouped by priority tier (P0 → P2) and then by theme. Each task is self-contained unless a dependency is noted. Estimate times assume one developer familiar with the codebase.
+Fixes are grouped by priority tier (P0 → P2) then by theme. Each task is self-contained unless a dependency is noted.
 
 ---
 
@@ -14,8 +14,9 @@ Fixes are grouped by priority tier (P0 → P2) and then by theme. Each task is s
 | Tier | Criteria |
 |------|----------|
 | **P0 — Critical** | Broken user-facing feature OR money correctness issue |
-| **P1 — High** | Silent data corruption, notification spam, or data loss |
+| **P1 — High** | Silent data corruption, money race, notification spam, or data loss |
 | **P2 — Medium** | Security hardening, tech debt, deferred safety work |
+| **Q — Quality** | Non-bug improvements required to reach 9.5 / 10 |
 
 ---
 
@@ -23,29 +24,21 @@ Fixes are grouped by priority tier (P0 → P2) and then by theme. Each task is s
 
 ---
 
-### TASK-01 · Fix Expo mobile login CSRF block (BUG-CSRF-01)
+### TASK-01 · Fix Expo mobile OAuth login CSRF block (BUG-CSRF-01)
 
 **Effort:** ~1 hour  
 **Files:** `apps/expo/app/auth/login.tsx`
 
-In `handleDeepLink`, find the `fetch()` call that POSTs to `/api/auth/mobile-token`. Add `'Origin': process.env.EXPO_PUBLIC_API_BASE_URL` to the `headers` object. Verify the env var name matches what is declared in the Expo config. Optionally, refactor this call to use the shared Axios client (which already sets Origin) to prevent the pattern recurring.
-
-Test: perform a full Google/Telegram OAuth login on a physical Android device or emulator and confirm a session token is issued without a 403 error.
+In `handleDeepLink`, add `'Origin': process.env.EXPO_PUBLIC_API_BASE_URL` to the `headers` object of the raw `fetch()` call that POSTs to `/api/auth/mobile-token`. Optionally, refactor to use the shared Axios client (which already sets Origin) to prevent recurrence. Verify with a full Google/Telegram OAuth login on a device or emulator.
 
 ---
 
 ### TASK-02 · Fix double platform-fee deduction on creator payouts (BUG-FIN-01)
 
 **Effort:** ~2 hours  
-**Files:** `apps/web/app/api/cron/daily/route.ts` (Section 33 — weekly payout aggregation)
+**Files:** `apps/web/app/api/cron/daily/route.ts` (Section 33)
 
-**Step 1 — Understand the intent:** Determine whether the weekly payout step should charge any fee at all. Given that `available_earnings_kobo` is already net (fee taken at credit time in `creator_earnings`), the correct answer for most flows is NO second fee.
-
-**Step 2 — Fix the calculation:** Remove the `platformFeeKobo = grossKobo * 0.10` line. Set `netKobo = grossKobo` (pass the full available earnings through to the payout record). Update `platformFeeKobo` to `0` in the payout INSERT.
-
-**Step 3 — Audit historic records:** Query `creator_payouts` for rows created by the weekly CRON after the first deployment of this code, compare `gross_kobo` vs `net_kobo` to identify under-paid creators, and issue correction payouts or `available_earnings_kobo` adjustments as appropriate.
-
-**Step 4 — Add a test:** In `apps/web/lib/payments/__tests__/payouts.test.ts`, add a test case asserting that `net_kobo === gross_kobo` when no secondary fee is applied.
+`available_earnings_kobo` is already net. Remove the `platformFeeKobo = grossKobo * 0.10` line and set `netKobo = grossKobo`. Set `platformFeeKobo = 0` in the payout INSERT. Then audit existing `creator_payouts` rows for under-paid records (where `net_kobo < gross_kobo`) and issue adjustment payouts or `available_earnings_kobo` credits for affected creators. Add a test asserting `net_kobo === gross_kobo` when no secondary fee is intended.
 
 ---
 
@@ -58,7 +51,7 @@ Test: perform a full Google/Telegram OAuth login on a physical Android device or
 **Effort:** ~30 minutes  
 **Files:** `apps/web/app/api/cron/daily/route.ts`
 
-In the council invitation notification INSERT, add a `reference_id` parameter. Use a deterministic key scoped to the user and the current period, e.g. `council_invite:<userId>:<YYYY-WW>`. Add `reference_id` to the INSERT column list and the `$N` bind parameter list. The existing `ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING` will then correctly deduplicate.
+Add `reference_id = 'council_invite:<userId>:<YYYY-WW>'` to the council invitation notification INSERT. The existing partial unique index will then fire correctly.
 
 ---
 
@@ -67,7 +60,7 @@ In the council invitation notification INSERT, add a `reference_id` parameter. U
 **Effort:** ~20 minutes  
 **Files:** `apps/web/app/api/cron/guild-wars/route.ts`
 
-Add `reference_id = 'war_final_hour:<warId>'` to the final-hour notification INSERT. This makes the partial unique index effective. Confirm the war ID is available in scope at the insert site.
+Add `reference_id = 'war_final_hour:<warId>'` to the final-hour notification INSERT.
 
 ---
 
@@ -76,7 +69,7 @@ Add `reference_id = 'war_final_hour:<warId>'` to the final-hour notification INS
 **Effort:** ~20 minutes  
 **Files:** `apps/web/app/api/cron/guild-wars/route.ts`
 
-Add `reference_id = 'guild_tier_downgrade:<guildId>:<warId>'` to the downgrade notification INSERT. Use the same pattern as TASK-04.
+Add `reference_id = 'guild_tier_downgrade:<guildId>:<warId>'` to the downgrade notification INSERT.
 
 ---
 
@@ -85,50 +78,34 @@ Add `reference_id = 'guild_tier_downgrade:<guildId>:<warId>'` to the downgrade n
 **Effort:** ~30 minutes  
 **Files:** `apps/web/app/api/cron/daily/route.ts`
 
-After the nemesis overtake notification is sent, the existing UPDATE only stamps `user_id = ANY($userIds)`. Collect the nemesis user IDs (the `nemesis_id` field on each winning assignment row) into a separate array and issue a second UPDATE:
-```sql
-UPDATE nemesis_assignments SET last_notified_at = NOW()
-WHERE user_id = ANY($nemesisIds::uuid[])
-```
-Or combine both into a single UPDATE with `WHERE user_id = ANY(($userIds || $nemesisIds)::uuid[])`.
+Collect nemesis user IDs alongside the overtaking user IDs and extend the `UPDATE nemesis_assignments SET last_notified_at = NOW()` to cover both sets: `WHERE user_id = ANY(($userIds || $nemesisIds)::uuid[])`.
 
 ---
 
 ### TASK-07 · Fix `guild_quests` missing unique constraint (BUG-DB-01)
 
-**Effort:** ~1 hour (schema change + migration)  
-**Files:** `apps/web/lib/db/schema.ts`, new migration file
+**Effort:** ~1 hour  
+**Files:** `apps/web/lib/db/schema.ts`, new migration
 
-Add a unique constraint to the `guildQuests` table. Identify the correct idempotency key columns (likely `guild_id`, `quest_type`, `week_start`). Write and apply a Drizzle migration:
-```sql
-ALTER TABLE guild_quests ADD CONSTRAINT guild_quests_guild_questtype_weekstart_unique
-  UNIQUE (guild_id, quest_type, week_start);
-```
-Update the `ON CONFLICT` clause in the CRON section to reference these columns. Delete any existing duplicate rows before applying the migration (`DELETE ... WHERE id NOT IN (SELECT MIN(id) FROM guild_quests GROUP BY guild_id, quest_type, week_start)`).
+Delete duplicate rows (`DELETE FROM guild_quests WHERE id NOT IN (SELECT MIN(id) FROM guild_quests GROUP BY guild_id, quest_type, week_start)`), then add `UNIQUE (guild_id, quest_type, week_start)` to the schema and migration. Update the `ON CONFLICT` column list in the CRON section to match.
 
 ---
 
 ### TASK-08 · Fix `guild_tier_history` missing coverage for non-war tier changes (BUG-DB-02)
 
 **Effort:** ~45 minutes  
-**Files:** `apps/web/lib/db/schema.ts`, new migration file
+**Files:** `apps/web/lib/db/schema.ts`, new migration
 
-The existing partial unique index covers `WHERE war_id IS NOT NULL`. Add a complementary partial index for the null-war case. A practical approach is a full unique index on `(guild_id, new_tier, changed_at::date) WHERE war_id IS NULL`. Write a migration for this index. Update the non-war promotion/demotion CRON section to include the `ON CONFLICT` column list matching the new index.
+Add a partial index: `CREATE UNIQUE INDEX ON guild_tier_history (guild_id, new_tier, changed_at::date) WHERE war_id IS NULL`. Update the non-war promotion/demotion CRON section to use this as the `ON CONFLICT` target.
 
 ---
 
-### TASK-09 · Fix `platform_events.name` constraint breaking recurrence and Flash XP (BUG-DB-03)
+### TASK-09 · Fix `platform_events.name` constraint (BUG-DB-03)
 
-**Effort:** ~2 hours (schema change + dual fix)  
+**Effort:** ~2 hours  
 **Files:** `apps/web/lib/db/schema.ts`, `apps/web/app/api/cron/daily/route.ts`, `apps/web/lib/events/flashXP.ts`, new migration
 
-**Step 1:** Write a migration that drops the single-column `UNIQUE(name)` constraint from `platform_events` and replaces it with a composite unique constraint on `(name, starts_at)`.
-
-**Step 2:** Update the annual recurrence cloning INSERT in the daily CRON to use `ON CONFLICT (name, starts_at) DO NOTHING`. Verify that cloned events get their `starts_at` advanced by exactly 1 year.
-
-**Step 3:** The Flash XP `platform_events` upsert already uses `ON CONFLICT (name, starts_at) DO NOTHING` — once the composite index exists it will start working automatically. Remove the `.catch(() => {})` that was silently swallowing the error (or keep it but log at `warn` level to catch future schema drift).
-
-**Step 4:** Test by manually inserting two `platform_events` rows with the same name but different `starts_at` — both should succeed. Inserting a third row with the same `(name, starts_at)` pair should conflict correctly.
+Drop `UNIQUE(name)` from `platform_events` and replace with `UNIQUE(name, starts_at)`. Update the annual recurrence cloning `ON CONFLICT` clause to `(name, starts_at)`. The Flash XP upsert then works automatically; remove or demote the `.catch(() => {})` to log errors rather than silently swallow. Test by inserting two events with the same name but different `starts_at` (both should succeed).
 
 ---
 
@@ -137,12 +114,12 @@ The existing partial unique index covers `WHERE war_id IS NOT NULL`. Add a compl
 **Effort:** ~1 hour  
 **Files:** `apps/web/lib/db/schema.ts`, `apps/web/app/api/cron/daily/route.ts`, new migration
 
-Add a unique constraint to `alliance_wars` that identifies a unique matchup per week. Normalise the alliance pair order (use LEAST/GREATEST or enforce `alliance_1_id < alliance_2_id` via a migration CHECK constraint). Example migration:
+Add:
 ```sql
-ALTER TABLE alliance_wars ADD CONSTRAINT alliance_wars_pair_week_unique
-  UNIQUE (LEAST(alliance_1_id, alliance_2_id), GREATEST(alliance_1_id, alliance_2_id), scheduled_week);
+CREATE UNIQUE INDEX ON alliance_wars
+  (LEAST(alliance_1_id, alliance_2_id), GREATEST(alliance_1_id, alliance_2_id), scheduled_week);
 ```
-If expression-based unique constraints are not desired, add an application-layer normalisation step before INSERT and use a column-based unique index. Update the CRON `ON CONFLICT` clause to match.
+Update the `ON CONFLICT` clause in the CRON to use `(LEAST(alliance_1_id, alliance_2_id), GREATEST(alliance_1_id, alliance_2_id), scheduled_week)`.
 
 ---
 
@@ -151,11 +128,7 @@ If expression-based unique constraints are not desired, add an application-layer
 **Effort:** ~1.5 hours  
 **Files:** `apps/web/lib/offline/messageQueue.ts`, `apps/web/lib/offline/useOfflineSync.ts`
 
-**Step 1:** Add `resetSendingMessages()` to `messageQueue.ts`. This function opens the `messages` IndexedDB object store and updates all records with `status === "sending"` back to `status === "pending"`. Use the existing pattern from `apps/expo/lib/offline/syncQueue.ts` as a reference.
-
-**Step 2:** In `useOfflineSync.ts`, call `resetSendingMessages()` before the sync loop starts — either on component mount or at the point where the online/reconnect event fires, whichever comes first.
-
-**Step 3:** Verify in a browser: open the app, start sending a message, hard-kill the tab, reopen, confirm the message retries rather than disappearing.
+Add `resetSendingMessages()` to `messageQueue.ts` that opens the `messages` IndexedDB object store and updates all `status === "sending"` rows back to `"pending"`. Call it at the start of the reconnect handler in `useOfflineSync.ts`.
 
 ---
 
@@ -164,29 +137,88 @@ If expression-based unique constraints are not desired, add an application-layer
 **Effort:** ~2 hours  
 **Files:** `apps/web/lib/notifications/push.ts`
 
-At batch-send time, store a mapping from Expo ticket ID to device token. A short-TTL Redis hash (`push_ticket:<ticketId> → token`) or a DB column (`push_tickets.token`) works. When the receipt loop detects `DeviceNotRegistered`, look up only the specific token for that ticket ID and delete only that row from `user_push_tokens`. This ensures users retain push notification delivery on all other devices.
+Store a ticket-ID → device-token mapping at send time (e.g. Redis hash `push_ticket:<ticketId>` with 24h TTL, or a `push_tickets` table column). When processing a `DeviceNotRegistered` receipt, look up only the specific token for that ticket ID and delete only that `user_push_tokens` row.
 
 ---
 
 ### TASK-13 · Consolidate duplicate login-streak columns (BUG-DB-05)
 
 **Effort:** ~1 hour  
-**Files:** `apps/web/lib/db/schema.ts`, all files referencing `loginStreak` or `loginStreakDays`, new migration
+**Files:** `apps/web/lib/db/schema.ts`, all referencing files, new migration
 
-Run a project-wide search for all references to both `loginStreak` and `loginStreakDays` (and their snake_case SQL equivalents). Determine which column has the most up-to-date values across existing rows. Write a migration that sets the canonical column (e.g. `login_streak_days`) to `MAX(login_streak, login_streak_days)` for each user, drops `login_streak`, and updates all application references to the single canonical column.
+Run `grep -r "loginStreak\|login_streak" apps/` to find all references. Select `login_streak_days` as canonical. Migration: `UPDATE users SET login_streak_days = GREATEST(login_streak, login_streak_days)`. Drop `login_streak`. Fix all references to use `login_streak_days`.
 
 ---
 
 ### TASK-14 · Fix null email in JWT signing (BUG-AUTH-01)
 
 **Effort:** ~30 minutes  
-**Files:** `apps/web/lib/auth/session.ts`, `apps/web/app/api/auth/2fa/verify/route.ts`
+**Files:** `apps/web/lib/auth/session.ts`, `apps/web/app/api/auth/2fa/verify/route.ts`, `apps/web/lib/auth/jwt.ts`
 
-In `createSession`, guard the email before it reaches `signAccessToken`:
-- Option A (simple): `email: user.email ?? ''`
-- Option B (correct): omit the `email` claim from the JWT when it is null; update `signAccessToken` to make `email` optional; update the `TokenPayload` interface in `middleware.ts` accordingly.
+Option A (minimal): guard `email: user.email ?? ''`.
+Option B (correct): make `email` optional in `AccessTokenPayload`, omit the claim when null, and update downstream consumers to handle an absent email claim. Option B is recommended to correctly model account types without email.
 
-Option B is recommended because an empty-string claim would misrepresent the account state. After the change, add a test in the auth suite for a Telegram-only user (null email) confirming the session is created without error.
+---
+
+### TASK-15 · Fix guild chat XP daily cap counting rows instead of messages (BUG-XP-01)
+
+**Effort:** ~30 minutes  
+**Files:** `apps/web/app/api/guilds/[guildId]/chat/route.ts`
+
+The COUNT query counts all `xp_ledger` rows with `source = 'guild_chat'`. Each message inserts 2 rows (social + competitor tracks), so `CHAT_XP_DAILY_CAP = 20` fires after 10 messages. Fix: add `AND track = 'social'` to the COUNT query so it counts distinct messages (each contributes one social-track row), keeping `CHAT_XP_DAILY_CAP = 20` as the intended 20-message cap.
+
+---
+
+### TASK-16 · Wrap `recordWarContribution` in a transaction (BUG-WAR-01)
+
+**Effort:** ~30 minutes  
+**Files:** `apps/web/lib/guilds/recordWarContribution.ts`
+
+Wrap the `war_contributions` upsert and the `guild_wars` points UPDATE in a single `db.transaction()` call. This ensures both succeed or both roll back, keeping member contribution totals in sync with guild-level war points.
+
+---
+
+### TASK-17 · Fix announcement modal serial-mode view tracking (BUG-UI-01)
+
+**Effort:** ~30 minutes  
+**Files:** `apps/web/lib/announcements/engine.ts`
+
+At the end of `getActiveModalForUser`, after `selected` is determined, add:
+```sql
+INSERT INTO user_modal_views (user_id, modal_id, viewed_at)
+VALUES ($userId, $selected.id, NOW())
+ON CONFLICT (user_id, modal_id) DO UPDATE SET viewed_at = NOW()
+```
+This mirrors what `getActiveBannerForUser` already does correctly.
+
+---
+
+### TASK-18 · Fix sticker pack grant silent abort on race condition (BUG-RACE-01)
+
+**Effort:** ~30 minutes  
+**Files:** `apps/web/lib/stickers/milestoneStickers.ts`
+
+After the `ON CONFLICT DO NOTHING` returns no rows (concurrent insert), fetch the existing pack ID with a follow-up SELECT instead of returning early:
+```typescript
+// When newPack[0] is undefined (conflict), resolve the existing ID
+const existingPack = await db.query(`SELECT id FROM sticker_packs WHERE name = $1`, [grant.packName]);
+packId = existingPack.rows[0]?.id;
+if (!packId) return []; // genuinely missing — skip
+```
+Then continue to the `user_sticker_packs` INSERT as normal.
+
+---
+
+### TASK-19 · Fix classroom enrollment TOCTOU race condition (BUG-RACE-02)
+
+**Effort:** ~1 hour  
+**Files:** `apps/web/app/api/classroom/[roomId]/enroll/route.ts`, new migration
+
+Move the existing-enrollment check inside the transaction. After the transaction's `SELECT coin_balance FOR UPDATE`, add:
+```sql
+SELECT id FROM classroom_enrolments WHERE room_id = $1 AND user_id = $2 FOR UPDATE
+```
+And throw `conflict()` if a row is found. Also add a migration to create `UNIQUE(room_id, user_id)` on `classroom_enrolments` as a final safety net.
 
 ---
 
@@ -194,79 +226,113 @@ Option B is recommended because an empty-string claim would misrepresent the acc
 
 ---
 
-### TASK-15 · Encrypt Expo MMKV offline store (BUG-SEC-03)
+### TASK-20 · Encrypt Expo MMKV offline store (BUG-SEC-03)
 
 **Effort:** ~1 day  
-**Files:** `apps/expo/lib/offline/store.ts`, new `apps/expo/lib/storage/mmkvKey.ts` helper
+**Files:** `apps/expo/lib/offline/store.ts`, new `apps/expo/lib/storage/mmkvKey.ts`
 
-**Step 1:** Add `react-native-keychain` or use `expo-secure-store` to persist a randomly-generated 256-bit encryption key securely in the Android Keystore.
-
-**Step 2:** Create a helper `getMmkvEncryptionKey()` that: (a) attempts to load the key from secure storage; (b) if absent, generates `crypto.getRandomValues(new Uint8Array(32))`, encodes to base64, stores it, and returns it.
-
-**Step 3:** Await the key before creating the MMKV instance and pass it as `encryptionKey`. Because MMKV cannot be re-keyed in-place, existing stores must be migrated: read all values before encryption, delete the old store, create the encrypted store, write values back. Gate this migration on a persisted flag.
-
-**Step 4:** Test on a real device: confirm the MMKV backing file is not readable in plaintext via ADB or file manager.
+Generate a random 256-bit key at first launch using `crypto.getRandomValues`, store it in the Android Keystore via `react-native-keychain` or `expo-secure-store`, and pass it as `encryptionKey` to the MMKV constructor. Migrate existing unencrypted data on first encrypted run (read all values, delete old store, create encrypted store, write values back). Gate migration on a persisted boolean flag.
 
 ---
 
-### TASK-16 · Remove `id` attribute from HTML sanitizer allowlist (BUG-SEC-01)
+### TASK-21 · Remove `id` attribute from HTML sanitizer allowlist (BUG-SEC-01)
 
 **Effort:** ~30 minutes  
 **Files:** `apps/web/lib/security/htmlSanitizer.ts`
 
-Remove `'id'` from the `'*': ['class', 'id']` entry in `SANITIZE_OPTIONS`. Search the codebase for any UI code that relies on user-generated IDs for anchor navigation; if found, allowlist `id` only on the specific safe elements (e.g. `'h2': ['id', 'class']`). Add a test case to the sanitizer suite asserting that `<div id="foo">` is stripped to `<div>` in output.
+Remove `'id'` from `'*': ['class', 'id']`. If heading anchors need IDs, add `'h2': ['id']` etc. Add a test asserting `<div id="foo">` is sanitized to `<div>`.
 
 ---
 
-### TASK-17 · Harden markdown link sanitizer with an allow-list (BUG-SEC-02)
+### TASK-22 · Harden markdown link sanitizer with an allow-list (BUG-SEC-02)
 
 **Effort:** ~1 hour  
 **Files:** `apps/web/lib/security/htmlSanitizer.ts`
 
-Replace the deny-list scheme filter with an allow-list that only passes `https:`, `http:`, and `mailto:` in link `href` and image `src` values. After running markdown through the chosen markdown parser, pipe the rendered HTML through the same DOMPurify instance already used for `sanitizeHtml`, with `ALLOWED_URI_REGEXP` set to `^(https?|mailto):`. Add tests for `blob:`, `file:`, and a custom-scheme URI confirming they are stripped.
+Replace the deny-list scheme filter with DOMPurify configured with `ALLOWED_URI_REGEXP: /^(https?|mailto):/` on the rendered markdown HTML. Add tests for `blob:`, `file:`, and custom-scheme URIs.
 
 ---
 
-### TASK-18 · Tighten pre-auth 2FA path guard to exact match (BUG-AUTH-02)
+### TASK-23 · Tighten pre-auth 2FA path guard to exact match (BUG-AUTH-02)
 
 **Effort:** ~15 minutes  
 **Files:** `apps/web/lib/api/middleware.ts`
 
-Change:
-```ts
-pathname.endsWith('/2fa/verify')
-```
-to:
-```ts
-pathname === '/api/auth/2fa/verify'
-```
-Verify that the 2FA verify route still works end-to-end after the change.
+Change `pathname.endsWith('/2fa/verify')` to `pathname === '/api/auth/2fa/verify'`.
 
 ---
 
-### TASK-19 · Migrate legacy v1 field-encryption ciphertext to v2 (BUG-SEC-04)
+### TASK-24 · Migrate legacy v1 field-encryption ciphertext to v2 (BUG-SEC-04)
 
-**Effort:** ~1 day (migration job) + ~2 hours (deprecation)  
+**Effort:** ~1 day  
 **Files:** `apps/web/lib/security/fieldEncryption.ts`, new migration script
 
-**Step 1:** Write a one-shot migration script (can be a CRON or admin-triggered CLI command) that:
-1. Queries all columns known to use field encryption (audit `fieldEncryption.ts` call sites to enumerate them).
-2. For each row, checks if the ciphertext starts with `v1:`.
-3. Decrypts with the v1 path.
-4. Re-encrypts with the v2 path.
-5. UPDATEs the row in a transaction.
-6. Logs a progress counter.
+Write a one-shot job that selects all rows with `v1:` prefixed ciphertext, decrypts with v1, re-encrypts with v2, and updates in a transaction. After 0 v1 rows remain, remove the v1 code path and confirm the master key is in a hardware-backed secret store (not in `.env`).
 
-**Step 2:** After all rows are confirmed migrated (counter reaches 0 v1 rows), remove the v1 decryption code path from `fieldEncryption.ts` and the corresponding test stubs.
+---
 
-**Step 3:** Confirm the master encryption key is stored in a hardware-backed secret manager (Doppler, AWS Secrets Manager, GCP Secret Manager) and is not present in any `.env` file committed to the repository.
+## Q — Quality Improvements to reach 9.5 / 10
+
+---
+
+### TASK-Q1 · Opaque cursor-based pagination (Q1)
+
+**Effort:** ~2 hours  
+**Files:** `apps/web/app/api/guilds/[guildId]/chat/route.ts`, other paginated routes
+
+Replace `created_at`-only cursors with composite keyset cursors encoded as `base64(created_at + ':' + id)`. The WHERE clause becomes `AND (created_at, id) < ($cursor_ts, $cursor_id)`. This eliminates missing/duplicate pages when multiple messages share a millisecond timestamp.
+
+---
+
+### TASK-Q2 · Council join transaction + idempotency guard (Q2)
+
+**Effort:** ~45 minutes  
+**Files:** `apps/web/app/api/council/join/route.ts`, new migration
+
+Wrap the invitation check, existing-member check, UPDATE (close old seat), and INSERT (new seat) in a single transaction. Add `SELECT ... FOR UPDATE` to the existing-member check. Add migration: `ALTER TABLE platform_council_members ADD CONSTRAINT council_member_user_cycle_unique UNIQUE (user_id, cycle_month)`.
+
+---
+
+### TASK-Q3 · Classroom quiz attempt idempotency guard (Q3)
+
+**Effort:** ~45 minutes  
+**Files:** `apps/web/app/api/classroom/[roomId]/quizzes/[quizId]/attempt/route.ts`, new migration
+
+Add `UNIQUE(quiz_id, user_id)` constraint to `classroom_quiz_attempts`. Change the "already attempted" check inside the transaction to use `INSERT ... ON CONFLICT (quiz_id, user_id) DO NOTHING RETURNING id` and detect the conflict to throw a 409. This replaces the racy SELECT-then-INSERT pattern.
+
+---
+
+### TASK-Q4 · Add `Retry-After` header to rate-limited responses (Q4)
+
+**Effort:** ~1 hour  
+**Files:** `apps/web/lib/security/rateLimit.ts`, `apps/web/lib/api/errors.ts`
+
+Return the remaining window time from the Lua script as a fourth return value. In the rate-limit enforcement middleware, add `Retry-After: <seconds>` to 429 responses. Expo clients and web fetch can then implement automatic exponential backoff.
+
+---
+
+### TASK-Q5 · Upgrade session cookies to `SameSite=Strict` (Q5)
+
+**Effort:** ~30 minutes  
+**Files:** `apps/web/lib/auth/session.ts`, `apps/web/app/api/auth/logout/route.ts`
+
+Evaluate whether any OAuth redirect flow requires cookies to be sent on top-level navigations from an external origin (Google / Telegram). If not (cookies are only read on same-site requests), upgrade from `SameSite=Lax` to `SameSite=Strict` for defense-in-depth complementing the existing Origin-header CSRF check.
+
+---
+
+### TASK-Q6 · Stream monthly gift drop notifications to avoid memory spike (Q6)
+
+**Effort:** ~2 hours  
+**Files:** `apps/web/lib/events/monthlyGiftDrop.ts`
+
+Replace the unbounded `SELECT id FROM users WHERE ...` (loads all user IDs into memory) with a cursor-paginated loop that processes 10,000 users at a time using a keyset cursor (`WHERE id > $lastId ORDER BY id LIMIT 10000`). Pass each batch directly to `insertNotificationBatch`. This keeps memory flat at scale.
 
 ---
 
 ## Summary Table
 
-| Task | Bug | Priority | Effort |
-|------|-----|----------|--------|
+| Task | Bug/Item | Priority | Effort |
+|------|----------|----------|--------|
 | TASK-01 | BUG-CSRF-01 | P0 | ~1 hr |
 | TASK-02 | BUG-FIN-01 | P0 | ~2 hrs |
 | TASK-03 | BUG-NOTIF-01 | P1 | ~30 min |
@@ -281,14 +347,30 @@ Verify that the 2FA verify route still works end-to-end after the change.
 | TASK-12 | BUG-PUSH-01 | P1 | ~2 hrs |
 | TASK-13 | BUG-DB-05 | P1 | ~1 hr |
 | TASK-14 | BUG-AUTH-01 | P1 | ~30 min |
-| TASK-15 | BUG-SEC-03 | P2 | ~1 day |
-| TASK-16 | BUG-SEC-01 | P2 | ~30 min |
-| TASK-17 | BUG-SEC-02 | P2 | ~1 hr |
-| TASK-18 | BUG-AUTH-02 | P2 | ~15 min |
-| TASK-19 | BUG-SEC-04 | P2 | ~1 day |
+| TASK-15 | BUG-XP-01 | P1 | ~30 min |
+| TASK-16 | BUG-WAR-01 | P1 | ~30 min |
+| TASK-17 | BUG-UI-01 | P1 | ~30 min |
+| TASK-18 | BUG-RACE-01 | P1 | ~30 min |
+| TASK-19 | BUG-RACE-02 | P1 | ~1 hr |
+| TASK-20 | BUG-SEC-03 | P2 | ~1 day |
+| TASK-21 | BUG-SEC-01 | P2 | ~30 min |
+| TASK-22 | BUG-SEC-02 | P2 | ~1 hr |
+| TASK-23 | BUG-AUTH-02 | P2 | ~15 min |
+| TASK-24 | BUG-SEC-04 | P2 | ~1 day |
+| TASK-Q1 | Opaque cursor pagination | Q | ~2 hrs |
+| TASK-Q2 | Council join idempotency | Q | ~45 min |
+| TASK-Q3 | Quiz attempt idempotency | Q | ~45 min |
+| TASK-Q4 | Retry-After headers | Q | ~1 hr |
+| TASK-Q5 | SameSite=Strict cookies | Q | ~30 min |
+| TASK-Q6 | Stream gift drop notifications | Q | ~2 hrs |
 
-**Total estimated effort:** ~3 days for P0+P1 fixes, ~2–3 additional days for P2 hardening.
+**Total estimated effort:**
+- P0 fixes: ~3 hours
+- P1 fixes: ~15 hours (~2 days)
+- P2 fixes: ~3 days
+- Q quality items: ~7 hours (~1 day)
+- **Grand total to reach 9.5/10: approximately 6–7 developer-days**
 
 ---
 
-*Plan generated: June 16, 2026 · 5:11 AM UTC*
+*Plan generated: June 16, 2026 · 5:36 AM UTC*
