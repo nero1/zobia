@@ -93,7 +93,7 @@ export default function ClassroomScreen() {
 
     setLoading(false);
     setRefreshing(false);
-  }, [roomId, t, currency]);
+  }, [roomId]);
 
   async function handleAddModule() {
     if (!moduleTitle.trim()) {

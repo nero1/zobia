@@ -59,8 +59,6 @@ interface UserSettings {
   pidginSuggestionsEnabled: boolean | null;
 }
 
-type PlanTier = 'free' | 'plus' | 'pro' | 'max';
-
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------

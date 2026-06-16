@@ -20,7 +20,6 @@ import { useRouter } from 'expo-router';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
 import { useTranslation } from 'react-i18next';
-import { useCurrency } from '@/lib/hooks/useCurrency';
 
 interface DailyQuest {
   id: string;
@@ -48,7 +47,6 @@ export default function QuestsTab() {
   const scheme = useColorScheme();
   const isDark = scheme === 'dark';
   const router = useRouter();
-  const currency = useCurrency();
   const { t } = useTranslation();
 
   const [dailyQuests, setDailyQuests] = useState<DailyQuest[]>([]);

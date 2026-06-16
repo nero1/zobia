@@ -7,7 +7,7 @@
  * Users can purchase products with coins or real money.
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -73,13 +73,13 @@ export default function CreatorMerchStoreScreen() {
   const currency = useCurrency();
   const { t } = useTranslation();
 
-  const themedStyles = {
+  const themedStyles = useMemo(() => ({
     bg: isDark ? colors.neutral[900] : colors.neutral[50],
     card: isDark ? colors.neutral[800] : colors.neutral[0],
     border: isDark ? colors.neutral[700] : colors.neutral[200],
     text: isDark ? colors.neutral[50] : colors.neutral[900],
     sub: isDark ? colors.neutral[400] : colors.neutral[500],
-  };
+  }), [isDark]);
 
   // Load store data
   const { data: store, isLoading, error } = useQuery<MerchStore>({
@@ -100,7 +100,7 @@ export default function CreatorMerchStoreScreen() {
         { paymentMethod: 'coins' }
       );
     },
-    onSuccess: (data, productId) => {
+    onSuccess: (data) => {
       void queryClient.invalidateQueries({ queryKey: ['merch-store', creatorId] });
       void queryClient.invalidateQueries({ queryKey: ['wallet'] });
       if (data.data.paymentUrl) {

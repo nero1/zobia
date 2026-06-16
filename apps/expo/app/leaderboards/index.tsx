@@ -282,7 +282,6 @@ function EntryRow({ entry }: { entry: LeaderboardEntry }) {
 // ---------------------------------------------------------------------------
 
 function PinnedUserRow({ entry }: { entry: LeaderboardEntry }) {
-  const { colors: themeColors } = useTheme();
   return (
     <View
       style={[

@@ -22,8 +22,6 @@ import { colors } from '@/lib/theme/colors';
 // Types
 // ---------------------------------------------------------------------------
 
-type BannerSeverity = 'info' | 'warning' | 'success';
-
 interface BannerData {
   id: string;
   content: string;
