@@ -196,13 +196,15 @@ export const POST = withAuth(
         const reward = parseRewardValue(milestone.reward_value);
         const awardsGiven: Record<string, unknown> = {};
 
-        // Coins reward
+        // Coins reward.
+        // SYS-CL-08: reference omitted userId, so every user claiming the same
+        // milestone collided on the coin_ledger unique index.
         if (milestone.reward_type === "coins" && reward.coins && reward.coins > 0) {
           await creditCoins(
             userId,
             reward.coins,
             "season_milestone",
-            `season_milestone:${milestoneId}`,
+            `season_milestone:${milestoneId}:${userId}`,
             `Season pass milestone: ${milestone.label ?? milestoneId}`,
             { seasonId, milestoneId },
             client

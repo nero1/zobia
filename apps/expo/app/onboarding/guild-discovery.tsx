@@ -234,7 +234,7 @@ export default function OnboardingGuildDiscovery() {
             </Text>
           </View>
         ) : (
-          guilds.map((guild) => (
+          guilds.map((guild: Guild) => (
             <GuildCard
               key={guild.id}
               guild={guild}

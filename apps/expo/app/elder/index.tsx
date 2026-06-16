@@ -178,7 +178,7 @@ export default function ElderScreen() {
               </Text>
             </View>
           ) : (
-            data.mentees.map((mentee) => (
+            data.mentees.map((mentee: Mentee) => (
               <MenteeCard key={mentee.userId} mentee={mentee} />
             ))
           )}

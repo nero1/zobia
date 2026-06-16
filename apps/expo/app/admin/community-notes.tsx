@@ -3,7 +3,9 @@ import {
   View, Text, FlatList, TouchableOpacity,
   Alert, ActivityIndicator, RefreshControl
 } from "react-native";
+import { useTranslation } from "react-i18next";
 import { storage } from "@/lib/offline/store";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "";
 
@@ -29,6 +31,7 @@ function formatDate(iso: string) {
 }
 
 export default function AdminCommunityNotesScreen() {
+  const { t } = useTranslation();
   const [notes, setNotes] = useState<CommunityNote[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -86,7 +89,7 @@ export default function AdminCommunityNotesScreen() {
       setTotal((t) => Math.max(0, t - 1));
     } else {
       const err = await res?.json().catch(() => null);
-      Alert.alert("Error", err?.error?.message ?? `Failed to ${action} note.`);
+      Alert.alert("Error", translateApiError(t, err?.error?.code, err?.error?.message ?? `Failed to ${action} note.`));
     }
     setActingId(null);
   }

@@ -4,6 +4,8 @@ import {
   ActivityIndicator, RefreshControl, Alert, Modal, Pressable,
   StyleSheet,
 } from "react-native";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 import { storage } from "@/lib/offline/store";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "";
@@ -42,8 +44,10 @@ async function performUserAction(
   });
 
   if (!res.ok) {
-    const data = (await res.json().catch(() => ({}))) as { message?: string };
-    throw new Error(data.message ?? "Action failed");
+    const data = (await res.json().catch(() => ({}))) as { error?: { code?: string; message?: string }; message?: string };
+    const err = new Error(data.error?.message ?? data.message ?? "Action failed") as Error & { code?: string | null };
+    err.code = data.error?.code ?? null;
+    throw err;
   }
 }
 
@@ -164,6 +168,7 @@ const reasonStyles = StyleSheet.create({
 // ---------------------------------------------------------------------------
 
 export default function AdminUsersScreen() {
+  const { t } = useTranslation();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -219,7 +224,8 @@ export default function AdminUsersScreen() {
       void loadUsers(true);
       Alert.alert("Done", `Action "${action}" applied to @${username}.`);
     } catch (e) {
-      Alert.alert("Error", e instanceof Error ? e.message : "Action failed. Please try again.");
+      const err = e as Error & { code?: string | null };
+      Alert.alert("Error", translateApiError(t, err.code, e instanceof Error ? e.message : "Action failed. Please try again."));
     }
   }
 

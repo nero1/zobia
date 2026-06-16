@@ -8,8 +8,10 @@
  * pending payout approvals, and alert banners.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -186,6 +188,11 @@ function PayoutRow({ payout, onApprove, onReject, busy }: PayoutRowProps) {
  * Requires admin authentication (enforced by middleware).
  */
 export default function AdminFinancialPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const currency = useCurrency();
   const [data, setData] = useState<FinancialData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -210,7 +217,7 @@ export default function AdminFinancialPage() {
       if (!res.ok) throw new Error("Failed to load financial data");
       setData((await res.json()) as FinancialData);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
     } finally {
       setLoading(false);
     }
@@ -229,7 +236,7 @@ export default function AdminFinancialPage() {
       showToast(`Payout ${type}d`);
       await fetchData();
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Error", "error");
+      showToast(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Error") : "Error", "error");
     } finally {
       setBusy(null);
     }

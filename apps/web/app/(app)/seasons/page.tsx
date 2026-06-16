@@ -7,8 +7,10 @@
  * Active season hero with pass progress, leaderboard top 10, season history grid.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 import Link from "next/link";
 
 // ---------------------------------------------------------------------------
@@ -73,6 +75,7 @@ interface GiftPassModalProps {
 }
 
 function GiftPassModal({ seasonId, passPrice, onClose }: GiftPassModalProps) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<UserSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -109,12 +112,17 @@ function GiftPassModal({ seasonId, passPrice, onClose }: GiftPassModalProps) {
         body: JSON.stringify({ recipientUserId: selected.id }),
       });
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error((body as { error?: string }).error ?? "Failed to gift pass");
+        const body = await res.json().catch(() => ({})) as { error?: string | { code?: string; message?: string } };
+        const errMsg = typeof body.error === "string" ? body.error : body.error?.message;
+        const errCode = typeof body.error === "string" ? null : body.error?.code ?? null;
+        const err = new Error(errMsg ?? "Failed to gift pass") as Error & { code?: string | null };
+        err.code = errCode;
+        throw err;
       }
       setSuccess(true);
     } catch (e) {
-      setGiftError(e instanceof Error ? e.message : "Something went wrong");
+      const err = e as Error & { code?: string | null };
+      setGiftError(e instanceof Error ? translateApiError(t, err.code, err.message || "Something went wrong") : "Something went wrong");
     }
     setGifting(false);
   }
@@ -525,6 +533,11 @@ function MilestoneTrack({ passData, onClaim, claiming }: MilestoneTrackProps) {
  * Seasons page — active season hero, pass, milestones, leaderboard, and history.
  */
 export default function SeasonsPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [data, setData] = useState<SeasonsData | null>(null);
   const [passData, setPassData] = useState<SeasonPassData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -542,7 +555,12 @@ export default function SeasonsPage() {
           fetch("/api/users/me", { credentials: "include" }),
         ]);
         if (res.status === 401) { window.location.href = "/auth/login"; return; }
-        if (!res.ok) throw new Error("Failed to load seasons");
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({})) as { error?: { code?: string; message?: string } };
+          const err = new Error(body.error?.message ?? "Failed to load seasons") as Error & { code?: string | null };
+          err.code = body.error?.code ?? null;
+          throw err;
+        }
 
         const rawJson = await res.json() as Record<string, unknown>;
 
@@ -619,7 +637,8 @@ export default function SeasonsPage() {
             .catch(() => {});
         }
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Unknown error");
+        const err = e as Error & { code?: string | null };
+        setError(e instanceof Error ? translateApiError(tRef.current, err.code, err.message || "Unknown error") : "Unknown error");
       } finally {
         setLoading(false);
       }

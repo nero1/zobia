@@ -17,6 +17,7 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
@@ -173,20 +174,25 @@ export const POST = withAuth(
             );
           }
 
-          // Deduct from user
+          // Deduct from user.
+          // SYS-CL-04: each donation is its own transaction-specific reference (not the
+          // bare guildId), so repeat donations to the same guild don't collide on the
+          // coin_ledger unique index. ON CONFLICT DO NOTHING mirrors writeLedgerEntry's
+          // idempotent-retry behavior in lib/economy/coins.ts.
           await client.query(
             `UPDATE users SET coin_balance = coin_balance - $1, updated_at = NOW() WHERE id = $2`,
             [body.amount, userId]
           );
           await client.query(
             `INSERT INTO coin_ledger (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description, created_at)
-             VALUES ($1, $2, $3, $4, 'guild_donation', $5, $6, NOW())`,
+             VALUES ($1, $2, $3, $4, 'guild_donation', $5, $6, NOW())
+             ON CONFLICT (user_id, transaction_type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
             [
               userId,
               -body.amount,
               userRow.rows[0].coin_balance,
               userRow.rows[0].coin_balance - body.amount,
-              guildId,
+              `guild_donation:${guildId}:${userId}:${randomUUID()}`,
               body.note ?? "Guild treasury donation",
             ]
           );

@@ -7,6 +7,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Image from 'next/image';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -198,9 +199,12 @@ export default function MerchStoreManager() {
           {products.map((product) => (
             <Card key={product.id} className="p-4 hover:shadow-lg transition">
               {product.image_url && (
-                <img
+                <Image
                   src={product.image_url}
                   alt={product.name}
+                  width={400}
+                  height={192}
+                  unoptimized
                   className="w-full h-48 object-cover rounded-lg mb-4"
                 />
               )}

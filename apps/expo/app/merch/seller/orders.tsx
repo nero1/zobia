@@ -292,8 +292,8 @@ export default function SellerOrdersScreen() {
     refetchInterval: 30_000,
   });
 
-  const activeOrders = orders.filter((o) => !['completed', 'refunded'].includes(o.status));
-  const historyOrders = orders.filter((o) => ['completed', 'refunded'].includes(o.status));
+  const activeOrders = orders.filter((o: SellerOrder) => !['completed', 'refunded'].includes(o.status));
+  const historyOrders = orders.filter((o: SellerOrder) => ['completed', 'refunded'].includes(o.status));
 
   return (
     <Screen>
@@ -315,7 +315,7 @@ export default function SellerOrdersScreen() {
             {activeOrders.length > 0 && (
               <>
                 <Text style={[styles.sectionLabel, { color: themeColors.textMuted }]}>ACTIVE</Text>
-                {activeOrders.map((order) => (
+                {activeOrders.map((order: SellerOrder) => (
                   <OrderCard key={order.id} order={order} onRefresh={refetch} />
                 ))}
               </>
@@ -323,7 +323,7 @@ export default function SellerOrdersScreen() {
             {historyOrders.length > 0 && (
               <>
                 <Text style={[styles.sectionLabel, { color: themeColors.textMuted }]}>HISTORY</Text>
-                {historyOrders.map((order) => (
+                {historyOrders.map((order: SellerOrder) => (
                   <OrderCard key={order.id} order={order} onRefresh={refetch} />
                 ))}
               </>

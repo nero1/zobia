@@ -5,7 +5,9 @@ import {
 } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import type { AxiosError } from "axios";
 import { apiClient } from "@/lib/api/client";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 const ICON_III_XP_REQUIRED = 100_000;
 
@@ -50,7 +52,10 @@ export default function PrestigeScreen() {
       Alert.alert("🌟 " + t('prestige.prestigeAchieved'), t('prestige.nowLevel', { level: updated.prestige_level }));
     },
     onError: (err) => {
-      Alert.alert("Error", err.message ?? "Prestige failed. Please try again.");
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? err.message ?? "Prestige failed. Please try again.";
+      Alert.alert("Error", translateApiError(t, code, message));
     },
   });
 
@@ -137,7 +142,7 @@ export default function PrestigeScreen() {
       {data.prestige_history.length > 0 && (
         <View className="bg-white mx-4 mt-3 rounded-xl p-4 shadow-sm">
           <Text className="font-semibold text-gray-800 mb-3">{t('prestige.history')}</Text>
-          {data.prestige_history.map((h) => (
+          {data.prestige_history.map((h: PrestigeData['prestige_history'][number]) => (
             <View key={h.level} className="flex-row justify-between py-1">
               <Text className="text-gray-600">{PRESTIGE_BADGES[h.level]} {t('prestige.currentPrestige')} {h.level}</Text>
               <Text className="text-gray-400 text-sm">

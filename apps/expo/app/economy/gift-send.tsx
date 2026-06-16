@@ -21,6 +21,8 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
+import type { AxiosError } from 'axios';
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { GiftAnimation } from '@/components/economy/GiftAnimation';
@@ -28,6 +30,7 @@ import { apiClient } from '@/lib/api/client';
 import { colors } from '@/lib/theme/colors';
 import { useTheme } from '@/lib/theme';
 import { useCurrency } from '@/lib/hooks/useCurrency';
+import { translateApiError } from '@/lib/i18n/apiErrors';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -160,6 +163,7 @@ export default function GiftSendScreen() {
   const queryClient = useQueryClient();
   const { colors: themeColors } = useTheme();
   const currency = useCurrency();
+  const { t } = useTranslation();
   const params = useLocalSearchParams<{
     recipientId: string;
     recipientUsername: string;
@@ -198,7 +202,10 @@ export default function GiftSendScreen() {
       void queryClient.invalidateQueries({ queryKey: ['wallet', 'balance'] });
     },
     onError: (err) => {
-      Alert.alert('Send Failed', err.message);
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? err.message;
+      Alert.alert('Send Failed', translateApiError(t, code, message));
     },
   });
 
@@ -231,13 +238,13 @@ export default function GiftSendScreen() {
 
   const tiers = catalogue?.tiers ?? [];
   const displayTier = activeTier ?? tiers[0]?.tier ?? 1;
-  const rawTierData = tiers.find((t) => t.tier === displayTier);
+  const rawTierData = tiers.find((t: GiftTier) => t.tier === displayTier);
   const tierData = rawTierData
     ? {
         ...rawTierData,
         gifts:
           currencyMode === 'stars'
-            ? rawTierData.gifts.filter((g) => g.starCost != null && g.starCost > 0)
+            ? rawTierData.gifts.filter((g: GiftItem) => g.starCost != null && g.starCost > 0)
             : rawTierData.gifts,
       }
     : undefined;
@@ -296,7 +303,7 @@ export default function GiftSendScreen() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.tierTabs}
         >
-          {tiers.map((tier) => (
+          {tiers.map((tier: GiftTier) => (
             <Pressable
               key={tier.tier}
               onPress={() => {
@@ -340,7 +347,7 @@ export default function GiftSendScreen() {
           contentContainerStyle={styles.giftGrid}
           showsVerticalScrollIndicator={false}
         >
-          {(tierData?.gifts ?? []).map((item) => {
+          {(tierData?.gifts ?? []).map((item: GiftItem) => {
             const itemCost = currencyMode === 'stars' ? (item.starCost ?? 0) : item.coinCost;
             const canAfford = activeBalance >= itemCost;
             return (

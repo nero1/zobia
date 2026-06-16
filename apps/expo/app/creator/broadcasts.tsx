@@ -26,11 +26,13 @@ import {
   View,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
+import type { AxiosError } from 'axios';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Screen } from '@/components/ui/Screen';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
+import { translateApiError } from '@/lib/i18n/apiErrors';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -157,7 +159,7 @@ function ComposeModal({ visible, allowance, onClose, onSend, sending }: ComposeM
             </Text>
           ) : (
             <Text style={[styles.allowanceText, { color: themeColors.textMuted }]}>
-              {t('broadcasts.noFreeLeft', { count: allowance.additionalCoinCost.toLocaleString() })}
+              {t('broadcasts.noFreeLeft', { amount: allowance.additionalCoinCost.toLocaleString() })}
             </Text>
           )}
         </View>
@@ -217,7 +219,7 @@ function BroadcastRow({ broadcast }: { broadcast: Broadcast }) {
       </Text>
       <View style={styles.broadcastMeta}>
         <Text style={[styles.broadcastMetaText, { color: themeColors.textMuted }]}>
-          {t('broadcasts.recipientsDate', { count: broadcast.recipientCount.toLocaleString(), date })}
+          {t('broadcasts.recipientsDate', { amount: broadcast.recipientCount.toLocaleString(), date })}
         </Text>
         {broadcast.costCoins > 0 && (
           <Text style={[styles.broadcastCost, { color: themeColors.textMuted }]}>
@@ -250,7 +252,7 @@ export default function BroadcastsScreen() {
       if (result.requiresConfirmation) {
         Alert.alert(
           t('broadcasts.confirmTitle'),
-          t('broadcasts.confirmBody', { count: result.costCoins.toLocaleString() }),
+          t('broadcasts.confirmBody', { amount: result.costCoins.toLocaleString() }),
           [
             { text: t('broadcasts.confirmCancel'), style: 'cancel' },
             {
@@ -268,11 +270,14 @@ export default function BroadcastsScreen() {
       queryClient.invalidateQueries({ queryKey: ['creator-broadcasts'] });
       Alert.alert(
         t('broadcasts.sentTitle'),
-        t('broadcasts.sentBody', { count: result.broadcast.recipientCount.toLocaleString() })
+        t('broadcasts.sentBody', { amount: result.broadcast.recipientCount.toLocaleString() })
       );
     },
     onError: (err: Error) => {
-      Alert.alert(t('broadcasts.errorTitle'), err.message ?? t('broadcasts.errorFailed'));
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? err.message ?? t('broadcasts.errorFailed');
+      Alert.alert(t('broadcasts.errorTitle'), translateApiError(t, code, message));
     },
   });
 

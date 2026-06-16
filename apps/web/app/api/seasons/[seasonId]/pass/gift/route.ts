@@ -129,12 +129,14 @@ export const POST = withAuth(
           );
         }
 
-        // 3. Debit coins from sender atomically
+        // 3. Debit coins from sender atomically.
+        // SYS-CL-07: scope the reference per sender+recipient so gifting passes for
+        // the same season to different recipients doesn't collide.
         await debitCoins(
           senderId,
           season.pass_price_coins,
           "season_pass_gift",
-          seasonId,
+          `season_pass_gift:${seasonId}:${senderId}:${recipientUserId}`,
           `Gifted Season Pass (${season.name}) to @${recipient.username}`,
           { recipientUserId, seasonId },
           tx

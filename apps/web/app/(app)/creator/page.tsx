@@ -9,8 +9,10 @@
  * Only accessible if is_creator = true.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -224,6 +226,12 @@ function PayoutSection({ balance, history, onRequest, requesting }: PayoutSectio
  * Only accessible when is_creator = true (checked server-side and client-side).
  */
 export default function CreatorPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
+
   const [data, setData] = useState<CreatorData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -241,12 +249,20 @@ export default function CreatorPage() {
         const res = await fetch("/api/creator/dashboard", { credentials: "include" });
         if (res.status === 401) { window.location.href = "/auth/login"; return; }
         if (res.status === 403) { window.location.href = "/home"; return; }
-        if (!res.ok) throw new Error("Failed to load dashboard");
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          const errMsg = typeof body.error === "string" ? body.error : body.error?.message;
+          const errCode = typeof body.error === "string" ? null : body.error?.code ?? null;
+          const err = new Error(errMsg ?? body.message ?? "Failed to load dashboard") as Error & { code?: string | null };
+          err.code = errCode;
+          throw err;
+        }
         const d = (await res.json()) as CreatorData;
         if (!d.isCreator) { window.location.href = "/home"; return; }
         setData(d);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Unknown error");
+        const err = e as Error & { code?: string | null };
+        setError(e instanceof Error ? translateApiError(tRef.current, err.code, err.message || "Unknown error") : "Unknown error");
       } finally {
         setLoading(false);
       }
@@ -257,12 +273,20 @@ export default function CreatorPage() {
     setRequesting(true);
     try {
       const res = await fetch("/api/creator/payouts", { method: "POST", credentials: "include" });
-      if (!res.ok) throw new Error("Failed to request payout");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const errMsg = typeof body.error === "string" ? body.error : body.error?.message;
+        const errCode = typeof body.error === "string" ? null : body.error?.code ?? null;
+        const err = new Error(errMsg ?? body.message ?? "Failed to request payout") as Error & { code?: string | null };
+        err.code = errCode;
+        throw err;
+      }
       showToast("Payout requested — pending admin approval");
       const refreshed = await fetch("/api/creator/dashboard", { credentials: "include" });
       setData((await refreshed.json()) as CreatorData);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Error", "error");
+      const err = e as Error & { code?: string | null };
+      showToast(e instanceof Error ? translateApiError(t, err.code, err.message || "Error") : "Error", "error");
     } finally {
       setRequesting(false);
     }

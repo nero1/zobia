@@ -57,6 +57,7 @@ const sendMessageSchema = z.object({
     .default("text"),
   metadata: z.record(z.unknown()).optional(),
   replyToMessageId: z.string().uuid().optional(),
+  idempotencyKey: z.string().max(128).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -528,6 +529,22 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       }
     }
 
+    // OFFLINE-IDEMP-GAP: mirrors the DM route's existing-row check so offline-queued
+    // room messages retried on reconnect (Expo sync queue / PWA) don't create duplicates.
+    if (body.idempotencyKey) {
+      const { rows: dupRows } = await db.query<{ id: string }>(
+        `SELECT id FROM room_messages WHERE sender_id = $1 AND idempotency_key = $2 LIMIT 1`,
+        [userId, body.idempotencyKey]
+      );
+      if (dupRows[0]) {
+        const { rows: existingRows } = await db.query(
+          `SELECT * FROM room_messages WHERE id = $1 LIMIT 1`,
+          [dupRows[0].id]
+        );
+        return NextResponse.json({ message: existingRows[0] }, { status: 200 });
+      }
+    }
+
     // todayMsgCount is counted AFTER the insert below (inclusive) to prevent off-by-one (BUG-18)
 
     // Determine if message needs approval (approval-required rooms, non-admin)
@@ -538,8 +555,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       const { rows } = await tx.query(
         `INSERT INTO room_messages
            (room_id, sender_id, content, message_type, metadata, reply_to_message_id,
-            is_pending_approval)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+            is_pending_approval, idempotency_key)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          RETURNING *`,
         [
           roomId,
@@ -549,6 +566,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           safeMetadata ? JSON.stringify(safeMetadata) : null,
           body.replyToMessageId ?? null,
           requiresApproval,
+          body.idempotencyKey ?? null,
         ]
       );
 

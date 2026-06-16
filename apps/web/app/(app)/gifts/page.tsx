@@ -8,9 +8,11 @@
 
 import { Suspense, useState, useEffect, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useTranslation } from "react-i18next";
 import { clsx } from "clsx";
 import { Avatar } from "@/components/ui/Avatar";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -108,6 +110,7 @@ function SendGiftModal({
   prefilledUsername?: string;
 }) {
   const currency = useCurrency();
+  const { t } = useTranslation();
   const [search, setSearch] = useState(prefilledUsername ?? "");
   const [suggestions, setSuggestions] = useState<UserSuggestion[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -178,11 +181,18 @@ function SendGiftModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ giftItemId: selectedGift.id, recipientId: recipient.id }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Send failed");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const errMsg = typeof data.error === "string" ? data.error : data.error?.message;
+        const errCode = typeof data.error === "string" ? null : data.error?.code ?? null;
+        const err = new Error(errMsg ?? "Send failed") as Error & { code?: string | null };
+        err.code = errCode;
+        throw err;
+      }
       setSent(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Send failed");
+      const e = err as Error & { code?: string | null };
+      setError(err instanceof Error ? translateApiError(t, e.code, e.message || "Send failed") : "Send failed");
     } finally {
       setSending(false);
     }
@@ -405,6 +415,11 @@ function GiftsPageContent() {
   const searchParams = useSearchParams();
   const prefilledId = searchParams.get("recipientId") ?? undefined;
   const prefilledUsername = searchParams.get("username") ?? undefined;
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
 
   const [tab, setTab] = useState<"received" | "sent">("received");
   const [gifts, setGifts] = useState<GiftRecord[]>([]);
@@ -425,9 +440,22 @@ function GiftsPageContent() {
     setLoading(true);
     setError(null);
     fetch(`/api/economy/gifts?type=${direction}&limit=40`, { credentials: "include" })
-      .then((r) => r.ok ? r.json() : Promise.reject(new Error("Load failed")))
+      .then((r) =>
+        r.ok
+          ? r.json()
+          : r.json().catch(() => ({})).then((body) => {
+              const errMsg = typeof body.error === "string" ? body.error : body.error?.message;
+              const errCode = typeof body.error === "string" ? null : body.error?.code ?? null;
+              const err = new Error(errMsg ?? "Load failed") as Error & { code?: string | null };
+              err.code = errCode;
+              return Promise.reject(err);
+            })
+      )
       .then((data) => setGifts(data.gifts ?? []))
-      .catch((e) => setError(e.message))
+      .catch((e) => {
+        const err = e as Error & { code?: string | null };
+        setError(e instanceof Error ? translateApiError(tRef.current, err.code, err.message || "Load failed") : "Load failed");
+      })
       .finally(() => setLoading(false));
   }, []);
 

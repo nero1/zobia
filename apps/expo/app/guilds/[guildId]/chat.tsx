@@ -21,8 +21,8 @@ import { useLocalSearchParams } from 'expo-router';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Screen } from '@/components/ui/Screen';
 import { apiClient } from '@/lib/api/client';
-import { useAuth } from '@/lib/auth/context';
-import { colors } from '@/lib/theme/colors';
+import { useAuth } from '@/lib/auth/hooks';
+import { useTheme } from '@/lib/theme';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -53,6 +53,7 @@ interface ChatPage {
 export default function GuildChatScreen() {
   const { guildId } = useLocalSearchParams<{ guildId: string }>();
   const { user } = useAuth();
+  const { colors: themeColors } = useTheme();
   const queryClient = useQueryClient();
   const flatListRef = useRef<FlatList>(null);
   const [inputText, setInputText] = useState('');
@@ -114,19 +115,25 @@ export default function GuildChatScreen() {
           {!isOwn && (
             <Text style={styles.avatar}>{item.sender_avatar_emoji ?? '🙂'}</Text>
           )}
-          <View style={[styles.bubble, isOwn && styles.bubbleOwn]}>
+          <View
+            style={[
+              styles.bubble,
+              { backgroundColor: themeColors.surface },
+              isOwn && { backgroundColor: themeColors.primary, borderBottomLeftRadius: 16, borderBottomRightRadius: 4 },
+            ]}
+          >
             {!isOwn && (
-              <Text style={styles.senderName}>
+              <Text style={[styles.senderName, { color: themeColors.primary }]}>
                 {item.sender_display_name ?? item.sender_username}
                 {item.sender_rank_name ? (
-                  <Text style={styles.rankBadge}> · {item.sender_rank_name}</Text>
+                  <Text style={[styles.rankBadge, { color: themeColors.textMuted }]}> · {item.sender_rank_name}</Text>
                 ) : null}
               </Text>
             )}
-            <Text style={[styles.messageText, isOwn && styles.messageTextOwn]}>
+            <Text style={[styles.messageText, { color: themeColors.text }, isOwn && styles.messageTextOwn]}>
               {item.content}
             </Text>
-            <Text style={styles.timestamp}>
+            <Text style={[styles.timestamp, { color: themeColors.textMuted }]}>
               {new Date(item.created_at).toLocaleTimeString([], {
                 hour: '2-digit',
                 minute: '2-digit',
@@ -136,14 +143,14 @@ export default function GuildChatScreen() {
         </View>
       );
     },
-    [user?.id]
+    [user?.id, themeColors]
   );
 
   if (isLoading) {
     return (
       <Screen>
         <View style={styles.centered}>
-          <ActivityIndicator size="large" color={colors.accent} />
+          <ActivityIndicator size="large" color={themeColors.primary} />
         </View>
       </Screen>
     );
@@ -159,11 +166,14 @@ export default function GuildChatScreen() {
         {/* Load older messages button */}
         {hasNextPage && (
           <Pressable
-            style={styles.loadOlderBtn}
+            style={[
+              styles.loadOlderBtn,
+              { backgroundColor: themeColors.surface, borderBottomColor: themeColors.border },
+            ]}
             onPress={() => fetchNextPage()}
             disabled={isFetchingNextPage}
           >
-            <Text style={styles.loadOlderText}>
+            <Text style={[styles.loadOlderText, { color: themeColors.primary }]}>
               {isFetchingNextPage ? 'Loading...' : 'Load older messages'}
             </Text>
           </Pressable>
@@ -180,7 +190,7 @@ export default function GuildChatScreen() {
           }
           ListEmptyComponent={
             <View style={styles.centered}>
-              <Text style={styles.emptyText}>
+              <Text style={[styles.emptyText, { color: themeColors.textMuted }]}>
                 No messages yet. Say hi to your guild! 👋
               </Text>
             </View>
@@ -188,20 +198,24 @@ export default function GuildChatScreen() {
         />
 
         {/* Input bar */}
-        <View style={styles.inputBar}>
+        <View style={[styles.inputBar, { borderTopColor: themeColors.border, backgroundColor: themeColors.background }]}>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { backgroundColor: themeColors.surface, color: themeColors.text }]}
             value={inputText}
             onChangeText={setInputText}
             placeholder="Message your guild..."
-            placeholderTextColor={colors.textMuted}
+            placeholderTextColor={themeColors.textMuted}
             multiline
             maxLength={1000}
             returnKeyType="send"
             onSubmitEditing={handleSend}
           />
           <Pressable
-            style={[styles.sendBtn, (!inputText.trim() || sending) && styles.sendBtnDisabled]}
+            style={[
+              styles.sendBtn,
+              { backgroundColor: themeColors.primary },
+              (!inputText.trim() || sending) && styles.sendBtnDisabled,
+            ]}
             onPress={handleSend}
             disabled={!inputText.trim() || sending}
           >
@@ -228,19 +242,15 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   emptyText: {
-    color: colors.textMuted,
     fontSize: 14,
     textAlign: 'center',
   },
   loadOlderBtn: {
     alignItems: 'center',
     paddingVertical: 8,
-    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
   },
   loadOlderText: {
-    color: colors.accent,
     fontSize: 13,
     fontWeight: '600',
   },
@@ -265,31 +275,22 @@ const styles = StyleSheet.create({
   },
   bubble: {
     maxWidth: '75%',
-    backgroundColor: colors.surface,
     borderRadius: 16,
     borderBottomLeftRadius: 4,
     paddingHorizontal: 12,
     paddingVertical: 8,
     gap: 2,
   },
-  bubbleOwn: {
-    backgroundColor: colors.accent,
-    borderBottomLeftRadius: 16,
-    borderBottomRightRadius: 4,
-  },
   senderName: {
     fontSize: 11,
     fontWeight: '700',
-    color: colors.accent,
     marginBottom: 2,
   },
   rankBadge: {
     fontWeight: '400',
-    color: colors.textMuted,
   },
   messageText: {
     fontSize: 14,
-    color: colors.text,
     lineHeight: 20,
   },
   messageTextOwn: {
@@ -297,7 +298,6 @@ const styles = StyleSheet.create({
   },
   timestamp: {
     fontSize: 10,
-    color: colors.textMuted,
     alignSelf: 'flex-end',
     marginTop: 2,
   },
@@ -307,8 +307,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
-    backgroundColor: colors.background,
     gap: 8,
   },
   input: {
@@ -316,17 +314,14 @@ const styles = StyleSheet.create({
     minHeight: 40,
     maxHeight: 120,
     borderRadius: 20,
-    backgroundColor: colors.surface,
     paddingHorizontal: 16,
     paddingVertical: 10,
     fontSize: 14,
-    color: colors.text,
   },
   sendBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -8,8 +8,11 @@
  * Paginated results.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
+import Image from "next/image";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -218,6 +221,11 @@ function EntryRow({
  * Leaderboards page with scope and track filtering.
  */
 export default function LeaderboardsPage() {
+  const { t: translate } = useTranslation();
+  const translateRef = useRef(translate);
+  useEffect(() => {
+    translateRef.current = translate;
+  }, [translate]);
   const [scope, setScope] = useState<Scope>("global");
   const [track, setTrack] = useState<Track>("main");
   const [data, setData] = useState<LeaderboardResponse | null>(null);
@@ -235,7 +243,12 @@ export default function LeaderboardsPage() {
       const params = new URLSearchParams({ scope: s, track: t, page: String(p), limit: String(perPage) });
       const res = await fetch(`/api/leaderboards?${params}`, { credentials: "include" });
       if (res.status === 401) { window.location.href = "/auth/login"; return; }
-      if (!res.ok) throw new Error("Failed to load leaderboard");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { error?: { code?: string; message?: string } };
+        const err = new Error(body.error?.message ?? "Failed to load leaderboard") as Error & { code?: string | null };
+        err.code = body.error?.code ?? null;
+        throw err;
+      }
       const json = await res.json();
       // API wraps response under `data`; normalise to LeaderboardResponse
       const apiData = json.data ?? json;
@@ -260,7 +273,8 @@ export default function LeaderboardsPage() {
         userRank: (apiData.userRank as number) ?? null,
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      const err = e as Error & { code?: string | null };
+      setError(e instanceof Error ? translateApiError(translateRef.current, err.code, err.message || "Unknown error") : "Unknown error");
     } finally {
       setLoading(false);
     }
@@ -345,9 +359,12 @@ export default function LeaderboardsPage() {
         >
           <div className="flex items-center gap-3 min-w-0">
             {banner.sponsorLogoUrl && (
-              <img
+              <Image
                 src={banner.sponsorLogoUrl}
                 alt={banner.sponsorName}
+                width={32}
+                height={32}
+                unoptimized
                 className="h-8 w-8 flex-shrink-0 rounded-md object-contain"
               />
             )}

@@ -9,8 +9,10 @@
  * Users can react to moments with emoji via POST /api/moments/[id]/reactions.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -190,6 +192,11 @@ function MomentCard({
  * Moments feed — fetches and displays real moments from the API.
  */
 export default function MomentsPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [moments, setMoments] = useState<Moment[] | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
 
@@ -217,7 +224,7 @@ export default function MomentsPage() {
           createdAt: (r.created_at ?? r.createdAt) as string,
         })));
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Unknown error");
+        setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
         setMoments([]);
       }
     })();

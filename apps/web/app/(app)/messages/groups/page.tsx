@@ -8,9 +8,11 @@
  * last message, and timestamp.
  */
 
-import { useState, useEffect } from "react";
+import { useRef, useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -69,6 +71,11 @@ function GroupSkeleton() {
 // ---------------------------------------------------------------------------
 
 export default function GroupChatsPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const router = useRouter();
   const [groups, setGroups] = useState<GroupChat[] | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -82,7 +89,7 @@ export default function GroupChatsPage() {
         const data = (await res.json()) as { items?: GroupChat[] };
         setGroups(data.items ?? []);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Unknown error");
+        setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
       }
     })();
   }, []);

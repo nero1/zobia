@@ -13,8 +13,10 @@
  * Unknown keys fall back to a generated label from the key name.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -242,6 +244,11 @@ function FlagRow({ flag, onToggle }: FlagRowProps) {
  * Requires admin authentication (enforced by middleware).
  */
 export default function AdminFeatureFlagsPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [flags, setFlags] = useState<FeatureFlag[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -312,7 +319,7 @@ export default function AdminFeatureFlagsPage() {
 
         setFlags(enriched);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Unknown error");
+        setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
       } finally {
         setLoading(false);
       }
@@ -331,7 +338,7 @@ export default function AdminFeatureFlagsPage() {
       if (!res.ok) throw new Error("Failed to save");
       showToast(`${key} ${enabled ? "enabled" : "disabled"}`);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Error", "error");
+      showToast(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Error") : "Error", "error");
       throw e; // let FlagRow revert
     }
   }

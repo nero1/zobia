@@ -244,6 +244,11 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    - Partial index on `creator_payouts (next_retry_at) WHERE status IN ('pending', 'processing')` — speeds up the payout retry queue
    - `push_tickets` table — two-stage Expo push receipt tracking (see Push Notification System in HOW-IT-WORKS.md)
    - `failed_webhooks` — adds `resolved`, `resolved_at`, `retry_count`, `last_error`, `next_retry_at`, `updated_at` columns for structured webhook retry tracking
+
+   Migration `0006_custom_bug_fixes_round2.sql` adds:
+   - Recreates `coin_ledger`'s dedup index as `(user_id, transaction_type, reference_id)` — the original `0004` index (scoped only to `transaction_type, reference_id`) let two different users sharing the same reference (e.g. a guild quest reward keyed only on `questId`) collide, silently dropping every credit/debit after the first user's
+   - Partial unique index on `star_ledger (user_id, transaction_type, reference_id) WHERE reference_id IS NOT NULL` — gives Star credits/debits the same idempotent-retry support as coins and XP
+   - `room_messages.idempotency_key TEXT` — lets offline-queued sends (Expo sync queue / PWA) be safely retried without creating duplicate messages on reconnect
 7. Optional seed data: `psql "$DIRECT_URL" < apps/web/lib/db/seed.sql`
 
 ### Option B: Railway PostgreSQL

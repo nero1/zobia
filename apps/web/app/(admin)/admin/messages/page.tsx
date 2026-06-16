@@ -9,6 +9,8 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -219,6 +221,11 @@ function DetailDrawer({ msg, onClose }: DetailDrawerProps) {
  * Requires admin authentication (enforced by middleware).
  */
 export default function AdminMessagesPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [recipientMode, setRecipientMode] = useState<RecipientMode>("all");
   const [selectedPlans, setSelectedPlans] = useState<string[]>([]);
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
@@ -280,7 +287,7 @@ export default function AdminMessagesPage() {
       const data = (await refreshed.json()) as { messages: SentMessage[] };
       setSentMessages(data.messages);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Error", "error");
+      showToast(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Error") : "Error", "error");
     } finally {
       setSending(false);
     }

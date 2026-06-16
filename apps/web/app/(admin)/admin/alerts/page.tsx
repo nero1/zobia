@@ -9,7 +9,9 @@
  * Resolved history with resolver info.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -196,6 +198,12 @@ function AlertCard({ alert, onResolve }: AlertCardProps) {
  * Requires admin authentication (enforced by middleware).
  */
 export default function AdminAlertsPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
+
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -214,11 +222,17 @@ export default function AdminAlertsPage() {
     try {
       const res = await fetch("/api/admin/alerts", { credentials: "include" });
       if (res.status === 401 || res.status === 403) { window.location.href = "/admin/login"; return; }
-      if (!res.ok) throw new Error("Failed to load alerts");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const err = new Error(body.error?.message ?? "Failed to load alerts") as Error & { code?: string | null };
+        err.code = body.error?.code ?? null;
+        throw err;
+      }
       const data = (await res.json()) as { alerts: Alert[] };
       setAlerts(data.alerts);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      const err = e as Error & { code?: string | null };
+      setError(e instanceof Error ? translateApiError(tRef.current, err.code, err.message || "Unknown error") : "Unknown error");
     } finally {
       setLoading(false);
     }

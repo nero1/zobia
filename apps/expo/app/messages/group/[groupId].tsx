@@ -12,7 +12,7 @@
  *  - Loading / empty / error states
  */
 
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -170,14 +170,17 @@ export default function GroupConversationScreen() {
   const [pendingMessages, setPendingMessages] = useState<GroupMessage[]>([]);
   const [spamBlocked, setSpamBlocked] = useState(false);
 
-  useQuery({
+  const { data: groupMeta } = useQuery({
     queryKey: ['group-meta', groupId],
     queryFn: () => fetchGroupMeta(groupId!),
     enabled: !!groupId,
-    onSuccess: (data) => {
-      navigation.setOptions({ title: data.name });
-    },
   });
+
+  useEffect(() => {
+    if (groupMeta) {
+      navigation.setOptions({ title: groupMeta.name });
+    }
+  }, [groupMeta, navigation]);
 
   const { data: messages = [], isLoading } = useQuery({
     queryKey: ['group-messages', groupId],

@@ -20,6 +20,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
+import * as Contacts from 'expo-contacts';
 
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
@@ -39,25 +40,10 @@ const AVATAR_OPTIONS = [
 ];
 
 // ---------------------------------------------------------------------------
-// Contacts helpers (expo-contacts — optional peer dep)
+// Contacts helpers
 // ---------------------------------------------------------------------------
 
-type ContactsModule = typeof import('expo-contacts');
-
-/** Lazily require expo-contacts so the app still works without it. */
-function getContacts(): ContactsModule | null {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return require('expo-contacts') as ContactsModule;
-  } catch {
-    return null;
-  }
-}
-
 async function requestAndFetchContacts(): Promise<string[]> {
-  const Contacts = getContacts();
-  if (!Contacts) return [];
-
   const { status } = await Contacts.requestPermissionsAsync();
   if (status !== 'granted') throw new Error('permission_denied');
 
@@ -126,10 +112,6 @@ export default function OnboardingStep1() {
   const subtitleColor = isDark ? colors.neutral[400] : colors.neutral[500];
 
   async function handleFindFriends() {
-    if (!getContacts()) {
-      setContactsStatus('unavailable');
-      return;
-    }
     setContactsStatus('loading');
     try {
       const numbers = await requestAndFetchContacts();

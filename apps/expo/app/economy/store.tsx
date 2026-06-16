@@ -24,6 +24,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useQuery, useMutation } from '@tanstack/react-query';
+import type { AxiosError } from 'axios';
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { apiClient } from '@/lib/api/client';
@@ -31,6 +32,7 @@ import { colors } from '@/lib/theme/colors';
 import { useTheme } from '@/lib/theme';
 import { useTranslation } from 'react-i18next';
 import { useCurrency } from '@/lib/hooks/useCurrency';
+import { translateApiError } from '@/lib/i18n/apiErrors';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -255,7 +257,10 @@ export default function StoreScreen() {
       }
     },
     onError: (err) => {
-      Alert.alert('Purchase Failed', err.message);
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? err.message;
+      Alert.alert('Purchase Failed', translateApiError(t, code, message));
       setPurchasingId(null);
       setPurchasingStarId(null);
     },
@@ -269,7 +274,10 @@ export default function StoreScreen() {
       setBoosterPinPending(null);
     },
     onError: (err) => {
-      Alert.alert('Purchase Failed', err.message);
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? err.message;
+      Alert.alert('Purchase Failed', translateApiError(t, code, message));
       setPurchasingBoosterId(null);
       setBoosterPinPending(null);
     },
@@ -359,7 +367,7 @@ export default function StoreScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t('store.coinPacks')}</Text>
           <View style={styles.packGrid}>
-            {data.coinPacks.map((pack) => (
+            {data.coinPacks.map((pack: CoinPack) => (
               <PackCard
                 key={pack.id}
                 id={pack.id}
@@ -385,7 +393,7 @@ export default function StoreScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t('store.starPacks')}</Text>
           <View style={styles.packGrid}>
-            {data.starPacks.map((pack) => (
+            {data.starPacks.map((pack: StarPack) => (
               <PackCard
                 key={pack.id}
                 id={pack.id}
@@ -410,7 +418,7 @@ export default function StoreScreen() {
       {data.boosters.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t('store.boosterPacks')}</Text>
-          {data.boosters.map((booster) => (
+          {data.boosters.map((booster: BoosterItem) => (
             <View
               key={booster.id}
               style={[styles.boosterItem, { backgroundColor: themeColors.surface, borderColor: colors.neutral[200] }]}

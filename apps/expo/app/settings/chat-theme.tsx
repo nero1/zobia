@@ -21,11 +21,14 @@ import {
 } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
+import type { AxiosError } from 'axios';
 import { Screen } from '@/components/ui/Screen';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
 import { CHAT_THEMES, type ThemeConfig, type ChatTheme } from '@/lib/theme/chatThemes';
+import { translateApiError } from '@/lib/i18n/apiErrors';
 
 export type { ChatTheme };
 
@@ -72,6 +75,7 @@ export default function ChatThemeScreen() {
   const { colors: themeColors } = useTheme();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
 
   const { data: currentTheme = 'default' } = useQuery({
     queryKey: ['chat-theme'],
@@ -92,7 +96,10 @@ export default function ChatThemeScreen() {
       queryClient.setQueryData(['chat-theme'], theme);
     },
     onError: (err: Error) => {
-      Alert.alert('Error', err.message ?? 'Could not update theme. Please try again.');
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? axiosErr.message ?? 'Could not update theme. Please try again.';
+      Alert.alert('Error', translateApiError(t, code, message));
     },
   });
 

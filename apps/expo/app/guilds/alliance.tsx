@@ -4,7 +4,9 @@ import {
   Alert, ActivityIndicator, RefreshControl
 } from "react-native";
 import { useLocalSearchParams } from "expo-router";
+import { useTranslation } from "react-i18next";
 import { storage } from "@/lib/offline/store";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "";
 
@@ -18,6 +20,7 @@ interface Alliance {
 
 export default function AllianceScreen() {
   const { guildId } = useLocalSearchParams<{ guildId: string }>();
+  const { t } = useTranslation();
   const [alliance, setAlliance] = useState<Alliance | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -58,7 +61,7 @@ export default function AllianceScreen() {
       void loadAlliance();
     } else {
       const err = await res.json();
-      Alert.alert("Error", err.error?.message ?? "Failed to create alliance.");
+      Alert.alert("Error", translateApiError(t, err.error?.code, err.error?.message ?? "Failed to create alliance."));
     }
   }
 

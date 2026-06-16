@@ -7,7 +7,9 @@
  * Lists all banners with inline active toggle, creation form, and delete.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,6 +54,7 @@ interface BannerFormProps {
 }
 
 function BannerForm({ onSave, onCancel }: BannerFormProps) {
+  const { t: tSub } = useTranslation();
   const [sponsorName, setSponsorName] = useState("");
   const [sponsorLogoUrl, setSponsorLogoUrl] = useState("");
   const [ctaText, setCtaText] = useState("");
@@ -75,7 +78,7 @@ function BannerForm({ onSave, onCancel }: BannerFormProps) {
         endsAt: new Date(endsAt).toISOString(),
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save banner");
+      setError(err instanceof Error ? translateApiError(tSub, (err as Error & { code?: string | null }).code, err.message || "Failed to save banner") : "Failed to save banner");
     } finally {
       setSaving(false);
     }
@@ -284,6 +287,11 @@ function BannerRow({ banner, onToggle, onDelete, busy }: BannerRowProps) {
  * Requires admin authentication (enforced by middleware).
  */
 export default function AdminLeaderboardBannersPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [banners, setBanners] = useState<SponsoredBanner[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -311,7 +319,7 @@ export default function AdminLeaderboardBannersPage() {
       const data = (await res.json()) as { data: { banners: SponsoredBanner[] } };
       setBanners(data.data.banners);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
     } finally {
       setLoading(false);
     }
@@ -359,7 +367,7 @@ export default function AdminLeaderboardBannersPage() {
       showToast(`Banner ${isActive ? "activated" : "deactivated"}`);
       await fetchBanners();
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Error", "error");
+      showToast(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Error") : "Error", "error");
     } finally {
       setBusy(null);
     }
@@ -377,7 +385,7 @@ export default function AdminLeaderboardBannersPage() {
       showToast("Banner deleted");
       await fetchBanners();
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Error", "error");
+      showToast(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Error") : "Error", "error");
     } finally {
       setBusy(null);
     }

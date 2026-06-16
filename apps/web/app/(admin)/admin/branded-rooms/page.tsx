@@ -15,8 +15,10 @@
  * - Delete with confirmation
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -93,6 +95,7 @@ interface CreateFormProps {
 }
 
 function CreateForm({ onSave, onCancel }: CreateFormProps) {
+  const { t } = useTranslation();
   const currency = useCurrency();
   const [brandName, setBrandName] = useState("");
   const [brandLogoUrl, setBrandLogoUrl] = useState("");
@@ -119,7 +122,8 @@ function CreateForm({ onSave, onCancel }: CreateFormProps) {
         endsAt: endsAt ? new Date(endsAt).toISOString() : null,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create branded room");
+      const e = err as Error & { code?: string | null };
+      setError(err instanceof Error ? translateApiError(t, e.code, e.message || "Failed to create branded room") : "Failed to create branded room");
     } finally {
       setSaving(false);
     }
@@ -276,6 +280,7 @@ interface EditFormProps {
 }
 
 function EditForm({ room, onSave, onCancel }: EditFormProps) {
+  const { t } = useTranslation();
   const currency = useCurrency();
   const [brandName, setBrandName] = useState(room.brandName);
   const [brandLogoUrl, setBrandLogoUrl] = useState(room.brandLogoUrl ?? "");
@@ -304,7 +309,8 @@ function EditForm({ room, onSave, onCancel }: EditFormProps) {
         endsAt: endsAt ? new Date(endsAt).toISOString() : null,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update branded room");
+      const e = err as Error & { code?: string | null };
+      setError(err instanceof Error ? translateApiError(t, e.code, e.message || "Failed to update branded room") : "Failed to update branded room");
     } finally {
       setSaving(false);
     }
@@ -548,6 +554,11 @@ function RoomRow({ room, onEdit, onToggle, onDelete, busy }: RoomRowProps) {
  * Requires admin authentication (enforced by middleware).
  */
 export default function AdminBrandedRoomsPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const currency = useCurrency();
   const [rooms, setRooms] = useState<BrandedRoom[]>([]);
   const [loading, setLoading] = useState(true);
@@ -571,11 +582,17 @@ export default function AdminBrandedRoomsPage() {
         window.location.href = "/admin/login";
         return;
       }
-      if (!res.ok) throw new Error("Failed to load branded rooms");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const err = new Error(body.error?.message ?? "Failed to load branded rooms") as Error & { code?: string | null };
+        err.code = body.error?.code ?? null;
+        throw err;
+      }
       const data = (await res.json()) as { brandedRooms: BrandedRoom[] };
       setRooms(data.brandedRooms);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      const err = e as Error & { code?: string | null };
+      setError(e instanceof Error ? translateApiError(tRef.current, err.code, err.message || "Unknown error") : "Unknown error");
     } finally {
       setLoading(false);
     }
@@ -594,9 +611,10 @@ export default function AdminBrandedRoomsPage() {
     });
     if (!res.ok) {
       const json = await res.json().catch(() => ({}));
-      throw new Error(
-        (json as { error?: { message?: string } })?.error?.message ?? "Failed to create sponsorship"
-      );
+      const body = json as { error?: { message?: string; code?: string | null } };
+      const err = new Error(body.error?.message ?? "Failed to create sponsorship") as Error & { code?: string | null };
+      err.code = body.error?.code ?? null;
+      throw err;
     }
     showToast("Branded room created");
     setCreating(false);
@@ -612,9 +630,10 @@ export default function AdminBrandedRoomsPage() {
     });
     if (!res.ok) {
       const json = await res.json().catch(() => ({}));
-      throw new Error(
-        (json as { error?: { message?: string } })?.error?.message ?? "Failed to update sponsorship"
-      );
+      const body = json as { error?: { message?: string; code?: string | null } };
+      const err = new Error(body.error?.message ?? "Failed to update sponsorship") as Error & { code?: string | null };
+      err.code = body.error?.code ?? null;
+      throw err;
     }
     showToast("Branded room updated");
     setEditing(null);
@@ -630,11 +649,17 @@ export default function AdminBrandedRoomsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isActive }),
       });
-      if (!res.ok) throw new Error("Failed to update status");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const err = new Error(body.error?.message ?? "Failed to update status") as Error & { code?: string | null };
+        err.code = body.error?.code ?? null;
+        throw err;
+      }
       showToast(`Sponsorship ${isActive ? "activated" : "deactivated"}`);
       await fetchRooms();
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Error", "error");
+      const err = e as Error & { code?: string | null };
+      showToast(e instanceof Error ? translateApiError(t, err.code, err.message || "Error") : "Error", "error");
     } finally {
       setBusy(null);
     }
@@ -648,11 +673,17 @@ export default function AdminBrandedRoomsPage() {
         method: "DELETE",
         credentials: "include",
       });
-      if (!res.ok) throw new Error("Failed to delete branded room");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const err = new Error(body.error?.message ?? "Failed to delete branded room") as Error & { code?: string | null };
+        err.code = body.error?.code ?? null;
+        throw err;
+      }
       showToast("Sponsorship deleted");
       await fetchRooms();
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Error", "error");
+      const err = e as Error & { code?: string | null };
+      showToast(e instanceof Error ? translateApiError(t, err.code, err.message || "Error") : "Error", "error");
     } finally {
       setBusy(null);
     }

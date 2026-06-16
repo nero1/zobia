@@ -49,6 +49,13 @@ async function lockAndGetBalance(
 /**
  * Write a coin_ledger entry inside a transaction.
  * This is the single authoritative write path for all coin movements.
+ *
+ * SYS-CL-ROOT: `uidx_coin_ledger_tx_type_ref` is a partial unique index on
+ * (user_id, transaction_type, reference_id). On a duplicate (e.g. a retried
+ * request reusing the same idempotency reference), the INSERT becomes a
+ * no-op and we return the already-written row instead of throwing — the
+ * caller uses `inserted` to decide whether the balance UPDATE should apply,
+ * so a legitimate retry never double-credits/debits the user.
  */
 async function writeLedgerEntry(
   tx: TransactionClient,
@@ -60,12 +67,13 @@ async function writeLedgerEntry(
   referenceId: string | null,
   description: string | null,
   metadata: Record<string, unknown> | null
-): Promise<CoinLedgerEntry> {
+): Promise<{ entry: CoinLedgerEntry; inserted: boolean }> {
   const { rows } = await tx.query<CoinLedgerEntry>(
     `INSERT INTO coin_ledger
        (user_id, amount, balance_before, balance_after,
         transaction_type, reference_id, description, metadata)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (user_id, transaction_type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
      RETURNING *`,
     [
       userId,
@@ -78,7 +86,38 @@ async function writeLedgerEntry(
       metadata ? JSON.stringify(metadata) : null,
     ]
   );
-  return rows[0];
+  if (rows[0]) return { entry: rows[0], inserted: true };
+
+  const { rows: existing } = await tx.query<CoinLedgerEntry>(
+    `SELECT * FROM coin_ledger
+     WHERE user_id = $1 AND transaction_type = $2 AND reference_id = $3
+     LIMIT 1`,
+    [userId, type, referenceId]
+  );
+  return { entry: existing[0], inserted: false };
+}
+
+/**
+ * Look up an existing coin_ledger row for a dedup key before locking the
+ * user row. This lets a retried debit short-circuit as a no-op even if the
+ * user's balance has since dropped below the original amount — without it,
+ * a legitimate retry of an already-applied debit would incorrectly fail
+ * with INSUFFICIENT_BALANCE.
+ */
+async function findExistingLedgerEntry(
+  tx: TransactionClient,
+  userId: string,
+  type: CoinTransactionType,
+  referenceId: string | null
+): Promise<CoinLedgerEntry | null> {
+  if (!referenceId) return null;
+  const { rows } = await tx.query<CoinLedgerEntry>(
+    `SELECT * FROM coin_ledger
+     WHERE user_id = $1 AND transaction_type = $2 AND reference_id = $3
+     LIMIT 1`,
+    [userId, type, referenceId]
+  );
+  return rows[0] ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,15 +155,26 @@ export async function creditCoins(
   }
 
   const run = async (tx: TransactionClient): Promise<CoinLedgerEntry> => {
+    const dup = await findExistingLedgerEntry(tx, userId, type, referenceId);
+    if (dup) return dup;
+
     const balanceBefore = await lockAndGetBalance(userId, tx);
     const balanceAfter = balanceBefore.plus(dec);
 
-    await tx.query(
-      `UPDATE users SET coin_balance = $1, updated_at = NOW() WHERE id = $2`,
-      [balanceAfter.toFixed(0), userId]
+    const { entry, inserted } = await writeLedgerEntry(
+      tx, userId, dec, balanceBefore, balanceAfter, type, referenceId, description, metadata
     );
 
-    return writeLedgerEntry(tx, userId, dec, balanceBefore, balanceAfter, type, referenceId, description, metadata);
+    // Only apply the balance change if this is a genuinely new ledger entry —
+    // a duplicate reference means an earlier call already updated the balance.
+    if (inserted) {
+      await tx.query(
+        `UPDATE users SET coin_balance = $1, updated_at = NOW() WHERE id = $2`,
+        [balanceAfter.toFixed(0), userId]
+      );
+    }
+
+    return entry;
   };
 
   if (txClient) return run(txClient);
@@ -162,6 +212,9 @@ export async function debitCoins(
   }
 
   const run = async (tx: TransactionClient): Promise<CoinLedgerEntry> => {
+    const dup = await findExistingLedgerEntry(tx, userId, type, referenceId);
+    if (dup) return dup;
+
     const balanceBefore = await lockAndGetBalance(userId, tx);
 
     if (balanceBefore.lt(dec)) {
@@ -173,12 +226,18 @@ export async function debitCoins(
     const balanceAfter = balanceBefore.minus(dec);
     const debitAmount = dec.negated();
 
-    await tx.query(
-      `UPDATE users SET coin_balance = $1, updated_at = NOW() WHERE id = $2`,
-      [balanceAfter.toFixed(0), userId]
+    const { entry, inserted } = await writeLedgerEntry(
+      tx, userId, debitAmount, balanceBefore, balanceAfter, type, referenceId, description, metadata
     );
 
-    return writeLedgerEntry(tx, userId, debitAmount, balanceBefore, balanceAfter, type, referenceId, description, metadata);
+    if (inserted) {
+      await tx.query(
+        `UPDATE users SET coin_balance = $1, updated_at = NOW() WHERE id = $2`,
+        [balanceAfter.toFixed(0), userId]
+      );
+    }
+
+    return entry;
   };
 
   if (txClient) return run(txClient);

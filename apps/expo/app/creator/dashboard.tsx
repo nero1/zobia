@@ -22,12 +22,15 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
+import type { AxiosError } from 'axios';
 
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
+import { translateApiError } from '@/lib/i18n/apiErrors';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -178,6 +181,7 @@ export default function CreatorDashboardScreen() {
   const { isDark } = useTheme();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
@@ -203,8 +207,11 @@ export default function CreatorDashboardScreen() {
       Alert.alert('Payout Requested', res.message ?? 'Your payout request has been submitted.');
       void queryClient.invalidateQueries({ queryKey: ['creator', 'dashboard'] });
     },
-    onError: () => {
-      Alert.alert('Error', 'Could not submit payout request. Please try again.');
+    onError: (err) => {
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? 'Could not submit payout request. Please try again.';
+      Alert.alert('Error', translateApiError(t, code, message));
     },
   });
 
@@ -320,7 +327,7 @@ export default function CreatorDashboardScreen() {
         {/* Top Gifters */}
         {data.topGifters.length > 0 && (
           <SectionCard title="Top Gifters" isDark={isDark}>
-            {data.topGifters.slice(0, 3).map((gifter, idx) => (
+            {data.topGifters.slice(0, 3).map((gifter: TopGifter, idx: number) => (
               <View key={gifter.userId} style={styles.gifterRow}>
                 <Text style={styles.gifterRank}>{['🥇', '🥈', '🥉'][idx]}</Text>
                 <Text style={styles.gifterEmoji}>{gifter.avatarEmoji}</Text>
@@ -346,7 +353,7 @@ export default function CreatorDashboardScreen() {
           {data.recentPayouts.length === 0 ? (
             <Text style={[styles.emptyText, { color: subtitleColor }]}>No payouts yet.</Text>
           ) : (
-            data.recentPayouts.slice(0, 5).map((payout) => (
+            data.recentPayouts.slice(0, 5).map((payout: Payout) => (
               <View key={payout.id} style={styles.payoutRow}>
                 <View>
                   <Text

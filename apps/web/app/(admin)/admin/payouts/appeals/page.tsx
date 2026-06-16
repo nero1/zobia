@@ -8,6 +8,8 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -149,6 +151,7 @@ function AppealRow({ appeal, onApprove, onDismiss, busy }: AppealRowProps) {
 // ---------------------------------------------------------------------------
 
 export default function PayoutAppealsPage() {
+  const { t } = useTranslation();
   const [appeals, setAppeals] = useState<Appeal[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -198,14 +201,20 @@ export default function PayoutAppealsPage() {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(
+        const err = new Error(
           (body as { error?: { message?: string } }).error?.message ?? `Failed to ${action} appeal`
-        );
+        ) as Error & { code?: string | null };
+        err.code = (body as { error?: { code?: string } }).error?.code ?? null;
+        throw err;
       }
       showToast(`Appeal ${action === "approve" ? "approved" : "dismissed"}`);
       await fetchAppeals();
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Error", "error");
+      const err = e as Error & { code?: string | null };
+      showToast(
+        e instanceof Error ? translateApiError(t, err.code, err.message || "Error") : "Error",
+        "error"
+      );
     } finally {
       setBusy(null);
     }

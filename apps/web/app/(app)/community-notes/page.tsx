@@ -13,7 +13,9 @@
  * PRD §19 — Trust, Safety & Community Health.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -103,6 +105,7 @@ interface SubmitNoteModalProps {
 }
 
 function SubmitNoteModal({ onClose, onSubmit }: SubmitNoteModalProps) {
+  const { t: tSub } = useTranslation();
   const [content, setContent] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -119,7 +122,7 @@ function SubmitNoteModal({ onClose, onSubmit }: SubmitNoteModalProps) {
       await onSubmit(trimmed);
       onClose();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to submit note.");
+      setError(err instanceof Error ? translateApiError(tSub, (err as Error & { code?: string | null }).code, err.message || "Failed to submit note.") : "Failed to submit note.");
     } finally {
       setSubmitting(false);
     }
@@ -269,6 +272,11 @@ function NoteCard({ note, onVote, voting }: NoteCardProps) {
 type FilterStatus = "all" | "pending" | "visible" | "removed";
 
 export default function CommunityNotesPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [notes, setNotes] = useState<CommunityNote[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -313,7 +321,7 @@ export default function CommunityNotesPage() {
     setLoading(true);
     setError(null);
     fetchNotes(true)
-      .catch((err) => setError(err.message))
+      .catch((err) => { const e2 = err as Error & { code?: string | null }; setError(translateApiError(tRef.current, e2.code, e2.message || "Unknown error")); })
       .finally(() => setLoading(false));
   }, [fetchNotes]);
 

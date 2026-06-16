@@ -498,6 +498,22 @@ export default function DMConversationScreen() {
   });
   const chatTheme = CHAT_THEMES.find((t) => t.id === chatThemeId) ?? CHAT_THEMES[0]!;
 
+  // Manifest + user settings for Pidgin gate
+  const { data: pidginConfig } = useQuery({
+    queryKey: ['pidgin-config'],
+    queryFn: async () => {
+      const [manifestRes, settingsRes] = await Promise.all([
+        apiClient.get<{ features: { pidginAutocomplete: boolean } }>('/manifest'),
+        apiClient.get<{ data: { pidginSuggestionsEnabled: boolean | null } }>('/users/me/settings'),
+      ]);
+      return {
+        adminEnabled: manifestRes.data?.features?.pidginAutocomplete ?? false,
+        userSetting: settingsRes.data?.data?.pidginSuggestionsEnabled ?? null,
+      };
+    },
+    staleTime: 5 * 60_000,
+  });
+
   const pidginActive = pidginConfig
     ? isPidginEnabled(pidginConfig.adminEnabled, pidginConfig.userSetting, i18n.language)
     : false;
@@ -516,10 +532,13 @@ export default function DMConversationScreen() {
     queryKey: ['dm-conversation', conversationId],
     queryFn: () => fetchConversation(conversationId!),
     enabled: !!conversationId,
-    onSuccess: (data) => {
-      navigation.setOptions({ title: data.otherDisplayName });
-    },
   });
+
+  useEffect(() => {
+    if (conversation) {
+      navigation.setOptions({ title: conversation.otherDisplayName });
+    }
+  }, [conversation, navigation]);
 
   // Connection badge
   const { data: badgeData } = useQuery({
@@ -532,22 +551,6 @@ export default function DMConversationScreen() {
     },
     enabled: !!conversationId,
     staleTime: 60_000,
-  });
-
-  // Manifest + user settings for Pidgin gate
-  const { data: pidginConfig } = useQuery({
-    queryKey: ['pidgin-config'],
-    queryFn: async () => {
-      const [manifestRes, settingsRes] = await Promise.all([
-        apiClient.get<{ features: { pidginAutocomplete: boolean } }>('/manifest'),
-        apiClient.get<{ data: { pidginSuggestionsEnabled: boolean | null } }>('/users/me/settings'),
-      ]);
-      return {
-        adminEnabled: manifestRes.data?.features?.pidginAutocomplete ?? false,
-        userSetting: settingsRes.data?.data?.pidginSuggestionsEnabled ?? null,
-      };
-    },
-    staleTime: 5 * 60_000,
   });
 
   const { data: messages = [], isLoading } = useQuery({

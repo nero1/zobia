@@ -265,7 +265,7 @@ export default function GuildDiscoveryScreen() {
             </Text>
           </View>
         ) : (
-          guilds.slice(0, 3).map((guild) => (
+          guilds.slice(0, 3).map((guild: GuildDiscovery) => (
             <GuildCard
               key={guild.id}
               guild={guild}

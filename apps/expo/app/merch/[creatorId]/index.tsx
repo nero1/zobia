@@ -19,11 +19,14 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
+import type { AxiosError } from 'axios';
 import { Screen } from '@/components/ui/Screen';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
 import { useCurrency } from '@/lib/hooks/useCurrency';
+import { translateApiError } from '@/lib/i18n/apiErrors';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -68,6 +71,7 @@ export default function CreatorMerchStoreScreen() {
   const queryClient = useQueryClient();
   const { isDark } = useTheme();
   const currency = useCurrency();
+  const { t } = useTranslation();
 
   const themedStyles = {
     bg: isDark ? colors.neutral[900] : colors.neutral[50],
@@ -82,7 +86,7 @@ export default function CreatorMerchStoreScreen() {
     queryKey: ['merch-store', creatorId],
     queryFn: async () => {
       const res = await apiClient.get<{ store: MerchStore }>(`/merch/${creatorId}`);
-      return res.store;
+      return res.data.store;
     },
     enabled: !!creatorId,
     staleTime: 30_000,
@@ -99,14 +103,17 @@ export default function CreatorMerchStoreScreen() {
     onSuccess: (data, productId) => {
       void queryClient.invalidateQueries({ queryKey: ['merch-store', creatorId] });
       void queryClient.invalidateQueries({ queryKey: ['wallet'] });
-      if (data.paymentUrl) {
+      if (data.data.paymentUrl) {
         Alert.alert('Purchase', 'Redirecting to payment…');
       } else {
         Alert.alert('Success! 🎉', 'Your purchase was successful.');
       }
     },
     onError: (err: Error) => {
-      Alert.alert('Purchase Failed', err.message ?? 'Please try again.');
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? err.message ?? 'Please try again.';
+      Alert.alert('Purchase Failed', translateApiError(t, code, message));
     },
   });
 

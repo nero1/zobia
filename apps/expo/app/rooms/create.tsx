@@ -30,7 +30,6 @@ import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { useCurrency } from '@/lib/hooks/useCurrency';
 import { apiClient } from '@/lib/api/client';
-import { useCurrency } from '@/lib/hooks/useCurrency';
 
 // ---------------------------------------------------------------------------
 // Constants

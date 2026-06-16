@@ -11,7 +11,10 @@
  * - Upcoming events: relative time
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useTranslation } from "react-i18next";
+
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -260,6 +263,12 @@ export default function EventsPage() {
   const [purchasingDrop, setPurchasingDrop] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
+
   function showToast(msg: string) {
     setToast(msg);
     setTimeout(() => setToast(null), 3500);
@@ -342,7 +351,7 @@ export default function EventsPage() {
 
       setData({ events, giftDrop });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
     } finally {
       setLoading(false);
     }
@@ -369,7 +378,7 @@ export default function EventsPage() {
       );
       showToast("Gift drop purchased!");
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Purchase failed");
+      showToast(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Purchase failed") : "Purchase failed");
     } finally {
       setPurchasingDrop(false);
     }

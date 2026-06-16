@@ -5,8 +5,10 @@ import {
 } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import type { AxiosError } from "axios";
 import { apiClient } from "@/lib/api/client";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 interface StickerPack {
   id: string;
@@ -44,14 +46,17 @@ export default function StickerStoreScreen() {
   const unlockMutation = useMutation<void, Error, string>({
     mutationFn: unlockStickerPack,
     onSuccess: (_, packId) => {
-      queryClient.setQueryData<StickerPack[]>(["stickers", "packs"], (prev) =>
-        prev?.map((p) => (p.id === packId ? { ...p, unlocked: true } : p)) ?? []
+      queryClient.setQueryData<StickerPack[]>(["stickers", "packs"], (prev: StickerPack[] | undefined) =>
+        prev?.map((p: StickerPack) => (p.id === packId ? { ...p, unlocked: true } : p)) ?? []
       );
-      const pack = packs.find((p) => p.id === packId);
+      const pack = packs.find((p: StickerPack) => p.id === packId);
       Alert.alert("🎨 Unlocked!", `${pack?.name ?? "Pack"} is now available!`);
     },
     onError: (err) => {
-      Alert.alert("Error", err.message ?? "Unlock failed.");
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? err.message ?? "Unlock failed.";
+      Alert.alert("Error", translateApiError(t, code, message));
     },
   });
 

@@ -23,12 +23,15 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
+import type { AxiosError } from 'axios';
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
 import { SUPPORTED_NIGERIAN_BANKS } from '@/lib/payments/supported-banks';
+import { translateApiError } from '@/lib/i18n/apiErrors';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -50,6 +53,7 @@ interface BankAccountData {
 export default function BankAccountScreen() {
   const { isDark } = useTheme();
   const router = useRouter();
+  const { t } = useTranslation();
 
   const [account, setAccount] = useState<BankAccountData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -126,10 +130,10 @@ export default function BankAccountScreen() {
       setResolvedLast4(res.data.accountNumberLast4);
       setStep('confirm');
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
-          ?.message ?? 'Failed to verify account.';
-      setError(msg);
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const msg = axiosErr.response?.data?.error?.message ?? axiosErr.message ?? 'Failed to verify account.';
+      setError(translateApiError(t, code, msg));
     } finally {
       setSubmitting(false);
     }
@@ -159,10 +163,10 @@ export default function BankAccountScreen() {
       setStep('success');
       if (res.data.showPinModal) setShowPinEncouragement(true);
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
-          ?.message ?? 'Failed to save account.';
-      setError(msg);
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const msg = axiosErr.response?.data?.error?.message ?? axiosErr.message ?? 'Failed to save account.';
+      setError(translateApiError(t, code, msg));
     } finally {
       setSubmitting(false);
     }
@@ -178,10 +182,10 @@ export default function BankAccountScreen() {
       setDeleteModalVisible(false);
       setDeletePin('');
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
-          ?.message ?? 'Failed to remove account.';
-      Alert.alert('Error', msg);
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const msg = axiosErr.response?.data?.error?.message ?? axiosErr.message ?? 'Failed to remove account.';
+      Alert.alert('Error', translateApiError(t, code, msg));
     } finally {
       setSubmitting(false);
     }

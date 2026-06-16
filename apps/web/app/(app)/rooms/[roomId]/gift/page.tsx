@@ -3,7 +3,9 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 interface GiftItem {
   id: string;
@@ -24,6 +26,7 @@ export default function RoomGiftPage() {
   const router = useRouter();
   const roomId = params.roomId as string;
   const currency = useCurrency();
+  const { t } = useTranslation();
 
   const [tiers, setTiers] = useState<GiftTier[]>([]);
   const [loadingCatalogue, setLoadingCatalogue] = useState(true);
@@ -85,13 +88,18 @@ export default function RoomGiftPage() {
         }),
       });
       if (!res.ok) {
-        const body = await res.json().catch(() => ({})) as { error?: string };
-        throw new Error(body.error ?? "Failed to send gift");
+        const body = await res.json().catch(() => ({})) as { error?: { code?: string; message?: string } | string };
+        const code = typeof body.error === "object" ? body.error?.code : undefined;
+        const message = typeof body.error === "object" ? body.error?.message : body.error;
+        const err = new Error(message ?? "Failed to send gift") as Error & { code?: string | null };
+        err.code = code ?? null;
+        throw err;
       }
       setSent(true);
       setTimeout(() => router.push(`/rooms/${roomId}`), 2000);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Error sending gift");
+      const err = e as Error & { code?: string | null };
+      setError(translateApiError(t, err.code, err.message || "Error sending gift"));
     } finally {
       setSending(false);
     }

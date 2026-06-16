@@ -197,8 +197,8 @@ export default function DailyQuestsScreen() {
 
   const quests = data?.quests ?? [];
   const setBonusXp = data?.setBonusXp ?? 500;
-  const allCompleted = quests.length > 0 && quests.every((q) => q.completed);
-  const completedCount = quests.filter((q) => q.completed).length;
+  const allCompleted = quests.length > 0 && quests.every((q: Quest) => q.completed);
+  const completedCount = quests.filter((q: Quest) => q.completed).length;
 
   const renderHeader = () => (
     <View>

@@ -5,8 +5,10 @@ import {
   TextInput, KeyboardAvoidingView, Platform
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useTranslation } from "react-i18next";
 import { storage } from "@/lib/offline/store";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "";
 
@@ -47,6 +49,7 @@ export default function ClassroomScreen() {
   const { roomId } = useLocalSearchParams<{ roomId: string }>();
   const router = useRouter();
   const currency = useCurrency();
+  const { t } = useTranslation();
   const [room, setRoom] = useState<ClassroomRoom | null>(null);
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [enrolment, setEnrolment] = useState<Enrolment | null>(null);
@@ -66,7 +69,7 @@ export default function ClassroomScreen() {
   async function loadData() {
     if (!roomId) return;
     const token = storage.getString("authToken");
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
 
     const [roomRes, quizRes, modulesRes] = await Promise.all([
       fetch(`${API_BASE}/api/rooms/${roomId}`, { headers }),
@@ -125,7 +128,8 @@ export default function ClassroomScreen() {
         setShowAddModuleModal(false);
         Alert.alert("Module added!", "The new module has been added to this classroom.");
       } else {
-        Alert.alert("Error", data.message ?? data.error?.message ?? "Failed to add module.");
+        const fallback = data.message ?? data.error?.message ?? "Failed to add module.";
+        Alert.alert("Error", translateApiError(t, data.error?.code, fallback));
       }
     } catch {
       Alert.alert("Error", "Network error. Please try again.");
@@ -153,7 +157,7 @@ export default function ClassroomScreen() {
             });
             const data = await res.json();
             if (res.ok) setModules(data.data?.modules ?? []);
-            else Alert.alert("Error", data.message ?? "Failed to delete module.");
+            else Alert.alert("Error", translateApiError(t, data.error?.code, data.message ?? "Failed to delete module."));
           } catch {
             Alert.alert("Error", "Network error. Please try again.");
           }
@@ -180,7 +184,7 @@ export default function ClassroomScreen() {
       Alert.alert("Enrolled!", `You're now enrolled. +${data.xpAwarded} XP earned.`);
     } else {
       const err = await res.json();
-      Alert.alert("Enrolment Failed", err.error?.message ?? "Please try again.");
+      Alert.alert("Enrolment Failed", translateApiError(t, err.error?.code, err.error?.message ?? "Please try again."));
     }
   }
 

@@ -148,7 +148,7 @@ export async function processPaymentSucceeded(
 
       const paymentRef = reference ?? providerReference;
 
-      await tx.query(
+      const activationResult = await tx.query(
         `UPDATE business_accounts
          SET tier = $1,
              pending_tier = NULL,
@@ -158,6 +158,26 @@ export async function processPaymentSucceeded(
          WHERE id = $2 AND pending_payment_ref = $3`,
         [newTier, businessAccountId, paymentRef]
       );
+
+      // BIZ-TIER-RACE: zero rows matched means pending_payment_ref was stale
+      // (overwritten by a newer upgrade request, or already activated by a
+      // prior webhook delivery) — sending the notification anyway would be a
+      // false success. Raise a system_alert for manual reconciliation.
+      if (activationResult.rowCount === 0) {
+        console.error(
+          `[webhook/dodopayments] business_upgrade activation matched 0 rows (stale or already-applied reference)`,
+          { paymentRef, businessAccountId, newTier }
+        );
+        await tx.query(
+          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
+           VALUES ('business_upgrade_activation_mismatch', 'warning', $1, $2::jsonb, NOW())`,
+          [
+            `Business upgrade activation for account ${businessAccountId} matched 0 rows (reference ${paymentRef})`,
+            JSON.stringify({ businessAccountId, newTier, reference: paymentRef }),
+          ]
+        );
+        return;
+      }
 
       await tx.query(
         `INSERT INTO notifications
@@ -257,7 +277,12 @@ export async function processPaymentSucceeded(
       const MONTHLY_PLAN_BONUS: Record<string, number> = { plus: 50, pro: 200, max: 500 };
       const bonusCoins = MONTHLY_PLAN_BONUS[planName];
       if (bonusCoins && bonusCoins > 0) {
-        // Dedup key scoped to plan + user + calendar month so re-deliveries don't double-credit
+        // Dedup key scoped to plan + user + calendar month so re-deliveries don't double-credit.
+        // DODO-SUB-BONUS: no .catch(23505) wrapper needed here (unlike the legacy pattern in
+        // paystackWebhookHandler.ts) — creditCoins/writeLedgerEntry now resolves duplicate
+        // (user_id, transaction_type, reference_id) inserts internally via ON CONFLICT DO NOTHING
+        // and simply skips the balance update, so a re-delivered webhook never throws and never
+        // rolls back the already-applied plan upgrade above.
         const monthKey = `plan:${userId}:${new Date(data.created_at).toISOString().slice(0, 7)}`;
         await creditCoins(
           userId,

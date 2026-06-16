@@ -8,10 +8,11 @@
  * upgrade/manage buttons, and cancel subscription for paid plans.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -281,6 +282,11 @@ function PlanCard({ plan, interval, isCurrent, currentPlanRank, onUpgrade, onMan
  */
 export default function SubscriptionPage() {
   const { t } = useTranslation();
+  // Effects below only need the *current* t at fetch time, not on every
+  // language change (which would otherwise force a needless refetch since
+  // `t`'s identity changes when react-i18next switches languages).
+  const tRef = useRef(t);
+  useEffect(() => { tRef.current = t; }, [t]);
   const router = useRouter();
   const [planData, setPlanData] = useState<CurrentPlanData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -303,7 +309,7 @@ export default function SubscriptionPage() {
           fetch("/api/economy/subscriptions", { credentials: "include" }),
         ]);
         if (meRes.status === 401) { router.push("/auth/login"); return; }
-        if (!meRes.ok) throw new Error(t('subscription.loadError'));
+        if (!meRes.ok) throw new Error(tRef.current('subscription.loadError'));
         const meJson = (await meRes.json()) as MeResponse;
         const subJson = subRes.ok ? (await subRes.json()) as SubscriptionResponse : null;
         const rawUser = meJson.user ?? meJson;
@@ -342,8 +348,10 @@ export default function SubscriptionPage() {
         body: JSON.stringify({ plan: targetPlan, interval }),
       });
       if (!res.ok) {
-        const d = (await res.json()) as { message?: string };
-        throw new Error(d.message ?? t(isUpgrading ? 'subscription.upgradeFailed' : 'subscription.downgradeFailed'));
+        const d = (await res.json()) as { message?: string; code?: string };
+        const err = new Error(d.message ?? t(isUpgrading ? 'subscription.upgradeFailed' : 'subscription.downgradeFailed')) as Error & { code?: string | null };
+        err.code = d.code ?? null;
+        throw err;
       }
       const d = (await res.json()) as { checkoutUrl?: string; redirectUrl?: string };
       const url = d.checkoutUrl ?? d.redirectUrl;
@@ -368,7 +376,9 @@ export default function SubscriptionPage() {
         }
       }
     } catch (e) {
-      showToast(e instanceof Error ? e.message : t(isUpgrading ? 'subscription.upgradeFailed' : 'subscription.downgradeFailed'), "error");
+      const err = e as Error & { code?: string | null };
+      const fallback = t(isUpgrading ? 'subscription.upgradeFailed' : 'subscription.downgradeFailed');
+      showToast(e instanceof Error ? translateApiError(t, err.code, err.message || fallback) : fallback, "error");
     } finally {
       setUpgrading(null);
     }
@@ -383,8 +393,10 @@ export default function SubscriptionPage() {
         credentials: "include",
       });
       if (!res.ok) {
-        const d = (await res.json()) as { message?: string };
-        throw new Error(d.message ?? t('subscription.cancelFailed'));
+        const d = (await res.json()) as { message?: string; code?: string };
+        const err = new Error(d.message ?? t('subscription.cancelFailed')) as Error & { code?: string | null };
+        err.code = d.code ?? null;
+        throw err;
       }
       showToast(t('subscription.cancelledSuccess'));
       // Refetch
@@ -403,7 +415,9 @@ export default function SubscriptionPage() {
         });
       }
     } catch (e) {
-      showToast(e instanceof Error ? e.message : t('subscription.cancelFailed'), "error");
+      const err = e as Error & { code?: string | null };
+      const fallback = t('subscription.cancelFailed');
+      showToast(e instanceof Error ? translateApiError(t, err.code, err.message || fallback) : fallback, "error");
     } finally {
       setCancelling(false);
     }

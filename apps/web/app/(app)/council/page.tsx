@@ -10,8 +10,10 @@
  * Data from GET /api/council and GET /api/council/ideas.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -163,6 +165,11 @@ function IdeaCard({ idea, canVote, onVote, voting }: IdeaCardProps) {
  * Platform Council page — view council members, ideas, vote, and submit ideas.
  */
 export default function CouncilPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [members, setMembers] = useState<CouncilMember[]>([]);
   const [ideas, setIdeas] = useState<CouncilIdea[]>([]);
@@ -266,7 +273,7 @@ export default function CouncilPage() {
       setShowIdeaForm(false);
       showToast("Idea submitted successfully!");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to submit");
+      setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Failed to submit") : "Failed to submit");
     } finally {
       setSubmittingIdea(false);
     }

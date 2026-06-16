@@ -11,7 +11,9 @@
  * Admin-only (redirect if not admin).
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -113,6 +115,11 @@ function RowSkeleton() {
 // ---------------------------------------------------------------------------
 
 export default function AdminFlashXpPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [events, setEvents] = useState<FlashXpEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -141,7 +148,7 @@ export default function AdminFlashXpPage() {
         const data = (await res.json()) as { data: { events: FlashXpEvent[] } };
         setEvents(data.data.events);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Unknown error");
+        setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
       } finally {
         setLoading(false);
       }
@@ -198,7 +205,7 @@ export default function AdminFlashXpPage() {
       setShowForm(false);
       showToast("Flash XP event created!");
     } catch (e) {
-      setFormError(e instanceof Error ? e.message : "Create failed");
+      setFormError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Create failed") : "Create failed");
     } finally {
       setSaving(false);
     }

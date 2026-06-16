@@ -107,7 +107,7 @@ function DrawerContent({ onClose }: { onClose: () => void }) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const pathname = usePathname();
-  const { user, logout } = useAuth();
+  const { user, signOut } = useAuth();
   const { isDark } = useTheme();
   const isAdmin = (user as (typeof user & { is_admin?: boolean }) | null)?.is_admin === true;
 
@@ -127,10 +127,10 @@ function DrawerContent({ onClose }: { onClose: () => void }) {
 
   const handleLogout = () => {
     onClose();
-    setTimeout(() => logout(), 100);
+    setTimeout(() => signOut(), 100);
   };
 
-  const displayName = user?.display_name ?? user?.username ?? 'User';
+  const displayName = user?.username ?? 'User';
   const username = user?.username ?? '';
 
   return (
@@ -148,7 +148,7 @@ function DrawerContent({ onClose }: { onClose: () => void }) {
       {/* User card */}
       <View style={[styles.userCard, { borderBottomColor: divider }]}>
         <View style={[styles.avatarCircle, { backgroundColor: colors.brand.blue }]}>
-          <Text style={styles.avatarEmoji}>{user?.avatar_emoji ?? '👤'}</Text>
+          <Text style={styles.avatarEmoji}>{user?.avatarEmoji ?? '👤'}</Text>
         </View>
         <View style={{ flex: 1 }}>
           <Text style={[styles.displayName, { color: isDark ? colors.neutral[50] : colors.neutral[900] }]} numberOfLines={1}>

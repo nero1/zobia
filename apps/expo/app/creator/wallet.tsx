@@ -22,11 +22,14 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
+import type { AxiosError } from 'axios';
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
+import { translateApiError } from '@/lib/i18n/apiErrors';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -46,6 +49,7 @@ interface WalletData {
 export default function WalletScreen() {
   const { isDark } = useTheme();
   const router = useRouter();
+  const { t } = useTranslation();
 
   const [wallet, setWallet] = useState<WalletData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -103,10 +107,10 @@ export default function WalletScreen() {
       setConfirmed(false);
       if (res.data.showPinModal) setShowPinEncouragement(true);
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
-          ?.message ?? 'Failed to save wallet address.';
-      setError(msg);
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const msg = axiosErr.response?.data?.error?.message ?? axiosErr.message ?? 'Failed to save wallet address.';
+      setError(translateApiError(t, code, msg));
     } finally {
       setSubmitting(false);
     }
@@ -122,10 +126,10 @@ export default function WalletScreen() {
       setShowDeleteModal(false);
       setDeletePin('');
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
-          ?.message ?? 'Failed to remove wallet.';
-      setError(msg);
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const msg = axiosErr.response?.data?.error?.message ?? axiosErr.message ?? 'Failed to remove wallet.';
+      setError(translateApiError(t, code, msg));
     } finally {
       setSubmitting(false);
     }

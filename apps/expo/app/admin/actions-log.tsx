@@ -38,7 +38,7 @@ export default function AdminActionsLogScreen() {
 
   async function loadItems(cursor: string | null = null, replace = true) {
     const token = storage.getString("authToken");
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
     const url = `${API_BASE}/api/admin/actions-log?limit=30${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
     const res = await fetch(url, { headers }).catch(() => null);
     if (!res?.ok) {

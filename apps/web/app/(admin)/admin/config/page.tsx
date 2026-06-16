@@ -19,7 +19,9 @@
  *   Miscellaneous - deep link base URL, and any unknown keys
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -580,6 +582,11 @@ function toConfigItem(entry: RawManifestEntry): ConfigItem {
  * Requires admin authentication (enforced by middleware).
  */
 export default function AdminConfigPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [grouped, setGrouped] = useState<GroupedConfig>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -631,7 +638,7 @@ export default function AdminConfigPage() {
         }
         setGrouped(g);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Unknown error");
+        setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
       } finally {
         setLoading(false);
       }
@@ -662,7 +669,7 @@ export default function AdminConfigPage() {
       });
       showToast(`${key} saved`);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Save failed", "error");
+      showToast(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Save failed") : "Save failed", "error");
       throw e;
     }
   }

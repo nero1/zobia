@@ -38,7 +38,7 @@ import { RoomCard, type RoomCardData } from '@/components/rooms/RoomCard';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/hooks';
-import type { RoomType } from '@zobia/types';
+import type { RoomType } from '@zobia/shared/types';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -80,6 +80,7 @@ const ROOM_TYPE_FILTER_COLOR: Record<FilterChip, string> = {
   drop: colors.semantic.error,
   tipping: colors.brand.green,
   classroom: '#0D9488',
+  guild: colors.brand.gold,
 };
 
 // ---------------------------------------------------------------------------
@@ -190,7 +191,11 @@ function useRoomsQuery(
     async (cursor?: string, isRefresh = false) => {
       if (loading) return;
       try {
-        isRefresh ? setRefreshing(true) : setLoading(true);
+        if (isRefresh) {
+          setRefreshing(true);
+        } else {
+          setLoading(true);
+        }
         setError(null);
 
         const params = buildParams(cursor);
@@ -305,7 +310,7 @@ export default function RoomsScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>Rooms</Text>
-        {user?.isCreator && (
+        {user && (
           <Pressable
             style={styles.createBtn}
             onPress={handleCreateRoom}

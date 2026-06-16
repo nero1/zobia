@@ -9,6 +9,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 const MAX_CONTENT = 500;
 const MAX_CAPTION = 200;
@@ -18,6 +20,7 @@ const MAX_CAPTION = 200;
  */
 export default function CreateMomentPage() {
   const router = useRouter();
+  const { t } = useTranslation();
 
   const [content, setContent] = useState("");
   const [imageUrl, setImageUrl] = useState("");
@@ -44,13 +47,18 @@ export default function CreateMomentPage() {
 
       if (res.status === 401) { router.push("/auth/login"); return; }
       if (!res.ok) {
-        const d = (await res.json()) as { message?: string };
-        throw new Error(d.message ?? "Failed to post moment");
+        const d = (await res.json().catch(() => ({}))) as { message?: string; error?: { code?: string; message?: string } };
+        const code = d.error?.code ?? null;
+        const message = d.error?.message ?? d.message ?? "Failed to post moment";
+        const err = new Error(message) as Error & { code?: string | null };
+        err.code = code;
+        throw err;
       }
 
       router.push("/moments");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
+      const err = e as Error & { code?: string | null };
+      setError(e instanceof Error ? translateApiError(t, err.code, err.message || "Something went wrong") : "Something went wrong");
     } finally {
       setSubmitting(false);
     }

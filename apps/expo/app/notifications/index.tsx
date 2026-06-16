@@ -249,7 +249,7 @@ export default function NotificationsScreen() {
     setRefreshing(false);
   }, [refetch]);
 
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
+  const unreadCount = notifications.filter((n: AppNotification) => !n.isRead).length;
 
   if (isLoading) return <Screen><Skeleton /></Screen>;
 

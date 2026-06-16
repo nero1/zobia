@@ -8,9 +8,11 @@
  * and a "New Message" dialog.
  */
 
-import { useState, useEffect, useMemo } from "react";
+import { useRef, useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -175,6 +177,11 @@ function NewMessageDialog({ onClose, onOpen }: NewMessageDialogProps) {
  * DM inbox — conversation list with search and "New Message" dialog.
  */
 export default function MessagesPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const router = useRouter();
   const [conversations, setConversations] = useState<DMConversation[] | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -190,7 +197,7 @@ export default function MessagesPage() {
         const data = (await res.json()) as { conversations?: DMConversation[] };
         setConversations(data.conversations ?? []);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Unknown error");
+        setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
       }
     })();
   }, []);

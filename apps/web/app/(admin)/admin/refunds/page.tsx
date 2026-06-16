@@ -8,7 +8,9 @@
  * Allows issuing a new refund via an inline form/modal.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -176,6 +178,11 @@ function RefundModal({ record, onClose, onSubmit, submitting }: RefundModalProps
 // ---------------------------------------------------------------------------
 
 export default function AdminRefundsPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [tab, setTab] = useState<TabKey>("pending");
   const [records, setRecords] = useState<RefundRecord[]>([]);
   const [total, setTotal] = useState(0);
@@ -213,7 +220,7 @@ export default function AdminRefundsPage() {
       setRecords(data.data.refunds);
       setTotal(data.data.total);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
     } finally {
       setLoading(false);
     }
@@ -234,13 +241,13 @@ export default function AdminRefundsPage() {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error((body as { error?: string }).error ?? "Refund failed");
+        { const e2 = new Error((body as { error?: { message?: string }; message?: string }).error?.message ?? (body as { error?: string }).error as string ?? "Refund failed") as Error & { code?: string | null }; e2.code = (body as { error?: { code?: string } }).error?.code ?? null; throw e2; };
       }
       showToast("Refund issued successfully");
       setModal(null);
       await fetchRecords(tab);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Refund failed", "error");
+      showToast(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Refund failed") : "Refund failed", "error");
     } finally {
       setSubmitting(false);
     }

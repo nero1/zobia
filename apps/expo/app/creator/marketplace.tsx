@@ -3,6 +3,8 @@ import {
   View, Text, FlatList, TouchableOpacity,
   Alert, ActivityIndicator, RefreshControl
 } from "react-native";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 import { storage } from "@/lib/offline/store";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "";
@@ -26,6 +28,7 @@ function koboToNaira(kobo: number) {
 }
 
 export default function CreatorMarketplaceScreen() {
+  const { t } = useTranslation();
   const [quests, setQuests] = useState<SponsoredQuest[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -51,8 +54,8 @@ export default function CreatorMarketplaceScreen() {
       setQuests((prev) => prev.map((q) => q.id === questId ? { ...q, applied: true } : q));
       Alert.alert("Applied!", "Your application has been submitted for review.");
     } else {
-      const err = await res.json();
-      Alert.alert("Error", err.error?.message ?? "Application failed.");
+      const errBody = await res.json() as { error?: { code?: string; message?: string } };
+      Alert.alert("Error", translateApiError(t, errBody.error?.code, errBody.error?.message || "Application failed."));
     }
   }
 

@@ -16,12 +16,14 @@ import {
   View,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
+import { translateApiError } from '@/lib/i18n/apiErrors';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -68,6 +70,7 @@ export default function StoreSettingsScreen() {
   const { isDark, colors: themeColors } = useTheme();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
 
   const { data: store } = useQuery({
     queryKey: ['store-settings', creatorId],
@@ -94,9 +97,10 @@ export default function StoreSettingsScreen() {
       queryClient.invalidateQueries({ queryKey: ['store-settings', creatorId] });
       Alert.alert('Saved', 'Store settings updated.');
     },
-    onError: (err: Error & { response?: { data?: { error?: { message?: string } } } }) => {
-      const msg = err?.response?.data?.error?.message ?? 'Failed to save settings.';
-      Alert.alert('Error', msg);
+    onError: (err: Error & { response?: { data?: { error?: { code?: string; message?: string } } } }) => {
+      const code = err?.response?.data?.error?.code ?? null;
+      const msg = err?.response?.data?.error?.message ?? err?.message ?? 'Failed to save settings.';
+      Alert.alert('Error', translateApiError(t, code, msg));
     },
   });
 

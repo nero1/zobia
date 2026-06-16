@@ -8,7 +8,9 @@
  * Allows admins to reverse an action with a reversal note.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -176,6 +178,11 @@ function ReversalModal({ action, onClose, onConfirm, reversing }: ReversalModalP
  * Admin Automated Actions Log — filterable table with reversal support.
  */
 export default function AdminActionsLogPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [actions, setActions] = useState<AutomatedAction[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -219,7 +226,7 @@ export default function AdminActionsLogPage() {
       setActions(data.actions ?? []);
       setNextCursor(data.nextCursor ?? null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
     } finally {
       setLoading(false);
     }
@@ -244,7 +251,7 @@ export default function AdminActionsLogPage() {
       setReversalTarget(null);
       await fetchActions(true);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Reversal failed", "error");
+      showToast(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Reversal failed") : "Reversal failed", "error");
     } finally {
       setReversing(false);
     }

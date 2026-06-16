@@ -220,7 +220,7 @@ export default function PublicProfileScreen() {
     );
   }
 
-  const rankColor = rankColors[profile.rankTier] ?? colors.brand.blue;
+  const rankColor = rankColors[profile.rankTier as RankTier] ?? colors.brand.blue;
   const joinYear = new Date(profile.joinedAt).toLocaleDateString('en-NG', { month: 'long', year: 'numeric' });
 
   return (
@@ -340,7 +340,7 @@ export default function PublicProfileScreen() {
       {/* Track level bars */}
       <View style={[styles.trackSection, { backgroundColor: themeColors.surface }]}>
         <Text style={[styles.sectionTitle, { color: themeColors.text }]}>{t('publicProfile.trackLevels')}</Text>
-        {profile.trackLevels.map((tl) => (
+        {profile.trackLevels.map((tl: TrackLevel) => (
           <LevelBar key={tl.track} track={tl} />
         ))}
       </View>
@@ -352,7 +352,7 @@ export default function PublicProfileScreen() {
             {t('publicProfile.seasonHistory')}
           </Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.seasonsScroll}>
-            {profile.pastSeasons.map((s) => (
+            {profile.pastSeasons.map((s: PastSeason) => (
               <View key={s.id} style={[styles.seasonCard, { backgroundColor: themeColors.surface, borderColor: themeColors.border }]}>
                 <Text style={styles.seasonEmoji}>{s.theme}</Text>
                 <Text style={[styles.seasonName, { color: themeColors.text }]} numberOfLines={1}>{s.name}</Text>

@@ -7,6 +7,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Image from 'next/image';
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
@@ -126,9 +127,12 @@ export default function RoomMerchStore() {
                     <Card key={item.productId} className="p-4">
                       <div className="flex items-start gap-4">
                         {item.product.image_url && (
-                          <img
+                          <Image
                             src={item.product.image_url}
                             alt={item.product.name}
+                            width={96}
+                            height={96}
+                            unoptimized
                             className="w-24 h-24 object-cover rounded"
                           />
                         )}
@@ -169,9 +173,12 @@ export default function RoomMerchStore() {
               {products.map((product) => (
                 <Card key={product.id} className="p-4 hover:shadow-lg transition">
                   {product.image_url && (
-                    <img
+                    <Image
                       src={product.image_url}
                       alt={product.name}
+                      width={400}
+                      height={192}
+                      unoptimized
                       className="w-full h-48 object-cover rounded-lg mb-4"
                     />
                   )}

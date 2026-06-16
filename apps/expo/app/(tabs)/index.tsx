@@ -555,8 +555,8 @@ function NemesisWidget({ data, onChallenge, challengePending }: NemesisWidgetPro
         {/* Delta */}
         <Text style={[styles.deltaText, { color: iAhead ? colors.semantic.success : colors.semantic.error }]}>
           {iAhead
-            ? t('home.nemesisAhead', "You're {{count}} XP ahead", { count: xpDiff.toLocaleString() })
-            : t('home.nemesisBehind', "They're {{count}} XP ahead", { count: xpDiff.toLocaleString() })}
+            ? t('home.nemesisAhead', "You're {{amount}} XP ahead", { amount: xpDiff.toLocaleString() })
+            : t('home.nemesisBehind', "They're {{amount}} XP ahead", { amount: xpDiff.toLocaleString() })}
         </Text>
 
         {/* Sprint active banner */}
@@ -1009,9 +1009,9 @@ export default function HomeScreen() {
         {/* Page header */}
         <View style={styles.pageHeader}>
           <Text style={styles.pageTitle}>{t('home.title', 'Home')}</Text>
-          {user?.displayName ? (
+          {user?.username ? (
             <Text style={styles.pageSubtitle}>
-              {t('home.greeting', 'Hey, {{name}}', { name: user.displayName.split(' ')[0] })}
+              {t('home.greeting', 'Hey, {{name}}', { name: user.username.split(' ')[0] })}
             </Text>
           ) : null}
         </View>

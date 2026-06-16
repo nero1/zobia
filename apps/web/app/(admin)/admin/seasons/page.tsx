@@ -7,7 +7,9 @@
  * Lists all seasons and allows creating new ones via an inline form/modal.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -107,6 +109,7 @@ interface CreateSeasonModalProps {
 }
 
 function CreateSeasonModal({ onClose, onCreated }: CreateSeasonModalProps) {
+  const { t: tSub } = useTranslation();
   const [form, setForm] = useState<CreateSeasonForm>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -164,12 +167,12 @@ function CreateSeasonModal({ onClose, onCreated }: CreateSeasonModalProps) {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error((body as { error?: string }).error ?? "Failed to create season");
+        { const e2 = new Error((body as { error?: { message?: string }; message?: string }).error?.message ?? (body as { error?: string }).error as string ?? "Failed to create season") as Error & { code?: string | null }; e2.code = (body as { error?: { code?: string } }).error?.code ?? null; throw e2; };
       }
       onCreated();
       onClose();
     } catch (e) {
-      setFormError(e instanceof Error ? e.message : "Failed to create season");
+      setFormError(e instanceof Error ? translateApiError(tSub, (e as Error & { code?: string | null }).code, e.message || "Failed to create season") : "Failed to create season");
     } finally {
       setSubmitting(false);
     }
@@ -362,6 +365,11 @@ function SeasonCard({ season }: { season: Season }) {
 // ---------------------------------------------------------------------------
 
 export default function AdminSeasonsPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [seasons, setSeasons] = useState<Season[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -386,7 +394,7 @@ export default function AdminSeasonsPage() {
       const data = (await res.json()) as { success: boolean; data: { seasons: Season[] } };
       setSeasons(data.data.seasons);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
     } finally {
       setLoading(false);
     }

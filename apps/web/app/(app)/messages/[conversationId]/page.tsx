@@ -10,9 +10,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 import { getPidginSuggestions, isPidginLocale } from "@/lib/i18n/pidgin";
 import { useRealtimeChannel } from "@/lib/realtime/useRealtimeChannel";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -441,6 +443,7 @@ function GiftPicker({
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { t } = useTranslation();
 
   useEffect(() => {
     (async () => {
@@ -470,12 +473,17 @@ function GiftPicker({
         }),
       });
       if (!res.ok) {
-        const d = (await res.json()) as { message?: string };
-        throw new Error(d.message ?? "Failed to send gift");
+        const d = (await res.json()) as { message?: string; error?: { code?: string; message?: string } };
+        const code = d.error?.code ?? null;
+        const message = d.error?.message ?? d.message ?? "Failed to send gift";
+        const err = new Error(message) as Error & { code?: string | null };
+        err.code = code;
+        throw err;
       }
       onSent(gift.name, gift.emoji, gift.coinCost);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to send gift");
+      const err = e as Error & { code?: string | null };
+      setError(e instanceof Error ? translateApiError(t, err.code, err.message || "Failed to send gift") : "Failed to send gift");
     } finally {
       setSending(null);
     }
@@ -529,6 +537,7 @@ export default function DMConversationPage() {
   const router = useRouter();
   const conversationId = params.conversationId as string;
   const currency = useCurrency();
+  const { t } = useTranslation();
 
   const [conversation, setConversation] = useState<ConversationInfo | null>(null);
   const [messages, setMessages] = useState<DMMessage[]>([]);
@@ -733,13 +742,16 @@ export default function DMConversationPage() {
           setCoinError({ message: "Upgrade to Pro to start new conversations." });
           return;
         }
-        throw new Error(d.message ?? "Failed to send");
+        const err = new Error(d.message ?? "Failed to send") as Error & { code?: string | null };
+        err.code = code ?? null;
+        throw err;
       }
       setInput("");
       await fetchMessages();
       void fetchConnectionBadge();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to send");
+      const err = e as Error & { code?: string | null };
+      setError(e instanceof Error ? translateApiError(t, err.code, err.message || "Failed to send") : "Failed to send");
       setTimeout(() => setError(null), 3000);
     } finally {
       setSending(false);

@@ -7,7 +7,9 @@
  * View current season top-50, search users, override/disqualify season XP.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 interface LeaderboardEntry {
   rank: number;
@@ -27,6 +29,11 @@ interface OverrideModal {
 }
 
 export default function AdminLeaderboardsPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +55,7 @@ export default function AdminLeaderboardsPage() {
       const data = (await res.json()) as { data: { entries: LeaderboardEntry[] } };
       setEntries(data.data.entries);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load leaderboard");
+      setError(err instanceof Error ? translateApiError(tRef.current, (err as Error & { code?: string | null }).code, err.message || "Failed to load leaderboard") : "Failed to load leaderboard");
     } finally {
       setLoading(false);
     }
@@ -94,7 +101,7 @@ export default function AdminLeaderboardsPage() {
       setOverrideModal(null);
       void loadLeaderboard();
     } catch (err) {
-      setOverrideError(err instanceof Error ? err.message : "Save failed");
+      setOverrideError(err instanceof Error ? translateApiError(tRef.current, (err as Error & { code?: string | null }).code, err.message || "Save failed") : "Save failed");
     } finally {
       setOverrideSaving(false);
     }

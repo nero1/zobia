@@ -12,7 +12,9 @@
 
 import { useState, useEffect, use } from "react";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -162,6 +164,7 @@ function ProductCard({ product, onBuy }: ProductCardProps) {
  */
 export default function CreatorMerchStorePage({ params }: { params: Promise<{ creatorId: string }> }) {
   const { creatorId } = use(params);
+  const { t } = useTranslation();
 
   const [store, setStore] = useState<MerchStore | null>(null);
   const [loading, setLoading] = useState(true);
@@ -200,13 +203,16 @@ export default function CreatorMerchStorePage({ params }: { params: Promise<{ cr
         credentials: "include",
       });
       if (!res.ok) {
-        const body = (await res.json()) as { error?: { message?: string } };
-        throw new Error(body.error?.message ?? "Purchase failed");
+        const body = (await res.json()) as { error?: { code?: string; message?: string } };
+        const err = new Error(body.error?.message ?? "Purchase failed") as Error & { code?: string | null };
+        err.code = body.error?.code ?? null;
+        throw err;
       }
       showToast(`You bought ${confirmProduct.name}!`);
       setConfirmProduct(null);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Purchase failed", "error");
+      const err = e as Error & { code?: string | null };
+      showToast(e instanceof Error ? translateApiError(t, err.code, err.message || "Purchase failed") : "Purchase failed", "error");
     } finally {
       setBuying(false);
     }

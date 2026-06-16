@@ -160,15 +160,18 @@ export const POST = withAuth(
           [newBalance, userId]
         );
 
+        // SYS-CL-06: scope the reference per user so repeat purchase attempts for the
+        // same season by different users don't collide on the coin_ledger unique index.
         await client.query(
           `INSERT INTO coin_ledger (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description, created_at)
-           VALUES ($1, $2, $3, $4, 'season_pass_purchase', $5, $6, NOW())`,
+           VALUES ($1, $2, $3, $4, 'season_pass_purchase', $5, $6, NOW())
+           ON CONFLICT (user_id, transaction_type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
           [
             userId,
             -discountedPrice,
             coin_balance,
             newBalance,
-            seasonId,
+            `season_pass:${seasonId}:${userId}`,
             `Season pass: ${season.name}`,
           ]
         );

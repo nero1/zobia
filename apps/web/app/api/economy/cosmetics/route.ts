@@ -225,14 +225,16 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       }
     }
 
-    // 8. Atomic: debit currency and grant item
+    // 8. Atomic: debit currency and grant item.
+    // SYS-CL-10: scope both currencies' references per-user so different users
+    // buying the same item don't collide on the ledger unique index.
     await db.transaction(async (tx) => {
       if (body.currency === "stars") {
         await debitStars(
           userId,
           item.stars_cost!,
           "cosmetic_purchase",
-          body.itemId,
+          `cosmetic_purchase:${body.itemId}:${userId}`,
           `Purchased cosmetic: ${item.name}`,
           tx
         );
@@ -241,7 +243,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           userId,
           item.coins_cost!,
           "cosmetic_purchase",
-          body.itemId,
+          `cosmetic_purchase:${body.itemId}:${userId}`,
           `Purchased cosmetic: ${item.name}`,
           { itemId: body.itemId, cosmeticType: item.cosmetic_type },
           tx

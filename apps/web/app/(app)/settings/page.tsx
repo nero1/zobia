@@ -7,10 +7,12 @@
  * privacy toggles, and danger zone (logout / delete account).
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 import { QRCodeSVG } from "qrcode.react";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -180,6 +182,11 @@ function SimpleChatTheme({
  */
 export default function SettingsPage() {
   const router = useRouter();
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -270,7 +277,13 @@ export default function SettingsPage() {
           router.push("/auth/login");
           return;
         }
-        if (!settingsRes.ok || !profileRes.ok) throw new Error("Failed to load settings");
+        if (!settingsRes.ok || !profileRes.ok) {
+          const failedRes = !settingsRes.ok ? settingsRes : profileRes;
+          const body = await failedRes.json().catch(() => ({})) as { error?: { code?: string; message?: string } };
+          const err = new Error(body.error?.message ?? "Failed to load settings") as Error & { code?: string | null };
+          err.code = body.error?.code ?? null;
+          throw err;
+        }
         const settingsJson = await settingsRes.json();
         const profileJson = await profileRes.json();
         const apiSettings = settingsJson.data ?? settingsJson;
@@ -304,7 +317,8 @@ export default function SettingsPage() {
         setNotifications(mappedSettings.notifications);
         setDmOptOut(mappedSettings.dmOptOut);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Unknown error");
+        const err = e as Error & { code?: string | null };
+        setError(e instanceof Error ? translateApiError(tRef.current, err.code, err.message || "Unknown error") : "Unknown error");
       } finally {
         setLoading(false);
       }
@@ -338,10 +352,16 @@ export default function SettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ date_of_birth: dateOfBirth }),
       });
-      if (!res.ok) throw new Error("Failed to save");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { error?: { code?: string; message?: string } };
+        const err = new Error(body.error?.message ?? "Failed to save") as Error & { code?: string | null };
+        err.code = body.error?.code ?? null;
+        throw err;
+      }
       showToast("Date of birth saved");
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Save failed", "error");
+      const err = e as Error & { code?: string | null };
+      showToast(e instanceof Error ? translateApiError(t, err.code, err.message || "Save failed") : "Save failed", "error");
     } finally {
       setDobSaving(false);
     }
@@ -396,10 +416,16 @@ export default function SettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error("Failed to save");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { error?: { code?: string; message?: string } };
+        const err = new Error(body.error?.message ?? "Failed to save") as Error & { code?: string | null };
+        err.code = body.error?.code ?? null;
+        throw err;
+      }
       showToast("Saved");
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Save failed", "error");
+      const err = e as Error & { code?: string | null };
+      showToast(e instanceof Error ? translateApiError(t, err.code, err.message || "Save failed") : "Save failed", "error");
     } finally {
       setSavingField(null);
     }
@@ -418,13 +444,19 @@ export default function SettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ currentPassword, newPassword }),
       });
-      if (!res.ok) { const d = (await res.json()) as { message?: string }; throw new Error(d.message ?? "Failed"); }
+      if (!res.ok) {
+        const d = (await res.json()) as { message?: string; code?: string };
+        const err = new Error(d.message ?? "Failed") as Error & { code?: string | null };
+        err.code = d.code ?? null;
+        throw err;
+      }
       showToast("Password changed");
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
     } catch (e) {
-      setPwError(e instanceof Error ? e.message : "Error");
+      const err = e as Error & { code?: string | null };
+      setPwError(e instanceof Error ? translateApiError(t, err.code, err.message || "Error") : "Error");
     } finally {
       setPwSaving(false);
     }
@@ -440,10 +472,16 @@ export default function SettingsPage() {
     setDeleting(true);
     try {
       const res = await fetch("/api/users/me", { method: "DELETE", credentials: "include" });
-      if (!res.ok) throw new Error("Failed to delete account");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { error?: { code?: string; message?: string } };
+        const err = new Error(body.error?.message ?? "Failed to delete account") as Error & { code?: string | null };
+        err.code = body.error?.code ?? null;
+        throw err;
+      }
       router.push("/goodbye");
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Error", "error");
+      const err = e as Error & { code?: string | null };
+      showToast(e instanceof Error ? translateApiError(t, err.code, err.message || "Error") : "Error", "error");
     } finally {
       setDeleting(false);
     }
@@ -460,10 +498,16 @@ export default function SettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patch),
       });
-      if (!res.ok) throw new Error("Failed to save privacy settings");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { error?: { code?: string; message?: string } };
+        const err = new Error(body.error?.message ?? "Failed to save privacy settings") as Error & { code?: string | null };
+        err.code = body.error?.code ?? null;
+        throw err;
+      }
       showToast("Privacy settings saved");
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Save failed", "error");
+      const err = e as Error & { code?: string | null };
+      showToast(e instanceof Error ? translateApiError(t, err.code, err.message || "Save failed") : "Save failed", "error");
       setPrivacySettings(privacySettings); // revert
     } finally {
       setSavingPrivacy(false);
@@ -864,6 +908,7 @@ export default function SettingsPage() {
 // ---------------------------------------------------------------------------
 
 function PinSection({ onToast }: { onToast: (msg: string, type?: "success" | "error") => void }) {
+  const { t } = useTranslation();
   const [hasPin, setHasPin] = useState(false);
   const [mode, setMode] = useState<"idle" | "set" | "change" | "remove">("idle");
   const [pin, setPin] = useState(""); const [confirmPin, setConfirmPin] = useState("");
@@ -877,9 +922,19 @@ function PinSection({ onToast }: { onToast: (msg: string, type?: "success" | "er
     setSaving(true);
     try {
       const res = await fetch("/api/auth/pin/setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin, confirmPin }) });
-      if (!res.ok) { const d = (await res.json()) as { error?: string }; throw new Error(d.error ?? "Failed"); }
+      if (!res.ok) {
+        const d = (await res.json()) as { error?: string | { code?: string; message?: string } };
+        const errMsg = typeof d.error === "string" ? d.error : d.error?.message;
+        const errCode = typeof d.error === "string" ? null : d.error?.code ?? null;
+        const err = new Error(errMsg ?? "Failed") as Error & { code?: string | null };
+        err.code = errCode;
+        throw err;
+      }
       setHasPin(true); onToast("PIN set successfully"); reset();
-    } catch (e) { onToast(e instanceof Error ? e.message : "Error", "error"); }
+    } catch (e) {
+      const err = e as Error & { code?: string | null };
+      onToast(e instanceof Error ? translateApiError(t, err.code, err.message || "Error") : "Error", "error");
+    }
     finally { setSaving(false); }
   };
 
@@ -887,9 +942,19 @@ function PinSection({ onToast }: { onToast: (msg: string, type?: "success" | "er
     setSaving(true);
     try {
       const res = await fetch("/api/auth/pin/remove", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ currentPin }) });
-      if (!res.ok) { const d = (await res.json()) as { error?: string }; throw new Error(d.error ?? "Failed"); }
+      if (!res.ok) {
+        const d = (await res.json()) as { error?: string | { code?: string; message?: string } };
+        const errMsg = typeof d.error === "string" ? d.error : d.error?.message;
+        const errCode = typeof d.error === "string" ? null : d.error?.code ?? null;
+        const err = new Error(errMsg ?? "Failed") as Error & { code?: string | null };
+        err.code = errCode;
+        throw err;
+      }
       setHasPin(false); onToast("PIN removed"); reset();
-    } catch (e) { onToast(e instanceof Error ? e.message : "Error", "error"); }
+    } catch (e) {
+      const err = e as Error & { code?: string | null };
+      onToast(e instanceof Error ? translateApiError(t, err.code, err.message || "Error") : "Error", "error");
+    }
     finally { setSaving(false); }
   };
 
@@ -937,6 +1002,7 @@ function PinSection({ onToast }: { onToast: (msg: string, type?: "success" | "er
 // ---------------------------------------------------------------------------
 
 function TwoFactorSection({ onToast }: { onToast: (msg: string, type?: "success" | "error") => void }) {
+  const { t } = useTranslation();
   const [totpEnabled, setTotpEnabled] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState(true);
 
@@ -991,11 +1057,19 @@ function TwoFactorSection({ onToast }: { onToast: (msg: string, type?: "success"
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: setupCode.trim() }),
       });
-      if (!res.ok) { const d = (await res.json()) as { message?: string }; throw new Error(d.message ?? "Failed"); }
+      if (!res.ok) {
+        const d = (await res.json()) as { message?: string; code?: string };
+        const err = new Error(d.message ?? "Failed") as Error & { code?: string | null };
+        err.code = d.code ?? null;
+        throw err;
+      }
       setTotpEnabled(true);
       setShowSetupModal(false);
       onToast("Two-factor authentication enabled");
-    } catch (e) { onToast(e instanceof Error ? e.message : "Invalid code", "error"); }
+    } catch (e) {
+      const err = e as Error & { code?: string | null };
+      onToast(e instanceof Error ? translateApiError(t, err.code, err.message || "Invalid code") : "Invalid code", "error");
+    }
     finally { setSetupLoading(false); }
   };
 
@@ -1009,11 +1083,19 @@ function TwoFactorSection({ onToast }: { onToast: (msg: string, type?: "success"
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: disableCode.trim() }),
       });
-      if (!res.ok) { const d = (await res.json()) as { message?: string }; throw new Error(d.message ?? "Failed"); }
+      if (!res.ok) {
+        const d = (await res.json()) as { message?: string; code?: string };
+        const err = new Error(d.message ?? "Failed") as Error & { code?: string | null };
+        err.code = d.code ?? null;
+        throw err;
+      }
       setTotpEnabled(false);
       setShowDisableModal(false);
       onToast("Two-factor authentication disabled");
-    } catch (e) { onToast(e instanceof Error ? e.message : "Invalid code", "error"); }
+    } catch (e) {
+      const err = e as Error & { code?: string | null };
+      onToast(e instanceof Error ? translateApiError(t, err.code, err.message || "Invalid code") : "Invalid code", "error");
+    }
     finally { setDisableLoading(false); }
   };
 
@@ -1192,6 +1274,7 @@ function TwoFactorSection({ onToast }: { onToast: (msg: string, type?: "success"
 // ---------------------------------------------------------------------------
 
 function DataExport({ onToast }: { onToast: (msg: string, type?: "success" | "error") => void }) {
+  const { t } = useTranslation();
   const [requesting, setRequesting] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
 
@@ -1199,12 +1282,19 @@ function DataExport({ onToast }: { onToast: (msg: string, type?: "success" | "er
     setRequesting(true);
     try {
       const res = await fetch("/api/users/me/export", { method: "POST" });
-      const data = (await res.json()) as { data?: { downloadUrl?: string }; error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Export failed");
+      const data = (await res.json()) as { data?: { downloadUrl?: string }; error?: string | { code?: string; message?: string } };
+      if (!res.ok) {
+        const errMsg = typeof data.error === "string" ? data.error : data.error?.message;
+        const errCode = typeof data.error === "string" ? null : data.error?.code ?? null;
+        const err = new Error(errMsg ?? "Export failed") as Error & { code?: string | null };
+        err.code = errCode;
+        throw err;
+      }
       setDownloadUrl(data.data?.downloadUrl ?? null);
       onToast("Your data export is ready");
     } catch (e) {
-      onToast(e instanceof Error ? e.message : "Export failed", "error");
+      const err = e as Error & { code?: string | null };
+      onToast(e instanceof Error ? translateApiError(t, err.code, err.message || "Export failed") : "Export failed", "error");
     } finally {
       setRequesting(false);
     }

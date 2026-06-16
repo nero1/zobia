@@ -42,7 +42,7 @@ export default function AdminAutomatedActionsScreen() {
 
   async function loadActions(cursor: string | null = null, replace = true) {
     const token = storage.getString("authToken");
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
     const url = `${API_BASE}/api/admin/automated-actions?limit=30${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
     const res = await fetch(url, { headers }).catch(() => null);
     if (!res?.ok) {

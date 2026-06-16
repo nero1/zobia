@@ -8,7 +8,9 @@
  * that are injected into the site footer server-side.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -45,6 +47,7 @@ interface ScriptFormProps {
 }
 
 function ScriptForm({ initial, onSave, onCancel }: ScriptFormProps) {
+  const { t: tSub } = useTranslation();
   const [name, setName] = useState(initial?.name ?? "");
   const [content, setContent] = useState(initial?.content ?? "");
   const [isActive, setIsActive] = useState(initial?.isActive ?? true);
@@ -59,7 +62,7 @@ function ScriptForm({ initial, onSave, onCancel }: ScriptFormProps) {
     try {
       await onSave({ name, content, isActive, position });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save script");
+      setError(err instanceof Error ? translateApiError(tSub, (err as Error & { code?: string | null }).code, err.message || "Failed to save script") : "Failed to save script");
     } finally {
       setSaving(false);
     }
@@ -247,6 +250,11 @@ function SkeletonRow() {
  * Requires admin authentication (enforced by middleware).
  */
 export default function AdminFooterScriptsPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [scripts, setScripts] = useState<FooterScript[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -273,7 +281,7 @@ export default function AdminFooterScriptsPage() {
       const data = (await res.json()) as { data: { scripts: FooterScript[] } };
       setScripts(data.data.scripts);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
     } finally {
       setLoading(false);
     }
@@ -328,7 +336,7 @@ export default function AdminFooterScriptsPage() {
       showToast(`Script ${isActive ? "activated" : "deactivated"}`);
       await fetchScripts();
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Error", "error");
+      showToast(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Error") : "Error", "error");
     } finally {
       setBusy(null);
     }
@@ -346,7 +354,7 @@ export default function AdminFooterScriptsPage() {
       showToast("Script deleted");
       await fetchScripts();
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Error", "error");
+      showToast(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Error") : "Error", "error");
     } finally {
       setBusy(null);
     }

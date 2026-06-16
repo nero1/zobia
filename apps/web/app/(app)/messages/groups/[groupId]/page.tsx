@@ -11,6 +11,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -127,6 +129,7 @@ export default function GroupConversationPage() {
   const params = useParams();
   const router = useRouter();
   const groupId = params.groupId as string;
+  const { t } = useTranslation();
 
   const [group, setGroup] = useState<GroupInfo | null>(null);
   const [messages, setMessages] = useState<GroupMessage[]>([]);
@@ -205,13 +208,18 @@ export default function GroupConversationPage() {
         body: JSON.stringify({ content: input.trim(), messageType: "text" }),
       });
       if (!res.ok) {
-        const d = (await res.json()) as { message?: string };
-        throw new Error(d.message ?? "Failed to send");
+        const d = (await res.json()) as { message?: string; error?: { code?: string; message?: string } };
+        const code = d.error?.code ?? null;
+        const message = d.error?.message ?? d.message ?? "Failed to send";
+        const err = new Error(message) as Error & { code?: string | null };
+        err.code = code;
+        throw err;
       }
       setInput("");
       await fetchMessages();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to send");
+      const err = e as Error & { code?: string | null };
+      setError(e instanceof Error ? translateApiError(t, err.code, err.message || "Failed to send") : "Failed to send");
       setTimeout(() => setError(null), 3000);
     } finally {
       setSending(false);

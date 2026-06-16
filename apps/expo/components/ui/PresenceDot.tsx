@@ -56,7 +56,7 @@ export function PresenceDot({ userId, size = 12 }: PresenceDotProps) {
     refetchInterval: 90_000, // background poll
   });
 
-  const status = data?.status ?? 'offline';
+  const status = (data?.status ?? 'offline') as PresenceStatus;
   const color = STATUS_COLOR[status];
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
