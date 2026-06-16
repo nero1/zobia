@@ -59,6 +59,12 @@ async function lockAndGetStarBalance(
 
 /**
  * Write a star_ledger entry inside a transaction.
+ *
+ * STAR-NOIDEM: `uidx_star_ledger_tx_type_ref` is a partial unique index on
+ * (user_id, transaction_type, reference_id), mirroring coin_ledger. On a
+ * duplicate, the INSERT is a no-op and the existing row is returned instead
+ * of throwing — the caller uses `inserted` to skip the balance UPDATE so a
+ * retried request never double-credits/debits stars.
  */
 async function writeStarLedgerEntry(
   tx: TransactionClient,
@@ -69,12 +75,13 @@ async function writeStarLedgerEntry(
   type: StarTransactionType,
   referenceId: string | null,
   description: string | null
-): Promise<StarLedgerEntry> {
+): Promise<{ entry: StarLedgerEntry; inserted: boolean }> {
   const { rows } = await tx.query<StarLedgerEntry>(
     `INSERT INTO star_ledger
        (user_id, amount, balance_before, balance_after,
         transaction_type, reference_id, description)
      VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (user_id, transaction_type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
      RETURNING *`,
     [
       userId,
@@ -86,7 +93,37 @@ async function writeStarLedgerEntry(
       description ?? null,
     ]
   );
-  return rows[0];
+  if (rows[0]) return { entry: rows[0], inserted: true };
+
+  const { rows: existing } = await tx.query<StarLedgerEntry>(
+    `SELECT * FROM star_ledger
+     WHERE user_id = $1 AND transaction_type = $2 AND reference_id = $3
+     LIMIT 1`,
+    [userId, type, referenceId]
+  );
+  return { entry: existing[0], inserted: false };
+}
+
+/**
+ * Look up an existing star_ledger row for a dedup key before locking the
+ * user row, so a retried debit short-circuits as a no-op instead of
+ * potentially failing INSUFFICIENT_STAR_BALANCE against a balance that has
+ * since moved.
+ */
+async function findExistingStarLedgerEntry(
+  tx: TransactionClient,
+  userId: string,
+  type: StarTransactionType,
+  referenceId: string | null
+): Promise<StarLedgerEntry | null> {
+  if (!referenceId) return null;
+  const { rows } = await tx.query<StarLedgerEntry>(
+    `SELECT * FROM star_ledger
+     WHERE user_id = $1 AND transaction_type = $2 AND reference_id = $3
+     LIMIT 1`,
+    [userId, type, referenceId]
+  );
+  return rows[0] ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -119,15 +156,24 @@ export async function creditStars(
   }
 
   const run = async (tx: TransactionClient): Promise<StarLedgerEntry> => {
+    const dup = await findExistingStarLedgerEntry(tx, userId, type, referenceId);
+    if (dup) return dup;
+
     const balanceBefore = await lockAndGetStarBalance(userId, tx);
     const balanceAfter = balanceBefore.plus(dec);
 
-    await tx.query(
-      `UPDATE users SET star_balance = $1, updated_at = NOW() WHERE id = $2`,
-      [balanceAfter.toFixed(0), userId]
+    const { entry, inserted } = await writeStarLedgerEntry(
+      tx, userId, dec, balanceBefore, balanceAfter, type, referenceId, description
     );
 
-    return writeStarLedgerEntry(tx, userId, dec, balanceBefore, balanceAfter, type, referenceId, description);
+    if (inserted) {
+      await tx.query(
+        `UPDATE users SET star_balance = $1, updated_at = NOW() WHERE id = $2`,
+        [balanceAfter.toFixed(0), userId]
+      );
+    }
+
+    return entry;
   };
 
   if (txClient) return run(txClient);
@@ -162,6 +208,9 @@ export async function debitStars(
   }
 
   const run = async (tx: TransactionClient): Promise<StarLedgerEntry> => {
+    const dup = await findExistingStarLedgerEntry(tx, userId, type, referenceId);
+    if (dup) return dup;
+
     const balanceBefore = await lockAndGetStarBalance(userId, tx);
 
     if (balanceBefore.lt(dec)) {
@@ -173,12 +222,18 @@ export async function debitStars(
     const balanceAfter = balanceBefore.minus(dec);
     const debitAmount = dec.negated();
 
-    await tx.query(
-      `UPDATE users SET star_balance = $1, updated_at = NOW() WHERE id = $2`,
-      [balanceAfter.toFixed(0), userId]
+    const { entry, inserted } = await writeStarLedgerEntry(
+      tx, userId, debitAmount, balanceBefore, balanceAfter, type, referenceId, description
     );
 
-    return writeStarLedgerEntry(tx, userId, debitAmount, balanceBefore, balanceAfter, type, referenceId, description);
+    if (inserted) {
+      await tx.query(
+        `UPDATE users SET star_balance = $1, updated_at = NOW() WHERE id = $2`,
+        [balanceAfter.toFixed(0), userId]
+      );
+    }
+
+    return entry;
   };
 
   if (txClient) return run(txClient);

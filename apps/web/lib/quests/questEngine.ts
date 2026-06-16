@@ -252,8 +252,10 @@ export async function updateQuestProgress(
       await safeAwardXP(userId, xpAwarded, xpTrack, "quest_complete", questCompletionRef, client);
 
       // Use creditCoins() for proper SELECT FOR UPDATE locking and ledger consistency (BUG-10)
+      // SYS-CL-01: per-user, per-day reference (mirrors questCompletionRef above) — a bare
+      // questId would collide across every user completing the same quest template.
       if (coinsAwarded > 0) {
-        await creditCoins(userId, coinsAwarded, "quest_reward", questId, "Daily quest reward", {}, client);
+        await creditCoins(userId, coinsAwarded, "quest_reward", questCompletionRef, "Daily quest reward", {}, client);
       }
     }
 

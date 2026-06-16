@@ -28,6 +28,16 @@ The DM page also runs a 3-second baseline poll as a guaranteed fallback in case 
 
 Each message sent earns XP on the `social` track.
 
+### Group Chats
+
+Multi-member messaging via `POST /api/messages/group/[groupId]`, stored in the `messages` table. Brought up to parity with the DM and room-message endpoints:
+
+- **Validation:** body is validated with Zod (`content` 1–2000 chars, `messageType` enum) instead of being trusted as-is.
+- **Rate limiting:** `enforceRateLimit(userId, 'user', RATE_LIMITS.messageSend)` applies the same per-user send rate limit as DMs and room chat.
+- **Auto-moderation:** non-admin text messages are passed through `applyAutoModeration` (spam/profanity/duplicate detection) before being stored, same as room messages.
+- **Offline idempotency:** the client may send an `idempotencyKey`; if a message with the same `(sender_id, idempotency_key)` already exists, the existing row is returned with `200` instead of inserting a duplicate. This lets the Expo sync queue and the PWA's offline outbox safely replay a queued send after reconnecting.
+- **XP awards:** the sender's `group_message` XP and each active member's `group_message_member` XP are granted via `safeAwardXP`, keyed on the new message's own UUID rather than the bare `groupId`. The previous raw `INSERT INTO xp_ledger` had no `ON CONFLICT` guard and was keyed only on `groupId`, so XP could be double-awarded on retry and a second message in the same group would collide with the first on the ledger's uniqueness constraint.
+
 ### Moments
 
 Moments are short-lived posts (photos, GIFs, text snippets, or in-room ⚡ clips) that expire after 24 hours. The feature is accessible via the `/moments` feed page and `/moments/create`.
@@ -392,6 +402,12 @@ Floating-point precision: all coin values are stored as `BIGINT` (smallest unit,
 
 Atomicity: every debit operation pairs the `UPDATE users SET coin_balance = ...` with an `INSERT INTO coin_ledger ...` inside a single database transaction. If either fails, both roll back.
 
+**Idempotency:** `coin_ledger` has a partial unique index on `(user_id, transaction_type, reference_id) WHERE reference_id IS NOT NULL`. Callers supply a `reference_id` that is unique per logical event *and* per user (e.g. `quest:<questId>:<userId>:<date>`, `cosmetic_purchase:<itemId>:<userId>`, or a fresh `randomUUID()` for one-shot purchases) — never a bare entity ID shared across users, since that would collide and silently drop every user's credit/debit after the first. `creditCoins`/`debitCoins` check for an existing ledger row for that key before locking the balance (so a retried debit never fails `INSUFFICIENT_BALANCE` against a balance that has already moved), then insert with `ON CONFLICT ... DO NOTHING RETURNING *` and only apply the balance update if the insert actually happened. Retrying the exact same event (e.g. a re-delivered payment webhook) is always safe.
+
+### Star Ledger
+
+`star_ledger` mirrors `coin_ledger` exactly: append-only, `BIGINT` amounts, a `SELECT ... FOR UPDATE` lock on `users` before reading `star_balance`, and the same partial unique index on `(user_id, transaction_type, reference_id) WHERE reference_id IS NOT NULL` for idempotent retries via `creditStars`/`debitStars`. Star gifts (`POST /api/economy/stars/gift`) use a single `randomUUID()` shared between the sender's debit and the recipient's credit (with different `transaction_type` values: `gift_sent` / `gift_received`) so the same sender can gift the same recipient any number of times — a bare recipient/sender ID as the reference would only allow one gift ever, since every subsequent gift would collide on the dedup index.
+
 ### Payout Pipeline
 
 **Account Setup:**
@@ -492,6 +508,8 @@ Deletion is batched by joining `room_messages` against the sender's subscription
 - Expo SQLite stores structured offline data: recent message threads, the quest deck, and cached profile data.
 - Same sync-on-reconnect pattern: NetInfo `addEventListener` fires the sync when connectivity is restored.
 - Offline messages have a 72-hour TTL in SQLite. Messages older than 72 hours that never synced are dropped with a "message not sent" notice displayed to the user.
+
+**Duplicate-send protection:** every queued message (web IndexedDB outbox or Expo SQLite queue) carries a client-generated `idempotencyKey`. The room, group, and DM send endpoints all check `(sender_id, idempotency_key)` before inserting and return the existing message with `200` on a match instead of creating a duplicate. This matters because the sync queue retries on every app open and every `online` event — without server-side dedup, a flaky reconnect (request succeeds server-side but the success response is lost) would resend the same message and create visible duplicates once connectivity stabilizes.
 
 ### JWT + Redis Session System
 
@@ -1013,18 +1031,18 @@ Business accounts start at the free `starter` tier. To upgrade to `growth` (₦1
 
 1. Client calls `PATCH /api/business/tier` with `{ tier, paymentProvider }`.
 2. Server looks up the tier price from `x_manifest` (admin-configurable; falls back to PRD defaults).
-3. Server stores `pending_tier` and `pending_payment_ref` on the business account record.
-4. Server calls Paystack (`initializePayment`) or DodoPayments (`createPaymentSession`) and returns `{ paymentUrl }`.
-5. Server inserts a `pending` record in the `payments` table (`payment_type = 'business_upgrade'`) with `idempotency_key = reference` and `provider_reference` set to the payment provider's own reference. This record is required for the webhook handler's idempotency check; without it the webhook would bail out before activating the upgrade.
-6. Client redirects user to the checkout page.
-7. On `charge.success` (Paystack) or `payment.succeeded` (DodoPayments), the webhook handler:
+3. **Race guard:** if the business account already has a `pending_tier` + `pending_payment_ref`, the server checks the `payments` table for a still-`pending` row with that `idempotency_key` created within the last 30 minutes. If found, the request is rejected with `409 UPGRADE_ALREADY_PENDING` instead of overwriting `pending_payment_ref` — overwriting it would make the first payment's eventual webhook activation match zero rows (see step 7) and silently lose the upgrade. Once the window expires (or the first payment resolves), a new upgrade request is allowed.
+4. Server stores `pending_tier` and `pending_payment_ref` on the business account record.
+5. Server calls Paystack (`initializePayment`) or DodoPayments (`createPaymentSession`) and returns `{ paymentUrl }`.
+6. Server inserts a `pending` record in the `payments` table (`payment_type = 'business_upgrade'`) with `idempotency_key = reference` and `provider_reference` set to the payment provider's own reference. This record is required for the webhook handler's idempotency check; without it the webhook would bail out before activating the upgrade.
+7. Client redirects user to the checkout page.
+8. On `charge.success` (Paystack) or `payment.succeeded` (DodoPayments), the webhook handler:
    - Verifies the HMAC signature before any processing.
    - Looks up the `payments` row by `provider_reference` and acquires a `FOR UPDATE` row lock to prevent duplicate processing.
-   - Matches the `pending_payment_ref` on the business account.
-   - Updates `tier` to the `newTier` from metadata.
+   - Activates the tier with `UPDATE business_accounts SET tier = ... WHERE id = ... AND pending_payment_ref = ...` — the `pending_payment_ref` match means a stale or already-applied reference updates zero rows. If zero rows are matched, the handler raises a `business_upgrade_activation_mismatch` system alert for manual reconciliation and does **not** send the success notification (a prior version of this handler sent the notification unconditionally, producing false "upgraded" confirmations when the reference was stale).
    - Clears `pending_tier` and `pending_payment_ref`.
    - Records `tier_updated_at`.
-   - Sends an in-app notification to the business account owner confirming the tier activation.
+   - Sends an in-app notification to the business account owner confirming the tier activation — only when the activation update above actually matched a row.
 
 Tier prices are admin-configurable via `x_manifest` keys `business_growth_price_kobo` and `business_enterprise_price_kobo`.
 

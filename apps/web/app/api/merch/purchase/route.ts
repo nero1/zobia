@@ -180,24 +180,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       let orderId: string;
 
       await db.transaction(async (tx: TransactionClient) => {
-        // a. Debit buyer
-        await debitCoins(
-          buyerId,
-          coinCost,
-          "merch_purchase",
-          body.productId,
-          `Merch purchase: ${product.name} from ${store.name}`,
-          {
-            productId: body.productId,
-            storeId: body.storeId,
-            priceKobo,
-            platformFeeKobo,
-            creatorNetKobo,
-          },
-          tx
-        );
-
-        // b. Insert order record
+        // a. Insert order record first so we have a fresh, per-purchase order ID to
+        // use as the debit reference (SYS-CL-09: the bare productId collided across
+        // repeat purchases of the same product, including by different buyers).
         const { rows: orderRows } = await tx.query<MerchOrderRow>(
           `INSERT INTO merch_orders
              (store_id, product_id, buyer_id, price_kobo, platform_fee_kobo,
@@ -215,6 +200,23 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         );
 
         orderId = orderRows[0].id;
+
+        // b. Debit buyer
+        await debitCoins(
+          buyerId,
+          coinCost,
+          "merch_purchase",
+          orderId,
+          `Merch purchase: ${product.name} from ${store.name}`,
+          {
+            productId: body.productId,
+            storeId: body.storeId,
+            priceKobo,
+            platformFeeKobo,
+            creatorNetKobo,
+          },
+          tx
+        );
 
         // c. Decrement stock if finite
         if (product.stock !== null) {

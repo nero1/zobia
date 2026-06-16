@@ -27,7 +27,7 @@ import { randomUUID } from "crypto";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
-import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
+import { handleApiError, notFound, badRequest, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { loadManifest } from "@/lib/manifest";
 import { initializePayment as paystackInit } from "@/lib/payments/paystack";
@@ -48,6 +48,13 @@ const DEFAULT_TIER_PRICE_KOBO: Record<string, number> = {
   growth: 1_500_000,     // ₦15,000
   enterprise: 5_000_000, // ₦50,000
 };
+
+/**
+ * BIZ-TIER-RACE: how long a pending business-upgrade payment session is
+ * considered "still in progress" before we allow the user to start a new one.
+ * Matches typical Paystack/DodoPayments checkout session lifetimes.
+ */
+const PENDING_PAYMENT_TTL_MINUTES = 30;
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -80,8 +87,8 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
     const userEmail = userRows[0].email ?? `${userId}@zobia.placeholder`;
 
     // Fetch current business account
-    const { rows } = await db.query<{ id: string; tier: string }>(
-      `SELECT id, tier FROM business_accounts WHERE user_id = $1 AND deleted_at IS NULL LIMIT 1`,
+    const { rows } = await db.query<{ id: string; tier: string; pending_tier: string | null; pending_payment_ref: string | null }>(
+      `SELECT id, tier, pending_tier, pending_payment_ref FROM business_accounts WHERE user_id = $1 AND deleted_at IS NULL LIMIT 1`,
       [userId]
     );
     if (!rows[0]) throw notFound("No business account found");
@@ -89,6 +96,28 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
     const currentTier = rows[0].tier.toLowerCase();
     if ((TIER_ORDER[currentTier] ?? 0) >= (TIER_ORDER[newTier] ?? 0)) {
       throw badRequest(`Cannot downgrade or re-purchase from ${currentTier} to ${newTier}`);
+    }
+
+    // BIZ-TIER-RACE: reject a new upgrade request while a non-expired pending
+    // payment already exists — otherwise the second request overwrites
+    // pending_payment_ref before the first payment's webhook fires, so the
+    // webhook's activation UPDATE (keyed on the now-stale ref) matches zero
+    // rows and the tier is never actually activated.
+    if (rows[0].pending_tier && rows[0].pending_payment_ref) {
+      const { rows: pendingPaymentRows } = await db.query<{ id: string }>(
+        `SELECT id FROM payments
+         WHERE idempotency_key = $1
+           AND status = 'pending'
+           AND created_at > NOW() - INTERVAL '${PENDING_PAYMENT_TTL_MINUTES} minutes'
+         LIMIT 1`,
+        [rows[0].pending_payment_ref]
+      );
+      if (pendingPaymentRows[0]) {
+        throw conflict(
+          "You already have a business upgrade payment in progress. Complete or wait for it to expire before starting a new one.",
+          "UPGRADE_ALREADY_PENDING"
+        );
+      }
     }
 
     // Resolve tier price from x_manifest (admin-configurable)

@@ -152,13 +152,15 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         throw conflict("You have already unlocked this sticker pack");
       }
 
-      // Deduct coins if pack has a price
+      // Deduct coins if pack has a price.
+      // SYS-CL-03: scope the reference per-user so it stays unique even before
+      // the SYS-CL-ROOT index migration lands everywhere.
       if (pack.coin_price > 0) {
         await debitCoins(
           userId,
           pack.coin_price,
           "sticker_pack",
-          packId,
+          `sticker_pack:${packId}:${userId}`,
           `Unlocked sticker pack: ${pack.name}`,
           { packId },
           tx

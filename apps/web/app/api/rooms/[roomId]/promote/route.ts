@@ -21,6 +21,7 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
@@ -135,12 +136,17 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       throw forbidden("Only the room creator can promote this room");
     }
 
-    // 2. Debit coins atomically — debitCoins writes the ledger entry internally
+    // 2. Debit coins atomically — debitCoins writes the ledger entry internally.
+    // SYS-CL-02: room_promotions.room_id is UNIQUE and upserted, so its row id
+    // stays identical across repeat/extended purchases for the same room — using
+    // it (or the bare roomId) as the debit reference would collide on the second
+    // purchase. Generate a fresh UUID per purchase instead.
+    const purchaseRef = randomUUID();
     await debitCoins(
       auth.user.sub,
       coinCost,
       "room_promotion",
-      roomId,
+      purchaseRef,
       `Room promotion: ${body.hours}h for room ${roomId}`,
       { roomId, hours: body.hours, coinCost }
     );

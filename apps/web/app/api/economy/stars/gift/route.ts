@@ -17,6 +17,7 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
@@ -76,13 +77,18 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const recipient = recipientRows[0];
 
-    // Transfer stars atomically
+    // Transfer stars atomically.
+    // STAR-NOIDEM: the reference must be transaction-specific, not the counterparty's
+    // user ID — using recipientId/senderId as the reference meant a sender could only
+    // ever gift stars to the same recipient once (every subsequent gift would collide
+    // on the user_id+transaction_type+reference_id ledger index).
+    const transferRef = randomUUID();
     await db.transaction(async (tx) => {
       await debitStars(
         senderId,
         body.amount,
         "gift_sent",
-        body.recipientId,
+        transferRef,
         `Gifted ${body.amount} ⭐ to @${recipient.username}`,
         tx
       );
@@ -91,7 +97,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         body.recipientId,
         body.amount,
         "gift_received",
-        senderId,
+        transferRef,
         `Received ${body.amount} ⭐ from a friend`,
         tx
       );

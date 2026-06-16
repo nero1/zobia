@@ -172,7 +172,7 @@ export async function processChargeSuccess(
         return;
       }
 
-      await tx.query(
+      const activationResult = await tx.query(
         `UPDATE business_accounts
          SET tier = $1,
              pending_tier = NULL,
@@ -182,6 +182,27 @@ export async function processChargeSuccess(
          WHERE id = $2 AND pending_payment_ref = $3`,
         [newTier, businessAccountId, reference]
       );
+
+      // BIZ-TIER-RACE: if pending_payment_ref no longer matches (e.g. a newer
+      // upgrade request overwrote it, or it was already activated by a prior
+      // webhook delivery), the activation UPDATE matches zero rows. Sending
+      // the "upgraded" notification anyway would be a false success — raise
+      // a system_alert for manual reconciliation instead.
+      if (activationResult.rowCount === 0) {
+        console.error(
+          `[webhook/paystack] business_upgrade activation matched 0 rows (stale or already-applied reference)`,
+          { reference, businessAccountId, newTier }
+        );
+        await tx.query(
+          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
+           VALUES ('business_upgrade_activation_mismatch', 'warning', $1, $2::jsonb, NOW())`,
+          [
+            `Business upgrade activation for account ${businessAccountId} matched 0 rows (reference ${reference})`,
+            JSON.stringify({ businessAccountId, newTier, reference }),
+          ]
+        );
+        return;
+      }
 
       // Notify the user
       await tx.query(

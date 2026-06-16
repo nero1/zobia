@@ -161,12 +161,17 @@ export const POST = withAuth(
             if (memberCount > 0) {
               const coinsPerMember = Math.floor(quest.reward_coins / memberCount);
               if (coinsPerMember > 0) {
+                // SYS-CL-05: most severe bug in the review — every member in the loop
+                // shared the identical `questId` reference under transaction_type
+                // 'quest_reward', so the second member's INSERT hit the unique
+                // constraint and rolled back the *entire* transaction for any
+                // multi-member quest. Scope the reference per member.
                 for (const member of membersResult.rows) {
                   await creditCoins(
                     member.user_id,
                     coinsPerMember,
                     "quest_reward",
-                    questId,
+                    `guild_quest_reward:${questId}:${member.user_id}`,
                     `Quest completion reward`,
                     { guildId, questId },
                     tx

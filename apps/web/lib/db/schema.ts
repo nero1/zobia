@@ -1222,6 +1222,9 @@ export const roomMessages = pgTable("room_messages", {
   // Migration 003 (db): reply threading
   replyToMessageId: uuid("reply_to_message_id"),
   isPendingApproval: boolean("is_pending_approval").notNull().default(false),
+  // OFFLINE-IDEMP-GAP: lets offline-queued sends (Expo sync queue / PWA) be
+  // safely retried without creating duplicate messages on reconnect.
+  idempotencyKey: text("idempotency_key"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
@@ -1913,34 +1916,47 @@ export const coinLedger = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (t) => ({
-    // CRON-MONTHLY-01: partial unique index supports ON CONFLICT dedup for
-    // idempotent coin credits (subscription_bonus, etc.)
+    // SYS-CL-ROOT: partial unique index supports ON CONFLICT dedup for
+    // idempotent coin credits/debits. Must include user_id — without it,
+    // two different users sharing the same (transaction_type, reference_id)
+    // (e.g. a guild quest reward keyed only on questId) collide and the
+    // second user's write is silently dropped.
     txTypeRefIdx: uniqueIndex("uidx_coin_ledger_tx_type_ref")
-      .on(t.transactionType, t.referenceId)
+      .on(t.userId, t.transactionType, t.referenceId)
       .where(sql`reference_id IS NOT NULL`),
   })
 );
 
-export const starLedger = pgTable("star_ledger", {
-  id: uuidPk(),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  // SCHEMA-STAR-01: bigint to match the signed amount semantic (stars can be large)
-  amount: bigint("amount", { mode: "number" }).notNull(),
-  balanceBefore: bigint("balance_before", { mode: "number" })
-    .notNull()
-    .default(0),
-  balanceAfter: bigint("balance_after", { mode: "number" })
-    .notNull()
-    .default(0),
-  transactionType: text("transaction_type").notNull(),
-  description: text("description"),
-  referenceId: text("reference_id"),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const starLedger = pgTable(
+  "star_ledger",
+  {
+    id: uuidPk(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // SCHEMA-STAR-01: bigint to match the signed amount semantic (stars can be large)
+    amount: bigint("amount", { mode: "number" }).notNull(),
+    balanceBefore: bigint("balance_before", { mode: "number" })
+      .notNull()
+      .default(0),
+    balanceAfter: bigint("balance_after", { mode: "number" })
+      .notNull()
+      .default(0),
+    transactionType: text("transaction_type").notNull(),
+    description: text("description"),
+    referenceId: text("reference_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    // STAR-NOIDEM: partial unique index mirrors coin_ledger/xp_ledger so
+    // star credits/debits support ON CONFLICT dedup for idempotent retries.
+    txTypeRefIdx: uniqueIndex("uidx_star_ledger_tx_type_ref")
+      .on(t.userId, t.transactionType, t.referenceId)
+      .where(sql`reference_id IS NOT NULL`),
+  })
+);
 
 export const xpLedger = pgTable(
   "xp_ledger",
