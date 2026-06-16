@@ -22,15 +22,33 @@ import * as path from 'path';
 /** Root of the web app source directory. */
 const SRC_ROOT = path.resolve(__dirname, '../../../');
 
-/** The one file allowed to import from the Supabase SDK. */
+/** The one file allowed to import from the Supabase SDK for the DB layer. */
 const ALLOWED_SUPABASE_FILE = path.resolve(__dirname, '../providers/supabase.ts');
 
-/** Patterns that indicate a direct Supabase SDK import. */
+/** This test file itself references the SDK name in string/regex literals. */
+const SELF_FILE = path.resolve(__filename);
+
+/**
+ * Directories with their own independent pluggable-provider abstraction
+ * (REALTIME_PROVIDER / STORAGE_PROVIDER) that is unrelated to
+ * DATABASE_PROVIDER. A Supabase SDK import there is an intentional,
+ * env-gated provider implementation, not a DB-abstraction leak.
+ */
+const EXCLUDED_DIRS = [
+  path.resolve(SRC_ROOT, 'lib/realtime'),
+  path.resolve(SRC_ROOT, 'lib/storage'),
+];
+
+/**
+ * Patterns that indicate an actual Supabase SDK import/require statement.
+ * Deliberately narrower than a bare substring match on the package name so
+ * that comments documenting the absence of a dependency (e.g. "No
+ * @supabase/supabase-js is used here") are not flagged as violations.
+ */
 const SUPABASE_IMPORT_PATTERNS = [
-  /@supabase\/supabase-js/,
-  /from ['"]@supabase\/supabase-js['"]/,
-  /require\(['"]@supabase\/supabase-js['"]\)/,
-  /createClient\s*from\s*['"]@supabase/,
+  /from\s+['"]@supabase\/supabase-js['"]/,
+  /require\(\s*['"]@supabase\/supabase-js['"]\s*\)/,
+  /import\(\s*['"]@supabase\/supabase-js['"]\s*\)/,
 ];
 
 /**
@@ -105,8 +123,14 @@ describe('DB provider isolation — no Supabase SDK leakage', () => {
     const violatingFiles: string[] = [];
 
     for (const filePath of allSourceFiles) {
-      // Skip the allowed file
-      if (path.resolve(filePath) === ALLOWED_SUPABASE_FILE) continue;
+      const resolved = path.resolve(filePath);
+
+      // Skip the allowed DB provider file and this test file itself.
+      if (resolved === ALLOWED_SUPABASE_FILE) continue;
+      if (resolved === SELF_FILE) continue;
+
+      // Skip directories with their own independent provider abstraction.
+      if (EXCLUDED_DIRS.some((dir) => resolved.startsWith(dir + path.sep))) continue;
 
       let content: string;
       try {

@@ -72,6 +72,11 @@ function makePendingPayout(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // db.transaction must actually invoke the callback (with a tx client backed
+  // by the same mockQuery) for code paths like moveToDeadLetterQueue to run.
+  mockTransaction.mockImplementation(async (fn: (tx: { query: typeof mockQuery }) => Promise<unknown>) => {
+    return fn({ query: mockQuery });
+  });
 });
 
 describe('getCreatorFeeRate', () => {
@@ -166,12 +171,21 @@ describe('reconcileStuckPayouts (BUG-PY01)', () => {
 
 describe('moveToDeadLetterQueue', () => {
   it('inserts into payout_dead_letter_queue', async () => {
-    mockQuery.mockResolvedValue({ rows: [], rowCount: 1 });
+    // The FOR UPDATE lock query needs to return a row for the function to
+    // proceed past its early-return guard (`if (!current[0]) return;`).
+    mockQuery.mockResolvedValue({
+      rows: [{ net_kobo: 80000, gross_kobo: 100000, earnings_restored: false, status: 'failed' }],
+      rowCount: 1,
+    });
 
     await moveToDeadLetterQueue('payout-1', 'creator-1', 2, 'test reason');
 
-    expect(mockQuery).toHaveBeenCalled();
-    const sql: string = mockQuery.mock.calls[0][0] as string;
-    expect(sql).toMatch(/payout_dead_letter_queue/i);
+    // The dead-letter insert is one of several queries run inside the
+    // transaction (lock, status update, earnings restore, DLQ insert) —
+    // find it rather than assuming it's the first call.
+    const dlqCall = mockQuery.mock.calls.find(
+      ([sql]) => typeof sql === 'string' && /payout_dead_letter_queue/i.test(sql)
+    );
+    expect(dlqCall).toBeDefined();
   });
 });

@@ -370,6 +370,9 @@ describe('distributeSeasonRewards', () => {
     const coinUpdates: Array<{ sql: string; params: unknown[] }> = [];
     const mockTx: TransactionClient = {
       query: jest.fn().mockImplementation(async (sql: string, params: unknown[]) => {
+        if (sql.includes('SELECT coin_balance FROM users')) {
+          return { rows: [{ coin_balance: '0' }], rowCount: 1 };
+        }
         if (sql.includes('UPDATE users SET coin_balance')) {
           coinUpdates.push({ sql, params });
         }
@@ -394,9 +397,10 @@ describe('distributeSeasonRewards', () => {
 
     await distributeSeasonRewards('season-1', mockDb);
 
-    // First update is for rank-1 user
+    // First update is for rank-1 user. creditCoins writes balanceAfter as a
+    // string via Decimal#toFixed, and params are [balanceAfter, userId].
     expect(coinUpdates[0]).toBeDefined();
-    expect(coinUpdates[0].params[0]).toBe(expectedRank1Share);
+    expect(coinUpdates[0].params[0]).toBe(String(expectedRank1Share));
     expect(coinUpdates[0].params[1]).toBe('user-1');
   });
 
@@ -404,14 +408,21 @@ describe('distributeSeasonRewards', () => {
     const POOL = 10000;
     const expectedRank2Share = Math.floor(POOL * 0.15); // 1500
 
+    // 4+ users so the normal fixed-tier path is exercised (fewer than 4
+    // placed users triggers proportional redistribution of unallocated tiers).
     const topUsers = [
       { user_id: 'user-1', final_rank: 1 },
       { user_id: 'user-2', final_rank: 2 },
+      { user_id: 'user-3', final_rank: 3 },
+      { user_id: 'user-4', final_rank: 4 },
     ];
 
     const coinUpdates: Array<{ sql: string; params: unknown[] }> = [];
     const mockTx: TransactionClient = {
       query: jest.fn().mockImplementation(async (sql: string, params: unknown[]) => {
+        if (sql.includes('SELECT coin_balance FROM users')) {
+          return { rows: [{ coin_balance: '0' }], rowCount: 1 };
+        }
         if (sql.includes('UPDATE users SET coin_balance')) {
           coinUpdates.push({ sql, params });
         }
@@ -437,7 +448,7 @@ describe('distributeSeasonRewards', () => {
     await distributeSeasonRewards('season-1', mockDb);
 
     expect(coinUpdates[1]).toBeDefined();
-    expect(coinUpdates[1].params[0]).toBe(expectedRank2Share);
+    expect(coinUpdates[1].params[0]).toBe(String(expectedRank2Share));
     expect(coinUpdates[1].params[1]).toBe('user-2');
   });
 
@@ -451,6 +462,9 @@ describe('distributeSeasonRewards', () => {
     const badgeInserts: Array<{ sql: string; params: unknown[] }> = [];
     const mockTx: TransactionClient = {
       query: jest.fn().mockImplementation(async (sql: string, params: unknown[]) => {
+        if (sql.includes('SELECT coin_balance FROM users')) {
+          return { rows: [{ coin_balance: '0' }], rowCount: 1 };
+        }
         if (sql.includes('INSERT INTO user_badges')) {
           badgeInserts.push({ sql, params });
         }
@@ -496,6 +510,9 @@ describe('distributeSeasonRewards', () => {
     const coinUpdates: Array<{ sql: string; params: unknown[] }> = [];
     const mockTx: TransactionClient = {
       query: jest.fn().mockImplementation(async (sql: string, params: unknown[]) => {
+        if (sql.includes('SELECT coin_balance FROM users')) {
+          return { rows: [{ coin_balance: '0' }], rowCount: 1 };
+        }
         if (sql.includes('UPDATE users SET coin_balance')) {
           coinUpdates.push({ sql, params });
         }
@@ -522,7 +539,7 @@ describe('distributeSeasonRewards', () => {
 
     // Ranks 4-10 are at indices 3-9
     for (let i = 3; i < coinUpdates.length; i++) {
-      expect(coinUpdates[i].params[0]).toBe(rank4to10Share);
+      expect(coinUpdates[i].params[0]).toBe(String(rank4to10Share));
     }
   });
 });

@@ -97,13 +97,13 @@ export async function processPendingPayouts(
   );
 
   for (const payout of pendingRows) {
-    const success = await attemptTransfer(payout, maxRetries, false);
+    const { success, dlq } = await attemptTransfer(payout, maxRetries, false);
     if (success) {
       result.processed++;
+    } else if (dlq) {
+      result.dlq++;
     } else {
-      const movedToDlq = payout.retry_count + 1 >= maxRetries;
-      if (movedToDlq) result.dlq++;
-      else result.failed++;
+      result.failed++;
     }
   }
 
@@ -128,13 +128,13 @@ export async function processPendingPayouts(
   );
 
   for (const payout of retryRows) {
-    const success = await attemptTransfer(payout, maxRetries, true);
+    const { success, dlq } = await attemptTransfer(payout, maxRetries, true);
     if (success) {
       result.retried++;
+    } else if (dlq) {
+      result.dlq++;
     } else {
-      const movedToDlq = payout.retry_count + 1 >= maxRetries;
-      if (movedToDlq) result.dlq++;
-      else result.failed++;
+      result.failed++;
     }
   }
 
@@ -149,7 +149,7 @@ async function attemptTransfer(
   payout: PendingPayoutRow,
   maxRetries: number,
   isRetry: boolean
-): Promise<boolean> {
+): Promise<{ success: boolean; dlq: boolean }> {
   const snapshot = payout.bank_account_snapshot;
   if (!snapshot?.recipient_code) {
     await moveToDeadLetterQueue(
@@ -158,7 +158,7 @@ async function attemptTransfer(
       payout.retry_count,
       "No recipient_code in bank_account_snapshot"
     );
-    return false;
+    return { success: false, dlq: true };
   }
 
   try {
@@ -176,7 +176,7 @@ async function attemptTransfer(
             `UPDATE creator_payouts SET status = 'completed', updated_at = NOW() WHERE id = $1`,
             [payout.id]
           );
-          return true;
+          return { success: true, dlq: false };
         }
       } catch {
         // verifyTransfer failed (not found or network error) — proceed to re-initiate
@@ -200,7 +200,7 @@ async function attemptTransfer(
       [transfer.transfer_code, payout.id]
     );
 
-    return true;
+    return { success: true, dlq: false };
   } catch (err) {
     const newRetryCount = payout.retry_count + 1;
 
@@ -211,7 +211,7 @@ async function attemptTransfer(
         newRetryCount,
         err instanceof Error ? err.message : "Unknown Paystack error"
       );
-      return false;
+      return { success: false, dlq: true };
     }
 
     // Schedule next retry
@@ -227,7 +227,7 @@ async function attemptTransfer(
       [newRetryCount, String(offsetMinutes), payout.id]
     );
 
-    return false;
+    return { success: false, dlq: false };
   }
 }
 

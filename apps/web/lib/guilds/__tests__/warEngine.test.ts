@@ -189,8 +189,13 @@ describe('findWarOpponent', () => {
   });
 
   it('does not return the declaring guild as its own opponent', async () => {
+    // Exclusion of busy guilds (including self) happens SQL-side via
+    // `g.id != ALL($4::uuid[])`, not via post-filtering in JS. So we assert
+    // that the declaring guild's id is included in the exclusion param, and
+    // simulate the SQL-side filtering by returning no candidates.
+    let candidateParams: unknown[] | undefined;
     const mockDb = buildMockDb({
-      query: jest.fn().mockImplementation(async (sql: string) => {
+      query: jest.fn().mockImplementation(async (sql: string, params?: unknown[]) => {
         if (sql.includes('SELECT id, guild_xp, city FROM guilds')) {
           return { rows: [{ id: 'guild-a', guild_xp: 5000, city: null }], rowCount: 1 };
         }
@@ -198,21 +203,24 @@ describe('findWarOpponent', () => {
           return { rows: [], rowCount: 0 };
         }
         if (sql.includes('SELECT g.id FROM guilds g')) {
-          // Return guild-a itself as candidate — should be filtered out
-          return { rows: [{ id: 'guild-a' }], rowCount: 1 };
+          candidateParams = params;
+          return { rows: [], rowCount: 0 };
         }
         return { rows: [], rowCount: 0 };
       }),
     });
 
     const result = await findWarOpponent('guild-a', mockDb);
-    // guild-a is in busyGuilds, so it should be filtered out → null
     expect(result).toBeNull();
+    expect(candidateParams?.[3]).toContain('guild-a');
   });
 
   it('does not return a guild that is currently at war', async () => {
+    // Same as above — the busy-guild exclusion (guilds with an active war)
+    // is applied SQL-side, so assert it's present in the exclusion param.
+    let candidateParams: unknown[] | undefined;
     const mockDb = buildMockDb({
-      query: jest.fn().mockImplementation(async (sql: string) => {
+      query: jest.fn().mockImplementation(async (sql: string, params?: unknown[]) => {
         if (sql.includes('SELECT id, guild_xp, city FROM guilds')) {
           return { rows: [{ id: 'guild-a', guild_xp: 5000, city: null }], rowCount: 1 };
         }
@@ -224,15 +232,16 @@ describe('findWarOpponent', () => {
           };
         }
         if (sql.includes('SELECT g.id FROM guilds g')) {
-          return { rows: [{ id: 'guild-b' }], rowCount: 1 };
+          candidateParams = params;
+          return { rows: [], rowCount: 0 };
         }
         return { rows: [], rowCount: 0 };
       }),
     });
 
     const result = await findWarOpponent('guild-a', mockDb);
-    // guild-b is busy, gets filtered → null
     expect(result).toBeNull();
+    expect(candidateParams?.[3]).toContain('guild-b');
   });
 });
 
@@ -253,7 +262,10 @@ describe('resolveWar', () => {
   });
 
   it('throws when war is already completed', async () => {
-    const mockDb = buildMockDb({
+    // resolveWar reads the war row via client.query() inside db.transaction(),
+    // not via the outer db.query(), so the war row must be mocked on the
+    // transaction's client.
+    const mockTx: TransactionClient = {
       query: jest.fn().mockResolvedValue({
         rows: [{
           id: 'war-1',
@@ -269,12 +281,17 @@ describe('resolveWar', () => {
         }],
         rowCount: 1,
       }),
+    };
+    const mockDb = buildMockDb({
+      transaction: jest.fn().mockImplementation(async (fn: (tx: TransactionClient) => Promise<unknown>) => {
+        return fn(mockTx);
+      }),
     });
     await expect(resolveWar('war-1', mockDb)).rejects.toThrow('already resolved');
   });
 
   it('throws when war is cancelled', async () => {
-    const mockDb = buildMockDb({
+    const mockTx: TransactionClient = {
       query: jest.fn().mockResolvedValue({
         rows: [{
           id: 'war-1',
@@ -289,6 +306,11 @@ describe('resolveWar', () => {
           final_hour_starts_at: new Date().toISOString(),
         }],
         rowCount: 1,
+      }),
+    };
+    const mockDb = buildMockDb({
+      transaction: jest.fn().mockImplementation(async (fn: (tx: TransactionClient) => Promise<unknown>) => {
+        return fn(mockTx);
       }),
     });
     await expect(resolveWar('war-1', mockDb)).rejects.toThrow('already resolved');
@@ -312,24 +334,19 @@ describe('resolveWar', () => {
       query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
     };
 
-    // guild member rows for winner guild
+    // War row and winning-guild member rows are both read via client.query()
+    // inside the transaction.
     (mockTx.query as jest.Mock).mockImplementation(async (sql: string) => {
-      if (sql.includes('SELECT user_id FROM guild_members')) {
-        return { rows: [{ user_id: 'member-1' }], rowCount: 1 };
+      if (sql.includes('SELECT * FROM guild_wars')) {
+        return { rows: [warRow], rowCount: 1 };
+      }
+      if (sql.includes('FROM guild_members gm')) {
+        return { rows: [{ user_id: 'member-1', war_points: 0 }], rowCount: 1 };
       }
       return { rows: [], rowCount: 0 };
     });
 
     const mockDb = buildMockDb({
-      query: jest.fn().mockImplementation(async (sql: string) => {
-        if (sql.includes('SELECT * FROM guild_wars')) {
-          return { rows: [warRow], rowCount: 1 };
-        }
-        if (sql.includes('SELECT wc.user_id')) {
-          return { rows: [], rowCount: 0 };
-        }
-        return { rows: [], rowCount: 0 };
-      }),
       transaction: jest.fn().mockImplementation(async (fn: (tx: TransactionClient) => Promise<unknown>) => {
         return fn(mockTx);
       }),
@@ -355,22 +372,15 @@ describe('resolveWar', () => {
     };
 
     const mockTx: TransactionClient = {
-      query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
-    };
-    (mockTx.query as jest.Mock).mockImplementation(async (sql: string) => {
-      if (sql.includes('SELECT user_id FROM guild_members')) {
-        return { rows: [], rowCount: 0 };
-      }
-      return { rows: [], rowCount: 0 };
-    });
-
-    const mockDb = buildMockDb({
       query: jest.fn().mockImplementation(async (sql: string) => {
         if (sql.includes('SELECT * FROM guild_wars')) {
           return { rows: [warRow], rowCount: 1 };
         }
         return { rows: [], rowCount: 0 };
       }),
+    };
+
+    const mockDb = buildMockDb({
       transaction: jest.fn().mockImplementation(async (fn: (tx: TransactionClient) => Promise<unknown>) => {
         return fn(mockTx);
       }),
@@ -396,22 +406,15 @@ describe('resolveWar', () => {
     };
 
     const mockTx: TransactionClient = {
-      query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
-    };
-    (mockTx.query as jest.Mock).mockImplementation(async (sql: string) => {
-      if (sql.includes('SELECT user_id FROM guild_members')) {
-        return { rows: [], rowCount: 0 };
-      }
-      return { rows: [], rowCount: 0 };
-    });
-
-    const mockDb = buildMockDb({
       query: jest.fn().mockImplementation(async (sql: string) => {
         if (sql.includes('SELECT * FROM guild_wars')) {
           return { rows: [warRow], rowCount: 1 };
         }
         return { rows: [], rowCount: 0 };
       }),
+    };
+
+    const mockDb = buildMockDb({
       transaction: jest.fn().mockImplementation(async (fn: (tx: TransactionClient) => Promise<unknown>) => {
         return fn(mockTx);
       }),
@@ -468,6 +471,9 @@ describe('distributeWarRewards', () => {
         if (sql.includes('SELECT wc.user_id')) {
           return { rows: members, rowCount: members.length };
         }
+        if (sql.includes('SELECT coin_balance FROM users')) {
+          return { rows: [{ coin_balance: '0' }], rowCount: 1 };
+        }
         if (sql.includes('UPDATE users SET coin_balance')) {
           updateQueries.push({ sql, params });
         }
@@ -483,10 +489,12 @@ describe('distributeWarRewards', () => {
 
     await distributeWarRewards('war-1', 'guild-a', mockDb);
 
-    // First UPDATE should be for user-1 with 600 coins (30% of 2000)
+    // First UPDATE should be for user-1 with 600 coins (30% of 2000).
+    // creditCoins writes balanceAfter as a string via Decimal#toFixed, and
+    // params are [balanceAfter, userId].
     const firstUpdate = updateQueries[0];
     expect(firstUpdate).toBeDefined();
-    expect(firstUpdate.params[0]).toBe(expectedTopShare);
+    expect(firstUpdate.params[0]).toBe(String(expectedTopShare));
     expect(firstUpdate.params[1]).toBe('user-1');
   });
 
@@ -504,6 +512,9 @@ describe('distributeWarRewards', () => {
       query: jest.fn().mockImplementation(async (sql: string, params: unknown[]) => {
         if (sql.includes('SELECT wc.user_id')) {
           return { rows: members, rowCount: members.length };
+        }
+        if (sql.includes('SELECT coin_balance FROM users')) {
+          return { rows: [{ coin_balance: '0' }], rowCount: 1 };
         }
         if (sql.includes('UPDATE users SET coin_balance')) {
           updateQueries.push({ sql, params });
@@ -523,7 +534,7 @@ describe('distributeWarRewards', () => {
     // Second UPDATE should be for user-2 with 400 coins (20% of 2000)
     const secondUpdate = updateQueries[1];
     expect(secondUpdate).toBeDefined();
-    expect(secondUpdate.params[0]).toBe(expectedSecondShare);
+    expect(secondUpdate.params[0]).toBe(String(expectedSecondShare));
     expect(secondUpdate.params[1]).toBe('user-2');
   });
 
@@ -538,7 +549,12 @@ describe('distributeWarRewards', () => {
         if (sql.includes('SELECT wc.user_id')) {
           return { rows: members, rowCount: members.length };
         }
-        if (sql.includes('UPDATE users SET xp_total')) {
+        if (sql.includes('SELECT coin_balance FROM users')) {
+          return { rows: [{ coin_balance: '0' }], rowCount: 1 };
+        }
+        // safeAwardXP issues a single combined CTE query that inserts into
+        // xp_ledger and updates users.xp_total in one statement.
+        if (sql.includes('xp_ledger')) {
           xpUpdates.push({ sql, params });
         }
         return { rows: [], rowCount: 0 };
@@ -554,9 +570,10 @@ describe('distributeWarRewards', () => {
     await distributeWarRewards('war-1', 'guild-a', mockDb);
 
     expect(xpUpdates.length).toBeGreaterThan(0);
-    // Bonus XP is 1000 and goes to user-1
-    expect(xpUpdates[0].params[0]).toBe(1000);
-    expect(xpUpdates[0].params[1]).toBe('user-1');
+    // Bonus XP is 1000 and goes to user-1. safeAwardXP's query params are
+    // [userId, amount, track, source, referenceId].
+    expect(xpUpdates[0].params[0]).toBe('user-1');
+    expect(xpUpdates[0].params[1]).toBe(1000);
   });
 });
 

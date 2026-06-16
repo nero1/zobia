@@ -32,19 +32,26 @@ function buildMockDb(referralChain: Record<string, string | null>): DatabaseClie
         return { rows: [{ referred_by: referredBy }], rowCount: 1 };
       }
 
-      // UPDATE users SET coin_balance = coin_balance + $1 WHERE id = $2 RETURNING coin_balance
+      // lockAndGetBalance: SELECT coin_balance FROM users ... FOR UPDATE
+      if (sql.includes("SELECT coin_balance FROM users")) {
+        const userId = (params as string[])[0];
+        return { rows: [{ coin_balance: String(balances[userId] ?? 0) }], rowCount: 1 };
+      }
+
+      // creditCoins writes the new absolute balance (as a string) via
+      // UPDATE users SET coin_balance = $1 WHERE id = $2 — not an increment.
       if (sql.includes("UPDATE users SET coin_balance")) {
-        const amount = (params as [number, string])[0];
-        const userId = (params as [number, string])[1];
-        balances[userId] = (balances[userId] ?? 0) + amount;
-        return { rows: [{ coin_balance: balances[userId] }], rowCount: 1 };
+        const newBalance = Number((params as [string, string])[0]);
+        const userId = (params as [string, string])[1];
+        balances[userId] = newBalance;
+        return { rows: [], rowCount: 1 };
       }
 
       // INSERT INTO coin_ledger
       if (sql.includes("INSERT INTO coin_ledger")) {
         const [userId, amount, , , , type] = params as [string, number, number, number, string, string];
         ledger.push({ user_id: userId, amount, type });
-        return { rows: [], rowCount: 1 };
+        return { rows: [{}], rowCount: 1 };
       }
 
       // INSERT INTO referral_commissions

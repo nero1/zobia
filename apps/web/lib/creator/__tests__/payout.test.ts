@@ -50,13 +50,13 @@ function makeCreators(count: number): { id: string; creator_earnings_30d: string
 
 describe("Creator Fund — Empty Pool", () => {
   test("Returns empty array when no creators", async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [] });
+    mockQuery.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] });
     const result = await calculateFundDistributions(1_000_000);
     expect(result).toEqual([]);
   });
 
   test("Returns empty array when pool is 0", async () => {
-    mockQuery.mockResolvedValueOnce({ rows: makeCreators(10) });
+    mockQuery.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: makeCreators(10) });
     const result = await calculateFundDistributions(0);
     // All distributions would be 0 — no money to distribute
     result.forEach((d) => {
@@ -68,7 +68,7 @@ describe("Creator Fund — Empty Pool", () => {
 describe("Creator Fund — Tier Distribution Math", () => {
   test("100 creators, ₦10,000 pool: top 1% (1 creator) gets 30% of pool", async () => {
     const creators = makeCreators(100);
-    mockQuery.mockResolvedValueOnce({ rows: creators });
+    mockQuery.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: creators });
 
     const poolKobo = 1_000_000; // ₦10,000
     const result = await calculateFundDistributions(poolKobo);
@@ -82,7 +82,7 @@ describe("Creator Fund — Tier Distribution Math", () => {
 
   test("Total distributed never exceeds pool size", async () => {
     const creators = makeCreators(200);
-    mockQuery.mockResolvedValueOnce({ rows: creators });
+    mockQuery.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: creators });
 
     const poolKobo = 5_000_000;
     const result = await calculateFundDistributions(poolKobo);
@@ -94,7 +94,7 @@ describe("Creator Fund — Tier Distribution Math", () => {
 
   test("All distribution amounts are non-negative integers", async () => {
     const creators = makeCreators(50);
-    mockQuery.mockResolvedValueOnce({ rows: creators });
+    mockQuery.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: creators });
 
     const result = await calculateFundDistributions(2_000_000);
 
@@ -106,7 +106,7 @@ describe("Creator Fund — Tier Distribution Math", () => {
 
   test("Ranks are sequential starting from 1", async () => {
     const creators = makeCreators(20);
-    mockQuery.mockResolvedValueOnce({ rows: creators });
+    mockQuery.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: creators });
 
     const result = await calculateFundDistributions(1_000_000);
 
@@ -118,7 +118,7 @@ describe("Creator Fund — Tier Distribution Math", () => {
 
   test("sharePercent values sum to ≤ 100 for each tier", async () => {
     const creators = makeCreators(100);
-    mockQuery.mockResolvedValueOnce({ rows: creators });
+    mockQuery.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: creators });
 
     const result = await calculateFundDistributions(1_000_000);
 
@@ -131,7 +131,7 @@ describe("Creator Fund — Tier Distribution Math", () => {
 describe("Creator Fund — Single Creator", () => {
   test("Single creator receives all applicable tier shares", async () => {
     const creators = makeCreators(1);
-    mockQuery.mockResolvedValueOnce({ rows: creators });
+    mockQuery.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: creators });
 
     const poolKobo = 1_000_000;
     const result = await calculateFundDistributions(poolKobo);
