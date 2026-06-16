@@ -112,7 +112,7 @@ function getRefreshSecretForKid(kid: string | undefined): Uint8Array {
 /** Claims embedded in every access token. */
 export interface AccessTokenPayload extends JWTPayload {
   sub: string;       // user UUID
-  email: string;
+  email?: string;    // omitted when user email is null
   username: string;
   is_admin: boolean;
   /** Session ID (matches Redis key for invalidation). */

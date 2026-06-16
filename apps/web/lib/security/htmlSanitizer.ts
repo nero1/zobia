@@ -15,7 +15,7 @@ const SANITIZE_OPTIONS: sanitizeHtmlLib.IOptions = {
     'a': ['href', 'title', 'target', 'rel'],
     'td': ['colspan', 'rowspan'],
     'th': ['colspan', 'rowspan'],
-    '*': ['class', 'id'],
+    '*': ['class'],
   },
   allowedSchemes: ['https', 'mailto'],
   allowedSchemesByTag: {},
@@ -39,7 +39,7 @@ export function sanitizeAnnouncementContent(content: string, contentType: string
     return sanitizeHtml(content);
   }
   if (contentType === 'markdown') {
-    return content.replace(/\]\((javascript|vbscript|data):[^)]*\)/gi, '](about:blank)');
+    return content.replace(/\]\((?!(https?:|mailto:))[^)]*\)/gi, '](about:blank)');
   }
   return content;
 }

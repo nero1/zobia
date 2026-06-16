@@ -15,6 +15,7 @@ import {
   getPendingMessages,
   updateMessageStatus,
   dequeueMessage,
+  resetSendingMessages,
 } from "./messageQueue";
 
 const MAX_ATTEMPTS = 5;
@@ -106,15 +107,18 @@ export function useOfflineSync(): void {
 
   useEffect(() => {
     const handleOnline = () => {
-      void flushQueue();
+      // Reset any in-flight "sending" messages that were stranded by a crash
+      // before attempting to flush, so they are re-sent correctly.
+      void resetSendingMessages().then(() => flushQueue());
     };
 
     window.addEventListener("online", handleOnline);
 
-    // Also flush on mount if already online
-    if (navigator.onLine) {
-      void flushQueue();
-    }
+    // On mount: reset stranded "sending" messages from a previous session,
+    // then flush if already online.
+    void resetSendingMessages().then(() => {
+      if (navigator.onLine) void flushQueue();
+    });
 
     return () => {
       window.removeEventListener("online", handleOnline);

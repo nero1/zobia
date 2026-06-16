@@ -121,14 +121,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           [[war.challenger_guild_id, war.defender_guild_id]]
         );
 
-        // Insert in-app notifications for all members
+        // Insert in-app notifications for all members — reference_id = war id
+        // ensures ON CONFLICT deduplicates CRON re-runs (BUG-NOTIF-02).
         const userIds = membersResult.rows.map((r) => r.user_id);
         if (userIds.length > 0) {
           // Batch insert notifications (one per member)
           const values = userIds
             .map(
               (_, i) =>
-                `($${i * 4 + 1}, $${i * 4 + 2}, $${i * 4 + 3}, $${i * 4 + 4})`
+                `($${i * 5 + 1}, $${i * 5 + 2}, $${i * 5 + 3}, $${i * 5 + 4}, $${i * 5 + 5})`
             )
             .join(", ");
           const params: (string | boolean)[] = [];
@@ -137,13 +138,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
               userId,
               "guild_war_final_hour",
               JSON.stringify({ war_id: war.id }),
-              false
+              false,
+              `guild_war_final_hour:${war.id}`
             );
           }
           await db.query(
-            `INSERT INTO notifications (user_id, type, payload, is_read)
-             VALUES ${values.replace(/\$(\d+)/g, (_, n) => `$${n}`)}
-             ON CONFLICT DO NOTHING`,
+            `INSERT INTO notifications (user_id, type, payload, is_read, reference_id)
+             VALUES ${values}
+             ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
             params
           );
         }
@@ -299,11 +301,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
               `UPDATE guilds SET tier = $1, below_minimum_days = 0, updated_at = NOW() WHERE id = $2`,
               [newTier, guild.id]
             );
-            // Notify captain
+            // Notify captain — reference_id scoped to current week prevents
+            // duplicate notifications on CRON re-runs (BUG-NOTIF-03).
+            const downgradWeek = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
             await db.query(
-              `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-               VALUES ($1, 'guild_tier_downgrade', $2::jsonb, false, NOW())`,
-              [guild.captain_id, JSON.stringify({ guildId: guild.id, previousTier: guild.tier, newTier })]
+              `INSERT INTO notifications (user_id, type, payload, is_read, reference_id, created_at)
+               VALUES ($1, 'guild_tier_downgrade', $2::jsonb, false, $3, NOW())
+               ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
+              [guild.captain_id, JSON.stringify({ guildId: guild.id, previousTier: guild.tier, newTier }), `guild_tier_downgrade:${guild.id}:${downgradWeek}`]
             );
             guildTierDowngrades++;
           } else {

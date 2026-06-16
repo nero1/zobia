@@ -190,13 +190,13 @@ async function sendExpoBatch(
     const result = (await response.json()) as ExpoPushResponse;
 
     // Collect ticket IDs to persist for stage 2 receipt polling
-    const ticketsToSave: Array<{ userId: string; ticketId: string }> = [];
+    const ticketsToSave: Array<{ userId: string; ticketId: string; token: string }> = [];
 
     for (let i = 0; i < (result.data ?? []).length; i++) {
       const ticket = result.data[i];
       if (ticket.status === "ok" && ticket.id) {
-        // Stage 1 ok — save ticket ID for receipt polling
-        ticketsToSave.push({ userId: messages[i].userId, ticketId: ticket.id });
+        // Stage 1 ok — save ticket ID and token for receipt polling
+        ticketsToSave.push({ userId: messages[i].userId, ticketId: ticket.id, token: messages[i].token });
       } else if (ticket.status === "error") {
         const errCode = ticket.details?.error ?? "";
         if (errCode === "DeviceNotRegistered") {
@@ -212,12 +212,12 @@ async function sendExpoBatch(
     // Persist tickets for stage 2 polling (best-effort, don't fail the send)
     if (ticketsToSave.length > 0) {
       const values = ticketsToSave
-        .map((_, idx) => `($${idx * 2 + 1}, $${idx * 2 + 2})`)
+        .map((_, idx) => `($${idx * 3 + 1}, $${idx * 3 + 2}, $${idx * 3 + 3})`)
         .join(", ");
-      const params = ticketsToSave.flatMap((t) => [t.userId, t.ticketId]);
+      const params = ticketsToSave.flatMap((t) => [t.userId, t.ticketId, t.token]);
       await db
         .query(
-          `INSERT INTO push_tickets (user_id, ticket_id) VALUES ${values}
+          `INSERT INTO push_tickets (user_id, ticket_id, token) VALUES ${values}
            ON CONFLICT (ticket_id) DO NOTHING`,
           params
         )
@@ -277,8 +277,9 @@ export async function pollPushReceipts(): Promise<number> {
       id: string;
       user_id: string;
       ticket_id: string;
+      token: string | null;
     }>(
-      `SELECT id, user_id, ticket_id
+      `SELECT id, user_id, ticket_id, token
        FROM push_tickets
        WHERE status = 'pending'
          AND created_at < NOW() - INTERVAL '15 minutes'
@@ -333,13 +334,13 @@ export async function pollPushReceipts(): Promise<number> {
             const errCode = receipt.details?.error ?? "unknown";
 
             if (errCode === "DeviceNotRegistered") {
-              // Token is dead — purge from user_push_tokens
-              const { rows: tokenRows } = await db.query<{ token: string }>(
-                `SELECT token FROM user_push_tokens WHERE user_id = $1`,
-                [ticket.user_id]
-              );
-              for (const { token } of tokenRows) {
-                staleTokens.add(token);
+              // Purge only the specific token tied to this ticket, not all user tokens.
+              if (ticket.token) {
+                staleTokens.add(ticket.token);
+              } else {
+                // Legacy ticket without stored token — fall back to looking up by
+                // the specific ticket_id correlation (cannot be done safely, skip).
+                console.warn(`[push/receipts] Ticket ${ticket.ticket_id} has no stored token; cannot purge specific device.`);
               }
 
               await db.query(

@@ -112,14 +112,19 @@ export const POST = withAuth(
         const passed = score >= quiz.pass_score;
         const xpAwarded = passed ? quiz.xp_reward : 0;
 
-        // Insert attempt record
+        // Insert attempt record — ON CONFLICT guards against concurrent duplicate
+        // submissions racing past the SELECT check above (IMP-IDMP-02).
         const { rows: attemptRows } = await tx.query<{ id: string }>(
           `INSERT INTO classroom_quiz_attempts
              (quiz_id, user_id, score, passed, answers, xp_awarded, completed_at)
            VALUES ($1, $2, $3, $4, $5, $6, NOW())
+           ON CONFLICT (quiz_id, user_id) DO NOTHING
            RETURNING id`,
           [quizId, userId, score, passed, JSON.stringify(body.answers), xpAwarded]
         );
+        if (!attemptRows[0]) {
+          throw conflict("You have already submitted an attempt for this quiz");
+        }
         const attemptId = attemptRows[0].id;
 
         // Award XP if passed

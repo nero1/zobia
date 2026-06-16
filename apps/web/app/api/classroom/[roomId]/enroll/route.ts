@@ -179,16 +179,21 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         );
       }
 
-      // Create enrolment record
+      // Create enrolment record — ON CONFLICT guards against a concurrent enrol
+      // racing past the outer idempotency check (TOCTOU).
       const { rows: enrolRows } = await tx.query<{ id: string }>(
         `INSERT INTO classroom_enrolments
            (room_id, user_id, paid, fee_kobo, enrolled_at)
          VALUES ($1, $2, $3, $4, NOW())
+         ON CONFLICT (room_id, user_id) DO NOTHING
          RETURNING *`,
         [roomId, userId, isPaid, feeKobo]
       );
       const enrolRecord = enrolRows[0];
-      if (!enrolRecord) throw new Error("Enrolment creation failed");
+      if (!enrolRecord) {
+        // Conflict — already enrolled (concurrent request)
+        throw conflict("You are already enrolled in this classroom");
+      }
 
       // Add room member
       await tx.query(

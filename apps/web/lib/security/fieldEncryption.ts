@@ -70,6 +70,25 @@ export function decryptField(ciphertext: string): string | null {
   }
 }
 
+/**
+ * Re-encrypt a v1 ciphertext string with the current version (v2).
+ *
+ * Usage: call this in a migration script for each encrypted column row.
+ * - If the value is already v2 (or higher), it is returned unchanged.
+ * - If decryption fails (corrupt data), returns null so the caller can skip/log.
+ *
+ * @param ciphertext - Existing encrypted value from the database
+ * @returns New ciphertext in CURRENT_VERSION format, or null on failure
+ */
+export function migrateFieldEncryption(ciphertext: string): string | null {
+  const colonIdx = ciphertext.indexOf(":");
+  const version = colonIdx !== -1 ? ciphertext.slice(0, colonIdx) : "v1";
+  if (version === CURRENT_VERSION) return ciphertext; // already up-to-date
+  const plaintext = decryptField(ciphertext);
+  if (plaintext === null) return null;
+  return encryptField(plaintext);
+}
+
 function decryptRaw(base64Payload: string, version: string): string | null {
   try {
     const key = getKeyForVersion(version);

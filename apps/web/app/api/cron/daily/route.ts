@@ -858,16 +858,19 @@ export const GET = async (req: NextRequest) => {
       );
 
       const { sendPushNotification } = await import('@/lib/notifications/push');
+      const councilCycleMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
       let invited = 0;
       for (const candidate of candidates) {
-        // Insert council invitation notification
+        // reference_id = "council_invite:<cycle_month>" so ON CONFLICT deduplicates
+        // re-runs of this CRON step within the same month (BUG-NOTIF-01).
+        const councilRefId = `council_invite:${councilCycleMonth}`;
         await db.query(
-          `INSERT INTO notifications (user_id, type, title, body, metadata, created_at)
+          `INSERT INTO notifications (user_id, type, title, body, metadata, reference_id, created_at)
            VALUES ($1, 'council_invitation', 'Platform Council Invitation',
              'You are among the top contributors on Zobia. You have been invited to join the Platform Council.',
-             $2, NOW())
-           ON CONFLICT DO NOTHING`,
-          [candidate.id, JSON.stringify({ legacyScore: candidate.legacy_score })]
+             $2, $3, NOW())
+           ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
+          [candidate.id, JSON.stringify({ legacyScore: candidate.legacy_score }), councilRefId]
         );
         // Send push notification to eligible users (fire-and-forget)
         sendPushNotification(
@@ -2124,13 +2127,17 @@ export const GET = async (req: NextRequest) => {
         ]).catch(() => {});
       }
 
-      // Mark last_notified_at for all notified assignments to prevent re-notification
+      // Stamp last_notified_at for both sides of each notified assignment so
+      // neither party is re-notified until the next overtake event (BUG-NOTIF-04).
       if (overtakeRows.length > 0) {
+        const overtakerIds = overtakeRows.map(r => r.user_id);
+        const nemesisIds = overtakeRows.map(r => r.nemesis_user_id);
+        const allAffectedIds = [...new Set([...overtakerIds, ...nemesisIds])];
         await db.query(
           `UPDATE nemesis_assignments
            SET last_notified_at = NOW()
-           WHERE user_id = ANY($1::uuid[])`,
-          [overtakeRows.map(r => r.user_id)]
+           WHERE user_id = ANY($1::uuid[]) OR nemesis_user_id = ANY($1::uuid[])`,
+          [allAffectedIds]
         ).catch((err) => console.error('[cron/31] Failed to update nemesis last_notified_at:', err));
       }
 
@@ -2264,11 +2271,12 @@ export const GET = async (req: NextRequest) => {
           [war.id, winnerId, loserId]
         ).catch(() => {});
 
-        // Create next week's war automatically (ON CONFLICT prevents duplicate on retry)
+        // Create next week's war — reference the partial unique index explicitly
+        // so that concurrent CRON runs cannot create a duplicate active war pair.
         await db.query(
           `INSERT INTO alliance_wars (alliance_1_id, alliance_2_id, status, started_at)
            VALUES ($1, $2, 'active', NOW())
-           ON CONFLICT DO NOTHING`,
+           ON CONFLICT (alliance_1_id, alliance_2_id) WHERE status = 'active' DO NOTHING`,
           [war.alliance_1_id, war.alliance_2_id]
         ).catch(() => {});
 
@@ -2334,10 +2342,11 @@ export const GET = async (req: NextRequest) => {
                 }
               : null;
 
-            const PLATFORM_FEE_RATE = 0.10;
+            // available_earnings_kobo is already net of platform fees (deducted
+            // per-transaction when the creator earned). No secondary fee here (BUG-FIN-01).
             const grossKobo = candidate.balance_kobo;
-            const platformFeeKobo = Math.round(grossKobo * PLATFORM_FEE_RATE);
-            const netKobo = grossKobo - platformFeeKobo;
+            const platformFeeKobo = 0;
+            const netKobo = grossKobo;
 
             // CRON-PAYOUT-01: include amount_kobo (= grossKobo) and provider so the
             // NOT NULL columns are satisfied. RETURNING id lets us detect the

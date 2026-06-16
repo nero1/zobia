@@ -227,19 +227,33 @@ export async function processPendingGiftDrops(db: DatabaseAdapter): Promise<{
   );
   announced = toAnnounce.length;
 
-  // Notify all active users about newly announced drops
+  // Notify all active users about newly announced drops — paginated in batches
+  // of 10,000 to avoid loading the full user table into memory (IMP-SCALE-01).
   if (toAnnounce.length > 0) {
-    // Fetch all active, non-banned user IDs once
-    const { rows: activeUserRows } = await db.query<{ id: string }>(
-      `SELECT id FROM users WHERE deleted_at IS NULL AND COALESCE(is_banned, false) = false`
-    );
-    const activeUserIds = activeUserRows.map((r) => r.id);
-
+    const BATCH_SIZE = 10_000;
     for (const drop of toAnnounce) {
-      await insertNotificationBatch(db, activeUserIds, 'gift_drop_announced', { giftDropId: drop.id })
-        .catch((err: unknown) =>
-          console.error(`[monthlyGiftDrop] Failed to send notifications for drop ${drop.id}:`, err)
+      let cursorId: string | null = null;
+      let batchIndex = 0;
+      while (true) {
+        const { rows: batchRows } = await db.query<{ id: string }>(
+          `SELECT id FROM users
+           WHERE deleted_at IS NULL
+             AND COALESCE(is_banned, false) = false
+             ${cursorId ? `AND id > $1` : ''}
+           ORDER BY id ASC
+           LIMIT ${cursorId ? '$2' : '$1'}`,
+          cursorId ? [cursorId, BATCH_SIZE] : [BATCH_SIZE]
         );
+        if (batchRows.length === 0) break;
+        const batchIds = batchRows.map((r) => r.id);
+        await insertNotificationBatch(db, batchIds, 'gift_drop_announced', { giftDropId: drop.id, batchIndex })
+          .catch((err: unknown) =>
+            console.error(`[monthlyGiftDrop] Failed to send notifications for drop ${drop.id} batch ${batchIndex}:`, err)
+          );
+        if (batchRows.length < BATCH_SIZE) break;
+        cursorId = batchRows[batchRows.length - 1].id;
+        batchIndex++;
+      }
     }
   }
 

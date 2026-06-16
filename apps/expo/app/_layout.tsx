@@ -18,6 +18,7 @@ import { AnnouncementModal } from '@/components/announcements/AnnouncementModal'
 import { useAuth } from '@/lib/auth/hooks';
 import { initOfflineDB } from '@/lib/offline/sqlite';
 import { syncPendingMessages } from '@/lib/offline/syncQueue';
+import { initStore } from '@/lib/offline/store';
 import '@/lib/i18n';
 
 // ---------------------------------------------------------------------------
@@ -91,10 +92,13 @@ function RootLayoutNav() {
   const notificationListener = useRef<Notifications.EventSubscription | null>(null);
   const responseListener = useRef<Notifications.EventSubscription | null>(null);
 
-  // Initialise offline database
+  // Initialise offline database and encrypted MMKV store
   useEffect(() => {
     initOfflineDB().catch((err) =>
       console.warn('[offline] SQLite init failed', err)
+    );
+    initStore().catch((err) =>
+      console.warn('[offline] MMKV store init failed', err)
     );
   }, []);
 

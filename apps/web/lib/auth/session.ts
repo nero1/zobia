@@ -252,7 +252,7 @@ export async function refreshAccessToken(
   const [accessToken, newRefreshToken] = await Promise.all([
     signAccessToken({
       sub: session.uid,
-      email: session.email,
+      ...(session.email ? { email: session.email } : {}),
       username: session.username,
       is_admin: session.is_admin,
       sid: session.sid,
@@ -332,7 +332,7 @@ export function buildCookieHeaders(
   secure = process.env.NODE_ENV === "production",
   refreshTtl: number = REFRESH_TOKEN_TTL_SECONDS
 ): { accessCookie: string; refreshCookie: string } {
-  const flags = `HttpOnly; Path=/; SameSite=Lax${secure ? "; Secure" : ""}`;
+  const flags = `HttpOnly; Path=/; SameSite=Strict${secure ? "; Secure" : ""}`;
 
   const accessCookie =
     `${ACCESS_TOKEN_COOKIE}=${tokens.accessToken}; ` +

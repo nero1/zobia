@@ -315,6 +315,7 @@ export const pushTickets = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     ticketId: text("ticket_id").notNull().unique(),
+    token: text("token"),
     status: text("status").notNull().default("pending"),
     receiptId: text("receipt_id"),
     errorCode: text("error_code"),
@@ -843,26 +844,37 @@ export const warContributions = pgTable(
 // Backward-compat alias
 export const guildWarMembers = warContributions;
 
-export const guildQuests = pgTable("guild_quests", {
-  id: uuidPk(),
-  guildId: uuid("guild_id")
-    .notNull()
-    .references(() => guilds.id, { onDelete: "cascade" }),
-  title: text("title").notNull(),
-  description: text("description").notNull(),
-  questType: text("quest_type").notNull().default("collective"),
-  targetCount: integer("target_count").notNull().default(100),
-  currentCount: integer("current_count").notNull().default(0),
-  rewardGuildXp: integer("reward_guild_xp").notNull().default(500),
-  rewardCoins: integer("reward_coins").notNull().default(200),
-  weekStart: timestamp("week_start", { withTimezone: true }).notNull(),
-  weekEnd: timestamp("week_end", { withTimezone: true }).notNull(),
-  isCompleted: boolean("is_completed").default(false),
-  // Migration 010 (db): added is_active for soft-expiry
-  isActive: boolean("is_active").notNull().default(true),
-  completedAt: timestamp("completed_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-});
+export const guildQuests = pgTable(
+  "guild_quests",
+  {
+    id: uuidPk(),
+    guildId: uuid("guild_id")
+      .notNull()
+      .references(() => guilds.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    description: text("description").notNull(),
+    questType: text("quest_type").notNull().default("collective"),
+    targetCount: integer("target_count").notNull().default(100),
+    currentCount: integer("current_count").notNull().default(0),
+    rewardGuildXp: integer("reward_guild_xp").notNull().default(500),
+    rewardCoins: integer("reward_coins").notNull().default(200),
+    weekStart: timestamp("week_start", { withTimezone: true }).notNull(),
+    weekEnd: timestamp("week_end", { withTimezone: true }).notNull(),
+    isCompleted: boolean("is_completed").default(false),
+    // Migration 010 (db): added is_active for soft-expiry
+    isActive: boolean("is_active").notNull().default(true),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => ({
+    // BUG-DB-01: Prevents duplicate weekly quests of the same type for a guild.
+    guildQuestWeekUnique: uniqueIndex("guild_quests_guild_type_week_idx").on(
+      t.guildId,
+      t.questType,
+      t.weekStart
+    ),
+  })
+);
 
 export const guildQuestContributions = pgTable("guild_quest_contributions", {
   id: uuidPk(),
@@ -967,9 +979,14 @@ export const guildTierHistory = pgTable(
     warId: uuid("war_id").references(() => guildWars.id, { onDelete: "set null" }),
   },
   (t) => ({
+    // BUG-DB-02a: one tier-history row per guild per war (war-triggered changes)
     guildWarIdx: uniqueIndex("uidx_guild_tier_history_guild_war")
       .on(t.guildId, t.warId)
       .where(sql`war_id IS NOT NULL`),
+    // BUG-DB-02b: one tier-history row per guild per timestamp (non-war XP changes)
+    guildChangedAtIdx: uniqueIndex("uidx_guild_tier_history_guild_changed_at")
+      .on(t.guildId, t.changedAt)
+      .where(sql`war_id IS NULL`),
   })
 );
 
@@ -3215,29 +3232,39 @@ export const moderationActions = pgTable("moderation_actions", {
 // SECTION 12: Cultural Events & Community
 // ---------------------------------------------------------------------------
 
-export const platformEvents = pgTable("platform_events", {
-  id: uuidPk(),
-  name: text("name").notNull().unique(),
-  description: text("description"),
-  eventType: text("event_type").notNull().default("cultural"),
-  xpMultiplier: decimal("xp_multiplier", { precision: 3, scale: 1 }).default(
-    "1.0"
-  ),
-  coinBonusPct: integer("coin_bonus_pct").default(0),
-  startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
-  endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
-  isActive: boolean("is_active").default(true),
-  targetCities: text("target_cities").array(),
-  isRecurringAnnual: boolean("is_recurring_annual").notNull().default(false),
-  recurrenceAnchorMonthStart: integer("recurrence_anchor_month_start"),
-  recurrenceAnchorDayStart: integer("recurrence_anchor_day_start"),
-  recurrenceAnchorMonthEnd: integer("recurrence_anchor_month_end"),
-  recurrenceAnchorDayEnd: integer("recurrence_anchor_day_end"),
-  metadata: jsonb("metadata"),
-  createdBy: uuid("created_by"),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-});
+export const platformEvents = pgTable(
+  "platform_events",
+  {
+    id: uuidPk(),
+    name: text("name").notNull(),
+    description: text("description"),
+    eventType: text("event_type").notNull().default("cultural"),
+    xpMultiplier: decimal("xp_multiplier", { precision: 3, scale: 1 }).default(
+      "1.0"
+    ),
+    coinBonusPct: integer("coin_bonus_pct").default(0),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+    isActive: boolean("is_active").default(true),
+    targetCities: text("target_cities").array(),
+    isRecurringAnnual: boolean("is_recurring_annual").notNull().default(false),
+    recurrenceAnchorMonthStart: integer("recurrence_anchor_month_start"),
+    recurrenceAnchorDayStart: integer("recurrence_anchor_day_start"),
+    recurrenceAnchorMonthEnd: integer("recurrence_anchor_month_end"),
+    recurrenceAnchorDayEnd: integer("recurrence_anchor_day_end"),
+    metadata: jsonb("metadata"),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => ({
+    // BUG-DB-03: Recurring events share the same name; uniqueness is per (name, starts_at).
+    nameStartsAtUnique: uniqueIndex("uidx_platform_events_name_starts_at").on(
+      t.name,
+      t.startsAt
+    ),
+  })
+);
 
 export const flashXpEvents = pgTable("flash_xp_events", {
   id: uuidPk(),
@@ -3329,17 +3356,30 @@ export const communityNoteVotes = pgTable(
   })
 );
 
-export const platformCouncilMembers = pgTable("platform_council_members", {
-  id: uuidPk(),
-  userId: uuid("user_id")
-    .notNull()
-    .unique()
-    .references(() => users.id, { onDelete: "cascade" }),
-  cycleMonth: text("cycle_month").notNull(),
-  legacyScore: integer("legacy_score").notNull(),
-  joinedAt: timestamp("joined_at", { withTimezone: true }).defaultNow(),
-  leftAt: timestamp("left_at", { withTimezone: true }),
-});
+export const platformCouncilMembers = pgTable(
+  "platform_council_members",
+  {
+    id: uuidPk(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    cycleMonth: text("cycle_month").notNull(),
+    legacyScore: integer("legacy_score").notNull(),
+    joinedAt: timestamp("joined_at", { withTimezone: true }).defaultNow(),
+    leftAt: timestamp("left_at", { withTimezone: true }),
+  },
+  (t) => ({
+    // IMP-IDMP-01: One seat per user per cycle; allow re-joining in future cycles.
+    userCycleUnique: uniqueIndex("uidx_council_members_user_cycle").on(
+      t.userId,
+      t.cycleMonth
+    ),
+    // Partial index to enforce at most one active seat per user at a time.
+    activeUserUnique: uniqueIndex("uidx_council_members_user_active")
+      .on(t.userId)
+      .where(sql`left_at IS NULL`),
+  })
+);
 
 export const platformCouncilIdeas = pgTable("platform_council_ideas", {
   id: uuidPk(),

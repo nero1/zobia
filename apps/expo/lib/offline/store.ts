@@ -7,20 +7,78 @@
  *
  * MMKV is orders of magnitude faster than AsyncStorage for synchronous reads,
  * making it ideal for data that must be available before the first render.
+ *
+ * Encryption: a 256-bit AES key is generated on first launch, stored in the
+ * device's secure enclave via expo-secure-store, and loaded on every subsequent
+ * launch so the MMKV store is always encrypted at rest (BUG-SEC-03).
  */
 
 import { MMKV } from 'react-native-mmkv';
+import * as SecureStore from 'expo-secure-store';
+
+// ---------------------------------------------------------------------------
+// Encryption key bootstrap
+// ---------------------------------------------------------------------------
+
+const ENCRYPTION_KEY_NAME = 'zobia_mmkv_key';
+
+/**
+ * Load (or generate and persist) the MMKV encryption key.
+ * Returns a hex-encoded 256-bit key string.
+ */
+async function loadOrCreateEncryptionKey(): Promise<string> {
+  const existing = await SecureStore.getItemAsync(ENCRYPTION_KEY_NAME);
+  if (existing) return existing;
+
+  // Generate a cryptographically random 256-bit key
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  const hex = Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  await SecureStore.setItemAsync(ENCRYPTION_KEY_NAME, hex, {
+    keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+  });
+  return hex;
+}
 
 // ---------------------------------------------------------------------------
 // Storage instance
 // ---------------------------------------------------------------------------
 
-/** Shared MMKV storage instance. Encrypted in production builds. */
-export const storage = new MMKV({
-  id: 'zobia-offline-store',
-  // encryptionKey is set at runtime from a securely generated value.
-  // For Phase 1 we leave it unencrypted; encryption will be added in Phase 2
-  // once the key derivation strategy is finalised.
+/**
+ * Lazily initialised, encrypted MMKV instance.
+ * Call initStore() once on app start before accessing `storage`.
+ */
+let _storage: MMKV | null = null;
+
+/** Shared MMKV storage instance — call initStore() before first use. */
+export function getStorage(): MMKV {
+  if (!_storage) {
+    throw new Error('[store] initStore() has not been called yet. Call it in your App root.');
+  }
+  return _storage;
+}
+
+/**
+ * Initialise the encrypted MMKV store.
+ * Must be awaited once at app startup (e.g. in App.tsx before rendering).
+ */
+export async function initStore(): Promise<void> {
+  if (_storage) return;
+  const encryptionKey = await loadOrCreateEncryptionKey();
+  _storage = new MMKV({
+    id: 'zobia-offline-store',
+    encryptionKey,
+  });
+}
+
+// Convenience proxy that throws if initStore was not called
+export const storage = new Proxy({} as MMKV, {
+  get(_target, prop) {
+    return getStorage()[prop as keyof MMKV];
+  },
 });
 
 // ---------------------------------------------------------------------------
@@ -29,22 +87,16 @@ export const storage = new MMKV({
 
 /**
  * Persist a serialisable value under `key`.
- *
- * @param key    Storage key.
- * @param value  Any JSON-serialisable value.
  */
 export function setItem<T>(key: string, value: T): void {
-  storage.set(key, JSON.stringify(value));
+  getStorage().set(key, JSON.stringify(value));
 }
 
 /**
  * Retrieve a previously persisted value.
- *
- * @param key           Storage key.
- * @param defaultValue  Returned when the key is absent or deserialization fails.
  */
 export function getItem<T>(key: string, defaultValue: T): T {
-  const raw = storage.getString(key);
+  const raw = getStorage().getString(key);
   if (raw === undefined) return defaultValue;
   try {
     return JSON.parse(raw) as T;
@@ -55,20 +107,16 @@ export function getItem<T>(key: string, defaultValue: T): T {
 
 /**
  * Remove a key from the store.
- *
- * @param key  Storage key to delete.
  */
 export function removeItem(key: string): void {
-  storage.delete(key);
+  getStorage().delete(key);
 }
 
 /**
  * Check whether a key exists in the store.
- *
- * @param key  Storage key.
  */
 export function hasItem(key: string): boolean {
-  return storage.contains(key);
+  return getStorage().contains(key);
 }
 
 /**
@@ -76,7 +124,7 @@ export function hasItem(key: string): boolean {
  * Use with caution — typically only called on sign-out.
  */
 export function clearStore(): void {
-  storage.clearAll();
+  getStorage().clearAll();
 }
 
 // ---------------------------------------------------------------------------
