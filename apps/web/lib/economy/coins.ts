@@ -235,11 +235,12 @@ export async function canAfford(
  * Both ledger entries reference the same transaction so the audit trail
  * is complete.
  *
- * @param fromUserId - Sender user UUID
- * @param toUserId   - Recipient user UUID
- * @param amount     - Gross coins to transfer (fee deducted from this)
- * @param feePercent - Platform fee percentage (0–100); default 5
- * @param txClient   - Optional outer transaction client
+ * @param fromUserId     - Sender user UUID
+ * @param toUserId       - Recipient user UUID
+ * @param amount         - Gross coins to transfer (fee deducted from this)
+ * @param idempotencyRef - Stable reference so retries don't double-debit
+ * @param feePercent     - Platform fee percentage (0–100); default 5
+ * @param txClient       - Optional outer transaction client
  * @returns Object with debit and credit ledger entries and the fee amount
  * @throws `INSUFFICIENT_BALANCE` if sender cannot afford the gross amount
  */
@@ -247,11 +248,11 @@ export async function transferCoins(
   fromUserId: string,
   toUserId: string,
   amount: number,
+  idempotencyRef: string,
   feePercent: number = 5,
   txClient?: TransactionClient,
   senderTransactionType: CoinTransactionType = "gift_sent",
-  recipientTransactionType: CoinTransactionType = "gift_received",
-  idempotencyRef: string
+  recipientTransactionType: CoinTransactionType = "gift_received"
 ): Promise<{ debit: CoinLedgerEntry; credit: CoinLedgerEntry; feeCoins: number }> {
   const gross = new Decimal(amount);
   if (!gross.isInteger() || gross.lte(0)) {

@@ -71,14 +71,8 @@ class InMemoryCoinLedger {
       query: jest.fn(async (sql: string, params: unknown[]) => {
         // Classify query
         const upper = sql.trim().toUpperCase();
-        if (upper.startsWith('SELECT') && sql.includes('FOR UPDATE')) {
-          self.queries.push({ type: 'SELECT_FOR_UPDATE', sql, params });
-          return {
-            rows: [{ coin_balance: String(self.balance) }],
-            rowCount: 1,
-          };
-        }
-
+        // star_balance queries also match "FOR UPDATE" — check the more specific
+        // star_balance condition first so it isn't shadowed by the generic coin check.
         if (upper.startsWith('SELECT') && sql.includes('star_balance')) {
           self.queries.push({ type: 'SELECT_STAR', sql, params });
           return {
@@ -87,15 +81,23 @@ class InMemoryCoinLedger {
           };
         }
 
+        if (upper.startsWith('SELECT') && sql.includes('FOR UPDATE')) {
+          self.queries.push({ type: 'SELECT_FOR_UPDATE', sql, params });
+          return {
+            rows: [{ coin_balance: String(self.balance) }],
+            rowCount: 1,
+          };
+        }
+
         if (upper.startsWith('UPDATE') && sql.includes('coin_balance')) {
           self.queries.push({ type: 'UPDATE_BALANCE', sql, params });
-          self.balance = params[0] as number;
+          self.balance = Number(params[0]);
           return { rows: [], rowCount: 1 };
         }
 
         if (upper.startsWith('UPDATE') && sql.includes('star_balance')) {
           self.queries.push({ type: 'UPDATE_STAR_BALANCE', sql, params });
-          self.balance = params[0] as number;
+          self.balance = Number(params[0]);
           return { rows: [], rowCount: 1 };
         }
 
@@ -114,7 +116,7 @@ class InMemoryCoinLedger {
             created_at: new Date().toISOString(),
           };
           self.entries.push(entry);
-          return { rows: [], rowCount: 1 };
+          return { rows: [entry], rowCount: 1 };
         }
 
         if (upper.startsWith('INSERT') && sql.includes('star_ledger')) {
@@ -132,7 +134,7 @@ class InMemoryCoinLedger {
             created_at: new Date().toISOString(),
           };
           self.entries.push(entry);
-          return { rows: [], rowCount: 1 };
+          return { rows: [entry], rowCount: 1 };
         }
 
         // SELECT * FROM coin_ledger / star_ledger (fetch last entry)
@@ -217,24 +219,24 @@ describe('Transfer math invariant', () => {
     const senderLedger = new InMemoryCoinLedger(SENDER_INITIAL);
     const receiverLedger = new InMemoryCoinLedger(0);
 
-    let callCount = 0;
     mockTransaction.mockImplementation(
       async (fn: (tx: TransactionClient) => Promise<unknown>) => {
-        callCount++;
         // Outer transfer transaction wraps sender and receiver operations
         const txClient = {
           query: jest.fn(async (sql: string, params: unknown[]) => {
             const upper = sql.trim().toUpperCase();
 
-            if (upper.startsWith('SELECT') && sql.includes('FOR UPDATE')) {
-              // Alternate between sender and receiver balance fetches
-              const ledger = callCount <= 1 ? senderLedger : receiverLedger;
+            // Only the coin_balance lock needs a real response — the two generic
+            // "SELECT id FROM users ... FOR UPDATE" deadlock pre-locks don't.
+            if (upper.startsWith('SELECT') && sql.includes('FOR UPDATE') && sql.includes('coin_balance')) {
+              const userId = params[0] as string;
+              const ledger = userId === 'sender-1' ? senderLedger : receiverLedger;
               ledger.queries.push({ type: 'SELECT_FOR_UPDATE', sql, params });
               return { rows: [{ coin_balance: String(ledger.balance) }], rowCount: 1 };
             }
 
             if (upper.startsWith('UPDATE') && sql.includes('coin_balance')) {
-              const newBalance = params[0] as number;
+              const newBalance = Number(params[0]);
               const userId = params[1] as string;
               if (userId === 'sender-1') {
                 senderLedger.balance = newBalance;
@@ -271,7 +273,7 @@ describe('Transfer math invariant', () => {
       }
     );
 
-    await transferCoins('sender-1', 'receiver-1', AMOUNT, FEE);
+    await transferCoins('sender-1', 'receiver-1', AMOUNT, 'idem-ref-1', FEE);
 
     expect(senderLedger.balance).toBe(SENDER_INITIAL - AMOUNT);
     expect(receiverLedger.balance).toBe(NET);
@@ -308,7 +310,7 @@ describe('Transfer math invariant', () => {
       }
     );
 
-    const result = await transferCoins('sender-1', 'receiver-1', 100, 7);
+    const result = await transferCoins('sender-1', 'receiver-1', 100, 'idem-ref-2', 7);
     expect(result.feeCoins).toBe(7); // floor(100 * 7 / 100)
   });
 });
@@ -468,7 +470,7 @@ describe('Integer-only amounts', () => {
   });
 
   it('transferCoins rejects float amounts', async () => {
-    await expect(transferCoins('sender-1', 'receiver-1', 99.9)).rejects.toThrow(
+    await expect(transferCoins('sender-1', 'receiver-1', 99.9, 'idem-ref-3')).rejects.toThrow(
       'amount must be a positive integer'
     );
   });
@@ -523,7 +525,7 @@ describe('Concurrent (sequential) credits preserve all ledger entries', () => {
             }
 
             if (upper.startsWith('UPDATE') && sql.includes('coin_balance')) {
-              balance = params[0] as number;
+              balance = Number(params[0]);
               return { rows: [], rowCount: 0 };
             }
 

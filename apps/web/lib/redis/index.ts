@@ -26,6 +26,16 @@ import { env } from "@/lib/env";
 // ---------------------------------------------------------------------------
 
 /**
+ * Chainable batch of commands queued for a single round-trip via `RedisClient.pipeline()`.
+ * Both providers implement this interface (ioredis natively, Upstash via adapter).
+ */
+export interface RedisPipeline {
+  del(key: string): RedisPipeline;
+  zremrangebyrank(key: string, start: number, stop: number): RedisPipeline;
+  exec(): Promise<unknown[]>;
+}
+
+/**
  * Minimal Redis command interface the application depends on.
  * Both providers implement this interface (ioredis natively, Upstash via adapter).
  */
@@ -61,6 +71,8 @@ export interface RedisClient {
   zremrangebyrank(key: string, start: number, stop: number): Promise<number>;
   /** Execute a Lua script atomically. Compatible with ioredis eval(script, numkeys, ...args). */
   eval(script: string, numkeys: number, ...args: (string | number)[]): Promise<unknown>;
+  /** Queue commands for a single round-trip. Not atomic — see provider docs. */
+  pipeline(): RedisPipeline;
   ping(): Promise<string>;
   quit(): Promise<"OK">;
 }
@@ -73,10 +85,20 @@ export interface RedisClient {
 // pages can be generated without hanging on connection timeouts.
 const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 
+function createStubPipeline(): RedisPipeline {
+  const stub: RedisPipeline = {
+    del: () => stub,
+    zremrangebyrank: () => stub,
+    exec: async () => [],
+  };
+  return stub;
+}
+
 const buildStub: RedisClient = new Proxy({} as RedisClient, {
   get(_t, prop) {
     if (prop === "ping") return async () => "PONG";
     if (prop === "quit") return async () => "OK";
+    if (prop === "pipeline") return () => createStubPipeline();
     return async () => null;
   },
 });
@@ -262,6 +284,24 @@ class UpstashAdapter implements RedisClient {
     const keys = args.slice(0, numkeys).map(String);
     const argv = args.slice(numkeys).map(String);
     return this.client.eval(script, keys, argv);
+  }
+
+  pipeline(): RedisPipeline {
+    const batch = this.client.pipeline();
+    const wrapper: RedisPipeline = {
+      del(key: string) {
+        batch.del(key);
+        return wrapper;
+      },
+      zremrangebyrank(key: string, start: number, stop: number) {
+        batch.zremrangebyrank(key, start, stop);
+        return wrapper;
+      },
+      exec(): Promise<unknown[]> {
+        return batch.exec();
+      },
+    };
+    return wrapper;
   }
 
   async ping(): Promise<string> {
