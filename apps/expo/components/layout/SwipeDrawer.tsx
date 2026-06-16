@@ -17,12 +17,9 @@ import React, {
   createContext,
   useCallback,
   useContext,
-  useRef,
   useState,
 } from 'react';
 import {
-  Dimensions,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -243,7 +240,6 @@ export function SwipeDrawer({ children }: SwipeDrawerProps) {
   const backdropOpacity = useSharedValue(0);
   const isDrawerOpen = useSharedValue(false);
   const canHandle = useSharedValue(false);
-  const { isDark } = useTheme();
 
   const openDrawer = useCallback(() => {
     translateX.value = withSpring(0, SPRING);

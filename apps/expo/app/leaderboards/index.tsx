@@ -307,7 +307,7 @@ function PinnedUserRow({ entry }: { entry: LeaderboardEntry }) {
  * LeaderboardScreen — ranked users across tabs and XP tracks.
  */
 export default function LeaderboardScreen() {
-  const { colors: themeColors, isDark } = useTheme();
+  const { colors: themeColors } = useTheme();
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<LeaderboardTab>('global');
   const [activeTrack, setActiveTrack] = useState<LeaderboardTrack>('main');

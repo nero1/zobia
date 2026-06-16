@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { TouchableOpacity, Text, ActivityIndicator, Alert } from "react-native";
-import { loadRewardedAd, showRewardedAd, isRewardedAdLoaded } from "@/lib/ads/admob";
+import { loadRewardedAd, showRewardedAd } from "@/lib/ads/admob";
 import { storage } from "@/lib/offline/store";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 
@@ -31,7 +31,6 @@ interface RewardedAdButtonProps {
 export function RewardedAdButton({ onRewarded, disabled }: RewardedAdButtonProps) {
   const currency = useCurrency();
   const [loading, setLoading] = useState(false);
-  const [adReady, setAdReady] = useState(false);
   const [adsWatched, setAdsWatched] = useState(0);
 
   useEffect(() => {
@@ -55,9 +54,7 @@ export function RewardedAdButton({ onRewarded, disabled }: RewardedAdButtonProps
   async function preloadAd() {
     try {
       await loadRewardedAd();
-      setAdReady(true);
     } catch {
-      setAdReady(false);
     }
   }
 
@@ -96,7 +93,7 @@ export function RewardedAdButton({ onRewarded, disabled }: RewardedAdButtonProps
           }
         }
       }
-    } catch (err) {
+    } catch {
       Alert.alert("Error", "Could not show ad. Please try again.");
     } finally {
       setLoading(false);

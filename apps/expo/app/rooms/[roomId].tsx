@@ -445,7 +445,7 @@ export default function RoomScreen() {
     const msg = messages.find((m: Message) => m.id === messageId);
     const isOwn = msg?.senderUserId === CURRENT_USER_ID;
 
-    const options: Array<{ text: string; onPress?: () => void; style?: 'cancel' | 'destructive' }> = [
+    const options: { text: string; onPress?: () => void; style?: 'cancel' | 'destructive' }[] = [
       {
         text: '😂 React',
         onPress: () => {
@@ -606,8 +606,6 @@ export default function RoomScreen() {
   const isVIPLocked =
     room?.roomType === 'vip' && !room.isSubscribed;
   const isTippingRoom = room?.roomType === 'tipping';
-  const isGuildRoom = room?.roomType === 'guild';
-
   return (
     <Screen hideOfflineBanner disableBottomInset>
       <KeyboardAvoidingView

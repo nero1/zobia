@@ -55,7 +55,7 @@ async function createMoment(payload: CreateMomentPayload) {
  * MomentsCreateScreen — compose a new Moment.
  */
 export default function MomentsCreateScreen() {
-  const { isDark, colors: themeColors } = useTheme();
+  const { isDark } = useTheme();
   const router = useRouter();
   const queryClient = useQueryClient();
   const { t } = useTranslation();

@@ -130,7 +130,6 @@ export const MessageBubble = memo(function MessageBubble({
   id,
   content,
   messageType,
-  senderUsername,
   senderDisplayName,
   senderAvatarEmoji,
   senderIsCreator = false,

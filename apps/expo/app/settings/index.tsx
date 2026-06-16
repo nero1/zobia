@@ -61,18 +61,6 @@ interface UserSettings {
 
 type PlanTier = 'free' | 'plus' | 'pro' | 'max';
 
-interface UserMe {
-  planTier?: PlanTier;
-  totp_enabled?: boolean;
-}
-
-const PLAN_TIER_LABELS: Record<PlanTier, string> = {
-  free: 'Free',
-  plus: 'Plus',
-  pro: 'Pro',
-  max: 'Max',
-};
-
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------

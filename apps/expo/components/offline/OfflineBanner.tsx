@@ -6,7 +6,7 @@
  * connectivity and Reanimated for a smooth slide-in / slide-out animation.
  */
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect } from 'react';
 import { Text, StyleSheet } from 'react-native';
 import Animated, {
   useSharedValue,

@@ -129,7 +129,7 @@ interface CreateRoomPayload {
   entryFeeNgn?: number;
   dropDurationMinutes?: number;
   enrolmentFeeNgn?: number;
-  curriculum?: Array<{ title: string; order: number }>;
+  curriculum?: { title: string; order: number }[];
 }
 
 // ---------------------------------------------------------------------------

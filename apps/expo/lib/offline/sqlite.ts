@@ -95,7 +95,7 @@ export async function queueMessage(
 /**
  * Get all messages waiting to be sent.
  */
-export async function getPendingMessages(): Promise<Array<{
+export async function getPendingMessages(): Promise<{
   id: string;
   conversationId: string;
   conversationType: 'dm' | 'group' | 'room';
@@ -103,7 +103,7 @@ export async function getPendingMessages(): Promise<Array<{
   messageType: string;
   idempotencyKey: string | null;
   createdAt: number;
-}>> {
+}[]> {
   const rows = await getDB().getAllAsync<{
     id: string;
     conversation_id: string;
@@ -186,13 +186,13 @@ export async function resetFailedMessages(): Promise<void> {
 /**
  * Get all messages that have permanently failed (4xx or >= 3 retries).
  */
-export async function getPermanentlyFailedMessages(): Promise<Array<{
+export async function getPermanentlyFailedMessages(): Promise<{
   id: string;
   conversationId: string;
   content: string;
   retryCount: number;
   createdAt: number;
-}>> {
+}[]> {
   const rows = await getDB().getAllAsync<{
     id: string;
     conversation_id: string;

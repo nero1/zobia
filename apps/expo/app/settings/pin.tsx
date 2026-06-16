@@ -22,7 +22,6 @@ import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import type { AxiosError } from 'axios';
 import { Screen } from '@/components/ui/Screen';
-import { Button } from '@/components/ui/Button';
 import { apiClient } from '@/lib/api/client';
 import { colors } from '@/lib/theme/colors';
 import { useTheme } from '@/lib/theme';
@@ -102,7 +101,7 @@ export default function PinScreen() {
       }
       setTimeout(() => inputRef.current?.focus(), 300);
     }
-  }, [isLoading, pinStatus]);
+  }, [isLoading, pinStatus, hasPinSet]);
 
   const setupMutation = useMutation({
     mutationFn: setupPin,

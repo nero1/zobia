@@ -15,7 +15,6 @@
 
 import React, { useCallback } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   Pressable,
   RefreshControl,

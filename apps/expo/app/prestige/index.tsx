@@ -16,11 +16,11 @@ interface PrestigeData {
   xp_total: number;
   prestige_level: number;
   can_prestige: boolean;
-  prestige_history: Array<{
+  prestige_history: {
     level: number;
     xp_at_prestige: number;
     prestiged_at: string;
-  }>;
+  }[];
 }
 
 const PRESTIGE_BADGES = ["🌟", "⭐⭐", "🌠", "👑"];

@@ -14,7 +14,6 @@
 import React, { useState, useCallback } from 'react';
 import {
   FlatList,
-  Pressable,
   RefreshControl,
   StyleSheet,
   Text,
@@ -32,28 +31,6 @@ import { apiClient } from '@/lib/api/client';
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-type NotificationType =
-  | 'xp'
-  | 'gift'
-  | 'guild'
-  | 'guild_low_contribution'
-  | 'dm'
-  | 'mention'
-  | 'season'
-  | 'system'
-  | 'streak'
-  | 'streak_risk'
-  | 'friend'
-  | 'announcement'
-  | 'prestige_complete'
-  | 'mystery_xp_drop'
-  | 'flash_xp_announced'
-  | 'flash_xp_live'
-  | 'leaderboard_ripple'
-  | 'platform_council_invite'
-  | 'reengagement'
-  | string;
 
 interface AppNotification {
   id: string;

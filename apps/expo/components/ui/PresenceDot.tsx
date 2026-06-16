@@ -11,7 +11,7 @@
  * PRD §2.2 — The Presence Layer
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
