@@ -19,7 +19,6 @@
 
 import React, { useCallback } from 'react';
 import {
-  FlatList,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -28,7 +27,6 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { Screen } from '@/components/ui/Screen';
 import { colors } from '@/lib/theme/colors';

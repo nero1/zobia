@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import {
-  View, Text, ScrollView, FlatList, TouchableOpacity,
+  View, Text, ScrollView, TouchableOpacity,
   Alert, ActivityIndicator, RefreshControl
 } from "react-native";
 import { storage } from "@/lib/offline/store";

@@ -74,7 +74,6 @@ export default function AdminRefundsScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState(0);
-  const [actingId, setActingId] = useState<string | null>(null);
 
   // Issue refund modal
   const [issueModalVisible, setIssueModalVisible] = useState(false);

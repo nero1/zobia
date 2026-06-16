@@ -10,7 +10,7 @@
  * @module app/(tabs)/gifts
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,

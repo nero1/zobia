@@ -18,7 +18,6 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { colors } from '@/lib/theme/colors';
-import { useAuth } from '@/lib/auth/hooks';
 import { apiClient } from '@/lib/api/client';
 import { useTranslation } from 'react-i18next';
 import { useCurrency } from '@/lib/hooks/useCurrency';
@@ -49,7 +48,6 @@ export default function QuestsTab() {
   const scheme = useColorScheme();
   const isDark = scheme === 'dark';
   const router = useRouter();
-  const { token } = useAuth();
   const currency = useCurrency();
   const { t } = useTranslation();
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
   View, Text, FlatList, TouchableOpacity, Switch,
-  Alert, ActivityIndicator, RefreshControl, TextInput, Modal, ScrollView
+  Alert, ActivityIndicator, RefreshControl, TextInput, Modal
 } from "react-native";
 import { storage } from "@/lib/offline/store";
 

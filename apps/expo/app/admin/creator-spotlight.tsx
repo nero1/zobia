@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import {
-  View, Text, ScrollView, FlatList, TouchableOpacity,
+  View, Text, FlatList, TouchableOpacity,
   Alert, ActivityIndicator, RefreshControl, TextInput, Modal, KeyboardAvoidingView, Platform
 } from "react-native";
 import { useTranslation } from "react-i18next";

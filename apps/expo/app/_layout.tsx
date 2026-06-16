@@ -106,7 +106,7 @@ function RootLayoutNav() {
   useEffect(() => {
     if (!user) return;
     registerForPushNotifications();
-  }, [user?.id]);
+  }, [user]);
 
   // Listen for internet reconnection and sync pending messages
   useEffect(() => {

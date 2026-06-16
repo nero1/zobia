@@ -1,6 +1,6 @@
 import React from 'react';
-import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
-import { Stack, useRouter } from 'expo-router';
+import { TouchableOpacity, StyleSheet } from 'react-native';
+import { Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 import { AdminSwipeDrawer, useAdminDrawer } from '@/components/admin/AdminSwipeDrawer';
@@ -37,7 +37,6 @@ function AdminHeaderLeft() {
 function AdminStack() {
   const { isDark } = useTheme();
   const headerBg = isDark ? colors.neutral[900] : '#ffffff';
-  const headerBorder = isDark ? colors.neutral[800] : colors.neutral[200];
   const headerText = isDark ? colors.neutral[50] : colors.neutral[900];
 
   return (
