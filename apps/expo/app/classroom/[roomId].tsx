@@ -66,7 +66,7 @@ export default function ClassroomScreen() {
   async function loadData() {
     if (!roomId) return;
     const token = storage.getString("authToken");
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
 
     const [roomRes, quizRes, modulesRes] = await Promise.all([
       fetch(`${API_BASE}/api/rooms/${roomId}`, { headers }),

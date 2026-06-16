@@ -242,7 +242,7 @@ export default function SeasonScreen() {
           <Text style={[styles.upgradeSubtitle, { color: themeColors.textMuted }]}>
             Exclusive rewards this season:
           </Text>
-          {paidPassExclusiveRewards.map((reward, idx) => (
+          {paidPassExclusiveRewards.map((reward: string, idx: number) => (
             <Text key={idx} style={[styles.rewardItem, { color: themeColors.text }]}>
               ✓ {reward}
             </Text>
@@ -266,7 +266,7 @@ export default function SeasonScreen() {
             No entries yet.
           </Text>
         ) : (
-          leaderboardPreview.slice(0, 10).map((entry) => (
+          leaderboardPreview.slice(0, 10).map((entry: LeaderboardPreviewEntry) => (
             <LeaderRow key={entry.userId} entry={entry} />
           ))
         )}
@@ -283,7 +283,7 @@ export default function SeasonScreen() {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.historyScroll}
           >
-            {pastSeasons.map((s) => (
+            {pastSeasons.map((s: PastSeason) => (
               <PastSeasonCard key={s.id} season={s} />
             ))}
           </ScrollView>

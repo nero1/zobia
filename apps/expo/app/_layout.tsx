@@ -89,8 +89,8 @@ function RootLayoutNav() {
   const { isDark } = useTheme();
   const { user } = useAuth();
   const router = useRouter();
-  const notificationListener = useRef<Notifications.EventSubscription | null>(null);
-  const responseListener = useRef<Notifications.EventSubscription | null>(null);
+  const notificationListener = useRef<Notifications.Subscription | null>(null);
+  const responseListener = useRef<Notifications.Subscription | null>(null);
 
   // Initialise offline database and encrypted MMKV store
   useEffect(() => {

@@ -7,9 +7,10 @@
       "@/*": ["./*"],
       "@/app/*": ["./app/*"],
       "@/components/*": ["./components/*"],
-      "@/lib/*": ["./lib/*"]
+      "@/lib/*": ["./lib/*"],
+      "react-native": ["./node_modules/react-native"]
     },
-    "types": ["nativewind/types"]
+    "types": ["nativewind/types", "node"]
   },
   "include": [
     "**/*.ts",

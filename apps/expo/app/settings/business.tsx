@@ -236,7 +236,7 @@ export default function BusinessSettingsScreen() {
   const isLoading = bizQuery.isLoading;
   const biz = bizQuery.data ?? null;
   const analytics = analyticsQuery.data ?? null;
-  const verStatus = biz?.verification_status ?? 'unverified';
+  const verStatus = (biz?.verification_status ?? 'unverified') as VerificationStatus;
   const verLabel = VERIFICATION_LABELS[verStatus];
 
   // Edit form pre-fill
@@ -434,7 +434,7 @@ export default function BusinessSettingsScreen() {
       <SectionHeader title={biz ? 'UPGRADE PLAN' : 'PLANS'} />
       {TIERS.map((tierOpt) => {
         const isCurrent = biz?.tier === tierOpt.key;
-        const isUpgradable = biz ? TIER_ORDER[tierOpt.key] > TIER_ORDER[biz.tier] : true;
+        const isUpgradable = biz ? TIER_ORDER[tierOpt.key] > TIER_ORDER[biz.tier as BusinessTier] : true;
         const isEnterprise = tierOpt.key === 'enterprise';
 
         return (

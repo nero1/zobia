@@ -20,6 +20,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
+import * as Contacts from 'expo-contacts';
 
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
@@ -45,21 +46,6 @@ interface SuggestedRoom {
   title: string;
   type: string;
   participantCount: number;
-}
-
-// ---------------------------------------------------------------------------
-// Contacts helpers
-// ---------------------------------------------------------------------------
-
-type ContactsModule = typeof import('expo-contacts');
-
-function getContacts(): ContactsModule | null {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return require('expo-contacts') as ContactsModule;
-  } catch {
-    return null;
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -97,9 +83,6 @@ export default function FirstContactScreen() {
 
   // Load contacts from phonebook and match against Zobia users
   async function loadContacts() {
-    const Contacts = getContacts();
-    if (!Contacts) return;
-
     setLoading(true);
     try {
       const { status } = await Contacts.requestPermissionsAsync();

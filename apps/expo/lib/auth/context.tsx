@@ -20,6 +20,7 @@ import React, {
 } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import { JWT_KEY, REFRESH_TOKEN_KEY, onUnauthenticated } from '@/lib/api/client';
+import { env } from '@/lib/env';
 
 // ---------------------------------------------------------------------------
 // JWT expiry helpers (no signature verification — just payload inspection)
@@ -118,7 +119,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (!storedRefreshToken) return; // no refresh token — require re-login
 
           try {
-            const { env } = await import('@/lib/env');
             const resp = await fetch(`${env.API_BASE_URL}/api/auth/refresh`, {
               method: 'POST',
               headers: {

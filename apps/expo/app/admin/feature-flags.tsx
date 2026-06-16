@@ -111,19 +111,16 @@ export default function AdminFeatureFlagsScreen() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'feature-flags'] });
     },
-    onError: (_, { key }) => {
-      Alert.alert('Error', `Failed to toggle ${key}. Please try again.`);
-      queryClient.invalidateQueries({ queryKey: ['admin', 'feature-flags'] });
-    },
-    onMutate: async ({ key, enabled }) => {
+    onMutate: async ({ key, enabled }: { key: string; enabled: boolean }) => {
       await queryClient.cancelQueries({ queryKey: ['admin', 'feature-flags'] });
       const prev = queryClient.getQueryData<FeatureFlag[]>(['admin', 'feature-flags']);
-      queryClient.setQueryData<FeatureFlag[]>(['admin', 'feature-flags'], (old) =>
-        old?.map((f) => (f.key === key ? { ...f, enabled } : f)) ?? []
+      queryClient.setQueryData<FeatureFlag[]>(['admin', 'feature-flags'], (old: FeatureFlag[] | undefined) =>
+        old?.map((f: FeatureFlag) => (f.key === key ? { ...f, enabled } : f)) ?? []
       );
       return { prev };
     },
-    onError: (_, __, ctx) => {
+    onError: (_err, { key }, ctx) => {
+      Alert.alert('Error', `Failed to toggle ${key}. Please try again.`);
       if (ctx?.prev) {
         queryClient.setQueryData(['admin', 'feature-flags'], ctx.prev);
       }
@@ -134,7 +131,7 @@ export default function AdminFeatureFlagsScreen() {
     toggleMutation.mutate({ key, enabled });
   };
 
-  const enabledCount = flags.filter((f) => f.enabled).length;
+  const enabledCount = flags.filter((f: FeatureFlag) => f.enabled).length;
 
   return (
     <Screen scrollable={false} contentStyle={styles.container}>

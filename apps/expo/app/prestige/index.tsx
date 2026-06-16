@@ -137,7 +137,7 @@ export default function PrestigeScreen() {
       {data.prestige_history.length > 0 && (
         <View className="bg-white mx-4 mt-3 rounded-xl p-4 shadow-sm">
           <Text className="font-semibold text-gray-800 mb-3">{t('prestige.history')}</Text>
-          {data.prestige_history.map((h) => (
+          {data.prestige_history.map((h: PrestigeData['prestige_history'][number]) => (
             <View key={h.level} className="flex-row justify-between py-1">
               <Text className="text-gray-600">{PRESTIGE_BADGES[h.level]} {t('prestige.currentPrestige')} {h.level}</Text>
               <Text className="text-gray-400 text-sm">

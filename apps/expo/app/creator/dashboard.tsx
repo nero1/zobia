@@ -320,7 +320,7 @@ export default function CreatorDashboardScreen() {
         {/* Top Gifters */}
         {data.topGifters.length > 0 && (
           <SectionCard title="Top Gifters" isDark={isDark}>
-            {data.topGifters.slice(0, 3).map((gifter, idx) => (
+            {data.topGifters.slice(0, 3).map((gifter: TopGifter, idx: number) => (
               <View key={gifter.userId} style={styles.gifterRow}>
                 <Text style={styles.gifterRank}>{['🥇', '🥈', '🥉'][idx]}</Text>
                 <Text style={styles.gifterEmoji}>{gifter.avatarEmoji}</Text>
@@ -346,7 +346,7 @@ export default function CreatorDashboardScreen() {
           {data.recentPayouts.length === 0 ? (
             <Text style={[styles.emptyText, { color: subtitleColor }]}>No payouts yet.</Text>
           ) : (
-            data.recentPayouts.slice(0, 5).map((payout) => (
+            data.recentPayouts.slice(0, 5).map((payout: Payout) => (
               <View key={payout.id} style={styles.payoutRow}>
                 <View>
                   <Text

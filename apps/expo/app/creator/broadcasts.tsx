@@ -157,7 +157,7 @@ function ComposeModal({ visible, allowance, onClose, onSend, sending }: ComposeM
             </Text>
           ) : (
             <Text style={[styles.allowanceText, { color: themeColors.textMuted }]}>
-              {t('broadcasts.noFreeLeft', { count: allowance.additionalCoinCost.toLocaleString() })}
+              {t('broadcasts.noFreeLeft', { amount: allowance.additionalCoinCost.toLocaleString() })}
             </Text>
           )}
         </View>
@@ -217,7 +217,7 @@ function BroadcastRow({ broadcast }: { broadcast: Broadcast }) {
       </Text>
       <View style={styles.broadcastMeta}>
         <Text style={[styles.broadcastMetaText, { color: themeColors.textMuted }]}>
-          {t('broadcasts.recipientsDate', { count: broadcast.recipientCount.toLocaleString(), date })}
+          {t('broadcasts.recipientsDate', { amount: broadcast.recipientCount.toLocaleString(), date })}
         </Text>
         {broadcast.costCoins > 0 && (
           <Text style={[styles.broadcastCost, { color: themeColors.textMuted }]}>
@@ -250,7 +250,7 @@ export default function BroadcastsScreen() {
       if (result.requiresConfirmation) {
         Alert.alert(
           t('broadcasts.confirmTitle'),
-          t('broadcasts.confirmBody', { count: result.costCoins.toLocaleString() }),
+          t('broadcasts.confirmBody', { amount: result.costCoins.toLocaleString() }),
           [
             { text: t('broadcasts.confirmCancel'), style: 'cancel' },
             {
@@ -268,7 +268,7 @@ export default function BroadcastsScreen() {
       queryClient.invalidateQueries({ queryKey: ['creator-broadcasts'] });
       Alert.alert(
         t('broadcasts.sentTitle'),
-        t('broadcasts.sentBody', { count: result.broadcast.recipientCount.toLocaleString() })
+        t('broadcasts.sentBody', { amount: result.broadcast.recipientCount.toLocaleString() })
       );
     },
     onError: (err: Error) => {

@@ -362,7 +362,7 @@ export default function MessagesScreen() {
             </Pressable>
           </View>
         ) : (
-          conversations.map((item) => (
+          conversations.map((item: DMConversation) => (
             <ConvRow key={item.conversationId} item={item} onPress={handleConvPress} />
           ))
         )}
@@ -392,7 +392,7 @@ export default function MessagesScreen() {
             </Pressable>
           </View>
         ) : (
-          groups.map((item) => (
+          groups.map((item: GroupChat) => (
             <GroupRow key={item.id} item={item} onPress={handleGroupPress} />
           ))
         )}

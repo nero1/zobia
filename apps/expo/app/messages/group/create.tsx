@@ -133,7 +133,7 @@ export default function CreateGroupScreen() {
   const { colors: themeColors, isDark } = useTheme();
 
   const [groupName, setGroupName] = useState('');
-  const [selectedTag, setSelectedTag] = useState<GroupTag>('crew');
+  const [selectedTag, setSelectedTag] = useState<GroupTag>('Crew');
   const [selectedMembers, setSelectedMembers] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
 
@@ -144,7 +144,7 @@ export default function CreateGroupScreen() {
   });
 
   const filteredFriends = friends.filter(
-    (f) =>
+    (f: Friend) =>
       search === '' ||
       f.displayName.toLowerCase().includes(search.toLowerCase()) ||
       f.username.toLowerCase().includes(search.toLowerCase()),
@@ -267,7 +267,7 @@ export default function CreateGroupScreen() {
         </View>
       ) : (
         <View style={[styles.friendList, { borderColor: themeColors.border }]}>
-          {filteredFriends.map((friend) => (
+          {filteredFriends.map((friend: Friend) => (
             <MemberRow
               key={friend.userId}
               friend={friend}

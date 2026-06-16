@@ -82,7 +82,7 @@ export default function CreatorMerchStoreScreen() {
     queryKey: ['merch-store', creatorId],
     queryFn: async () => {
       const res = await apiClient.get<{ store: MerchStore }>(`/merch/${creatorId}`);
-      return res.store;
+      return res.data.store;
     },
     enabled: !!creatorId,
     staleTime: 30_000,
@@ -99,7 +99,7 @@ export default function CreatorMerchStoreScreen() {
     onSuccess: (data, productId) => {
       void queryClient.invalidateQueries({ queryKey: ['merch-store', creatorId] });
       void queryClient.invalidateQueries({ queryKey: ['wallet'] });
-      if (data.paymentUrl) {
+      if (data.data.paymentUrl) {
         Alert.alert('Purchase', 'Redirecting to payment…');
       } else {
         Alert.alert('Success! 🎉', 'Your purchase was successful.');

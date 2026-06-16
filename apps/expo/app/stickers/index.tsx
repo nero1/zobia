@@ -44,10 +44,10 @@ export default function StickerStoreScreen() {
   const unlockMutation = useMutation<void, Error, string>({
     mutationFn: unlockStickerPack,
     onSuccess: (_, packId) => {
-      queryClient.setQueryData<StickerPack[]>(["stickers", "packs"], (prev) =>
-        prev?.map((p) => (p.id === packId ? { ...p, unlocked: true } : p)) ?? []
+      queryClient.setQueryData<StickerPack[]>(["stickers", "packs"], (prev: StickerPack[] | undefined) =>
+        prev?.map((p: StickerPack) => (p.id === packId ? { ...p, unlocked: true } : p)) ?? []
       );
-      const pack = packs.find((p) => p.id === packId);
+      const pack = packs.find((p: StickerPack) => p.id === packId);
       Alert.alert("🎨 Unlocked!", `${pack?.name ?? "Pack"} is now available!`);
     },
     onError: (err) => {

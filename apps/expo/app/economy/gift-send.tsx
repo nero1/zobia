@@ -231,13 +231,13 @@ export default function GiftSendScreen() {
 
   const tiers = catalogue?.tiers ?? [];
   const displayTier = activeTier ?? tiers[0]?.tier ?? 1;
-  const rawTierData = tiers.find((t) => t.tier === displayTier);
+  const rawTierData = tiers.find((t: GiftTier) => t.tier === displayTier);
   const tierData = rawTierData
     ? {
         ...rawTierData,
         gifts:
           currencyMode === 'stars'
-            ? rawTierData.gifts.filter((g) => g.starCost != null && g.starCost > 0)
+            ? rawTierData.gifts.filter((g: GiftItem) => g.starCost != null && g.starCost > 0)
             : rawTierData.gifts,
       }
     : undefined;
@@ -296,7 +296,7 @@ export default function GiftSendScreen() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.tierTabs}
         >
-          {tiers.map((tier) => (
+          {tiers.map((tier: GiftTier) => (
             <Pressable
               key={tier.tier}
               onPress={() => {
@@ -340,7 +340,7 @@ export default function GiftSendScreen() {
           contentContainerStyle={styles.giftGrid}
           showsVerticalScrollIndicator={false}
         >
-          {(tierData?.gifts ?? []).map((item) => {
+          {(tierData?.gifts ?? []).map((item: GiftItem) => {
             const itemCost = currencyMode === 'stars' ? (item.starCost ?? 0) : item.coinCost;
             const canAfford = activeBalance >= itemCost;
             return (

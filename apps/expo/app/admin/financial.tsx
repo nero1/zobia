@@ -37,7 +37,7 @@ export default function AdminFinancialScreen() {
 
   async function loadData() {
     const token = storage.getString("authToken");
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
     const [statsRes, payoutsRes] = await Promise.all([
       fetch(`${API_BASE}/api/admin/financial`, { headers }),
       fetch(`${API_BASE}/api/admin/payouts?status=pending&limit=20`, { headers }),

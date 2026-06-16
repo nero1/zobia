@@ -30,7 +30,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { colors } from '@/lib/theme/colors';
-import type { RoomType } from '@zobia/types';
+import type { RoomType } from '@zobia/shared/types';
 
 // ---------------------------------------------------------------------------
 // Types

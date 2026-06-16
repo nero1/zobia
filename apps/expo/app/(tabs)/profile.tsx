@@ -147,7 +147,7 @@ export default function ProfileScreen() {
   });
 
   const rankColor = profile
-    ? (rankColors[profile.rankTier] ?? colors.brand.blue)
+    ? (rankColors[profile.rankTier as RankTier] ?? colors.brand.blue)
     : colors.neutral[200];
 
   return (

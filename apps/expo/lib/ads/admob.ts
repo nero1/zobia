@@ -12,11 +12,11 @@ import { Platform } from 'react-native';
 import {
   RewardedAd,
   RewardedAdEventType,
+  AdEventType,
   TestIds,
   BannerAd,
   BannerAdSize,
   InterstitialAd,
-  InterstitialAdEventType,
 } from 'react-native-google-mobile-ads';
 
 // ---------------------------------------------------------------------------
@@ -59,7 +59,7 @@ export async function loadRewardedAd(): Promise<void> {
     );
 
     const unsubscribeError = rewardedAd.addAdEventListener(
-      RewardedAdEventType.ERROR,
+      AdEventType.ERROR,
       (error) => {
         adLoaded = false;
         unsubscribeError();
@@ -117,7 +117,7 @@ export async function showRewardedAd(): Promise<RewardedAdResult> {
     );
 
     const unsubscribeClose = rewardedAd.addAdEventListener(
-      'closed' as RewardedAdEventType,
+      AdEventType.CLOSED,
       () => {
         adLoaded = false;
         rewardedAd = null;
@@ -176,7 +176,7 @@ export async function loadInterstitialAd(): Promise<void> {
     });
 
     const unsubLoaded = interstitialAd.addAdEventListener(
-      InterstitialAdEventType.LOADED,
+      AdEventType.LOADED,
       () => {
         interstitialLoaded = true;
         unsubLoaded();
@@ -185,7 +185,7 @@ export async function loadInterstitialAd(): Promise<void> {
     );
 
     const unsubError = interstitialAd.addAdEventListener(
-      InterstitialAdEventType.ERROR,
+      AdEventType.ERROR,
       (error) => {
         interstitialLoaded = false;
         unsubError();
@@ -219,7 +219,7 @@ export async function showInterstitialAd(
     }
 
     const unsubClosed = interstitialAd.addAdEventListener(
-      InterstitialAdEventType.CLOSED,
+      AdEventType.CLOSED,
       () => {
         interstitialLoaded = false;
         interstitialAd = null;

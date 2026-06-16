@@ -438,7 +438,7 @@ export default function RoomScreen() {
   }, [inputText, roomId, isMoment, sendMutation]);
 
   const handleLongPress = useCallback((messageId: string) => {
-    const msg = messages.find((m) => m.id === messageId);
+    const msg = messages.find((m: Message) => m.id === messageId);
     const isOwn = msg?.senderUserId === CURRENT_USER_ID;
 
     const options: Array<{ text: string; onPress?: () => void; style?: 'cancel' | 'destructive' }> = [

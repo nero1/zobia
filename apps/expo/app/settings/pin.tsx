@@ -38,7 +38,7 @@ async function setupPin(params: { pin: string; currentPin?: string }): Promise<v
   await apiClient.post('/auth/pin/setup', params);
 }
 
-async function removePin(params: { pin: string }): Promise<void> {
+async function removePinApi(params: { pin: string }): Promise<void> {
   await apiClient.delete('/auth/pin/remove', { data: params });
 }
 
@@ -114,7 +114,7 @@ export default function PinScreen() {
   });
 
   const removeMutation = useMutation({
-    mutationFn: removePin,
+    mutationFn: removePinApi,
     onSuccess: () => {
       Alert.alert('Success', 'PIN removed successfully.', [
         { text: 'OK', onPress: () => router.back() },

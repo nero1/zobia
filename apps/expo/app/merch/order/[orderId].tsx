@@ -199,7 +199,7 @@ export default function OrderTrackingScreen() {
         {order.tracking_updates && order.tracking_updates.length > 0 && (
           <View style={[styles.card, { backgroundColor: surfaceColor, borderColor }]}>
             <Text style={[styles.sectionTitle, { color: textColor }]}>Tracking Updates</Text>
-            {order.tracking_updates.map((update, i) => (
+            {order.tracking_updates.map((update: TrackingUpdate, i: number) => (
               <View key={i} style={styles.trackingEntry}>
                 <Text style={[styles.trackingNote, { color: textColor }]}>{update.note}</Text>
                 <Text style={[styles.trackingTime, { color: mutedColor }]}>

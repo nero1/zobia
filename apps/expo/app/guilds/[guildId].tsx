@@ -246,6 +246,22 @@ export default function GuildDetailScreen() {
     }
   }, [guild, joinMutation, leaveMutation]);
 
+  // Legend tier: pulsing crest animation (Reanimated loop, no gradient per PRD Appendix B)
+  // Hooks must run unconditionally on every render, so this stays above the
+  // isLoading/isError early returns below (guild may be undefined here).
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (!guild || guild.tier !== 'legend') return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.15, duration: 800, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [guild, pulseAnim]);
+
   if (isLoading) {
     return (
       <Screen>
@@ -266,21 +282,7 @@ export default function GuildDetailScreen() {
     );
   }
 
-  const tierCfg = TIER_CONFIG[guild.tier];
-
-  // Legend tier: pulsing crest animation (Reanimated loop, no gradient per PRD Appendix B)
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  useEffect(() => {
-    if (guild.tier !== 'legend') return;
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.15, duration: 800, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [guild.tier, pulseAnim]);
+  const tierCfg = TIER_CONFIG[guild.tier as GuildTier];
 
   return (
     <Screen>

@@ -284,8 +284,8 @@ export default function CouncilScreen() {
     );
   }
 
-  const topIdeas = ideas.filter((i) => i.isTopIdea);
-  const otherIdeas = ideas.filter((i) => !i.isTopIdea);
+  const topIdeas = ideas.filter((i: Idea) => i.isTopIdea);
+  const otherIdeas = ideas.filter((i: Idea) => !i.isTopIdea);
   const sortedIdeas = [...topIdeas, ...otherIdeas];
 
   return (
@@ -307,7 +307,7 @@ export default function CouncilScreen() {
       {/* Member list */}
       <View style={styles.section}>
         <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Council Members</Text>
-        {council.members.map((m) => (
+        {council.members.map((m: CouncilMember) => (
           <MemberRow key={m.userId} member={m} />
         ))}
       </View>

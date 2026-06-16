@@ -30,7 +30,8 @@ import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/lib/auth/hooks';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
-import { apiClient, API_BASE_URL } from '@/lib/api/client';
+import { apiClient } from '@/lib/api/client';
+import { env } from '@/lib/env';
 import type { AuthUser } from '@/lib/auth/context';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -74,9 +75,9 @@ export default function LoginScreen() {
 
       // Exchange the one-time code for tokens via HTTPS — tokens are never
       // exposed in the URL (prevents leakage via browser history / server logs).
-      const exchangeRes = await fetch(`${API_BASE_URL}/api/auth/mobile-token`, {
+      const exchangeRes = await fetch(`${env.API_BASE_URL}/api/auth/mobile-token`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Origin': API_BASE_URL },
+        headers: { 'Content-Type': 'application/json', 'Origin': env.API_BASE_URL },
         body: JSON.stringify({ code }),
       });
 
@@ -121,7 +122,7 @@ export default function LoginScreen() {
       // Step 1: fetch the Google OAuth URL from the backend.
       // /api/auth/google returns JSON { url } — it does NOT redirect directly.
       const apiUrl =
-        `${API_BASE_URL}/api/auth/google?platform=mobile&redirect=${encodeURIComponent(redirectUri)}`;
+        `${env.API_BASE_URL}/api/auth/google?platform=mobile&redirect=${encodeURIComponent(redirectUri)}`;
       const apiRes = await fetch(apiUrl);
       if (!apiRes.ok) throw new Error('Failed to initiate Google login');
       const { url: googleAuthUrl } = (await apiRes.json()) as { url: string };

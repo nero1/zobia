@@ -245,7 +245,7 @@ export default function NewMemberQuestScreen() {
     );
   }
 
-  const completedCount = data.steps.filter((s) => s.completed).length;
+  const completedCount = data.steps.filter((s: QuestStep) => s.completed).length;
   const totalCount = data.steps.length;
 
   const handleStepPress = (step: QuestStep) => {
@@ -307,7 +307,7 @@ export default function NewMemberQuestScreen() {
         <Text style={[styles.stepsSectionTitle, { color: themeColors.textMuted }]}>
           STEPS TO COMPLETE
         </Text>
-        {data.steps.map((step, index) => (
+        {data.steps.map((step: QuestStep, index: number) => (
           <StepRow
             key={step.id}
             step={step}

@@ -359,7 +359,7 @@ export default function StoreScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t('store.coinPacks')}</Text>
           <View style={styles.packGrid}>
-            {data.coinPacks.map((pack) => (
+            {data.coinPacks.map((pack: CoinPack) => (
               <PackCard
                 key={pack.id}
                 id={pack.id}
@@ -385,7 +385,7 @@ export default function StoreScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t('store.starPacks')}</Text>
           <View style={styles.packGrid}>
-            {data.starPacks.map((pack) => (
+            {data.starPacks.map((pack: StarPack) => (
               <PackCard
                 key={pack.id}
                 id={pack.id}
@@ -410,7 +410,7 @@ export default function StoreScreen() {
       {data.boosters.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t('store.boosterPacks')}</Text>
-          {data.boosters.map((booster) => (
+          {data.boosters.map((booster: BoosterItem) => (
             <View
               key={booster.id}
               style={[styles.boosterItem, { backgroundColor: themeColors.surface, borderColor: colors.neutral[200] }]}
