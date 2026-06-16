@@ -1090,6 +1090,12 @@ Locale files live at `apps/expo/lib/i18n/locales/<lang>.json`. All locale files 
 
 `apps/expo/lib/i18n/rtl.ts` exposes `setupRTL(locale)` which calls `I18nManager.forceRTL(true)` for Arabic and `forceRTL(false)` for all other locales. This is called automatically at app startup in `apps/expo/lib/i18n/index.ts` after i18n initialisation, and re-called whenever the language changes at runtime via the `i18n.on('languageChanged', ...)` listener. A full app reload is required for native-side RTL mirroring to take effect.
 
+### API error translation lookup
+
+Every API route's error response carries a machine-readable `code` (e.g. `"USERNAME_TAKEN"`) alongside its English `message` (`lib/api/errors.ts`). `translateApiError(t, code, fallbackMessage, params?)` — mirrored at `apps/web/lib/i18n/apiErrors.ts` and `apps/expo/lib/i18n/apiErrors.ts` — looks up `errors.<code lowercased>` (e.g. `errors.username_taken`) in the active locale via `t(key, { defaultValue: fallbackMessage, ...params })`, falling back to the API's own English message when no translation entry exists yet for that code/locale. This matches the casing convention of the pre-existing `errors.global_rate_limit` / `errors.not_room_member` keys.
+
+`en.json` in both apps now has all ~110 confirmed `errors.<code>` keys populated as the English source of truth (dynamic messages use `{{paramName}}` interpolation, e.g. `errors.age_requirement_not_met`). The other 7 locale files and the ~150 existing call sites that currently render `error.message` directly have **not** been touched — translating the remaining languages and wiring `translateApiError` into call sites is follow-up work.
+
 ---
 
 ## Room Powers (PRD §11)
