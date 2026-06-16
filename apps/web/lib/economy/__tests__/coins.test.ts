@@ -318,7 +318,7 @@ describe('transferCoins', () => {
       return fn(txClient);
     });
 
-    const result = await transferCoins('sender-1', 'receiver-1', 100);
+    const result = await transferCoins('sender-1', 'receiver-1', 100, 'idem-ref-1');
 
     // 5% of 100 = 5 coins fee, net = 95 coins to receiver
     expect(result.feeCoins).toBe(5);
@@ -332,13 +332,13 @@ describe('transferCoins', () => {
       return fn(txClient);
     });
 
-    await expect(transferCoins('sender-1', 'receiver-1', 100)).rejects.toMatchObject({
+    await expect(transferCoins('sender-1', 'receiver-1', 100, 'idem-ref-2')).rejects.toMatchObject({
       code: 'INSUFFICIENT_BALANCE',
     });
   });
 
   it('throws when transfer amount is non-integer', async () => {
-    await expect(transferCoins('sender-1', 'receiver-1', 9.5)).rejects.toThrow(
+    await expect(transferCoins('sender-1', 'receiver-1', 9.5, 'idem-ref-3')).rejects.toThrow(
       'amount must be a positive integer'
     );
   });
@@ -349,7 +349,7 @@ describe('transferCoins', () => {
       return fn(txClient);
     });
 
-    const result = await transferCoins('sender-1', 'receiver-1', 200, 10);
+    const result = await transferCoins('sender-1', 'receiver-1', 200, 'idem-ref-4', 10);
     // 10% of 200 = 20 coins fee
     expect(result.feeCoins).toBe(20);
   });

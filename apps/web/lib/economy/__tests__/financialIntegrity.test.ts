@@ -271,7 +271,7 @@ describe('Transfer math invariant', () => {
       }
     );
 
-    await transferCoins('sender-1', 'receiver-1', AMOUNT, FEE);
+    await transferCoins('sender-1', 'receiver-1', AMOUNT, 'idem-ref-1', FEE);
 
     expect(senderLedger.balance).toBe(SENDER_INITIAL - AMOUNT);
     expect(receiverLedger.balance).toBe(NET);
@@ -308,7 +308,7 @@ describe('Transfer math invariant', () => {
       }
     );
 
-    const result = await transferCoins('sender-1', 'receiver-1', 100, 7);
+    const result = await transferCoins('sender-1', 'receiver-1', 100, 'idem-ref-2', 7);
     expect(result.feeCoins).toBe(7); // floor(100 * 7 / 100)
   });
 });
@@ -468,7 +468,7 @@ describe('Integer-only amounts', () => {
   });
 
   it('transferCoins rejects float amounts', async () => {
-    await expect(transferCoins('sender-1', 'receiver-1', 99.9)).rejects.toThrow(
+    await expect(transferCoins('sender-1', 'receiver-1', 99.9, 'idem-ref-3')).rejects.toThrow(
       'amount must be a positive integer'
     );
   });

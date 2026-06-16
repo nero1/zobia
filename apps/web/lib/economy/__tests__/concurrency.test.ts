@@ -296,7 +296,7 @@ describe("Concurrency — Transfer Fee Math", () => {
       return fn(client);
     });
 
-    const { debit, credit, feeCoins } = await transferCoins(senderId, recipientId, gross, 5);
+    const { debit, credit, feeCoins } = await transferCoins(senderId, recipientId, gross, 'idem-ref', 5);
 
     expect(feeCoins).toBe(Math.floor(gross * 0.05)); // 4
     expect(debit.amount).toBe(gross); // sender pays full gross

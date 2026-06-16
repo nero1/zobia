@@ -31,7 +31,7 @@ async function migrateColumn(
   console.log(`[migrate] Starting ${table}.${column} ...`);
 
   while (true) {
-    const { rows } = await db.query<{ id: string; val: string }>(
+    const queryResult = await db.query<{ id: string; val: string }>(
       `SELECT ${idCol} AS id, ${column} AS val
        FROM ${table}
        WHERE ${column} IS NOT NULL
@@ -40,6 +40,7 @@ async function migrateColumn(
        LIMIT ${lastId ? "$2" : "$1"}`,
       lastId ? [lastId, BATCH_SIZE] : [BATCH_SIZE]
     );
+    const rows: { id: string; val: string }[] = queryResult.rows;
 
     if (rows.length === 0) break;
 

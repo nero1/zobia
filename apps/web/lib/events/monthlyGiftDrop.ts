@@ -235,7 +235,7 @@ export async function processPendingGiftDrops(db: DatabaseAdapter): Promise<{
       let cursorId: string | null = null;
       let batchIndex = 0;
       while (true) {
-        const { rows: batchRows } = await db.query<{ id: string }>(
+        const batchResult = await db.query<{ id: string }>(
           `SELECT id FROM users
            WHERE deleted_at IS NULL
              AND COALESCE(is_banned, false) = false
@@ -244,6 +244,7 @@ export async function processPendingGiftDrops(db: DatabaseAdapter): Promise<{
            LIMIT ${cursorId ? '$2' : '$1'}`,
           cursorId ? [cursorId, BATCH_SIZE] : [BATCH_SIZE]
         );
+        const batchRows: { id: string }[] = batchResult.rows;
         if (batchRows.length === 0) break;
         const batchIds = batchRows.map((r) => r.id);
         await insertNotificationBatch(db, batchIds, 'gift_drop_announced', { giftDropId: drop.id, batchIndex })
