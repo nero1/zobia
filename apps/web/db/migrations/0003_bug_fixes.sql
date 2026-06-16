@@ -15,11 +15,13 @@ CREATE INDEX IF NOT EXISTS idx_guild_members_active
 -- ============================================================
 -- BUG-C02: Add UNIQUE constraint to payout_dead_letter_queue.payout_id
 -- ============================================================
--- Deduplicate first (in case duplicates exist)
-DELETE FROM payout_dead_letter_queue
-  WHERE id NOT IN (
-    SELECT MIN(id) FROM payout_dead_letter_queue GROUP BY payout_id
-  );
+-- Deduplicate first (in case duplicates exist).
+-- MIN(uuid) is not supported; use a self-join to keep the row with the
+-- lexicographically smallest id (one row per payout_id is all we need).
+DELETE FROM payout_dead_letter_queue a
+  USING payout_dead_letter_queue b
+  WHERE a.payout_id = b.payout_id
+    AND a.id > b.id;
 ALTER TABLE payout_dead_letter_queue
   ADD CONSTRAINT uq_pdlq_payout_id UNIQUE (payout_id);
 
@@ -35,15 +37,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS uidx_notifications_user_type_ref
 -- BUG-C04: Replace non-unique xp_ledger index with UNIQUE partial index
 -- ============================================================
 -- Remove duplicate rows before adding the unique constraint
--- (keep the earliest row per (user_id, source, reference_id))
-DELETE FROM xp_ledger
-  WHERE reference_id IS NOT NULL
-    AND id NOT IN (
-      SELECT MIN(id)
-      FROM xp_ledger
-      WHERE reference_id IS NOT NULL
-      GROUP BY user_id, source, reference_id
-    );
+-- (keep one row per (user_id, source, reference_id) — the one with the
+-- lexicographically smallest id; MIN(uuid) is not supported so use a self-join).
+DELETE FROM xp_ledger a
+  USING xp_ledger b
+  WHERE a.reference_id IS NOT NULL
+    AND a.user_id = b.user_id
+    AND a.source = b.source
+    AND a.reference_id = b.reference_id
+    AND a.id > b.id;
 -- Drop the non-unique index (wrong name from migration 001)
 DROP INDEX IF EXISTS idx_xp_ledger_user_source_ref;
 -- Create the correct UNIQUE partial index that safeAwardXP relies on
