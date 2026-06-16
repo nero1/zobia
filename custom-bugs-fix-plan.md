@@ -1,11 +1,11 @@
-# Zobia Social — Bug Fix Plan (Rev 2)
+# Zobia Social — Bug Fix Plan (Rev 3)
 
-**Generated:** June 16, 2026 · 5:36 AM UTC  
-**Based on:** `custom-bugs-report.md` Rev 2 — 24 bugs + 6 quality improvements  
+**Generated:** June 16, 2026 · 5:47 AM UTC  
+**Based on:** `custom-bugs-report.md` Rev 3 — 30 items (24 bugs + 6 quality improvements)
 
 > **IMPORTANT: Do NOT begin any fix until the report has been reviewed and approved.**
 
-Fixes are grouped by priority tier (P0 → P2) then by theme. Each task is self-contained unless a dependency is noted.
+Fixes are grouped by priority tier (P0 → P2 → Q) then by theme. Each task is self-contained unless a dependency is noted.
 
 ---
 
@@ -275,7 +275,7 @@ Write a one-shot job that selects all rows with `v1:` prefixed ciphertext, decry
 
 ---
 
-### TASK-Q1 · Opaque cursor-based pagination (Q1)
+### TASK-25 · Opaque cursor-based pagination (IMP-CURSOR-01)
 
 **Effort:** ~2 hours  
 **Files:** `apps/web/app/api/guilds/[guildId]/chat/route.ts`, other paginated routes
@@ -284,7 +284,7 @@ Replace `created_at`-only cursors with composite keyset cursors encoded as `base
 
 ---
 
-### TASK-Q2 · Council join transaction + idempotency guard (Q2)
+### TASK-26 · Council join transaction + idempotency guard (IMP-IDMP-01)
 
 **Effort:** ~45 minutes  
 **Files:** `apps/web/app/api/council/join/route.ts`, new migration
@@ -293,7 +293,7 @@ Wrap the invitation check, existing-member check, UPDATE (close old seat), and I
 
 ---
 
-### TASK-Q3 · Classroom quiz attempt idempotency guard (Q3)
+### TASK-27 · Classroom quiz attempt idempotency guard (IMP-IDMP-02)
 
 **Effort:** ~45 minutes  
 **Files:** `apps/web/app/api/classroom/[roomId]/quizzes/[quizId]/attempt/route.ts`, new migration
@@ -302,7 +302,7 @@ Add `UNIQUE(quiz_id, user_id)` constraint to `classroom_quiz_attempts`. Change t
 
 ---
 
-### TASK-Q4 · Add `Retry-After` header to rate-limited responses (Q4)
+### TASK-28 · Add `Retry-After` header to rate-limited responses (IMP-RATE-01)
 
 **Effort:** ~1 hour  
 **Files:** `apps/web/lib/security/rateLimit.ts`, `apps/web/lib/api/errors.ts`
@@ -311,7 +311,7 @@ Return the remaining window time from the Lua script as a fourth return value. I
 
 ---
 
-### TASK-Q5 · Upgrade session cookies to `SameSite=Strict` (Q5)
+### TASK-29 · Upgrade session cookies to `SameSite=Strict` (IMP-SEC-05)
 
 **Effort:** ~30 minutes  
 **Files:** `apps/web/lib/auth/session.ts`, `apps/web/app/api/auth/logout/route.ts`
@@ -320,7 +320,7 @@ Evaluate whether any OAuth redirect flow requires cookies to be sent on top-leve
 
 ---
 
-### TASK-Q6 · Stream monthly gift drop notifications to avoid memory spike (Q6)
+### TASK-30 · Stream monthly gift drop notifications to avoid memory spike (IMP-SCALE-01)
 
 **Effort:** ~2 hours  
 **Files:** `apps/web/lib/events/monthlyGiftDrop.ts`
@@ -357,12 +357,12 @@ Replace the unbounded `SELECT id FROM users WHERE ...` (loads all user IDs into 
 | TASK-22 | BUG-SEC-02 | P2 | ~1 hr |
 | TASK-23 | BUG-AUTH-02 | P2 | ~15 min |
 | TASK-24 | BUG-SEC-04 | P2 | ~1 day |
-| TASK-Q1 | Opaque cursor pagination | Q | ~2 hrs |
-| TASK-Q2 | Council join idempotency | Q | ~45 min |
-| TASK-Q3 | Quiz attempt idempotency | Q | ~45 min |
-| TASK-Q4 | Retry-After headers | Q | ~1 hr |
-| TASK-Q5 | SameSite=Strict cookies | Q | ~30 min |
-| TASK-Q6 | Stream gift drop notifications | Q | ~2 hrs |
+| TASK-25 | IMP-CURSOR-01 | Q | ~2 hrs |
+| TASK-26 | IMP-IDMP-01 | Q | ~45 min |
+| TASK-27 | IMP-IDMP-02 | Q | ~45 min |
+| TASK-28 | IMP-RATE-01 | Q | ~1 hr |
+| TASK-29 | IMP-SEC-05 | Q | ~30 min |
+| TASK-30 | IMP-SCALE-01 | Q | ~2 hrs |
 
 **Total estimated effort:**
 - P0 fixes: ~3 hours
@@ -373,4 +373,4 @@ Replace the unbounded `SELECT id FROM users WHERE ...` (loads all user IDs into 
 
 ---
 
-*Plan generated: June 16, 2026 · 5:36 AM UTC*
+*Plan generated: June 16, 2026 · 5:47 AM UTC*
