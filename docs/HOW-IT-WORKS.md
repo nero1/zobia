@@ -565,6 +565,29 @@ Add new domain-wide types to `shared/types/index.ts`, not to individual feature 
 
 **`CoinTransactionType`** — the full union of valid coin ledger transaction types is maintained in `shared/types/index.ts`. When adding a new coin operation, add its type string to this union; the TypeScript compiler will catch any call sites that pass a string not in the union.
 
+### Shared API Contract Schemas (`@zobia/shared/schemas`)
+
+Runtime-validated Zod schemas for all API request/response shapes are maintained in `shared/schemas/` and exported from `shared/schemas/index.ts`. These schemas serve as the **single source of truth** for API contracts across the web (Next.js) app and the Expo mobile app.
+
+| Schema file | Exports |
+|---|---|
+| `shared/schemas/api/auth.ts` | `LoginRequestSchema`, `RegisterRequestSchema`, `AuthUserSchema`, `AuthResponseSchema`, `RefreshResponseSchema`, `PinVerifyRequestSchema`, `PinSetupRequestSchema` |
+| `shared/schemas/api/coins.ts` | `CoinTransferRequestSchema`, `CoinTransferResponseSchema`, `CoinBalanceResponseSchema`, `CoinPurchaseRequestSchema`, `CoinPurchaseResponseSchema`, `CoinLedgerEntrySchema` |
+| `shared/schemas/api/user.ts` | `UserProfileSchema`, `MeResponseSchema`, `UpdateProfileRequestSchema`, `PushTokenRequestSchema`, `UserSearchResponseSchema` |
+| `shared/schemas/api/notifications.ts` | `NotificationSchema`, `NotificationsListResponseSchema`, `MarkNotificationsReadRequestSchema` |
+| `shared/schemas/api/economy.ts` | `StarGiftRequestSchema`, `StarBalanceResponseSchema`, `SendGiftRequestSchema`, `SendGiftResponseSchema`, `BoosterActivateRequestSchema`, `IAPVerifyRequestSchema`, `IAPVerifyResponseSchema` |
+
+**Usage:**
+```typescript
+// In web route handler or Expo screen:
+import { CoinTransferRequestSchema } from '@zobia/shared/schemas';
+
+const parsed = CoinTransferRequestSchema.safeParse(body);
+if (!parsed.success) return error(400, parsed.error);
+```
+
+Add new API contracts to the appropriate domain schema file. Do not duplicate schema definitions inline in individual route files — always import from `@zobia/shared/schemas`.
+
 ### Rate Limiting
 
 Rate limit options are specified with `lib/security/rateLimit.ts`'s `RateLimitOptions` interface:
@@ -773,7 +796,35 @@ Run: `cd apps/web && npx jest --testPathPattern="security" --runInBand`
 
 ### Server-Side Delivery
 
-The server sends push notifications via `apps/web/lib/notifications/push.ts` using the Expo Push API (`https://exp.host/--/api/v2/push/send`).
+The server sends push notifications via `apps/web/lib/notifications/push.ts` using the Expo Push API. Delivery follows a **two-stage protocol** required by Expo:
+
+#### Stage 1 — Send (immediate)
+
+`POST https://exp.host/--/api/v2/push/send` — up to 100 messages per request. Expo returns a **push ticket** for each message:
+- `status: "ok"` with `id` — the message was accepted; the ticket ID is persisted to the `push_tickets` table for stage-2 polling.
+- `status: "error"` with `details.error = "DeviceNotRegistered"` — the token is stale; it is immediately purged from `user_push_tokens`.
+
+#### Stage 2 — Receipt polling (deferred, ≥ 15 minutes later)
+
+`POST https://exp.host/--/api/v2/push/getReceipts` — takes up to 100 ticket IDs and returns delivery receipts. Called from the daily CRON job via `pollPushReceipts()`:
+- `status: "ok"` → mark ticket resolved.
+- `status: "error"` with `DeviceNotRegistered` → purge user's push tokens and mark ticket resolved.
+- Other `status: "error"` → record the error code, mark ticket resolved for monitoring.
+
+Pending tickets are fetched in batches of 100, marked `checked_at = NOW()` before polling to prevent duplicate polls on concurrent CRON runs, and processed until all pending tickets older than 15 minutes are resolved.
+
+#### push_tickets table
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | UUID | Row ID |
+| `user_id` | UUID | FK to users |
+| `ticket_id` | TEXT | Expo stage-1 ticket ID (UNIQUE) |
+| `status` | TEXT | `pending` → `ok` / `error` / `device_not_registered` |
+| `error_code` | TEXT | Expo error code if status is `error` |
+| `created_at` | TIMESTAMPTZ | When the notification was sent (stage 1) |
+| `checked_at` | TIMESTAMPTZ | When stage-2 polling was attempted |
+| `resolved_at` | TIMESTAMPTZ | When the ticket reached a terminal state |
 
 Notifications are sent:
 - **Guild War Final Hour** — to all guild members when 60 minutes remain.
