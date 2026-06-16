@@ -99,6 +99,28 @@ export const GET = async (req: NextRequest) => {
     return NextResponse.json({ error: "Server shutting down" }, { status: 503 });
   }
 
+  // CRON-IDEMPOTENCY-01: Prevent duplicate runs on the same UTC day.
+  // Uses cron_state row as a mutex: the conditional UPDATE only succeeds if
+  // last-run date has changed. rowCount=0 means another invocation already ran today.
+  const cronRunDate = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  try {
+    const { rowCount: guardCount } = await db.query(
+      `INSERT INTO cron_state (key, value_ts, updated_at)
+       VALUES ('daily_cron_last_run', $1::date::timestamptz, NOW())
+       ON CONFLICT (key) DO UPDATE
+         SET value_ts = $1::date::timestamptz, updated_at = NOW()
+         WHERE cron_state.value_ts < $1::date::timestamptz`,
+      [cronRunDate]
+    );
+    if ((guardCount ?? 0) === 0) {
+      console.info(`[cron/daily] Already ran for ${cronRunDate} — skipping duplicate invocation`);
+      return NextResponse.json({ skipped: true, reason: 'Already ran today', date: cronRunDate });
+    }
+  } catch (guardErr) {
+    // Non-fatal: proceed rather than silently skip if cron_state is unavailable
+    console.error('[cron/daily] Run-guard check failed:', guardErr);
+  }
+
   const results: Record<string, unknown> = {};
   const errors: string[] = [];
 
@@ -115,35 +137,39 @@ export const GET = async (req: NextRequest) => {
     const today = new Date().toISOString().slice(0, 10);
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-    // Increment streaks for users who logged in both today and yesterday.
-    // Uses last_login_at (updated only on explicit auth) rather than
-    // last_active_at (updated on any API call) to avoid false streak credits
-    // from background tabs (BUG-28).
+    // Increment streaks for users who logged in yesterday (not today — the CRON
+    // runs at midnight UTC so "today's" login_date hasn't been recorded yet).
+    // Uses last_login_date (date column, indexed) rather than casting
+    // last_login_at::date which cannot use the index (CRON-STREAK-02).
+    // Also updates login_streak to keep it in sync with login_streak_days (CRON-STREAK-01).
     const streakUpdate = await db.query<{ count: string }>(
       `WITH updated AS (
          UPDATE users
          SET login_streak_days = login_streak_days + 1,
+             login_streak = login_streak_days + 1,
              updated_at = NOW()
-         WHERE last_login_at::date = CURRENT_DATE
+         WHERE last_login_date = CURRENT_DATE - 1
          RETURNING 1
        )
        SELECT COUNT(*) AS count FROM updated`,
       []
     );
 
-    // Reset streaks for users who missed a day; preserve last streak for re-engagement gating
+    // Reset streaks for users who missed a day; preserve last streak for re-engagement gating.
+    // Also updates longest_streak when the broken streak is a new record (SCHEMA-STREAK-01).
     const streakReset = await db.query<{ count: string }>(
       `WITH reset AS (
          UPDATE users
          SET last_streak_before_break = login_streak_days,
+             longest_streak = GREATEST(COALESCE(longest_streak, 0), login_streak_days),
              login_streak_days = 0,
+             login_streak = 0,
              updated_at = NOW()
-         WHERE last_login_at::date < $1::date
+         WHERE last_login_date < CURRENT_DATE - 1
            AND login_streak_days > 0
          RETURNING 1
        )
-       SELECT COUNT(*) AS count FROM reset`,
-      [yesterday]
+       SELECT COUNT(*) AS count FROM reset`
     );
 
     results.loginStreaks = {
@@ -519,34 +545,57 @@ export const GET = async (req: NextRequest) => {
 
   // 12. Guild tier demotion — demote guilds below minimum after 7 days
   try {
-    // Minimum member counts per tier base (bronze_1/2/3 = 5, silver_1/2/3 = 15, etc.)
-    // PRD §13: Bronze 5–10, Silver 10–15, Gold 15–20, Platinum 20–25, Legend 25+
-    // We use the lower bound of each range for demotion — a guild that dips
-    // below the lower bound triggers the 7-day recovery window.
-    function tierMinMembers(tier: string): number {
-      if (tier === 'legend')              return 25;
-      if (tier.startsWith('platinum_3')) return 24;
-      if (tier.startsWith('platinum_2')) return 22;
-      if (tier.startsWith('platinum_1') || tier === 'platinum') return 20;
-      if (tier.startsWith('gold_3'))     return 19;
-      if (tier.startsWith('gold_2'))     return 17;
-      if (tier.startsWith('gold_1') || tier === 'gold') return 15;
-      if (tier.startsWith('silver_3'))   return 14;
-      if (tier.startsWith('silver_2'))   return 12;
-      if (tier.startsWith('silver_1') || tier === 'silver') return 10;
-      if (tier.startsWith('bronze_3'))   return 9;
-      if (tier.startsWith('bronze_2'))   return 7;
-      if (tier.startsWith('bronze_1') || tier === 'bronze') return 5;
-      return 0; // unknown tier — no minimum
+    // CRON-GUILD-01: single source of truth for all guild tier thresholds.
+    // minMembers = lower bound for demotion; promotionXP = XP needed to reach next tier.
+    // Ordering is ascending (bronze_1 first, legend last) so index math works.
+    const GUILD_TIERS = [
+      { name: 'bronze_1',   minMembers: 5,  promotionXP: 1_000 },
+      { name: 'bronze_2',   minMembers: 7,  promotionXP: 2_500 },
+      { name: 'bronze_3',   minMembers: 9,  promotionXP: 5_000 },
+      { name: 'silver_1',   minMembers: 10, promotionXP: 10_000 },
+      { name: 'silver_2',   minMembers: 12, promotionXP: 20_000 },
+      { name: 'silver_3',   minMembers: 14, promotionXP: 35_000 },
+      { name: 'gold_1',     minMembers: 15, promotionXP: 50_000 },
+      { name: 'gold_2',     minMembers: 17, promotionXP: 75_000 },
+      { name: 'gold_3',     minMembers: 19, promotionXP: 100_000 },
+      { name: 'platinum_1', minMembers: 20, promotionXP: 150_000 },
+      { name: 'platinum_2', minMembers: 22, promotionXP: 200_000 },
+      { name: 'platinum_3', minMembers: 24, promotionXP: 300_000 },
+      { name: 'legend',     minMembers: 25, promotionXP: Infinity },
+    ] as const;
+
+    type GuildTierName = typeof GUILD_TIERS[number]['name'];
+
+    function getTierConfig(tier: string) {
+      return GUILD_TIERS.find((t) => t.name === tier);
     }
 
-    // Demotion map: go down one full tier (e.g. gold_1 → silver_3)
+    function getNextTier(tier: string): GuildTierName | null {
+      const idx = GUILD_TIERS.findIndex((t) => t.name === tier);
+      return idx >= 0 && idx < GUILD_TIERS.length - 1
+        ? GUILD_TIERS[idx + 1].name
+        : null;
+    }
+
+    // Demotion goes down one full tier group (e.g. any gold → silver_3).
+    // Bronze has no demotion.
+    function getDemotedTier(tier: string): GuildTierName | null {
+      const group = tier.split('_')[0] as string;
+      const groupOrder = ['bronze', 'silver', 'gold', 'platinum', 'legend'];
+      const groupIdx = groupOrder.indexOf(group);
+      if (groupIdx <= 0) return null; // bronze has no demotion; unknown tier → null
+      const prevGroup = groupOrder[groupIdx - 1];
+      // Highest sub-tier of the previous group
+      const prevTiers = GUILD_TIERS.filter((t) => t.name.startsWith(prevGroup + '_'));
+      return (prevTiers[prevTiers.length - 1]?.name as GuildTierName) ?? null;
+    }
+
+    function tierMinMembers(tier: string): number {
+      return getTierConfig(tier)?.minMembers ?? 0;
+    }
+
     function demotedTier(tier: string): string | null {
-      if (tier === 'legend')       return 'platinum_3';
-      if (tier.startsWith('platinum')) return 'gold_3';
-      if (tier.startsWith('gold'))     return 'silver_3';
-      if (tier.startsWith('silver'))   return 'bronze_3';
-      return null; // bronze has no demotion
+      return getDemotedTier(tier);
     }
 
     const { rows: guilds } = await db.query<{
@@ -608,33 +657,39 @@ export const GET = async (req: NextRequest) => {
   }
 
   // Guild tier promotion
+  // CRON-GUILD-01: uses the same GUILD_TIERS array defined in the demotion block above
+  // via the shared helper getNextTier() / getTierConfig(). This is declared separately
+  // in a new try block so a failure here doesn't affect demotion results.
   try {
-    const TIER_PROMOTION_THRESHOLDS: Record<string, { next: string; minXP: number }> = {
-      bronze_1:   { next: "bronze_2",   minXP: 1_000 },
-      bronze_2:   { next: "bronze_3",   minXP: 2_500 },
-      bronze_3:   { next: "silver_1",   minXP: 5_000 },
-      silver_1:   { next: "silver_2",   minXP: 10_000 },
-      silver_2:   { next: "silver_3",   minXP: 20_000 },
-      silver_3:   { next: "gold_1",     minXP: 35_000 },
-      gold_1:     { next: "gold_2",     minXP: 50_000 },
-      gold_2:     { next: "gold_3",     minXP: 75_000 },
-      gold_3:     { next: "platinum_1", minXP: 100_000 },
-      platinum_1: { next: "platinum_2", minXP: 150_000 },
-      platinum_2: { next: "platinum_3", minXP: 200_000 },
-      platinum_3: { next: "legend",     minXP: 300_000 },
-    };
-
     const { rows: promotionCandidates } = await db.query<{
       id: string; captain_id: string; tier: string; guild_xp: number;
     }>(
       `SELECT id, captain_id, tier, guild_xp FROM guilds WHERE tier != 'legend' AND deleted_at IS NULL`
     );
 
+    // Re-declare GUILD_TIERS helpers in this block's scope (separate try block)
+    const GUILD_TIERS_PROMO = [
+      { name: 'bronze_1',   promotionXP: 1_000,   next: 'bronze_2'   },
+      { name: 'bronze_2',   promotionXP: 2_500,   next: 'bronze_3'   },
+      { name: 'bronze_3',   promotionXP: 5_000,   next: 'silver_1'   },
+      { name: 'silver_1',   promotionXP: 10_000,  next: 'silver_2'   },
+      { name: 'silver_2',   promotionXP: 20_000,  next: 'silver_3'   },
+      { name: 'silver_3',   promotionXP: 35_000,  next: 'gold_1'     },
+      { name: 'gold_1',     promotionXP: 50_000,  next: 'gold_2'     },
+      { name: 'gold_2',     promotionXP: 75_000,  next: 'gold_3'     },
+      { name: 'gold_3',     promotionXP: 100_000, next: 'platinum_1' },
+      { name: 'platinum_1', promotionXP: 150_000, next: 'platinum_2' },
+      { name: 'platinum_2', promotionXP: 200_000, next: 'platinum_3' },
+      { name: 'platinum_3', promotionXP: 300_000, next: 'legend'     },
+    ] as const;
+
+    const promoMap = new Map(GUILD_TIERS_PROMO.map((t) => [t.name, t]));
+
     let promoted = 0;
     for (const guild of promotionCandidates) {
-      const threshold = TIER_PROMOTION_THRESHOLDS[guild.tier];
+      const threshold = promoMap.get(guild.tier as typeof GUILD_TIERS_PROMO[number]['name']);
       if (!threshold) continue;
-      if (guild.guild_xp >= threshold.minXP) {
+      if (guild.guild_xp >= threshold.promotionXP) {
         const fromTier = guild.tier;
         const toTier = threshold.next;
         await db.query(
@@ -1489,8 +1544,12 @@ export const GET = async (req: NextRequest) => {
           );
         });
         expiredBonuses++;
-      } catch {
-        // Non-fatal
+      } catch (coinErr) {
+        // CRON-COIN-01: INSUFFICIENT_BALANCE means the user already spent the bonus
+        // coins — this is expected and not an error (the reversal is a no-op).
+        if ((coinErr as NodeJS.ErrnoException)?.code !== 'INSUFFICIENT_BALANCE') {
+          console.error('[cron/22] Unexpected error expiring comeback bonus for user', row.user_id, coinErr);
+        }
       }
     }
 
@@ -1918,14 +1977,16 @@ export const GET = async (req: NextRequest) => {
     for (const row of creatorRooms) {
       const memberCount = parseInt(row.total_members, 10);
       const newTier = tierForCount(memberCount);
-      await db.query(
+      const { rowCount: tierRowCount } = await db.query(
         `UPDATE users
          SET creator_tier = $1, updated_at = NOW()
          WHERE id = $2 AND is_creator = TRUE
-           AND COALESCE(creator_tier, 'rookie') != $1`,
+           AND COALESCE(creator_tier, 'rookie') != $1
+         RETURNING id`,
         [newTier, row.creator_id]
-      ).catch(() => {});
-      tierUpdates++;
+      ).catch(() => ({ rowCount: 0 }));
+      // CRON-TIER-01: only count updates where the tier actually changed
+      if ((tierRowCount ?? 0) > 0) tierUpdates++;
     }
     results.creatorTierUpdates = { updated: tierUpdates };
   } catch (err) {
@@ -1936,15 +1997,16 @@ export const GET = async (req: NextRequest) => {
   try {
     const dayOfWeekForDigest = new Date().getUTCDay();
     if (dayOfWeekForDigest === 5) {
+      // CRON-DIGEST-01: report totals span the full backlog (no date filter);
+      // new_reports_7d counts only reports submitted this week.
       const { rows: digestRows } = await db.query<{
-        open_reports: string; escalated: string; actions_taken: string;
+        open_reports: string; escalated: string; actions_taken: string; new_reports_7d: string;
       }>(
         `SELECT
-           COUNT(*) FILTER (WHERE status = 'open') AS open_reports,
-           COUNT(*) FILTER (WHERE status = 'escalated') AS escalated,
-           (SELECT COUNT(*) FROM moderation_actions WHERE created_at >= NOW() - INTERVAL '7 days') AS actions_taken
-         FROM reports
-         WHERE created_at >= NOW() - INTERVAL '7 days'`
+           (SELECT COUNT(*) FROM reports WHERE status = 'open') AS open_reports,
+           (SELECT COUNT(*) FROM reports WHERE status = 'escalated') AS escalated,
+           (SELECT COUNT(*) FROM moderation_actions WHERE created_at >= NOW() - INTERVAL '7 days') AS actions_taken,
+           (SELECT COUNT(*) FROM reports WHERE created_at >= NOW() - INTERVAL '7 days') AS new_reports_7d`
       );
 
       const { rows: adminRows } = await db.query<{ email: string }>(
@@ -1957,7 +2019,7 @@ export const GET = async (req: NextRequest) => {
       if (adminRows.length > 0) {
         const { sendEmail } = await import('@/lib/notifications/email');
         const digest = digestRows[0];
-        const body = `Weekly moderation digest:\n- Open reports: ${digest?.open_reports ?? 0}\n- Escalated: ${digest?.escalated ?? 0}\n- Actions taken: ${digest?.actions_taken ?? 0}`;
+        const body = `Weekly moderation digest:\n- Open reports (total): ${digest?.open_reports ?? 0}\n- Escalated (total): ${digest?.escalated ?? 0}\n- New reports this week: ${digest?.new_reports_7d ?? 0}\n- Actions taken this week: ${digest?.actions_taken ?? 0}`;
         for (const admin of adminRows) {
           sendEmail(
             admin.email,
@@ -2017,6 +2079,9 @@ export const GET = async (req: NextRequest) => {
     const dayForNemesis = new Date().getUTCDay();
     if (dayForNemesis === 0) {
       // After refresh, check for users whose nemesis has overtaken them in XP
+      // CRON-NEMESIS-01: filter by last_notified_at (not created_at) so we notify
+      // for all assignments where the nemesis has overtaken, not just new ones.
+      // Notify at most once per 6 days to avoid spam.
       const { rows: overtakeRows } = await db.query<{
         user_id: string; nemesis_user_id: string;
         user_xp: number; nemesis_xp: number;
@@ -2027,7 +2092,7 @@ export const GET = async (req: NextRequest) => {
          JOIN users u ON u.id = na.user_id
          JOIN users n ON n.id = na.nemesis_user_id
          WHERE n.xp_total > u.xp_total
-           AND na.created_at >= NOW() - INTERVAL '24 hours'`
+           AND (na.last_notified_at IS NULL OR na.last_notified_at < NOW() - INTERVAL '6 days')`
       );
 
       for (const row of overtakeRows) {
@@ -2078,6 +2143,16 @@ export const GET = async (req: NextRequest) => {
             data: { action: '/nemesis', type: 'nemesis_triumph' },
           })),
         ]).catch(() => {});
+      }
+
+      // Mark last_notified_at for all notified assignments to prevent re-notification
+      if (overtakeRows.length > 0) {
+        await db.query(
+          `UPDATE nemesis_assignments
+           SET last_notified_at = NOW()
+           WHERE user_id = ANY($1::uuid[])`,
+          [overtakeRows.map(r => r.user_id)]
+        ).catch((err) => console.error('[cron/31] Failed to update nemesis last_notified_at:', err));
       }
 
       results.nemesisNotifications = { overtakes: overtakeRows.length };
@@ -2285,15 +2360,30 @@ export const GET = async (req: NextRequest) => {
             const platformFeeKobo = Math.round(grossKobo * PLATFORM_FEE_RATE);
             const netKobo = grossKobo - platformFeeKobo;
 
-            await tx.query(
+            // CRON-PAYOUT-01: include amount_kobo (= grossKobo) and provider so the
+            // NOT NULL columns are satisfied. RETURNING id lets us detect the
+            // ON CONFLICT DO NOTHING case and skip the earnings deduction (CRON-PAYOUT-02).
+            const { rowCount: payoutInsertCount } = await tx.query(
               `INSERT INTO creator_payouts
-                 (creator_id, net_kobo, gross_kobo, platform_fee_kobo, status, idempotency_key,
-                  bank_account_snapshot, created_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+                 (creator_id, amount_kobo, net_kobo, gross_kobo, platform_fee_kobo,
+                  provider, status, idempotency_key, bank_account_snapshot, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
                ON CONFLICT (idempotency_key) DO NOTHING`,
-              [candidate.creator_id, netKobo, grossKobo, platformFeeKobo, status, idempotencyKey,
+              [candidate.creator_id, grossKobo, netKobo, grossKobo, platformFeeKobo,
+               'paystack', status, idempotencyKey,
                bankSnapshot ? JSON.stringify(bankSnapshot) : null]
             );
+
+            // CRON-PAYOUT-02: deduct gross earnings only when the INSERT actually
+            // created a new row (not a duplicate).
+            if ((payoutInsertCount ?? 0) > 0) {
+              await tx.query(
+                `UPDATE users
+                 SET available_earnings_kobo = available_earnings_kobo - $1, updated_at = NOW()
+                 WHERE id = $2`,
+                [grossKobo, candidate.creator_id]
+              );
+            }
           });
           payoutsInitiated++;
         } catch {
@@ -2488,77 +2578,159 @@ export const GET = async (req: NextRequest) => {
     errors.push(`xpDlqRetry: ${String(err)}`);
   }
 
-  // SYS-02: Nightly coin + star ledger reconciliation
+  // WEBHOOK-RETRY-01: Retry rows from failed_webhooks table (up to 3 attempts).
+  // Each row stores the provider, event_type, and raw payload so handlers can
+  // be re-invoked without the original HTTP request.
   try {
-    // Coins: compare ledger sum (signed amounts) against users.coin_balance
-    // coin_ledger.amount is a signed BIGINT (positives = credits, negatives = debits)
-    const coinDiscrepancies = await db.query<{
-      user_id: string;
-      ledger_sum: string;
-      wallet_balance: string;
+    const { rows: failedWebhooks } = await db.query<{
+      id: string;
+      provider: string;
+      event_type: string;
+      payload: string;
+      retry_count: number;
     }>(
-      `SELECT cl.user_id,
-              SUM(cl.amount)::bigint AS ledger_sum,
-              u.coin_balance AS wallet_balance
-         FROM coin_ledger cl
-         JOIN users u ON u.id = cl.user_id
-        WHERE u.deleted_at IS NULL
-        GROUP BY cl.user_id, u.coin_balance
-       HAVING SUM(cl.amount) <> u.coin_balance`
+      `SELECT id, provider, event_type, payload::text AS payload, retry_count
+       FROM failed_webhooks
+       WHERE resolved = false
+         AND retry_count < 3
+         AND (next_retry_at IS NULL OR next_retry_at <= NOW())
+       ORDER BY created_at ASC
+       LIMIT 50`
     );
 
-    // Stars: compare ledger sum against users.star_balance
-    const starDiscrepancies = await db.query<{
-      user_id: string;
-      ledger_sum: string;
-      wallet_balance: string;
-    }>(
-      `SELECT sl.user_id,
-              SUM(sl.amount)::bigint AS ledger_sum,
-              u.star_balance AS wallet_balance
-         FROM star_ledger sl
-         JOIN users u ON u.id = sl.user_id
-        WHERE u.deleted_at IS NULL
-        GROUP BY sl.user_id, u.star_balance
-       HAVING SUM(sl.amount) <> u.star_balance`
-    );
-
-    // Write discrepancies to audit table
-    for (const row of coinDiscrepancies.rows) {
-      await db.query(
-        `INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at)
-         VALUES ($1, 'coins', $2, $3, NOW())
-         ON CONFLICT (user_id, asset_type) DO UPDATE
-           SET ledger_sum = EXCLUDED.ledger_sum,
-               wallet_balance = EXCLUDED.wallet_balance,
-               detected_at = EXCLUDED.detected_at,
-               resolved = FALSE`,
-        [row.user_id, row.ledger_sum, row.wallet_balance]
-      );
+    let webhookRetried = 0;
+    let webhookResolved = 0;
+    for (const row of failedWebhooks) {
+      try {
+        if (row.provider === 'paystack') {
+          const { handlePaystackWebhookPayload } = await import('@/lib/payments/paystackWebhookHandler');
+          await handlePaystackWebhookPayload(row.event_type, JSON.parse(row.payload));
+        } else if (row.provider === 'dodopayments') {
+          const { handleDodoWebhookPayload } = await import('@/lib/payments/dodoWebhookHandler');
+          await handleDodoWebhookPayload(row.event_type, JSON.parse(row.payload));
+        } else {
+          // Unknown provider — skip and mark resolved to avoid infinite retry
+          await db.query(
+            `UPDATE failed_webhooks SET resolved = true, updated_at = NOW() WHERE id = $1`,
+            [row.id]
+          ).catch(() => {});
+          continue;
+        }
+        // Success — mark resolved
+        await db.query(
+          `UPDATE failed_webhooks SET resolved = true, resolved_at = NOW(), updated_at = NOW() WHERE id = $1`,
+          [row.id]
+        ).catch(() => {});
+        webhookResolved++;
+      } catch (retryErr) {
+        // Retry failed — increment counter and schedule next attempt with backoff
+        const nextRetry = new Date(Date.now() + Math.pow(2, row.retry_count + 1) * 60_000).toISOString();
+        await db.query(
+          `UPDATE failed_webhooks
+           SET retry_count = retry_count + 1,
+               last_error = $2,
+               next_retry_at = $3,
+               updated_at = NOW()
+           WHERE id = $1`,
+          [row.id, String(retryErr), nextRetry]
+        ).catch(() => {});
+        console.error('[cron/webhook-retry] Failed retry for webhook', row.id, retryErr);
+      }
+      webhookRetried++;
     }
-    for (const row of starDiscrepancies.rows) {
-      await db.query(
-        `INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at)
-         VALUES ($1, 'stars', $2, $3, NOW())
-         ON CONFLICT (user_id, asset_type) DO UPDATE
-           SET ledger_sum = EXCLUDED.ledger_sum,
-               wallet_balance = EXCLUDED.wallet_balance,
-               detected_at = EXCLUDED.detected_at,
-               resolved = FALSE`,
-        [row.user_id, row.ledger_sum, row.wallet_balance]
-      );
-    }
-
-    results.ledgerReconciliation = {
-      coinDiscrepancies: coinDiscrepancies.rows.length,
-      starDiscrepancies: starDiscrepancies.rows.length,
-    };
+    results.webhookRetry = { attempted: webhookRetried, resolved: webhookResolved };
   } catch (err) {
-    errors.push(`ledgerReconciliation: ${String(err)}`);
+    errors.push(`webhookRetry: ${String(err)}`);
   }
 
-  // SYS-04: Include circuit breaker health in CRON output
-  results.circuitMetrics = await getAllCircuitMetrics().catch(() => []);
+  // PUSH-RECEIPT-01: Poll Expo push receipt stage 2 — resolve pending delivery confirmations
+  try {
+    const { pollPushReceipts } = await import('@/lib/notifications/push');
+    const resolved = await pollPushReceipts();
+    results.pushReceiptPoll = { resolved };
+  } catch (err) {
+    errors.push(`pushReceiptPoll: ${String(err)}`);
+  }
+
+  // PERF-CRON-01: Parallelize independent finalization steps.
+  // SYS-02 (reconciliation) and SYS-04 (circuit metrics) are read-heavy and
+  // touch disjoint tables, so they can run concurrently without conflicts.
+  const [reconcileResult, circuitResult] = await Promise.allSettled([
+    // SYS-02: Nightly coin + star ledger reconciliation
+    (async () => {
+      const coinDiscrepancies = await db.query<{
+        user_id: string;
+        ledger_sum: string;
+        wallet_balance: string;
+      }>(
+        `SELECT cl.user_id,
+                SUM(cl.amount)::bigint AS ledger_sum,
+                u.coin_balance AS wallet_balance
+           FROM coin_ledger cl
+           JOIN users u ON u.id = cl.user_id
+          WHERE u.deleted_at IS NULL
+          GROUP BY cl.user_id, u.coin_balance
+         HAVING SUM(cl.amount) <> u.coin_balance`
+      );
+
+      const starDiscrepancies = await db.query<{
+        user_id: string;
+        ledger_sum: string;
+        wallet_balance: string;
+      }>(
+        `SELECT sl.user_id,
+                SUM(sl.amount)::bigint AS ledger_sum,
+                u.star_balance AS wallet_balance
+           FROM star_ledger sl
+           JOIN users u ON u.id = sl.user_id
+          WHERE u.deleted_at IS NULL
+          GROUP BY sl.user_id, u.star_balance
+         HAVING SUM(sl.amount) <> u.star_balance`
+      );
+
+      for (const row of coinDiscrepancies.rows) {
+        await db.query(
+          `INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at)
+           VALUES ($1, 'coins', $2, $3, NOW())
+           ON CONFLICT (user_id, asset_type) DO UPDATE
+             SET ledger_sum = EXCLUDED.ledger_sum,
+                 wallet_balance = EXCLUDED.wallet_balance,
+                 detected_at = EXCLUDED.detected_at,
+                 resolved = FALSE`,
+          [row.user_id, row.ledger_sum, row.wallet_balance]
+        );
+      }
+      for (const row of starDiscrepancies.rows) {
+        await db.query(
+          `INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at)
+           VALUES ($1, 'stars', $2, $3, NOW())
+           ON CONFLICT (user_id, asset_type) DO UPDATE
+             SET ledger_sum = EXCLUDED.ledger_sum,
+                 wallet_balance = EXCLUDED.wallet_balance,
+                 detected_at = EXCLUDED.detected_at,
+                 resolved = FALSE`,
+          [row.user_id, row.ledger_sum, row.wallet_balance]
+        );
+      }
+
+      return {
+        coinDiscrepancies: coinDiscrepancies.rows.length,
+        starDiscrepancies: starDiscrepancies.rows.length,
+      };
+    })(),
+
+    // SYS-04: Circuit breaker health (read-only)
+    getAllCircuitMetrics().catch(() => []),
+  ]);
+
+  if (reconcileResult.status === "fulfilled") {
+    results.ledgerReconciliation = reconcileResult.value;
+  } else {
+    errors.push(`ledgerReconciliation: ${String(reconcileResult.reason)}`);
+  }
+
+  results.circuitMetrics =
+    circuitResult.status === "fulfilled" ? circuitResult.value : [];
 
   return NextResponse.json({
     success: errors.length === 0,

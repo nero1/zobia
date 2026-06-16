@@ -25,6 +25,8 @@ import * as InAppPurchases from 'expo-in-app-purchases';
 import { apiClient } from '@/lib/api/client';
 import { randomUUID } from 'expo-crypto';
 
+const APP_PACKAGE_NAME = 'com.zobia.app';
+
 // ---------------------------------------------------------------------------
 // Product catalogue
 // ---------------------------------------------------------------------------
@@ -192,7 +194,7 @@ function setupGlobalPurchaseListener(): void {
         const verifyResult = await verifyPurchaseServerSide(
           purchase.purchaseToken,
           purchase.productId,
-          'com.zobia.app',
+          APP_PACKAGE_NAME,
           isSubscription
         ).catch(() => null);
 

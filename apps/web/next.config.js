@@ -12,6 +12,13 @@ const withPWA = require("next-pwa")({
   register: true,
   skipWaiting: true,
   disable: process.env.NODE_ENV === "development" || !pwaWebEnabled,
+  // SW-API-01 + SW-ADMIN-01: exclude API route chunks and admin page chunks from the
+  // precache manifest. These are server-only and must never be precached by the SW.
+  buildExcludes: [
+    /chunks\/app\/api\//,
+    /chunks\/app\/\(admin\)\//,
+    /chunks\/app\/auth\/callback\//,
+  ],
   runtimeCaching: [
     // Auth routes must bypass the service worker entirely so the browser
     // handles Set-Cookie headers on OAuth redirects natively. If the SW
@@ -64,9 +71,18 @@ const withPWA = require("next-pwa")({
         expiration: { maxEntries: 32, maxAgeSeconds: 24 * 60 * 60 },
       },
     },
+    // SW-STALE-01: auth-sensitive endpoints must always be NetworkOnly — no stale data
+    {
+      urlPattern: /\/api\/users\/me(\/|$|\?)/i,
+      handler: "NetworkOnly",
+    },
+    {
+      urlPattern: /\/api\/creator\/wallet(\/|$|\?)/i,
+      handler: "NetworkOnly",
+    },
     {
       urlPattern: /\/api\/.*$/i,
-      handler: "NetworkOnly",  // was "NetworkFirst" — no caching for API routes
+      handler: "NetworkOnly",
     },
     {
       urlPattern: /.*/i,

@@ -457,7 +457,7 @@ export function checkForRankUp(
  */
 export function getDailyMessageStreakXP(streakDay: number): number {
   const day = Math.max(1, Math.trunc(streakDay));
-  const tier = Math.min(Math.floor((day - 1) / 7), 4);
+  const tier = Math.min(Math.floor(day / 7), 4);
   return 5 + tier * 5;
 }
 

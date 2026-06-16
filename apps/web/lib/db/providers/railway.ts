@@ -67,6 +67,7 @@ function getDirectPool(): Pool {
       max: parseInt(process.env.DB_DIRECT_POOL_SIZE ?? "2", 10),
       idleTimeoutMillis: 10_000,
       connectionTimeoutMillis: 8_000,
+      options: "-c statement_timeout=30000 -c idle_in_transaction_session_timeout=60000",
     });
 
     _directPool.on("error", (err) => {

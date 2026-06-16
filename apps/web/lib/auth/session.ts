@@ -137,14 +137,21 @@ export async function createSession(
   );
 
   // Enforce per-user session limit: evict oldest sessions beyond MAX_SESSIONS.
-  // FIX-H05: fetch SIDs that will be evicted and delete their session hash keys
-  // BEFORE removing them from the sorted set so evicted sessions cannot be replayed.
+  // Both the session-key deletions and the sorted-set trim run in one atomic
+  // pipeline so there is no window where a just-deleted SID still appears in the
+  // sorted set (or vice-versa) — SESSION-EVICT-01.
   const MAX_SESSIONS = 10;
   const evictedSids = await redis.zrange(userSessionsKey(user.id), 0, -(MAX_SESSIONS + 1));
   if (evictedSids.length > 0) {
-    await redis.del(...evictedSids.map(sessionKey));
+    const pipeline = redis.pipeline();
+    for (const sid of evictedSids) {
+      pipeline.del(sessionKey(sid));
+    }
+    pipeline.zremrangebyrank(userSessionsKey(user.id), 0, -(MAX_SESSIONS + 1));
+    await pipeline.exec();
+  } else {
+    await redis.zremrangebyrank(userSessionsKey(user.id), 0, -(MAX_SESSIONS + 1));
   }
-  await redis.zremrangebyrank(userSessionsKey(user.id), 0, -(MAX_SESSIONS + 1));
 
   return { accessToken, refreshToken, expiresIn: accessTtl };
 }

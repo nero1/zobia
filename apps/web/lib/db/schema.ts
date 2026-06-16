@@ -52,7 +52,8 @@ const updatedAt = () =>
 
 export const xManifest = pgTable("x_manifest", {
   key: text("key").primaryKey(),
-  value: jsonb("value").notNull(),
+  // SCHEMA-XP-01: value is a text string, not structured JSON (jsonb was wrong type)
+  value: text("value").notNull(),
   description: text("description"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
@@ -300,6 +301,31 @@ export const userPushTokens = pgTable(
       t.userId,
       t.token
     ),
+  })
+);
+
+// PUSH-RECEIPT-01: Two-stage push notification delivery tracking.
+// Stage 1: sendExpoBatch saves ticket IDs here after a successful push send.
+// Stage 2: pollPushReceipts (CRON) polls /v2/push/getReceipts for these tickets.
+export const pushTickets = pgTable(
+  "push_tickets",
+  {
+    id: uuidPk(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    ticketId: text("ticket_id").notNull().unique(),
+    status: text("status").notNull().default("pending"),
+    receiptId: text("receipt_id"),
+    errorCode: text("error_code"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    checkedAt: timestamp("checked_at", { withTimezone: true }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  },
+  (t) => ({
+    pendingIdx: index("idx_push_tickets_pending")
+      .on(t.createdAt)
+      .where(sql`status = 'pending'`),
   })
 );
 
@@ -980,26 +1006,36 @@ export const guildAllianceMembers = pgTable(
   })
 );
 
-export const allianceWars = pgTable("alliance_wars", {
-  id: uuidPk(),
-  alliance1Id: uuid("alliance_1_id")
-    .notNull()
-    .references(() => guildAlliances.id, { onDelete: "cascade" }),
-  alliance2Id: uuid("alliance_2_id")
-    .notNull()
-    .references(() => guildAlliances.id, { onDelete: "cascade" }),
-  status: text("status").notNull().default("active"),
-  winnerAllianceId: uuid("winner_alliance_id").references(
-    () => guildAlliances.id,
-    { onDelete: "set null" }
-  ),
-  alliance1Xp: bigint("alliance_1_xp", { mode: "number" }).notNull().default(0),
-  alliance2Xp: bigint("alliance_2_xp", { mode: "number" }).notNull().default(0),
-  startedAt: timestamp("started_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  endedAt: timestamp("ended_at", { withTimezone: true }),
-});
+export const allianceWars = pgTable(
+  "alliance_wars",
+  {
+    id: uuidPk(),
+    alliance1Id: uuid("alliance_1_id")
+      .notNull()
+      .references(() => guildAlliances.id, { onDelete: "cascade" }),
+    alliance2Id: uuid("alliance_2_id")
+      .notNull()
+      .references(() => guildAlliances.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("active"),
+    winnerAllianceId: uuid("winner_alliance_id").references(
+      () => guildAlliances.id,
+      { onDelete: "set null" }
+    ),
+    alliance1Xp: bigint("alliance_1_xp", { mode: "number" }).notNull().default(0),
+    alliance2Xp: bigint("alliance_2_xp", { mode: "number" }).notNull().default(0),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+  },
+  (t) => ({
+    // CRON-ALLIANCE-01: only one active war between any two alliances at a time.
+    // The CRON's ON CONFLICT DO NOTHING relies on this unique constraint.
+    activeWarIdx: uniqueIndex("uidx_alliance_wars_active_pair")
+      .on(t.alliance1Id, t.alliance2Id)
+      .where(sql`status = 'active'`),
+  })
+);
 
 export const guildContributionAlerts = pgTable(
   "guild_contribution_alerts",
@@ -1738,6 +1774,9 @@ export const nemesisAssignments = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
     isActive: boolean("is_active").default(true),
+    // CRON-NEMESIS-01: track when a user was last notified about their nemesis
+    // overtaking them to prevent re-notification more than once per 6 days.
+    lastNotifiedAt: timestamp("last_notified_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1888,27 +1927,38 @@ export const newMemberQuests = pgTable(
 // SECTION 7: Economy
 // ---------------------------------------------------------------------------
 
-export const coinLedger = pgTable("coin_ledger", {
-  id: uuidPk(),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  amount: bigint("amount", { mode: "number" }).notNull(),
-  balanceBefore: bigint("balance_before", { mode: "number" }).notNull(),
-  balanceAfter: bigint("balance_after", { mode: "number" }).notNull(),
-  transactionType: text("transaction_type").notNull(),
-  referenceId: text("reference_id"),
-  description: text("description"),
-  metadata: jsonb("metadata"),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-});
+export const coinLedger = pgTable(
+  "coin_ledger",
+  {
+    id: uuidPk(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    amount: bigint("amount", { mode: "number" }).notNull(),
+    balanceBefore: bigint("balance_before", { mode: "number" }).notNull(),
+    balanceAfter: bigint("balance_after", { mode: "number" }).notNull(),
+    transactionType: text("transaction_type").notNull(),
+    referenceId: text("reference_id"),
+    description: text("description"),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => ({
+    // CRON-MONTHLY-01: partial unique index supports ON CONFLICT dedup for
+    // idempotent coin credits (subscription_bonus, etc.)
+    txTypeRefIdx: uniqueIndex("uidx_coin_ledger_tx_type_ref")
+      .on(t.transactionType, t.referenceId)
+      .where(sql`reference_id IS NOT NULL`),
+  })
+);
 
 export const starLedger = pgTable("star_ledger", {
   id: uuidPk(),
   userId: uuid("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
-  amount: integer("amount").notNull(),
+  // SCHEMA-STAR-01: bigint to match the signed amount semantic (stars can be large)
+  amount: bigint("amount", { mode: "number" }).notNull(),
   balanceBefore: bigint("balance_before", { mode: "number" })
     .notNull()
     .default(0),
@@ -2256,7 +2306,9 @@ export const creatorEarnings = pgTable("creator_earnings", {
     .defaultNow(),
 });
 
-export const creatorPayouts = pgTable("creator_payouts", {
+export const creatorPayouts = pgTable(
+  "creator_payouts",
+  {
   id: uuidPk(),
   creatorId: uuid("creator_id")
     .notNull()
@@ -2298,28 +2350,47 @@ export const creatorPayouts = pgTable("creator_payouts", {
   processedAt: timestamp("processed_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
-});
+  },
+  (t) => ({
+    // DB-INDEX-01: partial index for efficient retry queue scans
+    retryIdx: index("idx_creator_payouts_retry")
+      .on(t.nextRetryAt)
+      .where(sql`status IN ('pending', 'processing')`),
+  })
+);
 
-export const creatorBankAccounts = pgTable("creator_bank_accounts", {
-  id: uuidPk(),
-  creatorId: uuid("creator_id")
-    .notNull()
-    .unique()
-    .references(() => users.id, { onDelete: "cascade" }),
-  bankName: text("bank_name").notNull(),
-  bankCode: text("bank_code").notNull(),
-  accountNumber: text("account_number").notNull(),
-  accountName: text("account_name").notNull(),
-  accountNumberLast4: text("account_number_last4").notNull(),
-  recipientCode: text("recipient_code"),
-  xpAwarded: boolean("xp_awarded").notNull().default(false),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const creatorBankAccounts = pgTable(
+  "creator_bank_accounts",
+  {
+    id: uuidPk(),
+    // SCHEMA-BANK-01: removed .unique() — a creator can have multiple bank accounts;
+    // uniqueness is enforced on (creator_id) WHERE is_primary = TRUE AND deleted_at IS NULL.
+    creatorId: uuid("creator_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    bankName: text("bank_name").notNull(),
+    bankCode: text("bank_code").notNull(),
+    accountNumber: text("account_number").notNull(),
+    accountName: text("account_name").notNull(),
+    accountNumberLast4: text("account_number_last4").notNull(),
+    recipientCode: text("recipient_code"),
+    isPrimary: boolean("is_primary").notNull().default(false),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    xpAwarded: boolean("xp_awarded").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    // Only one primary account per creator at a time (soft-delete safe)
+    primaryAccountIdx: uniqueIndex("uidx_creator_bank_accounts_primary")
+      .on(t.creatorId)
+      .where(sql`is_primary = TRUE AND deleted_at IS NULL`),
+  })
+);
 
 export const creatorWalletAddresses = pgTable("creator_wallet_addresses", {
   id: uuidPk(),
@@ -3789,6 +3860,7 @@ export const schema = {
   userPins,
   passwordResetTokens,
   userPushTokens,
+  pushTickets,
   userBlocks,
   userEmailPreferences,
   dataExportRequests,

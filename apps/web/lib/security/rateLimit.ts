@@ -19,7 +19,7 @@
  */
 
 import { redis } from "@/lib/redis";
-import { tooManyRequests } from "@/lib/api/errors";
+import { ApiError, tooManyRequests } from "@/lib/api/errors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -242,8 +242,18 @@ export async function enforceRateLimit(
       : await checkIpRateLimit(subject, options);
 
   if (!result.allowed) {
-    throw tooManyRequests(
-      `Rate limit exceeded for ${options.name}. Try again after ${new Date(result.resetAt).toISOString()}.`
+    const retryAfterSec = Math.max(1, Math.ceil((result.resetAt - Date.now()) / 1000));
+    throw new ApiError(
+      429,
+      "RATE_LIMITED",
+      `Rate limit exceeded for ${options.name}. Try again after ${new Date(result.resetAt).toISOString()}.`,
+      undefined,
+      {
+        "Retry-After": String(retryAfterSec),
+        "X-RateLimit-Limit": String(options.limit),
+        "X-RateLimit-Remaining": "0",
+        "X-RateLimit-Reset": String(Math.ceil(result.resetAt / 1000)),
+      }
     );
   }
 
@@ -256,7 +266,8 @@ export async function enforceRateLimit(
 local n = redis.call('INCR', KEYS[1])
 if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
 return n`;
-    const globalCount = await redis.eval(GLOBAL_RATE_LUA, 1, globalKey, "60") as number;
+    const globalWindowSec = Math.round(options.windowMs / 1000).toString();
+    const globalCount = await redis.eval(GLOBAL_RATE_LUA, 1, globalKey, globalWindowSec) as number;
     if (globalCount > options.globalLimit) {
       throw tooManyRequests(
         `Global rate limit exceeded for ${options.name}. Please try again later.`
