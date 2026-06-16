@@ -133,7 +133,8 @@ describe('getTrackLevelForXP', () => {
   });
 
   it('caps at level 50', () => {
-    const result = getTrackLevelForXP('competitor', 999_999_999);
+    // Level 50 threshold = round(1000 * 1.5^48) ≈ 2.8e11 — far beyond 1e9.
+    const result = getTrackLevelForXP('competitor', 1e15);
     expect(result.level).toBe(50);
     expect(result.xpToNextLevel).toBe(0);
   });
@@ -155,25 +156,25 @@ describe('applyMultipliers', () => {
 
   it('applies 1.5× multiplier on plus plan', () => {
     // plus = 150 bp → floor(100 * 150 / 100) = 150
-    expect(applyMultipliers(100, { plan: 'plus' })).toBe(150);
+    expect(applyMultipliers(100, { plan: 'plus', isMessagingAction: true })).toBe(150);
   });
 
   it('applies 3× multiplier on pro plan', () => {
-    expect(applyMultipliers(100, { plan: 'pro' })).toBe(300);
+    expect(applyMultipliers(100, { plan: 'pro', isMessagingAction: true })).toBe(300);
   });
 
   it('applies 5× multiplier on max plan', () => {
-    expect(applyMultipliers(100, { plan: 'max' })).toBe(500);
+    expect(applyMultipliers(100, { plan: 'max', isMessagingAction: true })).toBe(500);
   });
 
   it('returns doubled XP with 2× XP booster on free plan', () => {
     // Booster is 200 bp which is > free (100 bp), so booster wins
-    expect(applyMultipliers(100, { plan: 'free', hasActiveXPBooster: true })).toBe(200);
+    expect(applyMultipliers(100, { plan: 'free', hasActiveXPBooster: true, isMessagingAction: true })).toBe(200);
   });
 
   it('XP booster does not replace max plan (max is higher)', () => {
     // max = 500 bp > booster 200 bp, so max plan wins
-    expect(applyMultipliers(100, { plan: 'max', hasActiveXPBooster: true })).toBe(500);
+    expect(applyMultipliers(100, { plan: 'max', hasActiveXPBooster: true, isMessagingAction: true })).toBe(500);
   });
 
   it('adds guild tier boost on top of plan multiplier', () => {
@@ -251,20 +252,23 @@ describe('calculateXPForAction', () => {
 
 describe('calculateFinalXP', () => {
   it('for send_gift_message on free plan returns baseXp=10, finalXp=10', () => {
-    const { baseXp, finalXp } = calculateFinalXP('send_gift_message', { plan: 'free' });
+    const { baseXp, finalXp } = calculateFinalXP('send_gift_message', { plan: 'free', isMessagingAction: true });
     expect(baseXp).toBe(10);
     expect(finalXp).toBe(10);
   });
 
   it('plus plan yields higher finalXp than free plan for same action', () => {
-    const free = calculateFinalXP('send_gift_message', { plan: 'free' });
-    const plus = calculateFinalXP('send_gift_message', { plan: 'plus' });
+    const free = calculateFinalXP('send_gift_message', { plan: 'free', isMessagingAction: true });
+    const plus = calculateFinalXP('send_gift_message', { plan: 'plus', isMessagingAction: true });
     expect(plus.finalXp).toBeGreaterThan(free.finalXp);
   });
 
   it('pro plan yields 3× the free plan finalXp', () => {
-    const free = calculateFinalXP('daily_login', { plan: 'free' });
-    const pro = calculateFinalXP('daily_login', { plan: 'pro' });
+    // daily_login is not a messaging action, so the plan multiplier would not
+    // apply to it — use send_gift_message (a messaging action) to exercise
+    // the plan-tier multiplier path per PRD §6.
+    const free = calculateFinalXP('send_gift_message', { plan: 'free', isMessagingAction: true });
+    const pro = calculateFinalXP('send_gift_message', { plan: 'pro', isMessagingAction: true });
     expect(pro.finalXp).toBe(free.finalXp * 3);
   });
 
