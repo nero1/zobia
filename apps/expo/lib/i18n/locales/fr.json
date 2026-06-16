@@ -480,7 +480,12 @@
     "upgrading": "Processing…",
     "viewFullLeaderboard": "View full leaderboard →",
     "xp": "XP",
-    "yourXp": "Your XP:"
+    "yourXp": "Your XP:",
+    "claimSuccess": "Récompense réclamée !",
+    "alreadyClaimed": "Vous avez déjà réclamé cette récompense.",
+    "paidPassRequired": "Cette récompense nécessite le Pass Saison payant.",
+    "insufficientXp": "Il vous faut {{required}} XP de saison pour réclamer ceci. Vous en avez {{current}}.",
+    "claimError": "Impossible de réclamer la récompense. Veuillez réessayer."
   },
   "nemesis": {
     "title": "Némésis",

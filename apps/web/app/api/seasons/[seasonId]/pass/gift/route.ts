@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
  *
  * - Gets season pass price from the season record
  * - Deducts coins from sender (pass_price_coins)
- * - Grants paid pass to recipient (upsert season_passes with is_paid=true)
+ * - Grants paid pass to recipient (upsert user_season_passes with is_paid=true)
  * - Awards XP to sender (Generosity Track)
  * - Sends notification to recipient
  */

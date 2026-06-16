@@ -480,7 +480,12 @@
     "upgrading": "Processing…",
     "viewFullLeaderboard": "View full leaderboard →",
     "xp": "XP",
-    "yourXp": "Your XP:"
+    "yourXp": "Your XP:",
+    "claimSuccess": "تم استلام المكافأة!",
+    "alreadyClaimed": "لقد استلمت هذه المكافأة من قبل.",
+    "paidPassRequired": "هذه المكافأة تتطلب البطاقة الموسمية المدفوعة.",
+    "insufficientXp": "تحتاج إلى {{required}} نقطة XP موسمية للمطالبة بهذا. لديك {{current}} نقطة.",
+    "claimError": "تعذّر استلام المكافأة. يُرجى المحاولة مرة أخرى."
   },
   "nemesis": {
     "title": "الند",

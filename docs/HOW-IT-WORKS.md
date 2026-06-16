@@ -676,6 +676,15 @@ Seasons are 8-week cycles defined in the `seasons` table. The Season Engine (`li
 
 At season end: competitive rankings reset. Track XP, credits, friends, and history are **not** reset.
 
+**Canonical season-pass tables** (two tables only — do not re-introduce the dropped ones):
+
+| Table | Purpose |
+|---|---|
+| `user_season_passes` | One row per (user, season). Tracks `is_paid`, `season_xp`, `season_rank`, `purchased_at`. All pass ownership and XP mutations go here. |
+| `user_season_milestone_claims` | One row per (user, season, milestone). Unique on `(user_id, season_id, milestone_id)` so the same milestone can be reclaimed in a future season. Inserted atomically alongside the reward grant. |
+
+The legacy `season_passes` (never used) and `user_season_pass_claims` (broken unique key — omitted `season_id`) tables were dropped in migration 0005.
+
 ### Nemesis System
 
 Location: `lib/nemesis/nemesisEngine.ts`

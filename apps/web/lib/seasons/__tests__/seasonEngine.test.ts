@@ -234,7 +234,7 @@ describe('resetSeasonRankings', () => {
     await resetSeasonRankings('season-1', mockDb);
 
     const archiveQuery = queries.find((q) => q.includes('INSERT INTO season_rank_archives'));
-    const resetQuery = queries.find((q) => q.includes('UPDATE season_passes'));
+    const resetQuery = queries.find((q) => q.includes('UPDATE user_season_passes'));
     const deactivateQuery = queries.find((q) => q.includes("is_active = FALSE"));
 
     expect(archiveQuery).toBeDefined();
@@ -242,7 +242,7 @@ describe('resetSeasonRankings', () => {
     expect(deactivateQuery).toBeDefined();
   });
 
-  it('resets season_xp to 0 in season_passes', async () => {
+  it('resets season_xp to 0 in user_season_passes', async () => {
     const queries: Array<{ sql: string; params: unknown[] }> = [];
     const mockTx: TransactionClient = {
       query: jest.fn().mockImplementation(async (sql: string, params: unknown[]) => {
@@ -259,7 +259,7 @@ describe('resetSeasonRankings', () => {
 
     await resetSeasonRankings('season-42', mockDb);
 
-    const resetQuery = queries.find((q) => q.sql.includes('UPDATE season_passes') && q.sql.includes('season_xp = 0'));
+    const resetQuery = queries.find((q) => q.sql.includes('UPDATE user_season_passes') && q.sql.includes('season_xp = 0'));
     expect(resetQuery).toBeDefined();
     expect(resetQuery!.params).toContain('season-42');
   });
