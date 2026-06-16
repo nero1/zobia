@@ -8,10 +8,12 @@
  * prestige stars, guild badge, season history, and action buttons.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 import { OnlineRing } from "@/components/ui/OnlineRing";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -160,6 +162,9 @@ function SeasonCard({ season }: { season: SeasonSummary }) {
  */
 export default function ProfilePage() {
   const params = useParams();
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => { tRef.current = t; }, [t]);
   const userId = params.userId as string;
   type PrivacyError = "PROFILE_PRIVATE" | "ACCOUNT_RESTRICTED" | "ACCOUNT_SUSPENDED" | null;
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -181,7 +186,12 @@ export default function ProfilePage() {
           setError(body.error ?? "This profile is not available.");
           return;
         }
-        if (!res.ok) throw new Error("Profile not found");
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({})) as { error?: { code?: string; message?: string } };
+          const err = new Error(body.error?.message ?? "Profile not found") as Error & { code?: string | null };
+          err.code = body.error?.code ?? null;
+          throw err;
+        }
         const data = await res.json();
         setProfile({
           ...data,
@@ -191,7 +201,8 @@ export default function ProfilePage() {
         setIsFriend(data.isFriend);
         setIsFollowing(data.isFollowing);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Unknown error");
+        const err = e as Error & { code?: string | null };
+        setError(e instanceof Error ? translateApiError(tRef.current, err.code, err.message || "Unknown error") : "Unknown error");
       } finally {
         setLoading(false);
       }

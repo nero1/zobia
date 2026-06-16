@@ -8,7 +8,7 @@
  * Paginated results.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useTranslation } from "react-i18next";
@@ -222,6 +222,10 @@ function EntryRow({
  */
 export default function LeaderboardsPage() {
   const { t: translate } = useTranslation();
+  const translateRef = useRef(translate);
+  useEffect(() => {
+    translateRef.current = translate;
+  }, [translate]);
   const [scope, setScope] = useState<Scope>("global");
   const [track, setTrack] = useState<Track>("main");
   const [data, setData] = useState<LeaderboardResponse | null>(null);
@@ -270,7 +274,7 @@ export default function LeaderboardsPage() {
       });
     } catch (e) {
       const err = e as Error & { code?: string | null };
-      setError(e instanceof Error ? translateApiError(translate, err.code, err.message || "Unknown error") : "Unknown error");
+      setError(e instanceof Error ? translateApiError(translateRef.current, err.code, err.message || "Unknown error") : "Unknown error");
     } finally {
       setLoading(false);
     }

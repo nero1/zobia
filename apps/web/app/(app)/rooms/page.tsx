@@ -8,7 +8,7 @@
  * search bar, RoomCard grid, cursor-based pagination, Create Room button.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
@@ -189,6 +189,10 @@ function RoomsGridSkeleton() {
 export default function RoomsPage() {
   const router = useRouter();
   const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [activeTab, setActiveTab] = useState<Tab>("trending");
   const [typeFilter, setTypeFilter] = useState<RoomTypeFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -238,7 +242,7 @@ export default function RoomsPage() {
         setHasMore(data.hasMore ?? false);
       } catch (e) {
         const err = e as Error & { code?: string | null };
-        setError(e instanceof Error ? translateApiError(t, err.code, err.message || "Unknown error") : "Unknown error");
+        setError(e instanceof Error ? translateApiError(tRef.current, err.code, err.message || "Unknown error") : "Unknown error");
       } finally {
         setLoading(false);
         setLoadingMore(false);

@@ -10,8 +10,10 @@
  * Verification requests via /api/business/verify.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // BusinessTierCard
@@ -45,6 +47,7 @@ function BusinessTierCard({
   currentTier: string;
   onUpgraded: (tier: TierKey) => void;
 }) {
+  const { t } = useTranslation();
   const [upgrading, setUpgrading] = useState<TierKey | null>(null);
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
 
@@ -63,15 +66,20 @@ function BusinessTierCard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tier }),
       });
-      const body = await res.json() as { success?: boolean; data?: { paymentUrl?: string }; error?: { message?: string } };
-      if (!res.ok) throw new Error(body.error?.message ?? "Upgrade failed");
+      const body = await res.json() as { success?: boolean; data?: { paymentUrl?: string }; error?: { message?: string; code?: string } };
+      if (!res.ok) {
+        const err = new Error(body.error?.message ?? "Upgrade failed") as Error & { code?: string | null };
+        err.code = body.error?.code ?? null;
+        throw err;
+      }
       if (body.data?.paymentUrl) {
         window.location.href = body.data.paymentUrl;
       } else {
         onUpgraded(tier);
       }
     } catch (e) {
-      setUpgradeError(e instanceof Error ? e.message : "Upgrade failed");
+      const err = e as Error & { code?: string | null };
+      setUpgradeError(e instanceof Error ? translateApiError(t, err.code, err.message || "Upgrade failed") : "Upgrade failed");
     } finally {
       setUpgrading(null);
     }
@@ -224,6 +232,11 @@ function fmtKobo(kobo: number) {
 // ---------------------------------------------------------------------------
 
 export default function BusinessSettingsPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [business, setBusiness] = useState<BusinessAccount | null>(null);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [loading, setLoading] = useState(true);
@@ -250,14 +263,20 @@ export default function BusinessSettingsPage() {
         setEditing(true);
         return;
       }
-      if (!res.ok) throw new Error("Failed to load business info");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { error?: { code?: string; message?: string } };
+        const err = new Error(body.error?.message ?? "Failed to load business info") as Error & { code?: string | null };
+        err.code = body.error?.code ?? null;
+        throw err;
+      }
       const json = await res.json() as { success: boolean; data: { business: BusinessAccount } };
       const biz = json.data.business;
       setBusiness(biz);
       setBusinessName(biz.business_name);
       setBusinessType((biz.business_type as BusinessType) ?? "retail");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      const err = e as Error & { code?: string | null };
+      setError(e instanceof Error ? translateApiError(tRef.current, err.code, err.message || "Unknown error") : "Unknown error");
     }
   }, []);
 
@@ -296,15 +315,20 @@ export default function BusinessSettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ business_name: businessName.trim(), business_type: businessType }),
       });
-      const json = await res.json() as { success: boolean; data?: { business: BusinessAccount }; error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message ?? "Failed to save");
+      const json = await res.json() as { success: boolean; data?: { business: BusinessAccount }; error?: { message?: string; code?: string } };
+      if (!res.ok) {
+        const err = new Error(json.error?.message ?? "Failed to save") as Error & { code?: string | null };
+        err.code = json.error?.code ?? null;
+        throw err;
+      }
       if (json.data?.business) {
         setBusiness(json.data.business);
       }
       setEditing(false);
       showToast(business ? "Business info updated!" : "Business account created!");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Save failed");
+      const err = e as Error & { code?: string | null };
+      setError(e instanceof Error ? translateApiError(t, err.code, err.message || "Save failed") : "Save failed");
     } finally {
       setSubmitting(false);
     }
@@ -317,12 +341,17 @@ export default function BusinessSettingsPage() {
         method: "POST",
         credentials: "include",
       });
-      const json = await res.json() as { success: boolean; data?: { verification_status: string }; error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message ?? "Request failed");
+      const json = await res.json() as { success: boolean; data?: { verification_status: string }; error?: { message?: string; code?: string } };
+      if (!res.ok) {
+        const err = new Error(json.error?.message ?? "Request failed") as Error & { code?: string | null };
+        err.code = json.error?.code ?? null;
+        throw err;
+      }
       setBusiness((prev) => prev ? { ...prev, verification_status: "pending" } : prev);
       showToast("Verification request submitted! We'll review it soon.");
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Request failed", "error");
+      const err = e as Error & { code?: string | null };
+      showToast(e instanceof Error ? translateApiError(t, err.code, err.message || "Request failed") : "Request failed", "error");
     } finally {
       setVerifying(false);
     }
@@ -335,12 +364,17 @@ export default function BusinessSettingsPage() {
         method: "DELETE",
         credentials: "include",
       });
-      const json = await res.json() as { success: boolean; error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message ?? "Cancel failed");
+      const json = await res.json() as { success: boolean; error?: { message?: string; code?: string } };
+      if (!res.ok) {
+        const err = new Error(json.error?.message ?? "Cancel failed") as Error & { code?: string | null };
+        err.code = json.error?.code ?? null;
+        throw err;
+      }
       setBusiness((prev) => prev ? { ...prev, verification_status: "unverified" } : prev);
       showToast("Verification request cancelled.");
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Cancel failed", "error");
+      const err = e as Error & { code?: string | null };
+      showToast(e instanceof Error ? translateApiError(t, err.code, err.message || "Cancel failed") : "Cancel failed", "error");
     } finally {
       setVerifying(false);
     }

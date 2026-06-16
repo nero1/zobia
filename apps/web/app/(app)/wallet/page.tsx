@@ -13,7 +13,9 @@
 
 import { Suspense, useState, useEffect, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
 import { useCurrency, type CurrencyNames } from "@/lib/hooks/useCurrency";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -410,6 +412,7 @@ interface CoinTransferPanelProps {
 }
 
 function CoinTransferPanel({ recipientId, onSuccess, onClose, currency }: CoinTransferPanelProps & { currency: CurrencyNames }) {
+  const { t } = useTranslation();
   const [recipient, setRecipient] = useState<TransferRecipient | null>(null);
   const [loadingRecipient, setLoadingRecipient] = useState(true);
   const [amount, setAmount] = useState<string>("");
@@ -463,13 +466,20 @@ function CoinTransferPanel({ recipientId, onSuccess, onClose, currency }: CoinTr
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ recipientId, amount: n }),
       });
-      const data = (await res.json()) as { success?: boolean; message?: string; error?: string; transfer?: { netAmount: number; recipient: { username: string } } };
-      if (!res.ok) throw new Error(data.message ?? data.error ?? "Transfer failed");
+      const data = (await res.json()) as { success?: boolean; message?: string; error?: string | { code?: string; message?: string }; transfer?: { netAmount: number; recipient: { username: string } } };
+      if (!res.ok) {
+        const errMsg = typeof data.error === "string" ? data.error : data.error?.message;
+        const errCode = typeof data.error === "string" ? null : data.error?.code ?? null;
+        const err = new Error(data.message ?? errMsg ?? "Transfer failed") as Error & { code?: string | null };
+        err.code = errCode;
+        throw err;
+      }
       const label = data.transfer?.recipient?.username ?? "user";
       onSuccess(`Sent ${n} ${currency.softPlural.toLowerCase()} to @${label} (they received ${data.transfer?.netAmount ?? n - Math.floor(n * 0.05)})`);
       onClose();
     } catch (e) {
-      setTransferError(e instanceof Error ? e.message : "Transfer failed");
+      const err = e as Error & { code?: string | null };
+      setTransferError(e instanceof Error ? translateApiError(t, err.code, err.message || "Transfer failed") : "Transfer failed");
     } finally {
       setSending(false);
     }
@@ -545,6 +555,7 @@ function CoinTransferPanel({ recipientId, onSuccess, onClose, currency }: CoinTr
 function WalletContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { t } = useTranslation();
   const transferRecipientId = searchParams.get("transfer");
   const currency = useCurrency();
 
@@ -674,8 +685,12 @@ function WalletContent() {
         body: JSON.stringify({ packId, provider: "paystack" }),
       });
       if (!res.ok) {
-        const d = (await res.json()) as { message?: string; error?: string };
-        throw new Error(d.message ?? d.error ?? "Purchase failed");
+        const d = (await res.json()) as { message?: string; error?: string | { code?: string; message?: string } };
+        const errMsg = typeof d.error === "string" ? d.error : d.error?.message;
+        const errCode = typeof d.error === "string" ? null : d.error?.code ?? null;
+        const err = new Error(d.message ?? errMsg ?? "Purchase failed") as Error & { code?: string | null };
+        err.code = errCode;
+        throw err;
       }
       const result = (await res.json()) as { checkoutUrl?: string; authorization_url?: string };
       const url = result.checkoutUrl ?? result.authorization_url;
@@ -685,7 +700,8 @@ function WalletContent() {
         showToast("Purchase initiated — check your email for confirmation.");
       }
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Purchase failed");
+      const err = e as Error & { code?: string | null };
+      showToast(e instanceof Error ? translateApiError(t, err.code, err.message || "Purchase failed") : "Purchase failed");
     } finally {
       setPurchasing(null);
     }

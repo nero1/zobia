@@ -7,7 +7,7 @@
  * Active season hero with pass progress, leaderboard top 10, season history grid.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
@@ -534,6 +534,10 @@ function MilestoneTrack({ passData, onClaim, claiming }: MilestoneTrackProps) {
  */
 export default function SeasonsPage() {
   const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [data, setData] = useState<SeasonsData | null>(null);
   const [passData, setPassData] = useState<SeasonPassData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -634,7 +638,7 @@ export default function SeasonsPage() {
         }
       } catch (e) {
         const err = e as Error & { code?: string | null };
-        setError(e instanceof Error ? translateApiError(t, err.code, err.message || "Unknown error") : "Unknown error");
+        setError(e instanceof Error ? translateApiError(tRef.current, err.code, err.message || "Unknown error") : "Unknown error");
       } finally {
         setLoading(false);
       }

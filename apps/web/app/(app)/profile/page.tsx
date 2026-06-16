@@ -12,7 +12,7 @@
  * All data is real — no hardcoded placeholders.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { OnlineRing } from "@/components/ui/OnlineRing";
@@ -163,6 +163,8 @@ function TrackBar({ label, emoji, level, xp }: TrackDisplay) {
 
 export default function MyProfilePage() {
   const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => { tRef.current = t; }, [t]);
   const [me, setMe] = useState<MeData | null>(null);
   const [guild, setGuild] = useState<GuildData | null>(null);
   const [seasons, setSeasons] = useState<SeasonRecord[]>([]);
@@ -197,7 +199,7 @@ export default function MyProfilePage() {
       }
     } catch (e) {
       const err = e as Error & { code?: string | null };
-      setError(e instanceof Error ? translateApiError(t, err.code, err.message || "Unknown error") : "Unknown error");
+      setError(e instanceof Error ? translateApiError(tRef.current, err.code, err.message || "Unknown error") : "Unknown error");
     } finally {
       setLoading(false);
     }

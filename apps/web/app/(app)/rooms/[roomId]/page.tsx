@@ -13,10 +13,12 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 import { TopGifters } from "@/components/rooms/TopGifters";
 import { LiveRoomPulseBar } from "@/components/ui/LiveRoomPulseBar";
 import { useRealtimeChannel } from "@/lib/realtime/useRealtimeChannel";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // Resolved at build time — undefined means no push provider, fall back to SSE.
 const REALTIME_PROVIDER = process.env.NEXT_PUBLIC_REALTIME_PROVIDER;
@@ -795,6 +797,7 @@ function SpectacleThresholdPanel({
   roomId: string;
   initialThreshold: number | null;
 }) {
+  const { t } = useTranslation();
   const [threshold, setThreshold] = useState<string>(
     initialThreshold != null ? String(initialThreshold) : ""
   );
@@ -815,13 +818,18 @@ function SpectacleThresholdPanel({
         body: JSON.stringify({ thresholdCoins: coins }),
       });
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? "Failed to save");
+        const body = await res.json().catch(() => ({})) as { error?: string | { code?: string; message?: string } };
+        const errMsg = typeof body.error === "string" ? body.error : body.error?.message;
+        const errCode = typeof body.error === "string" ? null : body.error?.code ?? null;
+        const err = new Error(errMsg ?? "Failed to save") as Error & { code?: string | null };
+        err.code = errCode;
+        throw err;
       }
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Error saving");
+      const e = err as Error & { code?: string | null };
+      setError(err instanceof Error ? translateApiError(t, e.code, e.message || "Error saving") : "Error saving");
     } finally {
       setSaving(false);
     }
@@ -871,6 +879,9 @@ function SpectacleThresholdPanel({
 export default function RoomPage() {
   const params = useParams();
   const router = useRouter();
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => { tRef.current = t; }, [t]);
   const roomId = params.roomId as string;
   const currency = useCurrency();
 
@@ -949,7 +960,12 @@ export default function RoomPage() {
       try {
         const res = await fetch(`/api/rooms/${roomId}`, { credentials: "include" });
         if (res.status === 401) { router.push("/auth/login"); return; }
-        if (!res.ok) throw new Error("Room not found");
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({})) as { error?: { code?: string; message?: string } };
+          const err = new Error(body.error?.message ?? "Room not found") as Error & { code?: string | null };
+          err.code = body.error?.code ?? null;
+          throw err;
+        }
         const data = await res.json() as {
           room: {
             id: string;
@@ -988,7 +1004,8 @@ export default function RoomPage() {
           minGiftSpectacleCoin: r.spectacle_threshold_coins ?? undefined,
         });
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Error loading room");
+        const err = e as Error & { code?: string | null };
+        setError(e instanceof Error ? translateApiError(tRef.current, err.code, err.message || "Error loading room") : "Error loading room");
       } finally {
         setLoadingRoom(false);
       }
