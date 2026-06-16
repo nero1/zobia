@@ -1,551 +1,342 @@
 # Zobia Codebase — Bug Fix Plan
 
-**Generated:** Monday, June 15, 2026 11:31 PM UTC  
-**Based on:** custom-bugs-report.md (same date)  
-**Note:** Do NOT begin any fix until the report has been reviewed and confirmed.
+**Date:** June 16, 2026  
+**Time:** 02:26 AM UTC  
+**Based on:** custom-bugs-report.md (same session)
+
+> **IMPORTANT: Do NOT begin any fix until the report has been reviewed and approved.**
+
+Fixes are ordered by severity. Within each severity tier, fix order is listed from most impactful to least. Each task is self-contained and can be worked independently unless a dependency is noted.
 
 ---
 
-## Fix Priority Tiers
-
-- **P0 — Critical (fix before next deploy)**
-- **P1 — High (fix within current sprint)**
-- **P2 — Medium (fix this quarter)**
-- **P3 — Low / Maintainability (batch with other cleanup)**
+## CRITICAL Fixes
 
 ---
 
-## P0 — Critical: Fix Before Next Deploy
+### TASK-01 — Add Payment Webhook Paths to `PUBLIC_PREFIXES`
 
-### Fix 1 · CRON-PAYOUT-01 — Add missing NOT NULL columns to weekly payout INSERT
-
-**Files to change:** `apps/web/app/api/cron/daily/route.ts` (step 32)
+**Fixes:** BUG-01  
+**Risk:** Low — adding to an allowlist, not removing a check. The route handlers already verify HMAC signatures.  
+**Effort:** ~5 minutes
 
 **Steps:**
-1. In the INSERT into `creator_payouts`, add `amount_kobo` and `provider` to the column list.
-2. Set `amount_kobo = grossKobo` (the gross amount before fee deduction).
-3. Set `provider = 'paystack'` (or read the active payment provider from the manifest: `await getManifestValue('payment_primary_provider') ?? 'paystack'`).
-4. Also add `amount_kobo` column to the VALUES clause in the corresponding position.
-5. Verify against the schema definition to ensure all other NOT NULL columns are covered.
+1. Open `apps/web/middleware.ts`.
+2. In the `PUBLIC_PREFIXES` array, add these two entries:
+   - `"/api/economy/webhooks/paystack"`
+   - `"/api/economy/webhooks/dodopayments"`
+3. Deploy and verify with a Paystack test event and a DodoPayments test event — both should now reach the route handler and return 200.
+4. Confirm that sending a POST to either path without a valid HMAC signature still returns 400 (rejected by the route handler, not by middleware).
 
 ---
 
-### Fix 2 · EXPO-AUTH-01 — Add Origin header to cold-start token refresh fetch()
+### TASK-02 — Fix `transferCoins` Parameter Order
 
-**Files to change:** `apps/expo/lib/auth/context.tsx` (lines 122–128)
+**Fixes:** BUG-02  
+**Risk:** Medium — every call site must be updated to use the corrected argument order.  
+**Effort:** ~15 minutes
 
 **Steps:**
-1. Import `env` at the top of the file (already dynamically imported inside the block — hoist it or use the dynamic import result).
-2. Add `'Origin': env.API_BASE_URL` to the `headers` object in the `fetch()` call.
-3. Alternatively, extract the cold-start refresh into the `refreshAccessToken` function in `apps/expo/lib/api/client.ts` (which already sets the correct Origin) and call it from the AuthProvider effect.
-4. Test by simulating an expired access token on app open — verify the user is silently refreshed rather than redirected to login.
+1. Open `apps/web/lib/economy/coins.ts`.
+2. In the `transferCoins` function signature, move `idempotencyRef: string` before `txClient?: TransactionClient`. The corrected order should be: `(fromUserId, toUserId, amount, type, referenceId, idempotencyRef, txClient?)`.
+3. Search the entire `apps/web` directory for all calls to `transferCoins` and update argument positions at each call site.
+4. If any call site legitimately needs to pass `txClient` without an `idempotencyRef`, make `idempotencyRef` optional (type `string | null`, default `null`) and verify the partial-unique constraint in `coin_ledger` still provides protection for non-null refs.
+5. Run TypeScript type checking (`tsc --noEmit`) and confirm zero TS2016 errors.
 
 ---
 
-### Fix 3 · CRON-PAYOUT-02 — Deduct available_earnings_kobo when creating weekly payout row
+## HIGH Fixes
 
-**Files to change:** `apps/web/app/api/cron/daily/route.ts` (step 32, inside the transaction)
+---
+
+### TASK-03 — Fix DodoPayments Webhook Error Handling
+
+**Fixes:** BUG-03  
+**Risk:** Low — changing catch block response code; no business logic changes.  
+**Effort:** ~20 minutes
 
 **Steps:**
-1. Inside the transaction that inserts the `creator_payouts` row, add:
-   `UPDATE users SET available_earnings_kobo = available_earnings_kobo - $gross, updated_at = NOW() WHERE id = $creator_id`
-2. Use a WHERE clause with a floor check to prevent going negative:
-   `WHERE id = $creator_id AND available_earnings_kobo >= $gross`
-3. If the UPDATE returns 0 rows (balance changed since the eligibility query), roll back and skip this creator.
-4. In `processPendingPayouts()` (payouts.ts), when a payout permanently fails and earnings are restored via `moveToDeadLetterQueue()`, ensure `available_earnings_kobo` is credited back — verify `earningsRestored` flag logic covers this.
+1. Open `apps/web/app/api/economy/webhooks/dodopayments/route.ts`.
+2. In the catch block, replace the unconditional `return NextResponse.json({ received: true }, { status: 200 })` with conditional logic:
+   - If the caught error is a Postgres unique-violation (`err.code === '23505'`), return `{ status: 200 }` — the event was already processed, idempotent success.
+   - For all other errors, log the full error with event type and return `{ status: 500 }` so DodoPayments retries delivery.
+3. Add structured error logging (`logger.error(...)`) in the generic catch branch with enough context to diagnose the failure type.
+4. Test with a simulated DB error (mock DB failure) and verify the endpoint returns 500. Test with a duplicate event and verify 200.
 
 ---
 
-## P1 — High Priority
+### TASK-04 — Add Idempotency Key to DM Gift Transfers
 
-### Fix 4 · DODO-PLAN-01 — Validate planName in DodoPayments webhook
-
-**Files to change:** `apps/web/app/api/economy/webhooks/dodopayments/route.ts`
+**Fixes:** BUG-04  
+**Risk:** Medium — requires a per-request idempotency key and handler reordering.  
+**Effort:** ~30 minutes
 
 **Steps:**
-1. After reading `metadata.planName`, validate it against the known plan keywords (`['pro', 'plus', 'max']`).
-2. Apply the same keyword-matching logic used in the Paystack webhook handler.
-3. If the value doesn't match any known plan, log a warning and default to `'pro'` (or reject the event and write to `failed_webhooks` for manual review).
+1. Open `apps/web/app/api/messages/dm/route.ts`.
+2. Ensure the client sends a stable `clientMessageId` or `idempotencyKey` in the request body for gift sends. If it does not, generate a server-side key using a composite of `conversationId + senderId + requestTimestamp` and store it in the idempotency Redis key at step 8.
+3. Construct `giftRef = "dm_gift:${conversationId}:${senderId}:${clientMessageId}"`.
+4. Move the `handleDMGift()` call to after the idempotency Redis check (step 8), not before it.
+5. Pass `giftRef` as the `idempotencyRef` (and as `referenceId`) to both `debitCoins` and `creditCoins` inside `handleDMGift`. The partial unique index on `coin_ledger (transactionType, referenceId)` will prevent duplicate ledger entries on retry.
+6. Confirm by sending the same gift request twice: the second call should return the idempotency-cached response without any coin movement.
 
 ---
 
-### Fix 5 · CRON-IDEMPOTENCY-01 — Add daily CRON run-guard using cronState table
+### TASK-05 — Fix Group Chat XP `reference_id`
 
-**Files to change:** `apps/web/app/api/cron/daily/route.ts`
+**Fixes:** BUG-05  
+**Risk:** Medium — changes the XP deduplication key for group messages; existing ledger rows with `groupId` references are unaffected (they remain valid historical records).  
+**Effort:** ~20 minutes
 
 **Steps:**
-1. At the very start of the POST handler (after auth check), attempt:
-   ```sql
-   INSERT INTO cron_state (key, last_run_at)
-   VALUES ('daily', NOW())
-   ON CONFLICT (key) DO UPDATE
-     SET last_run_at = NOW()
-     WHERE cron_state.last_run_at < NOW()::date
-   RETURNING key
-   ```
-2. If `rows.length === 0` (already ran today), return `200 { skipped: true, reason: 'already_ran_today' }` immediately.
-3. Confirm `cron_state` has a primary key on `key` — add migration if missing.
+1. Open `apps/web/app/api/messages/group/[groupId]/route.ts`.
+2. Find the `xp_ledger` INSERT for `source = 'group_message'`.
+3. Replace `reference_id = $groupId` with `reference_id = 'group_msg:' + messageId` where `messageId` is the UUID of the message row just inserted. This ensures uniqueness per message.
+4. Wrap the XP award in a `safeAwardXP(userId, amount, 'social', 'group_message', 'group_msg:' + messageId)` call instead of raw SQL, so failures fall to the DLQ instead of rolling back silently.
+5. Verify: send two messages in the same group as the same user — both should earn XP. Send the same message twice (simulate retry by calling the endpoint with the same `messageId`) — only one XP award should be recorded.
 
 ---
 
-### Fix 6 · SCHEMA-XP-01 — Change x_manifest.value from jsonb to text
+### TASK-06 — Replace DM Text XP Raw Queries with `safeAwardXP`
 
-**Files to change:**
-- `apps/web/lib/db/schema.ts`
-- Migration file (new migration needed)
+**Fixes:** BUG-06  
+**Risk:** Low — `safeAwardXP` is already used elsewhere; this is a like-for-like replacement.  
+**Effort:** ~20 minutes
 
 **Steps:**
-1. Change `value: jsonb("value")` to `value: text("value")` in the `xManifest` table definition.
-2. Generate a migration: `ALTER TABLE x_manifest ALTER COLUMN value TYPE TEXT`.
-3. Verify that existing rows store plain scalar strings (they should — manifest values are booleans, numbers, and short strings stored as text in JSON format, which would need to be unquoted). Run a pre-migration check: `SELECT key, value FROM x_manifest WHERE value !~ '^[a-zA-Z0-9_. /-]+$'` to identify any values that need transformation.
-4. No code changes needed — the manifest loader already treats values as plain strings.
+1. Open `apps/web/app/api/messages/dm/route.ts`.
+2. Locate the two-query pattern for text message XP (`INSERT INTO xp_ledger` + `UPDATE users SET xp_total`).
+3. Replace both queries with a single `await safeAwardXP(userId, xpAmount, 'social', 'dm_text', 'dm_text:' + messageId)` call.
+4. Remove the now-unused raw query imports/variables for the XP section.
+5. Confirm the `xp_ledger` and `users` tables stay in sync by checking both tables after a test DM.
 
 ---
 
-### Fix 7 · ECONOMY-TRANSFER-01 — Make idempotencyRef required in transferCoins
+### TASK-07 — Replace DM Gift XP Raw Queries with `safeAwardXP`
 
-**Files to change:** `apps/web/lib/economy/coins.ts`
+**Fixes:** BUG-07  
+**Risk:** Low — same pattern as TASK-06.  
+**Effort:** ~20 minutes
 
 **Steps:**
-1. Change the function signature to make `idempotencyRef` a required parameter (remove the `?` and `null` default).
-2. Find all callers with `grep -r "transferCoins"` and supply a stable key at each call site (typically the gift/transaction/request UUID).
-3. For any caller that genuinely cannot provide a stable key, generate a UUID at request entry time and thread it through to the call.
+1. In `apps/web/app/api/messages/dm/route.ts`, inside `handleDMGift` (or wherever the gift XP awards happen).
+2. Locate both the sender XP and the recipient XP two-query patterns.
+3. Replace sender XP with `await safeAwardXP(senderId, senderXp, 'generosity', 'dm_gift_sent', 'dm_gift_sent:' + giftId)`.
+4. Replace recipient XP with `await safeAwardXP(recipientId, recipientXp, 'social', 'dm_gift_received', 'dm_gift_received:' + giftId)`.
+5. Remove unused raw XP query code.
 
 ---
 
-### Fix 8 · CRON-MONTHLY-01 — Fix ON CONFLICT clause in monthly plan bonus CTE
+### TASK-08 — Fix DM Coin Ledger `balance_before` TOCTOU
 
-**Files to change:** `apps/web/app/api/cron/daily/route.ts` (monthly plan coin-bonus step)
+**Fixes:** BUG-08  
+**Risk:** Low — audit data fix; no change to coin movement logic.  
+**Effort:** ~15 minutes
 
 **Steps:**
-1. Add a partial unique index to `coin_ledger`: `CREATE UNIQUE INDEX IF NOT EXISTS uidx_coin_ledger_source_ref ON coin_ledger (user_id, source, reference_id) WHERE reference_id IS NOT NULL`.
-2. Update the ON CONFLICT clause to: `ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`.
-3. Ensure the `reference_id` value used in the INSERT is stable and unique per user per month (e.g. `monthly_plan_bonus:${userId}:${yearMonth}`).
-4. Add the matching Drizzle schema index definition for the new index.
+1. Open `apps/web/lib/economy/coins.ts`. In `debitCoins`, the function already performs `SELECT ... FOR UPDATE` to lock the row. After the lock, the actual `coin_balance` at that moment is read — expose this as part of the return value or use it directly within the function when writing `balance_before` to the ledger.
+2. In `apps/web/app/api/messages/dm/route.ts`, remove the use of `sender.coin_balance` from the pre-transaction outer query as the `balance_before` source.
+3. Ensure the `balance_before` value recorded in the ledger INSERT comes from the locked row inside the transaction, not from the outer read. The easiest way is to compute it inside the `debitCoins` function itself where the lock is already held.
 
 ---
 
-### Fix 9 · SCHEMA-BANK-01 — Reconcile creator_bank_accounts schema with multi-account design
+## MEDIUM Fixes
 
-**Files to change:**
-- `apps/web/lib/db/schema.ts`
-- Migration file (new migration)
-- `apps/web/app/api/cron/daily/route.ts` (step 32 bank account query)
-- `apps/web/lib/payments/payouts.ts`
+---
+
+### TASK-09 — Fix Push Token Deletion to Target Only the Failing Token
+
+**Fixes:** BUG-09  
+**Risk:** Low — scope reduction; only removes the single stale token.  
+**Effort:** ~20 minutes
 
 **Steps:**
-1. Decide on the model (multiple accounts supported based on `is_primary` usage in CRON).
-2. Drop the `unique()` constraint on `creator_id` in `creatorBankAccounts`.
-3. Add a partial unique index: `CREATE UNIQUE INDEX ... ON creator_bank_accounts (creator_id) WHERE is_primary = TRUE AND deleted_at IS NULL`.
-4. Update the Drizzle schema to remove `.unique()` and add the partial index definition.
-5. Verify all queries that look up bank accounts use the correct `is_primary = TRUE AND deleted_at IS NULL` filter.
+1. Open `apps/web/lib/notifications/push.ts`.
+2. In the `push_tickets` table INSERT (where tickets are created), add the `token` field so each ticket row stores the specific device token used to send that notification.
+3. In `apps/web/lib/db/schema.ts`, add a `token` column to the `push_tickets` table.
+4. In the receipt polling loop, when a `DeviceNotRegistered` receipt is processed, read `ticket.token` (the stored token for that specific ticket) and add only that token to `staleTokens`. Remove the secondary `SELECT token FROM user_push_tokens WHERE user_id = $1` query that fetches all tokens.
+5. Verify: simulate a `DeviceNotRegistered` receipt for one device; confirm only that device's token is deleted and the other device's token remains.
 
 ---
 
-### Fix 10 · REDIS-RL-01 — Fix global rate limit window TTL
+### TASK-10 — Fix Service Worker Root Route Caching
 
-**Files to change:** `apps/web/lib/security/rateLimit.ts`
+**Fixes:** BUG-10  
+**Risk:** Low — tightening the cache strategy; no new features.  
+**Effort:** ~20 minutes
 
 **Steps:**
-1. In `enforceRateLimit`, change the Lua eval call from:
-   `redis.eval(GLOBAL_RATE_LUA, 1, globalKey, "60")`
-   to:
-   `redis.eval(GLOBAL_RATE_LUA, 1, globalKey, Math.round(options.windowMs / 1000).toString())`
-2. Verify all endpoints with `globalLimit` use the correct `windowMs` for their intended global window.
+1. Open `apps/web/public/sw.js`.
+2. Locate the `NetworkFirst` registration for root `/`.
+3. Replace it with either:
+   - `NetworkOnly` for the root URL (no caching of navigation responses to `/`), OR
+   - Add a response plugin that filters out `opaqueredirect` responses: before caching any response, check `response.type !== 'opaqueredirect'` and skip caching if it is.
+4. If the app has a PWA shell HTML file (e.g., `/offline.html` or the precached app shell), use `NavigationRoute` with `createHandlerBoundToURL('/index.html')` for all navigation requests and let the client-side router handle auth redirects after hydration.
+5. Test by loading the app while unauthenticated, checking the browser cache for the root URL — confirm no opaque response is stored.
 
 ---
 
-### Fix 11 · SESSION-EVICT-01 — Atomicise session eviction in Redis
+### TASK-11 — Batch Nemesis Refresh into Single SQL Operation
 
-**Files to change:** `apps/web/lib/auth/session.ts` (createSession)
+**Fixes:** BUG-11  
+**Risk:** Medium — significant rewrite of the refresh query; test thoroughly with large user counts.  
+**Effort:** ~1 hour
 
 **Steps:**
-1. Replace the separate `redis.del(evictedKeys)` + `redis.zremrangebyrank(...)` calls with a single `redis.multi()` pipeline:
-   ```ts
-   const pipeline = redis.multi();
-   pipeline.del(...evictedKeys);
-   pipeline.zremrangebyrank(userSessionsKey, 0, -(MAX_SESSIONS + 1));
-   await pipeline.exec();
-   ```
-2. Ensure the pipeline is only executed when there are actually sessions to evict (avoid empty multi() calls).
+1. Open `apps/web/lib/nemesis/nemesisEngine.ts`.
+2. Identify the outer loop that iterates user pairs and issues one transaction per pair.
+3. Replace the loop with a single CTE-based query:
+   - Use a ranked window function to identify each user's closest XP competitor (nemesis candidate) in a single pass over the `users` table.
+   - Build the full assignments array in one SELECT with `ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY ABS(u.xp_total - candidate.xp_total) ASC)`.
+   - Issue a single `INSERT INTO nemesis_assignments (...) SELECT ... ON CONFLICT DO UPDATE` with the full result set.
+4. Wrap in one transaction (not N transactions).
+5. Benchmark the batch query against the current loop on a dataset of 1,000 and 10,000 users to confirm the improvement.
 
 ---
 
-### Fix 12 · CRON-COIN-01 — Handle INSUFFICIENT_BALANCE in comeback-coin expiry
+### TASK-12 — Handle Paystack `subscription.not_renew` Event
 
-**Files to change:** `apps/web/app/api/cron/daily/route.ts` (step 22)
+**Fixes:** BUG-12  
+**Risk:** Low — adding a new handler branch, no changes to existing logic.  
+**Effort:** ~20 minutes
 
 **Steps:**
-1. In the catch block for `debitCoins()`, check `if (err?.code === 'INSUFFICIENT_BALANCE')`.
-2. If so, log the event at info level ("User already spent comeback coins — skipping reversal") and mark the expiry as processed (update a `processed_at` column or remove the expiry record).
-3. For all other errors, insert a `system_alerts` row with severity 'warning' so the ops team is informed.
+1. Open `apps/web/app/api/economy/webhooks/paystack/route.ts`.
+2. In the event-type switch/if block, add a case for `subscription.not_renew`.
+3. In the handler:
+   - Look up the subscription by Paystack `subscription_code` from the event payload.
+   - Set `cancel_at_period_end = true` on the matching subscription record in the database.
+   - Optionally trigger a notification to the user (push/email) informing them their subscription will not renew.
+4. Return HTTP 200 after processing.
+5. Test with a Paystack test event of type `subscription.not_renew` and verify the DB row is updated.
 
 ---
 
-## P2 — Medium Priority
+### TASK-13 — Add Idempotency Guard to `insertNotification`
 
-### Fix 13 · SW-API-01 and SW-ADMIN-01 — Fix service worker precache exclusions
-
-**Files to change:** `next.config.js` or `workbox-config.js` (whichever drives sw.js generation), `apps/web/public/sw.js`
+**Fixes:** BUG-13  
+**Risk:** Medium — requires a schema migration to add the `reference_id` column and unique index.  
+**Effort:** ~45 minutes
 
 **Steps:**
-1. In the Workbox build configuration, add glob exclusions for server-side chunks:
-   - Exclude `**/_next/static/chunks/app/api/**`
-   - Exclude `**/_next/static/chunks/app/admin/**`
-2. Rebuild the service worker: `next build`.
-3. Bump the service worker version/cache name so clients with the old sw.js invalidate and re-download.
+1. Open `apps/web/lib/db/schema.ts`. Add a `reference_id` column (`varchar(255), nullable`) to the `notifications` table.
+2. Add a unique partial index: `CREATE UNIQUE INDEX uidx_notifications_ref ON notifications (reference_id) WHERE reference_id IS NOT NULL`.
+3. Write and run the migration.
+4. Open `apps/web/lib/notifications/insert.ts`. Update `insertNotification` and `insertNotificationBatch` to:
+   - Accept an optional `referenceId` parameter.
+   - Include `reference_id` in the INSERT.
+   - Append `ON CONFLICT (reference_id) WHERE reference_id IS NOT NULL DO NOTHING`.
+5. Update all callers to pass a deterministic `referenceId` where available (e.g., `xp_award:${userId}:${source}:${date}`, `gift_received:${giftId}`).
+6. For notification types without a natural dedup key, leave `referenceId` null — they will not be deduplicated, but this is an improvement over the current state where every notification is duplicate-prone.
 
 ---
 
-### Fix 14 · XP-STREAK-01 — Fix tier formula in getDailyMessageStreakXP
+### TASK-14 — Verify and Harden Leaderboard `ON CONFLICT` Expression
 
-**Files to change:** `apps/web/lib/xp/engine.ts`
+**Fixes:** BUG-14  
+**Risk:** Low to verify; medium if the index actually mismatches and needs correction.  
+**Effort:** ~30 minutes
 
 **Steps:**
-1. Verify intended tier breakpoints from PRD.
-2. If day 7 should be first day of tier 1: change formula from `Math.floor((day - 1) / 7)` to `Math.floor(day / 7)`.
-3. Update the corresponding unit tests in `apps/web/lib/xp/__tests__/engine.test.ts` to match the corrected behaviour.
+1. On a staging or production Postgres instance, run `\d leaderboard_snapshots` and examine the index definition for the `COALESCE`-based unique index.
+2. Compare the exact expression string to the `ON CONFLICT` clause in `apps/web/lib/leaderboards/engine.ts`.
+3. If they differ in any whitespace, type cast format, or quoting, update the raw SQL `ON CONFLICT` clause to exactly match what Postgres shows for the index.
+4. Long-term: add a surrogate `snapshot_key` column populated as a deterministic hash or concatenation of the composite key, add a unique index on that column, and change `ON CONFLICT (snapshot_key) DO UPDATE` to eliminate reliance on expression matching.
+5. Add an integration test that inserts two rows with the same logical key and verifies the `ON CONFLICT` upsert fires correctly rather than raising an error.
 
 ---
 
-### Fix 15 · CRON-STREAK-01 + SCHEMA-STREAK-01 — Fix streak column sync and longest_streak update
+## LOW Fixes
 
-**Files to change:** `apps/web/app/api/cron/daily/route.ts` (step 2)
+---
+
+### TASK-15 — Make `CRON_SECRET` Required in Env Validation
+
+**Fixes:** BUG-15  
+**Risk:** Low — boot-time validation change; any deployment without the var will fail fast at startup instead of silently at runtime.  
+**Effort:** ~10 minutes
 
 **Steps:**
-1. In the streak-increment UPDATE, add `login_streak = login_streak_days + 1` (or consolidate on one column and remove the other with a migration).
-2. In the streak-reset UPDATE, add: `longest_streak = GREATEST(COALESCE(longest_streak, 0), login_streak_days)` before zeroing `login_streak_days`.
-3. Ensure both the increment and reset branches update `login_streak` consistently.
+1. Open `apps/web/lib/env.ts`.
+2. Change `CRON_SECRET: z.string().optional()` to `CRON_SECRET: z.string().min(32)`.
+3. In `apps/web/app/api/cron/daily/route.ts` (and any other cron route), update `validateCronSecret` to throw a descriptive error if `process.env.CRON_SECRET` is undefined at runtime rather than silently returning false.
+4. Ensure `CRON_SECRET` is documented in `.env.example` with a note that it must be at least 32 characters.
+5. Verify deployment pipeline sets the var; add it to the Vercel environment variable list if not already there.
 
 ---
 
-### Fix 16 · CRON-STREAK-02 — Use indexed last_login_date in streak query
+### TASK-16 — Fix Creator Fund Pool Distribution for Small Cohorts
 
-**Files to change:** `apps/web/app/api/cron/daily/route.ts` (step 2)
+**Fixes:** BUG-16  
+**Risk:** Low — edge-case math fix; production cohorts above ~20 creators are unaffected.  
+**Effort:** ~30 minutes
 
 **Steps:**
-1. Replace `last_login_at::date = CURRENT_DATE - 1` with `last_login_date = CURRENT_DATE - 1` in the streak eligibility query.
-2. Confirm a B-tree index exists on `last_login_date` (add one via migration if not).
-3. Ensure the application updates `last_login_date` in addition to `last_login_at` on every login.
+1. Open `apps/web/lib/creator/fund.ts`.
+2. Add a guard at the top of the distribution function: if `totalCreators < 5` (or a configurable threshold), skip the tier structure and distribute the entire pool equally among all eligible creators (`perCreator = pool / totalCreators`).
+3. If keeping the tier structure for small cohorts is required, detect empty tier slices after computing cutoffs and redistribute their allocation proportionally to the non-empty tiers.
+4. Add unit tests covering 1, 2, 3, 5, and 10 creators that assert the sum of all payouts equals the input pool amount.
 
 ---
 
-### Fix 17 · SCHEMA-DM-01 — Enforce canonical pair ordering in dm_conversations
+### TASK-17 — Pass `blockLinks` Flag to Content Filter
 
-**Files to change:**
-- `apps/web/lib/db/schema.ts`
-- Migration file
-- All code paths that INSERT into `dm_conversations`
+**Fixes:** BUG-17  
+**Risk:** Very low — single-line change, no new logic.  
+**Effort:** ~5 minutes
 
 **Steps:**
-1. Add a CHECK constraint via migration: `ALTER TABLE dm_conversations ADD CHECK (user_id_1 < user_id_2)`.
-2. Update the Drizzle schema to add the check expression.
-3. Find all INSERT paths with `grep -r "dm_conversations"` and ensure both user IDs are sorted before insert: `const [id1, id2] = [userA, userB].sort()`.
+1. Open `apps/web/app/api/rooms/[roomId]/messages/route.ts`.
+2. Find the call to `filterPublicContent(content)` (or equivalent).
+3. Change it to `filterPublicContent(content, { blockLinks })`.
+4. Open the content filter module (`apps/web/lib/moderation/contentFilter.ts` or similar). Verify the `blockLinks` option is implemented as a code path that strips or rejects URLs. If not, implement it: when `blockLinks` is true, run a URL-stripping regex over the content (or reject the message) before returning.
+5. Test by sending a message containing a URL to a room configured with `blockLinks = true` — it should be filtered or rejected.
 
 ---
 
-### Fix 18 · SW-STALE-01 — Switch authenticated endpoints to NetworkOnly in service worker
+### TASK-18 — URL-Decode Cookie Values in `parseCookies`
 
-**Files to change:** `apps/web/public/sw.js` (or the Workbox config that generates it)
+**Fixes:** BUG-18  
+**Risk:** Very low — purely additive decoding; valid unencoded cookies are unaffected.  
+**Effort:** ~10 minutes
 
 **Steps:**
-1. Change the `/api/users/me` and `/api/creator/wallet` route strategy from `StaleWhileRevalidate` to `NetworkOnly`.
-2. Alternatively, add a cache key plugin that varies on the `Authorization` header or a session-specific cookie value.
-3. Rebuild the service worker.
+1. Open `apps/web/lib/security/csrf.ts`.
+2. In `parseCookies`, after splitting each name=value pair, wrap the value assignment in `decodeURIComponent`:
+   - `value = decodeURIComponent(rawValue)` inside a try/catch that falls back to the raw value on `URIError`.
+3. Add a test that sets a cookie with a URL-encoded value (e.g., `state=abc%2Bdef`) and asserts `parseCookies` returns `abc+def`.
 
 ---
 
-### Fix 19 · CRON-NEMESIS-01 — Fix nemesis overtake notification filter
+### TASK-19 — Improve Reengagement Variant Distribution
 
-**Files to change:**
-- `apps/web/lib/db/schema.ts` (nemesisAssignments — add last_notified_at column)
-- Migration file
-- `apps/web/app/api/cron/daily/route.ts` (step 31)
+**Fixes:** BUG-19  
+**Risk:** Very low — notification content change; no security or financial impact.  
+**Effort:** ~10 minutes
 
 **Steps:**
-1. Add `last_notified_at TIMESTAMPTZ` column to `nemesis_assignments`.
-2. Change the overtake query WHERE clause from `na.created_at >= NOW() - INTERVAL '24 hours'` to `n.xp_total > u.xp_total AND (na.last_notified_at IS NULL OR na.last_notified_at < NOW() - INTERVAL '6 days')`.
-3. After sending notifications for a pair, UPDATE the `last_notified_at` to NOW() for those nemesis_assignments rows.
+1. Open `apps/web/lib/notifications/reengagement.ts`.
+2. Replace the char-code sum variant selector with a more uniform approach:
+   - Option A (simplest): `parseInt(userId.replace(/-/g, '').slice(-6), 16) % messages.length` — uses the last 6 hex characters of the UUID, which are uniformly random in v4 UUIDs.
+   - Option B (more robust): Implement a 32-bit FNV-1a hash of the `userId` string and modulo by `messages.length`.
+3. The change is purely cosmetic — no DB migrations or API changes needed.
+4. Verify by generating 10,000 random UUIDs and confirming the variant distribution is close to uniform (within ±5% of expected for each variant).
 
 ---
 
-### Fix 20 · CRON-ALLIANCE-01 — Add unique constraint to prevent duplicate alliance war rows
+## Recommended Fix Order
 
-**Files to change:**
-- `apps/web/lib/db/schema.ts` (allianceWars)
-- Migration file
-- `apps/web/app/api/cron/daily/route.ts` (step 32b)
+For a production hotfix sequence:
 
-**Steps:**
-1. Add a partial unique index: `CREATE UNIQUE INDEX uidx_alliance_wars_active ON alliance_wars (alliance_1_id, alliance_2_id) WHERE status = 'active'`.
-2. Update the Drizzle schema definition.
-3. Update the ON CONFLICT clause in the CRON INSERT to reference this constraint explicitly.
-
----
-
-### Fix 21 · CRON-DIGEST-01 — Fix moderation digest open/escalated counts
-
-**Files to change:** `apps/web/app/api/cron/daily/route.ts` (step 29)
-
-**Steps:**
-1. Separate the new-reports count (filtered by `created_at >= NOW() - INTERVAL '7 days'`) from the total-open/escalated count (unfiltered).
-2. Update the query to return both: `new_this_week`, `total_open`, `total_escalated`, `actions_taken`.
-3. Update the email body template to use the correct metrics for each statistic.
+1. **Deploy TASK-01 immediately** (5 min, CRITICAL — restores all payment processing)
+2. **Deploy TASK-02** (15 min, CRITICAL — fixes TypeScript error)
+3. **Deploy TASK-03** (20 min, HIGH — DodoPayments retry reliability)
+4. **Deploy TASK-04 + TASK-05 + TASK-06 + TASK-07 + TASK-08 together** in a single PR (DM and group message fixes — they touch related files and should be tested together)
+5. **Deploy TASK-09** (push notification fix)
+6. **Deploy TASK-10** (service worker fix)
+7. Remaining medium and low tasks can be batched into a single cleanup PR.
 
 ---
 
-### Fix 22 · REDIS-RL-01 (already in P1 above) — covered
-
----
-
-### Fix 23 · CRON-TIER-01 — Fix creator tier counter to only count actual changes
-
-**Files to change:** `apps/web/app/api/cron/daily/route.ts` (step 28)
-
-**Steps:**
-1. Add `RETURNING id` to the `UPDATE users SET creator_tier = $1` query.
-2. Move `tierUpdates++` inside a check on `rows.length > 0`.
-3. Optionally also track `tierUnchanged` for observability.
-
----
-
-### Fix 24 · SCHEMA-SEASON-01 — Audit and consolidate season-pass tables ✅ DONE
-
-**Files changed:**
-- `apps/web/lib/db/schema.ts` — removed `seasonPasses` and `userSeasonPassClaims` table definitions and their type exports
-- `apps/web/lib/seasons/seasonEngine.ts` — `getPassMilestones()` now LEFT JOINs `user_season_milestone_claims`; `claimPassMilestone()` now INSERTs into `user_season_milestone_claims` with correct `ON CONFLICT (user_id, season_id, milestone_id)`
-- `apps/web/lib/seasons/__tests__/seasonEngine.test.ts` — fixed test assertions that checked for `UPDATE season_passes` (wrong table) → `UPDATE user_season_passes`
-- `apps/web/app/(app)/seasons/page.tsx` — fixed `handleClaimMilestone` to call the correct endpoint `/api/seasons/${seasonId}/pass/milestones/${milestoneId}/claim` (was calling non-existent `/api/seasons/${seasonId}/pass/claim`)
-- `apps/web/app/api/seasons/[seasonId]/pass/gift/route.ts` — fixed stale comment
-- `apps/web/db/migrations/0005_schema_season_01.sql` — migrates orphaned `user_season_pass_claims` rows into `user_season_milestone_claims`, then drops `user_season_pass_claims` and `season_passes`
-- `apps/web/lib/i18n/locales/*.json` + `apps/expo/lib/i18n/locales/*.json` — added missing claim-flow i18n keys (`seasons.claimSuccess`, `seasons.alreadyClaimed`, `seasons.paidPassRequired`, `seasons.insufficientXp`, `seasons.claimError`) across all 8 locales for both apps
-- `docs/HOW-IT-WORKS.md` — documented canonical tables and why the legacy ones were dropped
-
-**Canonical tables post-fix:**
-- `user_season_passes` — pass ownership, XP, rank
-- `user_season_milestone_claims` — milestone claim records (unique on user_id + season_id + milestone_id)
-
----
-
-## P3 — Low / Maintainability
-
-### Fix 25 · CRON-ORDER-01 — Renumber CRON steps sequentially
-
-**Files to change:** `apps/web/app/api/cron/daily/route.ts`
-
-**Steps:**
-1. List all steps in execution order.
-2. Renumber comment headers sequentially (// 1., // 2., etc.).
-3. Optionally extract each step into a named async function: `async function stepStreakUpdate(db, results, errors)` etc., and have the main handler call them in order.
-
----
-
-### Fix 26 · CRON-GUILD-01 — Consolidate guild tier maps
-
-**Files to change:** `apps/web/app/api/cron/daily/route.ts`
-
-**Steps:**
-1. Define a single constant: `const GUILD_TIERS = [{ name: 'bronze', min: 0, max: 999 }, { name: 'silver', min: 1000, max: 4999 }, ...]`.
-2. Write helper functions `getTierForXP(xp)` and `getNextTier(current)` / `getPrevTier(current)` that read from this single source.
-3. Replace the two separate promotion/demotion map objects with calls to these helpers.
-
----
-
-### Fix 27 · EXPO-AUTH-02 — Fix packageName parameter in Google Play purchase flow
-
-**Files to change:** `apps/expo/lib/payments/googlePlay.ts`
-
-**Steps:**
-1. Define `const APP_PACKAGE_NAME = 'com.zobia.app'` as a module-level constant.
-2. Remove the `packageName` parameter from `purchaseCoins` and `purchaseSubscription` (breaking change — update all call sites).
-3. Use `APP_PACKAGE_NAME` in `setupGlobalPurchaseListener`'s `verifyPurchaseServerSide` call.
-4. If white-label support is needed, read from an env variable instead: `const APP_PACKAGE_NAME = env.APP_PACKAGE_NAME ?? 'com.zobia.app'`.
-
----
-
----
-
-## P1 — High Priority (continued: architectural improvements)
-
-### Fix 28 · WEB-AUTH-01 — Add concurrent-refresh deduplication lock to web auth client
-
-**Files to change:** `apps/web/lib/auth/` (web-side refresh logic or fetch wrapper)
-
-**Steps:**
-1. Identify where the web client calls `/api/auth/refresh` on 401 (likely in a fetch wrapper or React Query error handler).
-2. Introduce a module-level `let webRefreshPromise: Promise<string> | null = null`.
-3. Wrap the refresh call: if `webRefreshPromise` is already set, await it and skip the redundant request; otherwise start the refresh, store the promise, await it, then null the variable in a `finally` block.
-4. Model the implementation directly on `apps/expo/lib/api/client.ts` lines that implement `refreshPromise`.
-
----
-
-### Fix 29 · PUSH-RECEIPT-01 — Implement Expo push notification receipt polling
-
-**Files to change:**
-- `apps/web/lib/notifications/push.ts`
-- `apps/web/lib/db/schema.ts` (add `push_tickets` table)
-- `apps/web/app/api/cron/daily/route.ts` (add receipt-poll step)
-- Migration file
-
-**Steps:**
-1. Add a `push_tickets` table: `(id UUID PK, ticket_id TEXT, user_id UUID, created_at TIMESTAMPTZ, polled_at TIMESTAMPTZ NULL, status TEXT DEFAULT 'pending')`.
-2. After each batch `sendPushNotificationsAsync` call, INSERT the returned ticket IDs into `push_tickets`.
-3. Add a CRON step that runs after notifications are sent: SELECT push_tickets WHERE `status = 'pending' AND created_at <= NOW() - INTERVAL '15 minutes'`, batch-call Expo's `/v2/push/getReceipts`, handle `DeviceNotRegistered` by deleting the token, log other errors.
-4. Mark polled rows `status = 'processed'` or `status = 'failed'` accordingly.
-
----
-
-### Fix 30 · SEC-HSTS-01 — Add Strict-Transport-Security header in middleware
-
-**Files to change:** `apps/web/middleware.ts`
-
-**Steps:**
-1. In the response header builder (alongside the CSP header), add:
-   `response.headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload')`
-2. Guard with `if (process.env.NODE_ENV === 'production')` to avoid HSTS issues in local dev.
-3. After deploying, submit the domain to the HSTS preload list (hstspreload.org) if not already done.
-
----
-
-### Fix 31 · SEC-CSP-01 — Add worker-src directive to Content-Security-Policy
-
-**Files to change:** `apps/web/middleware.ts` (CSP string construction)
-
-**Steps:**
-1. Add `worker-src 'self'` to the CSP header value.
-2. If the service worker imports any external scripts (Workbox CDN builds), add those origins to `worker-src` as well.
-3. Test the service worker installation in a browser with a strict CSP reporter to confirm no violations are emitted.
-
----
-
-### Fix 32 · WEBHOOK-RETRY-01 — Add failed_webhooks retry step to daily CRON
-
-**Files to change:** `apps/web/app/api/cron/daily/route.ts`
-
-**Steps:**
-1. Add a new CRON step that SELECTs `failed_webhooks WHERE status = 'pending' AND next_retry_at <= NOW() AND retry_count < max_retries`.
-2. For each row, re-invoke the appropriate handler function (Paystack or DodoPayments) based on `provider` column.
-3. On success: UPDATE `status = 'processed', processed_at = NOW()`.
-4. On failure: UPDATE `retry_count = retry_count + 1, next_retry_at = NOW() + (INTERVAL '1 minute' * POWER(2, retry_count)), last_error = $error_message`.
-5. When `retry_count >= max_retries`, move to a permanent-failure state: `status = 'dead'`, emit a `system_alerts` row.
-
----
-
-### Fix 33 · API-HEADERS-01 — Add Retry-After and X-RateLimit-* headers to 429 responses
-
-**Files to change:** `apps/web/lib/security/rateLimit.ts`
-
-**Steps:**
-1. The Lua script already returns the current count and the key TTL (or compute `windowMs - elapsed`).
-2. On rate-limit breach, set response headers before returning 429:
-   - `Retry-After: <seconds until window resets>`
-   - `X-RateLimit-Limit: <limit>`
-   - `X-RateLimit-Remaining: 0`
-   - `X-RateLimit-Reset: <unix epoch of window reset>`
-3. Confirm Expo client and any web fetch wrappers read `Retry-After` and honour it before retrying.
-
----
-
-## P2 — Medium Priority (continued: architectural improvements)
-
-### Fix 34 · DB-TIMEOUT-01 — Set statement_timeout on database connections
-
-**Files to change:** `apps/web/lib/db/index.ts`
-
-**Steps:**
-1. In the connection config, add `options: '--statement-timeout=30000'` (30 s) to the connection string, or execute `SET statement_timeout = 30000` immediately after acquiring a connection.
-2. For the CRON route handler (which legitimately runs longer operations), create a separate DB client instance with a higher timeout (e.g. 120 s) or run each step with `SET LOCAL statement_timeout = 120000` inside a transaction.
-3. Add error handling for `57014 query_canceled` errors so they surface as clean log entries rather than unhandled promise rejections.
-
----
-
-### Fix 35 · SCHEMA-STAR-01 — Change star_ledger.amount from integer to bigint
-
-**Files to change:**
-- `apps/web/lib/db/schema.ts` (starLedger)
-- Migration file
-
-**Steps:**
-1. Change `amount: integer("amount")` to `amount: bigint("amount", { mode: "number" })` in the `starLedger` schema definition.
-2. Generate migration: `ALTER TABLE star_ledger ALTER COLUMN amount TYPE BIGINT`.
-3. Verify no application code casts the column to int32 after reading (JavaScript numbers handle up to 2^53 safely).
-
----
-
-### Fix 36 · DB-INDEX-01 — Add index on creator_payouts(status, next_retry_at)
-
-**Files to change:**
-- `apps/web/lib/db/schema.ts` (creatorPayouts)
-- Migration file
-
-**Steps:**
-1. Add Drizzle index definition:
-   `index('idx_creator_payouts_retry').on(t.nextRetryAt).where(sql\`status IN ('pending', 'processing')\`)`
-2. Generate migration: `CREATE INDEX idx_creator_payouts_retry ON creator_payouts (next_retry_at) WHERE status IN ('pending', 'processing')`.
-3. Confirm query in `processPendingPayouts` can use the index (run EXPLAIN ANALYZE in staging).
-
----
-
-### Fix 37 · ARCH-CONTRACT-01 — Define shared Zod API schemas in shared/
-
-**Files to change:**
-- `shared/schemas/api/` (new directory and files — one schema file per API domain)
-- `apps/web/app/api/**` (import shared schemas for input validation)
-- `apps/expo/lib/api/client.ts` and type definitions (import shared schemas for response parsing)
-
-**Steps:**
-1. Create `shared/schemas/api/auth.ts`, `coins.ts`, `creator.ts`, `notifications.ts`, etc., each exporting Zod request and response schemas.
-2. In web route handlers, replace inline type assertions with `schema.safeParse(req.body)` at request entry.
-3. In Expo API calls, wrap responses with `schema.safeParse(data)` and surface validation errors rather than casting.
-4. Add `tsc --noEmit` check in CI that validates both apps can import the shared schemas without errors.
-
----
-
-### Fix 38 · OBS-TRACE-01 — Add request/correlation ID threading
-
-**Files to change:**
-- `apps/web/middleware.ts`
-- `apps/web/lib/` (service layer functions — add optional `requestId` parameter or use AsyncLocalStorage)
-
-**Steps:**
-1. In middleware, generate `const requestId = crypto.randomUUID()` and set `X-Request-ID: ${requestId}` on the response and as a forwarded request header.
-2. In each API route handler, read `request.headers.get('x-request-id')` and pass it to service layer calls.
-3. Include `requestId` in every `console.error` / logging call at the service layer.
-4. For full observability, use Node.js `AsyncLocalStorage` to store the request ID context so it's accessible without threading the parameter manually through every function.
-
----
-
-## P3 — Low / Maintainability (continued)
-
-### Fix 39 · PERF-CRON-01 — Parallelise independent CRON steps with Promise.allSettled
-
-**Files to change:** `apps/web/app/api/cron/daily/route.ts`
-
-**Steps:**
-1. After extracting each step into a named async function (Fix 25), categorise steps by dependency.
-2. Group truly independent steps (e.g. streak update, leaderboard recalc, moderation digest, sticker unlock) into `Promise.allSettled` batches.
-3. Steps that write to shared tables (users, coin_ledger) must stay sequential unless each operates on a disjoint set of rows.
-4. Measure wall-clock time before and after to confirm improvement; add timing metrics to the CRON response object.
-
----
-
-## Execution Order Recommendation
-
-Work in this sequence to minimise risk:
-
-1. **P0 fixes first** (Fixes 1–3) — these are production-critical financial bugs.
-2. **Fix 2 (EXPO-AUTH-01)** in parallel with Fix 1 — independent change.
-3. **Fix 5 (CRON idempotency)** before any CRON is next run.
-4. **Fix 30 + Fix 31 (HSTS + CSP)** — zero-risk header additions, deploy in next release.
-5. **Fixes 4, 6, 7, 8, 9, 10, 11, 12** — P1 batch, can be done in a single PR.
-6. **Fixes 28, 29, 32, 33** — P1 architectural batch (auth dedup, push receipts, webhook retry, rate-limit headers).
-7. **Fixes 13–24** — P2 bug batch, schedule for next sprint.
-8. **Fixes 34–38** — P2 architectural batch (DB timeouts, star ledger type, DB index, Zod contracts, tracing).
-9. **Fixes 25–27, 39** — P3 cleanup, merge with next cleanup PR.
-
-Each fix should be accompanied by at minimum a unit test covering the corrected behaviour and a regression test for the previously broken case.
-
----
-
-*Plan generated: Monday, June 15, 2026 11:31 PM UTC*  
-*Updated: Monday, June 16, 2026 (Fixes 28–39 added for 9.5+ quality target)*
+*Fix plan generated: June 16, 2026 — 02:26 AM UTC*  
+*Based on: custom-bugs-report.md (same session)*  
+*Repository: nero1/zobia*

@@ -1,63 +1,54 @@
 # Zobia Codebase — Forensic Bug Report
 
-**Generated:** Monday, June 15, 2026 11:31 PM UTC  
-**Scope:** Full monorepo — `apps/web` (Next.js), `apps/expo` (React Native/Android), `shared/`  
-**Methodology:** Source-level static analysis. All files read directly; no existing bug reports consulted.
+**Date:** June 16, 2026  
+**Time:** 02:26 AM UTC  
+**Scope:** Full forensic analysis — web app (`apps/web`), PWA (`apps/web/public/sw.js`), and Expo mobile Android app (`apps/expo`)  
+**Analyst:** Claude Code — direct file-by-file review, no agents, no sub-agents
 
 ---
 
-## Current Code Quality Rating: **6.5 / 10**
+## Code Quality Rating — Current State
 
-The codebase is architecturally ambitious and shows deliberate design in areas like atomic Lua rate limiting, CTE-based XP idempotency, circuit-breaker patterns, AES-256-GCM field encryption, and dead-letter queues. The security posture is above average (CSRF middleware, header stripping, timing-safe comparisons, HMAC webhook verification). However, a cluster of data-integrity issues in the CRON subsystem, residual schema inconsistencies from rapid iteration, and several high-impact logic errors bring the rating down.
+**Overall: 6.5 / 10**
 
-**Expected rating after all 40 fixes (28 bugs + 12 architectural improvements): 9.5 / 10**
+The architecture is genuinely strong in all the places that matter for a production social platform. The team has done the right things: atomic Lua sliding-window rate limiting, `kid`-based JWT key rotation, HMAC-SHA512/256 webhook verification on both providers, `SELECT FOR UPDATE` locking on the coin ledger, CTE-based atomic XP awards with a DLQ, SSRF DNS pinning, per-request CSP nonces in Edge Middleware, AES-256-GCM field-level encryption with a scrypt KDF, Decimal.js for all financial arithmetic, two-stage Expo push delivery with receipt polling, and thorough Zod validation at every boundary. None of these are beginner decisions.
 
-*Closing the gap from 8.5 to 9.5 requires: web-side refresh deduplication, full Expo push receipt polling, HSTS + CSP hardening, webhook retry automation, rate-limit response headers, DB statement timeouts, star ledger type correction, missing DB index, shared API contracts, request tracing, and CRON parallelism.*
+What brings the score down is a cluster of critical and high bugs concentrated in two layers: the payment webhook integration and the DM messaging route. Two of them — the CSRF block on all payment webhooks and the group-chat XP unique constraint violation — would cause silent production failures that are extremely difficult to diagnose from logs alone. Several others in the DM route create real financial risk (double-spend on gift retry, stale coin balances in the audit ledger, non-atomic XP writes). The medium and low issues are real but cosmetic or performance-only by comparison.
+
+**Projected rating after all fixes: 8.5 / 10**
+
+The underlying architecture needs no structural rework. Every fix listed below is a targeted change to existing logic. Applying them brings an already solid codebase up to consistent production-grade quality across all layers.
 
 ---
 
-## Bug / Issue Index (one-line descriptions)
+## Complete Bug List (One-Line Summaries)
 
-1. EXPO-AUTH-01: Expo cold-start token refresh blocked by CSRF check — missing Origin header in fetch()
-2. DODO-PLAN-01: DodoPayments webhook accepts unvalidated planName from metadata — plan injection risk
-3. CRON-PAYOUT-01: Weekly payout INSERT omits required NOT NULL columns (amount_kobo, provider) — always throws
-4. CRON-PAYOUT-02: Weekly payout CRON never deducts available_earnings_kobo — double-payout the following week
-5. SW-API-01: Service worker precaches server-side API route JS chunks — useless on client, wastes storage
-6. SW-ADMIN-01: Service worker precaches admin page JS bundles — admin UI code cached on every PWA user's device
-7. XP-STREAK-01: getDailyMessageStreakXP off-by-one — day 7 earns tier-0 XP instead of advancing to tier 1
-8. CRON-STREAK-01: Daily CRON updates login_streak_days but never touches login_streak column
-9. CRON-STREAK-02: Streak query uses last_login_at::date unindexed cast instead of indexed last_login_date column
-10. SCHEMA-STREAK-01: longest_streak not updated when a streak resets — persists stale record forever
-11. CRON-COIN-01: Comeback-coin expiry step silently swallows INSUFFICIENT_BALANCE — reversals fail invisibly
-12. CRON-IDEMPOTENCY-01: Daily CRON has no run-guard — non-idempotent steps run multiple times on duplicate triggers
-13. SCHEMA-DM-01: dm_conversations unique index has no enforced pair-ordering — duplicate conversation rows possible
-14. SCHEMA-BANK-01: creator_bank_accounts.creator_id is unique-per-row but CRON queries is_primary — schema contradicts multi-account design
-15. SCHEMA-XP-01: x_manifest.value typed as jsonb but manifest loader treats it as plain text — parseBool/parseInt break
-16. SCHEMA-SEASON-01: Duplicate season-pass and milestone-claim tables with overlapping purposes
-17. ECONOMY-TRANSFER-01: transferCoins() with no idempotencyRef generates Date.now() key — network retry double-transfers
-18. CRON-MONTHLY-01: Monthly plan coin-bonus CTE uses ON CONFLICT on a non-existent unique constraint
-19. CRON-TIER-01: Creator tier update counter increments unconditionally — reports false update counts
-20. CRON-ALLIANCE-01: Alliance war re-insertion uses ON CONFLICT DO NOTHING with no matching unique constraint
-21. CRON-ORDER-01: CRON step numbers are out of order (step 10 after 14, 32 after 32b)
-22. CRON-GUILD-01: Guild tier promotion and demotion use two separate hardcoded maps — diverge when tiers added
-23. REDIS-RL-01: Global rate limit EXPIRE is hardcoded to 60 s regardless of endpoint window
-24. SESSION-EVICT-01: Session eviction uses multiple non-atomic Redis calls — race leaves orphaned sorted-set entries
-25. SW-STALE-01: StaleWhileRevalidate on /api/users/me and /api/creator/wallet — shared-device users may see each other's data
-26. EXPO-AUTH-02: purchaseCoins/purchaseSubscription packageName param unused by global listener — silently ignored
-27. CRON-DIGEST-01: Moderation digest counts open/escalated only within new-report WHERE filter — metric is misleading
-28. CRON-NEMESIS-01: Nemesis overtake query filters on assignment created_at not overtake date — most users never notified
-29. WEB-AUTH-01: Web-side JWT refresh has no concurrent-refresh deduplication lock — parallel expiry causes double refresh
-30. PUSH-RECEIPT-01: Expo push second-stage receipt polling not implemented — delivery failures never detected
-31. SEC-HSTS-01: No Strict-Transport-Security header emitted by middleware — HTTP downgrade attacks possible
-32. SEC-CSP-01: Content-Security-Policy missing worker-src directive — service worker origin not explicitly whitelisted
-33. WEBHOOK-RETRY-01: failed_webhooks table has no automated retry engine — failed webhooks stay unprocessed indefinitely
-34. API-HEADERS-01: 429 rate-limit responses return no Retry-After or X-RateLimit-* headers — clients cannot back off correctly
-35. DB-TIMEOUT-01: No statement_timeout set on DB connections — runaway queries can starve the connection pool
-36. SCHEMA-STAR-01: star_ledger.amount is integer not bigint — mismatches balance_before/balance_after which are bigint
-37. DB-INDEX-01: Missing index on creator_payouts(status, next_retry_at) — payout retry queries do full table scans
-38. ARCH-CONTRACT-01: No shared Zod API contracts between web route handlers and Expo API client — type drift is silent
-39. OBS-TRACE-01: No request/correlation ID threaded through the request lifecycle — log correlation is impossible
-40. PERF-CRON-01: CRON steps execute entirely sequentially — independent steps waste wall-clock time
+**CRITICAL**
+1. BUG-01: CSRF middleware blocks all payment provider webhooks — Paystack and DodoPayments receive 403 on every event
+2. BUG-02: TypeScript compile error — required parameter `idempotencyRef` follows optional `txClient` in `transferCoins`
+
+**HIGH**
+3. BUG-03: DodoPayments webhook catch-all returns HTTP 200 for transient errors, permanently suppressing provider retries
+4. BUG-04: DM gift coin transfer bypasses idempotency check, enabling double-spend on network retry
+5. BUG-05: Group chat XP uses static `groupId` as `reference_id`, unique constraint violation blocks all XP after the first message
+6. BUG-06: DM text message XP uses non-atomic two-query pattern instead of `safeAwardXP`, losing XP on any partial failure
+7. BUG-07: DM gift XP uses non-atomic two-query pattern instead of `safeAwardXP`, losing XP on any partial failure
+8. BUG-08: DM coin ledger `balance_before` captured before the transaction opens, recording a stale pre-debit snapshot
+
+**MEDIUM**
+9. BUG-09: Push-receipt `DeviceNotRegistered` handler purges all device tokens for a user, not just the failing one
+10. BUG-10: Service worker `NetworkFirst` caches an opaque 302 redirect for root `/` as a fake HTTP 200
+11. BUG-11: Nemesis engine refresh issues one DB transaction per user pair (O(n) sequential), not a single batched upsert
+12. BUG-12: Paystack webhook `subscription.not_renew` event falls through the handler with no action taken
+13. BUG-13: `insertNotification` / `insertNotificationBatch` have no `ON CONFLICT DO NOTHING`, producing duplicates on retry
+14. BUG-14: Leaderboard snapshot `ON CONFLICT` expression in raw SQL may not exactly match the Drizzle-generated index DDL
+
+**LOW**
+15. BUG-15: `CRON_SECRET` is optional in Zod env validation — absence silently returns 401 on every cron endpoint invocation
+16. BUG-16: Creator fund tier-slice math leaks up to 70% of the pool when the eligible creator count is very small
+17. BUG-17: `blockLinks` moderation flag is computed from room rules but never forwarded to `filterPublicContent`
+18. BUG-18: `parseCookies` does not URL-decode values, silently rejecting CSRF state tokens containing encoded characters
+19. BUG-19: Reengagement variant selection uses an ASCII char-code sum modulo, producing an uneven message distribution
 
 ---
 
@@ -65,346 +56,284 @@ The codebase is architecturally ambitious and shows deliberate design in areas l
 
 ---
 
-### 1. EXPO-AUTH-01 — Expo cold-start token refresh blocked by CSRF check
+### BUG-01 — CSRF Middleware Blocks All Payment Webhooks (CRITICAL)
 
-FILES: apps/expo/lib/auth/context.tsx (lines 122–128)
+**Severity:** CRITICAL — all Paystack and DodoPayments payment events are permanently dropped; no coins are credited, no plans activated, no payouts confirmed.
 
-FIX: The cold-start silent refresh in AuthProvider uses a raw fetch() call instead of the shared apiClient. The apiClient explicitly sets Origin: env.API_BASE_URL in its default headers, satisfying the server-side CSRF check in middleware.ts. The bare fetch() sends no Origin header, so isCsrfSafe() returns false, the POST is rejected 403 CSRF_ORIGIN_MISMATCH, and every user who opens the app with an expired token is force-logged out instead of silently refreshed. Add 'Origin': env.API_BASE_URL to the headers object on that fetch() call, or refactor the cold-start refresh to reuse the refreshAccessToken function already defined in apps/expo/lib/api/client.ts.
-
----
-
-### 2. DODO-PLAN-01 — DodoPayments webhook accepts unvalidated planName from metadata
-
-FILES: apps/web/app/api/economy/webhooks/dodopayments/route.ts
-
-FIX: The Paystack webhook handler derives the subscription plan safely from the provider's plan.name field using keyword matching (pro/plus/max). The DodoPayments handler reads metadata.planName ?? "pro" verbatim. A tampered or misconfigured payload could set planName to any arbitrary string, granting an unrecognised plan tier to a user. Apply the same keyword-based plan derivation used in the Paystack handler: check the value against known keywords and reject or flag unknown values rather than passing them through unchecked.
-
----
-
-### 3. CRON-PAYOUT-01 — Weekly payout INSERT missing NOT NULL columns
+The middleware's `isCsrfSafe()` function returns `false` for any state-mutating request that arrives without an `Origin` header, with the only exception being `/api/cron/` paths that also carry the correct `x-cron-secret` value. Payment provider webhooks are server-to-server POST requests and never include an `Origin` header. Neither `/api/economy/webhooks/paystack` nor `/api/economy/webhooks/dodopayments` appears in `PUBLIC_PREFIXES`. The CSRF guard fires before any route handler is reached, and every incoming webhook receives a `403 CSRF_ORIGIN_MISMATCH` response. This is a complete payment processing outage that is invisible without watching for 403s on webhook paths.
 
 FILES:
-- apps/web/app/api/cron/daily/route.ts (step 32, weekly payout INSERT ~line 2288)
-- apps/web/lib/db/schema.ts (creatorPayouts table)
+- `apps/web/middleware.ts`
 
-FIX: The creatorPayouts schema declares amount_kobo BIGINT NOT NULL and provider TEXT NOT NULL with no database defaults. The CRON INSERT at step 32 lists columns (creator_id, net_kobo, gross_kobo, platform_fee_kobo, status, idempotency_key, bank_account_snapshot, created_at) and omits both. Every Friday this INSERT throws a NOT NULL constraint violation and the per-creator catch block swallows it silently — zero payouts are ever initiated. Add amount_kobo (use grossKobo value) and provider ('paystack' or read from manifest) to both the column list and the VALUES clause.
-
----
-
-### 4. CRON-PAYOUT-02 — Weekly payout CRON never deducts available_earnings_kobo
-
-FILES: apps/web/app/api/cron/daily/route.ts (step 32)
-
-FIX: After inserting the creator_payouts row, the CRON does not decrement users.available_earnings_kobo. The eligibility query filters `status IN ('awaiting_approval', 'processing')` to avoid duplicate payouts within the same CRON run, but once the payout completes and that status moves to 'completed', the user's balance is unchanged. The next week's CRON sees the full original balance and initiates a second payout. Inside the transaction that creates the payout row, add UPDATE users SET available_earnings_kobo = available_earnings_kobo - $gross, updated_at = NOW() WHERE id = $creator_id. Restore the balance only if the payout is permanently abandoned in the DLQ.
+FIX: Add `/api/economy/webhooks/paystack` and `/api/economy/webhooks/dodopayments` to the `PUBLIC_PREFIXES` array. These routes perform their own authentication via HMAC-SHA512/256 signature verification inside the handler, so skipping JWT/CSRF at the middleware layer is correct and safe. No other changes are required — the route handlers already reject requests with invalid or missing signatures.
 
 ---
 
-### 5. SW-API-01 — Service worker precaches server-side API route JS chunks
+### BUG-02 — TypeScript Compile Error in `transferCoins` Signature (CRITICAL)
 
-FILES: apps/web/public/sw.js
+**Severity:** CRITICAL — TypeScript TS2016 error; the function signature is invalid. All callers either fail type checking or work around it incorrectly, which undermines idempotency.
 
-FIX: The Workbox precache manifest includes all /_next/static/chunks/app/api/** entries. These are Next.js server-component/route-handler JS bundles that execute only on the server and are never run by the browser. Precaching them wastes client storage (can be multiple MB) and bandwidth. Update the Workbox build config (next.config.js or a dedicated workbox-config.js) to exclude app/api/** from the precache glob patterns, e.g. add '!/_next/static/chunks/app/api/**' to the exclusions.
-
----
-
-### 6. SW-ADMIN-01 — Service worker precaches admin page JS bundles
-
-FILES: apps/web/public/sw.js
-
-FIX: Admin page chunks (/_next/static/chunks/app/admin/**) appear in the precache manifest and are downloaded and stored on the device of every PWA user, regardless of their admin status. This leaks admin UI code (endpoint names, field names, UI flows) to all users' devices. Exclude app/admin/** from the Workbox precache glob patterns. Admin pages should never be cached offline since they always require live server access.
-
----
-
-### 7. XP-STREAK-01 — getDailyMessageStreakXP off-by-one in tier calculation
-
-FILES: apps/web/lib/xp/engine.ts (getDailyMessageStreakXP function)
-
-FIX: The formula tier = Math.floor((day - 1) / 7) computes tier 0 for days 1–7 and tier 1 for days 8–14. The milestone advertised to users is every 7 days, so day 7 should be the first day of tier 1. The formula should be Math.floor(day / 7) so days 1–6 are tier 0 and day 7 is tier 1. Confirm the exact breakpoints against the PRD and adjust accordingly. As written, every tier milestone is one day late.
-
----
-
-### 8. CRON-STREAK-01 — CRON updates login_streak_days but leaves login_streak stale
+The `transferCoins` function places `txClient?: TransactionClient` (optional) before `idempotencyRef: string` (required). TypeScript prohibits required parameters from following optional ones and emits TS2016. In practice every call site must either always provide a `txClient` (even when one is not needed) or must cast/ignore types to supply `idempotencyRef` at all. Either workaround means `idempotencyRef` is likely being passed incorrectly or omitted, which removes the partial-unique-constraint protection from the coin ledger for gift transfers.
 
 FILES:
-- apps/web/app/api/cron/daily/route.ts (step 2 — streak increment UPDATE)
-- apps/web/lib/db/schema.ts (users table, both columns)
+- `apps/web/lib/economy/coins.ts`
 
-FIX: The streak-increment UPDATE sets login_streak_days = login_streak_days + 1 but never touches login_streak. Any code path that reads users.login_streak for display, XP multiplier lookups, or badge awards will see a perpetually stale value (whatever was last written by an older code path). Either consolidate on one column (migrate all references to login_streak_days and drop login_streak), or update both columns in the same UPDATE statement.
-
----
-
-### 9. CRON-STREAK-02 — Streak query casts timestamp to date, bypassing index
-
-FILES: apps/web/app/api/cron/daily/route.ts (step 2 — eligibility WHERE clause)
-
-FIX: The streak eligibility filter is WHERE last_login_at::date = CURRENT_DATE - 1. Casting last_login_at to date prevents PostgreSQL from using any index on that column, resulting in a sequential scan of the users table. The schema has a dedicated last_login_date DATE column intended for exactly this. Replacing the condition with WHERE last_login_date = CURRENT_DATE - 1 allows use of a B-tree index and will scale orders of magnitude better as user count grows.
+FIX: Reorder the parameters so `idempotencyRef: string` comes before `txClient?: TransactionClient`. Audit every call site to confirm arguments are passed in the corrected order. If any call site legitimately needs `txClient` but not a unique ref, make `idempotencyRef` optional too (defaulting to `null`), consistent with `debitCoins` and `creditCoins`.
 
 ---
 
-### 10. SCHEMA-STREAK-01 — longest_streak not updated before streak reset
+### BUG-03 — DodoPayments Webhook Returns 200 for All Errors (HIGH)
 
-FILES: apps/web/app/api/cron/daily/route.ts (step 2 — streak-reset branch)
+**Severity:** HIGH — any processing failure on a DodoPayments event is silently acknowledged as success; the event is never retried and its effects are permanently lost.
 
-FIX: The streak-reset UPDATE zeroes login_streak_days without first checking whether the current streak exceeds longest_streak. A user who breaks their personal record then misses a day will never see their new record reflected. Before the reset, add: UPDATE users SET longest_streak = GREATEST(COALESCE(longest_streak, 0), login_streak_days) WHERE id = ANY($missed_users), or fold it into the reset UPDATE as: SET login_streak_days = 0, longest_streak = GREATEST(COALESCE(longest_streak, 0), login_streak_days).
-
----
-
-### 11. CRON-COIN-01 — Comeback-coin expiry swallows INSUFFICIENT_BALANCE silently
-
-FILES: apps/web/app/api/cron/daily/route.ts (step 22 — comeback coin expiry)
-
-FIX: When a user received comeback coins and subsequently spent them before expiry, debitCoins() throws INSUFFICIENT_BALANCE. The catch block swallows every error identically — the user keeps coins they shouldn't and no alert is emitted. In the catch block, check if error.code === 'INSUFFICIENT_BALANCE': if so, log it as expected and mark the expiry as processed (so the CRON doesn't retry it tomorrow). For all other errors, insert a system_alerts row so the ops team can investigate actual DB failures.
-
----
-
-### 12. CRON-IDEMPOTENCY-01 — Daily CRON has no run-guard against duplicate invocations
+The DodoPayments webhook route wraps all processing in a try/catch that returns `NextResponse.json({ received: true }, { status: 200 })` from the catch branch regardless of what threw. HTTP 200 tells DodoPayments the event was processed successfully and no retry is needed. A transient DB error, Redis timeout, or unexpected exception causes the event to be swallowed: the coin credit, plan activation, or purchase confirmation never happens, and no DLQ entry is created. The Paystack webhook handler correctly returns 500 for unexpected errors; DodoPayments does not.
 
 FILES:
-- apps/web/app/api/cron/daily/route.ts
-- apps/web/lib/db/schema.ts (cronState table defined but unused by daily handler)
+- `apps/web/app/api/economy/webhooks/dodopayments/route.ts`
 
-FIX: The schema exports a cronState table but the daily CRON handler never writes to it. If the external CRON service fires twice the same day (misconfiguration, retry), non-idempotent steps execute twice: guild tier promotions/demotions, annual event cloning, Master Teacher awards, weekly Alliance War pairings, moderation digest emails, etc. At the very start of the handler, attempt an atomic INSERT INTO cron_state (key, last_run_at) VALUES ('daily', NOW()) ON CONFLICT (key) DO UPDATE SET last_run_at = NOW() WHERE last_run_at < NOW()::date RETURNING key. If no rows returned, another run already completed today — return 200 immediately.
-
----
-
-### 13. SCHEMA-DM-01 — dm_conversations lacks enforced canonical pair ordering
-
-FILES: apps/web/lib/db/schema.ts (dmConversations table and unique index)
-
-FIX: The unique index is on (user_id_1, user_id_2) but there is no CHECK constraint enforcing user_id_1 < user_id_2. If any code path inserts a DM conversation without sorting the pair, two rows are created for the same pair of users and messages are silently split between them. Add a CHECK constraint: CHECK (user_id_1 < user_id_2). Audit all INSERT paths to ensure they sort the pair as [min(a, b), max(a, b)] before inserting.
+FIX: In the catch block, distinguish known idempotency conflicts (which should return 200 to prevent infinite retries on already-processed events) from unexpected processing failures (which must return 500 or 503 so DodoPayments retries delivery). Add structured logging with the full error and event type. A known-idempotency catch should be explicit — check for Postgres unique-violation error code `23505` specifically, and return 200 only for that case.
 
 ---
 
-### 14. SCHEMA-BANK-01 — creator_bank_accounts unique-per-creator contradicts multi-account query pattern
+### BUG-04 — DM Gift Bypasses Idempotency Key (HIGH)
+
+**Severity:** HIGH — a network retry on a DM gift send can debit the sender twice and credit the recipient twice with no constraint to prevent it.
+
+The DM route handler calls `handleDMGift()` and returns its result before reaching the idempotency Redis check that guards the rest of the handler. The gift flow calls both `debitCoins` and `creditCoins` with `null` as the `referenceId`, meaning neither ledger entry has a constraint key. The partial unique index on `coin_ledger (transactionType, referenceId) WHERE referenceId IS NOT NULL` provides no protection when `referenceId` is null. If a client retries after a 5xx response or network timeout, the full gift is duplicated: coins deducted again from the sender, added again to the recipient.
 
 FILES:
-- apps/web/lib/db/schema.ts (creatorBankAccounts — .unique() on creatorId)
-- apps/web/app/api/cron/daily/route.ts (step 32 — WHERE is_primary = TRUE AND deleted_at IS NULL)
-- apps/web/lib/payments/payouts.ts
+- `apps/web/app/api/messages/dm/route.ts`
 
-FIX: The Drizzle schema adds a unique constraint on creator_id, so a creator can only ever have one bank account row in the database. However, payout and CRON logic queries for is_primary = TRUE AND deleted_at IS NULL, which implies the system was designed to support multiple accounts per creator with one marked as primary and soft-deletable. These two contracts are mutually exclusive. Decide on the correct model: if multiple accounts are needed, drop the unique constraint and add a partial unique index on (creator_id) WHERE is_primary = TRUE AND deleted_at IS NULL; if only one account is needed, remove is_primary and deleted_at.
+FIX: Generate a stable idempotency key per gift attempt (e.g., `dm_gift:${conversationId}:${senderId}:${clientMessageId}`) and pass it as `referenceId` to both `debitCoins` and `creditCoins`. Move the `handleDMGift()` call to after the idempotency Redis check, not before it, so the key prevents duplicate execution on retry.
 
 ---
 
-### 15. SCHEMA-XP-01 — x_manifest.value typed as jsonb but used as plain text strings
+### BUG-05 — Group Chat XP Constraint Violation Blocks All XP After First Message (HIGH)
+
+**Severity:** HIGH — after a user's first message in any group room, every subsequent message they send in that room silently fails to award XP.
+
+The group message route inserts an `xp_ledger` row with `source = 'group_message'` and `reference_id = groupId`. The `xp_ledger` partial unique index covers `(user_id, source, reference_id) WHERE reference_id IS NOT NULL`. On the user's second message in the same group, the INSERT hits the constraint on `(userId, 'group_message', groupId)` — already inserted — and the entire XP transaction rolls back. The route does not catch this specific error code, so the failure is swallowed silently. This affects every user in every group room on every message after their first, and creates no DLQ entry.
 
 FILES:
-- apps/web/lib/db/schema.ts (xManifest table — value: jsonb("value"))
-- apps/web/lib/manifest/index.ts (parseBool, parseInt10 helpers)
+- `apps/web/app/api/messages/group/[groupId]/route.ts`
+- `apps/web/lib/db/schema.ts`
 
-FIX: The manifest loader does SELECT key, value FROM x_manifest and passes each value to parseBool() (checks === "true") and parseInt10() (calls parseInt(v, 10)). PostgreSQL returns jsonb string values with surrounding quotes (e.g. the jsonb string true is returned as the JSON literal true without quotes, but the jsonb string "hello" is returned as "hello" with quotes). This causes parseBool("true") to match correctly for jsonb boolean literals but break for jsonb string values like "true". Change the column type to text (more appropriate since all manifest values are scalar strings), align the migration, and update any existing jsonb-typed rows.
-
----
-
-### 16. SCHEMA-SEASON-01 — Duplicate season-pass and milestone-claim table pairs
-
-FILES: apps/web/lib/db/schema.ts (seasonPasses, userSeasonPasses, userSeasonPassClaims, userSeasonMilestoneClaims)
-
-FIX: The schema defines two tables that appear to serve overlapping purposes: season_passes (template-like) and user_season_passes (ownership-like), plus user_season_pass_claims and user_season_milestone_claims. seasonEngine.ts resets user_season_passes; other code appears to use user_season_pass_claims. This creates ambiguity about the authoritative table for each concept, making it easy to write a query against the wrong one. Conduct an audit of every read and write to all four tables, identify the canonical table for each concept, migrate data from the redundant tables, and remove the unused ones with a clear migration comment.
+FIX: Use a per-message unique reference instead of the group ID. Replace `reference_id = groupId` with a per-message key such as `group_msg:${messageId}` or simply the `messageId` UUID. This preserves idempotency (retry-safe per message) while allowing each new message to earn XP. Migrate the XP insert to use `safeAwardXP` with the per-message reference so any failure falls to the DLQ instead of rolling back silently.
 
 ---
 
-### 17. ECONOMY-TRANSFER-01 — transferCoins() default idempotency key is not retry-safe
+### BUG-06 — DM Text XP Award Non-Atomic (HIGH)
 
-FILES: apps/web/lib/economy/coins.ts (transferCoins function)
+**Severity:** HIGH — a failure between the two XP queries permanently loses the XP and prevents any future retry via the DLQ.
 
-FIX: When called without an idempotencyRef, the function generates transfer:${from}:${to}:${amount}:${Date.now()}. A network timeout followed by a client retry generates a different Date.now() value, bypasses the duplicate-detection partial index on coin_ledger, and executes a second transfer. All callers in API route handlers must supply a stable, request-scoped idempotency key (e.g. derived from the gift ID, payment reference, or a UUID generated at request entry and stored in the request body). Consider making idempotencyRef a required parameter at the TypeScript level to prevent accidental omission.
-
----
-
-### 18. CRON-MONTHLY-01 — Monthly plan bonus CTE references a non-existent unique constraint
-
-FILES: apps/web/app/api/cron/daily/route.ts (monthly plan coin-bonus step)
-
-FIX: The monthly plan coin-bonus INSERT uses ON CONFLICT (transaction_type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING. The coin_ledger table has no unique index on (transaction_type, reference_id) — that clause is from a different table. PostgreSQL will throw "there is no unique or exclusion constraint matching the ON CONFLICT specification" and the monthly bonus fails for all users every month. Either add the missing partial unique index on coin_ledger (transaction_type, reference_id) WHERE reference_id IS NOT NULL, or change the ON CONFLICT clause to match an existing unique index such as a (user_id, source, reference_id) partial index.
-
----
-
-### 19. CRON-TIER-01 — Creator tier update counter over-counts unchanged tiers
-
-FILES: apps/web/app/api/cron/daily/route.ts (step 28 — creator tier progression)
-
-FIX: tierUpdates++ is called unconditionally for every creator in the loop, even when the UPDATE's WHERE COALESCE(creator_tier, 'rookie') != $1 condition matches zero rows (i.e. the tier is unchanged). The reported metric results.creatorTierUpdates.updated equals the total number of creators with active rooms rather than the actual number of tier changes, rendering it useless for monitoring. Add RETURNING id to the UPDATE and increment tierUpdates only when rows.length > 0, or use the rowcount from pg's commandResult.
-
----
-
-### 20. CRON-ALLIANCE-01 — Alliance war re-insertion ON CONFLICT DO NOTHING has no matching constraint
-
-FILES: apps/web/app/api/cron/daily/route.ts (step 32b — Alliance War weekly re-pairing)
-
-FIX: After resolving a war, the CRON inserts next week's war with INSERT INTO alliance_wars ... ON CONFLICT DO NOTHING. The alliance_wars table has no unique constraint on (alliance_1_id, alliance_2_id) or any column subset that would match, so PostgreSQL's ON CONFLICT DO NOTHING only catches PK conflicts (duplicate UUID). A concurrent or duplicate CRON run inserts multiple active war rows for the same pair. Add a partial unique index on (alliance_1_id, alliance_2_id) WHERE status = 'active' and use ON CONFLICT ON CONSTRAINT <constraint_name> DO NOTHING.
-
----
-
-### 21. CRON-ORDER-01 — CRON step numbers are discontiguous and out of order
-
-FILES: apps/web/app/api/cron/daily/route.ts
-
-FIX: Step comments are not sequential with execution: step 10 (Platform Council invitation) appears in the code after step 14 (leaderboard ripple), and step 32b (Alliance Wars) appears before the labelled step 32 (automated payouts). This is a pure maintainability issue but causes confusion when referencing steps in bug reports, logs, or code reviews. Renumber all steps sequentially in the order they execute, and consider extracting each step into a named async function so the main handler reads as an ordered list of step calls.
-
----
-
-### 22. CRON-GUILD-01 — Guild tier promotion and demotion use separate hardcoded maps
-
-FILES: apps/web/app/api/cron/daily/route.ts (guild tier promotion step and demotion step)
-
-FIX: Two separate objects/maps define guild tier boundaries for promotions and demotions independently. Adding, removing, or renaming a tier requires editing both, and there is no compile-time guarantee they stay in sync. Consolidate into a single ordered array of tier definitions — e.g. const GUILD_TIERS = [{ name: 'bronze', minXP: 0 }, ...] — and derive both promotion and demotion targets programmatically from the same structure.
-
----
-
-### 23. REDIS-RL-01 — Global rate limit EXPIRE hardcoded to 60 seconds
-
-FILES: apps/web/lib/security/rateLimit.ts (enforceRateLimit, GLOBAL_RATE_LUA script)
-
-FIX: The global endpoint cap Lua script calls redis.call('EXPIRE', KEYS[1], ARGV[1]) where ARGV[1] is always the string "60" (60 seconds). Endpoints with globalLimit that use windowMs longer than 60 000 ms — specifically coinPurchase (1-hour window) and payoutRequest (24-hour window) — will have their global counter reset every 60 seconds rather than over the intended window, making the global cap almost entirely ineffective. Pass Math.round(options.windowMs / 1000).toString() as the TTL argument instead of the hardcoded "60".
-
----
-
-### 24. SESSION-EVICT-01 — Session eviction uses non-atomic Redis calls
-
-FILES: apps/web/lib/auth/session.ts (createSession function — eviction block)
-
-FIX: When the MAX_SESSIONS limit is reached, the code calls redis.del(...evictedKeys) and then separately redis.zremrangebyrank(...) as two independent commands. If the process crashes between them (or Redis connection drops), the sorted set retains entries pointing to deleted session hashes — or vice versa — causing phantom sessions that never expire and waste memory. Wrap both operations in a redis.multi() / .exec() pipeline (or a Lua script) so they execute atomically in a single round-trip.
-
----
-
-### 25. SW-STALE-01 — StaleWhileRevalidate on authenticated profile/wallet endpoints
-
-FILES: apps/web/public/sw.js (StaleWhileRevalidate handler for /api/users/me, /api/creator/wallet)
-
-FIX: The service worker caches /api/users/me and /api/creator/wallet responses for 60 seconds with StaleWhileRevalidate. On a shared device, if user A logs out and user B logs in within 60 seconds, user B briefly sees user A's cached profile and wallet balance. Switch these routes to NetworkOnly, or key the cache entry by session: add a cache key that includes the Authorization header value or a session ID query param so cached responses are never served across session boundaries.
-
----
-
-### 26. EXPO-AUTH-02 — purchaseCoins/purchaseSubscription packageName param silently ignored
-
-FILES: apps/expo/lib/payments/googlePlay.ts (setupGlobalPurchaseListener, purchaseCoins, purchaseSubscription)
-
-FIX: Both purchaseCoins(productId, packageName) and purchaseSubscription(productId, packageName) accept a packageName parameter. However the global purchase listener calls verifyPurchaseServerSide(..., 'com.zobia.app', ...) with a hardcoded literal, making the caller-supplied packageName unreachable. If the package name changes (white-label build, staging environment), all server-side verifications will use the wrong package name. Either remove the parameter and declare a module-level constant, or store the packageName in a module-level variable set by purchaseCoins/purchaseSubscription and read by the listener.
-
----
-
-### 27. CRON-DIGEST-01 — Moderation digest open/escalated counts only cover new reports
-
-FILES: apps/web/app/api/cron/daily/route.ts (step 29 — moderation digest)
-
-FIX: The digest query adds WHERE created_at >= NOW() - INTERVAL '7 days' to the reports table and then counts rows WHERE status = 'open' OR status = 'escalated'. This silently excludes older unresolved reports — a report opened three weeks ago and still unresolved would be invisible in the digest. For a meaningful weekly digest, the open and escalated counts should query the full reports table without the created_at filter: COUNT(*) FILTER (WHERE status = 'open') across all unresolved reports, with the filter applied only to the new-reports-this-week metric.
-
----
-
-### 28. CRON-NEMESIS-01 — Nemesis overtake notification filters on assignment date, not overtake date
-
-FILES: apps/web/app/api/cron/daily/route.ts (step 31 — nemesis notifications)
-
-FIX: The query finds nemesis pairs where nemesis_xp > user_xp AND na.created_at >= NOW() - INTERVAL '24 hours'. The created_at filter is on when the nemesis assignment row was created, not on when the XP overtake actually occurred. Since nemesis assignments persist across weeks, most pairs have created_at well before 24 hours ago and will never satisfy the filter — they never receive notifications. The intended logic is: notify about overtakes that occurred since the last Sunday nemesis refresh. Replace the filter with a nemesis_assignments.last_notified_at IS NULL OR last_notified_at < NOW() - INTERVAL '6 days' condition (add a last_notified_at column to nemesis_assignments), and set it to NOW() after sending notifications for that pair.
-
----
-
-### 29. WEB-AUTH-01 — Web-side JWT refresh has no concurrent-refresh deduplication lock
-
-FILES: apps/web/lib/auth/session.ts or the web API client that calls /api/auth/refresh
-
-FIX: The Expo API client in apps/expo/lib/api/client.ts uses a module-level `refreshPromise` variable to deduplicate concurrent 401 retries — if two requests both get 401 at the same time, only one refresh call is made and both requests await the same promise. The web client (Next.js API route consumers, client-side fetch hooks) has no equivalent guard. On pages that fire several parallel requests when the token is about to expire, multiple simultaneous refresh calls are made, causing refresh token rotation conflicts: the second call arrives with the first rotation's old refresh token, gets a REFRESH_TOKEN_REUSED error, and the user is force-logged out. Add a module-level `refreshPromise: Promise<string> | null` guard to the web auth refresh path identical to the Expo implementation.
-
----
-
-### 30. PUSH-RECEIPT-01 — Expo push notification receipt polling not implemented
-
-FILES: apps/web/lib/notifications/push.ts
-
-FIX: Expo's push notification delivery is a two-stage process. Stage 1: submit notification to Expo's servers and receive push ticket IDs. Stage 2: poll /v2/push/getReceipts with those ticket IDs (after 15+ minutes) to confirm delivery or get permanent failure codes (DeviceNotRegistered, MessageTooBig, etc.). The codebase implements stage 1 only and handles DeviceNotRegistered errors from the ticket response, but never schedules or performs stage 2 receipt polling. Permanent delivery failures from stage 2 (e.g. a token that passes stage 1 but fails delivery) are never detected. Implement a receipt-polling mechanism: store ticket IDs with their notification metadata in a `push_tickets` table, then add a CRON step (or background job) to poll getReceipts after at least 15 minutes and handle errors, including pruning stale device tokens on DeviceNotRegistered.
-
----
-
-### 31. SEC-HSTS-01 — No Strict-Transport-Security header in middleware responses
-
-FILES: apps/web/middleware.ts (withCsp response header builder)
-
-FIX: The middleware sets a Content-Security-Policy nonce header and strips sensitive server headers, but does not add `Strict-Transport-Security`. Without HSTS, browsers will not upgrade HTTP to HTTPS on subsequent visits, leaving users vulnerable to SSL stripping / downgrade attacks. Add `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload` to the response headers in the withCsp (or equivalent) middleware wrapper. Ensure the value is only added when `NODE_ENV === 'production'` or when the request is served over HTTPS.
-
----
-
-### 32. SEC-CSP-01 — Content-Security-Policy missing worker-src directive
-
-FILES: apps/web/middleware.ts (CSP header construction)
-
-FIX: The service worker (sw.js) is served from the same origin and runs as a worker context, but the CSP has no `worker-src` directive. Without it, browsers fall back to `child-src` and then `default-src` for worker permissions. If `default-src` is set to `'self'` the service worker may work, but the intent is not explicit and can break in browsers with strict CSP parsing. Add `worker-src 'self'` explicitly to the CSP header construction. If any CDN-hosted scripts are imported inside the service worker, those origins must also appear in `worker-src`.
-
----
-
-### 33. WEBHOOK-RETRY-01 — failed_webhooks table has no automated retry engine
+The DM route awards XP for text messages with two separate raw SQL queries: `INSERT INTO xp_ledger` then `UPDATE users SET xp_total = xp_total + $amount`. These are not inside a transaction and do not use `safeAwardXP`. If the second query fails, the ledger row exists (blocking re-insertion via the unique constraint) but the user's total is never incremented. The orphaned ledger row prevents the correct retry, the XP is permanently lost, and no DLQ record is created.
 
 FILES:
-- apps/web/lib/db/schema.ts (failedWebhooks table)
-- apps/web/app/api/cron/daily/route.ts (no retry step for failed_webhooks)
+- `apps/web/app/api/messages/dm/route.ts`
 
-FIX: The codebase has a `failed_webhooks` table (schema confirmed) with `next_retry_at`, `retry_count`, and `max_retries` columns, mirroring the pattern of the `failed_xp_awards` DLQ which has a dedicated retry step in the daily CRON. However, the daily CRON handler has no step that reads `failed_webhooks`, re-processes them, and updates their status. Failed webhooks (payment events, subscription events) sit in the table indefinitely and are never re-processed. Add a CRON step that selects rows WHERE `status = 'pending' AND next_retry_at <= NOW() AND retry_count < max_retries`, re-invokes the appropriate webhook handler function, and on success marks the row `status = 'processed'`; on failure increments `retry_count` and sets `next_retry_at` with exponential backoff.
-
----
-
-### 34. API-HEADERS-01 — 429 responses include no Retry-After or rate-limit headers
-
-FILES: apps/web/lib/security/rateLimit.ts (enforceRateLimit — 429 response construction)
-
-FIX: When `enforceRateLimit` determines a request is over the limit, it throws or returns a 429 response with a JSON body but no `Retry-After`, `X-RateLimit-Limit`, `X-RateLimit-Remaining`, or `X-RateLimit-Reset` headers. RFC 6585 requires `Retry-After` on 429 responses, and most HTTP clients and libraries use these headers to implement automatic back-off. Without them, clients that hit the limit either retry immediately (making things worse) or require custom logic to parse the JSON body. Add `Retry-After: <seconds>` set to the window expiry time, and the standard `X-RateLimit-*` headers from values already computed in the Lua script result.
+FIX: Replace the two raw queries with a single `safeAwardXP(userId, amount, 'social', 'dm_text', referenceId)` call, where `referenceId` is a per-message key (e.g., `dm_text:${messageId}`). `safeAwardXP` uses a single CTE to atomically insert the ledger row and update the user total, and writes to `failed_xp_awards` on failure for cron-based retry.
 
 ---
 
-### 35. DB-TIMEOUT-01 — No statement_timeout configured on database connections
+### BUG-07 — DM Gift XP Award Non-Atomic (HIGH)
 
-FILES: apps/web/lib/db/index.ts (DB client initialisation)
+**Severity:** HIGH — same non-atomic two-query pattern as BUG-06 applied to both the sender and recipient XP legs of a DM gift.
 
-FIX: The database client is initialised with no `statement_timeout` parameter. A slow or accidentally unbounded query (e.g. a missing index on a large table, or a CRON step doing a full scan) will hold a connection open indefinitely, consuming a connection pool slot and blocking other requests. In production this causes cascading timeouts as the pool exhausts. Set a reasonable statement timeout at the connection level — e.g. `statement_timeout = 30000` (30 seconds) for application queries, and a separate longer timeout for CRON handlers if needed. For Postgres via `pg`, pass `options: '--statement-timeout=30000'` in the connection string or set it via a `SET` query after connection acquisition.
-
----
-
-### 36. SCHEMA-STAR-01 — star_ledger.amount typed as integer instead of bigint
-
-FILES: apps/web/lib/db/schema.ts (starLedger table)
-
-FIX: The `star_ledger` table defines `amount` as `integer` (32-bit, max ~2.1 billion), while the `balance_before` and `balance_after` columns on the same table are `bigint` (64-bit). A creator accumulating large star balances from high-traffic rooms could theoretically overflow `amount` at ~2.1 billion stars, silently wrapping to a negative value. The inconsistency also makes arithmetic joining `amount` against `balance_before`/`balance_after` require implicit casts. Change `amount` to `bigint` and generate the corresponding `ALTER TABLE star_ledger ALTER COLUMN amount TYPE BIGINT` migration.
-
----
-
-### 37. DB-INDEX-01 — Missing index on creator_payouts(status, next_retry_at)
+`handleDMGift` awards XP to the sender and recipient using raw separate `INSERT INTO xp_ledger` + `UPDATE users` queries outside any transaction. A failure between these queries on either leg leaves the ledger and user table inconsistent with no DLQ fallback. Because the ledger row already exists after the INSERT, a retry cannot re-insert, so the XP award is lost permanently on the leg that failed the UPDATE.
 
 FILES:
-- apps/web/lib/db/schema.ts (creatorPayouts table — indexes defined)
-- apps/web/lib/payments/payouts.ts (processPendingPayouts query)
+- `apps/web/app/api/messages/dm/route.ts`
 
-FIX: The `processPendingPayouts` function queries `creator_payouts` with `WHERE status IN ('pending', 'processing') AND next_retry_at <= NOW()`. The schema defines no index covering both `status` and `next_retry_at`. As the payouts table grows, this query performs a sequential scan every time the payout CRON runs. Add a partial index: `CREATE INDEX idx_creator_payouts_retry ON creator_payouts (next_retry_at) WHERE status IN ('pending', 'processing')`. Add the corresponding Drizzle index definition in the schema.
+FIX: Replace all raw two-query XP patterns inside `handleDMGift` with `safeAwardXP` calls. Use per-gift reference IDs to distinguish sender from recipient (e.g., `dm_gift_sent:${giftId}` and `dm_gift_received:${giftId}`).
 
 ---
 
-### 38. ARCH-CONTRACT-01 — No shared Zod API contracts between web and Expo
+### BUG-08 — DM Coin Ledger `balance_before` TOCTOU (HIGH)
+
+**Severity:** HIGH — the audit ledger records an incorrect pre-debit balance, corrupting the financial audit trail.
+
+The DM route reads `sender.coin_balance` from an initial outer SELECT at the start of the handler, before the transaction that performs the debit is opened. `balance_before` in the `coin_ledger` INSERT is populated from this outer read. Between the outer SELECT and the inner `SELECT FOR UPDATE` inside the transaction, another concurrent operation may change the user's balance (a gift received, a purchase completed). The ledger records a balance that was never the actual balance at the moment of the debit. While `creditCoins`/`debitCoins` use `SELECT FOR UPDATE` to prevent double-spend, the recorded `balance_before` is stale and incorrect.
 
 FILES:
-- apps/web/app/api/** (route handlers — inline type assertions)
-- apps/expo/lib/api/client.ts (response type casts)
-- shared/ (no API schema definitions exist)
+- `apps/web/app/api/messages/dm/route.ts`
+- `apps/web/lib/economy/coins.ts`
 
-FIX: Every Expo API call casts the response with `as SomeType` without runtime validation. When a web route handler changes its response shape (adds, removes, or renames a field), the Expo client silently receives malformed data — TypeScript cannot catch this because the types are defined independently in each app. The `shared/` directory exists but contains no API contract definitions. Define Zod schemas for every request body and response payload in `shared/schemas/api/` and import them in both the web route handler (for `safeParse` input validation) and the Expo client (for response validation). This catches contract breaks at runtime and documents the API boundary explicitly.
+FIX: Read `balance_before` from the locked row inside the transaction, not from the pre-transaction outer query. The `debitCoins` helper already holds the lock; expose the locked `coin_balance` as a return value so the caller can pass it to the ledger INSERT. Alternatively, compute it inside the CTE as part of the single atomic operation: `balance_before = (SELECT coin_balance FROM users WHERE id = $1 FOR UPDATE)`.
 
 ---
 
-### 39. OBS-TRACE-01 — No request/correlation ID threaded through the request lifecycle
+### BUG-09 — Push Token Mass-Deletion on Single `DeviceNotRegistered` Failure (MEDIUM)
+
+**Severity:** MEDIUM — a single expired device token causes all of a user's registered devices to lose push notifications.
+
+When the push-receipt polling job processes Expo receipts and encounters `DeviceNotRegistered`, it queries all push tokens for the associated `user_id` and adds every token to the `staleTokens` deletion set. A user with a phone and a tablet loses both push registrations when only the phone's Expo token has expired. The query is `SELECT token FROM user_push_tokens WHERE user_id = $1` — fetching all tokens for the user, not just the one that produced the failing ticket.
 
 FILES:
-- apps/web/middleware.ts
-- apps/web/app/api/** (all route handlers)
-- apps/web/lib/** (service layer functions)
+- `apps/web/lib/notifications/push.ts`
 
-FIX: No `X-Request-ID` or `X-Correlation-ID` header is generated or propagated through the request lifecycle. When a payment webhook fails or a CRON step errors, the log entries from middleware, route handler, service layer, and database query cannot be correlated into a single trace. Generate a UUID per request in middleware (`const requestId = crypto.randomUUID()`), attach it to the response as `X-Request-ID`, and thread it through all service function calls via a parameter or AsyncLocalStorage context. Include it in every log line and error report so production incidents can be reconstructed from logs.
+FIX: Store the specific token alongside `user_id` in the `push_tickets` table row at ticket creation time, or JOIN `push_tickets` to a token-level table at receipt processing time. When `DeviceNotRegistered` arrives, add only the token associated with that specific ticket to `staleTokens`, not all tokens belonging to the user.
 
 ---
 
-### 40. PERF-CRON-01 — CRON steps run entirely sequentially
+### BUG-10 — Service Worker Caches Opaque Redirect for Root "/" as Fake HTTP 200 (MEDIUM)
 
-FILES: apps/web/app/api/cron/daily/route.ts
+**Severity:** MEDIUM — unauthenticated PWA users can get stuck seeing a blank cached page instead of being redirected to login; the cached fake-200 also masks future authentication redirects.
 
-FIX: The daily CRON handler runs all ~35 steps one after another with `await` in a linear sequence. Many steps are fully independent — for example, the streak update, leaderboard recalculation, moderation digest, and guild tier progression do not share data or transactional state. Grouping independent steps under `await Promise.allSettled([stepA(), stepB(), stepC()])` would reduce total wall-clock time substantially (potentially from 30–60 seconds down to the duration of the single longest independent group). Categorise steps by dependency, form groups of non-conflicting steps, and execute each group with `Promise.allSettled`. Use `allSettled` rather than `Promise.all` so one step failing does not abort the others.
+The service worker uses `NetworkFirst` for the root `/` route. When the Next.js middleware returns a 302 redirect for unauthenticated users (sending them to `/auth/login`), the service worker's fetch event receives an `opaqueredirect` response. Workbox may store this in the cache. On subsequent visits the opaque response is served as a fake HTTP 200, bypassing the auth redirect entirely and rendering a blank shell. This is a well-documented Workbox footgun with `NetworkFirst` on navigations that have server-side auth redirects.
+
+FILES:
+- `apps/web/public/sw.js`
+
+FIX: For the root `/` and all top-level navigation routes, either use `NetworkOnly` (so redirect responses are never cached), or add a response filter that explicitly refuses to cache any response where `response.type === 'opaqueredirect'`. The recommended Workbox pattern for SPA/PWA navigation is `NavigationRoute` with `createHandlerBoundToURL` pointing to the app shell HTML, combined with a client-side auth check after hydration.
 
 ---
 
-*Report generated: Monday, June 15, 2026 11:31 PM UTC*  
-*Updated: Monday, June 16, 2026 (items 29–40 added)*
+### BUG-11 — Nemesis Refresh Runs O(n) Sequential Transactions (MEDIUM)
+
+**Severity:** MEDIUM — the nemesis pair refresh function issues one database transaction per user pair, creating linear DB load that degrades severely at scale.
+
+The nemesis engine iterates over active users and for each pair issues a separate round-trip transaction containing individual SELECTs and INSERT/UPDATEs. At 10,000 active users this creates 10,000 sequential round-trips holding connection pool slots serially. The cron job runs for many minutes and starves other DB operations. This is a performance bug that becomes a reliability bug at moderate user counts.
+
+FILES:
+- `apps/web/lib/nemesis/nemesisEngine.ts`
+
+FIX: Rewrite the refresh as a single batched SQL operation. Collect all intended nemesis assignments into an array, then issue a single `INSERT INTO nemesis_assignments (...) VALUES (unnest($1::uuid[]), ...) ON CONFLICT DO UPDATE` call. The XP comparison and ranking that drives nemesis selection can be expressed as a CTE or subquery, so the entire refresh runs in one or two round-trips instead of one per user.
+
+---
+
+### BUG-12 — Paystack Webhook `subscription.not_renew` Falls Through Unhandled (MEDIUM)
+
+**Severity:** MEDIUM — Paystack subscription cancellation-intent notices are silently ignored; no user record is updated, leaving cancelled subscribers appearing active until natural expiry.
+
+The Paystack webhook handler covers the main subscription event types but the `subscription.not_renew` event (sent when a customer disables auto-renewal) falls through the handler logic with no matching branch. No user subscription flag is set, no notification is sent, and no forthcoming-cancellation record is created. The user appears active until the next billing cycle fails, at which point the app has no prior record of the user's intent to cancel.
+
+FILES:
+- `apps/web/app/api/economy/webhooks/paystack/route.ts`
+
+FIX: Add an explicit handler for `subscription.not_renew` that sets a `cancel_at_period_end = true` flag (or equivalent column) on the user's subscription record. This allows the frontend to display a cancellation banner and downstream logic to correctly handle the upcoming non-renewal without treating it as an unexpected payment failure.
+
+---
+
+### BUG-13 — `insertNotification` Has No Idempotency Guard (MEDIUM)
+
+**Severity:** MEDIUM — duplicate notifications are created whenever the same event fires more than once (cron re-run, concurrent worker, transient error retry).
+
+Both `insertNotification` and `insertNotificationBatch` perform plain `INSERT INTO notifications` with no `reference_id` or `ON CONFLICT DO NOTHING` clause. Any scenario that triggers the same notification twice — a cron retry, a double-fired event webhook, or a race between two concurrent workers — inserts duplicate rows. Users see the same notification appear twice in their feed with no deduplication.
+
+FILES:
+- `apps/web/lib/notifications/insert.ts`
+- `apps/web/lib/db/schema.ts`
+
+FIX: Add a `reference_id` (or `idempotency_key`) column to the `notifications` table with a unique constraint, or a composite unique constraint on `(user_id, type, entity_id)` with a time-window partial index. Change the INSERT statement to `ON CONFLICT (reference_id) DO NOTHING`. All callers must generate a deterministic reference key (e.g., `xp_award:${userId}:${source}:${dateKey}`, `gift_received:${giftId}`).
+
+---
+
+### BUG-14 — Leaderboard `ON CONFLICT` Expression May Not Match Drizzle Index DDL (MEDIUM)
+
+**Severity:** MEDIUM — if the raw SQL `ON CONFLICT` expression does not exactly match the expression Drizzle generates for the unique index, Postgres cannot resolve the conflict target and the upsert will error or insert duplicates.
+
+The leaderboard engine upsert uses `ON CONFLICT (user_id, leaderboard_type, COALESCE(city, ''), COALESCE(season_id::text, ''))` in a raw query. The Drizzle schema defines the index using the same `COALESCE` expressions. Postgres requires the `ON CONFLICT` expression to match the index definition character-for-character (including type cast syntax and whitespace-normalised form). If Drizzle generates `COALESCE(season_id :: text, '')` with different spacing or a different cast syntax, Postgres will not match the conflict target and will raise `ERROR: there is no unique or exclusion constraint matching the ON CONFLICT specification`.
+
+FILES:
+- `apps/web/lib/leaderboards/engine.ts`
+- `apps/web/lib/db/schema.ts`
+
+FIX: Run `\d leaderboard_snapshots` against the live database and compare the actual index expression to the `ON CONFLICT` clause in the application SQL. If they differ, align them exactly. The most robust long-term fix is to add a generated or deterministic surrogate column (e.g., a stable `snapshot_key` VARCHAR populated on insert) and use `ON CONFLICT (snapshot_key)` instead, eliminating fragile expression matching.
+
+---
+
+### BUG-15 — `CRON_SECRET` Optional Silently Blocks All Cron Endpoints (LOW)
+
+**Severity:** LOW — if `CRON_SECRET` is absent from the environment, every cron job returns 401 on every invocation, and no alerting distinguishes this from normal 401s.
+
+The Zod env schema marks `CRON_SECRET` as optional. The `validateCronSecret` helper short-circuits on `process.env.CRON_SECRET && ...` — when the var is undefined, this evaluates to `false` immediately. All cron route handlers then return 401 with a generic unauthorised response. The daily cron silently fails with no error message indicating the root cause, and no monitoring alarm is triggered by a 401 on a cron path.
+
+FILES:
+- `apps/web/lib/env.ts`
+- `apps/web/app/api/cron/daily/route.ts`
+
+FIX: Change `CRON_SECRET` to `z.string().min(32)` (required, minimum entropy) in the Zod env schema so the app fails to start at boot with a clear validation error when the var is missing or too short. Add a boot-time assertion in `validateCronSecret` that throws descriptively when the env var is absent, rather than silently returning false.
+
+---
+
+### BUG-16 — Creator Fund Leaks Pool for Small Creator Cohorts (LOW)
+
+**Severity:** LOW — for very small creator pools (fewer than approximately 10 eligible creators), most of the fund's tier allocations are computed as zero-width slices and never distributed, silently wasting a significant portion of the pool.
+
+The tier-slice calculation uses `Math.floor(percentage * totalCreators)` clamped to `Math.max(1, result)`. For 2 creators and the third tier (20%): `Math.floor(0.20 * 2) = 0`, clamped to 1. All five tiers then resolve to cutoff index 1, producing empty slices for tiers 3, 4, and 5. Their combined 45% of the pool is never distributed. The remainder redistribution step at the end recovers rounding leftovers but not entirely-empty tier slices, so a substantial fraction of the pool is silently discarded in small cohorts.
+
+FILES:
+- `apps/web/lib/creator/fund.ts`
+
+FIX: When `totalCreators` is below a minimum threshold (e.g., fewer than 5), skip the tier structure entirely and distribute the full pool equally among all creators. Alternatively, after computing tier cutoffs, detect empty slices and fold their allocation into adjacent non-empty tiers. Add unit tests with 1, 2, 3, 5, and 10 creators asserting that 100% of the pool is always paid out.
+
+---
+
+### BUG-17 — `blockLinks` Moderation Flag Unused (LOW)
+
+**Severity:** LOW — rooms configured to block link-sharing have no actual enforcement; links pass through the content filter unfiltered.
+
+In the room message POST handler, `blockLinks` is read from the room's moderation rules and assigned to a boolean variable, but the variable is never passed to the `filterPublicContent()` call. The content filter executes without the flag and links are not stripped or rejected even in rooms where the room owner has enabled link blocking.
+
+FILES:
+- `apps/web/app/api/rooms/[roomId]/messages/route.ts`
+
+FIX: Pass `blockLinks` as an options parameter to `filterPublicContent(content, { blockLinks })`. Verify that `filterPublicContent` in the content filter module actually implements a URL-blocking code path when this flag is true; if not, implement that branch in the content filter.
+
+---
+
+### BUG-18 — `parseCookies` Does Not URL-Decode Values (LOW)
+
+**Severity:** LOW — CSRF state tokens containing URL-encoded characters are silently rejected, causing OAuth login failures for a subset of users.
+
+`parseCookies` in `csrf.ts` splits the raw `Cookie` header on `;` and `=` and returns values without applying `decodeURIComponent`. RFC 6265 does not mandate URL-encoding, but many HTTP clients and browsers do encode cookie values containing characters like `+`, `=`, `/`, and `%`. If the CSRF state value is ever transmitted with encoded characters, `validateCsrfState`'s timing-safe comparison will always fail for those users, blocking their OAuth login flow.
+
+FILES:
+- `apps/web/lib/security/csrf.ts`
+
+FIX: Apply `decodeURIComponent` (wrapped in a try/catch for malformed percent sequences) to each cookie value in `parseCookies`. This brings the parser in line with standard cookie handling and prevents encoding-related CSRF validation failures without weakening the timing-safe comparison.
+
+---
+
+### BUG-19 — Reengagement Variant Selector Has Uneven Distribution (LOW)
+
+**Severity:** LOW — some re-engagement message variants are significantly over-represented, and the personalised context variants (guild war, nemesis, season) may rarely appear for large portions of the user population.
+
+The variant index is `userId.split("").reduce((acc, ch) => acc + ch.charCodeAt(0), 0) % messages.length`. UUID characters are hex digits (ASCII 48–57 for `0-9`, ASCII 97–102 for `a-f`) and dashes (ASCII 45). The sum of these values across 36 characters is a value typically in the range 1,600–3,700, which is not uniformly distributed modulo 2, 3, or 4. Certain residues are more probable than others, causing the first variant in each bucket to appear far more frequently than the personalised context variants at higher indices.
+
+FILES:
+- `apps/web/lib/notifications/reengagement.ts`
+
+FIX: Replace the char-code sum with a uniformly distributed hash. The simplest approach is to take the last 4 hex characters of the UUID (which are randomly distributed in v4 UUIDs) and compute `parseInt(userId.slice(-4), 16) % messages.length`. A proper FNV-1a 32-bit hash of the userId string is also correct and gives near-perfect uniformity regardless of UUID version.
+
+---
+
+## Summary
+
+| # | Severity | Short Name |
+|---|----------|------------|
+| 1 | CRITICAL | CSRF blocks payment webhooks |
+| 2 | CRITICAL | TypeScript required-after-optional in `transferCoins` |
+| 3 | HIGH | DodoPayments returns 200 on error |
+| 4 | HIGH | DM gift bypasses idempotency |
+| 5 | HIGH | Group XP `reference_id` constraint violation |
+| 6 | HIGH | DM text XP non-atomic |
+| 7 | HIGH | DM gift XP non-atomic |
+| 8 | HIGH | DM `balance_before` TOCTOU |
+| 9 | MEDIUM | Push token mass-deletion on one failure |
+| 10 | MEDIUM | Service worker caches opaque redirect for "/" |
+| 11 | MEDIUM | Nemesis refresh O(n) transactions |
+| 12 | MEDIUM | Paystack `subscription.not_renew` unhandled |
+| 13 | MEDIUM | `insertNotification` no dedup guard |
+| 14 | MEDIUM | Leaderboard `ON CONFLICT` expression mismatch risk |
+| 15 | LOW | `CRON_SECRET` optional silently blocks crons |
+| 16 | LOW | Creator fund pool leak for small cohorts |
+| 17 | LOW | `blockLinks` flag computed but unused |
+| 18 | LOW | `parseCookies` no URL-decode |
+| 19 | LOW | Reengagement uneven variant distribution |
+
+---
+
+*Report generated: June 16, 2026 — 02:26 AM UTC*  
+*Analyst: Claude Code*  
+*Repository: nero1/zobia*
