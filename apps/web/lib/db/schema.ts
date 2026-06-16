@@ -28,6 +28,7 @@ import {
   uniqueIndex,
   index,
   primaryKey,
+  check,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -2459,6 +2460,11 @@ export const referrals = pgTable(
     unique: uniqueIndex("referrals_referrer_referred_idx").on(
       t.referrerId,
       t.referredId
+    ),
+    // Prevent self-referrals: a user cannot refer themselves.
+    noSelfReferral: check(
+      "referrals_no_self_referral",
+      sql`${t.referrerId} <> ${t.referredId}`
     ),
   })
 );
