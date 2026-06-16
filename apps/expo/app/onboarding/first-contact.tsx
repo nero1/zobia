@@ -179,7 +179,7 @@ export default function FirstContactScreen() {
               scrollEnabled={false}
               renderItem={({ item }) => (
                 <View style={styles.contactRow}>
-                  <Avatar emoji={item.avatarEmoji} size={36} />
+                  <Avatar emoji={item.avatarEmoji} size="sm" />
                   <View style={styles.contactInfo}>
                     <Text style={[styles.contactName, { color: textColor }]}>{item.displayName}</Text>
                     <Text style={[styles.contactUsername, { color: subTextColor }]}>@{item.username}</Text>
@@ -294,7 +294,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   findButton: {
-    backgroundColor: colors.blue[600],
+    backgroundColor: colors.brand.blue,
     borderRadius: 12,
     paddingVertical: 12,
     alignItems: 'center',
@@ -325,13 +325,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   inviteBtn: {
-    backgroundColor: colors.blue[600],
+    backgroundColor: colors.brand.blue,
     borderRadius: 20,
     paddingHorizontal: 14,
     paddingVertical: 6,
   },
   inviteBtnDone: {
-    backgroundColor: colors.teal[500],
+    backgroundColor: colors.semantic.success,
   },
   inviteBtnText: {
     color: '#fff',
@@ -350,7 +350,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   questBtn: {
-    backgroundColor: colors.violet[600] ?? colors.blue[600],
+    backgroundColor: colors.brand.blue,
     borderRadius: 12,
     paddingVertical: 12,
     alignItems: 'center',
@@ -367,7 +367,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   questAcceptedText: {
-    color: colors.teal[600],
+    color: colors.semantic.success,
     fontWeight: '600',
     fontSize: 13,
   },

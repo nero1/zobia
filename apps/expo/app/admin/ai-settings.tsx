@@ -81,9 +81,9 @@ async function testAiConnection(
 
 function CircuitChip({ circuit }: { circuit: CircuitInfo }) {
   const chipColors = {
-    closed: { bg: colors.teal?.[100] ?? '#CCFBF1', text: colors.teal?.[700] ?? '#0F766E' },
-    'half-open': { bg: colors.amber?.[100] ?? '#FEF9C3', text: colors.amber?.[700] ?? '#B45309' },
-    open: { bg: colors.red?.[100] ?? '#FEE2E2', text: colors.red?.[700] ?? '#B91C1C' },
+    closed: { bg: `${colors.semantic.success}18`, text: colors.semantic.success },
+    'half-open': { bg: `${colors.semantic.warning}18`, text: colors.semantic.warning },
+    open: { bg: `${colors.semantic.error}18`, text: colors.semantic.error },
   };
   const style = chipColors[circuit.status];
   const label =

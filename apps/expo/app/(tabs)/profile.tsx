@@ -233,7 +233,7 @@ export default function ProfileScreen() {
       {profile && profile.trackLevels.length > 0 && (
         <View style={styles.trackSection}>
           <Text style={styles.sectionTitle}>Track Levels</Text>
-          {profile.trackLevels.map((t) => (
+          {profile.trackLevels.map((t: TrackLevel) => (
             <TrackBar key={t.track} track={t} />
           ))}
         </View>
@@ -282,7 +282,7 @@ export default function ProfileScreen() {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.seasonsScroll}
             >
-              {profile.pastSeasons.map((s) => (
+              {profile.pastSeasons.map((s: PastSeason) => (
                 <View key={s.id} style={styles.seasonCard}>
                   <Text style={styles.seasonEmoji}>{s.themeEmoji}</Text>
                   <Text style={styles.seasonName} numberOfLines={1}>{s.name}</Text>

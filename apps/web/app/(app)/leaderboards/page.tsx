@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import Image from "next/image";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -345,9 +346,12 @@ export default function LeaderboardsPage() {
         >
           <div className="flex items-center gap-3 min-w-0">
             {banner.sponsorLogoUrl && (
-              <img
+              <Image
                 src={banner.sponsorLogoUrl}
                 alt={banner.sponsorName}
+                width={32}
+                height={32}
+                unoptimized
                 className="h-8 w-8 flex-shrink-0 rounded-md object-contain"
               />
             )}

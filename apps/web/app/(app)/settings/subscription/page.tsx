@@ -8,7 +8,7 @@
  * upgrade/manage buttons, and cancel subscription for paid plans.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { useCurrency } from "@/lib/hooks/useCurrency";
@@ -281,6 +281,11 @@ function PlanCard({ plan, interval, isCurrent, currentPlanRank, onUpgrade, onMan
  */
 export default function SubscriptionPage() {
   const { t } = useTranslation();
+  // Effects below only need the *current* t at fetch time, not on every
+  // language change (which would otherwise force a needless refetch since
+  // `t`'s identity changes when react-i18next switches languages).
+  const tRef = useRef(t);
+  useEffect(() => { tRef.current = t; }, [t]);
   const router = useRouter();
   const [planData, setPlanData] = useState<CurrentPlanData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -303,7 +308,7 @@ export default function SubscriptionPage() {
           fetch("/api/economy/subscriptions", { credentials: "include" }),
         ]);
         if (meRes.status === 401) { router.push("/auth/login"); return; }
-        if (!meRes.ok) throw new Error(t('subscription.loadError'));
+        if (!meRes.ok) throw new Error(tRef.current('subscription.loadError'));
         const meJson = (await meRes.json()) as MeResponse;
         const subJson = subRes.ok ? (await subRes.json()) as SubscriptionResponse : null;
         const rawUser = meJson.user ?? meJson;
