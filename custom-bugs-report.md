@@ -10,7 +10,9 @@
 
 The codebase is architecturally ambitious and shows deliberate design in areas like atomic Lua rate limiting, CTE-based XP idempotency, circuit-breaker patterns, AES-256-GCM field encryption, and dead-letter queues. The security posture is above average (CSRF middleware, header stripping, timing-safe comparisons, HMAC webhook verification). However, a cluster of data-integrity issues in the CRON subsystem, residual schema inconsistencies from rapid iteration, and several high-impact logic errors bring the rating down.
 
-**Expected rating after all recommended fixes: 8.5 / 10**
+**Expected rating after all 40 fixes (28 bugs + 12 architectural improvements): 9.5 / 10**
+
+*Closing the gap from 8.5 to 9.5 requires: web-side refresh deduplication, full Expo push receipt polling, HSTS + CSP hardening, webhook retry automation, rate-limit response headers, DB statement timeouts, star ledger type correction, missing DB index, shared API contracts, request tracing, and CRON parallelism.*
 
 ---
 
@@ -44,6 +46,18 @@ The codebase is architecturally ambitious and shows deliberate design in areas l
 26. EXPO-AUTH-02: purchaseCoins/purchaseSubscription packageName param unused by global listener — silently ignored
 27. CRON-DIGEST-01: Moderation digest counts open/escalated only within new-report WHERE filter — metric is misleading
 28. CRON-NEMESIS-01: Nemesis overtake query filters on assignment created_at not overtake date — most users never notified
+29. WEB-AUTH-01: Web-side JWT refresh has no concurrent-refresh deduplication lock — parallel expiry causes double refresh
+30. PUSH-RECEIPT-01: Expo push second-stage receipt polling not implemented — delivery failures never detected
+31. SEC-HSTS-01: No Strict-Transport-Security header emitted by middleware — HTTP downgrade attacks possible
+32. SEC-CSP-01: Content-Security-Policy missing worker-src directive — service worker origin not explicitly whitelisted
+33. WEBHOOK-RETRY-01: failed_webhooks table has no automated retry engine — failed webhooks stay unprocessed indefinitely
+34. API-HEADERS-01: 429 rate-limit responses return no Retry-After or X-RateLimit-* headers — clients cannot back off correctly
+35. DB-TIMEOUT-01: No statement_timeout set on DB connections — runaway queries can starve the connection pool
+36. SCHEMA-STAR-01: star_ledger.amount is integer not bigint — mismatches balance_before/balance_after which are bigint
+37. DB-INDEX-01: Missing index on creator_payouts(status, next_retry_at) — payout retry queries do full table scans
+38. ARCH-CONTRACT-01: No shared Zod API contracts between web route handlers and Expo API client — type drift is silent
+39. OBS-TRACE-01: No request/correlation ID threaded through the request lifecycle — log correlation is impossible
+40. PERF-CRON-01: CRON steps execute entirely sequentially — independent steps waste wall-clock time
 
 ---
 
@@ -286,4 +300,111 @@ FIX: The query finds nemesis pairs where nemesis_xp > user_xp AND na.created_at 
 
 ---
 
-*Report generated: Monday, June 15, 2026 11:31 PM UTC*
+### 29. WEB-AUTH-01 — Web-side JWT refresh has no concurrent-refresh deduplication lock
+
+FILES: apps/web/lib/auth/session.ts or the web API client that calls /api/auth/refresh
+
+FIX: The Expo API client in apps/expo/lib/api/client.ts uses a module-level `refreshPromise` variable to deduplicate concurrent 401 retries — if two requests both get 401 at the same time, only one refresh call is made and both requests await the same promise. The web client (Next.js API route consumers, client-side fetch hooks) has no equivalent guard. On pages that fire several parallel requests when the token is about to expire, multiple simultaneous refresh calls are made, causing refresh token rotation conflicts: the second call arrives with the first rotation's old refresh token, gets a REFRESH_TOKEN_REUSED error, and the user is force-logged out. Add a module-level `refreshPromise: Promise<string> | null` guard to the web auth refresh path identical to the Expo implementation.
+
+---
+
+### 30. PUSH-RECEIPT-01 — Expo push notification receipt polling not implemented
+
+FILES: apps/web/lib/notifications/push.ts
+
+FIX: Expo's push notification delivery is a two-stage process. Stage 1: submit notification to Expo's servers and receive push ticket IDs. Stage 2: poll /v2/push/getReceipts with those ticket IDs (after 15+ minutes) to confirm delivery or get permanent failure codes (DeviceNotRegistered, MessageTooBig, etc.). The codebase implements stage 1 only and handles DeviceNotRegistered errors from the ticket response, but never schedules or performs stage 2 receipt polling. Permanent delivery failures from stage 2 (e.g. a token that passes stage 1 but fails delivery) are never detected. Implement a receipt-polling mechanism: store ticket IDs with their notification metadata in a `push_tickets` table, then add a CRON step (or background job) to poll getReceipts after at least 15 minutes and handle errors, including pruning stale device tokens on DeviceNotRegistered.
+
+---
+
+### 31. SEC-HSTS-01 — No Strict-Transport-Security header in middleware responses
+
+FILES: apps/web/middleware.ts (withCsp response header builder)
+
+FIX: The middleware sets a Content-Security-Policy nonce header and strips sensitive server headers, but does not add `Strict-Transport-Security`. Without HSTS, browsers will not upgrade HTTP to HTTPS on subsequent visits, leaving users vulnerable to SSL stripping / downgrade attacks. Add `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload` to the response headers in the withCsp (or equivalent) middleware wrapper. Ensure the value is only added when `NODE_ENV === 'production'` or when the request is served over HTTPS.
+
+---
+
+### 32. SEC-CSP-01 — Content-Security-Policy missing worker-src directive
+
+FILES: apps/web/middleware.ts (CSP header construction)
+
+FIX: The service worker (sw.js) is served from the same origin and runs as a worker context, but the CSP has no `worker-src` directive. Without it, browsers fall back to `child-src` and then `default-src` for worker permissions. If `default-src` is set to `'self'` the service worker may work, but the intent is not explicit and can break in browsers with strict CSP parsing. Add `worker-src 'self'` explicitly to the CSP header construction. If any CDN-hosted scripts are imported inside the service worker, those origins must also appear in `worker-src`.
+
+---
+
+### 33. WEBHOOK-RETRY-01 — failed_webhooks table has no automated retry engine
+
+FILES:
+- apps/web/lib/db/schema.ts (failedWebhooks table)
+- apps/web/app/api/cron/daily/route.ts (no retry step for failed_webhooks)
+
+FIX: The codebase has a `failed_webhooks` table (schema confirmed) with `next_retry_at`, `retry_count`, and `max_retries` columns, mirroring the pattern of the `failed_xp_awards` DLQ which has a dedicated retry step in the daily CRON. However, the daily CRON handler has no step that reads `failed_webhooks`, re-processes them, and updates their status. Failed webhooks (payment events, subscription events) sit in the table indefinitely and are never re-processed. Add a CRON step that selects rows WHERE `status = 'pending' AND next_retry_at <= NOW() AND retry_count < max_retries`, re-invokes the appropriate webhook handler function, and on success marks the row `status = 'processed'`; on failure increments `retry_count` and sets `next_retry_at` with exponential backoff.
+
+---
+
+### 34. API-HEADERS-01 — 429 responses include no Retry-After or rate-limit headers
+
+FILES: apps/web/lib/security/rateLimit.ts (enforceRateLimit — 429 response construction)
+
+FIX: When `enforceRateLimit` determines a request is over the limit, it throws or returns a 429 response with a JSON body but no `Retry-After`, `X-RateLimit-Limit`, `X-RateLimit-Remaining`, or `X-RateLimit-Reset` headers. RFC 6585 requires `Retry-After` on 429 responses, and most HTTP clients and libraries use these headers to implement automatic back-off. Without them, clients that hit the limit either retry immediately (making things worse) or require custom logic to parse the JSON body. Add `Retry-After: <seconds>` set to the window expiry time, and the standard `X-RateLimit-*` headers from values already computed in the Lua script result.
+
+---
+
+### 35. DB-TIMEOUT-01 — No statement_timeout configured on database connections
+
+FILES: apps/web/lib/db/index.ts (DB client initialisation)
+
+FIX: The database client is initialised with no `statement_timeout` parameter. A slow or accidentally unbounded query (e.g. a missing index on a large table, or a CRON step doing a full scan) will hold a connection open indefinitely, consuming a connection pool slot and blocking other requests. In production this causes cascading timeouts as the pool exhausts. Set a reasonable statement timeout at the connection level — e.g. `statement_timeout = 30000` (30 seconds) for application queries, and a separate longer timeout for CRON handlers if needed. For Postgres via `pg`, pass `options: '--statement-timeout=30000'` in the connection string or set it via a `SET` query after connection acquisition.
+
+---
+
+### 36. SCHEMA-STAR-01 — star_ledger.amount typed as integer instead of bigint
+
+FILES: apps/web/lib/db/schema.ts (starLedger table)
+
+FIX: The `star_ledger` table defines `amount` as `integer` (32-bit, max ~2.1 billion), while the `balance_before` and `balance_after` columns on the same table are `bigint` (64-bit). A creator accumulating large star balances from high-traffic rooms could theoretically overflow `amount` at ~2.1 billion stars, silently wrapping to a negative value. The inconsistency also makes arithmetic joining `amount` against `balance_before`/`balance_after` require implicit casts. Change `amount` to `bigint` and generate the corresponding `ALTER TABLE star_ledger ALTER COLUMN amount TYPE BIGINT` migration.
+
+---
+
+### 37. DB-INDEX-01 — Missing index on creator_payouts(status, next_retry_at)
+
+FILES:
+- apps/web/lib/db/schema.ts (creatorPayouts table — indexes defined)
+- apps/web/lib/payments/payouts.ts (processPendingPayouts query)
+
+FIX: The `processPendingPayouts` function queries `creator_payouts` with `WHERE status IN ('pending', 'processing') AND next_retry_at <= NOW()`. The schema defines no index covering both `status` and `next_retry_at`. As the payouts table grows, this query performs a sequential scan every time the payout CRON runs. Add a partial index: `CREATE INDEX idx_creator_payouts_retry ON creator_payouts (next_retry_at) WHERE status IN ('pending', 'processing')`. Add the corresponding Drizzle index definition in the schema.
+
+---
+
+### 38. ARCH-CONTRACT-01 — No shared Zod API contracts between web and Expo
+
+FILES:
+- apps/web/app/api/** (route handlers — inline type assertions)
+- apps/expo/lib/api/client.ts (response type casts)
+- shared/ (no API schema definitions exist)
+
+FIX: Every Expo API call casts the response with `as SomeType` without runtime validation. When a web route handler changes its response shape (adds, removes, or renames a field), the Expo client silently receives malformed data — TypeScript cannot catch this because the types are defined independently in each app. The `shared/` directory exists but contains no API contract definitions. Define Zod schemas for every request body and response payload in `shared/schemas/api/` and import them in both the web route handler (for `safeParse` input validation) and the Expo client (for response validation). This catches contract breaks at runtime and documents the API boundary explicitly.
+
+---
+
+### 39. OBS-TRACE-01 — No request/correlation ID threaded through the request lifecycle
+
+FILES:
+- apps/web/middleware.ts
+- apps/web/app/api/** (all route handlers)
+- apps/web/lib/** (service layer functions)
+
+FIX: No `X-Request-ID` or `X-Correlation-ID` header is generated or propagated through the request lifecycle. When a payment webhook fails or a CRON step errors, the log entries from middleware, route handler, service layer, and database query cannot be correlated into a single trace. Generate a UUID per request in middleware (`const requestId = crypto.randomUUID()`), attach it to the response as `X-Request-ID`, and thread it through all service function calls via a parameter or AsyncLocalStorage context. Include it in every log line and error report so production incidents can be reconstructed from logs.
+
+---
+
+### 40. PERF-CRON-01 — CRON steps run entirely sequentially
+
+FILES: apps/web/app/api/cron/daily/route.ts
+
+FIX: The daily CRON handler runs all ~35 steps one after another with `await` in a linear sequence. Many steps are fully independent — for example, the streak update, leaderboard recalculation, moderation digest, and guild tier progression do not share data or transactional state. Grouping independent steps under `await Promise.allSettled([stepA(), stepB(), stepC()])` would reduce total wall-clock time substantially (potentially from 30–60 seconds down to the duration of the single longest independent group). Categorise steps by dependency, form groups of non-conflicting steps, and execute each group with `Promise.allSettled`. Use `allSettled` rather than `Promise.all` so one step failing does not abort the others.
+
+---
+
+*Report generated: Monday, June 15, 2026 11:31 PM UTC*  
+*Updated: Monday, June 16, 2026 (items 29–40 added)*

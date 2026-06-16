@@ -357,6 +357,172 @@
 
 ---
 
+---
+
+## P1 — High Priority (continued: architectural improvements)
+
+### Fix 28 · WEB-AUTH-01 — Add concurrent-refresh deduplication lock to web auth client
+
+**Files to change:** `apps/web/lib/auth/` (web-side refresh logic or fetch wrapper)
+
+**Steps:**
+1. Identify where the web client calls `/api/auth/refresh` on 401 (likely in a fetch wrapper or React Query error handler).
+2. Introduce a module-level `let webRefreshPromise: Promise<string> | null = null`.
+3. Wrap the refresh call: if `webRefreshPromise` is already set, await it and skip the redundant request; otherwise start the refresh, store the promise, await it, then null the variable in a `finally` block.
+4. Model the implementation directly on `apps/expo/lib/api/client.ts` lines that implement `refreshPromise`.
+
+---
+
+### Fix 29 · PUSH-RECEIPT-01 — Implement Expo push notification receipt polling
+
+**Files to change:**
+- `apps/web/lib/notifications/push.ts`
+- `apps/web/lib/db/schema.ts` (add `push_tickets` table)
+- `apps/web/app/api/cron/daily/route.ts` (add receipt-poll step)
+- Migration file
+
+**Steps:**
+1. Add a `push_tickets` table: `(id UUID PK, ticket_id TEXT, user_id UUID, created_at TIMESTAMPTZ, polled_at TIMESTAMPTZ NULL, status TEXT DEFAULT 'pending')`.
+2. After each batch `sendPushNotificationsAsync` call, INSERT the returned ticket IDs into `push_tickets`.
+3. Add a CRON step that runs after notifications are sent: SELECT push_tickets WHERE `status = 'pending' AND created_at <= NOW() - INTERVAL '15 minutes'`, batch-call Expo's `/v2/push/getReceipts`, handle `DeviceNotRegistered` by deleting the token, log other errors.
+4. Mark polled rows `status = 'processed'` or `status = 'failed'` accordingly.
+
+---
+
+### Fix 30 · SEC-HSTS-01 — Add Strict-Transport-Security header in middleware
+
+**Files to change:** `apps/web/middleware.ts`
+
+**Steps:**
+1. In the response header builder (alongside the CSP header), add:
+   `response.headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload')`
+2. Guard with `if (process.env.NODE_ENV === 'production')` to avoid HSTS issues in local dev.
+3. After deploying, submit the domain to the HSTS preload list (hstspreload.org) if not already done.
+
+---
+
+### Fix 31 · SEC-CSP-01 — Add worker-src directive to Content-Security-Policy
+
+**Files to change:** `apps/web/middleware.ts` (CSP string construction)
+
+**Steps:**
+1. Add `worker-src 'self'` to the CSP header value.
+2. If the service worker imports any external scripts (Workbox CDN builds), add those origins to `worker-src` as well.
+3. Test the service worker installation in a browser with a strict CSP reporter to confirm no violations are emitted.
+
+---
+
+### Fix 32 · WEBHOOK-RETRY-01 — Add failed_webhooks retry step to daily CRON
+
+**Files to change:** `apps/web/app/api/cron/daily/route.ts`
+
+**Steps:**
+1. Add a new CRON step that SELECTs `failed_webhooks WHERE status = 'pending' AND next_retry_at <= NOW() AND retry_count < max_retries`.
+2. For each row, re-invoke the appropriate handler function (Paystack or DodoPayments) based on `provider` column.
+3. On success: UPDATE `status = 'processed', processed_at = NOW()`.
+4. On failure: UPDATE `retry_count = retry_count + 1, next_retry_at = NOW() + (INTERVAL '1 minute' * POWER(2, retry_count)), last_error = $error_message`.
+5. When `retry_count >= max_retries`, move to a permanent-failure state: `status = 'dead'`, emit a `system_alerts` row.
+
+---
+
+### Fix 33 · API-HEADERS-01 — Add Retry-After and X-RateLimit-* headers to 429 responses
+
+**Files to change:** `apps/web/lib/security/rateLimit.ts`
+
+**Steps:**
+1. The Lua script already returns the current count and the key TTL (or compute `windowMs - elapsed`).
+2. On rate-limit breach, set response headers before returning 429:
+   - `Retry-After: <seconds until window resets>`
+   - `X-RateLimit-Limit: <limit>`
+   - `X-RateLimit-Remaining: 0`
+   - `X-RateLimit-Reset: <unix epoch of window reset>`
+3. Confirm Expo client and any web fetch wrappers read `Retry-After` and honour it before retrying.
+
+---
+
+## P2 — Medium Priority (continued: architectural improvements)
+
+### Fix 34 · DB-TIMEOUT-01 — Set statement_timeout on database connections
+
+**Files to change:** `apps/web/lib/db/index.ts`
+
+**Steps:**
+1. In the connection config, add `options: '--statement-timeout=30000'` (30 s) to the connection string, or execute `SET statement_timeout = 30000` immediately after acquiring a connection.
+2. For the CRON route handler (which legitimately runs longer operations), create a separate DB client instance with a higher timeout (e.g. 120 s) or run each step with `SET LOCAL statement_timeout = 120000` inside a transaction.
+3. Add error handling for `57014 query_canceled` errors so they surface as clean log entries rather than unhandled promise rejections.
+
+---
+
+### Fix 35 · SCHEMA-STAR-01 — Change star_ledger.amount from integer to bigint
+
+**Files to change:**
+- `apps/web/lib/db/schema.ts` (starLedger)
+- Migration file
+
+**Steps:**
+1. Change `amount: integer("amount")` to `amount: bigint("amount", { mode: "number" })` in the `starLedger` schema definition.
+2. Generate migration: `ALTER TABLE star_ledger ALTER COLUMN amount TYPE BIGINT`.
+3. Verify no application code casts the column to int32 after reading (JavaScript numbers handle up to 2^53 safely).
+
+---
+
+### Fix 36 · DB-INDEX-01 — Add index on creator_payouts(status, next_retry_at)
+
+**Files to change:**
+- `apps/web/lib/db/schema.ts` (creatorPayouts)
+- Migration file
+
+**Steps:**
+1. Add Drizzle index definition:
+   `index('idx_creator_payouts_retry').on(t.nextRetryAt).where(sql\`status IN ('pending', 'processing')\`)`
+2. Generate migration: `CREATE INDEX idx_creator_payouts_retry ON creator_payouts (next_retry_at) WHERE status IN ('pending', 'processing')`.
+3. Confirm query in `processPendingPayouts` can use the index (run EXPLAIN ANALYZE in staging).
+
+---
+
+### Fix 37 · ARCH-CONTRACT-01 — Define shared Zod API schemas in shared/
+
+**Files to change:**
+- `shared/schemas/api/` (new directory and files — one schema file per API domain)
+- `apps/web/app/api/**` (import shared schemas for input validation)
+- `apps/expo/lib/api/client.ts` and type definitions (import shared schemas for response parsing)
+
+**Steps:**
+1. Create `shared/schemas/api/auth.ts`, `coins.ts`, `creator.ts`, `notifications.ts`, etc., each exporting Zod request and response schemas.
+2. In web route handlers, replace inline type assertions with `schema.safeParse(req.body)` at request entry.
+3. In Expo API calls, wrap responses with `schema.safeParse(data)` and surface validation errors rather than casting.
+4. Add `tsc --noEmit` check in CI that validates both apps can import the shared schemas without errors.
+
+---
+
+### Fix 38 · OBS-TRACE-01 — Add request/correlation ID threading
+
+**Files to change:**
+- `apps/web/middleware.ts`
+- `apps/web/lib/` (service layer functions — add optional `requestId` parameter or use AsyncLocalStorage)
+
+**Steps:**
+1. In middleware, generate `const requestId = crypto.randomUUID()` and set `X-Request-ID: ${requestId}` on the response and as a forwarded request header.
+2. In each API route handler, read `request.headers.get('x-request-id')` and pass it to service layer calls.
+3. Include `requestId` in every `console.error` / logging call at the service layer.
+4. For full observability, use Node.js `AsyncLocalStorage` to store the request ID context so it's accessible without threading the parameter manually through every function.
+
+---
+
+## P3 — Low / Maintainability (continued)
+
+### Fix 39 · PERF-CRON-01 — Parallelise independent CRON steps with Promise.allSettled
+
+**Files to change:** `apps/web/app/api/cron/daily/route.ts`
+
+**Steps:**
+1. After extracting each step into a named async function (Fix 25), categorise steps by dependency.
+2. Group truly independent steps (e.g. streak update, leaderboard recalc, moderation digest, sticker unlock) into `Promise.allSettled` batches.
+3. Steps that write to shared tables (users, coin_ledger) must stay sequential unless each operates on a disjoint set of rows.
+4. Measure wall-clock time before and after to confirm improvement; add timing metrics to the CRON response object.
+
+---
+
 ## Execution Order Recommendation
 
 Work in this sequence to minimise risk:
@@ -364,12 +530,16 @@ Work in this sequence to minimise risk:
 1. **P0 fixes first** (Fixes 1–3) — these are production-critical financial bugs.
 2. **Fix 2 (EXPO-AUTH-01)** in parallel with Fix 1 — independent change.
 3. **Fix 5 (CRON idempotency)** before any CRON is next run.
-4. **Fixes 4, 6, 7, 8, 9, 10, 11, 12** — P1 batch, can be done in a single PR.
-5. **Fixes 13–24** — P2 batch, schedule for next sprint.
-6. **Fixes 25–27** — P3, merge with next cleanup PR.
+4. **Fix 30 + Fix 31 (HSTS + CSP)** — zero-risk header additions, deploy in next release.
+5. **Fixes 4, 6, 7, 8, 9, 10, 11, 12** — P1 batch, can be done in a single PR.
+6. **Fixes 28, 29, 32, 33** — P1 architectural batch (auth dedup, push receipts, webhook retry, rate-limit headers).
+7. **Fixes 13–24** — P2 bug batch, schedule for next sprint.
+8. **Fixes 34–38** — P2 architectural batch (DB timeouts, star ledger type, DB index, Zod contracts, tracing).
+9. **Fixes 25–27, 39** — P3 cleanup, merge with next cleanup PR.
 
 Each fix should be accompanied by at minimum a unit test covering the corrected behaviour and a regression test for the previously broken case.
 
 ---
 
-*Plan generated: Monday, June 15, 2026 11:31 PM UTC*
+*Plan generated: Monday, June 15, 2026 11:31 PM UTC*  
+*Updated: Monday, June 16, 2026 (Fixes 28–39 added for 9.5+ quality target)*
