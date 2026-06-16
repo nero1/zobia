@@ -32,13 +32,16 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { AxiosError } from 'axios';
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
 import { storage } from '@/lib/offline/store';
+import { translateApiError } from '@/lib/i18n/apiErrors';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -187,6 +190,7 @@ function SettingsSkeleton() {
 
 function TwoFactorSection() {
   const { colors: themeColors, isDark } = useTheme();
+  const { t } = useTranslation();
 
   const [totpEnabled, setTotpEnabled] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState(true);
@@ -260,8 +264,9 @@ function TwoFactorSection() {
         body: JSON.stringify({ code: setupCode.trim() }),
       });
       if (!res.ok) {
-        const d = (await res.json()) as { message?: string };
-        throw new Error(d.message ?? 'Invalid code');
+        const d = (await res.json()) as { error?: { code?: string; message?: string } };
+        Alert.alert('Error', translateApiError(t, d.error?.code, d.error?.message ?? 'Invalid code. Please try again.'));
+        return;
       }
       setTotpEnabled(true);
       setShowSetupModal(false);
@@ -305,8 +310,9 @@ function TwoFactorSection() {
         body: JSON.stringify({ code: disableCode.trim() }),
       });
       if (!res.ok) {
-        const d = (await res.json()) as { message?: string };
-        throw new Error(d.message ?? 'Invalid code');
+        const d = (await res.json()) as { error?: { code?: string; message?: string } };
+        Alert.alert('Error', translateApiError(t, d.error?.code, d.error?.message ?? 'Invalid code. Please try again.'));
+        return;
       }
       setTotpEnabled(false);
       setShowDisableModal(false);
@@ -564,6 +570,7 @@ function PrivacyDataSection() {
  */
 export default function SettingsScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { colors: themeColors, isDark } = useTheme();
 
@@ -617,8 +624,11 @@ export default function SettingsScreen() {
     try {
       await apiClient.put('/users/me', { date_of_birth: dateOfBirth.trim() });
       Alert.alert('Saved', 'Date of birth updated.');
-    } catch {
-      Alert.alert('Error', 'Could not save date of birth. Please try again.');
+    } catch (err) {
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? axiosErr.message ?? 'Could not save date of birth. Please try again.';
+      Alert.alert('Error', translateApiError(t, code, message));
     } finally {
       setDobSaving(false);
     }
@@ -696,8 +706,11 @@ export default function SettingsScreen() {
                 try {
                   await deleteAccount(pin);
                   router.replace('/auth/login');
-                } catch {
-                  Alert.alert('Error', 'Could not delete account. Check your PIN.');
+                } catch (err) {
+                  const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+                  const code = axiosErr.response?.data?.error?.code ?? null;
+                  const message = axiosErr.response?.data?.error?.message ?? axiosErr.message ?? 'Could not delete account. Check your PIN.';
+                  Alert.alert('Error', translateApiError(t, code, message));
                 }
               },
               'secure-text',

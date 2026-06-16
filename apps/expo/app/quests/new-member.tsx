@@ -28,12 +28,15 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
+import type { AxiosError } from 'axios';
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
 import { useCurrency } from '@/lib/hooks/useCurrency';
+import { translateApiError } from '@/lib/i18n/apiErrors';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -189,6 +192,7 @@ export default function NewMemberQuestScreen() {
   const { colors: themeColors } = useTheme();
   const queryClient = useQueryClient();
   const currency = useCurrency();
+  const { t } = useTranslation();
   const [justClaimed, setJustClaimed] = React.useState<{
     coins: number;
     xp: number;
@@ -209,7 +213,10 @@ export default function NewMemberQuestScreen() {
       queryClient.invalidateQueries({ queryKey: ['profile'] });
     },
     onError: (err: Error) => {
-      Alert.alert('Error', err.message ?? 'Could not claim reward. Please try again.');
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? err.message ?? 'Could not claim reward. Please try again.';
+      Alert.alert('Error', translateApiError(t, code, message));
     },
   });
 

@@ -21,7 +21,9 @@ import {
   TextInput,
   StyleSheet,
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { storage } from '@/lib/offline/store';
+import { translateApiError } from '@/lib/i18n/apiErrors';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? '';
 
@@ -89,6 +91,7 @@ function methodLabel(method: Payout['payoutMethod'], softPlural: string): string
 
 export default function AdminPayoutsScreen() {
   const currency = useCurrency();
+  const { t } = useTranslation();
   const [tab, setTab] = useState<TabKey>('awaiting_approval');
   const [payouts, setPayouts] = useState<Payout[]>([]);
   const [loading, setLoading] = useState(true);
@@ -172,7 +175,7 @@ export default function AdminPayoutsScreen() {
               setTotal((t) => Math.max(0, t - 1));
             } else {
               const err = await res?.json().catch(() => null);
-              Alert.alert('Error', err?.error?.message ?? 'Failed to approve payout.');
+              Alert.alert('Error', translateApiError(t, err?.error?.code, err?.error?.message ?? 'Failed to approve payout.'));
             }
             setActingId(null);
           },
@@ -205,7 +208,7 @@ export default function AdminPayoutsScreen() {
       setRejectReason('');
     } else {
       const err = await res?.json().catch(() => null);
-      Alert.alert('Error', err?.error?.message ?? 'Failed to reject payout.');
+      Alert.alert('Error', translateApiError(t, err?.error?.code, err?.error?.message ?? 'Failed to reject payout.'));
     }
     setActingId(null);
   }
@@ -237,7 +240,7 @@ export default function AdminPayoutsScreen() {
               setTotal((t) => Math.max(0, t - 1));
             } else {
               const err = await res?.json().catch(() => null);
-              Alert.alert('Error', err?.error?.message ?? 'Failed to resolve appeal.');
+              Alert.alert('Error', translateApiError(t, err?.error?.code, err?.error?.message ?? 'Failed to resolve appeal.'));
             }
             setActingId(null);
           },

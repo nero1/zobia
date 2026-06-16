@@ -22,10 +22,13 @@ import {
   View,
 } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
+import type { AxiosError } from 'axios';
 import { Screen } from '@/components/ui/Screen';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
+import { translateApiError } from '@/lib/i18n/apiErrors';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -163,6 +166,7 @@ function fmtKobo(kobo: number): string {
 
 export default function BusinessSettingsScreen() {
   const { colors: tc } = useTheme();
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
 
   const [editing, setEditing] = useState(false);
@@ -184,8 +188,10 @@ export default function BusinessSettingsScreen() {
       Alert.alert('Done', 'Business account created!');
     },
     onError: (err: unknown) => {
-      const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
-      Alert.alert('Error', msg ?? 'Could not create business account.');
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? 'Could not create business account.';
+      Alert.alert('Error', translateApiError(t, code, message));
     },
   });
 
@@ -196,7 +202,12 @@ export default function BusinessSettingsScreen() {
       setEditing(false);
       Alert.alert('Saved', 'Business info updated!');
     },
-    onError: () => Alert.alert('Error', 'Could not update business info.'),
+    onError: (err: unknown) => {
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? 'Could not update business info.';
+      Alert.alert('Error', translateApiError(t, code, message));
+    },
   });
 
   const upgradeMutation = useMutation({
@@ -207,8 +218,10 @@ export default function BusinessSettingsScreen() {
       );
     },
     onError: (err: unknown) => {
-      const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
-      Alert.alert('Error', msg ?? 'Could not initiate upgrade.');
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? 'Could not initiate upgrade.';
+      Alert.alert('Error', translateApiError(t, code, message));
     },
   });
 
@@ -219,8 +232,10 @@ export default function BusinessSettingsScreen() {
       Alert.alert('Submitted', "Your verification request has been submitted. We'll review it soon.");
     },
     onError: (err: unknown) => {
-      const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
-      Alert.alert('Error', msg ?? 'Could not send verification request.');
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? 'Could not send verification request.';
+      Alert.alert('Error', translateApiError(t, code, message));
     },
   });
 
@@ -230,7 +245,12 @@ export default function BusinessSettingsScreen() {
       queryClient.invalidateQueries({ queryKey: ['business'] });
       Alert.alert('Cancelled', 'Verification request cancelled.');
     },
-    onError: () => Alert.alert('Error', 'Could not cancel request.'),
+    onError: (err: unknown) => {
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? 'Could not cancel request.';
+      Alert.alert('Error', translateApiError(t, code, message));
+    },
   });
 
   const isLoading = bizQuery.isLoading;

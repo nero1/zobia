@@ -9,7 +9,9 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -129,6 +131,7 @@ function PackCard({ pack, onUnlock, unlocking }: PackCardProps) {
 
 export default function StickersPage() {
   const router = useRouter();
+  const { t } = useTranslation();
   const [packs, setPacks] = useState<StickerPack[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -183,13 +186,16 @@ export default function StickersPage() {
         credentials: "include",
       });
       if (!res.ok) {
-        const d = (await res.json()) as { message?: string };
-        throw new Error(d.message ?? "Failed to unlock");
+        const d = (await res.json()) as { message?: string; code?: string };
+        const err = new Error(d.message ?? "Failed to unlock") as Error & { code?: string | null };
+        err.code = d.code ?? null;
+        throw err;
       }
       setPacks((prev) => prev.map((p) => (p.id === packId ? { ...p, owned: true } : p)));
       showToast("Sticker pack unlocked!");
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Unlock failed", "error");
+      const err = e as Error & { code?: string | null };
+      showToast(e instanceof Error ? translateApiError(t, err.code, err.message || "Unlock failed") : "Unlock failed", "error");
     } finally {
       setUnlockingId(null);
     }

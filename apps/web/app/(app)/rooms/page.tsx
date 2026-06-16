@@ -11,8 +11,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 import { RoomCard, type RoomCardData } from "@/components/rooms/RoomCard";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -186,6 +188,7 @@ function RoomsGridSkeleton() {
  */
 export default function RoomsPage() {
   const router = useRouter();
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<Tab>("trending");
   const [typeFilter, setTypeFilter] = useState<RoomTypeFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -222,14 +225,20 @@ export default function RoomsPage() {
 
         const res = await fetch(`/api/rooms?${params.toString()}`, { credentials: "include" });
         if (res.status === 401) { window.location.href = "/auth/login"; return; }
-        if (!res.ok) throw new Error("Failed to load rooms");
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({})) as { error?: { code?: string; message?: string } };
+          const err = new Error(body.error?.message ?? "Failed to load rooms") as Error & { code?: string | null };
+          err.code = body.error?.code ?? null;
+          throw err;
+        }
         const data = (await res.json()) as { items: RoomCardData[]; nextCursor?: string | null; hasMore?: boolean };
 
         setRooms((prev) => append ? [...prev, ...(data.items ?? [])] : (data.items ?? []));
         setCursor(data.nextCursor ?? null);
         setHasMore(data.hasMore ?? false);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Unknown error");
+        const err = e as Error & { code?: string | null };
+        setError(e instanceof Error ? translateApiError(t, err.code, err.message || "Unknown error") : "Unknown error");
       } finally {
         setLoading(false);
         setLoadingMore(false);

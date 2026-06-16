@@ -18,12 +18,15 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation } from '@tanstack/react-query';
+import type { AxiosError } from 'axios';
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { apiClient } from '@/lib/api/client';
 import { colors } from '@/lib/theme/colors';
 import { useTheme } from '@/lib/theme';
+import { translateApiError } from '@/lib/i18n/apiErrors';
 
 // ---------------------------------------------------------------------------
 // API
@@ -68,6 +71,7 @@ type Step = 'enter_current' | 'enter_new' | 'confirm_new' | 'enter_remove';
 
 export default function PinScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
   const { colors: themeColors } = useTheme();
 
   const [step, setStep] = useState<Step>('enter_current');
@@ -108,7 +112,10 @@ export default function PinScreen() {
       ]);
     },
     onError: (err: Error) => {
-      Alert.alert('Error', err.message);
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? axiosErr.message;
+      Alert.alert('Error', translateApiError(t, code, message));
       reset();
     },
   });
@@ -121,7 +128,10 @@ export default function PinScreen() {
       ]);
     },
     onError: (err: Error) => {
-      Alert.alert('Error', err.message);
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? axiosErr.message;
+      Alert.alert('Error', translateApiError(t, code, message));
       setRemovePin('');
     },
   });

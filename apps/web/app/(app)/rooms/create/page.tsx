@@ -13,7 +13,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -195,6 +197,7 @@ function CurriculumBuilder({
 export default function CreateRoomPage() {
   const router = useRouter();
   const currency = useCurrency();
+  const { t: translate } = useTranslation();
 
   // Form state
   const [step, setStep] = useState<"type" | "details" | "preview">("type");
@@ -260,9 +263,12 @@ export default function CreateRoomPage() {
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        const d = (await res.json()) as { message?: string; error?: { message?: string } | string };
+        const d = (await res.json()) as { message?: string; error?: { message?: string; code?: string } | string };
         const errMsg = typeof d.error === "string" ? d.error : d.error?.message;
-        throw new Error(errMsg ?? d.message ?? "Failed to create room");
+        const errCode = typeof d.error === "string" ? null : d.error?.code ?? null;
+        const err = new Error(errMsg ?? d.message ?? "Failed to create room") as Error & { code?: string | null };
+        err.code = errCode;
+        throw err;
       }
       const data = (await res.json()) as { room?: { id: string }; id?: string };
       const roomId = data.room?.id ?? data.id;
@@ -272,7 +278,8 @@ export default function CreateRoomPage() {
         router.push("/rooms");
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      const err = e as Error & { code?: string | null };
+      setError(e instanceof Error ? translateApiError(translate, err.code, err.message || "Unknown error") : "Unknown error");
     } finally {
       setSubmitting(false);
     }

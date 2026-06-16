@@ -35,6 +35,8 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useNavigation, router } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
+import type { AxiosError } from 'axios';
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { MessageBubble, type MessageBubbleProps, type MessageReaction } from '@/components/rooms/MessageBubble';
@@ -44,6 +46,7 @@ import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
 import { useCurrency } from '@/lib/hooks/useCurrency';
+import { translateApiError } from '@/lib/i18n/apiErrors';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -333,6 +336,7 @@ export default function RoomScreen() {
   const queryClient = useQueryClient();
   const { colors: themeColors, isDark } = useTheme();
   const currency = useCurrency();
+  const { t } = useTranslation();
 
   const [inputText, setInputText] = useState('');
   const [showGifters, setShowGifters] = useState(false);
@@ -523,11 +527,14 @@ export default function RoomScreen() {
       setHighlightUsername('');
       Alert.alert('Highlighted!', `@${username} is now highlighted in this room for 1 hour.`);
     } catch (e) {
-      Alert.alert('Error', (e as Error).message ?? 'Could not highlight member.');
+      const axiosErr = e as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? (e as Error).message ?? 'Could not highlight member.';
+      Alert.alert('Error', translateApiError(t, code, message));
     } finally {
       setHighlightPending(false);
     }
-  }, [highlightUsername, roomId]);
+  }, [highlightUsername, roomId, t]);
 
   const handleGifSelect = useCallback(async (gif: GifResult) => {
     if (!roomId) return;
@@ -539,9 +546,12 @@ export default function RoomScreen() {
       });
       queryClient.invalidateQueries({ queryKey: ['room-messages', roomId] });
     } catch (e) {
-      Alert.alert('Error', 'Could not send GIF.');
+      const axiosErr = e as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? 'Could not send GIF.';
+      Alert.alert('Error', translateApiError(t, code, message));
     }
-  }, [roomId, queryClient]);
+  }, [roomId, queryClient, t]);
 
   const handleVIPSubscribe = useCallback(async () => {
     if (!roomId || subscribing) return;
@@ -554,11 +564,14 @@ export default function RoomScreen() {
       }
       queryClient.invalidateQueries({ queryKey: ['room', roomId] });
     } catch (e) {
-      Alert.alert('Error', (e as Error).message ?? 'Could not start subscription.');
+      const axiosErr = e as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? (e as Error).message ?? 'Could not start subscription.';
+      Alert.alert('Error', translateApiError(t, code, message));
     } finally {
       setSubscribing(false);
     }
-  }, [roomId, subscribing, queryClient]);
+  }, [roomId, subscribing, queryClient, t]);
 
   const renderMessage = useCallback(
     ({ item }: { item: Message }) => {
@@ -776,7 +789,11 @@ export default function RoomScreen() {
                         apiClient
                           .post(`/rooms/${roomId}/powers`, { power: 'room_spotlight', durationHours: 24 })
                           .then(() => Alert.alert('Activated!', 'Your room is now spotlighted on discovery for 24 hours.'))
-                          .catch((e: Error) => Alert.alert('Error', e.message));
+                          .catch((e: AxiosError<{ error?: { code?: string; message?: string } }>) => {
+                            const code = e.response?.data?.error?.code ?? null;
+                            const message = e.response?.data?.error?.message ?? e.message;
+                            Alert.alert('Error', translateApiError(t, code, message));
+                          });
                       },
                     },
                     {

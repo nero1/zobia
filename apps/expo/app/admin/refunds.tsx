@@ -20,8 +20,10 @@ import {
   TextInput,
   StyleSheet,
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { storage } from '@/lib/offline/store';
 import { useCurrency } from '@/lib/hooks/useCurrency';
+import { translateApiError } from '@/lib/i18n/apiErrors';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? '';
 
@@ -64,6 +66,7 @@ function formatDate(iso: string) {
 
 export default function AdminRefundsScreen() {
   const currency = useCurrency();
+  const { t } = useTranslation();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('pending');
   const [refunds, setRefunds] = useState<Refund[]>([]);
   const [loading, setLoading] = useState(true);
@@ -172,7 +175,7 @@ export default function AdminRefundsScreen() {
       void loadRefunds(0, true, statusFilter);
     } else {
       const err = await res?.json().catch(() => null);
-      Alert.alert('Error', err?.error?.message ?? 'Failed to issue refund.');
+      Alert.alert('Error', translateApiError(t, err?.error?.code, err?.error?.message ?? 'Failed to issue refund.'));
     }
     setIssuing(false);
   }

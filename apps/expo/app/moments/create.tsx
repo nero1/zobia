@@ -15,7 +15,9 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import type { AxiosError } from 'axios';
 
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
@@ -23,6 +25,7 @@ import { Input } from '@/components/ui/Input';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
+import { translateApiError } from '@/lib/i18n/apiErrors';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -55,6 +58,7 @@ export default function MomentsCreateScreen() {
   const { isDark, colors: themeColors } = useTheme();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
 
   const [content, setContent] = useState('');
   const [mediaUrl, setMediaUrl] = useState('');
@@ -77,7 +81,10 @@ export default function MomentsCreateScreen() {
       router.back();
     },
     onError: (err: Error) => {
-      setErrorMsg(err.message ?? 'Could not share moment. Please try again.');
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? axiosErr.message ?? 'Could not share moment. Please try again.';
+      setErrorMsg(translateApiError(t, code, message));
     },
   });
 

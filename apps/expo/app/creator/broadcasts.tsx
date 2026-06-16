@@ -26,11 +26,13 @@ import {
   View,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
+import type { AxiosError } from 'axios';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Screen } from '@/components/ui/Screen';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
+import { translateApiError } from '@/lib/i18n/apiErrors';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -272,7 +274,10 @@ export default function BroadcastsScreen() {
       );
     },
     onError: (err: Error) => {
-      Alert.alert(t('broadcasts.errorTitle'), err.message ?? t('broadcasts.errorFailed'));
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? err.message ?? t('broadcasts.errorFailed');
+      Alert.alert(t('broadcasts.errorTitle'), translateApiError(t, code, message));
     },
   });
 

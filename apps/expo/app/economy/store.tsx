@@ -24,6 +24,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useQuery, useMutation } from '@tanstack/react-query';
+import type { AxiosError } from 'axios';
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { apiClient } from '@/lib/api/client';
@@ -31,6 +32,7 @@ import { colors } from '@/lib/theme/colors';
 import { useTheme } from '@/lib/theme';
 import { useTranslation } from 'react-i18next';
 import { useCurrency } from '@/lib/hooks/useCurrency';
+import { translateApiError } from '@/lib/i18n/apiErrors';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -255,7 +257,10 @@ export default function StoreScreen() {
       }
     },
     onError: (err) => {
-      Alert.alert('Purchase Failed', err.message);
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? err.message;
+      Alert.alert('Purchase Failed', translateApiError(t, code, message));
       setPurchasingId(null);
       setPurchasingStarId(null);
     },
@@ -269,7 +274,10 @@ export default function StoreScreen() {
       setBoosterPinPending(null);
     },
     onError: (err) => {
-      Alert.alert('Purchase Failed', err.message);
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? err.message;
+      Alert.alert('Purchase Failed', translateApiError(t, code, message));
       setPurchasingBoosterId(null);
       setBoosterPinPending(null);
     },

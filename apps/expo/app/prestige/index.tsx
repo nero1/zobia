@@ -5,7 +5,9 @@ import {
 } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import type { AxiosError } from "axios";
 import { apiClient } from "@/lib/api/client";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 const ICON_III_XP_REQUIRED = 100_000;
 
@@ -50,7 +52,10 @@ export default function PrestigeScreen() {
       Alert.alert("🌟 " + t('prestige.prestigeAchieved'), t('prestige.nowLevel', { level: updated.prestige_level }));
     },
     onError: (err) => {
-      Alert.alert("Error", err.message ?? "Prestige failed. Please try again.");
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? err.message ?? "Prestige failed. Please try again.";
+      Alert.alert("Error", translateApiError(t, code, message));
     },
   });
 
