@@ -39,7 +39,8 @@ export function sanitizeAnnouncementContent(content: string, contentType: string
     return sanitizeHtml(content);
   }
   if (contentType === 'markdown') {
-    return content.replace(/\]\((?!(https?:|mailto:))[^)]*\)/gi, '](about:blank)');
+    const patched = content.replace(/\]\((?!(https?:|mailto:))[^)]*\)/gi, '](about:blank)');
+    return sanitizeHtml(patched);
   }
   return content;
 }

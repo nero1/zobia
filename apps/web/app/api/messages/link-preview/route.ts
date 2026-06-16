@@ -24,6 +24,7 @@ import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { safeFetch, SSRFError } from "@/lib/security/ssrf";
+import { redis } from "@/lib/redis";
 
 // ---------------------------------------------------------------------------
 // Meta-tag parsing helpers
@@ -133,6 +134,17 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       throw badRequest("Query parameter 'url' is required", "MISSING_URL");
     }
 
+    // Check Redis cache first (1-hour TTL)
+    const cacheKey = `link-preview:${Buffer.from(rawUrl).toString("base64").slice(0, 64)}`;
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        return NextResponse.json(JSON.parse(cached), { status: 200 });
+      }
+    } catch {
+      // Cache failure is non-fatal — proceed to fetch
+    }
+
     // Fetch with a 5-second timeout and custom User-Agent.
     // safeFetch validates the URL (private IPs, DNS rebinding, redirect chains)
     // so no separate SSRF pre-check is needed.
@@ -204,6 +216,13 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       image: ogImage,
       siteName: ogSiteName,
     };
+
+    // Store in Redis cache with 1-hour TTL (best-effort)
+    try {
+      await redis.setex(cacheKey, 3600, JSON.stringify(result));
+    } catch {
+      // Cache write failure is non-fatal
+    }
 
     return NextResponse.json(result, { status: 200 });
   } catch (err) {

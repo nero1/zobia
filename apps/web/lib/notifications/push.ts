@@ -289,13 +289,6 @@ export async function pollPushReceipts(): Promise<number> {
 
     if (pendingTickets.length === 0) return 0;
 
-    // Mark all as checked now to prevent duplicate polls on concurrent runs
-    const pendingIds = pendingTickets.map((r) => r.id);
-    await db.query(
-      `UPDATE push_tickets SET checked_at = NOW() WHERE id = ANY($1)`,
-      [pendingIds]
-    );
-
     // Poll in batches of 100 (Expo limit)
     for (let i = 0; i < pendingTickets.length; i += EXPO_BATCH_SIZE) {
       const batch = pendingTickets.slice(i, i + EXPO_BATCH_SIZE);
@@ -316,6 +309,14 @@ export async function pollPushReceipts(): Promise<number> {
         }
 
         const result = (await response.json()) as ExpoReceiptsResponse;
+
+        // Mark this batch as checked now that Expo has responded successfully
+        const batchIds = batch.map((r) => r.id);
+        await db.query(
+          `UPDATE push_tickets SET checked_at = NOW() WHERE id = ANY($1)`,
+          [batchIds]
+        ).catch((err) => console.error("[push/receipts] Failed to mark tickets checked:", err));
+
         const staleTokens = new Set<string>();
 
         for (const ticket of batch) {

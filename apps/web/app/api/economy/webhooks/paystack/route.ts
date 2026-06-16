@@ -64,16 +64,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     ?? (event as PaystackTransferEvent).data?.reference
     ?? (event as PaystackSubscriptionEvent).data?.subscription_code
     ?? null;
-  const replayKey = eventRef ? `webhook:paystack:${event.event}:${eventRef}` : null;
-  if (replayKey) {
-    // If Redis SET throws, return 500 so Paystack retries the webhook rather than
-    // silently treating a Redis failure as a duplicate event.
-    const alreadySeen = await redis.set(replayKey, "1", "EX", 86400, "NX");
-    if (alreadySeen === null) {
-      // null = NX condition not met → key already existed → duplicate event
-      console.info(`[webhook/paystack] Duplicate event ignored: ${replayKey}`);
-      return NextResponse.json({ received: true, duplicate: true });
-    }
+  const eventTs = (event as PaystackChargeEvent).data?.paid_at ?? (event as { data?: { created_at?: string } }).data?.created_at ?? Date.now().toString();
+  const replayKey = `webhook:paystack:${event.event}:${eventRef ?? `ts-${eventTs}`}`;
+  // If Redis SET throws, return 500 so Paystack retries the webhook rather than
+  // silently treating a Redis failure as a duplicate event.
+  const alreadySeen = await redis.set(replayKey, "1", "EX", 86400, "NX");
+  if (alreadySeen === null) {
+    // null = NX condition not met → key already existed → duplicate event
+    console.info(`[webhook/paystack] Duplicate event ignored: ${replayKey}`);
+    return NextResponse.json({ received: true, duplicate: true });
   }
 
   // 4. Route to handler (failures are caught so we can still return 200)

@@ -87,7 +87,7 @@ export async function checkPayoutFraud(
       .query(
         `INSERT INTO admin_audit_log (admin_id, action, resource, resource_id, after_val, created_at)
          VALUES (
-           '00000000-0000-0000-0000-000000000000',
+           NULL,
            'payout_fraud_flagged', 'creator_payouts', $1, $2::jsonb, NOW()
          )`,
         [creatorId, JSON.stringify({ creatorId, grossKobo, reasons })]

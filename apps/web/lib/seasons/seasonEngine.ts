@@ -119,10 +119,14 @@ export async function resetSeasonRankings(
   db: DatabaseAdapter
 ): Promise<void> {
   await db.transaction(async (client) => {
-    // Archive leaderboard positions before clearing
+    // Archive leaderboard positions before clearing.
+    // season_rank is never written during the season (always NULL), so compute
+    // rank on-the-fly from season_xp using RANK() OVER before archiving.
     await client.query(
       `INSERT INTO season_rank_archives (season_id, user_id, final_rank, final_season_xp, archived_at)
-       SELECT $1, user_id, season_rank, season_xp, NOW()
+       SELECT $1, user_id,
+              RANK() OVER (ORDER BY season_xp DESC) AS final_rank,
+              season_xp, NOW()
        FROM user_season_passes
        WHERE season_id = $1
        ON CONFLICT (season_id, user_id) DO NOTHING`,
@@ -228,9 +232,19 @@ export async function distributeSeasonRewards(
 
   if (topUsers.length > 3) {
     // Normal case: ranks 1-3 get their fixed shares; ranks 4-10 split 50% evenly
-    const rank4to10Share = Math.floor((pool * 0.5) / (topUsers.length - 3));
+    const rank4to10Pool = Math.floor(pool * 0.5);
+    const rank4to10Count = topUsers.length - 3;
+    const rank4to10Share = Math.floor(rank4to10Pool / rank4to10Count);
+    const rank4to10Dust = rank4to10Pool - (rank4to10Share * rank4to10Count);
     for (let i = 0; i < topUsers.length; i++) {
-      userCoins[i] = i < 3 ? Math.floor(pool * rewardShares[i]) : rank4to10Share;
+      if (i < 3) {
+        userCoins[i] = Math.floor(pool * rewardShares[i]);
+      } else if (i === 3) {
+        // Rank 4 gets the share plus any remainder dust from floor division
+        userCoins[i] = rank4to10Share + rank4to10Dust;
+      } else {
+        userCoins[i] = rank4to10Share;
+      }
     }
   } else {
     // Fewer than 4 users: no rank-4-to-10 recipients exist.
@@ -550,11 +564,17 @@ export async function claimPassMilestone(
       );
     } else if (milestone.reward_type === 'sticker_pack') {
       const val = milestone.reward_value as { packId: string };
+      const packResult = await client.query<{ id: string }>(
+        `SELECT id FROM sticker_packs WHERE slug = $1 OR name = $1 LIMIT 1`,
+        [val.packId]
+      );
+      const packUuid = packResult.rows[0]?.id;
+      if (!packUuid) throw new Error(`[seasonEngine] Sticker pack not found: ${val.packId}`);
       await client.query(
         `INSERT INTO user_sticker_packs (user_id, pack_id, unlocked_at)
          VALUES ($1, $2, NOW())
          ON CONFLICT (user_id, pack_id) DO NOTHING`,
-        [userId, val.packId]
+        [userId, packUuid]
       );
     } else {
       console.error(`[claimPassMilestone] Unhandled reward_type '${milestone.reward_type}' for milestone ${milestoneId}`);

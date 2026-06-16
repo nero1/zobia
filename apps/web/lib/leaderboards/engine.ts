@@ -82,7 +82,7 @@ export async function getUserRank(
        AND (city IS NOT DISTINCT FROM $4)
        AND (season_id IS NOT DISTINCT FROM $5)
      LIMIT 1`,
-    [userId, track, scope === "national" ? "global" : scope,
+    [userId, track, scope,
      options?.city ?? null, options?.seasonId ?? null]
   );
 
@@ -97,7 +97,7 @@ export async function getUserRank(
     `ls.xp_value > $3`,
     `ls.user_id != $4`,
   ];
-  const params: (string | number | null)[] = [track, scope === "national" ? "global" : scope, userXP, userId];
+  const params: (string | number | null)[] = [track, scope, userXP, userId];
   let paramIdx = 5;
 
   if (scope === "national") {

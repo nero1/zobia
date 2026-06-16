@@ -46,6 +46,20 @@ export async function POST(req: NextRequest) {
 
     const { code, preAuthToken } = await validateBody(req, verifySchema);
 
+    // Also rate-limit by userId to prevent credential stuffing across IPs
+    {
+      let preAuthUserId: string | null = null;
+      try {
+        const payload = await verifyAccessToken(preAuthToken);
+        preAuthUserId = payload.sub ?? null;
+      } catch {
+        // ignore — invalid token error is handled below
+      }
+      if (preAuthUserId) {
+        await enforceRateLimit(preAuthUserId, "user", { windowSeconds: 900, limit: 5 });
+      }
+    }
+
     // -----------------------------------------------------------------------
     // Pre-auth flow: preAuthToken issued during OAuth callback
     // -----------------------------------------------------------------------

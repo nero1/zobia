@@ -150,8 +150,9 @@ function isCsrfSafe(request: NextRequest): boolean {
   if (!origin) {
     // No Origin header — only allow specific CRON paths with the CRON secret header
     const isCronPath = request.nextUrl.pathname.startsWith("/api/cron/");
+    const authHeader = request.headers.get("authorization") ?? "";
     const hasCronSecret = !!process.env.CRON_SECRET &&
-      request.headers.get("x-cron-secret") === process.env.CRON_SECRET;
+      authHeader === `Bearer ${process.env.CRON_SECRET}`;
     return isCronPath && hasCronSecret;
   }
 

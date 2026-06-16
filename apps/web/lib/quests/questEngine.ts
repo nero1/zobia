@@ -194,6 +194,12 @@ export async function updateQuestProgress(
     const quest = questResult.rows[0];
     if (!quest) throw new Error(`[questEngine] Quest not found: ${questId}`);
 
+    const deckCheck = await client.query(
+      `SELECT 1 FROM user_quest_decks WHERE user_id = $1 AND quest_id = $2 AND assigned_date = $3 LIMIT 1`,
+      [userId, questId, today]
+    );
+    if (!deckCheck.rows[0]) throw new Error(`[questEngine] Quest ${questId} not in user's deck`);
+
     const progressResult = await client.query<{
       progress_count: number;
       completed: boolean;
@@ -364,6 +370,10 @@ export async function resetDailyQuests(
      )
      SELECT COUNT(*) AS count FROM deleted`,
     [todayUTC]
+  );
+
+  await db.query(
+    `DELETE FROM user_quest_decks WHERE assigned_date < CURRENT_DATE - INTERVAL '30 days'`
   );
 
   return { clearedRows: parseInt(result.rows[0]?.count ?? "0") };

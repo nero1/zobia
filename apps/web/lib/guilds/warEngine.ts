@@ -318,9 +318,10 @@ export async function distributeWarRewards(
 export async function resolveWar(
   warId: string,
   db: DatabaseAdapter
-): Promise<{ winnerGuildId: string; loserGuildId: string }> {
-  let winnerGuildId!: string;
-  let loserGuildId!: string;
+): Promise<{ winnerGuildId: string | null; loserGuildId: string | null; outcome: "win" | "draw" }> {
+  let winnerGuildId: string | null = null;
+  let loserGuildId: string | null = null;
+  let outcome: "win" | "draw" = "win";
 
   // ZB-07: The FOR UPDATE lock and all mutations run inside a single transaction
   // so concurrent calls cannot both see the war as unresolved.
@@ -335,8 +336,46 @@ export async function resolveWar(
       throw new Error(`[warEngine] War ${warId} is already resolved`);
     }
 
+    if (war.challenger_points === war.defender_points) {
+      // Draw — no winner declared
+      outcome = "draw";
+
+      // Mark war as completed with no winner
+      await client.query(
+        `UPDATE guild_wars
+         SET status = 'completed', winner_guild_id = NULL, updated_at = NOW()
+         WHERE id = $1`,
+        [warId]
+      );
+
+      // Update last_war_ended_at for both guilds (no wins/losses credited)
+      await client.query(
+        `UPDATE guilds SET last_war_ended_at = NOW(), updated_at = NOW()
+         WHERE id = ANY($1::uuid[])`,
+        [[war.challenger_guild_id, war.defender_guild_id]]
+      );
+
+      // Create a system alert for the draw
+      await client.query(
+        `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
+         VALUES ('guild_war_draw', 'info', $1, $2::jsonb, NOW())`,
+        [
+          `Guild war ${warId} ended in a draw (${war.challenger_points} pts each)`,
+          JSON.stringify({
+            warId,
+            challengerGuildId: war.challenger_guild_id,
+            defenderGuildId: war.defender_guild_id,
+            points: war.challenger_points,
+          }),
+        ]
+      ).catch(() => {});
+
+      return;
+    }
+
+    // Win/loss outcome
     winnerGuildId =
-      war.challenger_points >= war.defender_points
+      war.challenger_points > war.defender_points
         ? war.challenger_guild_id
         : war.defender_guild_id;
     loserGuildId =
@@ -403,10 +442,10 @@ export async function resolveWar(
     ).catch(() => {});
 
     // Distribute coin rewards within the same transaction (ZB-03)
-    await distributeWarRewards(warId, winnerGuildId, db, client);
+    await distributeWarRewards(warId, winnerGuildId!, db, client);
   });
 
-  return { winnerGuildId, loserGuildId };
+  return { winnerGuildId, loserGuildId, outcome };
 }
 
 // ---------------------------------------------------------------------------
