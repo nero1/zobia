@@ -527,7 +527,7 @@ export const GET = async (req: NextRequest) => {
     }
   }
 
-  // 11b. Expired message-pin sweep — unpin coin-purchased pins whose 1-hour window
+  // 9b. Expired message-pin sweep — unpin coin-purchased pins whose 1-hour window
   //      has passed (PRD §11: Message Pin lasts 1 hour). Legacy moderator pins
   //      have pin_expires_at IS NULL and are left untouched.
   try {
@@ -543,7 +543,7 @@ export const GET = async (req: NextRequest) => {
     errors.push(`expiredPinSweep: ${String(err)}`);
   }
 
-  // 12. Guild tier demotion — demote guilds below minimum after 7 days
+  // 10. Guild tier demotion — demote guilds below minimum after 7 days
   try {
     // CRON-GUILD-01: single source of truth for all guild tier thresholds.
     // minMembers = lower bound for demotion; promotionXP = XP needed to reach next tier.
@@ -720,7 +720,7 @@ export const GET = async (req: NextRequest) => {
     errors.push(`guildTierPromotion: ${String(err)}`);
   }
 
-  // 13. "The Patron" badge — award to users who are top gifter in 3+ rooms in last 24h
+  // 11. "The Patron" badge — award to users who are top gifter in 3+ rooms in last 24h
   try {
     // Find users who are the top gifter (by coin_cost) in 3+ rooms in the last 24 hours
     const { rows: patronCandidates } = await db.query<{ user_id: string; room_count: string }>(
@@ -761,7 +761,7 @@ export const GET = async (req: NextRequest) => {
     errors.push(`patronBadge: ${String(err)}`);
   }
 
-  // 14. Leaderboard ripple notifications — notify users of passive rank changes
+  // 12. Leaderboard ripple notifications — notify users of passive rank changes
   try {
     const { rows: currentRanks } = await db.query<{
       user_id: string; rank: string; xp_value: string;
@@ -855,7 +855,7 @@ export const GET = async (req: NextRequest) => {
     errors.push(`leaderboardRipple: ${String(err)}`);
   }
 
-  // 10. Platform Council invitation (last 7 days of month)
+  // 13. Platform Council invitation (last 7 days of month)
   try {
     const now = new Date();
     const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
@@ -905,7 +905,7 @@ export const GET = async (req: NextRequest) => {
     errors.push(`councilInvitations: ${String(err)}`);
   }
 
-  // 11. Re-engagement notification dispatch
+  // 14. Re-engagement notification dispatch
   try {
     // Find users with inactivity events not yet notified today (include streak for gating)
     const { rows: inactiveUsers } = await db.query<{
@@ -1683,7 +1683,7 @@ export const GET = async (req: NextRequest) => {
     errors.push(`flashXpLifecycle: ${String(err)}`);
   }
 
-  // ── Step 23: Enforce plan-based message history limits (PRD §3) ─────────────
+  // 25. Enforce plan-based message history limits (PRD §3)
   // Free  = 90 days  |  Plus = 180 days  |  Pro/Max = Unlimited
   // We hard-delete messages (DMs and group messages) sent by users whose plan
   // puts a cap on how far back history is retained.  The cutoff is applied to
@@ -1719,7 +1719,7 @@ export const GET = async (req: NextRequest) => {
     errors.push(`messageHistoryCleanup: ${String(err)}`);
   }
 
-  // 25. Ad revenue share auto-enrolment for Free Open Rooms with 500+ MAU (PRD §10)
+  // 26. Ad revenue share auto-enrolment for Free Open Rooms with 500+ MAU (PRD §10)
   //     On the 1st of each month: snapshot MAU for all active free_open rooms,
   //     then auto-enrol any room whose last-month MAU count reaches 500+.
   try {
@@ -1790,7 +1790,7 @@ export const GET = async (req: NextRequest) => {
     errors.push(`adRevenueEnrolment: ${String(err)}`);
   }
 
-  // 26. Annual cultural event recurrence (PRD §25)
+  // 27. Annual cultural event recurrence (PRD §25)
   //     For each recurring annual event whose current year's instance has ended,
   //     clone it into next year if no future instance already exists.
   try {
@@ -1871,7 +1871,7 @@ export const GET = async (req: NextRequest) => {
     errors.push(`annualEventRecurrence: ${String(err)}`);
   }
 
-  // 27. Earnable sticker pack auto-unlock (PRD §5)
+  // 28. Earnable sticker pack auto-unlock (PRD §5)
   //     Earnable packs have an unlock_condition referencing a track level milestone
   //     (e.g. "social_level_10"). Daily CRON checks all users whose track XP has
   //     crossed a milestone and auto-grants the matching earnable pack.
@@ -1947,7 +1947,7 @@ export const GET = async (req: NextRequest) => {
     errors.push(`earnableStickerUnlocks: ${String(err)}`);
   }
 
-  // 28. Creator tier progression — update based on room member counts (PRD §10)
+  // 29. Creator tier progression — update based on room member counts (PRD §10)
   //     Rookie: 0–99  |  Rising: 100–499  |  Verified: 500–1999  |  Elite/Icon: 2000+
   try {
     const { rows: creatorRooms } = await db.query<{
@@ -1993,7 +1993,7 @@ export const GET = async (req: NextRequest) => {
     errors.push(`creatorTierUpdates: ${String(err)}`);
   }
 
-  // 29. Moderation daily digest (Fridays) — email admin moderation summary
+  // 30. Moderation daily digest (Fridays) — email admin moderation summary
   try {
     const dayOfWeekForDigest = new Date().getUTCDay();
     if (dayOfWeekForDigest === 5) {
@@ -2035,7 +2035,7 @@ export const GET = async (req: NextRequest) => {
     errors.push(`moderationDigest: ${String(err)}`);
   }
 
-  // 30. Master Teacher award (end of season) — top Elder by mentees mentored
+  // 31. Master Teacher award (end of season) — top Elder by mentees mentored
   try {
     const { rows: endedSeasonElderRows } = await db.query<{ id: string }>(
       `SELECT id FROM seasons WHERE is_active = FALSE AND ends_at >= NOW() - INTERVAL '7 days' LIMIT 1`
@@ -2074,7 +2074,7 @@ export const GET = async (req: NextRequest) => {
     errors.push(`masterTeacherAward: ${String(err)}`);
   }
 
-  // 31. Nemesis overtake/triumph notifications (daily after nemesis refresh on Sundays)
+  // 32. Nemesis overtake/triumph notifications (daily after nemesis refresh on Sundays)
   try {
     const dayForNemesis = new Date().getUTCDay();
     if (dayForNemesis === 0) {
@@ -2301,7 +2301,7 @@ export const GET = async (req: NextRequest) => {
     errors.push(`allianceWarsResolved: ${String(err)}`);
   }
 
-  // 32. Weekly automated payouts (Fridays) — auto-initiate bank payouts (PRD §12)
+  // 33. Weekly automated payouts (Fridays) — auto-initiate bank payouts (PRD §12)
   try {
     const dayForPayouts = new Date().getUTCDay();
     if (dayForPayouts === 5) {
@@ -2397,7 +2397,7 @@ export const GET = async (req: NextRequest) => {
   }
 
   // ============================================================
-  // 33. Referral 7-day streak qualifying — award one-time bonuses
+  // 34. Referral 7-day streak qualifying — award one-time bonuses
   //     (PRD §15) when referred users hit 7-day login streak
   // ============================================================
 
@@ -2487,11 +2487,9 @@ export const GET = async (req: NextRequest) => {
     errors.push(`referralStreakQualifying: ${String(err)}`);
   }
 
-  // -------------------------------------------------------------------------
-  // Step 34: Flush Telegram delivery queue (PRD §20 — Admin In-App Messaging)
+  // 35. Flush Telegram delivery queue (PRD §20 — Admin In-App Messaging)
   // Admin broadcast messages enqueue Telegram IDs; this step actually sends them
   // and marks rows delivered. Batch size 200 to stay within Vercel response budget.
-  // -------------------------------------------------------------------------
   try {
     const TELEGRAM_BATCH = 200;
     const { rows: queueRows } = await db.query<{

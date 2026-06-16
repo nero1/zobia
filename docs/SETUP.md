@@ -230,6 +230,20 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    - Unique index on `coin_ledger (reference_id)` for idempotent coin credits
    - Indexes on `leaderboard_snapshots`, `leaderboard_rank_snapshots`, `nemesis_assignments`, `referrals`, `user_inactivity_events`, `failed_xp_awards`, `guild_members`, `creator_payouts`, and `payments`
    - All indexes use `IF NOT EXISTS` and are safe to apply on a live database
+
+   Migration `0004_custom_bug_fixes.sql` adds:
+   - `x_manifest.value` column widened from JSONB to TEXT (prevents silent JSON coercions for plain string config values)
+   - `star_ledger.amount` widened from INTEGER to BIGINT (safe up to ~9.2 × 10¹⁸ stars)
+   - `creator_bank_accounts` — drops the 1:1 unique constraint on `creator_id`; adds `is_primary BOOLEAN` and `deleted_at TIMESTAMPTZ` to support multiple bank accounts per creator; adds a partial unique index `(creator_id) WHERE is_primary = TRUE AND deleted_at IS NULL`
+   - `dm_conversations` — CHECK constraint `user_id_1 < user_id_2` to enforce canonical ordering; deduplicates any existing rows that violated the ordering
+   - `users.last_login_date DATE` — date-only column for efficient streak calculations (backfilled from `last_login_at`); indexed
+   - `users.longest_streak INTEGER` — tracks the user's all-time best login streak (backfilled from current `login_streak_days`)
+   - `nemesis_assignments.last_notified_at TIMESTAMPTZ` — prevents repeated notifications for the same nemesis state change
+   - Partial unique index on `alliance_wars (alliance_1_id, alliance_2_id) WHERE status = 'active'` — prevents duplicate active wars between the same alliance pair
+   - Partial unique index on `coin_ledger (transaction_type, reference_id) WHERE reference_id IS NOT NULL` — deduplicates monthly Creator Fund distributions
+   - Partial index on `creator_payouts (next_retry_at) WHERE status IN ('pending', 'processing')` — speeds up the payout retry queue
+   - `push_tickets` table — two-stage Expo push receipt tracking (see Push Notification System in HOW-IT-WORKS.md)
+   - `failed_webhooks` — adds `resolved`, `resolved_at`, `retry_count`, `last_error`, `next_retry_at`, `updated_at` columns for structured webhook retry tracking
 7. Optional seed data: `psql "$DIRECT_URL" < apps/web/lib/db/seed.sql`
 
 ### Option B: Railway PostgreSQL
