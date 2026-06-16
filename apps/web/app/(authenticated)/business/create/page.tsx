@@ -8,9 +8,11 @@
 
 import React, { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { apiClient } from '@/lib/api/client';
+import { translateApiError } from '@/lib/i18n/apiErrors';
 import { useRouter } from 'next/navigation';
 
 type Tier = 'starter' | 'growth' | 'enterprise';
@@ -70,6 +72,7 @@ const TIERS: TierOption[] = [
 
 export default function CreateBusinessAccount() {
   const router = useRouter();
+  const { t } = useTranslation();
   const [formData, setFormData] = useState({
     displayName: '',
     description: '',
@@ -89,7 +92,9 @@ export default function CreateBusinessAccount() {
       router.push('/business');
     },
     onError: (error: any) => {
-      alert('Failed to create business account: ' + (error.message || 'Unknown error'));
+      const apiError = error?.response?.data?.error;
+      const message = translateApiError(t, apiError?.code, apiError?.message ?? error.message ?? 'Unknown error');
+      alert('Failed to create business account: ' + message);
     },
   });
 

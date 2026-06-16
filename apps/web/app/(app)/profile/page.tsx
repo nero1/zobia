@@ -14,8 +14,10 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 import { OnlineRing } from "@/components/ui/OnlineRing";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -160,6 +162,7 @@ function TrackBar({ label, emoji, level, xp }: TrackDisplay) {
 // ---------------------------------------------------------------------------
 
 export default function MyProfilePage() {
+  const { t } = useTranslation();
   const [me, setMe] = useState<MeData | null>(null);
   const [guild, setGuild] = useState<GuildData | null>(null);
   const [seasons, setSeasons] = useState<SeasonRecord[]>([]);
@@ -170,7 +173,12 @@ export default function MyProfilePage() {
   const load = useCallback(async () => {
     try {
       const res = await fetch("/api/users/me", { credentials: "include" });
-      if (!res.ok) throw new Error("Could not load profile");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { error?: { code?: string; message?: string } };
+        const err = new Error(body.error?.message ?? "Could not load profile") as Error & { code?: string | null };
+        err.code = body.error?.code ?? null;
+        throw err;
+      }
       const json = await res.json();
       const data: MeData = json.user ?? json;
       setMe(data);
@@ -188,7 +196,8 @@ export default function MyProfilePage() {
         setSeasons(sData.seasons ?? []);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      const err = e as Error & { code?: string | null };
+      setError(e instanceof Error ? translateApiError(t, err.code, err.message || "Unknown error") : "Unknown error");
     } finally {
       setLoading(false);
     }

@@ -4,6 +4,7 @@ import { Suspense, useEffect, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import Script from "next/script";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Telegram Login Widget types
@@ -114,9 +115,9 @@ function LoginContent() {
         ? `/api/auth/google?captcha_token=${encodeURIComponent(captchaToken)}`
         : "/api/auth/google";
       const res = await fetch(url);
-      const data = await res.json() as { url?: string; error?: { message?: string } };
+      const data = await res.json() as { url?: string; error?: { message?: string; code?: string } };
       if (!res.ok || !data.url) {
-        setAuthError(data?.error?.message ?? t("auth.error.oauthFailed"));
+        setAuthError(translateApiError(t, data?.error?.code, data?.error?.message ?? t("auth.error.oauthFailed")));
         setIsLoading(null);
         return;
       }
