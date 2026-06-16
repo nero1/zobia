@@ -7,7 +7,7 @@
  * Packs can be free, purchasable with coins, or earnable.
  */
 
-import { useState, useEffect } from "react";
+import { useRef, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { useCurrency } from "@/lib/hooks/useCurrency";
@@ -132,6 +132,10 @@ function PackCard({ pack, onUnlock, unlocking }: PackCardProps) {
 export default function StickersPage() {
   const router = useRouter();
   const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [packs, setPacks] = useState<StickerPack[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -171,7 +175,7 @@ export default function StickersPage() {
           };
         }));
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Unknown error");
+        setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
       } finally {
         setLoading(false);
       }

@@ -203,6 +203,7 @@ interface ModuleListProps {
 }
 
 function ModuleList({ roomId, modules, onModulesChange, onShowToast }: ModuleListProps) {
+  const { t: tMod } = useTranslation();
   async function handleDelete(index: number) {
     if (!confirm("Delete this module?")) return;
     try {
@@ -217,7 +218,7 @@ function ModuleList({ roomId, modules, onModulesChange, onShowToast }: ModuleLis
       onModulesChange(json.data?.modules ?? []);
       onShowToast("Module deleted");
     } catch (e) {
-      onShowToast(e instanceof Error ? e.message : "Delete failed");
+      onShowToast(e instanceof Error ? translateApiError(tMod, (e as Error & { code?: string | null }).code, e.message || "Delete failed") : "Delete failed");
     }
   }
 
@@ -532,15 +533,17 @@ export default function ClassroomPage() {
         credentials: "include",
       });
       if (!res.ok) {
-        const d = (await res.json()) as { message?: string; error?: string };
-        throw new Error(d.message ?? d.error ?? "Enrollment failed");
+        const d = (await res.json()) as { error?: { code?: string; message?: string }; message?: string };
+        const err = new Error(d.error?.message ?? d.message ?? "Enrollment failed") as Error & { code?: string | null };
+        err.code = d.error?.code ?? null;
+        throw err;
       }
       setBrowseRooms((prev) =>
         prev?.map((r) => (r.id === roomId ? { ...r, isEnrolled: true } : r))
       );
       showToast("Enrolled successfully!");
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Enrollment failed");
+      showToast(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Enrollment failed") : "Enrollment failed");
     } finally {
       setEnrolling(null);
     }

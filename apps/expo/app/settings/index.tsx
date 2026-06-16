@@ -272,7 +272,8 @@ function TwoFactorSection() {
       setShowSetupModal(false);
       Alert.alert('Success', 'Two-factor authentication has been enabled.');
     } catch (e) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'Invalid code. Please try again.');
+      const err = e as Error & { code?: string | null };
+      Alert.alert('Error', translateApiError(t, err.code, e instanceof Error ? e.message : 'Invalid code. Please try again.'));
     } finally {
       setSetupLoading(false);
     }
@@ -318,7 +319,8 @@ function TwoFactorSection() {
       setShowDisableModal(false);
       Alert.alert('Disabled', 'Two-factor authentication has been disabled.');
     } catch (e) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'Invalid code. Please try again.');
+      const err = e as Error & { code?: string | null };
+      Alert.alert('Error', translateApiError(t, err.code, e instanceof Error ? e.message : 'Invalid code. Please try again.'));
     } finally {
       setDisableLoading(false);
     }

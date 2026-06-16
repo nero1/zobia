@@ -351,7 +351,7 @@ export default function EventsPage() {
 
       setData({ events, giftDrop });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
     } finally {
       setLoading(false);
     }
@@ -378,7 +378,7 @@ export default function EventsPage() {
       );
       showToast("Gift drop purchased!");
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Purchase failed");
+      showToast(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Purchase failed") : "Purchase failed");
     } finally {
       setPurchasingDrop(false);
     }

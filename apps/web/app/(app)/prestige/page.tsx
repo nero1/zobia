@@ -10,10 +10,12 @@
  * - POST /api/prestige to confirm prestige
  */
 
-import { useState, useEffect } from "react";
+import { useRef, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -246,6 +248,11 @@ function ConfirmScreen({ data, onConfirm, confirming, done }: ConfirmScreenProps
  * Prestige flow page.
  */
 export default function PrestigePage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const router = useRouter();
   const [data, setData] = useState<PrestigeEligibility | null>(null);
   const [loading, setLoading] = useState(true);
@@ -292,7 +299,7 @@ export default function PrestigePage() {
           rewardsCoins: d.rewardsCoins ?? d.rewards?.coins ?? 500,
         });
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Unknown error");
+        setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
       } finally {
         setLoading(false);
       }
@@ -309,7 +316,7 @@ export default function PrestigePage() {
       if (!res.ok) throw new Error("Failed to prestige");
       setDone(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to prestige");
+      setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Failed to prestige") : "Failed to prestige");
     } finally {
       setConfirming(false);
     }

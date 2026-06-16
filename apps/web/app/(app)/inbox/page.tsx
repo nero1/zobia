@@ -10,7 +10,9 @@
  * - Empty state when no messages
  */
 
-import { useState, useEffect } from "react";
+import { useRef, useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -135,6 +137,11 @@ function EmptyState() {
 // ---------------------------------------------------------------------------
 
 export default function InboxPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [messages, setMessages] = useState<InboxMessage[] | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
 
@@ -162,7 +169,7 @@ export default function InboxPage() {
         }));
         setMessages(list);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Unknown error");
+        setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
         setMessages([]);
       }
     })();
