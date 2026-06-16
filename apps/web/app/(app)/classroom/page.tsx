@@ -11,7 +11,9 @@
  * - Add/Edit/Delete modules for room creators
  */
 
-import { useState, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -87,6 +89,7 @@ function ClassRoomSkeleton() {
 // ---------------------------------------------------------------------------
 
 function AddModuleForm({ roomId, onSuccess, onCancel }: AddModuleFormProps) {
+  const { t: tSub } = useTranslation();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [resources, setResources] = useState("");
@@ -117,7 +120,7 @@ function AddModuleForm({ roomId, onSuccess, onCancel }: AddModuleFormProps) {
       if (!res.ok) throw new Error(typeof json.message === "string" ? json.message : "Failed to add module");
       onSuccess(json.data?.modules ?? []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to add module");
+      setError(e instanceof Error ? translateApiError(tSub, (e as Error & { code?: string | null }).code, e.message || "Failed to add module") : "Failed to add module");
     } finally {
       setSaving(false);
     }
@@ -451,6 +454,11 @@ function EnrolledCard({ room }: { room: EnrolledClassRoom }) {
 type Tab = "browse" | "mine";
 
 export default function ClassroomPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [tab, setTab] = useState<Tab>("browse");
   const [browseRooms, setBrowseRooms] = useState<ClassRoom[] | undefined>(undefined);
   const [enrolledRooms, setEnrolledRooms] = useState<EnrolledClassRoom[] | undefined>(undefined);
@@ -509,7 +517,7 @@ export default function ClassroomPage() {
           setCurrentUserId(typeof uid === "string" ? uid : null);
         }
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Unknown error");
+        setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
         setBrowseRooms([]);
         setEnrolledRooms([]);
       }

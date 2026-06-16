@@ -12,8 +12,10 @@
  * Data from GET/POST /api/admin/gift-drop.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -69,6 +71,11 @@ function dropStatus(drop: GiftDrop): { label: string; colour: string } {
 // ---------------------------------------------------------------------------
 
 export default function AdminGiftDropPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const currency = useCurrency();
   const [drops, setDrops] = useState<GiftDrop[]>([]);
   const [giftItems, setGiftItems] = useState<GiftItem[]>([]);
@@ -90,7 +97,7 @@ export default function AdminGiftDropPage() {
       const data = (await res.json()) as { drops: GiftDrop[] };
       setDrops(data.drops ?? []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Error");
+      setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Error") : "Error");
     } finally {
       setLoading(false);
     }
@@ -134,7 +141,7 @@ export default function AdminGiftDropPage() {
       setForm({ giftItemId: "", startAt: "" });
       await fetchDrops();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Error");
+      setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Error") : "Error");
     } finally {
       setSubmitting(false);
     }

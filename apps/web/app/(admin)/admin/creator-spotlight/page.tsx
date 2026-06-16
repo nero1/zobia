@@ -13,7 +13,9 @@
  *  - Submission to POST /api/admin/creator-spotlight.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -216,6 +218,11 @@ function AddSpotlightForm({ onSubmit, saving }: AddFormProps) {
 // ---------------------------------------------------------------------------
 
 export default function AdminCreatorSpotlightPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [spotlights, setSpotlights] = useState<Spotlight[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -247,7 +254,7 @@ export default function AdminCreatorSpotlightPage() {
         const data = (await res.json()) as { spotlights: Spotlight[] };
         setSpotlights(data.spotlights);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Unknown error");
+        setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
       } finally {
         setLoading(false);
       }
@@ -279,7 +286,7 @@ export default function AdminCreatorSpotlightPage() {
       setSpotlights((prev) => [data.spotlight, ...prev]);
       showToast("Spotlight created!");
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Create failed", "error");
+      showToast(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Create failed") : "Create failed", "error");
     } finally {
       setSaving(false);
     }

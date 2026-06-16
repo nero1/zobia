@@ -8,8 +8,10 @@
  * Click a row to open a detail panel with actions.
  */
 
-import { useState, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import type { Metadata } from "next";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -317,6 +319,11 @@ function ActionButton({ label, onClick, loading, disabled, className = "" }: Act
  * Requires admin authentication (enforced by middleware).
  */
 export default function AdminUsersPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [query, setQuery] = useState("");
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [total, setTotal] = useState(0);
@@ -347,7 +354,7 @@ export default function AdminUsersPage() {
       setTotal(data.total);
       setPage(pageNum);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
     } finally {
       setLoading(false);
     }

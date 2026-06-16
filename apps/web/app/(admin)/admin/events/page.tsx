@@ -9,7 +9,9 @@
  * Admin-only (redirect if not admin).
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -211,6 +213,11 @@ function EventModal({ initial, onSave, onClose, saving, title }: EventModalProps
  * Admin events management page.
  */
 export default function AdminEventsPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [events, setEvents] = useState<PlatformEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -233,7 +240,7 @@ export default function AdminEventsPage() {
         const data = (await res.json()) as { events: PlatformEvent[] };
         setEvents(data.events);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Unknown error");
+        setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
       } finally {
         setLoading(false);
       }
@@ -262,7 +269,7 @@ export default function AdminEventsPage() {
       setShowModal(false);
       showToast("Event created!");
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Create failed", "error");
+      showToast(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Create failed") : "Create failed", "error");
     } finally {
       setSaving(false);
     }
@@ -281,7 +288,7 @@ export default function AdminEventsPage() {
       setEvents((prev) => prev.map((e) => (e.id === event.id ? { ...e, isActive: !e.isActive } : e)));
       showToast(`Event ${!event.isActive ? "activated" : "deactivated"}`);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Toggle failed", "error");
+      showToast(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Toggle failed") : "Toggle failed", "error");
     } finally {
       setToggling(null);
     }

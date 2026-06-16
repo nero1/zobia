@@ -7,7 +7,9 @@
  * Lists community notes by status and allows approve / reject / escalate actions.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -185,6 +187,11 @@ function NoteCard({ note, onAction, busy }: NoteCardProps) {
 // ---------------------------------------------------------------------------
 
 export default function AdminCommunityNotesPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [tab, setTab] = useState<TabKey>("pending");
   const [notes, setNotes] = useState<CommunityNote[]>([]);
   const [total, setTotal] = useState(0);
@@ -216,7 +223,7 @@ export default function AdminCommunityNotesPage() {
       setNotes(data.data.notes);
       setTotal(data.data.total);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
     } finally {
       setLoading(false);
     }
@@ -237,13 +244,13 @@ export default function AdminCommunityNotesPage() {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error((body as { error?: string }).error ?? "Action failed");
+        { const e2 = new Error((body as { error?: { message?: string }; message?: string }).error?.message ?? (body as { error?: string }).error as string ?? "Action failed") as Error & { code?: string | null }; e2.code = (body as { error?: { code?: string } }).error?.code ?? null; throw e2; };
       }
       const actionLabel = action === "approve" ? "approved" : action === "reject" ? "rejected" : "escalated";
       showToast(`Note ${actionLabel}`);
       await fetchNotes(tab);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Action failed", "error");
+      showToast(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Action failed") : "Action failed", "error");
     } finally {
       setBusy(null);
     }

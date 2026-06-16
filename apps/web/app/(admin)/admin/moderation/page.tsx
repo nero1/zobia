@@ -9,7 +9,9 @@
  * Resolved / Escalated tabs show historical records.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -211,6 +213,11 @@ function ReportCard({ report, onAction, busy }: ReportCardProps) {
  * Requires admin authentication (enforced by middleware).
  */
 export default function AdminModerationPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [tab, setTab] = useState<TabKey>("pending");
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(false);
@@ -236,7 +243,7 @@ export default function AdminModerationPage() {
       const data = (await res.json()) as { reports: Report[] };
       setReports(data.reports);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
     } finally {
       setLoading(false);
     }
@@ -259,7 +266,7 @@ export default function AdminModerationPage() {
       showToast("Action applied");
       await fetchReports(tab);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Action failed", "error");
+      showToast(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Action failed") : "Action failed", "error");
     } finally {
       setBusy(null);
     }

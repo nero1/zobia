@@ -8,7 +8,9 @@
  * allows admins to reverse individual active actions.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -253,6 +255,11 @@ function CardSkeleton() {
 // ---------------------------------------------------------------------------
 
 export default function AdminAutomatedActionsPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [tab, setTab] = useState<TabKey>("active");
   const [items, setItems] = useState<AutomatedAction[]>([]);
   const [hasMore, setHasMore] = useState(false);
@@ -290,7 +297,7 @@ export default function AdminAutomatedActionsPage() {
       setHasMore(data.has_more);
       setNextCursor(data.next_cursor);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
     } finally {
       setLoading(false);
     }
@@ -312,13 +319,13 @@ export default function AdminAutomatedActionsPage() {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error((body as { error?: string }).error ?? "Reversal failed");
+        { const e2 = new Error((body as { error?: { message?: string }; message?: string }).error?.message ?? (body as { error?: string }).error as string ?? "Reversal failed") as Error & { code?: string | null }; e2.code = (body as { error?: { code?: string } }).error?.code ?? null; throw e2; };
       }
       showToast("Action reversed");
       setReverseTarget(null);
       await fetchActions();
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Reversal failed", "error");
+      showToast(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Reversal failed") : "Reversal failed", "error");
     } finally {
       setSubmitting(false);
       setBusy(null);
