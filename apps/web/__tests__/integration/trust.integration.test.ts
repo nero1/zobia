@@ -81,7 +81,7 @@ describe("Trust score gating [integration]", () => {
     }
   });
 
-  it("warning count reduces trust score using moderation_actions with action_type='warning'", async () => {
+  it("warning count reduces trust score using moderation_actions with action_type='warn'", async () => {
     if (!dbAvailable) return;
     const { client, rollback } = await createTestTransaction();
     try {
@@ -92,8 +92,8 @@ describe("Trust score gating [integration]", () => {
       const baseScore = await calculateTrustScore(target.id, db);
 
       // Add 2 warnings
-      await createModerationAction(client, target.id, "warning", admin.id);
-      await createModerationAction(client, target.id, "warning", admin.id);
+      await createModerationAction(client, target.id, "warn", admin.id);
+      await createModerationAction(client, target.id, "warn", admin.id);
 
       const penalizedScore = await calculateTrustScore(target.id, db);
 

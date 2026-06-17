@@ -103,7 +103,7 @@ describe("Leaderboard ranking [integration]", () => {
       await db.query(
         `INSERT INTO leaderboard_snapshots (id, user_id, track, scope, xp_value, city, season_id)
          VALUES ($1, $2, 'main', 'global', 500, NULL, NULL)
-         ON CONFLICT (user_id, track, scope, city, season_id)
+         ON CONFLICT (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))
            DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()`,
         [uuid(), user.id]
       );
@@ -112,7 +112,7 @@ describe("Leaderboard ranking [integration]", () => {
       await db.query(
         `INSERT INTO leaderboard_snapshots (id, user_id, track, scope, xp_value, city, season_id)
          VALUES ($1, $2, 'main', 'global', 750, NULL, NULL)
-         ON CONFLICT (user_id, track, scope, city, season_id)
+         ON CONFLICT (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))
            DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()`,
         [uuid(), user.id]
       );

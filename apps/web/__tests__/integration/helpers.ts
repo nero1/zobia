@@ -164,8 +164,8 @@ export async function createReport(
 ): Promise<{ id: string }> {
   const id = randomUUID();
   await client.query(
-    `INSERT INTO reports (id, reporter_user_id, reported_user_id, reason, status, created_at)
-     VALUES ($1, $2, $3, $4, 'pending', NOW())`,
+    `INSERT INTO reports (id, reporter_id, reported_user_id, report_type, created_at)
+     VALUES ($1, $2, $3, $4, NOW())`,
     [id, reporterUserId, reportedUserId, reason]
   );
   return { id };
