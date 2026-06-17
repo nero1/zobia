@@ -37,6 +37,7 @@ import { useTheme } from '@/lib/theme';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/hooks';
 import { useCurrency } from '@/lib/hooks/useCurrency';
+import { useFloatingNotification } from '@/hooks/useFloatingNotification';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -88,8 +89,22 @@ interface Quest {
   completed: boolean;
 }
 
-interface QuestsResponse {
-  quests: Quest[];
+interface QuestApiRow {
+  id?: unknown;
+  title?: unknown;
+  name?: unknown;
+  description?: unknown;
+  xp_reward?: unknown;
+  xpReward?: unknown;
+  progress_count?: unknown;
+  progress?: unknown;
+  target_count?: unknown;
+  goal?: unknown;
+  completed?: unknown;
+}
+
+interface QuestsApiResponse {
+  quests?: QuestApiRow[];
 }
 
 interface LeaderboardMeData {
@@ -169,9 +184,18 @@ async function fetchNemesis(): Promise<NemesisData> {
   return data;
 }
 
-async function fetchDailyQuests(): Promise<QuestsResponse> {
-  const { data } = await apiClient.get<QuestsResponse>('/quests/daily');
-  return data;
+async function fetchDailyQuests(): Promise<{ quests: Quest[] }> {
+  const { data } = await apiClient.get<QuestsApiResponse>('/quests/daily');
+  const quests: Quest[] = (data?.quests ?? []).map((q) => ({
+    id: String(q.id ?? ''),
+    name: String(q.title ?? q.name ?? ''),
+    description: String(q.description ?? ''),
+    xpReward: Number(q.xp_reward ?? q.xpReward ?? 0),
+    progress: Number(q.progress_count ?? q.progress ?? 0),
+    goal: Number(q.target_count ?? q.goal ?? 1),
+    completed: Boolean(q.completed ?? false),
+  }));
+  return { quests };
 }
 
 async function fetchLeaderboardMe(): Promise<LeaderboardMeData> {
@@ -797,6 +821,7 @@ export default function HomeScreen() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const { questUpdateKey } = useFloatingNotification();
   const [showLoginToast, setShowLoginToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const [refreshing, setRefreshing] = useState(false);
@@ -884,6 +909,12 @@ export default function HomeScreen() {
     dailyLoginMutation.mutate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Refresh quest list whenever a quest_complete / deck_complete realtime event arrives
+  useEffect(() => {
+    if (questUpdateKey === 0) return;
+    queryClient.invalidateQueries({ queryKey: ['quests', 'daily'] });
+  }, [questUpdateKey, queryClient]);
 
   // -------------------------------------------------------------------------
   // Challenge mutation

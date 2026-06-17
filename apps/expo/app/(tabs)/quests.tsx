@@ -20,6 +20,7 @@ import { useRouter } from 'expo-router';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
 import { useTranslation } from 'react-i18next';
+import { useFloatingNotification } from '@/hooks/useFloatingNotification';
 
 interface DailyQuest {
   id: string;
@@ -29,6 +30,19 @@ interface DailyQuest {
   progress: number;
   goal: number;
   completed: boolean;
+}
+
+interface DailyQuestApiRow {
+  id?: unknown;
+  title?: unknown;
+  description?: unknown;
+  xp_reward?: unknown;
+  xpReward?: unknown;
+  progress_count?: unknown;
+  progress?: unknown;
+  target_count?: unknown;
+  goal?: unknown;
+  completed?: unknown;
 }
 
 interface MemberQuestStep {
@@ -48,6 +62,7 @@ export default function QuestsTab() {
   const isDark = scheme === 'dark';
   const router = useRouter();
   const { t } = useTranslation();
+  const { questUpdateKey } = useFloatingNotification();
 
   const [dailyQuests, setDailyQuests] = useState<DailyQuest[]>([]);
   const [memberQuest, setMemberQuest] = useState<MemberQuestData | null>(null);
@@ -63,10 +78,19 @@ export default function QuestsTab() {
   const load = useCallback(async () => {
     try {
       const [dailyRes, memberRes] = await Promise.all([
-        apiClient.get<{ quests: DailyQuest[] }>('/quests/daily'),
+        apiClient.get<{ quests: DailyQuestApiRow[] }>('/quests/daily'),
         apiClient.get<MemberQuestData>('/quests/new-member'),
       ]);
-      setDailyQuests(dailyRes.data?.quests ?? []);
+      const mapped: DailyQuest[] = (dailyRes.data?.quests ?? []).map((q) => ({
+        id: String(q.id ?? ''),
+        title: String(q.title ?? ''),
+        description: String(q.description ?? ''),
+        xpReward: Number(q.xp_reward ?? q.xpReward ?? 0),
+        progress: Number(q.progress_count ?? q.progress ?? 0),
+        goal: Number(q.target_count ?? q.goal ?? 1),
+        completed: Boolean(q.completed ?? false),
+      }));
+      setDailyQuests(mapped);
       const md = memberRes.data;
       if (md && !md.allComplete && !md.rewardClaimed) {
         setMemberQuest(md);
@@ -80,6 +104,12 @@ export default function QuestsTab() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Refresh when quest progress changes via realtime
+  useEffect(() => {
+    if (questUpdateKey === 0) return;
+    void load();
+  }, [questUpdateKey, load]);
 
   const onRefresh = () => { setRefreshing(true); void load(); };
 
