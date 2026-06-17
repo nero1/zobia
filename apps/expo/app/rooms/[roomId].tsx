@@ -528,8 +528,8 @@ export default function RoomScreen() {
     },
     onSuccess: (serverMessage, _, ctx) => {
       // Replace the optimistic message with the server-confirmed one
-      queryClient.setQueryData<Message[]>(['room-messages', roomId], (prev) =>
-        (prev ?? []).map((m) => (m.id === ctx?.optimisticId ? (serverMessage ?? m) : m))
+      queryClient.setQueryData<Message[]>(['room-messages', roomId], (prev: Message[] | undefined) =>
+        (prev ?? []).map((m: Message) => (m.id === ctx?.optimisticId ? (serverMessage ?? m) : m))
       );
       setXpFlash(true);
       setTimeout(() => setXpFlash(false), 1_200);

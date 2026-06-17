@@ -8,6 +8,7 @@
       "@/app/*": ["./app/*"],
       "@/components/*": ["./components/*"],
       "@/lib/*": ["./lib/*"],
+      "@zobia/shared/*": ["../../shared/*"],
       "react-native": ["./node_modules/react-native"]
     },
     "types": ["nativewind/types", "node"]
