@@ -2032,11 +2032,8 @@ export const giftItems = pgTable("gift_items", {
 });
 
 // Migration 011 (db): new gift_types catalogue (separate from legacy gift_items).
-// TODO: `gifts` currently FK-references `gift_items` (the 001 legacy catalogue),
-// not `gift_types`. To migrate: add a `gift_type_id uuid REFERENCES gift_types(id)`
-// column to `gifts`, backfill from `gift_items`, then drop `gift_item_id` in a
-// follow-up migration. Until then `gift_types` is a standalone catalogue and is
-// not referenced by any FK — treat as partially active / in-progress.
+// Migration 0010 (sql): added gift_type_id FK to gifts and backfilled from gift_items.
+// Phase 2 follow-up: once gift_type_id is fully populated, make it NOT NULL and drop gift_item_id.
 export const giftTypes = pgTable("gift_types", {
   id: uuidPk(),
   name: text("name").notNull().unique(),
@@ -2051,8 +2048,6 @@ export const giftTypes = pgTable("gift_types", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
-// gifts.gift_item_id references gift_items (the original 001 schema).
-// The gift_types table above is an additional catalogue not yet linked here.
 export const gifts = pgTable("gifts", {
   id: uuidPk(),
   senderId: uuid("sender_id")
@@ -2065,6 +2060,9 @@ export const gifts = pgTable("gifts", {
   giftItemId: uuid("gift_item_id")
     .notNull()
     .references(() => giftItems.id, { onDelete: "restrict" }),
+  giftTypeId: uuid("gift_type_id").references(() => giftTypes.id, {
+    onDelete: "restrict",
+  }),
   coinValue: integer("coin_value").notNull(),
   coinCost: integer("coin_cost").notNull(),
   animationUrl: text("animation_url"),
