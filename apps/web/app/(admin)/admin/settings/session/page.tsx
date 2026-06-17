@@ -17,11 +17,11 @@ import { useState, useEffect, useCallback } from "react";
 // ---------------------------------------------------------------------------
 
 const SESSION_TTL_KEYS = [
-  { key: "session_ttl_access_default",    role: "default",   type: "access",  defaultValue: 3600 },
+  { key: "session_ttl_access_default",    role: "default",   type: "access",  defaultValue: 86400 },
   { key: "session_ttl_refresh_default",   role: "default",   type: "refresh", defaultValue: 2592000 },
-  { key: "session_ttl_access_creator",    role: "creator",   type: "access",  defaultValue: 3600 },
+  { key: "session_ttl_access_creator",    role: "creator",   type: "access",  defaultValue: 86400 },
   { key: "session_ttl_refresh_creator",   role: "creator",   type: "refresh", defaultValue: 2592000 },
-  { key: "session_ttl_access_moderator",  role: "moderator", type: "access",  defaultValue: 3600 },
+  { key: "session_ttl_access_moderator",  role: "moderator", type: "access",  defaultValue: 21600 },
   { key: "session_ttl_refresh_moderator", role: "moderator", type: "refresh", defaultValue: 2592000 },
   { key: "session_ttl_access_admin",      role: "admin",     type: "access",  defaultValue: 3600 },
   { key: "session_ttl_refresh_admin",     role: "admin",     type: "refresh", defaultValue: 3600 },

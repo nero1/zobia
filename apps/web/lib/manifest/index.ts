@@ -246,9 +246,9 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     bankAccountFirstAddCreatorXp: 10,
   },
   sessionTtls: {
-    default:   { accessTtl: 3600,    refreshTtl: 2592000 }, // 1h access / 30d refresh
-    creator:   { accessTtl: 3600,    refreshTtl: 2592000 },
-    moderator: { accessTtl: 3600,    refreshTtl: 2592000 },
+    default:   { accessTtl: 86400,   refreshTtl: 2592000 }, // 24h access / 30d refresh
+    creator:   { accessTtl: 86400,   refreshTtl: 2592000 }, // 24h access / 30d refresh
+    moderator: { accessTtl: 21600,   refreshTtl: 2592000 }, // 6h access / 30d refresh
     admin:     { accessTtl: 3600,    refreshTtl: 3600 },    // 1h access / 1h refresh
   },
 };
