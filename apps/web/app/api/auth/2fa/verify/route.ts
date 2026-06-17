@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
         // ignore — invalid token error is handled below
       }
       if (preAuthUserId) {
-        await enforceRateLimit(preAuthUserId, "user", { windowSeconds: 900, limit: 5 });
+        await enforceRateLimit(preAuthUserId, "user", { windowMs: 900 * 1000, limit: 5, name: "2fa:verify" });
       }
     }
 
