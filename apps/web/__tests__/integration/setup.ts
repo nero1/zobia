@@ -67,20 +67,39 @@ export async function closeTestPool(): Promise<void> {
 
 /**
  * Apply all migrations to the test database.
- * Uses IF NOT EXISTS clauses, so safe to call multiple times.
+ * Tracks applied migrations in _test_applied_migrations so each file runs
+ * exactly once even when multiple test suites call runMigrations().
  */
 export async function runMigrations(): Promise<void> {
   const pool = getTestPool();
   const client = await pool.connect();
   try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS _test_applied_migrations (
+        filename   TEXT PRIMARY KEY,
+        applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
     const files = fs
       .readdirSync(MIGRATIONS_DIR)
       .filter((f) => f.endsWith(".sql"))
       .sort(); // alphabetical order = chronological (001, 002, ...)
 
     for (const file of files) {
+      const { rows } = await client.query(
+        `SELECT 1 FROM _test_applied_migrations WHERE filename = $1`,
+        [file]
+      );
+      if (rows.length > 0) continue;
+
       const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), "utf-8");
       await client.query(sql);
+
+      await client.query(
+        `INSERT INTO _test_applied_migrations (filename) VALUES ($1)`,
+        [file]
+      );
     }
   } finally {
     client.release();
