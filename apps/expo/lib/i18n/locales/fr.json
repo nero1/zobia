@@ -1498,5 +1498,13 @@
   "admin.business.action.rejectReason": "Motif du Rejet (facultatif)",
   "admin.business.action.confirm": "Confirmer",
   "admin.business.action.cancel": "Annuler",
-  "admin.business.empty": "Aucun compte professionnel trouvé"
+  "admin.business.empty": "Aucun compte professionnel trouvé",
+  "floatingNotif": {
+    "xpEarned": "+{{amount}} XP",
+    "creditsEarned": "+{{amount}} {{currency}}",
+    "starsEarned": "+{{amount}} {{currency}}",
+    "referralJoined": "+1 Parrainage",
+    "giftReceived": "+{{amount}} Cadeau",
+    "questsComplete": "Quêtes du jour terminées ! 🎉"
+  }
 }

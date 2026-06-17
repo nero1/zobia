@@ -1584,5 +1584,13 @@
   "room.availabilityAll": "All",
   "room.availabilityAvailable": "Available",
   "room.availabilityFull": "Full",
-  "room.fullBadge": "FULL"
+  "room.fullBadge": "FULL",
+  "floatingNotif": {
+    "xpEarned": "+{{amount}} XP",
+    "creditsEarned": "+{{amount}} {{currency}}",
+    "starsEarned": "+{{amount}} {{currency}}",
+    "referralJoined": "+1 Referral",
+    "giftReceived": "+{{amount}} Gift",
+    "questsComplete": "Daily Quests Complete! 🎉"
+  }
 }

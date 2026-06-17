@@ -402,6 +402,8 @@ Each user receives a daily quest deck at midnight local time. Quest deck size va
 
 Completing the full daily quest deck awards a bonus 500 XP. Quest XP feeds both the main rank and the relevant parallel tracks.
 
+On completion of the full daily quest deck, users receive a confetti celebration followed by floating notifications showing the deck completion bonus XP and Credits awarded.
+
 ### The Elder System
 
 Available to users who have Prestiged at least 3 times and have been active in the past 30 days. Elders can take on up to 5 Mentees — users below Hustler rank who voluntarily request a mentor.
@@ -912,6 +914,26 @@ Email provider: Mailgun.
 
 No SMS re-engagement of any kind.
 
+### Floating Reward Notifications
+
+When a user receives any positive currency award, a floating pill animation rises from the bottom of the screen, showing the reward amount (e.g., "+50 XP", "+25 Credits", "+5 Stars"). The animation fades out near the top of the viewport over ~2.5 seconds. Multiple notifications can stack gracefully.
+
+**Trigger scenarios (additions only — never for deductions/spends):**
+- Any XP award (quest rewards, daily login, gifts, etc.)
+- Any Credits (coins) addition  
+- Any Stars addition
+- New user completing onboarding via the user's referral link → "+1 Referral"
+- Daily quest deck completion → confetti + "Daily Quests Complete! 🎉" + individual reward notifications
+
+**Confetti celebrations:** When a single award exceeds a per-currency admin-configured threshold, a canvas confetti animation also fires. Default thresholds: 100 XP, 50 Credits, 10 Stars.
+
+**Admin controls:**
+- Feature on/off toggle in the manifest (default: on)
+- Per-currency confetti thresholds (configurable via Admin → Config)
+- Admin demo page (Admin → Notifications Demo) with buttons to preview every notification type and simulate quest completion
+
+**Platform coverage:** Web app, PWA, and Expo mobile app (iOS/Android). Implemented via `FloatingNotificationProvider` context.
+
 ---
 
 ## 17. Monetisation Stack
@@ -1115,6 +1137,9 @@ Admin interaction should be minimal and maintenance-oriented. The platform runs 
 - Default Season Pass price.
 - CRON job settings (single daily CRON via Vercel Hobby plan by default; external CRON via cron-jobs.org for higher frequency).
 - Deep link base URL (used for generating shareable deep links for profiles, Rooms, Guilds, referrals).
+- Floating notification settings: master enable/disable toggle; per-currency confetti thresholds (XP, Credits, Stars).
+
+**Floating Notifications Demo** (`/admin/notifications-demo`): Interactive page for admins to preview all notification types and simulate quest completion, referral, confetti, and per-currency floating notifications.
 
 **Admin In-App Messaging**
 

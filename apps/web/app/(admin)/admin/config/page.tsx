@@ -334,6 +334,32 @@ const CONFIG_META: Record<string, ConfigMeta> = {
     group: "Physical Goods",
   },
 
+  // Floating Notifications
+  floating_notifications_enabled: {
+    label: "Enable Floating Notifications",
+    description: "Show floating reward notifications (+5 XP, +25 Credits, etc.) when users earn currency. Applies to all platforms.",
+    type: "boolean",
+    group: "Floating Notifications",
+  },
+  floating_notifications_xp_threshold: {
+    label: "XP Confetti Threshold",
+    description: "Single XP award must reach this amount to also trigger a confetti celebration. Default: 100.",
+    type: "number",
+    group: "Floating Notifications",
+  },
+  floating_notifications_credits_threshold: {
+    label: "Credits Confetti Threshold",
+    description: "Single Credit award must reach this amount to also trigger a confetti celebration. Default: 50.",
+    type: "number",
+    group: "Floating Notifications",
+  },
+  floating_notifications_stars_threshold: {
+    label: "Stars Confetti Threshold",
+    description: "Single Star award must reach this amount to also trigger a confetti celebration. Default: 10.",
+    type: "number",
+    group: "Floating Notifications",
+  },
+
   // Miscellaneous
   deep_link_base_url: {
     label: "Deep Link Base URL",
@@ -349,6 +375,7 @@ const GROUP_ORDER = [
   "CAPTCHA",
   "GIF",
   "PWA",
+  "Floating Notifications",
   "Payments",
   "Economy",
   "AdMob",

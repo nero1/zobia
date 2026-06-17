@@ -1088,3 +1088,14 @@ Room creators can configure the minimum gift value (in coins) required to trigge
 - **API:** `PUT /api/rooms/[roomId]/spectacle-threshold` with body `{ thresholdCoins: number | null }`.
 - Setting to `null` or leaving blank reverts to the gift item's own default threshold.
 - Example: set to 100 so only gifts worth 100+ coins trigger the spectacle.
+
+---
+
+## Floating Reward Notifications
+
+Floating currency notifications are enabled by default. To configure:
+- **Toggle on/off**: Admin Panel → Config → Floating Notifications → "Enable Floating Notifications"
+- **Confetti thresholds**: Set per-currency thresholds in the same panel (default: 100 XP, 50 Credits, 10 Stars)
+- **Demo/Preview**: Admin Panel → Notifications Demo
+
+No additional environment variables are required for this feature.

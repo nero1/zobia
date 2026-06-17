@@ -1498,5 +1498,13 @@
   "admin.business.action.rejectReason": "سبب الرفض (اختياري)",
   "admin.business.action.confirm": "تأكيد",
   "admin.business.action.cancel": "إلغاء",
-  "admin.business.empty": "لا توجد حسابات أعمال"
+  "admin.business.empty": "لا توجد حسابات أعمال",
+  "floatingNotif": {
+    "xpEarned": "+{{amount}} نقطة خبرة",
+    "creditsEarned": "+{{amount}} {{currency}}",
+    "starsEarned": "+{{amount}} {{currency}}",
+    "referralJoined": "+1 إحالة",
+    "giftReceived": "+{{amount}} هدية",
+    "questsComplete": "مهام اليوم مكتملة! 🎉"
+  }
 }

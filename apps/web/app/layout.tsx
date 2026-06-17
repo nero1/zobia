@@ -20,6 +20,7 @@ import { cookies, headers } from "next/headers";
 import "./globals.css";
 import { ReactQueryProvider } from "@/components/providers/ReactQueryProvider";
 import { I18nProvider } from "@/components/providers/I18nProvider";
+import { FloatingNotificationProvider } from "@/components/providers/FloatingNotificationProvider";
 import { SkipToMain } from "@/components/shared/SkipToMain";
 import { loadManifest } from "@/lib/manifest";
 import { db } from "@/lib/db";
@@ -169,9 +170,11 @@ export default async function RootLayout({ children }: RootLayoutProps) {
         >
           <ReactQueryProvider>
             <I18nProvider>
-              <main id="main-content">
-                {children}
-              </main>
+              <FloatingNotificationProvider>
+                <main id="main-content">
+                  {children}
+                </main>
+              </FloatingNotificationProvider>
             </I18nProvider>
           </ReactQueryProvider>
         </ThemeProvider>

@@ -311,6 +311,64 @@ In-app notifications stored in the `notifications` table. Notification types inc
 
 **Deduplication:** The `notifications` table has a `reference_id TEXT` column and a partial unique index on `(user_id, type, reference_id) WHERE reference_id IS NOT NULL`. Any batch notification INSERT (e.g. Flash XP announcements) uses `ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING` so re-running the same event never creates duplicate notifications.
 
+### Floating Reward Notifications
+
+#### Overview
+Every time a user earns a positive currency reward, a floating badge animation provides immediate visual feedback. The badge slides up from the bottom of the screen and fades out, creating a satisfying sense of progression.
+
+#### Supported Events
+| Event | Notification | Confetti |
+|-------|-------------|----------|
+| XP earned | +N XP (green) | If amount ≥ xpThreshold |
+| Credits earned | +N Credits (amber) | If amount ≥ creditsThreshold |
+| Stars earned | +N Stars (violet) | If amount ≥ starsThreshold |
+| New referral joins | +1 Referral (blue) | No |
+| Daily quest deck complete | "Daily Quests Complete! 🎉" + rewards | Always |
+
+#### Architecture
+
+**Web/PWA:**
+- `FloatingNotificationProvider` wraps the app tree (inside `I18nProvider` in root layout)
+- Public API `GET /api/config/rewards-ui` returns manifest floatingNotifications config
+- Canvas-based confetti (no external library)
+- Realtime channel `user:<userId>` receives `reward_earned` events from server for referral notifications
+
+**Expo (iOS/Android):**
+- `FloatingNotificationProvider` wraps the app inside `AuthProvider`
+- Uses React Native `Animated` API for both notification pills and confetti particles
+
+#### Using the Hook
+```typescript
+import { useFloatingNotification } from "@/hooks/useFloatingNotification";
+
+function MyComponent() {
+  const { fireXP, fireCredits, fireStars, fireReferral, fireDeckComplete } = useFloatingNotification();
+  
+  // After a quest rewards the user:
+  fireXP(500);
+  fireCredits(100);
+  
+  // After deck completion:
+  fireDeckComplete(500, 100, "Credits");
+  
+  // After referral joins (auto-fired via realtime):
+  fireReferral();
+}
+```
+
+#### Manifest Configuration
+The `floatingNotifications` section of `ZobiaManifest` controls all settings:
+```typescript
+floatingNotifications: {
+  enabled: boolean;          // master toggle (default: true)
+  xpThreshold: number;       // XP amount for confetti (default: 100)
+  creditsThreshold: number;  // Credits amount for confetti (default: 50)
+  starsThreshold: number;    // Stars amount for confetti (default: 10)
+}
+```
+
+Admin can configure via **Admin Panel → Config → Floating Notifications**, and preview via **Admin Panel → Notifications Demo**.
+
 ### Deep Links
 
 All deep-linkable routes are defined in `lib/deeplinks/routes.ts` — the single source of truth. Universal links via Android App Links use `/.well-known/assetlinks.json`. Referral links use `?r=<referralCode>`. Notification taps carry a route payload that maps to the correct screen via the deep link router.

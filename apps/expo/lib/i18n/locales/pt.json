@@ -1427,5 +1427,13 @@
   "admin.business.action.rejectReason": "Motivo da Rejeição (opcional)",
   "admin.business.action.confirm": "Confirmar",
   "admin.business.action.cancel": "Cancelar",
-  "admin.business.empty": "Nenhuma conta comercial encontrada"
+  "admin.business.empty": "Nenhuma conta comercial encontrada",
+  "floatingNotif": {
+    "xpEarned": "+{{amount}} XP",
+    "creditsEarned": "+{{amount}} {{currency}}",
+    "starsEarned": "+{{amount}} {{currency}}",
+    "referralJoined": "+1 Indicação",
+    "giftReceived": "+{{amount}} Presente",
+    "questsComplete": "Missões Diárias Completas! 🎉"
+  }
 }
