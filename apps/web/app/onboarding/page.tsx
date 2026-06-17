@@ -729,7 +729,7 @@ export default function OnboardingPage() {
                               await fetch("/api/friends", {
                                 method: "POST",
                                 headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ targetUserId: u.id }),
+                                body: JSON.stringify({ userId: u.id }),
                               });
                               setAddedFriends((prev) => new Set([...prev, u.id]));
                             } catch { /* best-effort */ }

@@ -93,8 +93,8 @@ function GiftPassModal({ seasonId, passPrice, onClose }: GiftPassModalProps) {
     try {
       const res = await fetch(`/api/users/search?q=${encodeURIComponent(term.trim())}`, { credentials: "include" });
       if (res.ok) {
-        const all = (await res.json()) as UserSearchResult[];
-        setResults(all.slice(0, 5));
+        const body = (await res.json()) as { data?: { users?: UserSearchResult[] } };
+        setResults((body.data?.users ?? []).slice(0, 5));
       }
     } catch { /* ignore */ }
     setSearching(false);
