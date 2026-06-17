@@ -1012,6 +1012,26 @@ export default function RoomPage() {
     })();
   }, [roomId, router]);
 
+  // Auto-join free_open and tipping rooms on first visit.
+  // These room types have no payment gate — clicking in IS the join action.
+  // Without this, the user sees the chat UI but gets 403 on every POST /messages
+  // because they're not yet in room_members.
+  const joinAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (!room || !currentUserId) return;
+    if (joinAttemptedRef.current) return;
+    if (room.creatorId === currentUserId) return;
+    if (room.isSubscribed) return;
+    if (room.type !== "free_open" && room.type !== "tipping") return;
+
+    joinAttemptedRef.current = true;
+    fetch(`/api/rooms/${roomId}/join`, { method: "POST", credentials: "include" })
+      .then((res) => {
+        if (res.ok) setRoom((r) => r ? { ...r, isSubscribed: true } : r);
+      })
+      .catch(() => {});
+  }, [room, currentUserId, roomId]);
+
   // Fetch initial messages (REST snapshot before live updates begin)
   const fetchMessages = useCallback(async () => {
     const res = await fetch(`/api/rooms/${roomId}/messages`, { credentials: "include" });
