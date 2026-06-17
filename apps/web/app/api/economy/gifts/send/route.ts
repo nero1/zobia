@@ -60,6 +60,7 @@ interface GiftItemRow {
   coin_cost: number;
   tier: number;
   spectacle_threshold_coins: number | null;
+  gift_type_id: string | null;
 }
 
 interface UserRow {
@@ -249,11 +250,13 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       throw forbidden("Your account trust score is too low to send gifts. Build your reputation first.", "TRUST_SCORE_TOO_LOW");
     }
 
-    // 1. Load gift item
+    // 1. Load gift item and resolve matching gift_type (if one exists by name)
     const { rows: giftRows } = await db.query<GiftItemRow>(
-      `SELECT id, name, emoji, coin_cost, tier, spectacle_threshold_coins
-       FROM gift_items
-       WHERE id = $1 AND is_active = TRUE
+      `SELECT gi.id, gi.name, gi.emoji, gi.coin_cost, gi.tier,
+              gi.spectacle_threshold_coins, gt.id AS gift_type_id
+       FROM gift_items gi
+       LEFT JOIN gift_types gt ON gt.name = gi.name AND gt.is_active = TRUE
+       WHERE gi.id = $1 AND gi.is_active = TRUE
        LIMIT 1`,
       [body.giftItemId]
     );
@@ -378,13 +381,14 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       // Create the gift record (coin_value is the original NOT NULL column; coin_cost is its alias)
       const { rows: giftInsert } = await tx.query<{ id: string }>(
         `INSERT INTO gifts
-           (sender_id, recipient_id, gift_item_id, coin_value, coin_cost, room_id, status)
-         VALUES ($1, $2, $3, $4, $4, $5, 'delivered')
+           (sender_id, recipient_id, gift_item_id, gift_type_id, coin_value, coin_cost, room_id, status)
+         VALUES ($1, $2, $3, $4, $5, $5, $6, 'delivered')
          RETURNING id`,
         [
           senderId,
           body.recipientId,
           giftItem.id,
+          giftItem.gift_type_id ?? null,
           giftItem.coin_cost,
           body.roomId ?? null,
         ]
