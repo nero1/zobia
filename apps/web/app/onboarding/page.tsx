@@ -34,7 +34,7 @@ interface VibeAnswers {
 }
 
 interface FriendSearchResult {
-  userId: string;
+  id: string;
   username: string;
   displayName: string;
   avatarEmoji: string;
@@ -229,7 +229,7 @@ export default function OnboardingPage() {
     const t = setTimeout(() => {
       fetch(`/api/users/search?q=${encodeURIComponent(friendQuery)}&limit=10`)
         .then((r) => r.json())
-        .then((d: { users?: FriendSearchResult[] }) => setFriendResults(d.users ?? []))
+        .then((d: { data?: { users?: FriendSearchResult[] } }) => setFriendResults(d.data?.users ?? []))
         .catch(() => setFriendResults([]))
         .finally(() => setFriendSearching(false));
     }, 400);
@@ -715,7 +715,7 @@ export default function OnboardingPage() {
                 {friendResults.length > 0 && (
                   <ul className="mt-2 divide-y divide-neutral-100 rounded-xl border border-neutral-200 bg-white shadow-sm dark:divide-neutral-800 dark:border-neutral-700 dark:bg-neutral-900">
                     {friendResults.map((u) => (
-                      <li key={u.userId} className="flex items-center gap-3 px-4 py-3">
+                      <li key={u.id} className="flex items-center gap-3 px-4 py-3">
                         <span className="text-2xl">{u.avatarEmoji}</span>
                         <div className="flex-1 min-w-0">
                           <p className="truncate text-sm font-semibold text-neutral-900 dark:text-white">{u.displayName}</p>
@@ -723,24 +723,24 @@ export default function OnboardingPage() {
                         </div>
                         <button
                           type="button"
-                          disabled={addedFriends.has(u.userId)}
+                          disabled={addedFriends.has(u.id)}
                           onClick={async () => {
                             try {
                               await fetch("/api/friends", {
                                 method: "POST",
                                 headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ targetUserId: u.userId }),
+                                body: JSON.stringify({ targetUserId: u.id }),
                               });
-                              setAddedFriends((prev) => new Set([...prev, u.userId]));
+                              setAddedFriends((prev) => new Set([...prev, u.id]));
                             } catch { /* best-effort */ }
                           }}
                           className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
-                            addedFriends.has(u.userId)
+                            addedFriends.has(u.id)
                               ? "bg-neutral-100 text-neutral-400 dark:bg-neutral-800"
                               : "bg-neutral-900 text-white hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-100"
                           }`}
                         >
-                          {addedFriends.has(u.userId) ? t("onboarding.step5.added") : t("onboarding.step5.add")}
+                          {addedFriends.has(u.id) ? t("onboarding.step5.added") : t("onboarding.step5.add")}
                         </button>
                       </li>
                     ))}
