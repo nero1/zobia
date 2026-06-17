@@ -14,6 +14,7 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { useRealtimeChannel } from "@/lib/realtime/useRealtimeChannel";
+import { useAdaptiveChatPoll } from "@/lib/hooks/useAdaptiveChatPoll";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -142,7 +143,6 @@ export default function GroupConversationPage() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   const feedRef = useRef<HTMLDivElement>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval>>();
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Auto-scroll to bottom when messages change
@@ -190,15 +190,8 @@ export default function GroupConversationPage() {
     }
   }, [groupId]);
 
-  // Poll messages every 3 seconds
-  useEffect(() => {
-    void fetchMessages();
-    pollRef.current = setInterval(fetchMessages, 3000);
-    return () => clearInterval(pollRef.current);
-  }, [fetchMessages]);
-
   // Real-time push — delivers new messages instantly via configured realtime provider
-  useRealtimeChannel(
+  const realtimeConnected = useRealtimeChannel(
     groupId ? `group:${groupId}:messages` : null,
     useCallback((event: string, data: unknown) => {
       if (event === "new_message") {
@@ -209,6 +202,15 @@ export default function GroupConversationPage() {
       }
     }, [])
   );
+
+  // Baseline poll — fast (3s) when realtime is down / unconfigured, slow
+  // reconcile (30s) when the socket is connected, paused while the tab is
+  // hidden. Keeps serverless usage low while guaranteeing delivery.
+  useAdaptiveChatPoll({
+    poll: fetchMessages,
+    connected: realtimeConnected,
+    enabled: !!groupId,
+  });
 
   async function sendMessage(e: React.FormEvent) {
     e.preventDefault();

@@ -21,6 +21,7 @@ import { useTranslation } from "react-i18next";
 import { TopGifters } from "@/components/rooms/TopGifters";
 import { LiveRoomPulseBar } from "@/components/ui/LiveRoomPulseBar";
 import { useRealtimeChannel } from "@/lib/realtime/useRealtimeChannel";
+import { useAdaptiveChatPoll } from "@/lib/hooks/useAdaptiveChatPoll";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 
@@ -1149,6 +1150,8 @@ export default function RoomPage() {
       const data = (await res.json()) as { items: Message[] };
       const items = (data.items ?? []).slice().sort(sortByCreatedAtAsc);
       for (const m of items) handleIncomingMessage(m);
+      // Backlog seeded — from here on, gift messages may trigger the spectacle.
+      initializedRef.current = true;
     } catch { /* non-fatal — next poll retries */ } finally {
       setLoadingMessages(false);
     }
@@ -1159,21 +1162,24 @@ export default function RoomPage() {
     if (event === "new_message") handleIncomingMessage(data as Message);
   }, [handleIncomingMessage]);
 
-  useRealtimeChannel(REALTIME_PROVIDER ? `room:${roomId}:messages` : null, onRealtimeEvent);
+  const realtimeConnected = useRealtimeChannel(
+    REALTIME_PROVIDER ? `room:${roomId}:messages` : null,
+    onRealtimeEvent
+  );
 
-  // Baseline 3s polling — guarantees delivery across web + PWA even when no
-  // realtime provider is configured (or the provider is down). When a provider
-  // IS configured the realtime hook delivers instantly and the poll merely
-  // reconciles; dedup in handleIncomingMessage prevents duplicates.
+  // Baseline poll — fast (3s) when the realtime socket is down or no provider
+  // is configured; slow reconcile (30s) when it is connected; paused while the
+  // tab is hidden. This keeps serverless invocations low on constrained hosting
+  // while still guaranteeing delivery. Dedup in handleIncomingMessage makes the
+  // overlapping realtime + poll paths safe.
+  useAdaptiveChatPoll({ poll: fetchMessages, connected: realtimeConnected });
+
+  // Clear the spectacle timer on unmount.
   useEffect(() => {
-    // Seed the backlog first (spectacle suppressed), then arm live detection.
-    void fetchMessages().then(() => { initializedRef.current = true; });
-    const id = setInterval(() => void fetchMessages(), 3_000);
     return () => {
-      clearInterval(id);
       if (spectacleTimerRef.current) clearTimeout(spectacleTimerRef.current);
     };
-  }, [fetchMessages]);
+  }, []);
 
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();

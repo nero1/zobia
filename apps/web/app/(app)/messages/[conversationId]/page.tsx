@@ -13,6 +13,7 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { getPidginSuggestions, isPidginLocale } from "@/lib/i18n/pidgin";
 import { useRealtimeChannel } from "@/lib/realtime/useRealtimeChannel";
+import { useAdaptiveChatPoll } from "@/lib/hooks/useAdaptiveChatPoll";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 
@@ -591,7 +592,6 @@ export default function DMConversationPage() {
   const [showGiftPicker, setShowGiftPicker] = useState(false);
 
   const feedRef = useRef<HTMLDivElement>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval>>();
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -701,18 +701,9 @@ export default function DMConversationPage() {
     }
   }, [conversationId]);
 
-  // Baseline polling — always runs at 3s to guarantee delivery even when the
-  // realtime provider is down. The hook below delivers messages faster when
-  // the provider is healthy.
-  useEffect(() => {
-    void fetchMessages();
-    pollRef.current = setInterval(fetchMessages, 3_000);
-    return () => clearInterval(pollRef.current);
-  }, [fetchMessages]);
-
   // Realtime push — delivers new messages instantly via Ably / Pusher /
   // Supabase Realtime. Supplements the baseline poll; doesn't replace it.
-  useRealtimeChannel(
+  const realtimeConnected = useRealtimeChannel(
     conversationId ? `dm:conversation:${conversationId}` : null,
     useCallback((event: string, data: unknown) => {
       if (event === "new_message") {
@@ -727,6 +718,15 @@ export default function DMConversationPage() {
       }
     }, [])
   );
+
+  // Baseline poll — fast (3s) when realtime is down / unconfigured, slow
+  // reconcile (30s) when the socket is connected, paused while the tab is
+  // hidden. Keeps serverless usage low while guaranteeing delivery.
+  useAdaptiveChatPoll({
+    poll: fetchMessages,
+    connected: realtimeConnected,
+    enabled: !!conversationId,
+  });
 
   // Close pickers when clicking outside
   useEffect(() => {
