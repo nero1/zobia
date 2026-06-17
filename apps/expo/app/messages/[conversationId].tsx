@@ -107,9 +107,43 @@ async function fetchChatTheme(): Promise<ChatTheme> {
   }
 }
 
+/**
+ * Map a raw DM row (snake_case from the API) into the screen's `DM` shape.
+ * Without this the conversation never rendered — the API returns `items`
+ * (not `messages`) and snake_case columns, so the list was always empty.
+ */
+function mapApiDM(raw: Record<string, unknown>): DM {
+  const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+  const messageType = (str(raw.message_type) ?? str(raw.messageType) ?? 'text') as MessageType;
+  const content = str(raw.content);
+  const media = str(raw.media_url) ?? str(raw.mediaUrl);
+  // Aggregate raw reaction rows ({ emoji, userId }) into { emoji, count }.
+  const reactionRows = Array.isArray(raw.reactions) ? (raw.reactions as Record<string, unknown>[]) : [];
+  const reactionMap = new Map<string, { emoji: string; count: number; userReacted: boolean }>();
+  for (const r of reactionRows) {
+    const emoji = typeof r.emoji === 'string' ? r.emoji : null;
+    if (!emoji) continue;
+    const entry = reactionMap.get(emoji) ?? { emoji, count: 0, userReacted: false };
+    entry.count += 1;
+    reactionMap.set(emoji, entry);
+  }
+  return {
+    id: str(raw.id) ?? '',
+    content: messageType === 'text' ? content : null,
+    gifUrl: messageType === 'gif' ? (media ?? content) : null,
+    stickerEmoji: messageType === 'sticker' ? content : null,
+    messageType,
+    senderUserId: str(raw.sender_id) ?? str(raw.senderUserId) ?? '',
+    createdAt: str(raw.created_at) ?? str(raw.createdAt) ?? new Date().toISOString(),
+    status: 'sent',
+    reactions: [...reactionMap.values()],
+  };
+}
+
 async function fetchMessages(id: string): Promise<DM[]> {
   const { data } = await apiClient.get(`/messages/dm/${id}`);
-  return data.messages ?? [];
+  const rows: Record<string, unknown>[] = data.items ?? data.messages ?? [];
+  return rows.map(mapApiDM);
 }
 
 async function sendDM(
@@ -121,7 +155,7 @@ async function sendDM(
     content,
     messageType,
   });
-  return data.message;
+  return mapApiDM(data.message ?? {});
 }
 
 async function searchGifs(query: string): Promise<GifResult[]> {

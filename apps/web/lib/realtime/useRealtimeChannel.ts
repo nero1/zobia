@@ -12,20 +12,35 @@
  * @param channel  - Channel string (e.g. "dm:conversation:<uuid>"), or null
  *                   to skip subscription.
  * @param onEvent  - Callback invoked with (eventName, data) for each message.
+ * @returns `true` while a realtime provider is configured AND its socket is
+ *          currently connected. Callers use this to back off their baseline
+ *          poll (slow reconcile while connected, fast poll while
+ *          disconnected / when no provider is configured). This is what keeps
+ *          serverless function usage low: when the WebSocket is healthy the
+ *          page is not hitting the REST API every few seconds.
  */
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 export function useRealtimeChannel(
   channel: string | null,
   onEvent: (event: string, data: unknown) => void
-): void {
+): boolean {
+  const [connected, setConnected] = useState(false);
+
   useEffect(() => {
-    if (!channel) return;
+    if (!channel) {
+      setConnected(false);
+      return;
+    }
 
     const provider = process.env.NEXT_PUBLIC_REALTIME_PROVIDER;
     let cancelled = false;
     let cleanup: (() => void) | undefined;
+    // Guarded setter — never touch state after the effect has been torn down.
+    const markConnected = (v: boolean) => {
+      if (!cancelled) setConnected(v);
+    };
 
     if (provider === "supabase-realtime") {
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -44,7 +59,11 @@ export function useRealtimeChannel(
               onEvent(payload.event as string, payload.payload);
             }
           )
-          .subscribe();
+          .subscribe((status: string) => {
+            // 'SUBSCRIBED' = live; anything else (CLOSED/TIMED_OUT/CHANNEL_ERROR)
+            // means we should fall back to the fast baseline poll.
+            markConnected(status === "SUBSCRIBED");
+          });
 
         if (cancelled) {
           supabase.removeChannel(sub).catch(() => {});
@@ -59,6 +78,10 @@ export function useRealtimeChannel(
         const Ably = (await import("ably")) as any;
         const client = new Ably.Realtime({
           authUrl: `/api/realtime/ably-token?channel=${encodeURIComponent(channel)}`,
+        });
+        // Connection-level state drives the poll back-off.
+        client.connection.on((stateChange: { current: string }) => {
+          markConnected(stateChange.current === "connected");
         });
         const ch = client.channels.get(channel);
         ch.subscribe((msg: { name: string; data: unknown }) => {
@@ -96,6 +119,9 @@ export function useRealtimeChannel(
             transport: "ajax",
           },
         });
+        pusher.connection.bind("state_change", (states: { current: string }) => {
+          markConnected(states.current === "connected");
+        });
 
         const sub = pusher.subscribe(pusherChannel);
         // Pusher delivers named events — bind to all with a catch-all
@@ -116,14 +142,18 @@ export function useRealtimeChannel(
         };
       })();
     }
-    // If no provider is configured, this is a no-op — polling handles delivery.
+    // If no provider is configured, this is a no-op — `connected` stays false
+    // and the caller's fast baseline poll handles delivery.
 
     return () => {
       cancelled = true;
+      setConnected(false);
       cleanup?.();
     };
   // onEvent is intentionally excluded from deps to avoid reconnecting on every
   // render — callers should wrap it in useCallback if they need it to change.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channel]);
+
+  return connected;
 }

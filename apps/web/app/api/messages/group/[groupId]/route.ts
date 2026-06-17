@@ -23,6 +23,7 @@ import { XP_VALUES, ROOM_MESSAGE_XP_DAILY_CAP } from '@/lib/xp/engine';
 import { safeAwardXP } from '@/lib/xp/safeAwardXP';
 import { enforceRateLimit, RATE_LIMITS } from '@/lib/security/rateLimit';
 import { recordWarContribution } from '@/lib/guilds/recordWarContribution';
+import { publishRealtimeEvent } from '@/lib/realtime';
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -180,15 +181,22 @@ export const POST = withAuth(async (
     }
   }
 
-  // Fetch sender's verification/trust for auto-moderation context
+  // Fetch sender's verification/trust for auto-moderation context, plus the
+  // public profile fields used to render the bubble (so the HTTP response and
+  // realtime echo are complete and don't show "@undefined").
   const { rows: senderRows } = await db.query<{
     plan: string;
     is_verified: boolean;
     trust_score: number;
+    username: string;
+    display_name: string | null;
+    avatar_emoji: string | null;
+    rank_name: string | null;
   }>(
     `SELECT COALESCE(plan, 'free') AS plan,
             COALESCE(is_verified, false) AS is_verified,
-            COALESCE(trust_score, 50) AS trust_score
+            COALESCE(trust_score, 50) AS trust_score,
+            username, display_name, avatar_emoji, rank_name
      FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
     [userId],
   );
@@ -227,7 +235,17 @@ export const POST = withAuth(async (
      RETURNING *`,
     [userId, groupId, body.messageType, content, body.idempotencyKey ?? null, senderPlan],
   );
-  const message = msgRows[0];
+  // Attach the sender's public profile so clients render the bubble (name +
+  // avatar) immediately, matching the shape returned by the list endpoint's
+  // JOIN on users.
+  const enriched = {
+    ...msgRows[0],
+    username: senderRows[0]?.username ?? '',
+    display_name: senderRows[0]?.display_name ?? senderRows[0]?.username ?? '',
+    avatar_emoji: senderRows[0]?.avatar_emoji ?? '👤',
+    rank_name: senderRows[0]?.rank_name ?? null,
+  };
+  const message = enriched;
 
   // Update group's updated_at
   await db.query(
@@ -242,6 +260,10 @@ export const POST = withAuth(async (
   recordWarContribution(userId, 'send_message', db).catch((err) =>
     console.error('[group:POST] war contribution failed', err)
   );
+
+  // Realtime broadcast — push to open clients so group members see new messages
+  // instantly (the 3s poll remains the guaranteed-delivery fallback).
+  void publishRealtimeEvent(`group:${groupId}:messages`, 'new_message', { message });
 
   return NextResponse.json({ data: message }, { status: 201 });
 });

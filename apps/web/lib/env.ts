@@ -135,7 +135,48 @@ const envSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
     .default("development"),
-});
+})
+  // Provider key coupling — fail fast if a realtime provider is selected without
+  // its credentials, instead of silently never connecting (which would make the
+  // client fall back to the fast baseline poll and quietly burn serverless
+  // invocations). Each provider's keys are otherwise optional so unrelated
+  // providers (e.g. DigitalOcean Postgres + Ably, with no Supabase) stay valid.
+  .superRefine((val, ctx) => {
+    const need = (cond: boolean, path: string, message: string) => {
+      if (cond) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
+      }
+    };
+
+    // Server-side publish credentials.
+    if (val.REALTIME_PROVIDER === "ably") {
+      need(!val.ABLY_API_KEY, "ABLY_API_KEY", "ABLY_API_KEY is required when REALTIME_PROVIDER=ably");
+    } else if (val.REALTIME_PROVIDER === "pusher") {
+      need(!val.PUSHER_APP_ID, "PUSHER_APP_ID", "PUSHER_APP_ID is required when REALTIME_PROVIDER=pusher");
+      need(!val.PUSHER_KEY, "PUSHER_KEY", "PUSHER_KEY is required when REALTIME_PROVIDER=pusher");
+      need(!val.PUSHER_SECRET, "PUSHER_SECRET", "PUSHER_SECRET is required when REALTIME_PROVIDER=pusher");
+      need(!val.PUSHER_CLUSTER, "PUSHER_CLUSTER", "PUSHER_CLUSTER is required when REALTIME_PROVIDER=pusher");
+    } else if (val.REALTIME_PROVIDER === "supabase-realtime") {
+      need(!val.SUPABASE_URL, "SUPABASE_URL", "SUPABASE_URL is required when REALTIME_PROVIDER=supabase-realtime");
+      need(!val.SUPABASE_SERVICE_ROLE_KEY, "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SERVICE_ROLE_KEY is required when REALTIME_PROVIDER=supabase-realtime");
+    }
+
+    // Client-side subscription config (must match the server provider).
+    if (val.NEXT_PUBLIC_REALTIME_PROVIDER) {
+      need(
+        val.NEXT_PUBLIC_REALTIME_PROVIDER !== val.REALTIME_PROVIDER,
+        "NEXT_PUBLIC_REALTIME_PROVIDER",
+        "NEXT_PUBLIC_REALTIME_PROVIDER must match REALTIME_PROVIDER",
+      );
+      if (val.NEXT_PUBLIC_REALTIME_PROVIDER === "pusher") {
+        need(!val.NEXT_PUBLIC_PUSHER_KEY, "NEXT_PUBLIC_PUSHER_KEY", "NEXT_PUBLIC_PUSHER_KEY is required when NEXT_PUBLIC_REALTIME_PROVIDER=pusher");
+      } else if (val.NEXT_PUBLIC_REALTIME_PROVIDER === "supabase-realtime") {
+        need(!val.NEXT_PUBLIC_SUPABASE_URL, "NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL is required when NEXT_PUBLIC_REALTIME_PROVIDER=supabase-realtime");
+        need(!val.NEXT_PUBLIC_SUPABASE_ANON_KEY, "NEXT_PUBLIC_SUPABASE_ANON_KEY", "NEXT_PUBLIC_SUPABASE_ANON_KEY is required when NEXT_PUBLIC_REALTIME_PROVIDER=supabase-realtime");
+      }
+      // Ably needs no public key client-side — it authenticates via /api/realtime/ably-token.
+    }
+  });
 
 export type Env = z.infer<typeof envSchema>;
 

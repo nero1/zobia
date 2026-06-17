@@ -14,6 +14,7 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { useRealtimeChannel } from "@/lib/realtime/useRealtimeChannel";
+import { useAdaptiveChatPoll } from "@/lib/hooks/useAdaptiveChatPoll";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -87,20 +88,20 @@ function MessageBubble({ msg, isOwn }: { msg: GroupMessage; isOwn: boolean }) {
       <span className="mt-1 h-8 w-8 shrink-0 rounded-full bg-neutral-100 text-center text-lg leading-8 dark:bg-neutral-800">
         {msg.avatar_emoji}
       </span>
-      <div className={`max-w-[75%] flex flex-col ${isOwn ? "items-end" : "items-start"}`}>
+      <div className={`flex min-w-0 max-w-[75%] flex-col ${isOwn ? "items-end" : "items-start"}`}>
         <div className="flex items-baseline gap-1.5">
           {!isOwn && (
-            <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">
+            <span className="max-w-[40vw] truncate text-xs font-semibold text-blue-600 dark:text-blue-400">
               {msg.display_name || `@${msg.username}`}
             </span>
           )}
-          <span className="text-xs text-neutral-400">{timeAgo(msg.created_at)}</span>
+          <span className="shrink-0 text-xs text-neutral-400">{timeAgo(msg.created_at)}</span>
         </div>
 
         {isGif ? (
           <div className="mt-0.5 overflow-hidden rounded-2xl">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={msg.content} alt="GIF" className="max-h-48 max-w-xs rounded-2xl object-cover" loading="lazy" />
+            <img src={msg.content} alt="GIF" className="max-h-48 max-w-[70vw] rounded-2xl object-cover sm:max-w-xs" loading="lazy" />
           </div>
         ) : isSticker ? (
           <div className="mt-0.5 flex items-center justify-center rounded-2xl bg-neutral-50 p-4 text-5xl dark:bg-neutral-800/50">
@@ -108,7 +109,7 @@ function MessageBubble({ msg, isOwn }: { msg: GroupMessage; isOwn: boolean }) {
           </div>
         ) : (
           <div
-            className={`mt-0.5 rounded-2xl px-3.5 py-2 text-sm ${
+            className={`mt-0.5 overflow-hidden whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm ${
               isOwn
                 ? "rounded-tr-sm bg-blue-600 text-white"
                 : "rounded-tl-sm bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100"
@@ -142,7 +143,6 @@ export default function GroupConversationPage() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   const feedRef = useRef<HTMLDivElement>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval>>();
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Auto-scroll to bottom when messages change
@@ -190,15 +190,8 @@ export default function GroupConversationPage() {
     }
   }, [groupId]);
 
-  // Poll messages every 3 seconds
-  useEffect(() => {
-    void fetchMessages();
-    pollRef.current = setInterval(fetchMessages, 3000);
-    return () => clearInterval(pollRef.current);
-  }, [fetchMessages]);
-
   // Real-time push — delivers new messages instantly via configured realtime provider
-  useRealtimeChannel(
+  const realtimeConnected = useRealtimeChannel(
     groupId ? `group:${groupId}:messages` : null,
     useCallback((event: string, data: unknown) => {
       if (event === "new_message") {
@@ -209,6 +202,15 @@ export default function GroupConversationPage() {
       }
     }, [])
   );
+
+  // Baseline poll — fast (3s) when realtime is down / unconfigured, slow
+  // reconcile (30s) when the socket is connected, paused while the tab is
+  // hidden. Keeps serverless usage low while guaranteeing delivery.
+  useAdaptiveChatPoll({
+    poll: fetchMessages,
+    connected: realtimeConnected,
+    enabled: !!groupId,
+  });
 
   async function sendMessage(e: React.FormEvent) {
     e.preventDefault();
@@ -264,7 +266,7 @@ export default function GroupConversationPage() {
 
   if (loadingGroup) {
     return (
-      <div className="flex h-[100dvh] items-center justify-center">
+      <div className="flex h-full items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
       </div>
     );
@@ -272,7 +274,7 @@ export default function GroupConversationPage() {
 
   if (error && !group) {
     return (
-      <div className="flex h-[100dvh] flex-col items-center justify-center gap-4">
+      <div className="flex h-full flex-col items-center justify-center gap-4">
         <p className="text-neutral-500">{error}</p>
         <Link href="/messages/groups" className="text-sm text-blue-600 hover:underline">Back to Groups</Link>
       </div>
@@ -280,7 +282,7 @@ export default function GroupConversationPage() {
   }
 
   return (
-    <div className="flex h-[100dvh] flex-col">
+    <div className="flex h-full flex-col">
       {/* Header */}
       <div className="flex items-center gap-3 border-b border-neutral-200 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-900">
         <Link

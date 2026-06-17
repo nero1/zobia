@@ -319,6 +319,9 @@ interface SenderRow {
   is_admin: boolean;
   is_verified: boolean;
   trust_score: number;
+  username: string;
+  display_name: string | null;
+  avatar_emoji: string | null;
 }
 interface SentMessageRow {
   id: string; sender_id: string; recipient_id: string; message_type: string;
@@ -375,7 +378,8 @@ export const POST = withAuth(
       const { rows: senderRows } = await db.query<SenderRow>(
         `SELECT id, plan, coin_balance, is_admin,
                 COALESCE(is_verified, false) AS is_verified,
-                COALESCE(trust_score, 50)    AS trust_score
+                COALESCE(trust_score, 50)    AS trust_score,
+                username, display_name, avatar_emoji
          FROM users
          WHERE id = $1 AND deleted_at IS NULL AND is_suspended = FALSE
          LIMIT 1`,
@@ -506,6 +510,17 @@ export const POST = withAuth(
 
       if (!message) throw new Error("Message creation failed");
 
+      // Attach the sender's public profile so the HTTP response and the realtime
+      // echo carry everything the UI needs to render the bubble immediately
+      // (sender name + avatar). Without these, recipients saw "@undefined" with
+      // no avatar until the next poll reconciled.
+      const enrichedMessage = {
+        ...message,
+        sender_username: sender.username,
+        sender_display_name: sender.display_name ?? sender.username,
+        sender_avatar_emoji: sender.avatar_emoji ?? "👤",
+      };
+
       // 10. XP + daily counter (best-effort, outside transaction) — apply plan multiplier per PRD §6
       {
         const { baseXp: convBaseXp, finalXp: convFinalXp } = calculateFinalXP(
@@ -533,10 +548,10 @@ export const POST = withAuth(
       publishRealtimeEvent(
         `dm:conversation:${conversationId}`,
         "new_message",
-        { message }
+        { message: enrichedMessage }
       ).catch(() => {});
 
-      return NextResponse.json({ message }, { status: 201 });
+      return NextResponse.json({ message: enrichedMessage }, { status: 201 });
     } catch (err) {
       return handleApiError(err);
     }

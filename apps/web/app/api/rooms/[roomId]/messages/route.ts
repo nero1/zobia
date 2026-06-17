@@ -69,7 +69,9 @@ interface Message {
   id: string;
   userId: string;
   username: string;
+  displayName: string;
   avatarEmoji: string;
+  senderIsCreator: boolean;
   content: string;
   createdAt: string;
   message_type: string;
@@ -86,7 +88,9 @@ function rowToMessage(row: MessageRow): Message {
     id: row.id,
     userId: row.sender_id,
     username: row.sender_username,
+    displayName: row.sender_display_name ?? row.sender_username,
     avatarEmoji: row.sender_avatar_emoji,
+    senderIsCreator: Boolean(row.sender_is_creator),
     content: row.content ?? "",
     createdAt: row.created_at,
     message_type: row.message_type,
@@ -395,6 +399,31 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       }
     }
 
+    // Build the camelCase client message shape shared by the idempotency
+    // short-circuit, the HTTP response, and the realtime broadcast. Keeping a
+    // single shape here guarantees the sender, web SSE/poll consumers, and the
+    // Expo client all receive identical fields (fixes blank "@undefined"
+    // bubbles that appeared when the raw snake_case DB row was returned).
+    const toClientMessage = (
+      row: { id: string; sender_id: string; message_type: string; created_at: string; metadata?: unknown | null },
+      msgContent: string
+    ): Message => {
+      const meta = (row.metadata as Record<string, unknown> | null) ?? {};
+      return {
+        id: row.id,
+        userId: row.sender_id,
+        username: senderStatus?.username ?? "",
+        displayName: senderStatus?.username ?? "",
+        avatarEmoji: senderStatus?.avatar_emoji ?? "👤",
+        senderIsCreator: Boolean(senderStatus?.is_creator),
+        content: msgContent ?? "",
+        createdAt: row.created_at,
+        message_type: row.message_type,
+        giftEmoji: typeof meta.giftEmoji === "string" ? meta.giftEmoji : undefined,
+        giftAmount: typeof meta.giftAmount === "number" ? meta.giftAmount : undefined,
+      };
+    };
+
     // Mute check
     if (membership) {
       const mutedUntil = membership.muted_until
@@ -537,11 +566,25 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         [userId, body.idempotencyKey]
       );
       if (dupRows[0]) {
-        const { rows: existingRows } = await db.query(
-          `SELECT * FROM room_messages WHERE id = $1 LIMIT 1`,
+        const { rows: existingRows } = await db.query<{
+          id: string;
+          sender_id: string;
+          content: string | null;
+          message_type: string;
+          metadata: unknown | null;
+          created_at: string;
+        }>(
+          `SELECT id, sender_id, content, message_type, metadata, created_at
+           FROM room_messages WHERE id = $1 LIMIT 1`,
           [dupRows[0].id]
         );
-        return NextResponse.json({ message: existingRows[0] }, { status: 200 });
+        const existing = existingRows[0];
+        if (existing) {
+          return NextResponse.json(
+            { message: toClientMessage(existing, existing.content ?? "") },
+            { status: 200 }
+          );
+        }
       }
     }
 
@@ -585,7 +628,17 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       return { rows };
     });
 
-    const message = msgRows[0] as { id: string; sender_id: string; created_at: string; message_type: string };
+    const message = msgRows[0] as {
+      id: string;
+      sender_id: string;
+      created_at: string;
+      message_type: string;
+      metadata?: unknown | null;
+    };
+
+    // Canonical camelCase payload returned to the sender AND broadcast to other
+    // clients, so an optimistic render and the realtime echo are byte-identical.
+    const clientMessage = toClientMessage(message, content ?? "");
 
     // BUG-18: count AFTER insert so the cap is inclusive of the current message
     const todayMsgCount = await countTodayMessages(roomId, userId);
@@ -596,22 +649,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     // Publish to realtime provider (non-blocking — never delays the HTTP response)
     if (senderStatus && !requiresApproval) {
-      const meta = (safeMetadata as Record<string, unknown> | null) ?? {};
-      const realtimePayload: Message = {
-        id: message.id,
-        userId: message.sender_id,
-        username: senderStatus.username,
-        avatarEmoji: senderStatus.avatar_emoji,
-        content: content ?? "",
-        createdAt: message.created_at,
-        message_type: message.message_type,
-        giftEmoji: typeof meta.giftEmoji === "string" ? meta.giftEmoji : undefined,
-        giftAmount: typeof meta.giftAmount === "number" ? meta.giftAmount : undefined,
-      };
-      void publishRealtimeEvent(`room:${roomId}:messages`, "new_message", realtimePayload);
+      void publishRealtimeEvent(`room:${roomId}:messages`, "new_message", clientMessage);
     }
 
-    return NextResponse.json({ message }, { status: 201 });
+    return NextResponse.json({ message: clientMessage }, { status: 201 });
   } catch (err) {
     return handleApiError(err);
   }
