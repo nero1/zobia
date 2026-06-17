@@ -1434,8 +1434,12 @@ export default function RoomPage() {
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden lg:flex-row">
-      {/* Main content */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      {/* Main content. `min-h-0` is essential: without it this flex column
+          keeps its default `min-height:auto`, refuses to shrink below its
+          content height, and overflows the bounded parent — which clips the
+          feed (ancestor has overflow-hidden) so the inner `overflow-y-auto`
+          never gets a constrained height and the chat cannot scroll. */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* Room header */}
         <div className="flex items-center gap-3 border-b border-neutral-200 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-900">
           <span className="text-2xl">{room.coverEmoji}</span>
