@@ -356,7 +356,7 @@ export default function GroupConversationPage() {
       {/* Message feed */}
       <div
         ref={feedRef}
-        className="flex-1 space-y-4 overflow-y-auto p-4"
+        className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4"
         aria-live="polite"
         aria-label="Group messages"
       >
