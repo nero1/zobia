@@ -523,6 +523,9 @@ export default function DMConversationScreen() {
   const myUserId = authUser?.id ?? 'me';
   const currency = useCurrency();
 
+  const flatListRef = useRef<FlatList<DM>>(null);
+  const isAtBottomRef = useRef(true);
+
   const [inputText, setInputText] = useState('');
   const [pidginSuggestions, setPidginSuggestions] = useState<string[]>([]);
   const [pendingMessages, setPendingMessages] = useState<DM[]>([]);
@@ -690,6 +693,14 @@ export default function DMConversationScreen() {
     !conversation.isUnlimited &&
     conversation.userCoinBalance < conversation.coinCostPerMessage;
 
+  // Scroll to newest message when the list grows, but only when already near
+  // the bottom (offset 0 on an inverted FlatList = visual bottom = newest).
+  useEffect(() => {
+    if (combinedMessages.length > 0 && isAtBottomRef.current) {
+      flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+    }
+  }, [combinedMessages.length]);
+
   const renderItem = useCallback(
     ({ item }: { item: DM }) => (
       <DMBubble
@@ -733,6 +744,7 @@ export default function DMConversationScreen() {
           <ConvSkeleton />
         ) : (
           <FlatList
+            ref={flatListRef}
             data={combinedMessages}
             keyExtractor={(m) => m.id}
             renderItem={renderItem}
@@ -740,7 +752,10 @@ export default function DMConversationScreen() {
             style={styles.flex}
             contentContainerStyle={styles.messageList}
             showsVerticalScrollIndicator={false}
-            maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 10 }}
+            scrollEventThrottle={100}
+            onScroll={({ nativeEvent }) => {
+              isAtBottomRef.current = nativeEvent.contentOffset.y <= 100;
+            }}
           />
         )}
 
