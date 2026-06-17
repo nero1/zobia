@@ -31,7 +31,7 @@ import { apiClient } from '@/lib/api/client';
 // ---------------------------------------------------------------------------
 
 interface SearchUser {
-  userId: string;
+  id: string;
   displayName: string;
   username: string;
   avatarEmoji: string;
@@ -58,7 +58,7 @@ interface DMCostInfo {
 async function searchUsers(query: string): Promise<SearchUser[]> {
   if (query.length < 2) return [];
   const { data } = await apiClient.get('/users/search', { params: { q: query, limit: 20 } });
-  return data.users ?? [];
+  return data.data?.users ?? [];
 }
 
 async function fetchFriends(): Promise<Friend[]> {
@@ -193,11 +193,11 @@ export default function NewDMScreen() {
 
       <FlatList
         data={showSearch ? searchResults : friends}
-        keyExtractor={(u) => u.userId}
+        keyExtractor={(u) => u.id}
         renderItem={({ item }) => (
           <UserRow
             user={item}
-            onSelect={() => handleSelect(item.userId)}
+            onSelect={() => handleSelect(item.id)}
           />
         )}
         showsVerticalScrollIndicator={false}

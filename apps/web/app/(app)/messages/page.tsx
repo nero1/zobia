@@ -29,7 +29,7 @@ interface DMConversation {
 }
 
 interface UserSearchResult {
-  userId: string;
+  id: string;
   username: string;
   displayName: string;
   avatarEmoji: string;
@@ -95,8 +95,8 @@ function NewMessageDialog({ onClose, onOpen }: NewMessageDialogProps) {
       try {
         const res = await fetch(`/api/users/search?q=${encodeURIComponent(trimmed)}`, { credentials: "include" });
         if (!res.ok) return;
-        const data = (await res.json()) as { users: UserSearchResult[] };
-        if (!cancelled) setResults(data.users ?? []);
+        const data = (await res.json()) as { data?: { users?: UserSearchResult[] } };
+        if (!cancelled) setResults(data.data?.users ?? []);
       } catch { /* ignore */ }
       if (!cancelled) setSearching(false);
     }, 300);
@@ -150,8 +150,8 @@ function NewMessageDialog({ onClose, onOpen }: NewMessageDialogProps) {
           )}
           {results.map((u) => (
             <button
-              key={u.userId}
-              onClick={() => onOpen(u.userId)}
+              key={u.id}
+              onClick={() => onOpen(u.id)}
               className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-neutral-50 dark:hover:bg-neutral-800"
             >
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-xl dark:bg-neutral-800">
