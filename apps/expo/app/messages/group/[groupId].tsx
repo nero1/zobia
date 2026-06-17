@@ -12,7 +12,7 @@
  *  - Loading / empty / error states
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -204,6 +204,9 @@ export default function GroupConversationScreen() {
   const { user: authUser } = useAuth();
   const myUserId = authUser?.id ?? 'me';
 
+  const flatListRef = useRef<FlatList<GroupMessage>>(null);
+  const isAtBottomRef = useRef(true);
+
   const [inputText, setInputText] = useState('');
   const [pendingMessages, setPendingMessages] = useState<GroupMessage[]>([]);
   const [spamBlocked, setSpamBlocked] = useState(false);
@@ -288,6 +291,14 @@ export default function GroupConversationScreen() {
 
   const combinedMessages = [...pendingMessages, ...messages];
 
+  // Scroll to newest message when the list grows, but only when already near
+  // the bottom (offset 0 on an inverted FlatList = visual bottom = newest).
+  useEffect(() => {
+    if (combinedMessages.length > 0 && isAtBottomRef.current) {
+      flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+    }
+  }, [combinedMessages.length]);
+
   const renderItem = useCallback(
     ({ item }: { item: GroupMessage }) => (
       <GroupBubble message={item} isOwn={item.senderUserId === myUserId} />
@@ -307,6 +318,7 @@ export default function GroupConversationScreen() {
           <ConvSkeleton />
         ) : (
           <FlatList
+            ref={flatListRef}
             data={combinedMessages}
             keyExtractor={(m) => m.id}
             renderItem={renderItem}
@@ -314,7 +326,10 @@ export default function GroupConversationScreen() {
             style={styles.flex}
             contentContainerStyle={styles.messageList}
             showsVerticalScrollIndicator={false}
-            maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 10 }}
+            scrollEventThrottle={100}
+            onScroll={({ nativeEvent }) => {
+              isAtBottomRef.current = nativeEvent.contentOffset.y <= 100;
+            }}
             ListEmptyComponent={
               <View style={styles.emptyState}>
                 <Text style={[styles.emptyText, { color: themeColors.textMuted }]}>

@@ -1075,6 +1075,15 @@ export default function RoomPage() {
     minGiftSpectacleCoinRef.current = room?.minGiftSpectacleCoin;
   }, [room?.minGiftSpectacleCoin]);
 
+  // Prevent the body from scrolling while this chat page is mounted. Without
+  // this, iOS Safari (PWA) may route touch-scroll events to the body instead
+  // of the inner feed container, making the chat appear unscrollable.
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
   // Auto-scroll to bottom when messages change
   useEffect(() => {
     if (feedRef.current) {
@@ -1491,7 +1500,7 @@ export default function RoomPage() {
           <>
             <div
               ref={feedRef}
-              className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4"
+              className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-4"
               aria-live="polite"
               aria-label="Message feed"
             >

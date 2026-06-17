@@ -150,6 +150,13 @@ export default function GroupConversationPage() {
   const feedRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Prevent body scroll on iOS PWA so touch events reach the feed container.
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
   // Auto-scroll to bottom when messages change
   useEffect(() => {
     if (feedRef.current) {
@@ -356,7 +363,7 @@ export default function GroupConversationPage() {
       {/* Message feed */}
       <div
         ref={feedRef}
-        className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4"
+        className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-4"
         aria-live="polite"
         aria-label="Group messages"
       >

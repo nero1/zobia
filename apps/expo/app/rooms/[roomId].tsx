@@ -373,6 +373,9 @@ export default function RoomScreen() {
   const { user: authUser } = useAuth();
   const currentUserId = authUser?.id ?? null;
 
+  const flatListRef = useRef<FlatList<Message>>(null);
+  const isAtBottomRef = useRef(true);
+
   const [inputText, setInputText] = useState('');
   const [showGifters, setShowGifters] = useState(false);
   const [xpFlash, setXpFlash] = useState(false);
@@ -490,6 +493,15 @@ export default function RoomScreen() {
   useEffect(() => {
     if (roomId && messages.length) writeCachedMessages(`room:${roomId}`, messages);
   }, [messages, roomId]);
+
+  // Scroll to newest message when messages arrive, but only if the user is
+  // already near the bottom of the feed (offset 0 on an inverted FlatList =
+  // visual bottom = newest messages).
+  useEffect(() => {
+    if (messages.length > 0 && isAtBottomRef.current) {
+      flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+    }
+  }, [messages.length]);
 
   // Update navigation header
   useEffect(() => {
@@ -774,6 +786,7 @@ export default function RoomScreen() {
           <Skeleton />
         ) : (
           <FlatList
+            ref={flatListRef}
             data={messages}
             keyExtractor={(m) => m.id}
             renderItem={renderMessage}
@@ -781,7 +794,11 @@ export default function RoomScreen() {
             style={styles.flex}
             contentContainerStyle={styles.messageList}
             showsVerticalScrollIndicator={false}
-            maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 10 }}
+            scrollEventThrottle={100}
+            onScroll={({ nativeEvent }) => {
+              // In an inverted FlatList offset 0 is the visual bottom (newest).
+              isAtBottomRef.current = nativeEvent.contentOffset.y <= 100;
+            }}
           />
         )}
 
