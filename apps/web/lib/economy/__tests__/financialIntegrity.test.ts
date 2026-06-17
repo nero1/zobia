@@ -250,22 +250,6 @@ describe('Transfer math invariant', () => {
               return { rows: [{ id: `lid-${params[0]}`, user_id: params[0], amount: params[1], balance_before: params[2], balance_after: params[3], transaction_type: params[4], reference_id: params[5] ?? null, description: params[6] ?? null, metadata: null, created_at: new Date().toISOString() }], rowCount: 1 };
             }
 
-            if (upper.startsWith('SELECT') && sql.includes('coin_ledger')) {
-              const entry: LedgerEntry = {
-                id: 'entry-1',
-                user_id: params[0] as string,
-                amount: 0,
-                balance_before: 0,
-                balance_after: 0,
-                transaction_type: 'gift_sent',
-                reference_id: null,
-                description: null,
-                metadata: null,
-                created_at: new Date().toISOString(),
-              };
-              return { rows: [entry], rowCount: 1 };
-            }
-
             return { rows: [], rowCount: 0 };
           }),
         } as unknown as TransactionClient;
