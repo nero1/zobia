@@ -145,6 +145,13 @@ export interface ZobiaManifest {
     /** Creator track XP awarded on first bank account addition. */
     bankAccountFirstAddCreatorXp: number;
   };
+  /** Per-role session token lifetimes (seconds). Admin-configurable via x_manifest. */
+  sessionTtls: {
+    default:   { accessTtl: number; refreshTtl: number };
+    creator:   { accessTtl: number; refreshTtl: number };
+    moderator: { accessTtl: number; refreshTtl: number };
+    admin:     { accessTtl: number; refreshTtl: number };
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -237,6 +244,12 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     maxRetries: 3,
     bankAccountFirstAddXp: 5,
     bankAccountFirstAddCreatorXp: 10,
+  },
+  sessionTtls: {
+    default:   { accessTtl: 3600,    refreshTtl: 2592000 }, // 1h access / 30d refresh
+    creator:   { accessTtl: 3600,    refreshTtl: 2592000 },
+    moderator: { accessTtl: 3600,    refreshTtl: 2592000 },
+    admin:     { accessTtl: 3600,    refreshTtl: 3600 },    // 1h access / 1h refresh
   },
 };
 
@@ -392,6 +405,24 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       maxRetries:                  parseInt10(kv["payout_max_retries"],                  DEFAULT_MANIFEST.payouts.maxRetries),
       bankAccountFirstAddXp:       parseInt10(kv["bank_account_first_add_xp"],          DEFAULT_MANIFEST.payouts.bankAccountFirstAddXp),
       bankAccountFirstAddCreatorXp: parseInt10(kv["bank_account_first_add_creator_xp"], DEFAULT_MANIFEST.payouts.bankAccountFirstAddCreatorXp),
+    },
+    sessionTtls: {
+      default:   {
+        accessTtl:  parseInt10(kv["session_ttl_access_default"],   DEFAULT_MANIFEST.sessionTtls.default.accessTtl),
+        refreshTtl: parseInt10(kv["session_ttl_refresh_default"],  DEFAULT_MANIFEST.sessionTtls.default.refreshTtl),
+      },
+      creator:   {
+        accessTtl:  parseInt10(kv["session_ttl_access_creator"],   DEFAULT_MANIFEST.sessionTtls.creator.accessTtl),
+        refreshTtl: parseInt10(kv["session_ttl_refresh_creator"],  DEFAULT_MANIFEST.sessionTtls.creator.refreshTtl),
+      },
+      moderator: {
+        accessTtl:  parseInt10(kv["session_ttl_access_moderator"], DEFAULT_MANIFEST.sessionTtls.moderator.accessTtl),
+        refreshTtl: parseInt10(kv["session_ttl_refresh_moderator"],DEFAULT_MANIFEST.sessionTtls.moderator.refreshTtl),
+      },
+      admin:     {
+        accessTtl:  parseInt10(kv["session_ttl_access_admin"],     DEFAULT_MANIFEST.sessionTtls.admin.accessTtl),
+        refreshTtl: parseInt10(kv["session_ttl_refresh_admin"],    DEFAULT_MANIFEST.sessionTtls.admin.refreshTtl),
+      },
     },
   };
 }

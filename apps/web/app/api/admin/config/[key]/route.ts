@@ -92,7 +92,8 @@ function sanitizeManifestValue(key: string, value: string): string {
     lower.includes("_min") ||
     lower.includes("_limit") ||
     lower.includes("_threshold") ||
-    lower.includes("_cap")
+    lower.includes("_cap") ||
+    lower.includes("_ttl")
   ) {
     const num = parseInt(value, 10);
     if (isNaN(num) || String(num) !== value.trim()) {
@@ -125,23 +126,26 @@ export const PUT = withAdminAuth(
       const { key } = await params as { key: string };
       const body = await validateBody(req, updateConfigSchema);
 
-      // Verify key exists in x_manifest
+      // Verify key exists in x_manifest, OR allow creating new session_ttl_ keys.
       const existing = await db.query<ManifestKeyRow>(
         `SELECT key, value, description FROM x_manifest WHERE key = $1 LIMIT 1`,
         [key]
       );
-      if (existing.rows.length === 0) {
+      const isNewSessionTtlKey = existing.rows.length === 0 && key.startsWith("session_ttl_");
+      if (existing.rows.length === 0 && !isNewSessionTtlKey) {
         throw badRequest(`Unknown manifest key: '${key}'.`, "UNKNOWN_MANIFEST_KEY");
       }
 
-      const previousValue = existing.rows[0].value;
+      const previousValue = existing.rows[0]?.value ?? null;
       const sanitizedValue = sanitizeManifestValue(key, body.value);
 
       await db.transaction(async (client) => {
-        // Update the manifest value
+        // Upsert the manifest value (insert for new session_ttl keys, update for existing)
         await client.query(
-          `UPDATE x_manifest SET value = $1, updated_at = NOW() WHERE key = $2`,
-          [sanitizedValue, key]
+          `INSERT INTO x_manifest (key, value, updated_at)
+           VALUES ($1, $2, NOW())
+           ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
+          [key, sanitizedValue]
         );
 
         // Log the change to audit table (best-effort; table may not exist in all environments)

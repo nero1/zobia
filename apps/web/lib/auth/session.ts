@@ -22,7 +22,7 @@ import {
   REFRESH_TOKEN_TTL_SECONDS,
   type AccessTokenPayload,
 } from "./jwt";
-import { getSessionTtls } from "./session-settings";
+import { loadManifest } from "@/lib/manifest";
 import { randomUUID, createHash } from "crypto";
 
 // ---------------------------------------------------------------------------
@@ -90,13 +90,12 @@ export async function createSession(
   options: { ip?: string; ua?: string; adminSession?: boolean } = {}
 ): Promise<AuthTokens> {
   const sid = randomUUID();
-  const ttls = await getSessionTtls({
-    isAdmin: user.is_admin || options.adminSession,
-    isModerator: user.is_moderator,
-    isCreator: user.is_creator,
-  });
-  const accessTtl = ttls.accessTtl;
-  const refreshTtl = ttls.refreshTtl;
+  const manifest = await loadManifest();
+  const ttlRole = (user.is_admin || options.adminSession) ? "admin"
+    : user.is_moderator ? "moderator"
+    : user.is_creator   ? "creator"
+    : "default";
+  const { accessTtl, refreshTtl } = manifest.sessionTtls[ttlRole];
 
   // Generate tokens first so we can hash the refresh token into the session record (ZB-24)
   const [accessToken, refreshToken] = await Promise.all([
@@ -252,14 +251,12 @@ export async function refreshAccessToken(
     }
   }
 
-  // ZB-25: Use correct TTL for role-based sessions
-  const ttls = await getSessionTtls({
-    isAdmin: session.adminSession ?? session.is_admin,
-    isModerator: session.is_moderator,
-    isCreator: session.is_creator,
-  });
-  const accessTtl = ttls.accessTtl;
-  const refreshTtl = ttls.refreshTtl;
+  const manifest = await loadManifest();
+  const ttlRole = (session.adminSession ?? session.is_admin) ? "admin"
+    : session.is_moderator ? "moderator"
+    : session.is_creator   ? "creator"
+    : "default";
+  const { accessTtl, refreshTtl } = manifest.sessionTtls[ttlRole];
 
   // ZB-24: Rotate refresh token — issue a new one and update the session record
   const [accessToken, newRefreshToken] = await Promise.all([
