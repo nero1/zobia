@@ -15,6 +15,7 @@ import { useRef, useState, useEffect, useCallback } from "react";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { useFloatingNotification } from "@/hooks/useFloatingNotification";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -185,6 +186,7 @@ export default function QuestsPage() {
   useEffect(() => {
     tRef.current = t;
   }, [t]);
+  const { questUpdateKey } = useFloatingNotification();
   const [data, setData] = useState<QuestDeckResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -240,6 +242,12 @@ export default function QuestsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Refresh when quest progress changes via realtime
+  useEffect(() => {
+    if (questUpdateKey === 0) return;
+    load();
+  }, [questUpdateKey, load]);
 
   // Countdown to midnight reset
   useEffect(() => {

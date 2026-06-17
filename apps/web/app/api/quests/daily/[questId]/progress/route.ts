@@ -19,6 +19,22 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { recordWarContribution } from "@/lib/guilds/recordWarContribution";
+import { publishRealtimeEvent } from "@/lib/realtime";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const DECK_BONUS_XP = 500;
+
+function questDeckSizeForPlan(plan: string | null | undefined): number {
+  switch (plan) {
+    case "max":  return 6;
+    case "pro":  return 5;
+    case "plus": return 4;
+    default:     return 3;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -256,6 +272,60 @@ export const POST = withAuth<QuestParams>(async (req, { params, auth }) => {
         }
       }
 
+      // Check if all daily quests are now complete → award deck bonus
+      let deckBonusXP = 0;
+      let deckCompleted = false;
+
+      if (nowCompleted) {
+        const { rows: planRows } = await client.query<{ plan: string | null }>(
+          `SELECT plan FROM users WHERE id = $1 LIMIT 1`,
+          [auth.user.sub]
+        );
+        const deckLimit = questDeckSizeForPlan(planRows[0]?.plan ?? null);
+
+        const { rows: deckTemplates } = await client.query<{ id: string }>(
+          `SELECT id FROM quest_templates
+           WHERE is_active = true AND (valid_date IS NULL OR valid_date = $1)
+           ORDER BY category, id LIMIT $2`,
+          [today, deckLimit]
+        );
+
+        if (deckTemplates.length > 0) {
+          const deckIds = deckTemplates.map((q) => q.id);
+          const { rows: completedRows } = await client.query<{ count: string }>(
+            `SELECT COUNT(*) AS count FROM user_quest_progress
+             WHERE user_id = $1 AND quest_date = $2 AND quest_id = ANY($3::uuid[]) AND completed = true`,
+            [auth.user.sub, today, deckIds]
+          );
+          const allDone = parseInt(completedRows[0]?.count ?? "0", 10) >= deckTemplates.length;
+
+          if (allDone) {
+            // Idempotency: check if deck bonus was already awarded today
+            const { rows: bonusRows } = await client.query<{ id: string }>(
+              `SELECT id FROM xp_ledger
+               WHERE user_id = $1 AND source = 'deck_bonus' AND created_at::date = $2::date
+               LIMIT 1`,
+              [auth.user.sub, today]
+            );
+
+            if (bonusRows.length === 0) {
+              deckBonusXP = DECK_BONUS_XP;
+              deckCompleted = true;
+
+              await client.query(
+                `INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, created_at)
+                 VALUES ($1, $2, 'main', 'deck_bonus', $2, NOW())`,
+                [auth.user.sub, deckBonusXP]
+              );
+              await client.query(
+                `UPDATE users SET xp_total = COALESCE(xp_total, 0) + $1, updated_at = NOW() WHERE id = $2`,
+                [deckBonusXP, auth.user.sub]
+              );
+            }
+          }
+        }
+      }
+
       return {
         progress_count: newCount,
         completed: nowCompleted,
@@ -263,14 +333,33 @@ export const POST = withAuth<QuestParams>(async (req, { params, auth }) => {
         xp_awarded: xpAwarded,
         coins_awarded: coinsAwarded,
         newly_completed: nowCompleted,
+        deck_completed: deckCompleted,
+        deck_bonus_xp: deckBonusXP,
       };
     });
 
-    // Record guild war contribution if quest was newly completed (fire-and-forget)
+    // Fire-and-forget post-completion side effects
     if (outcome.newly_completed) {
       recordWarContribution(auth.user.sub, 'complete_quest', db).catch((err) =>
         console.error('[quests:POST] war contribution failed', err)
       );
+
+      // Notify client to show floating reward notifications
+      if (outcome.xp_awarded > 0 || outcome.coins_awarded > 0) {
+        publishRealtimeEvent(`user:${auth.user.sub}`, "reward_earned", {
+          type: "quest_complete",
+          xpAmount: outcome.xp_awarded,
+          coinAmount: outcome.coins_awarded,
+        }).catch(() => {});
+      }
+    }
+
+    if (outcome.deck_completed) {
+      publishRealtimeEvent(`user:${auth.user.sub}`, "reward_earned", {
+        type: "deck_complete",
+        xpAmount: outcome.deck_bonus_xp,
+        coinAmount: 0,
+      }).catch(() => {});
     }
 
     return NextResponse.json(outcome, { status: 200 });

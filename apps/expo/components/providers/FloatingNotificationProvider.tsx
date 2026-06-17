@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { FloatingCurrencyNotification, type FloatingItem } from '@/components/ui/FloatingCurrencyNotification';
 import { ConfettiOverlay } from '@/components/ui/ConfettiOverlay';
 import { apiClient } from '@/lib/api/client';
+import { useAuth } from '@/lib/auth/hooks';
+import { useRealtimeChannel } from '@/lib/realtime/useRealtimeChannel';
 
 // ---------------------------------------------------------------------------
 // Config
@@ -35,6 +37,8 @@ export interface FloatingNotificationContextValue {
   fireDeckComplete: (xpReward: number, coinReward: number, coinName?: string) => void;
   fireConfetti: () => void;
   isEnabled: boolean;
+  /** Increments whenever quest progress or deck completion events arrive via realtime. */
+  questUpdateKey: number;
 }
 
 export const FloatingNotificationContext = createContext<FloatingNotificationContextValue>({
@@ -46,6 +50,7 @@ export const FloatingNotificationContext = createContext<FloatingNotificationCon
   fireDeckComplete: () => {},
   fireConfetti: () => {},
   isEnabled: false,
+  questUpdateKey: 0,
 });
 
 // ---------------------------------------------------------------------------
@@ -69,9 +74,11 @@ interface Props {
 
 export function FloatingNotificationProvider({ children }: Props) {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const [config, setConfig] = useState<FloatingNotifConfig>(DEFAULT_CONFIG);
   const [notifications, setNotifications] = useState<FloatingItem[]>([]);
   const [showConfetti, setShowConfetti] = useState(false);
+  const [questUpdateKey, setQuestUpdateKey] = useState(0);
   const configRef = useRef(config);
   configRef.current = config;
 
@@ -87,6 +94,10 @@ export function FloatingNotificationProvider({ children }: Props) {
       .catch(() => {});
   }, []);
 
+  // ---------------------------------------------------------------------------
+  // Core notification helpers (defined before the realtime handler)
+  // ---------------------------------------------------------------------------
+
   const addNotification = useCallback((item: Omit<FloatingItem, 'id'>) => {
     setNotifications((prev) => [
       ...prev.slice(-4),
@@ -99,6 +110,114 @@ export function FloatingNotificationProvider({ children }: Props) {
       setShowConfetti(true);
     }
   }, []);
+
+  // ---------------------------------------------------------------------------
+  // Realtime: subscribe to user's personal channel for server-pushed events
+  // ---------------------------------------------------------------------------
+
+  const realtimeChannel = user?.id ? `user:${user.id}` : null;
+
+  const handleRealtimeEvent = useCallback((event: string, data: unknown) => {
+    if (event !== 'reward_earned') return;
+    if (!configRef.current.enabled) return;
+
+    const payload = data as {
+      type: string;
+      amount?: number;
+      xpAmount?: number;
+      coinAmount?: number;
+    };
+
+    switch (payload.type) {
+      case 'referral':
+        addNotification({
+          label: t('floatingNotif.referralJoined', '+1 Referral'),
+          ...REFERRAL_COLORS,
+        });
+        break;
+
+      case 'xp':
+        if ((payload.amount ?? 0) > 0) {
+          addNotification({
+            label: t('floatingNotif.xpEarned', { amount: payload.amount }),
+            ...XP_COLORS,
+          });
+          maybeConfetti(payload.amount ?? 0, configRef.current.xpThreshold);
+        }
+        break;
+
+      case 'credits':
+        if ((payload.amount ?? 0) > 0) {
+          addNotification({
+            label: t('floatingNotif.creditsEarned', { amount: payload.amount, currency: 'Credits' }),
+            ...CREDIT_COLORS,
+          });
+          maybeConfetti(payload.amount ?? 0, configRef.current.creditsThreshold);
+        }
+        break;
+
+      case 'stars':
+        if ((payload.amount ?? 0) > 0) {
+          addNotification({
+            label: t('floatingNotif.starsEarned', { amount: payload.amount, currency: 'Stars' }),
+            ...STAR_COLORS,
+          });
+          maybeConfetti(payload.amount ?? 0, configRef.current.starsThreshold);
+        }
+        break;
+
+      case 'quest_complete':
+        if ((payload.xpAmount ?? 0) > 0) {
+          addNotification({
+            label: t('floatingNotif.xpEarned', { amount: payload.xpAmount }),
+            ...XP_COLORS,
+          });
+          maybeConfetti(payload.xpAmount ?? 0, configRef.current.xpThreshold);
+        }
+        if ((payload.coinAmount ?? 0) > 0) {
+          setTimeout(() => {
+            addNotification({
+              label: t('floatingNotif.creditsEarned', { amount: payload.coinAmount, currency: 'Credits' }),
+              ...CREDIT_COLORS,
+            });
+          }, 400);
+        }
+        setQuestUpdateKey((k) => k + 1);
+        break;
+
+      case 'deck_complete':
+        setShowConfetti(true);
+        addNotification({
+          label: t('floatingNotif.questsComplete', 'Daily Quests Complete! 🎉'),
+          ...QUEST_COLORS,
+        });
+        if ((payload.xpAmount ?? 0) > 0) {
+          setTimeout(() => {
+            addNotification({
+              label: t('floatingNotif.xpEarned', { amount: payload.xpAmount }),
+              ...XP_COLORS,
+            });
+          }, 400);
+        }
+        setQuestUpdateKey((k) => k + 1);
+        break;
+
+      case 'gift':
+        if ((payload.amount ?? 1) > 0) {
+          addNotification({
+            label: t('floatingNotif.giftReceived', { amount: payload.amount ?? 1 }),
+            ...GIFT_COLORS,
+          });
+        }
+        break;
+    }
+  }, [t, addNotification, maybeConfetti]);
+
+  useRealtimeChannel(realtimeChannel, handleRealtimeEvent);
+
+  // ---------------------------------------------------------------------------
+  // Public fire functions
+  // ---------------------------------------------------------------------------
 
   const fireXP = useCallback((amount: number) => {
     if (!configRef.current.enabled || amount <= 0) return;
@@ -187,6 +306,7 @@ export function FloatingNotificationProvider({ children }: Props) {
         fireDeckComplete,
         fireConfetti,
         isEnabled: config.enabled,
+        questUpdateKey,
       }}
     >
       {children}

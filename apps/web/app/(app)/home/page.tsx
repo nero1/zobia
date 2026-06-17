@@ -9,7 +9,7 @@
  * Guild Discovery panel (PRD §4 — shown when user has no guild).
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { ActivityBanner } from "@/components/ui/ActivityBanner";
@@ -17,6 +17,7 @@ import { OnlineRing } from "@/components/ui/OnlineRing";
 import { CreatorSpotlight } from "@/components/discovery/CreatorSpotlight";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { useFloatingNotification } from "@/hooks/useFloatingNotification";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -47,9 +48,25 @@ interface DailyQuest {
   title: string;
   description: string;
   xpReward: number;
+  coinReward: number;
   progress: number;
   goal: number;
   completed: boolean;
+}
+
+interface DailyQuestApiRow {
+  id?: unknown;
+  title?: unknown;
+  description?: unknown;
+  xp_reward?: unknown;
+  xpReward?: unknown;
+  coin_reward?: unknown;
+  coinReward?: unknown;
+  progress_count?: unknown;
+  progress?: unknown;
+  target_count?: unknown;
+  goal?: unknown;
+  completed?: unknown;
 }
 
 interface Friend {
@@ -571,6 +588,7 @@ function ActivityCountBanner({ count }: { count: number }) {
  */
 export default function HomePage() {
   const { t } = useTranslation();
+  const { questUpdateKey } = useFloatingNotification();
   const [platformEvent, setPlatformEvent] = useState<PlatformEvent | null>(null);
   const [activeCount, setActiveCount] = useState<number>(0);
   const [nemesis, setNemesis] = useState<NemesisData | null | undefined>(undefined);
@@ -591,6 +609,31 @@ export default function HomePage() {
   // PRD §4: New Member Quest progress banner
   const [memberQuest, setMemberQuest] = useState<MemberQuestState | null>(null);
   const [questBannerDismissed, setQuestBannerDismissed] = useState(false);
+
+  const fetchQuests = useCallback(() => {
+    fetch("/api/quests/daily", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { quests?: DailyQuestApiRow[] } | null) => {
+        const mapped: DailyQuest[] = (d?.quests ?? []).map((q) => ({
+          id: String(q.id ?? ""),
+          title: String(q.title ?? ""),
+          description: String(q.description ?? ""),
+          xpReward: Number(q.xp_reward ?? q.xpReward ?? 0),
+          coinReward: Number(q.coin_reward ?? q.coinReward ?? 0),
+          progress: Number(q.progress_count ?? q.progress ?? 0),
+          goal: Number(q.target_count ?? q.goal ?? 1),
+          completed: Boolean(q.completed ?? false),
+        }));
+        setQuests(mapped);
+      })
+      .catch(() => setQuests([]));
+  }, []);
+
+  // Refresh quest list when a quest_complete or deck_complete realtime event arrives
+  useEffect(() => {
+    if (questUpdateKey === 0) return;
+    fetchQuests();
+  }, [questUpdateKey, fetchQuests]);
 
   useEffect(() => {
     // Presence / XP activity count
@@ -622,10 +665,7 @@ export default function HomePage() {
       .catch(() => setNemesis(null));
 
     // Daily quests
-    fetch("/api/quests/daily", { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { quests?: DailyQuest[] } | null) => setQuests(d?.quests ?? []))
-      .catch(() => setQuests([]));
+    fetchQuests();
 
     // Online friends
     fetch("/api/friends", { credentials: "include" })
@@ -688,7 +728,7 @@ export default function HomePage() {
         }
       })
       .catch(() => {});
-  }, []);
+  }, [fetchQuests]);
 
   async function handleChallenge() {
     setChallenging(true);

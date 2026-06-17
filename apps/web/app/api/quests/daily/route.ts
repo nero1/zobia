@@ -141,12 +141,14 @@ export const GET = withAuth(async (req, { params, auth }) => {
     const quests = await getDailyQuestDeck(auth.user.sub);
     const today = new Date().toISOString().slice(0, 10);
 
+    const completedCount = quests.filter((q) => q.completed).length;
     return NextResponse.json(
       {
         date: today,
         quests,
         total: quests.length,
-        completed: quests.filter((q) => q.completed).length,
+        completed: completedCount,
+        bonus_unlocked: quests.length > 0 && completedCount === quests.length,
       },
       { status: 200 }
     );
