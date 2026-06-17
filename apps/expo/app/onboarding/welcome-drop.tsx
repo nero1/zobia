@@ -77,10 +77,11 @@ export default function WelcomeDrop() {
     apiClient
       .post('/onboarding/complete', {
         username: username,
+        display_name: username,
         avatar_emoji: emoji,
         city: city,
         birth_year: parseInt(birthYear ?? '0', 10),
-        vibe_answers: vibeAnswers,
+        vibe_quiz_responses: vibeAnswers,
       })
       .catch(() => {
         // Non-blocking: the user is already marked complete locally.
