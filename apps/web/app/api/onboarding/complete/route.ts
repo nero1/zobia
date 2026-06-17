@@ -123,6 +123,10 @@ export const POST = withAuth(async (req, { params, auth }) => {
 
     const body = await validateBody(req, onboardingSchema);
 
+    // Load manifest to get minimum age and captcha settings
+    const manifest = await loadManifest();
+    const minimumAge: number = manifest.minimumAge;
+
     // CAPTCHA verification — skip in development if no token provided
     const isDev = process.env.NODE_ENV !== "production";
     if (body.captcha_token) {
@@ -131,19 +135,9 @@ export const POST = withAuth(async (req, { params, auth }) => {
       if (!captchaOk) {
         throw badRequest("CAPTCHA verification failed. Please try again.", "CAPTCHA_FAILED");
       }
-    } else if (!isDev) {
-      // In production, require a token unless the manifest says provider=none
-      const { getManifestValue } = await import("@/lib/manifest");
-      const captchaProvider = await getManifestValue("captcha_provider");
-      if (captchaProvider !== "none") {
-        throw badRequest("CAPTCHA token is required.", "CAPTCHA_REQUIRED");
-      }
+    } else if (!isDev && manifest.captchaProvider !== "none") {
+      throw badRequest("CAPTCHA token is required.", "CAPTCHA_REQUIRED");
     }
-
-    // Load manifest to get minimum age setting
-    const manifest = await loadManifest();
-    // @ts-ignore – minimum_age may exist as a custom manifest key
-    const minimumAge: number = (manifest as Record<string, unknown>).minimum_age ?? 18;
 
     // Check age requirement (conservative: uses birth year only)
     const age = calculateAge(body.birth_year);
@@ -208,17 +202,18 @@ export const POST = withAuth(async (req, { params, auth }) => {
            avatar_emoji               = $3,
            city                       = $4,
            vibe_quiz_responses        = $5,
-           onboarding_personalization = $5,
-           date_of_birth              = $6,
-           referral_code              = $7,
+           onboarding_personalization = $6,
+           date_of_birth              = $7,
+           referral_code              = $8,
            onboarding_completed       = true,
            updated_at                 = NOW()
-         WHERE id = $8 AND deleted_at IS NULL`,
+         WHERE id = $9 AND deleted_at IS NULL`,
         [
           body.username,
           body.display_name,
           body.avatar_emoji ?? null,
           body.city ?? null,
+          body.vibe_quiz_responses ? JSON.stringify(body.vibe_quiz_responses) : null,
           personalization ? JSON.stringify(personalization) : null,
           dateOfBirth,
           referralCode,
