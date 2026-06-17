@@ -72,11 +72,13 @@ export function OnlineRing({ userId, size = "md", children }: OnlineRingProps) {
   const [status, setStatus] = useState<PresenceStatus>("offline");
 
   useEffect(() => {
+    if (!userId || userId === "undefined") return;
     let cancelled = false;
     fetch(`/api/presence/${userId}`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: { status?: PresenceStatus } | null) => {
-        if (!cancelled && d?.status) setStatus(d.status);
+      .then((d: { status?: PresenceStatus; data?: { status?: PresenceStatus } } | null) => {
+        const resolved = d?.data?.status ?? d?.status;
+        if (!cancelled && resolved) setStatus(resolved);
       })
       .catch(() => {});
     return () => { cancelled = true; };

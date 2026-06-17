@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
-import { withAuth, type AuthContext } from "@/lib/api/middleware";
+import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { presenceRedisKey } from "@/lib/presence/keys";
 
@@ -49,8 +49,13 @@ export const GET = withAuth(
     try {
       const { userId } = await params as { userId: string };
 
-      if (!userId) {
+      if (!userId || userId === "undefined" || userId === "null") {
         throw badRequest("userId is required", "MISSING_USER_ID");
+      }
+
+      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!UUID_RE.test(userId)) {
+        throw badRequest("userId must be a valid UUID", "INVALID_USER_ID");
       }
 
       // Check Redis first (cheapest, most accurate for online status)

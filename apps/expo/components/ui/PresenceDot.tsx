@@ -52,6 +52,7 @@ export function PresenceDot({ userId, size = 12 }: PresenceDotProps) {
       apiClient
         .get<{ data: { status: PresenceStatus } }>(`/presence/${userId}`)
         .then((r) => r.data.data),
+    enabled: !!userId && userId !== 'undefined',
     staleTime: 60_000,       // refresh every 60 s
     refetchInterval: 90_000, // background poll
   });
