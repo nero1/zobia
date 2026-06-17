@@ -49,6 +49,8 @@ function LoginContent() {
   const { t } = useTranslation();
   const searchParams = useSearchParams();
   const error = searchParams.get("error");
+  const reason = searchParams.get("reason");
+  const redirectParam = searchParams.get("redirect");
 
   const [isLoading, setIsLoading] = useState<"google" | "telegram" | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -111,9 +113,12 @@ function LoginContent() {
     setAuthError(null);
     try {
       const captchaToken = await getCaptchaToken();
+      const webRedirectSuffix = redirectParam ? `&web_redirect=${encodeURIComponent(redirectParam)}` : "";
       const url = captchaToken
-        ? `/api/auth/google?captcha_token=${encodeURIComponent(captchaToken)}`
-        : "/api/auth/google";
+        ? `/api/auth/google?captcha_token=${encodeURIComponent(captchaToken)}${webRedirectSuffix}`
+        : redirectParam
+          ? `/api/auth/google?web_redirect=${encodeURIComponent(redirectParam)}`
+          : "/api/auth/google";
       const res = await fetch(url);
       const data = await res.json() as { url?: string; error?: { message?: string; code?: string } };
       if (!res.ok || !data.url) {
@@ -181,6 +186,13 @@ function LoginContent() {
             {t("auth.signInTagline")}
           </p>
         </div>
+
+        {/* Session expired banner */}
+        {reason === "session_expired" && (
+          <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+            Your session has expired. Please sign in to continue.
+          </div>
+        )}
 
         {/* Auth error banner */}
         {authError && (

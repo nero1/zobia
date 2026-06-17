@@ -68,6 +68,7 @@ const HOME_URL = "/home";
 const PUBLIC_PREFIXES = [
   "/auth",
   "/api/auth",
+  "/api/auth/silent-refresh",
   "/api/health",
   "/api/manifest",
   // CSP violation reports from browsers (no auth, unauthenticated browsers send these)
@@ -293,8 +294,16 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
         res.headers.set("Content-Security-Policy", csp);
         return res;
       }
+      // Page route: attempt silent refresh if a refresh token cookie is present
+      const refreshToken = request.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
+      if (refreshToken) {
+        const silentRefreshUrl = new URL("/api/auth/silent-refresh", request.url);
+        silentRefreshUrl.searchParams.set("to", pathname);
+        return NextResponse.redirect(silentRefreshUrl);
+      }
       const loginUrl = new URL(LOGIN_URL, request.url);
       loginUrl.searchParams.set("redirect", pathname);
+      loginUrl.searchParams.set("reason", "session_expired");
       return NextResponse.redirect(loginUrl);
     }
 
@@ -309,8 +318,18 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
         res.headers.set("Content-Security-Policy", csp);
         return res;
       }
+      // Page route: attempt silent refresh if a refresh token cookie is present
+      const refreshToken = request.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
+      if (refreshToken) {
+        const silentRefreshUrl = new URL("/api/auth/silent-refresh", request.url);
+        silentRefreshUrl.searchParams.set("to", pathname);
+        const response = NextResponse.redirect(silentRefreshUrl);
+        response.cookies.set(ACCESS_TOKEN_COOKIE, "", { maxAge: 0 });
+        return response;
+      }
       const loginUrl = new URL(LOGIN_URL, request.url);
       loginUrl.searchParams.set("redirect", pathname);
+      loginUrl.searchParams.set("reason", "session_expired");
       const response = NextResponse.redirect(loginUrl);
       response.cookies.set(ACCESS_TOKEN_COOKIE, "", { maxAge: 0 });
       return response;
