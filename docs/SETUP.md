@@ -111,7 +111,7 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `R2_SECRET_ACCESS_KEY` | If R2 | R2 API secret access key | Cloudflare → R2 → Manage R2 API tokens |
 | `R2_BUCKET_NAME` | If R2 | Name of the R2 bucket | Cloudflare → R2 → Buckets |
 | `R2_PUBLIC_URL` | If R2 | Public URL for the R2 bucket (e.g. `https://pub-xxx.r2.dev`) | Cloudflare → R2 → Bucket settings |
-| `REALTIME_PROVIDER` | Yes | Realtime backend: `supabase-realtime` \| `ably` \| `pusher` | Choose your provider |
+| `REALTIME_PROVIDER` | Recommended | Realtime backend: `supabase-realtime` \| `ably` \| `pusher`. Optional — when unset, chat (rooms, DMs, groups) still delivers messages via a 3-second baseline poll; set it for instant WebSocket push. | Choose your provider |
 | `SUPABASE_URL` | If supabase-realtime | Supabase project URL (e.g. `https://xxx.supabase.co`) | Supabase → Project Settings → API |
 | `SUPABASE_SERVICE_ROLE_KEY` | If supabase-realtime | Service-role key — server-side only, never expose to clients | Supabase → Project Settings → API |
 | `ABLY_API_KEY` | If ably | Ably API key with Publish capability (Root key or custom key) | Ably Console → API Keys |
@@ -153,7 +153,7 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `PROFANITY_WORDLIST` | No | Comma-separated list of additional profanity words to block | Custom list |
 | `NEXT_PUBLIC_APP_URL` | Yes | Full public URL of the app (e.g. `https://zobia.social`) | Your domain |
 | `NEXT_PUBLIC_API_URL` | Yes | Full public API URL (e.g. `https://zobia.social/api`) | Your domain |
-| `NEXT_PUBLIC_REALTIME_PROVIDER` | Yes | Client-side realtime provider — must match `REALTIME_PROVIDER` | `supabase-realtime` \| `ably` \| `pusher` |
+| `NEXT_PUBLIC_REALTIME_PROVIDER` | Recommended | Client-side realtime provider — must match `REALTIME_PROVIDER`. Optional; without it the client falls back to the 3-second baseline poll. | `supabase-realtime` \| `ably` \| `pusher` |
 | `NEXT_PUBLIC_SUPABASE_URL` | If supabase-realtime | Supabase project URL — same as `SUPABASE_URL` | Supabase → Project Settings → API |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | If supabase-realtime | Supabase anon/public key — safe to expose to browsers | Supabase → Project Settings → API → `anon public` |
 | `NEXT_PUBLIC_PUSHER_KEY` | If pusher | Pusher App Key (public identifier, same as `PUSHER_KEY`) | Pusher Dashboard → App Keys |

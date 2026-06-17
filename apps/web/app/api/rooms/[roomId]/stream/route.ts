@@ -71,7 +71,9 @@ interface Message {
   id: string;
   userId: string;
   username: string;
+  displayName: string;
   avatarEmoji: string;
+  senderIsCreator: boolean;
   content: string;
   createdAt: string;
   message_type: string;
@@ -89,7 +91,9 @@ function rowToMessage(row: MessageRow): Message {
     id: row.id,
     userId: row.sender_id,
     username: row.sender_username,
+    displayName: row.sender_display_name ?? row.sender_username,
     avatarEmoji: row.sender_avatar_emoji,
+    senderIsCreator: Boolean(row.sender_is_creator),
     content: row.content ?? "",
     createdAt: row.created_at,
     message_type: row.message_type,

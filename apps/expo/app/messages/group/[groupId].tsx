@@ -57,19 +57,48 @@ interface GroupMeta {
 // API helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Map a raw group message row (snake_case from the API) into the camelCase
+ * `GroupMessage` shape. The list endpoint returns rows under `data` (not
+ * `messages`), so without this the conversation was always empty.
+ */
+function mapGroupMessage(raw: Record<string, unknown>): GroupMessage {
+  const str = (v: unknown, fallback = ''): string => (typeof v === 'string' ? v : fallback);
+  const username = str(raw.username ?? raw.senderUsername);
+  return {
+    id: str(raw.id),
+    content: str(raw.content),
+    senderUserId: str(raw.sender_id ?? raw.senderUserId),
+    senderDisplayName: str(raw.display_name ?? raw.senderDisplayName, username || 'Member'),
+    createdAt: str(raw.created_at ?? raw.createdAt, new Date().toISOString()),
+    blocked: Boolean(raw.is_blocked ?? raw.blocked),
+  };
+}
+
 async function fetchGroupMeta(groupId: string): Promise<GroupMeta> {
-  const { data } = await apiClient.get(`/messages/group/${groupId}`);
-  return data.group;
+  // The group list endpoint carries the meta; find this group within it.
+  const { data } = await apiClient.get('/messages/group');
+  const items: Record<string, unknown>[] = data.items ?? [];
+  const g = items.find((it) => it.id === groupId) ?? {};
+  const str = (v: unknown, fallback = ''): string => (typeof v === 'string' ? v : fallback);
+  const num = (v: unknown): number => (typeof v === 'number' ? v : 0);
+  return {
+    id: str(g.id, groupId),
+    name: str(g.name, 'Group'),
+    tag: str(g.tag),
+    memberCount: num(g.member_count ?? g.memberCount),
+  };
 }
 
 async function fetchGroupMessages(groupId: string): Promise<GroupMessage[]> {
   const { data } = await apiClient.get(`/messages/group/${groupId}`);
-  return data.messages ?? [];
+  const rows: Record<string, unknown>[] = data.data ?? data.messages ?? [];
+  return rows.map(mapGroupMessage);
 }
 
 async function sendGroupMessage(groupId: string, content: string): Promise<GroupMessage> {
   const { data } = await apiClient.post(`/messages/group/${groupId}`, { content });
-  return data.message;
+  return mapGroupMessage(data.data ?? data.message ?? {});
 }
 
 // ---------------------------------------------------------------------------

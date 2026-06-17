@@ -18,11 +18,11 @@ export const dynamic = 'force-dynamic';
 import { cookies } from "next/headers";
 import { Navbar } from "@/components/layout/Navbar";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { AppContentShell } from "@/components/layout/AppContentShell";
 import { OfflineBanner } from "@/components/offline/OfflineBanner";
 import { OfflineSyncProvider } from "@/components/offline/OfflineSyncProvider";
 import { AnnouncementBanner, type BannerData } from "@/components/announcements/AnnouncementBanner";
 import { AnnouncementModal, type AnnouncementData } from "@/components/announcements/AnnouncementModal";
-import { NudgeBanner } from "@/components/NudgeBanner";
 import { verifyAccessToken } from "@/lib/auth/jwt";
 import { env } from "@/lib/env";
 import {
@@ -115,14 +115,8 @@ export default async function AppLayout({ children }: AppLayoutProps) {
         {/* Desktop sidebar */}
         <Sidebar />
 
-        {/* Main content */}
-        <div className="flex-1 px-4 py-6 pb-24 sm:px-6 lg:ml-64 lg:px-8 lg:pb-6">
-          <div className="mx-auto max-w-3xl space-y-3">
-            {/* Account recovery nudge (shown when user has no email) */}
-            <NudgeBanner hasEmail={hasEmail} />
-            {children}
-          </div>
-        </div>
+        {/* Main content — full-bleed for chat routes, padded column otherwise */}
+        <AppContentShell hasEmail={hasEmail}>{children}</AppContentShell>
       </div>
     </div>
   );

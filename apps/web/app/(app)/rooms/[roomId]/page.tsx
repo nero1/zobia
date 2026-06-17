@@ -6,8 +6,12 @@
  * Room detail page (web version).
  * Two-column layout: main message feed + sidebar (room info, creator, top gifters).
  * Supports VIP subscribe overlay and Drop entry fee notices.
- * Uses SSE stream (/api/rooms/[roomId]/stream) for real-time message updates.
- * Reconnects automatically after 3 seconds on error or close.
+ *
+ * Live message delivery mirrors the DM/group pages: a 3-second baseline poll
+ * (guaranteed, provider-independent) merged with an optional realtime push via
+ * `useRealtimeChannel` ("room:<id>:messages"). Both are deduped by message id
+ * and the feed is kept in chronological order. The sender's own message is
+ * echoed immediately from the POST response so it appears without delay.
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -20,7 +24,8 @@ import { useRealtimeChannel } from "@/lib/realtime/useRealtimeChannel";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 
-// Resolved at build time — undefined means no push provider, fall back to SSE.
+// Resolved at build time. When undefined there is no push provider configured
+// and the 3-second baseline poll is the sole live channel.
 const REALTIME_PROVIDER = process.env.NEXT_PUBLIC_REALTIME_PROVIDER;
 
 // ---------------------------------------------------------------------------
@@ -82,12 +87,23 @@ interface Message {
   id: string;
   userId: string;
   username: string;
+  displayName?: string;
   avatarEmoji: string;
+  senderIsCreator?: boolean;
   content: string;
   createdAt: string;
   giftEmoji?: string;
   giftAmount?: number;
   message_type?: "text" | "moment" | "gif" | "sticker";
+}
+
+// Chronological ascending sort (oldest first → newest at the bottom of the feed).
+// The REST endpoint returns newest-first, so the client must re-sort before render.
+function sortByCreatedAtAsc(a: Message, b: Message): number {
+  const ta = new Date(a.createdAt).getTime();
+  const tb = new Date(b.createdAt).getTime();
+  if (ta !== tb) return ta - tb;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -305,38 +321,54 @@ interface MessageBubbleProps {
 
 function MessageBubble({ msg, isOwn }: MessageBubbleProps) {
   const currency = useCurrency();
+  // GIF/sticker messages carry the media in `content` (a URL or an emoji).
+  // Rendering those as plain text overflowed the viewport on mobile, so render
+  // them as proper media instead.
+  const isGif = msg.message_type === "gif";
+  const isSticker = msg.message_type === "sticker";
   return (
     <div className={`flex gap-2.5 ${isOwn ? "flex-row-reverse" : ""}`}>
       <span className="mt-1 h-8 w-8 shrink-0 rounded-full bg-neutral-100 text-center text-lg leading-8 dark:bg-neutral-800">
         {msg.avatarEmoji}
       </span>
-      <div className={`max-w-[75%] ${isOwn ? "items-end" : "items-start"} flex flex-col`}>
+      <div className={`flex min-w-0 max-w-[75%] flex-col ${isOwn ? "items-end" : "items-start"}`}>
         <div className="flex items-baseline gap-1.5">
           {!isOwn && (
-            <Link href={`/profile/${msg.userId}`} className="text-xs font-semibold text-blue-600 hover:underline dark:text-blue-400">
+            <Link href={`/profile/${msg.userId}`} className="max-w-[40vw] truncate text-xs font-semibold text-blue-600 hover:underline dark:text-blue-400">
               @{msg.username}
             </Link>
           )}
-          <span className="text-xs text-neutral-400">{timeAgo(msg.createdAt)}</span>
+          <span className="shrink-0 text-xs text-neutral-400">{timeAgo(msg.createdAt)}</span>
         </div>
-        <div className={`mt-0.5 rounded-2xl px-3.5 py-2 text-sm ${
-          msg.message_type === "moment"
-            ? "border-2 border-purple-400 bg-purple-50 text-purple-900 dark:border-purple-600 dark:bg-purple-950/50 dark:text-purple-100"
-            : isOwn
-              ? "rounded-tr-sm bg-blue-600 text-white"
-              : "rounded-tl-sm bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100"
-        }`}>
-          {msg.giftEmoji && (
-            <div className="mb-1 flex items-center gap-1 text-xs font-semibold opacity-80">
-              <span>{msg.giftEmoji}</span>
-              <span>Gift · {msg.giftAmount} {currency.softPlural.toLowerCase()}</span>
-            </div>
-          )}
-          {msg.content}
-          {msg.message_type === "moment" && (
-            <div className="mt-1 text-xs font-semibold text-purple-500 dark:text-purple-400">⚡ Moment · 24h</div>
-          )}
-        </div>
+        {isGif ? (
+          <div className="mt-0.5 overflow-hidden rounded-2xl">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={msg.content} alt="GIF" className="max-h-48 max-w-[70vw] rounded-2xl object-cover sm:max-w-xs" loading="lazy" />
+          </div>
+        ) : isSticker ? (
+          <div className="mt-0.5 flex items-center justify-center rounded-2xl bg-neutral-50 p-4 text-5xl dark:bg-neutral-800/50">
+            {msg.content}
+          </div>
+        ) : (
+          <div className={`mt-0.5 overflow-hidden whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm ${
+            msg.message_type === "moment"
+              ? "border-2 border-purple-400 bg-purple-50 text-purple-900 dark:border-purple-600 dark:bg-purple-950/50 dark:text-purple-100"
+              : isOwn
+                ? "rounded-tr-sm bg-blue-600 text-white"
+                : "rounded-tl-sm bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100"
+          }`}>
+            {msg.giftEmoji && (
+              <div className="mb-1 flex items-center gap-1 text-xs font-semibold opacity-80">
+                <span>{msg.giftEmoji}</span>
+                <span>Gift · {msg.giftAmount} {currency.softPlural.toLowerCase()}</span>
+              </div>
+            )}
+            {msg.content}
+            {msg.message_type === "moment" && (
+              <div className="mt-1 text-xs font-semibold text-purple-500 dark:text-purple-400">⚡ Moment · 24h</div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -948,12 +980,14 @@ export default function RoomPage() {
   const spectacleTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const seenMessageIdsRef = useRef<Set<string>>(new Set());
   const feedRef = useRef<HTMLDivElement>(null);
-  const esRef = useRef<EventSource | null>(null);
-  const reconnectRef = useRef<ReturnType<typeof setTimeout>>();
   const lastMessageIdRef = useRef<string | undefined>(undefined);
   const minGiftSpectacleCoinRef = useRef<number | null | undefined>(undefined);
+  // Becomes true after the first message snapshot loads, so the gift spectacle
+  // overlay only fires for genuinely-new gifts and not for the initial backlog.
+  const initializedRef = useRef(false);
 
-  // Keep minGiftSpectacleCoin ref in sync so connectSSE always has the latest value
+  // Keep minGiftSpectacleCoin ref in sync so the spectacle handler always reads
+  // the latest creator-configured threshold.
   useEffect(() => {
     minGiftSpectacleCoinRef.current = room?.minGiftSpectacleCoin;
   }, [room?.minGiftSpectacleCoin]);
@@ -1070,28 +1104,21 @@ export default function RoomPage() {
       .catch(() => {});
   }, [room, currentUserId, roomId]);
 
-  // Fetch initial messages (REST snapshot before live updates begin)
-  const fetchMessages = useCallback(async () => {
-    const res = await fetch(`/api/rooms/${roomId}/messages`, { credentials: "include" });
-    if (!res.ok) return;
-    const data = (await res.json()) as { items: Message[] };
-    const items = data.items ?? [];
-    setMessages(items);
-    if (items.length > 0) {
-      lastMessageIdRef.current = items[items.length - 1].id;
-    }
-    setLoadingMessages(false);
-  }, [roomId]);
-
-  // Shared incoming-message handler — used by both SSE (fallback) and realtime hook.
-  // Uses only stable refs and setters so this callback never needs to change.
+  // Shared incoming-message handler — used by the initial load, the baseline
+  // poll, the sender's own optimistic echo, and the realtime hook. Dedupes by
+  // id and keeps the feed in chronological order, so the same message arriving
+  // from two channels (poll + realtime) never double-renders.
   const handleIncomingMessage = useCallback((msg: Message) => {
+    if (!msg || !msg.id) return;
     setMessages((prev) => {
       if (prev.some((m) => m.id === msg.id)) return prev;
-      lastMessageIdRef.current = msg.id;
-      return [...prev, msg];
+      const next = [...prev, msg];
+      next.sort(sortByCreatedAtAsc);
+      lastMessageIdRef.current = next[next.length - 1]?.id;
+      return next;
     });
     if (
+      initializedRef.current &&
       !seenMessageIdsRef.current.has(msg.id) &&
       msg.giftEmoji &&
       typeof msg.giftAmount === "number"
@@ -1112,61 +1139,41 @@ export default function RoomPage() {
     seenMessageIdsRef.current.add(msg.id);
   }, []);
 
-  // SSE fallback — only used when REALTIME_PROVIDER is not configured
-  const connectSSE = useCallback(() => {
-    if (esRef.current) {
-      esRef.current.close();
+  // Fetch the latest message snapshot (newest 30) and merge it in. Used for the
+  // initial load and for the baseline poll. The REST endpoint returns
+  // newest-first, so we re-sort ascending before merging.
+  const fetchMessages = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/messages`, { credentials: "include" });
+      if (!res.ok) return;
+      const data = (await res.json()) as { items: Message[] };
+      const items = (data.items ?? []).slice().sort(sortByCreatedAtAsc);
+      for (const m of items) handleIncomingMessage(m);
+    } catch { /* non-fatal — next poll retries */ } finally {
+      setLoadingMessages(false);
     }
-    const url = lastMessageIdRef.current
-      ? `/api/rooms/${roomId}/stream?lastMessageId=${lastMessageIdRef.current}`
-      : `/api/rooms/${roomId}/stream`;
-    const es = new EventSource(url);
-    esRef.current = es;
-
-    es.onmessage = (e) => {
-      try {
-        const parsed = JSON.parse(e.data as string) as { type: string; payload?: Message };
-        if (parsed.type === "message" && parsed.payload) {
-          handleIncomingMessage(parsed.payload);
-        }
-      } catch { /* ignore parse errors */ }
-    };
-
-    es.onerror = () => {
-      es.close();
-      esRef.current = null;
-      reconnectRef.current = setTimeout(() => connectSSE(), 3_000);
-    };
   }, [roomId, handleIncomingMessage]);
 
-  // Push-based realtime subscription (no-op when channel is null)
+  // Push-based realtime subscription (no-op when no provider is configured).
   const onRealtimeEvent = useCallback((event: string, data: unknown) => {
     if (event === "new_message") handleIncomingMessage(data as Message);
   }, [handleIncomingMessage]);
 
   useRealtimeChannel(REALTIME_PROVIDER ? `room:${roomId}:messages` : null, onRealtimeEvent);
 
+  // Baseline 3s polling — guarantees delivery across web + PWA even when no
+  // realtime provider is configured (or the provider is down). When a provider
+  // IS configured the realtime hook delivers instantly and the poll merely
+  // reconciles; dedup in handleIncomingMessage prevents duplicates.
   useEffect(() => {
-    void fetchMessages().then(() => {
-      if (!REALTIME_PROVIDER) {
-        connectSSE();
-      }
-    });
+    // Seed the backlog first (spectacle suppressed), then arm live detection.
+    void fetchMessages().then(() => { initializedRef.current = true; });
+    const id = setInterval(() => void fetchMessages(), 3_000);
     return () => {
-      if (!REALTIME_PROVIDER) {
-        if (esRef.current) {
-          esRef.current.close();
-          esRef.current = null;
-        }
-        if (reconnectRef.current) {
-          clearTimeout(reconnectRef.current);
-        }
-      }
-      if (spectacleTimerRef.current) {
-        clearTimeout(spectacleTimerRef.current);
-      }
+      clearInterval(id);
+      if (spectacleTimerRef.current) clearTimeout(spectacleTimerRef.current);
     };
-  }, [fetchMessages, connectSSE]);
+  }, [fetchMessages]);
 
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
@@ -1270,7 +1277,7 @@ export default function RoomPage() {
 
   if (loadingRoom) {
     return (
-      <div className="flex h-[100dvh] items-center justify-center">
+      <div className="flex h-full items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
       </div>
     );
@@ -1278,7 +1285,7 @@ export default function RoomPage() {
 
   if (error || !room) {
     return (
-      <div className="flex h-[100dvh] flex-col items-center justify-center gap-4">
+      <div className="flex h-full flex-col items-center justify-center gap-4">
         <p className="text-neutral-500">{error ?? "Room not found"}</p>
         <Link href="/rooms" className="text-sm text-blue-600 hover:underline">← Back to Rooms</Link>
       </div>
@@ -1286,7 +1293,7 @@ export default function RoomPage() {
   }
 
   return (
-    <div className="relative flex h-[100dvh] flex-col overflow-hidden lg:flex-row">
+    <div className="relative flex h-full flex-col overflow-hidden lg:flex-row">
       {/* Main content */}
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Room header */}

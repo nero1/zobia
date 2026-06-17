@@ -119,9 +119,37 @@ async function fetchRoom(roomId: string): Promise<Room> {
   };
 }
 
+/**
+ * Map an API message row into the screen's `Message` shape. The room messages
+ * API returns camelCase fields (`userId`, `username`, `avatarEmoji`,
+ * `message_type`, `createdAt`, `giftAmount`); older/raw rows may be snake_case.
+ * Accept both so the feed renders sender names/avatars instead of blanks.
+ */
+function mapApiMessage(m: Record<string, unknown>): Message {
+  const str = (v: unknown, fallback = ''): string => (typeof v === 'string' ? v : fallback);
+  const num = (v: unknown): number | undefined => (typeof v === 'number' ? v : undefined);
+  const username = str(m.username ?? m.sender_username);
+  return {
+    id: str(m.id),
+    content: typeof m.content === 'string' ? m.content : null,
+    messageType: (str(m.message_type ?? m.messageType, 'text')) as Message['messageType'],
+    senderUserId: str(m.userId ?? m.sender_id),
+    senderUsername: username,
+    senderDisplayName: str(m.displayName ?? m.sender_display_name, username),
+    senderAvatarEmoji: str(m.avatarEmoji ?? m.sender_avatar_emoji, '👤'),
+    senderIsCreator: Boolean(m.senderIsCreator ?? m.sender_is_creator),
+    reactions: Array.isArray(m.reactions) ? (m.reactions as MessageReaction[]) : [],
+    createdAt: str(m.createdAt ?? m.created_at, new Date().toISOString()),
+    giftCoinValue: num(m.giftAmount ?? m.giftCoinValue),
+    giftName: typeof m.giftName === 'string' ? m.giftName : undefined,
+    giftEmoji: typeof m.giftEmoji === 'string' ? m.giftEmoji : undefined,
+  };
+}
+
 async function fetchMessages(roomId: string): Promise<Message[]> {
   const { data } = await apiClient.get(`/rooms/${roomId}/messages`);
-  return data.messages ?? [];
+  const rows: Record<string, unknown>[] = data.items ?? data.messages ?? [];
+  return rows.map(mapApiMessage);
 }
 
 async function fetchTopGifters(roomId: string): Promise<GifterEntry[]> {
@@ -150,7 +178,7 @@ async function sendMessage(payload: SendMessagePayload): Promise<Message> {
     content: payload.content,
     message_type: payload.message_type ?? 'text',
   });
-  return data.message;
+  return mapApiMessage(data.message ?? {});
 }
 
 interface GifResult {
@@ -442,7 +470,9 @@ export default function RoomScreen() {
         reactions: [],
         createdAt: new Date().toISOString(),
       };
-      queryClient.setQueryData<Message[]>(['room-messages', roomId], [...previous, optimistic]);
+      // FlatList is inverted (newest at index 0), so prepend the optimistic
+      // message to make it appear at the bottom of the feed.
+      queryClient.setQueryData<Message[]>(['room-messages', roomId], [optimistic, ...previous]);
       setInputText('');
       setIsMoment(false);
       return { previous, optimisticId: optimistic.id };

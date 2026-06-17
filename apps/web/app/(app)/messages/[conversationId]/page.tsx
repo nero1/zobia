@@ -81,6 +81,31 @@ interface GiftItem {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Normalize a raw DM row (the API returns snake_case columns) into the
+ * camelCase `DMMessage` shape the UI renders. Without this, every persisted
+ * message showed up as "@undefined" with no avatar and was mis-attributed
+ * (isOwn was always false) the moment the 3s poll replaced the optimistic copy.
+ * Tolerates already-camelCase input so it is safe to apply everywhere.
+ */
+function normalizeDM(raw: Record<string, unknown>): DMMessage {
+  const str = (v: unknown, fallback = ""): string =>
+    typeof v === "string" ? v : fallback;
+  const num = (v: unknown): number | undefined =>
+    typeof v === "number" ? v : undefined;
+  return {
+    id: str(raw.id),
+    senderId: str(raw.senderId ?? raw.sender_id),
+    senderUsername: str(raw.senderUsername ?? raw.sender_username),
+    senderAvatarEmoji: str(raw.senderAvatarEmoji ?? raw.sender_avatar_emoji, "👤"),
+    content: str(raw.content ?? raw.media_url ?? raw.mediaUrl),
+    messageType: str(raw.messageType ?? raw.message_type, "text") as DMMessage["messageType"],
+    giftEmoji: str(raw.giftEmoji ?? raw.gift_emoji) || undefined,
+    giftAmount: num(raw.giftAmount ?? raw.gift_amount),
+    createdAt: str(raw.createdAt ?? raw.created_at, new Date().toISOString()),
+  };
+}
+
 /** Extract the first URL from a text string, or null if none. */
 function extractFirstUrl(text: string): string | null {
   const match = text.match(/https?:\/\/[^\s]+/);
@@ -204,10 +229,10 @@ function MessageBubble({
       <span className="mt-1 h-8 w-8 shrink-0 rounded-full bg-neutral-100 text-center text-lg leading-8 dark:bg-neutral-800">
         {msg.senderAvatarEmoji}
       </span>
-      <div className={`max-w-[75%] flex flex-col ${isOwn ? "items-end" : "items-start"}`}>
+      <div className={`flex min-w-0 max-w-[75%] flex-col ${isOwn ? "items-end" : "items-start"}`}>
         <div className="flex items-baseline gap-1.5">
           {!isOwn && (
-            <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">
+            <span className="max-w-[40vw] truncate text-xs font-semibold text-blue-600 dark:text-blue-400">
               @{msg.senderUsername}
             </span>
           )}
@@ -241,7 +266,7 @@ function MessageBubble({
         ) : (
           <>
             <div
-              className={`mt-0.5 rounded-2xl px-3.5 py-2 text-sm ${
+              className={`mt-0.5 overflow-hidden whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm ${
                 isOwn
                   ? "rounded-tr-sm bg-blue-600 text-white"
                   : "rounded-tl-sm bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100"
@@ -291,7 +316,7 @@ function GifPicker({ onSelect, onClose }: { onSelect: (url: string) => void; onC
   useEffect(() => { void search("trending"); }, [search]);
 
   return (
-    <div className="absolute bottom-full left-0 z-20 mb-2 w-80 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
+    <div className="absolute bottom-full left-0 z-20 mb-2 w-[min(20rem,calc(100vw-1rem))] overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
       <div className="flex items-center justify-between border-b border-neutral-200 px-3 py-2 dark:border-neutral-700">
         <span className="text-xs font-semibold text-neutral-500">GIFs</span>
         <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label="Close GIF picker">✕</button>
@@ -369,7 +394,7 @@ function StickerPicker({ onSelect, onClose }: { onSelect: (emoji: string) => voi
   const currentPack = packs.find((p) => p.id === activePack);
 
   return (
-    <div className="absolute bottom-full left-0 z-20 mb-2 w-72 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
+    <div className="absolute bottom-full left-0 z-20 mb-2 w-[min(18rem,calc(100vw-1rem))] overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
       <div className="flex items-center justify-between border-b border-neutral-200 px-3 py-2 dark:border-neutral-700">
         <span className="text-xs font-semibold text-neutral-500">Stickers</span>
         <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label="Close sticker picker">✕</button>
@@ -490,7 +515,7 @@ function GiftPicker({
   }
 
   return (
-    <div className="absolute bottom-full right-0 z-20 mb-2 w-80 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
+    <div className="absolute bottom-full right-0 z-20 mb-2 w-[min(20rem,calc(100vw-1rem))] overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
       <div className="flex items-center justify-between border-b border-neutral-200 px-3 py-2 dark:border-neutral-700">
         <span className="text-xs font-semibold text-neutral-500">Send a Gift to @{recipientUsername}</span>
         <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label="Close gift picker">✕</button>
@@ -596,7 +621,7 @@ export default function DMConversationPage() {
         if (!res.ok) throw new Error("Conversation not found");
         const data = (await res.json()) as {
           conversation?: ConversationInfo & { score?: number };
-          items?: DMMessage[];
+          items?: Record<string, unknown>[];
           recipientCanReply?: boolean;
           otherUserId?: string;
           linkPreviewsEnabled?: boolean;
@@ -605,7 +630,7 @@ export default function DMConversationPage() {
           setConversation(data.conversation);
           if (typeof data.conversation.score === "number") setConvScore(data.conversation.score);
         }
-        if (data.items) setMessages(data.items);
+        if (data.items) setMessages(data.items.map(normalizeDM));
         if (typeof data.recipientCanReply === "boolean") setRecipientCanReply(data.recipientCanReply);
         if (data.otherUserId) setOtherUserId(data.otherUserId);
         // PRD §5: gate link previews until recipient has replied ≥2 times
@@ -657,13 +682,13 @@ export default function DMConversationPage() {
       const res = await fetch(`/api/messages/dm/${conversationId}`, { credentials: "include" });
       if (!res.ok) return;
       const data = (await res.json()) as {
-        messages?: DMMessage[];
-        items?: DMMessage[];
+        messages?: Record<string, unknown>[];
+        items?: Record<string, unknown>[];
         conversation?: ConversationInfo;
         recipientCanReply?: boolean;
         otherUserId?: string;
       };
-      setMessages(data.messages ?? data.items ?? []);
+      setMessages((data.messages ?? data.items ?? []).map(normalizeDM));
       // Populate conversation info if this response includes it
       if (data.conversation) setConversation(data.conversation);
       // PRD §3: surface when recipient cannot afford to reply
@@ -691,11 +716,12 @@ export default function DMConversationPage() {
     conversationId ? `dm:conversation:${conversationId}` : null,
     useCallback((event: string, data: unknown) => {
       if (event === "new_message") {
-        const { message } = data as { message: DMMessage };
+        const { message } = (data as { message?: Record<string, unknown> }) ?? {};
         if (message) {
+          const normalized = normalizeDM(message);
           setMessages((prev) => {
-            const alreadyExists = prev.some((m) => m.id === message.id);
-            return alreadyExists ? prev : [...prev, message];
+            const alreadyExists = prev.some((m) => m.id === normalized.id);
+            return alreadyExists ? prev : [...prev, normalized];
           });
         }
       }
@@ -761,11 +787,12 @@ export default function DMConversationPage() {
         err.code = code ?? null;
         throw err;
       }
-      const responseData = (await res.json()) as { message?: DMMessage; messages?: DMMessage[] };
+      const responseData = (await res.json()) as { message?: Record<string, unknown>; messages?: Record<string, unknown>[] };
       // Replace optimistic message with the real one from the server
       if (responseData.message) {
+        const real = normalizeDM(responseData.message);
         setMessages((prev) =>
-          prev.map((m) => (m.id === optimisticId ? responseData.message! : m))
+          prev.map((m) => (m.id === optimisticId ? real : m))
         );
       } else {
         // Server didn't return the message — remove optimistic and refetch
@@ -837,7 +864,7 @@ export default function DMConversationPage() {
 
   if (loadingConversation) {
     return (
-      <div className="flex h-[100dvh] items-center justify-center">
+      <div className="flex h-full items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
       </div>
     );
@@ -845,7 +872,7 @@ export default function DMConversationPage() {
 
   if (error && !conversation) {
     return (
-      <div className="flex h-[100dvh] flex-col items-center justify-center gap-4">
+      <div className="flex h-full flex-col items-center justify-center gap-4">
         <p className="text-neutral-500">{error}</p>
         <Link href="/messages" className="text-sm text-blue-600 hover:underline">
           Back to Messages
@@ -855,7 +882,7 @@ export default function DMConversationPage() {
   }
 
   return (
-    <div className="flex h-[100dvh] flex-col">
+    <div className="flex h-full flex-col">
       {/* Header */}
       <div className="flex items-center gap-3 border-b border-neutral-200 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-900">
         <Link
