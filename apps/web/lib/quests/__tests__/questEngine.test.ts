@@ -140,6 +140,9 @@ describe('updateQuestProgress', () => {
             if (sql.includes('FROM quest_templates')) {
               return { rows: [makeTemplate('q1')], rowCount: 1 };
             }
+            if (sql.includes('user_quest_decks')) {
+              return { rows: [{ '1': 1 }], rowCount: 1 };
+            }
             if (sql.includes('FROM user_quest_progress')) {
               return { rows: [{ progress_count: 5, completed: true }], rowCount: 1 };
             }
@@ -180,6 +183,9 @@ describe('updateQuestProgress', () => {
           query: jest.fn(async (sql: string) => {
             if (sql.includes('FROM quest_templates')) {
               return { rows: [template], rowCount: 1 };
+            }
+            if (sql.includes('user_quest_decks')) {
+              return { rows: [{ '1': 1 }], rowCount: 1 };
             }
             if (sql.includes('FROM user_quest_progress')) {
               return { rows: [{ progress_count: 2, completed: false }], rowCount: 1 };

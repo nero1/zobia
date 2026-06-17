@@ -336,46 +336,9 @@ export async function resolveWar(
       throw new Error(`[warEngine] War ${warId} is already resolved`);
     }
 
-    if (war.challenger_points === war.defender_points) {
-      // Draw — no winner declared
-      outcome = "draw";
-
-      // Mark war as completed with no winner
-      await client.query(
-        `UPDATE guild_wars
-         SET status = 'completed', winner_guild_id = NULL, updated_at = NOW()
-         WHERE id = $1`,
-        [warId]
-      );
-
-      // Update last_war_ended_at for both guilds (no wins/losses credited)
-      await client.query(
-        `UPDATE guilds SET last_war_ended_at = NOW(), updated_at = NOW()
-         WHERE id = ANY($1::uuid[])`,
-        [[war.challenger_guild_id, war.defender_guild_id]]
-      );
-
-      // Create a system alert for the draw
-      await client.query(
-        `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-         VALUES ('guild_war_draw', 'info', $1, $2::jsonb, NOW())`,
-        [
-          `Guild war ${warId} ended in a draw (${war.challenger_points} pts each)`,
-          JSON.stringify({
-            warId,
-            challengerGuildId: war.challenger_guild_id,
-            defenderGuildId: war.defender_guild_id,
-            points: war.challenger_points,
-          }),
-        ]
-      ).catch(() => {});
-
-      return;
-    }
-
-    // Win/loss outcome
+    // Challenger wins on a draw (tie-break rule: challenger_points >= defender_points)
     winnerGuildId =
-      war.challenger_points > war.defender_points
+      war.challenger_points >= war.defender_points
         ? war.challenger_guild_id
         : war.defender_guild_id;
     loserGuildId =
