@@ -1062,6 +1062,8 @@ export default function RoomPage() {
   const seenMessageIdsRef = useRef<Set<string>>(new Set());
   const feedRef = useRef<HTMLDivElement>(null);
   const lastMessageIdRef = useRef<string | undefined>(undefined);
+  // Newest message timestamp seen — drives delta polling (?after=).
+  const latestCreatedAtRef = useRef<string | undefined>(undefined);
   const minGiftSpectacleCoinRef = useRef<number | null | undefined>(undefined);
   // Becomes true after the first message snapshot loads, so the gift spectacle
   // overlay only fires for genuinely-new gifts and not for the initial backlog.
@@ -1201,6 +1203,7 @@ export default function RoomPage() {
       const next = [...prev, msg];
       next.sort(sortByCreatedAtAsc);
       lastMessageIdRef.current = next[next.length - 1]?.id;
+      latestCreatedAtRef.current = next[next.length - 1]?.createdAt;
       return next;
     });
     if (
@@ -1230,7 +1233,13 @@ export default function RoomPage() {
   // newest-first, so we re-sort ascending before merging.
   const fetchMessages = useCallback(async () => {
     try {
-      const res = await fetch(`/api/rooms/${roomId}/messages`, { credentials: "include" });
+      // After the first load, request only messages newer than the latest one
+      // we have (delta fetch) — far cheaper than re-pulling the whole snapshot.
+      const after = latestCreatedAtRef.current;
+      const url = after
+        ? `/api/rooms/${roomId}/messages?after=${encodeURIComponent(after)}`
+        : `/api/rooms/${roomId}/messages`;
+      const res = await fetch(url, { credentials: "include" });
       if (!res.ok) return;
       const data = (await res.json()) as { items: Message[] };
       const items = (data.items ?? []).slice().sort(sortByCreatedAtAsc);

@@ -41,6 +41,13 @@ import { notifyRoomMentions, parseMentions } from "@/lib/notifications/chatPush"
 
 const listMessagesQuerySchema = z.object({
   cursor: z.string().optional(),
+  /**
+   * Delta fetch: when set to an ISO timestamp, return only messages at/after it
+   * (ascending). Lets the live poll fetch just new messages instead of the whole
+   * snapshot — far cheaper on serverless + DB. Boundary rows may repeat and are
+   * deduped client-side by id.
+   */
+  after: z.string().datetime().optional(),
   limit: z
     .string()
     .optional()
@@ -260,7 +267,14 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const queryArgs: SqlParam[] = [roomId];
     let paramIdx = 2;
 
-    if (queryParams.cursor) {
+    // Delta mode takes precedence over cursor pagination: return only messages
+    // newer than the client's latest known timestamp, oldest-first.
+    const deltaMode = !!queryParams.after;
+    if (deltaMode) {
+      conditions.push(`m.created_at >= $${paramIdx}::timestamptz`);
+      queryArgs.push(queryParams.after as string);
+      paramIdx += 1;
+    } else if (queryParams.cursor) {
       // Parse compound cursor: "ISO_TIMESTAMP__UUID"
       const parts = queryParams.cursor.split('__');
       const cursorTs = parts[0] ?? null;
@@ -275,6 +289,10 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
 
     queryArgs.push(limit);
     const limitParam = paramIdx;
+
+    const orderClause = deltaMode
+      ? "m.created_at ASC"
+      : "(m.is_pinned AND (m.pin_expires_at IS NULL OR m.pin_expires_at > NOW())) DESC NULLS LAST, m.created_at DESC";
 
     const { rows: messages } = await db.query<MessageRow>(
       `SELECT
@@ -299,13 +317,14 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
        FROM room_messages m
        JOIN users u ON u.id = m.sender_id
        WHERE ${conditions.join(" AND ")}
-       ORDER BY (m.is_pinned AND (m.pin_expires_at IS NULL OR m.pin_expires_at > NOW())) DESC NULLS LAST, m.created_at DESC
+       ORDER BY ${orderClause}
        LIMIT $${limitParam}`,
       queryArgs
     );
 
+    // Cursor pagination only applies to the backlog query, not delta polling.
     const lastMsg = messages[messages.length - 1];
-    const nextCursor = messages.length === limit && lastMsg
+    const nextCursor = !deltaMode && messages.length === limit && lastMsg
       ? `${lastMsg.created_at}__${lastMsg.id}`
       : null;
 

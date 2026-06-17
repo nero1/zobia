@@ -686,10 +686,34 @@ export default function DMConversationPage() {
   useEffect(() => { void fetchConnectionBadge(); }, [fetchConnectionBadge]);
   useEffect(() => { void fetchConvScore(); }, [fetchConvScore]);
 
+  // Newest message timestamp seen — drives delta polling (?after=).
+  const latestCreatedAtRef = useRef<string | undefined>(undefined);
+
+  // Merge incoming DMs into state, deduping by id and keeping chronological
+  // order. Shared by the initial load, the delta poll, and the realtime push.
+  const mergeIncoming = useCallback((incoming: DMMessage[]) => {
+    if (!incoming.length) return;
+    setMessages((prev) => {
+      const seen = new Set(prev.map((m) => m.id));
+      const merged = prev.slice();
+      for (const m of incoming) {
+        if (m && m.id && !seen.has(m.id)) { merged.push(m); seen.add(m.id); }
+      }
+      merged.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      latestCreatedAtRef.current = merged[merged.length - 1]?.createdAt;
+      return merged;
+    });
+  }, []);
+
   const fetchMessages = useCallback(async () => {
     try {
-      // Note: the conversation-level GET returns items + recipientCanReply + otherUserId
-      const res = await fetch(`/api/messages/dm/${conversationId}`, { credentials: "include" });
+      // Delta fetch after the first load — only messages newer than the latest.
+      // The conversation-level GET still returns recipientCanReply/otherUserId/meta.
+      const after = latestCreatedAtRef.current;
+      const url = after
+        ? `/api/messages/dm/${conversationId}?after=${encodeURIComponent(after)}`
+        : `/api/messages/dm/${conversationId}`;
+      const res = await fetch(url, { credentials: "include" });
       if (!res.ok) return;
       const data = (await res.json()) as {
         messages?: Record<string, unknown>[];
@@ -698,7 +722,7 @@ export default function DMConversationPage() {
         recipientCanReply?: boolean;
         otherUserId?: string;
       };
-      setMessages((data.messages ?? data.items ?? []).map(normalizeDM));
+      mergeIncoming((data.messages ?? data.items ?? []).map(normalizeDM));
       // Populate conversation info if this response includes it
       if (data.conversation) setConversation(data.conversation);
       // PRD §3: surface when recipient cannot afford to reply
@@ -709,7 +733,7 @@ export default function DMConversationPage() {
     } catch { /* ignore */ } finally {
       setLoadingMessages(false);
     }
-  }, [conversationId]);
+  }, [conversationId, mergeIncoming]);
 
   // Realtime push — delivers new messages instantly via Ably / Pusher /
   // Supabase Realtime. Supplements the baseline poll; doesn't replace it.
@@ -718,15 +742,9 @@ export default function DMConversationPage() {
     useCallback((event: string, data: unknown) => {
       if (event === "new_message") {
         const { message } = (data as { message?: Record<string, unknown> }) ?? {};
-        if (message) {
-          const normalized = normalizeDM(message);
-          setMessages((prev) => {
-            const alreadyExists = prev.some((m) => m.id === normalized.id);
-            return alreadyExists ? prev : [...prev, normalized];
-          });
-        }
+        if (message) mergeIncoming([normalizeDM(message)]);
       }
-    }, [])
+    }, [mergeIncoming])
   );
 
   // Baseline poll — fast (3s) when realtime is down / unconfigured, slow

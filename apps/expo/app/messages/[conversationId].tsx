@@ -43,6 +43,7 @@ import { useCurrency } from '@/lib/hooks/useCurrency';
 import { useAuth } from '@/lib/auth/hooks';
 import { useRealtimeChannel } from '@/lib/realtime/useRealtimeChannel';
 import { readCachedMessages, writeCachedMessages } from '@/lib/chat/messageCache';
+import { newestCreatedAt, mergeNewestFirst } from '@/lib/chat/delta';
 import { CHAT_THEMES } from '@/lib/theme/chatThemes';
 import { queueMessage } from '@/lib/offline/sqlite';
 import type { ChatTheme } from '@/lib/theme/chatThemes';
@@ -142,8 +143,9 @@ function mapApiDM(raw: Record<string, unknown>): DM {
   };
 }
 
-async function fetchMessages(id: string): Promise<DM[]> {
-  const { data } = await apiClient.get(`/messages/dm/${id}`);
+async function fetchMessages(id: string, after?: string): Promise<DM[]> {
+  const url = after ? `/messages/dm/${id}?after=${encodeURIComponent(after)}` : `/messages/dm/${id}`;
+  const { data } = await apiClient.get(url);
   const rows: Record<string, unknown>[] = data.items ?? data.messages ?? [];
   return rows.map(mapApiDM);
 }
@@ -609,7 +611,12 @@ export default function DMConversationScreen() {
 
   const { data: messages = [], isLoading } = useQuery({
     queryKey: ['dm-messages', conversationId],
-    queryFn: () => fetchMessages(conversationId!),
+    queryFn: async () => {
+      const prev = queryClient.getQueryData<DM[]>(['dm-messages', conversationId]) ?? [];
+      const after = newestCreatedAt(prev);
+      const incoming = await fetchMessages(conversationId!, after);
+      return after ? mergeNewestFirst(prev, incoming) : incoming;
+    },
     enabled: !!conversationId,
     refetchInterval: realtimeConnected ? 30_000 : 3_000,
     refetchOnWindowFocus: true,

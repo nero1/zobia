@@ -50,6 +50,7 @@ import { useAuth } from '@/lib/auth/hooks';
 import { translateApiError } from '@/lib/i18n/apiErrors';
 import { useRealtimeChannel } from '@/lib/realtime/useRealtimeChannel';
 import { readCachedMessages, writeCachedMessages } from '@/lib/chat/messageCache';
+import { newestCreatedAt, mergeNewestFirst } from '@/lib/chat/delta';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -148,8 +149,11 @@ function mapApiMessage(m: Record<string, unknown>): Message {
   };
 }
 
-async function fetchMessages(roomId: string): Promise<Message[]> {
-  const { data } = await apiClient.get(`/rooms/${roomId}/messages`);
+async function fetchMessages(roomId: string, after?: string): Promise<Message[]> {
+  const url = after
+    ? `/rooms/${roomId}/messages?after=${encodeURIComponent(after)}`
+    : `/rooms/${roomId}/messages`;
+  const { data } = await apiClient.get(url);
   const rows: Record<string, unknown>[] = data.items ?? data.messages ?? [];
   return rows.map(mapApiMessage);
 }
@@ -416,7 +420,14 @@ export default function RoomScreen() {
   const prevMessageIdsRef = useRef<Set<string>>(new Set());
   const { data: messages = [], isLoading: messagesLoading } = useQuery({
     queryKey: ['room-messages', roomId],
-    queryFn: () => fetchMessages(roomId!),
+    queryFn: async () => {
+      // Delta fetch: only pull messages newer than what we already have, then
+      // merge — far cheaper than re-fetching the whole snapshot each poll.
+      const prev = queryClient.getQueryData<Message[]>(['room-messages', roomId]) ?? [];
+      const after = newestCreatedAt(prev);
+      const incoming = await fetchMessages(roomId!, after);
+      return after ? mergeNewestFirst(prev, incoming) : incoming;
+    },
     enabled: !!roomId,
     refetchInterval: realtimeConnected ? 30_000 : 2_000,
     refetchOnWindowFocus: true,
@@ -612,7 +623,7 @@ export default function RoomScreen() {
 
     options.push({ text: 'Cancel', style: 'cancel' });
     Alert.alert('Message options', undefined, options);
-  }, [messages, roomId, queryClient]);
+  }, [messages, roomId, queryClient, currentUserId]);
 
   const handleHighlightConfirm = useCallback(async () => {
     const username = highlightUsername.trim();
@@ -710,7 +721,7 @@ export default function RoomScreen() {
         </View>
       );
     },
-    [handleLongPress],
+    [handleLongPress, currentUserId],
   );
 
   const isVIPLocked =

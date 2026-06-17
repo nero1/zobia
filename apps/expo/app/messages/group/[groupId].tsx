@@ -34,6 +34,7 @@ import { queueMessage } from '@/lib/offline/sqlite';
 import { useAuth } from '@/lib/auth/hooks';
 import { useRealtimeChannel } from '@/lib/realtime/useRealtimeChannel';
 import { readCachedMessages, writeCachedMessages } from '@/lib/chat/messageCache';
+import { newestCreatedAt, mergeNewestFirst } from '@/lib/chat/delta';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -92,8 +93,11 @@ async function fetchGroupMeta(groupId: string): Promise<GroupMeta> {
   };
 }
 
-async function fetchGroupMessages(groupId: string): Promise<GroupMessage[]> {
-  const { data } = await apiClient.get(`/messages/group/${groupId}`);
+async function fetchGroupMessages(groupId: string, after?: string): Promise<GroupMessage[]> {
+  const url = after
+    ? `/messages/group/${groupId}?after=${encodeURIComponent(after)}`
+    : `/messages/group/${groupId}`;
+  const { data } = await apiClient.get(url);
   const rows: Record<string, unknown>[] = data.data ?? data.messages ?? [];
   return rows.map(mapGroupMessage);
 }
@@ -235,7 +239,12 @@ export default function GroupConversationScreen() {
 
   const { data: messages = [], isLoading } = useQuery({
     queryKey: ['group-messages', groupId],
-    queryFn: () => fetchGroupMessages(groupId!),
+    queryFn: async () => {
+      const prev = queryClient.getQueryData<GroupMessage[]>(['group-messages', groupId]) ?? [];
+      const after = newestCreatedAt(prev);
+      const incoming = await fetchGroupMessages(groupId!, after);
+      return after ? mergeNewestFirst(prev, incoming) : incoming;
+    },
     enabled: !!groupId,
     refetchInterval: realtimeConnected ? 30_000 : 3_000,
     refetchOnWindowFocus: true,
