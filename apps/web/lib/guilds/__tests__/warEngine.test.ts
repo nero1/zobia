@@ -474,6 +474,9 @@ describe('distributeWarRewards', () => {
         if (sql.includes('SELECT coin_balance FROM users')) {
           return { rows: [{ coin_balance: '0' }], rowCount: 1 };
         }
+        if (sql.includes('INSERT INTO coin_ledger')) {
+          return { rows: [{ id: 'lid', user_id: params[0], amount: params[1], balance_before: params[2], balance_after: params[3], transaction_type: params[4], reference_id: params[5] ?? null, description: params[6] ?? null, metadata: null, created_at: new Date().toISOString() }], rowCount: 1 };
+        }
         if (sql.includes('UPDATE users SET coin_balance')) {
           updateQueries.push({ sql, params });
         }
@@ -515,6 +518,9 @@ describe('distributeWarRewards', () => {
         }
         if (sql.includes('SELECT coin_balance FROM users')) {
           return { rows: [{ coin_balance: '0' }], rowCount: 1 };
+        }
+        if (sql.includes('INSERT INTO coin_ledger')) {
+          return { rows: [{ id: 'lid', user_id: params[0], amount: params[1], balance_before: params[2], balance_after: params[3], transaction_type: params[4], reference_id: params[5] ?? null, description: params[6] ?? null, metadata: null, created_at: new Date().toISOString() }], rowCount: 1 };
         }
         if (sql.includes('UPDATE users SET coin_balance')) {
           updateQueries.push({ sql, params });

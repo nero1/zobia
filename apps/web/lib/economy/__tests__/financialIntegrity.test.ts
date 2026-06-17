@@ -247,7 +247,7 @@ describe('Transfer math invariant', () => {
             }
 
             if (upper.startsWith('INSERT') && sql.includes('coin_ledger')) {
-              return { rows: [], rowCount: 1 };
+              return { rows: [{ id: `lid-${params[0]}`, user_id: params[0], amount: params[1], balance_before: params[2], balance_after: params[3], transaction_type: params[4], reference_id: params[5] ?? null, description: params[6] ?? null, metadata: null, created_at: new Date().toISOString() }], rowCount: 1 };
             }
 
             if (upper.startsWith('SELECT') && sql.includes('coin_ledger')) {
@@ -531,7 +531,7 @@ describe('Concurrent (sequential) credits preserve all ledger entries', () => {
 
             if (upper.startsWith('INSERT') && sql.includes('coin_ledger')) {
               insertedEntries.push([...params]);
-              return { rows: [], rowCount: 0 };
+              return { rows: [{ id: `entry-${insertedEntries.length}`, user_id: params[0], amount: params[1], balance_before: params[2], balance_after: params[3], transaction_type: params[4], reference_id: params[5] ?? null, description: params[6] ?? null, metadata: null, created_at: new Date().toISOString() }], rowCount: 1 };
             }
 
             if (upper.startsWith('SELECT') && sql.includes('coin_ledger')) {
