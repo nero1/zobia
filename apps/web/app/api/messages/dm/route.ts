@@ -32,6 +32,7 @@ import {
 import { filterDMContent } from "@/lib/messaging/antispam";
 import { recordWarContribution } from "@/lib/guilds/recordWarContribution";
 import { updateConversationScore } from "@/lib/messaging/conversationScore";
+import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
 import { debitCoins, creditCoins } from "@/lib/economy/coins";
 import { publishRealtimeEvent } from "@/lib/realtime";
 import { calculateFinalXP, PLAN_XP_MULTIPLIERS_BP } from "@/lib/xp/engine";
@@ -590,7 +591,18 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       ).catch((err) =>
         console.error("[dm:POST] XP user update failed", err)
       );
+
+      // Publish XP notification so the floating indicator fires
+      if (dmFinalXp > 0) {
+        publishRealtimeEvent(`user:${auth.user.sub}`, "reward_earned", {
+          type: "xp",
+          amount: dmFinalXp,
+        }).catch(() => {});
+      }
     }
+
+    // Trigger matching daily quest progress for sending a DM
+    void triggerActivityQuestProgress(auth.user.sub, "send_text_message", db);
 
     // 12. Increment daily counter
     incrementDailyCount(auth.user.sub, isInitiating ? "sent" : "reply").catch(

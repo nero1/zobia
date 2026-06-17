@@ -25,6 +25,7 @@ import { enforceRateLimit, RATE_LIMITS } from '@/lib/security/rateLimit';
 import { recordWarContribution } from '@/lib/guilds/recordWarContribution';
 import { publishRealtimeEvent } from '@/lib/realtime';
 import { notifyGroupMessage } from '@/lib/notifications/chatPush';
+import { triggerActivityQuestProgress } from '@/lib/quests/questEngine';
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -55,7 +56,7 @@ interface GroupMessageRow {
  * each message gets a unique idempotency reference (GROUP-XP race fix).
  * Non-blocking, capped at 50 messages/day.
  */
-async function maybeAwardGroupMessageXP(groupId: string, messageId: string, userId: string): Promise<void> {
+async function maybeAwardGroupMessageXP(groupId: string, messageId: string, userId: string): Promise<number> {
   try {
     const { rows: countRows } = await db.query<{ cnt: string }>(
       `SELECT COUNT(*) AS cnt
@@ -66,14 +67,12 @@ async function maybeAwardGroupMessageXP(groupId: string, messageId: string, user
       [groupId, userId]
     );
     const todayCount = parseInt(countRows[0]?.cnt ?? '0', 10);
-    if (todayCount > ROOM_MESSAGE_XP_DAILY_CAP) return;
+    if (todayCount > ROOM_MESSAGE_XP_DAILY_CAP) return 0;
 
     const xp = XP_VALUES.send_message_in_room; // 2 XP
     await safeAwardXP(userId, xp, 'social', 'group_message', messageId);
 
     // Award 1 XP to all other active members (active in last 7 days, PRD §10).
-    // reference_id is the same messageId for every member — uidx_xp_ledger_source_ref
-    // is unique on (user_id, source, reference_id), so different members don't collide.
     const { rows: activeMembers } = await db.query<{ user_id: string }>(
       `SELECT gcm.user_id
        FROM group_chat_members gcm
@@ -87,8 +86,11 @@ async function maybeAwardGroupMessageXP(groupId: string, messageId: string, user
     await Promise.all(
       activeMembers.map((m) => safeAwardXP(m.user_id, 1, 'social', 'group_message_member', messageId))
     );
+
+    return xp;
   } catch (err) {
     console.error('[group:POST] XP award failed (non-fatal):', err);
+    return 0;
   }
 }
 
@@ -259,8 +261,18 @@ export const POST = withAuth(async (
     [groupId],
   );
 
-  // Award social XP for group messaging (non-blocking, PRD §6)
-  void maybeAwardGroupMessageXP(groupId, message.id, userId);
+  // Award social XP (non-blocking), then publish reward notification + quest progress
+  maybeAwardGroupMessageXP(groupId, message.id, userId)
+    .then((xp) => {
+      if (xp > 0) {
+        return publishRealtimeEvent(`user:${userId}`, 'reward_earned', {
+          type: 'xp',
+          amount: xp,
+        });
+      }
+    })
+    .catch(() => {});
+  void triggerActivityQuestProgress(userId, 'send_room_message', db);
 
   // Record guild war contribution (non-blocking)
   recordWarContribution(userId, 'send_message', db).catch((err) =>

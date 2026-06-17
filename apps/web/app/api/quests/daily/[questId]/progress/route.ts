@@ -201,18 +201,34 @@ export const POST = withAuth<QuestParams>(async (req, { params, auth }) => {
 
         coinsAwarded = quest.coin_reward;
 
-        // Write to xp_ledger
+        // Stable per-user, per-day idempotency key (bare questId would block
+        // re-completion of the same repeating quest on subsequent days).
+        const questRef = `quest:${questId}:${auth.user.sub}:${today}`;
+
+        // Write to xp_ledger (ON CONFLICT guards against concurrent retries)
         await client.query(
           `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount, created_at)
-           VALUES ($1, $2, 'main', 'quest_complete', $3, $4, $5, NOW())`,
+           VALUES ($1, $2, 'main', 'quest_complete', $3, $4, $5, NOW())
+           ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
           [
             auth.user.sub,
             xpAwarded,
-            questId,
+            questRef,
             multiplierUsed,
             baseXP,
           ]
         );
+
+        // Read coin balance BEFORE the UPDATE so balance_before in the ledger
+        // reflects the pre-award balance (SYS-CL-02: previously read after UPDATE).
+        let coinBalanceBefore = 0;
+        if (coinsAwarded > 0) {
+          const { rows: preBalRows } = await client.query<{ coin_balance: string }>(
+            `SELECT coin_balance FROM users WHERE id = $1`,
+            [auth.user.sub]
+          );
+          coinBalanceBefore = parseInt(preBalRows[0]?.coin_balance ?? "0", 10);
+        }
 
         // Update user xp_total + coin_balance
         await client.query(
@@ -224,18 +240,14 @@ export const POST = withAuth<QuestParams>(async (req, { params, auth }) => {
           [xpAwarded, coinsAwarded, auth.user.sub]
         );
 
-        // Write to coin_ledger (append-only; requires balance_before/after)
+        // Write to coin_ledger with the pre-award balance captured above
         if (coinsAwarded > 0) {
-          const { rows: balRows } = await client.query<{ coin_balance: string }>(
-            `SELECT coin_balance FROM users WHERE id = $1`,
-            [auth.user.sub]
-          );
-          const balanceBefore = parseInt(balRows[0]?.coin_balance ?? "0", 10);
           await client.query(
             `INSERT INTO coin_ledger
                (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description, created_at)
-             VALUES ($1, $2, $3, $4, 'quest_reward', $5, 'Quest completion reward', NOW())`,
-            [auth.user.sub, coinsAwarded, balanceBefore, balanceBefore + coinsAwarded, questId]
+             VALUES ($1, $2, $3, $4, 'quest_reward', $5, 'Quest completion reward', NOW())
+             ON CONFLICT (user_id, transaction_type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
+            [auth.user.sub, coinsAwarded, coinBalanceBefore, coinBalanceBefore + coinsAwarded, questRef]
           );
         }
 
@@ -256,8 +268,9 @@ export const POST = withAuth<QuestParams>(async (req, { params, auth }) => {
             );
             await client.query(
               `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
-               VALUES ($1, $2, 'main', 'mentorship_bonus', $3, $2, NOW())`,
-              [elderId, elderBonus, questId]
+               VALUES ($1, $2, 'main', 'mentorship_bonus', $3, $2, NOW())
+               ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
+              [elderId, elderBonus, questRef]
             );
             // Notify elder of mentorship bonus (fire-and-forget)
             client.query(
