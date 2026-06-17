@@ -149,7 +149,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const recentActivity = activityRows.map((a) => ({
       id: a.id,
       userId: a.user_id,
-      description: a.action.replace(/_/g, " "),
+      description: (a.action ?? "unknown activity").replace(/_/g, " "),
       xpEarned: a.xp_net,
       createdAt: a.created_at,
     }));

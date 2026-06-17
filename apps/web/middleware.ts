@@ -71,6 +71,8 @@ const PUBLIC_PREFIXES = [
   "/api/auth/silent-refresh",
   "/api/health",
   "/api/manifest",
+  // UI configuration — safe to expose without auth (no user data returned)
+  "/api/config",
   // CSP violation reports from browsers (no auth, unauthenticated browsers send these)
   "/api/security/csp-report",
   // CRON endpoints authenticate via CRON_SECRET (Bearer token), not JWT cookies.
