@@ -34,6 +34,7 @@ import { XP_VALUES, ROOM_MESSAGE_XP_DAILY_CAP, calculateFinalXP, PLAN_XP_MULTIPL
 import type { Plan } from "@zobia/types";
 import { publishRealtimeEvent } from "@/lib/realtime";
 import { notifyRoomMentions, parseMentions } from "@/lib/notifications/chatPush";
+import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -188,8 +189,8 @@ async function maybeAwardMessageXP(
   userId: string,
   todayMsgCount: number,
   plan: Plan
-): Promise<void> {
-  if (todayMsgCount >= ROOM_MESSAGE_XP_DAILY_CAP) return;
+): Promise<number> {
+  if (todayMsgCount >= ROOM_MESSAGE_XP_DAILY_CAP) return 0;
   try {
     const { finalXp } = calculateFinalXP(
       'send_room_message',
@@ -197,8 +198,10 @@ async function maybeAwardMessageXP(
     );
     const { safeAwardXP } = await import("@/lib/xp/safeAwardXP");
     await safeAwardXP(userId, finalXp, "social", "send_message", `msg_${messageId}`);
+    return finalXp;
   } catch (err) {
     console.error("[rooms/messages] XP award failed (non-fatal):", err);
+    return 0;
   }
 }
 
@@ -663,9 +666,19 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // BUG-18: count AFTER insert so the cap is inclusive of the current message
     const todayMsgCount = await countTodayMessages(roomId, userId);
 
-    // Award XP (non-blocking) — use the message UUID as reference_id so each
-    // message gets a unique idempotency key and doesn't collide on the xp_ledger index.
-    void maybeAwardMessageXP(message.id, userId, todayMsgCount, senderStatus?.plan ?? 'free');
+    // Award XP (non-blocking) — publish reward_earned after so the floating
+    // notification fires, then trigger any matching daily quest progress.
+    maybeAwardMessageXP(message.id, userId, todayMsgCount, senderStatus?.plan ?? 'free')
+      .then((xp) => {
+        if (xp > 0) {
+          return publishRealtimeEvent(`user:${userId}`, "reward_earned", {
+            type: "xp",
+            amount: xp,
+          });
+        }
+      })
+      .catch(() => {});
+    void triggerActivityQuestProgress(userId, "send_room_message", db);
 
     // Publish to realtime provider (non-blocking — never delays the HTTP response)
     if (senderStatus && !requiresApproval) {

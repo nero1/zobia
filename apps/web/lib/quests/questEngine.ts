@@ -18,6 +18,7 @@ import type { Plan } from "@zobia/types";
 import { ACTION_TRACKS } from "@/lib/xp/engine";
 import { creditCoins } from "@/lib/economy/coins";
 import { safeAwardXP } from "@/lib/xp/safeAwardXP";
+import { publishRealtimeEvent } from "@/lib/realtime";
 
 // Maps a ProgressionTrack name to the corresponding users table column
 const TRACK_COLUMN: Record<string, string> = {
@@ -341,6 +342,78 @@ export async function checkDeckCompletion(
 
     return { deckComplete: true, bonusAwarded: true, bonusXP: DECK_COMPLETION_BONUS_XP };
   });
+}
+
+// ---------------------------------------------------------------------------
+// triggerActivityQuestProgress
+// ---------------------------------------------------------------------------
+
+/**
+ * Find all quests in a user's current-day deck that match `actionType`,
+ * increment each by 1, award rewards on completion, and fire realtime
+ * `reward_earned` events.  Errors are swallowed — call fire-and-forget.
+ *
+ * @param userId     - UUID of the user performing the action
+ * @param actionType - quest_templates.action_type to match (e.g. 'join_new_room')
+ * @param dbAdapter  - Active database adapter
+ */
+export async function triggerActivityQuestProgress(
+  userId: string,
+  actionType: string,
+  dbAdapter: DatabaseAdapter
+): Promise<void> {
+  const today = new Date().toISOString().slice(0, 10);
+  try {
+    const { rows: matchingQuests } = await dbAdapter.query<{ id: string }>(
+      `SELECT qt.id
+       FROM quest_templates qt
+       JOIN user_quest_decks uqd
+         ON uqd.quest_id    = qt.id
+        AND uqd.user_id     = $1
+        AND uqd.assigned_date = $2::date
+       WHERE qt.action_type = $3
+         AND qt.is_active   = TRUE
+         AND (qt.valid_date IS NULL OR qt.valid_date = $2)`,
+      [userId, today, actionType]
+    );
+
+    if (matchingQuests.length === 0) return;
+
+    let anyNewlyCompleted = false;
+
+    for (const quest of matchingQuests) {
+      try {
+        const result = await updateQuestProgress(userId, quest.id, 1, dbAdapter);
+        if (result.newly_completed) {
+          anyNewlyCompleted = true;
+          publishRealtimeEvent(`user:${userId}`, "reward_earned", {
+            type: "quest_complete",
+            xpAmount: result.xp_awarded,
+            coinAmount: result.coins_awarded,
+          }).catch(() => {});
+        }
+      } catch {
+        // individual quest errors are non-fatal
+      }
+    }
+
+    if (anyNewlyCompleted) {
+      try {
+        const deckResult = await checkDeckCompletion(userId, today, dbAdapter);
+        if (deckResult.bonusAwarded) {
+          publishRealtimeEvent(`user:${userId}`, "reward_earned", {
+            type: "deck_complete",
+            xpAmount: deckResult.bonusXP,
+            coinAmount: 0,
+          }).catch(() => {});
+        }
+      } catch {
+        // deck completion errors are non-fatal
+      }
+    }
+  } catch {
+    // all errors are swallowed — this is fire-and-forget
+  }
 }
 
 // ---------------------------------------------------------------------------

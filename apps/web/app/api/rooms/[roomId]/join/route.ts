@@ -30,6 +30,8 @@ import {
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { XP_VALUES } from "@/lib/xp/engine";
 import { recordWarContribution } from "@/lib/guilds/recordWarContribution";
+import { publishRealtimeEvent } from "@/lib/realtime";
+import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
 
 // ---------------------------------------------------------------------------
 // DB row types
@@ -91,20 +93,16 @@ async function addMember(
 
 /**
  * Award first-time room join XP on the explorer track.
- * Silently swallows errors so a failed XP grant never blocks the join flow.
- *
- * @param roomId - Room UUID
- * @param userId - User UUID
+ * Returns the XP awarded (0 if already joined or on error).
  */
-async function awardJoinXP(roomId: string, userId: string): Promise<void> {
+async function awardJoinXP(roomId: string, userId: string): Promise<number> {
   try {
-    // Check if the user has ever joined this specific room before
     const { rows } = await db.query<{ id: string }>(
       `SELECT id FROM xp_ledger
        WHERE user_id = $1 AND source = 'room' AND reference_id = $2 LIMIT 1`,
       [userId, roomId]
     );
-    if (rows.length > 0) return; // not first time
+    if (rows.length > 0) return 0; // not first time
 
     const xp = XP_VALUES.join_new_room_first_time; // 20 XP
 
@@ -125,9 +123,30 @@ async function awardJoinXP(roomId: string, userId: string): Promise<void> {
         [userId, xp, roomId]
       );
     });
+
+    return xp;
   } catch (err) {
     console.error("[rooms/join] XP award failed (non-fatal):", err);
+    return 0;
   }
+}
+
+/**
+ * Shared post-join side-effects: XP notification, quest progress, war contribution.
+ * Called after membership is confirmed for every room type.
+ */
+async function firePostJoinSideEffects(roomId: string, userId: string): Promise<void> {
+  const joinXp = await awardJoinXP(roomId, userId);
+  recordWarContribution(userId, "join_room", db).catch((err) =>
+    console.error("[rooms:join] war contribution failed", err)
+  );
+  if (joinXp > 0) {
+    publishRealtimeEvent(`user:${userId}`, "reward_earned", {
+      type: "xp",
+      amount: joinXp,
+    }).catch(() => {});
+  }
+  triggerActivityQuestProgress(userId, "join_new_room", db).catch(() => {});
 }
 
 // ---------------------------------------------------------------------------
@@ -178,10 +197,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       case "free_open":
       case "tipping": {
         await addMember(roomId, userId);
-        await awardJoinXP(roomId, userId);
-        recordWarContribution(userId, 'join_room', db).catch((err) =>
-          console.error('[rooms:join] war contribution failed', err)
-        );
+        await firePostJoinSideEffects(roomId, userId);
         return NextResponse.json({ joined: true }, { status: 200 });
       }
 
@@ -209,10 +225,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         }
 
         await addMember(roomId, userId);
-        await awardJoinXP(roomId, userId);
-        recordWarContribution(userId, 'join_room', db).catch((err) =>
-          console.error('[rooms:join] war contribution failed', err)
-        );
+        await firePostJoinSideEffects(roomId, userId);
         return NextResponse.json({ joined: true }, { status: 200 });
       }
 
@@ -240,10 +253,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         }
 
         await addMember(roomId, userId);
-        await awardJoinXP(roomId, userId);
-        recordWarContribution(userId, 'join_room', db).catch((err) =>
-          console.error('[rooms:join] war contribution failed', err)
-        );
+        await firePostJoinSideEffects(roomId, userId);
         return NextResponse.json({ joined: true }, { status: 200 });
       }
 
@@ -267,10 +277,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         }
 
         await addMember(roomId, userId);
-        await awardJoinXP(roomId, userId);
-        recordWarContribution(userId, 'join_room', db).catch((err) =>
-          console.error('[rooms:join] war contribution failed', err)
-        );
+        await firePostJoinSideEffects(roomId, userId);
         return NextResponse.json({ joined: true }, { status: 200 });
       }
 
@@ -292,10 +299,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         }
 
         await addMember(roomId, userId);
-        await awardJoinXP(roomId, userId);
-        recordWarContribution(userId, 'join_room', db).catch((err) =>
-          console.error('[rooms:join] war contribution failed', err)
-        );
+        await firePostJoinSideEffects(roomId, userId);
         return NextResponse.json({ joined: true }, { status: 200 });
       }
 

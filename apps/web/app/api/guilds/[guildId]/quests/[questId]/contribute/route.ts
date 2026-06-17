@@ -24,6 +24,8 @@ import { handleApiError, notFound, forbidden, badRequest } from "@/lib/api/error
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { calculateXPForAction } from "@/lib/xp/engine";
 import { creditCoins } from "@/lib/economy/coins";
+import { publishRealtimeEvent } from "@/lib/realtime";
+import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -206,6 +208,36 @@ export const POST = withAuth(
       });
 
       const isCompleted = newCount >= quest.target_count;
+
+      // Publish XP notification for the contributor
+      const contributorXp = calculateXPForAction("guild_quest_contribution", { amount: 1 });
+      if (contributorXp > 0) {
+        publishRealtimeEvent(`user:${userId}`, "reward_earned", {
+          type: "xp",
+          amount: contributorXp,
+        }).catch(() => {});
+      }
+
+      // Trigger daily quest progress for the contributor (fire-and-forget)
+      void triggerActivityQuestProgress(userId, "guild_quest_contribution", db);
+
+      // When the guild quest completes, notify every member of their coin share
+      if (isCompleted && quest.reward_coins > 0) {
+        db.query<{ user_id: string }>(
+          `SELECT user_id FROM guild_members WHERE guild_id = $1`,
+          [guildId]
+        ).then(({ rows: members }) => {
+          if (members.length === 0) return;
+          const coinsPerMember = Math.floor(quest.reward_coins / members.length);
+          if (coinsPerMember <= 0) return;
+          for (const member of members) {
+            publishRealtimeEvent(`user:${member.user_id}`, "reward_earned", {
+              type: "credits",
+              amount: coinsPerMember,
+            }).catch(() => {});
+          }
+        }).catch(() => {});
+      }
 
       return NextResponse.json({
         success: true,
