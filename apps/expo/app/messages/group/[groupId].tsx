@@ -314,6 +314,7 @@ export default function GroupConversationScreen() {
             style={styles.flex}
             contentContainerStyle={styles.messageList}
             showsVerticalScrollIndicator={false}
+            maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 10 }}
             ListEmptyComponent={
               <View style={styles.emptyState}>
                 <Text style={[styles.emptyText, { color: themeColors.textMuted }]}>

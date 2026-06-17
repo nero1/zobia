@@ -781,6 +781,7 @@ export default function RoomScreen() {
             style={styles.flex}
             contentContainerStyle={styles.messageList}
             showsVerticalScrollIndicator={false}
+            maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 10 }}
           />
         )}
 

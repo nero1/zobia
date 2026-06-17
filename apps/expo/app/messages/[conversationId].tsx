@@ -740,6 +740,7 @@ export default function DMConversationScreen() {
             style={styles.flex}
             contentContainerStyle={styles.messageList}
             showsVerticalScrollIndicator={false}
+            maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 10 }}
           />
         )}
 
