@@ -73,6 +73,12 @@ export interface ZobiaManifest {
     androidEnabled: boolean;
     iosEnabled: boolean;
   };
+  floatingNotifications: {
+    enabled: boolean;           // master toggle, default true
+    xpThreshold: number;        // XP amount >= which confetti ALSO fires (default 100)
+    creditsThreshold: number;   // Credits >= which confetti fires (default 50)
+    starsThreshold: number;     // Stars >= which confetti fires (default 10)
+  };
   // Currency display names (admin-configurable)
   currency: {
     softNameSingular: string;   // e.g. "Credit"
@@ -201,6 +207,12 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     webEnabled: true,
     androidEnabled: false,
     iosEnabled: false,
+  },
+  floatingNotifications: {
+    enabled: true,
+    xpThreshold: 100,
+    creditsThreshold: 50,
+    starsThreshold: 10,
   },
   minimumAge: 18,
   coinToCashRate: 100,
@@ -358,6 +370,12 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       webEnabled:     parseBool(kv["pwa_web_enabled"],     DEFAULT_MANIFEST.pwa.webEnabled),
       androidEnabled: parseBool(kv["pwa_android_enabled"], DEFAULT_MANIFEST.pwa.androidEnabled),
       iosEnabled:     parseBool(kv["pwa_ios_enabled"],     DEFAULT_MANIFEST.pwa.iosEnabled),
+    },
+    floatingNotifications: {
+      enabled:          parseBool(kv["floating_notifications_enabled"] ?? "true", DEFAULT_MANIFEST.floatingNotifications.enabled),
+      xpThreshold:      parseInt10(kv["floating_notifications_xp_threshold"], DEFAULT_MANIFEST.floatingNotifications.xpThreshold),
+      creditsThreshold: parseInt10(kv["floating_notifications_credits_threshold"], DEFAULT_MANIFEST.floatingNotifications.creditsThreshold),
+      starsThreshold:   parseInt10(kv["floating_notifications_stars_threshold"], DEFAULT_MANIFEST.floatingNotifications.starsThreshold),
     },
     minimumAge:              parseInt10(kv["minimum_age"],               DEFAULT_MANIFEST.minimumAge),
     coinToCashRate:          parseInt10(kv["coin_to_cash_rate"],         DEFAULT_MANIFEST.coinToCashRate),

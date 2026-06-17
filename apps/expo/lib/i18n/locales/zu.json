@@ -1427,5 +1427,13 @@
   "admin.business.action.rejectReason": "Isizathu Sokunqatshwa (okhethelwayo)",
   "admin.business.action.confirm": "Qinisekisa",
   "admin.business.action.cancel": "Khansela",
-  "admin.business.empty": "Awekho ama-akhawunti ebhizinisi atholakele"
+  "admin.business.empty": "Awekho ama-akhawunti ebhizinisi atholakele",
+  "floatingNotif": {
+    "xpEarned": "+{{amount}} XP",
+    "creditsEarned": "+{{amount}} {{currency}}",
+    "starsEarned": "+{{amount}} {{currency}}",
+    "referralJoined": "+1 Isixhumanisi",
+    "giftReceived": "+{{amount}} Isipho",
+    "questsComplete": "Imisebenzi Yanamuhla Yenziwe! 🎉"
+  }
 }

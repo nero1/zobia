@@ -1427,5 +1427,13 @@
   "admin.business.action.rejectReason": "Dalilin Ƙi (zaɓi)",
   "admin.business.action.confirm": "Tabbatar",
   "admin.business.action.cancel": "Soke",
-  "admin.business.empty": "Ba a sami asusun kasuwanci ba"
+  "admin.business.empty": "Ba a sami asusun kasuwanci ba",
+  "floatingNotif": {
+    "xpEarned": "+{{amount}} XP",
+    "creditsEarned": "+{{amount}} {{currency}}",
+    "starsEarned": "+{{amount}} {{currency}}",
+    "referralJoined": "+1 Kira",
+    "giftReceived": "+{{amount}} Kyauta",
+    "questsComplete": "Aikin Yau ya Cika! 🎉"
+  }
 }

@@ -1427,5 +1427,13 @@
   "admin.business.action.rejectReason": "Sababu ya Kukataliwa (hiari)",
   "admin.business.action.confirm": "Thibitisha",
   "admin.business.action.cancel": "Futa",
-  "admin.business.empty": "Hakuna akaunti za biashara zilizopatikana"
+  "admin.business.empty": "Hakuna akaunti za biashara zilizopatikana",
+  "floatingNotif": {
+    "xpEarned": "+{{amount}} XP",
+    "creditsEarned": "+{{amount}} {{currency}}",
+    "starsEarned": "+{{amount}} {{currency}}",
+    "referralJoined": "+1 Rufaa",
+    "giftReceived": "+{{amount}} Zawadi",
+    "questsComplete": "Kazi za Leo Zimekamilika! 🎉"
+  }
 }

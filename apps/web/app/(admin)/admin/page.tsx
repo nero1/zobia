@@ -212,6 +212,7 @@ export default function AdminDashboardPage() {
         <QuickAction title="Flash XP Events" description="Schedule double-XP announcements" href="/admin/flash-xp" />
         <QuickAction title="Events" description="Seasonal and platform events" href="/admin/events" />
         <QuickAction title="Config" description="CAPTCHA, age gate, provider settings" href="/admin/config" />
+        <QuickAction title="Notifications Demo" description="Test floating reward notifications" href="/admin/notifications-demo" />
         <QuickAction title="Actions Log" description="Automated action history" href="/admin/actions-log" />
       </div>
     </div>

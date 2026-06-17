@@ -13,6 +13,7 @@ import NetInfo from '@react-native-community/netinfo';
 
 import { AuthProvider } from '@/lib/auth/context';
 import { ThemeProvider, useTheme } from '@/lib/theme';
+import { FloatingNotificationProvider } from '@/components/providers/FloatingNotificationProvider';
 import { queryClient, apiClient } from '@/lib/api/client';
 import { AnnouncementModal } from '@/components/announcements/AnnouncementModal';
 import { useAuth } from '@/lib/auth/hooks';
@@ -187,7 +188,9 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <ThemeProvider>
             <AuthProvider>
-              <RootLayoutNav />
+              <FloatingNotificationProvider>
+                <RootLayoutNav />
+              </FloatingNotificationProvider>
             </AuthProvider>
           </ThemeProvider>
         </QueryClientProvider>

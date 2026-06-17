@@ -152,6 +152,9 @@ export const POST = withAuth(async (req, { params, auth }) => {
     // Users can update to their full date of birth from profile settings.
     const dateOfBirth = `${body.birth_year}-01-01`;
 
+    // Holds the referrer's user ID after the transaction commits (if a referral was used)
+    let referrerId: string | null = null;
+
     // Execute all writes in a single transaction
     const result = await db.transaction(async (client) => {
       // 1. Re-check username uniqueness inside the transaction (TOCTOU protection)
@@ -252,11 +255,12 @@ export const POST = withAuth(async (req, { params, auth }) => {
           [body.referral_code.toUpperCase()]
         );
         if (referrer.rows[0]) {
+          referrerId = referrer.rows[0].id;
           await client.query(
             `INSERT INTO referrals (referrer_id, referred_id, code, created_at)
              VALUES ($1, $2, $3, NOW())
              ON CONFLICT DO NOTHING`,
-            [referrer.rows[0].id, auth.user.sub, body.referral_code.toUpperCase()]
+            [referrerId, auth.user.sub, body.referral_code.toUpperCase()]
           );
         }
       }
@@ -287,6 +291,17 @@ export const POST = withAuth(async (req, { params, auth }) => {
 
       return { referralCode };
     });
+
+    // Fire referral notification to referrer (fire-and-forget — never blocks the response)
+    if (referrerId) {
+      import("@/lib/realtime").then(({ publishRealtimeEvent }) => {
+        publishRealtimeEvent(
+          `user:${referrerId}`,
+          "reward_earned",
+          { type: "referral", amount: 1 }
+        ).catch(() => {});
+      }).catch(() => {});
+    }
 
     return NextResponse.json(
       {

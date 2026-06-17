@@ -1427,5 +1427,13 @@
   "admin.business.action.rejectReason": "የአለመቀበል ምክንያት (አማራጭ)",
   "admin.business.action.confirm": "አረጋግጥ",
   "admin.business.action.cancel": "ሰርዝ",
-  "admin.business.empty": "ምንም የንግድ ሂሳቦች አልተገኙም"
+  "admin.business.empty": "ምንም የንግድ ሂሳቦች አልተገኙም",
+  "floatingNotif": {
+    "xpEarned": "+{{amount}} XP",
+    "creditsEarned": "+{{amount}} {{currency}}",
+    "starsEarned": "+{{amount}} {{currency}}",
+    "referralJoined": "+1 ሪፈራል",
+    "giftReceived": "+{{amount}} ስጦታ",
+    "questsComplete": "የዛሬ ተግባሮች ተጠናቀቁ! 🎉"
+  }
 }
