@@ -1366,6 +1366,7 @@
   "referrals.table.colXpCoins": "XP / Crédits",
   "room.enrollCoins": "S'inscrire · {{coins}} crédits",
   "room.giftCoins": "Offrir · {{amount}} crédits",
+  "room.moreOptions": "Plus d'options",
   "rooms.create.coinsPerMonth": "crédits/mois",
   "rooms.create.enrolmentCoins": "Inscription : {{coins}} crédits",
   "wallet.addCoins": "🪙 Ajouter des crédits",

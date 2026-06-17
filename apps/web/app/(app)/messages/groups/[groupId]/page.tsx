@@ -13,6 +13,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { useRealtimeChannel } from "@/lib/realtime/useRealtimeChannel";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -196,18 +197,45 @@ export default function GroupConversationPage() {
     return () => clearInterval(pollRef.current);
   }, [fetchMessages]);
 
+  // Real-time push — delivers new messages instantly via configured realtime provider
+  useRealtimeChannel(
+    groupId ? `group:${groupId}:messages` : null,
+    useCallback((event: string, data: unknown) => {
+      if (event === "new_message") {
+        const msg = (data as { message?: GroupMessage }).message;
+        if (msg) {
+          setMessages((prev) => prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]);
+        }
+      }
+    }, [])
+  );
+
   async function sendMessage(e: React.FormEvent) {
     e.preventDefault();
     if (!input.trim() || sending) return;
     setSending(true);
+    const optimisticId = `opt_${Date.now()}_${Math.random()}`;
+    const optimisticMsg: GroupMessage = {
+      id: optimisticId,
+      sender_id: currentUserId ?? "me",
+      username: "you",
+      display_name: "You",
+      avatar_emoji: "💬",
+      message_type: "text",
+      content: input.trim(),
+      created_at: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, optimisticMsg]);
+    setInput("");
     try {
       const res = await fetch(`/api/messages/group/${groupId}`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: input.trim(), messageType: "text" }),
+        body: JSON.stringify({ content: optimisticMsg.content, messageType: "text" }),
       });
       if (!res.ok) {
+        setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
         const d = (await res.json()) as { message?: string; error?: { code?: string; message?: string } };
         const code = d.error?.code ?? null;
         const message = d.error?.message ?? d.message ?? "Failed to send";
@@ -215,9 +243,16 @@ export default function GroupConversationPage() {
         err.code = code;
         throw err;
       }
-      setInput("");
-      await fetchMessages();
+      const responseData = (await res.json()) as { data?: GroupMessage; message?: GroupMessage };
+      const realMsg = responseData.data ?? responseData.message;
+      if (realMsg) {
+        setMessages((prev) => prev.map((m) => (m.id === optimisticId ? realMsg : m)));
+      } else {
+        setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+        await fetchMessages();
+      }
     } catch (e) {
+      setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
       const err = e as Error & { code?: string | null };
       setError(e instanceof Error ? translateApiError(t, err.code, err.message || "Failed to send") : "Failed to send");
       setTimeout(() => setError(null), 3000);
@@ -229,7 +264,7 @@ export default function GroupConversationPage() {
 
   if (loadingGroup) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex h-[100dvh] items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
       </div>
     );
@@ -237,7 +272,7 @@ export default function GroupConversationPage() {
 
   if (error && !group) {
     return (
-      <div className="flex h-screen flex-col items-center justify-center gap-4">
+      <div className="flex h-[100dvh] flex-col items-center justify-center gap-4">
         <p className="text-neutral-500">{error}</p>
         <Link href="/messages/groups" className="text-sm text-blue-600 hover:underline">Back to Groups</Link>
       </div>
@@ -245,7 +280,7 @@ export default function GroupConversationPage() {
   }
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-[100dvh] flex-col">
       {/* Header */}
       <div className="flex items-center gap-3 border-b border-neutral-200 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-900">
         <Link
@@ -320,7 +355,7 @@ export default function GroupConversationPage() {
             onChange={(e) => setInput(e.target.value)}
             placeholder="Type a message…"
             maxLength={2000}
-            className="flex-1 rounded-xl border border-neutral-300 bg-neutral-50 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:placeholder-neutral-500"
+            className="flex-1 rounded-xl border border-neutral-300 bg-neutral-50 px-4 py-2.5 text-base focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:placeholder-neutral-500"
           />
           <button
             type="submit"

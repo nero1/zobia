@@ -1366,6 +1366,7 @@
   "referrals.table.colXpCoins": "XP / كريديت",
   "room.enrollCoins": "تسجيل · {{coins}} كريديت",
   "room.giftCoins": "هدية · {{amount}} كريديت",
+  "room.moreOptions": "المزيد من الخيارات",
   "rooms.create.coinsPerMonth": "كريديت/شهر",
   "rooms.create.enrolmentCoins": "التسجيل: {{coins}} كريديت",
   "wallet.addCoins": "🪙 إضافة كريديت",

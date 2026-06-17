@@ -720,6 +720,19 @@ export default function DMConversationPage() {
     if (!content.trim() || sending) return;
     setSending(true);
     setCoinError(null);
+    // Optimistic update — show message immediately, reconcile after server confirms
+    const optimisticId = `opt_${Date.now()}_${Math.random()}`;
+    const optimisticMsg: DMMessage = {
+      id: optimisticId,
+      senderId: currentUserId ?? "me",
+      senderUsername: "you",
+      senderAvatarEmoji: "💬",
+      content: content.trim(),
+      messageType,
+      createdAt: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, optimisticMsg]);
+    setInput("");
     try {
       const res = await fetch(`/api/messages/dm/${conversationId}`, {
         method: "POST",
@@ -728,6 +741,8 @@ export default function DMConversationPage() {
         body: JSON.stringify({ content: content.trim(), messageType }),
       });
       if (!res.ok) {
+        // Roll back optimistic message on error
+        setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
         const d = (await res.json()) as { message?: string; error?: { code?: string; coinBalance?: number; coinCost?: number } };
         const code = d.error?.code;
         if (code === "INSUFFICIENT_COINS") {
@@ -746,10 +761,21 @@ export default function DMConversationPage() {
         err.code = code ?? null;
         throw err;
       }
-      setInput("");
-      await fetchMessages();
+      const responseData = (await res.json()) as { message?: DMMessage; messages?: DMMessage[] };
+      // Replace optimistic message with the real one from the server
+      if (responseData.message) {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === optimisticId ? responseData.message! : m))
+        );
+      } else {
+        // Server didn't return the message — remove optimistic and refetch
+        setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+        await fetchMessages();
+      }
       void fetchConnectionBadge();
     } catch (e) {
+      // Roll back optimistic message on error
+      setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
       const err = e as Error & { code?: string | null };
       setError(e instanceof Error ? translateApiError(t, err.code, err.message || "Failed to send") : "Failed to send");
       setTimeout(() => setError(null), 3000);
@@ -811,7 +837,7 @@ export default function DMConversationPage() {
 
   if (loadingConversation) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex h-[100dvh] items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
       </div>
     );
@@ -819,7 +845,7 @@ export default function DMConversationPage() {
 
   if (error && !conversation) {
     return (
-      <div className="flex h-screen flex-col items-center justify-center gap-4">
+      <div className="flex h-[100dvh] flex-col items-center justify-center gap-4">
         <p className="text-neutral-500">{error}</p>
         <Link href="/messages" className="text-sm text-blue-600 hover:underline">
           Back to Messages
@@ -829,7 +855,7 @@ export default function DMConversationPage() {
   }
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-[100dvh] flex-col">
       {/* Header */}
       <div className="flex items-center gap-3 border-b border-neutral-200 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-900">
         <Link
@@ -1068,7 +1094,7 @@ export default function DMConversationPage() {
             onChange={(e) => handleInputChange(e.target.value)}
             placeholder="Type a message…"
             maxLength={1000}
-            className="flex-1 rounded-xl border border-neutral-300 bg-neutral-50 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:placeholder-neutral-500"
+            className="flex-1 rounded-xl border border-neutral-300 bg-neutral-50 px-4 py-2.5 text-base focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:placeholder-neutral-500"
           />
 
           {/* Gift button */}

@@ -525,6 +525,7 @@
   "room.replayHighlightsNote": "Les 20 derniers messages seront publiés en moments forts.",
   "room.publishing": "Publication en cours…",
   "room.publish": "Publier",
+  "room.moreOptions": "Plus d'options",
   "room.curriculum": "Curriculum",
   "room.enrollFree": "S'inscrire (gratuit)",
   "room.enrollCoins": "S'inscrire · {{coins}} crédits",

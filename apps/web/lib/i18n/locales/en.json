@@ -525,6 +525,7 @@
   "room.replayHighlightsNote": "Last 20 messages will be published as highlights.",
   "room.publishing": "Publishing…",
   "room.publish": "Publish",
+  "room.moreOptions": "More options",
   "room.curriculum": "Curriculum",
   "room.enrollFree": "Enrol (Free)",
   "room.enrollCoins": "Enrol · {{coins}} credits",

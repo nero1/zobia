@@ -97,6 +97,8 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
+  viewportFit: "cover",
+  interactiveWidget: "resizes-content",
 };
 
 // ---------------------------------------------------------------------------
@@ -155,7 +157,7 @@ export default async function RootLayout({ children }: RootLayoutProps) {
       suppressHydrationWarning
       className={inter.variable}
     >
-      <body className="min-h-screen bg-neutral-50 text-neutral-900 font-sans antialiased dark:bg-neutral-950 dark:text-neutral-50">
+      <body className="min-h-screen overflow-x-hidden bg-neutral-50 text-neutral-900 font-sans antialiased dark:bg-neutral-950 dark:text-neutral-50">
         {/* Accessibility: Skip to main content link (only visible on focus) */}
         <SkipToMain />
 

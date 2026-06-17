@@ -31,6 +31,7 @@ import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
 import { queueMessage } from '@/lib/offline/sqlite';
+import { useAuth } from '@/lib/auth/hooks';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -77,11 +78,11 @@ async function sendGroupMessage(groupId: string, content: string): Promise<Group
 
 let pendingCounter = 0;
 
-function makePendingMessage(content: string): GroupMessage {
+function makePendingMessage(content: string, userId: string): GroupMessage {
   return {
     id: `pending-${++pendingCounter}`,
     content,
-    senderUserId: 'me',
+    senderUserId: userId,
     senderDisplayName: 'You',
     createdAt: new Date().toISOString(),
   };
@@ -165,6 +166,8 @@ export default function GroupConversationScreen() {
   const navigation = useNavigation();
   const queryClient = useQueryClient();
   const { colors: themeColors, isDark } = useTheme();
+  const { user: authUser } = useAuth();
+  const myUserId = authUser?.id ?? 'me';
 
   const [inputText, setInputText] = useState('');
   const [pendingMessages, setPendingMessages] = useState<GroupMessage[]>([]);
@@ -193,7 +196,7 @@ export default function GroupConversationScreen() {
   const sendMutation = useMutation({
     mutationFn: (content: string) => sendGroupMessage(groupId!, content),
     onMutate: (content) => {
-      const optimistic = makePendingMessage(content);
+      const optimistic = makePendingMessage(content, myUserId);
       setPendingMessages((prev) => [optimistic, ...prev]);
       setSpamBlocked(false);
       return { optimistic };
@@ -222,9 +225,9 @@ export default function GroupConversationScreen() {
 
   const renderItem = useCallback(
     ({ item }: { item: GroupMessage }) => (
-      <GroupBubble message={item} isOwn={item.senderUserId === 'me'} />
+      <GroupBubble message={item} isOwn={item.senderUserId === myUserId} />
     ),
-    [],
+    [myUserId],
   );
 
   return (

@@ -462,7 +462,7 @@ function RoomGifPicker({ onSelect, onClose }: { onSelect: (url: string) => void;
   }, [query, search]);
 
   return (
-    <div className="absolute bottom-full left-0 z-20 mb-2 w-80 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
+    <div className="absolute bottom-full left-0 z-20 mb-2 w-[min(20rem,calc(100vw-1rem))] overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
       <div className="flex items-center justify-between border-b border-neutral-200 px-3 py-2 dark:border-neutral-700">
         <span className="text-xs font-semibold text-neutral-500">GIFs</span>
         <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label="Close GIF picker">✕</button>
@@ -522,7 +522,7 @@ function RoomStickerPicker({ onSelect, onClose }: { onSelect: (emoji: string) =>
 
   const currentPack = packs.find((p) => p.id === activePack);
   return (
-    <div className="absolute bottom-full left-10 z-20 mb-2 w-72 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
+    <div className="absolute bottom-full left-10 z-20 mb-2 w-[min(18rem,calc(100vw-1rem))] overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
       <div className="flex items-center justify-between border-b border-neutral-200 px-3 py-2 dark:border-neutral-700">
         <span className="text-xs font-semibold text-neutral-500">Stickers</span>
         <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label="Close">✕</button>
@@ -592,7 +592,7 @@ function RoomPowersPanel({
   }
 
   return (
-    <div className="absolute bottom-full right-0 z-20 mb-2 w-72 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
+    <div className="absolute bottom-full right-0 z-20 mb-2 w-[min(18rem,calc(100vw-1rem))] overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
       <div className="flex items-center justify-between border-b border-neutral-200 px-3 py-2 dark:border-neutral-700">
         <span className="text-xs font-semibold text-neutral-500">⚡ Room Powers</span>
         <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label="Close">✕</button>
@@ -649,10 +649,13 @@ function RoomInputBar({
   isMoment,
   onMomentToggle,
   onSend,
+  onMessageSent,
 }: RoomInputBarProps) {
+  const { t } = useTranslation();
   const [showGif, setShowGif] = useState(false);
   const [showSticker, setShowSticker] = useState(false);
   const [showPowers, setShowPowers] = useState(false);
+  const [showMobileExtras, setShowMobileExtras] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -677,9 +680,12 @@ function RoomInputBar({
         body: JSON.stringify({ content, contentType }),
       });
       if (!res.ok) return;
+      const data = (await res.json()) as { message?: Message };
+      if (data.message) onMessageSent(data.message);
     } catch { /* ignore */ }
     setShowGif(false);
     setShowSticker(false);
+    setShowMobileExtras(false);
     inputRef.current?.focus();
   }
 
@@ -716,17 +722,49 @@ function RoomInputBar({
         </div>
       )}
 
+      {/* Mobile extras bar — shown when + is tapped */}
+      {showMobileExtras && (
+        <div className="flex items-center gap-2 border-b border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-800/50 sm:hidden">
+          <button type="button" onClick={() => { toggle("gif"); setShowMobileExtras(false); }}
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-xs font-bold text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-700"
+            aria-label="GIF" title="GIF" disabled={!canAccess}>GIF</button>
+          <button type="button" onClick={() => { toggle("sticker"); setShowMobileExtras(false); }}
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-xl text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-700"
+            aria-label="Stickers" title="Stickers" disabled={!canAccess}>😊</button>
+          <button type="button" onClick={() => { onMomentToggle(); setShowMobileExtras(false); }}
+            className={`flex h-9 w-9 items-center justify-center rounded-lg text-xl transition-colors ${isMoment ? "bg-purple-100 text-purple-700 dark:bg-purple-900" : "text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-700"}`}
+            title="Moment (24h)" aria-label="Toggle Moment mode" disabled={!canAccess}>🌟</button>
+          <a href={`/rooms/${roomId}/gift`}
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-xl text-neutral-500 hover:bg-amber-100 hover:text-amber-600 dark:hover:bg-amber-900/30"
+            title="Send a gift" aria-label="Send a gift" onClick={() => setShowMobileExtras(false)}>🎁</a>
+          <button type="button" onClick={() => { toggle("powers"); setShowMobileExtras(false); }}
+            className={`flex h-9 w-9 items-center justify-center rounded-lg text-xl transition-colors ${showPowers ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-900" : "text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-700"}`}
+            aria-label="Room Powers" title="Room Powers" disabled={!canAccess}>⚡</button>
+        </div>
+      )}
+
       <form onSubmit={onSend} className="flex items-center gap-1.5 p-3">
-        {/* GIF */}
+        {/* Mobile: + toggle button for extras */}
+        <button
+          type="button"
+          onClick={() => setShowMobileExtras((v) => !v)}
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-lg font-bold transition-colors sm:hidden ${showMobileExtras ? "bg-blue-100 text-blue-700 dark:bg-blue-900" : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}
+          aria-label={t("room.moreOptions")}
+          disabled={!canAccess}
+        >
+          {showMobileExtras ? "✕" : "+"}
+        </button>
+
+        {/* Desktop: GIF button */}
         <button type="button" onClick={() => toggle("gif")}
-          className={`flex h-9 w-9 items-center justify-center rounded-lg text-xs font-bold transition-colors ${showGif ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200" : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}
+          className={`hidden sm:flex h-9 w-9 items-center justify-center rounded-lg text-xs font-bold transition-colors ${showGif ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200" : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}
           aria-label="GIF" title="GIF" disabled={!canAccess}>
           GIF
         </button>
 
-        {/* Sticker */}
+        {/* Desktop: Sticker button */}
         <button type="button" onClick={() => toggle("sticker")}
-          className={`flex h-9 w-9 items-center justify-center rounded-lg text-xl transition-colors ${showSticker ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-200" : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}
+          className={`hidden sm:flex h-9 w-9 items-center justify-center rounded-lg text-xl transition-colors ${showSticker ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-200" : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}
           aria-label="Stickers" title="Stickers" disabled={!canAccess}>
           😊
         </button>
@@ -740,36 +778,36 @@ function RoomInputBar({
           placeholder={isMoment ? "Send a moment (24h)…" : "Type a message…"}
           maxLength={500}
           disabled={!canAccess}
-          className={`flex-1 rounded-xl border bg-neutral-50 px-4 py-2.5 text-sm focus:outline-none focus:ring-1 disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-100 ${
+          className={`min-w-0 flex-1 rounded-xl border bg-neutral-50 px-4 py-2.5 text-base focus:outline-none focus:ring-1 disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-100 ${
             isMoment
               ? "border-purple-400 focus:border-purple-500 focus:ring-purple-500 dark:border-purple-600"
               : "border-neutral-300 focus:border-blue-500 focus:ring-blue-500 dark:border-neutral-700"
           }`}
         />
 
-        {/* Moment toggle */}
+        {/* Desktop: Moment toggle */}
         <button type="button" onClick={onMomentToggle} title="Moment (24h)" aria-label="Toggle Moment mode" disabled={!canAccess}
-          className={`flex h-9 w-9 items-center justify-center rounded-lg text-xl transition-colors ${isMoment ? "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-200" : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}>
+          className={`hidden sm:flex h-9 w-9 items-center justify-center rounded-lg text-xl transition-colors ${isMoment ? "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-200" : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}>
           🌟
         </button>
 
-        {/* Gift */}
-        <Link href={`/rooms/${roomId}/gift`}
-          className="flex h-9 w-9 items-center justify-center rounded-lg text-xl text-neutral-400 hover:bg-amber-100 hover:text-amber-600 dark:hover:bg-amber-900/30"
+        {/* Desktop: Gift */}
+        <a href={`/rooms/${roomId}/gift`}
+          className="hidden sm:flex h-9 w-9 items-center justify-center rounded-lg text-xl text-neutral-400 hover:bg-amber-100 hover:text-amber-600 dark:hover:bg-amber-900/30"
           title="Send a gift" aria-label="Send a gift">
           🎁
-        </Link>
+        </a>
 
-        {/* Room Powers */}
+        {/* Desktop: Room Powers */}
         <button type="button" onClick={() => toggle("powers")}
-          className={`flex h-9 w-9 items-center justify-center rounded-lg text-xl transition-colors ${showPowers ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200" : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}
+          className={`hidden sm:flex h-9 w-9 items-center justify-center rounded-lg text-xl transition-colors ${showPowers ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200" : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}
           aria-label="Room Powers" title="Room Powers" disabled={!canAccess}>
           ⚡
         </button>
 
         {/* Send */}
         <button type="submit" disabled={!input.trim() || sending || !canAccess}
-          className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+          className="shrink-0 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
           {sending ? "…" : "Send"}
         </button>
       </form>
@@ -1135,8 +1173,11 @@ export default function RoomPage() {
     if (!input.trim() || sending) return;
     setSending(true);
     const momentFlag = isMoment;
+    const content = input.trim();
+    setInput("");
+    if (momentFlag) setIsMoment(false);
     try {
-      const body: Record<string, unknown> = { content: input.trim() };
+      const body: Record<string, unknown> = { content };
       if (momentFlag) body.message_type = "moment";
       const res = await fetch(`/api/rooms/${roomId}/messages`, {
         method: "POST",
@@ -1145,8 +1186,8 @@ export default function RoomPage() {
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error("Failed to send");
-      setInput("");
-      if (momentFlag) setIsMoment(false);
+      const data = (await res.json()) as { message?: Message };
+      if (data.message) handleIncomingMessage(data.message);
     } catch { /* ignore */ }
     setSending(false);
   }
