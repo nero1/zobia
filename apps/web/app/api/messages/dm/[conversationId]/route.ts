@@ -24,6 +24,7 @@ import { applyAutoModeration } from "@/lib/moderation/contentFilter";
 import { updateConversationScore } from "@/lib/messaging/conversationScore";
 import { debitCoins } from "@/lib/economy/coins";
 import { publishRealtimeEvent } from "@/lib/realtime";
+import { notifyDirectMessage } from "@/lib/notifications/chatPush";
 import { calculateFinalXP, PLAN_XP_MULTIPLIERS_BP } from "@/lib/xp/engine";
 import type { Plan } from "@zobia/types";
 
@@ -40,6 +41,12 @@ const querySchema = z.object({
   before: z.string().optional(),
   /** Cursor: ID of the oldest message from the previous page (used with `before` for tie-breaking). */
   beforeId: z.string().optional(),
+  /**
+   * Delta fetch: when set to an ISO timestamp, return only messages at/after it
+   * (ascending). The live poll uses this to fetch just new messages; boundary
+   * rows may repeat and are deduped client-side by id.
+   */
+  after: z.string().datetime().optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -121,10 +128,11 @@ export const GET = withAuth(
       }
 
       // 2. Parse query params
-      const { limit, before, beforeId } = validateSearchParams(
+      const { limit, before, beforeId, after } = validateSearchParams(
         req.nextUrl.searchParams,
         querySchema
       );
+      const deltaMode = !!after;
 
       // 2a. Determine message history window based on user's plan
       //     free: 90 days, plus: 180 days, pro/max: unlimited
@@ -142,8 +150,12 @@ export const GET = withAuth(
       const params2: (string | number)[] = [conversationId, limit];
       let nextParam = 3;
 
+      // Delta mode takes precedence: only messages newer than `after`, ascending.
       let cursorClause = "";
-      if (before && beforeId) {
+      if (deltaMode) {
+        cursorClause = `AND m.created_at >= $${nextParam++}`;
+        params2.push(after as string);
+      } else if (before && beforeId) {
         cursorClause = `AND (m.created_at, m.id) < ($${nextParam++}, $${nextParam++})`;
         params2.push(before, beforeId);
       } else if (before) {
@@ -190,7 +202,7 @@ export const GET = withAuth(
            ${cursorClause}
            ${historyClause}
            AND (m.message_type != 'moment' OR m.created_at > NOW() - INTERVAL '24 hours')
-         ORDER BY m.created_at DESC
+         ORDER BY m.created_at ${deltaMode ? "ASC" : "DESC"}
          LIMIT $2`,
         params2
       );
@@ -208,7 +220,8 @@ export const GET = withAuth(
         console.error("[dm/[conversationId]:GET] Mark read failed", err)
       );
 
-      const lastRow = rows.length === limit ? rows[rows.length - 1] : null;
+      // Cursor pagination only applies to the backlog query, not delta polling.
+      const lastRow = !deltaMode && rows.length === limit ? rows[rows.length - 1] : null;
       const nextCursor = lastRow
         ? { before: lastRow.created_at, beforeId: lastRow.id }
         : null;
@@ -550,6 +563,14 @@ export const POST = withAuth(
         "new_message",
         { message: enrichedMessage }
       ).catch(() => {});
+
+      // 12. Push notification — only if the recipient is not currently online.
+      void notifyDirectMessage({
+        recipientId,
+        senderName: sender.display_name ?? sender.username,
+        text: finalContent,
+        conversationId,
+      });
 
       return NextResponse.json({ message: enrichedMessage }, { status: 201 });
     } catch (err) {

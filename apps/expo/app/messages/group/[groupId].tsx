@@ -32,6 +32,9 @@ import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
 import { queueMessage } from '@/lib/offline/sqlite';
 import { useAuth } from '@/lib/auth/hooks';
+import { useRealtimeChannel } from '@/lib/realtime/useRealtimeChannel';
+import { readCachedMessages, writeCachedMessages } from '@/lib/chat/messageCache';
+import { newestCreatedAt, mergeNewestFirst } from '@/lib/chat/delta';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -90,8 +93,11 @@ async function fetchGroupMeta(groupId: string): Promise<GroupMeta> {
   };
 }
 
-async function fetchGroupMessages(groupId: string): Promise<GroupMessage[]> {
-  const { data } = await apiClient.get(`/messages/group/${groupId}`);
+async function fetchGroupMessages(groupId: string, after?: string): Promise<GroupMessage[]> {
+  const url = after
+    ? `/messages/group/${groupId}?after=${encodeURIComponent(after)}`
+    : `/messages/group/${groupId}`;
+  const { data } = await apiClient.get(url);
   const rows: Record<string, unknown>[] = data.data ?? data.messages ?? [];
   return rows.map(mapGroupMessage);
 }
@@ -214,13 +220,43 @@ export default function GroupConversationScreen() {
     }
   }, [groupMeta, navigation]);
 
+  // Realtime push — merge new group messages into the cache instantly.
+  const realtimeConnected = useRealtimeChannel(
+    groupId ? `group:${groupId}:messages` : null,
+    useCallback((event: string, data: unknown) => {
+      if (event !== 'new_message') return;
+      const raw = (data as { message?: Record<string, unknown> })?.message;
+      if (!raw) return;
+      const incoming = mapGroupMessage(raw);
+      if (!incoming.id) return;
+      queryClient.setQueryData<GroupMessage[]>(['group-messages', groupId], (prev: GroupMessage[] | undefined) => {
+        const list = prev ?? [];
+        if (list.some((m: GroupMessage) => m.id === incoming.id)) return list;
+        return [incoming, ...list];
+      });
+    }, [groupId, queryClient]),
+  );
+
   const { data: messages = [], isLoading } = useQuery({
     queryKey: ['group-messages', groupId],
-    queryFn: () => fetchGroupMessages(groupId!),
+    queryFn: async () => {
+      const prev = queryClient.getQueryData<GroupMessage[]>(['group-messages', groupId]) ?? [];
+      const after = newestCreatedAt(prev);
+      const incoming = await fetchGroupMessages(groupId!, after);
+      return after ? mergeNewestFirst(prev, incoming) : incoming;
+    },
     enabled: !!groupId,
-    refetchInterval: 3_000,
+    refetchInterval: realtimeConnected ? 30_000 : 3_000,
+    refetchOnWindowFocus: true,
     placeholderData: (prev) => prev,
+    initialData: () => (groupId ? readCachedMessages<GroupMessage>(`group:${groupId}`) ?? undefined : undefined),
+    initialDataUpdatedAt: 0,
   });
+
+  // Persist latest group messages for instant first paint on reopen.
+  useEffect(() => {
+    if (groupId && messages.length) writeCachedMessages(`group:${groupId}`, messages);
+  }, [messages, groupId]);
 
   const sendMutation = useMutation({
     mutationFn: (content: string) => sendGroupMessage(groupId!, content),

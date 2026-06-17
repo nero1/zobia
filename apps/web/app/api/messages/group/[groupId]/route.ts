@@ -24,6 +24,7 @@ import { safeAwardXP } from '@/lib/xp/safeAwardXP';
 import { enforceRateLimit, RATE_LIMITS } from '@/lib/security/rateLimit';
 import { recordWarContribution } from '@/lib/guilds/recordWarContribution';
 import { publishRealtimeEvent } from '@/lib/realtime';
+import { notifyGroupMessage } from '@/lib/notifications/chatPush';
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -101,6 +102,10 @@ export const GET = withAuth(async (
   const { searchParams } = new URL(req.url);
   const cursor = searchParams.get('cursor');
   const limit = Math.min(Number(searchParams.get('limit') ?? 50), 100);
+  // Delta fetch: only messages at/after this ISO timestamp (ascending). The live
+  // poll uses this to fetch just new messages; boundary rows dedupe client-side.
+  const after = searchParams.get('after');
+  const deltaMode = !!after && !Number.isNaN(Date.parse(after));
 
   // Check membership
   const { rows: memberRows } = await db.query(
@@ -128,14 +133,15 @@ export const GET = withAuth(async (
      JOIN users u ON u.id = m.sender_id
      WHERE m.group_chat_id = $1
        AND m.is_deleted = false
-       AND ($2::uuid IS NULL OR m.id < $2::uuid)
+       ${deltaMode ? 'AND m.created_at >= $2::timestamptz' : 'AND ($2::uuid IS NULL OR m.id < $2::uuid)'}
        ${historyFilter}
-     ORDER BY m.created_at DESC
+     ORDER BY m.created_at ${deltaMode ? 'ASC' : 'DESC'}
      LIMIT $3`,
-    [groupId, cursor ?? null, limit + 1],
+    [groupId, deltaMode ? after : (cursor ?? null), deltaMode ? limit : limit + 1],
   );
 
-  const hasNextPage = rows.length > limit;
+  // Cursor pagination only applies to the backlog query, not delta polling.
+  const hasNextPage = !deltaMode && rows.length > limit;
   const data = hasNextPage ? rows.slice(0, limit) : rows;
 
   return NextResponse.json({
@@ -264,6 +270,25 @@ export const POST = withAuth(async (
   // Realtime broadcast — push to open clients so group members see new messages
   // instantly (the 3s poll remains the guaranteed-delivery fallback).
   void publishRealtimeEvent(`group:${groupId}:messages`, 'new_message', { message });
+
+  // Push notification to offline members (excludes the sender + online users).
+  void (async () => {
+    const [{ rows: groupRows }, { rows: memberIdRows }] = await Promise.all([
+      db.query<{ name: string }>('SELECT name FROM group_chats WHERE id = $1', [groupId]),
+      db.query<{ user_id: string }>(
+        'SELECT user_id FROM group_chat_members WHERE group_chat_id = $1',
+        [groupId],
+      ),
+    ]);
+    await notifyGroupMessage({
+      memberIds: memberIdRows.map((r) => r.user_id),
+      senderId: userId,
+      senderName: enriched.display_name || enriched.username || 'Someone',
+      groupName: groupRows[0]?.name ?? 'Group',
+      text: content,
+      groupId,
+    });
+  })();
 
   return NextResponse.json({ data: message }, { status: 201 });
 });

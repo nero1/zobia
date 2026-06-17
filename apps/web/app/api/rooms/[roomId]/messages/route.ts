@@ -33,6 +33,7 @@ import { applyAutoModeration } from "@/lib/moderation/contentFilter";
 import { XP_VALUES, ROOM_MESSAGE_XP_DAILY_CAP, calculateFinalXP, PLAN_XP_MULTIPLIERS_BP } from "@/lib/xp/engine";
 import type { Plan } from "@zobia/types";
 import { publishRealtimeEvent } from "@/lib/realtime";
+import { notifyRoomMentions, parseMentions } from "@/lib/notifications/chatPush";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -40,6 +41,13 @@ import { publishRealtimeEvent } from "@/lib/realtime";
 
 const listMessagesQuerySchema = z.object({
   cursor: z.string().optional(),
+  /**
+   * Delta fetch: when set to an ISO timestamp, return only messages at/after it
+   * (ascending). Lets the live poll fetch just new messages instead of the whole
+   * snapshot — far cheaper on serverless + DB. Boundary rows may repeat and are
+   * deduped client-side by id.
+   */
+  after: z.string().datetime().optional(),
   limit: z
     .string()
     .optional()
@@ -259,7 +267,14 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const queryArgs: SqlParam[] = [roomId];
     let paramIdx = 2;
 
-    if (queryParams.cursor) {
+    // Delta mode takes precedence over cursor pagination: return only messages
+    // newer than the client's latest known timestamp, oldest-first.
+    const deltaMode = !!queryParams.after;
+    if (deltaMode) {
+      conditions.push(`m.created_at >= $${paramIdx}::timestamptz`);
+      queryArgs.push(queryParams.after as string);
+      paramIdx += 1;
+    } else if (queryParams.cursor) {
       // Parse compound cursor: "ISO_TIMESTAMP__UUID"
       const parts = queryParams.cursor.split('__');
       const cursorTs = parts[0] ?? null;
@@ -274,6 +289,10 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
 
     queryArgs.push(limit);
     const limitParam = paramIdx;
+
+    const orderClause = deltaMode
+      ? "m.created_at ASC"
+      : "(m.is_pinned AND (m.pin_expires_at IS NULL OR m.pin_expires_at > NOW())) DESC NULLS LAST, m.created_at DESC";
 
     const { rows: messages } = await db.query<MessageRow>(
       `SELECT
@@ -298,13 +317,14 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
        FROM room_messages m
        JOIN users u ON u.id = m.sender_id
        WHERE ${conditions.join(" AND ")}
-       ORDER BY (m.is_pinned AND (m.pin_expires_at IS NULL OR m.pin_expires_at > NOW())) DESC NULLS LAST, m.created_at DESC
+       ORDER BY ${orderClause}
        LIMIT $${limitParam}`,
       queryArgs
     );
 
+    // Cursor pagination only applies to the backlog query, not delta polling.
     const lastMsg = messages[messages.length - 1];
-    const nextCursor = messages.length === limit && lastMsg
+    const nextCursor = !deltaMode && messages.length === limit && lastMsg
       ? `${lastMsg.created_at}__${lastMsg.id}`
       : null;
 
@@ -650,6 +670,30 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // Publish to realtime provider (non-blocking — never delays the HTTP response)
     if (senderStatus && !requiresApproval) {
       void publishRealtimeEvent(`room:${roomId}:messages`, "new_message", clientMessage);
+
+      // Push notifications for rooms are @mention-only (never the whole room) to
+      // avoid spamming large rooms. Resolve mentioned usernames to room members.
+      void (async () => {
+        const usernames = parseMentions(content);
+        if (usernames.length === 0) return;
+        const [{ rows: roomRows }, { rows: mentionRows }] = await Promise.all([
+          db.query<{ name: string }>(`SELECT name FROM rooms WHERE id = $1`, [roomId]),
+          db.query<{ id: string }>(
+            `SELECT u.id FROM users u
+             JOIN room_members rm
+               ON rm.user_id = u.id AND rm.room_id = $1 AND rm.left_at IS NULL
+             WHERE LOWER(u.username) = ANY($2) AND u.id <> $3`,
+            [roomId, usernames, userId],
+          ),
+        ]);
+        await notifyRoomMentions({
+          mentionedUserIds: mentionRows.map((r) => r.id),
+          senderName: senderStatus.username || "Someone",
+          roomName: roomRows[0]?.name ?? "Room",
+          text: content,
+          roomId,
+        });
+      })();
     }
 
     return NextResponse.json({ message: clientMessage }, { status: 201 });

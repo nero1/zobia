@@ -195,6 +195,7 @@ export default function RoomsPage() {
   }, [t]);
   const [activeTab, setActiveTab] = useState<Tab>("trending");
   const [typeFilter, setTypeFilter] = useState<RoomTypeFilter>("all");
+  const [availability, setAvailability] = useState<"all" | "available" | "full">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [rooms, setRooms] = useState<RoomCardData[]>([]);
   const [pinnedRooms, setPinnedRooms] = useState<RoomCardData[]>([]);
@@ -213,8 +214,8 @@ export default function RoomsPage() {
   }, []);
 
   const fetchRooms = useCallback(
-    async (opts: { tab: Tab; type: RoomTypeFilter; q: string; cursor?: string; append?: boolean }) => {
-      const { tab, type, q, cursor: cur, append } = opts;
+    async (opts: { tab: Tab; type: RoomTypeFilter; q: string; avail?: "all" | "available" | "full"; cursor?: string; append?: boolean }) => {
+      const { tab, type, q, avail, cursor: cur, append } = opts;
       if (!append) setLoading(true);
       else setLoadingMore(true);
 
@@ -224,6 +225,7 @@ export default function RoomsPage() {
         if (tab === "friends") params.set("friends_in_room", "1");
         if (type === "public") params.set("type", "free_open");
         else if (type !== "all") params.set("type", type);
+        if (avail && avail !== "all") params.set("availability", avail);
         if (q.trim()) params.set("q", q.trim());
         if (cur) params.set("cursor", cur);
 
@@ -235,9 +237,11 @@ export default function RoomsPage() {
           err.code = body.error?.code ?? null;
           throw err;
         }
-        const data = (await res.json()) as { items: RoomCardData[]; nextCursor?: string | null; hasMore?: boolean };
+        const data = (await res.json()) as { items: (RoomCardData & { is_full?: boolean })[]; nextCursor?: string | null; hasMore?: boolean };
+        // API returns snake_case is_full — surface it as isFull for the card.
+        const mapped = (data.items ?? []).map((it) => ({ ...it, isFull: it.isFull ?? it.is_full }));
 
-        setRooms((prev) => append ? [...prev, ...(data.items ?? [])] : (data.items ?? []));
+        setRooms((prev) => append ? [...prev, ...mapped] : mapped);
         setCursor(data.nextCursor ?? null);
         setHasMore(data.hasMore ?? false);
       } catch (e) {
@@ -251,15 +255,15 @@ export default function RoomsPage() {
     []
   );
 
-  // Initial + tab/type/search change
+  // Initial + tab/type/search/availability change
   useEffect(() => {
     setError(null);
-    void fetchRooms({ tab: activeTab, type: typeFilter, q: searchQuery });
-  }, [activeTab, typeFilter, searchQuery, fetchRooms]);
+    void fetchRooms({ tab: activeTab, type: typeFilter, q: searchQuery, avail: availability });
+  }, [activeTab, typeFilter, availability, searchQuery, fetchRooms]);
 
   function handleLoadMore() {
     if (!cursor || loadingMore) return;
-    void fetchRooms({ tab: activeTab, type: typeFilter, q: searchQuery, cursor, append: true });
+    void fetchRooms({ tab: activeTab, type: typeFilter, q: searchQuery, avail: availability, cursor, append: true });
   }
 
   async function handleJoin(roomId: string) {
@@ -332,6 +336,27 @@ export default function RoomsPage() {
             onClick={() => { setTypeFilter(chip.key); setRooms([]); setCursor(null); }}
             className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
               typeFilter === chip.key
+                ? "bg-blue-600 text-white"
+                : "border border-neutral-300 text-neutral-600 hover:border-blue-400 hover:text-blue-600 dark:border-neutral-700 dark:text-neutral-400"
+            }`}
+          >
+            {chip.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Availability filter chips */}
+      <div className="flex flex-wrap gap-2">
+        {([
+          { key: "all", label: t("room.availabilityAll") },
+          { key: "available", label: t("room.availabilityAvailable") },
+          { key: "full", label: t("room.availabilityFull") },
+        ] as const).map((chip) => (
+          <button
+            key={chip.key}
+            onClick={() => { setAvailability(chip.key); setRooms([]); setCursor(null); }}
+            className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+              availability === chip.key
                 ? "bg-blue-600 text-white"
                 : "border border-neutral-300 text-neutral-600 hover:border-blue-400 hover:text-blue-600 dark:border-neutral-700 dark:text-neutral-400"
             }`}

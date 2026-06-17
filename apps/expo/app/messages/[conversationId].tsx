@@ -41,6 +41,9 @@ import { getPidginSuggestions } from '@/lib/i18n/pidgin';
 import { isPidginEnabled } from '@/lib/i18n/pidginEnabled';
 import { useCurrency } from '@/lib/hooks/useCurrency';
 import { useAuth } from '@/lib/auth/hooks';
+import { useRealtimeChannel } from '@/lib/realtime/useRealtimeChannel';
+import { readCachedMessages, writeCachedMessages } from '@/lib/chat/messageCache';
+import { newestCreatedAt, mergeNewestFirst } from '@/lib/chat/delta';
 import { CHAT_THEMES } from '@/lib/theme/chatThemes';
 import { queueMessage } from '@/lib/offline/sqlite';
 import type { ChatTheme } from '@/lib/theme/chatThemes';
@@ -140,8 +143,9 @@ function mapApiDM(raw: Record<string, unknown>): DM {
   };
 }
 
-async function fetchMessages(id: string): Promise<DM[]> {
-  const { data } = await apiClient.get(`/messages/dm/${id}`);
+async function fetchMessages(id: string, after?: string): Promise<DM[]> {
+  const url = after ? `/messages/dm/${id}?after=${encodeURIComponent(after)}` : `/messages/dm/${id}`;
+  const { data } = await apiClient.get(url);
   const rows: Record<string, unknown>[] = data.items ?? data.messages ?? [];
   return rows.map(mapApiDM);
 }
@@ -588,13 +592,43 @@ export default function DMConversationScreen() {
     staleTime: 60_000,
   });
 
+  // Realtime push — merge new DMs into the cache instantly when connected.
+  const realtimeConnected = useRealtimeChannel(
+    conversationId ? `dm:conversation:${conversationId}` : null,
+    useCallback((event: string, data: unknown) => {
+      if (event !== 'new_message') return;
+      const raw = (data as { message?: Record<string, unknown> })?.message;
+      if (!raw) return;
+      const incoming = mapApiDM(raw);
+      if (!incoming.id) return;
+      queryClient.setQueryData<DM[]>(['dm-messages', conversationId], (prev: DM[] | undefined) => {
+        const list = prev ?? [];
+        if (list.some((m: DM) => m.id === incoming.id)) return list;
+        return [incoming, ...list];
+      });
+    }, [conversationId, queryClient]),
+  );
+
   const { data: messages = [], isLoading } = useQuery({
     queryKey: ['dm-messages', conversationId],
-    queryFn: () => fetchMessages(conversationId!),
+    queryFn: async () => {
+      const prev = queryClient.getQueryData<DM[]>(['dm-messages', conversationId]) ?? [];
+      const after = newestCreatedAt(prev);
+      const incoming = await fetchMessages(conversationId!, after);
+      return after ? mergeNewestFirst(prev, incoming) : incoming;
+    },
     enabled: !!conversationId,
-    refetchInterval: 3_000,
+    refetchInterval: realtimeConnected ? 30_000 : 3_000,
+    refetchOnWindowFocus: true,
     placeholderData: (prev) => prev,
+    initialData: () => (conversationId ? readCachedMessages<DM>(`dm:${conversationId}`) ?? undefined : undefined),
+    initialDataUpdatedAt: 0,
   });
+
+  // Persist latest DMs for instant first paint on reopen.
+  useEffect(() => {
+    if (conversationId && messages.length) writeCachedMessages(`dm:${conversationId}`, messages);
+  }, [messages, conversationId]);
 
   const sendMutation = useMutation({
     mutationFn: ({ content, type }: { content: string; type: MessageType }) =>

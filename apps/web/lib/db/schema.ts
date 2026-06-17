@@ -197,6 +197,8 @@ export const users = pgTable("users", {
   // Push & notification preferences
   pushToken: text("push_token"),
   dmNotifications: boolean("dm_notifications").default(true),
+  groupNotifications: boolean("group_notifications").notNull().default(true),
+  roomMentionNotifications: boolean("room_mention_notifications").notNull().default(true),
   guildNotifications: boolean("guild_notifications").default(true),
   streakNotifications: boolean("streak_notifications").default(true),
   notifyNewMessage: boolean("notify_new_message").notNull().default(true),

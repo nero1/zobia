@@ -1567,5 +1567,20 @@
   "errors.user_not_found": "User not found",
   "errors.username_taken": "This username is already taken",
   "errors.war_already_active": "Guild is already in an active war",
-  "errors.war_cooldown_active": "War cooldown active. {{hoursRemaining}} hour(s) remaining."
+  "errors.war_cooldown_active": "War cooldown active. {{hoursRemaining}} hour(s) remaining.",
+  "settings.push.dms": "Direct message pushes",
+  "settings.push.dmsDesc": "Get notified about new DMs when you are away",
+  "settings.push.groups": "Group chat pushes",
+  "settings.push.groupsDesc": "Get notified about new group messages when you are away",
+  "settings.push.roomMentions": "Room mention pushes",
+  "settings.push.roomMentionsDesc": "Get notified only when someone @mentions you in a room",
+  "room.full": "This room is full right now. Try again when someone leaves.",
+  "room.increaseCapacity": "Increase Capacity",
+  "room.capacityIncreased": "Capacity increased",
+  "room.capacityIncreasedTo": "This room can now hold {{n}} people at once.",
+  "room.capacityIncreasedGeneric": "Capacity increased.",
+  "room.availabilityAll": "All",
+  "room.availabilityAvailable": "Available",
+  "room.availabilityFull": "Full",
+  "room.fullBadge": "FULL"
 }

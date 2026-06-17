@@ -29,6 +29,7 @@ import {
   StyleSheet,
   type ViewStyle,
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { colors } from '@/lib/theme/colors';
 import type { RoomType } from '@zobia/shared/types';
 
@@ -55,6 +56,8 @@ export interface RoomCardData {
   entryFeeNgn?: number | null;
   isActive: boolean;
   isFeatured?: boolean;
+  /** Live presence has reached the room's soft cap. */
+  isFull?: boolean;
   /** PRD §10: Drop Rooms close at this timestamp; null = no expiry. */
   dropEndsAt?: string | null;
 }
@@ -235,8 +238,10 @@ export const RoomCard = memo(function RoomCard({
     subscriptionPriceNgn,
     entryFeeNgn,
     isFeatured,
+    isFull,
     dropEndsAt,
   } = room;
+  const { t } = useTranslation();
 
   // PRD §10: Drop Rooms that have passed their end time are permanently closed.
   const isDropClosed =
@@ -279,6 +284,11 @@ export const RoomCard = memo(function RoomCard({
         {isFeatured && (
           <View style={styles.featuredBadge}>
             <Text style={styles.featuredText}>Featured</Text>
+          </View>
+        )}
+        {isFull && (
+          <View style={styles.fullBadge}>
+            <Text style={styles.fullBadgeText}>{t('room.fullBadge')}</Text>
           </View>
         )}
         <TypeBadge type={roomType} />
@@ -369,6 +379,20 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   featuredText: {
+    color: colors.neutral[0],
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  fullBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    backgroundColor: colors.semantic.warning,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  fullBadgeText: {
     color: colors.neutral[0],
     fontSize: 10,
     fontWeight: '700',

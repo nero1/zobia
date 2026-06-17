@@ -15,6 +15,7 @@ import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { useRealtimeChannel } from "@/lib/realtime/useRealtimeChannel";
 import { useAdaptiveChatPoll } from "@/lib/hooks/useAdaptiveChatPoll";
+import { readCachedMessages, writeCachedMessages } from "@/lib/chat/messageCache";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -134,9 +135,13 @@ export default function GroupConversationPage() {
   const { t } = useTranslation();
 
   const [group, setGroup] = useState<GroupInfo | null>(null);
-  const [messages, setMessages] = useState<GroupMessage[]>([]);
+  const [messages, setMessages] = useState<GroupMessage[]>(
+    () => readCachedMessages<GroupMessage>(`group:${groupId}`) ?? []
+  );
   const [loadingGroup, setLoadingGroup] = useState(true);
-  const [loadingMessages, setLoadingMessages] = useState(true);
+  const [loadingMessages, setLoadingMessages] = useState(
+    () => (readCachedMessages<GroupMessage>(`group:${groupId}`)?.length ?? 0) === 0
+  );
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -151,6 +156,11 @@ export default function GroupConversationPage() {
       feedRef.current.scrollTop = feedRef.current.scrollHeight;
     }
   }, [messages]);
+
+  // Persist latest messages for instant first paint on reopen.
+  useEffect(() => {
+    if (messages.length) writeCachedMessages(`group:${groupId}`, messages);
+  }, [messages, groupId]);
 
   // Fetch current user ID
   useEffect(() => {
@@ -178,17 +188,40 @@ export default function GroupConversationPage() {
     })();
   }, [groupId, router]);
 
+  // Newest message timestamp seen — drives delta polling (?after=).
+  const latestCreatedAtRef = useRef<string | undefined>(undefined);
+
+  // Merge incoming messages into state, deduping by id and keeping chronological
+  // order. Shared by the initial load, the delta poll, and the realtime push.
+  const mergeIncoming = useCallback((incoming: GroupMessage[]) => {
+    if (!incoming.length) return;
+    setMessages((prev) => {
+      const seen = new Set(prev.map((m) => m.id));
+      const merged = prev.slice();
+      for (const m of incoming) {
+        if (m && m.id && !seen.has(m.id)) { merged.push(m); seen.add(m.id); }
+      }
+      merged.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      latestCreatedAtRef.current = merged[merged.length - 1]?.created_at;
+      return merged;
+    });
+  }, []);
+
   const fetchMessages = useCallback(async () => {
     try {
-      const res = await fetch(`/api/messages/group/${groupId}`, { credentials: "include" });
+      // Delta fetch after the first load — only messages newer than the latest.
+      const after = latestCreatedAtRef.current;
+      const url = after
+        ? `/api/messages/group/${groupId}?after=${encodeURIComponent(after)}`
+        : `/api/messages/group/${groupId}`;
+      const res = await fetch(url, { credentials: "include" });
       if (!res.ok) return;
       const data = (await res.json()) as { data?: GroupMessage[] };
-      // data is sorted DESC from API — reverse for display
-      setMessages((data.data ?? []).slice().reverse());
+      mergeIncoming(data.data ?? []);
     } catch { /* ignore */ } finally {
       setLoadingMessages(false);
     }
-  }, [groupId]);
+  }, [groupId, mergeIncoming]);
 
   // Real-time push — delivers new messages instantly via configured realtime provider
   const realtimeConnected = useRealtimeChannel(
@@ -196,11 +229,9 @@ export default function GroupConversationPage() {
     useCallback((event: string, data: unknown) => {
       if (event === "new_message") {
         const msg = (data as { message?: GroupMessage }).message;
-        if (msg) {
-          setMessages((prev) => prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]);
-        }
+        if (msg) mergeIncoming([msg]);
       }
-    }, [])
+    }, [mergeIncoming])
   );
 
   // Baseline poll — fast (3s) when realtime is down / unconfigured, slow

@@ -1,7 +1,7 @@
 # Zobia Social — Product Requirements Document
 ### A Gamified Monetised Social Platform for the Global Mobile Generation
 
-> **Version 1.6 — Product Requirements Document**
+> **Version 1.7 — Product Requirements Document**
 > Covers: Feature Specifications · Technical Architecture · Economy Design · Moderation · Build Sequence
 > Scope: Nigeria-first, Pan-African then Global · Mobile-first PWA + Android APK · Admin-minimal operation
 
@@ -511,9 +511,19 @@ A Room is a public or semi-public group conversation space — the social and co
 - Used for war planning, coordination, and social bonding.
 - Guild Rooms earn XP for all members who participate in daily Guild Room activity.
 
+### Room Capacity & Soft Presence Caps (v1.7)
+
+Each Room has a **soft concurrent-participant cap** enforced against **live presence** — who is actively viewing the Room right now — rather than persistent membership. Presence is tracked in Redis with a short TTL and a client heartbeat, so a slot frees automatically when a user closes the tab/app or goes idle; there is no "Leave Room" button. The Room creator and moderators always bypass the cap (soft enforcement). When a Room is at capacity, new viewers see a "Room is full" state and are not subscribed to its realtime channel — this is the primary control on realtime fan-out cost.
+
+Per-room-type default caps are admin-configurable via the manifest (`/admin/config`), with sensible defaults (free/tipping = 30, drop = 100, classroom = 150, guild = 100, VIP = 200). A Room creator can spend Credits to **raise their own Room's cap** in fixed steps up to a hard ceiling (all amounts manifest-tunable). Discovery shows a **"Full" badge** on at-capacity rooms and offers an availability filter (All / Available / Full).
+
+### Push, Realtime & Offline (v1.7)
+
+Live delivery uses a configurable realtime provider (Ably by default) on web, PWA, and mobile, with an adaptive poll that backs off to a slow reconcile while the socket is connected and pauses while the app is backgrounded. Backgrounded/offline recipients receive **push notifications** for DMs and group messages, and for Room messages **only when @mentioned**. Each category (DMs, group chats, room mentions) has an independent push toggle in Settings. A persisted local message cache (localStorage on web/PWA, encrypted MMKV on mobile) renders recent messages instantly on open and keeps a usable view offline.
+
 ### Room Discovery
 
-The discovery feed surfaces Rooms based on: city proximity, category affinity (from past Room activity and quiz responses), friends-in-room signal, trending score (activity in last 2 hours weighted heavily), and Creator Tier (Verified and Elite creators get discovery boosts). Rooms can be promoted using Credits for native paid discovery.
+The discovery feed surfaces Rooms based on: city proximity, category affinity (from past Room activity and quiz responses), friends-in-room signal, trending score (activity in last 2 hours weighted heavily), and Creator Tier (Verified and Elite creators get discovery boosts). Rooms can be promoted using Credits for native paid discovery. Live availability (a "Full" badge and an availability filter) is also surfaced per the capacity model above.
 
 ### Room Moderation
 

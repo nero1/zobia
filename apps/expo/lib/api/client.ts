@@ -15,7 +15,9 @@ import axios, {
   type InternalAxiosRequestConfig,
 } from 'axios';
 import * as SecureStore from 'expo-secure-store';
-import { QueryClient } from '@tanstack/react-query';
+import { AppState, Platform, type AppStateStatus } from 'react-native';
+import { QueryClient, focusManager, onlineManager } from '@tanstack/react-query';
+import NetInfo from '@react-native-community/netinfo';
 import { env } from '@/lib/env';
 
 // ---------------------------------------------------------------------------
@@ -182,4 +184,28 @@ export const queryClient = new QueryClient({
       retry: 0,
     },
   },
+});
+
+// ---------------------------------------------------------------------------
+// React Query lifecycle wiring (React Native)
+// ---------------------------------------------------------------------------
+//
+// Bridge React Query's focus/online managers to RN AppState + NetInfo. This is
+// what makes polling adaptive without per-screen code: when the app is
+// backgrounded, focus goes false and `refetchInterval` timers PAUSE (so chat
+// screens stop polling the API while not in view); on foreground they resume
+// and stale queries refetch immediately for an instant catch-up. NetInfo drives
+// `onlineManager` so a reconnect also triggers a catch-up.
+
+focusManager.setEventListener((handleFocus) => {
+  const sub = AppState.addEventListener('change', (status: AppStateStatus) => {
+    if (Platform.OS !== 'web') handleFocus(status === 'active');
+  });
+  return () => sub.remove();
+});
+
+onlineManager.setEventListener((setOnline) => {
+  return NetInfo.addEventListener((state) => {
+    setOnline(Boolean(state.isConnected));
+  });
 });

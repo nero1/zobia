@@ -33,6 +33,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
+import { useTranslation } from 'react-i18next';
 import { RoomCard, type RoomCardData } from '@/components/rooms/RoomCard';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
@@ -163,6 +164,7 @@ function useRoomsQuery(
   tab: DiscoveryTab,
   typeFilter: FilterChip,
   searchQuery: string,
+  availability: 'all' | 'available' | 'full',
   userCity?: string
 ) {
   const [rooms, setRooms] = useState<RoomCardData[]>([]);
@@ -179,11 +181,12 @@ function useRoomsQuery(
       if (tab === 'nearby' && userCity) params.city = userCity;
       if (tab === 'friends') params.friends_in_room = '1';
       if (typeFilter !== 'all') params.type = typeFilter;
+      if (availability !== 'all') params.availability = availability;
       if (searchQuery.trim()) params.category = searchQuery.trim();
       if (cursor) params.cursor = cursor;
       return params;
     },
-    [tab, typeFilter, searchQuery, userCity]
+    [tab, typeFilter, availability, searchQuery, userCity]
   );
 
   const fetchRooms = useCallback(
@@ -200,15 +203,17 @@ function useRoomsQuery(
         const params = buildParams(cursor);
         const qs = new URLSearchParams(params).toString();
         const { data } = await apiClient.get<{
-          items: RoomCardData[];
+          items: (RoomCardData & { is_full?: boolean })[];
           nextCursor: string | null;
           hasMore: boolean;
         }>(`/rooms?${qs}`);
 
+        // API returns snake_case is_full — surface it as isFull for the card.
+        const mapped = data.items.map((it) => ({ ...it, isFull: it.isFull ?? it.is_full }));
         if (isRefresh || !cursor) {
-          setRooms(data.items);
+          setRooms(mapped);
         } else {
-          setRooms((prev) => [...prev, ...data.items]);
+          setRooms((prev) => [...prev, ...mapped]);
         }
         setNextCursor(data.nextCursor);
         setHasMore(data.hasMore);
@@ -228,7 +233,7 @@ function useRoomsQuery(
     setHasMore(true);
     fetchRooms(undefined, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, typeFilter, searchQuery]);
+  }, [tab, typeFilter, availability, searchQuery]);
 
   const refresh = useCallback(() => fetchRooms(undefined, true), [fetchRooms]);
   const loadMore = useCallback(() => {
@@ -250,13 +255,15 @@ function useRoomsQuery(
 export default function RoomsScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<DiscoveryTab>('trending');
   const [typeFilter, setTypeFilter] = useState<FilterChip>('all');
+  const [availability, setAvailability] = useState<'all' | 'available' | 'full'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<TextInput>(null);
 
   const { rooms, loading, refreshing, error, refresh, loadMore, hasMore } =
-    useRoomsQuery(activeTab, typeFilter, searchQuery, user?.city);
+    useRoomsQuery(activeTab, typeFilter, searchQuery, availability, user?.city);
   const { pinned } = usePinnedRooms();
 
   const handleRoomPress = useCallback(
@@ -402,6 +409,27 @@ export default function RoomsScreen() {
         style={styles.chipsList}
       />
 
+      {/* Availability filter chips */}
+      <View style={styles.availabilityRow}>
+        {([
+          { key: 'all', label: t('room.availabilityAll') },
+          { key: 'available', label: t('room.availabilityAvailable') },
+          { key: 'full', label: t('room.availabilityFull') },
+        ] as const).map((item) => (
+          <Pressable
+            key={item.key}
+            style={[styles.chip, availability === item.key && styles.availabilityChipActive]}
+            onPress={() => setAvailability(item.key)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: availability === item.key }}
+          >
+            <Text style={[styles.chipText, availability === item.key && styles.chipTextActive]}>
+              {item.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
       {/* Room feed */}
       <FlatList
         data={rooms}
@@ -533,6 +561,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     gap: 8,
     paddingRight: 16,
+  },
+  availabilityRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 16,
+    marginTop: 8,
+  },
+  availabilityChipActive: {
+    backgroundColor: colors.brand.blue,
+    borderColor: colors.brand.blue,
   },
   chip: {
     borderRadius: 20,

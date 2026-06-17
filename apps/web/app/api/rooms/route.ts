@@ -28,16 +28,15 @@ import { withAuth, validateBody, validateSearchParams } from "@/lib/api/middlewa
 import { handleApiError, badRequest, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { loadManifest } from "@/lib/manifest";
+import { resolveRoomCap } from "@/lib/rooms/capacity";
+import { getRoomPresenceCount } from "@/lib/presence/room";
 import { meetsMinimumTrust } from "@/lib/trust/trustScore";
 import { sendPushNotificationBatch } from "@/lib/notifications/push";
-import { getTrackXPThreshold, getTrackLevelForXP } from "@/lib/xp/engine";
+import { getTrackXPThreshold } from "@/lib/xp/engine";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-/** Maximum members in a free_open room. */
-const FREE_OPEN_MAX_MEMBERS = 10_000;
 
 /** Creator tiers that are allowed to create rooms (lowercase, matching DB constraint). */
 const CREATOR_TIERS_ALLOWED = ["rising", "verified", "elite", "icon"] as const;
@@ -60,6 +59,8 @@ const listRoomsQuerySchema = z.object({
     .string()
     .optional()
     .transform((v) => v === "1"),
+  /** Filter by live availability: only available (not full) or only full rooms. */
+  availability: z.enum(["all", "available", "full"]).optional(),
   cursor: z.string().optional(),
   limit: z
     .string()
@@ -331,11 +332,31 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       queryParams
     );
 
+    // nextCursor reflects the unfiltered page so pagination still advances even
+    // when an availability filter hides some rooms from the current page.
     const nextCursor =
       rows.length === params.limit ? rows[rows.length - 1]?.created_at ?? null : null;
 
+    // Enrich each room with its LIVE presence count + soft cap so discovery can
+    // show a "Full" badge and filter by availability. Presence is a cheap Redis
+    // read per room (page size ≤ 50).
+    const manifest = await loadManifest();
+    let items = await Promise.all(
+      rows.map(async (r) => {
+        const cap = resolveRoomCap(r.type, r.max_members, manifest);
+        const presentCount = await getRoomPresenceCount(r.id);
+        return { ...r, present_count: presentCount, capacity: cap, is_full: presentCount >= cap };
+      }),
+    );
+
+    if (params.availability === "available") {
+      items = items.filter((r) => !r.is_full);
+    } else if (params.availability === "full") {
+      items = items.filter((r) => r.is_full);
+    }
+
     return NextResponse.json(
-      { items: rows, nextCursor, hasMore: nextCursor !== null },
+      { items, nextCursor, hasMore: nextCursor !== null },
       { status: 200 }
     );
   } catch (err) {
@@ -391,17 +412,6 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Creator Track L5/L20 room capacity gates (PRD §7)
-    const creatorLevel = getTrackLevelForXP("creator", user.xp_creator).level;
-    // L5 (Room Opener): non-free rooms can hold up to 100 members
-    // L20+ (Verified Creator+): unlimited capacity
-    // Below L5: restricted to 50 members for non-free_open rooms
-    const MAX_MEMBERS_BY_CREATOR_LEVEL: (type: string) => number | null = (type) => {
-      if (type === "free_open") return FREE_OPEN_MAX_MEMBERS; // always 10,000
-      if (creatorLevel >= 20) return null;   // unlimited for Verified Creator+
-      if (creatorLevel >= 5)  return 100;    // Room Opener
-      return 50;                             // beginner cap
-    };
-
     // Validate type-specific pricing
     const manifest = await loadManifest();
     const vipPricing = manifest.features?.vipRoomPricing ?? {
@@ -484,8 +494,12 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         break;
     }
 
-    // Compute max_members (respects Creator Track L5/L20 gates — PRD §7)
-    const maxMembers = MAX_MEMBERS_BY_CREATOR_LEVEL(body.type);
+    // Seed the room's soft cap (`max_members`) from the manifest default for its
+    // type. This is the per-room override resolveRoomCap() reads; the creator can
+    // raise it later via a paid capacity upgrade. Caps bound realtime fan-out.
+    const maxMembers =
+      (manifest.roomCaps as Record<string, number>)[body.type] ??
+      manifest.roomCaps.free_open;
 
     // Compute drop_ends_at
     let dropEndsAt: string | null = null;

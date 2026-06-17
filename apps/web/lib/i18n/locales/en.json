@@ -1257,5 +1257,21 @@
   "admin.business.action.rejectReason": "Rejection Reason (optional)",
   "admin.business.action.confirm": "Confirm",
   "admin.business.action.cancel": "Cancel",
-  "admin.business.empty": "No business accounts found"
+  "admin.business.empty": "No business accounts found",
+  "room.full": "This room is full right now. Try again when someone leaves.",
+  "room.capacityTitle": "Room Capacity",
+  "room.capacityHelp": "Current limit: {{n}} people in the room at once. Raise it so more can join live.",
+  "room.capacityUpgradeCta": "Increase capacity",
+  "room.capacityUpgraded": "Capacity raised to {{n}}.",
+  "room.capacityUpgradeFailed": "Couldn't upgrade capacity.",
+  "settings.push.dms": "Direct message pushes",
+  "settings.push.dmsDesc": "Get notified about new DMs when you are away",
+  "settings.push.groups": "Group chat pushes",
+  "settings.push.groupsDesc": "Get notified about new group messages when you are away",
+  "settings.push.roomMentions": "Room mention pushes",
+  "settings.push.roomMentionsDesc": "Get notified only when someone @mentions you in a room",
+  "room.availabilityAll": "All",
+  "room.availabilityAvailable": "Available",
+  "room.availabilityFull": "Full",
+  "room.fullBadge": "Full"
 }

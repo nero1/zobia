@@ -119,10 +119,11 @@ async function purchaseBooster({ boosterType }: BoosterPurchaseArgs): Promise<Bo
 // Helpers
 // ---------------------------------------------------------------------------
 
-function formatKobo(kobo: number): string {
+function formatKobo(kobo: number, currencyCode = 'NGN'): string {
   const amount = kobo / 100;
-  // Basic NGN formatting for React Native (Intl may be limited on some builds)
-  return `₦${amount.toLocaleString('en-NG')}`;
+  // Basic formatting for React Native (Intl may be limited on some builds).
+  const formatted = amount.toLocaleString('en-NG');
+  return currencyCode === 'NGN' ? `₦${formatted}` : `${formatted} ${currencyCode}`;
 }
 
 // ---------------------------------------------------------------------------

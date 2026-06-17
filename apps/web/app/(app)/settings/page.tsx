@@ -296,6 +296,9 @@ export default function SettingsPage() {
           language: user.locale ?? apiSettings.locale ?? "en",
           theme: "system",
           notifications: {
+            push_dms:           notifPush.dmMessages   ?? true,
+            push_groups:        notifPush.groupMessages ?? true,
+            push_room_mentions: notifPush.roomMentions  ?? true,
             new_message:    notifPush.newMessage    ?? true,
             friend_request: notifPush.friendRequest ?? true,
             gift_received:  notifPush.giftReceived  ?? true,
@@ -372,6 +375,9 @@ export default function SettingsPage() {
     try {
       // Route each field to the correct API endpoint
       const NOTIF_KEY_MAP: Record<string, string> = {
+        push_dms:           "dm_notifications",
+        push_groups:        "group_notifications",
+        push_room_mentions: "room_mention_notifications",
         new_message:    "notify_new_message",
         friend_request: "notify_friend_request",
         gift_received:  "notify_gift_received",
@@ -694,6 +700,23 @@ export default function SettingsPage() {
       {/* Notifications */}
       <Section title="Notifications">
         <div className="space-y-3">
+          {/* Chat push toggles — independently mutable per category */}
+          {([
+            { key: "push_dms",           label: t("settings.push.dms"),          description: t("settings.push.dmsDesc") },
+            { key: "push_groups",        label: t("settings.push.groups"),       description: t("settings.push.groupsDesc") },
+            { key: "push_room_mentions", label: t("settings.push.roomMentions"), description: t("settings.push.roomMentionsDesc") },
+          ]).map(({ key, label, description }) => (
+            <div key={key} className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{label}</p>
+                <p className="text-xs text-neutral-500">{description}</p>
+              </div>
+              <ToggleSwitch
+                checked={notifications[key] ?? true}
+                onChange={(v) => toggleNotification(key, v)}
+              />
+            </div>
+          ))}
           {NOTIFICATION_TYPES.map(({ key, label, description }) => (
             <div key={key} className="flex items-center justify-between gap-3">
               <div>

@@ -24,6 +24,13 @@ const EnvSchema = z.object({
 
   /** Google OAuth client ID (Android). */
   GOOGLE_CLIENT_ID: z.string().optional(),
+
+  /**
+   * Realtime provider for live chat delivery. Only "ably" is wired in the
+   * mobile app today (its SDK is bundled); when unset, chat falls back to the
+   * adaptive poll. Must match the server's REALTIME_PROVIDER.
+   */
+  REALTIME_PROVIDER: z.enum(["ably", "none"]).default("none"),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
@@ -36,6 +43,10 @@ const raw = {
   API_BASE_URL: Constants.expoConfig?.extra?.API_BASE_URL as string | undefined,
   APP_ENV: Constants.expoConfig?.extra?.APP_ENV as string | undefined,
   GOOGLE_CLIENT_ID: Constants.expoConfig?.extra?.GOOGLE_CLIENT_ID as string | undefined,
+  // EXPO_PUBLIC_* vars are inlined by Metro at build time.
+  REALTIME_PROVIDER:
+    (process.env.EXPO_PUBLIC_REALTIME_PROVIDER as string | undefined) ??
+    (Constants.expoConfig?.extra?.REALTIME_PROVIDER as string | undefined),
 };
 
 const parsed = EnvSchema.safeParse(raw);

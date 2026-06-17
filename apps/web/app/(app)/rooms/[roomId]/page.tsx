@@ -24,6 +24,7 @@ import { useRealtimeChannel } from "@/lib/realtime/useRealtimeChannel";
 import { useAdaptiveChatPoll } from "@/lib/hooks/useAdaptiveChatPoll";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { readCachedMessages, writeCachedMessages } from "@/lib/chat/messageCache";
 
 // Resolved at build time. When undefined there is no push provider configured
 // and the 3-second baseline poll is the sole live channel.
@@ -945,6 +946,80 @@ function SpectacleThresholdPanel({
 }
 
 /**
+ * RoomCapacityPanel — creator-only control to raise the room's soft participant
+ * cap by spending coins (PRD §10). Each step adds slots for a fixed coin cost;
+ * both are admin-tunable via the manifest. Caps bound realtime fan-out.
+ */
+function RoomCapacityPanel({ roomId }: { roomId: string }) {
+  const { t } = useTranslation();
+  const currency = useCurrency();
+  const [cap, setCap] = useState<number | null>(null);
+  const [upgrading, setUpgrading] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/rooms/${roomId}/pulse`, { credentials: "include" });
+        if (!res.ok || cancelled) return;
+        const d = (await res.json()) as { maxCapacity?: number };
+        if (!cancelled && typeof d.maxCapacity === "number") setCap(d.maxCapacity);
+      } catch { /* non-fatal */ }
+    })();
+    return () => { cancelled = true; };
+  }, [roomId]);
+
+  async function upgrade() {
+    setUpgrading(true);
+    setMsg(null);
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/capacity`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ steps: 1 }),
+      });
+      const d = (await res.json()) as {
+        data?: { maxMembers?: number; coinsSpent?: number };
+        error?: { code?: string; message?: string };
+      };
+      if (res.ok && d.data?.maxMembers) {
+        setCap(d.data.maxMembers);
+        setMsg(t("room.capacityUpgraded", { n: d.data.maxMembers }));
+      } else {
+        setMsg(translateApiError(t, d.error?.code ?? null, d.error?.message ?? t("room.capacityUpgradeFailed")));
+      }
+    } catch {
+      setMsg(t("room.capacityUpgradeFailed"));
+    } finally {
+      setUpgrading(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
+      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+        👥 {t("room.capacityTitle")}
+      </h2>
+      <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
+        {t("room.capacityHelp", { n: cap ?? 0 })}
+      </p>
+      <button
+        type="button"
+        onClick={upgrade}
+        disabled={upgrading}
+        className="w-full rounded-lg bg-blue-600 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+      >
+        {upgrading ? "…" : t("room.capacityUpgradeCta")}
+      </button>
+      {msg && <p className="mt-1.5 text-xs text-neutral-600 dark:text-neutral-400">{msg}</p>}
+      <p className="mt-1 text-[10px] text-neutral-400">{currency.softPlural}</p>
+    </div>
+  );
+}
+
+/**
  * Room detail page with real-time message feed.
  */
 export default function RoomPage() {
@@ -957,9 +1032,14 @@ export default function RoomPage() {
   const currency = useCurrency();
 
   const [room, setRoom] = useState<RoomInfo | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  // Hydrate from the persisted cache for an instant first paint (and offline view).
+  const [messages, setMessages] = useState<Message[]>(
+    () => readCachedMessages<Message>(`room:${roomId}`) ?? []
+  );
   const [loadingRoom, setLoadingRoom] = useState(true);
-  const [loadingMessages, setLoadingMessages] = useState(true);
+  const [loadingMessages, setLoadingMessages] = useState(
+    () => (readCachedMessages<Message>(`room:${roomId}`)?.length ?? 0) === 0
+  );
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -982,6 +1062,8 @@ export default function RoomPage() {
   const seenMessageIdsRef = useRef<Set<string>>(new Set());
   const feedRef = useRef<HTMLDivElement>(null);
   const lastMessageIdRef = useRef<string | undefined>(undefined);
+  // Newest message timestamp seen — drives delta polling (?after=).
+  const latestCreatedAtRef = useRef<string | undefined>(undefined);
   const minGiftSpectacleCoinRef = useRef<number | null | undefined>(undefined);
   // Becomes true after the first message snapshot loads, so the gift spectacle
   // overlay only fires for genuinely-new gifts and not for the initial backlog.
@@ -999,6 +1081,11 @@ export default function RoomPage() {
       feedRef.current.scrollTop = feedRef.current.scrollHeight;
     }
   }, [messages]);
+
+  // Persist the latest messages so reopening the room paints instantly.
+  useEffect(() => {
+    if (messages.length) writeCachedMessages(`room:${roomId}`, messages);
+  }, [messages, roomId]);
 
   // Poll top gifters every 30 seconds
   useEffect(() => {
@@ -1116,6 +1203,7 @@ export default function RoomPage() {
       const next = [...prev, msg];
       next.sort(sortByCreatedAtAsc);
       lastMessageIdRef.current = next[next.length - 1]?.id;
+      latestCreatedAtRef.current = next[next.length - 1]?.createdAt;
       return next;
     });
     if (
@@ -1145,7 +1233,13 @@ export default function RoomPage() {
   // newest-first, so we re-sort ascending before merging.
   const fetchMessages = useCallback(async () => {
     try {
-      const res = await fetch(`/api/rooms/${roomId}/messages`, { credentials: "include" });
+      // After the first load, request only messages newer than the latest one
+      // we have (delta fetch) — far cheaper than re-pulling the whole snapshot.
+      const after = latestCreatedAtRef.current;
+      const url = after
+        ? `/api/rooms/${roomId}/messages?after=${encodeURIComponent(after)}`
+        : `/api/rooms/${roomId}/messages`;
+      const res = await fetch(url, { credentials: "include" });
       if (!res.ok) return;
       const data = (await res.json()) as { items: Message[] };
       const items = (data.items ?? []).slice().sort(sortByCreatedAtAsc);
@@ -1157,22 +1251,53 @@ export default function RoomPage() {
     }
   }, [roomId, handleIncomingMessage]);
 
-  // Push-based realtime subscription (no-op when no provider is configured).
+  // Live presence + soft-cap admission. Heartbeat on mount and every 45s while
+  // viewing; Redis frees the slot automatically on close/idle. When the room is
+  // full and we are not admitted, we stop subscribing/polling so a full room
+  // never adds to realtime fan-out — that is the whole point of the cap.
+  const [presence, setPresence] = useState<{
+    admitted: boolean;
+    presentCount: number;
+    cap: number;
+  } | null>(null);
+  useEffect(() => {
+    if (!roomId || !room) return;
+    let cancelled = false;
+    const beat = async () => {
+      try {
+        const res = await fetch(`/api/rooms/${roomId}/presence`, {
+          method: "POST",
+          credentials: "include",
+        });
+        if (!res.ok || cancelled) return;
+        const d = (await res.json()) as { admitted: boolean; presentCount: number; cap: number };
+        if (!cancelled) setPresence(d);
+      } catch { /* non-fatal — Redis fails open server-side */ }
+    };
+    void beat();
+    const id = setInterval(() => void beat(), 45_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [roomId, room]);
+
+  const presenceAdmitted = presence?.admitted ?? true;
+  const roomFull = presence ? !presence.admitted : false;
+
+  // Push-based realtime subscription (no-op when no provider is configured or
+  // when the room is full and we were not admitted).
   const onRealtimeEvent = useCallback((event: string, data: unknown) => {
     if (event === "new_message") handleIncomingMessage(data as Message);
   }, [handleIncomingMessage]);
 
   const realtimeConnected = useRealtimeChannel(
-    REALTIME_PROVIDER ? `room:${roomId}:messages` : null,
+    REALTIME_PROVIDER && presenceAdmitted ? `room:${roomId}:messages` : null,
     onRealtimeEvent
   );
 
   // Baseline poll — fast (3s) when the realtime socket is down or no provider
   // is configured; slow reconcile (30s) when it is connected; paused while the
-  // tab is hidden. This keeps serverless invocations low on constrained hosting
-  // while still guaranteeing delivery. Dedup in handleIncomingMessage makes the
-  // overlapping realtime + poll paths safe.
-  useAdaptiveChatPoll({ poll: fetchMessages, connected: realtimeConnected });
+  // tab is hidden. Disabled when the room is full (not admitted). Dedup in
+  // handleIncomingMessage makes the overlapping realtime + poll paths safe.
+  useAdaptiveChatPoll({ poll: fetchMessages, connected: realtimeConnected, enabled: presenceAdmitted });
 
   // Clear the spectacle timer on unmount.
   useEffect(() => {
@@ -1313,7 +1438,7 @@ export default function RoomPage() {
               </span>
             </div>
             <p className="truncate text-xs text-neutral-500">{(room.memberCount ?? 0).toLocaleString()} members</p>
-            <LiveRoomPulseBar roomId={room.id} initialActiveCount={0} initialMaxCapacity={room.memberCount || 10000} className="mt-1" />
+            <LiveRoomPulseBar roomId={room.id} initialActiveCount={presence?.presentCount ?? 0} initialMaxCapacity={presence?.cap ?? (room.memberCount || 30)} className="mt-1" />
           </div>
           {/* Top gifter display — PRD §12 */}
           {topGifter && (
@@ -1326,6 +1451,15 @@ export default function RoomPage() {
           )}
           <Link href="/rooms" className="text-xs text-blue-600 hover:underline dark:text-blue-400">← Rooms</Link>
         </div>
+
+        {/* Room full (soft cap) banner */}
+        {roomFull && (
+          <div className="border-b border-amber-200 bg-amber-50 px-4 py-2.5 text-center dark:border-amber-800 dark:bg-amber-950/30">
+            <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">
+              {t("room.full")}
+            </p>
+          </div>
+        )}
 
         {/* Tipping room banner */}
         {room.type === "tipping" && (
@@ -1381,7 +1515,7 @@ export default function RoomPage() {
               input={input}
               setInput={setInput}
               sending={sending}
-              canAccess={canAccess}
+              canAccess={canAccess && presenceAdmitted}
               currentUserId={currentUserId}
               isMoment={isMoment}
               onMomentToggle={() => setIsMoment((v) => !v)}
@@ -1447,6 +1581,11 @@ export default function RoomPage() {
         {/* Creator Gift Spectacle Threshold (PRD §12) — visible to room creator only */}
         {currentUserId && room.creatorId === currentUserId && (
           <SpectacleThresholdPanel roomId={roomId} initialThreshold={room.minGiftSpectacleCoin ?? null} />
+        )}
+
+        {/* Room capacity upgrade (paid) — visible to room creator only */}
+        {currentUserId && room.creatorId === currentUserId && (
+          <RoomCapacityPanel roomId={roomId} />
         )}
 
         {/* ClassRoom Curriculum (PRD §10) */}

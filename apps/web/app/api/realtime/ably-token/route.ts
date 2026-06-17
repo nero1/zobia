@@ -26,10 +26,17 @@ const DM_CHANNEL_RE =
   /^dm:conversation:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
 const ROOM_CHANNEL_RE =
   /^room:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(:[a-z_]+)?$/;
+const GROUP_CHANNEL_RE =
+  /^group:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(:[a-z_]+)?$/;
 
 export async function GET(req: NextRequest) {
-  // 1. Authenticate
-  const token = req.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
+  // 1. Authenticate — accept the access-token cookie (web) OR a Bearer token
+  //    (mobile/Expo, whose SDK calls this via an authCallback using the axios
+  //    Authorization header rather than cookies).
+  const bearer = req.headers.get("authorization");
+  const token =
+    req.cookies.get(ACCESS_TOKEN_COOKIE)?.value ??
+    (bearer?.toLowerCase().startsWith("bearer ") ? bearer.slice(7).trim() : undefined);
   if (!token) {
     return new Response("Unauthorized", { status: 401 });
   }
@@ -50,8 +57,9 @@ export async function GET(req: NextRequest) {
 
   const dmMatch = DM_CHANNEL_RE.exec(channel);
   const roomMatch = ROOM_CHANNEL_RE.exec(channel);
+  const groupMatch = GROUP_CHANNEL_RE.exec(channel);
 
-  if (!dmMatch && !roomMatch) {
+  if (!dmMatch && !roomMatch && !groupMatch) {
     return new Response("Unsupported channel format", { status: 400 });
   }
 
@@ -83,6 +91,17 @@ export async function GET(req: NextRequest) {
               ))
        LIMIT 1`,
       [roomId, userId]
+    );
+    if (!rows[0]) {
+      return new Response("Forbidden", { status: 403 });
+    }
+  } else if (groupMatch) {
+    const groupId = groupMatch[1];
+    const { rows } = await db.query<{ id: string }>(
+      `SELECT id FROM group_chat_members
+       WHERE group_chat_id = $1 AND user_id = $2
+       LIMIT 1`,
+      [groupId, userId]
     );
     if (!rows[0]) {
       return new Response("Forbidden", { status: 403 });
