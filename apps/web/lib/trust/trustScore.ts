@@ -156,7 +156,7 @@ export async function calculateTrustScore(
     `SELECT
        EXTRACT(DAY FROM (NOW() - u.created_at))::int::text  AS account_age_days,
        (SELECT COUNT(*)::text FROM reports WHERE reported_user_id = u.id) AS report_count,
-       (SELECT COUNT(*)::text FROM moderation_actions WHERE target_user_id = u.id AND action_type = 'warning') AS warning_count,
+       (SELECT COUNT(*)::text FROM moderation_actions WHERE target_user_id = u.id AND action_type = 'warn') AS warning_count,
        u.is_banned,
        u.is_verified,
        (
