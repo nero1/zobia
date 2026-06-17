@@ -25,7 +25,7 @@ import { db } from "@/lib/db";
 const DM_CHANNEL_RE =
   /^dm:conversation:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
 const ROOM_CHANNEL_RE =
-  /^room:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+  /^room:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(:[a-z_]+)?$/;
 
 export async function GET(req: NextRequest) {
   // 1. Authenticate
