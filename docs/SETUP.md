@@ -288,6 +288,10 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 
 Zobia uses a **provider-native** realtime architecture. The server makes a fast, stateless HTTP call to the configured provider's REST API after saving each message. The provider (Ably / Pusher / Supabase Realtime) is responsible for maintaining persistent WebSocket connections to browser and mobile clients. No Redis Pub/Sub is involved in realtime delivery.
 
+**Mobile (Expo):** set `EXPO_PUBLIC_REALTIME_PROVIDER=ably` to enable WebSocket push in the app (only Ably is wired client-side today; unset = adaptive poll only). The app authorizes Ably via `GET /api/realtime/ably-token` using its Bearer JWT (an `authCallback`, not a cookie), so that endpoint accepts both cookie and `Authorization: Bearer` auth and grants subscribe-only capability on `dm:*`, `room:*`, and `group:*` channels.
+
+**Room capacity & push (v1.7) manifest keys** (admin-editable at `/admin/config`, all integers): `room_free_open_cap` (30), `room_tipping_cap` (30), `room_vip_cap` (200), `room_drop_cap` (100), `room_classroom_cap` (150), `room_guild_cap` (100), `room_capacity_upgrade_step` (25), `room_capacity_upgrade_cost` (500 Credits), `room_capacity_hard_max` (1000). Per-category push toggles live on `users` (`dm_notifications`, `group_notifications`, `room_mention_notifications`); migrations `0008_room_capacity_caps.sql` and `0009_push_preferences.sql` seed/add these. Room presence and the online check reuse Redis — no extra service.
+
 ### Architecture
 
 ```

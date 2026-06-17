@@ -467,7 +467,8 @@ export type CoinTransactionType =
   | 'room_promotion'
   | 'season_milestone'
   | 'season_pass_gift'
-  | 'sticker_pack';
+  | 'sticker_pack'
+  | 'room_capacity_upgrade';
 
 export interface CoinLedgerEntry {
   id: string;

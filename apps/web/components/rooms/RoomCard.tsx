@@ -12,6 +12,7 @@
  */
 
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 import { RoomPulseBar } from "@/components/ui/RoomPulseBar";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 
@@ -35,6 +36,8 @@ export interface RoomCardData {
   isJoined: boolean;
   entryFee?: number;
   subscriptionPrice?: number;
+  /** Live presence has reached the room's soft cap. */
+  isFull?: boolean;
 }
 
 interface RoomCardProps {
@@ -68,6 +71,7 @@ const TYPE_BADGE: Record<RoomType, { label: string; classes: string }> = {
 export function RoomCard({ room, onJoin, joining }: RoomCardProps) {
   const { label, classes } = TYPE_BADGE[room.type];
   const currency = useCurrency();
+  const { t } = useTranslation();
 
   return (
     <div className="flex flex-col overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
@@ -91,7 +95,14 @@ export function RoomCard({ room, onJoin, joining }: RoomCardProps) {
           <Link href={`/rooms/${room.id}`} className="min-w-0 flex-1 hover:underline">
             <h3 className="truncate text-sm font-bold text-neutral-900 dark:text-neutral-100">{room.name}</h3>
           </Link>
-          <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${classes}`}>{label}</span>
+          <div className="flex shrink-0 items-center gap-1">
+            {room.isFull && (
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+                {t("room.fullBadge")}
+              </span>
+            )}
+            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${classes}`}>{label}</span>
+          </div>
         </div>
 
         <p className="mb-2 line-clamp-2 text-xs text-neutral-500">{room.description || "No description."}</p>

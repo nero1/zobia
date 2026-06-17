@@ -14,6 +14,7 @@ import { useTranslation } from "react-i18next";
 import { getPidginSuggestions, isPidginLocale } from "@/lib/i18n/pidgin";
 import { useRealtimeChannel } from "@/lib/realtime/useRealtimeChannel";
 import { useAdaptiveChatPoll } from "@/lib/hooks/useAdaptiveChatPoll";
+import { readCachedMessages, writeCachedMessages } from "@/lib/chat/messageCache";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 
@@ -566,9 +567,13 @@ export default function DMConversationPage() {
   const { t } = useTranslation();
 
   const [conversation, setConversation] = useState<ConversationInfo | null>(null);
-  const [messages, setMessages] = useState<DMMessage[]>([]);
+  const [messages, setMessages] = useState<DMMessage[]>(
+    () => readCachedMessages<DMMessage>(`dm:${conversationId}`) ?? []
+  );
   const [loadingConversation, setLoadingConversation] = useState(true);
-  const [loadingMessages, setLoadingMessages] = useState(true);
+  const [loadingMessages, setLoadingMessages] = useState(
+    () => (readCachedMessages<DMMessage>(`dm:${conversationId}`)?.length ?? 0) === 0
+  );
   const [error, setError] = useState<string | null>(null);
   const [coinError, setCoinError] = useState<{ message: string; balance?: number; required?: number } | null>(null);
   const [input, setInput] = useState("");
@@ -599,6 +604,11 @@ export default function DMConversationPage() {
       feedRef.current.scrollTop = feedRef.current.scrollHeight;
     }
   }, [messages]);
+
+  // Persist latest messages for instant first paint on reopen.
+  useEffect(() => {
+    if (messages.length) writeCachedMessages(`dm:${conversationId}`, messages);
+  }, [messages, conversationId]);
 
   useEffect(() => {
     fetch("/api/me", { credentials: "include" })

@@ -24,6 +24,7 @@ import { applyAutoModeration } from "@/lib/moderation/contentFilter";
 import { updateConversationScore } from "@/lib/messaging/conversationScore";
 import { debitCoins } from "@/lib/economy/coins";
 import { publishRealtimeEvent } from "@/lib/realtime";
+import { notifyDirectMessage } from "@/lib/notifications/chatPush";
 import { calculateFinalXP, PLAN_XP_MULTIPLIERS_BP } from "@/lib/xp/engine";
 import type { Plan } from "@zobia/types";
 
@@ -550,6 +551,14 @@ export const POST = withAuth(
         "new_message",
         { message: enrichedMessage }
       ).catch(() => {});
+
+      // 12. Push notification — only if the recipient is not currently online.
+      void notifyDirectMessage({
+        recipientId,
+        senderName: sender.display_name ?? sender.username,
+        text: finalContent,
+        conversationId,
+      });
 
       return NextResponse.json({ message: enrichedMessage }, { status: 201 });
     } catch (err) {

@@ -14,6 +14,9 @@ import { db } from "@/lib/db";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { getRoomPresenceCount } from "@/lib/presence/room";
+import { loadManifest } from "@/lib/manifest";
+import { resolveRoomCap } from "@/lib/rooms/capacity";
 
 // ---------------------------------------------------------------------------
 // DB row types
@@ -22,6 +25,7 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 interface RoomPulseRow {
   member_count: number;
   max_members: number | null;
+  type: string;
   is_active: boolean;
 }
 
@@ -42,7 +46,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     if (!roomId || roomId === "undefined") throw notFound("Room not found");
 
     const { rows: roomRows } = await db.query<RoomPulseRow>(
-      `SELECT member_count, max_members, is_active
+      `SELECT member_count, max_members, type, is_active
        FROM rooms WHERE id = $1`,
       [roomId]
     );
@@ -59,11 +63,18 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       [roomId]
     );
 
+    // Prefer the live presence count (who is viewing right now); fall back to the
+    // denormalised membership count when presence is empty/unavailable.
+    const manifest = await loadManifest();
+    const cap = resolveRoomCap(room.type, room.max_members, manifest);
+    const presentCount = await getRoomPresenceCount(roomId);
+
     return NextResponse.json(
       {
         roomId,
-        activeCount: room.member_count,
-        maxCapacity: room.max_members ?? 10000,
+        activeCount: presentCount > 0 ? presentCount : room.member_count,
+        presentCount,
+        maxCapacity: cap,
         messagesLastHour: msgRows[0]?.count ?? 0,
       },
       { status: 200 }

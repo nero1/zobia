@@ -15,6 +15,7 @@ import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { useRealtimeChannel } from "@/lib/realtime/useRealtimeChannel";
 import { useAdaptiveChatPoll } from "@/lib/hooks/useAdaptiveChatPoll";
+import { readCachedMessages, writeCachedMessages } from "@/lib/chat/messageCache";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -134,9 +135,13 @@ export default function GroupConversationPage() {
   const { t } = useTranslation();
 
   const [group, setGroup] = useState<GroupInfo | null>(null);
-  const [messages, setMessages] = useState<GroupMessage[]>([]);
+  const [messages, setMessages] = useState<GroupMessage[]>(
+    () => readCachedMessages<GroupMessage>(`group:${groupId}`) ?? []
+  );
   const [loadingGroup, setLoadingGroup] = useState(true);
-  const [loadingMessages, setLoadingMessages] = useState(true);
+  const [loadingMessages, setLoadingMessages] = useState(
+    () => (readCachedMessages<GroupMessage>(`group:${groupId}`)?.length ?? 0) === 0
+  );
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -151,6 +156,11 @@ export default function GroupConversationPage() {
       feedRef.current.scrollTop = feedRef.current.scrollHeight;
     }
   }, [messages]);
+
+  // Persist latest messages for instant first paint on reopen.
+  useEffect(() => {
+    if (messages.length) writeCachedMessages(`group:${groupId}`, messages);
+  }, [messages, groupId]);
 
   // Fetch current user ID
   useEffect(() => {

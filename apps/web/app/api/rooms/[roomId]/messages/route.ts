@@ -33,6 +33,7 @@ import { applyAutoModeration } from "@/lib/moderation/contentFilter";
 import { XP_VALUES, ROOM_MESSAGE_XP_DAILY_CAP, calculateFinalXP, PLAN_XP_MULTIPLIERS_BP } from "@/lib/xp/engine";
 import type { Plan } from "@zobia/types";
 import { publishRealtimeEvent } from "@/lib/realtime";
+import { notifyRoomMentions, parseMentions } from "@/lib/notifications/chatPush";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -650,6 +651,30 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // Publish to realtime provider (non-blocking — never delays the HTTP response)
     if (senderStatus && !requiresApproval) {
       void publishRealtimeEvent(`room:${roomId}:messages`, "new_message", clientMessage);
+
+      // Push notifications for rooms are @mention-only (never the whole room) to
+      // avoid spamming large rooms. Resolve mentioned usernames to room members.
+      void (async () => {
+        const usernames = parseMentions(content);
+        if (usernames.length === 0) return;
+        const [{ rows: roomRows }, { rows: mentionRows }] = await Promise.all([
+          db.query<{ name: string }>(`SELECT name FROM rooms WHERE id = $1`, [roomId]),
+          db.query<{ id: string }>(
+            `SELECT u.id FROM users u
+             JOIN room_members rm
+               ON rm.user_id = u.id AND rm.room_id = $1 AND rm.left_at IS NULL
+             WHERE LOWER(u.username) = ANY($2) AND u.id <> $3`,
+            [roomId, usernames, userId],
+          ),
+        ]);
+        await notifyRoomMentions({
+          mentionedUserIds: mentionRows.map((r) => r.id),
+          senderName: senderStatus.username || "Someone",
+          roomName: roomRows[0]?.name ?? "Room",
+          text: content,
+          roomId,
+        });
+      })();
     }
 
     return NextResponse.json({ message: clientMessage }, { status: 201 });

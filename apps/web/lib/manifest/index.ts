@@ -88,6 +88,29 @@ export interface ZobiaManifest {
   seasonPassPriceCoins: number;
   vipRoomMinPriceKobo: number;
   vipRoomMaxPriceKobo: number;
+  /**
+   * Soft concurrent-participant caps per room type. Enforced against LIVE
+   * presence (who is viewing now), not DB membership — so rooms free up
+   * automatically. A room's own `max_members` (if set) overrides its type cap.
+   * Capping fan-out is the single biggest lever on realtime cost.
+   */
+  roomCaps: {
+    free_open: number;
+    tipping: number;
+    vip: number;
+    drop: number;
+    classroom: number;
+    guild: number;
+  };
+  /** Paid capacity upgrade — a room owner spends coins to raise their cap. */
+  roomCapacityUpgrade: {
+    /** Slots added per purchased step. */
+    stepSlots: number;
+    /** Coin cost per step. */
+    costCoinsPerStep: number;
+    /** Absolute ceiling a room's cap can be raised to. */
+    hardMax: number;
+  };
   deepLinkBaseUrl: string;
   updatedAt?: number;
   // Payment
@@ -179,6 +202,19 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
   seasonPassPriceCoins: 500,
   vipRoomMinPriceKobo: 20000,
   vipRoomMaxPriceKobo: 1000000,
+  roomCaps: {
+    free_open: 30,
+    tipping: 30,
+    vip: 200,
+    drop: 100,
+    classroom: 150,
+    guild: 100,
+  },
+  roomCapacityUpgrade: {
+    stepSlots: 25,
+    costCoinsPerStep: 500,
+    hardMax: 1000,
+  },
   deepLinkBaseUrl: "https://zobia.app",
   payment: {
     primaryProvider: "paystack",
@@ -321,6 +357,19 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
     seasonPassPriceCoins:    parseInt10(kv["season_pass_price_coins"],   DEFAULT_MANIFEST.seasonPassPriceCoins),
     vipRoomMinPriceKobo:     parseInt10(kv["vip_room_min_price_kobo"],   DEFAULT_MANIFEST.vipRoomMinPriceKobo),
     vipRoomMaxPriceKobo:     parseInt10(kv["vip_room_max_price_kobo"],   DEFAULT_MANIFEST.vipRoomMaxPriceKobo),
+    roomCaps: {
+      free_open: parseInt10(kv["room_free_open_cap"], DEFAULT_MANIFEST.roomCaps.free_open),
+      tipping:   parseInt10(kv["room_tipping_cap"],   DEFAULT_MANIFEST.roomCaps.tipping),
+      vip:       parseInt10(kv["room_vip_cap"],       DEFAULT_MANIFEST.roomCaps.vip),
+      drop:      parseInt10(kv["room_drop_cap"],      DEFAULT_MANIFEST.roomCaps.drop),
+      classroom: parseInt10(kv["room_classroom_cap"], DEFAULT_MANIFEST.roomCaps.classroom),
+      guild:     parseInt10(kv["room_guild_cap"],     DEFAULT_MANIFEST.roomCaps.guild),
+    },
+    roomCapacityUpgrade: {
+      stepSlots:        parseInt10(kv["room_capacity_upgrade_step"],     DEFAULT_MANIFEST.roomCapacityUpgrade.stepSlots),
+      costCoinsPerStep: parseInt10(kv["room_capacity_upgrade_cost"],     DEFAULT_MANIFEST.roomCapacityUpgrade.costCoinsPerStep),
+      hardMax:          parseInt10(kv["room_capacity_hard_max"],         DEFAULT_MANIFEST.roomCapacityUpgrade.hardMax),
+    },
     deepLinkBaseUrl: kv["deep_link_base_url"] ?? DEFAULT_MANIFEST.deepLinkBaseUrl,
     payment: {
       primaryProvider,

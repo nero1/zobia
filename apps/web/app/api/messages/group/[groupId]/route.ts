@@ -24,6 +24,7 @@ import { safeAwardXP } from '@/lib/xp/safeAwardXP';
 import { enforceRateLimit, RATE_LIMITS } from '@/lib/security/rateLimit';
 import { recordWarContribution } from '@/lib/guilds/recordWarContribution';
 import { publishRealtimeEvent } from '@/lib/realtime';
+import { notifyGroupMessage } from '@/lib/notifications/chatPush';
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -264,6 +265,25 @@ export const POST = withAuth(async (
   // Realtime broadcast — push to open clients so group members see new messages
   // instantly (the 3s poll remains the guaranteed-delivery fallback).
   void publishRealtimeEvent(`group:${groupId}:messages`, 'new_message', { message });
+
+  // Push notification to offline members (excludes the sender + online users).
+  void (async () => {
+    const [{ rows: groupRows }, { rows: memberIdRows }] = await Promise.all([
+      db.query<{ name: string }>('SELECT name FROM group_chats WHERE id = $1', [groupId]),
+      db.query<{ user_id: string }>(
+        'SELECT user_id FROM group_chat_members WHERE group_chat_id = $1',
+        [groupId],
+      ),
+    ]);
+    await notifyGroupMessage({
+      memberIds: memberIdRows.map((r) => r.user_id),
+      senderId: userId,
+      senderName: enriched.display_name || enriched.username || 'Someone',
+      groupName: groupRows[0]?.name ?? 'Group',
+      text: content,
+      groupId,
+    });
+  })();
 
   return NextResponse.json({ data: message }, { status: 201 });
 });

@@ -27,6 +27,8 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 const settingsSchema = z.object({
   // Push notification toggles
   dm_notifications:      z.boolean().optional(),
+  group_notifications:   z.boolean().optional(),
+  room_mention_notifications: z.boolean().optional(),
   guild_notifications:   z.boolean().optional(),
   streak_notifications:  z.boolean().optional(),
   notify_new_message:    z.boolean().optional(),
@@ -51,6 +53,8 @@ const settingsSchema = z.object({
 
 interface SettingsRow {
   dm_notifications:      boolean;
+  group_notifications:   boolean;
+  room_mention_notifications: boolean;
   guild_notifications:   boolean;
   streak_notifications:  boolean;
   notify_new_message:    boolean;
@@ -76,6 +80,8 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
 
     const { rows } = await db.query<SettingsRow>(
       `SELECT dm_notifications,
+              COALESCE(group_notifications, true)        AS group_notifications,
+              COALESCE(room_mention_notifications, true) AS room_mention_notifications,
               guild_notifications,
               streak_notifications,
               COALESCE(notify_new_message, true)    AS notify_new_message,
@@ -103,6 +109,8 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
         notifications: {
           push: {
             dmMessages:     rows[0].dm_notifications,
+            groupMessages:  rows[0].group_notifications,
+            roomMentions:   rows[0].room_mention_notifications,
             guildActivity:  rows[0].guild_notifications,
             streakAlert:    rows[0].streak_notifications,
             newMessage:     rows[0].notify_new_message,
@@ -144,7 +152,8 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
     let idx = 1;
 
     const boolFields: (keyof typeof body)[] = [
-      "dm_notifications", "guild_notifications", "streak_notifications",
+      "dm_notifications", "group_notifications", "room_mention_notifications",
+      "guild_notifications", "streak_notifications",
       "notify_new_message", "notify_friend_request", "notify_gift_received",
       "notify_rank_up", "notify_war_start", "notify_season_end", "notify_announcement",
       "email_all_enabled", "email_non_critical",

@@ -169,10 +169,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       throw conflict("You are already a member of this room");
     }
 
-    // Capacity check (free_open cap = 10,000)
-    if (room.max_members !== null && room.member_count >= room.max_members) {
-      throw conflict("This room has reached its member limit");
-    }
+    // NOTE: room capacity is a *concurrent* (live presence) cap, not a membership
+    // cap — membership persists ("you can return"), so it must not block joins.
+    // The soft cap is enforced at view time via POST /api/rooms/:id/presence.
 
     switch (room.type) {
       // -----------------------------------------------------------------------

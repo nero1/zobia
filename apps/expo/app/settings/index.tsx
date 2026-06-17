@@ -158,6 +158,60 @@ function ToggleRow({ label, description, value, onChange }: ToggleRowProps) {
   );
 }
 
+/**
+ * Chat push toggles — independently mute pushes for DMs, group messages, and
+ * room @mentions. Self-contained (own fetch + patch) so it reflects the exact
+ * server contract regardless of the broader settings mapping.
+ */
+function ChatPushToggles() {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const { data } = useQuery({
+    queryKey: ['chat-push-prefs'],
+    queryFn: async () => {
+      const res = await apiClient.get('/users/me/settings');
+      const push = res.data?.data?.notifications?.push ?? {};
+      return {
+        dm: push.dmMessages ?? true,
+        group: push.groupMessages ?? true,
+        roomMention: push.roomMentions ?? true,
+      };
+    },
+  });
+  const [local, setLocal] = useState<{ dm: boolean; group: boolean; roomMention: boolean } | null>(null);
+  const value = local ?? data ?? { dm: true, group: true, roomMention: true };
+  const mut = useMutation({
+    mutationFn: (patch: Record<string, boolean>) => apiClient.patch('/users/me/settings', patch),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['chat-push-prefs'] }),
+  });
+  const toggle = (k: 'dm' | 'group' | 'roomMention', column: string, v: boolean) => {
+    setLocal({ ...value, [k]: v });
+    mut.mutate({ [column]: v });
+  };
+  return (
+    <>
+      <ToggleRow
+        label={t('settings.push.dms')}
+        description={t('settings.push.dmsDesc')}
+        value={value.dm}
+        onChange={(v) => toggle('dm', 'dm_notifications', v)}
+      />
+      <ToggleRow
+        label={t('settings.push.groups')}
+        description={t('settings.push.groupsDesc')}
+        value={value.group}
+        onChange={(v) => toggle('group', 'group_notifications', v)}
+      />
+      <ToggleRow
+        label={t('settings.push.roomMentions')}
+        description={t('settings.push.roomMentionsDesc')}
+        value={value.roomMention}
+        onChange={(v) => toggle('roomMention', 'room_mention_notifications', v)}
+      />
+    </>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Skeleton
 // ---------------------------------------------------------------------------
@@ -881,6 +935,7 @@ export default function SettingsScreen() {
       {/* Notifications */}
       <SectionHeader title="NOTIFICATIONS" />
       <View style={[styles.card, { backgroundColor: themeColors.surface }]}>
+        <ChatPushToggles />
         {NOTIFICATION_TYPES.map(({ key, label, description }) => (
           <ToggleRow
             key={key}

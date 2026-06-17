@@ -48,6 +48,8 @@ import { apiClient } from '@/lib/api/client';
 import { useCurrency } from '@/lib/hooks/useCurrency';
 import { useAuth } from '@/lib/auth/hooks';
 import { translateApiError } from '@/lib/i18n/apiErrors';
+import { useRealtimeChannel } from '@/lib/realtime/useRealtimeChannel';
+import { readCachedMessages, writeCachedMessages } from '@/lib/chat/messageCache';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -381,6 +383,8 @@ export default function RoomScreen() {
   const [gifPickerVisible, setGifPickerVisible] = useState(false);
   // VIP subscribe state
   const [subscribing, setSubscribing] = useState(false);
+  // Live presence / soft-cap admission
+  const [roomFull, setRoomFull] = useState(false);
 
   // Fetch room meta
   const { data: room, isLoading: roomLoading } = useQuery({
@@ -389,14 +393,37 @@ export default function RoomScreen() {
     enabled: !!roomId,
   });
 
-  // Poll messages every 2 seconds; detect new high-value gift messages for spectacle
+  // Realtime push — when connected, new messages arrive instantly over the
+  // socket and we merge them into the query cache, so the poll can back off.
+  const realtimeConnected = useRealtimeChannel(
+    roomId && !roomFull ? `room:${roomId}:messages` : null,
+    useCallback((event: string, data: unknown) => {
+      if (event !== 'new_message') return;
+      const incoming = mapApiMessage((data as Record<string, unknown>) ?? {});
+      if (!incoming.id) return;
+      queryClient.setQueryData<Message[]>(['room-messages', roomId], (prev: Message[] | undefined) => {
+        const list = prev ?? [];
+        if (list.some((m: Message) => m.id === incoming.id)) return list;
+        // FlatList is inverted (newest at index 0) — prepend.
+        return [incoming, ...list];
+      });
+    }, [roomId, queryClient]),
+  );
+
+  // Poll messages: fast (2s) when realtime is down, slow reconcile (30s) when
+  // connected. AppState wiring (lib/api/client.ts) pauses this while backgrounded
+  // and refetches on foreground. Detect new high-value gift messages for spectacle.
   const prevMessageIdsRef = useRef<Set<string>>(new Set());
   const { data: messages = [], isLoading: messagesLoading } = useQuery({
     queryKey: ['room-messages', roomId],
     queryFn: () => fetchMessages(roomId!),
     enabled: !!roomId,
-    refetchInterval: 2_000,
+    refetchInterval: realtimeConnected ? 30_000 : 2_000,
+    refetchOnWindowFocus: true,
     placeholderData: (prev) => prev,
+    // Instant first paint from the persisted cache; refetch immediately (stale).
+    initialData: () => (roomId ? readCachedMessages<Message>(`room:${roomId}`) ?? undefined : undefined),
+    initialDataUpdatedAt: 0,
     select: (data) => {
       // Detect newly arrived gift messages above spectacle threshold
       const minThreshold = room?.minGiftSpectacleCoin ?? 50;
@@ -430,6 +457,28 @@ export default function RoomScreen() {
     enabled: !!roomId,
     refetchInterval: 30_000,
   });
+
+  // Live presence heartbeat + soft-cap admission. Beats on mount and every 45s;
+  // Redis frees the slot automatically on close/idle. When not admitted (room
+  // full) we surface a banner and stop subscribing to realtime.
+  useEffect(() => {
+    if (!roomId) return;
+    let cancelled = false;
+    const beat = async () => {
+      try {
+        const { data } = await apiClient.post(`/rooms/${roomId}/presence`);
+        if (!cancelled) setRoomFull(!data?.admitted);
+      } catch { /* fails open server-side */ }
+    };
+    void beat();
+    const id = setInterval(() => void beat(), 45_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [roomId]);
+
+  // Persist latest messages for instant first paint on reopen.
+  useEffect(() => {
+    if (roomId && messages.length) writeCachedMessages(`room:${roomId}`, messages);
+  }, [messages, roomId]);
 
   // Update navigation header
   useEffect(() => {
@@ -731,6 +780,13 @@ export default function RoomScreen() {
           </View>
         )}
 
+        {/* Room full (soft cap) banner */}
+        {roomFull && (
+          <View style={styles.fullBanner}>
+            <Text style={styles.fullBannerText}>{t('room.full')}</Text>
+          </View>
+        )}
+
         {/* VIP overlay */}
         {isVIPLocked && (
           <VIPSubscribeOverlay onSubscribe={handleVIPSubscribe} />
@@ -806,7 +862,7 @@ export default function RoomScreen() {
             maxLength={500}
             returnKeyType="send"
             onSubmitEditing={handleSend}
-            editable={!isVIPLocked}
+            editable={!isVIPLocked && !roomFull}
           />
           {/* Zobia Moment button */}
           <Pressable
@@ -858,6 +914,26 @@ export default function RoomScreen() {
                     {
                       text: '👑 Highlight Member (200 🪙)',
                       onPress: () => setHighlightMode(true),
+                    },
+                    {
+                      text: `⬆️ ${t('room.increaseCapacity')}`,
+                      onPress: () => {
+                        apiClient
+                          .post(`/rooms/${roomId}/capacity`, { steps: 1 })
+                          .then((res) => {
+                            const cap = res.data?.data?.maxMembers;
+                            Alert.alert(
+                              t('room.capacityIncreased'),
+                              cap ? t('room.capacityIncreasedTo', { n: cap }) : t('room.capacityIncreasedGeneric'),
+                            );
+                            queryClient.invalidateQueries({ queryKey: ['room', roomId] });
+                          })
+                          .catch((e: AxiosError<{ error?: { code?: string; message?: string } }>) => {
+                            const code = e.response?.data?.error?.code ?? null;
+                            const message = e.response?.data?.error?.message ?? e.message;
+                            Alert.alert('Error', translateApiError(t, code, message));
+                          });
+                      },
                     },
                     { text: 'Cancel', style: 'cancel' },
                   ]
@@ -942,6 +1018,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.brand.blue,
     fontWeight: '600' as const,
+  },
+
+  fullBanner: {
+    backgroundColor: `${colors.semantic.warning}22`,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    alignItems: 'center' as const,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.semantic.warning,
+  },
+  fullBannerText: {
+    fontSize: 12,
+    color: colors.semantic.warning,
+    fontWeight: '600' as const,
+    textAlign: 'center' as const,
   },
 
   entryFee: {
