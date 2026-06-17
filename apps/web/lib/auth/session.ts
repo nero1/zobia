@@ -19,12 +19,10 @@ import {
   signAccessToken,
   signRefreshToken,
   verifyRefreshToken,
-  ACCESS_TOKEN_TTL_SECONDS,
   REFRESH_TOKEN_TTL_SECONDS,
-  ADMIN_ACCESS_TOKEN_TTL_SECONDS,
-  ADMIN_REFRESH_TOKEN_TTL_SECONDS,
   type AccessTokenPayload,
 } from "./jwt";
+import { loadManifest } from "@/lib/manifest";
 import { randomUUID, createHash } from "crypto";
 
 // ---------------------------------------------------------------------------
@@ -39,6 +37,8 @@ export interface SessionRecord {
   username: string;
   is_admin: boolean;
   adminSession?: boolean;
+  is_moderator?: boolean;
+  is_creator?: boolean;
   created_at: string;  // ISO-8601
   /** IP address at login time (for audit). */
   ip?: string;
@@ -84,12 +84,18 @@ export async function createSession(
     email: string | null;
     username: string;
     is_admin: boolean;
+    is_moderator?: boolean;
+    is_creator?: boolean;
   },
   options: { ip?: string; ua?: string; adminSession?: boolean } = {}
 ): Promise<AuthTokens> {
   const sid = randomUUID();
-  const accessTtl = options.adminSession ? ADMIN_ACCESS_TOKEN_TTL_SECONDS : ACCESS_TOKEN_TTL_SECONDS;
-  const refreshTtl = options.adminSession ? ADMIN_REFRESH_TOKEN_TTL_SECONDS : REFRESH_TOKEN_TTL_SECONDS;
+  const manifest = await loadManifest();
+  const ttlRole = (user.is_admin || options.adminSession) ? "admin"
+    : user.is_moderator ? "moderator"
+    : user.is_creator   ? "creator"
+    : "default";
+  const { accessTtl, refreshTtl } = manifest.sessionTtls[ttlRole];
 
   // Generate tokens first so we can hash the refresh token into the session record (ZB-24)
   const [accessToken, refreshToken] = await Promise.all([
@@ -110,6 +116,8 @@ export async function createSession(
     username: user.username,
     is_admin: user.is_admin,
     adminSession: options.adminSession,
+    is_moderator: user.is_moderator,
+    is_creator: user.is_creator,
     created_at: new Date().toISOString(),
     ip: options.ip,
     ua: options.ua,
@@ -168,7 +176,7 @@ export async function createSession(
  */
 export async function rotateSession(
   oldSid: string | null,
-  user: { id: string; email: string | null; username: string; is_admin: boolean },
+  user: { id: string; email: string | null; username: string; is_admin: boolean; is_moderator?: boolean; is_creator?: boolean },
   options: { ip?: string; ua?: string; adminSession?: boolean } = {}
 ): Promise<AuthTokens> {
   // Invalidate the old session before creating the new one
@@ -243,10 +251,12 @@ export async function refreshAccessToken(
     }
   }
 
-  // ZB-25: Use correct TTL for admin sessions
-  const isAdminSession = session.adminSession ?? session.is_admin;
-  const accessTtl = isAdminSession ? ADMIN_ACCESS_TOKEN_TTL_SECONDS : ACCESS_TOKEN_TTL_SECONDS;
-  const refreshTtl = isAdminSession ? ADMIN_REFRESH_TOKEN_TTL_SECONDS : REFRESH_TOKEN_TTL_SECONDS;
+  const manifest = await loadManifest();
+  const ttlRole = (session.adminSession ?? session.is_admin) ? "admin"
+    : session.is_moderator ? "moderator"
+    : session.is_creator   ? "creator"
+    : "default";
+  const { accessTtl, refreshTtl } = manifest.sessionTtls[ttlRole];
 
   // ZB-24: Rotate refresh token — issue a new one and update the session record
   const [accessToken, newRefreshToken] = await Promise.all([

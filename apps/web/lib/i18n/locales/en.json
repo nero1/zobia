@@ -34,6 +34,8 @@
   "auth.error.accountSuspended": "Your account has been suspended.",
   "auth.error.sessionExpired": "Your session expired. Please sign in again.",
   "auth.error.unexpected": "An unexpected error occurred. Please try again.",
+  "auth.sessionExpired.banner": "Your session has expired. Please sign in to continue.",
+  "auth.sessionExpired.title": "Session Expired",
   "auth.signInTagline": "Sign in to your account",
   "auth.registerTagline": "Create your free account",
   "auth.continueWithGoogle": "Continue with Google",

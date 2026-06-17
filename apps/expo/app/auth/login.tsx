@@ -48,7 +48,7 @@ const TELEGRAM_BOT = 'Zobia_bot_bot';
 
 export default function LoginScreen() {
   const { t } = useTranslation();
-  const { signIn } = useAuth();
+  const { signIn, sessionExpired, clearSessionExpired } = useAuth();
   const { isDark } = useTheme();
   const router = useRouter();
 
@@ -95,6 +95,7 @@ export default function LoginScreen() {
         };
 
       await signIn(accessToken, authUser, refreshToken);
+      clearSessionExpired();
       if (!onboardingCompleted) {
         router.replace('/onboarding');
       } else {
@@ -186,6 +187,7 @@ export default function LoginScreen() {
         if (data.status === 'approved' && data.token && data.user) {
           stopTelegramPoll();
           await signIn(data.token, data.user as AuthUser, data.refreshToken);
+          clearSessionExpired();
           router.replace('/(tabs)');
         } else if (data.status === 'expired' || attempts >= MAX_ATTEMPTS) {
           stopTelegramPoll();
@@ -219,6 +221,15 @@ export default function LoginScreen() {
 
   return (
     <Screen contentStyle={styles.content}>
+      {/* Session expired banner */}
+      {sessionExpired && (
+        <View style={[styles.expiredBanner, { backgroundColor: '#fffbeb', borderColor: '#fde68a', borderWidth: 1 }]}>
+          <Text style={[styles.expiredText, { color: '#92400e' }]}>
+            Your session has expired. Please sign in to continue.
+          </Text>
+        </View>
+      )}
+
       {/* Logo / wordmark area */}
       <View style={styles.hero}>
         <Text style={[styles.logo, { color: colors.brand.blue }]}>Z</Text>
@@ -329,5 +340,16 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     textDecorationLine: 'underline',
+  },
+  expiredBanner: {
+    borderRadius: 8,
+    marginBottom: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  expiredText: {
+    fontSize: 13,
+    textAlign: 'center',
+    fontWeight: '500',
   },
 });

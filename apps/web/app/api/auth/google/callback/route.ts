@@ -81,6 +81,7 @@ interface UserRow {
   is_email_verified: boolean | null;
   is_admin: boolean;
   is_moderator: boolean;
+  is_creator: boolean;
   is_banned: boolean;
   is_suspended: boolean;
   deleted_at: string | null;
@@ -147,7 +148,7 @@ async function upsertGoogleUser(profile: {
 }): Promise<UserRow> {
   // Check if a user with this Google ID already exists (including soft-deleted for reactivation)
   const existing = await db.query<UserRow>(
-    `SELECT id, email, username, google_id, is_email_verified, is_admin, is_moderator,
+    `SELECT id, email, username, google_id, is_email_verified, is_admin, is_moderator, is_creator,
             is_banned, is_suspended, deleted_at,
             totp_enabled, onboarding_completed, display_name, avatar_emoji, city, xp_total, rank_name
      FROM users
@@ -172,7 +173,7 @@ async function upsertGoogleUser(profile: {
 
   // Check if email is already associated with a different account (no google_id match)
   const emailMatch = await db.query<UserRow>(
-    `SELECT id, email, username, google_id, is_email_verified, is_admin, is_moderator,
+    `SELECT id, email, username, google_id, is_email_verified, is_admin, is_moderator, is_creator,
             is_banned, is_suspended, deleted_at,
             totp_enabled, onboarding_completed, display_name, avatar_emoji, city, xp_total, rank_name
      FROM users
@@ -225,7 +226,7 @@ async function upsertGoogleUser(profile: {
       const inserted = await db.query<UserRow>(
         `INSERT INTO users (google_id, email, username, display_name, avatar_url, onboarding_completed, is_admin, is_email_verified, created_at, updated_at)
          VALUES ($1, $2, $3, $4, $5, false, false, true, NOW(), NOW())
-         RETURNING id, email, username, google_id, is_email_verified, is_admin, is_moderator,
+         RETURNING id, email, username, google_id, is_email_verified, is_admin, is_moderator, is_creator,
                    is_banned, is_suspended, deleted_at,
                    totp_enabled, onboarding_completed,
                    display_name, avatar_emoji, city, xp_total, rank_name`,
@@ -281,6 +282,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       throw badRequest("Invalid redirect target.", "INVALID_REDIRECT");
     }
 
+    // Read the optional web redirect destination stored during auth initiation
+    const webRedirectRaw = req.cookies.get("zobia_web_redirect")?.value;
+    const webRedirect = webRedirectRaw ? decodeURIComponent(webRedirectRaw) : null;
+
     // Exchange code for tokens
     const tokens = await exchangeGoogleCode(code);
 
@@ -307,7 +312,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     const reqOrigin = new URL(req.url).origin;
     const clearMobileCookie = "zobia_mobile_redirect=; Max-Age=0; Path=/; HttpOnly";
-    const cookiesToClear = [clearCsrfCookie(), clearMobileCookie];
+    const clearWebRedirectCookie = "zobia_web_redirect=; Max-Age=0; Path=/; HttpOnly";
+    const cookiesToClear = [clearCsrfCookie(), clearMobileCookie, clearWebRedirectCookie];
 
     // -----------------------------------------------------------------
     // 2FA gate: if user has TOTP enabled, issue a pre-auth token
@@ -369,6 +375,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         email: user.email,
         username: user.username ?? "",
         is_admin: user.is_admin,
+        is_moderator: user.is_moderator,
+        is_creator: user.is_creator,
       },
       { ip }
     );
@@ -424,11 +432,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       ? redirectParam
       : null;
 
-    const destination = safeRedirect
-      ? new URL(safeRedirect, reqOrigin)
-      : user.onboarding_completed
-        ? new URL("/home", reqOrigin)
-        : new URL("/onboarding", reqOrigin);
+    // Web redirect cookie (set during /api/auth/google initiation) takes priority
+    // over the default /home destination so users land where they were going.
+    const destination = webRedirect && /^\/[^/]/.test(webRedirect)
+      ? new URL(webRedirect, reqOrigin)
+      : safeRedirect
+        ? new URL(safeRedirect, reqOrigin)
+        : user.onboarding_completed
+          ? new URL("/home", reqOrigin)
+          : new URL("/onboarding", reqOrigin);
 
     const response = NextResponse.redirect(destination, { status: 302 });
     for (const cookie of [accessCookie, refreshCookie, ...cookiesToClear]) {

@@ -90,9 +90,18 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     }
     const secure = process.env.NODE_ENV === "production";
     const cookieFlags = `HttpOnly; Path=/; SameSite=Lax; Max-Age=600${secure ? "; Secure" : ""}`;
-    const cookies = mobileRedirect
-      ? [`${csrfCookie}`, `zobia_mobile_redirect=${encodeURIComponent(mobileRedirect)}; ${cookieFlags}`]
-      : [csrfCookie];
+    const cookies: string[] = [csrfCookie];
+    if (mobileRedirect) {
+      cookies.push(`zobia_mobile_redirect=${encodeURIComponent(mobileRedirect)}; ${cookieFlags}`);
+    }
+
+    // For web clients that have a post-login redirect destination (e.g. after
+    // silent-refresh failure), store the target path in an HttpOnly cookie so
+    // the callback handler can redirect there instead of defaulting to /home.
+    const webRedirect = req.nextUrl.searchParams.get("web_redirect");
+    if (typeof webRedirect === "string" && /^\/[^/]/.test(webRedirect)) {
+      cookies.push(`zobia_web_redirect=${encodeURIComponent(webRedirect)}; ${cookieFlags}`);
+    }
 
     const response = NextResponse.json({ url }, { status: 200 });
     for (const cookie of cookies) {

@@ -10,7 +10,8 @@
  * Creator sees a settings panel if viewing their own store.
  */
 
-import { useState, useEffect, use } from "react";
+import { useState, useEffect } from "react";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { useCurrency } from "@/lib/hooks/useCurrency";
@@ -162,8 +163,8 @@ function ProductCard({ product, onBuy }: ProductCardProps) {
 /**
  * Individual creator merch store.
  */
-export default function CreatorMerchStorePage({ params }: { params: Promise<{ creatorId: string }> }) {
-  const { creatorId } = use(params);
+export default function CreatorMerchStorePage() {
+  const { creatorId } = useParams<{ creatorId: string }>();
   const { t } = useTranslation();
 
   const [store, setStore] = useState<MerchStore | null>(null);

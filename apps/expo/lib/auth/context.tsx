@@ -18,6 +18,7 @@ import React, {
   useState,
   type ReactNode,
 } from 'react';
+import { AppState } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { JWT_KEY, REFRESH_TOKEN_KEY, onUnauthenticated } from '@/lib/api/client';
 import { env } from '@/lib/env';
@@ -62,6 +63,10 @@ export interface AuthContextValue {
   user: AuthUser | null;
   token: string | null;
   isLoading: boolean;
+  /** True when the user's session expired and they were logged out automatically. */
+  sessionExpired: boolean;
+  /** Call this after the user has seen the session-expired message. */
+  clearSessionExpired: () => void;
   /**
    * Persist `jwt`, `refreshToken`, and `user`.
    * @param jwt          Raw access JWT string received from the Zobia API.
@@ -81,6 +86,8 @@ const AuthContext = createContext<AuthContextValue>({
   user: null,
   token: null,
   isLoading: true,
+  sessionExpired: false,
+  clearSessionExpired: () => {},
   signIn: async () => {},
   signOut: async () => {},
 });
@@ -100,6 +107,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   // Restore persisted session on app start.
   // If the stored access token is expired or expiring within 60 s, attempt a
@@ -160,11 +168,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Subscribe to unauthenticated events (triggered when token refresh fails).
   useEffect(() => {
     const unsubscribe = onUnauthenticated(() => {
+      setSessionExpired(true);
       setToken(null);
       setUser(null);
     });
     return unsubscribe;
   }, []);
+
+  // AppState foreground refresh: when the app becomes active and the stored
+  // token is expired or expiring within 60 s, attempt a silent refresh so the
+  // user doesn't get an auth error immediately after switching back to the app.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', async (status) => {
+      if (status !== 'active' || !token) return;
+      if (!isTokenExpiredOrExpiring(token)) return;
+
+      try {
+        const storedRefreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+        if (!storedRefreshToken) return;
+
+        const resp = await fetch(`${env.API_BASE_URL}/api/auth/refresh`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Refresh-Token': storedRefreshToken,
+            'Origin': env.API_BASE_URL,
+          },
+        });
+        if (!resp.ok) return;
+        const data = (await resp.json()) as { accessToken?: string; refreshToken?: string };
+        if (!data.accessToken) return;
+
+        await SecureStore.setItemAsync(JWT_KEY, data.accessToken);
+        if (data.refreshToken) {
+          await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, data.refreshToken);
+        }
+        setToken(data.accessToken);
+      } catch {
+        // Network failure on foreground — leave existing token, will fail on next API call
+      }
+    });
+    return () => sub.remove();
+  }, [token]);
 
   const signIn = useCallback(async (jwt: string, authUser: AuthUser, refreshToken?: string) => {
     const writes: Promise<void>[] = [
@@ -189,9 +234,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  const clearSessionExpired = useCallback(() => {
+    setSessionExpired(false);
+  }, []);
+
   const value = useMemo<AuthContextValue>(
-    () => ({ user, token, isLoading, signIn, signOut }),
-    [user, token, isLoading, signIn, signOut],
+    () => ({ user, token, isLoading, sessionExpired, clearSessionExpired, signIn, signOut }),
+    [user, token, isLoading, sessionExpired, clearSessionExpired, signIn, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
