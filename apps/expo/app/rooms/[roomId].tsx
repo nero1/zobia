@@ -46,6 +46,7 @@ import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
 import { useCurrency } from '@/lib/hooks/useCurrency';
+import { useAuth } from '@/lib/auth/hooks';
 import { translateApiError } from '@/lib/i18n/apiErrors';
 
 // ---------------------------------------------------------------------------
@@ -325,8 +326,6 @@ function GifPickerModal({
 // Main component
 // ---------------------------------------------------------------------------
 
-const CURRENT_USER_ID = 'me'; // replaced by auth context in production
-
 /**
  * RoomScreen — live chat room with messages, gifts, and XP.
  */
@@ -337,6 +336,8 @@ export default function RoomScreen() {
   const { colors: themeColors, isDark } = useTheme();
   const currency = useCurrency();
   const { t } = useTranslation();
+  const { user: authUser } = useAuth();
+  const currentUserId = authUser?.id ?? null;
 
   const [inputText, setInputText] = useState('');
   const [showGifters, setShowGifters] = useState(false);
@@ -426,12 +427,42 @@ export default function RoomScreen() {
 
   const sendMutation = useMutation({
     mutationFn: sendMessage,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['room-messages', roomId] });
+    onMutate: async ({ content, message_type }) => {
+      await queryClient.cancelQueries({ queryKey: ['room-messages', roomId] });
+      const previous = queryClient.getQueryData<Message[]>(['room-messages', roomId]) ?? [];
+      const optimistic: Message = {
+        id: `pending-${Date.now()}`,
+        content,
+        messageType: (message_type ?? 'text') as Message['messageType'],
+        senderUserId: currentUserId ?? 'me',
+        senderUsername: 'You',
+        senderDisplayName: 'You',
+        senderAvatarEmoji: '💬',
+        senderIsCreator: false,
+        reactions: [],
+        createdAt: new Date().toISOString(),
+      };
+      queryClient.setQueryData<Message[]>(['room-messages', roomId], [...previous, optimistic]);
       setInputText('');
       setIsMoment(false);
+      return { previous, optimisticId: optimistic.id };
+    },
+    onSuccess: (serverMessage, _, ctx) => {
+      // Replace the optimistic message with the server-confirmed one
+      queryClient.setQueryData<Message[]>(['room-messages', roomId], (prev) =>
+        (prev ?? []).map((m) => (m.id === ctx?.optimisticId ? (serverMessage ?? m) : m))
+      );
       setXpFlash(true);
       setTimeout(() => setXpFlash(false), 1_200);
+    },
+    onError: (_err, _vars, ctx) => {
+      // Roll back on error
+      if (ctx?.previous) {
+        queryClient.setQueryData(['room-messages', roomId], ctx.previous);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['room-messages', roomId] });
     },
   });
 
@@ -443,7 +474,7 @@ export default function RoomScreen() {
 
   const handleLongPress = useCallback((messageId: string) => {
     const msg = messages.find((m: Message) => m.id === messageId);
-    const isOwn = msg?.senderUserId === CURRENT_USER_ID;
+    const isOwn = msg?.senderUserId === currentUserId;
 
     const options: { text: string; onPress?: () => void; style?: 'cancel' | 'destructive' }[] = [
       {
@@ -586,7 +617,7 @@ export default function RoomScreen() {
             senderDisplayName={item.senderDisplayName}
             senderAvatarEmoji={item.senderAvatarEmoji}
             senderIsCreator={item.senderIsCreator}
-            isOwnMessage={item.senderUserId === CURRENT_USER_ID}
+            isOwnMessage={item.senderUserId === currentUserId}
             reactions={item.reactions}
             createdAt={item.createdAt}
             giftCoinValue={item.giftCoinValue}

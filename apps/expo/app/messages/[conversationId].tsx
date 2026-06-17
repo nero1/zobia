@@ -40,6 +40,7 @@ import { apiClient } from '@/lib/api/client';
 import { getPidginSuggestions } from '@/lib/i18n/pidgin';
 import { isPidginEnabled } from '@/lib/i18n/pidginEnabled';
 import { useCurrency } from '@/lib/hooks/useCurrency';
+import { useAuth } from '@/lib/auth/hooks';
 import { CHAT_THEMES } from '@/lib/theme/chatThemes';
 import { queueMessage } from '@/lib/offline/sqlite';
 import type { ChatTheme } from '@/lib/theme/chatThemes';
@@ -173,8 +174,6 @@ function ConvSkeleton() {
 // ---------------------------------------------------------------------------
 // Message bubble (DM variant)
 // ---------------------------------------------------------------------------
-
-const MY_USER_ID = 'me';
 
 interface DMBubbleProps {
   dm: DM;
@@ -482,6 +481,8 @@ export default function DMConversationScreen() {
   const queryClient = useQueryClient();
   const { colors: themeColors, isDark } = useTheme();
   const { i18n } = useTranslation();
+  const { user: authUser } = useAuth();
+  const myUserId = authUser?.id ?? 'me';
   const currency = useCurrency();
 
   const [inputText, setInputText] = useState('');
@@ -565,7 +566,7 @@ export default function DMConversationScreen() {
     mutationFn: ({ content, type }: { content: string; type: MessageType }) =>
       sendDM(conversationId!, content, type),
     onMutate: ({ content, type }) => {
-      const optimistic = makePendingMessage(content, MY_USER_ID, type);
+      const optimistic = makePendingMessage(content, myUserId, type);
       setPendingMessages((prev) => [optimistic, ...prev]);
       return { optimistic };
     },
@@ -625,13 +626,13 @@ export default function DMConversationScreen() {
     ({ item }: { item: DM }) => (
       <DMBubble
         dm={item}
-        isOwn={item.senderUserId === MY_USER_ID}
+        isOwn={item.senderUserId === myUserId}
         onLongPress={handleLongPress}
         bubbleOwnColor={chatTheme.bubbleOwn}
         bubbleOtherColor={chatTheme.bubbleOther}
       />
     ),
-    [handleLongPress, chatTheme],
+    [handleLongPress, chatTheme, myUserId],
   );
 
   return (

@@ -38,6 +38,10 @@ Multi-member messaging via `POST /api/messages/group/[groupId]`, stored in the `
 - **Offline idempotency:** the client may send an `idempotencyKey`; if a message with the same `(sender_id, idempotency_key)` already exists, the existing row is returned with `200` instead of inserting a duplicate. This lets the Expo sync queue and the PWA's offline outbox safely replay a queued send after reconnecting.
 - **XP awards:** the sender's `group_message` XP and each active member's `group_message_member` XP are granted via `safeAwardXP`, keyed on the new message's own UUID rather than the bare `groupId`. The previous raw `INSERT INTO xp_ledger` had no `ON CONFLICT` guard and was keyed only on `groupId`, so XP could be double-awarded on retry and a second message in the same group would collide with the first on the ledger's uniqueness constraint.
 
+**Realtime delivery:** The web group chat page subscribes to the `group:<groupId>:messages` channel via `useRealtimeChannel`. When a push provider (`NEXT_PUBLIC_REALTIME_PROVIDER`) is configured, new messages from other members are delivered over WebSocket instantly — no page refresh required. A 3-second baseline poll runs in parallel as a fallback.
+
+**Optimistic updates:** All three chat surfaces (DMs, group chats, and rooms) add the sender's own message to the UI immediately on submit (before the server responds), then replace the optimistic entry with the confirmed server message on success, or roll it back on error. This makes the sender's message appear without any perceptible delay.
+
 ### Moments
 
 Moments are short-lived posts (photos, GIFs, text snippets, or in-room ⚡ clips) that expire after 24 hours. The feature is accessible via the `/moments` feed page and `/moments/create`.
@@ -54,6 +58,8 @@ Moments are short-lived posts (photos, GIFs, text snippets, or in-room ⚡ clips
 ---
 
 ### Rooms
+
+**Mobile / PWA input bar:** The room chat input bar is fully responsive. On narrow screens (< `sm` breakpoint, ~640 px) the GIF, Sticker, Moment, Gift, and Room Powers buttons are hidden behind a `+` toggle that reveals an extra row above the text input. On wider screens all buttons are always visible inline. The text input uses `font-size: 16px` (`text-base`) so iOS Safari does not auto-zoom the viewport when the field is focused. The root layout also sets `interactiveWidget: "resizes-content"` and `viewportFit: "cover"` so the on-screen keyboard does not resize the chat container on Android PWA and the layout sits correctly beneath iOS notches.
 
 Zobia has six room types, each with different XP earn mechanics:
 
