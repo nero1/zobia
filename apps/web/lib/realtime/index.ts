@@ -21,25 +21,37 @@
 import { env } from "@/lib/env";
 import type { RealtimeProvider } from "./interface";
 
+// BUG-RT-06: module-level singleton so the same provider instance (and its
+// underlying connection/REST client) is reused across multiple publishRealtimeEvent
+// calls within the same server process / Lambda warm instance.
+let _providerInstance: RealtimeProvider | null | undefined; // undefined = not yet initialised
+
 async function getProvider(): Promise<RealtimeProvider | null> {
+  if (_providerInstance !== undefined) return _providerInstance;
+
   switch (env.REALTIME_PROVIDER) {
     case "ably": {
       const { AblyProvider } = await import("./providers/ably");
-      return new AblyProvider();
+      _providerInstance = new AblyProvider();
+      break;
     }
     case "pusher": {
       const { PusherProvider } = await import("./providers/pusher");
-      return new PusherProvider();
+      _providerInstance = new PusherProvider();
+      break;
     }
     case "supabase-realtime": {
       const { SupabaseRealtimeProvider } = await import(
         "./providers/supabase-realtime"
       );
-      return new SupabaseRealtimeProvider();
+      _providerInstance = new SupabaseRealtimeProvider();
+      break;
     }
     default:
-      return null;
+      _providerInstance = null;
   }
+
+  return _providerInstance;
 }
 
 /**

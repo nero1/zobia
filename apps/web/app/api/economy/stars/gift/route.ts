@@ -24,6 +24,7 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { debitStars, creditStars } from "@/lib/economy/stars";
+import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -103,27 +104,28 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       );
     });
 
-    // Award Generosity Track XP (fire-and-forget, daily cap enforced)
+    // Award Generosity Track XP (fire-and-forget, cumulative daily cap enforced)
     void (async () => {
       try {
-        const xpAmount = Math.min(GENEROSITY_XP_PER_STAR * body.amount, GENEROSITY_XP_DAILY_CAP);
+        // BUG-XP-16: enforce a cumulative daily cap by querying how much XP has
+        // already been awarded today for star_gift, then cap the remaining budget.
+        const { rows: xpRows } = await db.query<{ total_xp: string }>(
+          `SELECT COALESCE(SUM(amount), 0)::text AS total_xp
+           FROM xp_ledger
+           WHERE user_id = $1
+             AND track = 'generosity'
+             AND source = 'star_gift'
+             AND created_at >= CURRENT_DATE`,
+          [senderId]
+        );
+        const todayXp = parseInt(xpRows[0]?.total_xp ?? '0', 10);
+        const remaining = Math.max(0, GENEROSITY_XP_DAILY_CAP - todayXp);
+        const xpAmount = Math.min(GENEROSITY_XP_PER_STAR * body.amount, remaining);
+
         if (xpAmount > 0) {
-          await db.transaction(async (tx) => {
-            await tx.query(
-              `UPDATE users
-               SET xp_total = xp_total + $1,
-                   xp_generosity = xp_generosity + $1,
-                   updated_at = NOW()
-               WHERE id = $2`,
-              [xpAmount, senderId]
-            );
-            await tx.query(
-              `INSERT INTO xp_ledger
-                 (user_id, amount, track, source, reference_id, multiplier, base_amount)
-               VALUES ($1, $2, 'generosity', 'star_gift', $3, 100, $2)`,
-              [senderId, xpAmount, body.recipientId]
-            );
-          });
+          // BUG-XP-15: use transferRef (not body.recipientId) as reference_id so
+          // each gift generates a unique XP ledger entry and is properly idempotent.
+          await safeAwardXP(senderId, xpAmount, 'generosity', 'star_gift', `xp_gift:${transferRef}`);
         }
       } catch {
         // Non-fatal

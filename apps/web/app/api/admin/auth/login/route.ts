@@ -20,6 +20,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
+import { compare } from "bcryptjs"; // BUG-PERF-03: static import avoids per-request module resolution
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
@@ -73,7 +74,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const user = rows[0];
 
     // Constant-time failure path: always run bcrypt compare to prevent timing attacks
-    const { compare } = await import("bcryptjs");
     const passwordHash = user?.password_hash ?? "$2b$12$invalidhashfortimingatack000000000";
     const passwordValid = await compare(body.password, passwordHash);
 

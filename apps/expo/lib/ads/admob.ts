@@ -122,6 +122,9 @@ export async function showRewardedAd(): Promise<RewardedAdResult> {
         adLoaded = false;
         rewardedAd = null;
         unsubscribeClose();
+        // BUG-MOB-23: also unsubscribe the earned listener to prevent a leak when
+        // the user closes the ad without watching it to completion.
+        unsubscribeEarned();
         resolve({ rewarded: false });
       }
     );

@@ -24,6 +24,7 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, notFound, forbidden, handleApiError } from "@/lib/api/errors";
 import { db } from "@/lib/db";
 import { transferCoins } from "@/lib/economy/coins";
+import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { redis } from "@/lib/redis";
 import { requirePinVerified } from "@/lib/auth/pinGuard";
@@ -55,7 +56,8 @@ const TransferSchema = z.object({
 
 async function awardTransferXP(
   senderId: string,
-  recipientId: string
+  recipientId: string,
+  transferIdempKey: string
 ): Promise<void> {
   try {
     // Fetch sender plan for multiplier (BUG-06: apply plan multiplier per PRD §6)
@@ -66,44 +68,22 @@ async function awardTransferXP(
     const senderPlan: Plan = planRows[0]?.plan ?? 'free';
 
     // Sender: send_gift_message is a messaging action — apply plan multiplier per PRD §6
-    const { baseXp: senderBaseXp, finalXp: senderXP } = calculateFinalXP(
+    const { finalXp: senderXP } = calculateFinalXP(
       'send_gift_message',
       { plan: senderPlan, isMessagingAction: true }
     );
-    const senderMultiplierBP = PLAN_XP_MULTIPLIERS_BP[senderPlan];
 
     // Recipient: receive_gift_and_react is not a messaging action — no plan multiplier
-    const { baseXp: recipBaseXp, finalXp: recipientXP } = calculateFinalXP(
+    const { finalXp: recipientXP } = calculateFinalXP(
       'receive_gift_and_react',
       { plan: 'free', isMessagingAction: false }
     );
 
-    // Write to xp_ledger (canonical XP history table)
+    // BUG-XP-20: use safeAwardXP with stable reference_ids derived from the transfer
+    // idempotency key so retried calls never double-award and failures go to the DLQ.
     await Promise.all([
-      db.query(
-        `INSERT INTO xp_ledger
-           (user_id, amount, track, source, multiplier, base_amount)
-         VALUES ($1, $2, 'generosity', 'coin_transfer_sent', $3, $4)`,
-        [senderId, senderXP, senderMultiplierBP, senderBaseXp]
-      ),
-      db.query(
-        `INSERT INTO xp_ledger
-           (user_id, amount, track, source, multiplier, base_amount)
-         VALUES ($1, $2, 'social', 'coin_transfer_received', 100, $3)`,
-        [recipientId, recipientXP, recipBaseXp]
-      ),
-    ]);
-
-    // Update XP totals and track columns
-    await Promise.all([
-      db.query(
-        `UPDATE users SET xp_total = xp_total + $2, xp_generosity = xp_generosity + $2, updated_at = NOW() WHERE id = $1`,
-        [senderId, senderXP]
-      ),
-      db.query(
-        `UPDATE users SET xp_total = xp_total + $2, xp_social = xp_social + $2, updated_at = NOW() WHERE id = $1`,
-        [recipientId, recipientXP]
-      ),
+      safeAwardXP(senderId, senderXP, 'generosity', 'coin_transfer_sent', `${transferIdempKey}:sender`),
+      safeAwardXP(recipientId, recipientXP, 'social', 'coin_transfer_received', `${transferIdempKey}:recipient`),
     ]);
   } catch (err) {
     // XP is best-effort — don't fail the transfer if XP recording fails
@@ -213,8 +193,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       await redis.set(idempKey, "done", "EX", 86400).catch(() => {});
     }
 
-    // Award XP (fire-and-forget)
-    void awardTransferXP(senderId, body.recipientId);
+    // Award XP (fire-and-forget) — pass idempKey for stable XP reference_ids
+    void awardTransferXP(senderId, body.recipientId, idempKey!);
 
     return NextResponse.json({
       success: true,

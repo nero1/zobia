@@ -331,21 +331,24 @@ async function verifyAndActivateSubscription(
     console.warn("[iap/verify] GOOGLE_PLAY_SERVICE_ACCOUNT_JSON not set — trusting subscription in dev mode");
   }
 
-  // Activate plan and credit monthly coin bonus atomically
-  await db.query(
-    `UPDATE users SET plan = $1, plan_activated_at = NOW(), updated_at = NOW() WHERE id = $2`,
-    [subConfig.plan, userId]
-  );
+  // Activate plan and credit monthly coin bonus atomically (BUG-FIN-17: single transaction)
+  await db.transaction(async (tx) => {
+    await tx.query(
+      `UPDATE users SET plan = $1, plan_activated_at = NOW(), updated_at = NOW() WHERE id = $2`,
+      [subConfig.plan, userId]
+    );
 
-  // Credit the monthly coin bonus via the ledger
-  await creditCoins(
-    userId,
-    subConfig.monthlyCoins,
-    "subscription_bonus",
-    referenceId,
-    `Google Play subscription: ${productId} — monthly coin bonus`,
-    { productId, packageName, purchaseToken }
-  );
+    // Credit the monthly coin bonus via the ledger (inside transaction so plan + coins are atomic)
+    await creditCoins(
+      userId,
+      subConfig.monthlyCoins,
+      "subscription_bonus",
+      referenceId,
+      `Google Play subscription: ${productId} — monthly coin bonus`,
+      { productId, packageName, purchaseToken },
+      tx
+    );
+  });
 
   return { plan: subConfig.plan, coinsGranted: subConfig.monthlyCoins };
 }

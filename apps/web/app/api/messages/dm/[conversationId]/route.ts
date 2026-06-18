@@ -23,9 +23,10 @@ import { filterDMContent } from "@/lib/messaging/antispam";
 import { applyAutoModeration } from "@/lib/moderation/contentFilter";
 import { updateConversationScore } from "@/lib/messaging/conversationScore";
 import { debitCoins } from "@/lib/economy/coins";
+import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 import { publishRealtimeEvent } from "@/lib/realtime";
 import { notifyDirectMessage } from "@/lib/notifications/chatPush";
-import { calculateFinalXP, PLAN_XP_MULTIPLIERS_BP } from "@/lib/xp/engine";
+import { calculateFinalXP } from "@/lib/xp/engine";
 import type { Plan } from "@zobia/types";
 
 // ---------------------------------------------------------------------------
@@ -485,23 +486,21 @@ export const POST = withAuth(
         }
       }
 
+      // BUG-FIN-13: use a stable reference_id so retried requests (same idempotency key)
+      // never double-debit the sender. debitCoins() handles SELECT FOR UPDATE + ledger write.
+      const coinRefId = body.idempotencyKey ? `dm_cost:${body.idempotencyKey}` : null;
+
       // 9. Atomic: deduct coins + create message
       const message = await db.transaction(async (tx) => {
         if (coinCost > 0 && !sender.is_admin) {
-          const { rows: deductRows } = await tx.query<{ coin_balance: number }>(
-            `UPDATE users SET coin_balance = coin_balance - $1, updated_at = NOW()
-             WHERE id = $2 AND coin_balance >= $1 AND deleted_at IS NULL
-             RETURNING coin_balance`,
-            [coinCost, auth.user.sub]
-          );
-          if (!deductRows[0]) throw conflict("Insufficient coins", "INSUFFICIENT_COINS");
-
-          await tx.query(
-            `INSERT INTO coin_ledger
-               (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description)
-             VALUES ($1, $2, $3, $4, 'dm_cost', NULL, 'DM coin cost')`,
-            [auth.user.sub, -coinCost, sender.coin_balance, deductRows[0].coin_balance]
-          );
+          try {
+            await debitCoins(auth.user.sub, coinCost, 'dm_cost', coinRefId, 'DM coin cost', null, tx);
+          } catch (err) {
+            if ((err as NodeJS.ErrnoException).code === 'INSUFFICIENT_BALANCE') {
+              throw conflict("Insufficient coins", "INSUFFICIENT_COINS");
+            }
+            throw err;
+          }
         }
 
         const { rows: msgRows } = await tx.query<SentMessageRow>(
@@ -536,23 +535,12 @@ export const POST = withAuth(
 
       // 10. XP + daily counter (best-effort, outside transaction) — apply plan multiplier per PRD §6
       {
-        const { baseXp: convBaseXp, finalXp: convFinalXp } = calculateFinalXP(
+        const { finalXp: convFinalXp } = calculateFinalXP(
           'send_text_message',
           { plan: sender.plan, isMessagingAction: true }
         );
-        const convMultiplierBP = PLAN_XP_MULTIPLIERS_BP[sender.plan];
-        db.transaction(async (tx) => {
-          await tx.query(
-            `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
-             VALUES ($1, $2, 'social', 'message', $3, $4, $5)`,
-            [auth.user.sub, convFinalXp, message.id, convMultiplierBP, convBaseXp]
-          );
-          await tx.query(
-            `UPDATE users SET xp_total = xp_total + $1, xp_social = xp_social + $1, updated_at = NOW()
-             WHERE id = $2`,
-            [convFinalXp, auth.user.sub]
-          );
-        }).catch((err) => console.error('[dm/xp] XP award failed', err));
+        // BUG-XP-11: use safeAwardXP with message.id as reference_id for idempotency + DLQ on failure
+        safeAwardXP(auth.user.sub, convFinalXp, 'social', 'message', `dm_${message.id}`).catch(() => {});
       }
       incrementDailyCount(auth.user.sub, "reply").catch(() => {});
       updateConversationScore(auth.user.sub, recipientId, "message_sent").catch(() => {});

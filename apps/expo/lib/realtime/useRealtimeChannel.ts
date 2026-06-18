@@ -17,7 +17,7 @@
  *          reconcile when connected, fast poll when not).
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { env } from '@/lib/env';
 import { apiClient } from '@/lib/api/client';
 
@@ -26,6 +26,14 @@ export function useRealtimeChannel(
   onEvent: (event: string, data: unknown) => void,
 ): boolean {
   const [connected, setConnected] = useState(false);
+
+  // BUG-MOB-22: store onEvent in a ref so the subscribe callback always calls the
+  // latest version without needing to re-subscribe when the callback identity changes.
+  // Callers no longer need to wrap onEvent in useCallback for correctness.
+  const onEventRef = useRef(onEvent);
+  useEffect(() => {
+    onEventRef.current = onEvent;
+  });
 
   useEffect(() => {
     if (!channel || env.REALTIME_PROVIDER !== 'ably') {
@@ -74,7 +82,9 @@ export function useRealtimeChannel(
           if (typeof payload === 'string') {
             try { payload = JSON.parse(payload); } catch { /* leave as string */ }
           }
-          onEvent(msg.name, payload);
+          // Call through the ref so we always invoke the latest onEvent without
+          // stale-closure issues or unnecessary re-subscriptions (BUG-MOB-22).
+          onEventRef.current(msg.name, payload);
         });
 
         if (cancelled) {
@@ -97,9 +107,7 @@ export function useRealtimeChannel(
       setConnected(false);
       cleanup?.();
     };
-    // onEvent intentionally excluded — callers should wrap it in useCallback.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [channel]);
+  }, [channel]); // onEvent excluded: ref always holds latest value (BUG-MOB-22 fix)
 
   return connected;
 }

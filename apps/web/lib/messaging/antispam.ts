@@ -69,10 +69,11 @@ export const URL_REGEX =
 function stripContactInfo(content: string): string {
   // Order matters: strip URLs first (they may contain @ signs),
   // then emails, then phone numbers.
-  // Reset lastIndex on global regexes before each replace to prevent
-  // stale state from a previous call causing missed matches (BUG-49).
+  // Reset lastIndex on ALL global regexes before each replace to prevent
+  // stale state from a previous call causing missed matches (BUG-SEC-08).
   URL_REGEX.lastIndex = 0;
   EMAIL_REGEX.lastIndex = 0;
+  PHONE_REGEX.lastIndex = 0;
   return content
     .replace(URL_REGEX, "")
     .replace(EMAIL_REGEX, "")
@@ -144,9 +145,10 @@ export function filterPublicContent(
  * @returns True if the content contains phone numbers, emails, or URLs
  */
 export function containsContactInfo(content: string): boolean {
-  // Reset lastIndex for global regexes before testing
+  // Reset lastIndex for ALL global regexes before testing (BUG-SEC-08)
   URL_REGEX.lastIndex = 0;
   EMAIL_REGEX.lastIndex = 0;
+  PHONE_REGEX.lastIndex = 0;
 
   if (URL_REGEX.test(content)) return true;
   if (EMAIL_REGEX.test(content)) return true;
