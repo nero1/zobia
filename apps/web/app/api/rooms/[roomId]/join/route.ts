@@ -52,11 +52,11 @@ interface RoomRow {
 // ---------------------------------------------------------------------------
 
 /**
- * Check whether the caller already has a membership record for this room.
+ * Check whether the caller has an active (not left) membership record for this room.
  */
 async function isMember(roomId: string, userId: string): Promise<boolean> {
   const { rows } = await db.query<{ id: string }>(
-    `SELECT id FROM room_members WHERE room_id = $1 AND user_id = $2 LIMIT 1`,
+    `SELECT id FROM room_members WHERE room_id = $1 AND user_id = $2 AND left_at IS NULL LIMIT 1`,
     [roomId, userId]
   );
   return rows.length > 0;
@@ -76,15 +76,24 @@ async function addMember(
   role = "member"
 ): Promise<void> {
   await db.transaction(async (tx) => {
+    // If the user previously left (left_at IS NOT NULL), clear it so they rejoin cleanly.
+    // If already an active member, the WHERE guard on DO UPDATE makes this a no-op.
     await tx.query(
       `INSERT INTO room_members (room_id, user_id, role, joined_at)
        VALUES ($1, $2, $3, NOW())
-       ON CONFLICT (room_id, user_id) DO NOTHING`,
+       ON CONFLICT (room_id, user_id) DO UPDATE
+         SET left_at = NULL, role = EXCLUDED.role, joined_at = NOW()
+         WHERE room_members.left_at IS NOT NULL`,
       [roomId, userId, role]
     );
 
+    // Sync member_count from the actual active-member count to stay accurate
+    // across joins, leaves, and rejoins.
     await tx.query(
-      `UPDATE rooms SET member_count = member_count + 1, updated_at = NOW()
+      `UPDATE rooms
+       SET member_count = (
+         SELECT COUNT(*) FROM room_members WHERE room_id = $1 AND left_at IS NULL
+       ), updated_at = NOW()
        WHERE id = $1`,
       [roomId]
     );

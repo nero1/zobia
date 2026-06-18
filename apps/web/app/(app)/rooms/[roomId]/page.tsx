@@ -385,9 +385,10 @@ interface VipOverlayProps {
   previewMessages: Message[];
   onSubscribe: () => void;
   subscribing: boolean;
+  subscribeError?: string | null;
 }
 
-function VipOverlay({ price, previewMessages, onSubscribe, subscribing }: VipOverlayProps) {
+function VipOverlay({ price, previewMessages, onSubscribe, subscribing, subscribeError }: VipOverlayProps) {
   const currency = useCurrency();
   return (
     <div className="relative flex flex-1 flex-col overflow-hidden">
@@ -405,7 +406,12 @@ function VipOverlay({ price, previewMessages, onSubscribe, subscribing }: VipOve
           <span className="text-4xl">🔒</span>
           <h3 className="mt-3 text-lg font-bold text-neutral-900 dark:text-neutral-50">VIP Room</h3>
           <p className="mt-1 text-sm text-neutral-500">Subscribe to access this room</p>
-          <p className="mt-2 text-2xl font-bold text-amber-600">{price.toLocaleString()} <span className="text-base">{currency.softPlural.toLowerCase()}</span></p>
+          {price > 0 && (
+            <p className="mt-2 text-2xl font-bold text-amber-600">{price.toLocaleString()} <span className="text-base">{currency.softPlural.toLowerCase()}</span></p>
+          )}
+          {subscribeError && (
+            <p className="mt-2 text-sm font-medium text-red-600 dark:text-red-400">{subscribeError}</p>
+          )}
           <button
             onClick={onSubscribe}
             disabled={subscribing}
@@ -598,7 +604,9 @@ function RoomStickerPicker({ onSelect, onClose }: { onSelect: (emoji: string) =>
 function RoomPowersPanel({
   roomId,
   onClose,
-}: { roomId: string; onClose: () => void }) {
+  currentUserId,
+  lastOwnMessageId,
+}: { roomId: string; onClose: () => void; currentUserId: string | null; lastOwnMessageId: string | null }) {
   const [activating, setActivating] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
   const currency = useCurrency();
@@ -610,17 +618,34 @@ function RoomPowersPanel({
   ];
 
   async function activate(powerType: string) {
+    // Validate required fields before hitting the API
+    if (powerType === "message_pin" && !lastOwnMessageId) {
+      setResult("❌ Send a message first to pin it");
+      return;
+    }
+
     setActivating(powerType);
     setResult(null);
     try {
+      // Build the body with the required discriminated-union fields
+      const body: Record<string, unknown> = { power: powerType };
+      if (powerType === "message_pin") {
+        body.messageId = lastOwnMessageId;
+      } else if (powerType === "room_spotlight") {
+        body.durationHours = 24;
+      } else if (powerType === "member_highlight") {
+        body.targetUserId = currentUserId;
+        body.durationMinutes = 60;
+      }
+
       const res = await fetch(`/api/rooms/${roomId}/powers`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ power: powerType }),
+        body: JSON.stringify(body),
       });
-      const d = (await res.json()) as { message?: string };
-      setResult(res.ok ? "✅ Power activated!" : `❌ ${d.message ?? "Failed"}`);
+      const d = (await res.json()) as { error?: { message?: string }; message?: string };
+      setResult(res.ok ? "✅ Power activated!" : `❌ ${d.error?.message ?? d.message ?? "Failed"}`);
     } catch { setResult("❌ Network error"); }
     setActivating(null);
   }
@@ -668,6 +693,7 @@ interface RoomInputBarProps {
   sending: boolean;
   canAccess: boolean;
   currentUserId: string | null;
+  lastOwnMessageId: string | null;
   isMoment: boolean;
   onMomentToggle: () => void;
   onSend: (e: React.FormEvent) => void;
@@ -680,6 +706,8 @@ function RoomInputBar({
   setInput,
   sending,
   canAccess,
+  currentUserId,
+  lastOwnMessageId,
   isMoment,
   onMomentToggle,
   onSend,
@@ -744,7 +772,12 @@ function RoomInputBar({
         />
       )}
       {showPowers && (
-        <RoomPowersPanel roomId={roomId} onClose={() => setShowPowers(false)} />
+        <RoomPowersPanel
+          roomId={roomId}
+          onClose={() => setShowPowers(false)}
+          currentUserId={currentUserId}
+          lastOwnMessageId={lastOwnMessageId}
+        />
       )}
 
       {/* Moment mode indicator */}
@@ -1185,6 +1218,8 @@ export default function RoomPage() {
   // These room types have no payment gate — clicking in IS the join action.
   // Without this, the user sees the chat UI but gets 403 on every POST /messages
   // because they're not yet in room_members.
+  // A 409 means the server already has an active membership record — treat it
+  // as success so messaging and realtime are never blocked by the race condition.
   const joinAttemptedRef = useRef(false);
   useEffect(() => {
     if (!room || !currentUserId) return;
@@ -1196,7 +1231,9 @@ export default function RoomPage() {
     joinAttemptedRef.current = true;
     fetch(`/api/rooms/${roomId}/join`, { method: "POST", credentials: "include" })
       .then((res) => {
-        if (res.ok) setRoom((r) => r ? { ...r, isSubscribed: true } : r);
+        if (res.ok || res.status === 409) {
+          setRoom((r) => r ? { ...r, isSubscribed: true } : r);
+        }
       })
       .catch(() => {});
   }, [room, currentUserId, roomId]);
@@ -1291,14 +1328,16 @@ export default function RoomPage() {
   const presenceAdmitted = presence?.admitted ?? true;
   const roomFull = presence ? !presence.admitted : false;
 
-  // Push-based realtime subscription (no-op when no provider is configured or
-  // when the room is full and we were not admitted).
+  // Push-based realtime subscription (no-op when no provider is configured,
+  // when the room is full and we were not admitted, or when membership is not
+  // yet confirmed — attempting a token before joining produces a 403).
   const onRealtimeEvent = useCallback((event: string, data: unknown) => {
     if (event === "new_message") handleIncomingMessage(data as Message);
   }, [handleIncomingMessage]);
 
+  const isMember = room?.isSubscribed ?? false;
   const realtimeConnected = useRealtimeChannel(
-    REALTIME_PROVIDER && presenceAdmitted ? `room:${roomId}:messages` : null,
+    REALTIME_PROVIDER && presenceAdmitted && isMember ? `room:${roomId}:messages` : null,
     onRealtimeEvent
   );
 
@@ -1386,12 +1425,29 @@ export default function RoomPage() {
     setPublishingReplay(false);
   }
 
+  const [subscribeError, setSubscribeError] = useState<string | null>(null);
+
   async function handleSubscribe() {
     setSubscribing(true);
+    setSubscribeError(null);
     try {
-      await fetch(`/api/rooms/${roomId}/subscribe`, { method: "POST", credentials: "include" });
-      setRoom((r) => r ? { ...r, isSubscribed: true } : r);
-    } catch { /* ignore */ }
+      const res = await fetch(`/api/rooms/${roomId}/subscribe`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paymentMethod: "balance" }),
+      });
+      if (res.ok) {
+        setRoom((r) => r ? { ...r, isSubscribed: true } : r);
+      } else {
+        const body = await res.json().catch(() => ({})) as { error?: { code?: string; message?: string }; message?: string };
+        const msg = body.error?.message ?? body.message ?? "Subscription failed. Please try again.";
+        const code = body.error?.code ?? null;
+        setSubscribeError(translateApiError(tRef.current, code, msg));
+      }
+    } catch {
+      setSubscribeError("Network error. Please try again.");
+    }
     setSubscribing(false);
   }
 
@@ -1499,6 +1555,7 @@ export default function RoomPage() {
             previewMessages={previewMessages}
             onSubscribe={handleSubscribe}
             subscribing={subscribing}
+            subscribeError={subscribeError}
           />
         ) : (
           <>
@@ -1530,6 +1587,9 @@ export default function RoomPage() {
               sending={sending}
               canAccess={canAccess && presenceAdmitted}
               currentUserId={currentUserId}
+              lastOwnMessageId={
+                messages.filter((m) => m.userId === currentUserId).at(-1)?.id ?? null
+              }
               isMoment={isMoment}
               onMomentToggle={() => setIsMoment((v) => !v)}
               onSend={handleSend}

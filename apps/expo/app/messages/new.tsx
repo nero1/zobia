@@ -191,13 +191,13 @@ export default function NewDMScreen() {
         </View>
       )}
 
-      <FlatList
+      <FlatList<SearchUser | Friend>
         data={showSearch ? searchResults : friends}
-        keyExtractor={(u) => u.id}
+        keyExtractor={(u) => ('id' in u ? u.id : u.userId)}
         renderItem={({ item }) => (
           <UserRow
             user={item}
-            onSelect={() => handleSelect(item.id)}
+            onSelect={() => handleSelect('id' in item ? item.id : item.userId)}
           />
         )}
         showsVerticalScrollIndicator={false}

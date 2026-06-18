@@ -400,10 +400,35 @@ export default function RoomScreen() {
     enabled: !!roomId,
   });
 
+  // Auto-join free_open and tipping rooms — clicking in IS the join action.
+  // A 409 means the server already has an active membership record — treat it
+  // as success so messaging and realtime are never blocked by this race.
+  const joinAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (!room || !roomId || !currentUserId) return;
+    if (joinAttemptedRef.current) return;
+    if (room.isSubscribed) return;
+    if (room.isCreator) return;
+    if (room.roomType !== 'free_open' && room.roomType !== 'tipping') return;
+    joinAttemptedRef.current = true;
+    apiClient
+      .post(`/rooms/${roomId}/join`)
+      .then(() => queryClient.invalidateQueries({ queryKey: ['room', roomId] }))
+      .catch((e) => {
+        const status = (e as { response?: { status?: number } }).response?.status;
+        if (status === 409) {
+          queryClient.invalidateQueries({ queryKey: ['room', roomId] });
+        }
+      });
+  }, [room, roomId, currentUserId, queryClient]);
+
   // Realtime push — when connected, new messages arrive instantly over the
   // socket and we merge them into the query cache, so the poll can back off.
+  // Only subscribe once membership is confirmed — requesting an Ably token
+  // before joining produces a 403.
+  const isMember = room?.isSubscribed ?? false;
   const realtimeConnected = useRealtimeChannel(
-    roomId && !roomFull ? `room:${roomId}:messages` : null,
+    roomId && !roomFull && isMember ? `room:${roomId}:messages` : null,
     useCallback((event: string, data: unknown) => {
       if (event !== 'new_message') return;
       const incoming = mapApiMessage((data as Record<string, unknown>) ?? {});
