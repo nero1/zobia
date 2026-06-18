@@ -177,6 +177,11 @@ export default function ProfilePage() {
   const [isFollowing, setIsFollowing] = useState(false);
 
   useEffect(() => {
+    if (!userId || userId === "undefined") {
+      setError("Profile not found");
+      setLoading(false);
+      return;
+    }
     (async () => {
       try {
         const res = await fetch(`/api/users/${userId}/profile`, { credentials: "include" });

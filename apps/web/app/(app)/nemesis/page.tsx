@@ -91,7 +91,7 @@ function NemesisSkeleton() {
 // Nemesis card
 // ---------------------------------------------------------------------------
 
-function NemesisCard({ data }: { data: NemesisData }) {
+function NemesisCard({ data, onChallenge, challenging }: { data: NemesisData; onChallenge: () => void; challenging: boolean }) {
   const { nemesis, me, sprintStandings = [], comparison } = data;
 
   if (!nemesis || !me) {
@@ -184,8 +184,12 @@ function NemesisCard({ data }: { data: NemesisData }) {
           >
             View Profile
           </Link>
-          <button className="flex-1 py-2 px-4 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors">
-            Challenge 🔥
+          <button
+            onClick={onChallenge}
+            disabled={!!data.sprintActive || challenging}
+            className="flex-1 py-2 px-4 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors disabled:opacity-60"
+          >
+            {challenging ? "Sending…" : data.sprintActive ? "Sprint Active" : "Challenge 🔥"}
           </button>
         </div>
       </div>
@@ -207,6 +211,7 @@ export default function NemesisPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState("");
+  const [challenging, setChallenging] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -222,6 +227,25 @@ export default function NemesisPage() {
       setLoading(false);
     }
   }, []);
+
+  const handleChallenge = useCallback(async () => {
+    setChallenging(true);
+    try {
+      const res = await fetch("/api/nemesis/challenge", { method: "POST", credentials: "include" });
+      if (res.ok) {
+        await load();
+      } else {
+        const body = await res.json().catch(() => ({})) as { error?: { code?: string; message?: string } };
+        const code = body.error?.code ?? null;
+        const msg = body.error?.message ?? "Failed to send challenge";
+        setError(translateApiError(tRef.current, code, msg));
+      }
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setChallenging(false);
+    }
+  }, [load]);
 
   useEffect(() => {
     load();
@@ -278,7 +302,7 @@ export default function NemesisPage() {
           </button>
         </div>
       ) : (
-        <NemesisCard data={data!} />
+        <NemesisCard data={data!} onChallenge={handleChallenge} challenging={challenging} />
       )}
 
       {/* How it works */}

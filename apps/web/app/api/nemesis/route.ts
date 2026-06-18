@@ -214,7 +214,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     if (!manifest.features.nemesisSystem) {
       return NextResponse.json({ success: false, data: null, error: { code: "FEATURE_DISABLED", message: "Nemesis system is currently disabled" } }, { status: 503 });
     }
-    const action = new URL(req.url).pathname.split("/").at(-1); // 'dismiss' or 'challenge'
+    // Read action from request body — stale clients may POST here instead of
+    // the dedicated /api/nemesis/challenge or /api/nemesis/dismiss sub-routes.
+    const body = await req.json().catch(() => ({})) as { action?: string };
+    const action = body.action;
 
     if (action === "dismiss") {
       // Dismiss current assignment
