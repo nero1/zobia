@@ -248,7 +248,7 @@ export default function DailyQuestsScreen() {
 
   return (
     <Screen scrollable={false} disableBottomInset>
-      <FlatList
+      <FlatList<Quest | number>
         data={isLoading ? [0, 1, 2] : isError ? [] : quests}
         keyExtractor={(item, idx) =>
           isLoading ? String(idx) : (item as Quest).id

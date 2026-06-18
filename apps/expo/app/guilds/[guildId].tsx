@@ -36,7 +36,7 @@ import { useCurrency } from '@/lib/hooks/useCurrency';
 // Types
 // ---------------------------------------------------------------------------
 
-type GuildTier = 'iron' | 'bronze' | 'silver' | 'gold' | 'diamond';
+type GuildTier = 'iron' | 'bronze' | 'silver' | 'gold' | 'diamond' | 'legend';
 
 interface GuildMember {
   userId: string;
@@ -85,6 +85,7 @@ const TIER_CONFIG: Record<GuildTier, { label: string; color: string }> = {
   silver: { label: 'Silver', color: '#A8A9AD' },
   gold: { label: 'Gold', color: colors.brand.gold },
   diamond: { label: 'Diamond', color: colors.brand.blue },
+  legend: { label: 'Legend', color: '#FF6B00' },
 };
 
 // ---------------------------------------------------------------------------
@@ -284,10 +285,10 @@ export default function GuildDetailScreen() {
 
   return (
     <Screen>
-      <SectionList
+      <SectionList<GuildMember | WarRecord>
         sections={[
-          { title: 'members', data: guild.members },
-          { title: 'wars', data: guild.warHistory },
+          { title: 'members', data: guild.members as (GuildMember | WarRecord)[] },
+          { title: 'wars', data: guild.warHistory as (GuildMember | WarRecord)[] },
         ]}
         keyExtractor={(item) =>
           'userId' in item ? item.userId : (item as WarRecord).warId

@@ -334,7 +334,7 @@ export default function BroadcastsScreen() {
               <Text style={[styles.allowanceTier, { color: themeColors.textMuted }]}>
                 {t('broadcasts.allowanceTier', { tier: allowance.tier })}
                 {allowance.additionalCoinCost > 0
-                  ? t('broadcasts.additionalCost', { count: allowance.additionalCoinCost.toLocaleString() })
+                  ? t('broadcasts.additionalCost', { count: allowance.additionalCoinCost })
                   : ''}
               </Text>
             </View>

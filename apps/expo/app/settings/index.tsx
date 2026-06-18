@@ -703,6 +703,7 @@ export default function SettingsScreen() {
     ...data,
     ...settings,
     notifications: mergedNotifications,
+    pidginSuggestionsEnabled: data?.pidginSuggestionsEnabled ?? settings?.pidginSuggestionsEnabled ?? null,
   };
 
   const patchMutation = useMutation({
