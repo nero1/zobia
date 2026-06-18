@@ -23,11 +23,13 @@ import {
 import type { AxiosError } from 'axios';
 import { useRouter } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
+import { translateApiError } from '@/lib/i18n/apiErrors';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -148,6 +150,7 @@ export default function NemesisScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { colors: themeColors } = useTheme();
+  const { t } = useTranslation();
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['nemesis'],
@@ -161,11 +164,12 @@ export default function NemesisScreen() {
       Alert.alert('Challenge Sent!', '7-day XP sprint has started. Beat your nemesis!');
     },
     onError: (err) => {
-      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string; params?: Record<string, unknown> } }>;
       const code = axiosErr.response?.data?.error?.code ?? null;
       const message = axiosErr.response?.data?.error?.message ?? (err as Error).message;
+      const params = axiosErr.response?.data?.error?.params ?? {};
       if (code === 'LEVEL_GATE') {
-        Alert.alert('Level Required', message);
+        Alert.alert('Level Required', translateApiError(t, code, message, params));
       } else if (code === 'CHALLENGE_ALREADY_ACTIVE') {
         Alert.alert('Already Challenged', 'You already have a pending 7-day sprint with your nemesis.');
       } else {

@@ -58,7 +58,7 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
     const safeStatus = validStatuses.includes(status) ? status : "pending";
 
     const params: (string | number)[] = [limit + 1];
-    let whereClause = `r.deleted_at IS NULL`;
+    let whereClause = `1=1`;
 
     if (safeStatus !== "all") {
       params.push(safeStatus);

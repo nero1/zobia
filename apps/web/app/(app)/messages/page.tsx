@@ -88,13 +88,13 @@ function NewMessageDialog({ onClose, onOpen }: NewMessageDialogProps) {
 
   useEffect(() => {
     const trimmed = query.trim();
-    if (!trimmed) { setResults([]); return; }
+    if (!trimmed || trimmed.length < 2) { setResults([]); setSearching(false); return; }
     let cancelled = false;
     setSearching(true);
     const timer = setTimeout(async () => {
       try {
         const res = await fetch(`/api/users/search?q=${encodeURIComponent(trimmed)}`, { credentials: "include" });
-        if (!res.ok) return;
+        if (!res.ok) { if (!cancelled) setSearching(false); return; }
         const data = (await res.json()) as { data?: { users?: UserSearchResult[] } };
         if (!cancelled) setResults(data.data?.users ?? []);
       } catch { /* ignore */ }

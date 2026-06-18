@@ -28,7 +28,8 @@ interface Friend {
 }
 
 interface FriendsResponse {
-  friends: Friend[];
+  friends?: Friend[];
+  data?: Friend[];
 }
 
 interface CreateGroupResponse {
@@ -56,9 +57,9 @@ export default function CreateGroupPage() {
   // ---------------------------------------------------------------------------
   useEffect(() => {
     setLoadingFriends(true);
-    fetch("/api/friends")
+    fetch("/api/friends", { credentials: "include" })
       .then((r) => r.json())
-      .then((d: FriendsResponse) => setFriends(d.friends ?? []))
+      .then((d: FriendsResponse) => setFriends(d.friends ?? d.data ?? []))
       .catch(() => setFriends([]))
       .finally(() => setLoadingFriends(false));
   }, []);

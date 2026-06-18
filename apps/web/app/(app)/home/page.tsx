@@ -743,13 +743,15 @@ export default function HomePage() {
         const body = await res.json().catch(() => ({}));
         const errMsg = typeof body.error === "string" ? body.error : body.error?.message;
         const errCode = typeof body.error === "string" ? null : body.error?.code ?? null;
-        const err = new Error(errMsg ?? body.message ?? "Challenge failed") as Error & { code?: string | null };
+        const errParams = typeof body.error === "string" ? {} : (body.error?.params ?? {});
+        const err = new Error(errMsg ?? body.message ?? "Challenge failed") as Error & { code?: string | null; params?: Record<string, unknown> };
         err.code = errCode;
+        err.params = errParams;
         throw err;
       }
     } catch (e) {
-      const err = e as Error & { code?: string | null };
-      setError(e instanceof Error ? translateApiError(t, err.code, err.message || "Failed to challenge rival") : "Failed to challenge rival");
+      const err = e as Error & { code?: string | null; params?: Record<string, unknown> };
+      setError(e instanceof Error ? translateApiError(t, err.code, err.message || "Failed to challenge rival", err.params ?? {}) : "Failed to challenge rival");
     } finally {
       setChallenging(false);
     }

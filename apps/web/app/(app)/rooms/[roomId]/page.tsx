@@ -978,6 +978,14 @@ function SpectacleThresholdPanel({
   );
 }
 
+interface CapacityInfo {
+  currentCap: number;
+  stepSlots: number;
+  costCoinsPerStep: number;
+  hardMax: number;
+  atMax: boolean;
+}
+
 /**
  * RoomCapacityPanel — creator-only control to raise the room's soft participant
  * cap by spending coins (PRD §10). Each step adds slots for a fixed coin cost;
@@ -986,24 +994,26 @@ function SpectacleThresholdPanel({
 function RoomCapacityPanel({ roomId }: { roomId: string }) {
   const { t } = useTranslation();
   const currency = useCurrency();
-  const [cap, setCap] = useState<number | null>(null);
+  const [capInfo, setCapInfo] = useState<CapacityInfo | null>(null);
   const [upgrading, setUpgrading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/rooms/${roomId}/pulse`, { credentials: "include" });
+        const res = await fetch(`/api/rooms/${roomId}/capacity`, { credentials: "include" });
         if (!res.ok || cancelled) return;
-        const d = (await res.json()) as { maxCapacity?: number };
-        if (!cancelled && typeof d.maxCapacity === "number") setCap(d.maxCapacity);
+        const d = (await res.json()) as { data?: CapacityInfo };
+        if (!cancelled && d.data) setCapInfo(d.data);
       } catch { /* non-fatal */ }
     })();
     return () => { cancelled = true; };
   }, [roomId]);
 
   async function upgrade() {
+    setConfirming(false);
     setUpgrading(true);
     setMsg(null);
     try {
@@ -1018,7 +1028,7 @@ function RoomCapacityPanel({ roomId }: { roomId: string }) {
         error?: { code?: string; message?: string };
       };
       if (res.ok && d.data?.maxMembers) {
-        setCap(d.data.maxMembers);
+        setCapInfo((prev) => prev ? { ...prev, currentCap: d.data!.maxMembers! } : null);
         setMsg(t("room.capacityUpgraded", { n: d.data.maxMembers }));
       } else {
         setMsg(translateApiError(t, d.error?.code ?? null, d.error?.message ?? t("room.capacityUpgradeFailed")));
@@ -1030,24 +1040,61 @@ function RoomCapacityPanel({ roomId }: { roomId: string }) {
     }
   }
 
+  const cost = capInfo?.costCoinsPerStep ?? null;
+  const atMax = capInfo?.atMax ?? false;
+
   return (
     <div className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
       <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
         👥 {t("room.capacityTitle")}
       </h2>
       <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
-        {t("room.capacityHelp", { n: cap ?? 0 })}
+        {t("room.capacityHelp", { n: capInfo?.currentCap ?? 0 })}
       </p>
-      <button
-        type="button"
-        onClick={upgrade}
-        disabled={upgrading}
-        className="w-full rounded-lg bg-blue-600 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-      >
-        {upgrading ? "…" : t("room.capacityUpgradeCta")}
-      </button>
+
+      {confirming ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
+          <p className="mb-2 text-xs font-medium text-amber-800 dark:text-amber-200">
+            {t("room.capacityConfirm", {
+              cost: cost ?? "?",
+              currency: currency.softPlural,
+              slots: capInfo?.stepSlots ?? 25,
+            })}
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={upgrade}
+              disabled={upgrading}
+              className="flex-1 rounded-md bg-blue-600 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+            >
+              {upgrading ? "…" : t("room.capacityConfirmYes")}
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirming(false)}
+              className="flex-1 rounded-md border border-neutral-200 py-1.5 text-xs font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300"
+            >
+              {t("common.cancel")}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          disabled={upgrading || atMax}
+          className="w-full rounded-lg bg-blue-600 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+        >
+          {atMax
+            ? t("room.capacityAtMax")
+            : cost !== null
+              ? t("room.capacityUpgradeCtaWithCost", { cost, currency: currency.softPlural })
+              : t("room.capacityUpgradeCta")}
+        </button>
+      )}
+
       {msg && <p className="mt-1.5 text-xs text-neutral-600 dark:text-neutral-400">{msg}</p>}
-      <p className="mt-1 text-[10px] text-neutral-400">{currency.softPlural}</p>
     </div>
   );
 }

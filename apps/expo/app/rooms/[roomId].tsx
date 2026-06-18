@@ -994,19 +994,72 @@ export default function RoomScreen() {
                       text: `⬆️ ${t('room.increaseCapacity')}`,
                       onPress: () => {
                         apiClient
-                          .post(`/rooms/${roomId}/capacity`, { steps: 1 })
-                          .then((res) => {
-                            const cap = res.data?.data?.maxMembers;
+                          .get<{ data?: { costCoinsPerStep?: number; stepSlots?: number; atMax?: boolean; currentCap?: number } }>(`/rooms/${roomId}/capacity`)
+                          .then((infoRes) => {
+                            const info = infoRes.data?.data;
+                            if (info?.atMax) {
+                              Alert.alert(t('room.capacityAtMax'), '');
+                              return;
+                            }
+                            const cost = info?.costCoinsPerStep ?? '?';
+                            const slots = info?.stepSlots ?? 25;
+                            const currencyLabel = 'Coins';
                             Alert.alert(
-                              t('room.capacityIncreased'),
-                              cap ? t('room.capacityIncreasedTo', { n: cap }) : t('room.capacityIncreasedGeneric'),
+                              t('room.capacityConfirmTitle'),
+                              t('room.capacityConfirmMessage', { cost, currency: currencyLabel, slots }),
+                              [
+                                { text: t('room.capacityConfirmCancel'), style: 'cancel' },
+                                {
+                                  text: t('room.capacityConfirmOk'),
+                                  onPress: () => {
+                                    apiClient
+                                      .post(`/rooms/${roomId}/capacity`, { steps: 1 })
+                                      .then((res) => {
+                                        const cap = res.data?.data?.maxMembers;
+                                        Alert.alert(
+                                          t('room.capacityIncreased'),
+                                          cap ? t('room.capacityIncreasedTo', { n: cap }) : t('room.capacityIncreasedGeneric'),
+                                        );
+                                        queryClient.invalidateQueries({ queryKey: ['room', roomId] });
+                                      })
+                                      .catch((e: AxiosError<{ error?: { code?: string; message?: string } }>) => {
+                                        const code = e.response?.data?.error?.code ?? null;
+                                        const message = e.response?.data?.error?.message ?? e.message;
+                                        Alert.alert('Error', translateApiError(t, code, message));
+                                      });
+                                  },
+                                },
+                              ]
                             );
-                            queryClient.invalidateQueries({ queryKey: ['room', roomId] });
                           })
-                          .catch((e: AxiosError<{ error?: { code?: string; message?: string } }>) => {
-                            const code = e.response?.data?.error?.code ?? null;
-                            const message = e.response?.data?.error?.message ?? e.message;
-                            Alert.alert('Error', translateApiError(t, code, message));
+                          .catch(() => {
+                            Alert.alert(
+                              t('room.capacityConfirmTitle'),
+                              t('room.capacityConfirmMessage', { cost: '?', currency: 'Coins', slots: 25 }),
+                              [
+                                { text: t('room.capacityConfirmCancel'), style: 'cancel' },
+                                {
+                                  text: t('room.capacityConfirmOk'),
+                                  onPress: () => {
+                                    apiClient
+                                      .post(`/rooms/${roomId}/capacity`, { steps: 1 })
+                                      .then((res) => {
+                                        const cap = res.data?.data?.maxMembers;
+                                        Alert.alert(
+                                          t('room.capacityIncreased'),
+                                          cap ? t('room.capacityIncreasedTo', { n: cap }) : t('room.capacityIncreasedGeneric'),
+                                        );
+                                        queryClient.invalidateQueries({ queryKey: ['room', roomId] });
+                                      })
+                                      .catch((e: AxiosError<{ error?: { code?: string; message?: string } }>) => {
+                                        const code = e.response?.data?.error?.code ?? null;
+                                        const message = e.response?.data?.error?.message ?? e.message;
+                                        Alert.alert('Error', translateApiError(t, code, message));
+                                      });
+                                  },
+                                },
+                              ]
+                            );
                           });
                       },
                     },

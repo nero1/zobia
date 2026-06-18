@@ -32,11 +32,28 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   );
 
   const hasNextPage = rows.length > limit;
-  const data = hasNextPage ? rows.slice(0, limit) : rows;
+  const rawData = hasNextPage ? rows.slice(0, limit) : rows;
+
+  // Normalize to camelCase so all clients (web, expo, PWA) get consistent field names
+  const friends = rawData.map((r) => ({
+    id: r.friend_id,
+    userId: r.friend_id,
+    username: r.username,
+    displayName: r.display_name ?? r.username,
+    avatarEmoji: r.avatar_emoji ?? '🙂',
+    rankName: r.rank_name ?? null,
+    isCreator: r.is_creator ?? false,
+    isVerified: r.is_verified ?? false,
+    plan: r.plan ?? 'free',
+    isOnline: false,
+    friendshipId: r.id,
+    createdAt: r.created_at,
+  }));
 
   return NextResponse.json({
-    data,
-    pagination: { hasNextPage, nextCursor: hasNextPage ? data[data.length - 1].id : null },
+    friends,
+    data: friends,
+    pagination: { hasNextPage, nextCursor: hasNextPage ? friends[friends.length - 1]?.friendshipId ?? null : null },
   });
 });
 

@@ -83,14 +83,14 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
     // Earnings by period — use a single query with conditional aggregation
     const { rows } = await db.query<EarningsRow>(
       `SELECT
-         stream,
-         SUM(gross_kobo) FILTER (WHERE created_at >= CURRENT_DATE)::BIGINT AS today_gross,
-         SUM(gross_kobo) FILTER (WHERE created_at >= CURRENT_DATE - INTERVAL '7 days')::BIGINT AS week_gross,
-         SUM(gross_kobo) FILTER (WHERE created_at >= CURRENT_DATE - INTERVAL '30 days')::BIGINT AS month_gross,
-         SUM(gross_kobo)::BIGINT AS all_time_gross
+         source_type AS stream,
+         SUM(gross_amount_kobo) FILTER (WHERE created_at >= CURRENT_DATE)::BIGINT AS today_gross,
+         SUM(gross_amount_kobo) FILTER (WHERE created_at >= CURRENT_DATE - INTERVAL '7 days')::BIGINT AS week_gross,
+         SUM(gross_amount_kobo) FILTER (WHERE created_at >= CURRENT_DATE - INTERVAL '30 days')::BIGINT AS month_gross,
+         SUM(gross_amount_kobo)::BIGINT AS all_time_gross
        FROM creator_earnings
        WHERE creator_id = $1
-       GROUP BY stream`,
+       GROUP BY source_type`,
       [userId]
     );
 
