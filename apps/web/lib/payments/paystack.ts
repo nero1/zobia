@@ -141,10 +141,14 @@ export async function initializePayment(
   // Paystack expects integer kobo; guard against floats
   const amount = new Decimal(amountKobo).toDecimalPlaces(0).toNumber();
 
+  // Paystack only allows alphanumeric characters and hyphens in transaction references.
+  // Replace any other character (e.g. colons, underscores, spaces) with a hyphen.
+  const safeReference = reference.replace(/[^a-zA-Z0-9-]/g, '-');
+
   return paystackRequest<PaystackInitializeResponse>(
     "POST",
     "/transaction/initialize",
-    { amount, email, reference, metadata, currency: "NGN", ...(callbackUrl ? { callback_url: callbackUrl } : {}) }
+    { amount, email, reference: safeReference, metadata, currency: "NGN", ...(callbackUrl ? { callback_url: callbackUrl } : {}) }
   );
 }
 

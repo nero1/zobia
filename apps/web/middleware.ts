@@ -93,6 +93,8 @@ const PUBLIC_PREFIXES = [
   // Static images served from /public — must be reachable by crawlers/OG scrapers
   "/og-image.png",
   "/og-image",
+  // PWA screenshots used in the web app manifest (install prompt, store listings)
+  "/screenshots",
   // PWA entry — handles its own auth-check + redirect client-side
   "/pwa-start",
 ];

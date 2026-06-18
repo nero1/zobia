@@ -711,25 +711,43 @@ export default function RoomScreen() {
     }
   }, [roomId, queryClient, t]);
 
-  const handleVIPSubscribe = useCallback(async () => {
+  const handleVIPSubscribeWithMethod = useCallback(async (paymentMethod: 'balance' | 'card') => {
     if (!roomId || subscribing) return;
     setSubscribing(true);
     try {
-      const res = await apiClient.post(`/rooms/${roomId}/subscribe`);
-      const checkoutUrl: string | undefined = res.data?.checkoutUrl ?? res.data?.data?.checkoutUrl;
-      if (checkoutUrl) {
-        await Linking.openURL(checkoutUrl);
+      const res = await apiClient.post(`/rooms/${roomId}/subscribe`, { paymentMethod });
+      if (res.data?.requiresCardPayment && res.data?.paymentUrl) {
+        await Linking.openURL(res.data.paymentUrl);
       }
       queryClient.invalidateQueries({ queryKey: ['room', roomId] });
     } catch (e) {
       const axiosErr = e as AxiosError<{ error?: { code?: string; message?: string } }>;
       const code = axiosErr.response?.data?.error?.code ?? null;
       const message = axiosErr.response?.data?.error?.message ?? (e as Error).message ?? 'Could not start subscription.';
-      Alert.alert('Error', translateApiError(t, code, message));
+
+      if (code === 'INSUFFICIENT_COINS') {
+        Alert.alert(
+          'Insufficient Coins',
+          'You don\'t have enough coins for this subscription. Would you like to pay with your card instead?',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Pay with Card',
+              onPress: () => void handleVIPSubscribeWithMethod('card'),
+            },
+          ]
+        );
+      } else {
+        Alert.alert('Error', translateApiError(t, code, message));
+      }
     } finally {
       setSubscribing(false);
     }
   }, [roomId, subscribing, queryClient, t]);
+
+  const handleVIPSubscribe = useCallback(() => {
+    void handleVIPSubscribeWithMethod('balance');
+  }, [handleVIPSubscribeWithMethod]);
 
   const renderMessage = useCallback(
     ({ item }: { item: Message }) => {

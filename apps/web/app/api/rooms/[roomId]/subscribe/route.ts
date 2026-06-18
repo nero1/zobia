@@ -186,7 +186,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       const email = emailRows[0]?.email;
       if (!email) throw notFound("User not found");
 
-      const idempotencyKey = `room_sub:${userId}:${roomId}:${Date.now()}`;
+      const idempotencyKey = `room-sub-${userId}-${roomId}-${Date.now()}`;
       const returnUrl = `${env.NEXT_PUBLIC_APP_URL}/rooms/${roomId}/subscribe/callback`;
       const metadata = {
         itemType: "room_subscription",

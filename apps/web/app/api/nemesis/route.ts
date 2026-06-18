@@ -85,9 +85,11 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
         });
       }
 
-      // Refetch with profile
+      // Refetch with profile — must use nemesis_user_id (the active FK column)
+      // and filter by is_active since dismissed_at is only set by the dismiss route
       const refreshedRows = await db.query<NemesisRow>(
-        `SELECT na.user_id, na.nemesis_id, na.assigned_at, na.dismissed_at,
+        `SELECT na.user_id, na.nemesis_user_id AS nemesis_id, na.assigned_at,
+                na.dismissed_at,
                 u.username AS nemesis_username,
                 u.display_name AS nemesis_display_name,
                 u.avatar_emoji AS nemesis_avatar_emoji,
@@ -95,8 +97,8 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
                 u.xp_total AS nemesis_xp_total,
                 u.city AS nemesis_city
          FROM nemesis_assignments na
-         JOIN users u ON u.id = na.nemesis_id
-         WHERE na.user_id = $1 AND na.dismissed_at IS NULL
+         JOIN users u ON u.id = na.nemesis_user_id
+         WHERE na.user_id = $1 AND na.is_active = true
          ORDER BY na.assigned_at DESC
          LIMIT 1`,
         [userId]
@@ -109,13 +111,15 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const nemesisRow = rows[0];
 
-    // Fetch the calling user's own profile data
+    // Fetch the calling user's own profile data (including competitor XP for level gate UI)
     const { rows: myRows } = await db.query<{
       display_name: string;
       avatar_emoji: string;
       xp_total: number;
+      xp_competitor: number;
     }>(
-      `SELECT display_name, avatar_emoji, COALESCE(xp_total, 0) AS xp_total
+      `SELECT display_name, avatar_emoji, COALESCE(xp_total, 0) AS xp_total,
+              COALESCE(xp_competitor, 0) AS xp_competitor
        FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
       [userId]
     );
@@ -124,7 +128,10 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     // XP comparison
     const comparison = await compareNemesisProgress(userId, nemesisRow.nemesis_id, "main", db);
 
-    // Recent XP activity for both parties (last 20 events combined)
+    // Recent XP activity for both parties (last 20 events combined).
+    // xp_ledger stores the action label in `source` (NOT NULL); `action` is a
+    // nullable alias column that may be empty on newer rows. `xp_net` is similarly
+    // optional — fall back to `amount` which is always present.
     const { rows: activityRows } = await db.query<{
       id: string;
       user_id: string;
@@ -132,12 +139,14 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       xp_net: number;
       created_at: string;
     }>(
-      `(SELECT id, user_id, action, xp_net, created_at
+      `(SELECT id, user_id, COALESCE(action, source) AS action,
+               COALESCE(xp_net, amount) AS xp_net, created_at
         FROM xp_ledger
         WHERE user_id = $1 AND created_at > NOW() - INTERVAL '7 days'
         ORDER BY created_at DESC LIMIT 10)
        UNION ALL
-       (SELECT id, user_id, action, xp_net, created_at
+       (SELECT id, user_id, COALESCE(action, source) AS action,
+               COALESCE(xp_net, amount) AS xp_net, created_at
         FROM xp_ledger
         WHERE user_id = $2 AND created_at > NOW() - INTERVAL '7 days'
         ORDER BY created_at DESC LIMIT 10)
@@ -166,12 +175,15 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     );
     const activeSprint = sprintRows[0] ?? null;
 
+    const competitorTrackInfo = getTrackLevelForXP("competitor", me?.xp_competitor ?? 0);
+
     return NextResponse.json({
       me: {
         userId,
         displayName: me?.display_name ?? "",
         avatarEmoji: me?.avatar_emoji ?? "😊",
         xp: comparison.userXP,
+        competitorLevel: competitorTrackInfo.level,
       },
       nemesis: {
         userId: nemesisRow.nemesis_id,

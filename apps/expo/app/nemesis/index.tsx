@@ -20,6 +20,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import type { AxiosError } from 'axios';
 import { useRouter } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Screen } from '@/components/ui/Screen';
@@ -46,6 +47,7 @@ interface NemesisData {
     displayName: string;
     avatarEmoji: string;
     xp: number;
+    competitorLevel: number;
   };
   nemesis: {
     userId: string;
@@ -158,12 +160,29 @@ export default function NemesisScreen() {
       queryClient.invalidateQueries({ queryKey: ['nemesis'] });
       Alert.alert('Challenge Sent!', '7-day XP sprint has started. Beat your nemesis!');
     },
+    onError: (err) => {
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? (err as Error).message;
+      if (code === 'LEVEL_GATE') {
+        Alert.alert('Level Required', message);
+      } else if (code === 'CHALLENGE_ALREADY_ACTIVE') {
+        Alert.alert('Already Challenged', 'You already have a pending 7-day sprint with your nemesis.');
+      } else {
+        Alert.alert('Challenge Failed', message);
+      }
+    },
   });
 
   const dismissMutation = useMutation({
     mutationFn: dismissNemesis,
     onSuccess: () => {
       router.back();
+    },
+    onError: (err) => {
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const message = axiosErr.response?.data?.error?.message ?? (err as Error).message;
+      Alert.alert('Dismiss Failed', message);
     },
   });
 
@@ -254,8 +273,21 @@ export default function NemesisScreen() {
             <View style={styles.actions}>
               {!data.sprintActive && (
                 <Button
-                  label="Challenge — 7-Day Sprint"
-                  onPress={() => challengeMutation.mutate()}
+                  label={
+                    data.me.competitorLevel < 40
+                      ? `Challenge — Level ${data.me.competitorLevel}/40 Required`
+                      : 'Challenge — 7-Day Sprint'
+                  }
+                  onPress={() => {
+                    if (data.me.competitorLevel < 40) {
+                      Alert.alert(
+                        'Level Required',
+                        `You need Competitor Track Level 40 to challenge. You're at Level ${data.me.competitorLevel}.`
+                      );
+                      return;
+                    }
+                    challengeMutation.mutate();
+                  }}
                   loading={challengeMutation.isPending}
                 />
               )}
