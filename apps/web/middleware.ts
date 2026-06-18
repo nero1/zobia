@@ -90,6 +90,9 @@ const PUBLIC_PREFIXES = [
   "/terms",
   "/privacy",
   "/onboarding",
+  // Static images served from /public — must be reachable by crawlers/OG scrapers
+  "/og-image.png",
+  "/og-image",
   // PWA entry — handles its own auth-check + redirect client-side
   "/pwa-start",
 ];

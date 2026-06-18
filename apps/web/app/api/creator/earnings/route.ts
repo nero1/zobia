@@ -66,7 +66,18 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
     );
 
     if (!creatorRows[0]?.is_creator) {
-      throw forbidden("Creator access required");
+      const emptyPeriod = { grossKobo: 0, netKobo: 0, platformFeeKobo: 0, byStream: {}, byStreamNet: {} };
+      return NextResponse.json({
+        isCreator: false,
+        today: emptyPeriod,
+        week: emptyPeriod,
+        month: emptyPeriod,
+        allTime: emptyPeriod,
+        platformFeePercent: 20,
+        creatorSharePercent: 80,
+        sponsoredQuestPlatformFeePercent: 30,
+        sponsoredQuestCreatorSharePercent: 70,
+      });
     }
 
     // Earnings by period — use a single query with conditional aggregation

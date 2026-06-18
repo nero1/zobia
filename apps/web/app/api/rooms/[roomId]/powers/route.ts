@@ -95,7 +95,20 @@ export const POST = withAuth<RoomParams>(async (req: NextRequest, { params, auth
       if (!room) throw notFound("Room not found");
       if (!room.is_active) throw badRequest("Room is no longer active");
 
-      // 2. Check caller has enough coins — lock the row
+      // 2. For message_pin, check permissions before touching the coin balance.
+      //    This avoids a confusing 403 response after coins were already locked.
+      if (body.power === "message_pin" && room.creator_id !== userId) {
+        const { rows: modRows } = await client.query<{ id: string }>(
+          `SELECT id FROM room_members
+           WHERE room_id = $1 AND user_id = $2 AND role = 'co_moderator'`,
+          [roomId, userId]
+        );
+        if (!modRows.length) {
+          throw forbidden("Only room creators and moderators can pin messages");
+        }
+      }
+
+      // 3. Check caller has enough coins — lock the row
       const { rows: userRows } = await client.query<{
         coin_balance: number;
       }>(
@@ -108,7 +121,7 @@ export const POST = withAuth<RoomParams>(async (req: NextRequest, { params, auth
         throw badRequest(`Insufficient coins. This power costs ${coinCost} Coins.`);
       }
 
-      // 3. Deduct coins
+      // 4. Deduct coins
       const newBalance = user.coin_balance - coinCost;
       await client.query(
         `UPDATE users SET coin_balance = $1, updated_at = NOW() WHERE id = $2`,
@@ -121,19 +134,8 @@ export const POST = withAuth<RoomParams>(async (req: NextRequest, { params, auth
         [userId, -coinCost, user.coin_balance, newBalance, `${body.power}:${roomId}`]
       );
 
-      // 4. Apply power
+      // 5. Apply power
       if (body.power === "message_pin") {
-        // Only room creator or co-mods can pin messages
-        if (room.creator_id !== userId) {
-          const { rows: modRows } = await client.query<{ id: string }>(
-            `SELECT id FROM room_members
-             WHERE room_id = $1 AND user_id = $2 AND role = 'co_moderator'`,
-            [roomId, userId]
-          );
-          if (!modRows.length) {
-            throw forbidden("Only room creators and moderators can pin messages");
-          }
-        }
 
         const pinExpiresAt = new Date(Date.now() + MESSAGE_PIN_DURATION_MS).toISOString();
 

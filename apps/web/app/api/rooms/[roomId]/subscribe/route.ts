@@ -231,26 +231,26 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       );
     }
 
-    // Balance payment — check user has sufficient coin balance
-    // (converted at platform coin-to-cash rate for simplicity;
-    //  real implementation would use fiat balance table)
-    const { rows: userRows } = await db.query<{ coin_balance: number }>(
-      `SELECT coin_balance FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
-      [userId]
-    );
-    const user = userRows[0];
-    if (!user) throw notFound("User not found");
-
     // Naira → coins at 1 NGN = 1 coin (platform configures actual rate via manifest)
     const requiredCoins = room.subscription_price_ngn;
 
-    if (user.coin_balance < requiredCoins) {
-      throw forbidden(
-        `Insufficient balance. You need ${requiredCoins} coins for this subscription.`
-      );
-    }
-
     const subscription = await db.transaction(async (tx) => {
+      // Balance payment — lock the row inside the transaction so concurrent
+      // requests cannot both pass the balance check and overdraft the account.
+      const { rows: userRows } = await tx.query<{ coin_balance: number }>(
+        `SELECT coin_balance FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+        [userId]
+      );
+      const user = userRows[0];
+      if (!user) throw notFound("User not found");
+
+      if (user.coin_balance < requiredCoins) {
+        throw badRequest(
+          `Insufficient balance. You need ${requiredCoins} coins for this subscription.`,
+          "INSUFFICIENT_COINS"
+        );
+      }
+
       // Debit coins
       await tx.query(
         `UPDATE users

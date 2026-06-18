@@ -1092,6 +1092,7 @@
   "errors.invalid_week_start": "Guild quest week_start must be a Monday (UTC)",
   "errors.item_expired": "This limited-edition item has expired",
   "errors.item_inactive": "This item is no longer available",
+  "errors.level_gate": "You must reach Competitor Track Level {{level}} to unlock this feature.",
   "errors.max_applications_reached": "This sponsored quest has reached its maximum number of applications",
   "errors.mentee_cap_reached": "Maximum of {{maxMentees}} mentees reached",
   "errors.message_not_delivered": "Unable to send message to this user",

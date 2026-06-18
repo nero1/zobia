@@ -78,7 +78,7 @@ export default function WalletTab() {
       };
 
       const earningsData = earningsRes?.data ?? earningsRes ?? {};
-      const incomeMonth = earningsData?.month?.total_ngn ?? 0;
+      const incomeMonth = Math.floor((earningsData?.month?.netKobo ?? 0) / 100);
 
       const payoutsData = payoutsRes?.data ?? payoutsRes ?? {};
       const pendingStatuses = new Set(['pending', 'awaiting_approval', 'processing']);

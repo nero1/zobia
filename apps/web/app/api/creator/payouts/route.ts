@@ -100,7 +100,15 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
     );
 
     if (!profileRows[0]?.is_creator) {
-      throw forbidden("Creator access required");
+      return NextResponse.json({
+        isCreator: false,
+        availableEarningsKobo: 0,
+        payoutConfig: null,
+        bankAccount: { configured: false },
+        walletAddress: { configured: false },
+        pendingPayout: null,
+        payouts: [],
+      });
     }
 
     const profile = profileRows[0];

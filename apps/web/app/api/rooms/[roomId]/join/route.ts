@@ -192,9 +192,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const room = roomRows[0];
     if (!room || !room.is_active) throw notFound("Room not found");
 
-    // Already a member?
+    // Already a member — idempotent: return success so callers don't need to
+    // distinguish "just joined" from "already in room" (avoids spurious 409s).
     if (await isMember(roomId, userId)) {
-      throw conflict("You are already a member of this room");
+      return NextResponse.json({ joined: true, alreadyMember: true }, { status: 200 });
     }
 
     // NOTE: room capacity is a *concurrent* (live presence) cap, not a membership
