@@ -345,16 +345,16 @@ export default function SubscriptionPage() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan: targetPlan, interval }),
+        body: JSON.stringify({ plan: targetPlan, billingCycle: interval }),
       });
       if (!res.ok) {
-        const d = (await res.json()) as { message?: string; code?: string };
-        const err = new Error(d.message ?? t(isUpgrading ? 'subscription.upgradeFailed' : 'subscription.downgradeFailed')) as Error & { code?: string | null };
-        err.code = d.code ?? null;
+        const d = (await res.json()) as { error?: { message?: string; code?: string } };
+        const err = new Error(d.error?.message ?? t(isUpgrading ? 'subscription.upgradeFailed' : 'subscription.downgradeFailed')) as Error & { code?: string | null };
+        err.code = d.error?.code ?? null;
         throw err;
       }
-      const d = (await res.json()) as { checkoutUrl?: string; redirectUrl?: string };
-      const url = d.checkoutUrl ?? d.redirectUrl;
+      const d = (await res.json()) as { paymentUrl?: string; checkoutUrl?: string; redirectUrl?: string };
+      const url = d.paymentUrl ?? d.checkoutUrl ?? d.redirectUrl;
       if (url) {
         window.location.href = url;
       } else {
@@ -393,9 +393,9 @@ export default function SubscriptionPage() {
         credentials: "include",
       });
       if (!res.ok) {
-        const d = (await res.json()) as { message?: string; code?: string };
-        const err = new Error(d.message ?? t('subscription.cancelFailed')) as Error & { code?: string | null };
-        err.code = d.code ?? null;
+        const d = (await res.json()) as { error?: { message?: string; code?: string } };
+        const err = new Error(d.error?.message ?? t('subscription.cancelFailed')) as Error & { code?: string | null };
+        err.code = d.error?.code ?? null;
         throw err;
       }
       showToast(t('subscription.cancelledSuccess'));

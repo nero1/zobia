@@ -29,12 +29,10 @@ interface GiftItemRow {
   name: string;
   emoji: string;
   coin_cost: number;
-  star_cost: number | null;
   tier: number; // 1 (cheapest) – 5 (most spectacular)
-  animation_key: string | null;
+  animation_url: string | null;
   spectacle_threshold_coins: number | null;
   is_active: boolean;
-  sort_order: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -46,9 +44,8 @@ interface GiftItem {
   name: string;
   emoji: string;
   coinCost: number;
-  starCost: number | null;
   tier: number;
-  animationKey: string | null;
+  animationUrl: string | null;
   spectacleThresholdCoins: number | null;
 }
 
@@ -84,11 +81,11 @@ const TIER_LABELS: Record<number, string> = {
 export const GET = withAuth(async (_req: NextRequest, _ctx) => {
   try {
     const { rows } = await db.query<GiftItemRow>(
-      `SELECT id, name, emoji, coin_cost, star_cost, tier,
-              animation_key, spectacle_threshold_coins, is_active, sort_order
+      `SELECT id, name, emoji, coin_cost, tier,
+              animation_url, spectacle_threshold_coins, is_active
        FROM gift_items
        WHERE is_active = TRUE
-       ORDER BY tier ASC, sort_order ASC, coin_cost ASC`
+       ORDER BY tier ASC, coin_cost ASC`
     );
 
     // Group by tier
@@ -102,9 +99,8 @@ export const GET = withAuth(async (_req: NextRequest, _ctx) => {
         name: row.name,
         emoji: row.emoji,
         coinCost: row.coin_cost,
-        starCost: row.star_cost,
         tier: row.tier,
-        animationKey: row.animation_key,
+        animationUrl: row.animation_url,
         spectacleThresholdCoins: row.spectacle_threshold_coins,
       });
     }

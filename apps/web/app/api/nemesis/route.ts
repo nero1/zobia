@@ -261,7 +261,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       const competitorTrackInfo = getTrackLevelForXP("competitor", competitorXP);
       if (competitorTrackInfo.level < MIN_COMPETITOR_LEVEL_FOR_CHALLENGE) {
         throw forbidden(
-          `You must reach Competitor Track Level ${MIN_COMPETITOR_LEVEL_FOR_CHALLENGE} to challenge users to XP sprints.`
+          `You must reach Competitor Track Level ${MIN_COMPETITOR_LEVEL_FOR_CHALLENGE} to challenge users to XP sprints.`,
+          "LEVEL_GATE"
         );
       }
 

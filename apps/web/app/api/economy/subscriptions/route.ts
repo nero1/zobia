@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { withAuth, validateBody } from "@/lib/api/middleware";
-import { badRequest, notFound, handleApiError } from "@/lib/api/errors";
+import { badRequest, notFound, conflict, handleApiError } from "@/lib/api/errors";
 import { db } from "@/lib/db";
 import { initializePayment } from "@/lib/payments";
 import { loadManifest } from "@/lib/manifest";
@@ -124,7 +124,13 @@ const SubscribeSchema = z.object({
   plan: z.enum(["plus", "pro", "max"]).optional(),
   /** PRD §3: 'monthly' or 'annual' (annual = 10×monthly price, 2 months free). */
   billingCycle: z.enum(["monthly", "annual"]).optional(),
-}).refine(
+  /** Alias for billingCycle — accepted for backwards compatibility with older clients. */
+  interval: z.enum(["monthly", "annual"]).optional(),
+}).transform((d) => ({
+  planId: d.planId,
+  plan: d.plan,
+  billingCycle: d.billingCycle ?? d.interval,
+})).refine(
   (d) => d.planId !== undefined || (d.plan !== undefined && d.billingCycle !== undefined),
   { message: "Provide either planId or both plan and billingCycle" }
 );
@@ -177,7 +183,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     );
 
     if (existing[0]) {
-      throw badRequest("You already have an active subscription to this plan", "ALREADY_SUBSCRIBED");
+      throw conflict("You already have an active subscription to this plan", "ALREADY_SUBSCRIBED");
     }
 
     // Load user email

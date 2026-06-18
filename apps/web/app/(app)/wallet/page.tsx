@@ -632,7 +632,7 @@ function WalletContent() {
         try {
           const earningsJson = earningsRes?.ok ? await earningsRes.json() as Record<string, unknown> : null;
           const payoutsJson = payoutsRes?.ok ? await payoutsRes.json() as Record<string, unknown> : null;
-          const earningsData = (earningsJson?.data ?? earningsJson) as { month?: { total_ngn?: number } } | null;
+          const earningsData = (earningsJson?.data ?? earningsJson) as { month?: { netKobo?: number } } | null;
           const payoutsData = (payoutsJson?.data ?? payoutsJson) as {
             payouts?: { id: string; gross_kobo?: number; net_kobo?: number; payout_method?: string; status?: string; created_at?: string }[];
           } | null;
@@ -647,7 +647,7 @@ function WalletContent() {
               status: p.status ?? "pending",
               createdAt: p.created_at ?? new Date().toISOString(),
             }));
-          const totalMonthNgn = (earningsData?.month?.total_ngn ?? 0);
+          const totalMonthNgn = Math.floor((earningsData?.month?.netKobo ?? 0) / 100);
           if (totalMonthNgn > 0 || pending.length > 0) {
             earnings = { totalMonthNgn, pendingPayouts: pending };
           }
