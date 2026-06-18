@@ -1499,6 +1499,8 @@
   "admin.business.action.confirm": "تأكيد",
   "admin.business.action.cancel": "إلغاء",
   "admin.business.empty": "لا توجد حسابات أعمال",
+  "errors.pin_required": "التحقق من رمز PIN مطلوب للمتابعة.",
+  "errors.no_pin_configured": "لم تقم بتعيين رمز PIN. يرجى إنشاء واحد في الإعدادات.",
   "floatingNotif": {
     "xpEarned": "+{{amount}} نقطة خبرة",
     "creditsEarned": "+{{amount}} {{currency}}",

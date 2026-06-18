@@ -201,13 +201,21 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const senderId = auth.user.sub;
 
-    // Require a recent PIN verification before allowing gift sends
+    // Require a recent PIN verification only if the user has a PIN configured.
+    // Users without a PIN set can send gifts freely; the PIN guard protects
+    // those who have opted into PIN security.
     const pinOk = await requirePinVerified(senderId, auth.user.sid);
     if (!pinOk) {
-      return NextResponse.json(
-        { error: "PIN verification required", code: "PIN_REQUIRED" },
-        { status: 403 }
+      const { rows: pinRows } = await db.query<{ id: string }>(
+        `SELECT 1 AS id FROM user_pins WHERE user_id = $1 LIMIT 1`,
+        [senderId]
       );
+      if (pinRows.length > 0) {
+        return NextResponse.json(
+          { error: "PIN verification required", code: "PIN_REQUIRED" },
+          { status: 403 }
+        );
+      }
     }
 
     const body = await validateBody(req, SendGiftSchema);

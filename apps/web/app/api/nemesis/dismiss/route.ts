@@ -20,11 +20,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
 
-    // Mark current assignment as dismissed
+    // Mark current assignment as dismissed and inactive so it is never returned by GET/challenge
     const { rowCount } = await db.query(
       `UPDATE nemesis_assignments
-       SET dismissed_at = NOW()
-       WHERE user_id = $1 AND dismissed_at IS NULL`,
+       SET dismissed_at = NOW(), is_active = false
+       WHERE user_id = $1 AND is_active = true`,
       [userId]
     );
 

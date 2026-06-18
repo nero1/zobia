@@ -1428,6 +1428,8 @@
   "admin.business.action.confirm": "Thibitisha",
   "admin.business.action.cancel": "Futa",
   "admin.business.empty": "Hakuna akaunti za biashara zilizopatikana",
+  "errors.pin_required": "Uthibitishaji wa PIN unahitajika kuendelea.",
+  "errors.no_pin_configured": "Huna PIN iliyowekwa. Tafadhali unda moja katika mipangilio.",
   "floatingNotif": {
     "xpEarned": "+{{amount}} XP",
     "creditsEarned": "+{{amount}} {{currency}}",

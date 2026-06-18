@@ -1428,6 +1428,8 @@
   "admin.business.action.confirm": "Tabbatar",
   "admin.business.action.cancel": "Soke",
   "admin.business.empty": "Ba a sami asusun kasuwanci ba",
+  "errors.pin_required": "Ana buƙatar tabbatar da PIN don ci gaba.",
+  "errors.no_pin_configured": "Ba ku da PIN da aka saita. Don Allah ƙirƙira ɗaya a cikin saituna.",
   "floatingNotif": {
     "xpEarned": "+{{amount}} XP",
     "creditsEarned": "+{{amount}} {{currency}}",

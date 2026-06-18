@@ -1428,6 +1428,8 @@
   "admin.business.action.confirm": "Qinisekisa",
   "admin.business.action.cancel": "Khansela",
   "admin.business.empty": "Awekho ama-akhawunti ebhizinisi atholakele",
+  "errors.pin_required": "Ukuqinisekiswa kwe-PIN kuyadingeka ukuqhubeka.",
+  "errors.no_pin_configured": "Awunawo i-PIN esekelwe. Sicela udale enye ezilungiselelweni.",
   "floatingNotif": {
     "xpEarned": "+{{amount}} XP",
     "creditsEarned": "+{{amount}} {{currency}}",

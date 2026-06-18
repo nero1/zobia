@@ -198,7 +198,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const user = userRows[0];
     const email = user.email ?? `${user.username}@zobia.app`;
-    const idempotencyKey = `subscription:${userId}:${plan.id}:${randomUUID()}`;
+    const idempotencyKey = `subscription-${userId}-${plan.id}-${randomUUID()}`;
 
     const returnUrl = `${env.NEXT_PUBLIC_APP_URL}/settings/subscription/callback`;
     const metadata = {

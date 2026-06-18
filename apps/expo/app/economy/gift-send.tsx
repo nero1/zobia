@@ -9,7 +9,7 @@
  * @module app/economy/gift-send
  */
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -18,6 +18,8 @@ import {
   Pressable,
   Alert,
   ActivityIndicator,
+  Modal,
+  TextInput,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -178,6 +180,13 @@ export default function GiftSendScreen() {
   const [activeTier, setActiveTier] = useState<number | null>(null);
   const [currencyMode, setCurrencyMode] = useState<'coins' | 'stars'>('coins');
 
+  // PIN verification state
+  const [pinModalVisible, setPinModalVisible] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [pinVerifying, setPinVerifying] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const pendingSendParams = useRef<{ giftItemId: string; recipientId: string; roomId?: string; currency?: 'coins' | 'stars' } | null>(null);
+
   const { data: catalogue, isLoading: catalogueLoading } = useQuery<GiftCatalogue>({
     queryKey: ['gifts', 'catalogue'],
     queryFn: fetchCatalogue,
@@ -198,16 +207,67 @@ export default function GiftSendScreen() {
     onSuccess: (result) => {
       setSentGiftResult(result);
       setShowAnimation(true);
-      // Invalidate balance cache so header updates
       void queryClient.invalidateQueries({ queryKey: ['wallet', 'balance'] });
     },
-    onError: (err) => {
+    onError: (err, variables) => {
       const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
       const code = axiosErr.response?.data?.error?.code ?? null;
       const message = axiosErr.response?.data?.error?.message ?? err.message;
+
+      if (code === 'PIN_REQUIRED') {
+        // Store params so we can retry after PIN is verified
+        pendingSendParams.current = variables;
+        setPinInput('');
+        setPinError(null);
+        setPinModalVisible(true);
+        return;
+      }
+
+      if (code === 'NO_PIN_CONFIGURED') {
+        Alert.alert(
+          'PIN Setup Required',
+          'You need to set up a PIN before sending gifts. Go to Settings to create one.',
+          [
+            { text: 'Later', style: 'cancel' },
+            { text: 'Set Up PIN', onPress: () => router.push('/settings/pin') },
+          ]
+        );
+        return;
+      }
+
       Alert.alert('Send Failed', translateApiError(t, code, message));
     },
   });
+
+  const handlePinVerify = async () => {
+    if (pinVerifying) return;
+    const pin = pinInput.trim();
+    if (pin.length !== 4) {
+      setPinError('Enter your 4-digit PIN');
+      return;
+    }
+    setPinVerifying(true);
+    setPinError(null);
+    try {
+      const { data } = await apiClient.post<{ verified: boolean }>('/auth/pin/verify', { pin });
+      if (!data.verified) {
+        setPinError('Incorrect PIN. Please try again.');
+        return;
+      }
+      // PIN verified — close modal and retry the gift send
+      setPinModalVisible(false);
+      setPinInput('');
+      if (pendingSendParams.current) {
+        sendMutation.mutate(pendingSendParams.current);
+        pendingSendParams.current = null;
+      }
+    } catch (e) {
+      const axiosErr = e as AxiosError<{ error?: { message?: string } }>;
+      setPinError(axiosErr.response?.data?.error?.message ?? 'Verification failed. Try again.');
+    } finally {
+      setPinVerifying(false);
+    }
+  };
 
   const handleSend = () => {
     if (!selectedGift || !recipientId) return;
@@ -401,6 +461,54 @@ export default function GiftSendScreen() {
           />
         </View>
       )}
+
+      {/* PIN verification modal */}
+      <Modal
+        visible={pinModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => { setPinModalVisible(false); setPinInput(''); }}
+      >
+        <View style={styles.pinOverlay}>
+          <View style={[styles.pinSheet, { backgroundColor: themeColors.surface }]}>
+            <Text style={[styles.pinTitle, { color: themeColors.text }]}>Enter PIN</Text>
+            <Text style={[styles.pinSubtitle, { color: themeColors.textMuted }]}>
+              Your PIN is required to send gifts.
+            </Text>
+            <TextInput
+              style={[styles.pinInput, { color: themeColors.text, borderColor: pinError ? colors.semantic.error : themeColors.border, backgroundColor: themeColors.background }]}
+              value={pinInput}
+              onChangeText={(v) => { setPinInput(v.replace(/[^0-9]/g, '').slice(0, 4)); setPinError(null); }}
+              keyboardType="number-pad"
+              maxLength={4}
+              secureTextEntry
+              placeholder="••••"
+              placeholderTextColor={themeColors.textMuted}
+              autoFocus
+            />
+            {pinError && <Text style={styles.pinErrorText}>{pinError}</Text>}
+            <View style={styles.pinActions}>
+              <Pressable
+                style={styles.pinCancelBtn}
+                onPress={() => { setPinModalVisible(false); setPinInput(''); setPinError(null); pendingSendParams.current = null; }}
+              >
+                <Text style={[styles.pinCancelText, { color: themeColors.textMuted }]}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.pinConfirmBtn, { backgroundColor: colors.brand.blue, opacity: pinVerifying || pinInput.length < 4 ? 0.6 : 1 }]}
+                onPress={() => void handlePinVerify()}
+                disabled={pinVerifying || pinInput.length < 4}
+              >
+                {pinVerifying ? (
+                  <ActivityIndicator size="small" color={colors.neutral[0]} />
+                ) : (
+                  <Text style={styles.pinConfirmText}>Verify</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Gift animation overlay */}
       {sentGiftResult && (
@@ -607,5 +715,73 @@ const styles = StyleSheet.create({
   },
   currencyToggleTextActive: {
     color: colors.brand.blue,
+  },
+
+  // PIN modal
+  pinOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  pinSheet: {
+    width: '100%',
+    borderRadius: 20,
+    padding: 24,
+    gap: 12,
+    alignItems: 'center',
+  },
+  pinTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  pinSubtitle: {
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  pinInput: {
+    width: 140,
+    height: 52,
+    borderWidth: 2,
+    borderRadius: 14,
+    fontSize: 28,
+    textAlign: 'center',
+    letterSpacing: 8,
+    marginVertical: 8,
+  },
+  pinErrorText: {
+    fontSize: 13,
+    color: colors.semantic.error,
+    textAlign: 'center',
+  },
+  pinActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 4,
+    width: '100%',
+  },
+  pinCancelBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pinCancelText: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  pinConfirmBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pinConfirmText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.neutral[0],
   },
 });

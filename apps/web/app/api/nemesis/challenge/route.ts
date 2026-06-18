@@ -35,14 +35,15 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const competitorTrackInfo = getTrackLevelForXP("competitor", competitorXP);
     if (competitorTrackInfo.level < MIN_COMPETITOR_LEVEL_FOR_CHALLENGE) {
       throw forbidden(
-        `You must reach Competitor Track Level ${MIN_COMPETITOR_LEVEL_FOR_CHALLENGE} to challenge users to XP sprints.`
+        `You must reach Competitor Track Level ${MIN_COMPETITOR_LEVEL_FOR_CHALLENGE} to challenge users to XP sprints.`,
+        "LEVEL_GATE"
       );
     }
 
     // Get current active nemesis
     const { rows: nemesisRows } = await db.query<{ nemesis_id: string }>(
-      `SELECT nemesis_id FROM nemesis_assignments
-       WHERE user_id = $1 AND dismissed_at IS NULL
+      `SELECT nemesis_user_id AS nemesis_id FROM nemesis_assignments
+       WHERE user_id = $1 AND is_active = true
        ORDER BY assigned_at DESC LIMIT 1`,
       [userId]
     );
