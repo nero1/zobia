@@ -240,6 +240,7 @@ export default function GiftSendScreen() {
   });
 
   const handlePinVerify = async () => {
+    if (pinVerifying) return;
     const pin = pinInput.trim();
     if (pin.length !== 4) {
       setPinError('Enter your 4-digit PIN');

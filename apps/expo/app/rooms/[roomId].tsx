@@ -390,6 +390,7 @@ export default function RoomScreen() {
   const [gifPickerVisible, setGifPickerVisible] = useState(false);
   // VIP subscribe state
   const [subscribing, setSubscribing] = useState(false);
+  const subscribingRef = useRef(false);
   // Live presence / soft-cap admission
   const [roomFull, setRoomFull] = useState(false);
 
@@ -712,7 +713,8 @@ export default function RoomScreen() {
   }, [roomId, queryClient, t]);
 
   const handleVIPSubscribeWithMethod = useCallback(async (paymentMethod: 'balance' | 'card') => {
-    if (!roomId || subscribing) return;
+    if (!roomId || subscribingRef.current) return;
+    subscribingRef.current = true;
     setSubscribing(true);
     try {
       const res = await apiClient.post(`/rooms/${roomId}/subscribe`, { paymentMethod });
@@ -741,9 +743,10 @@ export default function RoomScreen() {
         Alert.alert('Error', translateApiError(t, code, message));
       }
     } finally {
+      subscribingRef.current = false;
       setSubscribing(false);
     }
-  }, [roomId, subscribing, queryClient, t]);
+  }, [roomId, queryClient, t]);
 
   const handleVIPSubscribe = useCallback(() => {
     void handleVIPSubscribeWithMethod('balance');

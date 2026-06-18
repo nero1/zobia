@@ -97,7 +97,7 @@ export const POST = withAuth(async (
 
     // 5. Compute amount in kobo (NGN × 100)
     const amountKobo = room.entry_fee_ngn * 100;
-    const paymentRef = `dropentr_${roomId.replace(/-/g, "").slice(0, 12)}_${userId.replace(/-/g, "").slice(0, 8)}_${Date.now()}`;
+    const paymentRef = `dropentr-${roomId.replace(/-/g, "").slice(0, 12)}-${userId.replace(/-/g, "").slice(0, 8)}-${Date.now()}`;
 
     // 6. Create pending payment record
     await db.query(
