@@ -33,13 +33,15 @@ export class ApiError extends Error {
    * @param message - Human-readable description
    * @param details - Optional additional detail (not sent to client in production)
    * @param headers - Optional response headers to include (e.g. Retry-After)
+   * @param params  - Optional i18n interpolation params (e.g. { level: 40 }) included in response
    */
   constructor(
     public readonly status: number,
     public readonly code: string,
     message: string,
     public readonly details?: unknown,
-    public readonly headers?: Record<string, string>
+    public readonly headers?: Record<string, string>,
+    public readonly params?: Record<string, unknown>
   ) {
     super(message);
     this.name = "ApiError";
@@ -75,9 +77,11 @@ export function unauthorized(message = "Unauthorized"): ApiError {
 /**
  * 403 Forbidden – authenticated but not permitted to perform the action.
  * @param message - Human-readable description
+ * @param code    - Optional machine-readable code
+ * @param params  - Optional i18n interpolation params (e.g. { level: 40 })
  */
-export function forbidden(message = "Forbidden", code = "FORBIDDEN"): ApiError {
-  return new ApiError(403, code, message);
+export function forbidden(message = "Forbidden", code = "FORBIDDEN", params?: Record<string, unknown>): ApiError {
+  return new ApiError(403, code, message, undefined, undefined, params);
 }
 
 /**
@@ -123,6 +127,8 @@ interface ErrorResponseBody {
     message: string;
     /** Validation issues – only present for 400 Zod errors */
     issues?: Array<{ path: string; message: string }>;
+    /** i18n interpolation params (e.g. { level: 40 }) */
+    params?: Record<string, unknown>;
   };
 }
 
@@ -145,7 +151,11 @@ export function handleApiError(error: unknown): NextResponse<ErrorResponseBody> 
   // Known API error
   if (error instanceof ApiError) {
     const body: ErrorResponseBody = {
-      error: { code: error.code, message: error.message },
+      error: {
+        code: error.code,
+        message: error.message,
+        ...(error.params ? { params: error.params } : {}),
+      },
     };
     const res = NextResponse.json(body, { status: error.status });
     if (error.headers) {

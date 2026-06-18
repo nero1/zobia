@@ -122,6 +122,11 @@ function SendGiftModal({
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinInput, setPinInput] = useState("");
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [verifyingPin, setVerifyingPin] = useState(false);
+  const pendingSend = useRef<{ giftItemId: string; recipientId: string } | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load catalogue and wallet balance on mount
@@ -170,8 +175,7 @@ function SendGiftModal({
     }, 300);
   }, [search, recipient]);
 
-  const handleSend = async () => {
-    if (!recipient || !selectedGift) return;
+  const doSend = async (giftItemId: string, recipientId: string) => {
     setSending(true);
     setError(null);
     try {
@@ -179,12 +183,19 @@ function SendGiftModal({
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ giftItemId: selectedGift.id, recipientId: recipient.id }),
+        body: JSON.stringify({ giftItemId, recipientId }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const errMsg = typeof data.error === "string" ? data.error : data.error?.message;
         const errCode = typeof data.error === "string" ? null : data.error?.code ?? null;
+        const errMsg = typeof data.error === "string" ? data.error : data.error?.message;
+        if (errCode === "PIN_REQUIRED") {
+          pendingSend.current = { giftItemId, recipientId };
+          setPinInput("");
+          setPinError(null);
+          setShowPinModal(true);
+          return;
+        }
         const err = new Error(errMsg ?? "Send failed") as Error & { code?: string | null };
         err.code = errCode;
         throw err;
@@ -198,6 +209,41 @@ function SendGiftModal({
     }
   };
 
+  const handleSend = async () => {
+    if (!recipient || !selectedGift) return;
+    await doSend(selectedGift.id, recipient.id);
+  };
+
+  const handlePinVerify = async () => {
+    if (!pinInput.trim()) { setPinError("Enter your PIN"); return; }
+    setVerifyingPin(true);
+    setPinError(null);
+    try {
+      const res = await fetch("/api/auth/pin/verify", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin: pinInput.trim() }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setPinError(data.error?.message ?? "Incorrect PIN");
+        return;
+      }
+      setShowPinModal(false);
+      setPinInput("");
+      if (pendingSend.current) {
+        const { giftItemId, recipientId } = pendingSend.current;
+        pendingSend.current = null;
+        await doSend(giftItemId, recipientId);
+      }
+    } catch {
+      setPinError("Network error. Try again.");
+    } finally {
+      setVerifyingPin(false);
+    }
+  };
+
   const tierData = catalogue?.tiers.find((t) => t.tier === activeTier);
 
   // Escape closes modal
@@ -206,6 +252,44 @@ function SendGiftModal({
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
+
+  if (showPinModal) {
+    return (
+      <div className="flex flex-col gap-4 py-4">
+        <h3 className="text-base font-bold text-neutral-900 dark:text-neutral-50">Enter your PIN</h3>
+        <p className="text-sm text-neutral-500">Your account has PIN protection enabled. Enter your PIN to send this gift.</p>
+        <input
+          type="password"
+          inputMode="numeric"
+          maxLength={6}
+          value={pinInput}
+          onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ""))}
+          onKeyDown={(e) => { if (e.key === "Enter") void handlePinVerify(); }}
+          placeholder="PIN"
+          className="w-full rounded-xl border border-neutral-200 px-4 py-3 text-center text-xl tracking-widest outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-neutral-700 dark:bg-neutral-800"
+          autoFocus
+        />
+        {pinError && <p className="text-sm text-red-500">{pinError}</p>}
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={() => { setShowPinModal(false); setPinInput(""); }}
+            className="flex-1 rounded-xl border border-neutral-200 py-2.5 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void handlePinVerify()}
+            disabled={verifyingPin || pinInput.length < 4}
+            className="flex-1 rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60"
+          >
+            {verifyingPin ? "Verifying…" : "Confirm"}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (sent) {
     return (

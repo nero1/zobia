@@ -235,10 +235,11 @@ export default function NemesisPage() {
       if (res.ok) {
         await load();
       } else {
-        const body = await res.json().catch(() => ({})) as { error?: { code?: string; message?: string } };
+        const body = await res.json().catch(() => ({})) as { error?: { code?: string; message?: string; params?: Record<string, unknown> } };
         const code = body.error?.code ?? null;
         const msg = body.error?.message ?? "Failed to send challenge";
-        setError(translateApiError(tRef.current, code, msg));
+        const params = body.error?.params ?? {};
+        setError(translateApiError(tRef.current, code, msg, params));
       }
     } catch {
       setError("Network error. Please try again.");

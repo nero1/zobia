@@ -38,6 +38,41 @@ interface RoomRow {
   is_active: boolean;
 }
 
+/** GET /api/rooms/:roomId/capacity — returns current cap and cost for 1 upgrade step */
+export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
+  try {
+    const { roomId } = (await params) as { roomId: string };
+    if (!UUID_RE.test(roomId)) throw badRequest("roomId must be a valid UUID");
+
+    const { rows } = await db.query<RoomRow>(
+      `SELECT creator_id, type, max_members, is_active FROM rooms WHERE id = $1`,
+      [roomId],
+    );
+    const room = rows[0];
+    if (!room || !room.is_active) throw notFound("Room not found");
+
+    const manifest = await loadManifest();
+    const { stepSlots, costCoinsPerStep, hardMax } = manifest.roomCapacityUpgrade;
+    const currentCap = resolveRoomCap(room.type, room.max_members, manifest);
+    const newCap = currentCap + stepSlots;
+    const atMax = newCap > hardMax;
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        currentCap,
+        stepSlots,
+        costCoinsPerStep,
+        hardMax,
+        atMax,
+        isCreator: room.creator_id === auth.user.sub,
+      },
+    });
+  } catch (err) {
+    return handleApiError(err);
+  }
+});
+
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
