@@ -4,28 +4,103 @@
  * Monitoring provider abstraction.
  * Wraps Sentry / New Relic / none based on MONITORING_PROVIDER env var.
  * Import captureException/trackEvent here instead of calling the SDKs directly.
+ *
+ * BUG-OBS-21: previous implementation only called console.error — actual SDK calls
+ * were commented out stubs. This file now invokes the real SDK when available.
+ *
+ * Both @sentry/nextjs and newrelic are optional peer dependencies; we load them
+ * via dynamic require() so a missing package falls back gracefully to console.
  */
 import { env } from "@/lib/env";
+
+// ---------------------------------------------------------------------------
+// Optional SDK module types (narrow interface, not the full package types)
+// ---------------------------------------------------------------------------
+
+interface SentryLike {
+  captureException(err: unknown, ctx?: { extra?: Record<string, unknown> }): void;
+  captureMessage(msg: string, level?: string): void;
+}
+
+interface NewRelicLike {
+  noticeError(err: Error | string, attrs?: Record<string, unknown>): void;
+}
+
+// ---------------------------------------------------------------------------
+// Lazy loader helpers — load once and cache; silently fall back if not installed
+// ---------------------------------------------------------------------------
+
+let _sentry: SentryLike | null | undefined; // undefined = not yet attempted
+let _newrelic: NewRelicLike | null | undefined;
+
+function getSentry(): SentryLike | null {
+  if (_sentry !== undefined) return _sentry;
+  try {
+    // require() is intentional: allows graceful fallback if @sentry/nextjs is not installed
+    // eslint-disable-next-line
+    _sentry = require("@sentry/nextjs") as SentryLike;
+  } catch {
+    _sentry = null;
+  }
+  return _sentry;
+}
+
+function getNewRelic(): NewRelicLike | null {
+  if (_newrelic !== undefined) return _newrelic;
+  try {
+    // require() is intentional: allows graceful fallback if newrelic is not installed
+    // eslint-disable-next-line
+    _newrelic = require("newrelic") as NewRelicLike;
+  } catch {
+    _newrelic = null;
+  }
+  return _newrelic;
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
 
 export function captureException(
   err: unknown,
   context?: Record<string, unknown>
 ): void {
   if (env.MONITORING_PROVIDER === "sentry" && env.SENTRY_DSN) {
-    // When Sentry is installed: Sentry.captureException(err, { extra: context });
-    console.error("[monitoring/sentry]", err, context);
-  } else if (env.MONITORING_PROVIDER === "newrelic") {
-    // When New Relic is installed: newrelic.noticeError(err instanceof Error ? err : new Error(String(err)));
-    console.error("[monitoring/newrelic]", err, context);
-  } else {
-    console.error("[monitoring]", err, context);
+    const sentry = getSentry();
+    if (sentry) {
+      sentry.captureException(err, { extra: context });
+    } else {
+      console.error("[monitoring/sentry] SDK not installed — install @sentry/nextjs", err, context);
+    }
+    return;
   }
+
+  if (env.MONITORING_PROVIDER === "newrelic") {
+    const nr = getNewRelic();
+    if (nr) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      nr.noticeError(error, context);
+    } else {
+      console.error("[monitoring/newrelic] SDK not installed — install newrelic", err, context);
+    }
+    return;
+  }
+
+  console.error("[monitoring]", err, context);
 }
 
 export function trackEvent(
   name: string,
   attributes?: Record<string, unknown>
 ): void {
+  if (env.MONITORING_PROVIDER === "sentry" && env.SENTRY_DSN) {
+    const sentry = getSentry();
+    if (sentry) {
+      sentry.captureMessage(name, "info");
+      return;
+    }
+  }
+
   if (process.env.NODE_ENV !== "production") {
     console.info("[monitoring/event]", name, attributes);
   }

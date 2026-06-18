@@ -30,7 +30,8 @@ import {
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { filterPublicContent } from "@/lib/messaging/antispam";
 import { applyAutoModeration } from "@/lib/moderation/contentFilter";
-import { XP_VALUES, ROOM_MESSAGE_XP_DAILY_CAP, calculateFinalXP, PLAN_XP_MULTIPLIERS_BP } from "@/lib/xp/engine";
+import { ROOM_MESSAGE_XP_DAILY_CAP, calculateFinalXP } from "@/lib/xp/engine";
+import { safeAwardXP } from "@/lib/xp/safeAwardXP"; // BUG-PERF-12: static import (was dynamic inside maybeAwardMessageXP)
 import type { Plan } from "@zobia/types";
 import { publishRealtimeEvent } from "@/lib/realtime";
 import { notifyRoomMentions, parseMentions } from "@/lib/notifications/chatPush";
@@ -196,7 +197,6 @@ async function maybeAwardMessageXP(
       'send_room_message',
       { plan, isMessagingAction: true }
     );
-    const { safeAwardXP } = await import("@/lib/xp/safeAwardXP");
     await safeAwardXP(userId, finalXp, "social", "send_message", `msg_${messageId}`);
     return finalXp;
   } catch (err) {

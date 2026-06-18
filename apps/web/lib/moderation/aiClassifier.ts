@@ -267,7 +267,9 @@ Classify this report according to your instructions.`;
         temperature: 0.1,
       }
     );
-    return parseClassificationResponse(response.content, "deepseek");
+    // BUG-AI-19: use response.provider (set by aiClient) instead of hardcoding "deepseek"
+    // so the ClassificationResult accurately reflects which model served the response.
+    return parseClassificationResponse(response.content, response.provider);
   } catch (err) {
     console.error("[aiClassifier] AI classify failed:", err);
     return fallbackResult("none");

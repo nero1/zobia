@@ -17,6 +17,7 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { compare } from "bcryptjs"; // BUG-PERF-03: static import avoids per-request module resolution
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { handleApiError, unauthorized } from "@/lib/api/errors";
@@ -76,7 +77,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const user = rows[0];
 
     // Always run bcrypt to prevent timing attacks
-    const { compare } = await import("bcryptjs");
     const hash = user?.password_hash ?? "$2b$12$invalidhashfortimingattack0000000";
     const passwordValid = await compare(body.password, hash);
 

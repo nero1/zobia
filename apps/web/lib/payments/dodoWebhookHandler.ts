@@ -198,11 +198,31 @@ export async function processPaymentSucceeded(
 
     // VIP room subscription — activate room access
     if (itemType === "room_subscription") {
-      const { roomId, grossKobo: subGrossKobo, subscriptionDays = 30 } = metadata as unknown as {
+      let { roomId, grossKobo: subGrossKobo, subscriptionDays = 30 } = metadata as unknown as {
         roomId: string;
         grossKobo: number;
         subscriptionDays?: number;
       };
+
+      // BUG-PAY-05: validate roomId is a UUID before querying to prevent DB errors
+      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!roomId || !UUID_RE.test(roomId)) {
+        console.error(`[webhook/dodopayments] room_subscription has invalid roomId: ${roomId}`, { paymentId, metadata });
+        return;
+      }
+
+      // BUG-PAY-05: verify the room exists before inserting subscription
+      const roomCheck = await tx.query(
+        `SELECT id FROM rooms WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+        [roomId]
+      );
+      if (!roomCheck.rows[0]) {
+        console.warn(`[webhook/dodopayments] Room ${roomId} not found, skipping room subscription`);
+        roomId = null as unknown as string;
+      }
+
+      if (!roomId) return;
+
       const expiresAt = new Date(Date.now() + subscriptionDays * 24 * 60 * 60 * 1000).toISOString();
 
       await tx.query(
@@ -296,7 +316,15 @@ export async function processPaymentSucceeded(
       }
     } else if (itemType === "star_pack") {
       if (serverStarsGranted <= 0) {
-        throw new Error(`star_pack starAmount must be positive, got: ${serverStarsGranted}`);
+        // BUG-PAY-04: throwing here rolls back the entire transaction including the payment
+        // status update, so the webhook retries forever. Write to DLQ and return instead.
+        console.error(`[webhook/dodopayments] star_pack has zero/negative stars for payment ${paymentId}`, { metadata });
+        await tx.query(
+          `INSERT INTO failed_webhooks (provider, event_type, payload, error, created_at)
+           VALUES ('dodopayments', 'payment.succeeded', $1::jsonb, $2, NOW())`,
+          [JSON.stringify({ paymentId, metadata }), `star_pack_zero_grant: got ${serverStarsGranted}`]
+        ).catch(() => {});
+        return;
       }
       await creditStars(
         userId,

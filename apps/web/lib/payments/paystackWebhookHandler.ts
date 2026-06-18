@@ -559,13 +559,15 @@ export async function processSubscriptionEvent(
         );
       }
     }).catch((err: unknown) => {
-      // BUG-21: swallow unique constraint violations (23505) — they mean the CRON
-      // already awarded the bonus for this month, which is the correct outcome.
+      // Swallow unique constraint violations (23505) — they mean the CRON already awarded
+      // the bonus for this month, which is the correct outcome. All other errors are
+      // rethrown so the webhook handler can mark the delivery as failed (BUG-PAY-02).
       const pgCode = (err as { code?: string })?.code;
       if (pgCode === '23505') {
         console.info('[webhook/paystack] subscription_bonus already awarded this month (23505) — skipping');
       } else {
         console.error("[webhook/paystack] Transaction error for subscription bonus:", err);
+        throw err;
       }
     });
 
@@ -579,8 +581,8 @@ export async function processSubscriptionEvent(
       [resolvedUserId]
     ).catch(() => {});
 
-  } else if (isCancelled || event.event === "subscription.disable") {
-    // Hard cancellation or provider-disabled — downgrade immediately
+  } else if (isCancelled) {
+    // Hard cancellation — downgrade immediately
     await db.query(
       `UPDATE subscriptions
        SET status = 'cancelled', updated_at = NOW()
@@ -591,6 +593,23 @@ export async function processSubscriptionEvent(
     await db.query(
       `UPDATE users SET plan = 'free', updated_at = NOW() WHERE id = $1`,
       [resolvedUserId]
+    ).catch(() => {});
+
+  } else if (event.event === "subscription.disable") {
+    // BUG-PAY-09: provider-disabled should not immediately downgrade — the user paid
+    // for the period. Treat like non-renewing: mark the subscription so the daily
+    // cron downgrades plan when ends_at (next_payment_date) lapses.
+    const disableEndsAt = next_payment_date
+      ? new Date(next_payment_date).toISOString()
+      : null;
+
+    await db.query(
+      `UPDATE subscriptions
+       SET status = 'disabled', auto_renew = false,
+           ${disableEndsAt ? "ends_at = $2," : ""}
+           updated_at = NOW()
+       WHERE user_id = $1`,
+      disableEndsAt ? [resolvedUserId, disableEndsAt] : [resolvedUserId]
     ).catch(() => {});
   }
 

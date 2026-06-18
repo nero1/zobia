@@ -179,7 +179,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
        VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8)`,
       [
         userId,
-        'coin_purchase',
+        'star_purchase', // BUG-FIN-18: was 'coin_purchase'; this is a star pack
         pack.price_kobo,
         pack.currency,
         provider,
