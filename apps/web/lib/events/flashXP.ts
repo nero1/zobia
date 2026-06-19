@@ -85,25 +85,32 @@ export async function advanceFlashXPLifecycle(): Promise<FlashXPLifecycleResult>
       if (!rowCount || rowCount === 0) continue;
 
       // FIX-C03: include reference_id in INSERT so the ON CONFLICT target is valid
+      const announceTimeStr = new Intl.DateTimeFormat("en", {
+        timeZone: "Africa/Lagos",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date(evt.ends_at));
       await db.query(
-        `INSERT INTO notifications (user_id, type, payload, is_read, reference_id, created_at)
+        `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, reference_id, created_at)
          SELECT id,
                 'flash_xp_announced',
-                $1::jsonb,
+                '⚡ Flash XP Event Coming!',
+                $1,
+                $2::jsonb,
                 FALSE,
-                $2,
+                $3,
                 NOW()
          FROM users
          WHERE deleted_at IS NULL
            AND last_active_at > NOW() - INTERVAL '30 days'
          ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
         [
+          `Double XP is happening sometime before ${announceTimeStr} today! Stay active.`,
           JSON.stringify({
             eventId: evt.id,
             name: evt.name,
             multiplier: parseFloat(evt.multiplier),
             windowEnd: evt.ends_at,
-            message: `⚡ Double XP is happening sometime before ${new Date(evt.ends_at).toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" })} today! Stay active.`,
           }),
           `flash_xp:${evt.id}:announced`,
         ]
@@ -136,25 +143,33 @@ export async function advanceFlashXPLifecycle(): Promise<FlashXPLifecycleResult>
       if (!rowCount || rowCount === 0) continue;
 
       // FIX-C03: include reference_id so the ON CONFLICT target is valid
+      const liveTimeStr = new Intl.DateTimeFormat("en", {
+        timeZone: "Africa/Lagos",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date(evt.ends_at));
       await db.query(
-        `INSERT INTO notifications (user_id, type, payload, is_read, reference_id, created_at)
+        `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, reference_id, created_at)
          SELECT id,
                 'flash_xp_live',
-                $1::jsonb,
-                FALSE,
+                $1,
                 $2,
+                $3::jsonb,
+                FALSE,
+                $4,
                 NOW()
          FROM users
          WHERE deleted_at IS NULL
            AND last_active_at > NOW() - INTERVAL '7 days'
          ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
         [
+          `⚡ ${evt.name} is LIVE NOW!`,
+          `${evt.multiplier}× XP until ${liveTimeStr}. Go earn!`,
           JSON.stringify({
             eventId: evt.id,
             name: evt.name,
             multiplier: parseFloat(evt.multiplier),
             endsAt: evt.ends_at,
-            message: `⚡ ${evt.name} is LIVE NOW! ${evt.multiplier}× XP until ${new Date(evt.ends_at).toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" })}. Go earn!`,
           }),
           `flash_xp:${evt.id}:live`,
         ]

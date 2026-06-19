@@ -276,15 +276,35 @@ export async function processPaymentSucceeded(
         ? rawPlanName
         : "pro";
 
+      // BUG-14: use metadata.interval to compute ends_at instead of hard-coding 1 month.
+      // Common DodoPayments interval values: "monthly", "yearly", "6month".
+      const intervalMonths = (() => {
+        switch ((metadata.interval ?? "monthly").toLowerCase()) {
+          case "yearly":
+          case "annual":
+            return 12;
+          case "6month":
+          case "semi-annual":
+            return 6;
+          case "3month":
+          case "quarterly":
+            return 3;
+          default:
+            return 1;
+        }
+      })();
+      const endsAt = new Date();
+      endsAt.setMonth(endsAt.getMonth() + intervalMonths);
+
       // Write to subscriptions (canonical table) — B-12
       await tx.query(
         `INSERT INTO subscriptions
            (user_id, plan, status, provider, provider_subscription_id, starts_at, ends_at, created_at, updated_at)
-         VALUES ($1, $2, 'active', 'dodopayments', $3, NOW(), NOW() + INTERVAL '1 month', NOW(), NOW())
+         VALUES ($1, $2, 'active', 'dodopayments', $3, NOW(), $4, NOW(), NOW())
          ON CONFLICT (user_id) DO UPDATE
            SET plan = $2, status = 'active', provider = 'dodopayments',
-               provider_subscription_id = $3, updated_at = NOW()`,
-        [userId, planName, providerReference]
+               provider_subscription_id = $3, ends_at = $4, updated_at = NOW()`,
+        [userId, planName, providerReference, endsAt.toISOString()]
       );
 
       // Update users.plan

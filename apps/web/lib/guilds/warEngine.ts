@@ -344,7 +344,10 @@ export async function resolveWar(
       throw new Error(`[warEngine] War ${warId} is already resolved`);
     }
 
-    // Challenger wins on a draw (tie-break rule: challenger_points >= defender_points)
+    // BUG-07: set outcome = "draw" when scores are equal; challenger wins tie-break
+    if (war.challenger_points === war.defender_points) {
+      outcome = "draw";
+    }
     winnerGuildId =
       war.challenger_points >= war.defender_points
         ? war.challenger_guild_id
@@ -398,16 +401,26 @@ export async function resolveWar(
       WAR_WIN_GUILD_XP_MAX,
       Math.max(WAR_WIN_GUILD_XP_MIN, Math.round((war.defender_points + war.challenger_points) * 2))
     );
+
+    // BUG-11: capture pre-war tier BEFORE updating guild_xp so from_tier reflects
+    // the tier at the start of the war, not the (possibly recalculated) post-war tier.
+    const { rows: preTierRows } = await client.query<{ tier: string }>(
+      `SELECT tier FROM guilds WHERE id = $1`,
+      [winnerGuildId]
+    );
+    const fromTier = preTierRows[0]?.tier ?? null;
+
     await client.query(
       `UPDATE guilds SET guild_xp = guild_xp + $1, updated_at = NOW() WHERE id = $2`,
       [guildXPReward, winnerGuildId]
     );
     // Include war_id so each war produces at most one tier history entry per guild.
+    // BUG-11: use captured fromTier for from_tier; read post-update tier as to_tier.
     await client.query(
       `INSERT INTO guild_tier_history (guild_id, from_tier, to_tier, guild_xp_at, war_id)
-       SELECT $1, tier, tier, guild_xp, $2::uuid FROM guilds WHERE id = $1
+       SELECT $1, $3, tier, guild_xp, $2::uuid FROM guilds WHERE id = $1
        ON CONFLICT (guild_id, war_id) WHERE war_id IS NOT NULL DO NOTHING`,
-      [winnerGuildId, warId]
+      [winnerGuildId, warId, fromTier]
     ).catch((err) => logger.error({ warId, err }, "[resolveWar] Failed to write guild tier history"));
 
     // Distribute coin rewards within the same transaction (ZB-03)

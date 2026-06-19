@@ -268,6 +268,7 @@ export const GET = async (req: NextRequest) => {
              WHEN sp.unlock_condition LIKE 'generosity_level_%'  THEN u.level_generosity
              WHEN sp.unlock_condition LIKE 'knowledge_level_%'   THEN u.level_knowledge
              WHEN sp.unlock_condition LIKE 'explorer_level_%'    THEN u.level_explorer
+             WHEN sp.unlock_condition LIKE 'gaming_level_%'      THEN u.level_gaming
              ELSE 0
            END >= CAST(REGEXP_REPLACE(sp.unlock_condition, '^[a-z_]+_level_', '') AS INTEGER)
            AND NOT EXISTS (

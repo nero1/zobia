@@ -18,7 +18,7 @@ import { db } from "@/lib/db";
 import { withAuth, validateSearchParams, validateBody } from "@/lib/api/middleware";
 import { handleApiError, forbidden, notFound, badRequest, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { getDMCost, checkDailyLimitReached, incrementDailyCount } from "@/lib/messaging/coinCost";
+import { getDMCost, checkAndIncrementDailyCount } from "@/lib/messaging/coinCost";
 import { filterDMContent } from "@/lib/messaging/antispam";
 import { applyAutoModeration } from "@/lib/moderation/contentFilter";
 import { updateConversationScore } from "@/lib/messaging/conversationScore";
@@ -407,9 +407,9 @@ export const POST = withAuth(
         throw badRequest("Unable to send message to this user", "MESSAGE_NOT_DELIVERED");
       }
 
-      // 3. Daily reply limit
-      const daily = await checkDailyLimitReached(auth.user.sub, sender.plan);
-      if (daily.replyLimitReached) {
+      // 3. Daily reply limit — atomically check and increment to eliminate TOCTOU race (BUG-10)
+      const { allowed: dailyAllowed } = await checkAndIncrementDailyCount(auth.user.sub, "reply", sender.plan);
+      if (!dailyAllowed) {
         throw conflict("Daily reply limit reached. Try again tomorrow.", "DAILY_LIMIT_REACHED");
       }
 
@@ -458,7 +458,8 @@ export const POST = withAuth(
           { content: filtered, senderId: auth.user.sub, roomId: conversationId },
           { id: conversationId },
           { id: auth.user.sub, is_verified: sender.is_verified, trust_score: sender.trust_score },
-          db
+          db,
+          "dm"
         );
         if (modResult.blocked) {
           throw badRequest(
@@ -542,7 +543,7 @@ export const POST = withAuth(
         // BUG-XP-11: use safeAwardXP with message.id as reference_id for idempotency + DLQ on failure
         safeAwardXP(auth.user.sub, convFinalXp, 'social', 'message', `dm_${message.id}`).catch(() => {});
       }
-      incrementDailyCount(auth.user.sub, "reply").catch(() => {});
+      // Daily counter already incremented atomically in step 3 (BUG-10)
       updateConversationScore(auth.user.sub, recipientId, "message_sent").catch(() => {});
 
       // 11. Realtime broadcast — push the new message to open clients

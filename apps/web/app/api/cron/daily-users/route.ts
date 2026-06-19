@@ -97,10 +97,14 @@ export const GET = async (req: NextRequest) => {
 
   // 3. Expire unclaimed comeback coin reservations (7-day window)
   try {
+    // BUG-22: select cl.id so each reversal gets a unique reference_id keyed on
+    // the ledger row — prevents the partial-index ON CONFLICT from deduping
+    // a second reversal for the same user as if it were the first.
     const { rows: expiredBonusUsers } = await db.query<{
       user_id: string;
+      ledger_id: string;
     }>(
-      `SELECT cl.user_id
+      `SELECT cl.user_id, cl.id AS ledger_id
        FROM coin_ledger cl
        JOIN users u ON u.id = cl.user_id
        WHERE cl.transaction_type = 'comeback_bonus_reserved'
@@ -124,7 +128,7 @@ export const GET = async (req: NextRequest) => {
             row.user_id,
             COMEBACK_COIN_AMOUNT,
             "comeback_bonus_expired",
-            `comeback_reversal:${row.user_id}`,
+            `comeback_reversal:${row.user_id}:${row.ledger_id}`,
             "Comeback bonus expired (7-day window passed)",
             {},
             tx

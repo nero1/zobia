@@ -255,8 +255,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // Batch INSERT rank-change notifications
     if (notifUserIds.length > 0) {
       await db.query(
-        `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+        `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
          SELECT sub.uid, sub.ntype,
+                CASE
+                  WHEN sub.ntype = 'leaderboard_top10_entry' THEN 'You''re in the Top 10!'
+                  WHEN sub.ntype = 'leaderboard_rank_up'     THEN 'You''re climbing the leaderboard!'
+                  ELSE 'Your leaderboard rank has changed'
+                END,
+                'You moved from rank #' || sub.prev_rank || ' to rank #' || sub.new_rank || '.',
                 jsonb_build_object(
                   'previous_rank',  sub.prev_rank,
                   'new_rank',       sub.new_rank,

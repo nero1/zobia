@@ -43,6 +43,12 @@ export interface RateLimitOptions {
    * Set on sensitive endpoints (payment, auth, payout) to bound total traffic.
    */
   globalLimit?: number;
+  /**
+   * When true, skip the in-process L1 counter cache and always hit Redis.
+   * Use on sensitive endpoints (auth, PIN, payment) where multi-instance over-
+   * counting from the per-process cache would be unacceptable.
+   */
+  bypassL1?: boolean;
 }
 
 /** Result of a rate-limit check. */
@@ -62,7 +68,7 @@ export interface RateLimitResult {
 /** Rate limit presets – import these in route handlers for consistency. */
 export const RATE_LIMITS = {
   /** OAuth initiation / callback endpoints. */
-  auth: { limit: 20, windowMs: 15 * 60 * 1000, name: "auth", globalLimit: 1000 } as RateLimitOptions,
+  auth: { limit: 20, windowMs: 15 * 60 * 1000, name: "auth", globalLimit: 1000, bypassL1: true } as RateLimitOptions,
   /** General authenticated API reads. */
   apiRead: { limit: 300, windowMs: 60 * 1000, name: "api:read" } as RateLimitOptions,
   /** General authenticated API mutations. */
@@ -76,13 +82,13 @@ export const RATE_LIMITS = {
   /** Admin operations. */
   admin: { limit: 120, windowMs: 60 * 1000, name: "admin" } as RateLimitOptions,
   /** PIN verification — tight limit to prevent brute-force of 4-digit keyspace (BUG-14). */
-  pinVerify: { limit: 5, windowMs: 15 * 60 * 1000, name: "pin:verify" } as RateLimitOptions,
+  pinVerify: { limit: 5, windowMs: 15 * 60 * 1000, name: "pin:verify", bypassL1: true } as RateLimitOptions,
   /** Gift sending — separate hourly limit to prevent gift spam / draining (STRUC-09). */
   giftSend: { limit: 50, windowMs: 60 * 60 * 1000, name: "gift:send" } as RateLimitOptions,
   /** Coin purchase — hourly limit on purchase initiations (STRUC-09). */
-  coinPurchase: { limit: 10, windowMs: 60 * 60 * 1000, name: "coin:purchase", globalLimit: 1000 } as RateLimitOptions,
+  coinPurchase: { limit: 10, windowMs: 60 * 60 * 1000, name: "coin:purchase", globalLimit: 1000, bypassL1: true } as RateLimitOptions,
   /** Payout request — daily limit to prevent abuse of the payout system (STRUC-09). */
-  payoutRequest: { limit: 3, windowMs: 24 * 60 * 60 * 1000, name: "payout:request", globalLimit: 1000 } as RateLimitOptions,
+  payoutRequest: { limit: 3, windowMs: 24 * 60 * 60 * 1000, name: "payout:request", globalLimit: 1000, bypassL1: true } as RateLimitOptions,
   /** Star gifting — hourly limit (STRUC-09). */
   starGift: { limit: 30, windowMs: 60 * 60 * 1000, name: "star:gift" } as RateLimitOptions,
   /** Starting a game play session. */
@@ -157,9 +163,11 @@ const RL_MEM_TTL_MS = 2_000;
 
 /**
  * Fraction of the limit below which we can safely skip the Redis round-trip.
- * At 0.7 we skip Redis when count < 70% of the limit — well before the wall.
+ * BUG-16: lowered from 0.7 to 0.4 — at 0.7 with 3 instances the per-process
+ * cache could allow up to 210% of the intended limit before hitting Redis.
+ * At 0.4 the maximum multi-instance overage is capped at ~120%.
  */
-const RL_SKIP_THRESHOLD = 0.7;
+const RL_SKIP_THRESHOLD = 0.4;
 
 // ---------------------------------------------------------------------------
 // Core sliding-window implementation
@@ -181,9 +189,10 @@ async function slidingWindowCheck(
 
   // In-process fast-path: if we've checked Redis recently AND the in-process
   // count is well below the limit, skip the Redis round-trip entirely.
+  // BUG-16: skip fast-path when bypassL1 is set (sensitive endpoints like auth/PIN)
   const memKey = `rl_mem:${key}`;
   const memEntry = memGet<RlMemEntry>(memKey);
-  if (memEntry && (now - memEntry.windowStart) < RL_MEM_TTL_MS) {
+  if (!options.bypassL1 && memEntry && (now - memEntry.windowStart) < RL_MEM_TTL_MS) {
     const inMemCount = memEntry.count;
     if (inMemCount < options.limit * RL_SKIP_THRESHOLD) {
       // Increment in-process count only; skips Redis entirely for this request

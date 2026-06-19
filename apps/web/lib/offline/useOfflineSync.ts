@@ -19,7 +19,9 @@ import {
 } from "./messageQueue";
 
 const MAX_ATTEMPTS = 5;
-const RETRY_DELAY_MS = 2_000;
+/** Base delay for the exponential backoff formula: delay = min(BASE * 2^attempt, MAX_DELAY) */
+const RETRY_BASE_DELAY_MS = 2_000;
+const RETRY_MAX_DELAY_MS = 60_000;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -96,8 +98,9 @@ export function useOfflineSync(): void {
               lastAttemptAt: Date.now(),
             });
           }
-          // Brief pause between retries to avoid hammering
-          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+          // Exponential backoff: 2s, 4s, 8s, 16s, capped at 60s (BUG-19)
+          const delay = Math.min(RETRY_BASE_DELAY_MS * Math.pow(2, nextAttempts - 1), RETRY_MAX_DELAY_MS);
+          await new Promise((r) => setTimeout(r, delay));
         }
       }
     } finally {

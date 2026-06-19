@@ -181,9 +181,16 @@ async function sendExpoBatch(
 
     if (!response.ok) {
       const text = await response.text().catch(() => "(unreadable)");
-      console.error(
-        `[push] Expo API returned ${response.status}: ${text}`
-      );
+      console.error(`[push] Expo API returned ${response.status}: ${text}`);
+      // BUG-12: write system_alert so ops can detect silent notification loss
+      await db.query(
+        `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
+         VALUES ('push_notification_batch_failed', 'warning', $1, $2::jsonb, NOW())`,
+        [
+          `Expo push batch failed with HTTP ${response.status}`,
+          JSON.stringify({ status: response.status, recipientCount: messages.length }),
+        ]
+      ).catch(() => {});
       return staleTokens;
     }
 

@@ -58,6 +58,8 @@ export interface AuthTokens {
   refreshToken: string;
   /** Seconds until the access token expires. */
   expiresIn: number;
+  /** Seconds until the refresh token expires (used to set refresh cookie maxAge). */
+  refreshTtl: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -191,7 +193,7 @@ export async function createSession(
     await redis.zremrangebyrank(userSessionsKey(user.id), 0, -(MAX_SESSIONS + 1));
   }
 
-  return { accessToken, refreshToken, expiresIn: accessTtl };
+  return { accessToken, refreshToken, expiresIn: accessTtl, refreshTtl };
 }
 
 /**
