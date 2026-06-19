@@ -108,7 +108,7 @@ Guilds are persistent groups of up to N members. Creating a guild costs 500 Cred
 
 ### XP System
 
-XP is earned on seven tracks: `main` (overall), `social`, `creator`, `competitor`, `generosity`, `knowledge`, and `explorer`. Each action type maps to a specific track (e.g. sending a message → social; publishing content → creator; winning a guild war → competitor). The XP Engine applies a multiplier stack — plan bonus → guild bonus → season pass bonus → active booster — using integer basis-point arithmetic. All XP flows through `/api/xp`, which writes to `xp_ledger` and updates `users.xp_total` and the relevant track field.
+XP is earned on eight tracks: `main` (overall), `social`, `creator`, `competitor`, `generosity`, `knowledge`, `explorer`, and `gaming`. Each action type maps to a specific track (e.g. sending a message → social; publishing content → creator; winning a guild war → competitor; playing or winning games → gaming). The XP Engine applies a multiplier stack — plan bonus → guild bonus → season pass bonus → active booster — using integer basis-point arithmetic. All XP flows through `/api/xp`, which writes to `xp_ledger` and updates `users.xp_total` and the relevant track field.
 
 ### Dual Currencies
 
@@ -732,9 +732,10 @@ Rate limit options are specified with `lib/security/rateLimit.ts`'s `RateLimitOp
 
 ```typescript
 interface RateLimitOptions {
-  limit: number;      // max requests allowed in the window
-  windowMs: number;   // window duration in milliseconds
-  name: string;       // identifier used in Redis key prefix and error messages
+  limit: number;       // max requests allowed in the window
+  windowMs: number;    // window duration in milliseconds
+  name: string;        // identifier used in Redis key prefix and error messages
+  bypassL1?: boolean;  // when true, skips the in-process L1 cache fast-path; use for sensitive endpoints (auth, payments) where a stale L1 hit could mask a genuine attack
 }
 ```
 
