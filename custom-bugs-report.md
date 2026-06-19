@@ -1,354 +1,284 @@
-# Zobia Codebase — Forensic Bug Report
-
-**Generated:** 2026-06-19 06:40 PM  
-**Scope:** `apps/web` (Next.js 14 App Router + PWA), `apps/expo` (React Native / Android), `shared/`  
-**Analyst:** Claude Code — independent analysis, no prior bug reports referenced
-
----
-
-## Summary List — All Bugs Found
-
-1. BUG-SCHEMA-01: `nemesisAssignments` unique index on `(userId, track, isActive)` causes constraint violation on re-deactivation
-2. BUG-SCHEMA-02: `users.coinBalance` bigint stored as JS `number` — precision lost above MAX_SAFE_INTEGER
-3. BUG-SCHEMA-03: `rooms.slug` is nullable — rooms without slugs unreachable via public /r/ URL
-4. BUG-SCHEMA-04: `pushTickets` partial index uses unqualified column reference `status = 'pending'`
-5. BUG-MW-01: `validateBody`/`validateSearchParams` throw ZodError not ApiError — can cause 500 in unwrapped handlers
-6. BUG-RT-01: Web Ably `useRealtimeChannel` fast-unmount race — cleanup closure may never fire on early unmount
-7. BUG-RT-02: Web Pusher `useRealtimeChannel` spawns a new Pusher client per hook instance — multiple concurrent WebSocket connections
-8. BUG-WAR-01: `distributeWarRewards` with exactly 2 members produces wrong payout split
-9. BUG-WAR-02: `resolveWar` silently swallows guild tier-history insert errors via empty `.catch()`
-10. BUG-PUSH-01: `pollPushReceipts` marks entire batch `checked_at` before processing individual results — mid-batch exception strands tickets
-11. BUG-PUSH-02: Push notification recipient query never filters by `last_seen_at` — sends to stale/abandoned devices indefinitely
-12. BUG-QUEST-01: `updateQuestProgress` silently falls back to "main" XP track for any unrecognized `action_type`
-13. BUG-QUEST-02: Quest engine double-awards main XP when `parallelTrack` is null — `null ?? "main"` awards main XP a second time
-14. BUG-XP-01: `safeAwardXP` DLQ write is unawaited — lost on process termination immediately after primary failure
-15. BUG-SEASON-01: `resetSeasonRankings` resets `user_season_passes.season_xp` but not `users.season_xp` — counter divergence at season end
-16. BUG-SEASON-02: Season pass `xp_bonus` milestone only credits `users.xp_total`, not `users.season_xp` — milestone XP invisible in season leaderboard
-17. BUG-SEASON-03: `createSeasonCeremonyRoom` creates a room without a slug — ceremony room unreachable via /r/ URL
-18. BUG-SEASON-04: `claimPassMilestone` sticker_pack lookup uses ambiguous `slug = $1 OR name = $1`
-19. BUG-PAY-01: `processChargeSuccess` uses `null as unknown as string` type cast — suppresses TypeScript safety, risks runtime NPE
-20. BUG-FUND-01: Creator fund `normalise()` returns 1 for all when all values equal — inflates scores when all creators score 0 on a metric
-21. BUG-NEM-01: `compareNemesisProgress` missing "gaming" track — throws unhandled error on gaming comparison request
-22. BUG-ANN-01: `getActiveModalForUser` records modal view at API call time before client confirms display
-23. BUG-GAME-01: `declineChallenge` non-null asserts a post-transaction re-fetch — crashes if row deleted concurrently
-24. BUG-GAME-02: `createChallenge` builds PostgreSQL interval via string concatenation — fragile on non-integer input
-25. BUG-GAME-03: `createChallenge` accepts arbitrarily large wagers with no server-side maximum
-26. BUG-MOD-01: `detectBotBehavior` only counts room message velocity — DM flooding bypasses bot detection
-27. BUG-AUTH-01: L1 in-process session cache (10 s TTL) allows revoked/banned sessions to remain active up to 10 seconds
-28. BUG-AUTH-02: `verifyTotp` uses `===` string comparison instead of `crypto.timingSafeEqual` — timing side-channel
-29. BUG-GIFT-01: `retireGiftDrop` runs two non-transactional UPDATEs — partial failure leaves drop deactivated but gift item un-retired
-30. BUG-OFFLINE-01: Web PWA `getQueueCounts` calls `getAllMessages` — counts sent/failed messages as pending, inflating UI indicators
+# Zobia Social — Forensic Bug Report
+**Generated:** Thursday, June 19, 2026 — 12:00 AM (UTC)
+**Analyst:** Independent forensic analysis (no prior bug reports referenced)
+**Scope:** `apps/web` (Next.js 14 App Router, PWA), `apps/expo` (Android), `packages/`
 
 ---
 
-## Detailed Entries
+## Code Quality Rating
+
+| Dimension | Current | Post-Fix |
+|---|---|---|
+| Overall | **6.5 / 10** | **8.5 / 10** |
+| Security | 8.5 / 10 | 9.0 / 10 |
+| Data Integrity | 5.5 / 10 | 9.0 / 10 |
+| Economy/Payments | 7.0 / 10 | 9.0 / 10 |
+| Correctness | 6.0 / 10 | 8.5 / 10 |
+| Architecture | 8.0 / 10 | 8.5 / 10 |
+
+**Review:** The codebase is structurally solid. JWT auth, CSRF protection, CSP hardening, Decimal.js economy, append-only coin/star ledger with SELECT FOR UPDATE idempotency, Redis circuit breakers, and DLQ retry patterns are all well-implemented. However, several critical data-integrity bugs will silently fail in production: the leaderboard ON CONFLICT clause is guaranteed to misbehave on every write, the Paystack subscription.disable webhook fires the wrong handler branch causing immediate incorrect plan downgrades, the guild war draw outcome is never recorded, and the monthly plan bonus CRON ON CONFLICT has the wrong column list that will make it fail every 1st of the month. These critical bugs hide behind best-effort try/catch blocks and will never surface as visible errors until a user complains.
 
 ---
 
-### 1: BUG-SCHEMA-01: nemesisAssignments unique index breaks on re-deactivation
+## Bug Summary (Quick Reference)
 
-**FILES:**
-- `apps/web/lib/db/schema.ts`
-- `apps/web/lib/nemesis/nemesisEngine.ts`
-
-**FIX:** The partial unique index `UNIQUE (user_id, track, is_active) WHERE is_active = TRUE` is correct for preventing duplicate active assignments. The risk arises when any code path tries to set `is_active = FALSE` on a row that is already inactive and then re-insert a new active row — the WHERE clause is on the unique index, so duplicate (user, track, FALSE) rows are never caught by it and accumulate. In `assignNemesis`, the deactivation UPDATE must include `AND is_active = TRUE` to be a no-op on already-inactive rows. Verify that all deactivation paths carry this guard, and add a separate partial index on `(userId, track) WHERE is_active = FALSE` if you need uniqueness on inactive records too.
-
----
-
-### 2: BUG-SCHEMA-02: coinBalance bigint stored as JS number — precision loss
-
-**FILES:**
-- `apps/web/lib/db/schema.ts` (`users.coinBalance` and all other `bigint mode:"number"` columns)
-- `apps/web/lib/economy/coins.ts`
-
-**FIX:** `bigint("coin_balance", { mode: "number" })` instructs Drizzle to deserialize PostgreSQL bigint as JavaScript `number`. JavaScript `number` is IEEE 754 double-precision, which can only represent integers exactly up to 2^53−1 (~9 quadrillion). Coin balances are unlikely to ever reach that, but the same mode is used for all monetary `bigint` columns (kobo amounts, XP amounts, etc.) — any value above ~9 quadrillion loses precision silently. Either change mode to `"bigint"` and propagate `BigInt` types through the economy logic, or enforce a safe maximum ceiling with a DB CHECK constraint (`coin_balance <= 9007199254740991`) and add application-layer guards. The same issue affects `gross_amount_kobo`, `platform_fee_kobo`, `amount_kobo`, and other monetary bigint columns throughout the schema.
-
----
-
-### 3: BUG-SCHEMA-03: rooms.slug is nullable — /r/ URL routing is unreliable
-
-**FILES:**
-- `apps/web/lib/db/schema.ts` (`rooms.slug`)
-- `apps/web/lib/seasons/seasonEngine.ts` (`createSeasonCeremonyRoom`)
-
-**FIX:** The `rooms.slug` column is nullable, meaning rooms can be created without a public URL handle. Any room created without a slug is silently unreachable via `/r/<slug>`. This is confirmed to happen for ceremony rooms (see BUG-SEASON-03). Either make `slug` NOT NULL with a generated fallback (e.g., auto-slug from title + short UUID) or add a DB CHECK constraint that `slug IS NOT NULL` when `is_public = TRUE`. Update all room-creation code paths to always provide a slug.
-
----
-
-### 4: BUG-SCHEMA-04: pushTickets partial index uses unqualified column reference
-
-**FILES:**
-- `apps/web/lib/db/schema.ts` (`pushTickets` table index definition)
-
-**FIX:** The partial index on `push_tickets` uses `.where(sql\`status = 'pending'\`)` with an unqualified column name. Some PostgreSQL migration contexts and ORM introspection tools resolve this fine, but it is non-standard and may silently fall back to a full-table scan or fail to apply under schema-qualified connections. Qualify the reference: `push_tickets.status = 'pending'`, or use Drizzle's typed `.where(eq(pushTickets.status, 'pending'))` form if the ORM supports it in index definitions.
+```
+BUG-01: Leaderboard upsert ON CONFLICT columns mismatch database unique constraint
+BUG-02: safeAwardXP never updates leaderboard snapshots — leaderboard always stale
+BUG-03: Daily login XP cron skips leaderboard snapshot update
+BUG-04: Login streak / daily XP cron has 24-hour delay — uses CURRENT_DATE-1 not today
+BUG-05: Paystack subscription.disable event unreachable — isCancelled branch fires first
+BUG-06: DM duplicate-message detection never runs — wrong messageContext always passed
+BUG-07: Guild war draw outcome never recorded — draw always treated as challenger win
+BUG-08: Monthly plan bonus ON CONFLICT missing user_id — PostgreSQL throws every 1st of month
+BUG-09: Admin createSession does not return refreshTtl — admin refresh cookie has wrong expiry
+BUG-10: DM daily coin-limit check is a TOCTOU race — concurrent sends can exceed limit
+BUG-11: guild_tier_history stores from_tier = to_tier — tier change history always wrong
+BUG-12: Expo push send-batch failure drops messages silently — no DLQ on send side
+BUG-13: Hall of Fame injection ignores pageSize — page 1 can exceed requested size
+BUG-14: DodoPayments subscription ends_at hardcoded to NOW()+1 month — ignores actual billing
+BUG-15: Gaming track missing from earnable sticker CASE — gaming sticker packs never unlock
+BUG-16: Rate limiter L1 cache is per-instance — 30% overage possible across instances
+BUG-17: fieldEncryption keyCache is unbounded — minor memory leak under key rotation
+BUG-18: Inconsistent notification payload column usage — mixed payload vs title/body paths
+BUG-19: useOfflineSync fixed retry delay — no exponential backoff for offline message retry
+BUG-20: flashXP toLocaleTimeString uses en-NG locale — Node.js locale support not guaranteed
+BUG-21: Redundant login_streak / login_streak_days dual-update in CRON
+BUG-22: Comeback coin reversal non-unique referenceId — second reversal silently skipped
+```
 
 ---
 
-### 5: BUG-MW-01: validateBody/validateSearchParams throw ZodError not ApiError
-
-**FILES:**
-- `apps/web/lib/api/middleware.ts` (lines ~471, ~487)
-
-**FIX:** Both helpers call `schema.parse(raw)` which throws `ZodError` on invalid input, not an `ApiError`. They are documented as "throws a 400 ApiError." They work correctly when called inside `withAuth` or `withErrorHandling` because `handleApiError` catches `ZodError` and converts it. However, any handler that uses these helpers without those wrappers will let the `ZodError` propagate uncaught, producing a 500. Fix by wrapping `schema.parse()` in a try/catch inside each helper and rethrowing as `new ApiError(400, "VALIDATION_ERROR", ...)`, making them safe to call in any handler context.
+## Detailed Bug Descriptions
 
 ---
 
-### 6: BUG-RT-01: Ably useRealtimeChannel fast-unmount cleanup leak (web)
+### BUG-01
+**Leaderboard upsert ON CONFLICT columns mismatch the database unique constraint**
 
-**FILES:**
-- `apps/web/lib/realtime/useRealtimeChannel.ts`
+FILES: `apps/web/lib/leaderboards/engine.ts`, `apps/web/app/api/cron/leaderboards/route.ts`
 
-**FIX:** The hook imports Ably asynchronously inside `useEffect`. If React calls the effect cleanup before the async import resolves (fast unmount), the `cleanup` variable has not been assigned yet and the cleanup function returned by `useEffect` runs before `cleanup` is set — the channel is never detached. Set a `cancelled` boolean flag before the first `await`, check it immediately after every `await`, and only proceed with channel setup if `!cancelled`. If the component unmounts during the async init, the flag prevents channel creation entirely. The Expo version of this hook handles this correctly and can serve as a reference.
-
----
-
-### 7: BUG-RT-02: Pusher creates new client per hook instance (web)
-
-**FILES:**
-- `apps/web/lib/realtime/useRealtimeChannel.ts`
-
-**FIX:** When `provider === "pusher"`, the hook creates `new Pusher(...)` inside the effect body each time a component mounts. Each component subscribed to any channel creates its own WebSocket connection, multiplying transport connections linearly with component count. This quickly exhausts Pusher's per-client channel limit and increases cost. Fix by creating a module-level singleton Pusher client (initialized lazily on first use) shared across all hook instances. The existing Ably path correctly uses a shared client and should be used as a model.
+FIX: Both `upsertLeaderboardSnapshot` and the leaderboard CRON batch-upsert use `ON CONFLICT (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))`. PostgreSQL ON CONFLICT column-list targets must exactly match a real unique index. The schema's unique constraint on `leaderboard_snapshots` uses `IS NOT DISTINCT FROM` semantics or an expression index — not a bare COALESCE in the ON CONFLICT column list. Either: (a) create a matching expression unique index on `(user_id, track, scope, COALESCE(city,''), COALESCE(season_id::text,''))` in the schema migration, or (b) use `ON CONFLICT ON CONSTRAINT <constraint_name>` referencing the actual named constraint. Until fixed, every call to `upsertLeaderboardSnapshot` will either error with "there is no unique or exclusion constraint matching the ON CONFLICT specification" or silently insert duplicate leaderboard rows. This affects real-time XP awards, quest completions, season milestone XP, and the leaderboard CRON.
 
 ---
 
-### 8: BUG-WAR-01: distributeWarRewards wrong split with exactly 2 members
+### BUG-02
+**`safeAwardXP` never calls `upsertLeaderboardSnapshot` — leaderboard is always stale**
 
-**FILES:**
-- `apps/web/lib/guilds/warEngine.ts` (`distributeWarRewards`)
+FILES: `apps/web/lib/xp/safeAwardXP.ts`, `apps/web/lib/leaderboards/engine.ts`
 
-**FIX:** The reward distribution awards rank-1 a fixed 30% base, then distributes 50% of the remaining pool proportionally among all members by rank weight. With exactly 2 members, rank-1 receives 30% + ~50% of remainder, while rank-2 receives only ~20% — an unintended 80/20 split. The formula was designed for larger guilds and misfires on small ones. Add a branch for guilds with 2 members that uses explicit winner/runner-up percentages (e.g., 60/40). At minimum, write unit tests covering 1-, 2-, 3-, and N-member scenarios and document the intended split for each.
-
----
-
-### 9: BUG-WAR-02: resolveWar silently swallows guild tier history errors
-
-**FILES:**
-- `apps/web/lib/guilds/warEngine.ts` (`resolveWar`)
-
-**FIX:** The guild tier history INSERT at the end of `resolveWar` is wrapped in `.catch(() => {})` — any error (constraint violation, DB unavailability) is silently discarded. Guild tier history is audit-critical data. Replace the empty catch with at minimum `logger.error(...)`, and consider moving the insert inside the main transaction block or writing to a DLQ so it can be retried. Silent data loss here undermines any future analytics or dispute resolution capability.
+FIX: After the CTE-based `UPDATE users SET xp_total = ...` succeeds, `safeAwardXP` does not call `upsertLeaderboardSnapshot` for the affected user. The leaderboard only updates when the 15-minute external CRON fires, so all real-time XP events (gifts, quests, game rewards, flash XP, referral bonuses) are invisible on the leaderboard for up to 15 minutes. Add a best-effort (fire-and-forget) call to `upsertLeaderboardSnapshot(userId, track, newXpValue, db)` after the main CTE executes. The same gap exists in the `retryFailedXPAwards` retry path and must be fixed there too.
 
 ---
 
-### 10: BUG-PUSH-01: pollPushReceipts marks checked_at before processing receipts
+### BUG-03
+**Daily login XP cron updates `xp_total` but never calls `upsertLeaderboardSnapshot`**
 
-**FILES:**
-- `apps/web/lib/notifications/push.ts` (`pollPushReceipts`)
+FILES: `apps/web/app/api/cron/daily-core/route.ts`
 
-**FIX:** The function fetches a batch of push tickets and immediately bulk-updates `checked_at = NOW()` for all of them before entering the per-ticket result processing loop. If an exception occurs mid-loop (network error, malformed receipt), the remaining unprocessed tickets have `checked_at` set and will not be retried. Move the `checked_at` update to per-ticket: mark each ticket only after its receipt has been handled, or use a two-phase status column (`receipt_status: 'pending' | 'processed' | 'failed'`) to distinguish state clearly.
-
----
-
-### 11: BUG-PUSH-02: Push notification recipient query never filters stale device tokens
-
-**FILES:**
-- `apps/web/lib/notifications/push.ts` (`sendPushNotification`, `sendBulkPushNotification`)
-
-**FIX:** Device push tokens are queried without any recency filter. Tokens from devices inactive for months (uninstalled apps, replaced phones) are targeted on every notification. This wastes Expo push quota and degrades throughput. Add a `last_seen_at > NOW() - INTERVAL '90 days'` (or configurable) filter to device token queries. Additionally, when Expo returns a `DeviceNotRegistered` error for a token, immediately delete or nullify that token — do not wait for the next receipt poll cycle.
+FIX: The daily login XP section runs a CTE that inserts into `xp_ledger` and updates `users.xp_total` for all users who logged in the previous day. There is no subsequent `upsertLeaderboardSnapshot` call. After the CTE completes, collect the `user_id` values from the `awarded` CTE RETURNING clause and call a batch `upsertLeaderboardSnapshot` for each (or run a single bulk-upsert as done in the leaderboard CRON). Otherwise the daily login XP bump is not reflected on the leaderboard until the next CRON cycle.
 
 ---
 
-### 12: BUG-QUEST-01: updateQuestProgress falls back to wrong XP track for unknown action types
+### BUG-04
+**Login streak increment and daily login XP have a 24-hour delay**
 
-**FILES:**
-- `apps/web/lib/quests/questEngine.ts` (`updateQuestProgress`)
+FILES: `apps/web/app/api/cron/daily-core/route.ts`
 
-**FIX:** When `updateQuestProgress` encounters an `action_type` with no defined XP track mapping, it silently awards "main" XP instead. Any typo in a quest definition, or a newly added action type that lacks a mapping, quietly credits the wrong track with no error. Fix by throwing a logged error or returning early without awarding XP when no mapping is found. A runtime exhaustiveness check (or TypeScript exhaustive union) at the top of the function would catch this during development before it reaches production.
-
----
-
-### 13: BUG-QUEST-02: Quest engine double-awards main XP when parallelTrack is null
-
-**FILES:**
-- `apps/web/lib/quests/questEngine.ts`
-- `apps/web/lib/xp/safeAwardXP.ts`
-
-**FIX:** After awarding the quest's `xp_reward` to the "main" track, the engine calls `safeAwardXP(userId, xpReward, parallelTrack ?? "main", ...)`. When `parallelTrack` is null, the nullish coalescing fallback evaluates to "main", causing main XP to be awarded twice for that quest completion. Fix by adding a null-guard: only execute the parallel-track award when `parallelTrack !== null`. The null case should be a no-op.
+FIX: The streak-increment query uses `WHERE last_login_date = CURRENT_DATE - 1` and the daily login XP query uses the same condition. The CRON runs at 23:00 UTC. A user who logs in today (any time 00:00–22:59 UTC) has `last_login_date = CURRENT_DATE`. The CRON only credits that login the following night when today becomes `CURRENT_DATE - 1`. Change both conditions to `WHERE last_login_date = CURRENT_DATE` so the same-day login gets its streak increment and XP on the day it occurs. Verify there is no double-award risk: the XP ledger ON CONFLICT on `reference_id = 'daily_login:' || id || ':' || CURRENT_DATE` already prevents duplicates.
 
 ---
 
-### 14: BUG-XP-01: safeAwardXP DLQ write is unawaited — lost on fast process exit
+### BUG-05
+**Paystack `subscription.disable` event is unreachable — `isCancelled` branch fires first**
 
-**FILES:**
-- `apps/web/lib/xp/safeAwardXP.ts` (catch block)
+FILES: `apps/web/lib/payments/paystackWebhookHandler.ts`
 
-**FIX:** After a primary XP award failure, the DLQ insert into `failed_xp_awards` is issued without `await`. In serverless/edge environments (Vercel, short-lived containers), the process may be suspended or killed in the milliseconds between the primary failure and the DLQ write completing. This silently drops XP events. Fix by `await`-ing the DLQ insert and re-catching any DLQ errors separately, or write the intent to a Redis list synchronously before the primary attempt and remove it on success (reliable write-ahead approach).
-
----
-
-### 15: BUG-SEASON-01: resetSeasonRankings diverges users.season_xp from user_season_passes.season_xp
-
-**FILES:**
-- `apps/web/lib/seasons/seasonEngine.ts` (`resetSeasonRankings`)
-
-**FIX:** The function resets `user_season_passes.season_xp = 0` but does NOT reset `users.season_xp`. After a season reset, the two columns are out of sync: `users.season_xp` retains the previous season's value, so any query or leaderboard reading `users.season_xp` shows stale data for the new season. Add a bulk `UPDATE users SET season_xp = 0 WHERE deleted_at IS NULL` (or scoped to active season participants) inside the same database operation as the season pass reset.
+FIX: In `processSubscriptionEvent`, the chain checks `isNonRenewing` and `isCancelled` (both derived from `data.status`) before checking `event.event === "subscription.disable"`. When Paystack sends a `subscription.disable` event it often sets `status = "cancelled"`, so the `isCancelled` branch fires first and immediately downgrades the user to `plan = "free"`. A `subscription.disable` should be treated as non-renewing (plan stays active until the current billing period ends). Move the `event.event === "subscription.disable"` check to the top of the if/else chain, ahead of any status-based conditions. Status checks should only be fallbacks for event types where the event name alone does not indicate the action.
 
 ---
 
-### 16: BUG-SEASON-02: Season pass xp_bonus milestone doesn't update users.season_xp
+### BUG-06
+**DM duplicate-message detection never runs — wrong `messageContext` always passed**
 
-**FILES:**
-- `apps/web/lib/seasons/seasonEngine.ts` (`claimPassMilestone`)
+FILES: `apps/web/lib/moderation/contentFilter.ts`
 
-**FIX:** When a user claims a `xp_bonus` milestone from their season pass, the code increments `users.xp_total` (all-time XP) but does not increment `users.season_xp` or `user_season_passes.season_xp`. The bonus XP is therefore invisible on the in-season leaderboard and doesn't contribute to the user's seasonal standing. Fix by including `season_xp = season_xp + $bonus` in the `UPDATE users` statement, and likewise `season_xp = season_xp + $bonus` in the `UPDATE user_season_passes` row for the current season.
-
----
-
-### 17: BUG-SEASON-03: createSeasonCeremonyRoom creates room without a slug
-
-**FILES:**
-- `apps/web/lib/seasons/seasonEngine.ts` (`createSeasonCeremonyRoom`)
-- `apps/web/lib/db/schema.ts`
-
-**FIX:** The ceremony room INSERT does not include a `slug` value, leaving it NULL. Any attempt to link to or navigate to the ceremony room via `/r/<slug>` will 404. Generate a deterministic slug at creation time — for example, `season-${seasonId.slice(0, 8)}-ceremony` — and include it in the INSERT. If `slug` is made NOT NULL globally (see BUG-SCHEMA-03), this fix becomes mandatory.
+FIX: `applyAutoModeration` calls `detectDuplicateMessage(userId, content, "room")` with a hardcoded `"room"` argument regardless of message type. The `messageContext` parameter controls which table is queried for recent messages — passing `"room"` for a DM queries the wrong table, so repeated DM content is never flagged. The caller must pass the correct context: `"dm"` when processing a direct message (i.e. when a `conversationId` is present), `"room"` otherwise. Update all call sites of `applyAutoModeration` to pass the derived context.
 
 ---
 
-### 18: BUG-SEASON-04: claimPassMilestone sticker_pack OR lookup is ambiguous
+### BUG-07
+**Guild war draw outcome never recorded — every draw is treated as a challenger win**
 
-**FILES:**
-- `apps/web/lib/seasons/seasonEngine.ts` (`claimPassMilestone`)
+FILES: `apps/web/lib/guilds/warEngine.ts`
 
-**FIX:** The sticker pack lookup uses `WHERE slug = $1 OR name = $1`. If a pack's `name` collides with a different pack's `slug`, the query may return the wrong pack. The intent is "find by slug, fall back to name." Replace with a two-step approach: first query by `slug = $1`, and if not found, query by `name = $1`. Or use `ORDER BY (slug = $1) DESC LIMIT 1` to prefer slug matches. This eliminates the ambiguity and is clearer in intent.
-
----
-
-### 19: BUG-PAY-01: processChargeSuccess uses `null as unknown as string` type cast
-
-**FILES:**
-- `apps/web/lib/payments/paystackWebhookHandler.ts` (`processChargeSuccess`)
-
-**FIX:** `roomId` is assigned `null as unknown as string` to satisfy TypeScript's type checker. This is a type safety escape hatch that hides the fact that `roomId` can be null at runtime. Any downstream code that calls string methods on `roomId` without a null guard will throw at runtime. Fix by correctly typing `roomId` as `string | null | undefined` throughout the function and adding explicit null checks before any string operation or database query using it. Remove the unsafe cast entirely.
+FIX: In `resolveWar`, `let outcome: "win" | "draw" = "win"` is declared but never reassigned to `"draw"` when `challengerScore === defenderScore`. The draw detection sets the `isTie` flag (used correctly in reward distribution), but the `war_results` DB record is written with `outcome = "win"` for all draws. Add `outcome = "draw"` inside the draw detection branch before the DB write. No other changes are needed — `isTie` is already used downstream to skip win-only rewards.
 
 ---
 
-### 20: BUG-FUND-01: Creator fund normalise() inflates scores when all values equal zero
+### BUG-08
+**Monthly plan bonus ON CONFLICT missing `user_id` — PostgreSQL throws every 1st of month**
 
-**FILES:**
-- `apps/web/lib/creator/fund.ts` (`normalise`, `calculateFundDistributions`)
+FILES: `apps/web/app/api/cron/daily-economy/route.ts`
 
-**FIX:** The `normalise()` helper detects `min === max` (all values equal) and returns `values.map(() => 1)`. For any metric where every creator scored 0 (e.g., no gifts sent this month), all creators receive a normalized score of 1.0 instead of 0.0, causing the metric to contribute positively to everyone's weighted distribution score. Fix: when `min === max`, return `values.map(() => 0)`. A metric where no one performed should contribute zero to all scores, not 1.
-
----
-
-### 21: BUG-NEM-01: compareNemesisProgress missing "gaming" track — throws at runtime
-
-**FILES:**
-- `apps/web/lib/nemesis/nemesisEngine.ts` (`compareNemesisProgress`)
-
-**FIX:** The `trackColumnMap` inside `compareNemesisProgress` maps XP track names to database column names, but the "gaming" track is absent. Any comparison request for the gaming track throws `Error: unknown XP track 'gaming'`, crashing the API endpoint. Add `gaming: "xp_gaming"` to the map. Cross-reference with `TRACK_COLUMN` in `safeAwardXP.ts` to ensure all eight tracks (main, social, creator, competitor, generosity, knowledge, explorer, gaming) are present in both maps consistently.
+FIX: The monthly plan bonus CTE uses `ON CONFLICT (transaction_type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING` on `coin_ledger`. The actual unique index `uidx_coin_ledger_tx_type_ref` (schema.ts line 1948) is on `(user_id, transaction_type, reference_id) WHERE reference_id IS NOT NULL` — three columns, not two. PostgreSQL rejects this with "there is no unique or exclusion constraint matching the ON CONFLICT specification", causing the entire transaction to fail and no user receiving their monthly bonus. Change to `ON CONFLICT (user_id, transaction_type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`.
 
 ---
 
-### 22: BUG-ANN-01: Announcement modal view recorded before client confirms display
+### BUG-09
+**Admin `createSession` return type omits `refreshTtl` — admin refresh cookie set with wrong max-age**
 
-**FILES:**
-- `apps/web/lib/announcements/engine.ts` (`getActiveModalForUser`, `getActiveBannerForUser`)
+FILES: `apps/web/lib/auth/session.ts`
 
-**FIX:** Both functions insert a view record into `announcement_views` immediately when the GET API is called, before the client has rendered and displayed the content. If the API succeeds but the client then crashes, navigates away, or hits a network error before the modal appears, the modal is permanently marked as viewed and will never be shown again. Fix by decoupling delivery from confirmation: the GET endpoint returns the modal without recording the view, and a separate POST `/api/announcements/:id/confirm-view` endpoint records the view when the client explicitly dismisses the modal. This is the standard pattern for impression tracking.
-
----
-
-### 23: BUG-GAME-01: declineChallenge crashes on concurrent row deletion
-
-**FILES:**
-- `apps/web/lib/games/challenges.ts` (`declineChallenge`)
-
-**FIX:** After completing its transaction (which marks the challenge as declined), the function re-fetches the challenge row with a non-null assertion: `(await getChallengeRow(challengeId))!.challenger_id`. If a concurrent expiry sweep or admin deletion removes the row between the transaction commit and this re-fetch, the expression throws `Cannot read properties of undefined`. Fix by capturing `challenger_id` from the locked row inside the transaction itself and passing it out as a local variable — no post-transaction re-fetch is needed. This also eliminates a redundant DB round-trip.
+FIX: `createSession` returns `{ accessToken, refreshToken, expiresIn: accessTtl }` — the `AuthTokens` interface does not include `refreshTtl`. Login route handlers that call `createSession` for admin users cannot read the admin-specific refresh TTL (1 hour, vs 30 days for regular users) from the return value. Consequently the `zobia_rt` cookie `maxAge` is set using a default or wrong TTL. Add a `refreshTtl` field to the `AuthTokens` interface and populate it in `createSession`'s return value using the same TTL that was passed to `signRefreshToken`.
 
 ---
 
-### 24: BUG-GAME-02: createChallenge builds PostgreSQL interval via string concatenation
+### BUG-10
+**DM daily coin-limit check is a TOCTOU race — concurrent sends can exceed the daily limit**
 
-**FILES:**
-- `apps/web/lib/games/challenges.ts` (`createChallenge`)
+FILES: `apps/web/lib/messaging/coinCost.ts`
 
-**FIX:** Challenge expiry is computed with `NOW() + ($6 || ' hours')::interval`. If the `$6` value contains anything other than a plain integer (e.g., a float, a unit suffix, leading/trailing whitespace from a misconfigured source), PostgreSQL will throw a `invalid input syntax for type interval` error surfaced as a 500. Replace with: `NOW() + ($6 * INTERVAL '1 hour')`, which uses numeric multiplication and avoids string casting entirely. This is both safer and clearer.
-
----
-
-### 25: BUG-GAME-03: createChallenge accepts unlimited wager size
-
-**FILES:**
-- `apps/web/lib/games/challenges.ts` (`createChallenge`)
-
-**FIX:** There is no server-side maximum wager validation in `createChallenge`. A user can submit a challenge with an arbitrarily large coin or star wager. The challenge record is persisted and the challenger's notification is sent before the opponent ever tries to accept. The opponent's `acceptChallenge` will fail if they can't afford the wager, but the dangling challenge record and stale notification have already been created. Add a configurable `MAX_WAGER_COINS` and `MAX_WAGER_STARS` check at the start of `createChallenge`, sourced from the manifest or environment, and return a 400 before inserting if either threshold is exceeded.
+FIX: `checkDailyLimitReached` reads the Redis counter and `incrementDailyCount` increments it in two separate operations. Under concurrent DM sends (multiple tabs or rapid retries), both reads can observe the same below-limit counter value and both proceed, allowing more messages than the daily cap. Replace with an atomic check-and-increment: call Redis `INCR` and then compare the returned value against the limit. If the result exceeds the limit, decrement it (or let it stand but reject the request). A short Lua script `if redis.call('INCR', key) > limit then return 1 else ... end` is the cleanest solution.
 
 ---
 
-### 26: BUG-MOD-01: detectBotBehavior only checks room message velocity — DMs not covered
+### BUG-11
+**`guild_tier_history` INSERT stores `from_tier = to_tier` — tier change history is always wrong**
 
-**FILES:**
-- `apps/web/lib/moderation/contentFilter.ts` (`detectBotBehavior`)
+FILES: `apps/web/lib/guilds/warEngine.ts`
 
-**FIX:** The bot velocity check counts recent rows only in `room_messages`. A user sending 100 DMs per minute will not trigger any bot detection because the `messages` table (DMs) is never queried. Fix by unioning the velocity check across both tables, or by introducing a single unified per-user message rate counter (e.g., the existing Redis per-user `messageSend` rate limiter can serve as a proxy). At minimum, the function should document explicitly that it does not cover DMs so callers are not misled into thinking it provides complete coverage.
-
----
-
-### 27: BUG-AUTH-01: 10-second L1 session cache allows brief use of revoked sessions
-
-**FILES:**
-- `apps/web/lib/auth/session.ts` (`SESSION_CACHE_TTL_MS = 10_000`)
-
-**FIX:** The in-process session cache holds session records for 10 seconds. When a session is revoked (ban, admin kill, logout from another device), any warm Next.js instance will continue to accept requests from that session for up to 10 seconds. This window is acceptable for most use cases but too long for security-critical revocations. Consider reducing `SESSION_CACHE_TTL_MS` to 2–3 seconds as a first step. For immediate revocation (hard bans, fraud lockout), publish a Redis pub/sub `session:revoked:<sid>` event and have each instance subscribe to invalidate its L1 cache entry immediately. The `withAuth` middleware already bypasses L1 for sensitive mutations — document this exception and ensure all ban/revocation code paths benefit from it.
+FIX: In `resolveWar`, the `guild_tier_history` row is inserted with both `from_tier` and `to_tier` set to the same `tier` variable. This variable is the guild's new computed tier, so `from_tier` (the pre-war tier) is never captured. Before updating the guild's tier, read the current tier from the `guilds` table and store it as `fromTier`. Pass `fromTier` as `from_tier` and the newly computed tier as `to_tier` in the INSERT.
 
 ---
 
-### 28: BUG-AUTH-02: verifyTotp uses non-constant-time string comparison
+### BUG-12
+**Expo push send-batch failure silently drops notifications — no retry or DLQ on send side**
 
-**FILES:**
-- `apps/web/lib/auth/totp.ts` (`verifyTotp`)
+FILES: `apps/web/lib/notifications/push.ts`
 
-**FIX:** TOTP code verification uses `computedCode === userCode` — a standard JavaScript string comparison that short-circuits on the first mismatched character. While the practical exploitability is very low (rate limiting is tight and Redis anti-replay prevents reuse), timing side-channels in authentication primitives are a recognized vulnerability class. Replace with `crypto.timingSafeEqual(Buffer.from(computedCode, 'utf8'), Buffer.from(userCode, 'utf8'))` to guarantee constant-time comparison. This is a one-line change with no functional impact.
-
----
-
-### 29: BUG-GIFT-01: retireGiftDrop runs two non-transactional UPDATEs
-
-**FILES:**
-- `apps/web/lib/events/monthlyGiftDrop.ts` (`retireGiftDrop`)
-
-**FIX:** The function first sets `monthly_gift_drops.is_active = FALSE`, then in a separate statement sets `gift_items.is_retired = TRUE`. These are two independent queries with no surrounding transaction. If the process dies or a transient DB error occurs between the two, the drop is deactivated (gift no longer purchasable via the drop) but the gift item is not retired — it can be re-scheduled into a new drop, violating the "permanently retired after 48 hours" rule. Wrap both UPDATE statements inside `db.transaction(async tx => { ... })`.
+FIX: In `sendExpoBatch`, when `fetch(EXPO_PUSH_URL)` returns a non-2xx response, the function logs the error and returns an empty stale-token set. The affected notifications are gone — no tickets are saved, no retry entry is created. Add a DLQ path: on a failed batch send, insert the `(userId, token, title, body, data)` tuples into a `failed_push_sends` table with `retry_count = 0`. The existing daily CRON (which already handles push receipt polling) can include a step to retry these entries with the same send logic. At minimum, insert a `system_alerts` row so the team is notified of a send failure.
 
 ---
 
-### 30: BUG-OFFLINE-01: Web PWA getQueueCounts inflates counts with non-pending messages
+### BUG-13
+**`getLeaderboard` Hall of Fame injection ignores `pageSize` — page 1 can return too many entries**
 
-**FILES:**
-- `apps/web/lib/offline/messageQueue.ts` (`getQueueCounts`)
+FILES: `apps/web/lib/leaderboards/engine.ts`
 
-**FIX:** `getQueueCounts` calls `getAllMessages()` which returns all messages regardless of status (pending, sending, sent, failed). The function then counts total results and presents them as "queued messages," including already-sent and permanently-failed items. This inflates the offline queue indicator in the UI, misleading the user about how many messages are actually waiting to be sent. Fix by filtering to `status === 'pending'` only inside `getQueueCounts`, or replace the call with a dedicated `getPendingMessages()` method (which already exists in the Expo SQLite counterpart at `apps/expo/lib/offline/sqlite.ts` and can serve as a reference).
-
----
-
-## Code Quality Rating & Review
-
-### Current State — 7.4 / 10
-
-**Architecture & Design (9/10):** Genuinely impressive for a team product at this stage. The append-only coin and star ledgers, CTE-based atomic XP awards, Lua sliding-window rate limiter, kid-based JWT rotation, Redis circuit breakers, versioned AES-256-GCM field encryption with scrypt KDF, and XP dead-letter queue all reflect production-grade patterns correctly applied. The layered cache (L1 in-process + L2 Redis + DB), SELECT FOR UPDATE with deterministic lock ordering for deadlock prevention, and Expo SQLite offline queue show solid engineering judgment throughout.
-
-**Security (7.5/10):** Strong foundations: per-request CSP nonce, CSRF Origin header validation, TOTP anti-replay via Redis SET NX with 90-second TTL, constant-time webhook signature verification (Paystack), and scrypt KDF for KYC field encryption. Weaknesses: the 10-second L1 session cache creates a revocation window; TOTP comparison is not timing-safe; DM flooding bypasses bot detection; and the `null as unknown as string` type cast conceals a potential NPE in the payment webhook path.
-
-**Correctness (6.5/10):** Several bugs materially affect core feature correctness: the season XP double-counter divergence produces wrong season leaderboards from day 1 of a new season; the creator fund `normalise()` bug inflates payouts when any metric is uniformly zero; the quest engine double-awards main XP; war reward distribution misfires on small guilds; and the announcement view pre-recording silently skips modals on network errors. These are not obscure edge cases — they affect the core game mechanics on which retention depends.
-
-**Performance (7.5/10):** The L1 memory cache with `memGet`/`memSet`, atomic Lua round-trips, and paginated gift drop notifications (10,000-user batches) are well-applied. The main performance concerns are: the Pusher client multiplication will cause real WebSocket overhead under multi-channel pages; stale device tokens in push notifications waste Expo push quota proportionally as the user base grows and attrits.
-
-**Code Style & Maintainability (8/10):** Generally clean, well-commented, and consistent. Schema-derived type patterns (as seen in the referral commissions module), runtime allowlist guards before SQL interpolation (`SAFE_XP_COLS`), and thorough JSDoc on public APIs are good examples. The main maintainability concerns are the `null as unknown as string` cast (type debt), undocumented ZodError-not-ApiError behaviour in middleware helpers, and missing "gaming" track in the nemesis map (indicating the map is maintained manually and not derived from the canonical `TRACK_COLUMN` source of truth).
+FIX: On page 1, `getLeaderboard` appends HoF users not already present in the paginated result set without re-applying the `pageSize` limit to the final array. If there are many HoF users absent from the top-N results, the returned array exceeds `pageSize`. After combining the regular results and HoF entries, apply `slice(0, pageSize)` to the final array, or cap the HoF injection at `Math.max(0, pageSize - results.length)` entries.
 
 ---
 
-### Projected State After All Fixes — 8.8 / 10
+### BUG-14
+**DodoPayments subscription `ends_at` hardcoded to `NOW() + 1 month` regardless of billing cycle**
 
-After applying all 30 fixes:
+FILES: `apps/web/lib/payments/dodoWebhookHandler.ts`
 
-- **Architecture** stays at 9/10: fixes are additive corrections and localised refactors, not structural changes.
-- **Security** rises to ~9/10: revocation latency tightened, TOTP comparison timing-safe, DM flood covered, NPE-in-webhook eliminated.
-- **Correctness** rises to ~9.5/10: season XP consistency, quest XP double-award, war reward distribution, fund normalisation, challenge concurrency, and announcement view tracking all corrected.
-- **Performance** rises to ~8.5/10: Pusher singleton eliminates transport multiplication; stale push token filtering reduces waste.
-- **Maintainability** rises to ~8.5/10: validated helpers, canonical track maps, and removed unsafe casts reduce future maintenance risk.
-
-The codebase is above average for a product at this stage. The bugs found are the kinds that emerge when feature complexity accelerates — not signs of poor engineering. The fixes are mostly contained (single-file or two-file changes) and carry low regression risk. A structured hardening sprint applying these fixes alongside a comprehensive unit test pass for the economy, XP, and season subsystems would bring this to a genuinely strong production baseline.
+FIX: In `processPaymentSucceeded`, when the item type is `subscription`, `ends_at` is unconditionally set to `NOW() + INTERVAL '1 month'`. Annual subscribers receive a 1-month expiry. The DodoPayments webhook event payload contains billing period information (e.g. `next_billing_date` or equivalent). Extract this date from the event payload and use it as `ends_at`. Fall back to `NOW() + INTERVAL '1 month'` only if the field is absent or unparseable.
 
 ---
 
-*Report generated: 2026-06-19 06:40 PM*  
-*Analyst: Claude Code — forensic independent analysis*
+### BUG-15
+**Gaming track missing from earnable sticker CASE — gaming-track sticker packs never auto-unlock**
+
+FILES: `apps/web/app/api/cron/daily-social/route.ts`
+
+FIX: In step 6 (earnable sticker pack auto-unlock), the CASE expression maps `unlock_condition` patterns like `social_level_N` to `u.level_social`, `creator_level_N` to `u.level_creator`, etc., but there is no `WHEN sp.unlock_condition LIKE 'gaming_level_%' THEN u.level_gaming` branch. Sticker packs with `gaming_level_*` unlock conditions fall through to `ELSE 0` and are never granted. Add the missing WHEN branch. The `level_gaming` column exists in the `users` table (confirmed in `schema.ts` line 154).
+
+---
+
+### BUG-16
+**Rate limiter L1 in-process skip cache is per-serverless-instance — limit can be overshot by ~30%**
+
+FILES: `apps/web/lib/security/rateLimit.ts`
+
+FIX: The L1 skip cache allows a request to bypass Redis if the in-process counter shows the user is below 70% of the limit (`skipThreshold = limit * 0.7`). On a multi-instance deployment, each instance's L1 counter is independent. A user can make `instances × (limit × 0.7)` requests before any instance hits Redis. On 3 instances with a 10 req/min limit, a determined user can make ~21 req/min. For sensitive endpoints (auth, payments, gifts), disable the L1 cache entirely (`bypassL1: true` option). For content endpoints, lower the skip threshold to 40% to reduce the worst-case overshoot.
+
+---
+
+### BUG-17
+**`fieldEncryption.ts` `keyCache` Map is unbounded — minor memory leak under key rotation**
+
+FILES: `apps/web/lib/security/fieldEncryption.ts`
+
+FIX: The module-level `keyCache` Map accumulates derived encryption keys and is never evicted. Under normal operation (stable keys) this is fine. During active key rotation, each unique cache key combination (field + key version) adds an entry that persists for the process lifetime. Cap the cache at a fixed size (e.g. 50 entries) using an LRU eviction strategy, or use the `lru-cache` package. As a simpler fix, use a WeakMap keyed on the raw key buffer so entries are garbage-collected when the key buffer goes out of scope.
+
+---
+
+### BUG-18
+**Notification inserts use inconsistent column sets — mixed `payload` vs `title`/`body`/`metadata`**
+
+FILES: `apps/web/lib/notifications/insert.ts`, `apps/web/app/api/cron/daily-social/route.ts`, `apps/web/app/api/cron/daily-users/route.ts`, `apps/web/lib/events/flashXP.ts`, `apps/web/lib/leaderboards/engine.ts`
+
+FIX: The centralised `lib/notifications/insert.ts` helper writes `title`, `body`, and `metadata` columns. Direct SQL in several CRON routes and feature modules writes only the `payload` jsonb column (or some write both). The notification UI reads one or the other — whichever pattern is inconsistent will render blank notifications. Audit all notification INSERT sites and standardise: either route all writes through `lib/notifications/insert.ts`, or explicitly set both `payload` and the individual text columns in every direct INSERT. Remove the `payload` column from the schema if it is redundant, or make it the sole source of truth.
+
+---
+
+### BUG-19
+**`useOfflineSync` (PWA) uses a fixed 2-second retry delay — no exponential backoff**
+
+FILES: `apps/web/lib/offline/useOfflineSync.ts`
+
+FIX: `RETRY_DELAY_MS = 2000` is a compile-time constant. Every retry fires after the same 2-second pause regardless of how many times the send has failed. Under intermittent connectivity or a degraded backend, this hammers the server. Change to exponential backoff: `delay = Math.min(2000 * Math.pow(2, attemptCount), 60_000)`. The existing `MAX_ATTEMPTS = 5` ceiling already prevents infinite retries; only the delay calculation needs updating.
+
+---
+
+### BUG-20
+**`flashXP.ts` uses `toLocaleTimeString("en-NG")` — Node.js locale support is environment-dependent**
+
+FILES: `apps/web/lib/events/flashXP.ts`
+
+FIX: `new Date().toLocaleTimeString("en-NG")` depends on the `en-NG` ICU locale being present in the Node.js runtime's ICU data. Vercel production uses full ICU, so it works there. However local dev environments, CI Docker images, or alternative hosting environments built with `--with-intl=small-icu` will silently fall back to a different locale or throw. Replace with a portable UTC-to-WAT conversion using `Intl.DateTimeFormat` with an explicit `timeZone: "Africa/Lagos"` option, or format the time manually from UTC offsets.
+
+---
+
+### BUG-21
+**Daily-core CRON sets both `login_streak_days` and `login_streak` to the same value**
+
+FILES: `apps/web/app/api/cron/daily-core/route.ts`
+
+FIX: The streak-increment UPDATE sets `login_streak_days = login_streak_days + 1, login_streak = login_streak_days + 1` in the same statement. After the update both columns hold the same incremented value. If the two columns serve different purposes (e.g. `login_streak_days` is the current streak and `login_streak` is the highest-ever streak), this is a logic error — `login_streak` should only increase, never decrease. If they are duplicates, remove one. Clarify the intent in the schema and update the query accordingly. The reset query has the same pattern.
+
+---
+
+### BUG-22
+**Comeback coin reversal uses a non-unique `referenceId` — second reversal for same user silently skipped**
+
+FILES: `apps/web/app/api/cron/daily-users/route.ts`
+
+FIX: In step 3 (expire unclaimed comeback coin reservations), `debitCoins` is called with `referenceId = 'comeback_reversal:${row.user_id}'`. If a user has two separate unclaimed `comeback_bonus_reserved` entries (from multiple comeback campaigns), the second debit uses the same reference ID as the first. The partial unique index on `coin_ledger(user_id, transaction_type, reference_id)` causes the second INSERT to be skipped, leaving the second bonus unreversed. The fix is to include a unique discriminator in the reference ID — use the `coin_ledger.id` of the original `comeback_bonus_reserved` entry: `comeback_reversal:${row.user_id}:${row.ledger_id}`. This requires the outer query to also select the ledger entry's `id`.
+
+---
+
+## Summary Table
+
+| # | Severity | Category | Primary File(s) |
+|---|---|---|---|
+| BUG-01 | **Critical** | Data Integrity | `lib/leaderboards/engine.ts`, `api/cron/leaderboards/route.ts` |
+| BUG-02 | **Critical** | Data Integrity | `lib/xp/safeAwardXP.ts` |
+| BUG-03 | **Critical** | Data Integrity | `api/cron/daily-core/route.ts` |
+| BUG-04 | **Critical** | Logic | `api/cron/daily-core/route.ts` |
+| BUG-05 | **Critical** | Payments | `lib/payments/paystackWebhookHandler.ts` |
+| BUG-06 | **Critical** | Moderation | `lib/moderation/contentFilter.ts` |
+| BUG-07 | **Critical** | Game Logic | `lib/guilds/warEngine.ts` |
+| BUG-08 | **Critical** | Economy CRON | `api/cron/daily-economy/route.ts` |
+| BUG-09 | **Medium** | Auth | `lib/auth/session.ts` |
+| BUG-10 | **Medium** | Economy | `lib/messaging/coinCost.ts` |
+| BUG-11 | **Medium** | Game Logic | `lib/guilds/warEngine.ts` |
+| BUG-12 | **Medium** | Notifications | `lib/notifications/push.ts` |
+| BUG-13 | **Medium** | API | `lib/leaderboards/engine.ts` |
+| BUG-14 | **Medium** | Payments | `lib/payments/dodoWebhookHandler.ts` |
+| BUG-15 | **Medium** | Feature | `api/cron/daily-social/route.ts` |
+| BUG-16 | Low | Security | `lib/security/rateLimit.ts` |
+| BUG-17 | Low | Performance | `lib/security/fieldEncryption.ts` |
+| BUG-18 | Low | Consistency | Multiple notification write sites |
+| BUG-19 | Low | UX | `lib/offline/useOfflineSync.ts` |
+| BUG-20 | Low | Portability | `lib/events/flashXP.ts` |
+| BUG-21 | Low | Redundancy | `api/cron/daily-core/route.ts` |
+| BUG-22 | Low | Economy | `api/cron/daily-users/route.ts` |
+
+---
+
+*Report completed: Thursday, June 19, 2026 — 12:00 AM (UTC)*
+*Do not implement any fixes until this report has been reviewed and the fix plan approved.*
