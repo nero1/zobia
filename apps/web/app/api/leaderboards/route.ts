@@ -42,6 +42,7 @@ const VALID_TRACKS: LeaderboardTrack[] = [
   "generosity",
   "knowledge",
   "explorer",
+  "gaming",
 ];
 
 // ---------------------------------------------------------------------------

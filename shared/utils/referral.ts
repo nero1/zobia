@@ -95,3 +95,20 @@ export function appendReferralCode(url: string, code: string | null | undefined)
 export function buildProfileReferralUrl(origin: string, code: string): string {
   return `${origin.replace(/\/$/, "")}/?${REFERRAL_PARAM}=${encodeURIComponent(code)}`;
 }
+
+/**
+ * Build a shareable game link carrying the sharer's referral code.
+ * Non-members who click it land on the public /g/<slug> cover page and the
+ * `?r=` code is captured for signup attribution.
+ *
+ *   buildGameReferralUrl("https://zobia.org", "tetris", "74392")
+ *     -> "https://zobia.org/g/tetris?r=74392"
+ */
+export function buildGameReferralUrl(
+  origin: string,
+  slug: string,
+  code: string | null | undefined
+): string {
+  const base = `${origin.replace(/\/$/, "")}/g/${encodeURIComponent(slug)}`;
+  return appendReferralCode(base, code);
+}

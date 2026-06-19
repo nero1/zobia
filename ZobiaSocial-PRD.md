@@ -1,7 +1,7 @@
 # Zobia Social — Product Requirements Document
 ### A Gamified Monetised Social Platform for the Global Mobile Generation
 
-> **Version 1.71 — Product Requirements Document**
+> **Version 1.72 — Product Requirements Document**
 > Covers: Feature Specifications · Technical Architecture · Economy Design · Moderation · Build Sequence
 > Scope: Nigeria-first, Pan-African then Global · Mobile-first PWA + Android APK · Admin-minimal operation
 
@@ -1846,6 +1846,82 @@ Comprehensive explanation of all platform features — both user-facing and admi
 
 ---
 
+## 30. Games & Gaming Track (v1.72)
+
+A first-class mini-games arcade that reuses the existing economy, progression and
+referral systems. Games are a retention and virality lever (challenge friends, share
+links, daily play streaks) and a monetisation surface (ads + optional play costs +
+wager rake).
+
+### 30.1 Overview
+
+- **Central directory** (`/games`, in-app) lists active games grouped by category.
+- **Public game pages** at `/g/<slug>` are crawlable cover pages. Non-members see a
+  **login gate** ("Log in to play this game"); members get a **Play** CTA and a
+  **share** button that appends their referral code (`/g/<slug>?r=<code>`).
+- **Categories (3 × 2 launch games):** Puzzle (Tetris, 2048), Action (Speed Dodge
+  car-racing, Star Blaster space-shooter), Arcade (Snake, Brick Buster breakout).
+- **Cross-platform:** each game is a single HTML5/canvas module rendered on web/PWA
+  directly and inside the Expo app via a WebView embed (`/g/<slug>/embed`). Write
+  once, run everywhere.
+
+### 30.2 Rewards, costs & the Gaming track
+
+- Admin sets, **per game**: credits / XP / stars awarded per win, and an optional
+  **play cost** (free, or N credits / N stars to play).
+- A **solo "win"** = a new personal best with a positive score (rewards genuine
+  improvement, resists farming). Rewards are granted idempotently via the coin/star
+  ledgers and `safeAwardXP` on the new **`gaming`** track.
+- A new **Gaming progression track** (`xp_gaming` / `level_gaming`) mirrors the six
+  existing tracks, with milestone titles/badges (L5 Rookie Gamer, L20 Pro Gamer,
+  L50 Game Legend) via the existing `track_milestone_unlocks` engine.
+- **Games-played milestones** (admin-configurable thresholds → credits/XP/stars)
+  reward cumulative play.
+
+### 30.3 Challenges & wagers
+
+- A user challenges another to a game **best-of-1 or best-of-3** (async score model:
+  each plays the same game; higher score wins the round).
+- Optional **credit wager**: both stakes are escrowed on accept; the winner takes the
+  pot **minus a configurable platform rake** (`game_wager_rake_pct`, default 5%).
+  Decline / cancel / expiry refunds both. All movements are idempotent.
+
+### 30.4 Leaderboards & ads
+
+- **Per-game high-score** leaderboards (Postgres `game_best_scores` + 60s Redis cache).
+- **Gaming-track ranking** via the existing leaderboard snapshots (`track=gaming`).
+- **Ads** are wired into the directory and game pages via a provider-pluggable slot
+  (web `<AdSlot>`, Expo `<AdBanner>`), gated by the `admob_ads` feature flag.
+
+### 30.5 Admin controls
+
+- **Master toggle** `feature_games` (Feature Flags) turns the whole feature on/off.
+- **`/admin/games`**: per-game activate/deactivate, edit cover page (name, slug, short
+  & long description, emoji, cover image URL, category), reward & play-cost config,
+  score cap, min play time, sort order; view per-game stats (plays, players, wins,
+  challenges, wager volume); manage games-played milestones.
+- Runtime config keys at `/admin/config`: `game_wager_rake_pct`,
+  `game_challenge_expiry_hours`, `game_default_reward_credits/xp`.
+
+### 30.6 Adding a new game (dev)
+
+The infrastructure is generic — adding a game is a plug-in:
+1. Add an entry to `shared/utils/games.ts` (`GAME_REGISTRY`).
+2. Add an engine component at `apps/web/components/games/engines/<engineKey>/`.
+3. Register it in `apps/web/components/games/engineRegistry.ts`.
+4. Add a seed row (admin then edits cover/rewards at runtime).
+
+No new sessions/scoring/leaderboard/challenge/ads/WebView code is required.
+
+### 30.7 Anti-cheat posture
+
+Scores are client-reported (canvas games), mitigated by: server-issued single-use
+play-session nonces (one score per session), a per-game `max_score` cap, a
+`min_play_seconds` floor, a dedicated `game:score` rate limit, and idempotent reward
+references. Documented as a known limitation, acceptable for friendly arcade play.
+
+---
+
 ## Appendix A: The Anti-Dead-App Checklist
 
 Every feature decision on Zobia is tested against this checklist. If any answer is "no," the feature needs revision.
@@ -1890,6 +1966,27 @@ Every feature decision on Zobia is tested against this checklist. If any answer 
 - Storage access: all file operations go through the `lib/storage/` abstraction interface — never call a provider-specific SDK directly in business logic.
 - Auth: no `@supabase/supabase-js` or `@supabase/auth-helpers-*` imports in auth-related code. Auth is always platform-managed JWT. An ESLint rule enforces this when `DATABASE_PROVIDER !== 'supabase'`.
 - Deep links: all navigable deep link paths are registered in a single route map file — never hardcode deep link strings in components.
+
+---
+
+## Appendix: Version 1.72 Change Log
+
+### v1.72 — Changelog
+
+- **Added §30 Games & Gaming Track.** New mini-games arcade across web, PWA and Expo:
+  central directory, crawlable `/g/<slug>` cover pages with a login gate for
+  non-members, and 6 launch games in 3 categories (Puzzle: Tetris, 2048; Action: Speed
+  Dodge, Star Blaster; Arcade: Snake, Brick Buster).
+- **Gaming progression track** (`xp_gaming` / `level_gaming`) mirroring the existing six
+  tracks, with milestone titles/badges and games-played milestones.
+- **User-vs-user challenges** (best-of-1/3, async score model) with optional credit
+  **wagers** (escrow on accept; winner takes pot minus configurable rake).
+- **Per-game leaderboards** + gaming-track ranking; **ads** wired into game surfaces;
+  **referral share links** for games.
+- **Admin:** master `feature_games` toggle, `/admin/games` CRUD (cover page, per-game
+  rewards, free/paid play cost, stats) and games-played milestone management.
+- Modular engine abstraction so adding a new game is a plug-in (registry + engine
+  component), reusing all sessions/scoring/leaderboard/challenge/ads infrastructure.
 
 ---
 

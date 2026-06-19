@@ -53,6 +53,7 @@ const primaryNavItems = [
   { href: "/elder", label: "Elder" },
   { href: "/referrals", label: "Referrals" },
   { href: "/classroom", label: "Classroom" },
+  { href: "/games", label: "Games" },
   { href: "/leaderboards", label: "Leaderboards" },
 ] as const;
 

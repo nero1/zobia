@@ -23,7 +23,8 @@ export type XPTrack =
   | "competitor"
   | "generosity"
   | "knowledge"
-  | "explorer";
+  | "explorer"
+  | "gaming";
 
 const TRACK_COLUMN: Record<XPTrack, string> = {
   main: "xp_total",
@@ -33,6 +34,7 @@ const TRACK_COLUMN: Record<XPTrack, string> = {
   generosity: "xp_generosity",
   knowledge: "xp_knowledge",
   explorer: "xp_explorer",
+  gaming: "xp_gaming",
 };
 
 // ---------------------------------------------------------------------------

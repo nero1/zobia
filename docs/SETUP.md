@@ -148,7 +148,9 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `PAYSTACK_PUBLIC_KEY` | No | Paystack public key | Paystack dashboard → Settings → API Keys |
 | `DODOPAYMENTS_API_KEY` | No | DodoPayments API key | DodoPayments dashboard → API |
 | `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | No | Google Play service account JSON (base64-encoded or raw) for Android IAP verification | Google Play Console → Setup → API access |
-| `ADMOB_APP_ID` | No | Google AdMob app ID (for rewarded ads in the Expo app) | AdMob → Apps |
+| `ADMOB_APP_ID` | No | Google AdMob app ID (for rewarded ads + game banner ads in the Expo app) | AdMob → Apps |
+| `NEXT_PUBLIC_ADSENSE_CLIENT` | No | Google AdSense client id (`ca-pub-…`) for web/PWA ad slots (incl. game pages). Without it, `<AdSlot>` renders a labelled placeholder when ads are enabled. | AdSense → Account |
+| `NEXT_PUBLIC_ADSENSE_SLOT` | No | Default AdSense ad-unit slot id used by `<AdSlot>` | AdSense → Ads → By ad unit |
 | `RECAPTCHA_SITE_KEY` | No | reCAPTCHA v3 site key (if using reCAPTCHA) | console.cloud.google.com → reCAPTCHA |
 | `RECAPTCHA_SECRET_KEY` | No | reCAPTCHA v3 secret key | console.cloud.google.com → reCAPTCHA |
 | `CLOUDFLARE_TURNSTILE_SITE_KEY` | No | Cloudflare Turnstile site key (preferred over reCAPTCHA) | Cloudflare → Turnstile |
@@ -560,6 +562,28 @@ curl -s https://<host>/.well-known/assetlinks.json | jq .
 curl -sI https://<host>/.well-known/apple-app-site-association | grep -i content-type
 ```
 
+### Games feature
+
+The games feature works out of the box once migrations are applied — no extra services
+are required.
+
+- **Migration:** `apps/web/db/migrations/0013_games_feature.sql` adds the games columns,
+  the gaming track (`xp_gaming` / `level_gaming`), play/challenge/leaderboard/milestone
+  tables, seeds the 6 launch games, and seeds the manifest keys.
+- **Master toggle:** `feature_games` (Admin → Feature Flags), default on. Per-game
+  activation, cover-page editing, rewards, free/paid play cost and stats live at
+  `/admin/games`. Runtime config (`game_wager_rake_pct`, `game_challenge_expiry_hours`,
+  `game_default_reward_credits/xp`) at `/admin/config`.
+- **Mobile (Expo):** games render in a `react-native-webview` that loads
+  `<WEB_BASE_URL>/g/<slug>/embed`. The dependency is declared in `apps/expo/package.json`;
+  run `pnpm install` after pulling. No native game code ships — write a game once as a web
+  engine and it runs on web, PWA and mobile.
+- **Ads:** set `NEXT_PUBLIC_ADSENSE_CLIENT` / `NEXT_PUBLIC_ADSENSE_SLOT` (web) and/or
+  `ADMOB_APP_ID` (Expo) and enable the `admob_ads` flag to show ads on game surfaces;
+  otherwise web shows a labelled placeholder and mobile renders nothing.
+- **Cron:** add the hourly `/api/cron/games` job (see CRON Setup) so stale challenges
+  expire and wagers refund.
+
 ### Why reCAPTCHA applies to Google sign-in but not Telegram
 
 The "Continue with Google" button calls your own API endpoint (`/api/auth/google`) before redirecting to Google. This endpoint is publicly reachable and needs reCAPTCHA/Turnstile protection to prevent automated abuse.
@@ -640,6 +664,13 @@ Because Vercel Hobby limits each path to once per day, sub-daily jobs must be tr
 - Schedule: Every 15 minutes
 - HTTP Method: GET
 - Header: `Authorization: Bearer YOUR_CRON_SECRET`
+
+**Games Housekeeping (hourly)**
+- URL: `https://your-domain.com/api/cron/games`
+- Schedule: Every 1 hour
+- HTTP Method: GET
+- Header: `Authorization: Bearer YOUR_CRON_SECRET`
+- Purpose: expires stale game challenges and refunds any escrowed wager credits.
 
 **Payout Batch Processing (every 30 minutes)**
 - URL: `https://your-domain.com/api/cron/payouts`

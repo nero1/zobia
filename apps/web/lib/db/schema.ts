@@ -142,6 +142,7 @@ export const users = pgTable("users", {
   xpGenerosity: integer("xp_generosity").notNull().default(0),
   xpKnowledge: integer("xp_knowledge").notNull().default(0),
   xpExplorer: integer("xp_explorer").notNull().default(0),
+  xpGaming: integer("xp_gaming").notNull().default(0),
 
   // Track Levels
   levelSocial: integer("level_social").notNull().default(1),
@@ -150,6 +151,7 @@ export const users = pgTable("users", {
   levelGenerosity: integer("level_generosity").notNull().default(1),
   levelKnowledge: integer("level_knowledge").notNull().default(1),
   levelExplorer: integer("level_explorer").notNull().default(1),
+  levelGaming: integer("level_gaming").notNull().default(1),
 
   // Economy
   coinBalance: bigint("coin_balance", { mode: "number" }).notNull().default(0),
@@ -2760,6 +2762,18 @@ export const games = pgTable(
     creatorId: uuid("creator_id").references(() => users.id, {
       onDelete: "set null",
     }),
+    // Cover-page + gameplay config (added in 0013_games_feature)
+    category: text("category"),
+    longDescription: text("long_description"),
+    engineKey: text("engine_key"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    rewardCreditsPerWin: integer("reward_credits_per_win").notNull().default(0),
+    rewardXpPerWin: integer("reward_xp_per_win").notNull().default(0),
+    rewardStarsPerWin: integer("reward_stars_per_win").notNull().default(0),
+    playCostCredits: integer("play_cost_credits").notNull().default(0),
+    playCostStars: integer("play_cost_stars").notNull().default(0),
+    maxScore: bigint("max_score", { mode: "number" }),
+    minPlaySeconds: integer("min_play_seconds").notNull().default(0),
     isPublic: boolean("is_public").notNull().default(true),
     isActive: boolean("is_active").notNull().default(true),
     playCount: bigint("play_count", { mode: "number" }).notNull().default(0),
@@ -2769,6 +2783,134 @@ export const games = pgTable(
   },
   (t) => ({
     slugUnique: uniqueIndex("games_slug_unique_idx").on(t.slug),
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Game play sessions. One row per started session; server issues a single-use
+// nonce on /start and consumes it on /score (anti-replay). `counted` marks a
+// session whose score was accepted and rewarded.
+// ---------------------------------------------------------------------------
+export const gamePlays = pgTable(
+  "game_plays",
+  {
+    id: uuidPk(),
+    gameId: uuid("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    score: bigint("score", { mode: "number" }).notNull().default(0),
+    sessionNonce: text("session_nonce").notNull(),
+    counted: boolean("counted").notNull().default(false),
+    challengeRoundId: uuid("challenge_round_id"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+  },
+  (t) => ({
+    nonceUnique: uniqueIndex("game_plays_nonce_idx").on(t.sessionNonce),
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Per-(game,user) best score + counters. Backs the per-game leaderboard.
+// ---------------------------------------------------------------------------
+export const gameBestScores = pgTable(
+  "game_best_scores",
+  {
+    gameId: uuid("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    bestScore: bigint("best_score", { mode: "number" }).notNull().default(0),
+    plays: integer("plays").notNull().default(0),
+    wins: integer("wins").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.gameId, t.userId] }),
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Challenges (async score-based). Optional credit wager escrowed on accept.
+// ---------------------------------------------------------------------------
+export const gameChallenges = pgTable("game_challenges", {
+  id: uuidPk(),
+  gameId: uuid("game_id")
+    .notNull()
+    .references(() => games.id, { onDelete: "cascade" }),
+  challengerId: uuid("challenger_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  opponentId: uuid("opponent_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("pending"),
+  rounds: integer("rounds").notNull().default(1),
+  wagerCredits: integer("wager_credits").notNull().default(0),
+  escrowCredits: integer("escrow_credits").notNull().default(0),
+  winnerId: uuid("winner_id").references(() => users.id, { onDelete: "set null" }),
+  prizeCredits: integer("prize_credits").notNull().default(0),
+  prizeXp: integer("prize_xp").notNull().default(0),
+  prizeStars: integer("prize_stars").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+});
+
+export const gameChallengeRounds = pgTable(
+  "game_challenge_rounds",
+  {
+    id: uuidPk(),
+    challengeId: uuid("challenge_id")
+      .notNull()
+      .references(() => gameChallenges.id, { onDelete: "cascade" }),
+    roundNo: integer("round_no").notNull(),
+    challengerPlayId: uuid("challenger_play_id"),
+    opponentPlayId: uuid("opponent_play_id"),
+    challengerScore: bigint("challenger_score", { mode: "number" }),
+    opponentScore: bigint("opponent_score", { mode: "number" }),
+    roundWinnerId: uuid("round_winner_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    status: text("status").notNull().default("pending"),
+  },
+  (t) => ({
+    roundUnique: uniqueIndex("game_challenge_rounds_unique_idx").on(
+      t.challengeId,
+      t.roundNo
+    ),
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Global games-played milestones (gaming track) + per-user claim ledger.
+// ---------------------------------------------------------------------------
+export const gamePlayMilestones = pgTable("game_play_milestones", {
+  id: uuidPk(),
+  gamesPlayedThreshold: integer("games_played_threshold").notNull().unique(),
+  rewardCredits: integer("reward_credits").notNull().default(0),
+  rewardXp: integer("reward_xp").notNull().default(0),
+  rewardStars: integer("reward_stars").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const gameMilestoneClaims = pgTable(
+  "game_milestone_claims",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    threshold: integer("threshold").notNull(),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.userId, t.threshold] }),
   })
 );
 
@@ -3846,6 +3988,18 @@ export type LearningCertificate = typeof learningCertificates.$inferSelect;
 export type NewLearningCertificate = typeof learningCertificates.$inferInsert;
 export type Game = typeof games.$inferSelect;
 export type NewGame = typeof games.$inferInsert;
+export type GamePlay = typeof gamePlays.$inferSelect;
+export type NewGamePlay = typeof gamePlays.$inferInsert;
+export type GameBestScore = typeof gameBestScores.$inferSelect;
+export type NewGameBestScore = typeof gameBestScores.$inferInsert;
+export type GameChallenge = typeof gameChallenges.$inferSelect;
+export type NewGameChallenge = typeof gameChallenges.$inferInsert;
+export type GameChallengeRound = typeof gameChallengeRounds.$inferSelect;
+export type NewGameChallengeRound = typeof gameChallengeRounds.$inferInsert;
+export type GamePlayMilestone = typeof gamePlayMilestones.$inferSelect;
+export type NewGamePlayMilestone = typeof gamePlayMilestones.$inferInsert;
+export type GameMilestoneClaim = typeof gameMilestoneClaims.$inferSelect;
+export type NewGameMilestoneClaim = typeof gameMilestoneClaims.$inferInsert;
 export type SlugRedirect = typeof slugRedirects.$inferSelect;
 export type NewSlugRedirect = typeof slugRedirects.$inferInsert;
 export type ElderRequest = typeof elderRequests.$inferSelect;

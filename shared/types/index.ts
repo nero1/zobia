@@ -44,7 +44,8 @@ export type ProgressionTrack =
   | 'competitor'
   | 'generosity'
   | 'knowledge'
-  | 'explorer';
+  | 'explorer'
+  | 'gaming';
 
 /** Alias kept for compatibility with the XP engine. */
 export type XPTrack = ProgressionTrack;
@@ -127,6 +128,7 @@ export interface User {
   xpGenerosity: number;
   xpKnowledge: number;
   xpExplorer: number;
+  xpGaming: number;
 
   // Track Levels
   levelSocial: number;
@@ -135,6 +137,7 @@ export interface User {
   levelGenerosity: number;
   levelKnowledge: number;
   levelExplorer: number;
+  levelGaming: number;
 
   // Economy
   coinBalance: number;
@@ -183,6 +186,7 @@ export interface PublicProfile {
   levelGenerosity: number;
   levelKnowledge: number;
   levelExplorer: number;
+  levelGaming: number;
   loginStreak: number;
   createdAt: string;
 }
@@ -468,7 +472,12 @@ export type CoinTransactionType =
   | 'season_milestone'
   | 'season_pass_gift'
   | 'sticker_pack'
-  | 'room_capacity_upgrade';
+  | 'room_capacity_upgrade'
+  | 'game_reward'
+  | 'game_wager'
+  | 'game_payout'
+  | 'game_refund'
+  | 'game_play_cost';
 
 export interface CoinLedgerEntry {
   id: string;
@@ -1054,4 +1063,73 @@ export interface SponsoredQuest {
   targetAction: string; targetValue: number; rewardCoins: number;
   creatorPayoutKobo: number; minCreatorTier: string;
   startsAt: string | null; endsAt: string | null; isActive: boolean; maxCreators: number; createdAt: string;
+}
+
+// ─── Games / Gaming ──────────────────────────────────────────────────────────
+
+/** Static game categories. New categories are added by the dev in code. */
+export type GameCategory = 'Puzzle' | 'Action' | 'Arcade';
+
+export const GAME_CATEGORIES: GameCategory[] = ['Puzzle', 'Action', 'Arcade'];
+
+/** Public/cover representation of a game (directory + /g/<slug> page). */
+export interface GameSummary {
+  id: string;
+  slug: string;
+  name: string;
+  tagline: string | null;
+  description: string | null;
+  longDescription: string | null;
+  coverEmoji: string;
+  coverImageUrl: string | null;
+  category: GameCategory | null;
+  engineKey: string | null;
+  rewardCreditsPerWin: number;
+  rewardXpPerWin: number;
+  rewardStarsPerWin: number;
+  playCostCredits: number;
+  playCostStars: number;
+  playCount: number;
+  isActive: boolean;
+}
+
+export type GameChallengeStatus =
+  | 'pending'
+  | 'accepted'
+  | 'declined'
+  | 'active'
+  | 'completed'
+  | 'cancelled'
+  | 'expired';
+
+export interface GameChallengeSummary {
+  id: string;
+  gameId: string;
+  gameSlug: string;
+  gameName: string;
+  challengerId: string;
+  challengerUsername: string;
+  opponentId: string;
+  opponentUsername: string;
+  status: GameChallengeStatus;
+  rounds: 1 | 3;
+  wagerCredits: number;
+  winnerId: string | null;
+  prizeCredits: number;
+  prizeXp: number;
+  prizeStars: number;
+  createdAt: string;
+  expiresAt: string;
+  completedAt: string | null;
+}
+
+export interface GameLeaderboardRow {
+  rank: number;
+  userId: string;
+  username: string;
+  displayName: string;
+  avatarEmoji: string;
+  bestScore: number;
+  plays: number;
+  wins: number;
 }

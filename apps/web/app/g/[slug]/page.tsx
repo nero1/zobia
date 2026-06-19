@@ -14,6 +14,8 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { resolvePublicGame } from "@/lib/public/resolveGame";
 import { NOT_FOUND_METADATA } from "@/lib/public/roomMetadata";
+import GameCoverActions from "@/components/games/GameCoverActions";
+import AdSlot from "@/components/ads/AdSlot";
 
 export async function generateMetadata({
   params,
@@ -87,18 +89,40 @@ export default async function PublicGamePage({
           <p className="text-lg text-muted-foreground mb-4">{game.tagline}</p>
         )}
 
-        {game.description && (
-          <p className="text-muted-foreground mb-8 whitespace-pre-wrap">{game.description}</p>
+        {game.category && (
+          <span className="mb-4 inline-block rounded-full bg-neutral-800 px-3 py-1 text-xs font-medium text-neutral-300">
+            {game.category}
+          </span>
         )}
 
-        <div className="text-center">
-          <a
-            href="/auth/login"
-            className="inline-block bg-primary text-primary-foreground px-6 py-2 rounded-lg font-medium hover:opacity-90 transition"
-          >
-            Join Zobia Social to play {game.name}
-          </a>
+        {(game.long_description || game.description) && (
+          <p className="text-muted-foreground mb-6 whitespace-pre-wrap">
+            {game.long_description || game.description}
+          </p>
+        )}
+
+        {(game.reward_credits_per_win > 0 || game.reward_xp_per_win > 0 || game.reward_stars_per_win > 0) && (
+          <p className="mb-6 text-sm font-medium text-emerald-500">
+            Win to earn
+            {game.reward_credits_per_win > 0 ? ` +${game.reward_credits_per_win} credits` : ""}
+            {game.reward_xp_per_win > 0 ? ` +${game.reward_xp_per_win} XP` : ""}
+            {game.reward_stars_per_win > 0 ? ` +${game.reward_stars_per_win} ⭐` : ""}
+          </p>
+        )}
+
+        {(game.play_cost_credits > 0 || game.play_cost_stars > 0) && (
+          <p className="mb-6 text-sm text-amber-500">
+            Costs
+            {game.play_cost_credits > 0 ? ` ${game.play_cost_credits} credits` : ""}
+            {game.play_cost_stars > 0 ? ` ${game.play_cost_stars} ⭐` : ""} per play
+          </p>
+        )}
+
+        <div className="my-8">
+          <GameCoverActions slug={game.slug} name={game.name} />
         </div>
+
+        <AdSlot placement="game-cover" />
       </div>
     </main>
   );

@@ -106,6 +106,11 @@ const LABEL_MAP: Record<string, FlagMeta> = {
     description:
       "Enable the Creator Merch Store for Elite-tier creators to sell branded merchandise.",
   },
+  feature_games: {
+    label: "Games",
+    description:
+      "Master switch for the Games feature: the directory, /g game pages, challenges, wagers and the gaming track.",
+  },
   feature_platform_council: {
     label: "Platform Council",
     description:

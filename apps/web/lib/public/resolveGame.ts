@@ -16,8 +16,16 @@ export interface PublicGame {
   name: string;
   tagline: string | null;
   description: string | null;
+  long_description: string | null;
+  category: string | null;
   cover_image_url: string | null;
   cover_emoji: string;
+  engine_key: string | null;
+  reward_credits_per_win: number;
+  reward_xp_per_win: number;
+  reward_stars_per_win: number;
+  play_cost_credits: number;
+  play_cost_stars: number;
   created_at: string;
   updated_at: string;
 }
@@ -28,7 +36,10 @@ export interface ResolvedGame {
 }
 
 const SELECT = `
-  SELECT id, slug, name, tagline, description, cover_image_url, cover_emoji,
+  SELECT id, slug, name, tagline, description, long_description, category,
+         cover_image_url, cover_emoji, engine_key,
+         reward_credits_per_win, reward_xp_per_win, reward_stars_per_win,
+         play_cost_credits, play_cost_stars,
          created_at, updated_at
   FROM games
   WHERE deleted_at IS NULL
