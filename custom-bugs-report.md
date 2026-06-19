@@ -1,38 +1,43 @@
-# Zobia Social — Forensic Bug Report
+# Zobia Codebase — Forensic Bug Report
 
-**Generated:** June 18, 2026 — 06:54 PM
-**Analyst:** Claude Code (claude-sonnet-4-6)
-**Scope:** Full codebase — `apps/web` (Next.js 14 App Router + PWA), `apps/expo` (Android)
-**Method:** Full forensic read of all source files; three-pass analysis with fine-tooth-comb review
-**Exclusions:** CRON frequency issues (external service handles scheduling). Test coverage issues (tracked separately).
+**Generated:** 2026-06-19 06:40 PM  
+**Scope:** `apps/web` (Next.js 14 App Router + PWA), `apps/expo` (React Native / Android), `shared/`  
+**Analyst:** Claude Code — independent analysis, no prior bug reports referenced
 
 ---
 
-## Quick-Reference Index (23 Bugs)
+## Summary List — All Bugs Found
 
-1. BUG-CSRF-01 — CSRF guard blocks mobile clients on all auth mutation endpoints
-2. BUG-PAY-02 — Paystack webhook silently drops plan upgrade on non-unique-violation DB errors
-3. BUG-PERF-03 — Dynamic imports of bcryptjs/core helpers inside hot request handlers
-4. BUG-PAY-04 — Dodo star-pack zero-grant quantity throws inside transaction, rolls back entire webhook
-5. BUG-PAY-05 — No room existence validation for room_subscription in Dodo webhook handler
-6. BUG-RT-06 — Realtime provider creates a new provider instance on every publishRealtimeEvent call
-7. BUG-PAY-07 — Dodo coin-pack zero-quantity award silently bypasses validation
-8. BUG-SEC-08 — PHONE_REGEX compiled with /g flag; lastIndex state persists and alternates match/no-match
-9. BUG-PAY-09 — subscription.disable immediately cancels plan instead of waiting for billing period end
-10. BUG-SEASON-10 — Season ceremony room creation query has missing/incorrect parameter bindings
-11. BUG-XP-11 — DM message XP awarded via raw fire-and-forget query; bypasses safeAwardXP and DLQ
-12. BUG-PERF-12 — Room message XP uses dynamic import of engine inside hot POST handler
-13. BUG-FIN-13 — DM coin deduction is a raw UPDATE with no SELECT FOR UPDATE, no Decimal.js, no idempotency key
-14. BUG-LB-14 — Leaderboard upsert ON CONFLICT expression does not match the actual unique index definition
-15. BUG-XP-15 — Stars gift XP reference_id collides per recipient, blocking XP on all future gifts to same user
-16. BUG-XP-16 — Stars gift daily XP cap evaluated per transaction, not as a cumulative daily total
-17. BUG-FIN-17 — IAP subscription activation is non-atomic: plan upgrade and coin bonus are separate DB calls
-18. BUG-FIN-18 — Stars purchase records payment_type='coin_purchase' instead of 'star_purchase'
-19. BUG-AI-19 — AI classifier always labels Gemini-fallback responses as 'deepseek'
-20. BUG-XP-20 — Coin transfer XP award uses raw queries without safeAwardXP / DLQ
-21. BUG-OBS-21 — Monitoring captureException is a no-op stub; exceptions are never sent to Sentry
-22. BUG-MOB-22 — useRealtimeChannel excludes onEvent from effect deps, causing stale closure on handler updates
-23. BUG-MOB-23 — AdMob showRewardedAd leaks EARNED_REWARD listener on non-reward close paths
+1. BUG-SCHEMA-01: `nemesisAssignments` unique index on `(userId, track, isActive)` causes constraint violation on re-deactivation
+2. BUG-SCHEMA-02: `users.coinBalance` bigint stored as JS `number` — precision lost above MAX_SAFE_INTEGER
+3. BUG-SCHEMA-03: `rooms.slug` is nullable — rooms without slugs unreachable via public /r/ URL
+4. BUG-SCHEMA-04: `pushTickets` partial index uses unqualified column reference `status = 'pending'`
+5. BUG-MW-01: `validateBody`/`validateSearchParams` throw ZodError not ApiError — can cause 500 in unwrapped handlers
+6. BUG-RT-01: Web Ably `useRealtimeChannel` fast-unmount race — cleanup closure may never fire on early unmount
+7. BUG-RT-02: Web Pusher `useRealtimeChannel` spawns a new Pusher client per hook instance — multiple concurrent WebSocket connections
+8. BUG-WAR-01: `distributeWarRewards` with exactly 2 members produces wrong payout split
+9. BUG-WAR-02: `resolveWar` silently swallows guild tier-history insert errors via empty `.catch()`
+10. BUG-PUSH-01: `pollPushReceipts` marks entire batch `checked_at` before processing individual results — mid-batch exception strands tickets
+11. BUG-PUSH-02: Push notification recipient query never filters by `last_seen_at` — sends to stale/abandoned devices indefinitely
+12. BUG-QUEST-01: `updateQuestProgress` silently falls back to "main" XP track for any unrecognized `action_type`
+13. BUG-QUEST-02: Quest engine double-awards main XP when `parallelTrack` is null — `null ?? "main"` awards main XP a second time
+14. BUG-XP-01: `safeAwardXP` DLQ write is unawaited — lost on process termination immediately after primary failure
+15. BUG-SEASON-01: `resetSeasonRankings` resets `user_season_passes.season_xp` but not `users.season_xp` — counter divergence at season end
+16. BUG-SEASON-02: Season pass `xp_bonus` milestone only credits `users.xp_total`, not `users.season_xp` — milestone XP invisible in season leaderboard
+17. BUG-SEASON-03: `createSeasonCeremonyRoom` creates a room without a slug — ceremony room unreachable via /r/ URL
+18. BUG-SEASON-04: `claimPassMilestone` sticker_pack lookup uses ambiguous `slug = $1 OR name = $1`
+19. BUG-PAY-01: `processChargeSuccess` uses `null as unknown as string` type cast — suppresses TypeScript safety, risks runtime NPE
+20. BUG-FUND-01: Creator fund `normalise()` returns 1 for all when all values equal — inflates scores when all creators score 0 on a metric
+21. BUG-NEM-01: `compareNemesisProgress` missing "gaming" track — throws unhandled error on gaming comparison request
+22. BUG-ANN-01: `getActiveModalForUser` records modal view at API call time before client confirms display
+23. BUG-GAME-01: `declineChallenge` non-null asserts a post-transaction re-fetch — crashes if row deleted concurrently
+24. BUG-GAME-02: `createChallenge` builds PostgreSQL interval via string concatenation — fragile on non-integer input
+25. BUG-GAME-03: `createChallenge` accepts arbitrarily large wagers with no server-side maximum
+26. BUG-MOD-01: `detectBotBehavior` only counts room message velocity — DM flooding bypasses bot detection
+27. BUG-AUTH-01: L1 in-process session cache (10 s TTL) allows revoked/banned sessions to remain active up to 10 seconds
+28. BUG-AUTH-02: `verifyTotp` uses `===` string comparison instead of `crypto.timingSafeEqual` — timing side-channel
+29. BUG-GIFT-01: `retireGiftDrop` runs two non-transactional UPDATEs — partial failure leaves drop deactivated but gift item un-retired
+30. BUG-OFFLINE-01: Web PWA `getQueueCounts` calls `getAllMessages` — counts sent/failed messages as pending, inflating UI indicators
 
 ---
 
@@ -40,358 +45,310 @@
 
 ---
 
-### 1. BUG-CSRF-01 — CSRF guard blocks mobile clients on all auth mutation endpoints
-
-**Severity:** HIGH — all mobile auth mutations (login, token refresh, logout) are rejected with 403
-
-**Description:** `isCsrfSafe` in `middleware.ts` requires an `Origin` header on every non-GET/HEAD/OPTIONS request. Mobile HTTP clients (Expo's `fetch`, Axios, React Native's XMLHttpRequest) do not send an `Origin` header on non-browser requests. The only no-Origin exemption is the narrow CRON path + CRON_SECRET header check. All `/api/auth/*` mutations from the mobile app therefore receive `{ error: "Forbidden", code: "CSRF_ORIGIN_MISMATCH" }` with HTTP 403. The mobile client cannot log in, refresh tokens, or log out.
+### 1: BUG-SCHEMA-01: nemesisAssignments unique index breaks on re-deactivation
 
 **FILES:**
-- `apps/web/middleware.ts` — `isCsrfSafe`, CSRF block at line ~229
+- `apps/web/lib/db/schema.ts`
+- `apps/web/lib/nemesis/nemesisEngine.ts`
 
-**FIX:** For requests to `/api/auth/*` that present a valid JWT access or refresh token cookie (or the `X-Refresh-Token` header used by the mobile client), skip the Origin check — possession of the token is sufficient CSRF proof. Alternatively, configure the Expo app to send `Origin: https://<app-domain>` as a custom header on all API requests and add the app's bundle URL to the allowed-origins allowlist. Never relax Origin checks globally on `/api/` routes.
+**FIX:** The partial unique index `UNIQUE (user_id, track, is_active) WHERE is_active = TRUE` is correct for preventing duplicate active assignments. The risk arises when any code path tries to set `is_active = FALSE` on a row that is already inactive and then re-insert a new active row — the WHERE clause is on the unique index, so duplicate (user, track, FALSE) rows are never caught by it and accumulate. In `assignNemesis`, the deactivation UPDATE must include `AND is_active = TRUE` to be a no-op on already-inactive rows. Verify that all deactivation paths carry this guard, and add a separate partial index on `(userId, track) WHERE is_active = FALSE` if you need uniqueness on inactive records too.
 
 ---
 
-### 2. BUG-PAY-02 — Paystack webhook silently drops plan upgrade on non-unique-violation DB errors
-
-**Severity:** HIGH — any transient DB error during subscription activation permanently loses the event
-
-**Description:** `processSubscriptionEvent` in `paystackWebhookHandler.ts` catches errors from the subscription DB insert and only re-throws when the error code is NOT `'23505'` (unique violation). For all other errors — transient connection resets, deadlocks, constraint violations on other columns — the error is swallowed and the webhook handler returns 200. Paystack considers the event delivered and will not retry. The user's plan is never upgraded and their subscription record is never created.
+### 2: BUG-SCHEMA-02: coinBalance bigint stored as JS number — precision loss
 
 **FILES:**
-- `apps/web/lib/payments/paystackWebhookHandler.ts` — `processSubscriptionEvent`
+- `apps/web/lib/db/schema.ts` (`users.coinBalance` and all other `bigint mode:"number"` columns)
+- `apps/web/lib/economy/coins.ts`
 
-**FIX:** On non-23505 errors, insert into `failedWebhooks` (or throw to return 500 so Paystack retries delivery). Only swallow 23505 because that indicates idempotent re-delivery of an already-processed event. Any other error must surface for retry or manual intervention.
+**FIX:** `bigint("coin_balance", { mode: "number" })` instructs Drizzle to deserialize PostgreSQL bigint as JavaScript `number`. JavaScript `number` is IEEE 754 double-precision, which can only represent integers exactly up to 2^53−1 (~9 quadrillion). Coin balances are unlikely to ever reach that, but the same mode is used for all monetary `bigint` columns (kobo amounts, XP amounts, etc.) — any value above ~9 quadrillion loses precision silently. Either change mode to `"bigint"` and propagate `BigInt` types through the economy logic, or enforce a safe maximum ceiling with a DB CHECK constraint (`coin_balance <= 9007199254740991`) and add application-layer guards. The same issue affects `gross_amount_kobo`, `platform_fee_kobo`, `amount_kobo`, and other monetary bigint columns throughout the schema.
 
 ---
 
-### 3. BUG-PERF-03 — Dynamic imports of bcryptjs and core helpers inside hot request handlers
-
-**Severity:** MEDIUM — cold-start latency injected on every affected request; module cache not warmed
-
-**Description:** `apps/web/app/api/admin/auth/login/route.ts` and `apps/web/app/api/admin/auth/totp/route.ts` use `await import("bcryptjs")` inside the POST handler body. Every request that hits a cold Edge/Node.js worker must wait for the dynamic import to resolve before proceeding. While Node caches the module after the first import, the `await import(...)` expression still resolves asynchronously and blocks the hot path unnecessarily on every invocation. The same antipattern appears in room messages route with the XP engine.
+### 3: BUG-SCHEMA-03: rooms.slug is nullable — /r/ URL routing is unreliable
 
 **FILES:**
-- `apps/web/app/api/admin/auth/login/route.ts`
-- `apps/web/app/api/admin/auth/totp/route.ts`
-- `apps/web/app/api/rooms/[roomId]/messages/route.ts`
+- `apps/web/lib/db/schema.ts` (`rooms.slug`)
+- `apps/web/lib/seasons/seasonEngine.ts` (`createSeasonCeremonyRoom`)
 
-**FIX:** Move all `import` statements to the module top level. `bcryptjs` does not require lazy loading in a Node.js runtime; the tree-shaking benefit of dynamic import is negligible compared to the async overhead on every request. Static imports are evaluated once at module load and never block the request path again.
+**FIX:** The `rooms.slug` column is nullable, meaning rooms can be created without a public URL handle. Any room created without a slug is silently unreachable via `/r/<slug>`. This is confirmed to happen for ceremony rooms (see BUG-SEASON-03). Either make `slug` NOT NULL with a generated fallback (e.g., auto-slug from title + short UUID) or add a DB CHECK constraint that `slug IS NOT NULL` when `is_public = TRUE`. Update all room-creation code paths to always provide a slug.
 
 ---
 
-### 4. BUG-PAY-04 — Dodo star-pack zero-grant quantity throws inside transaction, rolling back entire webhook
-
-**Severity:** HIGH — any star-pack Dodo webhook with an unexpected quantity throws and the entire transaction rolls back
-
-**Description:** In `dodoWebhookHandler.ts`, the `star_pack` branch inside the transaction reads `STAR_PACK_CATALOGUE[packId]?.starGrant`. If `packId` doesn't match any catalogue entry (unknown product ID, typo in metadata), `starGrant` is `undefined`. The subsequent `creditStars(userId, undefined, ...)` call throws because `Decimal(undefined)` is not valid. The throw propagates out of the transaction block, rolling back the entire webhook processing (any ledger entries already written are lost) and causing the outer handler to return 500. Dodo retries delivery and the cycle repeats.
+### 4: BUG-SCHEMA-04: pushTickets partial index uses unqualified column reference
 
 **FILES:**
-- `apps/web/lib/payments/dodoWebhookHandler.ts` — star_pack branch
+- `apps/web/lib/db/schema.ts` (`pushTickets` table index definition)
 
-**FIX:** Validate `starGrant` before calling `creditStars`. If the catalogue lookup returns `undefined` or `0`, log to `failedWebhooks` and return 200 (do not throw inside the transaction). Zero grants should be explicitly disallowed at catalogue-definition time with a runtime guard at the top of the handler.
+**FIX:** The partial index on `push_tickets` uses `.where(sql\`status = 'pending'\`)` with an unqualified column name. Some PostgreSQL migration contexts and ORM introspection tools resolve this fine, but it is non-standard and may silently fall back to a full-table scan or fail to apply under schema-qualified connections. Qualify the reference: `push_tickets.status = 'pending'`, or use Drizzle's typed `.where(eq(pushTickets.status, 'pending'))` form if the ORM supports it in index definitions.
 
 ---
 
-### 5. BUG-PAY-05 — No room existence validation for room_subscription in Dodo webhook
-
-**Severity:** HIGH (security) — arbitrary room UUIDs from webhook metadata are inserted without validation
-
-**Description:** The `room_subscription` branch in `dodoWebhookHandler.ts` casts `metadata.roomId` directly to a string and writes a `room_subscriptions` row without first confirming the room exists. A crafted or corrupted webhook payload with a synthetic UUID will create a dangling subscription record referencing a non-existent room. Downstream queries that JOIN `room_subscriptions → rooms` will see this row and may behave incorrectly (null-pointer dereferences, false access grants, or query errors depending on join type).
+### 5: BUG-MW-01: validateBody/validateSearchParams throw ZodError not ApiError
 
 **FILES:**
-- `apps/web/lib/payments/dodoWebhookHandler.ts` — room_subscription branch
+- `apps/web/lib/api/middleware.ts` (lines ~471, ~487)
 
-**FIX:** Before inserting into `room_subscriptions`, query `SELECT id FROM rooms WHERE id = $1 AND deleted_at IS NULL`. If the room is not found, insert into `failedWebhooks` with the raw payload and return 200. Also validate that `metadata.roomId` is a well-formed UUID before using it as a query parameter (use a regex or `z.string().uuid()` parse).
+**FIX:** Both helpers call `schema.parse(raw)` which throws `ZodError` on invalid input, not an `ApiError`. They are documented as "throws a 400 ApiError." They work correctly when called inside `withAuth` or `withErrorHandling` because `handleApiError` catches `ZodError` and converts it. However, any handler that uses these helpers without those wrappers will let the `ZodError` propagate uncaught, producing a 500. Fix by wrapping `schema.parse()` in a try/catch inside each helper and rethrowing as `new ApiError(400, "VALIDATION_ERROR", ...)`, making them safe to call in any handler context.
 
 ---
 
-### 6. BUG-RT-06 — Realtime provider creates a new provider instance on every publishRealtimeEvent call
-
-**Severity:** HIGH — connection pool exhaustion; one WebSocket connection per realtime event in serverless
-
-**Description:** `publishRealtimeEvent` in `apps/web/lib/realtime/index.ts` calls `getRealtimeProvider()` on every invocation. `getRealtimeProvider()` returns a new instance of the configured provider (Ably/Pusher/Supabase Realtime) each time — there is no singleton or module-level cached instance. In a serverless environment where many event triggers fire concurrently (messages, gifts, XP awards), this creates a new WebSocket or HTTP connection per call. Connections are never explicitly closed, leaking file descriptors / TCP connections and exhausting provider-side connection quotas.
+### 6: BUG-RT-01: Ably useRealtimeChannel fast-unmount cleanup leak (web)
 
 **FILES:**
-- `apps/web/lib/realtime/index.ts` — `getRealtimeProvider`, `publishRealtimeEvent`
+- `apps/web/lib/realtime/useRealtimeChannel.ts`
 
-**FIX:** Cache the provider instance at module level behind a lazy initializer:
-```
-let _provider: RealtimeProvider | null = null;
-function getRealtimeProvider() {
-  if (!_provider) _provider = createRealtimeProvider(env);
-  return _provider;
-}
-```
-In serverless environments that freeze/thaw instances, this ensures at most one connection per worker instance. For providers that require explicit teardown, register a process `beforeExit` handler.
+**FIX:** The hook imports Ably asynchronously inside `useEffect`. If React calls the effect cleanup before the async import resolves (fast unmount), the `cleanup` variable has not been assigned yet and the cleanup function returned by `useEffect` runs before `cleanup` is set — the channel is never detached. Set a `cancelled` boolean flag before the first `await`, check it immediately after every `await`, and only proceed with channel setup if `!cancelled`. If the component unmounts during the async init, the flag prevents channel creation entirely. The Expo version of this hook handles this correctly and can serve as a reference.
 
 ---
 
-### 7. BUG-PAY-07 — Dodo coin-pack zero-quantity award silently bypasses validation
-
-**Severity:** MEDIUM — misconfigured or unknown coin pack product IDs result in zero coin credit with no error or alert
-
-**Description:** In the `coin_pack` branch of `dodoWebhookHandler.ts`, `COIN_PACK_CATALOGUE[packId]?.coinGrant` returns `undefined` for unknown product IDs. The guard condition only checks `if (!coinGrant)` — which is falsy for both `undefined` and `0`. If the check passes (product ID matches but grant is 0), `creditCoins` is called with `0` and the user receives nothing. If the product ID is unknown, `undefined` is passed to `creditCoins`, which may throw or silently credit 0. Neither case raises a `system_alert` or writes to `failedWebhooks`.
+### 7: BUG-RT-02: Pusher creates new client per hook instance (web)
 
 **FILES:**
-- `apps/web/lib/payments/dodoWebhookHandler.ts` — coin_pack branch
+- `apps/web/lib/realtime/useRealtimeChannel.ts`
 
-**FIX:** Explicitly check `coinGrant === undefined || coinGrant <= 0` as separate conditions. On `undefined` (unknown product): insert into `failedWebhooks` and emit a `system_alert`. On `0` (misconfigured catalogue): throw a hard error in dev/staging; in production, DLQ the event and alert. Catalogue entries must always have a positive grant value.
+**FIX:** When `provider === "pusher"`, the hook creates `new Pusher(...)` inside the effect body each time a component mounts. Each component subscribed to any channel creates its own WebSocket connection, multiplying transport connections linearly with component count. This quickly exhausts Pusher's per-client channel limit and increases cost. Fix by creating a module-level singleton Pusher client (initialized lazily on first use) shared across all hook instances. The existing Ably path correctly uses a shared client and should be used as a model.
 
 ---
 
-### 8. BUG-SEC-08 — PHONE_REGEX compiled with /g flag; stateful lastIndex alternates match/no-match
-
-**Severity:** HIGH (security) — anti-spam phone number detection skips every other message in the same process lifetime
-
-**Description:** `PHONE_REGEX` in `apps/web/lib/messaging/antispam.ts` is defined at module scope with the `g` (global) flag. When `.test()` is called on a stateful regex, `lastIndex` advances on each match. After a successful match, `lastIndex` points past the end and the next `.test()` call on the same input returns `false` — even if the message contains a phone number. This means every other message containing a phone number passes the anti-spam check undetected. In a high-volume chat system, this halves the effectiveness of the phone-number filter and can be trivially exploited by sending phone numbers on alternating messages.
+### 8: BUG-WAR-01: distributeWarRewards wrong split with exactly 2 members
 
 **FILES:**
-- `apps/web/lib/messaging/antispam.ts` — `PHONE_REGEX` definition
+- `apps/web/lib/guilds/warEngine.ts` (`distributeWarRewards`)
 
-**FIX:** Remove the `g` flag from `PHONE_REGEX`. The `g` flag is only needed when iterating over all matches in a string (e.g. with `matchAll`). For a boolean existence test (`.test()`), the stateless version without `/g` is both correct and more efficient. Audit all other module-level regexes in `antispam.ts` for the same issue.
+**FIX:** The reward distribution awards rank-1 a fixed 30% base, then distributes 50% of the remaining pool proportionally among all members by rank weight. With exactly 2 members, rank-1 receives 30% + ~50% of remainder, while rank-2 receives only ~20% — an unintended 80/20 split. The formula was designed for larger guilds and misfires on small ones. Add a branch for guilds with 2 members that uses explicit winner/runner-up percentages (e.g., 60/40). At minimum, write unit tests covering 1-, 2-, 3-, and N-member scenarios and document the intended split for each.
 
 ---
 
-### 9. BUG-PAY-09 — subscription.disable immediately cancels plan instead of waiting for period end
-
-**Severity:** HIGH — cancelling a Paystack subscription immediately revokes access the user has already paid for
-
-**Description:** In `paystackWebhookHandler.ts`, the `subscription.disable` event handler immediately sets `plan = 'free'` and `plan_expires_at = NOW()` on the user row. Paystack fires `subscription.disable` when a user cancels — but cancellation in Paystack means "do not renew at next billing date." The user's current billing period is still active. Setting `plan_expires_at = NOW()` removes access the user has paid for, which is both a product bug and a legal/compliance issue in many markets.
+### 9: BUG-WAR-02: resolveWar silently swallows guild tier history errors
 
 **FILES:**
-- `apps/web/lib/payments/paystackWebhookHandler.ts` — `subscription.disable` handler
+- `apps/web/lib/guilds/warEngine.ts` (`resolveWar`)
 
-**FIX:** On `subscription.disable`, read `next_payment_date` from the Paystack event payload and set `plan_expires_at = next_payment_date` (or the current period end computed from `billing_date + interval`). Set a `cancel_at_period_end = true` flag on the user row. Downgrade to `plan = 'free'` only when `plan_expires_at` has elapsed, enforced either by the auth check or a daily CRON cleanup.
+**FIX:** The guild tier history INSERT at the end of `resolveWar` is wrapped in `.catch(() => {})` — any error (constraint violation, DB unavailability) is silently discarded. Guild tier history is audit-critical data. Replace the empty catch with at minimum `logger.error(...)`, and consider moving the insert inside the main transaction block or writing to a DLQ so it can be retried. Silent data loss here undermines any future analytics or dispute resolution capability.
 
 ---
 
-### 10. BUG-SEASON-10 — Season ceremony room creation has missing parameter binding
-
-**Severity:** HIGH — end-of-season ceremony room creation throws on every season end, no ceremony room is created
-
-**Description:** In `apps/web/lib/seasons/seasonEngine.ts`, the ceremony room INSERT query uses placeholder `$5` but only four bind parameters are supplied in the array. PostgreSQL returns an error for the missing parameter, which is caught by the outer try/catch and logged but not re-thrown. The ceremony room is silently never created, and the season end event proceeds without a ceremony room — removing a core feature of the season end flow.
+### 10: BUG-PUSH-01: pollPushReceipts marks checked_at before processing receipts
 
 **FILES:**
-- `apps/web/lib/seasons/seasonEngine.ts` — ceremony room creation query
+- `apps/web/lib/notifications/push.ts` (`pollPushReceipts`)
 
-**FIX:** Audit the ceremony room INSERT query. Count all `$N` placeholders and ensure the values array has exactly that many elements. Add a missing 5th bind value (likely a title, description, or metadata field). Write a unit test that executes the query against a test schema to catch parameter count mismatches at development time.
+**FIX:** The function fetches a batch of push tickets and immediately bulk-updates `checked_at = NOW()` for all of them before entering the per-ticket result processing loop. If an exception occurs mid-loop (network error, malformed receipt), the remaining unprocessed tickets have `checked_at` set and will not be retried. Move the `checked_at` update to per-ticket: mark each ticket only after its receipt has been handled, or use a two-phase status column (`receipt_status: 'pending' | 'processed' | 'failed'`) to distinguish state clearly.
 
 ---
 
-### 11. BUG-XP-11 — DM message XP awarded via raw fire-and-forget query, bypasses safeAwardXP and DLQ
-
-**Severity:** HIGH — failed XP awards from DM messages are silently lost; no retry, no DLQ
-
-**Description:** `POST /api/messages/dm/[conversationId]/route.ts` awards message XP using a direct `db.query(INSERT INTO xp_ledger ...)` with `.catch(() => {})` — a raw fire-and-forget pattern. This bypasses `safeAwardXP`, which writes to `failed_xp_awards` on failure for CRON retry. Any DB error during the XP insert (connection drop, lock timeout, schema mismatch) silently discards the award. There is also no idempotency key on this raw insert, so network retries from the client could double-award XP.
+### 11: BUG-PUSH-02: Push notification recipient query never filters stale device tokens
 
 **FILES:**
-- `apps/web/app/api/messages/dm/[conversationId]/route.ts` — XP award block
+- `apps/web/lib/notifications/push.ts` (`sendPushNotification`, `sendBulkPushNotification`)
 
-**FIX:** Replace the raw `db.query` XP insert with `safeAwardXP(userId, XP_AMOUNT, 'social', 'dm_message', messageId)`. Pass `messageId` as the `referenceId` so the partial unique index on `xp_ledger(user_id, source, reference_id)` prevents double-award on retry.
+**FIX:** Device push tokens are queried without any recency filter. Tokens from devices inactive for months (uninstalled apps, replaced phones) are targeted on every notification. This wastes Expo push quota and degrades throughput. Add a `last_seen_at > NOW() - INTERVAL '90 days'` (or configurable) filter to device token queries. Additionally, when Expo returns a `DeviceNotRegistered` error for a token, immediately delete or nullify that token — do not wait for the next receipt poll cycle.
 
 ---
 
-### 12. BUG-PERF-12 — Room message XP uses dynamic import of engine inside hot POST handler
-
-**Severity:** MEDIUM — async module resolution blocks every room message POST on cold workers
-
-**Description:** `POST /api/rooms/[roomId]/messages/route.ts` dynamically imports `@/lib/xp/engine` inside the handler body via `await import(...)`. Every request on a cold worker incurs the module resolution overhead before XP can be processed. The XP engine is a core module that is always needed; there is no code-splitting benefit to lazy-loading it in a Node.js API route.
+### 12: BUG-QUEST-01: updateQuestProgress falls back to wrong XP track for unknown action types
 
 **FILES:**
-- `apps/web/app/api/rooms/[roomId]/messages/route.ts`
+- `apps/web/lib/quests/questEngine.ts` (`updateQuestProgress`)
 
-**FIX:** Move `import { awardXP } from '@/lib/xp/engine'` (or equivalent) to the module top level. Static imports are resolved once at module initialization and eliminate the per-request async overhead.
+**FIX:** When `updateQuestProgress` encounters an `action_type` with no defined XP track mapping, it silently awards "main" XP instead. Any typo in a quest definition, or a newly added action type that lacks a mapping, quietly credits the wrong track with no error. Fix by throwing a logged error or returning early without awarding XP when no mapping is found. A runtime exhaustiveness check (or TypeScript exhaustive union) at the top of the function would catch this during development before it reaches production.
 
 ---
 
-### 13. BUG-FIN-13 — DM coin deduction is a raw UPDATE with no SELECT FOR UPDATE, no Decimal.js, no idempotency
-
-**Severity:** CRITICAL — race condition allows negative coin balances in DM tip flow; no idempotency protection
-
-**Description:** The coin deduction in `POST /api/messages/dm/[conversationId]/route.ts` for paid DMs executes a bare `UPDATE users SET coin_balance = coin_balance - $amount WHERE id = $userId`. This bypasses the entire `debitCoins()` safe-path which uses: (1) `SELECT FOR UPDATE` to lock the row and prevent concurrent overdrafts, (2) `Decimal.js` for precision arithmetic, (3) an append-only `coin_ledger` entry with a partial unique index for idempotency. Without `SELECT FOR UPDATE`, two concurrent requests for the same user can both read the same positive balance, both pass the balance check, and both deduct — driving the balance negative. Without a ledger entry, there is no audit trail and no idempotency guard against client retries.
+### 13: BUG-QUEST-02: Quest engine double-awards main XP when parallelTrack is null
 
 **FILES:**
-- `apps/web/app/api/messages/dm/[conversationId]/route.ts` — coin deduction block
-- `apps/web/lib/economy/coins.ts` — `debitCoins` (safe path, not used here)
+- `apps/web/lib/quests/questEngine.ts`
+- `apps/web/lib/xp/safeAwardXP.ts`
 
-**FIX:** Replace the raw UPDATE with `debitCoins(userId, amount, 'dm_tip', messageId, db_transaction_client)` inside a proper DB transaction. Use `messageId` as the `referenceId` so the ledger's partial unique index prevents double-debit on retry. This is the same pattern used correctly in the gift send and transfer routes.
+**FIX:** After awarding the quest's `xp_reward` to the "main" track, the engine calls `safeAwardXP(userId, xpReward, parallelTrack ?? "main", ...)`. When `parallelTrack` is null, the nullish coalescing fallback evaluates to "main", causing main XP to be awarded twice for that quest completion. Fix by adding a null-guard: only execute the parallel-track award when `parallelTrack !== null`. The null case should be a no-op.
 
 ---
 
-### 14. BUG-LB-14 — Leaderboard upsert ON CONFLICT expression doesn't match the actual unique index
-
-**Severity:** HIGH — leaderboard snapshots always INSERT new rows instead of upserting, table grows unboundedly
-
-**Description:** `upsertLeaderboardSnapshot` in `apps/web/lib/leaderboards/engine.ts` uses `ON CONFLICT (user_id, scope, period)` in the INSERT statement. If the actual unique index on `leaderboard_snapshots` is defined on different columns (e.g., `(user_id, leaderboard_type, period_start)`) or with a different expression, PostgreSQL will not recognize the conflict and will insert a new row every time the snapshot CRON runs. Over time the table grows with thousands of duplicate snapshot rows per user per period. Rank queries that read the latest snapshot will see stale rows depending on sort order.
+### 14: BUG-XP-01: safeAwardXP DLQ write is unawaited — lost on fast process exit
 
 **FILES:**
-- `apps/web/lib/leaderboards/engine.ts` — `upsertLeaderboardSnapshot`
-- `apps/web/lib/db/schema.ts` — `leaderboardSnapshots` unique index definition
+- `apps/web/lib/xp/safeAwardXP.ts` (catch block)
 
-**FIX:** Open `schema.ts` and read the exact columns in the `leaderboardSnapshots` unique index. Update the `ON CONFLICT (...)` clause in `upsertLeaderboardSnapshot` to match exactly — including any WHERE predicate on the partial index. Run `\d leaderboard_snapshots` in psql on the production schema to confirm the live index definition matches.
+**FIX:** After a primary XP award failure, the DLQ insert into `failed_xp_awards` is issued without `await`. In serverless/edge environments (Vercel, short-lived containers), the process may be suspended or killed in the milliseconds between the primary failure and the DLQ write completing. This silently drops XP events. Fix by `await`-ing the DLQ insert and re-catching any DLQ errors separately, or write the intent to a Redis list synchronously before the primary attempt and remove it on success (reliable write-ahead approach).
 
 ---
 
-### 15. BUG-XP-15 — Stars gift XP reference_id collides per recipient, blocking XP on all future gifts to the same user
-
-**Severity:** HIGH — gifted XP stops being awarded after the first gift to any given recipient
-
-**Description:** `POST /api/economy/stars/gift/route.ts` calls `safeAwardXP` with `referenceId = recipientId` (the recipient's user UUID). The partial unique index on `xp_ledger(user_id, source, reference_id) WHERE reference_id IS NOT NULL` ensures that `(senderUserId, 'star_gift', recipientId)` is only ever inserted once. After the first gift from any given sender to any given recipient, all future gifts from that sender to that recipient earn zero XP — the `ON CONFLICT DO NOTHING` silently drops every subsequent award. The intended idempotency key should be the individual `giftTransactionId`, not the static recipient UUID.
+### 15: BUG-SEASON-01: resetSeasonRankings diverges users.season_xp from user_season_passes.season_xp
 
 **FILES:**
-- `apps/web/app/api/economy/stars/gift/route.ts` — `safeAwardXP` call
+- `apps/web/lib/seasons/seasonEngine.ts` (`resetSeasonRankings`)
 
-**FIX:** Change `referenceId` from `recipientId` to the `giftTransactionId` (the UUID of the specific gift transaction row). This ensures each gift earns XP exactly once (idempotent on retry) while allowing repeated gifts to the same recipient to all accumulate XP correctly.
+**FIX:** The function resets `user_season_passes.season_xp = 0` but does NOT reset `users.season_xp`. After a season reset, the two columns are out of sync: `users.season_xp` retains the previous season's value, so any query or leaderboard reading `users.season_xp` shows stale data for the new season. Add a bulk `UPDATE users SET season_xp = 0 WHERE deleted_at IS NULL` (or scoped to active season participants) inside the same database operation as the season pass reset.
 
 ---
 
-### 16. BUG-XP-16 — Stars gift daily XP cap is evaluated per transaction, not as a cumulative daily total
-
-**Severity:** MEDIUM — daily XP cap for gifting is effectively infinite; each gift independently passes the cap check
-
-**Description:** The daily XP cap check in `POST /api/economy/stars/gift/route.ts` queries `xp_ledger` for XP earned from `star_gift` events `WHERE created_at >= TODAY`. However, the check reads the current total before the current award and compares it against the cap limit in isolation. If a user sends 10 gifts rapidly (concurrent requests), all 10 read `0` (or a low value) at the start of their respective transactions and all 10 pass the cap check. All 10 awards are then inserted. The cap is bypassed entirely under concurrency, or at best only partially enforced.
+### 16: BUG-SEASON-02: Season pass xp_bonus milestone doesn't update users.season_xp
 
 **FILES:**
-- `apps/web/app/api/economy/stars/gift/route.ts` — daily XP cap logic
+- `apps/web/lib/seasons/seasonEngine.ts` (`claimPassMilestone`)
 
-**FIX:** Enforce the cap atomically inside a transaction with a `SELECT ... FOR UPDATE` lock on the user's XP row, or use a Redis counter with `INCR` + `EXPIRE` to track daily XP from gifting — the same sliding-window atomic approach used for rate limiting. Alternatively, enforce the cap post-insert by checking the running total in the `safeAwardXP` CTE before applying the UPDATE.
+**FIX:** When a user claims a `xp_bonus` milestone from their season pass, the code increments `users.xp_total` (all-time XP) but does not increment `users.season_xp` or `user_season_passes.season_xp`. The bonus XP is therefore invisible on the in-season leaderboard and doesn't contribute to the user's seasonal standing. Fix by including `season_xp = season_xp + $bonus` in the `UPDATE users` statement, and likewise `season_xp = season_xp + $bonus` in the `UPDATE user_season_passes` row for the current season.
 
 ---
 
-### 17. BUG-FIN-17 — IAP subscription activation is non-atomic: plan upgrade and coin bonus are separate DB calls
-
-**Severity:** CRITICAL — a crash between the two DB calls leaves the user on the upgraded plan but without their coin bonus, or vice versa depending on failure mode
-
-**Description:** `verifyAndActivateSubscription` in `apps/web/app/api/economy/iap/verify/route.ts` executes two separate database operations outside a transaction: first `UPDATE users SET plan = $plan ...`, then `creditCoins(userId, coins, ...)`. If the process crashes, the network drops, or the DB throws between these two calls, the user is left in an inconsistent state — plan upgraded but no coins (most likely), or coins credited without a plan upgrade. Neither operation can be rolled back independently.
+### 17: BUG-SEASON-03: createSeasonCeremonyRoom creates room without a slug
 
 **FILES:**
-- `apps/web/app/api/economy/iap/verify/route.ts` — `verifyAndActivateSubscription`
+- `apps/web/lib/seasons/seasonEngine.ts` (`createSeasonCeremonyRoom`)
+- `apps/web/lib/db/schema.ts`
 
-**FIX:** Wrap both operations in a single `db.transaction(async (tx) => { ... })` block. The plan UPDATE and `creditCoins` call (passing `tx` as the database client) must both commit or both roll back atomically. Use the Google Play `purchaseToken` as the `referenceId` for `creditCoins` so that the coin credit is idempotent on retry.
+**FIX:** The ceremony room INSERT does not include a `slug` value, leaving it NULL. Any attempt to link to or navigate to the ceremony room via `/r/<slug>` will 404. Generate a deterministic slug at creation time — for example, `season-${seasonId.slice(0, 8)}-ceremony` — and include it in the INSERT. If `slug` is made NOT NULL globally (see BUG-SCHEMA-03), this fix becomes mandatory.
 
 ---
 
-### 18. BUG-FIN-18 — Stars purchase records payment_type='coin_purchase' instead of 'star_purchase'
-
-**Severity:** MEDIUM — all star purchase payment records are mislabeled; financial reporting and audit queries are wrong
-
-**Description:** In `apps/web/app/api/economy/stars/purchase/route.ts`, the `payment_records` INSERT uses `payment_type = 'coin_purchase'` for a star pack transaction. Stars and coins are distinct currencies with different catalogues, pricing, and revenue streams. All star purchase records will be counted as coin purchases in admin reporting, revenue analytics, and any fraud detection that segments by payment type. This also makes webhook reconciliation incorrect when cross-referencing by payment type.
+### 18: BUG-SEASON-04: claimPassMilestone sticker_pack OR lookup is ambiguous
 
 **FILES:**
-- `apps/web/app/api/economy/stars/purchase/route.ts`
+- `apps/web/lib/seasons/seasonEngine.ts` (`claimPassMilestone`)
 
-**FIX:** Change `payment_type = 'coin_purchase'` to `payment_type = 'star_purchase'` in the `payment_records` INSERT. Audit all other purchase routes to verify that each sets the correct `payment_type` for its currency. If `payment_type` is an enum column, add `'star_purchase'` to the enum if not already present.
+**FIX:** The sticker pack lookup uses `WHERE slug = $1 OR name = $1`. If a pack's `name` collides with a different pack's `slug`, the query may return the wrong pack. The intent is "find by slug, fall back to name." Replace with a two-step approach: first query by `slug = $1`, and if not found, query by `name = $1`. Or use `ORDER BY (slug = $1) DESC LIMIT 1` to prefer slug matches. This eliminates the ambiguity and is clearer in intent.
 
 ---
 
-### 19. BUG-AI-19 — AI classifier always labels Gemini-fallback responses as 'deepseek'
-
-**Severity:** MEDIUM — content moderation audit trail is systematically wrong; model attribution is incorrect
-
-**Description:** `apps/web/lib/moderation/aiClassifier.ts` calls DeepSeek first and falls back to Gemini if DeepSeek fails. However, the response object from the Gemini fallback path is still tagged with `model: 'deepseek'` (the initial assignment is never updated for the fallback). Every Gemini-classified moderation result is stored with incorrect model attribution. This corrupts moderation audit logs, makes it impossible to distinguish DeepSeek vs Gemini decisions for performance analysis, and could mask systematic DeepSeek failures (since all results look like they came from DeepSeek).
+### 19: BUG-PAY-01: processChargeSuccess uses `null as unknown as string` type cast
 
 **FILES:**
-- `apps/web/lib/moderation/aiClassifier.ts` — Gemini fallback path
+- `apps/web/lib/payments/paystackWebhookHandler.ts` (`processChargeSuccess`)
 
-**FIX:** In the Gemini fallback branch, set `model = 'gemini'` (or the specific Gemini model identifier) on the result object before returning. Also emit a log line at `warn` level when the fallback is triggered, so DeepSeek failure rate is visible in monitoring.
+**FIX:** `roomId` is assigned `null as unknown as string` to satisfy TypeScript's type checker. This is a type safety escape hatch that hides the fact that `roomId` can be null at runtime. Any downstream code that calls string methods on `roomId` without a null guard will throw at runtime. Fix by correctly typing `roomId` as `string | null | undefined` throughout the function and adding explicit null checks before any string operation or database query using it. Remove the unsafe cast entirely.
 
 ---
 
-### 20. BUG-XP-20 — Coin transfer XP award uses raw queries without safeAwardXP or DLQ
-
-**Severity:** HIGH — XP from coin transfers is silently lost on any DB error; no retry, no idempotency
-
-**Description:** `POST /api/economy/coins/transfer/route.ts` awards XP for the transfer action using a direct `db.query(INSERT INTO xp_ledger ...)` with `.catch(() => {})`. This is the same raw fire-and-forget antipattern as BUG-XP-11. Failed XP awards from coin transfers are silently swallowed with no DLQ entry, no retry, and no idempotency key. The coin transfer itself is properly handled via `debitCoins`/`creditCoins` with idempotency, but the XP reward has no such protection.
+### 20: BUG-FUND-01: Creator fund normalise() inflates scores when all values equal zero
 
 **FILES:**
-- `apps/web/app/api/economy/coins/transfer/route.ts` — XP award block
+- `apps/web/lib/creator/fund.ts` (`normalise`, `calculateFundDistributions`)
 
-**FIX:** Replace the raw XP insert with `safeAwardXP(userId, XP_AMOUNT, 'social', 'coin_transfer', transferId)`. Pass the `transferId` (the ledger transaction UUID) as `referenceId` for idempotency. This ensures the XP is retried on failure and is never double-awarded on retry.
+**FIX:** The `normalise()` helper detects `min === max` (all values equal) and returns `values.map(() => 1)`. For any metric where every creator scored 0 (e.g., no gifts sent this month), all creators receive a normalized score of 1.0 instead of 0.0, causing the metric to contribute positively to everyone's weighted distribution score. Fix: when `min === max`, return `values.map(() => 0)`. A metric where no one performed should contribute zero to all scores, not 1.
 
 ---
 
-### 21. BUG-OBS-21 — Monitoring captureException is a no-op stub; errors are never sent to Sentry
-
-**Severity:** HIGH — all production exceptions are dropped; no error observability in production
-
-**Description:** `apps/web/lib/monitoring/index.ts` exports `captureException` which, even when `MONITORING_PROVIDER=sentry` and `SENTRY_DSN` are configured, only calls `console.error`. The Sentry SDK is never imported or initialized. The comment inside the function body shows `// When Sentry is installed: Sentry.captureException(...)` — the actual SDK call is commented out. Every `captureException` call throughout the codebase (in webhook handlers, XP engine, payment flows, etc.) silently does nothing in production.
+### 21: BUG-NEM-01: compareNemesisProgress missing "gaming" track — throws at runtime
 
 **FILES:**
-- `apps/web/lib/monitoring/index.ts`
+- `apps/web/lib/nemesis/nemesisEngine.ts` (`compareNemesisProgress`)
 
-**FIX:** Install `@sentry/nextjs` and complete the Sentry integration:
-1. Run `npx @sentry/wizard@latest -i nextjs` to generate `sentry.client.config.ts`, `sentry.server.config.ts`, `sentry.edge.config.ts`.
-2. In `monitoring/index.ts`, replace the stub with a real dynamic import of `@sentry/nextjs` and call `Sentry.captureException(err, { extra: context })`.
-3. Set `SENTRY_DSN`, `SENTRY_AUTH_TOKEN`, and `MONITORING_PROVIDER=sentry` in production environment variables.
-Until Sentry is set up, at minimum replace the `console.error` with a structured log that includes the full stack trace so errors are visible in log aggregators.
+**FIX:** The `trackColumnMap` inside `compareNemesisProgress` maps XP track names to database column names, but the "gaming" track is absent. Any comparison request for the gaming track throws `Error: unknown XP track 'gaming'`, crashing the API endpoint. Add `gaming: "xp_gaming"` to the map. Cross-reference with `TRACK_COLUMN` in `safeAwardXP.ts` to ensure all eight tracks (main, social, creator, competitor, generosity, knowledge, explorer, gaming) are present in both maps consistently.
 
 ---
 
-### 22. BUG-MOB-22 — useRealtimeChannel excludes onEvent from effect deps, causing stale closure bugs
-
-**Severity:** HIGH — realtime event handlers in Expo app capture stale state on every re-render that changes the callback
-
-**Description:** `apps/expo/lib/realtime/useRealtimeChannel.ts` intentionally omits `onEvent` from the `useEffect` dependency array (there is a comment acknowledging this). When a component re-renders and passes a new `onEvent` function (e.g., because it closes over updated state), the channel subscription still calls the old stale closure. This means realtime events are processed with outdated component state — a particularly severe bug for chat handlers that close over message lists, authentication state, or room membership. The comment implies this is a deliberate choice to avoid re-subscribing, but the correct fix is to use a ref for the callback, not exclude it from deps.
+### 22: BUG-ANN-01: Announcement modal view recorded before client confirms display
 
 **FILES:**
-- `apps/expo/lib/realtime/useRealtimeChannel.ts`
+- `apps/web/lib/announcements/engine.ts` (`getActiveModalForUser`, `getActiveBannerForUser`)
 
-**FIX:** Use a stable ref pattern:
-```ts
-const onEventRef = useRef(onEvent);
-useEffect(() => { onEventRef.current = onEvent; }); // update ref on every render
-// In the effect: channel.subscribe((msg) => onEventRef.current(msg));
-```
-This keeps the subscription stable (no reconnect on handler change) while always calling the latest handler version. This is the standard pattern for stable callbacks in React hooks.
+**FIX:** Both functions insert a view record into `announcement_views` immediately when the GET API is called, before the client has rendered and displayed the content. If the API succeeds but the client then crashes, navigates away, or hits a network error before the modal appears, the modal is permanently marked as viewed and will never be shown again. Fix by decoupling delivery from confirmation: the GET endpoint returns the modal without recording the view, and a separate POST `/api/announcements/:id/confirm-view` endpoint records the view when the client explicitly dismisses the modal. This is the standard pattern for impression tracking.
 
 ---
 
-### 23. BUG-MOB-23 — AdMob showRewardedAd leaks EARNED_REWARD listener on non-reward close path
-
-**Severity:** MEDIUM — ad listeners accumulate on the ad instance when the user closes without earning a reward
-
-**Description:** `apps/expo/lib/ads/admob.ts` in `showRewardedAd()` subscribes three listeners: `EARNED_REWARD`, `CLOSED`, and `ERROR`. The `CLOSED` handler calls `unsubscribeClose()` and `unsubscribeError()` to clean up. However, `unsubscribeReward()` (the EARNED_REWARD unsubscriber) is NOT called in the `CLOSED` path (only when `EARNED_REWARD` fires). If the user closes the ad without earning a reward, the EARNED_REWARD listener remains attached to the (now-closed) ad instance. The same pattern applies to `showInterstitialAd`. Over multiple ad loads, stale listeners accumulate, potentially firing on wrong ad instances or causing memory leaks.
+### 23: BUG-GAME-01: declineChallenge crashes on concurrent row deletion
 
 **FILES:**
-- `apps/expo/lib/ads/admob.ts` — `showRewardedAd`, `showInterstitialAd`
+- `apps/web/lib/games/challenges.ts` (`declineChallenge`)
 
-**FIX:** In the `CLOSED` handler, call all three unsubscribers unconditionally:
-```ts
-// In CLOSED handler:
-unsubscribeReward?.();
-unsubscribeClose?.();
-unsubscribeError?.();
-```
-Ensure all event-specific unsubscribers are declared before any of the subscribe calls so they are in scope for cross-cleanup. Apply the same fix to `showInterstitialAd`'s close path.
+**FIX:** After completing its transaction (which marks the challenge as declined), the function re-fetches the challenge row with a non-null assertion: `(await getChallengeRow(challengeId))!.challenger_id`. If a concurrent expiry sweep or admin deletion removes the row between the transaction commit and this re-fetch, the expression throws `Cannot read properties of undefined`. Fix by capturing `challenger_id` from the locked row inside the transaction itself and passing it out as a local variable — no post-transaction re-fetch is needed. This also eliminates a redundant DB round-trip.
 
 ---
 
-## Code Quality Assessment
+### 24: BUG-GAME-02: createChallenge builds PostgreSQL interval via string concatenation
 
-### Current Rating: **6.5 / 10**
+**FILES:**
+- `apps/web/lib/games/challenges.ts` (`createChallenge`)
 
-**Strengths:**
-- Security fundamentals are solid: HMAC-SHA512/SHA256 constant-time webhook verification, JWT kid-based multi-key rotation registry, CSP nonce per request in Edge Middleware, AES-256-GCM field encryption with scrypt KDF (v2), SSRF protection with DNS pinning and redirect re-validation, complete Redis Lua sliding-window rate limiting.
-- Financial integrity is well-designed in the core economic paths: `debitCoins`/`creditCoins` use `SELECT FOR UPDATE` + `Decimal.js` + append-only ledger + partial unique index idempotency. The war engine and quest engine use these correctly.
-- Dead-letter queue architecture is in place for XP (`failed_xp_awards`) and payouts (`payout_dead_letter_queue`) with exponential backoff retry CRON steps.
-- `SELECT FOR UPDATE` discipline on balance mutations; single-transaction war resolution.
-- Build-phase Redis stub correctly prevents connection attempts during Next.js build.
-- Zod env validation with `superRefine` catches provider coupling misconfigurations at startup.
-
-**Critical Gaps:**
-- BUG-FIN-13 and BUG-FIN-17 are critical financial integrity violations: a race-condition path to negative balances and a non-atomic IAP activation.
-- BUG-XP-11 and BUG-XP-20 break the DLQ pattern that exists for exactly these cases, creating silent XP loss.
-- BUG-OBS-21 means the application has zero error observability in production — any silent failure is invisible.
-- BUG-SEC-08 (regex /g flag) halves phone-number anti-spam detection effectiveness with a one-character fix.
-- BUG-CSRF-01 blocks all mobile auth mutations.
-
-### Projected Post-Fix Rating: **8.5 / 10**
-
-Applying all 23 fixes closes every critical financial path, restores complete DLQ coverage for XP awards, activates production error observability, and hardens the anti-spam and CSRF layers. The gap from 10/10 reflects: pending Sentry integration effort (BUG-OBS-21 requires non-trivial SDK setup), the stale-closure fix for the mobile realtime hook requiring regression testing of all realtime-dependent screens, and ongoing schema consolidation work (dual subscription tables, orphaned gift catalogue) identified in prior analysis.
+**FIX:** Challenge expiry is computed with `NOW() + ($6 || ' hours')::interval`. If the `$6` value contains anything other than a plain integer (e.g., a float, a unit suffix, leading/trailing whitespace from a misconfigured source), PostgreSQL will throw a `invalid input syntax for type interval` error surfaced as a 500. Replace with: `NOW() + ($6 * INTERVAL '1 hour')`, which uses numeric multiplication and avoids string casting entirely. This is both safer and clearer.
 
 ---
 
-**Report completed:** June 18, 2026 — 06:54 PM
-*Forensic analysis — Zobia Social codebase — claude-sonnet-4-6*
+### 25: BUG-GAME-03: createChallenge accepts unlimited wager size
+
+**FILES:**
+- `apps/web/lib/games/challenges.ts` (`createChallenge`)
+
+**FIX:** There is no server-side maximum wager validation in `createChallenge`. A user can submit a challenge with an arbitrarily large coin or star wager. The challenge record is persisted and the challenger's notification is sent before the opponent ever tries to accept. The opponent's `acceptChallenge` will fail if they can't afford the wager, but the dangling challenge record and stale notification have already been created. Add a configurable `MAX_WAGER_COINS` and `MAX_WAGER_STARS` check at the start of `createChallenge`, sourced from the manifest or environment, and return a 400 before inserting if either threshold is exceeded.
+
+---
+
+### 26: BUG-MOD-01: detectBotBehavior only checks room message velocity — DMs not covered
+
+**FILES:**
+- `apps/web/lib/moderation/contentFilter.ts` (`detectBotBehavior`)
+
+**FIX:** The bot velocity check counts recent rows only in `room_messages`. A user sending 100 DMs per minute will not trigger any bot detection because the `messages` table (DMs) is never queried. Fix by unioning the velocity check across both tables, or by introducing a single unified per-user message rate counter (e.g., the existing Redis per-user `messageSend` rate limiter can serve as a proxy). At minimum, the function should document explicitly that it does not cover DMs so callers are not misled into thinking it provides complete coverage.
+
+---
+
+### 27: BUG-AUTH-01: 10-second L1 session cache allows brief use of revoked sessions
+
+**FILES:**
+- `apps/web/lib/auth/session.ts` (`SESSION_CACHE_TTL_MS = 10_000`)
+
+**FIX:** The in-process session cache holds session records for 10 seconds. When a session is revoked (ban, admin kill, logout from another device), any warm Next.js instance will continue to accept requests from that session for up to 10 seconds. This window is acceptable for most use cases but too long for security-critical revocations. Consider reducing `SESSION_CACHE_TTL_MS` to 2–3 seconds as a first step. For immediate revocation (hard bans, fraud lockout), publish a Redis pub/sub `session:revoked:<sid>` event and have each instance subscribe to invalidate its L1 cache entry immediately. The `withAuth` middleware already bypasses L1 for sensitive mutations — document this exception and ensure all ban/revocation code paths benefit from it.
+
+---
+
+### 28: BUG-AUTH-02: verifyTotp uses non-constant-time string comparison
+
+**FILES:**
+- `apps/web/lib/auth/totp.ts` (`verifyTotp`)
+
+**FIX:** TOTP code verification uses `computedCode === userCode` — a standard JavaScript string comparison that short-circuits on the first mismatched character. While the practical exploitability is very low (rate limiting is tight and Redis anti-replay prevents reuse), timing side-channels in authentication primitives are a recognized vulnerability class. Replace with `crypto.timingSafeEqual(Buffer.from(computedCode, 'utf8'), Buffer.from(userCode, 'utf8'))` to guarantee constant-time comparison. This is a one-line change with no functional impact.
+
+---
+
+### 29: BUG-GIFT-01: retireGiftDrop runs two non-transactional UPDATEs
+
+**FILES:**
+- `apps/web/lib/events/monthlyGiftDrop.ts` (`retireGiftDrop`)
+
+**FIX:** The function first sets `monthly_gift_drops.is_active = FALSE`, then in a separate statement sets `gift_items.is_retired = TRUE`. These are two independent queries with no surrounding transaction. If the process dies or a transient DB error occurs between the two, the drop is deactivated (gift no longer purchasable via the drop) but the gift item is not retired — it can be re-scheduled into a new drop, violating the "permanently retired after 48 hours" rule. Wrap both UPDATE statements inside `db.transaction(async tx => { ... })`.
+
+---
+
+### 30: BUG-OFFLINE-01: Web PWA getQueueCounts inflates counts with non-pending messages
+
+**FILES:**
+- `apps/web/lib/offline/messageQueue.ts` (`getQueueCounts`)
+
+**FIX:** `getQueueCounts` calls `getAllMessages()` which returns all messages regardless of status (pending, sending, sent, failed). The function then counts total results and presents them as "queued messages," including already-sent and permanently-failed items. This inflates the offline queue indicator in the UI, misleading the user about how many messages are actually waiting to be sent. Fix by filtering to `status === 'pending'` only inside `getQueueCounts`, or replace the call with a dedicated `getPendingMessages()` method (which already exists in the Expo SQLite counterpart at `apps/expo/lib/offline/sqlite.ts` and can serve as a reference).
+
+---
+
+## Code Quality Rating & Review
+
+### Current State — 7.4 / 10
+
+**Architecture & Design (9/10):** Genuinely impressive for a team product at this stage. The append-only coin and star ledgers, CTE-based atomic XP awards, Lua sliding-window rate limiter, kid-based JWT rotation, Redis circuit breakers, versioned AES-256-GCM field encryption with scrypt KDF, and XP dead-letter queue all reflect production-grade patterns correctly applied. The layered cache (L1 in-process + L2 Redis + DB), SELECT FOR UPDATE with deterministic lock ordering for deadlock prevention, and Expo SQLite offline queue show solid engineering judgment throughout.
+
+**Security (7.5/10):** Strong foundations: per-request CSP nonce, CSRF Origin header validation, TOTP anti-replay via Redis SET NX with 90-second TTL, constant-time webhook signature verification (Paystack), and scrypt KDF for KYC field encryption. Weaknesses: the 10-second L1 session cache creates a revocation window; TOTP comparison is not timing-safe; DM flooding bypasses bot detection; and the `null as unknown as string` type cast conceals a potential NPE in the payment webhook path.
+
+**Correctness (6.5/10):** Several bugs materially affect core feature correctness: the season XP double-counter divergence produces wrong season leaderboards from day 1 of a new season; the creator fund `normalise()` bug inflates payouts when any metric is uniformly zero; the quest engine double-awards main XP; war reward distribution misfires on small guilds; and the announcement view pre-recording silently skips modals on network errors. These are not obscure edge cases — they affect the core game mechanics on which retention depends.
+
+**Performance (7.5/10):** The L1 memory cache with `memGet`/`memSet`, atomic Lua round-trips, and paginated gift drop notifications (10,000-user batches) are well-applied. The main performance concerns are: the Pusher client multiplication will cause real WebSocket overhead under multi-channel pages; stale device tokens in push notifications waste Expo push quota proportionally as the user base grows and attrits.
+
+**Code Style & Maintainability (8/10):** Generally clean, well-commented, and consistent. Schema-derived type patterns (as seen in the referral commissions module), runtime allowlist guards before SQL interpolation (`SAFE_XP_COLS`), and thorough JSDoc on public APIs are good examples. The main maintainability concerns are the `null as unknown as string` cast (type debt), undocumented ZodError-not-ApiError behaviour in middleware helpers, and missing "gaming" track in the nemesis map (indicating the map is maintained manually and not derived from the canonical `TRACK_COLUMN` source of truth).
+
+---
+
+### Projected State After All Fixes — 8.8 / 10
+
+After applying all 30 fixes:
+
+- **Architecture** stays at 9/10: fixes are additive corrections and localised refactors, not structural changes.
+- **Security** rises to ~9/10: revocation latency tightened, TOTP comparison timing-safe, DM flood covered, NPE-in-webhook eliminated.
+- **Correctness** rises to ~9.5/10: season XP consistency, quest XP double-award, war reward distribution, fund normalisation, challenge concurrency, and announcement view tracking all corrected.
+- **Performance** rises to ~8.5/10: Pusher singleton eliminates transport multiplication; stale push token filtering reduces waste.
+- **Maintainability** rises to ~8.5/10: validated helpers, canonical track maps, and removed unsafe casts reduce future maintenance risk.
+
+The codebase is above average for a product at this stage. The bugs found are the kinds that emerge when feature complexity accelerates — not signs of poor engineering. The fixes are mostly contained (single-file or two-file changes) and carry low regression risk. A structured hardening sprint applying these fixes alongside a comprehensive unit test pass for the economy, XP, and season subsystems would bring this to a genuinely strong production baseline.
+
+---
+
+*Report generated: 2026-06-19 06:40 PM*  
+*Analyst: Claude Code — forensic independent analysis*
