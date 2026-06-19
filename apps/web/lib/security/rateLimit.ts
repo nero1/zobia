@@ -85,6 +85,10 @@ export const RATE_LIMITS = {
   payoutRequest: { limit: 3, windowMs: 24 * 60 * 60 * 1000, name: "payout:request", globalLimit: 1000 } as RateLimitOptions,
   /** Star gifting — hourly limit (STRUC-09). */
   starGift: { limit: 30, windowMs: 60 * 60 * 1000, name: "star:gift" } as RateLimitOptions,
+  /** Starting a game play session. */
+  gameStart: { limit: 60, windowMs: 60 * 1000, name: "game:start" } as RateLimitOptions,
+  /** Submitting a game score — bounds reward farming on client-reported scores. */
+  gameScore: { limit: 60, windowMs: 60 * 1000, name: "game:score" } as RateLimitOptions,
 } as const;
 
 // ---------------------------------------------------------------------------

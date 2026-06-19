@@ -45,6 +45,7 @@ export interface ZobiaManifest {
     businessAccounts: boolean;
     admobAds: boolean;
     rewardedAds: boolean;
+    games: boolean;
     merchStore: boolean;
     platformCouncil: boolean;
     allianceSystem: boolean;
@@ -79,6 +80,13 @@ export interface ZobiaManifest {
     xpThreshold: number;        // XP amount >= which confetti ALSO fires (default 100)
     creditsThreshold: number;   // Credits >= which confetti fires (default 50)
     starsThreshold: number;     // Stars >= which confetti fires (default 10)
+  };
+  // Games feature runtime config (admin-editable at /admin/config)
+  games: {
+    wagerRakePct: number;        // platform rake on a challenge wager pot (default 5)
+    challengeExpiryHours: number; // hours a challenge stays open (default 48)
+    defaultRewardCredits: number; // fallback win credits when a game sets 0
+    defaultRewardXp: number;      // fallback win gaming-XP when a game sets 0
   };
   // Currency display names (admin-configurable)
   currency: {
@@ -179,6 +187,7 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     businessAccounts: true,
     admobAds: true,
     rewardedAds: true,
+    games: true,
     merchStore: true,
     platformCouncil: true,
     allianceSystem: true,
@@ -214,6 +223,12 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     xpThreshold: 100,
     creditsThreshold: 50,
     starsThreshold: 10,
+  },
+  games: {
+    wagerRakePct: 5,
+    challengeExpiryHours: 48,
+    defaultRewardCredits: 50,
+    defaultRewardXp: 40,
   },
   minimumAge: 18,
   coinToCashRate: 100,
@@ -354,6 +369,7 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       businessAccounts: parseBool(kv["feature_business_accounts"],           DEFAULT_MANIFEST.features.businessAccounts),
       admobAds:         parseBool(kv["feature_admob_ads"],                   DEFAULT_MANIFEST.features.admobAds),
       rewardedAds:      parseBool(kv["feature_rewarded_ads"],                DEFAULT_MANIFEST.features.rewardedAds),
+      games:            parseBool(kv["feature_games"]            ?? "true",  DEFAULT_MANIFEST.features.games),
       // canonical: feature_merch_store; legacy: feature_creator_merch
       merchStore:       parseBool(kv["feature_merch_store"]      ?? kv["feature_creator_merch"] ?? "false", DEFAULT_MANIFEST.features.merchStore),
       platformCouncil:  parseBool(kv["feature_platform_council"],            DEFAULT_MANIFEST.features.platformCouncil),
@@ -390,6 +406,12 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       xpThreshold:      parseInt10(kv["floating_notifications_xp_threshold"], DEFAULT_MANIFEST.floatingNotifications.xpThreshold),
       creditsThreshold: parseInt10(kv["floating_notifications_credits_threshold"], DEFAULT_MANIFEST.floatingNotifications.creditsThreshold),
       starsThreshold:   parseInt10(kv["floating_notifications_stars_threshold"], DEFAULT_MANIFEST.floatingNotifications.starsThreshold),
+    },
+    games: {
+      wagerRakePct:         parseInt10(kv["game_wager_rake_pct"],         DEFAULT_MANIFEST.games.wagerRakePct),
+      challengeExpiryHours: parseInt10(kv["game_challenge_expiry_hours"], DEFAULT_MANIFEST.games.challengeExpiryHours),
+      defaultRewardCredits: parseInt10(kv["game_default_reward_credits"], DEFAULT_MANIFEST.games.defaultRewardCredits),
+      defaultRewardXp:      parseInt10(kv["game_default_reward_xp"],      DEFAULT_MANIFEST.games.defaultRewardXp),
     },
     minimumAge:              parseInt10(kv["minimum_age"],               DEFAULT_MANIFEST.minimumAge),
     coinToCashRate:          parseInt10(kv["coin_to_cash_rate"],         DEFAULT_MANIFEST.coinToCashRate),

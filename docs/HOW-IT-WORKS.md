@@ -1272,6 +1272,83 @@ Events are stored with JSONB `metadata` for event-specific flags (e.g. `gift_xp_
 
 ---
 
+## Games & Gaming Track
+
+The games feature is a modular mini-games arcade spanning web, PWA and the Expo app.
+Everything except the game engines themselves is generic infrastructure.
+
+### Surfaces
+
+- **Directory** — `/games` (web, in `(app)` group) and the Expo `app/games/index.tsx`
+  screen list active games grouped by category (Puzzle / Action / Arcade).
+- **Public cover** — `/g/<slug>` (`apps/web/app/g/[slug]/page.tsx`, SSR, crawlable;
+  Expo `app/g/[slug].tsx`). Guests see a **login gate**; members get a **Play** CTA and
+  a **share** button (`buildGameReferralUrl` → `/g/<slug>?r=<code>`).
+- **Play host** — web `/g/<slug>/play` and the chromeless **embed** `/g/<slug>/embed`
+  used by the Expo `GameWebView`. Both mount `GameRunner`.
+
+### The "plug in a new game" contract
+
+A game is a self-contained HTML5/canvas React component implementing
+`GameEngineProps { onReady?, onGameOver(score), onScore? }`
+(`apps/web/components/games/types.ts`). To add one:
+
+1. Add an entry to `shared/utils/games.ts` (`GAME_REGISTRY`: slug, engineKey, category).
+2. Create `apps/web/components/games/engines/<engineKey>/index.tsx`.
+3. Register the lazy import in `apps/web/components/games/engineRegistry.ts`.
+4. Add a seed row in a migration; admin edits the cover/rewards at runtime.
+
+`GameRunner` opens a server play session (`POST /api/games/<slug>/start`), mounts the
+engine, and on game-over submits the score (`POST /api/games/<slug>/score`). The same
+component runs inside the Expo WebView (`GameWebView`), which injects the access token
+and relays score/reward events over the React Native bridge.
+
+### Scoring, rewards & the Gaming track
+
+- A play session issues a single-use **nonce**; `/score` consumes it once. Scores are
+  validated against the game's `max_score` cap and `min_play_seconds` floor and are
+  rate-limited (`game:score`). These are pragmatic anti-cheat guards for client-reported
+  scores — see also the per-game reward gating below.
+- A **solo win** = a new personal best with score > 0. On a win the player is granted the
+  game's per-win **credits / XP / stars** (manifest fallbacks when 0), via the coin/star
+  ledgers and `safeAwardXP(userId, xp, "gaming", …)` — all idempotent on the play id.
+- The **Gaming track** (`xp_gaming` / `level_gaming` on `users`) mirrors the six existing
+  tracks. Level-ups fire milestone titles/badges through `checkAndAwardTrackMilestones`.
+  **Games-played milestones** (`game_play_milestones`, admin-configurable) reward
+  cumulative play and are claimed idempotently via `game_milestone_claims`.
+- Admin can make a game **free or paid**: `play_cost_credits` / `play_cost_stars` are
+  debited in `POST /start` (challenge rounds are exempt).
+
+### Challenges & wagers
+
+`lib/games/challenges.ts` runs the async, score-based series. Create → (opponent) accept
+→ play rounds → settle. Best-of-1 needs 1 round win, best-of-3 needs 2; draws append a
+sudden-death round (hard-capped). Optional **credit wager** is escrowed from both players
+on accept (`game_wager`); the winner takes the pot minus `game_wager_rake_pct`
+(`game_payout`); decline/cancel/expiry refunds both (`game_refund`). The hourly
+`/api/cron/games` sweep expires stale challenges and refunds escrow.
+
+### Leaderboards & ads
+
+- **Per-game high scores** live in `game_best_scores` and are read with a plain
+  `ORDER BY` wrapped in a 60s Redis cache (`lib/games/leaderboard.ts`) — minimal Redis.
+- The **gaming-track ranking** reuses `leaderboard_snapshots` via `track=gaming` (added to
+  the leaderboards cron and the leaderboards API/UI track lists).
+- **Ads** render through a provider-pluggable slot — web `components/ads/AdSlot.tsx`
+  (AdSense when `NEXT_PUBLIC_ADSENSE_CLIENT` is set, else a labelled placeholder) and Expo
+  `components/ads/AdBanner.tsx` (AdMob) — gated by the `admob_ads` feature flag.
+
+### Admin
+
+- **`feature_games`** master toggle (Feature Flags) disables the directory, API and pages.
+- **`/admin/games`** — CRUD over the cover page (name, slug, descriptions, emoji, cover
+  image URL, category, engine), per-game rewards, free/paid play cost, score cap, min play
+  time, sort order, active flag; per-game stats; and games-played milestone management.
+- Runtime config (`/admin/config`): `game_wager_rake_pct`, `game_challenge_expiry_hours`,
+  `game_default_reward_credits`, `game_default_reward_xp`.
+
+---
+
 ## CRON Architecture
 
 ### Design principles
@@ -1303,7 +1380,8 @@ These must run more frequently than once per day and cannot use Vercel's native 
 | Route | Frequency | Key jobs |
 |---|---|---|
 | `/api/cron/guild-wars` | Every 1 hour | Final Hour transitions, war resolution, Flash XP lifecycle, Drop room auto-close |
-| `/api/cron/leaderboards` | Every 15 minutes | Batch snapshot upserts (all users × 7 tracks in 1 query), rank-change notifications |
+| `/api/cron/leaderboards` | Every 15 minutes | Batch snapshot upserts (all users × 8 tracks incl. gaming in 1 query), rank-change notifications |
+| `/api/cron/games` | Every 1 hour | Expire stale game challenges and refund any escrowed wager credits |
 | `/api/cron/payouts` | Every 30 minutes | Paystack transfer initiation + retry |
 | `/api/cron/reconcile-balances` | Nightly (06:00 UTC) | Batch XP + coin ledger vs. wallet reconciliation; batch unnest() corrections |
 

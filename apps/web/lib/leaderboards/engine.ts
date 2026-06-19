@@ -29,7 +29,8 @@ export type LeaderboardTrack =
   | "competitor"
   | "generosity"
   | "knowledge"
-  | "explorer";
+  | "explorer"
+  | "gaming";
 
 export interface LeaderboardEntry {
   rank: number;

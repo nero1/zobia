@@ -33,7 +33,7 @@ import { apiClient } from '@/lib/api/client';
 // ---------------------------------------------------------------------------
 
 type LeaderboardTab = 'global' | 'city' | 'guild' | 'season';
-type LeaderboardTrack = 'main' | 'social' | 'creator' | 'competitor' | 'generosity' | 'knowledge' | 'explorer';
+type LeaderboardTrack = 'main' | 'social' | 'creator' | 'competitor' | 'generosity' | 'knowledge' | 'explorer' | 'gaming';
 
 interface SponsoredBanner {
   id: string;
@@ -82,6 +82,7 @@ const TRACKS: { key: LeaderboardTrack; label: string; emoji: string }[] = [
   { key: 'generosity', label: 'Generosity', emoji: '🎁' },
   { key: 'knowledge', label: 'Knowledge', emoji: '📚' },
   { key: 'explorer', label: 'Explorer', emoji: '🧭' },
+  { key: 'gaming', label: 'Gaming', emoji: '🎮' },
 ];
 
 const RANK_MEDALS: Record<number, string> = { 1: '🥇', 2: '🥈', 3: '🥉' };

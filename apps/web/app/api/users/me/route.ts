@@ -59,6 +59,7 @@ interface UserFullProfile {
   xp_generosity: number;
   xp_knowledge: number;
   xp_explorer: number;
+  xp_gaming: number;
 
   // Track levels
   level_social: number;
@@ -67,6 +68,7 @@ interface UserFullProfile {
   level_generosity: number;
   level_knowledge: number;
   level_explorer: number;
+  level_gaming: number;
 
   // Streaks
   login_streak: number;
@@ -147,8 +149,8 @@ const SELECT_COLUMNS = `
   city, country, locale, plan, is_admin, is_creator, is_verified,
   onboarding_completed, coin_balance, star_balance,
   xp_total, legacy_score, rank_name, rank_level, rank_sublevel, prestige_count,
-  xp_social, xp_creator, xp_competitor, xp_generosity, xp_knowledge, xp_explorer,
-  level_social, level_creator, level_competitor, level_generosity, level_knowledge, level_explorer,
+  xp_social, xp_creator, xp_competitor, xp_generosity, xp_knowledge, xp_explorer, xp_gaming,
+  level_social, level_creator, level_competitor, level_generosity, level_knowledge, level_explorer, level_gaming,
   login_streak, longest_streak, last_login_at, last_active_at,
   guild_id, referral_code, push_token,
   dm_notifications, guild_notifications, streak_notifications,

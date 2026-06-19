@@ -87,6 +87,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Notifications', href: '/notifications',        icon: 'notifications-outline' },
   { label: 'Events',        href: '/events',               icon: 'calendar-outline' },
   { label: 'Leaderboards',  href: '/leaderboards',         icon: 'trophy-outline' },
+  { label: 'Games',         href: '/games',                icon: 'game-controller-outline' },
   { label: 'Referrals',     href: '/referrals',            icon: 'link-outline' },
   { label: 'Seasons',       href: '/seasons',              icon: 'ribbon-outline' },
 ];

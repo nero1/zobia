@@ -29,7 +29,9 @@ export type StarTransactionType =
   | "admin_grant"
   | "refund"
   | "ad_reward"
-  | "cosmetic_purchase";
+  | "cosmetic_purchase"
+  | "game_reward"
+  | "game_play_cost";
 
 // ---------------------------------------------------------------------------
 // Internal helpers

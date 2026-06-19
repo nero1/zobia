@@ -70,6 +70,7 @@ const TRACK_EMOJIS: Record<string, string> = {
   generosity:  "🎁",
   knowledge:   "📚",
   explorer:    "🧭",
+  gaming:      "🎮",
 };
 
 // ---------------------------------------------------------------------------
@@ -112,6 +113,7 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       level_generosity: number;
       level_knowledge: number;
       level_explorer: number;
+      level_gaming: number;
       is_creator: boolean;
       creator_tier: string | null;
       guild_id: string | null;
@@ -136,6 +138,7 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
               COALESCE(level_generosity, 1) AS level_generosity,
               COALESCE(level_knowledge, 1) AS level_knowledge,
               COALESCE(level_explorer, 1) AS level_explorer,
+              COALESCE(level_gaming, 1) AS level_gaming,
               COALESCE(is_creator, false) AS is_creator,
               creator_tier,
               guild_id,
@@ -371,6 +374,7 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       { track: "Generosity", label: "Generosity", emoji: TRACK_EMOJIS.generosity, level: user.level_generosity, maxLevel: TRACK_MAX_LEVEL },
       { track: "Knowledge",  label: "Knowledge",  emoji: TRACK_EMOJIS.knowledge,  level: user.level_knowledge,  maxLevel: TRACK_MAX_LEVEL },
       { track: "Explorer",   label: "Explorer",   emoji: TRACK_EMOJIS.explorer,   level: user.level_explorer,   maxLevel: TRACK_MAX_LEVEL },
+      { track: "Gaming",     label: "Gaming",     emoji: TRACK_EMOJIS.gaming,     level: user.level_gaming,     maxLevel: TRACK_MAX_LEVEL },
     ];
 
     const seasonHistory = hidden.includes("seasons") ? [] : seasonRows.map((s) => ({

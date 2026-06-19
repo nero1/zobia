@@ -191,7 +191,13 @@ function isCsrfSafe(request: NextRequest): boolean {
  */
 export async function middleware(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
-  const token = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
+  // Access token comes from the cookie (web/PWA) or an Authorization: Bearer
+  // header (native app + the in-WebView game embed, which have no cookie jar).
+  const bearerHeader = request.headers.get("authorization") ?? "";
+  const bearerToken = bearerHeader.startsWith("Bearer ")
+    ? bearerHeader.slice(7).trim() || undefined
+    : undefined;
+  const token = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value ?? bearerToken;
 
   // Generate a per-request nonce for Content-Security-Policy.
   const nonce = Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString("base64");

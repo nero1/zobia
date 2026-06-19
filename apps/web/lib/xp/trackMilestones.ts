@@ -175,6 +175,29 @@ export const TRACK_MILESTONES: TrackMilestone[] = [
     description: "A Rooms Visited counter is shown on your public profile.",
     unlockKey: "explorer_rooms_visited_counter",
   },
+
+  // ── Gaming ────────────────────────────────────────────────────────────────
+  {
+    track: "gaming",
+    level: 5,
+    title: "Rookie Gamer",
+    description: "Unlocks the Games trophy badge on your profile.",
+    unlockKey: "gaming_trophy_badge",
+  },
+  {
+    track: "gaming",
+    level: 20,
+    title: "Pro Gamer",
+    description: "Your wins display a Pro Gamer flair and a trophy shelf on your profile.",
+    unlockKey: "gaming_pro_trophy_shelf",
+  },
+  {
+    track: "gaming",
+    level: 50,
+    title: "Game Legend",
+    description: "Earns the Game Legend title and a permanent spot on the all-time gaming wall.",
+    unlockKey: "gaming_legend_wall",
+  },
 ];
 
 // ─── Helper: milestones for a given track ─────────────────────────────────────

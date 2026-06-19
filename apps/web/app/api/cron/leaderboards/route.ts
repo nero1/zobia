@@ -55,7 +55,7 @@ function validateCronSecret(req: NextRequest): boolean {
 
 const ACTIVE_WINDOW_MINUTES = 15;
 
-const TRACKS = ['main', 'social', 'creator', 'competitor', 'generosity', 'knowledge', 'explorer'] as const;
+const TRACKS = ['main', 'social', 'creator', 'competitor', 'generosity', 'knowledge', 'explorer', 'gaming'] as const;
 
 interface ActiveUserRow {
   user_id: string;
@@ -66,6 +66,7 @@ interface ActiveUserRow {
   xp_generosity: number;
   xp_knowledge: number;
   xp_explorer: number;
+  xp_gaming: number;
   rank_name: string;
 }
 
@@ -100,6 +101,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
               u.xp_generosity,
               u.xp_knowledge,
               u.xp_explorer,
+              u.xp_gaming,
               u.rank_name
        FROM xp_ledger xl
        JOIN users u ON u.id = xl.user_id
@@ -158,6 +160,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       generosity:  (u) => u.xp_generosity  ?? 0,
       knowledge:   (u) => u.xp_knowledge   ?? 0,
       explorer:    (u) => u.xp_explorer    ?? 0,
+      gaming:      (u) => u.xp_gaming      ?? 0,
     };
 
     const batchUserIds: string[] = [];
