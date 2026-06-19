@@ -285,7 +285,7 @@ export async function getSession(sid: string): Promise<SessionRecord | null> {
  */
 export async function refreshAccessToken(
   refreshToken: string
-): Promise<Pick<AuthTokens, "accessToken" | "expiresIn"> & { newRefreshToken?: string; refreshTtl?: number }> {
+): Promise<Pick<AuthTokens, "accessToken" | "expiresIn"> & { newRefreshToken?: string; refreshTtl: number }> {
   const payload = await verifyRefreshToken(refreshToken);
 
   // Read fresh (never the L1 cache): rotation compares token hashes that change
