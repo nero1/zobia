@@ -18,6 +18,7 @@ import { useState, useEffect, useCallback } from "react";
 interface AdminRoom {
   id: string;
   name: string;
+  description: string | null;
   type: string;
   creator_username: string | null;
   member_count: number;
@@ -201,7 +202,11 @@ export default function AdminRoomsPage() {
     if (!editTarget) return;
     const payload: Record<string, unknown> = { action: "update_details" };
     if (editForm.name.trim()) payload.name = editForm.name.trim();
-    if (editForm.description.trim()) payload.description = editForm.description.trim();
+    // Always send description (trimmed) so admins can both edit AND clear it —
+    // the prefilled value reflects the room's current description.
+    if (editForm.description !== (editTarget.description ?? "")) {
+      payload.description = editForm.description.trim();
+    }
     if (editForm.type) payload.type = editForm.type;
     if (editForm.max_members) payload.max_members = parseInt(editForm.max_members, 10);
     await doAction(editTarget.id, "update_details", payload);
@@ -214,7 +219,7 @@ export default function AdminRoomsPage() {
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed bottom-6 right-6 z-50 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-lg ${toast.type === "success" ? "bg-teal-600" : "bg-red-600"}`}>
+        <div className={`fixed bottom-4 right-4 left-4 sm:left-auto z-50 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-lg ${toast.type === "success" ? "bg-teal-600" : "bg-red-600"}`}>
           {toast.msg}
         </div>
       )}
@@ -236,7 +241,7 @@ export default function AdminRoomsPage() {
           <button
             key={key}
             onClick={() => setStatusFilter(key)}
-            className={`flex-1 rounded-lg py-1.5 text-sm font-semibold transition-colors ${
+            className={`flex-1 min-w-[4.5rem] rounded-lg px-2 py-1.5 text-xs sm:text-sm font-semibold transition-colors ${
               statusFilter === key
                 ? "bg-white text-neutral-900 shadow dark:bg-neutral-900 dark:text-neutral-50"
                 : "text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
@@ -257,8 +262,8 @@ export default function AdminRoomsPage() {
       ) : (
         <div className="space-y-3">
           {rooms.map((room) => (
-            <div key={room.id} className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
-              <div className="flex items-start gap-3">
+            <div key={room.id} className="rounded-xl border border-neutral-200 bg-white p-3 sm:p-4 dark:border-neutral-800 dark:bg-neutral-900">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
                 <div className="flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-2 mb-1">
                     <span className="font-semibold text-neutral-900 dark:text-white truncate">{room.name}</span>
@@ -280,10 +285,19 @@ export default function AdminRoomsPage() {
                 </div>
 
                 {/* Actions */}
-                <div className="flex flex-wrap gap-1.5 shrink-0">
+                <div className="flex flex-wrap gap-1.5 sm:shrink-0 sm:justify-end">
+                  <a
+                    href={`/rooms/${room.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-lg bg-teal-50 px-2.5 py-1 text-xs font-semibold text-teal-700 hover:bg-teal-100 dark:bg-teal-950 dark:text-teal-300"
+                  >
+                    View ↗
+                  </a>
+
                   <button
                     disabled={!!busy}
-                    onClick={() => { setEditTarget(room); setEditForm({ name: room.name, description: "", type: room.type, max_members: "" }); }}
+                    onClick={() => { setEditTarget(room); setEditForm({ name: room.name, description: room.description ?? "", type: room.type, max_members: "" }); }}
                     className="rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-50 dark:bg-blue-950 dark:text-blue-300"
                   >
                     Edit

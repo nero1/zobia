@@ -26,6 +26,7 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 interface AdminRoomRow {
   id: string;
   name: string;
+  description: string | null;
   type: string;
   cover_emoji: string;
   creator_id: string;
@@ -112,6 +113,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       `SELECT
          r.id,
          r.name,
+         r.description,
          r.type,
          r.cover_emoji,
          r.creator_id,
