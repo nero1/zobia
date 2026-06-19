@@ -25,7 +25,8 @@
       "@/lib/*": ["./lib/*"],
       "@/app/*": ["./app/*"],
       "@/types/*": ["./types/*"],
-      "@zobia/types": ["../../shared/types/index.ts"]
+      "@zobia/types": ["../../shared/types/index.ts"],
+      "@zobia/shared/utils": ["../../shared/utils/index.ts"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],

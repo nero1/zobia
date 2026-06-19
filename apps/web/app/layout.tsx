@@ -21,6 +21,7 @@ import "./globals.css";
 import { ReactQueryProvider } from "@/components/providers/ReactQueryProvider";
 import { I18nProvider } from "@/components/providers/I18nProvider";
 import { FloatingNotificationProvider } from "@/components/providers/FloatingNotificationProvider";
+import { ReferralCapture } from "@/components/referral/ReferralCapture";
 import { SkipToMain } from "@/components/shared/SkipToMain";
 import { loadManifest } from "@/lib/manifest";
 import { db } from "@/lib/db";
@@ -171,6 +172,8 @@ export default async function RootLayout({ children }: RootLayoutProps) {
           <ReactQueryProvider>
             <I18nProvider>
               <FloatingNotificationProvider>
+                {/* Captures ?r=<code> from any page for referral attribution */}
+                <ReferralCapture />
                 <main id="main-content">
                   {children}
                 </main>

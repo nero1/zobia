@@ -120,7 +120,7 @@ export const POST = withAuth(async (
     );
 
     // 7. Initiate Paystack payment
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.social";
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app";
     const callbackUrl = `${appUrl}/rooms/${roomId}?payment=complete`;
 
     const paymentData = await initializePayment(

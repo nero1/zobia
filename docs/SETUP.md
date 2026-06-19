@@ -160,8 +160,8 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `GIPHY_API_KEY` | No | Giphy GIF API key — fallback GIF search | developers.giphy.com |
 | `EXPO_ACCESS_TOKEN` | No | Expo access token for enhanced push notification delivery | expo.dev → Account → Access tokens |
 | `PROFANITY_WORDLIST` | No | Comma-separated list of additional profanity words to block | Custom list |
-| `NEXT_PUBLIC_APP_URL` | Yes | Full public URL of the app (e.g. `https://zobia.social`) | Your domain |
-| `NEXT_PUBLIC_API_URL` | Yes | Full public API URL (e.g. `https://zobia.social/api`) | Your domain |
+| `NEXT_PUBLIC_APP_URL` | Yes | Full public URL of the app (e.g. `https://zobia.vercel.app`, later `https://zobia.org`). Drives canonical URLs, sitemap, `robots.txt`, OG tags and referral links. No trailing slash. | Your domain |
+| `NEXT_PUBLIC_API_URL` | Yes | Full public API URL (e.g. `https://zobia.vercel.app/api`) | Your domain |
 | `NEXT_PUBLIC_REALTIME_PROVIDER` | Recommended | Client-side realtime provider — must match `REALTIME_PROVIDER`. Optional; without it the client falls back to the 3-second baseline poll. | `supabase-realtime` \| `ably` \| `pusher` |
 | `NEXT_PUBLIC_SUPABASE_URL` | If supabase-realtime | Supabase project URL — same as `SUPABASE_URL` | Supabase → Project Settings → API |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | If supabase-realtime | Supabase anon/public key — safe to expose to browsers | Supabase → Project Settings → API → `anon public` |
@@ -258,6 +258,12 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    - Recreates `coin_ledger`'s dedup index as `(user_id, transaction_type, reference_id)` — the original `0004` index (scoped only to `transaction_type, reference_id`) let two different users sharing the same reference (e.g. a guild quest reward keyed only on `questId`) collide, silently dropping every credit/debit after the first user's
    - Partial unique index on `star_ledger (user_id, transaction_type, reference_id) WHERE reference_id IS NOT NULL` — gives Star credits/debits the same idempotent-retry support as coins and XP
    - `room_messages.idempotency_key TEXT` — lets offline-queued sends (Expo sync queue / PWA) be safely retried without creating duplicate messages on reconnect
+
+   Migration `0012_slugs_and_referrals.sql` adds (SEO-friendly URLs + referral attribution):
+   - `rooms.slug` + partial unique index `rooms_slug_unique_idx`, and **backfills** slugs for all existing rooms (deduped with a numeric suffix). New rooms get a slug at creation time via `lib/slug.ts`.
+   - `games` table (upcoming feature) backing the public `/g/<slug>` route + referral links.
+   - `slug_redirects` table — records retired slugs so renamed Rooms/games 301-redirect instead of 404.
+   - Points `x_manifest.deep_link_base_url` at the active domain (away from the retired `zobia.social`).
 7. Optional seed data: `psql "$DIRECT_URL" < apps/web/lib/db/seed.sql`
 
 ### Option B: Railway PostgreSQL
@@ -529,6 +535,30 @@ zobia://auth/callback?token=JWT&refresh_token=...&user=...&onboarding_completed=
 ```
 
 The app catches this deep link, stores the JWT in SecureStore, and routes to `/(tabs)` or `/onboarding` depending on `onboarding_completed`. No separate Google Cloud Console entry is required for the mobile flow — it reuses the same web OAuth client and redirect URI.
+
+### Public URLs, Deep Links & App-Link Verification
+
+The app exposes SEO-friendly public URLs that double as universal/app links across web, PWA and Expo:
+
+- `/u/<username>` (profile), `/r/<slug>` (room), `/c/<slug>` (course), `/g/<slug>` (game)
+- A `?r=<code>` referral param can be attached to **any** of these and is attributed automatically.
+
+To make these open the native app (instead of the browser) you must publish two association files **on the same domain as `NEXT_PUBLIC_APP_URL`** and fill in the platform credentials:
+
+1. **Android App Links** — `apps/web/public/.well-known/assetlinks.json`. Replace `REPLACE_WITH_YOUR_APP_SIGNING_CERT_SHA256` with your Play app-signing SHA-256 fingerprint (`Play Console → Setup → App signing`, or `keytool -list -v -keystore …`). Package is `org.zobia.social`.
+2. **iOS Universal Links** — `apps/web/public/.well-known/apple-app-site-association` (served as `application/json`, no extension — header set in `next.config.js`). Replace `REPLACE_WITH_TEAMID` with your Apple Team ID, giving `TEAMID.org.zobia.social`.
+
+Expo config:
+- `app.json` declares the host in `android.intentFilters` (autoVerify) and `ios.associatedDomains` (`applinks:<host>`). Update both when the domain changes.
+- `WEB_BASE_URL` (in `app.json → extra`, read by `lib/env.ts`) is the origin used to build shareable universal/referral links from the app. Defaults to `https://zobia.vercel.app`; switch to `https://zobia.org` when the custom domain is connected.
+
+Verify after deploying:
+```bash
+# Android
+curl -s https://<host>/.well-known/assetlinks.json | jq .
+# iOS (must return Content-Type: application/json)
+curl -sI https://<host>/.well-known/apple-app-site-association | grep -i content-type
+```
 
 ### Why reCAPTCHA applies to Google sign-in but not Telegram
 

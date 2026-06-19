@@ -18,7 +18,11 @@
     ],
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "org.zobia.social"
+      "bundleIdentifier": "org.zobia.social",
+      "associatedDomains": [
+        "applinks:zobia.vercel.app",
+        "applinks:www.zobia.vercel.app"
+      ]
     },
     "android": {
       "adaptiveIcon": {
@@ -82,6 +86,7 @@
       "router": {
         "origin": "https://zobia.vercel.app"
       },
+      "WEB_BASE_URL": "https://zobia.vercel.app",
       "eas": {
         "projectId": "fdb0a4aa-220c-4d17-a32f-bde534edb8c2"
       }

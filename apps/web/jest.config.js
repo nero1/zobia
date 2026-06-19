@@ -9,6 +9,7 @@ const config = {
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/$1',
     '^@zobia/types$': '<rootDir>/../../shared/types/index.ts',
+    '^@zobia/shared/utils$': '<rootDir>/../../shared/utils/index.ts',
   },
   testMatch: isIntegration
     ? ['**/__tests__/integration/**/*.test.ts']

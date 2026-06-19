@@ -1108,6 +1108,11 @@ export const rooms = pgTable("rooms", {
     .notNull()
     .references(() => users.id, { onDelete: "restrict" }),
   name: text("name").notNull(),
+  // Public-facing, SEO-friendly, mutable unique alias (e.g. "dorcas-cuisine").
+  // Unique among live rooms via a partial index (rooms_slug_unique_idx); the
+  // UUID `id` stays the immutable internal reference. Generated server-side
+  // from `name` via lib/slug.ts (slugify + numeric dedupe suffix).
+  slug: text("slug"),
   description: text("description"),
   type: text("type").notNull().default("free_open"),
   category: text("category"),
@@ -2736,6 +2741,58 @@ export const classroomQuizAttempts = pgTable(
   })
 );
 
+// ---------------------------------------------------------------------------
+// Games (upcoming feature) — public, slug-addressed at /g/<slug>.
+// Created alongside the slug/URL work so public routes, the sitemap and
+// referral links have a real backing table. Mirrors the room slug model:
+// immutable UUID `id` + mutable unique `slug`.
+// ---------------------------------------------------------------------------
+export const games = pgTable(
+  "games",
+  {
+    id: uuidPk(),
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    tagline: text("tagline"),
+    description: text("description"),
+    coverImageUrl: text("cover_image_url"),
+    coverEmoji: text("cover_emoji").notNull().default("🎮"),
+    creatorId: uuid("creator_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    isPublic: boolean("is_public").notNull().default(true),
+    isActive: boolean("is_active").notNull().default(true),
+    playCount: bigint("play_count", { mode: "number" }).notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => ({
+    slugUnique: uniqueIndex("games_slug_unique_idx").on(t.slug),
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Slug redirect history. When a room/game slug changes the previous value is
+// recorded here so old links 301 to the current slug instead of 404ing.
+// ---------------------------------------------------------------------------
+export const slugRedirects = pgTable(
+  "slug_redirects",
+  {
+    id: uuidPk(),
+    entityType: text("entity_type").notNull(),
+    oldSlug: text("old_slug").notNull(),
+    entityId: uuid("entity_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    uniqueOldSlug: uniqueIndex("slug_redirects_entity_old_slug_idx").on(
+      t.entityType,
+      t.oldSlug
+    ),
+  })
+);
+
 export const learningCertificates = pgTable(
   "learning_certificates",
   {
@@ -3787,6 +3844,10 @@ export type ClassroomQuizAttempt = typeof classroomQuizAttempts.$inferSelect;
 export type NewClassroomQuizAttempt = typeof classroomQuizAttempts.$inferInsert;
 export type LearningCertificate = typeof learningCertificates.$inferSelect;
 export type NewLearningCertificate = typeof learningCertificates.$inferInsert;
+export type Game = typeof games.$inferSelect;
+export type NewGame = typeof games.$inferInsert;
+export type SlugRedirect = typeof slugRedirects.$inferSelect;
+export type NewSlugRedirect = typeof slugRedirects.$inferInsert;
 export type ElderRequest = typeof elderRequests.$inferSelect;
 export type NewElderRequest = typeof elderRequests.$inferInsert;
 export type ElderMentorship = typeof elderMentorships.$inferSelect;
