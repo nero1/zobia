@@ -1179,10 +1179,8 @@
   "purchase.callback.goToWallet": "Go to Wallet",
   "subscription.callback.processing": "Processing your subscription…",
   "room.showInfo": "Show room info",
-
   "room.powers.confirm": "Isso custará {{cost}} {{currency}}. Confirmar?",
   "room.powers.confirmYes": "Confirmar",
-
   "admin.rooms.title": "Gestão de Salas",
   "admin.rooms.search": "Pesquisar salas…",
   "admin.rooms.status.all": "Todas",
@@ -1206,7 +1204,6 @@
   "admin.rooms.disableMonetization": "Desativar monetização",
   "admin.rooms.enableMonetization": "Ativar monetização",
   "admin.rooms.adminNotes": "Notas do administrador",
-
   "admin.quests.edit": "Editar missão",
   "admin.quests.delete": "Excluir missão",
   "admin.quests.pause": "Pausar",
@@ -1214,9 +1211,11 @@
   "admin.quests.confirmDelete": "Tem certeza que deseja excluir esta missão?",
   "admin.quests.confirmPause": "Tem certeza que deseja pausar esta missão?",
   "admin.quests.editTitle": "Editar missão patrocinada",
-
   "admin.moderation.flaggedRooms": "Salas sinalizadas",
   "admin.moderation.flagReason": "Motivo da sinalização",
   "admin.moderation.flaggedBy": "Sinalizado por",
-  "admin.moderation.flaggedAt": "Sinalizado em"
+  "admin.moderation.flaggedAt": "Sinalizado em",
+  "auth.sessionExpired.signIn": "Entrar",
+  "auth.sessionExpired.body": "Você foi desconectado. Entre novamente para continuar.",
+  "offline.dismiss": "Dispensar"
 }

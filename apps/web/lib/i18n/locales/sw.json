@@ -1179,10 +1179,8 @@
   "purchase.callback.goToWallet": "Go to Wallet",
   "subscription.callback.processing": "Processing your subscription…",
   "room.showInfo": "Show room info",
-
   "room.powers.confirm": "Hii itakugharimu {{cost}} {{currency}}. Thibitisha?",
   "room.powers.confirmYes": "Thibitisha",
-
   "admin.rooms.title": "Usimamizi wa Vyumba",
   "admin.rooms.search": "Tafuta vyumba…",
   "admin.rooms.status.all": "Vyote",
@@ -1206,7 +1204,6 @@
   "admin.rooms.disableMonetization": "Zima utengenezaji wa pesa",
   "admin.rooms.enableMonetization": "Amilisha utengenezaji wa pesa",
   "admin.rooms.adminNotes": "Maelezo ya msimamizi",
-
   "admin.quests.edit": "Hariri kazi",
   "admin.quests.delete": "Futa kazi",
   "admin.quests.pause": "Simamisha",
@@ -1214,9 +1211,11 @@
   "admin.quests.confirmDelete": "Una uhakika wa kufuta kazi hii?",
   "admin.quests.confirmPause": "Una uhakika wa kusimamisha kazi hii?",
   "admin.quests.editTitle": "Hariri kazi inayofadhiliwa",
-
   "admin.moderation.flaggedRooms": "Vyumba vilivyobandikwa alama",
   "admin.moderation.flagReason": "Sababu ya alama",
   "admin.moderation.flaggedBy": "Imebandikwa alama na",
-  "admin.moderation.flaggedAt": "Imebandikwa alama tarehe"
+  "admin.moderation.flaggedAt": "Imebandikwa alama tarehe",
+  "auth.sessionExpired.signIn": "Ingia",
+  "auth.sessionExpired.body": "Umetolewa kwenye akaunti. Tafadhali ingia tena ili kuendelea.",
+  "offline.dismiss": "Ondoa"
 }

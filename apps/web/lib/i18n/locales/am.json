@@ -1179,10 +1179,8 @@
   "purchase.callback.goToWallet": "Go to Wallet",
   "subscription.callback.processing": "Processing your subscription…",
   "room.showInfo": "Show room info",
-
   "room.powers.confirm": "ይህ {{cost}} {{currency}} ያስወጣዎታል። ያረጋግጡ?",
   "room.powers.confirmYes": "አረጋግጥ",
-
   "admin.rooms.title": "የክፍሎች አስተዳደር",
   "admin.rooms.search": "ክፍሎችን ፈልግ…",
   "admin.rooms.status.all": "ሁሉም",
@@ -1206,7 +1204,6 @@
   "admin.rooms.disableMonetization": "ገቢ ማስገኛ አሰናክል",
   "admin.rooms.enableMonetization": "ገቢ ማስገኛ አንቃ",
   "admin.rooms.adminNotes": "የአስተዳዳሪ ማስታወሻዎች",
-
   "admin.quests.edit": "ተልዕኮ አርትዕ",
   "admin.quests.delete": "ተልዕኮ ሰርዝ",
   "admin.quests.pause": "አቁም",
@@ -1214,9 +1211,11 @@
   "admin.quests.confirmDelete": "ይህን ተልዕኮ መሰረዝ ይፈልጋሉ?",
   "admin.quests.confirmPause": "ይህን ተልዕኮ ማቆም ይፈልጋሉ?",
   "admin.quests.editTitle": "የተደገፈ ተልዕኮ አርትዕ",
-
   "admin.moderation.flaggedRooms": "ምልክት የተደረጉ ክፍሎች",
   "admin.moderation.flagReason": "የምልክቱ ምክንያት",
   "admin.moderation.flaggedBy": "ምልክት የደረገው",
-  "admin.moderation.flaggedAt": "ምልክት የተደረገበት ቀን"
+  "admin.moderation.flaggedAt": "ምልክት የተደረገበት ቀን",
+  "auth.sessionExpired.signIn": "ግባ",
+  "auth.sessionExpired.body": "ወጥተዋል። ለመቀጠል እንደገና ይግቡ።",
+  "offline.dismiss": "አሰናብት"
 }

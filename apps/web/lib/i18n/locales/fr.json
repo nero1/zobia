@@ -1179,10 +1179,8 @@
   "purchase.callback.goToWallet": "Go to Wallet",
   "subscription.callback.processing": "Processing your subscription…",
   "room.showInfo": "Show room info",
-
   "room.powers.confirm": "Cela vous coûtera {{cost}} {{currency}}. Confirmer?",
   "room.powers.confirmYes": "Confirmer",
-
   "admin.rooms.title": "Gestion des salons",
   "admin.rooms.search": "Rechercher des salons…",
   "admin.rooms.status.all": "Tous",
@@ -1206,7 +1204,6 @@
   "admin.rooms.disableMonetization": "Désactiver la monétisation",
   "admin.rooms.enableMonetization": "Activer la monétisation",
   "admin.rooms.adminNotes": "Notes administrateur",
-
   "admin.quests.edit": "Modifier la quête",
   "admin.quests.delete": "Supprimer la quête",
   "admin.quests.pause": "Mettre en pause",
@@ -1214,9 +1211,11 @@
   "admin.quests.confirmDelete": "Voulez-vous vraiment supprimer cette quête?",
   "admin.quests.confirmPause": "Voulez-vous vraiment mettre cette quête en pause?",
   "admin.quests.editTitle": "Modifier la quête sponsorisée",
-
   "admin.moderation.flaggedRooms": "Salons signalés",
   "admin.moderation.flagReason": "Motif du signalement",
   "admin.moderation.flaggedBy": "Signalé par",
-  "admin.moderation.flaggedAt": "Signalé le"
+  "admin.moderation.flaggedAt": "Signalé le",
+  "auth.sessionExpired.signIn": "Se connecter",
+  "auth.sessionExpired.body": "Vous avez été déconnecté. Veuillez vous reconnecter pour continuer.",
+  "offline.dismiss": "Fermer"
 }
