@@ -7,12 +7,13 @@
 
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   QueryClient,
   QueryClientProvider,
 } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
+import { hydrateQueryClient, persistQueryClient } from "@/lib/offline/queryPersist";
 
 interface ReactQueryProviderProps {
   children: React.ReactNode;
@@ -43,6 +44,17 @@ export function ReactQueryProvider({ children }: ReactQueryProviderProps) {
         },
       })
   );
+
+  // Offline-first: rehydrate the last persisted cache on mount (synchronously
+  // before paint where possible) and keep persisting changes thereafter.
+  const [hydrated] = useState(() => {
+    hydrateQueryClient(queryClient);
+    return true;
+  });
+  useEffect(() => {
+    void hydrated;
+    return persistQueryClient(queryClient);
+  }, [queryClient, hydrated]);
 
   return (
     <QueryClientProvider client={queryClient}>
