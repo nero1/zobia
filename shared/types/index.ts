@@ -1068,9 +1068,9 @@ export interface SponsoredQuest {
 // ─── Games / Gaming ──────────────────────────────────────────────────────────
 
 /** Static game categories. New categories are added by the dev in code. */
-export type GameCategory = 'Puzzle' | 'Action' | 'Arcade';
+export type GameCategory = 'Puzzle' | 'Action' | 'Arcade' | 'Tap' | 'Idle' | 'Card' | 'Board' | 'Word' | 'Casual';
 
-export const GAME_CATEGORIES: GameCategory[] = ['Puzzle', 'Action', 'Arcade'];
+export const GAME_CATEGORIES: GameCategory[] = ['Tap', 'Arcade', 'Puzzle', 'Card', 'Board', 'Idle', 'Word', 'Action', 'Casual'];
 
 /** Public/cover representation of a game (directory + /g/<slug> page). */
 export interface GameSummary {
@@ -1090,8 +1090,21 @@ export interface GameSummary {
   playCostCredits: number;
   playCostStars: number;
   playCount: number;
+  avgRating: number;
+  ratingCount: number;
   isActive: boolean;
+  createdAt: string;
 }
+
+/** User's rating for a game */
+export interface GameRating {
+  gameId: string;
+  userId: string;
+  rating: 1 | 2 | 3 | 4 | 5;
+  createdAt: string;
+}
+
+export type GameDifficulty = 'easy' | 'medium' | 'hard';
 
 export type GameChallengeStatus =
   | 'pending'

@@ -10,6 +10,8 @@
  * default-exports a component of this shape, then register it in engineRegistry.
  */
 
+export type GameDifficulty = "easy" | "medium" | "hard";
+
 export interface GameEngineProps {
   /** Fired once the engine has mounted and is interactive. */
   onReady?: () => void;
@@ -17,4 +19,10 @@ export interface GameEngineProps {
   onGameOver: (score: number) => void;
   /** Optional live score updates during play (for HUD/telemetry). */
   onScore?: (score: number) => void;
+  /** Difficulty level — engines that support it adjust speed/AI/count. */
+  difficulty?: GameDifficulty;
+  /** When true the engine should freeze all game state. */
+  paused?: boolean;
+  /** Whether sound effects are enabled. */
+  soundEnabled?: boolean;
 }

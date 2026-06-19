@@ -36,17 +36,46 @@ export interface GameDefinition {
 }
 
 /**
- * Built-in launch games: 3 categories × 2. These mirror the seed rows in
- * 0013_games_feature.sql. The DB is the runtime source of truth for display +
- * reward config; this registry is the source of truth for which engine renders.
+ * Built-in game catalogue. Mirrors DB seed rows. The DB is the runtime source
+ * of truth for display + reward config; this registry is the source of truth
+ * for which engine renders.
  */
 export const GAME_REGISTRY: GameDefinition[] = [
-  { slug: "tetris",        engineKey: "tetris",       category: "Puzzle", defaultName: "Zobia Tetris", defaultEmoji: "🧩" },
-  { slug: "2048",          engineKey: "g2048",        category: "Puzzle", defaultName: "2048",         defaultEmoji: "🔢" },
-  { slug: "car-racing",    engineKey: "carRacing",    category: "Action", defaultName: "Speed Dodge",  defaultEmoji: "🏎️" },
-  { slug: "space-shooter", engineKey: "spaceShooter", category: "Action", defaultName: "Star Blaster", defaultEmoji: "🚀" },
-  { slug: "snake",         engineKey: "snake",        category: "Arcade", defaultName: "Zobia Snake",  defaultEmoji: "🐍" },
-  { slug: "breakout",      engineKey: "breakout",     category: "Arcade", defaultName: "Brick Buster", defaultEmoji: "🧱" },
+  // Original 6
+  { slug: "tetris",               engineKey: "tetris",             category: "Puzzle",  defaultName: "Zobia Tetris",        defaultEmoji: "🧩" },
+  { slug: "2048",                 engineKey: "g2048",              category: "Puzzle",  defaultName: "2048",                defaultEmoji: "🔢" },
+  { slug: "car-racing",           engineKey: "carRacing",          category: "Action",  defaultName: "Speed Dodge",         defaultEmoji: "🏎️" },
+  { slug: "space-shooter",        engineKey: "spaceShooter",       category: "Action",  defaultName: "Star Blaster",        defaultEmoji: "🚀" },
+  { slug: "snake",                engineKey: "snake",              category: "Arcade",  defaultName: "Zobia Snake",         defaultEmoji: "🐍" },
+  { slug: "breakout",             engineKey: "breakout",           category: "Arcade",  defaultName: "Brick Buster",        defaultEmoji: "🧱" },
+  // Tap Games
+  { slug: "tap-frenzy",           engineKey: "tapFrenzy",          category: "Tap",     defaultName: "Tap Frenzy",          defaultEmoji: "👆" },
+  { slug: "bubble-burst",         engineKey: "bubbleBurst",        category: "Tap",     defaultName: "Bubble Burst",        defaultEmoji: "🫧" },
+  { slug: "reaction-rush",        engineKey: "reactionRush",       category: "Tap",     defaultName: "Reaction Rush",       defaultEmoji: "⚡" },
+  { slug: "color-tap",            engineKey: "colorTap",           category: "Tap",     defaultName: "Color Tap",           defaultEmoji: "🎨" },
+  // Arcade
+  { slug: "flappy-duck",          engineKey: "flappyDuck",         category: "Arcade",  defaultName: "Flappy Duck",         defaultEmoji: "🦆" },
+  { slug: "stack-tower",          engineKey: "stackTower",         category: "Arcade",  defaultName: "Stack Tower",         defaultEmoji: "🏗️" },
+  // Idle
+  { slug: "cookie-kingdom",       engineKey: "cookieKingdom",      category: "Idle",    defaultName: "Cookie Kingdom",      defaultEmoji: "🍪" },
+  { slug: "galaxy-miner",         engineKey: "galaxyMiner",        category: "Idle",    defaultName: "Galaxy Miner",        defaultEmoji: "⛏️" },
+  // Puzzle
+  { slug: "memory-match",         engineKey: "memoryMatch",        category: "Puzzle",  defaultName: "Memory Match",        defaultEmoji: "🃏" },
+  { slug: "slide-puzzle",         engineKey: "slidePuzzle",        category: "Puzzle",  defaultName: "Slide Puzzle",        defaultEmoji: "🔢" },
+  { slug: "minesweeper",          engineKey: "minesweeper",        category: "Puzzle",  defaultName: "Minesweeper",         defaultEmoji: "💣" },
+  { slug: "color-sort",           engineKey: "colorSort",          category: "Puzzle",  defaultName: "Color Sort",          defaultEmoji: "🎨" },
+  // Card
+  { slug: "blackjack",            engineKey: "blackjack",          category: "Card",    defaultName: "Blackjack",           defaultEmoji: "🃏" },
+  { slug: "whot",                 engineKey: "whot",               category: "Card",    defaultName: "Whot!",               defaultEmoji: "🎴" },
+  { slug: "higher-or-lower",      engineKey: "higherOrLower",      category: "Card",    defaultName: "Higher or Lower",     defaultEmoji: "🎴" },
+  // Board
+  { slug: "chess",                engineKey: "chess",              category: "Board",   defaultName: "Chess",               defaultEmoji: "♟️" },
+  { slug: "ludo",                 engineKey: "ludo",               category: "Board",   defaultName: "Ludo",                defaultEmoji: "🎲" },
+  // Word
+  { slug: "word-scramble",        engineKey: "wordScramble",       category: "Word",    defaultName: "Word Scramble",       defaultEmoji: "🔤" },
+  { slug: "simon-says",           engineKey: "simonSays",          category: "Word",    defaultName: "Simon Says",          defaultEmoji: "🌈" },
+  // Casual
+  { slug: "rock-paper-scissors",  engineKey: "rockPaperScissors",  category: "Casual",  defaultName: "Rock Paper Scissors", defaultEmoji: "✊" },
 ];
 
 /** Look up a game definition by its engine key. */

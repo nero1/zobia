@@ -395,6 +395,30 @@ export default function MyProfilePage() {
         </div>
       )}
 
+      {/* ── Games ───────────────────────────────────────────────────── */}
+      <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">🎮 Games</h2>
+          <Link href="/games" className="text-xs text-blue-600 hover:underline dark:text-blue-400">
+            View all →
+          </Link>
+        </div>
+        <div className="flex gap-2">
+          <Link href="/games" className="flex-1 flex flex-col items-center gap-1 rounded-xl border border-neutral-100 bg-neutral-50 p-3 text-center hover:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-800 dark:hover:bg-neutral-700 transition-colors">
+            <span className="text-2xl">🕹️</span>
+            <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300">Discover Games</span>
+          </Link>
+          <Link href="/games/leaderboards" className="flex-1 flex flex-col items-center gap-1 rounded-xl border border-neutral-100 bg-neutral-50 p-3 text-center hover:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-800 dark:hover:bg-neutral-700 transition-colors">
+            <span className="text-2xl">🏆</span>
+            <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300">Leaderboards</span>
+          </Link>
+          <Link href="/games/challenges" className="flex-1 flex flex-col items-center gap-1 rounded-xl border border-neutral-100 bg-neutral-50 p-3 text-center hover:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-800 dark:hover:bg-neutral-700 transition-colors">
+            <span className="text-2xl">⚔️</span>
+            <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300">Challenges</span>
+          </Link>
+        </div>
+      </div>
+
       {/* ── Quick actions ────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[

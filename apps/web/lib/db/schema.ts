@@ -2777,12 +2777,37 @@ export const games = pgTable(
     isPublic: boolean("is_public").notNull().default(true),
     isActive: boolean("is_active").notNull().default(true),
     playCount: bigint("play_count", { mode: "number" }).notNull().default(0),
+    avgRating: numeric("avg_rating", { precision: 3, scale: 2 }).notNull().default("0"),
+    ratingCount: integer("rating_count").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (t) => ({
     slugUnique: uniqueIndex("games_slug_unique_idx").on(t.slug),
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Per-(game,user) star rating. 1-5 stars. Stored with upsert on conflict.
+// Aggregate (avgRating, ratingCount) is maintained on the games table.
+// ---------------------------------------------------------------------------
+export const gameRatings = pgTable(
+  "game_ratings",
+  {
+    gameId: uuid("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    rating: integer("rating").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.gameId, t.userId] }),
+    ratingCheck: check("game_ratings_rating_check", sql`rating BETWEEN 1 AND 5`),
   })
 );
 
