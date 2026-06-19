@@ -13,7 +13,18 @@
     "continue": "Continue",
     "offline": "You're offline",
     "offlineMessage": "Some features may be unavailable",
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "goHome": "Go home"
+  },
+  "deeplink": {
+    "profileNotFound": "This profile is unavailable.",
+    "roomNotFound": "This room is unavailable.",
+    "courseNotFound": "This class is unavailable."
+  },
+  "games": {
+    "title": "Games",
+    "comingSoonTitle": "Games are coming soon",
+    "comingSoonBody": "This game will be playable in the app shortly. Your invite has been saved."
   },
   "auth": {
     "loginTitle": "Welcome to Zobia",

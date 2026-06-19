@@ -24,6 +24,7 @@ import { db } from "@/lib/db";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { getCommissionStats } from "@/lib/referrals/commissions";
+import { buildProfileReferralUrl } from "@zobia/shared/utils";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -78,11 +79,14 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const referralCode = userResult.rows[0]?.referral_code ?? null;
 
     // Build referral URL using ?r=<referralCode> format (PRD §15).
-    // Referral codes are 9-digit numeric strings (e.g. ?r=471370973).
+    // Referral codes are numeric strings (e.g. ?r=471370973). The `?r=` param
+    // can be attached to ANY public page (profile, room, course, game); this
+    // returns the canonical "share my profile" landing link. The client may
+    // build per-page links with appendReferralCode(path, referralCode).
     const appUrl =
-      process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.social";
+      process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app";
     const referralUrl = referralCode
-      ? `${appUrl}/?r=${encodeURIComponent(referralCode)}`
+      ? buildProfileReferralUrl(appUrl, referralCode)
       : null;
 
     // Fetch all referrals where this user is the referrer

@@ -21,6 +21,7 @@ import { useAuth } from '@/lib/auth/hooks';
 import { initOfflineDB } from '@/lib/offline/sqlite';
 import { syncPendingMessages } from '@/lib/offline/syncQueue';
 import { initStore } from '@/lib/offline/store';
+import { useReferralCaptureFromLink } from '@/lib/deeplinks/referral';
 import '@/lib/i18n';
 
 // ---------------------------------------------------------------------------
@@ -93,6 +94,11 @@ function RootLayoutNav() {
   const router = useRouter();
   const notificationListener = useRef<Notifications.Subscription | null>(null);
   const responseListener = useRef<Notifications.Subscription | null>(null);
+
+  // Capture any ?r=<code> referral from the launch URL or links received while
+  // running, so the referral attaches at onboarding regardless of which page
+  // the link pointed to (profile, room, course, game).
+  useReferralCaptureFromLink();
 
   // Initialise offline database and encrypted MMKV store
   useEffect(() => {

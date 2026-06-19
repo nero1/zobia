@@ -165,7 +165,7 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
       paymentUrl = ps.authorization_url;
       providerReference = ps.reference ?? reference;
     } else {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.social";
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app";
       const dd = await dodoCreateSession(priceKobo, "NGN", `${appUrl}/settings/business?upgraded=1`, {
         userId,
         type: "business_upgrade",

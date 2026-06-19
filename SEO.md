@@ -4,6 +4,22 @@
 
 This document outlines SEO best practices and implementations for Zobia Social across web and mobile platforms.
 
+## Public URL Structure (SEO-Friendly Slugs)
+
+Public, crawlable, shareable surfaces use short human-readable paths. Internal app navigation continues to use immutable UUIDs; the slug is a mutable public alias resolving to the UUID (see PRD → "Public URL Structure — SEO-Friendly Slugs").
+
+| Surface | Public URL | Route file | Resolver |
+|---|---|---|---|
+| Profile | `/u/<username>` | `app/u/[username]/page.tsx` | by `username` |
+| Room | `/r/<slug>` | `app/r/[slug]/page.tsx` | `lib/public/resolveRoom.ts` |
+| Course / classroom | `/c/<slug>` | `app/c/[slug]/page.tsx` | `lib/public/resolveRoom.ts` (classroom types) |
+| Game (upcoming) | `/g/<slug>` | `app/g/[slug]/page.tsx` | `lib/public/resolveGame.ts` |
+
+- **Duplicate names** get a numeric suffix with no separator (`/r/dorcas-cuisine`, `/r/dorcas-cuisine2`).
+- **Legacy `/r/<uuid>` links and retired slugs 301-redirect** to the canonical slug (UUID fallback + `slug_redirects` table), so no shared link ever breaks or splits link-equity.
+- **Canonical tags** always point at the slug path; the sitemap emits slug paths.
+- **Referrals:** `?r=<code>` can be attached to any of these URLs and is captured/attributed cross-platform (see PRD → Referral System).
+
 ## 1. Meta Tags Implementation Examples
 
 ### Title Tags
@@ -48,7 +64,7 @@ Enable rich sharing on Twitter:
   "name": "Creator Name",
   "description": "Bio/description",
   "image": "avatar-url",
-  "url": "https://zobia.org/profile/username",
+  "url": "https://zobia.org/u/username",
   "sameAs": ["twitter-profile", "instagram-profile"]
 }
 ```
@@ -62,7 +78,7 @@ Enable rich sharing on Twitter:
   "description": "Room description",
   "image": "room-image",
   "genre": "room-type",
-  "url": "https://zobia.org/rooms/room-id"
+  "url": "https://zobia.org/r/room-slug"
 }
 ```
 
@@ -92,21 +108,17 @@ Enable rich sharing on Twitter:
 
 ### Dynamic Sitemap (`/sitemap.xml`)
 - **Location:** `apps/web/app/sitemap.ts`
-- **Coverage:**
-  - Static pages (home, explore, rooms, leaderboards, seasons, quests)
-  - Public user profiles (last 30 days active, limit 5000)
-  - Public rooms (free_open type, limit 2000)
+- **Coverage (all use the SEO-friendly slug paths):**
+  - Static public pages (landing, terms, privacy)
+  - Public user profiles → `/u/<username>` (last 30 days active, limit 5000)
+  - Public rooms → `/r/<slug>` (free_open type, limit 2000; falls back to UUID for any room not yet backfilled)
+  - Public courses → `/c/<slug>` (classroom-type rooms, limit 2000)
+  - Public games → `/g/<slug>` (limit 2000)
 - **Revalidation:** Hourly (3600s)
-- **Priority levels:**
-  - Home: 1.0 (highest)
-  - Rooms: 0.9
-  - Leaderboards: 0.8
-  - Seasons: 0.7
-  - User profiles: 0.5
-  - Other: 0.6
+- **Base URL:** `NEXT_PUBLIC_APP_URL` (falls back to `https://zobia.vercel.app`)
 
 ### Robots.txt Configuration
-**Location:** `apps/web/public/robots.txt`
+**Location:** `apps/web/app/robots.ts` (generated dynamically so the `Sitemap:` URL tracks `NEXT_PUBLIC_APP_URL`; replaces the old static `public/robots.txt`).
 
 ```
 User-agent: *
@@ -115,15 +127,22 @@ Disallow: /admin
 Disallow: /api/
 Disallow: /auth/
 
-Sitemap: https://zobia.org/sitemap.xml
+Sitemap: ${NEXT_PUBLIC_APP_URL}/sitemap.xml
 ```
 
 ## 4. Implementation in Pages
 
+> **Note on routes:** Public pages live at the SEO-friendly slug paths
+> `/u/<username>` (profiles), `/r/<slug>` (rooms), `/c/<slug>` (courses) and
+> `/g/<slug>` (games) — see "Public URL Structure" below. The examples in this
+> section predate the slug scheme; treat their `/profiles/…` and `/rooms/<id>…`
+> paths as illustrative of the metadata pattern, and use the slug paths for the
+> `canonical` value.
+
 ### Example: User Profile Page
 
 ```typescript
-// app/profiles/[username]/page.tsx
+// app/u/[username]/page.tsx
 
 import { Metadata } from 'next';
 import { generateMetadata, generatePersonSchema } from '@/lib/seo/metadata';
@@ -136,7 +155,7 @@ export async function generateMetadata({ params }): Promise<Metadata> {
     title: user.displayName,
     description: user.bio || `${user.displayName}'s profile on Zobia Social`,
     keywords: ['creator', 'profile', user.displayName],
-    canonical: `https://zobia.org/profiles/${username}`,
+    canonical: `https://zobia.org/u/${username}`,
     image: user.avatarUrl,
     imageAlt: `${user.displayName}'s avatar`,
     ogType: 'profile',
@@ -152,7 +171,7 @@ export default function ProfilePage({ params }) {
     name: user.displayName,
     description: user.bio,
     image: user.avatarUrl,
-    url: `https://zobia.org/profiles/${username}`,
+    url: `https://zobia.org/u/${username}`,
     sameAs: user.socialLinks || [],
   });
 
@@ -183,7 +202,7 @@ export async function generateMetadata({ params }): Promise<Metadata> {
     title: room.name,
     description: room.description,
     keywords: ['room', 'space', room.type, room.name],
-    canonical: `https://zobia.org/rooms/${roomId}`,
+    canonical: `https://zobia.org/r/${room.slug}`,
     image: room.imageUrl,
     imageAlt: `${room.name} cover image`,
   });
@@ -196,7 +215,7 @@ export default function RoomPage({ params }) {
   const structuredData = generateLocalBusinessSchema({
     name: room.name,
     description: room.description,
-    url: `https://zobia.org/rooms/${roomId}`,
+    url: `https://zobia.org/r/${room.slug}`,
     image: room.imageUrl,
     genre: room.type,
   });
@@ -243,7 +262,7 @@ export default function RoomPage({ params }) {
 const shareData = {
   title: 'Room Name',
   text: 'Check out this room',
-  url: 'https://zobia.org/rooms/room-id',
+  url: 'https://zobia.org/r/room-slug',
 };
 ```
 
@@ -312,7 +331,7 @@ H1: Page main title (only one per page)
 
 All pages should include self-referential canonical tags:
 ```html
-<link rel="canonical" href="https://zobia.org/rooms/room-id" />
+<link rel="canonical" href="https://zobia.org/r/room-slug" />
 ```
 
 This prevents duplicate content issues and consolidates ranking signals.

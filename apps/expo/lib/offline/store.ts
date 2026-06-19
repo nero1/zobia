@@ -138,6 +138,9 @@ export const STORE_KEYS = {
   DRAFT_MESSAGE_PREFIX: 'draft_msg_',
   USER_PREFERENCES: 'user_prefs',
   LAST_SYNC_TIMESTAMP: 'last_sync_ts',
+  // Referral code captured from an inbound ?r= deep/universal link, replayed at
+  // onboarding for attribution (see lib/deeplinks/referral.ts).
+  PENDING_REFERRAL: 'pending_referral',
 } as const;
 
 export type StoreKey = (typeof STORE_KEYS)[keyof typeof STORE_KEYS];

@@ -1,7 +1,7 @@
 # Zobia Social — Product Requirements Document
 ### A Gamified Monetised Social Platform for the Global Mobile Generation
 
-> **Version 1.7 — Product Requirements Document**
+> **Version 1.71 — Product Requirements Document**
 > Covers: Feature Specifications · Technical Architecture · Economy Design · Moderation · Build Sequence
 > Scope: Nigeria-first, Pan-African then Global · Mobile-first PWA + Android APK · Admin-minimal operation
 
@@ -856,11 +856,41 @@ Monthly, the top 50 users by Legacy Score are invited to join the Platform Counc
 
 ### Referral System — Two-Tier
 
-Referral links use numeric IDs and not usernames (for privacy). URL format: `?r=471370973` (not `?ref=`).
+Referral links use numeric IDs and not usernames (for privacy). URL format: `?r=471370973` (not `?ref=`, not `?utm=`).
+
+**The `?r=` parameter may be attached to ANY public URL** — the landing page, a profile, a Room, a course or a game — and attribution still works. Examples:
+
+- `https://zobia.org/?r=471370973` (canonical "share my profile" link)
+- `https://zobia.org/u/joe?r=471370973`
+- `https://zobia.org/r/dorcas-cuisine?r=471370973`
+- `https://zobia.org/g/tapontap?r=8732623`
+- `https://zobia.org/c/make-money-online?r=98423`
+
+**Capture & attribution mechanics (cross-platform):** On web/PWA a global, render-nothing client component (`ReferralCapture`, mounted in the root layout) reads `?r=<code>` from the current URL on every navigation, validates it with the shared rules, and persists it to a first-party cookie + `localStorage` (`zobia_ref`, 30-day TTL). On native, an inbound deep/universal link with `?r=` is parsed at the app root (`useReferralCaptureFromLink`) and stored in MMKV. The stored code is replayed in the `/onboarding/complete` request and then cleared, so a later organic signup on the same device is never misattributed. The shared format helpers live in `@zobia/shared/utils` (`REFERRAL_PARAM`, `extractReferralCode`, `appendReferralCode`, `buildProfileReferralUrl`) so web, PWA and Expo stay in lock-step.
 
 **Tier 1 (Direct Referral):** The referrer earns a Credit and XP bonus when their referred user completes onboarding and performs a specified qualifying action (configurable by admin — default: first credit purchase or 7-day streak).
 
 **Tier 2 (Indirect Referral):** If the referred user themselves refers someone who qualifies, the original referrer earns a smaller Tier 2 bonus. The Tier 2 bonus amount is admin-configurable. Tier 2 referrals do not extend further (two tiers maximum).
+
+### Public URL Structure — SEO-Friendly Slugs
+
+Public, shareable, crawlable surfaces use short, human-readable, SEO-friendly paths. The same scheme is used by the web app, the PWA and the Expo app (as universal links):
+
+| Surface | URL | Notes |
+|---|---|---|
+| Public profile | `zobia.org/u/joe` | Addressed by `username` |
+| Room | `zobia.org/r/dorcas-cuisine` | Addressed by slug |
+| Room (duplicate name) | `zobia.org/r/dorcas-cuisine2` | Numeric suffix, no separator |
+| Course / classroom | `zobia.org/c/youtube-monetization-for-beginners` | Classroom-type Rooms |
+| Game (upcoming) | `zobia.org/g/tapontap` | Backed by the `games` table |
+
+**Identifier model — UUID is internal, slug is public.** Every Room/game keeps its immutable `uuid` primary key as the internal reference (foreign keys, realtime channels, API calls, internal app navigation `/rooms/<uuid>` all continue to use it). The **slug** is a mutable, human-facing **alias** that resolves to the UUID. Slugs are unique among live records via a partial index; duplicates of the same name get a numeric suffix (`dorcas-cuisine`, `dorcas-cuisine2`, `dorcas-cuisine3`), oldest record keeping the bare slug. Slugs are generated server-side from the display name (`slugify` in `@zobia/shared/utils` + DB dedupe in `apps/web/lib/slug.ts`).
+
+**Backward compatibility (no broken links).** Legacy `/r/<uuid>` links and retired slugs (after a rename, tracked in the `slug_redirects` table) **301-redirect** to the current canonical slug URL rather than 404ing. The sitemap, OpenGraph `canonical`, and `robots.txt` all use the slug path.
+
+**Cross-platform deep linking.** The Expo app registers universal-link screens (`/u/[username]`, `/r/[slug]`, `/c/[slug]`, `/g/[slug]`) that resolve the slug/username to the internal UUID via `GET /api/public/resolve` and forward to the in-app screen. Android App Links (`/.well-known/assetlinks.json`) and iOS Universal Links (`/.well-known/apple-app-site-association`) are configured for the active web domain.
+
+**Domain.** The canonical domain is configured via `NEXT_PUBLIC_APP_URL` (web) and `WEB_BASE_URL` (Expo). It currently points at the Vercel deployment (`zobia.vercel.app`) during development and switches to `zobia.org` once the custom domain is connected — a single env/config change, no code edits.
 
 **Commission-based referrals:** For creator affiliate scenarios, admin can configure a lifetime 5% cash commission on referred users' credit purchases, paid in Credits or cash depending on the admin's payout configuration.
 
@@ -1264,7 +1294,7 @@ The platform Vitality Calendar incorporates Nigerian, Pan-African, and global cu
 | Payments (Android In-App) | Google Play Billing only (via Expo In-App Purchases). No Paystack or DodoPayments SDK in the Android app for in-app purchases. |
 | Advertising (Mobile) | AdMob via `react-native-google-mobile-ads` |
 | CAPTCHA | Google reCAPTCHA (default) / Cloudflare Turnstile (toggle). Admin can switch which is active. |
-| Deep Links | Expo Linking + Android App Links. Deep links supported for: user profiles, Rooms, Guilds, referral links, shared content, and notification tap targets. |
+| Deep Links | Expo Linking + Android App Links + iOS Universal Links. SEO-friendly public paths (`/u/<username>`, `/r/<slug>`, `/c/<slug>`, `/g/<slug>`) resolve via `GET /api/public/resolve` to internal UUIDs. Deep links supported for: user profiles, Rooms, courses, games, Guilds, referral links (`?r=` on any page), shared content, and notification tap targets. |
 | PWA | Configurable per platform by admin: enable for web only, mobile/Android only, iOS only, or any combination. |
 | CRON | Vercel Hobby Plan (once daily, default) + cron-jobs.org (external, for higher frequency) |
 | APK Build & Distribution | Expo EAS Build (cloud build, free tier for MVP). Keystore managed via EAS or GitHub secrets for self-managed signing. |
@@ -1545,7 +1575,7 @@ The MVP Build Sequence follows a phased approach. Each phase ends with a stable,
 - React Navigation setup with Expo Router. Bottom tab navigator wired to key sections (native tab bar with icons + labels).
 - Basic user profile screen (static — no live data yet).
 - Admin panel foundation (Next.js web app): login, auth, basic layout. Admin API routes designed to be consumable by both the Next.js admin panel and the native Android admin section (to be built in Phase 6).
-- Deep link configuration scaffolded: Expo Linking + Android App Links. Deep link URL scheme registered in `app.json`. Routes defined for: user profiles, Rooms, Guilds, referral links (`?r=`), shared content, notification tap targets.
+- Deep link configuration scaffolded: Expo Linking + Android App Links + iOS Universal Links. Deep link URL scheme registered in `app.json` (`associatedDomains` for iOS, `intentFilters` for Android). SEO-friendly public routes (`/u/<username>`, `/r/<slug>`, `/c/<slug>`, `/g/<slug>`) defined for: user profiles, Rooms, courses, games, Guilds, referral links (`?r=` attachable to any page), shared content, notification tap targets. App-link association files served at `/.well-known/assetlinks.json` (Android) and `/.well-known/apple-app-site-association` (iOS).
 - Environment variable structure defined and documented (separate `.env` for Expo app and for Next.js; `DATABASE_PROVIDER`, `STORAGE_PROVIDER`, `REALTIME_PROVIDER` clearly documented).
 - x_manifest structure defined with all configurable values: AdMob IDs, payment provider selection, feature flags, PWA per-platform toggles (web / Android / iOS).
 - Seed content loader.
@@ -1860,6 +1890,24 @@ Every feature decision on Zobia is tested against this checklist. If any answer 
 - Storage access: all file operations go through the `lib/storage/` abstraction interface — never call a provider-specific SDK directly in business logic.
 - Auth: no `@supabase/supabase-js` or `@supabase/auth-helpers-*` imports in auth-related code. Auth is always platform-managed JWT. An ESLint rule enforces this when `DATABASE_PROVIDER !== 'supabase'`.
 - Deep links: all navigable deep link paths are registered in a single route map file — never hardcode deep link strings in components.
+
+---
+
+## Appendix: Version 1.71 Change Log
+
+### v1.71 — Changelog
+
+#### SEO-Friendly Public URLs + Cross-Platform Referral Attribution
+
+Introduced human-readable, crawlable, shareable public URLs across web, PWA and Expo, plus a working `?r=` referral capture/attribution layer.
+
+- **Public URL scheme:** `/u/<username>` (profiles), `/r/<slug>` (Rooms), `/c/<slug>` (courses/classrooms), `/g/<slug>` (games — upcoming). See "Public URL Structure — SEO-Friendly Slugs".
+- **Identifier model:** immutable UUID stays the internal reference; a mutable, unique **slug** is the public alias. Duplicate names get a numeric suffix with no separator (`dorcas-cuisine`, `dorcas-cuisine2`). Slug source of truth: `slugify` in `@zobia/shared/utils` + DB dedupe in `apps/web/lib/slug.ts`.
+- **New schema (migration `0012_slugs_and_referrals.sql`):** `rooms.slug` (+ partial unique index, backfilled for existing rooms), new `games` table, new `slug_redirects` table (rename history for 301s).
+- **Backward compatible:** legacy `/r/<uuid>` links and retired slugs 301-redirect to the canonical slug. Sitemap, `canonical` tags and `robots.txt` use slug paths.
+- **Referral param stays `?r=`** (not `?ref=`/`?utm=`) and now works when attached to ANY public page. Capture is automatic: `ReferralCapture` (web/PWA, cookie + localStorage) and `useReferralCaptureFromLink` (Expo, MMKV); replayed at `/onboarding/complete` then cleared. Previously the web onboarding never sent the captured code — now fixed.
+- **Deep linking:** Expo universal-link screens (`/u`, `/r`, `/c`, `/g`) resolve slugs to UUIDs via new `GET /api/public/resolve`. iOS Universal Links (`apple-app-site-association`) added; Android `assetlinks.json` package name corrected to `org.zobia.social`.
+- **Domain:** retired `zobia.social`; defaults now point at `zobia.vercel.app`, configurable via `NEXT_PUBLIC_APP_URL` (web) / `WEB_BASE_URL` (Expo), switching to `zobia.org` on custom-domain connection. `robots.txt` is now generated dynamically (`app/robots.ts`).
 
 ---
 

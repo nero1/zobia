@@ -33,6 +33,7 @@ import { getRoomPresenceCount } from "@/lib/presence/room";
 import { meetsMinimumTrust } from "@/lib/trust/trustScore";
 import { sendPushNotificationBatch } from "@/lib/notifications/push";
 import { getTrackXPThreshold } from "@/lib/xp/engine";
+import { generateUniqueSlug } from "@/lib/slug";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -115,6 +116,7 @@ const createRoomSchema = z.object({
 interface RoomRow {
   id: string;
   name: string;
+  slug: string | null;
   description: string | null;
   type: string;
   category: string;
@@ -555,6 +557,15 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
       const room = roomRows[0];
       if (!room) throw new Error("Room creation failed");
+
+      // Generate the public SEO slug now that we have the row id (used as a
+      // stable fallback when the name has no slug-able characters). Unique
+      // within the live-rooms namespace; duplicates get a numeric suffix
+      // ("dorcas-cuisine", "dorcas-cuisine2", ...). The UUID id remains the
+      // immutable internal reference.
+      const slug = await generateUniqueSlug("room", body.name, room.id, tx);
+      await tx.query(`UPDATE rooms SET slug = $1 WHERE id = $2`, [slug, room.id]);
+      room.slug = slug;
 
       // Auto-join creator as creator member
       await tx.query(

@@ -1,19 +1,32 @@
 /**
  * Zobia Social — deep link route definitions.
  *
- * This is the single source of truth for every deep link / universal link
- * the app handles.  Use the builder functions to generate typed URLs so
- * that route changes propagate automatically.
+ * Single source of truth for every deep link / universal link the app handles.
+ * Use the builder functions to generate typed URLs so route changes propagate
+ * automatically.
  *
- * Scheme: `zobia://`
- * Universal link host: `zobia.app`
+ * Custom scheme:      `zobia://`
+ * Universal link host: env.WEB_BASE_URL (zobia.vercel.app today → zobia.org).
+ *
+ * Public, shareable, SEO-friendly URLs mirror the web app exactly:
+ *   /u/<username>   profile
+ *   /r/<slug>       room
+ *   /c/<slug>       course / classroom
+ *   /g/<slug>       game
+ *
+ * Internal app screens (e.g. /rooms/<uuid>) keep using the immutable UUID; the
+ * universal-link redirect screens (app/r/[slug].tsx etc.) resolve a public
+ * slug to its UUID and forward to the internal screen.
  */
+
+import { env } from '@/lib/env';
+import { appendReferralCode } from '@zobia/shared/utils';
 
 /** Base custom scheme used in app.json. */
 const SCHEME = 'zobia';
 
-/** Universal link host (must match android.intentFilters in app.json). */
-const HOST = 'zobia.app';
+/** Universal-link host derived from the configured web base URL. */
+const WEB_ORIGIN = env.WEB_BASE_URL.replace(/\/$/, '');
 
 // ---------------------------------------------------------------------------
 // Route path constants
@@ -35,11 +48,21 @@ export const ROUTES = {
   GUILD: '/(tabs)/guild',
   PROFILE: '/(tabs)/profile',
 
-  // Dynamic routes (use builder functions below)
+  // Internal dynamic screens (UUID-addressed)
   ROOM: (id: string) => `/rooms/${id}`,
-  USER_PROFILE: (username: string) => `/users/${username}`,
   GUILD_DETAIL: (id: string) => `/guilds/${id}`,
   MESSAGE_THREAD: (threadId: string) => `/messages/${threadId}`,
+} as const;
+
+// ---------------------------------------------------------------------------
+// Public (shareable) path builders — match the web app's SEO scheme.
+// ---------------------------------------------------------------------------
+
+export const PUBLIC_PATHS = {
+  profile: (username: string) => `/u/${encodeURIComponent(username)}`,
+  room: (slug: string) => `/r/${encodeURIComponent(slug)}`,
+  course: (slug: string) => `/c/${encodeURIComponent(slug)}`,
+  game: (slug: string) => `/g/${encodeURIComponent(slug)}`,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -49,11 +72,7 @@ export const ROUTES = {
 /**
  * Build a `zobia://` deep link URL for in-app navigation.
  *
- * @param path  One of the static ROUTES values or a dynamic route string.
- *
- * @example
- * deepLink(ROUTES.ROOM('abc123'))
- * // => "zobia://rooms/abc123"
+ * @example deepLink(ROUTES.ROOM('abc123')) // "zobia://rooms/abc123"
  */
 export function deepLink(path: string): string {
   const clean = path.startsWith('/') ? path.slice(1) : path;
@@ -61,15 +80,23 @@ export function deepLink(path: string): string {
 }
 
 /**
- * Build a `https://zobia.app` universal link URL.
+ * Build a public, shareable universal link on the web origin.
  *
- * @param path  Route path (with or without leading slash).
- *
- * @example
- * universalLink(ROUTES.USER_PROFILE('alice'))
- * // => "https://zobia.app/users/alice"
+ * @example universalLink(PUBLIC_PATHS.profile('alice'))
+ *   // "https://zobia.vercel.app/u/alice"
  */
 export function universalLink(path: string): string {
   const clean = path.startsWith('/') ? path : `/${path}`;
-  return `https://${HOST}${clean}`;
+  return `${WEB_ORIGIN}${clean}`;
+}
+
+/**
+ * Build a shareable universal link with a referral code attached, e.g. for a
+ * "share my profile / room / game" action. Works for any public path.
+ *
+ * @example referralLink(PUBLIC_PATHS.game('tapontap'), '8732623')
+ *   // "https://zobia.vercel.app/g/tapontap?r=8732623"
+ */
+export function referralLink(path: string, referralCode: string | null | undefined): string {
+  return appendReferralCode(universalLink(path), referralCode);
 }

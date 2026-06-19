@@ -23,7 +23,7 @@ export interface SEOConfig {
  * Includes meta tags, OpenGraph, Twitter Card, and canonical URLs.
  */
 export function generateMetadata(config: SEOConfig): Metadata {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://zobia.social';
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://zobia.vercel.app';
   const title = `${config.title} | Zobia Social`;
   const description = config.description;
   const image = config.image || `${baseUrl}/og-default.png`;
@@ -68,7 +68,7 @@ export function generateStructuredData(
   type: 'Person' | 'Thing' | 'LocalBusiness' | 'BreadcrumbList',
   data: Record<string, any>
 ): string {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://zobia.social';
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://zobia.vercel.app';
 
   const schema = {
     '@context': 'https://schema.org',

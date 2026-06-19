@@ -19,6 +19,10 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Script from "next/script";
 import { useTranslation } from "react-i18next";
+import {
+  getStoredReferralCode,
+  clearStoredReferralCode,
+} from "@/lib/referral/clientStore";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -333,6 +337,10 @@ export default function OnboardingPage() {
 
       const captchaToken = await getCaptchaToken();
 
+      // Replay any referral code captured from a `?r=` link earlier in the
+      // funnel (stored by ReferralCapture). Server validates and attributes it.
+      const referralCode = getStoredReferralCode();
+
       const res = await fetch("/api/onboarding/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -344,6 +352,7 @@ export default function OnboardingPage() {
           birth_year: parseInt(birthYear, 10),
           vibe_quiz_responses: vibeAnswers,
           captcha_token: captchaToken ?? undefined,
+          referral_code: referralCode ?? undefined,
         }),
       });
 
@@ -362,6 +371,10 @@ export default function OnboardingPage() {
         }
         return;
       }
+
+      // Referral consumed — clear it so a later organic signup on this device
+      // is never misattributed to the same referrer.
+      clearStoredReferralCode();
 
       // Step 3 — Welcome XP Drop animation, then advance to Step 4 (Guild Discovery)
       setWelcomeXP(true);

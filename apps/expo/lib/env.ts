@@ -19,6 +19,14 @@ const EnvSchema = z.object({
   /** Base URL of the Zobia API (no trailing slash). */
   API_BASE_URL: z.string().url().default('https://api.zobia.app'),
 
+  /**
+   * Base URL of the public web app (no trailing slash). Used to build
+   * shareable universal links (/u, /r, /c, /g) and referral links. Currently
+   * the Vercel deployment; switch to https://zobia.org once the custom domain
+   * is connected. Must match the universal-link host in app.json.
+   */
+  WEB_BASE_URL: z.string().url().default('https://zobia.vercel.app'),
+
   /** EAS / Expo project environment: development | preview | production */
   APP_ENV: z.enum(['development', 'preview', 'production']).default('development'),
 
@@ -41,6 +49,7 @@ export type Env = z.infer<typeof EnvSchema>;
 
 const raw = {
   API_BASE_URL: Constants.expoConfig?.extra?.API_BASE_URL as string | undefined,
+  WEB_BASE_URL: Constants.expoConfig?.extra?.WEB_BASE_URL as string | undefined,
   APP_ENV: Constants.expoConfig?.extra?.APP_ENV as string | undefined,
   GOOGLE_CLIENT_ID: Constants.expoConfig?.extra?.GOOGLE_CLIENT_ID as string | undefined,
   // EXPO_PUBLIC_* vars are inlined by Metro at build time.

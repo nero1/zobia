@@ -30,6 +30,10 @@ import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { STORE_KEYS, setItem } from '@/lib/offline/store';
 import { apiClient } from '@/lib/api/client';
+import {
+  getPendingReferralCode,
+  clearPendingReferralCode,
+} from '@/lib/deeplinks/referral';
 
 // ---------------------------------------------------------------------------
 // Component
@@ -74,6 +78,8 @@ export default function WelcomeDrop() {
 
     // Persist onboarding data to the server.
     const vibeAnswers = vibeAnswersParam ? JSON.parse(vibeAnswersParam) : {};
+    // Replay any referral code captured from a ?r= deep/universal link.
+    const referralCode = getPendingReferralCode();
     apiClient
       .post('/onboarding/complete', {
         username: username,
@@ -82,6 +88,12 @@ export default function WelcomeDrop() {
         city: city,
         birth_year: parseInt(birthYear ?? '0', 10),
         vibe_quiz_responses: vibeAnswers,
+        referral_code: referralCode ?? undefined,
+      })
+      .then(() => {
+        // Attribution recorded — clear so a later organic signup on this
+        // device is not misattributed to the same referrer.
+        clearPendingReferralCode();
       })
       .catch(() => {
         // Non-blocking: the user is already marked complete locally.

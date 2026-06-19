@@ -73,16 +73,24 @@ const PUBLIC_PREFIXES = [
   "/api/manifest",
   // UI configuration — safe to expose without auth (no user data returned)
   "/api/config",
+  // Public slug/username → internal id resolver for deep links (read-only,
+  // returns only public/live entities). Used by the Expo universal-link screens.
+  "/api/public",
   // CSP violation reports from browsers (no auth, unauthenticated browsers send these)
   "/api/security/csp-report",
   // CRON endpoints authenticate via CRON_SECRET (Bearer token), not JWT cookies.
   // The middleware must let them through so the route handler can verify the secret.
   "/api/cron",
-  // Public profile/room read views for SEO crawlers
+  // Public profile/room/course/game read views for SEO crawlers
   "/u/",
   "/r/",
+  "/c/",
+  "/g/",
   "/_next",
   "/favicon.ico",
+  // App-link association files for Android (assetlinks.json) and iOS
+  // (apple-app-site-association) — must be fetchable by the OS without auth.
+  "/.well-known",
   "/icons",
   "/manifest",
   "/sw.js",

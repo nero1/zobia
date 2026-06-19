@@ -1,0 +1,18 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["REPLACE_WITH_TEAMID.org.zobia.social"],
+        "components": [
+          { "/": "/u/*", "comment": "Public profiles" },
+          { "/": "/r/*", "comment": "Public rooms" },
+          { "/": "/c/*", "comment": "Public courses / classrooms" },
+          { "/": "/g/*", "comment": "Games" }
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": ["REPLACE_WITH_TEAMID.org.zobia.social"]
+  }
+}
