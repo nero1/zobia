@@ -5,7 +5,7 @@
  * Extracted here to avoid duplication between admin auth routes.
  */
 
-import { createHmac, randomBytes } from "crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 
 const BASE32_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
@@ -66,7 +66,12 @@ export function computeTotp(secret: string, counter: number): string {
 export function verifyTotp(secret: string, code: string): boolean {
   const counter = Math.floor(Date.now() / 1000 / 30);
   for (const delta of [-1, 0, 1]) {
-    if (computeTotp(secret, counter + delta) === code) return true;
+    const expected = computeTotp(secret, counter + delta);
+    const a = Buffer.from(expected, "utf8");
+    // Pad user code to same length as computed code (always 6 digits) to satisfy
+    // timingSafeEqual's requirement that buffers be the same length.
+    const b = Buffer.from(code.padStart(expected.length, "0").slice(0, expected.length), "utf8");
+    if (a.length === b.length && timingSafeEqual(a, b)) return true;
   }
   return false;
 }

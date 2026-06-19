@@ -141,6 +141,16 @@ export async function resetSeasonRankings(
       [seasonId]
     );
 
+    // Sync users.season_xp to 0 for all participants so the season leaderboard
+    // starts clean. Only zero out users who actually had a pass for this season.
+    await client.query(
+      `UPDATE users SET season_xp = 0, updated_at = NOW()
+       WHERE id IN (
+         SELECT user_id FROM user_season_passes WHERE season_id = $1
+       )`,
+      [seasonId]
+    );
+
     // Mark season as inactive
     await client.query(
       `UPDATE seasons SET is_active = FALSE, updated_at = NOW() WHERE id = $1`,
@@ -345,16 +355,18 @@ export async function createSeasonCeremonyRoom(
     if (existing[0]) return existing[0].id;
 
     const closesAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+    const slug = `season-${seasonId.slice(0, 8)}-ceremony`;
 
     const { rows: roomRows } = await db.query<{ id: string }>(
       `INSERT INTO rooms
-         (creator_id, name, description, type, is_active, ends_at, metadata)
-       VALUES ($1, $2, $3, 'free_open', TRUE, $4, $5)
+         (creator_id, name, description, type, slug, is_active, ends_at, metadata)
+       VALUES ($1, $2, $3, 'free_open', $4, TRUE, $5, $6)
        RETURNING id`,
       [
         adminId,
         `🏆 ${seasonName} Closing Ceremony`,
         `The official closing ceremony for ${seasonName}. Celebrate, reflect, and look ahead to the next season!`,
+        slug,
         closesAt,
         JSON.stringify({ season_ceremony_id: seasonId, is_platform_room: true }),
       ]
@@ -550,7 +562,7 @@ export async function claimPassMilestone(
     } else if (milestone.reward_type === 'xp_bonus') {
       const val = milestone.reward_value as { bonusXP: number };
       const referenceId = `season:${seasonId}:milestone:${milestoneId}:user:${userId}`;
-      // BUG-03: CTE gate — UPDATE only fires when INSERT actually inserts
+      // CTE gate — UPDATE only fires when INSERT actually inserts (idempotency)
       await client.query(
         `WITH ins AS (
            INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
@@ -558,16 +570,33 @@ export async function claimPassMilestone(
            ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
            RETURNING id
          )
-         UPDATE users SET xp_total = xp_total + $2, updated_at = NOW()
+         UPDATE users
+           SET xp_total  = xp_total  + $2,
+               season_xp = season_xp + $2,
+               updated_at = NOW()
          WHERE id = $1 AND EXISTS (SELECT 1 FROM ins)`,
         [userId, val.bonusXP, referenceId]
       );
+      // Mirror the season XP onto the season pass row so leaderboards stay in sync
+      await client.query(
+        `UPDATE user_season_passes
+           SET season_xp = season_xp + $1
+         WHERE user_id = $2 AND season_id = $3`,
+        [val.bonusXP, userId, seasonId]
+      );
     } else if (milestone.reward_type === 'sticker_pack') {
       const val = milestone.reward_value as { packId: string };
-      const packResult = await client.query<{ id: string }>(
-        `SELECT id FROM sticker_packs WHERE slug = $1 OR name = $1 LIMIT 1`,
+      // Prefer slug (canonical), fall back to name to avoid ambiguous OR match
+      let packResult = await client.query<{ id: string }>(
+        `SELECT id FROM sticker_packs WHERE slug = $1 LIMIT 1`,
         [val.packId]
       );
+      if (!packResult.rows[0]) {
+        packResult = await client.query<{ id: string }>(
+          `SELECT id FROM sticker_packs WHERE name = $1 LIMIT 1`,
+          [val.packId]
+        );
+      }
       const packUuid = packResult.rows[0]?.id;
       if (!packUuid) throw new Error(`[seasonEngine] Sticker pack not found: ${val.packId}`);
       await client.query(

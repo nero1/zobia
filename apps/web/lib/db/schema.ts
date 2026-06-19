@@ -329,7 +329,7 @@ export const pushTickets = pgTable(
   (t) => ({
     pendingIdx: index("idx_push_tickets_pending")
       .on(t.createdAt)
-      .where(sql`status = 'pending'`),
+      .where(sql`${t.status} = 'pending'`),
   })
 );
 
@@ -1179,7 +1179,9 @@ export const rooms = pgTable("rooms", {
 
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-});
+}, (t) => [
+  check("rooms_public_requires_slug", sql`NOT (${t.isPublic} = TRUE AND ${t.slug} IS NULL)`),
+]);
 
 export const roomMembers = pgTable(
   "room_members",

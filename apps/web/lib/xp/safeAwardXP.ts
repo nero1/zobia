@@ -88,8 +88,8 @@ export async function safeAwardXP(
     const errorMessage = err instanceof Error ? err.message : String(err);
     logger.error({ userId, amount, track, source }, `[safeAwardXP] Failed to award ${amount} XP (${track}/${source}) to ${userId}: ${errorMessage}`);
 
-    // Write to DLQ (fire-and-forget with the global db — the passed client may be closed)
-    globalDb.query(
+    // Write to DLQ — awaited so the write completes before the serverless function returns
+    await globalDb.query(
       `INSERT INTO failed_xp_awards
          (user_id, amount, track, source, reference_id, error_message, failed_at, retry_count)
        VALUES ($1, $2, $3, $4, $5, $6, NOW(), 0)

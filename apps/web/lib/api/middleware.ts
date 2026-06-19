@@ -468,7 +468,14 @@ export async function validateBody<T>(
     throw badRequest("Request body must be valid JSON");
   }
 
-  return schema.parse(raw);
+  try {
+    return schema.parse(raw);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      throw badRequest("Invalid request body", { issues: err.issues });
+    }
+    throw err;
+  }
 }
 
 /**
@@ -484,5 +491,12 @@ export function validateSearchParams<T>(
   schema: ZodType<T, ZodTypeDef, unknown>
 ): T {
   const params = Object.fromEntries(searchParams.entries());
-  return schema.parse(params);
+  try {
+    return schema.parse(params);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      throw badRequest("Invalid query parameters", { issues: err.issues });
+    }
+    throw err;
+  }
 }

@@ -68,12 +68,20 @@ export async function createChallenge(params: {
   }
 
   const cfg = await getGamesConfig();
+  const maxWager = cfg.maxWagerCredits ?? 10_000;
+  if (wagerCredits > maxWager) {
+    throw badRequest(`Wager exceeds the maximum allowed amount of ${maxWager} credits.`, "WAGER_TOO_HIGH");
+  }
+  const expiryHours = Number(cfg.challengeExpiryHours);
+  if (!Number.isFinite(expiryHours) || expiryHours <= 0) {
+    throw badRequest("Invalid challenge expiry configuration.");
+  }
   const { rows } = await db.query<{ id: string }>(
     `INSERT INTO game_challenges
        (game_id, challenger_id, opponent_id, status, rounds, wager_credits, expires_at)
-     VALUES ($1, $2, $3, 'pending', $4, $5, NOW() + ($6 || ' hours')::interval)
+     VALUES ($1, $2, $3, 'pending', $4, $5, NOW() + ($6 * INTERVAL '1 hour'))
      RETURNING id`,
-    [gameId, challengerId, opponentId, rounds, wagerCredits, String(cfg.challengeExpiryHours)]
+    [gameId, challengerId, opponentId, rounds, wagerCredits, expiryHours]
   );
   const challengeId = rows[0].id;
 
@@ -125,15 +133,17 @@ export async function acceptChallenge(challengeId: string, userId: string): Prom
 }
 
 export async function declineChallenge(challengeId: string, userId: string): Promise<void> {
+  let challengerId: string | undefined;
   await db.transaction(async (tx) => {
     const c = await lockChallenge(tx, challengeId);
     if (c.opponent_id !== userId) throw forbidden("Only the challenged player can decline.");
     if (c.status !== "pending") throw conflict("This challenge can no longer be declined.");
+    challengerId = c.challenger_id;
     await tx.query(`UPDATE game_challenges SET status = 'declined' WHERE id = $1`, [c.id]);
   });
-  await notify((await getChallengeRow(challengeId))!.challenger_id, "game_challenge_declined", {
-    challengeId,
-  });
+  if (challengerId) {
+    await notify(challengerId, "game_challenge_declined", { challengeId });
+  }
 }
 
 export async function cancelChallenge(challengeId: string, userId: string): Promise<void> {

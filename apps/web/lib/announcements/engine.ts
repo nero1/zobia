@@ -161,13 +161,9 @@ export async function getActiveModalForUser(
     selected = eligible[Math.floor(Math.random() * eligible.length)];
   }
 
-  // Record that the user has seen this modal so serial mode advances correctly.
-  await db.query(
-    `INSERT INTO user_modal_views (user_id, modal_id, viewed_at)
-     VALUES ($1, $2, NOW())
-     ON CONFLICT (user_id, modal_id) DO UPDATE SET viewed_at = NOW()`,
-    [userId, selected.id]
-  ).catch(() => {});
+  // Do NOT record the view here — the client must call confirmAnnouncementView()
+  // after the modal is actually displayed. Recording here causes the modal to be
+  // permanently marked "seen" even if the client crashes before rendering it.
 
   return {
     id: selected.id,
@@ -181,6 +177,42 @@ export async function getActiveModalForUser(
     starts_at: selected.starts_at,
     ends_at: selected.ends_at,
   };
+}
+
+// ---------------------------------------------------------------------------
+// confirmAnnouncementView
+// ---------------------------------------------------------------------------
+
+/**
+ * Record that the user has confirmed they saw a modal or banner.
+ * Called by the client after the announcement is actually rendered and visible.
+ *
+ * @param userId         - Authenticated user's UUID
+ * @param announcementId - UUID of the modal or banner that was shown
+ * @param type           - Whether this is a 'modal' or 'banner' view
+ * @param db             - Database adapter
+ */
+export async function confirmAnnouncementView(
+  userId: string,
+  announcementId: string,
+  type: "modal" | "banner",
+  db: DatabaseAdapter
+): Promise<void> {
+  if (type === "modal") {
+    await db.query(
+      `INSERT INTO user_modal_views (user_id, modal_id, viewed_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (user_id, modal_id) DO UPDATE SET viewed_at = NOW()`,
+      [userId, announcementId]
+    );
+  } else {
+    await db.query(
+      `INSERT INTO user_banner_views (user_id, banner_id, viewed_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (user_id, banner_id) DO UPDATE SET viewed_at = NOW()`,
+      [userId, announcementId]
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -259,13 +291,8 @@ export async function getActiveBannerForUser(
     selected = eligible[Math.floor(Math.random() * eligible.length)];
   }
 
-  // Record the view
-  await db.query(
-    `INSERT INTO user_banner_views (user_id, banner_id, viewed_at)
-     VALUES ($1, $2, NOW())
-     ON CONFLICT (user_id, banner_id) DO UPDATE SET viewed_at = NOW()`,
-    [userId, selected.id]
-  );
+  // Do NOT record the view here — the client must call confirmAnnouncementView()
+  // after the banner is actually rendered.
 
   return {
     id: selected.id,

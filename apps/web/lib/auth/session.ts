@@ -85,8 +85,9 @@ const userSessionsKey = (uid: string) => `user_sessions:${uid}`;
 // negatives are never cached so a fresh login is visible immediately.
 // ---------------------------------------------------------------------------
 
-/** Per-instance TTL for a cached session record (ms). */
-const SESSION_CACHE_TTL_MS = 10_000;
+/** Per-instance TTL for a cached session record (ms). Kept short to bound
+ *  the revocation window: a banned/logged-out session is rejected within 3 s. */
+const SESSION_CACHE_TTL_MS = 3_000;
 const sessionCacheKey = (sid: string) => `sess:${sid}`;
 
 /** Drop the in-process cache entry for a session (after revoke / rotate). */

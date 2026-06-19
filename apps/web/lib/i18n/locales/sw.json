@@ -1259,5 +1259,7 @@
   "games.status.active": "Active",
   "games.status.completed": "Completed",
   "games.status.cancelled": "Cancelled",
-  "games.status.expired": "Expired"
+  "games.status.expired": "Expired",
+  "errors.wager_too_high": "Wager exceeds the maximum allowed amount of {{max}} credits.",
+  "errors.invalid_request_body": "Invalid request body"
 }

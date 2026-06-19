@@ -436,6 +436,8 @@ Send broadcast messages to all users or to a filtered segment (by city, plan, or
 ### Announcement Modals and Banners
 `announcement_modals` — full-screen overlays shown once per user. `announcement_banners` — dismissable top-of-screen banners. Both support scheduling (active_from / active_until).
 
+**View confirmation flow:** The engine (`lib/announcements/engine.ts`) resolves which modal or banner to show a user but does **not** record the view immediately. The client must call `POST /api/announcements/confirm-view` after the announcement is actually rendered and visible to the user. This prevents marking an announcement as "seen" when the client crashes or navigates away before the content is displayed. The engine exports `confirmAnnouncementView(userId, announcementId, type, db)` for use by that endpoint.
+
 ### Footer Scripts
 Inject custom `<script>` tags via `footer_scripts` table — for analytics, pixel tracking, or A/B tools. Managed from the admin panel, served by the layout on each page load.
 
@@ -636,7 +638,7 @@ Deletion is batched by joining `room_messages` against the sender's subscription
 The platform runs comfortably on a **free Redis tier + Vercel Hobby**. Because every authenticated request is a serverless invocation that previously made several Redis reads, two layers keep both command volume and invocation count low without degrading perceived latency:
 
 1. **Per-instance L1 cache in front of Redis** (`lib/cache/memory.ts`):
-   - **Session validation** — `getSession()` runs on *every* authenticated request. Its `session:{sid}` lookup is cached in-process for **10s** (`lib/auth/session.ts`), and the entry is evicted immediately on this instance whenever the session is rotated (refresh) or revoked (logout/ban/eviction). Cross-instance revocation is bounded by the 10s TTL; account-status (ban) enforcement is independent and unaffected.
+   - **Session validation** — `getSession()` runs on *every* authenticated request. Its `session:{sid}` lookup is cached in-process for **3s** (`SESSION_CACHE_TTL_MS` in `lib/auth/session.ts`), and the entry is evicted immediately on this instance whenever the session is rotated (refresh) or revoked (logout/ban/eviction). Cross-instance revocation is bounded by the 3s TTL; account-status (ban) enforcement is independent and unaffected.
    - **Account status** — the banned/suspended/deleted check in `withAuth` (`lib/api/middleware.ts`) now uses L1 (15s) → Redis (30s) → DB. Sensitive mutations (payments, payouts, gifts, transfers) always bypass L1 and confirm against Redis/DB.
    - Net effect: a warm instance serving a steady chat poll makes **~0 Redis reads** for auth instead of ~3–4 per request.
 
@@ -1345,7 +1347,8 @@ on accept (`game_wager`); the winner takes the pot minus `game_wager_rake_pct`
   image URL, category, engine), per-game rewards, free/paid play cost, score cap, min play
   time, sort order, active flag; per-game stats; and games-played milestone management.
 - Runtime config (`/admin/config`): `game_wager_rake_pct`, `game_challenge_expiry_hours`,
-  `game_default_reward_credits`, `game_default_reward_xp`.
+  `game_default_reward_credits`, `game_default_reward_xp`, `game_max_wager_credits`
+  (default 10 000 — server-enforced upper bound on per-challenge credit wagers).
 
 ---
 
