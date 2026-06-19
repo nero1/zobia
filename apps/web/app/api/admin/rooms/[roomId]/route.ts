@@ -28,7 +28,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { db, SqlParam } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, forbidden, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -97,7 +97,7 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }: RoomCtx
     if (!roomRows[0]) throw notFound("Room not found");
 
     let updateSql = "";
-    const updateValues: unknown[] = [];
+    const updateValues: SqlParam[] = [];
 
     switch (body.action) {
       case "set_active":
