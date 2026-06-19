@@ -87,6 +87,11 @@ export function useRealtimeChannel(
     } else if (provider === "ably") {
       (async () => {
         const Ably = (await import("ably")) as any;
+        // Guard BEFORE creating the client: if the component unmounted while
+        // the dynamic import was in-flight, bail out now instead of opening
+        // a connection that would immediately need to be closed.
+        if (cancelled) return;
+
         const client = new Ably.Realtime({
           authUrl: `/api/realtime/ably-token?channel=${encodeURIComponent(channel)}`,
         });
@@ -95,15 +100,13 @@ export function useRealtimeChannel(
           markConnected(stateChange.current === "connected");
         });
         const ch = client.channels.get(channel);
+        // Guard the message callback so events arriving in the brief window
+        // between subscription and cleanup teardown never call into a
+        // potentially unmounted component.
         ch.subscribe((msg: { name: string; data: unknown }) => {
-          onEvent(msg.name, msg.data);
+          if (!cancelled) onEvent(msg.name, msg.data);
         });
 
-        if (cancelled) {
-          ch.unsubscribe();
-          client.close();
-          return;
-        }
         cleanup = () => {
           ch.unsubscribe();
           client.close();

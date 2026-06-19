@@ -244,7 +244,12 @@ export const users = pgTable("users", {
 
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-});
+}, (t) => [
+  // BUG-SCHEMA-02: Cap wallet balances below JS Number.MAX_SAFE_INTEGER to
+  // prevent silent precision loss when Drizzle reads bigint as mode:"number".
+  check("users_coin_balance_max", sql`${t.coinBalance} <= 100000000`),
+  check("users_star_balance_max", sql`${t.starBalance} <= 100000000`),
+]);
 
 export const sessions = pgTable("sessions", {
   id: uuidPk(),
@@ -767,7 +772,11 @@ export const guilds = pgTable("guilds", {
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-});
+}, (t) => [
+  // BUG-SCHEMA-02: Cap guild treasury below JS Number.MAX_SAFE_INTEGER.
+  check("guilds_treasury_balance_max", sql`${t.treasuryBalance} <= 100000000`),
+  check("guilds_treasury_cap_max", sql`${t.treasuryCap} <= 100000000`),
+]);
 
 export const guildMembers = pgTable(
   "guild_members",
@@ -1181,6 +1190,13 @@ export const rooms = pgTable("rooms", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 }, (t) => [
   check("rooms_public_requires_slug", sql`NOT (${t.isPublic} = TRUE AND ${t.slug} IS NULL)`),
+  // BUG-SCHEMA-02: Cap room pricing columns below JS Number.MAX_SAFE_INTEGER.
+  // Max ~100,000 NGN (10,000,000 Kobo) is a generous ceiling for any room price.
+  check("rooms_subscription_price_kobo_max", sql`${t.subscriptionPriceKobo} IS NULL OR ${t.subscriptionPriceKobo} <= 10000000`),
+  check("rooms_entry_fee_kobo_max", sql`${t.entryFeeKobo} IS NULL OR ${t.entryFeeKobo} <= 10000000`),
+  check("rooms_subscription_price_ngn_max", sql`${t.subscriptionPriceNgn} IS NULL OR ${t.subscriptionPriceNgn} <= 100000`),
+  check("rooms_entry_fee_ngn_max", sql`${t.entryFeeNgn} IS NULL OR ${t.entryFeeNgn} <= 100000`),
+  check("rooms_enrolment_fee_ngn_max", sql`${t.enrolmentFeeNgn} IS NULL OR ${t.enrolmentFeeNgn} <= 100000`),
 ]);
 
 export const roomMembers = pgTable(
