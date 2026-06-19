@@ -1,7 +1,7 @@
 # Zobia Social — Product Requirements Document
 ### A Gamified Monetised Social Platform for the Global Mobile Generation
 
-> **Version 1.72 — Product Requirements Document**
+> **Version 1.73 — Product Requirements Document**
 > Covers: Feature Specifications · Technical Architecture · Economy Design · Moderation · Build Sequence
 > Scope: Nigeria-first, Pan-African then Global · Mobile-first PWA + Android APK · Admin-minimal operation
 
@@ -1859,8 +1859,11 @@ wager rake).
 - **Public game pages** at `/g/<slug>` are crawlable cover pages. Non-members see a
   **login gate** ("Log in to play this game"); members get a **Play** CTA and a
   **share** button that appends their referral code (`/g/<slug>?r=<code>`).
-- **Categories (3 × 2 launch games):** Puzzle (Tetris, 2048), Action (Speed Dodge
-  car-racing, Star Blaster space-shooter), Arcade (Snake, Brick Buster breakout).
+- **Categories (9 categories, 26 games):** Tap (Tap Frenzy, Bubble Burst, Reaction Rush,
+  Color Tap), Arcade (Snake, Brick Buster, Flappy Duck, Stack Tower), Puzzle (Tetris, 2048,
+  Memory Match, Slide Puzzle, Minesweeper, Color Sort), Card (Blackjack, Whot!, Higher or Lower),
+  Board (Chess, Ludo), Idle (Cookie Kingdom, Galaxy Miner), Word (Word Scramble, Simon Says),
+  Action (Speed Dodge, Star Blaster), Casual (Rock Paper Scissors).
 - **Cross-platform:** each game is a single HTML5/canvas module rendered on web/PWA
   directly and inside the Expo app via a WebView embed (`/g/<slug>/embed`). Write
   once, run everywhere.
@@ -1886,12 +1889,37 @@ wager rake).
   pot **minus a configurable platform rake** (`game_wager_rake_pct`, default 5%).
   Decline / cancel / expiry refunds both. All movements are idempotent.
 
-### 30.4 Leaderboards & ads
+### 30.4 Game UX & Discovery
+
+- **Discovery page** (`/games`): New / Popular / Trending tabs, category filter chips,
+  Free/Paid filter, card and list view toggle, cursor-based pagination (Load More).
+- **Difficulty settings**: Easy / Medium / Hard per play session, persisted to localStorage
+  per game, passed to every engine via `GameEngineProps.difficulty`.
+- **In-game controls** (via GameRunner): pause/resume button, sound toggle, live score HUD,
+  "How to Play" modal (populated from game's `long_description`), "More games" link.
+- **Sound effects**: All games use Web Audio API synthetic tones via `useGameSound` hook —
+  no external files, subdued and comforting, with on/off toggle in GameRunner.
+- **Star ratings**: 1-5 star ratings stored per (user, game) in `game_ratings` table.
+  Aggregate `avg_rating` and `rating_count` maintained on the `games` row.  POST
+  `/api/games/<slug>/rate` with `{ rating: 1-5 }`.
+- **Play counts**: formatted as human-readable abbreviations (1.35K, 42.19M) for display;
+  raw integer stored in DB.
+- **Share game links**: `/g/<slug>?r=<referral_code>` appended automatically from user's
+  referral code.
+- **Public cover page** (`/g/<slug>`): includes site navigation (login/signup for guests,
+  full nav for members), how-to-play content, cost/reward summary, share button.
+  `/g/` root redirects to `/games`.
+- **Paid games**: admin sets `play_cost_credits` and/or `play_cost_stars`; cost is shown
+  only when > 0. Deducted from user wallet at session start via existing ledger.
+- **PvP (Chess, Ludo)**: AI opponent now; base infrastructure is in place to wire into
+  realtime multiplayer in a future phase.
+
+### 30.5 Leaderboards & ads
 
 - **Per-game high-score** leaderboards (Postgres `game_best_scores` + 60s Redis cache).
 - **Gaming-track ranking** via the existing leaderboard snapshots (`track=gaming`).
-- **Ads** are wired into the directory and game pages via a provider-pluggable slot
-  (web `<AdSlot>`, Expo `<AdBanner>`), gated by the `admob_ads` feature flag.
+- **Ads** are admin-togglable via `game_ads_enabled` and `game_ads_directory_enabled`
+  manifest flags (no fixed ad slots hardcoded in game pages).
 
 ### 30.5 Admin controls
 
@@ -1966,6 +1994,37 @@ Every feature decision on Zobia is tested against this checklist. If any answer 
 - Storage access: all file operations go through the `lib/storage/` abstraction interface — never call a provider-specific SDK directly in business logic.
 - Auth: no `@supabase/supabase-js` or `@supabase/auth-helpers-*` imports in auth-related code. Auth is always platform-managed JWT. An ESLint rule enforces this when `DATABASE_PROVIDER !== 'supabase'`.
 - Deep links: all navigable deep link paths are registered in a single route map file — never hardcode deep link strings in components.
+
+---
+
+## Appendix: Version 1.73 Change Log
+
+### v1.73 — Changelog
+
+- **Games Catalog Expansion (20 new games, 9 categories):** Added Tap Frenzy, Bubble
+  Burst, Reaction Rush, Color Tap (Tap); Flappy Duck, Stack Tower (Arcade); Memory Match,
+  Slide Puzzle, Minesweeper, Color Sort (Puzzle); Blackjack, Whot!, Higher or Lower (Card);
+  Chess vs AI, Ludo vs AI (Board); Cookie Kingdom, Galaxy Miner (Idle); Word Scramble,
+  Simon Says (Word); Rock Paper Scissors (Casual).
+- **Game UX:** Difficulty selector (Easy/Medium/Hard) per play session, pause/resume,
+  sound toggle, in-game score HUD, "How to Play" modal, "More games" link — all via
+  GameRunner (zero per-engine code needed).
+- **Sound effects:** All games use Web Audio API synthetic tones (subdued, comforting)
+  via `useGameSound` hook. No external files.
+- **Game discovery page redesign:** New/Popular/Trending tabs, category chips, Free/Paid
+  filter, card and list view, cursor-based pagination.
+- **Star ratings (1-5):** `game_ratings` table, `avg_rating` / `rating_count` on `games`,
+  POST `/api/games/<slug>/rate`.
+- **Play count formatting:** abbreviated display (1.35K, 42.19M, 567.34M) in UI.
+- **Public cover page nav:** login/signup for guests, full nav for members.
+- **/g/ redirect:** `/g/` root now redirects to `/games/`.
+- **Paid games:** `play_cost_credits` / `play_cost_stars` — cost shown only when > 0.
+- **Existing game fixes:** Snake (slowed, D-pad added), Star Blaster (collision fixed,
+  particle effects), Tetris (side buttons for mobile, ghost piece, grid), Speed Dodge
+  (5 lanes, starts slower, narrower cars).
+- **Profile page:** Games section added with links to discover, leaderboards, challenges.
+- **Admin games page:** Updated with all 26 engine keys and 9 categories.
+- **i18n:** English strings added for all new games-related UI.
 
 ---
 

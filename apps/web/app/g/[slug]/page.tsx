@@ -15,7 +15,8 @@ import { notFound, redirect } from "next/navigation";
 import { resolvePublicGame } from "@/lib/public/resolveGame";
 import { NOT_FOUND_METADATA } from "@/lib/public/roomMetadata";
 import GameCoverActions from "@/components/games/GameCoverActions";
-import AdSlot from "@/components/ads/AdSlot";
+import Link from "next/link";
+import GameCoverNav from "@/components/games/GameCoverNav";
 
 export async function generateMetadata({
   params,
@@ -67,7 +68,8 @@ export default async function PublicGamePage({
 
   return (
     <main className="min-h-screen bg-background">
-      <div className="max-w-2xl mx-auto px-4 py-12">
+      <GameCoverNav slug={game.slug} />
+      <div className="max-w-2xl mx-auto px-4 py-8">
         {game.cover_image_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -122,7 +124,11 @@ export default async function PublicGamePage({
           <GameCoverActions slug={game.slug} name={game.name} />
         </div>
 
-        <AdSlot placement="game-cover" />
+        <div className="mt-4">
+          <Link href="/games" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+            ← More games
+          </Link>
+        </div>
       </div>
     </main>
   );

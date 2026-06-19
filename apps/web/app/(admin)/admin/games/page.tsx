@@ -17,8 +17,18 @@
 
 import { useEffect, useState } from "react";
 
-const CATEGORIES = ["Puzzle", "Action", "Arcade"];
-const ENGINE_KEYS = ["tetris", "g2048", "carRacing", "spaceShooter", "snake", "breakout"];
+const CATEGORIES = ["Tap", "Arcade", "Puzzle", "Card", "Board", "Idle", "Word", "Action", "Casual"];
+const ENGINE_KEYS = [
+  "tetris", "g2048", "carRacing", "spaceShooter", "snake", "breakout",
+  "tapFrenzy", "bubbleBurst", "reactionRush", "colorTap",
+  "flappyDuck", "stackTower",
+  "cookieKingdom", "galaxyMiner",
+  "memoryMatch", "slidePuzzle", "minesweeper", "colorSort",
+  "blackjack", "whot", "higherOrLower",
+  "chess", "ludo",
+  "wordScramble", "simonSays",
+  "rockPaperScissors",
+];
 
 interface GameRow {
   id: string;

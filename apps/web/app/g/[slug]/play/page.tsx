@@ -11,12 +11,13 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth/hooks";
 import GameRunner from "@/components/games/GameRunner";
-import AdSlot from "@/components/ads/AdSlot";
 
 interface GameSummary {
   slug: string;
   name: string;
   engineKey: string | null;
+  description: string | null;
+  longDescription: string | null;
 }
 
 export default function PlayGamePage() {
@@ -41,26 +42,41 @@ export default function PlayGamePage() {
       .catch(() => setError("Game unavailable."));
   }, [isLoading, user, slug, router]);
 
+  const howToPlay = game?.longDescription ?? game?.description ?? null;
+
   return (
-    <main className="min-h-screen bg-neutral-950 px-4 py-8">
+    <main className="min-h-screen bg-background px-4 py-6">
       <div className="mx-auto flex max-w-xl flex-col items-center gap-6">
+        {/* Navigation bar */}
         <div className="flex w-full items-center justify-between">
-          <a href={`/g/${slug}`} className="text-sm text-neutral-400 hover:text-neutral-200">
+          <a
+            href={`/g/${slug}`}
+            className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
             ← Back
           </a>
-          {game && <h1 className="text-lg font-bold text-white">{game.name}</h1>}
-          <span className="w-10" />
+          {game && (
+            <h1 className="text-base font-bold text-foreground truncate max-w-[180px]">{game.name}</h1>
+          )}
+          <a
+            href="/games"
+            className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            More games →
+          </a>
         </div>
 
         {error && <p className="text-sm text-red-400">{error}</p>}
 
         {game?.engineKey ? (
-          <GameRunner slug={game.slug} engineKey={game.engineKey} />
+          <GameRunner
+            slug={game.slug}
+            engineKey={game.engineKey}
+            howToPlay={howToPlay}
+          />
         ) : (
-          !error && <p className="text-sm text-neutral-400">Loading…</p>
+          !error && <p className="text-sm text-muted-foreground animate-pulse">Loading…</p>
         )}
-
-        <AdSlot placement="game-play" className="mt-4" />
       </div>
     </main>
   );
