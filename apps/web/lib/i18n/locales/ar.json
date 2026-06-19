@@ -1167,5 +1167,16 @@
   "admin.floatingNotifications.demoFloatingXP": "عرض +50 XP",
   "admin.floatingNotifications.demoConfetti": "عرض الكونفيتي",
   "admin.floatingNotifications.demoQuestComplete": "عرض إتمام المهمة",
-  "admin.floatingNotifications.demoReferral": "عرض +1 إحالة"
+  "admin.floatingNotifications.demoReferral": "عرض +1 إحالة",
+  "purchase.callback.verifying": "Verifying your payment…",
+  "purchase.callback.verifyingHint": "Please wait while we confirm your transaction.",
+  "purchase.callback.success": "Payment Successful",
+  "purchase.callback.pending": "Payment Processing",
+  "purchase.callback.pendingDefault": "Your payment is being processed. Your coins will appear in your wallet shortly.",
+  "purchase.callback.error": "Payment Verification Failed",
+  "purchase.callback.noReference": "No payment reference found.",
+  "purchase.callback.networkError": "Could not verify payment. Please contact support.",
+  "purchase.callback.goToWallet": "Go to Wallet",
+  "subscription.callback.processing": "Processing your subscription…",
+  "room.showInfo": "Show room info"
 }

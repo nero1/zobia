@@ -112,7 +112,7 @@ export async function initializePayment(
 
   if (provider === "paystack") {
     const { initializePayment: psInit } = await import("./paystack");
-    const result = await psInit(amountSmallestUnit, email, idempotencyKey, metadata);
+    const result = await psInit(amountSmallestUnit, email, idempotencyKey, metadata, returnUrl);
     return {
       paymentUrl: result.authorization_url,
       providerReference: result.reference,

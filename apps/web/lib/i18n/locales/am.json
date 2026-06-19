@@ -1167,5 +1167,16 @@
   "admin.floatingNotifications.demoFloatingXP": "ዴሞ +50 XP",
   "admin.floatingNotifications.demoConfetti": "ዴሞ ኮንፌቲ",
   "admin.floatingNotifications.demoQuestComplete": "ዴሞ ተግባር ማጠናቀቅ",
-  "admin.floatingNotifications.demoReferral": "ዴሞ +1 ሪፈራል"
+  "admin.floatingNotifications.demoReferral": "ዴሞ +1 ሪፈራል",
+  "purchase.callback.verifying": "Verifying your payment…",
+  "purchase.callback.verifyingHint": "Please wait while we confirm your transaction.",
+  "purchase.callback.success": "Payment Successful",
+  "purchase.callback.pending": "Payment Processing",
+  "purchase.callback.pendingDefault": "Your payment is being processed. Your coins will appear in your wallet shortly.",
+  "purchase.callback.error": "Payment Verification Failed",
+  "purchase.callback.noReference": "No payment reference found.",
+  "purchase.callback.networkError": "Could not verify payment. Please contact support.",
+  "purchase.callback.goToWallet": "Go to Wallet",
+  "subscription.callback.processing": "Processing your subscription…",
+  "room.showInfo": "Show room info"
 }

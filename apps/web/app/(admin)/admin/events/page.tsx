@@ -237,8 +237,8 @@ export default function AdminEventsPage() {
         const res = await fetch("/api/admin/events", { credentials: "include" });
         if (res.status === 401 || res.status === 403) { window.location.href = "/admin/login"; return; }
         if (!res.ok) throw new Error("Failed to load events");
-        const data = (await res.json()) as { events: PlatformEvent[] };
-        setEvents(data.events);
+        const data = (await res.json()) as { success: boolean; data: { events: PlatformEvent[] } };
+        setEvents(data.data?.events ?? []);
       } catch (e) {
         setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
       } finally {

@@ -46,6 +46,20 @@ function getRankTier(rankName: string): string {
   return tier[rankName] ?? "bronze";
 }
 
+/** Hex color for the rank ring on the profile page. */
+const RANK_COLORS: Record<string, string> = {
+  "Beginner":   "#9CA3AF",
+  "Rookie":     "#78716C",
+  "Hustler":    "#6B7280",
+  "Baller":     "#059669",
+  "Boss":       "#2563EB",
+  "Legend":     "#7C3AED",
+  "Titan":      "#EA580C",
+  "Goat":       "#DC2626",
+  "Icon":       "#D97706",
+  "Zobia Icon": "#FFD700",
+};
+
 /** Max track level used for the progress bar denominator. */
 const TRACK_MAX_LEVEL = 100;
 
@@ -108,6 +122,8 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       profile_private: boolean;
       profile_hidden_sections: string[];
       disable_friend_requests: boolean;
+      plan: string | null;
+      is_moderator: boolean;
     }>(
       `SELECT id, username, display_name, bio, avatar_emoji, city,
               xp_total, COALESCE(legacy_score, 0) AS legacy_score,
@@ -129,7 +145,9 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
               COALESCE(is_banned, false) AS is_banned,
               COALESCE(profile_private, false) AS profile_private,
               COALESCE(profile_hidden_sections, '[]'::jsonb) AS profile_hidden_sections,
-              COALESCE(disable_friend_requests, false) AS disable_friend_requests
+              COALESCE(disable_friend_requests, false) AS disable_friend_requests,
+              COALESCE(plan, 'free') AS plan,
+              COALESCE(is_moderator, false) AS is_moderator
        FROM users
        WHERE id = $1
          AND deleted_at IS NULL
@@ -342,28 +360,62 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
 
     // 8. Build response (apply hidden sections for non-owners)
     const hidden = isOwnProfile ? [] : hiddenSections;
+
+    const rankName = rankInfo.rankName;
+    const rankColor = RANK_COLORS[rankName] ?? "#9CA3AF";
+
+    const trackLevels = hidden.includes("xp") ? [] : [
+      { track: "Social",     label: "Social",     emoji: TRACK_EMOJIS.social,     level: user.level_social,     maxLevel: TRACK_MAX_LEVEL },
+      { track: "Creator",    label: "Creator",    emoji: TRACK_EMOJIS.creator,    level: user.level_creator,    maxLevel: TRACK_MAX_LEVEL },
+      { track: "Competitor", label: "Competitor", emoji: TRACK_EMOJIS.competitor, level: user.level_competitor, maxLevel: TRACK_MAX_LEVEL },
+      { track: "Generosity", label: "Generosity", emoji: TRACK_EMOJIS.generosity, level: user.level_generosity, maxLevel: TRACK_MAX_LEVEL },
+      { track: "Knowledge",  label: "Knowledge",  emoji: TRACK_EMOJIS.knowledge,  level: user.level_knowledge,  maxLevel: TRACK_MAX_LEVEL },
+      { track: "Explorer",   label: "Explorer",   emoji: TRACK_EMOJIS.explorer,   level: user.level_explorer,   maxLevel: TRACK_MAX_LEVEL },
+    ];
+
+    const seasonHistory = hidden.includes("seasons") ? [] : seasonRows.map((s) => ({
+      id: s.id,
+      name: s.name,
+      themeEmoji: s.theme_emoji ?? "🏆",
+      year: s.ended_at ? new Date(s.ended_at).getFullYear() : new Date().getFullYear(),
+      finalRank: s.final_rank ?? null,
+      // Web profile page compat aliases
+      rank: s.final_rank ?? 0,
+      tier: getRankTier(rankName),
+    }));
+
     const profile = {
+      // Primary ID (web profile page uses 'id')
+      id: user.id,
       userId: user.id,
       displayName: hidden.includes("display_name") ? null : (user.display_name ?? user.username ?? "Zobia User"),
       username: user.username ?? "",
       avatarEmoji: hidden.includes("avatar") ? null : (user.avatar_emoji ?? "😊"),
       city: user.city,
       joinedAt: user.created_at,
-      rankTier: hidden.includes("rank") ? null : getRankTier(rankInfo.rankName),
-      rankLabel: hidden.includes("rank") ? null : rankInfo.rankName,
+      // Rank info — both legacy names and web-page names
+      rankTier: hidden.includes("rank") ? null : getRankTier(rankName),
+      rankLabel: hidden.includes("rank") ? null : rankName,
+      rankName: hidden.includes("rank") ? null : rankName,
+      rankColor: hidden.includes("rank") ? null : rankColor,
       subLevel: hidden.includes("rank") ? null : rankInfo.sublevel,
+      rankLevel: hidden.includes("rank") ? null : rankInfo.sublevel,
+      // XP progress
+      xp: hidden.includes("xp") ? null : user.xp_total,
+      xpForNextRank: hidden.includes("xp") ? null : (rankInfo.nextRankXp ?? 0),
+      // Prestige — both names
       prestigeStars: user.prestige_count,
+      prestige: user.prestige_count,
       legacyScore: user.legacy_score,
-      trackLevels: hidden.includes("xp") ? [] : [
-        { track: "Social",     emoji: TRACK_EMOJIS.social,     level: user.level_social,     maxLevel: TRACK_MAX_LEVEL },
-        { track: "Creator",    emoji: TRACK_EMOJIS.creator,    level: user.level_creator,    maxLevel: TRACK_MAX_LEVEL },
-        { track: "Competitor", emoji: TRACK_EMOJIS.competitor, level: user.level_competitor, maxLevel: TRACK_MAX_LEVEL },
-        { track: "Generosity", emoji: TRACK_EMOJIS.generosity, level: user.level_generosity, maxLevel: TRACK_MAX_LEVEL },
-        { track: "Knowledge",  emoji: TRACK_EMOJIS.knowledge,  level: user.level_knowledge,  maxLevel: TRACK_MAX_LEVEL },
-        { track: "Explorer",   emoji: TRACK_EMOJIS.explorer,   level: user.level_explorer,   maxLevel: TRACK_MAX_LEVEL },
-      ],
+      plan: user.plan ?? "free",
+      isModerator: user.is_moderator,
+      // Track levels — both old shape (trackLevels) and new shape (tracks)
+      trackLevels,
+      tracks: trackLevels,
+      // Guild — both names
       guildName: hidden.includes("guild") ? null : guildName,
       guildCrest: hidden.includes("guild") ? null : guildCrest,
+      guildEmblem: hidden.includes("guild") ? null : guildCrest,
       guildId: hidden.includes("guild") ? null : guildId,
       // Alliance trophy — shown on profile when user belongs to an alliance (PRD §13)
       allianceTrophy,
@@ -390,13 +442,9 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       // Hall of Fame custom crest (PRD §9 — Prestige 10 exclusive)
       customCrest: user.custom_crest ?? null,
       isHallOfFame: user.prestige_count >= 10,
-      pastSeasons: hidden.includes("seasons") ? [] : seasonRows.map((s) => ({
-        id: s.id,
-        name: s.name,
-        themeEmoji: s.theme_emoji ?? "🏆",
-        year: s.ended_at ? new Date(s.ended_at).getFullYear() : new Date().getFullYear(),
-        finalRank: s.final_rank ?? null,
-      })),
+      // Season history — both old shape (pastSeasons) and new shape (seasonHistory)
+      pastSeasons: seasonHistory,
+      seasonHistory,
     };
 
     return NextResponse.json({ profile }, { status: 200 });

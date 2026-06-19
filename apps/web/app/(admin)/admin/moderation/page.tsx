@@ -240,8 +240,8 @@ export default function AdminModerationPage() {
         return;
       }
       if (!res.ok) throw new Error("Failed to load reports");
-      const data = (await res.json()) as { reports: Report[] };
-      setReports(data.reports);
+      const data = (await res.json()) as { items: Report[] };
+      setReports(data.items ?? []);
     } catch (e) {
       setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
     } finally {

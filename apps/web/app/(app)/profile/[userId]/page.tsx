@@ -197,14 +197,14 @@ export default function ProfilePage() {
           err.code = body.error?.code ?? null;
           throw err;
         }
-        const data = await res.json();
+        const { profile: p } = await res.json() as { profile: UserProfile & { legacy_score?: number; connection_badge?: string | null } };
         setProfile({
-          ...data,
-          legacyScore: data.legacy_score ?? 0,
-          connectionBadge: data.connection_badge ?? null,
+          ...p,
+          legacyScore: p.legacyScore ?? p.legacy_score ?? 0,
+          connectionBadge: p.connectionBadge ?? p.connection_badge ?? null,
         });
-        setIsFriend(data.isFriend);
-        setIsFollowing(data.isFollowing);
+        setIsFriend(p.isFriend);
+        setIsFollowing(p.isFollowing);
       } catch (e) {
         const err = e as Error & { code?: string | null };
         setError(e instanceof Error ? translateApiError(tRef.current, err.code, err.message || "Unknown error") : "Unknown error");
@@ -311,7 +311,7 @@ export default function ProfilePage() {
               </span>
               {profile.guildId && profile.guildName && (
                 <Link
-                  href={`/guild`}
+                  href={`/guilds/${profile.guildId}`}
                   className="flex items-center gap-1 rounded-full border border-neutral-200 px-2 py-0.5 text-xs font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
                 >
                   {profile.guildEmblem} {profile.guildName}

@@ -934,6 +934,13 @@ function PinSection({ onToast }: { onToast: (msg: string, type?: "success" | "er
   const { t } = useTranslation();
   const [hasPin, setHasPin] = useState(false);
   const [mode, setMode] = useState<"idle" | "set" | "change" | "remove">("idle");
+
+  useEffect(() => {
+    void fetch("/api/auth/pin/status", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d) setHasPin(d.hasPinSet === true); })
+      .catch(() => {});
+  }, []);
   const [pin, setPin] = useState(""); const [confirmPin, setConfirmPin] = useState("");
   const [currentPin, setCurrentPin] = useState(""); const [saving, setSaving] = useState(false);
 

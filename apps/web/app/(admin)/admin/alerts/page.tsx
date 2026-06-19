@@ -228,8 +228,8 @@ export default function AdminAlertsPage() {
         err.code = body.error?.code ?? null;
         throw err;
       }
-      const data = (await res.json()) as { alerts: Alert[] };
-      setAlerts(data.alerts);
+      const data = (await res.json()) as { success: boolean; data: { alerts: Alert[]; total: number } };
+      setAlerts(data.data?.alerts ?? []);
     } catch (e) {
       const err = e as Error & { code?: string | null };
       setError(e instanceof Error ? translateApiError(tRef.current, err.code, err.message || "Unknown error") : "Unknown error");
