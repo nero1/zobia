@@ -585,18 +585,31 @@ Deletion is batched by joining `room_messages` against the sender's subscription
 
 ### Offline Sync
 
-**Web (Service Worker + IndexedDB)**
+**Web (Service Worker + IndexedDB) — offline-first**
 - A Service Worker caches the app shell (HTML, CSS, JS) for instant load.
-- `offline.html` is served as the navigation fallback when the network is unavailable.
+- **The app opens offline.** Previously-visited routes are served from the runtime
+  navigation cache, and the PWA entry point (`/pwa-start`) is `NetworkFirst` with a
+  cached fallback — so launching the installed PWA with no connection opens the app
+  (on its last route) instead of dead-ending. `offline.html` remains the last-resort
+  fallback only for routes that were never visited online.
+- **Offline banner:** a small, grey, **closeable** banner pins to the top of the
+  screen while offline (`components/offline/OfflineBanner.tsx`) and is replaced by a
+  brief "back online" flash on reconnect. The app stays fully interactive behind it.
+- **Stale-while-usable data:** the TanStack Query cache is persisted to `localStorage`
+  (`lib/offline/queryPersist.ts`) — success responses only, auth-sensitive keys
+  (`me`/`wallet`/`session`/`balance`/`coins`) excluded, 24h max age — so the last-seen
+  data renders immediately on (re)open and React Query revalidates it once the network
+  returns. Chat surfaces additionally hydrate recent messages from `localStorage`
+  (`lib/chat/messageCache.ts`).
 - Recent messages, the user's profile, and the active quest deck are stored in IndexedDB.
 - Outgoing messages composed while offline are saved to IndexedDB with status `pending_sync`.
 - On reconnect (`online` event), the client flushes the IndexedDB queue to the server API.
-- Stale-while-revalidate strategy: cached data is shown immediately while a fresh fetch runs in the background.
 
 **Android (MMKV + Expo SQLite)**
 - MMKV provides ultra-fast synchronous key-value storage for session tokens, user preferences, and feature flags.
 - Expo SQLite stores structured offline data: recent message threads, the quest deck, and cached profile data.
 - Same sync-on-reconnect pattern: NetInfo `addEventListener` fires the sync when connectivity is restored.
+- The same small, grey, **closeable** offline banner appears at the top of each screen (`components/offline/OfflineBanner.tsx`, mounted via the shared `Screen` wrapper) and is i18n-driven (`common.offline`).
 - Offline messages have a 72-hour TTL in SQLite. Messages older than 72 hours that never synced are dropped with a "message not sent" notice displayed to the user.
 
 **Duplicate-send protection:** every queued message (web IndexedDB outbox or Expo SQLite queue) carries a client-generated `idempotencyKey`. The room, group, and DM send endpoints all check `(sender_id, idempotency_key)` before inserting and return the existing message with `200` on a match instead of creating a duplicate. This matters because the sync queue retries on every app open and every `online` event — without server-side dedup, a flaky reconnect (request succeeds server-side but the success response is lost) would resend the same message and create visible duplicates once connectivity stabilizes.
@@ -615,6 +628,21 @@ Deletion is batched by joining `room_messages` against the sender's subscription
 6. **Admin sessions** → separate shorter-lived JWT (5-minute TTL), re-verified against `is_admin` in the database on every admin route call.
 
 **Session limit:** Users are limited to **10 concurrent sessions** (`MAX_SESSIONS=10`). When a new login would exceed this limit, the oldest session(s) by creation time are evicted: their `session:{sid}` Redis keys are deleted first, then removed from the `user_sessions:{uid}` sorted set. This order prevents a race where an evicted session could briefly appear valid.
+
+**Session-expired notice for open pages:** When a long-lived page (most commonly an open chat room) outlives its session, its background polls and the next user action receive a `401`. A client `authFetch` wrapper (`lib/api/authFetch.ts`) and the axios interceptor first attempt one silent refresh; if that fails the session is truly gone, and they raise an app-wide event (`lib/auth/sessionExpiredBus.ts`) that mounts a blocking "you've been signed out — sign in again" modal (`components/auth/SessionExpiredModal.tsx`, mounted in `app/(app)/layout.tsx`). The Expo app surfaces the same notice via `components/auth/SessionExpiredModal.tsx` driven by the auth context's `sessionExpired` flag. This closes the gap where a room left open after auto-logout used to keep showing stale content with silently-failing polls.
+
+### Redis Cost Controls
+
+The platform runs comfortably on a **free Redis tier + Vercel Hobby**. Because every authenticated request is a serverless invocation that previously made several Redis reads, two layers keep both command volume and invocation count low without degrading perceived latency:
+
+1. **Per-instance L1 cache in front of Redis** (`lib/cache/memory.ts`):
+   - **Session validation** — `getSession()` runs on *every* authenticated request. Its `session:{sid}` lookup is cached in-process for **10s** (`lib/auth/session.ts`), and the entry is evicted immediately on this instance whenever the session is rotated (refresh) or revoked (logout/ban/eviction). Cross-instance revocation is bounded by the 10s TTL; account-status (ban) enforcement is independent and unaffected.
+   - **Account status** — the banned/suspended/deleted check in `withAuth` (`lib/api/middleware.ts`) now uses L1 (15s) → Redis (30s) → DB. Sensitive mutations (payments, payouts, gifts, transfers) always bypass L1 and confirm against Redis/DB.
+   - Net effect: a warm instance serving a steady chat poll makes **~0 Redis reads** for auth instead of ~3–4 per request.
+
+2. **Activity-based chat-poll backoff** (`lib/hooks/useAdaptiveChatPoll.ts`): when no realtime provider is connected the baseline poll starts fast (3s) but **backs off geometrically up to 15s while the conversation is idle**, snapping back to 3s the instant new messages arrive or the user sends. A backgrounded tab stops polling entirely. An idle 1:1 chat therefore costs ~4 polls/minute instead of ~20.
+
+Existing in-process caches (rate-limit L1, manifest 15s, room top-gifters 10s) and the geo-anomaly check (Redis only when the request IP actually changes) remain in place. Presence heartbeats stay at 45s and continue to free room slots automatically via short Redis TTLs.
 
 ### Health Check Endpoint
 

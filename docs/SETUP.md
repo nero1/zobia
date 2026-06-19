@@ -92,6 +92,15 @@ SKIP_ENV_VALIDATION=1 npm run build
 
 This skips the Zod validation step and exports an empty `env` object. API routes will still fail at runtime if accessed without valid env vars — `SKIP_ENV_VALIDATION` is only intended for the build/type-check phase.
 
+### Running on free tiers (Vercel Hobby + free Redis)
+
+The app is tuned to stay within a free Redis plan and Vercel Hobby's serverless quotas. Two mechanisms do the heavy lifting (see *HOW-IT-WORKS.md → Redis Cost Controls* for detail):
+
+- **Per-instance L1 caching** of the per-request session and account-status reads, so a warm function makes ~0 Redis reads for auth instead of ~3–4 per request.
+- **Activity-based chat-poll backoff** (3s active → 15s idle, paused when the tab is hidden), so an idle chat costs ~4 polls/minute instead of ~20. Each avoided poll is both a saved Redis round-trip and a saved serverless invocation.
+
+To cut Redis/invocation load further, configure a **realtime provider** (see *Realtime Setup*). When connected, chat surfaces drop to a 30s reconcile poll and receive messages over the provider's WebSocket instead — no extra Redis. Presence heartbeats remain at 45s and self-expire via short Redis TTLs, so they do not need explicit cleanup calls.
+
 ---
 
 ## Environment Variables Reference
