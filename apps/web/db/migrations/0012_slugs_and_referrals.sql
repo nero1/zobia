@@ -96,8 +96,7 @@ CREATE TABLE IF NOT EXISTS games (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS games_slug_unique_idx
-  ON games (slug)
-  WHERE deleted_at IS NULL;
+  ON games (slug);
 
 -- ---------------------------------------------------------------------
 -- 5. Slug redirect history. When a room/game slug changes, the previous slug
