@@ -15,6 +15,7 @@ import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { useRealtimeChannel } from "@/lib/realtime/useRealtimeChannel";
 import { useAdaptiveChatPoll } from "@/lib/hooks/useAdaptiveChatPoll";
+import { authFetch } from "@/lib/api/authFetch";
 import { readCachedMessages, writeCachedMessages } from "@/lib/chat/messageCache";
 
 // ---------------------------------------------------------------------------
@@ -214,18 +215,23 @@ export default function GroupConversationPage() {
     });
   }, []);
 
-  const fetchMessages = useCallback(async () => {
+  const fetchMessages = useCallback(async (): Promise<boolean> => {
     try {
       // Delta fetch after the first load — only messages newer than the latest.
       const after = latestCreatedAtRef.current;
       const url = after
         ? `/api/messages/group/${groupId}?after=${encodeURIComponent(after)}`
         : `/api/messages/group/${groupId}`;
-      const res = await fetch(url, { credentials: "include" });
-      if (!res.ok) return;
+      // authFetch silently refreshes on 401 and raises the app-wide "signed out"
+      // notice if the session is truly gone.
+      const res = await authFetch(url);
+      if (!res.ok) return false;
       const data = (await res.json()) as { data?: GroupMessage[] };
-      mergeIncoming(data.data ?? []);
-    } catch { /* ignore */ } finally {
+      const incoming = data.data ?? [];
+      mergeIncoming(incoming);
+      // Activity signal drives the poll's idle backoff.
+      return incoming.length > 0;
+    } catch { /* ignore */ return false; } finally {
       setLoadingMessages(false);
     }
   }, [groupId, mergeIncoming]);
@@ -244,7 +250,7 @@ export default function GroupConversationPage() {
   // Baseline poll — fast (3s) when realtime is down / unconfigured, slow
   // reconcile (30s) when the socket is connected, paused while the tab is
   // hidden. Keeps serverless usage low while guaranteeing delivery.
-  useAdaptiveChatPoll({
+  const { pokePoll } = useAdaptiveChatPoll({
     poll: fetchMessages,
     connected: realtimeConnected,
     enabled: !!groupId,
@@ -268,9 +274,8 @@ export default function GroupConversationPage() {
     setMessages((prev) => [...prev, optimisticMsg]);
     setInput("");
     try {
-      const res = await fetch(`/api/messages/group/${groupId}`, {
+      const res = await authFetch(`/api/messages/group/${groupId}`, {
         method: "POST",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: optimisticMsg.content, messageType: "text" }),
       });
@@ -291,6 +296,8 @@ export default function GroupConversationPage() {
         setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
         await fetchMessages();
       }
+      // Snap the poll back to fast cadence so a reply is picked up promptly.
+      pokePoll();
     } catch (e) {
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
       const err = e as Error & { code?: string | null };

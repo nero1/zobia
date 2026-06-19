@@ -769,7 +769,8 @@
     "done": "An Gama",
     "continue": "Ci Gaba",
     "offline": "Ba ka da haɗin intanet",
-    "offlineMessage": "Wasu fasaloli na iya zama ba su da amfani"
+    "offlineMessage": "Wasu fasaloli na iya zama ba su da amfani",
+    "dismiss": "Kau da"
   },
   "auth": {
     "loginTitle": "Barka da zuwa Zobia",
@@ -786,7 +787,8 @@
     "loginTimeoutBody": "Lokacin shiga ta Telegram ya ƙare. Don Allah sake gwadawa kuma kammala shiga cikin Telegram.",
     "callbackError": "Kira ya kasa. Don Allah sake gwadawa.",
     "googleError": "Shiga ta Google ya kasa. Don Allah sake gwadawa.",
-    "telegramError": "Shiga ta Telegram ya kasa. Don Allah sake gwadawa."
+    "telegramError": "Shiga ta Telegram ya kasa. Don Allah sake gwadawa.",
+    "sessionExpiredSignIn": "Shiga"
   },
   "onboarding": {
     "step1Title": "Saita bayananka",

@@ -1,13 +1,15 @@
 /**
  * Zobia Social — OfflineBanner component.
  *
- * Displays a non-intrusive, accessible banner at the top of the screen
- * whenever the device has no network connection.  Uses NetInfo to track
- * connectivity and Reanimated for a smooth slide-in / slide-out animation.
+ * Displays a small, grey, closeable, accessible banner at the top of the screen
+ * whenever the device has no network connection. The app stays usable behind it
+ * (offline-first): cached data keeps rendering and refreshes once connectivity
+ * returns. Uses NetInfo to track connectivity and Reanimated for a smooth
+ * slide-in / slide-out animation.
  */
 
-import React, { useEffect } from 'react';
-import { Text, StyleSheet } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Text, Pressable, StyleSheet, View } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -15,6 +17,7 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated';
 import NetInfo from '@react-native-community/netinfo';
+import { useTranslation } from 'react-i18next';
 import { colors } from '@/lib/theme/colors';
 
 // NetInfo is a peer dep via expo — if the project grows, add it explicitly.
@@ -29,24 +32,36 @@ interface OfflineBannerProps {
  * OfflineBanner
  *
  * Mount this once inside the root layout (or inside `Screen`) and it will
- * automatically appear / disappear based on network state.
+ * automatically appear / disappear based on network state. The user can close
+ * it for the current outage; it reappears on the next offline transition.
  *
  * @example
  * <OfflineBanner />
  */
-export function OfflineBanner({ message = "You're offline" }: OfflineBannerProps) {
+export function OfflineBanner({ message }: OfflineBannerProps) {
+  const { t } = useTranslation();
   const isVisible = useSharedValue(0);
+  const [offline, setOffline] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener((state) => {
-      const offline = state.isConnected === false || state.isInternetReachable === false;
-      isVisible.value = withTiming(offline ? 1 : 0, {
-        duration: 300,
-        easing: Easing.out(Easing.quad),
-      });
+      const isOffline =
+        state.isConnected === false || state.isInternetReachable === false;
+      setOffline(isOffline);
+      if (isOffline) setDismissed(false); // a fresh outage re-shows the banner
     });
     return unsubscribe;
-  }, [isVisible]);
+  }, []);
+
+  const shown = offline && !dismissed;
+
+  useEffect(() => {
+    isVisible.value = withTiming(shown ? 1 : 0, {
+      duration: 300,
+      easing: Easing.out(Easing.quad),
+    });
+  }, [shown, isVisible]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     opacity: isVisible.value,
@@ -61,24 +76,53 @@ export function OfflineBanner({ message = "You're offline" }: OfflineBannerProps
       accessibilityRole="alert"
       accessibilityLiveRegion="polite"
     >
-      <Text style={styles.text}>{message}</Text>
+      <View style={styles.row}>
+        <Text style={styles.dot} accessibilityElementsHidden>
+          ●
+        </Text>
+        <Text style={styles.text}>{message ?? t('common.offline')}</Text>
+        <Pressable
+          onPress={() => setDismissed(true)}
+          accessibilityRole="button"
+          accessibilityLabel={t('common.dismiss')}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          style={styles.closeBtn}
+        >
+          <Text style={styles.closeText}>✕</Text>
+        </Pressable>
+      </View>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   banner: {
-    backgroundColor: colors.neutral[800],
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+    backgroundColor: colors.neutral[200],
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+  },
+  row: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 40,
+    gap: 6,
+  },
+  dot: {
+    color: colors.neutral[700],
+    fontSize: 9,
   },
   text: {
-    color: colors.neutral[0],
-    fontSize: 13,
+    color: colors.neutral[700],
+    fontSize: 12,
     fontWeight: '500',
-    textAlign: 'center',
+  },
+  closeBtn: {
+    marginLeft: 4,
+    paddingHorizontal: 2,
+  },
+  closeText: {
+    color: colors.neutral[700],
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

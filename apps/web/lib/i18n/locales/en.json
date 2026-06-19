@@ -1303,7 +1303,6 @@
   "admin.floatingNotifications.demoConfetti": "Demo Confetti",
   "admin.floatingNotifications.demoQuestComplete": "Demo Quest Completion",
   "admin.floatingNotifications.demoReferral": "Demo +1 Referral",
-
   "purchase.callback.verifying": "Verifying your payment…",
   "purchase.callback.verifyingHint": "Please wait while we confirm your transaction.",
   "purchase.callback.success": "Payment Successful",
@@ -1313,14 +1312,10 @@
   "purchase.callback.noReference": "No payment reference found.",
   "purchase.callback.networkError": "Could not verify payment. Please contact support.",
   "purchase.callback.goToWallet": "Go to Wallet",
-
   "subscription.callback.processing": "Processing your subscription…",
-
   "room.showInfo": "Show room info",
-
   "room.powers.confirm": "This will cost you {{cost}} {{currency}}. Confirm?",
   "room.powers.confirmYes": "Confirm",
-
   "admin.rooms.title": "Room Management",
   "admin.rooms.search": "Search rooms…",
   "admin.rooms.status.all": "All",
@@ -1344,7 +1339,6 @@
   "admin.rooms.disableMonetization": "Disable Monetization",
   "admin.rooms.enableMonetization": "Enable Monetization",
   "admin.rooms.adminNotes": "Admin notes",
-
   "admin.quests.edit": "Edit Quest",
   "admin.quests.delete": "Delete Quest",
   "admin.quests.pause": "Pause",
@@ -1352,9 +1346,11 @@
   "admin.quests.confirmDelete": "Are you sure you want to delete this quest?",
   "admin.quests.confirmPause": "Are you sure you want to pause this quest?",
   "admin.quests.editTitle": "Edit Sponsored Quest",
-
   "admin.moderation.flaggedRooms": "Flagged Rooms",
   "admin.moderation.flagReason": "Flag reason",
   "admin.moderation.flaggedBy": "Flagged by",
-  "admin.moderation.flaggedAt": "Flagged at"
+  "admin.moderation.flaggedAt": "Flagged at",
+  "auth.sessionExpired.signIn": "Sign in",
+  "auth.sessionExpired.body": "You've been signed out. Please sign in again to continue.",
+  "offline.dismiss": "Dismiss"
 }

@@ -2,6 +2,7 @@ import axios, {
   type AxiosError,
   type InternalAxiosRequestConfig,
 } from 'axios';
+import { markSessionExpired } from '@/lib/auth/sessionExpiredBus';
 
 export const apiClient = axios.create({
   baseURL: typeof window !== 'undefined' ? window.location.origin : '',
@@ -53,6 +54,10 @@ apiClient.interceptors.response.use(
       if (refreshed) {
         return apiClient(originalRequest);
       }
+      // Refresh failed — the session is truly gone. Raise the app-wide
+      // "you've been signed out" notice so an open page (e.g. a chat room that
+      // never navigated) surfaces it instead of silently swallowing the error.
+      markSessionExpired();
     }
 
     return Promise.reject(error);

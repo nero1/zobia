@@ -769,7 +769,8 @@
     "done": "Imekamilika",
     "continue": "Endelea",
     "offline": "Uko nje ya mtandao",
-    "offlineMessage": "Baadhi ya vipengele vinaweza kukosekana"
+    "offlineMessage": "Baadhi ya vipengele vinaweza kukosekana",
+    "dismiss": "Ondoa"
   },
   "auth": {
     "loginTitle": "Karibu Zobia",
@@ -786,7 +787,8 @@
     "loginTimeoutBody": "Kuingia kwa Telegram kumechukua muda mrefu. Tafadhali jaribu tena na ukamilishe kuingia ndani ya Telegram.",
     "callbackError": "Kuingia kumeshindwa. Tafadhali jaribu tena.",
     "googleError": "Kuingia kwa Google kumeshindwa. Tafadhali jaribu tena.",
-    "telegramError": "Kuingia kwa Telegram kumeshindwa. Tafadhali jaribu tena."
+    "telegramError": "Kuingia kwa Telegram kumeshindwa. Tafadhali jaribu tena.",
+    "sessionExpiredSignIn": "Ingia"
   },
   "onboarding": {
     "step1Title": "Weka wasifu wako",

@@ -16,6 +16,7 @@ import { ThemeProvider, useTheme } from '@/lib/theme';
 import { FloatingNotificationProvider } from '@/components/providers/FloatingNotificationProvider';
 import { queryClient, apiClient } from '@/lib/api/client';
 import { AnnouncementModal } from '@/components/announcements/AnnouncementModal';
+import { SessionExpiredModal } from '@/components/auth/SessionExpiredModal';
 import { useAuth } from '@/lib/auth/hooks';
 import { initOfflineDB } from '@/lib/offline/sqlite';
 import { syncPendingMessages } from '@/lib/offline/syncQueue';
@@ -159,6 +160,9 @@ function RootLayoutNav() {
       <StatusBar style={isDark ? 'light' : 'dark'} />
       {/* Only show the announcement modal after the user is authenticated */}
       {user !== null && <AnnouncementModal />}
+      {/* Session-expired notice — surfaces when a screen (e.g. an open chat
+          room) outlives the session and the next request/action 401s. */}
+      <SessionExpiredModal />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />

@@ -1179,10 +1179,8 @@
   "purchase.callback.goToWallet": "Go to Wallet",
   "subscription.callback.processing": "Processing your subscription…",
   "room.showInfo": "Show room info",
-
   "room.powers.confirm": "Lokhu kuzokubiza {{cost}} {{currency}}. Qinisekisa?",
   "room.powers.confirmYes": "Qinisekisa",
-
   "admin.rooms.title": "Ukuphathwa Kwezikhala",
   "admin.rooms.search": "Sesha izikhala…",
   "admin.rooms.status.all": "Konke",
@@ -1206,7 +1204,6 @@
   "admin.rooms.disableMonetization": "Vala ukwenza imali",
   "admin.rooms.enableMonetization": "Vula ukwenza imali",
   "admin.rooms.adminNotes": "Amanothi omlawuli",
-
   "admin.quests.edit": "Hlela umsebenzi",
   "admin.quests.delete": "Susa umsebenzi",
   "admin.quests.pause": "Misa okwesikhashana",
@@ -1214,9 +1211,11 @@
   "admin.quests.confirmDelete": "Uqinisekile ukuthi ufuna ukususa lo msebenzi?",
   "admin.quests.confirmPause": "Uqinisekile ukuthi ufuna ukumisa lo msebenzi okwesikhashana?",
   "admin.quests.editTitle": "Hlela umsebenzi obhadalwe",
-
   "admin.moderation.flaggedRooms": "Izikhala ezikhanyelwe",
   "admin.moderation.flagReason": "Isizathu sokukhanyela",
   "admin.moderation.flaggedBy": "Kukhanyelwe ngu",
-  "admin.moderation.flaggedAt": "Kukhanyelwe ngomhla"
+  "admin.moderation.flaggedAt": "Kukhanyelwe ngomhla",
+  "auth.sessionExpired.signIn": "Ngena",
+  "auth.sessionExpired.body": "Uphumile. Sicela ungene futhi ukuze uqhubeke.",
+  "offline.dismiss": "Susa"
 }

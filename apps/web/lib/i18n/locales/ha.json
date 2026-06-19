@@ -1179,10 +1179,8 @@
   "purchase.callback.goToWallet": "Go to Wallet",
   "subscription.callback.processing": "Processing your subscription…",
   "room.showInfo": "Show room info",
-
   "room.powers.confirm": "Wannan zai kai {{cost}} {{currency}}. Tabbatar?",
   "room.powers.confirmYes": "Tabbatar",
-
   "admin.rooms.title": "Kula da Dakunan",
   "admin.rooms.search": "Nemo dakunan…",
   "admin.rooms.status.all": "Duka",
@@ -1206,7 +1204,6 @@
   "admin.rooms.disableMonetization": "Kashe samun kuɗi",
   "admin.rooms.enableMonetization": "Kunna samun kuɗi",
   "admin.rooms.adminNotes": "Bayanan mai gudanarwa",
-
   "admin.quests.edit": "Gyara aikin",
   "admin.quests.delete": "Share aikin",
   "admin.quests.pause": "Dakatar",
@@ -1214,9 +1211,11 @@
   "admin.quests.confirmDelete": "Kana tabbata za ka share wannan aikin?",
   "admin.quests.confirmPause": "Kana tabbata za ka dakatar wannan aikin?",
   "admin.quests.editTitle": "Gyara aikin da aka dauki nauyi",
-
   "admin.moderation.flaggedRooms": "Dakunan da aka nuna",
   "admin.moderation.flagReason": "Dalilin nunawa",
   "admin.moderation.flaggedBy": "An nuna ta",
-  "admin.moderation.flaggedAt": "An nuna a ranar"
+  "admin.moderation.flaggedAt": "An nuna a ranar",
+  "auth.sessionExpired.signIn": "Shiga",
+  "auth.sessionExpired.body": "An fitar da kai. Da fatan shiga kuma don ci gaba.",
+  "offline.dismiss": "Kau da"
 }

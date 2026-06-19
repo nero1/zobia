@@ -1179,10 +1179,8 @@
   "purchase.callback.goToWallet": "Go to Wallet",
   "subscription.callback.processing": "Processing your subscription…",
   "room.showInfo": "Show room info",
-
   "room.powers.confirm": "سيكلفك هذا {{cost}} {{currency}}. تأكيد؟",
   "room.powers.confirmYes": "تأكيد",
-
   "admin.rooms.title": "إدارة الغرف",
   "admin.rooms.search": "البحث عن غرف…",
   "admin.rooms.status.all": "الكل",
@@ -1206,7 +1204,6 @@
   "admin.rooms.disableMonetization": "تعطيل التحقيق",
   "admin.rooms.enableMonetization": "تفعيل التحقيق",
   "admin.rooms.adminNotes": "ملاحظات المشرف",
-
   "admin.quests.edit": "تعديل المهمة",
   "admin.quests.delete": "حذف المهمة",
   "admin.quests.pause": "إيقاف مؤقت",
@@ -1214,9 +1211,11 @@
   "admin.quests.confirmDelete": "هل أنت متأكد من حذف هذه المهمة؟",
   "admin.quests.confirmPause": "هل أنت متأكد من إيقاف هذه المهمة مؤقتًا؟",
   "admin.quests.editTitle": "تعديل المهمة المدعومة",
-
   "admin.moderation.flaggedRooms": "الغرف المُبلَّغ عنها",
   "admin.moderation.flagReason": "سبب الإبلاغ",
   "admin.moderation.flaggedBy": "أبلغ عنه بواسطة",
-  "admin.moderation.flaggedAt": "تاريخ الإبلاغ"
+  "admin.moderation.flaggedAt": "تاريخ الإبلاغ",
+  "auth.sessionExpired.signIn": "تسجيل الدخول",
+  "auth.sessionExpired.body": "تم تسجيل خروجك. يرجى تسجيل الدخول مرة أخرى للمتابعة.",
+  "offline.dismiss": "إغلاق"
 }

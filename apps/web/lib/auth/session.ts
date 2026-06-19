@@ -15,6 +15,7 @@
  */
 
 import { redis } from "@/lib/redis";
+import { memGet, memSet, memDel } from "@/lib/cache/memory";
 import {
   signAccessToken,
   signRefreshToken,
@@ -65,6 +66,33 @@ export interface AuthTokens {
 
 const sessionKey = (sid: string) => `session:${sid}`;
 const userSessionsKey = (uid: string) => `user_sessions:${uid}`;
+
+// ---------------------------------------------------------------------------
+// In-process session cache (L1)
+//
+// getSession() runs on EVERY authenticated request (the withAuth middleware
+// calls it to confirm the session has not been revoked). On chat surfaces that
+// poll every few seconds this is the single highest-volume Redis read in the
+// app — one GET per request, per user, indefinitely.
+//
+// We front the Redis GET with a tiny per-instance TTL cache. The trade-off is a
+// bounded staleness window: a session revoked on another instance (logout, ban,
+// token-reuse) may still be accepted on a warm instance for up to
+// SESSION_CACHE_TTL_MS. We keep that window short, invalidate the local entry on
+// every revoke/rotate that happens on this instance, and the account-status
+// check in withAuth (banned/suspended/deleted) is enforced independently — so a
+// banned user is still cut off promptly. Only positive lookups are cached;
+// negatives are never cached so a fresh login is visible immediately.
+// ---------------------------------------------------------------------------
+
+/** Per-instance TTL for a cached session record (ms). */
+const SESSION_CACHE_TTL_MS = 10_000;
+const sessionCacheKey = (sid: string) => `sess:${sid}`;
+
+/** Drop the in-process cache entry for a session (after revoke / rotate). */
+function evictSessionCache(sid: string): void {
+  memDel(sessionCacheKey(sid));
+}
 
 // ---------------------------------------------------------------------------
 // Session creation
@@ -153,6 +181,7 @@ export async function createSession(
   if (evictedSids.length > 0) {
     const pipeline = redis.pipeline();
     for (const sid of evictedSids) {
+      evictSessionCache(sid);
       pipeline.del(sessionKey(sid));
     }
     pipeline.zremrangebyrank(userSessionsKey(user.id), 0, -(MAX_SESSIONS + 1));
@@ -194,16 +223,46 @@ export async function rotateSession(
 // ---------------------------------------------------------------------------
 
 /**
+ * Read a session record straight from Redis, bypassing the L1 cache.
+ *
+ * Used by the refresh-token rotation path, which compares the presented token's
+ * hash against the stored `refreshTokenHash`/`prevRefreshTokenHash`. Those fields
+ * change on every rotation, so a stale per-instance copy could make a legitimate
+ * rotated token look like a reused one and wrongly revoke the whole session
+ * chain. Token rotation is rare relative to ordinary requests, so always paying
+ * the Redis read here costs almost nothing.
+ */
+async function getSessionFresh(sid: string): Promise<SessionRecord | null> {
+  const raw = await redis.get(sessionKey(sid));
+  if (!raw) return null;
+  try {
+    const record = JSON.parse(raw) as SessionRecord;
+    memSet(sessionCacheKey(sid), record, SESSION_CACHE_TTL_MS);
+    return record;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Check whether the session with the given `sid` is still valid in Redis.
  * Returns the session record or null if expired / invalidated.
  *
  * @param sid - Session ID extracted from a verified JWT
  */
 export async function getSession(sid: string): Promise<SessionRecord | null> {
+  // L1: per-instance cache — avoids a Redis round-trip on every authenticated
+  // request (see SESSION_CACHE_TTL_MS notes above). Only the existence + stable
+  // identity fields are consumed on this path, so brief staleness is safe.
+  const cached = memGet<SessionRecord>(sessionCacheKey(sid));
+  if (cached) return cached;
+
   const raw = await redis.get(sessionKey(sid));
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as SessionRecord;
+    const record = JSON.parse(raw) as SessionRecord;
+    memSet(sessionCacheKey(sid), record, SESSION_CACHE_TTL_MS);
+    return record;
   } catch {
     return null;
   }
@@ -226,7 +285,9 @@ export async function refreshAccessToken(
 ): Promise<Pick<AuthTokens, "accessToken" | "expiresIn"> & { newRefreshToken?: string; refreshTtl?: number }> {
   const payload = await verifyRefreshToken(refreshToken);
 
-  const session = await getSession(payload.sid!);
+  // Read fresh (never the L1 cache): rotation compares token hashes that change
+  // on every refresh, so a stale copy could mis-flag a valid token as reused.
+  const session = await getSessionFresh(payload.sid!);
   if (!session) {
     throw new Error("Session has been revoked or has expired");
   }
@@ -279,6 +340,9 @@ export async function refreshAccessToken(
     prevRefreshValidUntil: Date.now() + 30_000,
   };
   await redis.setex(sessionKey(session.sid), refreshTtl, JSON.stringify(updatedRecord)).catch(() => {});
+  // Refresh the L1 cache so the rotated record (new hash) is served immediately
+  // and the stale pre-rotation copy can never linger on this instance.
+  memSet(sessionCacheKey(session.sid), updatedRecord, SESSION_CACHE_TTL_MS);
 
   // Extend the per-user session-set TTL so active users don't get evicted (BUG-16)
   await redis.expire(
@@ -301,6 +365,7 @@ export async function refreshAccessToken(
  * @param uid - User ID (used to clean up the per-user sessions set)
  */
 export async function invalidateSession(sid: string, uid: string): Promise<void> {
+  evictSessionCache(sid);
   await redis.del(sessionKey(sid));
   await redis.zrem(userSessionsKey(uid), sid);
 }
@@ -313,6 +378,7 @@ export async function invalidateSession(sid: string, uid: string): Promise<void>
 export async function invalidateAllSessions(uid: string): Promise<void> {
   const sids = await redis.zrange(userSessionsKey(uid), 0, -1);
   if (sids.length > 0) {
+    for (const sid of sids) evictSessionCache(sid);
     await redis.del(...sids.map(sessionKey));
   }
   await redis.del(userSessionsKey(uid));

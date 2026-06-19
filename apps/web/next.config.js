@@ -28,11 +28,20 @@ const withPWA = require("next-pwa")({
       urlPattern: /^\/(auth|api\/auth)\/.*/i,
       handler: "NetworkOnly",
     },
-    // PWA entry point — always hit the network so the app never opens a
-    // stale cached version that shows a 404 or expired auth state.
+    // PWA entry point — prefer the network (so a launch with connectivity always
+    // gets the freshest redirect target), but fall back to the cached copy when
+    // offline. Without a cached fallback an offline launch of the installed PWA
+    // would dead-end on the SW's offline page instead of opening the app. The
+    // page itself is a trivial client-side redirect that re-checks auth against
+    // the server, so a cached copy is never stale in any meaningful way.
     {
       urlPattern: /^\/pwa-start.*/i,
-      handler: "NetworkOnly",
+      handler: "NetworkFirst",
+      options: {
+        cacheName: "pwa-start",
+        networkTimeoutSeconds: 3,
+        expiration: { maxEntries: 1, maxAgeSeconds: 24 * 60 * 60 },
+      },
     },
     {
       urlPattern: /^https:\/\/fonts\.(gstatic|googleapis)\.com\/.*/i,

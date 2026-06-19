@@ -22,6 +22,7 @@ import { TopGifters } from "@/components/rooms/TopGifters";
 import { LiveRoomPulseBar } from "@/components/ui/LiveRoomPulseBar";
 import { useRealtimeChannel } from "@/lib/realtime/useRealtimeChannel";
 import { useAdaptiveChatPoll } from "@/lib/hooks/useAdaptiveChatPoll";
+import { authFetch } from "@/lib/api/authFetch";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { readCachedMessages, writeCachedMessages } from "@/lib/chat/messageCache";
@@ -1368,7 +1369,7 @@ export default function RoomPage() {
   // Fetch the latest message snapshot (newest 30) and merge it in. Used for the
   // initial load and for the baseline poll. The REST endpoint returns
   // newest-first, so we re-sort ascending before merging.
-  const fetchMessages = useCallback(async () => {
+  const fetchMessages = useCallback(async (): Promise<boolean> => {
     try {
       // After the first load, request only messages newer than the latest one
       // we have (delta fetch) — far cheaper than re-pulling the whole snapshot.
@@ -1376,14 +1377,19 @@ export default function RoomPage() {
       const url = after
         ? `/api/rooms/${roomId}/messages?after=${encodeURIComponent(after)}`
         : `/api/rooms/${roomId}/messages`;
-      const res = await fetch(url, { credentials: "include" });
-      if (!res.ok) return;
+      // authFetch silently refreshes on 401 and, if the session is truly gone,
+      // raises the app-wide "signed out" notice instead of failing silently.
+      const res = await authFetch(url);
+      if (!res.ok) return false;
       const data = (await res.json()) as { items: Message[] };
       const items = (data.items ?? []).slice().sort(sortByCreatedAtAsc);
       for (const m of items) handleIncomingMessage(m);
       // Backlog seeded — from here on, gift messages may trigger the spectacle.
       initializedRef.current = true;
-    } catch { /* non-fatal — next poll retries */ } finally {
+      // Signal activity (new messages applied) so the poll cadence stays fast
+      // while the conversation is live and backs off when it goes quiet.
+      return items.length > 0;
+    } catch { /* non-fatal — next poll retries */ return false; } finally {
       setLoadingMessages(false);
     }
   }, [roomId, handleIncomingMessage]);
@@ -1402,9 +1408,8 @@ export default function RoomPage() {
     let cancelled = false;
     const beat = async () => {
       try {
-        const res = await fetch(`/api/rooms/${roomId}/presence`, {
+        const res = await authFetch(`/api/rooms/${roomId}/presence`, {
           method: "POST",
-          credentials: "include",
         });
         if (!res.ok || cancelled) return;
         const d = (await res.json()) as { admitted: boolean; presentCount: number; cap: number };
@@ -1436,7 +1441,7 @@ export default function RoomPage() {
   // is configured; slow reconcile (30s) when it is connected; paused while the
   // tab is hidden. Disabled when the room is full (not admitted). Dedup in
   // handleIncomingMessage makes the overlapping realtime + poll paths safe.
-  useAdaptiveChatPoll({ poll: fetchMessages, connected: realtimeConnected, enabled: presenceAdmitted });
+  const { pokePoll } = useAdaptiveChatPoll({ poll: fetchMessages, connected: realtimeConnected, enabled: presenceAdmitted });
 
   // Clear the spectacle timer on unmount.
   useEffect(() => {
@@ -1456,15 +1461,19 @@ export default function RoomPage() {
     try {
       const body: Record<string, unknown> = { content };
       if (momentFlag) body.message_type = "moment";
-      const res = await fetch(`/api/rooms/${roomId}/messages`, {
+      // authFetch raises the app-wide "signed out" notice if the session has
+      // expired while this room stayed open — so attempting to send surfaces it.
+      const res = await authFetch(`/api/rooms/${roomId}/messages`, {
         method: "POST",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error("Failed to send");
       const data = (await res.json()) as { message?: Message };
       if (data.message) handleIncomingMessage(data.message);
+      // Snap the baseline poll back to the fast cadence so a reply to the
+      // message we just sent is picked up immediately even if it had idled.
+      pokePoll();
     } catch { /* ignore */ }
     setSending(false);
   }

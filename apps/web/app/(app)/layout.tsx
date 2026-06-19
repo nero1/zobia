@@ -23,6 +23,7 @@ import { OfflineBanner } from "@/components/offline/OfflineBanner";
 import { OfflineSyncProvider } from "@/components/offline/OfflineSyncProvider";
 import { AnnouncementBanner, type BannerData } from "@/components/announcements/AnnouncementBanner";
 import { AnnouncementModal, type AnnouncementData } from "@/components/announcements/AnnouncementModal";
+import { SessionExpiredModal } from "@/components/auth/SessionExpiredModal";
 import { verifyAccessToken } from "@/lib/auth/jwt";
 import { env } from "@/lib/env";
 import {
@@ -103,6 +104,8 @@ export default async function AppLayout({ children }: AppLayoutProps) {
       {/* Offline indicator and queue sync */}
       <OfflineBanner />
       <OfflineSyncProvider />
+      {/* Session-expired notice for pages left open when the session lapses */}
+      <SessionExpiredModal />
       {/* Announcement banner (admin-managed, fixed top) */}
       <AnnouncementBanner banner={banner} />
       {/* Login-event announcement modal */}

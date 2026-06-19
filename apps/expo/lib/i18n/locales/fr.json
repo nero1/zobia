@@ -12,7 +12,8 @@
     "done": "Terminé",
     "continue": "Continuer",
     "offline": "Vous êtes hors ligne",
-    "offlineMessage": "Certaines fonctionnalités peuvent être indisponibles"
+    "offlineMessage": "Certaines fonctionnalités peuvent être indisponibles",
+    "dismiss": "Fermer"
   },
   "auth": {
     "loginTitle": "Bienvenue sur Zobia",
@@ -45,7 +46,8 @@
     "loginTimeoutBody": "La connexion Telegram a expiré. Veuillez réessayer et compléter la connexion dans Telegram.",
     "callbackError": "Échec du rappel d'authentification. Veuillez réessayer.",
     "googleError": "Échec de la connexion Google. Veuillez réessayer.",
-    "telegramError": "Échec de la connexion Telegram. Veuillez réessayer."
+    "telegramError": "Échec de la connexion Telegram. Veuillez réessayer.",
+    "sessionExpiredSignIn": "Se connecter"
   },
   "onboarding": {
     "step1Title": "Configurez votre profil",
