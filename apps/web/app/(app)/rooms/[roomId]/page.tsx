@@ -626,7 +626,6 @@ function RoomPowersPanel({
     }
 
     setActivating(powerType);
-    setPendingPower(null);
     setResult(null);
     try {
       const body: Record<string, unknown> = { power: powerType };
@@ -649,6 +648,7 @@ function RoomPowersPanel({
       setResult(res.ok ? "✅ Power activated!" : `❌ ${d.error?.message ?? d.message ?? "Failed"}`);
     } catch { setResult("❌ Network error"); }
     setActivating(null);
+    setPendingPower(null);
   }
 
   const pendingPowerObj = POWERS.find((p) => p.type === pendingPower);
@@ -662,7 +662,7 @@ function RoomPowersPanel({
         aria-hidden="true"
       />
       {/* Panel — fixed so it floats above all layout stacking contexts */}
-      <div className="fixed bottom-24 right-4 z-[200] w-[min(18rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-900 max-h-[calc(100dvh-7rem)] overflow-y-auto">
+      <div className="fixed bottom-24 right-4 z-[200] w-[min(18rem,calc(100vw-2rem))] max-h-[calc(100dvh-7rem)] overflow-y-auto rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
         <div className="flex items-center justify-between border-b border-neutral-200 px-3 py-2 dark:border-neutral-700">
           <span className="text-xs font-semibold text-neutral-500">⚡ Room Powers</span>
           <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label="Close">✕</button>

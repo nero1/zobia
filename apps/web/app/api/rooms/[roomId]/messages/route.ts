@@ -232,12 +232,19 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       type: string;
       creator_id: string;
       is_active: boolean;
+      is_suspended: boolean;
+      is_banned: boolean;
     }>(
-      `SELECT type, creator_id, is_active FROM rooms WHERE id = $1`,
+      `SELECT type, creator_id, is_active,
+              COALESCE(is_suspended, FALSE) AS is_suspended,
+              COALESCE(is_banned, FALSE) AS is_banned
+       FROM rooms WHERE id = $1`,
       [roomId]
     );
     const room = roomRows[0];
     if (!room || !room.is_active) throw notFound("Room not found");
+    if (room.is_banned) throw forbidden("This room has been permanently banned");
+    if (room.is_suspended) throw forbidden("This room is currently suspended");
 
     const isCreator = room.creator_id === userId;
     const membership = await getCallerMembership(roomId, userId);
