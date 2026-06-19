@@ -105,7 +105,7 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
     const queryParams: SqlParam[] = [];
     let paramIndex = 1;
 
-    let whereClause = `WHERE deleted_at IS NULL`;
+    let whereClause = `WHERE 1=1`;
 
     if (actionTypeFilter) {
       whereClause += ` AND action_type = $${paramIndex}`;

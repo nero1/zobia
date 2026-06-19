@@ -303,6 +303,15 @@ function parseInt10(value: string | undefined, fallback: number): number {
   return isNaN(n) ? fallback : n;
 }
 
+/** Strip surrounding JSON double-quotes from a string value if present (legacy data migration). */
+function unquote(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+    try { return JSON.parse(value) as string; } catch { /* ignore */ }
+  }
+  return value;
+}
+
 /** Build the full manifest from a key→value map of x_manifest rows. */
 function buildManifest(kv: Record<string, string>): ZobiaManifest {
   // Resolve captchaProvider
@@ -354,10 +363,10 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       physicalGoodsPartnerFulfillment: parseBool(kv["physical_goods_fulfillment_partner"],            DEFAULT_MANIFEST.features.physicalGoodsPartnerFulfillment),
     },
     currency: {
-      softNameSingular:    kv["currency_soft_name_singular"]    ?? DEFAULT_MANIFEST.currency.softNameSingular,
-      softNamePlural:      kv["currency_soft_name_plural"]      ?? DEFAULT_MANIFEST.currency.softNamePlural,
-      premiumNameSingular: kv["currency_premium_name_singular"] ?? DEFAULT_MANIFEST.currency.premiumNameSingular,
-      premiumNamePlural:   kv["currency_premium_name_plural"]   ?? DEFAULT_MANIFEST.currency.premiumNamePlural,
+      softNameSingular:    unquote(kv["currency_soft_name_singular"])    ?? DEFAULT_MANIFEST.currency.softNameSingular,
+      softNamePlural:      unquote(kv["currency_soft_name_plural"])      ?? DEFAULT_MANIFEST.currency.softNamePlural,
+      premiumNameSingular: unquote(kv["currency_premium_name_singular"]) ?? DEFAULT_MANIFEST.currency.premiumNameSingular,
+      premiumNamePlural:   unquote(kv["currency_premium_name_plural"])   ?? DEFAULT_MANIFEST.currency.premiumNamePlural,
     },
     warEventCooldownHours: parseInt10(kv["war_event_cooldown_hours"], DEFAULT_MANIFEST.warEventCooldownHours),
     auth: {

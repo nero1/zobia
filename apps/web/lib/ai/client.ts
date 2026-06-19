@@ -141,9 +141,15 @@ async function callDeepSeek(
   const endpoint = `${env.DEEPSEEK_API_ENDPOINT}/chat/completions`;
 
   const manifestOverride = await getManifestValue("ai_deepseek_api_key_override");
-  const effectiveKey =
-    apiKeyOverride ??
+  const rawKey = apiKeyOverride ??
     (manifestOverride && manifestOverride.length > 0 ? manifestOverride : env.DEEPSEEK_API_KEY);
+  // Strip accidental JSON-quoting from keys saved via old admin config route
+  const effectiveKey = rawKey && rawKey.length >= 2 && rawKey.startsWith('"') && rawKey.endsWith('"')
+    ? rawKey.slice(1, -1)
+    : rawKey;
+  if (!effectiveKey) {
+    throw new Error("DeepSeek API key is not configured. Set DEEPSEEK_API_KEY or add an override in AI Settings.");
+  }
 
   const body = {
     model,
@@ -221,9 +227,15 @@ async function callGemini(
   const model = options.model ?? GEMINI_CONFIG.defaultModel;
 
   const manifestOverride = await getManifestValue("ai_gemini_api_key_override");
-  const effectiveKey =
-    apiKeyOverride ??
+  const rawKey = apiKeyOverride ??
     (manifestOverride && manifestOverride.length > 0 ? manifestOverride : env.GEMINI_API_KEY);
+  // Strip accidental JSON-quoting from keys saved via old admin config route
+  const effectiveKey = rawKey && rawKey.length >= 2 && rawKey.startsWith('"') && rawKey.endsWith('"')
+    ? rawKey.slice(1, -1)
+    : rawKey;
+  if (!effectiveKey) {
+    throw new Error("Gemini API key is not configured. Set GEMINI_API_KEY or add an override in AI Settings.");
+  }
 
   const endpoint = `${GEMINI_CONFIG.apiBaseUrl}/models/${model}:generateContent`;
 

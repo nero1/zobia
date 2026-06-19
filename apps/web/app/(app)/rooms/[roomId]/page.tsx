@@ -1053,8 +1053,8 @@ function RoomCapacityPanel({ roomId }: { roomId: string }) {
       </p>
 
       {confirming ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
-          <p className="mb-2 text-xs font-medium text-amber-800 dark:text-amber-200">
+        <div className="rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950">
+          <p className="mb-2 text-xs font-medium text-green-800 dark:text-green-200">
             {t("room.capacityConfirm", {
               cost: cost ?? "?",
               currency: currency.softPlural,
@@ -1111,6 +1111,7 @@ export default function RoomPage() {
   const roomId = params.roomId as string;
   const currency = useCurrency();
 
+  const [showSidebar, setShowSidebar] = useState(false);
   const [room, setRoom] = useState<RoomInfo | null>(null);
   // Hydrate from the persisted cache for an instant first paint (and offline view).
   const [messages, setMessages] = useState<Message[]>(
@@ -1566,6 +1567,13 @@ export default function RoomPage() {
             </div>
           )}
           <Link href="/rooms" className="text-xs text-blue-600 hover:underline dark:text-blue-400">← Rooms</Link>
+          <button
+            onClick={() => setShowSidebar((v) => !v)}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 lg:hidden"
+            aria-label={t("room.showInfo")}
+          >
+            ℹ️
+          </button>
         </div>
 
         {/* Room full (soft cap) banner */}
@@ -1677,7 +1685,10 @@ export default function RoomPage() {
       )}
 
       {/* Sidebar */}
-      <aside className="hidden w-72 shrink-0 flex-col gap-4 overflow-y-auto border-l border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900 lg:flex">
+      {showSidebar && (
+        <div className="absolute inset-0 z-20 bg-black/30 lg:hidden" onClick={() => setShowSidebar(false)} />
+      )}
+      <aside className={`${showSidebar ? "flex" : "hidden"} lg:flex absolute lg:relative inset-y-0 right-0 z-30 w-72 shrink-0 flex-col gap-4 overflow-y-auto border-l border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900`}>
         {/* Room info */}
         <div className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
           <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">About</h2>

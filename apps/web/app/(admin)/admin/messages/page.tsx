@@ -249,8 +249,8 @@ export default function AdminMessagesPage() {
       try {
         const res = await fetch("/api/admin/messages", { credentials: "include" });
         if (res.status === 401 || res.status === 403) { window.location.href = "/admin/login"; return; }
-        const data = (await res.json()) as { messages: SentMessage[] };
-        setSentMessages(data.messages);
+        const data = (await res.json()) as { items: SentMessage[] };
+        setSentMessages(data.items ?? []);
       } catch { /* ignore */ }
       setLoadingMessages(false);
     })();
@@ -284,8 +284,8 @@ export default function AdminMessagesPage() {
       setBody("");
       setPreviewing(false);
       const refreshed = await fetch("/api/admin/messages", { credentials: "include" });
-      const data = (await refreshed.json()) as { messages: SentMessage[] };
-      setSentMessages(data.messages);
+      const data = (await refreshed.json()) as { items: SentMessage[] };
+      setSentMessages(data.items ?? []);
     } catch (e) {
       showToast(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Error") : "Error", "error");
     } finally {
