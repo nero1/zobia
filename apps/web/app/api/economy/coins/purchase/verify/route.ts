@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { getServerSession } from "@/lib/auth/session";
+import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 
 const bodySchema = z.object({
@@ -32,13 +32,8 @@ interface PaymentRow {
   coins_granted: number | null;
 }
 
-export async function POST(req: NextRequest): Promise<NextResponse> {
+export const POST = withAuth(async (req: NextRequest, { auth }): Promise<NextResponse> => {
   try {
-    const auth = await getServerSession(req);
-    if (!auth?.user?.sub) {
-      return NextResponse.json({ success: false, error: { message: "Unauthorized" } }, { status: 401 });
-    }
-
     const body = await req.json();
     const parsed = bodySchema.safeParse(body);
     if (!parsed.success) {
@@ -98,4 +93,4 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } catch (err) {
     return handleApiError(err);
   }
-}
+});
