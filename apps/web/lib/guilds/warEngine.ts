@@ -258,17 +258,15 @@ export async function distributeWarRewards(
     const userCoins: number[] = new Array(members.length).fill(0);
     if (members.length === 1) {
       userCoins[0] = pool;
-    } else if (members.length === 2) {
-      // Explicit 60/40 split for two-member guilds
-      userCoins[0] = Math.floor(pool * 0.6);
-      userCoins[1] = pool - userCoins[0]; // assign remainder to runner-up
     } else {
-      // 3+ members: top 30%, second 20%, rest split equally from remaining 50%
+      // Top 30%, second 20%, rest split equally from remaining 50%.
+      // With fewer than 3 members the unallocated remainder rolls up to the
+      // top contributor via coinRemainder so the full pool is always paid out.
       const topShare = Math.floor(pool * 0.3);
       const secondShare = Math.floor(pool * 0.2);
       const remainderPool = pool - topShare - secondShare;
       const remainingMembers = members.length - 2;
-      const equalShare = Math.floor(remainderPool / remainingMembers);
+      const equalShare = remainingMembers > 0 ? Math.floor(remainderPool / remainingMembers) : 0;
       const coinRemainder = remainderPool - equalShare * remainingMembers;
       userCoins[0] = topShare + coinRemainder;
       userCoins[1] = secondShare;
