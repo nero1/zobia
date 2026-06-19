@@ -200,6 +200,106 @@ export async function calculateTrustScore(
 }
 
 // ---------------------------------------------------------------------------
+// batchCalculateTrustScores
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute and persist trust scores for multiple users in one DB round-trip.
+ * Fetches all signals in a single query with LEFT JOINs, computes in JS,
+ * then batch-updates all users atomically.
+ *
+ * @param userIds - Array of user UUIDs to recalculate
+ * @param db      - Database adapter
+ * @returns Map of userId → computed score
+ */
+export async function batchCalculateTrustScores(
+  userIds: string[],
+  db: DatabaseAdapter
+): Promise<Map<string, number>> {
+  if (userIds.length === 0) return new Map();
+
+  type BatchRow = {
+    id: string;
+    account_age_days: string;
+    report_count: string;
+    warning_count: string;
+    is_banned: boolean;
+    is_verified: boolean;
+    payment_count: string;
+    moderation_action_count: string;
+  };
+
+  const { rows } = await db.query<BatchRow>(
+    `SELECT
+       u.id,
+       EXTRACT(DAY FROM (NOW() - u.created_at))::int::text AS account_age_days,
+       COALESCE(rc.report_count, 0)::text       AS report_count,
+       COALESCE(wc.warning_count, 0)::text      AS warning_count,
+       u.is_banned,
+       u.is_verified,
+       COALESCE(pc.payment_count, 0)::text      AS payment_count,
+       COALESCE(mac.action_count, 0)::text      AS moderation_action_count
+     FROM users u
+     LEFT JOIN (
+       SELECT reported_user_id AS uid, COUNT(*)::int AS report_count
+       FROM reports WHERE reported_user_id = ANY($1::uuid[])
+       GROUP BY reported_user_id
+     ) rc ON rc.uid = u.id
+     LEFT JOIN (
+       SELECT target_user_id AS uid, COUNT(*)::int AS warning_count
+       FROM moderation_actions
+       WHERE target_user_id = ANY($1::uuid[]) AND action_type = 'warn'
+       GROUP BY target_user_id
+     ) wc ON wc.uid = u.id
+     LEFT JOIN (
+       SELECT user_id AS uid, COUNT(*)::int AS payment_count
+       FROM payments
+       WHERE user_id = ANY($1::uuid[]) AND status = 'completed'
+       GROUP BY user_id
+     ) pc ON pc.uid = u.id
+     LEFT JOIN (
+       SELECT target_user_id AS uid, COUNT(*)::int AS action_count
+       FROM moderation_actions
+       WHERE target_user_id = ANY($1::uuid[])
+       GROUP BY target_user_id
+     ) mac ON mac.uid = u.id
+     WHERE u.id = ANY($1::uuid[]) AND u.deleted_at IS NULL`,
+    [userIds]
+  );
+
+  const scores = new Map<string, number>();
+  const updateIds: string[] = [];
+  const updateScores: number[] = [];
+
+  for (const row of rows) {
+    const score = computeScore({
+      accountAgeDays: parseInt(row.account_age_days, 10) || 0,
+      reportCount: parseInt(row.report_count, 10) || 0,
+      warningCount: parseInt(row.warning_count, 10) || 0,
+      isBanned: row.is_banned,
+      isVerified: row.is_verified,
+      paymentCount: parseInt(row.payment_count, 10) || 0,
+      moderationActionCount: parseInt(row.moderation_action_count, 10) || 0,
+    });
+    scores.set(row.id, score);
+    updateIds.push(row.id);
+    updateScores.push(score);
+  }
+
+  if (updateIds.length > 0) {
+    await db.query(
+      `UPDATE users u
+       SET trust_score = updates.score, updated_at = NOW()
+       FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::int[]) AS score) updates
+       WHERE u.id = updates.id`,
+      [updateIds, updateScores]
+    );
+  }
+
+  return scores;
+}
+
+// ---------------------------------------------------------------------------
 // updateTrustScore
 // ---------------------------------------------------------------------------
 
