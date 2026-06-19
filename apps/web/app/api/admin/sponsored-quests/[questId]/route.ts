@@ -17,7 +17,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { withAdminAuth, validateBody } from "@/lib/api/middleware";
+import type { SqlParam } from "@/lib/db";
+import { withAdminAuth, validateBody, type AdminContext } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 
@@ -40,6 +41,7 @@ const patchSchema = z.object({
 
 interface QuestCtx {
   params: Promise<{ questId: string }>;
+  auth: AdminContext;
 }
 
 export const PATCH = withAdminAuth(async (req: NextRequest, { params, auth }: QuestCtx) => {
@@ -73,7 +75,7 @@ export const PATCH = withAdminAuth(async (req: NextRequest, { params, auth }: Qu
 
     // Build SET clause dynamically
     const setParts: string[] = ["updated_at = NOW()"];
-    const values: unknown[] = [questId];
+    const values: SqlParam[] = [questId];
     let idx = 2;
 
     const fieldMap: Record<string, string> = {
@@ -95,7 +97,7 @@ export const PATCH = withAdminAuth(async (req: NextRequest, { params, auth }: Qu
       const val = (body as Record<string, unknown>)[jsKey];
       if (val !== undefined) {
         setParts.push(`${dbCol} = $${idx++}`);
-        values.push(val);
+        values.push(val as SqlParam);
       }
     }
 

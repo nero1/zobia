@@ -18,6 +18,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import type { SqlParam } from "@/lib/db";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -63,7 +64,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const cursor  = url.searchParams.get("cursor");
 
     const conditions: string[] = ["r.deleted_at IS NULL"];
-    const values: unknown[] = [];
+    const values: SqlParam[] = [];
     let paramIdx = 1;
 
     if (search) {

@@ -11,13 +11,14 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { withAuth } from "@/lib/api/middleware";
+import { withAuth, type AuthContext } from "@/lib/api/middleware";
 import { badRequest, notFound, handleApiError } from "@/lib/api/errors";
 import { db } from "@/lib/db";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 
 interface FollowCtx {
   params: Promise<{ userId: string }>;
+  auth: AuthContext;
 }
 
 export const POST = withAuth(async (req: NextRequest, { params, auth }: FollowCtx) => {
