@@ -1269,3 +1269,75 @@ Platform events with XP multipliers are seeded in the `platform_events` table. T
 | AFCON Season | Jan–Feb | 1.5× competitor XP + guild war bonus |
 
 Events are stored with JSONB `metadata` for event-specific flags (e.g. `gift_xp_multiplier`, `female_creator_only`, `guild_war_points_multiplier`). The XP engine and CRON handlers read active `platform_events` and apply the appropriate multipliers at award time.
+
+---
+
+## CRON Architecture
+
+### Design principles
+
+The original monolithic `daily/route.ts` (2700+ lines) ran all background jobs in a single Vercel function invocation. On Vercel Hobby, that function has a 10-second wall-clock limit — long enough to time out under sustained DAU load. The solution:
+
+1. **Split into 7 staggered daily slots** — each slot runs once per day at a different UTC hour, spread across the night (23:00–05:00 UTC = midnight–6am WAT). Every slot has a 10-second timeout (`export const maxDuration = 10`) and completes comfortably within it.
+2. **No Redis for CRON state** — idempotency is enforced by the `cron_state` PostgreSQL table using a conditional `INSERT ... ON CONFLICT DO UPDATE WHERE value_ts < today`. A second invocation on the same calendar day resolves to `rowCount = 0` and returns immediately. Zero extra Redis reads per CRON slot.
+3. **Set-based SQL everywhere** — per-row loops replaced with `INSERT ... SELECT`, CTEs with `RETURNING`, and `unnest()` batch operations. A 5000-guild contribution-alert loop (5000 × 3 queries = 15 000 round-trips) is now a 3-query CTE that runs in one round-trip.
+4. **Limited-concurrency HTTP** — external HTTP calls (Telegram, push) use a `withConcurrency(items, limit, fn)` helper instead of `Promise.all` (which would fan out hundreds of simultaneous HTTP requests) or a serial `for` loop (which would exhaust the 10-second budget).
+5. **Shared auth helper** — `apps/web/lib/cron/auth.ts` exports `validateCronSecret` (timing-safe `timingSafeEqual`) and `checkCronIdempotency` (DB guard). Every CRON file imports these two functions — no duplicated auth code.
+
+### Slot assignments
+
+```
+23:00 UTC  daily-core      — structural resets (quests, streaks, XP, moments, pins)
+00:00 UTC  daily-users     — user-state jobs (inactivity, guild discovery, comeback coins)
+01:00 UTC  daily-notify    — outbound notifications (push, email, Telegram, council invites)
+02:00 UTC  daily-guilds    — guild lifecycle (tiers, patron badge, contribution, quests)
+03:00 UTC  daily-economy   — money (creator fund, plan bonuses, ad revenue, payouts, referrals)
+04:00 UTC  daily-social    — social graph (nemesis, leaderboards, stickers, trust scores)
+05:00 UTC  daily-platform  — platform events + SYS maintenance (season, flash XP, alliance wars, DLQ)
+```
+
+### Sub-daily CRONs (externally triggered via cron-jobs.org)
+
+These must run more frequently than once per day and cannot use Vercel's native scheduler on Hobby:
+
+| Route | Frequency | Key jobs |
+|---|---|---|
+| `/api/cron/guild-wars` | Every 1 hour | Final Hour transitions, war resolution, Flash XP lifecycle, Drop room auto-close |
+| `/api/cron/leaderboards` | Every 15 minutes | Batch snapshot upserts (all users × 7 tracks in 1 query), rank-change notifications |
+| `/api/cron/payouts` | Every 30 minutes | Paystack transfer initiation + retry |
+| `/api/cron/reconcile-balances` | Nightly (06:00 UTC) | Batch XP + coin ledger vs. wallet reconciliation; batch unnest() corrections |
+
+### Key SQL patterns
+
+**Batch upsert with unnest()** (replaces per-row INSERT loop):
+```sql
+INSERT INTO leaderboard_snapshots (user_id, track, scope, xp_value, updated_at)
+SELECT unnest($1::uuid[]), unnest($2::text[]), 'global', unnest($3::int[]), NOW()
+ON CONFLICT (...) DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()
+```
+
+**CTE with data-modifying INSERT** (detect + insert in one round-trip):
+```sql
+WITH upserted AS (
+  INSERT INTO guild_contribution_alerts (guild_id, user_id, weeks_below)
+  SELECT ... FROM guild_avgs JOIN guild_members ...
+  ON CONFLICT DO UPDATE SET weeks_below = weeks_below + 1
+  RETURNING guild_id, user_id, weeks_below
+)
+INSERT INTO notifications (user_id, type, body, ...)
+SELECT upserted.user_id, 'guild_low_contribution', ... FROM upserted
+```
+
+**Batch UPDATE with unnest()** (replaces per-row UPDATE loop):
+```sql
+UPDATE users SET xp_total = updates.val, updated_at = NOW()
+FROM (SELECT unnest($1::uuid[]) AS uid, unnest($2::int[]) AS val) updates
+WHERE id = updates.uid
+```
+
+**Parallel safeAwardXP** (replaces serial per-user await loop):
+```typescript
+await Promise.allSettled(
+  warWinners.map((w) => safeAwardXP(w.user_id, XP, 'competitor', 'alliance_war_victory', `war_${warId}_${w.user_id}`))
+);
+```

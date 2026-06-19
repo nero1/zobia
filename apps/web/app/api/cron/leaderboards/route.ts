@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic';
+export const maxDuration = 10;
 
 /**
  * app/api/cron/leaderboards/route.ts
@@ -11,9 +12,11 @@ export const dynamic = 'force-dynamic';
  *
  * Responsibilities (idempotent — safe to call multiple times):
  *  1. Find users who have earned XP in the last 15 minutes (active users).
- *  2. Upsert a leaderboard_snapshot for each active user.
+ *  2. Batch-upsert leaderboard_snapshots for all active users × all 7 tracks
+ *     in a SINGLE INSERT using unnest() — replaces 7 serial calls per user.
  *  3. Detect rank changes since the previous snapshot.
- *  4. Insert leaderboard_ripple notifications for users whose rank changed.
+ *  4. Batch-update last_notified_rank + batch-insert rank-change notifications
+ *     using unnest() — replaces per-user UPDATE + INSERT loop.
  *
  * Returns { usersUpdated, rankChanges }
  */
@@ -21,7 +24,6 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { db } from "@/lib/db";
-import { upsertLeaderboardSnapshot } from "@/lib/leaderboards/engine";
 
 // ---------------------------------------------------------------------------
 // Auth
@@ -39,9 +41,6 @@ function isValidSecret(provided: string, expected: string): boolean {
   }
 }
 
-/**
- * Validates the CRON secret from the Authorization header.
- */
 function validateCronSecret(req: NextRequest): boolean {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) return false;
@@ -54,12 +53,9 @@ function validateCronSecret(req: NextRequest): boolean {
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Look-back window for "recently active" XP ledger entries. */
 const ACTIVE_WINDOW_MINUTES = 15;
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+const TRACKS = ['main', 'social', 'creator', 'competitor', 'generosity', 'knowledge', 'explorer'] as const;
 
 interface ActiveUserRow {
   user_id: string;
@@ -77,19 +73,13 @@ interface ActiveUserRow {
 // Handler
 // ---------------------------------------------------------------------------
 
-/**
- * 15-minute leaderboard CRON.
- * Protected by CRON_SECRET Bearer token.
- */
 export async function GET(req: NextRequest): Promise<NextResponse> {
   if (!validateCronSecret(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const now = new Date();
-  const windowStart = new Date(
-    now.getTime() - ACTIVE_WINDOW_MINUTES * 60 * 1000
-  );
+  const windowStart = new Date(now.getTime() - ACTIVE_WINDOW_MINUTES * 60 * 1000);
 
   let usersUpdated = 0;
   let rankChanges = 0;
@@ -122,16 +112,18 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     activeUsers = result.rows;
   } catch (err) {
     errors.push(`activeUserQuery: ${String(err)}`);
-    return NextResponse.json(
-      { ok: false, errors, timestamp: now.toISOString() },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, errors, timestamp: now.toISOString() }, { status: 500 });
   }
 
-  // -------------------------------------------------------------------------
-  // Step 2: Batch-fetch previous snapshot ranks before any upserts
-  // -------------------------------------------------------------------------
+  if (activeUsers.length === 0) {
+    return NextResponse.json({ ok: true, usersUpdated: 0, rankChanges: 0, timestamp: now.toISOString() });
+  }
+
   const userIds = activeUsers.map((u) => u.user_id);
+
+  // -------------------------------------------------------------------------
+  // Step 2: Batch-fetch previous snapshot ranks (single query, all users)
+  // -------------------------------------------------------------------------
   const previousRankMap = new Map<string, number>();
   try {
     const { rows: prevRows } = await db.query<{ user_id: string; last_notified_rank: number }>(
@@ -151,33 +143,64 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   // -------------------------------------------------------------------------
-  // Step 3: Upsert all snapshots
+  // Step 3: Batch-upsert ALL snapshots (all users × all 7 tracks) in ONE query
+  //
+  // Builds parallel arrays: userIds repeated 7×, tracks rotated, xp values.
+  // Single INSERT with unnest() replaces the previous loop of 7 serial calls
+  // per user (N×7 round-trips → 1 round-trip total).
   // -------------------------------------------------------------------------
-  for (const user of activeUsers) {
-    try {
-      await Promise.all([
-        upsertLeaderboardSnapshot(user.user_id, "main", user.xp_total, db),
-        upsertLeaderboardSnapshot(user.user_id, "social", user.xp_social ?? 0, db),
-        upsertLeaderboardSnapshot(user.user_id, "creator", user.xp_creator ?? 0, db),
-        upsertLeaderboardSnapshot(user.user_id, "competitor", user.xp_competitor ?? 0, db),
-        upsertLeaderboardSnapshot(user.user_id, "generosity", user.xp_generosity ?? 0, db),
-        upsertLeaderboardSnapshot(user.user_id, "knowledge", user.xp_knowledge ?? 0, db),
-        upsertLeaderboardSnapshot(user.user_id, "explorer", user.xp_explorer ?? 0, db),
-      ]);
-      usersUpdated++;
-    } catch (err) {
-      errors.push(`upsertSnapshot(${user.user_id}): ${String(err)}`);
+  try {
+    const trackXpGetter: Record<string, (u: ActiveUserRow) => number> = {
+      main:        (u) => u.xp_total,
+      social:      (u) => u.xp_social      ?? 0,
+      creator:     (u) => u.xp_creator     ?? 0,
+      competitor:  (u) => u.xp_competitor  ?? 0,
+      generosity:  (u) => u.xp_generosity  ?? 0,
+      knowledge:   (u) => u.xp_knowledge   ?? 0,
+      explorer:    (u) => u.xp_explorer    ?? 0,
+    };
+
+    const batchUserIds: string[] = [];
+    const batchTracks: string[] = [];
+    const batchXps: number[] = [];
+
+    for (const user of activeUsers) {
+      for (const track of TRACKS) {
+        batchUserIds.push(user.user_id);
+        batchTracks.push(track);
+        batchXps.push(trackXpGetter[track](user));
+      }
     }
+
+    await db.query(
+      `INSERT INTO leaderboard_snapshots
+         (user_id, track, scope, city, season_id, xp_value, updated_at)
+       SELECT
+         unnest($1::uuid[]),
+         unnest($2::text[]),
+         'global',
+         NULL,
+         NULL,
+         unnest($3::int[]),
+         NOW()
+       ON CONFLICT (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))
+       DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()`,
+      [batchUserIds, batchTracks, batchXps]
+    );
+
+    usersUpdated = activeUsers.length;
+  } catch (err) {
+    errors.push(`batchUpsertSnapshots: ${String(err)}`);
   }
 
   // -------------------------------------------------------------------------
-  // Step 4: Batch-compute new ranks with a single window function query,
-  //         then dispatch rank-change notifications
+  // Step 4: Batch-compute new ranks, then batch-update + batch-notify
+  //
+  // Single window function query computes RANK() for all active users.
+  // One batch UPDATE for last_notified_rank.
+  // One batch INSERT for rank-change notifications.
   // -------------------------------------------------------------------------
   try {
-    // Compute RANK() over the full leaderboard snapshot table (not just active
-    // users) so that the absolute rank position is correct.  Then filter to the
-    // active-user subset for notification dispatch.
     const { rows: rankRows } = await db.query<{ user_id: string; new_rank: number }>(
       `WITH all_ranks AS (
          SELECT user_id,
@@ -185,49 +208,74 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
          FROM leaderboard_snapshots
          WHERE scope = 'global' AND track = 'main'
        )
-       SELECT user_id, new_rank
-       FROM all_ranks
-       WHERE user_id = ANY($1)`,
+       SELECT user_id, new_rank FROM all_ranks WHERE user_id = ANY($1)`,
       [userIds]
     );
 
+    // Separate into: all ranks to persist, and subset that needs notifications
+    const updateUserIds: string[] = [];
+    const updateRanks: number[] = [];
+    const notifUserIds: string[] = [];
+    const notifTypes: string[] = [];
+    const notifPrevRanks: number[] = [];
+    const notifNewRanks: number[] = [];
+
     for (const { user_id, new_rank: newRank } of rankRows) {
+      updateUserIds.push(user_id);
+      updateRanks.push(newRank);
+
       const previousRank = previousRankMap.get(user_id) ?? null;
-
-      // Always persist the new rank so future runs have a baseline
-      await db.query(
-        `UPDATE leaderboard_snapshots
-         SET last_notified_rank = $1
-         WHERE user_id = $2 AND scope = 'global' AND track = 'main'`,
-        [newRank, user_id]
-      ).catch(() => {});
-
       if (previousRank !== null && newRank !== previousRank) {
         rankChanges++;
-
         const enteredTop10 = newRank <= 10 && previousRank > 10;
-        const notifType = enteredTop10 ? "leaderboard_top10_entry" : "leaderboard_rank_change";
         const shouldNotify = enteredTop10 || newRank <= 50;
-
         if (shouldNotify) {
-          await db.query(
-            `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-             VALUES ($1, $2, $3, false, NOW())
-             ON CONFLICT DO NOTHING`,
-            [
-              user_id,
-              notifType,
-              JSON.stringify({
-                previous_rank: previousRank,
-                new_rank: newRank,
-                track: "main",
-                scope: "global",
-                entered_top_10: enteredTop10,
-              }),
-            ]
-          );
+          notifUserIds.push(user_id);
+          notifTypes.push(enteredTop10 ? "leaderboard_top10_entry" : "leaderboard_rank_change");
+          notifPrevRanks.push(previousRank);
+          notifNewRanks.push(newRank);
         }
       }
+    }
+
+    // Batch UPDATE last_notified_rank for all active users
+    if (updateUserIds.length > 0) {
+      await db.query(
+        `UPDATE leaderboard_snapshots ls
+         SET last_notified_rank = updates.rank
+         FROM (SELECT unnest($1::uuid[]) AS uid, unnest($2::int[]) AS rank) updates
+         WHERE ls.user_id = updates.uid AND ls.scope = 'global' AND ls.track = 'main'`,
+        [updateUserIds, updateRanks]
+      ).catch(() => {});
+    }
+
+    // Batch INSERT rank-change notifications
+    if (notifUserIds.length > 0) {
+      await db.query(
+        `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+         SELECT sub.uid, sub.ntype,
+                jsonb_build_object(
+                  'previous_rank',  sub.prev_rank,
+                  'new_rank',       sub.new_rank,
+                  'track',          'main',
+                  'scope',          'global',
+                  'entered_top_10', sub.entered_top10
+                ),
+                false, NOW()
+         FROM (SELECT unnest($1::uuid[]) AS uid,
+                      unnest($2::text[]) AS ntype,
+                      unnest($3::int[])  AS prev_rank,
+                      unnest($4::int[])  AS new_rank,
+                      unnest($5::bool[]) AS entered_top10) sub
+         ON CONFLICT DO NOTHING`,
+        [
+          notifUserIds,
+          notifTypes,
+          notifPrevRanks,
+          notifNewRanks,
+          notifTypes.map(t => t === "leaderboard_top10_entry"),
+        ]
+      ).catch(() => {});
     }
   } catch (err) {
     errors.push(`rankChangeNotifications: ${String(err)}`);

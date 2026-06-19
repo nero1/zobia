@@ -1,8 +1,32 @@
 {
   "crons": [
     {
-      "path": "/api/cron/daily",
+      "path": "/api/cron/daily-core",
+      "schedule": "0 23 * * *"
+    },
+    {
+      "path": "/api/cron/daily-users",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/daily-notify",
+      "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/cron/daily-guilds",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/daily-economy",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/daily-social",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/daily-platform",
+      "schedule": "0 5 * * *"
     }
   ],
   "headers": [

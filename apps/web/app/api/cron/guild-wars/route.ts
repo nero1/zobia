@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic';
+export const maxDuration = 10;
 
 /**
  * app/api/cron/guild-wars/route.ts
@@ -248,80 +249,127 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   // -------------------------------------------------------------------------
-  // Step 7: Guild tier minimum member enforcement (PRD §13)
+  // Step 7: Guild tier minimum member enforcement (PRD §13) — set-based batch
   //
-  // Each guild tier requires a minimum member count. Guilds that fall below
-  // their minimum increment below_minimum_days. After 7 consecutive days,
-  // they are downgraded one tier and the captain is notified.
+  // Three separate UPDATEs replace the previous per-guild N+1 loop:
+  //   A) Reset guilds that recovered above their tier minimum.
+  //   C) Downgrade guilds that have been below-minimum for 7+ days and notify.
+  //   B) Increment below_minimum_days for guilds still below (not yet at 7).
+  //
+  // ORDER MATTERS: downgrade (C) runs BEFORE increment (B). C and B are mutually
+  // exclusive only on the *original* below_minimum_days value (via the `+1`
+  // threshold). If B ran first it would bump a guild from e.g. 5→6, and C would
+  // then see 6 and downgrade it a day early. Running C first preserves correctness.
   //
   // Tier minimums: bronze=5, silver=10, gold=15, platinum=20, legend=25
   // -------------------------------------------------------------------------
-  const TIER_MIN_MEMBERS: Record<string, number> = {
-    bronze: 5,
-    silver: 10,
-    gold: 15,
-    platinum: 20,
-    legend: 25,
-  };
-  const TIER_ORDER_DOWN = ['bronze', 'silver', 'gold', 'platinum', 'legend'];
+
+  // Reusable CASE expression for minimum member count per tier group
+  const TIER_MIN_CASE = `
+    CASE
+      WHEN tier LIKE 'bronze%' THEN 5
+      WHEN tier LIKE 'silver%' THEN 10
+      WHEN tier LIKE 'gold%'   THEN 15
+      WHEN tier LIKE 'platinum%' THEN 20
+      WHEN tier = 'legend'     THEN 25
+      ELSE 0
+    END
+  `;
+
+  // Downgrade: legend→platinum, platinum→gold, gold→silver, silver→bronze (floor)
+  const TIER_DOWNGRADE_CASE = `
+    CASE
+      WHEN tier = 'legend'     THEN 'platinum'
+      WHEN tier LIKE 'platinum%' THEN 'gold'
+      WHEN tier LIKE 'gold%'   THEN 'silver'
+      ELSE 'bronze'
+    END
+  `;
+
   let guildTierDowngrades = 0;
 
   try {
-    const { rows: guilds } = await db.query<{
-      id: string;
-      tier: string;
-      captain_id: string;
-      below_minimum_days: number;
-      member_count: number;
-    }>(
-      `SELECT g.id, g.tier, g.captain_id, g.below_minimum_days,
-              (SELECT COUNT(*) FROM guild_members gm WHERE gm.guild_id = g.id AND gm.left_at IS NULL)::int AS member_count
-       FROM guilds g
-       WHERE g.deleted_at IS NULL AND g.is_active = TRUE AND g.tier != 'bronze'`
+    // A) Reset healthy guilds
+    await db.query(
+      `UPDATE guilds g
+       SET below_minimum_days = 0, updated_at = NOW()
+       WHERE g.deleted_at IS NULL AND g.is_active = TRUE
+         AND g.below_minimum_days > 0
+         AND (
+           SELECT COUNT(*) FROM guild_members gm
+           WHERE gm.guild_id = g.id AND gm.left_at IS NULL
+         ) >= ${TIER_MIN_CASE}`
     );
 
-    for (const guild of guilds) {
-      try {
-        const minMembers = TIER_MIN_MEMBERS[guild.tier] ?? 0;
-        if (guild.member_count >= minMembers) {
-          // Back to healthy — reset counter
-          if (guild.below_minimum_days > 0) {
-            await db.query(
-              `UPDATE guilds SET below_minimum_days = 0, updated_at = NOW() WHERE id = $1`,
-              [guild.id]
-            );
-          }
-        } else {
-          const newDays = guild.below_minimum_days + 1;
-          if (newDays >= 7) {
-            // Downgrade one tier
-            const currentIdx = TIER_ORDER_DOWN.indexOf(guild.tier);
-            const newTier = currentIdx > 0 ? TIER_ORDER_DOWN[currentIdx - 1] : guild.tier;
-            await db.query(
-              `UPDATE guilds SET tier = $1, below_minimum_days = 0, updated_at = NOW() WHERE id = $2`,
-              [newTier, guild.id]
-            );
-            // Notify captain — reference_id scoped to current week prevents
-            // duplicate notifications on CRON re-runs (BUG-NOTIF-03).
-            const downgradWeek = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-            await db.query(
-              `INSERT INTO notifications (user_id, type, payload, is_read, reference_id, created_at)
-               VALUES ($1, 'guild_tier_downgrade', $2::jsonb, false, $3, NOW())
-               ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
-              [guild.captain_id, JSON.stringify({ guildId: guild.id, previousTier: guild.tier, newTier }), `guild_tier_downgrade:${guild.id}:${downgradWeek}`]
-            );
-            guildTierDowngrades++;
-          } else {
-            await db.query(
-              `UPDATE guilds SET below_minimum_days = $1, updated_at = NOW() WHERE id = $2`,
-              [newDays, guild.id]
-            );
-          }
-        }
-      } catch (err) {
-        errors.push(`guildTierCheck(${guild.id}): ${String(err)}`);
-      }
+    // C) Downgrade guilds at exactly 7 days below-minimum, notify captains
+    //    (runs BEFORE the increment so it reads the original below_minimum_days)
+    const downgradeWeek = now.toISOString().slice(0, 10);
+    const { rows: downgraded } = await db.query<{
+      id: string; captain_id: string; old_tier: string; new_tier: string;
+    }>(
+      `WITH to_downgrade AS (
+         SELECT g.id, g.captain_id, g.tier AS old_tier,
+                ${TIER_DOWNGRADE_CASE} AS new_tier
+         FROM guilds g
+         WHERE g.deleted_at IS NULL AND g.is_active = TRUE
+           AND g.below_minimum_days + 1 >= 7
+           AND (
+             SELECT COUNT(*) FROM guild_members gm
+             WHERE gm.guild_id = g.id AND gm.left_at IS NULL
+           ) < ${TIER_MIN_CASE}
+       ),
+       updated AS (
+         UPDATE guilds SET tier = td.new_tier, below_minimum_days = 0, updated_at = NOW()
+         FROM to_downgrade td
+         WHERE guilds.id = td.id
+         RETURNING guilds.id, td.captain_id, td.old_tier, td.new_tier
+       )
+       SELECT id, captain_id, old_tier, new_tier FROM updated`
+    );
+
+    if (downgraded.length > 0) {
+      // Batch-insert captain notifications. Use a subquery to expand unnest() once
+      // so each array column is only referenced once — avoids N² cross-join if
+      // the same array is unnested more than once in a flat SELECT.
+      await db.query(
+        `INSERT INTO notifications (user_id, type, payload, is_read, reference_id, created_at)
+         SELECT sub.captain_id,
+                'guild_tier_downgrade',
+                jsonb_build_object('guildId', sub.guild_id, 'previousTier', sub.old_tier, 'newTier', sub.new_tier),
+                false,
+                'guild_tier_downgrade:' || sub.guild_id || ':' || $5,
+                NOW()
+         FROM (SELECT unnest($1::uuid[]) AS captain_id,
+                      unnest($2::text[]) AS guild_id,
+                      unnest($3::text[]) AS old_tier,
+                      unnest($4::text[]) AS new_tier) sub
+         ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
+        [
+          downgraded.map(d => d.captain_id),
+          downgraded.map(d => d.id),
+          downgraded.map(d => d.old_tier),
+          downgraded.map(d => d.new_tier),
+          downgradeWeek,
+        ]
+      ).catch(() => {});
+
+      guildTierDowngrades = downgraded.length;
     }
+
+    // B) Increment guilds below-minimum that haven't hit 7 days yet.
+    //    Runs AFTER the downgrade pass. Guilds C just downgraded were reset to 0;
+    //    if still below their (now lower) tier minimum they correctly start a
+    //    fresh countdown at 1, which is acceptable for an understaffed guild.
+    await db.query(
+      `UPDATE guilds g
+       SET below_minimum_days = below_minimum_days + 1, updated_at = NOW()
+       WHERE g.deleted_at IS NULL AND g.is_active = TRUE
+         AND g.below_minimum_days + 1 < 7
+         AND (
+           SELECT COUNT(*) FROM guild_members gm
+           WHERE gm.guild_id = g.id AND gm.left_at IS NULL
+         ) < ${TIER_MIN_CASE}`
+    );
   } catch (err) {
     errors.push(`guildTierMinimumCheck: ${String(err)}`);
   }

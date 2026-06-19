@@ -562,42 +562,42 @@ User-facing feed APIs (gifts history, inbox, guilds discovery, season leaderboar
 
 ## CRON Setup (CRITICAL)
 
-Vercel Hobby Plan allows **only one CRON job per day**. Zobia requires multiple CRON frequencies:
+Vercel Hobby Plan allows up to 100 CRON jobs, but **each can only run once per day**. Zobia uses 7 staggered daily slots (23:00–05:00 UTC = midnight–6am WAT) plus external sub-daily CRONs.
 
-| Job | Frequency | Handler | Notes |
-|---|---|---|---|
-| Daily reset | Midnight UTC | `/api/cron/daily` (configured in vercel.json) | Quest reset, login streaks, mystery XP drop, Creator Fund (days 1 & 5), guild tier demotion |
-| Guild war checks | Every 1 hour | `/api/cron/guild-wars` | Final Hour transitions, war resolution, Drop Room auto-close, Flash XP announcements |
-| Leaderboard updates | Every 15 minutes | `/api/cron/leaderboards` | Snapshot upserts, rank-change notifications |
-| Payout batch processing | Every 30 minutes | `/api/cron/payouts` | Initiates Paystack transfers for pending Nigeria bank payouts; retries eligible failed payouts |
+### Daily CRON slots (Vercel-native, already configured in `vercel.json`)
 
-### Daily CRON responsibilities (day-of-month logic)
+The 7 daily slots are staggered hourly through the night so each finishes well within Vercel's 10-second function timeout. All are idempotent (DB-based guard key in `cron_state`).
 
-The daily CRON (`/api/cron/daily`) runs at **midnight UTC** every day. Some steps are conditional on the calendar date:
+| UTC time | Route | Responsibilities |
+|---|---|---|
+| 23:00 | `/api/cron/daily-core` | Quest deck reset, login streaks (increment + reset), daily login XP, moments expiry, expired pin sweep, message history cleanup |
+| 00:00 | `/api/cron/daily-users` | Inactivity event detection (3/7/14/30/90-day thresholds), guild discovery prompts for new users, comeback coin expiry |
+| 01:00 | `/api/cron/daily-notify` | Re-engagement push + email dispatch, Telegram re-engagement (concurrent), Platform Council invitations (last 7 days of month) |
+| 02:00 | `/api/cron/daily-guilds` | Guild tier demotion/promotion, Patron badge, guild contribution alerts, guild quest reset (Mondays) |
+| 03:00 | `/api/cron/daily-economy` | Creator Fund seed (day 1) + distribute (day 5), monthly plan bonus (day 1), ad revenue enrolment (day 1), weekly payouts (Fridays), referral streak qualifying |
+| 04:00 | `/api/cron/daily-social` | Nemesis refresh (Sundays), season leaderboard snapshot (Sundays), leaderboard ripple notifications, DM sticker milestones, trust score batch recalculation, earnable sticker unlocks, creator tier progression |
+| 05:00 | `/api/cron/daily-platform` | Season transitions, gift drops, mystery XP drop, Flash XP lifecycle, annual event recurrence, moderation digest (Fridays), Master Teacher award, Alliance Wars resolution + pairing (Sundays), Telegram delivery queue, room expiry, SYS-01/SYS-02/SYS-04/WEBHOOK-RETRY/PUSH-RECEIPT |
 
-- **Every day**: Quest deck reset, login streak updates, re-engagement notifications, daily login XP, mystery XP drop (probabilistic), guild discovery prompts, guild tier demotion checks.
-- **Day 1 of month**: Creator Fund pool seeded from 5% of prior month's ad revenue (`ad_revenue_YYYY_MM_kobo` key in `x_manifest` → write to `creator_fund_balance_kobo`).
-- **Day 5 of month**: Creator Fund distributed to eligible creators (Elite tier+) and pool reset to 0.
-- **Sundays**: Nemesis assignments refreshed, season leaderboard snapshot published.
+No additional setup is required for these — they are already defined in `apps/web/vercel.json` and Vercel schedules them automatically on deploy.
 
-### Vercel Hobby CRON (daily — already configured)
+### Generating `CRON_SECRET`
 
-The daily CRON is already defined in `apps/web/vercel.json`:
+All CRON handlers (both Vercel-native and external) verify an `Authorization: Bearer <CRON_SECRET>` header using a timing-safe comparison. Generate and set this once:
 
-```json
-{ "path": "/api/cron/daily", "schedule": "0 0 * * *" }
+```bash
+openssl rand -hex 32
+# Paste output as CRON_SECRET in your Vercel environment variables
 ```
 
-This runs at midnight UTC automatically on Vercel. No additional setup needed.
+Never expose `CRON_SECRET` publicly.
 
-### cron-jobs.org external CRON (required for sub-daily jobs)
+### Sub-daily CRONs (external — required, via cron-jobs.org)
 
-All sub-daily CRON jobs must be driven by an external scheduler because Vercel Hobby limits you to one daily CRON.
+Because Vercel Hobby limits each path to once per day, sub-daily jobs must be triggered externally.
 
 1. Create a free account at [cron-jobs.org](https://cron-jobs.org).
-2. Generate a secure CRON secret: `openssl rand -hex 32`
-3. Add this value as `CRON_SECRET` in your Vercel environment variables.
-4. In cron-jobs.org, create the following jobs:
+2. Use the same `CRON_SECRET` you set above.
+3. In cron-jobs.org, create the following jobs:
 
 **Guild War Checks (hourly)**
 - URL: `https://your-domain.com/api/cron/guild-wars`
@@ -619,11 +619,9 @@ All sub-daily CRON jobs must be driven by an external scheduler because Vercel H
 
 **Nightly Balance Reconciliation**
 - URL: `https://your-domain.com/api/cron/reconcile-balances`
-- Schedule: Every night at 02:00 UTC (or any off-peak time)
+- Schedule: Every night at 06:00 UTC (after the 7 daily slots complete)
 - HTTP Method: GET
 - Header: `Authorization: Bearer YOUR_CRON_SECRET`
-
-All CRON handlers verify the `Authorization: Bearer <CRON_SECRET>` header and return 401 if it does not match. Never expose `CRON_SECRET` publicly.
 
 ### Paystack Setup (Payments & Payouts)
 
