@@ -109,7 +109,7 @@ export async function processChargeSuccess(
     // VIP room subscription — activate room access
     if (itemType === "room_subscription") {
       let { roomId, grossKobo: subGrossKobo, subscriptionDays = 30 } = metadata as unknown as {
-        roomId: string;
+        roomId: string | null | undefined;
         grossKobo: number;
         subscriptionDays?: number;
       };
@@ -123,7 +123,7 @@ export async function processChargeSuccess(
         );
         if (!roomCheck.rows[0]) {
           console.warn(`[paystackWebhook] Room ${roomId} not found, skipping room subscription`);
-          roomId = null as unknown as string;
+          roomId = null;
         }
       }
 

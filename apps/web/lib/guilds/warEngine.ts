@@ -19,6 +19,7 @@
 import type { DatabaseAdapter, TransactionClient } from "@/lib/db/interface";
 import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 import { creditCoins } from "@/lib/economy/coins";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -251,23 +252,30 @@ export async function distributeWarRewards(
     if (members.length === 0) return;
 
     const pool = WAR_WIN_TREASURY_COINS;
-    const topShare = Math.floor(pool * 0.3);
-    const secondShare = members.length >= 2 ? Math.floor(pool * 0.2) : 0;
-    const remainderPool = pool - topShare - secondShare;
-    const remainingMembers = Math.max(members.length - 2, 0);
-    const equalShare =
-      remainingMembers > 0 ? Math.floor(remainderPool / remainingMembers) : 0;
 
-    // Distribute any remainder (from flooring) to the top contributor
-    const totalDistributed = topShare + secondShare + equalShare * remainingMembers;
-    const coinRemainder = pool - totalDistributed;
+    // Pre-compute each member's coin share based on guild size to avoid
+    // the 80/20 mis-split that the general formula produces for 2-member guilds.
+    const userCoins: number[] = new Array(members.length).fill(0);
+    if (members.length === 1) {
+      userCoins[0] = pool;
+    } else {
+      // Top 30%, second 20%, rest split equally from remaining 50%.
+      // With fewer than 3 members the unallocated remainder rolls up to the
+      // top contributor via coinRemainder so the full pool is always paid out.
+      const topShare = Math.floor(pool * 0.3);
+      const secondShare = Math.floor(pool * 0.2);
+      const remainderPool = pool - topShare - secondShare;
+      const remainingMembers = members.length - 2;
+      const equalShare = remainingMembers > 0 ? Math.floor(remainderPool / remainingMembers) : 0;
+      const coinRemainder = remainderPool - equalShare * remainingMembers;
+      userCoins[0] = topShare + coinRemainder;
+      userCoins[1] = secondShare;
+      for (let i = 2; i < members.length; i++) userCoins[i] = equalShare;
+    }
 
     for (let i = 0; i < members.length; i++) {
       const { user_id } = members[i];
-      let coins = 0;
-      if (i === 0) coins = topShare + coinRemainder;
-      else if (i === 1) coins = secondShare;
-      else coins = equalShare;
+      const coins = userCoins[i];
 
       if (coins <= 0) continue;
 
@@ -394,15 +402,13 @@ export async function resolveWar(
       `UPDATE guilds SET guild_xp = guild_xp + $1, updated_at = NOW() WHERE id = $2`,
       [guildXPReward, winnerGuildId]
     );
-    // FIX-H07: include war_id so each war produces at most one tier history entry
-    // per guild. ON CONFLICT (guild_id, war_id) WHERE war_id IS NOT NULL prevents
-    // duplicate inserts if resolveWar is called concurrently for the same war.
+    // Include war_id so each war produces at most one tier history entry per guild.
     await client.query(
       `INSERT INTO guild_tier_history (guild_id, from_tier, to_tier, guild_xp_at, war_id)
        SELECT $1, tier, tier, guild_xp, $2::uuid FROM guilds WHERE id = $1
        ON CONFLICT (guild_id, war_id) WHERE war_id IS NOT NULL DO NOTHING`,
       [winnerGuildId, warId]
-    ).catch(() => {});
+    ).catch((err) => logger.error({ warId, err }, "[resolveWar] Failed to write guild tier history"));
 
     // Distribute coin rewards within the same transaction (ZB-03)
     await distributeWarRewards(warId, winnerGuildId!, db, client);

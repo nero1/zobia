@@ -22,6 +22,17 @@
 
 import { useEffect, useState } from "react";
 
+// Module-level Pusher singleton — one WebSocket connection shared across all
+// hook instances. Created lazily on first use; never disconnected until the
+// app unmounts (call disconnectPusher() at the top-level teardown if needed).
+let pusherSingleton: InstanceType<typeof import("pusher-js").default> | null = null;
+
+/** Call at app unmount to cleanly close the shared Pusher connection. */
+export function disconnectPusher(): void {
+  pusherSingleton?.disconnect();
+  pusherSingleton = null;
+}
+
 export function useRealtimeChannel(
   channel: string | null,
   onEvent: (event: string, data: unknown) => void
@@ -76,6 +87,11 @@ export function useRealtimeChannel(
     } else if (provider === "ably") {
       (async () => {
         const Ably = (await import("ably")) as any;
+        // Guard BEFORE creating the client: if the component unmounted while
+        // the dynamic import was in-flight, bail out now instead of opening
+        // a connection that would immediately need to be closed.
+        if (cancelled) return;
+
         const client = new Ably.Realtime({
           authUrl: `/api/realtime/ably-token?channel=${encodeURIComponent(channel)}`,
         });
@@ -84,15 +100,13 @@ export function useRealtimeChannel(
           markConnected(stateChange.current === "connected");
         });
         const ch = client.channels.get(channel);
+        // Guard the message callback so events arriving in the brief window
+        // between subscription and cleanup teardown never call into a
+        // potentially unmounted component.
         ch.subscribe((msg: { name: string; data: unknown }) => {
-          onEvent(msg.name, msg.data);
+          if (!cancelled) onEvent(msg.name, msg.data);
         });
 
-        if (cancelled) {
-          ch.unsubscribe();
-          client.close();
-          return;
-        }
         cleanup = () => {
           ch.unsubscribe();
           client.close();
@@ -111,17 +125,26 @@ export function useRealtimeChannel(
         .replace(/^room:/, "private-room-");
 
       (async () => {
-        const Pusher = ((await import("pusher-js")) as any).default;
-        const pusher = new Pusher(pusherKey, {
-          cluster: pusherCluster,
-          channelAuthorization: {
-            endpoint: "/api/realtime/pusher-auth",
-            transport: "ajax",
-          },
-        });
+        const PusherLib = ((await import("pusher-js")) as any).default;
+        if (cancelled) return;
+
+        // Initialise the singleton on first use; reuse on subsequent mounts
+        if (!pusherSingleton) {
+          pusherSingleton = new PusherLib(pusherKey, {
+            cluster: pusherCluster,
+            channelAuthorization: {
+              endpoint: "/api/realtime/pusher-auth",
+              transport: "ajax",
+            },
+          });
+        }
+        const pusher = pusherSingleton!;
+
         pusher.connection.bind("state_change", (states: { current: string }) => {
           markConnected(states.current === "connected");
         });
+        // Reflect current connection state immediately
+        markConnected(pusher.connection.state === "connected");
 
         const sub = pusher.subscribe(pusherChannel);
         // Pusher delivers named events — bind to all with a catch-all
@@ -132,13 +155,14 @@ export function useRealtimeChannel(
         });
 
         if (cancelled) {
+          sub.unbind_all();
           pusher.unsubscribe(pusherChannel);
-          pusher.disconnect();
           return;
         }
         cleanup = () => {
+          sub.unbind_all();
           pusher.unsubscribe(pusherChannel);
-          pusher.disconnect();
+          // Do NOT call pusher.disconnect() — the singleton is shared with other hook instances
         };
       })();
     }

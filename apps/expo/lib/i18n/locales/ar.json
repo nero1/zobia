@@ -134,7 +134,9 @@
     "pageTitle": "Home",
     "quests": {
       "empty": "No quests today. Check back later!",
-      "title": "Today's Quests"
+      "title": "Today's Quests",
+      "errors.wager_too_high": "Wager exceeds the maximum allowed amount of {{max}} credits.",
+      "errors.invalid_request_body": "Invalid request body"
     }
   },
   "rooms": {
@@ -227,7 +229,9 @@
     "tab": {
       "friends": "Friends In",
       "nearby": "Near Me",
-      "trending": "Trending"
+      "trending": "Trending",
+      "errors.wager_too_high": "Wager exceeds the maximum allowed amount of {{max}} credits.",
+      "errors.invalid_request_body": "Invalid request body"
     }
   },
   "messages": {
@@ -642,7 +646,9 @@
       "step2": "Stay active in the last 30 days",
       "title": "Elder System",
       "wantMentor": "Want a Mentor?",
-      "wantMentorBody": "Request an Elder mentor to help guide your journey on Zobia."
+      "wantMentorBody": "Request an Elder mentor to help guide your journey on Zobia.",
+      "errors.wager_too_high": "Wager exceeds the maximum allowed amount of {{max}} credits.",
+      "errors.invalid_request_body": "Invalid request body"
     }
   },
   "referrals": {
@@ -693,7 +699,9 @@
       "pending": "Pending",
       "qualified": "✓ Yes",
       "tier": "Tier {{tier}}",
-      "title": "Referred Users"
+      "title": "Referred Users",
+      "errors.wager_too_high": "Wager exceeds the maximum allowed amount of {{max}} credits.",
+      "errors.invalid_request_body": "Invalid request body"
     }
   },
   "notifications": {
@@ -1552,5 +1560,7 @@
   "games.status.active": "Active",
   "games.status.completed": "Completed",
   "games.status.cancelled": "Cancelled",
-  "games.status.expired": "Expired"
+  "games.status.expired": "Expired",
+  "errors.wager_too_high": "Wager exceeds the maximum allowed amount of {{max}} credits.",
+  "errors.invalid_request_body": "Invalid request body"
 }

@@ -245,6 +245,7 @@ export async function compareNemesisProgress(
     generosity: "xp_generosity",
     knowledge: "xp_knowledge",
     explorer: "xp_explorer",
+    gaming: "xp_gaming",
   };
   const col = trackColumnMap[track];
   if (!col || !new Set(Object.values(trackColumnMap)).has(col)) {

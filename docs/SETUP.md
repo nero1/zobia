@@ -573,7 +573,10 @@ are required.
 - **Master toggle:** `feature_games` (Admin → Feature Flags), default on. Per-game
   activation, cover-page editing, rewards, free/paid play cost and stats live at
   `/admin/games`. Runtime config (`game_wager_rake_pct`, `game_challenge_expiry_hours`,
-  `game_default_reward_credits/xp`) at `/admin/config`.
+  `game_default_reward_credits/xp`, `game_max_wager_credits`) at `/admin/config`.
+  `game_max_wager_credits` (default 10 000) is the server-enforced ceiling on per-challenge
+  credit wagers; attempts to create a challenge above this value are rejected with
+  `WAGER_TOO_HIGH`.
 - **Mobile (Expo):** games render in a `react-native-webview` that loads
   `<WEB_BASE_URL>/g/<slug>/embed`. The dependency is declared in `apps/expo/package.json`;
   run `pnpm install` after pulling. No native game code ships — write a game once as a web

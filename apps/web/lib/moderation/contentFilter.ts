@@ -218,13 +218,20 @@ export async function detectBotBehavior(
   const messageLimit = relaxed ? 60 : 30;
   const windowSeconds = 60;
 
-  // Count room messages for velocity checks.
+  // Count messages across both rooms AND DMs so DM flooding is detected too
   const { rows } = await db.query<{ count: string }>(
     `SELECT COUNT(*)::text AS count
-     FROM room_messages
-     WHERE sender_id = $1
-       AND created_at >= NOW() - ($2 * INTERVAL '1 second')
-       AND is_deleted = FALSE`,
+     FROM (
+       SELECT id FROM room_messages
+       WHERE sender_id = $1
+         AND created_at >= NOW() - ($2 * INTERVAL '1 second')
+         AND is_deleted = FALSE
+       UNION ALL
+       SELECT id FROM messages
+       WHERE sender_id = $1
+         AND created_at >= NOW() - ($2 * INTERVAL '1 second')
+         AND is_deleted = FALSE
+     ) combined`,
     [userId, windowSeconds]
   );
 

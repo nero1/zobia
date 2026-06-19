@@ -19,6 +19,7 @@ import { ACTION_TRACKS } from "@/lib/xp/engine";
 import { creditCoins } from "@/lib/economy/coins";
 import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 import { publishRealtimeEvent } from "@/lib/realtime";
+import { logger } from "@/lib/logger";
 
 // Maps a ProgressionTrack name to the corresponding users table column
 const TRACK_COLUMN: Record<string, string> = {
@@ -251,9 +252,11 @@ export async function updateQuestProgress(
       xpAwarded = quest.xp_reward;
       coinsAwarded = quest.coin_reward;
 
-      // BUG-15: use safeAwardXP for DLQ fallback and stable referenceId for idempotency
       const parallelTrack =
         ACTION_TRACKS[quest.action_type as keyof typeof ACTION_TRACKS] ?? null;
+      if (parallelTrack === null && !(quest.action_type in ACTION_TRACKS)) {
+        logger.warn({ questId, actionType: quest.action_type }, "[questEngine] unknown action_type — no track mapping found, awarding main XP");
+      }
       const xpTrack = (parallelTrack as import("@/lib/xp/safeAwardXP").XPTrack) ?? "main";
       const questCompletionRef = `quest:${questId}:${userId}:${today}`;
       await safeAwardXP(userId, xpAwarded, xpTrack, "quest_complete", questCompletionRef, client);

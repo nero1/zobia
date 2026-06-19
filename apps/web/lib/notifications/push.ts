@@ -310,13 +310,6 @@ export async function pollPushReceipts(): Promise<number> {
 
         const result = (await response.json()) as ExpoReceiptsResponse;
 
-        // Mark this batch as checked now that Expo has responded successfully
-        const batchIds = batch.map((r) => r.id);
-        await db.query(
-          `UPDATE push_tickets SET checked_at = NOW() WHERE id = ANY($1)`,
-          [batchIds]
-        ).catch((err) => console.error("[push/receipts] Failed to mark tickets checked:", err));
-
         const staleTokens = new Set<string>();
 
         for (const ticket of batch) {
@@ -324,9 +317,11 @@ export async function pollPushReceipts(): Promise<number> {
           if (!receipt) continue;
 
           if (receipt.status === "ok") {
+            // Mark checked_at and status in one update per ticket so a mid-batch
+            // failure never strands a ticket with checked_at set but status still pending.
             await db.query(
               `UPDATE push_tickets
-               SET status = 'ok', resolved_at = NOW()
+               SET status = 'ok', checked_at = NOW(), resolved_at = NOW()
                WHERE id = $1`,
               [ticket.id]
             );
@@ -348,6 +343,7 @@ export async function pollPushReceipts(): Promise<number> {
                 `UPDATE push_tickets
                  SET status = 'device_not_registered',
                      error_code = $2,
+                     checked_at = NOW(),
                      resolved_at = NOW()
                  WHERE id = $1`,
                 [ticket.id, errCode]
@@ -357,6 +353,7 @@ export async function pollPushReceipts(): Promise<number> {
                 `UPDATE push_tickets
                  SET status = 'error',
                      error_code = $2,
+                     checked_at = NOW(),
                      resolved_at = NOW()
                  WHERE id = $1`,
                 [ticket.id, errCode]
@@ -409,9 +406,11 @@ export async function sendPushNotification(
   options?: PushNotificationOptions
 ): Promise<void> {
   try {
-    // Fetch ALL registered tokens for the user — supports multi-device
+    // Fetch active tokens for the user (excluding stale/abandoned devices)
     const { rows } = await db.query<PushTokenRow>(
-      `SELECT token FROM user_push_tokens WHERE user_id = $1`,
+      `SELECT token FROM user_push_tokens
+       WHERE user_id = $1
+         AND (last_seen_at IS NULL OR last_seen_at > NOW() - INTERVAL '90 days')`,
       [userId]
     );
 
@@ -476,9 +475,11 @@ export async function sendPushNotificationBatch(
   try {
     const userIds = [...new Set(notifications.map((n) => n.userId))];
 
-    // Fetch ALL tokens for all users in one query — supports multi-device
+    // Fetch active tokens for all users — excludes stale/abandoned devices
     const { rows } = await db.query<{ user_id: string; token: string }>(
-      `SELECT user_id, token FROM user_push_tokens WHERE user_id = ANY($1)`,
+      `SELECT user_id, token FROM user_push_tokens
+       WHERE user_id = ANY($1)
+         AND (last_seen_at IS NULL OR last_seen_at > NOW() - INTERVAL '90 days')`,
       [userIds]
     );
 

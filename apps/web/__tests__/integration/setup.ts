@@ -16,10 +16,16 @@
  * .github/workflows/integration-tests.yml).
  */
 
-import { Pool, PoolClient } from "pg";
+import { Pool, PoolClient, types } from "pg";
 import * as fs from "fs";
 import * as path from "path";
 import type { DatabaseAdapter, QueryResult } from "@/lib/db/interface";
+
+// XP columns were promoted from integer → bigint in migration 0015.
+// pg returns bigint (OID 20) as strings by default; parse them as JS numbers
+// so integration-test assertions like toBe(100) keep working.
+// Values are capped well below Number.MAX_SAFE_INTEGER so this is safe.
+types.setTypeParser(20, (val: string) => parseInt(val, 10));
 
 // ---------------------------------------------------------------------------
 // Constants

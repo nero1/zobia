@@ -123,9 +123,9 @@ export const users = pgTable("users", {
   dmOptOut: boolean("dm_opt_out").notNull().default(false),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 
-  // XP & Rank
-  xpTotal: integer("xp_total").notNull().default(0),
-  legacyScore: integer("legacy_score").notNull().default(0),
+  // XP & Rank — bigint (8-byte) so heavy users never overflow int32 (~2.1 B cap)
+  xpTotal: bigint("xp_total", { mode: "number" }).notNull().default(0),
+  legacyScore: bigint("legacy_score", { mode: "number" }).notNull().default(0),
   rankName: text("rank_name").notNull().default("Beginner"),
   rankLevel: integer("rank_level").notNull().default(1),
   rankSublevel: integer("rank_sublevel").notNull().default(1),
@@ -135,14 +135,14 @@ export const users = pgTable("users", {
   }),
   customCrest: text("custom_crest"),
 
-  // Track XP
-  xpSocial: integer("xp_social").notNull().default(0),
-  xpCreator: integer("xp_creator").notNull().default(0),
-  xpCompetitor: integer("xp_competitor").notNull().default(0),
-  xpGenerosity: integer("xp_generosity").notNull().default(0),
-  xpKnowledge: integer("xp_knowledge").notNull().default(0),
-  xpExplorer: integer("xp_explorer").notNull().default(0),
-  xpGaming: integer("xp_gaming").notNull().default(0),
+  // Track XP — bigint to match xp_total
+  xpSocial: bigint("xp_social", { mode: "number" }).notNull().default(0),
+  xpCreator: bigint("xp_creator", { mode: "number" }).notNull().default(0),
+  xpCompetitor: bigint("xp_competitor", { mode: "number" }).notNull().default(0),
+  xpGenerosity: bigint("xp_generosity", { mode: "number" }).notNull().default(0),
+  xpKnowledge: bigint("xp_knowledge", { mode: "number" }).notNull().default(0),
+  xpExplorer: bigint("xp_explorer", { mode: "number" }).notNull().default(0),
+  xpGaming: bigint("xp_gaming", { mode: "number" }).notNull().default(0),
 
   // Track Levels
   levelSocial: integer("level_social").notNull().default(1),
@@ -238,13 +238,17 @@ export const users = pgTable("users", {
   warningCount: integer("warning_count").notNull().default(0),
   bannedAt: timestamp("banned_at", { withTimezone: true }),
   bannedBy: uuid("banned_by"),
-  seasonXp: integer("season_xp").notNull().default(0),
+  seasonXp: bigint("season_xp", { mode: "number" }).notNull().default(0),
   planActivatedAt: timestamp("plan_activated_at", { withTimezone: true }),
   require2faSetup: boolean("require_2fa_setup").notNull().default(false),
 
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-});
+}, (t) => [
+  // BUG-SCHEMA-02: Cap wallet balances below JS Number.MAX_SAFE_INTEGER (2^53).
+  check("users_coin_balance_max", sql`${t.coinBalance} <= 1000000000000`),
+  check("users_star_balance_max", sql`${t.starBalance} <= 1000000000000`),
+]);
 
 export const sessions = pgTable("sessions", {
   id: uuidPk(),
@@ -329,7 +333,7 @@ export const pushTickets = pgTable(
   (t) => ({
     pendingIdx: index("idx_push_tickets_pending")
       .on(t.createdAt)
-      .where(sql`status = 'pending'`),
+      .where(sql`${t.status} = 'pending'`),
   })
 );
 
@@ -767,7 +771,11 @@ export const guilds = pgTable("guilds", {
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-});
+}, (t) => [
+  // BUG-SCHEMA-02: Cap guild treasury below JS Number.MAX_SAFE_INTEGER (2^53).
+  check("guilds_treasury_balance_max", sql`${t.treasuryBalance} <= 1000000000000`),
+  check("guilds_treasury_cap_max", sql`${t.treasuryCap} <= 1000000000000`),
+]);
 
 export const guildMembers = pgTable(
   "guild_members",
@@ -1179,7 +1187,15 @@ export const rooms = pgTable("rooms", {
 
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-});
+}, (t) => [
+  check("rooms_public_requires_slug", sql`NOT (${t.isPublic} = TRUE AND ${t.slug} IS NULL)`),
+  // BUG-SCHEMA-02: Cap room pricing columns below JS Number.MAX_SAFE_INTEGER (2^53).
+  check("rooms_subscription_price_kobo_max", sql`${t.subscriptionPriceKobo} IS NULL OR ${t.subscriptionPriceKobo} <= 1000000000000`),
+  check("rooms_entry_fee_kobo_max", sql`${t.entryFeeKobo} IS NULL OR ${t.entryFeeKobo} <= 1000000000000`),
+  check("rooms_subscription_price_ngn_max", sql`${t.subscriptionPriceNgn} IS NULL OR ${t.subscriptionPriceNgn} <= 1000000000000`),
+  check("rooms_entry_fee_ngn_max", sql`${t.entryFeeNgn} IS NULL OR ${t.entryFeeNgn} <= 1000000000000`),
+  check("rooms_enrolment_fee_ngn_max", sql`${t.enrolmentFeeNgn} IS NULL OR ${t.enrolmentFeeNgn} <= 1000000000000`),
+]);
 
 export const roomMembers = pgTable(
   "room_members",
@@ -1597,7 +1613,7 @@ export const userSeasonPasses = pgTable(
       .notNull()
       .references(() => seasons.id, { onDelete: "cascade" }),
     isPaid: boolean("is_paid").notNull().default(false),
-    seasonXp: integer("season_xp").notNull().default(0),
+    seasonXp: bigint("season_xp", { mode: "number" }).notNull().default(0),
     seasonRank: integer("season_rank"),
     purchasedAt: timestamp("purchased_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
@@ -1672,7 +1688,7 @@ export const seasonRankArchives = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     finalRank: integer("final_rank"),
-    finalSeasonXp: integer("final_season_xp").notNull().default(0),
+    finalSeasonXp: bigint("final_season_xp", { mode: "number" }).notNull().default(0),
     archivedAt: timestamp("archived_at", { withTimezone: true }).defaultNow(),
   },
   (t) => ({
@@ -3625,7 +3641,7 @@ export const platformCouncilMembers = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     cycleMonth: text("cycle_month").notNull(),
-    legacyScore: integer("legacy_score").notNull(),
+    legacyScore: bigint("legacy_score", { mode: "number" }).notNull(),
     joinedAt: timestamp("joined_at", { withTimezone: true }).defaultNow(),
     leftAt: timestamp("left_at", { withTimezone: true }),
   },

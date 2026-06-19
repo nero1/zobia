@@ -177,23 +177,25 @@ export async function retireGiftDrop(
 
   const giftItemId = rows[0].gift_item_id;
 
-  // Deactivate the drop record
-  await db.query(
-    `UPDATE monthly_gift_drops
-     SET is_active = FALSE
-     WHERE id = $1`,
-    [dropId]
-  );
+  // Both UPDATEs must succeed atomically — partial failure (drop deactivated but
+  // item not retired) would allow the gift item to be re-scheduled into a new drop.
+  await db.transaction(async (tx) => {
+    await tx.query(
+      `UPDATE monthly_gift_drops
+       SET is_active = FALSE
+       WHERE id = $1`,
+      [dropId]
+    );
 
-  // Permanently retire the gift item
-  await db.query(
-    `UPDATE gift_items
-     SET is_retired = TRUE,
-         is_limited_edition = TRUE,
-         updated_at = NOW()
-     WHERE id = $1`,
-    [giftItemId]
-  );
+    await tx.query(
+      `UPDATE gift_items
+       SET is_retired = TRUE,
+           is_limited_edition = TRUE,
+           updated_at = NOW()
+       WHERE id = $1`,
+      [giftItemId]
+    );
+  });
 }
 
 /**
