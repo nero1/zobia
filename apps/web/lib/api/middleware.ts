@@ -34,6 +34,7 @@ import {
 } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
+import { memGet, memSet } from "@/lib/cache/memory";
 import {
   ApiError,
   unauthorized,
@@ -187,8 +188,14 @@ export function withAuth<TParams = Record<string, string>>(
         return cleared;
       }
 
-      // Check account status (banned/suspended/deleted) — cached 30s to reduce DB load
+      // Check account status (banned/suspended/deleted).
+      // Two-level cache to minimise Redis traffic on high-frequency (polling)
+      // endpoints: L1 in-process (per-instance, short TTL) → L2 Redis (30s) → DB.
+      // The L1 cache means a warm instance serving a 3s chat poll makes ZERO
+      // Redis status reads for ~15s at a time instead of one GET per request.
       const statusKey = `user:status:${payload.sub}`;
+      const statusMemKey = `status:${payload.sub}`;
+      const STATUS_MEM_TTL_MS = 15_000;
       let accountBlocked = false;
       // Sensitive mutation endpoints (payments, payouts, transfers, gifts) fail CLOSED
       // when status cannot be confirmed — a brief Redis/DB outage is preferable to
@@ -198,10 +205,17 @@ export function withAuth<TParams = Record<string, string>>(
         req.method !== "HEAD" &&
         /\/(payments|payouts|gifts|coins\/transfer|stars\/gift|economy\/webhooks|economy\/coins\/purchase|economy\/stars\/purchase)/.test(new URL(req.url).pathname);
 
+      // L1: in-process cache. Sensitive mutations always bypass L1 and confirm
+      // against Redis/DB so a ban can never be masked by a stale local entry.
+      const memStatus = isSensitiveMutation ? undefined : memGet<"blocked" | "ok">(statusMemKey);
+      if (memStatus !== undefined) {
+        accountBlocked = memStatus === "blocked";
+      } else {
       try {
         const cachedStatus = await redis.get(statusKey);
         if (cachedStatus !== null) {
           accountBlocked = cachedStatus === "blocked";
+          memSet(statusMemKey, accountBlocked ? "blocked" : "ok", STATUS_MEM_TTL_MS);
         } else {
           const { rows: statusRows } = await db.query<{
             is_banned: boolean;
@@ -225,6 +239,7 @@ export function withAuth<TParams = Record<string, string>>(
             ).catch(() => {});
           }
           await redis.setex(statusKey, 30, accountBlocked ? "blocked" : "ok").catch(() => {});
+          memSet(statusMemKey, accountBlocked ? "blocked" : "ok", STATUS_MEM_TTL_MS);
         }
       } catch {
         if (isSensitiveMutation) {
@@ -232,6 +247,7 @@ export function withAuth<TParams = Record<string, string>>(
           throw unauthorized("Account status check failed. Please try again.");
         }
         // For read paths, fail open (a Redis blip shouldn't break the whole app)
+      }
       }
 
       if (accountBlocked) {
