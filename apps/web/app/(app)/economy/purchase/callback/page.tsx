@@ -67,7 +67,7 @@ function CallbackContent() {
         setStatus("error");
         setMessage(t("purchase.callback.networkError"));
       });
-  }, [reference]);
+  }, [reference, t]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-neutral-50 px-4 dark:bg-neutral-950">
