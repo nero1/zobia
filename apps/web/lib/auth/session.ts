@@ -223,6 +223,28 @@ export async function rotateSession(
 // ---------------------------------------------------------------------------
 
 /**
+ * Read a session record straight from Redis, bypassing the L1 cache.
+ *
+ * Used by the refresh-token rotation path, which compares the presented token's
+ * hash against the stored `refreshTokenHash`/`prevRefreshTokenHash`. Those fields
+ * change on every rotation, so a stale per-instance copy could make a legitimate
+ * rotated token look like a reused one and wrongly revoke the whole session
+ * chain. Token rotation is rare relative to ordinary requests, so always paying
+ * the Redis read here costs almost nothing.
+ */
+async function getSessionFresh(sid: string): Promise<SessionRecord | null> {
+  const raw = await redis.get(sessionKey(sid));
+  if (!raw) return null;
+  try {
+    const record = JSON.parse(raw) as SessionRecord;
+    memSet(sessionCacheKey(sid), record, SESSION_CACHE_TTL_MS);
+    return record;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Check whether the session with the given `sid` is still valid in Redis.
  * Returns the session record or null if expired / invalidated.
  *
@@ -230,7 +252,8 @@ export async function rotateSession(
  */
 export async function getSession(sid: string): Promise<SessionRecord | null> {
   // L1: per-instance cache — avoids a Redis round-trip on every authenticated
-  // request (see SESSION_CACHE_TTL_MS notes above).
+  // request (see SESSION_CACHE_TTL_MS notes above). Only the existence + stable
+  // identity fields are consumed on this path, so brief staleness is safe.
   const cached = memGet<SessionRecord>(sessionCacheKey(sid));
   if (cached) return cached;
 
@@ -262,7 +285,9 @@ export async function refreshAccessToken(
 ): Promise<Pick<AuthTokens, "accessToken" | "expiresIn"> & { newRefreshToken?: string; refreshTtl?: number }> {
   const payload = await verifyRefreshToken(refreshToken);
 
-  const session = await getSession(payload.sid!);
+  // Read fresh (never the L1 cache): rotation compares token hashes that change
+  // on every refresh, so a stale copy could mis-flag a valid token as reused.
+  const session = await getSessionFresh(payload.sid!);
   if (!session) {
     throw new Error("Session has been revoked or has expired");
   }
