@@ -769,7 +769,8 @@
     "done": "Kuqedile",
     "continue": "Qhubeka",
     "offline": "Awuxhunyiwe",
-    "offlineMessage": "Ezinye izici zingase zingasetshenziswa"
+    "offlineMessage": "Ezinye izici zingase zingasetshenziswa",
+    "dismiss": "Susa"
   },
   "auth": {
     "loginTitle": "Wamukelekile ku-Zobia",
@@ -786,7 +787,8 @@
     "loginTimeoutBody": "Ukungena kwe-Telegram kuthatha isikhathi. Sicela uzame futhi bese uqeda ukungena ku-Telegram.",
     "callbackError": "Ukungena kwehlulekile. Sicela uzame futhi.",
     "googleError": "Ukungena kwe-Google kwehlulekile. Sicela uzame futhi.",
-    "telegramError": "Ukungena kwe-Telegram kwehlulekile. Sicela uzame futhi."
+    "telegramError": "Ukungena kwe-Telegram kwehlulekile. Sicela uzame futhi.",
+    "sessionExpiredSignIn": "Ngena"
   },
   "onboarding": {
     "step1Title": "Lungisa iphrofayili yakho",

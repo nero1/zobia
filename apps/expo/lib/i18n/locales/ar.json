@@ -12,7 +12,8 @@
     "done": "تم",
     "continue": "متابعة",
     "offline": "أنت غير متصل",
-    "offlineMessage": "قد لا تتوفر بعض الميزات"
+    "offlineMessage": "قد لا تتوفر بعض الميزات",
+    "dismiss": "إغلاق"
   },
   "auth": {
     "loginTitle": "مرحباً بك في زوبيا",
@@ -45,7 +46,8 @@
     "loginTimeoutBody": "انتهت مهلة تسجيل الدخول عبر Telegram. يرجى المحاولة مرة أخرى وإكمال تسجيل الدخول في Telegram.",
     "callbackError": "فشل الاستجابة. يرجى المحاولة مرة أخرى.",
     "googleError": "فشل تسجيل الدخول عبر Google. يرجى المحاولة مرة أخرى.",
-    "telegramError": "فشل تسجيل الدخول عبر Telegram. يرجى المحاولة مرة أخرى."
+    "telegramError": "فشل تسجيل الدخول عبر Telegram. يرجى المحاولة مرة أخرى.",
+    "sessionExpiredSignIn": "تسجيل الدخول"
   },
   "onboarding": {
     "step1Title": "أعد ملفك الشخصي",

@@ -12,7 +12,8 @@
     "done": "Done",
     "continue": "Continue",
     "offline": "You're offline",
-    "offlineMessage": "Some features may be unavailable"
+    "offlineMessage": "Some features may be unavailable",
+    "dismiss": "Dismiss"
   },
   "auth": {
     "loginTitle": "Welcome to Zobia",
@@ -31,7 +32,8 @@
     "googleError": "Google Sign-In failed. Please try again.",
     "telegramError": "Telegram login failed. Please try again.",
     "sessionExpiredTitle": "Session Expired",
-    "sessionExpiredMessage": "Your session has expired. Please sign in to continue."
+    "sessionExpiredMessage": "Your session has expired. Please sign in to continue.",
+    "sessionExpiredSignIn": "Sign in"
   },
   "onboarding": {
     "step1Title": "Set up your profile",

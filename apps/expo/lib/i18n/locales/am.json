@@ -769,7 +769,8 @@
     "done": "ተጠናቅቋል",
     "continue": "ቀጥል",
     "offline": "ከኢንተርኔት ተቋርጠዋል",
-    "offlineMessage": "አንዳንድ ባህሪያት ላይሰሩ ይችላሉ"
+    "offlineMessage": "አንዳንድ ባህሪያት ላይሰሩ ይችላሉ",
+    "dismiss": "አሰናብት"
   },
   "auth": {
     "loginTitle": "ወደ ዞቢያ እንኳን ደህና መጡ",
@@ -786,7 +787,8 @@
     "loginTimeoutBody": "የTelegram መግቢያ ጊዜ ቆሟል። እባክዎ እንደገና ይሞክሩ እና ወደ Telegram ለመግባቱን ያጠናቅቁ።",
     "callbackError": "የማረጋገጫ ምላሽ አልተሳካም። እባክዎ እንደገና ይሞክሩ።",
     "googleError": "Google ላይ መግባት አልተሳካም። እባክዎ እንደገና ይሞክሩ።",
-    "telegramError": "Telegram ላይ መግባት አልተሳካም። እባክዎ እንደገና ይሞክሩ።"
+    "telegramError": "Telegram ላይ መግባት አልተሳካም። እባክዎ እንደገና ይሞክሩ።",
+    "sessionExpiredSignIn": "ግባ"
   },
   "onboarding": {
     "step1Title": "መገለጫዎን ያዋቅሩ",

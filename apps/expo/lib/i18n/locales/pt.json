@@ -769,7 +769,8 @@
     "done": "Concluído",
     "continue": "Continuar",
     "offline": "Você está offline",
-    "offlineMessage": "Alguns recursos podem não estar disponíveis"
+    "offlineMessage": "Alguns recursos podem não estar disponíveis",
+    "dismiss": "Dispensar"
   },
   "auth": {
     "loginTitle": "Bem-vindo ao Zobia",
@@ -786,7 +787,8 @@
     "loginTimeoutBody": "O login via Telegram expirou. Por favor, tente novamente e conclua o login no Telegram.",
     "callbackError": "Falha no retorno de autenticação. Por favor, tente novamente.",
     "googleError": "Falha no login com Google. Por favor, tente novamente.",
-    "telegramError": "Falha no login com Telegram. Por favor, tente novamente."
+    "telegramError": "Falha no login com Telegram. Por favor, tente novamente.",
+    "sessionExpiredSignIn": "Entrar"
   },
   "onboarding": {
     "step1Title": "Configure seu perfil",
