@@ -146,6 +146,14 @@ CREATE TABLE IF NOT EXISTS game_milestone_claims (
 );
 
 -- ---------------------------------------------------------------------
+-- 6b. Ensure the games slug index is a full unique index (not partial) so
+--     ON CONFLICT (slug) below can reference it. Migration 0012 created a
+--     partial index; replace it with an unconditional one if needed.
+-- ---------------------------------------------------------------------
+DROP INDEX IF EXISTS games_slug_unique_idx;
+CREATE UNIQUE INDEX IF NOT EXISTS games_slug_unique_idx ON games (slug);
+
+-- ---------------------------------------------------------------------
 -- 7. Seed the six launch games (3 categories x 2). Idempotent on slug.
 --    Display fields here are admin-editable later via /admin/games.
 -- ---------------------------------------------------------------------
