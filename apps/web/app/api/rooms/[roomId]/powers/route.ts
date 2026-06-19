@@ -82,18 +82,25 @@ export const POST = withAuth<RoomParams>(async (req: NextRequest, { params, auth
     const coinCost = POWER_COSTS[body.power];
 
     const result = await db.transaction(async (client) => {
-      // 1. Verify room exists
+      // 1. Verify room exists and monetization is enabled
       const { rows: roomRows } = await client.query<{
         id: string;
         creator_id: string;
         is_active: boolean;
+        is_suspended: boolean;
+        monetization_disabled: boolean;
       }>(
-        `SELECT id, creator_id, is_active FROM rooms WHERE id = $1 AND deleted_at IS NULL`,
+        `SELECT id, creator_id, is_active,
+                COALESCE(is_suspended, FALSE)          AS is_suspended,
+                COALESCE(monetization_disabled, FALSE) AS monetization_disabled
+         FROM rooms WHERE id = $1 AND deleted_at IS NULL`,
         [roomId]
       );
       const room = roomRows[0];
       if (!room) throw notFound("Room not found");
       if (!room.is_active) throw badRequest("Room is no longer active");
+      if (room.is_suspended) throw badRequest("Room is currently suspended");
+      if (room.monetization_disabled) throw badRequest("Monetization has been disabled for this room");
 
       // 2. For message_pin, check permissions before touching the coin balance.
       //    This avoids a confusing 403 response after coins were already locked.
@@ -121,7 +128,20 @@ export const POST = withAuth<RoomParams>(async (req: NextRequest, { params, auth
         throw badRequest(`Insufficient coins. This power costs ${coinCost} Coins.`);
       }
 
-      // 4. Deduct coins
+      // 4. Deduct coins — build a unique reference_id per distinct operation so
+      //    retries are idempotent and different operations on the same room never
+      //    collide on the (user_id, transaction_type, reference_id) unique index.
+      let referenceId: string;
+      if (body.power === "message_pin") {
+        referenceId = `message_pin:${body.messageId}`;
+      } else if (body.power === "room_spotlight") {
+        const spotlightUntil = new Date(Date.now() + body.durationHours * 60 * 60 * 1000).toISOString();
+        referenceId = `room_spotlight:${roomId}:${spotlightUntil}`;
+      } else {
+        const expiresAt = new Date(Date.now() + (body as { durationMinutes: number }).durationMinutes * 60 * 1000).toISOString();
+        referenceId = `member_highlight:${roomId}:${(body as { targetUserId: string }).targetUserId}:${expiresAt}`;
+      }
+
       const newBalance = user.coin_balance - coinCost;
       await client.query(
         `UPDATE users SET coin_balance = $1, updated_at = NOW() WHERE id = $2`,
@@ -130,8 +150,9 @@ export const POST = withAuth<RoomParams>(async (req: NextRequest, { params, auth
       await client.query(
         `INSERT INTO coin_ledger
            (user_id, amount, balance_before, balance_after, transaction_type, reference_id, created_at)
-         VALUES ($1, $2, $3, $4, 'room_power', $5, NOW())`,
-        [userId, -coinCost, user.coin_balance, newBalance, `${body.power}:${roomId}`]
+         VALUES ($1, $2, $3, $4, 'room_power', $5, NOW())
+         ON CONFLICT (user_id, transaction_type, reference_id) DO NOTHING`,
+        [userId, -coinCost, user.coin_balance, newBalance, referenceId]
       );
 
       // 5. Apply power

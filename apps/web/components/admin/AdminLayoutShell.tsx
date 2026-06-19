@@ -30,6 +30,7 @@ const adminNavItems = [
   { href: "/admin/ai-settings",        label: "AI Settings",        icon: "🤖" },
   { href: "/admin/feature-flags",      label: "Feature Flags",      icon: "🚀" },
   { href: "/admin/business",            label: "Business Accounts",  icon: "🏢" },
+  { href: "/admin/rooms",               label: "Rooms",              icon: "🏛" },
   { href: "/admin/branded-rooms",      label: "Branded Rooms",      icon: "🏠" },
   { href: "/admin/leaderboards",       label: "Leaderboards",       icon: "📊" },
   { href: "/admin/leaderboard-banners",label: "Leaderboard Banners",icon: "🏆" },

@@ -608,26 +608,27 @@ function RoomPowersPanel({
   lastOwnMessageId,
 }: { roomId: string; onClose: () => void; currentUserId: string | null; lastOwnMessageId: string | null }) {
   const [activating, setActivating] = useState<string | null>(null);
+  const [pendingPower, setPendingPower] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
   const currency = useCurrency();
 
   const POWERS = [
     { type: "message_pin",      emoji: "📌", label: "Pin Message",       description: "Pin your last message at the top for 1 hour", coins: 100 },
-    { type: "room_spotlight",   emoji: "🔦", label: "Room Spotlight",    description: "Feature this room in discovery for 6 hours",  coins: 500 },
+    { type: "room_spotlight",   emoji: "🔦", label: "Room Spotlight",    description: "Feature this room in discovery for 24 hours",  coins: 500 },
     { type: "member_highlight", emoji: "⭐", label: "Member Highlight",  description: "Highlight yourself in the room for 1 hour",    coins: 200 },
   ];
 
   async function activate(powerType: string) {
-    // Validate required fields before hitting the API
     if (powerType === "message_pin" && !lastOwnMessageId) {
       setResult("❌ Send a message first to pin it");
+      setPendingPower(null);
       return;
     }
 
     setActivating(powerType);
+    setPendingPower(null);
     setResult(null);
     try {
-      // Build the body with the required discriminated-union fields
       const body: Record<string, unknown> = { power: powerType };
       if (powerType === "message_pin") {
         body.messageId = lastOwnMessageId;
@@ -650,35 +651,77 @@ function RoomPowersPanel({
     setActivating(null);
   }
 
+  const pendingPowerObj = POWERS.find((p) => p.type === pendingPower);
+
   return (
-    <div className="absolute bottom-full right-0 z-20 mb-2 w-[min(18rem,calc(100vw-1rem))] overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
-      <div className="flex items-center justify-between border-b border-neutral-200 px-3 py-2 dark:border-neutral-700">
-        <span className="text-xs font-semibold text-neutral-500">⚡ Room Powers</span>
-        <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label="Close">✕</button>
-      </div>
-      {result && (
-        <div className="px-3 py-2 text-xs font-medium text-neutral-700 dark:text-neutral-300">{result}</div>
-      )}
-      <div className="p-2">
-        {POWERS.map((power) => (
-          <button
-            key={power.type}
-            onClick={() => void activate(power.type)}
-            disabled={activating === power.type}
-            className="flex w-full items-start gap-3 rounded-xl p-2.5 text-left hover:bg-neutral-50 disabled:opacity-60 dark:hover:bg-neutral-800"
-          >
-            <span className="text-2xl">{power.emoji}</span>
-            <div className="flex-1">
-              <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{power.label}</p>
-              <p className="text-xs text-neutral-500">{power.description}</p>
+    <>
+      {/* Backdrop — clicking outside dismisses the panel */}
+      <div
+        className="fixed inset-0 z-[199]"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      {/* Panel — fixed so it floats above all layout stacking contexts */}
+      <div className="fixed bottom-24 right-4 z-[200] w-[min(18rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-900 max-h-[calc(100dvh-7rem)] overflow-y-auto">
+        <div className="flex items-center justify-between border-b border-neutral-200 px-3 py-2 dark:border-neutral-700">
+          <span className="text-xs font-semibold text-neutral-500">⚡ Room Powers</span>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label="Close">✕</button>
+        </div>
+
+        {/* Cost confirmation step */}
+        {pendingPowerObj && (
+          <div className="m-2 rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40">
+            <p className="mb-2 text-xs font-medium text-amber-800 dark:text-amber-200">
+              This will cost you{" "}
+              <span className="font-bold">
+                🪙 {pendingPowerObj.coins} {currency.softPlural.toLowerCase()}
+              </span>. Confirm?
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => void activate(pendingPowerObj.type)}
+                disabled={activating === pendingPowerObj.type}
+                className="flex-1 rounded-md bg-blue-600 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+              >
+                {activating === pendingPowerObj.type ? "…" : "Confirm"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPendingPower(null)}
+                className="flex-1 rounded-md border border-neutral-200 py-1.5 text-xs font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300"
+              >
+                Cancel
+              </button>
             </div>
-            <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700 dark:bg-amber-900 dark:text-amber-200">
-              🪙 {power.coins} {currency.softPlural.toLowerCase()}
-            </span>
-          </button>
-        ))}
+          </div>
+        )}
+
+        {result && (
+          <div className="px-3 py-2 text-xs font-medium text-neutral-700 dark:text-neutral-300">{result}</div>
+        )}
+
+        <div className="p-2">
+          {POWERS.map((power) => (
+            <button
+              key={power.type}
+              onClick={() => setPendingPower(power.type)}
+              disabled={!!activating}
+              className="flex w-full items-start gap-3 rounded-xl p-2.5 text-left hover:bg-neutral-50 disabled:opacity-60 dark:hover:bg-neutral-800"
+            >
+              <span className="text-2xl">{power.emoji}</span>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{power.label}</p>
+                <p className="text-xs text-neutral-500">{power.description}</p>
+              </div>
+              <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700 dark:bg-amber-900 dark:text-amber-200">
+                🪙 {power.coins} {currency.softPlural.toLowerCase()}
+              </span>
+            </button>
+          ))}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 

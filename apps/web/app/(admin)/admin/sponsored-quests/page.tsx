@@ -91,6 +91,14 @@ export default function AdminSponsoredQuestsPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  // Edit / delete state
+  const [editingQuest, setEditingQuest] = useState<SponsoredQuest | null>(null);
+  const [editForm, setEditForm] = useState<FormData>(EMPTY_FORM);
+  const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<SponsoredQuest | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [toggling, setToggling] = useState<string | null>(null);
+
   const fetchQuests = useCallback(async () => {
     try {
       const res = await fetch("/api/admin/sponsored-quests?active=false");
@@ -119,6 +127,96 @@ export default function AdminSponsoredQuestsPage() {
       }
       return updated;
     });
+  }
+
+  function openEdit(q: SponsoredQuest) {
+    setEditingQuest(q);
+    setEditForm({
+      brandName: q.brand_name,
+      brandLogoUrl: q.brand_logo_url ?? "",
+      title: q.title,
+      description: q.description,
+      requirements: q.requirements,
+      rewardCoins: q.reward_coins,
+      creatorSharePercent: q.creator_share_percent,
+      platformSharePercent: q.platform_share_percent,
+      maxApplications: q.max_applications,
+      deadline: q.deadline ? q.deadline.slice(0, 16) : "",
+      minCreatorTier: q.min_creator_tier as FormData["minCreatorTier"],
+    });
+  }
+
+  async function handleEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingQuest) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/sponsored-quests/${editingQuest.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brandName: editForm.brandName,
+          brandLogoUrl: editForm.brandLogoUrl || null,
+          title: editForm.title,
+          description: editForm.description,
+          requirements: editForm.requirements,
+          rewardCoins: Number(editForm.rewardCoins),
+          creatorSharePercent: Number(editForm.creatorSharePercent),
+          platformSharePercent: Number(editForm.platformSharePercent),
+          maxApplications: Number(editForm.maxApplications),
+          deadline: new Date(editForm.deadline).toISOString(),
+          minCreatorTier: editForm.minCreatorTier,
+        }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error?.message ?? "Failed to save");
+      setSuccess("Quest updated successfully");
+      setEditingQuest(null);
+      await fetchQuests();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/sponsored-quests/${deleteTarget.id}`, { method: "DELETE" });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error?.message ?? "Failed to delete");
+      setSuccess("Quest deleted");
+      setDeleteTarget(null);
+      await fetchQuests();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  async function handleToggleActive(q: SponsoredQuest) {
+    setToggling(q.id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/sponsored-quests/${q.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive: !q.is_active }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error?.message ?? "Failed to update");
+      setSuccess(q.is_active ? "Quest paused" : "Quest activated");
+      await fetchQuests();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update");
+    } finally {
+      setToggling(null);
+    }
   }
 
   async function handleCreate(e: React.FormEvent) {
@@ -377,8 +475,122 @@ export default function AdminSponsoredQuestsPage() {
                 <span>⏰ Deadline: {formatDate(q.deadline)}</span>
                 <span>Created: {formatDate(q.created_at)}</span>
               </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  onClick={() => openEdit(q)}
+                  className="px-3 py-1 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold hover:bg-blue-100"
+                >
+                  Edit
+                </button>
+                <button
+                  disabled={toggling === q.id}
+                  onClick={() => void handleToggleActive(q)}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold ${
+                    q.is_active
+                      ? "bg-amber-100 text-amber-700 hover:bg-amber-200"
+                      : "bg-green-100 text-green-700 hover:bg-green-200"
+                  } disabled:opacity-50`}
+                >
+                  {toggling === q.id ? "…" : q.is_active ? "Pause" : "Activate"}
+                </button>
+                <button
+                  onClick={() => setDeleteTarget(q)}
+                  className="px-3 py-1 rounded-lg bg-red-100 text-red-700 text-xs font-semibold hover:bg-red-200"
+                >
+                  Delete
+                </button>
+              </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Edit modal */}
+      {editingQuest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overflow-y-auto">
+          <form onSubmit={(e) => void handleEdit(e)} className="w-full max-w-xl rounded-2xl bg-white p-5 dark:bg-neutral-900 space-y-4 my-4">
+            <h2 className="font-semibold text-neutral-800 dark:text-white">Edit Sponsored Quest</h2>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Brand Name *</label>
+                <input required value={editForm.brandName} onChange={(e) => setEditForm(f => ({ ...f, brandName: e.target.value }))} className="w-full px-3 py-2 border border-neutral-200 dark:border-neutral-700 rounded-lg text-sm bg-white dark:bg-neutral-800" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Brand Logo URL</label>
+                <input value={editForm.brandLogoUrl} onChange={(e) => setEditForm(f => ({ ...f, brandLogoUrl: e.target.value }))} className="w-full px-3 py-2 border border-neutral-200 dark:border-neutral-700 rounded-lg text-sm bg-white dark:bg-neutral-800" placeholder="https://..." />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Quest Title *</label>
+              <input required value={editForm.title} onChange={(e) => setEditForm(f => ({ ...f, title: e.target.value }))} className="w-full px-3 py-2 border border-neutral-200 dark:border-neutral-700 rounded-lg text-sm bg-white dark:bg-neutral-800" />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Description *</label>
+              <textarea required rows={3} value={editForm.description} onChange={(e) => setEditForm(f => ({ ...f, description: e.target.value }))} className="w-full px-3 py-2 border border-neutral-200 dark:border-neutral-700 rounded-lg text-sm bg-white dark:bg-neutral-800" />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Requirements *</label>
+              <textarea required rows={2} value={editForm.requirements} onChange={(e) => setEditForm(f => ({ ...f, requirements: e.target.value }))} className="w-full px-3 py-2 border border-neutral-200 dark:border-neutral-700 rounded-lg text-sm bg-white dark:bg-neutral-800" />
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Reward (Coins)</label>
+                <input required type="number" min="100" value={editForm.rewardCoins} onChange={(e) => setEditForm(f => ({ ...f, rewardCoins: Number(e.target.value) }))} className="w-full px-3 py-2 border border-neutral-200 dark:border-neutral-700 rounded-lg text-sm bg-white dark:bg-neutral-800" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Creator Share %</label>
+                <input type="number" min="50" max="90" value={editForm.creatorSharePercent} onChange={(e) => { const v = Number(e.target.value); setEditForm(f => ({ ...f, creatorSharePercent: v, platformSharePercent: 100 - v })); }} className="w-full px-3 py-2 border border-neutral-200 dark:border-neutral-700 rounded-lg text-sm bg-white dark:bg-neutral-800" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Platform Share %</label>
+                <input readOnly value={editForm.platformSharePercent} className="w-full px-3 py-2 border border-neutral-200 dark:border-neutral-700 rounded-lg text-sm bg-neutral-50 dark:bg-neutral-800 text-neutral-500" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Max Applications</label>
+                <input type="number" min="1" value={editForm.maxApplications} onChange={(e) => setEditForm(f => ({ ...f, maxApplications: Number(e.target.value) }))} className="w-full px-3 py-2 border border-neutral-200 dark:border-neutral-700 rounded-lg text-sm bg-white dark:bg-neutral-800" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Deadline *</label>
+                <input required type="datetime-local" value={editForm.deadline} onChange={(e) => setEditForm(f => ({ ...f, deadline: e.target.value }))} className="w-full px-3 py-2 border border-neutral-200 dark:border-neutral-700 rounded-lg text-sm bg-white dark:bg-neutral-800" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Min Creator Tier</label>
+                <select value={editForm.minCreatorTier} onChange={(e) => setEditForm(f => ({ ...f, minCreatorTier: e.target.value as FormData["minCreatorTier"] }))} className="w-full px-3 py-2 border border-neutral-200 dark:border-neutral-700 rounded-lg text-sm bg-white dark:bg-neutral-800">
+                  <option value="verified">Verified Creator</option>
+                  <option value="elite">Elite Creator</option>
+                  <option value="icon">Zobia Icon Creator</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button type="button" onClick={() => setEditingQuest(null)} className="flex-1 px-4 py-2 rounded-lg border border-neutral-200 dark:border-neutral-700 text-sm font-medium">Cancel</button>
+              <button type="submit" disabled={saving} className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">{saving ? "Saving…" : "Save Changes"}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Delete confirm modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 dark:bg-neutral-900">
+            <h3 className="mb-2 font-semibold text-neutral-900 dark:text-white">Delete Quest?</h3>
+            <p className="mb-1 text-sm font-medium text-neutral-700 dark:text-neutral-300">{deleteTarget.title}</p>
+            <p className="mb-4 text-sm text-neutral-500">This will soft-delete the quest and cannot be undone.</p>
+            <div className="flex gap-2">
+              <button onClick={() => setDeleteTarget(null)} className="flex-1 rounded-lg border border-neutral-200 py-2 text-sm font-medium dark:border-neutral-700">Cancel</button>
+              <button onClick={() => void handleDelete()} disabled={deleting} className="flex-1 rounded-lg bg-red-600 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50">{deleting ? "Deleting…" : "Delete Quest"}</button>
+            </div>
+          </div>
         </div>
       )}
     </div>

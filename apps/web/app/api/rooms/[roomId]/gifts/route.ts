@@ -19,16 +19,19 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { withAuth } from "@/lib/api/middleware";
-import { handleApiError, notFound } from "@/lib/api/errors";
+import { handleApiError, notFound, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { redis } from "@/lib/redis";
+import { memGet, memSet } from "@/lib/cache/memory";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Leaderboard cache TTL in seconds. */
+/** Leaderboard Redis cache TTL in seconds. */
 const LEADERBOARD_CACHE_TTL = 30;
+/** Leaderboard in-process cache TTL (ms) — avoids Redis on every poll. */
+const LEADERBOARD_MEM_TTL_MS = 10_000;
 
 /** Number of top gifters to return (PRD §11 — top 5). */
 const TOP_N = 5;
@@ -68,21 +71,27 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const { roomId } = await params as { roomId: string };
 
     // Verify room exists
-    const { rows: roomRows } = await db.query<{ is_active: boolean }>(
-      `SELECT is_active FROM rooms WHERE id = $1`,
+    const { rows: roomRows } = await db.query<{ is_active: boolean; monetization_disabled: boolean }>(
+      `SELECT is_active, COALESCE(monetization_disabled, FALSE) AS monetization_disabled FROM rooms WHERE id = $1`,
       [roomId]
     );
     if (!roomRows[0]?.is_active) throw notFound("Room not found");
 
-    // Check Redis cache
     const cacheKey = `room:gifts:top:${roomId}`;
+
+    // In-process cache check (zero Redis calls)
+    const memCached = memGet<TopGifterRow[]>(cacheKey);
+    if (memCached) {
+      return NextResponse.json({ topGifters: memCached }, { status: 200 });
+    }
+
+    // Redis cache check
     try {
       const cached = await redis.get(cacheKey);
       if (cached) {
-        return NextResponse.json(
-          { topGifters: JSON.parse(cached) },
-          { status: 200 }
-        );
+        const parsed = JSON.parse(cached) as TopGifterRow[];
+        memSet(cacheKey, parsed, LEADERBOARD_MEM_TTL_MS);
+        return NextResponse.json({ topGifters: parsed }, { status: 200 });
       }
     } catch {
       // Redis miss or error — fall through to DB query
@@ -108,7 +117,8 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       [roomId, TOP_N]
     );
 
-    // Cache result
+    // Populate in-process and Redis cache
+    memSet(cacheKey, topGifters, LEADERBOARD_MEM_TTL_MS);
     try {
       await redis.setex(cacheKey, LEADERBOARD_CACHE_TTL, JSON.stringify(topGifters));
     } catch {
@@ -137,13 +147,21 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
  * @returns 307 Temporary Redirect to /api/economy/gifts/send
  */
 export const POST = withAuth(async (req: NextRequest, { params }) => {
-  const { roomId } = await params as { roomId: string };
+  try {
+    const { roomId } = await params as { roomId: string };
 
-  return NextResponse.redirect(
-    new URL(
-      `/api/economy/gifts/send?roomId=${roomId}`,
-      req.url
-    ),
-    307
-  );
+    const { rows } = await db.query<{ is_active: boolean; monetization_disabled: boolean }>(
+      `SELECT is_active, COALESCE(monetization_disabled, FALSE) AS monetization_disabled FROM rooms WHERE id = $1`,
+      [roomId]
+    );
+    if (!rows[0]?.is_active) throw notFound("Room not found");
+    if (rows[0].monetization_disabled) throw forbidden("Monetization has been disabled for this room");
+
+    return NextResponse.redirect(
+      new URL(`/api/economy/gifts/send?roomId=${roomId}`, req.url),
+      307
+    );
+  } catch (err) {
+    return handleApiError(err);
+  }
 });

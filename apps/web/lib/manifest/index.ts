@@ -23,6 +23,7 @@ import { db } from "@/lib/db";
 import type { DatabaseAdapter } from "@/lib/db/interface";
 import { redis } from "@/lib/redis";
 import { env } from "@/lib/env";
+import { memGet, memSet, memDel } from "@/lib/cache/memory";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -274,6 +275,10 @@ const CACHE_KEY = "app:manifest:v2";
 const CACHE_KV_KEY = "app:manifest:kv:v2";
 const CACHE_TTL_SECONDS = 60; // 1 minute
 
+/** In-process manifest cache — avoids Redis on every API request within the same instance. */
+const MEM_CACHE_KEY = "manifest:v2";
+const MEM_CACHE_TTL_MS = 15_000; // 15 seconds
+
 // ---------------------------------------------------------------------------
 // Single-flight deduplication
 // ---------------------------------------------------------------------------
@@ -475,11 +480,17 @@ export async function loadManifest(): Promise<ZobiaManifest> {
     return { ...DEFAULT_MANIFEST };
   }
 
-  // 1. Try cache (fast path — no single-flight needed, Redis read is cheap)
+  // 0. In-process cache — zero Redis calls when the instance is warm
+  const memCached = memGet<ZobiaManifest>(MEM_CACHE_KEY);
+  if (memCached) return memCached;
+
+  // 1. Try Redis cache (fast path — no single-flight needed, Redis read is cheap)
   try {
     const cached = await redis.get(CACHE_KEY);
     if (cached) {
-      return JSON.parse(cached) as ZobiaManifest;
+      const manifest = JSON.parse(cached) as ZobiaManifest;
+      memSet(MEM_CACHE_KEY, manifest, MEM_CACHE_TTL_MS);
+      return manifest;
     }
   } catch {
     // Redis unavailable – continue to DB
@@ -510,7 +521,10 @@ export async function loadManifest(): Promise<ZobiaManifest> {
         kv = {};
       }
 
-      // Write both the full manifest and the raw KV map to cache (best-effort)
+      // Write to in-process cache first (synchronous, zero-cost)
+      memSet(MEM_CACHE_KEY, manifest, MEM_CACHE_TTL_MS);
+
+      // Write both the full manifest and the raw KV map to Redis (best-effort)
       try {
         await Promise.all([
           redis.setex(CACHE_KEY, CACHE_TTL_SECONDS, JSON.stringify(manifest)),
@@ -539,6 +553,7 @@ export async function loadManifest(): Promise<ZobiaManifest> {
  * Call this from the admin panel after saving settings changes.
  */
 export async function invalidateManifestCache(): Promise<void> {
+  memDel(MEM_CACHE_KEY);
   try {
     await redis.del(CACHE_KEY, CACHE_KV_KEY);
   } catch {

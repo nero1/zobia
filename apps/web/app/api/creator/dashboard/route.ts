@@ -23,6 +23,7 @@ import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { redis } from "@/lib/redis";
+import { memGet, memSet } from "@/lib/cache/memory";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -169,12 +170,16 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       throw forbidden("Creator account required to access the dashboard");
     }
 
-    // Check cache
+    // Check cache — memory first (15s), then Redis (60s)
     const cacheKey = `creator:dashboard:${creatorId}`;
+    const memCached = memGet<object>(cacheKey);
+    if (memCached) return NextResponse.json(memCached, { status: 200 });
     try {
       const cached = await redis.get(cacheKey);
       if (cached) {
-        return NextResponse.json(JSON.parse(cached), { status: 200 });
+        const parsed = JSON.parse(cached) as object;
+        memSet(cacheKey, parsed, 15_000);
+        return NextResponse.json(parsed, { status: 200 });
       }
     } catch {
       // Cache miss
@@ -306,7 +311,8 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       roomHealthScore,
     };
 
-    // Cache result
+    // Cache result — memory (15s) + Redis (60s)
+    memSet(cacheKey, dashboard, 15_000);
     try {
       await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(dashboard));
     } catch {
