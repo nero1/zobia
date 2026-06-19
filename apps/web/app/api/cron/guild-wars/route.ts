@@ -253,8 +253,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   //
   // Three separate UPDATEs replace the previous per-guild N+1 loop:
   //   A) Reset guilds that recovered above their tier minimum.
-  //   B) Increment below_minimum_days for guilds still below (not yet at 7).
   //   C) Downgrade guilds that have been below-minimum for 7+ days and notify.
+  //   B) Increment below_minimum_days for guilds still below (not yet at 7).
+  //
+  // ORDER MATTERS: downgrade (C) runs BEFORE increment (B). C and B are mutually
+  // exclusive only on the *original* below_minimum_days value (via the `+1`
+  // threshold). If B ran first it would bump a guild from e.g. 5→6, and C would
+  // then see 6 and downgrade it a day early. Running C first preserves correctness.
   //
   // Tier minimums: bronze=5, silver=10, gold=15, platinum=20, legend=25
   // -------------------------------------------------------------------------
@@ -296,19 +301,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
          ) >= ${TIER_MIN_CASE}`
     );
 
-    // B) Increment guilds below-minimum that haven't hit 7 days yet
-    await db.query(
-      `UPDATE guilds g
-       SET below_minimum_days = below_minimum_days + 1, updated_at = NOW()
-       WHERE g.deleted_at IS NULL AND g.is_active = TRUE
-         AND g.below_minimum_days + 1 < 7
-         AND (
-           SELECT COUNT(*) FROM guild_members gm
-           WHERE gm.guild_id = g.id AND gm.left_at IS NULL
-         ) < ${TIER_MIN_CASE}`
-    );
-
     // C) Downgrade guilds at exactly 7 days below-minimum, notify captains
+    //    (runs BEFORE the increment so it reads the original below_minimum_days)
     const downgradeWeek = now.toISOString().slice(0, 10);
     const { rows: downgraded } = await db.query<{
       id: string; captain_id: string; old_tier: string; new_tier: string;
@@ -361,6 +355,21 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
       guildTierDowngrades = downgraded.length;
     }
+
+    // B) Increment guilds below-minimum that haven't hit 7 days yet.
+    //    Runs AFTER the downgrade pass. Guilds C just downgraded were reset to 0;
+    //    if still below their (now lower) tier minimum they correctly start a
+    //    fresh countdown at 1, which is acceptable for an understaffed guild.
+    await db.query(
+      `UPDATE guilds g
+       SET below_minimum_days = below_minimum_days + 1, updated_at = NOW()
+       WHERE g.deleted_at IS NULL AND g.is_active = TRUE
+         AND g.below_minimum_days + 1 < 7
+         AND (
+           SELECT COUNT(*) FROM guild_members gm
+           WHERE gm.guild_id = g.id AND gm.left_at IS NULL
+         ) < ${TIER_MIN_CASE}`
+    );
   } catch (err) {
     errors.push(`guildTierMinimumCheck: ${String(err)}`);
   }

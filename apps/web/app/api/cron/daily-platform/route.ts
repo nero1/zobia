@@ -464,7 +464,7 @@ export const GET = async (req: NextRequest) => {
        )
        SELECT COUNT(*) AS count FROM closed`
     );
-    results.dropRoomExpiry = { closed: parseInt(closed.rows[0]?.count ?? "0") };
+    results.dropRoomExpiry = { closed: parseInt(closed[0]?.count ?? "0") };
   } catch (err) {
     errors.push(`dropRoomExpiry: ${String(err)}`);
   }

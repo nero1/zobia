@@ -253,18 +253,20 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     if (notifUserIds.length > 0) {
       await db.query(
         `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-         SELECT
-           unnest($1::uuid[]),
-           unnest($2::text[]),
-           jsonb_build_object(
-             'previous_rank', unnest($3::int[]),
-             'new_rank',      unnest($4::int[]),
-             'track',         'main',
-             'scope',         'global',
-             'entered_top_10', unnest($5::bool[])
-           ),
-           false,
-           NOW()
+         SELECT sub.uid, sub.ntype,
+                jsonb_build_object(
+                  'previous_rank',  sub.prev_rank,
+                  'new_rank',       sub.new_rank,
+                  'track',          'main',
+                  'scope',          'global',
+                  'entered_top_10', sub.entered_top10
+                ),
+                false, NOW()
+         FROM (SELECT unnest($1::uuid[]) AS uid,
+                      unnest($2::text[]) AS ntype,
+                      unnest($3::int[])  AS prev_rank,
+                      unnest($4::int[])  AS new_rank,
+                      unnest($5::bool[]) AS entered_top10) sub
          ON CONFLICT DO NOTHING`,
         [
           notifUserIds,
