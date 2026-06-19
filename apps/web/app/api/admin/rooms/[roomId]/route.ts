@@ -58,6 +58,7 @@ const patchSchema = z.discriminatedUnion("action", [
 
 interface RoomCtx {
   params: Promise<{ roomId: string }>;
+  auth: { user: { sub: string } };
 }
 
 async function requireAdminOrMod(userId: string) {
