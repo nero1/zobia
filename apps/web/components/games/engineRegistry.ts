@@ -22,7 +22,6 @@ const loading = () => null;
 type Engine = ComponentType<GameEngineProps>;
 // Use `() => Promise<any>` so the module-namespace return type of bare dynamic
 // imports (`typeof import("...")`) doesn't trigger TS2345 in stricter tsc builds.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const d = (path: () => Promise<any>) =>
   dynamic(path as Parameters<typeof dynamic>[0], { ssr: false, loading }) as unknown as Engine;
 
