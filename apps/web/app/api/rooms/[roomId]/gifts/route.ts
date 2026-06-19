@@ -76,6 +76,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       [roomId]
     );
     if (!roomRows[0]?.is_active) throw notFound("Room not found");
+    if (roomRows[0].monetization_disabled) throw forbidden("Monetization has been disabled for this room");
 
     const cacheKey = `room:gifts:top:${roomId}`;
 

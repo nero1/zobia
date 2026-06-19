@@ -51,7 +51,9 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     if (!UUID_RE.test(roomId)) throw badRequest("roomId must be a valid UUID");
 
     const { rows } = await db.query<RoomRow>(
-      `SELECT creator_id, type, max_members, is_active FROM rooms WHERE id = $1`,
+      `SELECT creator_id, type, max_members, is_active,
+              COALESCE(monetization_disabled, FALSE) AS monetization_disabled
+       FROM rooms WHERE id = $1`,
       [roomId],
     );
     const room = rows[0];
@@ -72,6 +74,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
         hardMax,
         atMax,
         isCreator: room.creator_id === auth.user.sub,
+        monetizationDisabled: room.monetization_disabled,
       },
     });
   } catch (err) {
