@@ -58,6 +58,8 @@ interface RoomDetailRow {
   creator_username: string;
   creator_display_name: string;
   creator_avatar_emoji: string;
+  is_suspended: boolean;
+  is_banned: boolean;
   creator_tier: string | null;
   member_count: number;
   max_members: number | null;
@@ -142,7 +144,9 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
          r.health_score,
          r.created_at,
          r.updated_at,
-         rm.role            AS caller_role
+         rm.role            AS caller_role,
+         COALESCE(r.is_suspended, FALSE) AS is_suspended,
+         COALESCE(r.is_banned, FALSE)    AS is_banned
        FROM rooms r
        JOIN users u ON u.id = r.creator_id
        LEFT JOIN room_members rm
@@ -154,6 +158,8 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const room = roomRows[0];
     if (!room) throw notFound("Room not found");
+    if (room.is_banned) throw forbidden("This room has been permanently banned");
+    if (room.is_suspended) throw forbidden("This room is currently suspended");
 
     // Guild rooms are restricted to Platinum-tier guilds and above
     if (room.type === "guild") {

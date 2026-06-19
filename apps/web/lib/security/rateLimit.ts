@@ -20,6 +20,7 @@
 
 import { redis } from "@/lib/redis";
 import { ApiError, tooManyRequests } from "@/lib/api/errors";
+import { memGet, memSet } from "@/lib/cache/memory";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -135,6 +136,28 @@ return {1, limit - count - 1, ttl}
 `;
 
 // ---------------------------------------------------------------------------
+// In-process rate-limit skip cache
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-key in-process counter used to skip Redis when well under limit.
+ * Expires after SKIP_CACHE_TTL_MS so state resets quickly on cold paths.
+ */
+interface RlMemEntry {
+  count: number;
+  windowStart: number;
+}
+
+/** How long to trust the in-memory counter before re-syncing with Redis (ms). */
+const RL_MEM_TTL_MS = 2_000;
+
+/**
+ * Fraction of the limit below which we can safely skip the Redis round-trip.
+ * At 0.7 we skip Redis when count < 70% of the limit — well before the wall.
+ */
+const RL_SKIP_THRESHOLD = 0.7;
+
+// ---------------------------------------------------------------------------
 // Core sliding-window implementation
 // ---------------------------------------------------------------------------
 
@@ -151,6 +174,24 @@ async function slidingWindowCheck(
 ): Promise<RateLimitResult> {
   const now = Date.now();
   const windowStart = now - options.windowMs;
+
+  // In-process fast-path: if we've checked Redis recently AND the in-process
+  // count is well below the limit, skip the Redis round-trip entirely.
+  const memKey = `rl_mem:${key}`;
+  const memEntry = memGet<RlMemEntry>(memKey);
+  if (memEntry && (now - memEntry.windowStart) < RL_MEM_TTL_MS) {
+    const inMemCount = memEntry.count;
+    if (inMemCount < options.limit * RL_SKIP_THRESHOLD) {
+      // Increment in-process count only; skips Redis entirely for this request
+      memSet<RlMemEntry>(memKey, { count: inMemCount + 1, windowStart: memEntry.windowStart }, RL_MEM_TTL_MS);
+      return {
+        allowed: true,
+        remaining: options.limit - inMemCount - 1,
+        resetAt: now + options.windowMs,
+      };
+    }
+  }
+
   // Unique member prevents collisions when multiple requests arrive in the
   // same millisecond (identical score would overwrite the same member).
   const member = `${now}-${Math.random().toString(36).slice(2)}`;
@@ -167,6 +208,14 @@ async function slidingWindowCheck(
   ) as [number, number, number];
 
   const [allowed, remaining, ttlMs] = result;
+
+  // Seed the in-process cache with the real count from Redis so subsequent
+  // requests in this instance can skip the round-trip.
+  if (allowed === 1) {
+    const currentCount = options.limit - remaining;
+    memSet<RlMemEntry>(memKey, { count: currentCount, windowStart: now }, RL_MEM_TTL_MS);
+  }
+
   return {
     allowed: allowed === 1,
     remaining,

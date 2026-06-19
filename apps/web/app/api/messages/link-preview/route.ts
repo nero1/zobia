@@ -25,6 +25,7 @@ import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { safeFetch, SSRFError } from "@/lib/security/ssrf";
 import { redis } from "@/lib/redis";
+import { memGet, memSet } from "@/lib/cache/memory";
 
 // ---------------------------------------------------------------------------
 // Meta-tag parsing helpers
@@ -134,12 +135,16 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       throw badRequest("Query parameter 'url' is required", "MISSING_URL");
     }
 
-    // Check Redis cache first (1-hour TTL)
+    // Check cache — memory (120s) first, then Redis (3600s)
     const cacheKey = `link-preview:${Buffer.from(rawUrl).toString("base64").slice(0, 64)}`;
+    const memCached = memGet<LinkPreviewResult>(cacheKey);
+    if (memCached) return NextResponse.json(memCached, { status: 200 });
     try {
       const cached = await redis.get(cacheKey);
       if (cached) {
-        return NextResponse.json(JSON.parse(cached), { status: 200 });
+        const parsed = JSON.parse(cached) as LinkPreviewResult;
+        memSet(cacheKey, parsed, 120_000);
+        return NextResponse.json(parsed, { status: 200 });
       }
     } catch {
       // Cache failure is non-fatal — proceed to fetch
@@ -217,7 +222,8 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       siteName: ogSiteName,
     };
 
-    // Store in Redis cache with 1-hour TTL (best-effort)
+    // Store in memory (120s) + Redis (3600s) — best-effort
+    memSet(cacheKey, result, 120_000);
     try {
       await redis.setex(cacheKey, 3600, JSON.stringify(result));
     } catch {

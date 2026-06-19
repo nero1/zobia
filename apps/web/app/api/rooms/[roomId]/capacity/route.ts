@@ -36,6 +36,12 @@ interface RoomRow {
   type: string;
   max_members: number | null;
   is_active: boolean;
+  monetization_disabled: boolean;
+}
+
+interface UserRow {
+  is_admin: boolean;
+  is_moderator: boolean;
 }
 
 /** GET /api/rooms/:roomId/capacity — returns current cap and cost for 1 upgrade step */
@@ -84,13 +90,28 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const userId = auth.user.sub;
 
     const { rows } = await db.query<RoomRow>(
-      `SELECT creator_id, type, max_members, is_active FROM rooms WHERE id = $1`,
+      `SELECT creator_id, type, max_members, is_active,
+              COALESCE(monetization_disabled, FALSE) AS monetization_disabled
+       FROM rooms WHERE id = $1`,
       [roomId],
     );
     const room = rows[0];
     if (!room || !room.is_active) throw notFound("Room not found");
-    if (room.creator_id !== userId) {
+
+    const { rows: userRows } = await db.query<UserRow>(
+      `SELECT COALESCE(is_admin, FALSE) AS is_admin, COALESCE(is_moderator, FALSE) AS is_moderator
+       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+      [userId],
+    );
+    const userRole = userRows[0];
+    const isPrivileged = userRole?.is_admin || userRole?.is_moderator;
+
+    if (room.creator_id !== userId && !isPrivileged) {
       throw forbidden("Only the room creator can upgrade capacity");
+    }
+
+    if (room.monetization_disabled && !isPrivileged) {
+      throw forbidden("Monetization has been disabled for this room");
     }
 
     const manifest = await loadManifest();

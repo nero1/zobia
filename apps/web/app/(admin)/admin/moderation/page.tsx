@@ -35,7 +35,7 @@ interface Report {
   actionTaken?: string;
 }
 
-type TabKey = "pending" | "resolved" | "escalated";
+type TabKey = "pending" | "resolved" | "escalated" | "flagged_rooms";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -212,6 +212,16 @@ function ReportCard({ report, onAction, busy }: ReportCardProps) {
  * Admin moderation queue page.
  * Requires admin authentication (enforced by middleware).
  */
+interface FlaggedRoom {
+  id: string;
+  name: string;
+  type: string;
+  creator_username: string | null;
+  member_count: number;
+  flagged_at: string;
+  flag_reason: string | null;
+}
+
 export default function AdminModerationPage() {
   const { t } = useTranslation();
   const tRef = useRef(t);
@@ -220,6 +230,7 @@ export default function AdminModerationPage() {
   }, [t]);
   const [tab, setTab] = useState<TabKey>("pending");
   const [reports, setReports] = useState<Report[]>([]);
+  const [flaggedRooms, setFlaggedRooms] = useState<FlaggedRoom[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -234,14 +245,19 @@ export default function AdminModerationPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/admin/moderation?status=${status}`, { credentials: "include" });
-      if (res.status === 401 || res.status === 403) {
-        window.location.href = "/admin/login";
-        return;
+      if (status === "flagged_rooms") {
+        const res = await fetch("/api/admin/rooms?status=flagged&limit=50", { credentials: "include" });
+        if (res.status === 401 || res.status === 403) { window.location.href = "/admin/login"; return; }
+        if (!res.ok) throw new Error("Failed to load flagged rooms");
+        const data = (await res.json()) as { data?: { rooms?: FlaggedRoom[] } };
+        setFlaggedRooms(data.data?.rooms ?? []);
+      } else {
+        const res = await fetch(`/api/admin/moderation?status=${status}`, { credentials: "include" });
+        if (res.status === 401 || res.status === 403) { window.location.href = "/admin/login"; return; }
+        if (!res.ok) throw new Error("Failed to load reports");
+        const data = (await res.json()) as { items: Report[] };
+        setReports(data.items ?? []);
       }
-      if (!res.ok) throw new Error("Failed to load reports");
-      const data = (await res.json()) as { items: Report[] };
-      setReports(data.items ?? []);
     } catch (e) {
       setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
     } finally {
@@ -252,6 +268,25 @@ export default function AdminModerationPage() {
   useEffect(() => {
     void fetchReports(tab);
   }, [tab, fetchReports]);
+
+  async function handleRoomAction(roomId: string, action: string, extra?: Record<string, unknown>) {
+    setBusy(roomId);
+    try {
+      const res = await fetch(`/api/admin/rooms/${roomId}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, ...extra }),
+      });
+      if (!res.ok) throw new Error("Action failed");
+      showToast("Action applied");
+      await fetchReports("flagged_rooms");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Action failed", "error");
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function handleAction(reportId: string, action: string) {
     setBusy(reportId);
@@ -276,6 +311,7 @@ export default function AdminModerationPage() {
     { key: "pending", label: "Pending" },
     { key: "resolved", label: "Resolved" },
     { key: "escalated", label: "Escalated" },
+    { key: "flagged_rooms", label: "Flagged Rooms" },
   ];
 
   return (
@@ -321,6 +357,53 @@ export default function AdminModerationPage() {
       <div className="space-y-3">
         {loading ? (
           Array.from({ length: 5 }).map((_, i) => <CardSkeleton key={i} />)
+        ) : tab === "flagged_rooms" ? (
+          flaggedRooms.length === 0 ? (
+            <div className="flex flex-col items-center justify-center rounded-xl border border-neutral-200 bg-white py-20 dark:border-neutral-800 dark:bg-neutral-900">
+              <span className="text-4xl">🏠</span>
+              <p className="mt-3 text-lg font-semibold text-neutral-700 dark:text-neutral-300">No flagged rooms</p>
+              <p className="mt-1 text-sm text-neutral-500">No rooms have been flagged for review.</p>
+            </div>
+          ) : (
+            flaggedRooms.map((room) => (
+              <div key={room.id} className="rounded-xl border border-orange-200 bg-white p-4 dark:border-orange-800 dark:bg-neutral-900">
+                <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+                  <span className="font-semibold text-neutral-900 dark:text-white">{room.name}</span>
+                  <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">{room.type}</span>
+                  <span className="rounded-full bg-orange-100 px-2 py-0.5 font-semibold text-orange-700 dark:bg-orange-900 dark:text-orange-300">Flagged</span>
+                </div>
+                <p className="text-xs text-neutral-500 mb-1">
+                  @{room.creator_username ?? "unknown"} · {room.member_count} members · Flagged {formatDate(room.flagged_at)}
+                </p>
+                {room.flag_reason && (
+                  <p className="mb-3 text-xs text-orange-700 dark:text-orange-400">Reason: {room.flag_reason}</p>
+                )}
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    disabled={busy === room.id}
+                    onClick={() => void handleRoomAction(room.id, "unflag")}
+                    className="rounded-lg bg-neutral-100 px-2.5 py-1 text-xs font-semibold text-neutral-700 hover:bg-neutral-200 disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-300"
+                  >
+                    Unflag
+                  </button>
+                  <button
+                    disabled={busy === room.id}
+                    onClick={() => void handleRoomAction(room.id, "suspend", { reason: room.flag_reason ?? "Flagged content" })}
+                    className="rounded-lg bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-200 disabled:opacity-50"
+                  >
+                    Suspend
+                  </button>
+                  <button
+                    disabled={busy === room.id}
+                    onClick={() => void handleRoomAction(room.id, "ban")}
+                    className="rounded-lg bg-red-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+                  >
+                    Ban
+                  </button>
+                </div>
+              </div>
+            ))
+          )
         ) : reports.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-xl border border-neutral-200 bg-white py-20 dark:border-neutral-800 dark:bg-neutral-900">
             <span className="text-4xl">✓</span>
