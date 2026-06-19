@@ -56,7 +56,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // Build both cookies with the rotated tokens; use actual refresh TTL to avoid mismatch
     const { accessCookie, refreshCookie } = buildCookieHeaders(
-      { accessToken, refreshToken: rotatedRefreshToken, expiresIn },
+      { accessToken, refreshToken: rotatedRefreshToken, expiresIn, refreshTtl },
       undefined,
       refreshTtl
     );
