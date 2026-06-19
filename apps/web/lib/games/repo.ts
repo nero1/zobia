@@ -102,7 +102,7 @@ export interface GameListResult {
 export async function listGames(opts: GameListOptions = {}): Promise<GameListResult> {
   const { tab = "popular", category, free, cursor, limit: rawLimit = 24 } = opts;
   const limit = Math.min(rawLimit, 50);
-  const params: unknown[] = [];
+  const params: (string | number | boolean | null)[] = [];
   const where: string[] = [
     "g.deleted_at IS NULL",
     "g.is_active = TRUE",

@@ -43,8 +43,11 @@ function makeGame(overrides: Partial<GameConfigRow> = {}): GameConfigRow {
     max_score: 1000,
     min_play_seconds: 0,
     play_count: 0,
+    avg_rating: 0,
+    rating_count: 0,
     is_active: true,
     is_public: true,
+    created_at: "2025-01-01T00:00:00.000Z",
     ...overrides,
   };
 }
