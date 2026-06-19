@@ -138,7 +138,7 @@ export function useRealtimeChannel(
             },
           });
         }
-        const pusher = pusherSingleton;
+        const pusher = pusherSingleton!;
 
         pusher.connection.bind("state_change", (states: { current: string }) => {
           markConnected(states.current === "connected");
