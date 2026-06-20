@@ -1,7 +1,8 @@
 # Zobia Codebase — Bug Fix Plan
 
 **Generated:** June 20, 2026 · 10:45 AM
-**Scope:** 18 confirmed bugs from independent forensic analysis (see `custom-bugs-report.md`)
+**Updated:** June 20, 2026 · 12:30 PM
+**Scope:** 23 confirmed bugs from independent forensic analysis (see `custom-bugs-report.md`)
 **Status:** PENDING USER REVIEW — DO NOT EXECUTE UNTIL APPROVED
 
 ---
@@ -12,7 +13,7 @@ Fixes are ordered by risk and dependency. Phase 1 covers bugs that cause active 
 
 Each task is self-contained and can be executed independently unless a dependency is noted.
 
-**Estimated effort:** ~2–3 engineering days for all 18 fixes with smoke testing.
+**Estimated effort:** ~3–4 engineering days for all 23 fixes with smoke testing.
 
 ---
 
@@ -169,15 +170,12 @@ Each task is self-contained and can be executed independently unless a dependenc
 
 ---
 
-### TASK-12 — Fix BUG-PAY-01: Paystack subscription.not_renew sends wrong notification type
+### TASK-12 — ~~Fix BUG-PAY-01~~ — ALREADY RESOLVED (no action needed)
 
-**Priority:** MEDIUM — incorrect messaging causes user confusion and support load
+**Status:** CONFIRMED FALSE POSITIVE — code already handles this correctly
 **File:** `apps/web/lib/payments/paystackWebhookHandler.ts`
 
-1. Locate the `subscription.not_renew` event branch.
-2. Change the notification `type` from `'subscription_cancelled'` to `'subscription_ending'` (or the correct type string used by the mobile notification renderer for "plan ends at period close").
-3. Verify the mobile notification templates handle `'subscription_ending'` with an appropriate message (e.g., "Your subscription will end on {date}. Tap to renew.").
-4. Confirm `'subscription_cancelled'` is still used only for the `subscription.disable` event (immediate cancellation).
+On second-pass analysis, lines 635–638 of `paystackWebhookHandler.ts` already correctly branch on `isNonRenewing` (where `isNonRenewing = status === "non-renewing"`) to set `notifType = "subscription_non_renewing"`. The `subscription.disable` event is handled separately at lines 574–591. This task can be **skipped entirely** — no code change is required.
 
 ---
 
@@ -203,6 +201,92 @@ Each task is self-contained and can be executed independently unless a dependenc
 2. Add `title` and `body` values appropriate to each notification type (challenge invitation, result announcement, series resolution, etc.). Reference `lib/notifications/insert.ts` for existing type-to-content mappings.
 3. If there is a shared helper function `lib/notifications/insert.ts` that abstracts the INSERT, refactor the challenge notify calls to use it rather than raw SQL — this prevents the field set from drifting again.
 4. Smoke-test by triggering a game challenge invitation and verifying the notification row has non-null `title` and `body`.
+
+---
+
+### TASK-19 — Fix BUG-DM-01: handleDMGift must use safeAwardXP instead of raw SQL
+
+**Priority:** HIGH — XP awards bypass DLQ fallback; non-atomic; silent data loss on DB errors
+**File:** `apps/web/app/api/messages/dm/route.ts`
+
+1. Locate `handleDMGift()` in `dm/route.ts`.
+2. Remove the three raw SQL statements that write XP: the multi-row `INSERT INTO xp_ledger` and the two `UPDATE users SET xp_total` statements.
+3. Replace with two separate `safeAwardXP` calls, made outside the main gift transaction (safeAwardXP manages its own transaction internally):
+   - Sender (generosity XP): `await safeAwardXP({ userId: senderId, amount: GIFT_XP_SENDER, track: 'generosity', source: 'dm_gift', referenceId: \`gift_xp_sent:${giftId}\` }, db)`
+   - Recipient (social XP): `await safeAwardXP({ userId: recipientId, amount: GIFT_XP_RECIPIENT, track: 'social', source: 'dm_gift', referenceId: \`gift_xp_recv:${giftId}\` }, db)`
+4. `giftId` should be the UUID of the persisted gift record — generate it before the transaction and pass it down, or read it from the RETURNING clause after INSERT.
+5. The `referenceId` ensures idempotency: if the route is retried after a partial failure, the XP awards are deduped and the DLQ handles any transient DB error.
+
+---
+
+### TASK-20 — Fix BUG-XP-02: Room message XP daily cap off-by-one
+
+**Priority:** MEDIUM — 49 messages earn XP instead of the intended 50
+**File:** `apps/web/app/api/rooms/[roomId]/messages/route.ts`
+
+1. Locate the `countTodayMessages()` call and the `>= ROOM_MESSAGE_XP_DAILY_CAP` comparison.
+2. Confirm that `countTodayMessages()` is called **after** the message INSERT (making the count inclusive of the just-inserted message).
+3. Change the guard condition from `>= ROOM_MESSAGE_XP_DAILY_CAP` to `> ROOM_MESSAGE_XP_DAILY_CAP`. This means the 50th message (count = 50) still earns XP; the 51st (count = 51) is the first to be skipped.
+4. Alternatively, move `countTodayMessages()` to **before** the INSERT and keep `>= ROOM_MESSAGE_XP_DAILY_CAP` — both approaches are equivalent, but changing the condition is the simpler one-character fix.
+
+---
+
+### TASK-21 — Fix BUG-AUTH-03: buildCookieHeaders must honour role-based refresh TTL
+
+**Priority:** HIGH — creator/moderator/admin sessions get default 30-day cookie regardless of role TTL
+**File:** `apps/web/lib/auth/session.ts`
+**Also affects:** `apps/web/app/api/auth/telegram/callback/route.ts`, `apps/web/app/api/auth/google/callback/route.ts`, `apps/web/app/api/auth/2fa/verify/route.ts`
+
+Two equivalent approaches — pick one:
+
+**Option A (fix the function signature):**
+1. In `buildCookieHeaders`, change the default value of the `refreshTtl` parameter from `REFRESH_TOKEN_TTL_SECONDS` to `tokens.refreshTtl ?? REFRESH_TOKEN_TTL_SECONDS`.
+2. This makes callers that omit `refreshTtl` automatically use whatever TTL the session creation computed — no caller changes needed.
+
+**Option B (fix the callers):**
+1. In `telegram/callback/route.ts` line 186, change `buildCookieHeaders(authTokens)` to `buildCookieHeaders(authTokens, undefined, authTokens.refreshTtl)`.
+2. In `google/callback/route.ts` at the equivalent call site, apply the same change.
+3. In `2fa/verify/route.ts` line 131, apply the same change.
+4. Verify `apps/web/app/api/admin/auth/totp/route.ts` — it already correctly passes `ADMIN_REFRESH_TOKEN_TTL_SECONDS` and needs no change.
+
+After either fix, test with a creator-role login and confirm the `refresh_token` cookie `Max-Age` matches the creator session TTL from `manifest.sessionTtls["creator"]`, not the default 30-day value.
+
+---
+
+### TASK-22 — Fix BUG-IAP-01: Server-side IAP verification must consume one-time products
+
+**Priority:** CRITICAL — consumable coin pack purchases cannot be re-purchased after first use
+**File:** `apps/web/app/api/economy/iap/verify/route.ts`
+
+1. Locate `acknowledgeGooglePlayPurchase()` (around line 249).
+2. The current URL suffix is `:acknowledge` — this is correct only for subscriptions and non-consumable entitlements.
+3. Change the URL to use `:consume` instead: `purchases/products/${productId}/tokens/${purchaseToken}:consume`.
+   - The `:consume` endpoint acknowledges AND marks the purchase as consumed in a single call — no separate acknowledge step is needed.
+4. Verify that `COIN_PACK_PRODUCT_IDS` (or however one-time products are identified) only includes consumable products. If the same code path handles both consumable and non-consumable one-time purchases, add a product-type check:
+   - Consumable (coin packs): use `:consume`
+   - Non-consumable (permanent unlocks, if any): use `:acknowledge`
+5. Test using Google Play sandbox: purchase a coin pack, receive coins, then attempt to purchase the same pack again — it should be available for purchase immediately.
+
+---
+
+### TASK-23 — Fix BUG-LOGIN-01: Daily login Redis key must be written after DB commit
+
+**Priority:** HIGH — failed DB transaction permanently blocks user's daily XP for 48 hours
+**File:** `apps/web/app/api/login/daily/route.ts`
+
+Same anti-pattern as BUG-GIFT-01 (TASK-05). Two equivalent approaches:
+
+**Option A (preferred — delete key on failure):**
+1. Keep the Redis NX SET where it is (line 99, before the transaction).
+2. In the catch block (currently at line 239 returning `handleApiError(err)`), add `await redis.del(redisKey).catch(() => {})` before returning the error.
+3. This releases the slot so the user can retry after the transient DB failure, without permanently blocking their daily award.
+
+**Option B (move key write after commit):**
+1. Remove the Redis NX SET from line 99.
+2. After `db.transaction()` resolves successfully, perform the Redis SET with the same key, TTL, and NX flag.
+3. On Redis failure here, log the error but return success to the user (XP was already committed) — the user may receive a second XP award on a rare double-request, which is an acceptable trade-off vs. silently blocking legitimate daily awards.
+
+In either case, confirm the fix by simulating a DB error mid-transaction and verifying the user can successfully claim their daily XP on the next request.
 
 ---
 
@@ -285,9 +369,14 @@ Each task is self-contained and can be executed independently unless a dependenc
 | 2 | TASK-09 | BUG-LB-03 | MEDIUM |
 | 2 | TASK-10 | BUG-WAR-01 | MEDIUM |
 | 2 | TASK-11 | BUG-TRUST-01 | MEDIUM |
-| 2 | TASK-12 | BUG-PAY-01 | MEDIUM |
+| 2 | TASK-12 | BUG-PAY-01 | ~~MEDIUM~~ SKIP — ALREADY RESOLVED |
 | 2 | TASK-13 | BUG-SEASON-01 | MEDIUM |
 | 2 | TASK-14 | BUG-NOTIF-01 | MEDIUM |
+| 2 | TASK-19 | BUG-DM-01 | HIGH |
+| 2 | TASK-20 | BUG-XP-02 | MEDIUM |
+| 2 | TASK-21 | BUG-AUTH-03 | HIGH |
+| 1 | TASK-22 | BUG-IAP-01 | CRITICAL |
+| 2 | TASK-23 | BUG-LOGIN-01 | HIGH |
 | 3 | TASK-15 | BUG-AUTH-01 | MEDIUM |
 | 3 | TASK-16 | BUG-AUTH-02 | MEDIUM |
 | 3 | TASK-17 | BUG-MOB-01 | MEDIUM |
@@ -296,5 +385,6 @@ Each task is self-contained and can be executed independently unless a dependenc
 ---
 
 *Fix plan generated: June 20, 2026 · 10:45 AM*
-*Total tasks: 18 | Estimated effort: 2–3 engineering days*
+*Updated: June 20, 2026 · 12:30 PM*
+*Total tasks: 23 (22 actionable + 1 already resolved) | Estimated effort: 3–4 engineering days*
 *DO NOT BEGIN IMPLEMENTATION UNTIL THE USER APPROVES THIS PLAN*
