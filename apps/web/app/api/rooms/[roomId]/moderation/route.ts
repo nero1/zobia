@@ -31,6 +31,10 @@ import {
   badRequest,
 } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { safeAwardXP } from "@/lib/xp/safeAwardXP";
+import { ROOM_MESSAGE_XP_DAILY_CAP, calculateFinalXP } from "@/lib/xp/engine";
+import { publishRealtimeEvent } from "@/lib/realtime";
+import type { Plan } from "@zobia/types";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -83,6 +87,11 @@ const kickSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 
+const approveSchema = z.object({
+  action: z.literal("approve"),
+  messageId: z.string().uuid("messageId must be a valid UUID"),
+});
+
 const moderationSchema = z.discriminatedUnion("action", [
   muteSchema,
   unmuteSchema,
@@ -90,6 +99,7 @@ const moderationSchema = z.discriminatedUnion("action", [
   removeCoModSchema,
   updateRulesSchema,
   kickSchema,
+  approveSchema,
 ]);
 
 // ---------------------------------------------------------------------------
@@ -368,6 +378,71 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         await logModerationAction(roomId, callerId, "kick", targetUserId, { reason });
 
         return NextResponse.json({ action: "kick", targetUserId }, { status: 200 });
+      }
+
+      // -----------------------------------------------------------------------
+      case "approve": {
+        const { messageId } = body;
+
+        const { rows: msgRows } = await db.query<{
+          id: string;
+          sender_id: string;
+          content: string;
+          is_pending_approval: boolean;
+        }>(
+          `SELECT id, sender_id, content, is_pending_approval
+           FROM room_messages
+           WHERE id = $1 AND room_id = $2 LIMIT 1`,
+          [messageId, roomId]
+        );
+        const msg = msgRows[0];
+        if (!msg) throw notFound("Message not found in this room");
+        if (!msg.is_pending_approval) {
+          return NextResponse.json({ action: "approve", messageId, alreadyApproved: true }, { status: 200 });
+        }
+
+        await db.transaction(async (tx) => {
+          await tx.query(
+            `UPDATE room_messages
+             SET is_pending_approval = FALSE, updated_at = NOW()
+             WHERE id = $1`,
+            [messageId]
+          );
+          await tx.query(
+            `UPDATE rooms SET total_messages = total_messages + 1, updated_at = NOW() WHERE id = $1`,
+            [roomId]
+          );
+        });
+
+        // Award XP to the original sender now that the message is approved
+        const { rows: senderRows } = await db.query<{ plan: string }>(
+          `SELECT COALESCE(plan, 'free') AS plan FROM users WHERE id = $1 LIMIT 1`,
+          [msg.sender_id]
+        );
+        const senderPlan = (senderRows[0]?.plan ?? 'free') as Plan;
+
+        const { rows: countRows } = await db.query<{ cnt: string }>(
+          `SELECT COUNT(*) AS cnt
+           FROM room_messages
+           WHERE room_id = $1 AND sender_id = $2
+             AND is_pending_approval = FALSE
+             AND created_at::date = CURRENT_DATE`,
+          [roomId, msg.sender_id]
+        );
+        const todayMsgCount = parseInt(countRows[0]?.cnt ?? '0', 10);
+
+        if (todayMsgCount <= ROOM_MESSAGE_XP_DAILY_CAP) {
+          const { finalXp } = calculateFinalXP('send_room_message', { plan: senderPlan, isMessagingAction: true });
+          safeAwardXP(msg.sender_id, finalXp, "social", "send_message", `msg_${messageId}`)
+            .then(() =>
+              publishRealtimeEvent(`user:${msg.sender_id}`, "reward_earned", { type: "xp", amount: finalXp })
+            )
+            .catch(() => {});
+        }
+
+        await logModerationAction(roomId, callerId, "approve", msg.sender_id, { messageId });
+
+        return NextResponse.json({ action: "approve", messageId }, { status: 200 });
       }
 
       // -----------------------------------------------------------------------

@@ -8,6 +8,7 @@
       "@/app/*": ["./app/*"],
       "@/components/*": ["./components/*"],
       "@/lib/*": ["./lib/*"],
+      "@zobia/types": ["../../shared/types/index.ts"],
       "@zobia/shared/*": ["../../shared/*"],
       "react-native": ["./node_modules/react-native"]
     },

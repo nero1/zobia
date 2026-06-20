@@ -150,66 +150,74 @@ export async function findWarOpponent(
   guildId: string,
   db: DatabaseAdapter
 ): Promise<string | null> {
-  const selfResult = await db.query<GuildRow>(
-    `SELECT id, guild_xp, city FROM guilds WHERE id = $1 AND is_active = TRUE`,
-    [guildId]
-  );
-  const self = selfResult.rows[0];
-  if (!self) return null;
-
-  const minXP = Math.floor(self.guild_xp * (1 - OPPONENT_XP_TOLERANCE));
-  const maxXP = Math.ceil(self.guild_xp * (1 + OPPONENT_XP_TOLERANCE));
-
-  // Guilds currently involved in an active war
-  const activeWarResult = await db.query<{ guild_id: string }>(
-    `SELECT DISTINCT unnest(ARRAY[challenger_guild_id, defender_guild_id]) AS guild_id
-     FROM guild_wars
-     WHERE status IN ('active', 'final_hour')`,
-    []
-  );
-  const busyGuilds = new Set(activeWarResult.rows.map((r) => r.guild_id));
-  busyGuilds.add(guildId);
-
-  const cooldownCutoff = new Date(
-    Date.now() - WAR_COOLDOWN_HOURS * 60 * 60 * 1000
-  ).toISOString();
-
-  // Build the busy guild exclusion list for use in the SQL query.
-  // Using = ALL with an empty array is always TRUE in PostgreSQL, so we can
-  // always pass busyGuildIds as $4 without conditionally changing the query.
-  const busyGuildIds = [...busyGuilds];
-
-  // Try same-city first, then any city — exclusions are in the SQL so LIMIT 5
-  // applies to post-filtered eligible opponents (WAR-LIMIT-01).
-  for (const cityFilter of [true, false]) {
-    const conditions = [
-      `g.is_active = TRUE`,
-      `g.guild_xp BETWEEN $1 AND $2`,
-      `(g.last_war_ended_at IS NULL OR g.last_war_ended_at < $3)`,
-      `g.id != ALL($4::uuid[])`,
-    ];
-    const params: (string | number | string[])[] = [minXP, maxXP, cooldownCutoff, busyGuildIds];
-    let paramIdx = 5;
-
-    if (cityFilter && self.city) {
-      conditions.push(`g.city = $${paramIdx++}`);
-      params.push(self.city);
-    }
-
-    const candidateResult = await db.query<{ id: string }>(
-      `SELECT g.id FROM guilds g
-       WHERE ${conditions.join(" AND ")}
-       ORDER BY ABS(g.guild_xp - $${paramIdx}) ASC
-       LIMIT 5`,
-      [...params, self.guild_xp]
+  return db.transaction(async (client) => {
+    // Lock the declaring guild row to prevent concurrent declarations from
+    // racing through this function at the same time.
+    const selfResult = await client.query<GuildRow>(
+      `SELECT id, guild_xp, city FROM guilds WHERE id = $1 AND is_active = TRUE FOR UPDATE`,
+      [guildId]
     );
+    const self = selfResult.rows[0];
+    if (!self) return null;
 
-    if (candidateResult.rows.length > 0) {
-      return candidateResult.rows[0].id;
+    const minXP = Math.floor(self.guild_xp * (1 - OPPONENT_XP_TOLERANCE));
+    const maxXP = Math.ceil(self.guild_xp * (1 + OPPONENT_XP_TOLERANCE));
+
+    // Guilds currently involved in an active war
+    const activeWarResult = await client.query<{ guild_id: string }>(
+      `SELECT DISTINCT unnest(ARRAY[challenger_guild_id, defender_guild_id]) AS guild_id
+       FROM guild_wars
+       WHERE status IN ('active', 'final_hour')`,
+      []
+    );
+    const busyGuilds = new Set(activeWarResult.rows.map((r) => r.guild_id));
+    busyGuilds.add(guildId);
+
+    const cooldownCutoff = new Date(
+      Date.now() - WAR_COOLDOWN_HOURS * 60 * 60 * 1000
+    ).toISOString();
+
+    // Build the busy guild exclusion list for use in the SQL query.
+    // Using = ALL with an empty array is always TRUE in PostgreSQL, so we can
+    // always pass busyGuildIds as $4 without conditionally changing the query.
+    const busyGuildIds = [...busyGuilds];
+
+    // Try same-city first, then any city — exclusions are in the SQL so LIMIT 5
+    // applies to post-filtered eligible opponents (WAR-LIMIT-01).
+    // FOR UPDATE SKIP LOCKED: if another concurrent declaration already locked a
+    // candidate guild, skip it rather than block, preventing two wars from being
+    // declared against the same guild simultaneously.
+    for (const cityFilter of [true, false]) {
+      const conditions = [
+        `g.is_active = TRUE`,
+        `g.guild_xp BETWEEN $1 AND $2`,
+        `(g.last_war_ended_at IS NULL OR g.last_war_ended_at < $3)`,
+        `g.id != ALL($4::uuid[])`,
+      ];
+      const params: (string | number | string[])[] = [minXP, maxXP, cooldownCutoff, busyGuildIds];
+      let paramIdx = 5;
+
+      if (cityFilter && self.city) {
+        conditions.push(`g.city = $${paramIdx++}`);
+        params.push(self.city);
+      }
+
+      const candidateResult = await client.query<{ id: string }>(
+        `SELECT g.id FROM guilds g
+         WHERE ${conditions.join(" AND ")}
+         ORDER BY ABS(g.guild_xp - $${paramIdx}) ASC
+         LIMIT 5
+         FOR UPDATE SKIP LOCKED`,
+        [...params, self.guild_xp]
+      );
+
+      if (candidateResult.rows.length > 0) {
+        return candidateResult.rows[0].id;
+      }
     }
-  }
 
-  return null;
+    return null;
+  });
 }
 
 // ---------------------------------------------------------------------------

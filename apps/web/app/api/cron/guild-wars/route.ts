@@ -59,8 +59,6 @@ function validateCronSecret(req: NextRequest): boolean {
 
 interface GuildWarRow {
   id: string;
-  guild_a_id: string;
-  guild_b_id: string;
   challenger_guild_id: string;
   defender_guild_id: string;
   status: string;
@@ -166,7 +164,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // -------------------------------------------------------------------------
   try {
     const completedWars = await db.query<GuildWarRow>(
-      `SELECT id, guild_a_id, guild_b_id, challenger_guild_id, defender_guild_id, status, ends_at
+      `SELECT id, challenger_guild_id, defender_guild_id, status, ends_at
        FROM guild_wars
        WHERE status IN ('active', 'final_hour')
          AND ends_at < $1`,

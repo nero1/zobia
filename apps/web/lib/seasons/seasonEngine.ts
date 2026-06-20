@@ -361,22 +361,40 @@ export async function createSeasonCeremonyRoom(
     const closesAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
     const slug = `season-${seasonId.slice(0, 8)}-ceremony`;
 
-    const { rows: roomRows } = await db.query<{ id: string }>(
-      `INSERT INTO rooms
-         (creator_id, name, description, type, slug, is_active, ends_at, metadata)
-       VALUES ($1, $2, $3, 'free_open', $4, TRUE, $5, $6)
-       RETURNING id`,
-      [
-        adminId,
-        `🏆 ${seasonName} Closing Ceremony`,
-        `The official closing ceremony for ${seasonName}. Celebrate, reflect, and look ahead to the next season!`,
-        slug,
-        closesAt,
-        JSON.stringify({ season_ceremony_id: seasonId, is_platform_room: true }),
-      ]
-    );
+    // Wrap both INSERTs in a single transaction so a failure on room_members
+    // never leaves an orphaned room that would be returned by the "already
+    // exists" guard above on every subsequent call.
+    const roomId = await db.transaction(async (tx) => {
+      const { rows: roomRows } = await tx.query<{ id: string }>(
+        `INSERT INTO rooms
+           (creator_id, name, description, type, slug, is_active, ends_at, metadata)
+         VALUES ($1, $2, $3, 'free_open', $4, TRUE, $5, $6)
+         RETURNING id`,
+        [
+          adminId,
+          `🏆 ${seasonName} Closing Ceremony`,
+          `The official closing ceremony for ${seasonName}. Celebrate, reflect, and look ahead to the next season!`,
+          slug,
+          closesAt,
+          JSON.stringify({ season_ceremony_id: seasonId, is_platform_room: true }),
+        ]
+      );
 
-    return roomRows[0]?.id ?? null;
+      const id = roomRows[0]?.id;
+      if (!id) return null;
+
+      // Add the admin as the initial room member so the room is not empty on creation.
+      await tx.query(
+        `INSERT INTO room_members (room_id, user_id, role, joined_at)
+         VALUES ($1, $2, 'admin', NOW())
+         ON CONFLICT (room_id, user_id) DO NOTHING`,
+        [id, adminId]
+      );
+
+      return id;
+    });
+
+    return roomId;
   } catch (err) {
     console.error('[seasonEngine] createSeasonCeremonyRoom failed:', err);
     return null;

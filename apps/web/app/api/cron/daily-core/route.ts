@@ -70,7 +70,7 @@ export const GET = async (req: NextRequest) => {
                login_streak_days        = 0,
                login_streak             = 0,
                updated_at               = NOW()
-           WHERE last_login_date < CURRENT_DATE - 1
+           WHERE last_login_date < CURRENT_DATE
              AND login_streak_days > 0
            RETURNING 1
          )

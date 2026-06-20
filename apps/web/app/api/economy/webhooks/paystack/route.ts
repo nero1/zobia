@@ -47,7 +47,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const isValid = verifyWebhookSignature(rawBody, signature);
   if (!isValid) {
     console.warn("[webhook/paystack] Invalid signature rejected");
-    return NextResponse.json({ received: false }, { status: 401 });
+    // Return 200 so Paystack does not retry — a bad signature will never become valid on retry.
+    return NextResponse.json({ received: false }, { status: 200 });
   }
 
   // 3. Parse event

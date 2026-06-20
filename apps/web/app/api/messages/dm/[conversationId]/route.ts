@@ -13,6 +13,7 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { withAuth, validateSearchParams, validateBody } from "@/lib/api/middleware";
@@ -184,16 +185,19 @@ export const GET = withAuth(
            CASE WHEN m.is_deleted THEN NULL ELSE m.media_url END AS media_url,
            m.coin_cost,
            m.is_deleted,
-           (
-             SELECT json_agg(json_build_object(
-               'id', r.id,
-               'userId', r.user_id,
-               'emoji', r.emoji,
-               'isCustom', r.is_custom,
-               'createdAt', r.created_at
-             ))
-             FROM message_reactions r
-             WHERE r.message_id = m.id
+           COALESCE(
+             (
+               SELECT json_agg(json_build_object(
+                 'id', r.id,
+                 'userId', r.user_id,
+                 'emoji', r.emoji,
+                 'isCustom', r.is_custom,
+                 'createdAt', r.created_at
+               ) ORDER BY r.created_at)
+               FROM message_reactions r
+               WHERE r.message_id = m.id
+             ),
+             '[]'::json
            ) AS reactions,
            m.created_at,
            m.updated_at
@@ -407,9 +411,14 @@ export const POST = withAuth(
         throw badRequest("Unable to send message to this user", "MESSAGE_NOT_DELIVERED");
       }
 
-      // 3. Daily reply limit — atomically check and increment to eliminate TOCTOU race (BUG-10)
-      const { allowed: dailyAllowed } = await checkAndIncrementDailyCount(auth.user.sub, "reply", sender.plan);
-      if (!dailyAllowed) {
+      // 3. Atomic daily reply limit check + increment — single Lua round-trip
+      //    eliminates the TOCTOU race between a separate read-check and a later
+      //    write-increment (BUG-10). Placed before the DB transaction so a
+      //    rolled-back transaction never leaks a Redis counter increment.
+      const { allowed: replyAllowed } = await checkAndIncrementDailyCount(
+        auth.user.sub, "reply", sender.plan
+      );
+      if (!replyAllowed) {
         throw conflict("Daily reply limit reached. Try again tomorrow.", "DAILY_LIMIT_REACHED");
       }
 
@@ -427,25 +436,12 @@ export const POST = withAuth(
       );
       const replyCountFromRecipient = parseInt(replyRows[0]?.cnt ?? "0", 10);
 
-      // 6. Anti-spam filter (silent)
+      // 6. Anti-spam filter
       const filtered = filterDMContent(body.content, replyCountFromRecipient, sender.is_admin);
       if (!sender.is_admin && body.content.trim() && !filtered.trim()) {
         return NextResponse.json(
-          {
-            message: {
-              id: `blocked-${Date.now()}`,
-              sender_id: auth.user.sub,
-              recipient_id: recipientId,
-              message_type: body.messageType,
-              content: body.content,
-              media_url: body.mediaUrl ?? null,
-              coin_cost: 0,
-              is_deleted: false,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            },
-          },
-          { status: 201 }
+          { error: "Message blocked by content filter", code: "CONTENT_FILTERED" },
+          { status: 422 }
         );
       }
 
@@ -487,9 +483,11 @@ export const POST = withAuth(
         }
       }
 
-      // BUG-FIN-13: use a stable reference_id so retried requests (same idempotency key)
-      // never double-debit the sender. debitCoins() handles SELECT FOR UPDATE + ledger write.
-      const coinRefId = body.idempotencyKey ? `dm_cost:${body.idempotencyKey}` : null;
+      // Always generate a non-null coinRefId so the coin ledger has a unique reference
+      // that prevents double-debit under concurrent retries (BUG-M-02).
+      // When the client provides an idempotency key we use it for true retry idempotency;
+      // otherwise we generate a random UUID scoped to this request.
+      const coinRefId = `dm_cost:${body.idempotencyKey ?? randomUUID()}`;
 
       // 9. Atomic: deduct coins + create message
       const message = await db.transaction(async (tx) => {
@@ -543,7 +541,6 @@ export const POST = withAuth(
         // BUG-XP-11: use safeAwardXP with message.id as reference_id for idempotency + DLQ on failure
         safeAwardXP(auth.user.sub, convFinalXp, 'social', 'message', `dm_${message.id}`).catch(() => {});
       }
-      // Daily counter already incremented atomically in step 3 (BUG-10)
       updateConversationScore(auth.user.sub, recipientId, "message_sent").catch(() => {});
 
       // 11. Realtime broadcast — push the new message to open clients

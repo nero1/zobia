@@ -23,6 +23,7 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, conflict, internalError } from "@/lib/api/errors";
 import { creditCoins } from "@/lib/economy/coins";
 import { db } from "@/lib/db";
+import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -145,28 +146,50 @@ async function createServiceAccountJwt(sa: ServiceAccountJson): Promise<string> 
   return `${signingInput}.${signatureB64}`;
 }
 
+// Module-level cache keyed by service account client_email so rotating
+// GOOGLE_PLAY_SERVICE_ACCOUNT_JSON immediately invalidates the stale token
+// instead of serving it for up to ~59 minutes.
+const _oauthCache: Record<string, { token: string; expiresAt: number }> = {};
+
 /**
  * Exchange a service account JWT for an OAuth2 access token.
+ * Results are cached at module scope per service-account identity.
  */
 async function getGoogleAccessToken(sa: ServiceAccountJson): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  const cached = _oauthCache[sa.client_email];
+  if (cached && cached.expiresAt > now + 60) {
+    return cached.token;
+  }
+
   const jwt = await createServiceAccountJwt(sa);
   const tokenUri = sa.token_uri ?? "https://oauth2.googleapis.com/token";
 
-  const resp = await fetch(tokenUri, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: jwt,
-    }),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  let resp: Response;
+  try {
+    resp = await fetch(tokenUri, {
+      signal: controller.signal,
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        assertion: jwt,
+      }),
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!resp.ok) {
     const text = await resp.text();
     throw internalError(`Failed to get Google access token: ${text}`);
   }
 
-  const data = (await resp.json()) as { access_token: string };
+  const data = (await resp.json()) as { access_token: string; expires_in?: number };
+  const expiresIn = data.expires_in ?? 3600;
+  _oauthCache[sa.client_email] = { token: data.access_token, expiresAt: now + expiresIn - 60 };
   return data.access_token;
 }
 
@@ -216,9 +239,17 @@ async function verifyGooglePlayPurchase(
 
   const url = `${GOOGLE_PLAY_API_BASE}/${packageName}/purchases/products/${productId}/tokens/${purchaseToken}`;
 
-  const resp = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  let resp: Response;
+  try {
+    resp = await fetch(url, {
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!resp.ok) {
     const text = await resp.text();
@@ -252,14 +283,22 @@ async function consumeGooglePlayPurchase(
 
   const url = `${GOOGLE_PLAY_API_BASE}/${packageName}/purchases/products/${productId}/tokens/${purchaseToken}:consume`;
 
-  const resp = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: "{}",
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  let resp: Response;
+  try {
+    resp = await fetch(url, {
+      signal: controller.signal,
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: "{}",
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!resp.ok && resp.status !== 204) {
     // Non-fatal: log but don't fail the credit — coins were already granted
@@ -309,7 +348,14 @@ async function verifyAndActivateSubscription(
     const sa: ServiceAccountJson = JSON.parse(saJson);
     const accessToken = await getGoogleAccessToken(sa);
     const url = `${GOOGLE_PLAY_API_BASE}/${packageName}/purchases/subscriptions/${productId}/tokens/${purchaseToken}`;
-    const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    const verifyCtrl = new AbortController();
+    const verifyTimer = setTimeout(() => verifyCtrl.abort(), 5000);
+    let resp: Response;
+    try {
+      resp = await fetch(url, { signal: verifyCtrl.signal, headers: { Authorization: `Bearer ${accessToken}` } });
+    } finally {
+      clearTimeout(verifyTimer);
+    }
     if (!resp.ok) {
       const text = await resp.text();
       throw badRequest(`Google Play subscription verification failed: ${text}`, "PLAY_VERIFY_FAILED");
@@ -321,11 +367,14 @@ async function verifyAndActivateSubscription(
     }
     // Acknowledge to prevent auto-cancellation after 3 days
     const ackUrl = `${GOOGLE_PLAY_API_BASE}/${packageName}/purchases/subscriptions/${productId}/tokens/${purchaseToken}:acknowledge`;
-    await fetch(ackUrl, {
+    const ackCtrl = new AbortController();
+    const ackTimer = setTimeout(() => ackCtrl.abort(), 5000);
+    fetch(ackUrl, {
+      signal: ackCtrl.signal,
       method: "POST",
       headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
       body: "{}",
-    }).catch((e) => console.error("[iap/verify] Subscription ack failed:", e));
+    }).catch((e) => console.error("[iap/verify] Subscription ack failed:", e)).finally(() => clearTimeout(ackTimer));
   } else {
     if (process.env.NODE_ENV === "production") {
       throw internalError(
@@ -342,16 +391,19 @@ async function verifyAndActivateSubscription(
       [subConfig.plan, userId]
     );
 
-    // Credit the monthly coin bonus via the ledger (inside transaction so plan + coins are atomic)
-    await creditCoins(
-      userId,
-      subConfig.monthlyCoins,
-      "subscription_bonus",
-      referenceId,
-      `Google Play subscription: ${productId} — monthly coin bonus`,
-      { productId, packageName, purchaseToken },
-      tx
-    );
+    // Credit the monthly coin bonus only when the configured amount is positive —
+    // a 0-coin bonus config would insert a no-op ledger row and wastes a write.
+    if (subConfig.monthlyCoins > 0) {
+      await creditCoins(
+        userId,
+        subConfig.monthlyCoins,
+        "subscription_bonus",
+        referenceId,
+        `Google Play subscription: ${productId} — monthly coin bonus`,
+        { productId, packageName, purchaseToken },
+        tx
+      );
+    }
   });
 
   return { plan: subConfig.plan, coinsGranted: subConfig.monthlyCoins };
@@ -373,6 +425,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const body = await validateBody(req, verifyIapSchema);
     const userId = auth.user.sub;
 
+    // Rate-limit per user to prevent purchase-token replay flooding.
+    await enforceRateLimit(userId, "user", RATE_LIMITS.coinPurchase);
+
     // Route to subscription handler when productId is a subscription product
     const isSubscription = body.isSubscription || !!SUBSCRIPTION_PRODUCTS[body.productId];
     if (isSubscription) {
@@ -390,7 +445,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     // --- One-time coin purchase flow ---
     const coinsToGrant = COIN_PRODUCTS[body.productId];
-    if (!coinsToGrant) {
+    if (coinsToGrant === undefined) {
       throw badRequest(`Unknown productId: ${body.productId}`, "UNKNOWN_PRODUCT");
     }
 
@@ -410,6 +465,12 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         `Purchase is not in a valid state (state=${purchase.purchaseState})`,
         "PURCHASE_INVALID"
       );
+    }
+
+    // consumptionState: 0 = not yet consumed. A token that's already consumed
+    // means a prior request already processed it — treat as duplicate.
+    if (purchase.consumptionState !== 0) {
+      throw conflict("This purchase has already been consumed", "PURCHASE_ALREADY_PROCESSED");
     }
 
     // 2. Credit coins atomically — coin_ledger has a unique index on reference_id

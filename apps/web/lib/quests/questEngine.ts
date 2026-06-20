@@ -395,8 +395,8 @@ export async function triggerActivityQuestProgress(
             coinAmount: result.coins_awarded,
           }).catch(() => {});
         }
-      } catch {
-        // individual quest errors are non-fatal
+      } catch (err) {
+        logger.error({ userId, questId: quest.id, err }, "[questEngine] updateQuestProgress failed (non-fatal)");
       }
     }
 
@@ -410,12 +410,12 @@ export async function triggerActivityQuestProgress(
             coinAmount: 0,
           }).catch(() => {});
         }
-      } catch {
-        // deck completion errors are non-fatal
+      } catch (err) {
+        logger.error({ userId, err }, "[questEngine] checkDeckCompletion failed (non-fatal)");
       }
     }
-  } catch {
-    // all errors are swallowed — this is fire-and-forget
+  } catch (err) {
+    logger.error({ userId, actionType, err }, "[questEngine] triggerActivityQuestProgress failed");
   }
 }
 

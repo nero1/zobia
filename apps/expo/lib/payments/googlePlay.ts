@@ -180,7 +180,29 @@ function setupGlobalPurchaseListener(): void {
     if (responseCode === InAppPurchases.IAPResponseCode.OK && results) {
       for (const purchase of results) {
         const sessionId = activePurchaseSessions.get(purchase.productId);
-        if (!sessionId) continue;
+        if (!sessionId) {
+          // No active session — this purchase is from a prior app session (e.g. after a crash).
+          // Replay it through the server to ensure coins/plan are credited and the transaction
+          // is finished before Google Play auto-cancels the unacknowledged purchase.
+          if (purchase.purchaseToken && !purchase.acknowledged) {
+            const isSubscription = SUBSCRIPTION_IDS.includes(purchase.productId);
+            verifyPurchaseServerSide(
+              purchase.purchaseToken,
+              purchase.productId,
+              APP_PACKAGE_NAME,
+              isSubscription
+            )
+              .then(async (result) => {
+                if (result !== null) {
+                  try {
+                    await InAppPurchases.finishTransactionAsync(purchase, !isSubscription);
+                  } catch {}
+                }
+              })
+              .catch(() => {});
+          }
+          continue;
+        }
         const resolver = purchaseResolvers.get(sessionId);
         if (!resolver || !purchase.purchaseToken) continue;
 
@@ -225,10 +247,17 @@ let initialised = false;
  */
 export async function initGooglePlayBilling(): Promise<void> {
   if (Platform.OS !== 'android' || initialised) return;
-
-  await InAppPurchases.connectAsync();
-  setupGlobalPurchaseListener();
+  // Set flag before await to prevent a second concurrent call from also
+  // entering connectAsync while the first is still in flight (race window fix).
   initialised = true;
+  try {
+    await InAppPurchases.connectAsync();
+    setupGlobalPurchaseListener();
+  } catch (err) {
+    // Reset so the caller can retry after a failed init attempt.
+    initialised = false;
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------
