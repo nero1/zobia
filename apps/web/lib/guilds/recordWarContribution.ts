@@ -34,8 +34,8 @@ export async function recordWarContribution(
     // transaction. Without this, a concurrent resolveWar call can resolve the war
     // between the status SELECT and the contribution INSERT (TOCTOU race).
     await db.transaction(async (tx) => {
-      // Find and lock the user's guild war row inside the transaction so a
-      // concurrent resolveWar cannot change the status between the check and write.
+      // Find the user's active guild war (no FOR UPDATE here — the subsequent
+      // UPDATE on guild_wars takes an implicit row lock, which is sufficient).
       const { rows } = await tx.query<{
         war_id: string;
         guild_id: string;
@@ -54,8 +54,7 @@ export async function recordWarContribution(
            AND gw.status IN ('active', 'final_hour')
            AND gw.starts_at <= NOW()
            AND gw.ends_at > NOW()
-         LIMIT 1
-         FOR UPDATE OF gw`,
+         LIMIT 1`,
         [userId]
       );
 
@@ -75,14 +74,20 @@ export async function recordWarContribution(
         [war_id, userId, guild_id, pts]
       );
 
+      // Re-check war status in the UPDATE WHERE clause: if resolveWar just completed
+      // the war, the UPDATE matches 0 rows and we silently skip rather than writing
+      // stale points. The ON CONFLICT upsert above already ran but its effect is
+      // inconsequential because resolveWar has already summed final contribution totals.
       if (is_challenger) {
         await tx.query(
-          'UPDATE guild_wars SET challenger_points = challenger_points + $1, updated_at = NOW() WHERE id = $2',
+          `UPDATE guild_wars SET challenger_points = challenger_points + $1, updated_at = NOW()
+           WHERE id = $2 AND status IN ('active', 'final_hour')`,
           [pts, war_id]
         );
       } else {
         await tx.query(
-          'UPDATE guild_wars SET defender_points = defender_points + $1, updated_at = NOW() WHERE id = $2',
+          `UPDATE guild_wars SET defender_points = defender_points + $1, updated_at = NOW()
+           WHERE id = $2 AND status IN ('active', 'final_hour')`,
           [pts, war_id]
         );
       }

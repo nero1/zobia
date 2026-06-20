@@ -63,6 +63,8 @@ export interface PushNotificationOptions {
 
 interface PushTokenRow {
   token: string;
+  device_id: string | null;
+  last_seen_at: string | null;
 }
 
 interface ExpoMessage {
@@ -425,15 +427,29 @@ export async function sendPushNotification(
   options?: PushNotificationOptions
 ): Promise<void> {
   try {
-    // Fetch active tokens for the user (excluding stale/abandoned devices)
+    // Fetch active tokens for the user. ORDER BY last_seen_at DESC so that when
+    // we deduplicate by device_id we keep the most recently seen token per device.
     const { rows } = await db.query<PushTokenRow>(
-      `SELECT token FROM user_push_tokens
+      `SELECT token, device_id, last_seen_at FROM user_push_tokens
        WHERE user_id = $1
-         AND (last_seen_at IS NULL OR last_seen_at > NOW() - INTERVAL '90 days')`,
+         AND (last_seen_at IS NULL OR last_seen_at > NOW() - INTERVAL '90 days')
+       ORDER BY last_seen_at DESC NULLS LAST`,
       [userId]
     );
 
     if (rows.length === 0) return; // No push tokens registered — silently skip
+
+    // Deduplicate by device_id: a user may have installed the app on the same
+    // device twice (e.g. uninstall/reinstall) resulting in multiple tokens for
+    // the same physical device. Keep only the most-recently-active one per
+    // device to avoid duplicate deliveries.
+    const seenDeviceIds = new Set<string>();
+    const dedupedRows = rows.filter((r) => {
+      if (!r.device_id) return true; // Legacy rows without device_id: always include
+      if (seenDeviceIds.has(r.device_id)) return false;
+      seenDeviceIds.add(r.device_id);
+      return true;
+    });
 
     const { sound, priority } = resolveExpoPriority(options?.priority);
 
@@ -442,7 +458,7 @@ export async function sendPushNotification(
       messageData.action = options.action;
     }
 
-    const messages = rows
+    const messages = dedupedRows
       .filter((r) => isValidExpoToken(r.token))
       .map((r) => ({
         token: r.token,

@@ -34,6 +34,30 @@ import { verifyAccessToken } from "@/lib/auth/jwt";
  * nonce protection in supporting browsers (BUG-30).
  */
 function buildCsp(nonce: string): string {
+  // Allowlist for connect-src: include all realtime providers the app supports
+  // (Supabase, Ably, Pusher) plus Sentry browser-side error ingestion.
+  // Prefer the specific Supabase project URL when set to avoid a wildcard.
+  const supabaseOrigin = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(/\/$/, "");
+  const supabaseWss = supabaseOrigin
+    ? supabaseOrigin.replace(/^https?:/, "wss:")
+    : "";
+  const connectSrc = [
+    "'self'",
+    // Supabase Realtime (HTTP + WebSocket)
+    supabaseOrigin || "https://*.supabase.co",
+    supabaseWss || "wss://*.supabase.co",
+    // Ably Realtime (HTTP + WebSocket)
+    "https://realtime.ably.io",
+    "wss://realtime.ably.io",
+    "wss://*.ably.io",
+    "wss://*.ably-realtime.com",
+    // Pusher Channels (WebSocket only — HTTP auth goes through 'self')
+    "wss://*.pusher.com",
+    // Sentry browser SDK — error reporting ingest
+    "https://*.ingest.sentry.io",
+    "https://*.ingest.us.sentry.io",
+  ].filter(Boolean).join(" ");
+
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
@@ -41,7 +65,7 @@ function buildCsp(nonce: string): string {
     "worker-src 'self'",
     "font-src 'self' https://fonts.gstatic.com",
     "img-src 'self' data: blob: https:",
-    "connect-src 'self' https: wss:",
+    `connect-src ${connectSrc}`,
     "frame-src 'self' https://www.google.com https://challenges.cloudflare.com",
     "object-src 'none'",
     "base-uri 'self'",

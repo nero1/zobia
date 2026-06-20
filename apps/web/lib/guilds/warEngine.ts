@@ -235,11 +235,20 @@ export async function findWarOpponent(
  * @param txClient       - Optional transaction client; when provided the work
  *                         runs inside the caller's transaction instead of a new one.
  */
+interface PendingXPAward {
+  userId: string;
+  amount: number;
+  track: "competitor";
+  source: string;
+  ref: string;
+}
+
 export async function distributeWarRewards(
   warId: string,
   winnerGuildId: string,
   db: DatabaseAdapter,
-  txClient?: TransactionClient
+  txClient?: TransactionClient,
+  pendingXPAwards: PendingXPAward[] = []
 ): Promise<void> {
   const run = async (client: TransactionClient) => {
     const contribResult = await client.query<MemberContributionRow>(
@@ -293,10 +302,15 @@ export async function distributeWarRewards(
       );
     }
 
-    // Top contributor bonus XP
+    // Top contributor bonus XP — returned as pending; caller issues post-commit to avoid phantom DLQ
     if (members[0]) {
-      // BUG-14: use safeAwardXP for DLQ fallback and idempotency
-      await safeAwardXP(members[0].user_id, TOP_CONTRIBUTOR_BONUS_XP, "competitor", "top_contributor_war", `war:${warId}:${members[0].user_id}:top`, client);
+      pendingXPAwards.push({
+        userId: members[0].user_id,
+        amount: TOP_CONTRIBUTOR_BONUS_XP,
+        track: "competitor" as const,
+        source: "top_contributor_war",
+        ref: `war:${warId}:${members[0].user_id}:top`,
+      });
     }
   };
 
@@ -334,6 +348,12 @@ export async function resolveWar(
   let loserGuildId: string | null = null;
   let outcome: "win" | "draw" = "win";
 
+  // Collect XP awards from within the transaction; issue them post-commit to
+  // prevent phantom DLQ entries if the transaction rolls back (B09).
+  const pendingXPAwards: Array<{
+    userId: string; amount: number; track: "competitor"; source: string; ref: string;
+  }> = [];
+
   // ZB-07: The FOR UPDATE lock and all mutations run inside a single transaction
   // so concurrent calls cannot both see the war as unresolved.
   await db.transaction(async (client) => {
@@ -369,7 +389,7 @@ export async function resolveWar(
         [war.challenger_guild_id, war.defender_guild_id]
       );
 
-      // Award draw XP (100–250) to all participating members on both sides
+      // Collect draw XP awards (100–250) for post-commit issuance
       for (const guildId of [war.challenger_guild_id, war.defender_guild_id]) {
         const drawMembers = await client.query<{ user_id: string; war_points: number }>(
           `SELECT gm.user_id, COALESCE(wc.war_points, 0) AS war_points
@@ -384,7 +404,7 @@ export async function resolveWar(
           const { user_id } = drawMembers.rows[i];
           const scale = drawCount > 1 ? 1 - i / (drawCount - 1) : 1;
           const memberXP = Math.round(WAR_DRAW_XP_MIN + scale * (WAR_DRAW_XP_MAX - WAR_DRAW_XP_MIN));
-          await safeAwardXP(user_id, memberXP, "competitor", "draw_guild_war", `war:${warId}:${user_id}:draw`, client);
+          pendingXPAwards.push({ userId: user_id, amount: memberXP, track: "competitor", source: "draw_guild_war", ref: `war:${warId}:${user_id}:draw` });
         }
       }
     } else {
@@ -417,7 +437,7 @@ export async function resolveWar(
         [loserGuildId]
       );
 
-      // Award scaled win XP (200–500) to winning members based on contribution rank
+      // Collect win XP awards (200–500) for post-commit issuance
       const winnerMembers = await client.query<{ user_id: string; war_points: number }>(
         `SELECT gm.user_id, COALESCE(wc.war_points, 0) AS war_points
          FROM guild_members gm
@@ -432,7 +452,7 @@ export async function resolveWar(
         const { user_id } = winnerMembers.rows[i];
         const scale = memberCount > 1 ? 1 - i / (memberCount - 1) : 1;
         const memberXP = Math.round(WAR_WIN_XP_MIN + scale * (WAR_WIN_XP_MAX - WAR_WIN_XP_MIN));
-        await safeAwardXP(user_id, memberXP, "competitor", "win_guild_war", `war:${warId}:${user_id}:win`, client);
+        pendingXPAwards.push({ userId: user_id, amount: memberXP, track: "competitor", source: "win_guild_war", ref: `war:${warId}:${user_id}:win` });
       }
 
       // Award Guild XP (500–5,000 based on opponent strength) for tier progression
@@ -461,10 +481,15 @@ export async function resolveWar(
         [winnerGuildId, warId, fromTier]
       ).catch((err) => logger.error({ warId, err }, "[resolveWar] Failed to write guild tier history"));
 
-      // Distribute coin rewards within the same transaction (ZB-03)
-      await distributeWarRewards(warId, winnerGuildId!, db, client);
+      // Distribute coin rewards and collect top-contributor XP within the same transaction (ZB-03)
+      await distributeWarRewards(warId, winnerGuildId!, db, client, pendingXPAwards);
     }
   });
+
+  // Issue all XP awards after the transaction commits to prevent phantom DLQ entries (B09)
+  for (const award of pendingXPAwards) {
+    await safeAwardXP(award.userId, award.amount, award.track, award.source, award.ref);
+  }
 
   return { winnerGuildId, loserGuildId, outcome };
 }

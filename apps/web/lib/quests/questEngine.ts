@@ -183,7 +183,13 @@ export async function updateQuestProgress(
 }> {
   const today = new Date().toISOString().slice(0, 10);
 
-  return db.transaction(async (client) => {
+  // Collect XP award details inside the transaction and issue safeAwardXP
+  // only AFTER the transaction commits. This prevents phantom DLQ entries:
+  // if the transaction rolls back, there is no XP to award and no DLQ entry
+  // should be written.
+  let pendingXP: { amount: number; track: import("@/lib/xp/safeAwardXP").XPTrack; ref: string } | null = null;
+
+  const result = await db.transaction(async (client) => {
     const questResult = await client.query<QuestTemplate>(
       `SELECT id, target_count, xp_reward, coin_reward, action_type,
               category, icon, plan_required
@@ -259,7 +265,9 @@ export async function updateQuestProgress(
       }
       const xpTrack = (parallelTrack as import("@/lib/xp/safeAwardXP").XPTrack) ?? "main";
       const questCompletionRef = `quest:${questId}:${userId}:${today}`;
-      await safeAwardXP(userId, xpAwarded, xpTrack, "quest_complete", questCompletionRef, client);
+
+      // Defer XP award to post-commit; record intent here
+      pendingXP = { amount: xpAwarded, track: xpTrack, ref: questCompletionRef };
 
       // Use creditCoins() for proper SELECT FOR UPDATE locking and ledger consistency (BUG-10)
       // SYS-CL-01: per-user, per-day reference (mirrors questCompletionRef above) — a bare
@@ -277,6 +285,14 @@ export async function updateQuestProgress(
       coins_awarded: coinsAwarded,
     };
   });
+
+  // Issue XP award after the transaction commits so a rollback doesn't leave
+  // a phantom DLQ entry for XP that was never actually lost.
+  if (pendingXP) {
+    await safeAwardXP(userId, pendingXP.amount, pendingXP.track, "quest_complete", pendingXP.ref);
+  }
+
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -298,14 +314,18 @@ export async function checkDeckCompletion(
   date: string,
   db: DatabaseAdapter
 ): Promise<{ deckComplete: boolean; bonusAwarded: boolean; bonusXP: number }> {
-  return db.transaction(async (client) => {
+  // Track whether we should issue XP after the transaction commits.
+  let shouldAwardBonus = false;
+  const deckRef = `deck_completion:${userId}:${date}`;
+
+  const result = await db.transaction(async (client) => {
     // Lock user row to serialize concurrent calls
     await client.query(`SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`, [userId]);
 
     // Check quest completion for the user's assigned deck only.
     // Without the deck filter, progress on quests from other decks would
     // incorrectly count toward completion of today's assigned deck (BUG-008).
-    const result = await client.query<{
+    const queryResult = await client.query<{
       total: string;
       completed_count: string;
       bonus_already_awarded: boolean;
@@ -325,10 +345,10 @@ export async function checkDeckCompletion(
            SELECT quest_id FROM user_quest_decks
            WHERE user_id = $1 AND assigned_date = $2::date
          )`,
-      [userId, date, `deck_completion:${userId}:${date}`]
+      [userId, date, deckRef]
     );
 
-    const row = result.rows[0];
+    const row = queryResult.rows[0];
     if (!row) return { deckComplete: false, bonusAwarded: false, bonusXP: 0 };
 
     const total = parseInt(row.total);
@@ -339,12 +359,19 @@ export async function checkDeckCompletion(
       return { deckComplete, bonusAwarded: false, bonusXP: 0 };
     }
 
-    // Award bonus within the locked transaction — use date-scoped referenceId for idempotency
-    const deckRef = `deck_completion:${userId}:${date}`;
-    await safeAwardXP(userId, DECK_COMPLETION_BONUS_XP, 'main', 'deck_completion', deckRef, client);
+    // Mark that bonus should be awarded post-commit (avoids phantom DLQ if tx rolls back)
+    shouldAwardBonus = true;
 
     return { deckComplete: true, bonusAwarded: true, bonusXP: DECK_COMPLETION_BONUS_XP };
   });
+
+  // Issue XP award after the transaction commits so a rollback doesn't leave
+  // a phantom DLQ entry for XP that was never actually lost.
+  if (shouldAwardBonus) {
+    await safeAwardXP(userId, DECK_COMPLETION_BONUS_XP, 'main', 'deck_completion', deckRef);
+  }
+
+  return result;
 }
 
 // ---------------------------------------------------------------------------

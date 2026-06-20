@@ -58,6 +58,9 @@ export default function LoginScreen() {
   // Used for Telegram state polling
   const telegramStateRef = useRef<string | null>(null);
   const telegramPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Cancellation flag — set to true when stopTelegramPoll is called so that
+  // any in-flight awaits after that point know to exit without touching state.
+  const telegramCancelledRef = useRef(false);
 
   // -------------------------------------------------------------------------
   // Deep link listener — catches the callback from Google OAuth redirect
@@ -70,6 +73,17 @@ export default function LoginScreen() {
     try {
       const parsed = ExpoLinking.parse(url);
       const code = parsed.queryParams?.code as string | undefined;
+      const preAuthCode = parsed.queryParams?.pre_auth_code as string | undefined;
+
+      // 2FA required: server issued an opaque pre-auth code instead of an
+      // exchange code. Route to the 2FA verification screen.
+      if (preAuthCode) {
+        router.replace({
+          pathname: '/auth/two-factor',
+          params: { preAuthCode },
+        });
+        return;
+      }
 
       if (!code) return;
 
@@ -180,13 +194,26 @@ export default function LoginScreen() {
     let attempts = 0;
     const MAX_ATTEMPTS = 30; // 60 seconds total
 
+    // Reset the cancellation flag for this new poll session.
+    telegramCancelledRef.current = false;
+
     telegramPollRef.current = setInterval(async () => {
+      // Check before any async work — stopTelegramPoll may have been called
+      // (e.g. component unmounted) while a previous tick was still awaiting.
+      if (telegramCancelledRef.current) return;
+
       attempts++;
       try {
         const { data } = await apiClient.get(`/auth/telegram/status?state=${state}`);
+
+        // Guard after each await: the interval may have been cancelled while
+        // the fetch was in-flight.
+        if (telegramCancelledRef.current) return;
+
         if (data.status === 'approved' && data.token && data.user) {
           stopTelegramPoll();
           await signIn(data.token, data.user as AuthUser, data.refreshToken);
+          if (telegramCancelledRef.current) return;
           clearSessionExpired();
           router.replace('/(tabs)');
         } else if (data.status === 'expired' || attempts >= MAX_ATTEMPTS) {
@@ -200,6 +227,7 @@ export default function LoginScreen() {
   }
 
   function stopTelegramPoll() {
+    telegramCancelledRef.current = true;
     if (telegramPollRef.current) {
       clearInterval(telegramPollRef.current);
       telegramPollRef.current = null;

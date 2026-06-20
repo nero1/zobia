@@ -167,7 +167,7 @@ export async function calculateTrustScore(
        (
          SELECT COUNT(*)::text
          FROM moderation_actions
-         WHERE target_user_id = u.id
+         WHERE target_user_id = u.id AND action_type != 'warn'
        )                                                     AS moderation_action_count
      FROM users u
      WHERE u.id = $1 AND u.deleted_at IS NULL`,
@@ -260,7 +260,7 @@ export async function batchCalculateTrustScores(
      LEFT JOIN (
        SELECT target_user_id AS uid, COUNT(*)::int AS action_count
        FROM moderation_actions
-       WHERE target_user_id = ANY($1::uuid[])
+       WHERE target_user_id = ANY($1::uuid[]) AND action_type != 'warn'
        GROUP BY target_user_id
      ) mac ON mac.uid = u.id
      WHERE u.id = ANY($1::uuid[]) AND u.deleted_at IS NULL`,

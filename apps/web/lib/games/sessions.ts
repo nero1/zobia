@@ -161,6 +161,10 @@ export async function finalizeScore(
 
   let reward: RewardBundle = { credits: 0, xp: 0, stars: 0 };
 
+  // Load reward config before the transaction to avoid holding the lock
+  // while making an I/O call (manifest fetch).
+  const cfg = isWin ? await getGamesConfig() : null;
+
   await db.transaction(async (tx) => {
     // Mark the play counted (consumes the nonce). Guarded so a concurrent
     // double-submit can't both succeed.
@@ -181,22 +185,22 @@ export async function finalizeScore(
       `UPDATE games SET play_count = play_count + 1, updated_at = NOW() WHERE id = $1`,
       [game.id]
     );
-  });
 
-  // Standard per-win reward for solo plays (manifest fallbacks when a game
-  // leaves a value at 0).
-  if (isWin) {
-    const cfg = await getGamesConfig();
-    const credits = game.reward_credits_per_win || cfg.defaultRewardCredits;
-    const xp = game.reward_xp_per_win || cfg.defaultRewardXp;
-    const stars = game.reward_stars_per_win;
-    reward = await grantGamingReward(
-      userId,
-      { credits, xp, stars },
-      "game_win",
-      `play:${play.id}`
-    );
-  }
+    // Standard per-win reward is granted inside the transaction so a failure
+    // rolls back the counted flag and reward atomically (no partial-credit risk).
+    if (isWin && cfg) {
+      const credits = game.reward_credits_per_win || cfg.defaultRewardCredits;
+      const xp = game.reward_xp_per_win || cfg.defaultRewardXp;
+      const stars = game.reward_stars_per_win;
+      reward = await grantGamingReward(
+        userId,
+        { credits, xp, stars },
+        "game_win",
+        `play:${play.id}`,
+        tx
+      );
+    }
+  });
 
   // Every counted play contributes to games-played milestones.
   await checkPlayMilestones(userId);

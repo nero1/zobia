@@ -84,7 +84,7 @@ export const RATE_LIMITS = {
   /** PIN verification — tight limit to prevent brute-force of 4-digit keyspace (BUG-14). */
   pinVerify: { limit: 5, windowMs: 15 * 60 * 1000, name: "pin:verify", bypassL1: true } as RateLimitOptions,
   /** Gift sending — separate hourly limit to prevent gift spam / draining (STRUC-09). */
-  giftSend: { limit: 50, windowMs: 60 * 60 * 1000, name: "gift:send" } as RateLimitOptions,
+  giftSend: { limit: 50, windowMs: 60 * 60 * 1000, name: "gift:send", bypassL1: true } as RateLimitOptions,
   /** Coin purchase — hourly limit on purchase initiations (STRUC-09). */
   coinPurchase: { limit: 10, windowMs: 60 * 60 * 1000, name: "coin:purchase", globalLimit: 1000, bypassL1: true } as RateLimitOptions,
   /** Payout request — daily limit to prevent abuse of the payout system (STRUC-09). */

@@ -369,12 +369,19 @@ async function verifyAndActivateSubscription(
     const ackUrl = `${GOOGLE_PLAY_API_BASE}/${packageName}/purchases/subscriptions/${productId}/tokens/${purchaseToken}:acknowledge`;
     const ackCtrl = new AbortController();
     const ackTimer = setTimeout(() => ackCtrl.abort(), 5000);
-    fetch(ackUrl, {
-      signal: ackCtrl.signal,
-      method: "POST",
-      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-      body: "{}",
-    }).catch((e) => console.error("[iap/verify] Subscription ack failed:", e)).finally(() => clearTimeout(ackTimer));
+    try {
+      const ackResp = await fetch(ackUrl, {
+        signal: ackCtrl.signal,
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: "{}",
+      });
+      if (!ackResp.ok) console.error("[iap/verify] Subscription ack failed:", ackResp.status);
+    } catch (e) {
+      console.error("[iap/verify] Subscription ack error:", e);
+    } finally {
+      clearTimeout(ackTimer);
+    }
   } else {
     if (process.env.NODE_ENV === "production") {
       throw internalError(

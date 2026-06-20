@@ -235,6 +235,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    // Best-effort server logout — invalidates Redis session and refresh token.
+    // Fires and forgets: network failure or server error must never block local signout.
+    if (token) {
+      fetch(`${env.API_BASE_URL}/api/auth/logout`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, Origin: env.API_BASE_URL },
+      }).catch(() => {});
+    }
     await Promise.all([
       SecureStore.deleteItemAsync(JWT_KEY),
       SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY),
@@ -242,7 +250,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     ]);
     setToken(null);
     setUser(null);
-  }, []);
+  }, [token]);
 
   const clearSessionExpired = useCallback(() => {
     setSessionExpired(false);
