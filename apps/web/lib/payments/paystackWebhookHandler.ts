@@ -320,8 +320,11 @@ export async function processChargeSuccess(
 
   // Award referral commissions after the transaction commits so commission writes
   // do not extend the hot-path lock hold time (B12).
-  if (referralPayload) {
-    await awardReferralCommissions(db, referralPayload.userId, referralPayload.coins, referralPayload.paymentId, referralPayload.amountKobo)
+  // Type assertion needed because TS narrows `let` vars assigned inside async callbacks to their
+  // initial type (null) after the await; the runtime value is correct.
+  const capturedReferral = referralPayload as { userId: string; coins: number; paymentId: string; amountKobo: number } | null;
+  if (capturedReferral) {
+    await awardReferralCommissions(db, capturedReferral.userId, capturedReferral.coins, capturedReferral.paymentId, capturedReferral.amountKobo)
       .catch((err) => console.error("[webhook/paystack] Referral commission error:", err));
   }
 }

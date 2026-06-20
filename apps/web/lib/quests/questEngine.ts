@@ -288,8 +288,11 @@ export async function updateQuestProgress(
 
   // Issue XP award after the transaction commits so a rollback doesn't leave
   // a phantom DLQ entry for XP that was never actually lost.
-  if (pendingXP) {
-    await safeAwardXP(userId, pendingXP.amount, pendingXP.track, "quest_complete", pendingXP.ref);
+  // Type assertion needed because TS narrows `let` vars assigned inside async callbacks to their
+  // initial type (null) after the await; the runtime value is correct.
+  const capturedXP = pendingXP as { amount: number; track: import("@/lib/xp/safeAwardXP").XPTrack; ref: string } | null;
+  if (capturedXP) {
+    await safeAwardXP(userId, capturedXP.amount, capturedXP.track, "quest_complete", capturedXP.ref);
   }
 
   return result;
