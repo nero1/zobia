@@ -274,6 +274,15 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    - `games` table (upcoming feature) backing the public `/g/<slug>` route + referral links.
    - `slug_redirects` table — records retired slugs so renamed Rooms/games 301-redirect instead of 404.
    - Points `x_manifest.deep_link_base_url` at the active domain (away from the retired `zobia.social`).
+
+   Migration `0014_bug_fixes_round3.sql` adds:
+   - `guilds.wars_drawn INTEGER NOT NULL DEFAULT 0` — tracks draw outcomes for guilds; required for the alliance war tie resolution path
+   - `guild_alliances.wars_drawn INTEGER NOT NULL DEFAULT 0` — tracks draws at alliance level alongside `wars_won` / `wars_lost`
+   - `store_items.slug TEXT UNIQUE` — URL-safe slug for each store item; **required** by the DodoPayments webhook to look up grant amounts server-side via `metadata.itemSlug` (see DodoPayments Setup)
+   - Partial unique index on `failed_xp_awards (user_id, source, reference_id) WHERE reference_id IS NOT NULL` — prevents duplicate XP dead-letter rows for the same event
+   - Unique index on `audit_discrepancies (user_id, asset_type)` — prevents duplicate discrepancy records per user per asset type
+   - Unique index on `guild_quest_contributions (quest_id, user_id)` — prevents a user from being credited twice for the same guild quest
+
 7. Optional seed data: `psql "$DIRECT_URL" < apps/web/lib/db/seed.sql`
 
 ### Option B: Railway PostgreSQL

@@ -10,6 +10,7 @@
 
 import type { DatabaseAdapter } from "@/lib/db/interface";
 import { creditCoins } from "@/lib/economy/coins";
+import { upsertLeaderboardSnapshot } from "@/lib/leaderboards/engine";
 import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
@@ -586,7 +587,7 @@ export async function claimPassMilestone(
       const val = milestone.reward_value as { bonusXP: number };
       const referenceId = `season:${seasonId}:milestone:${milestoneId}:user:${userId}`;
       // CTE gate — UPDATE only fires when INSERT actually inserts (idempotency)
-      await client.query(
+      const { rows: xpRows } = await client.query<{ xp_total: number; season_xp: number }>(
         `WITH ins AS (
            INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
            VALUES ($1, $2, 'main', 'season_milestone_bonus', $3, $2, NOW())
@@ -597,7 +598,8 @@ export async function claimPassMilestone(
            SET xp_total  = xp_total  + $2,
                season_xp = season_xp + $2,
                updated_at = NOW()
-         WHERE id = $1 AND EXISTS (SELECT 1 FROM ins)`,
+         WHERE id = $1 AND EXISTS (SELECT 1 FROM ins)
+         RETURNING xp_total, season_xp`,
         [userId, val.bonusXP, referenceId]
       );
       // Mirror the season XP onto the season pass row so leaderboards stay in sync
@@ -607,6 +609,15 @@ export async function claimPassMilestone(
          WHERE user_id = $2 AND season_id = $3`,
         [val.bonusXP, userId, seasonId]
       );
+      // Sync leaderboard snapshot so rank reflects the new XP immediately
+      if (xpRows[0]) {
+        const newXpTotal = Number(xpRows[0].xp_total);
+        await upsertLeaderboardSnapshot(userId, "main", newXpTotal, client).catch(() => {});
+        await upsertLeaderboardSnapshot(userId, "main", Number(xpRows[0].season_xp), client, {
+          scope: "season",
+          seasonId,
+        }).catch(() => {});
+      }
     } else if (milestone.reward_type === 'sticker_pack') {
       const val = milestone.reward_value as { packId: string };
       // Prefer slug (canonical), fall back to name to avoid ambiguous OR match

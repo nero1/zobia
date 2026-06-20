@@ -764,6 +764,7 @@ export const guilds = pgTable("guilds", {
   recruitmentType: text("recruitment_type").notNull().default("open"),
   warsWon: integer("wars_won").notNull().default(0),
   warsLost: integer("wars_lost").notNull().default(0),
+  warsDrawn: integer("wars_drawn").notNull().default(0),
   isActive: boolean("is_active").notNull().default(true),
   lastWarEndedAt: timestamp("last_war_ended_at", { withTimezone: true }),
   belowMinSince: timestamp("below_min_since", { withTimezone: true }),
@@ -897,7 +898,9 @@ export const guildQuestContributions = pgTable("guild_quest_contributions", {
     .references(() => users.id, { onDelete: "cascade" }),
   amount: integer("amount").notNull().default(1),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-});
+}, (t) => ({
+  questUserUnique: uniqueIndex("uidx_guild_quest_contributions_quest_user").on(t.questId, t.userId),
+}));
 
 export const guildWarRematchTokens = pgTable("guild_war_rematch_tokens", {
   id: uuidPk(),
@@ -1010,6 +1013,7 @@ export const guildAlliances = pgTable("guild_alliances", {
     .references(() => guilds.id, { onDelete: "restrict" }),
   isActive: boolean("is_active").default(true),
   warsWon: integer("wars_won").notNull().default(0),
+  warsDrawn: integer("wars_drawn").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
@@ -2099,6 +2103,7 @@ export const gifts = pgTable("gifts", {
 export const storeItems = pgTable("store_items", {
   id: uuidPk(),
   name: text("name").notNull().unique(),
+  slug: text("slug").unique(),
   description: text("description"),
   itemType: text("item_type").notNull(),
   priceKobo: bigint("price_kobo", { mode: "bigint" }),
@@ -2273,7 +2278,9 @@ export const auditDiscrepancies = pgTable("audit_discrepancies", {
   resolved: boolean("resolved").notNull().default(false),
   resolvedAt: timestamp("resolved_at", { withTimezone: true }),
   notes: text("notes"),
-});
+}, (t) => ({
+  userAssetUnique: uniqueIndex("uidx_audit_discrepancies_user_asset").on(t.userId, t.assetType),
+}));
 
 export const failedXpAwards = pgTable("failed_xp_awards", {
   id: uuidPk(),
@@ -2289,7 +2296,11 @@ export const failedXpAwards = pgTable("failed_xp_awards", {
   retryCount: integer("retry_count").notNull().default(0),
   lastRetriedAt: timestamp("last_retried_at", { withTimezone: true }),
   resolvedAt: timestamp("resolved_at", { withTimezone: true }),
-});
+}, (t) => ({
+  refUnique: uniqueIndex("uidx_failed_xp_awards_ref")
+    .on(t.userId, t.source, t.referenceId)
+    .where(sql`reference_id IS NOT NULL`),
+}));
 
 // ---------------------------------------------------------------------------
 // SECTION 8: Creator Economy

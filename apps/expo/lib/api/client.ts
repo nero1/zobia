@@ -57,6 +57,30 @@ function notifyUnauthenticated(): void {
   });
 }
 
+/** Callbacks fired with a fresh serialised user JSON after a successful token rotation. */
+type UserUpdateCallback = (userJson: string) => void;
+const userUpdateCallbacks: UserUpdateCallback[] = [];
+
+/**
+ * Register a callback to receive the updated user object whenever a silent
+ * token rotation succeeds and a fresh profile is fetched from the server.
+ *
+ * @returns Unsubscribe function — call it in a useEffect cleanup.
+ */
+export function onUserUpdated(cb: UserUpdateCallback): () => void {
+  userUpdateCallbacks.push(cb);
+  return () => {
+    const idx = userUpdateCallbacks.indexOf(cb);
+    if (idx !== -1) userUpdateCallbacks.splice(idx, 1);
+  };
+}
+
+function notifyUserUpdated(userJson: string): void {
+  userUpdateCallbacks.forEach((cb) => {
+    try { cb(userJson); } catch {}
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Axios instance
 // ---------------------------------------------------------------------------
@@ -111,6 +135,29 @@ async function refreshAccessToken(): Promise<string | null> {
       if (newRefreshToken) {
         await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, newRefreshToken);
       }
+
+      // Fetch a fresh user profile so XP, rank, and plan are never stale.
+      // Best-effort: errors here must never block the retry of the original request.
+      try {
+        const meRes = await fetch(`${env.API_BASE_URL}/api/users/me`, {
+          headers: { Authorization: `Bearer ${newToken}`, Origin: env.API_BASE_URL },
+          signal: AbortSignal.timeout(5_000),
+        });
+        if (meRes.ok) {
+          const me = (await meRes.json()) as Record<string, unknown>;
+          const updatedUser = {
+            id: (me.id ?? me.user_id ?? '') as string,
+            username: (me.username ?? '') as string,
+            avatarEmoji: (me.avatarEmoji ?? me.avatar_emoji ?? '') as string,
+            city: (me.city ?? '') as string,
+            xp: Number(me.xp ?? me.xp_total ?? 0),
+            rankTier: (me.rankTier ?? me.rank_name ?? 'iron') as string,
+          };
+          const userJson = JSON.stringify(updatedUser);
+          await SecureStore.setItemAsync('zobia_user', userJson);
+          notifyUserUpdated(userJson);
+        }
+      } catch {}
 
       return newToken;
     } catch {

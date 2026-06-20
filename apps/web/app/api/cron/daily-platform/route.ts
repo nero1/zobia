@@ -336,61 +336,117 @@ export const GET = async (req: NextRequest) => {
 
         const score1 = parseInt(scores.find(s => s.alliance_id === war.alliance_1_id)?.total_xp ?? "0");
         const score2 = parseInt(scores.find(s => s.alliance_id === war.alliance_2_id)?.total_xp ?? "0");
-        const winnerId = score1 >= score2 ? war.alliance_1_id : war.alliance_2_id;
-        const loserId  = score1 >= score2 ? war.alliance_2_id : war.alliance_1_id;
 
-        await Promise.all([
-          db.query(
-            `UPDATE alliance_wars
-             SET status = 'completed', winner_alliance_id = $1,
-                 alliance_1_xp = $2, alliance_2_xp = $3, ended_at = NOW()
-             WHERE id = $4`,
-            [winnerId, score1, score2, war.id]
-          ).catch(() => {}),
-          db.query(
-            `UPDATE guild_alliances SET wars_won = wars_won + 1, updated_at = NOW() WHERE id = $1`,
-            [winnerId]
-          ).catch(() => {}),
-        ]);
+        if (score1 === score2) {
+          // Draw — neither alliance wins; increment wars_drawn on both
+          await Promise.all([
+            db.query(
+              `UPDATE alliance_wars
+               SET status = 'completed', winner_alliance_id = NULL,
+                   alliance_1_xp = $1, alliance_2_xp = $2, ended_at = NOW()
+               WHERE id = $3`,
+              [score1, score2, war.id]
+            ).catch(() => {}),
+            db.query(
+              `UPDATE guild_alliances SET wars_drawn = wars_drawn + 1, updated_at = NOW()
+               WHERE id = ANY($1)`,
+              [[war.alliance_1_id, war.alliance_2_id]]
+            ).catch(() => {}),
+          ]);
 
-        // Batch award XP to all winners concurrently via Promise.allSettled
-        const { rows: warWinners } = await db.query<{ user_id: string }>(
-          `SELECT DISTINCT gm.user_id
-           FROM guild_members gm
-           JOIN guild_alliance_members gam ON gam.guild_id = gm.guild_id
-           WHERE gam.alliance_id = $1 AND gm.left_at IS NULL`,
-          [winnerId]
-        );
-        await Promise.allSettled(
-          warWinners.map((w) =>
-            safeAwardXP(
-              w.user_id,
-              ALLIANCE_WAR_VICTORY_XP,
-              "competitor",
-              "alliance_war_victory",
-              `war_${war.id}_participant_${w.user_id}`
+          // Award draw XP to all members of both alliances
+          const { rows: drawParticipants } = await db.query<{ user_id: string }>(
+            `SELECT DISTINCT gm.user_id
+             FROM guild_members gm
+             JOIN guild_alliance_members gam ON gam.guild_id = gm.guild_id
+             WHERE gam.alliance_id = ANY($1) AND gm.left_at IS NULL`,
+            [[war.alliance_1_id, war.alliance_2_id]]
+          );
+          const ALLIANCE_WAR_DRAW_XP = Math.floor(ALLIANCE_WAR_VICTORY_XP / 2);
+          await Promise.allSettled(
+            drawParticipants.map((w) =>
+              safeAwardXP(
+                w.user_id,
+                ALLIANCE_WAR_DRAW_XP,
+                "competitor",
+                "alliance_war_draw",
+                `war_${war.id}_draw_${w.user_id}`
+              )
             )
-          )
-        );
+          );
 
-        // Batch notify all members of both alliances
-        await db.query(
-          `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
-           SELECT DISTINCT gm.user_id,
-                  'alliance_war_result',
-                  CASE WHEN gam.alliance_id = $2 THEN 'Alliance War Victory!' ELSE 'Alliance War Ended' END,
-                  CASE WHEN gam.alliance_id = $2
-                    THEN 'Your alliance won the war this week!'
-                    ELSE 'Your alliance was defeated this week. Regroup and fight back!'
-                  END,
-                  jsonb_build_object('warId', $1::text, 'won', gam.alliance_id = $2,
-                                     'winnerAllianceId', $2::text),
-                  false, NOW()
-           FROM guild_members gm
-           JOIN guild_alliance_members gam ON gam.guild_id = gm.guild_id
-           WHERE gam.alliance_id IN ($2, $3) AND gm.left_at IS NULL`,
-          [war.id, winnerId, loserId]
-        ).catch(() => {});
+          // Notify all members of both alliances — draw result
+          await db.query(
+            `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
+             SELECT DISTINCT gm.user_id,
+                    'alliance_war_result',
+                    'Alliance War Draw',
+                    'The alliance war ended in a draw. Both sides fought hard!',
+                    jsonb_build_object('warId', $1::text, 'draw', true,
+                                       'alliance1Id', $2::text, 'alliance2Id', $3::text),
+                    false, NOW()
+             FROM guild_members gm
+             JOIN guild_alliance_members gam ON gam.guild_id = gm.guild_id
+             WHERE gam.alliance_id = ANY($4) AND gm.left_at IS NULL`,
+            [war.id, war.alliance_1_id, war.alliance_2_id, [war.alliance_1_id, war.alliance_2_id]]
+          ).catch(() => {});
+        } else {
+          const winnerId = score1 > score2 ? war.alliance_1_id : war.alliance_2_id;
+          const loserId  = score1 > score2 ? war.alliance_2_id : war.alliance_1_id;
+
+          await Promise.all([
+            db.query(
+              `UPDATE alliance_wars
+               SET status = 'completed', winner_alliance_id = $1,
+                   alliance_1_xp = $2, alliance_2_xp = $3, ended_at = NOW()
+               WHERE id = $4`,
+              [winnerId, score1, score2, war.id]
+            ).catch(() => {}),
+            db.query(
+              `UPDATE guild_alliances SET wars_won = wars_won + 1, updated_at = NOW() WHERE id = $1`,
+              [winnerId]
+            ).catch(() => {}),
+          ]);
+
+          // Batch award XP to all winners concurrently via Promise.allSettled
+          const { rows: warWinners } = await db.query<{ user_id: string }>(
+            `SELECT DISTINCT gm.user_id
+             FROM guild_members gm
+             JOIN guild_alliance_members gam ON gam.guild_id = gm.guild_id
+             WHERE gam.alliance_id = $1 AND gm.left_at IS NULL`,
+            [winnerId]
+          );
+          await Promise.allSettled(
+            warWinners.map((w) =>
+              safeAwardXP(
+                w.user_id,
+                ALLIANCE_WAR_VICTORY_XP,
+                "competitor",
+                "alliance_war_victory",
+                `war_${war.id}_participant_${w.user_id}`
+              )
+            )
+          );
+
+          // Batch notify all members of both alliances
+          await db.query(
+            `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
+             SELECT DISTINCT gm.user_id,
+                    'alliance_war_result',
+                    CASE WHEN gam.alliance_id = $2 THEN 'Alliance War Victory!' ELSE 'Alliance War Ended' END,
+                    CASE WHEN gam.alliance_id = $2
+                      THEN 'Your alliance won the war this week!'
+                      ELSE 'Your alliance was defeated this week. Regroup and fight back!'
+                    END,
+                    jsonb_build_object('warId', $1::text, 'won', gam.alliance_id = $2,
+                                       'winnerAllianceId', $2::text),
+                    false, NOW()
+             FROM guild_members gm
+             JOIN guild_alliance_members gam ON gam.guild_id = gm.guild_id
+             WHERE gam.alliance_id IN ($2, $3) AND gm.left_at IS NULL`,
+            [war.id, winnerId, loserId]
+          ).catch(() => {});
+        }
 
         // Create next week's pairing
         await db.query(
@@ -485,7 +541,7 @@ export const GET = async (req: NextRequest) => {
     }>(
       `SELECT id, provider, event_type, payload::text AS payload, retry_count
        FROM failed_webhooks
-       WHERE resolved = false AND retry_count < 3
+       WHERE resolved_at IS NULL AND retry_count < 3
          AND (next_retry_at IS NULL OR next_retry_at <= NOW())
        ORDER BY created_at ASC LIMIT 50`
     );
@@ -502,11 +558,11 @@ export const GET = async (req: NextRequest) => {
           const { handleDodoWebhookPayload } = await import('@/lib/payments/dodoWebhookHandler');
           await handleDodoWebhookPayload(row.event_type, JSON.parse(row.payload));
         } else {
-          await db.query(`UPDATE failed_webhooks SET resolved = true, updated_at = NOW() WHERE id = $1`, [row.id]).catch(() => {});
+          await db.query(`UPDATE failed_webhooks SET resolved_at = NOW(), updated_at = NOW() WHERE id = $1`, [row.id]).catch(() => {});
           continue;
         }
         await db.query(
-          `UPDATE failed_webhooks SET resolved = true, resolved_at = NOW(), updated_at = NOW() WHERE id = $1`,
+          `UPDATE failed_webhooks SET resolved_at = NOW(), updated_at = NOW() WHERE id = $1`,
           [row.id]
         ).catch(() => {});
         webhookResolved++;
@@ -514,7 +570,7 @@ export const GET = async (req: NextRequest) => {
         const nextRetry = new Date(Date.now() + Math.pow(2, row.retry_count + 1) * 60_000).toISOString();
         await db.query(
           `UPDATE failed_webhooks
-           SET retry_count = retry_count + 1, last_error = $2, next_retry_at = $3, updated_at = NOW()
+           SET retry_count = retry_count + 1, error = $2, next_retry_at = $3, updated_at = NOW()
            WHERE id = $1`,
           [row.id, String(retryErr), nextRetry]
         ).catch(() => {});

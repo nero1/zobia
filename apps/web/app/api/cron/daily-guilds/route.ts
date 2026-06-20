@@ -104,13 +104,20 @@ export const GET = async (req: NextRequest) => {
       } else if (isBelowMin && guild.below_min_since && newTier) {
         const daysBelowMin = (now.getTime() - new Date(guild.below_min_since).getTime()) / 86_400_000;
         if (daysBelowMin >= 7) {
+          const fromTier = guild.tier;
           await db.query(`UPDATE guilds SET tier = $2, below_min_since = NULL, updated_at = NOW() WHERE id = $1`, [guild.id, newTier]);
-          demotionNotifs.push([guild.captain_id, guild.tier, newTier, guild.id]);
+          await db.query(
+            `INSERT INTO guild_tier_history (guild_id, from_tier, to_tier, guild_xp_at, changed_at)
+             VALUES ($1, $2, $3, $4, NOW())`,
+            [guild.id, fromTier, newTier, guild.guild_xp]
+          ).catch(() => {});
+          demotionNotifs.push([guild.captain_id, fromTier, newTier, guild.id]);
           demoted++;
+          continue;
         }
       }
 
-      // Promotion check
+      // Promotion check — skipped in the same iteration as a demotion (continue above)
       const threshold = promoMap.get(guild.tier);
       if (threshold?.next && guild.guild_xp >= threshold.promotionXP && guild.member_count >= threshold.minMembers) {
         const fromTier = guild.tier;
