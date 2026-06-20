@@ -171,7 +171,7 @@ async function handleDMGift(
   const platformFee = Math.floor((giftItem.coin_cost * feePercent) / 100);
   const recipientCoins = giftItem.coin_cost - platformFee;
 
-  let giftId: string;
+  let giftId!: string;
 
   await db.transaction(async (tx) => {
     // Insert the gift record FIRST to obtain a deterministic reference_id that
