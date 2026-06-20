@@ -131,7 +131,7 @@ export const POST = withAuth(async (req, { params, auth }) => {
     const isDev = process.env.NODE_ENV !== "production";
     if (body.captcha_token) {
       const clientIp = req.headers.get("x-forwarded-for") ?? req.headers.get("x-real-ip") ?? undefined;
-      const captchaOk = await verifyCaptcha(body.captcha_token, clientIp ?? undefined);
+      const captchaOk = await verifyCaptcha(body.captcha_token, clientIp ?? undefined, "onboarding");
       if (!captchaOk) {
         throw badRequest("CAPTCHA verification failed. Please try again.", "CAPTCHA_FAILED");
       }

@@ -94,13 +94,15 @@ async function resolveProvider(): Promise<CaptchaProvider> {
 /**
  * Verify a token with Google reCAPTCHA v3.
  *
- * @param token  - Client-side token from grecaptcha.execute()
- * @param userIp - Client IP address (optional but recommended)
- * @returns true if the score exceeds the minimum threshold
+ * @param token          - Client-side token from grecaptcha.execute()
+ * @param userIp         - Client IP address (optional but recommended)
+ * @param expectedAction - If provided, the response action field must match exactly
+ * @returns true if the score exceeds the minimum threshold and action matches (if specified)
  */
 async function verifyRecaptcha(
   token: string,
-  userIp?: string
+  userIp?: string,
+  expectedAction?: string
 ): Promise<boolean> {
   if (!env.RECAPTCHA_SECRET_KEY) {
     console.warn("[captcha] RECAPTCHA_SECRET_KEY not configured");
@@ -134,6 +136,12 @@ async function verifyRecaptcha(
   // For v3, enforce minimum score
   if (data.score !== undefined && data.score < RECAPTCHA_MIN_SCORE) {
     console.warn("[captcha:recaptcha] Score too low", data.score);
+    return false;
+  }
+
+  // Validate action field to prevent cross-endpoint token replay attacks
+  if (expectedAction && data.action !== expectedAction) {
+    console.warn("[captcha:recaptcha] Action mismatch", { expected: expectedAction, got: data.action });
     return false;
   }
 
@@ -196,13 +204,18 @@ async function verifyTurnstile(
  * If no provider is configured (provider = "none"), this function returns
  * `true` to allow development / testing without CAPTCHA.
  *
- * @param token  - CAPTCHA token from the client
- * @param userIp - Client IP address for additional fraud signals
+ * @param token          - CAPTCHA token from the client
+ * @param userIp         - Client IP address for additional fraud signals
+ * @param expectedAction - reCAPTCHA v3 only: if provided, the action field in the
+ *                         Google response must match exactly. Prevents tokens issued
+ *                         on one page (e.g. "login") from being replayed against a
+ *                         different endpoint (e.g. "signup").
  * @returns true if the CAPTCHA was verified successfully
  */
 export async function verifyCaptcha(
   token: string,
-  userIp?: string
+  userIp?: string,
+  expectedAction?: string
 ): Promise<boolean> {
   if (!token) return false;
 
@@ -210,7 +223,7 @@ export async function verifyCaptcha(
 
   switch (provider) {
     case "recaptcha":
-      return verifyRecaptcha(token, userIp);
+      return verifyRecaptcha(token, userIp, expectedAction);
     case "turnstile":
       return verifyTurnstile(token, userIp);
     case "none":

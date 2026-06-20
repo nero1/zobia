@@ -149,16 +149,17 @@ async function resolveAndValidateHostname(hostname: string): Promise<ResolvedHos
 
 /** Allowlisted external hostnames. Extend as needed for integrations. */
 const HOSTNAME_ALLOWLIST: string[] = [
-  "api.mailgun.net",
-  "api.paystack.co",
-  "api.flutterwave.com",
-  "api.dodopayments.com",
-  "api.cloudflare.com",
-  "storage.googleapis.com",
-  "giphy.com",
-  "api.giphy.com",
-  "tenor.com",
-  "g.tenor.com",
+  "api.mailgun.net",           // Mailgun transactional email
+  "api.paystack.co",           // Paystack payments
+  "api.flutterwave.com",       // Flutterwave payments
+  "api.dodopayments.com",      // DodoPayments global payments
+  "api.cloudflare.com",        // Cloudflare API
+  "r2.cloudflarestorage.com",  // Cloudflare R2 object storage — subdomain matching covers <account>.r2.cloudflarestorage.com
+  "storage.googleapis.com",    // Google Cloud Storage
+  "giphy.com",                 // Giphy GIF library
+  "api.giphy.com",             // Giphy GIF API
+  "tenor.com",                 // Tenor GIF library
+  "g.tenor.com",               // Tenor GIF CDN
 ];
 
 // ---------------------------------------------------------------------------

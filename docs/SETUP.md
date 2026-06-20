@@ -222,6 +222,14 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    - Removes `sponsored_quests.reward_amount_coins` (duplicate of `reward_coins`)
    - Removes `gift_items.coin_price` (duplicate of `coin_cost`)
 
+   Migration `0003_bug_fixes.sql` adds:
+   - `left_at TIMESTAMPTZ` column to `guild_members` + partial index for active-member lookups
+   - UNIQUE constraint on `payout_dead_letter_queue.payout_id` — prevents duplicate DLQ entries for the same payout
+   - `reference_id TEXT` column to `notifications` + partial unique index `uidx_notifications_user_type_ref (user_id, type, reference_id) WHERE reference_id IS NOT NULL` — required for idempotent `ON CONFLICT ... DO NOTHING` notification inserts (batch events, CRON awards)
+   - UNIQUE partial index on `xp_ledger (user_id, source, reference_id) WHERE reference_id IS NOT NULL` — required for `safeAwardXP` deduplication
+   - Fixes `season_pass_milestones` unique index to include `tier` so free and paid milestones can share `sort_order` values
+   - Adds `war_id UUID` to `guild_tier_history` + unique index so each guild war produces at most one tier-history entry per guild
+
    Migration `012_session_bug_fixes.sql` adds:
    - `updated_at` column to `seasons` table
    - UNIQUE index on `room_subscriptions (room_id, user_id)` — required for Paystack VIP room subscription webhook

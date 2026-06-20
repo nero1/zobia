@@ -33,6 +33,7 @@ import { recordWarContribution } from "@/lib/guilds/recordWarContribution";
 import { updateConversationScore } from "@/lib/messaging/conversationScore";
 import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
 import { debitCoins, creditCoins } from "@/lib/economy/coins";
+import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 import { publishRealtimeEvent } from "@/lib/realtime";
 import { calculateFinalXP, PLAN_XP_MULTIPLIERS_BP } from "@/lib/xp/engine";
 import type { Plan } from "@zobia/types";
@@ -173,11 +174,21 @@ async function handleDMGift(
   let giftId: string;
 
   await db.transaction(async (tx) => {
+    // Insert the gift record FIRST to obtain a deterministic reference_id that
+    // makes the subsequent debit/credit calls idempotent on client retries.
+    const { rows: giftInsert } = await tx.query<{ id: string }>(
+      `INSERT INTO gifts (sender_id, recipient_id, gift_item_id, coin_value, coin_cost, room_id, status)
+       VALUES ($1, $2, $3, $4, $4, NULL, 'delivered') RETURNING id`,
+      [senderId, recipientId, giftItem.id, giftItem.coin_cost]
+    );
+    giftId = giftInsert[0].id;
+    const giftRef = `dm_gift:${giftId}`;
+
     await debitCoins(
       senderId,
       giftItem.coin_cost,
       "gift_sent",
-      null,
+      giftRef,
       `Sent ${giftItem.emoji} ${giftItem.name} to @${recipient.username}`,
       { recipientId, giftItemId: giftItem.id },
       tx
@@ -187,7 +198,7 @@ async function handleDMGift(
       recipientId,
       recipientCoins,
       "gift_received",
-      null,
+      giftRef,
       `Received ${giftItem.emoji} ${giftItem.name} via DM`,
       { senderId, giftItemId: giftItem.id },
       tx
@@ -204,13 +215,6 @@ async function handleDMGift(
         [recipientCoins, recipientId]
       ).catch(() => {});
     }
-
-    const { rows: giftInsert } = await tx.query<{ id: string }>(
-      `INSERT INTO gifts (sender_id, recipient_id, gift_item_id, coin_value, coin_cost, room_id, status)
-       VALUES ($1, $2, $3, $4, $4, NULL, 'delivered') RETURNING id`,
-      [senderId, recipientId, giftItem.id, giftItem.coin_cost]
-    );
-    giftId = giftInsert[0].id;
 
     const { rows: convUpsert } = await tx.query<{ id: string }>(
       `INSERT INTO dm_conversations (user_id_1, user_id_2)
@@ -494,35 +498,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     // 9. Atomic transaction: deduct coins + create message + upsert conversation
     const message = await db.transaction(async (tx) => {
-      // 9a. Deduct coins (if cost > 0)
-      if (coinCost > 0 && !sender.is_admin) {
-        const { rows: deductRows } = await tx.query<{ coin_balance: number }>(
-          `UPDATE users
-           SET coin_balance = coin_balance - $1, updated_at = NOW()
-           WHERE id = $2 AND coin_balance >= $1 AND deleted_at IS NULL
-           RETURNING coin_balance`,
-          [coinCost, auth.user.sub]
-        );
-        if (!deductRows[0]) {
-          throw conflict("Insufficient coins", "INSUFFICIENT_COINS");
-        }
-
-        // Write coin ledger entry
-        await tx.query(
-          `INSERT INTO coin_ledger
-             (user_id, amount, balance_before, balance_after, transaction_type,
-              reference_id, description)
-           VALUES ($1, $2, $3, $4, 'dm_cost', NULL, 'DM coin cost')`,
-          [
-            auth.user.sub,
-            -coinCost,
-            sender.coin_balance,
-            deductRows[0].coin_balance,
-          ]
-        );
-      }
-
-      // 9b. Upsert the dm_conversation record
+      // 9a. Upsert the dm_conversation record FIRST so its id can serve as the
+      //     idempotency reference_id for the coin debit (TASK-03).
       const { rows: convUpsertRows } = await tx.query<{ id: string }>(
         `INSERT INTO dm_conversations (user_id_1, user_id_2)
          VALUES (
@@ -535,6 +512,28 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         [auth.user.sub, body.recipientId]
       );
       const conversationId = convUpsertRows[0]?.id;
+
+      // 9b. Deduct coins via debitCoins() — writes a ledger row and is idempotent
+      //     on conversationId, preventing double-charges on client retries.
+      if (coinCost > 0 && !sender.is_admin) {
+        try {
+          await debitCoins(
+            auth.user.sub,
+            coinCost,
+            "dm_cost",
+            conversationId ?? null,
+            "DM coin cost",
+            null,
+            tx
+          );
+        } catch (err: unknown) {
+          const code = (err as NodeJS.ErrnoException).code;
+          if (code === "INSUFFICIENT_BALANCE") {
+            throw conflict("Insufficient coins", "INSUFFICIENT_COINS");
+          }
+          throw err;
+        }
+      }
 
       // 9c. Create message record
       const { rows: msgRows } = await tx.query<MessageRow>(
@@ -566,37 +565,24 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       throw new Error("Message creation failed");
     }
 
-    // 10. Award XP (Social track, plan multiplier applied) — best-effort, outside transaction
+    // 10. Award XP (Social track, plan multiplier applied) — best-effort, outside transaction.
+    //     safeAwardXP uses message.id as reference_id for idempotency and writes to the
+    //     failed_xp_awards DLQ on failure instead of silently dropping the XP.
     {
-      const { baseXp: dmBaseXp, finalXp: dmFinalXp } = calculateFinalXP(
+      const { finalXp: dmFinalXp } = calculateFinalXP(
         'send_text_message',
         { plan: sender.plan, isMessagingAction: true }
       );
-      const dmMultiplierBP = PLAN_XP_MULTIPLIERS_BP[sender.plan];
-      db.query(
-        `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
-         VALUES ($1, $2, 'social', 'message', $3, $4, $5)`,
-        [auth.user.sub, dmFinalXp, message.id, dmMultiplierBP, dmBaseXp]
-      ).catch((err) =>
-        console.error("[dm:POST] XP award failed", err)
-      );
-
-      // 11. Update user total XP — best-effort
-      db.query(
-        `UPDATE users SET xp_total = xp_total + $1, xp_social = xp_social + $1, updated_at = NOW()
-         WHERE id = $2`,
-        [dmFinalXp, auth.user.sub]
-      ).catch((err) =>
-        console.error("[dm:POST] XP user update failed", err)
-      );
-
-      // Publish XP notification so the floating indicator fires
-      if (dmFinalXp > 0) {
-        publishRealtimeEvent(`user:${auth.user.sub}`, "reward_earned", {
-          type: "xp",
-          amount: dmFinalXp,
-        }).catch(() => {});
-      }
+      safeAwardXP(auth.user.sub, dmFinalXp, "social", "dm_initiation", `msg_${message.id}`)
+        .then(() => {
+          if (dmFinalXp > 0) {
+            return publishRealtimeEvent(`user:${auth.user.sub}`, "reward_earned", {
+              type: "xp",
+              amount: dmFinalXp,
+            });
+          }
+        })
+        .catch((err) => console.error("[dm:POST] XP award failed", err));
     }
 
     // Trigger matching daily quest progress for sending a DM

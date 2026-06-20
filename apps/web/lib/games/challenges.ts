@@ -422,7 +422,7 @@ async function notify(
 ): Promise<void> {
   await db
     .query(
-      `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+      `INSERT INTO notifications (user_id, type, metadata, is_read, created_at)
        VALUES ($1, $2, $3::jsonb, false, NOW())`,
       [userId, type, JSON.stringify(payload)]
     )

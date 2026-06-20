@@ -5,6 +5,8 @@
  * Reads MAILGUN_API_KEY and MAILGUN_DOMAIN from env.
  */
 
+import { safeFetch } from "@/lib/security/ssrf";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -76,14 +78,14 @@ async function postToMailgun(payload: EmailPayload): Promise<void> {
   }
 
   try {
-    const response = await fetch(url, {
+    const response = await safeFetch(url, {
       method: "POST",
       headers: {
         Authorization: buildMailgunAuth(),
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: form.toString(),
-    });
+    }, { requireAllowlist: true });
 
     if (!response.ok) {
       const text = await response.text().catch(() => "(unreadable)");
