@@ -241,7 +241,7 @@ export async function distributeSeasonRewards(
   const userCoins: number[] = new Array(topUsers.length).fill(0);
 
   if (topUsers.length > 3) {
-    // Normal case: ranks 1-3 get their fixed shares; ranks 4-10 split 50% evenly
+    // Normal case: ranks 1-3 get their fixed shares; ranks 4-10 split 50% evenly.
     const rank4to10Pool = Math.floor(pool * 0.5);
     const rank4to10Count = topUsers.length - 3;
     const rank4to10Share = Math.floor(rank4to10Pool / rank4to10Count);
@@ -250,12 +250,16 @@ export async function distributeSeasonRewards(
       if (i < 3) {
         userCoins[i] = Math.floor(pool * rewardShares[i]);
       } else if (i === 3) {
-        // Rank 4 gets the share plus any remainder dust from floor division
         userCoins[i] = rank4to10Share + rank4to10Dust;
       } else {
         userCoins[i] = rank4to10Share;
       }
     }
+    // Redistribute any coins lost to Math.floor() rounding to rank 1
+    // so the full pool is always distributed.
+    const totalDistributed = userCoins.reduce((a, b) => a + b, 0);
+    const remainder = pool - totalDistributed;
+    if (remainder > 0) userCoins[0] += remainder;
   } else {
     // Fewer than 4 users: no rank-4-to-10 recipients exist.
     // Redistribute the unallocated 50% proportionally among the placed users.

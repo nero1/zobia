@@ -191,7 +191,7 @@ async function maybeAwardMessageXP(
   todayMsgCount: number,
   plan: Plan
 ): Promise<number> {
-  if (todayMsgCount >= ROOM_MESSAGE_XP_DAILY_CAP) return 0;
+  if (todayMsgCount > ROOM_MESSAGE_XP_DAILY_CAP) return 0;
   try {
     const { finalXp } = calculateFinalXP(
       'send_room_message',

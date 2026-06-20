@@ -229,24 +229,28 @@ async function verifyGooglePlayPurchase(
 }
 
 /**
- * Acknowledge (consume) a purchase on Google Play so it can be purchased again.
+ * Consume a one-time product purchase on Google Play.
+ *
+ * Consumable products (coin packs) must use the :consume endpoint — not
+ * :acknowledge. Using :acknowledge on a consumable leaves the purchase in a
+ * non-consumed state and prevents the user from buying the same product again
+ * until Google auto-cancels it.
  */
-async function acknowledgeGooglePlayPurchase(
+async function consumeGooglePlayPurchase(
   packageName: string,
   productId: string,
   purchaseToken: string
 ): Promise<void> {
   const saJson = process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON;
   if (!saJson) {
-    // Dev mode — skip acknowledgement
-    console.warn("[iap/verify] Skipping Google Play acknowledgement in dev mode");
+    console.warn("[iap/verify] Skipping Google Play consume in dev mode");
     return;
   }
 
   const sa: ServiceAccountJson = JSON.parse(saJson);
   const accessToken = await getGoogleAccessToken(sa);
 
-  const url = `${GOOGLE_PLAY_API_BASE}/${packageName}/purchases/products/${productId}/tokens/${purchaseToken}:acknowledge`;
+  const url = `${GOOGLE_PLAY_API_BASE}/${packageName}/purchases/products/${productId}/tokens/${purchaseToken}:consume`;
 
   const resp = await fetch(url, {
     method: "POST",
@@ -260,7 +264,7 @@ async function acknowledgeGooglePlayPurchase(
   if (!resp.ok && resp.status !== 204) {
     // Non-fatal: log but don't fail the credit — coins were already granted
     const text = await resp.text();
-    console.error(`[iap/verify] Failed to acknowledge purchase: ${text}`);
+    console.error(`[iap/verify] Failed to consume purchase: ${text}`);
   }
 }
 
@@ -433,9 +437,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       throw creditErr;
     }
 
-    // 4. Acknowledge the purchase on Google Play (mark as consumed)
-    //    Done after crediting so coins are never lost if acknowledgement fails.
-    await acknowledgeGooglePlayPurchase(
+    // 4. Consume the purchase on Google Play so the user can buy the pack again.
+    //    Done after crediting so coins are never lost if the consume call fails.
+    await consumeGooglePlayPurchase(
       body.packageName,
       body.productId,
       body.purchaseToken

@@ -35,7 +35,7 @@ import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
 import { debitCoins, creditCoins } from "@/lib/economy/coins";
 import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 import { publishRealtimeEvent } from "@/lib/realtime";
-import { calculateFinalXP, PLAN_XP_MULTIPLIERS_BP } from "@/lib/xp/engine";
+import { calculateFinalXP } from "@/lib/xp/engine";
 import type { Plan } from "@zobia/types";
 
 // ---------------------------------------------------------------------------
@@ -233,38 +233,23 @@ async function handleDMGift(
     );
   });
 
-  // XP awards (fire-and-forget) — apply sender's plan multiplier per PRD §6
+  // XP awards (fire-and-forget via safeAwardXP which includes DLQ fallback)
   {
     const { rows: senderPlanRows } = await db.query<{ plan: Plan }>(
       `SELECT COALESCE(plan, 'free') AS plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
       [senderId]
     ).catch(() => ({ rows: [] as Array<{ plan: Plan }> }));
     const senderPlan: Plan = senderPlanRows[0]?.plan ?? 'free';
-    const { baseXp: giftSenderBaseXp, finalXp: giftSenderFinalXp } = calculateFinalXP(
+    const { finalXp: giftSenderFinalXp } = calculateFinalXP(
       'send_gift_message',
       { plan: senderPlan, isMessagingAction: true }
     );
-    const giftSenderMultiplierBP = PLAN_XP_MULTIPLIERS_BP[senderPlan];
-    // Recipient XP (receive_gift_and_react) — not a messaging action, no plan multiplier
-    const { baseXp: giftRecipBaseXp, finalXp: giftRecipFinalXp } = calculateFinalXP(
+    const { finalXp: giftRecipFinalXp } = calculateFinalXP(
       'receive_gift_and_react',
       { plan: 'free', isMessagingAction: false }
     );
-    db.query(
-      `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
-       VALUES ($1, $2, 'generosity', 'gift_sent',      $3, $4, $5),
-              ($6, $7, 'social',     'gift_received',  $3, 100, $8)`,
-      [senderId, giftSenderFinalXp, giftId!, giftSenderMultiplierBP, giftSenderBaseXp,
-       recipientId, giftRecipFinalXp, giftRecipBaseXp]
-    ).catch(() => {});
-    db.query(
-      `UPDATE users SET xp_total = xp_total + $1, xp_generosity = COALESCE(xp_generosity, 0) + $1, updated_at = NOW() WHERE id = $2`,
-      [giftSenderFinalXp, senderId]
-    ).catch(() => {});
-    db.query(
-      `UPDATE users SET xp_total = xp_total + $1, xp_social = COALESCE(xp_social, 0) + $1, updated_at = NOW() WHERE id = $2`,
-      [giftRecipFinalXp, recipientId]
-    ).catch(() => {});
+    safeAwardXP(senderId, giftSenderFinalXp, 'generosity', 'gift_sent', `dm_gift_sent:${giftId}`).catch(() => {});
+    safeAwardXP(recipientId, giftRecipFinalXp, 'social', 'gift_received', `dm_gift_received:${giftId}`).catch(() => {});
   }
 
   recordWarContribution(senderId, "send_gift", db).catch(() => {});

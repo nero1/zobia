@@ -240,8 +240,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     idempKey = body.idempotencyKey
       ? `idempotency:gift:${senderId}:${body.idempotencyKey}:${opHash}`
       : `idempotency:gift:${senderId}:${opHash}:${tenSecBucket}`;
-    const setResult = await redis.set(idempKey, "processing", "EX", 86400, "NX");
-    if (setResult === null) {
+    // Check early — but do NOT write yet. The key is committed to Redis only after the
+    // DB transaction succeeds (BUG-GIFT-01). Writing it before the transaction meant a
+    // failed transaction left a stale key that blocked legitimate client retries.
+    const existingKey = await redis.get(idempKey);
+    if (existingKey !== null) {
       return NextResponse.json({ success: true, duplicate: true, message: "Duplicate request - gift already sent" });
     }
 
@@ -475,6 +478,13 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       }
     });
 
+    // Commit the idempotency key to Redis now that the DB transaction succeeded.
+    // If this write fails the worst case is that a retry would re-enter the DB
+    // transaction where debitCoins/creditCoins are both idempotent via reference_id.
+    if (idempKey) {
+      await redis.set(idempKey, "completed", "EX", 86400).catch(() => {});
+    }
+
     // 4. Award XP (fire-and-forget) — fetch sender plan for multiplier
     db.query<{ plan: Plan }>(
       `SELECT COALESCE(plan, 'free') AS plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
@@ -506,18 +516,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       spectacleTriggered,
     });
   } catch (err) {
-    const isInsufficientBalance = (err as NodeJS.ErrnoException).code === "INSUFFICIENT_BALANCE";
-    if (isInsufficientBalance) {
-      // FIX-H03: do NOT delete the idempotency key on INSUFFICIENT_BALANCE.
-      // Deleting it opens a race window where a concurrent retry could re-enter
-      // if the balance is topped up between requests. Let the key expire naturally
-      // so a deliberate retry uses a new key (client must use a new idempotencyKey).
-      return handleApiError(
-        badRequest("Not enough coins to send this gift", "INSUFFICIENT_BALANCE")
-      );
-    }
-    // On other errors, remove the key so the client can legitimately retry.
-    if (idempKey) await redis.del(idempKey).catch(() => {});
+    // The Redis idempotency key is only written after a successful DB commit, so
+    // there is nothing to clean up here — the client can safely retry on any error.
     return handleApiError(err);
   }
 });

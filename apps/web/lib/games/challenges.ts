@@ -154,7 +154,7 @@ export async function cancelChallenge(challengeId: string, userId: string): Prom
       throw conflict("This challenge can no longer be cancelled.");
     }
     if (c.status === "active" && c.escrow_credits > 0) {
-      await refundEscrow(tx, c);
+      await cancelEscrow(tx, c);
     }
     await tx.query(`UPDATE game_challenges SET status = 'cancelled' WHERE id = $1`, [c.id]);
   });
@@ -415,16 +415,76 @@ async function refundEscrow(tx: TransactionClient, c: ChallengeRow): Promise<voi
   await tx.query(`UPDATE game_challenges SET escrow_credits = 0 WHERE id = $1`, [c.id]);
 }
 
+/**
+ * Compute partial refund when the challenger cancels an active challenge.
+ * If no rounds have been completed yet, both players receive a full refund.
+ * Otherwise the challenger forfeits a fraction of their stake proportional to
+ * the opponent's share of completed-round wins — preventing a losing player
+ * from cancelling to recoup a wager they should have lost.
+ */
+async function cancelEscrow(tx: TransactionClient, c: ChallengeRow): Promise<void> {
+  if (c.wager_credits <= 0) return;
+
+  const { rows: tally } = await tx.query<{
+    rounds_played: number;
+    challenger_wins: number;
+    opponent_wins: number;
+  }>(
+    `SELECT
+       COUNT(*) FILTER (WHERE status = 'complete')::int AS rounds_played,
+       COUNT(*) FILTER (WHERE round_winner_id = $1)::int AS challenger_wins,
+       COUNT(*) FILTER (WHERE round_winner_id = $2)::int AS opponent_wins
+     FROM game_challenge_rounds
+     WHERE challenge_id = $3`,
+    [c.challenger_id, c.opponent_id, c.id]
+  );
+
+  const { rounds_played, challenger_wins, opponent_wins } = tally[0];
+  const decisiveRounds = challenger_wins + opponent_wins;
+
+  // No rounds played or all draws — full refund, no penalty
+  if (rounds_played === 0 || decisiveRounds === 0) {
+    await refundEscrow(tx, c);
+    return;
+  }
+
+  // Challenger forfeits a fraction of their stake equal to their round-win deficit.
+  // e.g. challenger 0 wins / 2 decisive → forfeit 100% of their stake to opponent.
+  const challForfeitCoins = Math.floor(c.wager_credits * opponent_wins / decisiveRounds);
+  const challRefund = c.wager_credits - challForfeitCoins;
+  const oppRefund = c.wager_credits + challForfeitCoins;
+
+  if (challRefund > 0) {
+    await creditCoins(c.challenger_id, challRefund, "game_refund",
+      `chal:${c.id}:refund:${c.challenger_id}`, "Challenge wager partial refund (cancelled)", { challengeId: c.id }, tx);
+  }
+  if (oppRefund > 0) {
+    await creditCoins(c.opponent_id, oppRefund, "game_refund",
+      `chal:${c.id}:refund:${c.opponent_id}`, "Challenge wager refund + cancellation penalty", { challengeId: c.id }, tx);
+  }
+  await tx.query(`UPDATE game_challenges SET escrow_credits = 0 WHERE id = $1`, [c.id]);
+}
+
+const CHALLENGE_NOTIFICATION_COPY: Record<string, { title: string; body: string }> = {
+  game_challenge_received:  { title: "New Challenge!", body: "You've been challenged to a game." },
+  game_challenge_accepted:  { title: "Challenge Accepted", body: "Your challenge has been accepted. Game on!" },
+  game_challenge_declined:  { title: "Challenge Declined", body: "Your challenge was declined." },
+  game_challenge_cancelled: { title: "Challenge Cancelled", body: "The challenge has been cancelled." },
+  game_challenge_completed: { title: "Challenge Complete", body: "The challenge has ended. Check your results!" },
+  game_challenge_expired:   { title: "Challenge Expired", body: "A pending challenge has expired." },
+};
+
 async function notify(
   userId: string,
   type: string,
   payload: Record<string, unknown>
 ): Promise<void> {
+  const copy = CHALLENGE_NOTIFICATION_COPY[type] ?? { title: "Game Update", body: "Your challenge status has changed." };
   await db
     .query(
-      `INSERT INTO notifications (user_id, type, metadata, is_read, created_at)
-       VALUES ($1, $2, $3::jsonb, false, NOW())`,
-      [userId, type, JSON.stringify(payload)]
+      `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
+       VALUES ($1, $2, $3, $4, $5::jsonb, false, NOW())`,
+      [userId, type, copy.title, copy.body, JSON.stringify(payload)]
     )
     .catch(() => {});
 }

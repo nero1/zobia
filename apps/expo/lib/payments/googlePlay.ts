@@ -201,7 +201,7 @@ function setupGlobalPurchaseListener(): void {
         if (verifyResult !== null) {
           // Only finish the transaction after confirmed server credit.
           try {
-            await InAppPurchases.finishTransactionAsync(purchase, false);
+            await InAppPurchases.finishTransactionAsync(purchase, !isSubscription);
           } catch (finishErr) {
             console.warn('[googlePlay] finishTransactionAsync failed:', finishErr);
           }

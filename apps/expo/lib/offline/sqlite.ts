@@ -40,7 +40,10 @@ export async function initOfflineDB(): Promise<void> {
   `);
 
   // Migration: add new columns to existing installations that lack them.
-  // SQLite ignores "duplicate column" errors so we suppress them individually.
+  // Each statement is an ALTER TABLE ADD COLUMN which SQLite rejects with
+  // "duplicate column name" if the column already exists — that error is
+  // expected on repeat app launches and is safe to ignore. Any other error
+  // (table missing, syntax error, disk full) is re-thrown so it surfaces.
   const migrations = [
     `ALTER TABLE offline_messages ADD COLUMN conversation_type TEXT NOT NULL DEFAULT 'dm'`,
     `ALTER TABLE offline_messages ADD COLUMN idempotency_key TEXT`,
@@ -49,8 +52,9 @@ export async function initOfflineDB(): Promise<void> {
   for (const sql of migrations) {
     try {
       await db.execAsync(sql);
-    } catch {
-      // Column already exists — safe to ignore.
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.toLowerCase().includes('duplicate column')) throw err;
     }
   }
 }

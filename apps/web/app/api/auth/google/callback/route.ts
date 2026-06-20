@@ -396,7 +396,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         avatarEmoji: user.avatar_emoji ?? "😎",
         city: user.city ?? "",
         xp: user.xp_total ?? 0,
-        rankTier: "bronze",
+        rankTier: user.rank_name ?? "Beginner",
       };
       await redis.setex(
         `mobile_exchange:${exchangeCode}`,

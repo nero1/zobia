@@ -340,18 +340,22 @@ export async function updateTrustScore(
  * Check whether a user meets the minimum trust requirements for a feature.
  *
  * For classroom_creation, additionally enforces the 30-day account age rule.
- * Reads trust_score from the database (does NOT recompute — use
- * calculateTrustScore first if freshness is required).
+ * Reads trust_score from the database. Pass `forceRecalculate: true` after
+ * moderation events (ban lifted, warning issued, etc.) to ensure the cached
+ * column reflects the current state before gating.
  *
- * @param userId  - User UUID
- * @param feature - The feature being gated
- * @param db      - Database adapter
+ * @param userId           - User UUID
+ * @param feature          - The feature being gated
+ * @param db               - Database adapter
+ * @param forceRecalculate - When true, recomputes the score from signals before
+ *                           checking the threshold (useful after moderation actions)
  * @returns true if the user is eligible
  */
 export async function meetsMinimumTrust(
   userId: string,
   feature: TrustGatedFeature,
-  db: DatabaseAdapter
+  db: DatabaseAdapter,
+  { forceRecalculate = false }: { forceRecalculate?: boolean } = {}
 ): Promise<boolean> {
   // Compile-time schema validation: TypeScript errors if these columns change in schema.ts.
   type _CheckGateColumns = {
@@ -376,9 +380,10 @@ export async function meetsMinimumTrust(
   const user = rows[0];
   if (!user || user.is_banned) return false;
 
-  // Lazily compute trust score when null so new users are not permanently blocked
+  // Recompute when explicitly requested (e.g. after a ban lift or warning) or
+  // when the cached score is null (new users haven't had a score computed yet).
   let score = user.trust_score;
-  if (score === null) {
+  if (score === null || forceRecalculate) {
     try {
       score = await calculateTrustScore(userId, db);
     } catch {

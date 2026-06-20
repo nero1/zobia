@@ -22,16 +22,26 @@ import { AppState } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { JWT_KEY, REFRESH_TOKEN_KEY, onUnauthenticated } from '@/lib/api/client';
 import { env } from '@/lib/env';
+import type { RankName } from '@zobia/types';
 
 // ---------------------------------------------------------------------------
 // JWT expiry helpers (no signature verification — just payload inspection)
 // ---------------------------------------------------------------------------
 
+function decodeBase64Url(base64url: string): string {
+  // JWT uses base64url encoding which replaces + with - and / with _.
+  // Standard atob() only handles base64 (not base64url), so we must convert first.
+  const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+  // Pad to a multiple of 4 characters as required by base64.
+  const padded = base64.padEnd(base64.length + (4 - (base64.length % 4)) % 4, '=');
+  return atob(padded);
+}
+
 function getJwtExp(token: string): number | null {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
-    const payload = JSON.parse(atob(parts[1])) as { exp?: number };
+    const payload = JSON.parse(decodeBase64Url(parts[1])) as { exp?: number };
     return typeof payload.exp === 'number' ? payload.exp : null;
   } catch {
     return null;
@@ -56,7 +66,7 @@ export interface AuthUser {
   avatarEmoji: string;
   city: string;
   xp: number;
-  rankTier: 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond';
+  rankTier: RankName;
 }
 
 export interface AuthContextValue {
