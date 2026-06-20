@@ -338,7 +338,7 @@ export const GET = async (req: NextRequest) => {
         const score2 = parseInt(scores.find(s => s.alliance_id === war.alliance_2_id)?.total_xp ?? "0");
 
         if (score1 === score2) {
-          // Draw — neither alliance wins; increment wars_drawn on both
+          // Draw — neither alliance wins; increment wars_drawn on both alliances and their guilds
           await Promise.all([
             db.query(
               `UPDATE alliance_wars
@@ -350,6 +350,14 @@ export const GET = async (req: NextRequest) => {
             db.query(
               `UPDATE guild_alliances SET wars_drawn = wars_drawn + 1, updated_at = NOW()
                WHERE id = ANY($1)`,
+              [[war.alliance_1_id, war.alliance_2_id]]
+            ).catch(() => {}),
+            db.query(
+              `UPDATE guilds SET wars_drawn = wars_drawn + 1, updated_at = NOW()
+               WHERE id IN (
+                 SELECT guild_id FROM guild_alliance_members
+                 WHERE alliance_id = ANY($1)
+               )`,
               [[war.alliance_1_id, war.alliance_2_id]]
             ).catch(() => {}),
           ]);
