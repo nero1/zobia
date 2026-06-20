@@ -42,12 +42,15 @@ jobs:
         run: npm install
 
       - name: Setup EAS credentials
+        id: eas-auth
         working-directory: apps/expo
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: eas whoami
+        continue-on-error: true
 
       - name: Build Android APK
+        if: steps.eas-auth.outcome == 'success'
         working-directory: apps/expo
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
