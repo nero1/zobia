@@ -127,7 +127,7 @@ export default function BlackjackGame({ onReady, onGameOver, onScore, difficulty
       onScore?.(newChips);
       if (newChips <= 0) setTimeout(() => onGameOver(0), 800);
     }
-  }, [phase, playerHand, chips, bet, drawCard, onScore, play]);
+  }, [phase, playerHand, chips, bet, drawCard, onScore, play, onGameOver]);
 
   const stand = useCallback(() => {
     if (pausedRef.current || phase !== "playing") return;
@@ -153,7 +153,7 @@ export default function BlackjackGame({ onReady, onGameOver, onScore, difficulty
     setPhase("result");
     onScore?.(newChips);
     if (newChips <= 0) setTimeout(() => onGameOver(0), 800);
-  }, [phase, playerHand, dealerHand, chips, bet, drawCard, onScore, play]);
+  }, [phase, playerHand, dealerHand, chips, bet, drawCard, onScore, play, onGameOver]);
 
   const nextRound = useCallback(() => {
     setPlayerHand([]); setDealerHand([]); setBet(0); setResult(null); setMessage(""); setPhase("bet");

@@ -3,8 +3,13 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAccessToken, extractBearerToken } from '@/lib/auth/jwt';
 import { getSession, ACCESS_TOKEN_COOKIE } from '@/lib/auth/session';
+import { enforceRateLimit, getClientIp, RATE_LIMITS } from '@/lib/security/rateLimit';
 
 export async function GET(req: NextRequest) {
+  // IP-level rate limit before any token work — prevents unauthenticated polling
+  const ip = getClientIp(req);
+  await enforceRateLimit(ip, "ip", RATE_LIMITS.apiRead);
+
   const token =
     extractBearerToken(req.headers.get('authorization') ?? '') ??
     req.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
@@ -15,6 +20,10 @@ export async function GET(req: NextRequest) {
 
   try {
     const payload = await verifyAccessToken(token);
+
+    // User-level rate limit after identity is established
+    await enforceRateLimit(payload.sub, "user", RATE_LIMITS.apiRead);
+
     const session = await getSession(payload.sid);
     if (!session) {
       return NextResponse.json({ user: null }, { status: 401 });

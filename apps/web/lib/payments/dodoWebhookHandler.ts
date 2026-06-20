@@ -10,7 +10,7 @@ import { db } from "@/lib/db";
 import { creditCoins } from "@/lib/economy/coins";
 import { creditStars } from "@/lib/economy/stars";
 import { awardReferralCommissions } from "@/lib/referrals/commissions";
-import { moveToDeadLetterQueue } from "@/lib/payments/payouts";
+import { moveToDeadLetterQueue, getCreatorFeeRate } from "@/lib/payments/payouts";
 
 // ---------------------------------------------------------------------------
 // DodoPayments webhook event types
@@ -249,7 +249,8 @@ export async function processPaymentSucceeded(
       );
       const creator = roomRow.rows[0];
       if (creator) {
-        const sharePercent = creator.creator_tier === "icon" ? 85 : 80;
+        const feeRate = getCreatorFeeRate(creator.creator_tier);
+        const sharePercent = Math.round((1 - feeRate) * 100);
         const netKobo = Math.floor(((subGrossKobo ?? amount) * sharePercent) / 100);
         const platformFeeKobo = (subGrossKobo ?? amount) - netKobo;
         await tx.query(

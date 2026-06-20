@@ -44,6 +44,10 @@ const OPPONENT_XP_TOLERANCE = 0.15;
 const WAR_WIN_XP_MIN = 200;
 const WAR_WIN_XP_MAX = 500;
 
+/** XP awarded to all members on a draw — 50% of win XP range. */
+const WAR_DRAW_XP_MIN = 100;
+const WAR_DRAW_XP_MAX = 250;
+
 /** Guild XP awarded to the winning guild for tier progression (PRD: 500–5,000). */
 const WAR_WIN_GUILD_XP_MIN = 500;
 const WAR_WIN_GUILD_XP_MAX = 5_000;
@@ -343,87 +347,123 @@ export async function resolveWar(
       throw new Error(`[warEngine] War ${warId} is already resolved`);
     }
 
-    // BUG-07: set outcome = "draw" when scores are equal; challenger wins tie-break
     if (war.challenger_points === war.defender_points) {
       outcome = "draw";
     }
-    winnerGuildId =
-      war.challenger_points >= war.defender_points
-        ? war.challenger_guild_id
-        : war.defender_guild_id;
-    loserGuildId =
-      winnerGuildId === war.challenger_guild_id
-        ? war.defender_guild_id
-        : war.challenger_guild_id;
 
-    // Mark war as completed
-    await client.query(
-      `UPDATE guild_wars
-       SET status = 'completed', winner_guild_id = $1, updated_at = NOW()
-       WHERE id = $2`,
-      [winnerGuildId, warId]
-    );
+    if (outcome === "draw") {
+      // Draw: no winner, no wars_won/wars_lost increments, both guilds get wars_drawn
+      winnerGuildId = null;
+      loserGuildId = null;
 
-    // Update guild stats
-    await client.query(
-      `UPDATE guilds SET wars_won = wars_won + 1, last_war_ended_at = NOW(), updated_at = NOW()
-       WHERE id = $1`,
-      [winnerGuildId]
-    );
-    await client.query(
-      `UPDATE guilds SET wars_lost = wars_lost + 1, last_war_ended_at = NOW(), updated_at = NOW()
-       WHERE id = $1`,
-      [loserGuildId]
-    );
+      await client.query(
+        `UPDATE guild_wars
+         SET status = 'completed', winner_guild_id = NULL, updated_at = NOW()
+         WHERE id = $1`,
+        [warId]
+      );
 
-    // Award scaled win XP (200–500) to winning members based on contribution rank
-    const winnerMembers = await client.query<{ user_id: string; war_points: number }>(
-      `SELECT gm.user_id, COALESCE(wc.war_points, 0) AS war_points
-       FROM guild_members gm
-       LEFT JOIN war_contributions wc ON wc.user_id = gm.user_id AND wc.war_id = $2
-       WHERE gm.guild_id = $1 AND gm.left_at IS NULL
-       ORDER BY war_points DESC`,
-      [winnerGuildId, warId]
-    );
+      await client.query(
+        `UPDATE guilds SET wars_drawn = wars_drawn + 1, last_war_ended_at = NOW(), updated_at = NOW()
+         WHERE id = $1 OR id = $2`,
+        [war.challenger_guild_id, war.defender_guild_id]
+      );
 
-    const memberCount = winnerMembers.rows.length;
-    for (let i = 0; i < memberCount; i++) {
-      const { user_id } = winnerMembers.rows[i];
-      const scale = memberCount > 1 ? 1 - i / (memberCount - 1) : 1;
-      const memberXP = Math.round(WAR_WIN_XP_MIN + scale * (WAR_WIN_XP_MAX - WAR_WIN_XP_MIN));
-      // BUG-14: use safeAwardXP for DLQ fallback and idempotency
-      await safeAwardXP(user_id, memberXP, "competitor", "win_guild_war", `war:${warId}:${user_id}:win`, client);
+      // Award draw XP (100–250) to all participating members on both sides
+      for (const guildId of [war.challenger_guild_id, war.defender_guild_id]) {
+        const drawMembers = await client.query<{ user_id: string; war_points: number }>(
+          `SELECT gm.user_id, COALESCE(wc.war_points, 0) AS war_points
+           FROM guild_members gm
+           LEFT JOIN war_contributions wc ON wc.user_id = gm.user_id AND wc.war_id = $2
+           WHERE gm.guild_id = $1 AND gm.left_at IS NULL
+           ORDER BY war_points DESC`,
+          [guildId, warId]
+        );
+        const drawCount = drawMembers.rows.length;
+        for (let i = 0; i < drawCount; i++) {
+          const { user_id } = drawMembers.rows[i];
+          const scale = drawCount > 1 ? 1 - i / (drawCount - 1) : 1;
+          const memberXP = Math.round(WAR_DRAW_XP_MIN + scale * (WAR_DRAW_XP_MAX - WAR_DRAW_XP_MIN));
+          await safeAwardXP(user_id, memberXP, "competitor", "draw_guild_war", `war:${warId}:${user_id}:draw`, client);
+        }
+      }
+    } else {
+      winnerGuildId =
+        war.challenger_points >= war.defender_points
+          ? war.challenger_guild_id
+          : war.defender_guild_id;
+      loserGuildId =
+        winnerGuildId === war.challenger_guild_id
+          ? war.defender_guild_id
+          : war.challenger_guild_id;
+
+      // Mark war as completed
+      await client.query(
+        `UPDATE guild_wars
+         SET status = 'completed', winner_guild_id = $1, updated_at = NOW()
+         WHERE id = $2`,
+        [winnerGuildId, warId]
+      );
+
+      // Update guild stats
+      await client.query(
+        `UPDATE guilds SET wars_won = wars_won + 1, last_war_ended_at = NOW(), updated_at = NOW()
+         WHERE id = $1`,
+        [winnerGuildId]
+      );
+      await client.query(
+        `UPDATE guilds SET wars_lost = wars_lost + 1, last_war_ended_at = NOW(), updated_at = NOW()
+         WHERE id = $1`,
+        [loserGuildId]
+      );
+
+      // Award scaled win XP (200–500) to winning members based on contribution rank
+      const winnerMembers = await client.query<{ user_id: string; war_points: number }>(
+        `SELECT gm.user_id, COALESCE(wc.war_points, 0) AS war_points
+         FROM guild_members gm
+         LEFT JOIN war_contributions wc ON wc.user_id = gm.user_id AND wc.war_id = $2
+         WHERE gm.guild_id = $1 AND gm.left_at IS NULL
+         ORDER BY war_points DESC`,
+        [winnerGuildId, warId]
+      );
+
+      const memberCount = winnerMembers.rows.length;
+      for (let i = 0; i < memberCount; i++) {
+        const { user_id } = winnerMembers.rows[i];
+        const scale = memberCount > 1 ? 1 - i / (memberCount - 1) : 1;
+        const memberXP = Math.round(WAR_WIN_XP_MIN + scale * (WAR_WIN_XP_MAX - WAR_WIN_XP_MIN));
+        await safeAwardXP(user_id, memberXP, "competitor", "win_guild_war", `war:${warId}:${user_id}:win`, client);
+      }
+
+      // Award Guild XP (500–5,000 based on opponent strength) for tier progression
+      const guildXPReward = Math.min(
+        WAR_WIN_GUILD_XP_MAX,
+        Math.max(WAR_WIN_GUILD_XP_MIN, Math.round((war.defender_points + war.challenger_points) * 2))
+      );
+
+      // Capture pre-war tier BEFORE updating guild_xp so from_tier reflects
+      // the tier at the start of the war, not the (possibly recalculated) post-war tier.
+      const { rows: preTierRows } = await client.query<{ tier: string }>(
+        `SELECT tier FROM guilds WHERE id = $1`,
+        [winnerGuildId]
+      );
+      const fromTier = preTierRows[0]?.tier ?? null;
+
+      await client.query(
+        `UPDATE guilds SET guild_xp = guild_xp + $1, updated_at = NOW() WHERE id = $2`,
+        [guildXPReward, winnerGuildId]
+      );
+      // Include war_id so each war produces at most one tier history entry per guild.
+      await client.query(
+        `INSERT INTO guild_tier_history (guild_id, from_tier, to_tier, guild_xp_at, war_id)
+         SELECT $1, $3, tier, guild_xp, $2::uuid FROM guilds WHERE id = $1
+         ON CONFLICT (guild_id, war_id) WHERE war_id IS NOT NULL DO NOTHING`,
+        [winnerGuildId, warId, fromTier]
+      ).catch((err) => logger.error({ warId, err }, "[resolveWar] Failed to write guild tier history"));
+
+      // Distribute coin rewards within the same transaction (ZB-03)
+      await distributeWarRewards(warId, winnerGuildId!, db, client);
     }
-
-    // Award Guild XP (500–5,000 based on opponent strength) for tier progression
-    const guildXPReward = Math.min(
-      WAR_WIN_GUILD_XP_MAX,
-      Math.max(WAR_WIN_GUILD_XP_MIN, Math.round((war.defender_points + war.challenger_points) * 2))
-    );
-
-    // BUG-11: capture pre-war tier BEFORE updating guild_xp so from_tier reflects
-    // the tier at the start of the war, not the (possibly recalculated) post-war tier.
-    const { rows: preTierRows } = await client.query<{ tier: string }>(
-      `SELECT tier FROM guilds WHERE id = $1`,
-      [winnerGuildId]
-    );
-    const fromTier = preTierRows[0]?.tier ?? null;
-
-    await client.query(
-      `UPDATE guilds SET guild_xp = guild_xp + $1, updated_at = NOW() WHERE id = $2`,
-      [guildXPReward, winnerGuildId]
-    );
-    // Include war_id so each war produces at most one tier history entry per guild.
-    // BUG-11: use captured fromTier for from_tier; read post-update tier as to_tier.
-    await client.query(
-      `INSERT INTO guild_tier_history (guild_id, from_tier, to_tier, guild_xp_at, war_id)
-       SELECT $1, $3, tier, guild_xp, $2::uuid FROM guilds WHERE id = $1
-       ON CONFLICT (guild_id, war_id) WHERE war_id IS NOT NULL DO NOTHING`,
-      [winnerGuildId, warId, fromTier]
-    ).catch((err) => logger.error({ warId, err }, "[resolveWar] Failed to write guild tier history"));
-
-    // Distribute coin rewards within the same transaction (ZB-03)
-    await distributeWarRewards(warId, winnerGuildId!, db, client);
   });
 
   return { winnerGuildId, loserGuildId, outcome };

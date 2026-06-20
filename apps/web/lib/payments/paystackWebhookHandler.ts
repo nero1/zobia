@@ -10,6 +10,7 @@ import { db } from "@/lib/db";
 import { creditCoins } from "@/lib/economy/coins";
 import { creditStars } from "@/lib/economy/stars";
 import { awardReferralCommissions } from "@/lib/referrals/commissions";
+import { getCreatorFeeRate } from "@/lib/payments/payouts";
 
 // ---------------------------------------------------------------------------
 // Paystack webhook event types (subset)
@@ -147,7 +148,7 @@ export async function processChargeSuccess(
         [roomId, userId]
       );
 
-      // Credit creator earnings (80% default)
+      // Credit creator earnings
       const roomRow = await tx.query<{ creator_id: string; creator_tier: string | null }>(
         `SELECT r.creator_id, u.creator_tier
          FROM rooms r JOIN users u ON u.id = r.creator_id WHERE r.id = $1`,
@@ -155,7 +156,8 @@ export async function processChargeSuccess(
       );
       const creator = roomRow.rows[0];
       if (creator) {
-        const sharePercent = creator.creator_tier === "icon" ? 85 : 80;
+        const feeRate = getCreatorFeeRate(creator.creator_tier);
+        const sharePercent = Math.round((1 - feeRate) * 100);
         const netKobo = Math.floor(((subGrossKobo ?? amount) * sharePercent) / 100);
         const platformFeeKobo = (subGrossKobo ?? amount) - netKobo;
         await tx.query(

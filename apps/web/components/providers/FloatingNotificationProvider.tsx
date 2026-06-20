@@ -87,7 +87,7 @@ function getUserIdFromCookie(): string | null {
 // ---------------------------------------------------------------------------
 
 interface Props {
-  children: React.ReactNode;
+  children?: React.JSX.Element | React.JSX.Element[] | null | undefined | false;
 }
 
 export function FloatingNotificationProvider({ children }: Props) {

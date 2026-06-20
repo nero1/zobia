@@ -63,11 +63,14 @@ interface CreatorMetrics {
 // Normalisation helper
 // ---------------------------------------------------------------------------
 
-/** Min-max normalise an array of values to [0, 1]. */
+/** Min-max normalise an array of values to [0, 1].
+ * When all values are equal (max === min), returns uniform weight of 1 so that
+ * multiplicative boosts (e.g. IWD female-creator bonus) still take effect.
+ */
 function normalise(values: number[]): number[] {
   const min = Math.min(...values);
   const max = Math.max(...values);
-  if (max === min) return values.map(() => 0);
+  if (max === min) return values.map(() => 1);
   return values.map((v) => (v - min) / (max - min));
 }
 
@@ -232,30 +235,28 @@ export async function distributeCreatorFund(poolKobo: number): Promise<number> {
     // Acquire transaction-level advisory lock — auto-released when the transaction commits
     // or rolls back. If another instance holds the lock, we skip this run silently.
     const { rows: lockRows } = await tx.query<{ acquired: boolean }>(
-      `SELECT pg_try_advisory_xact_lock(hashtext('distributeCreatorFund')) AS acquired`
+      `SELECT pg_try_advisory_xact_lock(1, hashtext('distributeCreatorFund')) AS acquired`
     );
     if (!lockRows[0]?.acquired) return;
 
-    // Idempotency guard — if any distribution for this period already exists, skip.
-    const { rows: existing } = await tx.query<{ count: string }>(
-      `SELECT COUNT(*)::TEXT AS count FROM creator_earnings
-       WHERE source_type = 'creator_fund' AND reference_id LIKE $1`,
-      [`fund:${period}:%`]
-    );
-    if (parseInt(existing[0]?.count ?? '0', 10) > 0) return;
-
+    // Per-creator idempotency via ON CONFLICT DO NOTHING on the unique reference_id.
+    // Each creator has reference_id = fund:{period}:rank{n} which is unique per period.
+    // Re-runs after a mid-loop crash will skip already-credited creators and credit the rest.
     for (const dist of distributions) {
+      const ref = `fund:${period}:rank${dist.rank}`;
       await tx.query(
-        `INSERT INTO creator_earnings
-           (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo, reference_id)
-         VALUES ($1, 'creator_fund', $2, 0, $2, $3)`,
-        [dist.creatorId, dist.amountKobo, `fund:${period}:rank${dist.rank}`]
-      );
-      await tx.query(
-        `UPDATE users SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1,
-                          updated_at = NOW()
-         WHERE id = $2`,
-        [dist.amountKobo, dist.creatorId]
+        `WITH ins AS (
+           INSERT INTO creator_earnings
+             (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo, reference_id)
+           VALUES ($1, 'creator_fund', $2, 0, $2, $3)
+           ON CONFLICT (reference_id) DO NOTHING
+           RETURNING id
+         )
+         UPDATE users
+           SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $2,
+               updated_at = NOW()
+         WHERE id = $1 AND EXISTS (SELECT 1 FROM ins)`,
+        [dist.creatorId, dist.amountKobo, ref]
       );
     }
     distributed = distributions.length;

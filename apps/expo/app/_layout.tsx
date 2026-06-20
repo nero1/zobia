@@ -29,6 +29,42 @@ import '@/lib/i18n';
 // Notifications delivered while the app is in the foreground show as banners.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Offline sync debounce — prevents concurrent sync runs on flapping connections
+// ---------------------------------------------------------------------------
+
+let _syncTimeout: ReturnType<typeof setTimeout> | null = null;
+let _isSyncing = false;
+
+function debouncedSync() {
+  if (_syncTimeout) clearTimeout(_syncTimeout);
+  _syncTimeout = setTimeout(async () => {
+    if (_isSyncing) return;
+    _isSyncing = true;
+    try {
+      await syncPendingMessages();
+    } catch (err) {
+      console.warn('[offline] Sync failed', err);
+    } finally {
+      _isSyncing = false;
+    }
+  }, 2000);
+}
+
+/** Allowlist of valid in-app routes that a push notification may navigate to. */
+const VALID_PUSH_ROUTES: RegExp[] = [
+  /^\/rooms\/[a-f0-9-]+$/,
+  /^\/inbox$/,
+  /^\/inbox\/[a-f0-9-]+$/,
+  /^\/profile\/[^/]+$/,
+  /^\/events\/[a-f0-9-]+$/,
+  /^\/quests$/,
+  /^\/leaderboards$/,
+  /^\/seasons$/,
+  /^\/guilds\/[a-f0-9-]+$/,
+  /^\/notifications$/,
+];
+
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -110,22 +146,26 @@ function RootLayoutNav() {
     );
   }, []);
 
-  // Register push token once the user is authenticated
+  // Register push token once the user's identity is established.
+  // Scoped to user?.id so token refresh (which mutates other user fields)
+  // does not re-trigger an unnecessary re-registration.
   useEffect(() => {
-    if (!user) return;
+    if (!user?.id) return;
     registerForPushNotifications();
-  }, [user]);
+  }, [user?.id]);
 
-  // Listen for internet reconnection and sync pending messages
+  // Listen for internet reconnection and sync pending messages.
+  // Debounced 2 s to prevent concurrent sync runs during flapping connections.
   useEffect(() => {
     const unsub = NetInfo.addEventListener((state) => {
       if (state.isConnected && state.isInternetReachable) {
-        syncPendingMessages().catch((err) =>
-          console.warn('[offline] Sync failed', err)
-        );
+        debouncedSync();
       }
     });
-    return unsub;
+    return () => {
+      unsub();
+      if (_syncTimeout) clearTimeout(_syncTimeout);
+    };
   }, []);
 
   // Listen for notifications received while the app is foregrounded
@@ -144,12 +184,18 @@ function RootLayoutNav() {
         const data = response.notification.request.content.data as Record<string, unknown>;
         const action = data?.action as string | undefined;
 
-        // Route to the deep link action if one was attached to the notification
+        // Route to the deep link action if one was attached to the notification.
+        // Validate against an allowlist before navigating to prevent arbitrary
+        // route injection from a crafted or compromised notification payload.
         if (action) {
-          try {
-            router.push(action as Parameters<typeof router.push>[0]);
-          } catch (err) {
-            console.warn('[push] Failed to navigate to notification action:', action, err);
+          if (VALID_PUSH_ROUTES.some((re) => re.test(action))) {
+            try {
+              router.push(action as Parameters<typeof router.push>[0]);
+            } catch (err) {
+              console.warn('[push] Failed to navigate to notification action:', action, err);
+            }
+          } else {
+            console.warn('[push] Blocked invalid notification action (not in allowlist):', action);
           }
         }
       }
