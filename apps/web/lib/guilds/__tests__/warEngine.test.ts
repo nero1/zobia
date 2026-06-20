@@ -32,6 +32,17 @@ import {
   WAR_COOLDOWN_HOURS,
 } from '@/lib/guilds/warEngine';
 import type { DatabaseAdapter, TransactionClient } from '@/lib/db/interface';
+import { db as globalDb } from '@/lib/db';
+
+// ---------------------------------------------------------------------------
+// Setup
+// ---------------------------------------------------------------------------
+
+beforeEach(() => {
+  (globalDb.query as jest.Mock).mockReset();
+  (globalDb.query as jest.Mock).mockResolvedValue({ rows: [], rowCount: 0 });
+  (globalDb.transaction as jest.Mock).mockReset();
+});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -391,7 +402,7 @@ describe('resolveWar', () => {
     expect(result.loserGuildId).toBe('guild-a');
   });
 
-  it('challenger wins on a draw (equal points)', async () => {
+  it('is recorded as a draw when points are equal', async () => {
     const warRow = {
       id: 'war-3',
       challenger_guild_id: 'guild-a',
@@ -421,8 +432,9 @@ describe('resolveWar', () => {
     });
 
     const result = await resolveWar('war-3', mockDb);
-    // Draw → challenger wins (challenger_points >= defender_points)
-    expect(result.winnerGuildId).toBe('guild-a');
+    // Equal points → draw; no winner, both guilds get wars_drawn
+    expect(result.outcome).toBe('draw');
+    expect(result.winnerGuildId).toBeNull();
   });
 });
 
@@ -544,12 +556,11 @@ describe('distributeWarRewards', () => {
     expect(secondUpdate.params[1]).toBe('user-2');
   });
 
-  it('awards top contributor bonus XP to rank-1 member', async () => {
+  it('queues top contributor bonus XP for rank-1 member', async () => {
     const members = [
       { user_id: 'user-1', guild_id: 'guild-a', war_points: 999, username: 'alice' },
     ];
 
-    const xpUpdates: Array<{ sql: string; params: unknown[] }> = [];
     const mockTx: TransactionClient = {
       query: jest.fn().mockImplementation(async (sql: string, params: unknown[]) => {
         if (sql.includes('SELECT wc.user_id')) {
@@ -558,10 +569,8 @@ describe('distributeWarRewards', () => {
         if (sql.includes('SELECT coin_balance FROM users')) {
           return { rows: [{ coin_balance: '0' }], rowCount: 1 };
         }
-        // safeAwardXP issues a single combined CTE query that inserts into
-        // xp_ledger and updates users.xp_total in one statement.
-        if (sql.includes('xp_ledger')) {
-          xpUpdates.push({ sql, params });
+        if (sql.includes('INSERT INTO coin_ledger')) {
+          return { rows: [{ id: 'lid', user_id: params[0], amount: params[1], balance_before: params[2], balance_after: params[3], transaction_type: params[4], reference_id: params[5] ?? null, description: params[6] ?? null, metadata: null, created_at: new Date().toISOString() }], rowCount: 1 };
         }
         return { rows: [], rowCount: 0 };
       }),
@@ -573,13 +582,14 @@ describe('distributeWarRewards', () => {
       }),
     });
 
-    await distributeWarRewards('war-1', 'guild-a', mockDb);
+    // distributeWarRewards defers XP awards via pendingXPAwards so the caller
+    // (resolveWar) can issue them post-commit, avoiding phantom DLQ entries.
+    const pendingXPAwards: Array<{ userId: string; amount: number; track: "competitor"; source: string; ref: string }> = [];
+    await distributeWarRewards('war-1', 'guild-a', mockDb, undefined, pendingXPAwards);
 
-    expect(xpUpdates.length).toBeGreaterThan(0);
-    // Bonus XP is 1000 and goes to user-1. safeAwardXP's query params are
-    // [userId, amount, track, source, referenceId].
-    expect(xpUpdates[0].params[0]).toBe('user-1');
-    expect(xpUpdates[0].params[1]).toBe(1000);
+    expect(pendingXPAwards.length).toBeGreaterThan(0);
+    expect(pendingXPAwards[0].userId).toBe('user-1');
+    expect(pendingXPAwards[0].amount).toBe(1000);
   });
 });
 
