@@ -41,6 +41,16 @@ import {
 import type { DatabaseAdapter, TransactionClient } from '@/lib/db/interface';
 
 // ---------------------------------------------------------------------------
+// Setup
+// ---------------------------------------------------------------------------
+
+beforeEach(() => {
+  mockQuery.mockReset();
+  mockQuery.mockResolvedValue({ rows: [], rowCount: 0 });
+  mockTransaction.mockReset();
+});
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
