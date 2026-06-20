@@ -100,7 +100,7 @@ export const GET = async (req: NextRequest) => {
                  SELECT id, $2, coin_balance, coin_balance + $2, 'subscription_bonus',
                         'plan:' || id::text || ':' || $4, $3, NOW()
                  FROM eligible
-                 ON CONFLICT (transaction_type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
+                 ON CONFLICT (user_id, transaction_type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
                  RETURNING user_id
                )
                UPDATE users SET coin_balance = coin_balance + $2, updated_at = NOW()

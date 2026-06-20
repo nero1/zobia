@@ -11,6 +11,8 @@
 import type { DatabaseAdapter, TransactionClient } from "@/lib/db/interface";
 import { db as globalDb } from "@/lib/db";
 import { logger } from "@/lib/logger";
+import { upsertLeaderboardSnapshot } from "@/lib/leaderboards/engine";
+import type { LeaderboardTrack } from "@/lib/leaderboards/engine";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -69,8 +71,11 @@ export async function safeAwardXP(
     const SAFE_XP_COLS = new Set(Object.values(TRACK_COLUMN));
     if (!SAFE_XP_COLS.has(col)) throw new Error(`[safeAwardXP] Unsafe XP track column: ${col}`);
 
+    const trackSelectExpr = col === "xp_total" ? "" : `, ${col}`;
+
     // BUG-01: single CTE — UPDATE only fires when INSERT actually inserts a row
-    await (client as DatabaseAdapter).query(
+    // BUG-02: RETURNING xp_total (and track column) so we can update leaderboard_snapshots
+    const { rows } = await (client as DatabaseAdapter).query<{ id: string; xp_total: number } & Record<string, unknown>>(
       `WITH ins AS (
          INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
          VALUES ($1, $2, $3, $4, $5, $2, NOW())
@@ -81,9 +86,20 @@ export async function safeAwardXP(
          SET xp_total = xp_total + $2,
              ${col === "xp_total" ? "" : `${col} = COALESCE(${col}, 0) + $2,`}
              updated_at = NOW()
-       WHERE id = $1 AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM ins)`,
+       WHERE id = $1 AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM ins)
+       RETURNING id, xp_total${trackSelectExpr}`,
       [userId, amount, track, source, referenceId ?? null]
     );
+
+    // BUG-02: update leaderboard snapshot whenever XP is awarded
+    if (rows[0]) {
+      const xpTotal = Number(rows[0].xp_total);
+      const trackXP = col === "xp_total" ? xpTotal : Number(rows[0][col]);
+      await upsertLeaderboardSnapshot(userId, "main", xpTotal, globalDb).catch(() => {});
+      if (track !== "main") {
+        await upsertLeaderboardSnapshot(userId, track as LeaderboardTrack, trackXP, globalDb).catch(() => {});
+      }
+    }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     logger.error({ userId, amount, track, source }, `[safeAwardXP] Failed to award ${amount} XP (${track}/${source}) to ${userId}: ${errorMessage}`);
@@ -154,8 +170,12 @@ export async function retryFailedXPAwards(): Promise<{
 
       // Wrap both the XP ledger INSERT and the resolved_at UPDATE in a single transaction
       // so a partial failure can't leave the award applied but the DLQ row unresolved.
+      let retryXpTotal: number | null = null;
+      let retryTrackXP: number | null = null;
+      const retryTrackSelectExpr = col === "xp_total" ? "" : `, ${col}`;
+
       await globalDb.transaction(async (tx) => {
-        await tx.query(
+        const { rows: retryRows } = await tx.query<{ xp_total: number } & Record<string, unknown>>(
           `WITH ins AS (
              INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
              VALUES ($1, $2, $3, $4, $5, $2, NOW())
@@ -166,15 +186,30 @@ export async function retryFailedXPAwards(): Promise<{
              SET xp_total = xp_total + $2,
                  ${col === "xp_total" ? "" : `${col} = COALESCE(${col}, 0) + $2,`}
                  updated_at = NOW()
-           WHERE id = $1 AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM ins)`,
+           WHERE id = $1 AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM ins)
+           RETURNING xp_total${retryTrackSelectExpr}`,
           [row.user_id, row.amount, row.track, row.source, effectiveRef]
         );
+
+        if (retryRows[0]) {
+          retryXpTotal = Number(retryRows[0].xp_total);
+          retryTrackXP = col === "xp_total" ? retryXpTotal : Number(retryRows[0][col]);
+        }
 
         await tx.query(
           `UPDATE failed_xp_awards SET resolved_at = NOW() WHERE id = $1`,
           [row.id]
         );
       });
+
+      // BUG-02: update leaderboard snapshot after successful retry
+      if (retryXpTotal !== null) {
+        await upsertLeaderboardSnapshot(row.user_id, "main", retryXpTotal, globalDb).catch(() => {});
+        if (row.track !== "main" && retryTrackXP !== null) {
+          await upsertLeaderboardSnapshot(row.user_id, row.track as LeaderboardTrack, retryTrackXP, globalDb).catch(() => {});
+        }
+      }
+
       resolved++;
     } catch (err) {
       const newRetryCount = row.retry_count + 1;

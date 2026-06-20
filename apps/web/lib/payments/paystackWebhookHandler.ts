@@ -571,6 +571,25 @@ export async function processSubscriptionEvent(
       }
     });
 
+  } else if (event.event === "subscription.disable") {
+    // BUG-05: check subscription.disable BEFORE isNonRenewing / isCancelled.
+    // When Paystack sends subscription.disable with status="cancelled" the isCancelled
+    // flag is true, but we must NOT immediately downgrade — the user paid for the
+    // current period. Treat like non-renewing: mark disabled so the daily CRON
+    // downgrades plan when ends_at (next_payment_date) lapses.
+    const disableEndsAt = next_payment_date
+      ? new Date(next_payment_date).toISOString()
+      : null;
+
+    await db.query(
+      `UPDATE subscriptions
+       SET status = 'disabled', auto_renew = false,
+           ${disableEndsAt ? "ends_at = $2," : ""}
+           updated_at = NOW()
+       WHERE user_id = $1`,
+      disableEndsAt ? [resolvedUserId, disableEndsAt] : [resolvedUserId]
+    ).catch(() => {});
+
   } else if (isNonRenewing) {
     // Subscription will not renew but is still active until period end.
     // Set auto_renew=false; daily cron downgrades plan when ends_at lapses.
@@ -593,23 +612,6 @@ export async function processSubscriptionEvent(
     await db.query(
       `UPDATE users SET plan = 'free', updated_at = NOW() WHERE id = $1`,
       [resolvedUserId]
-    ).catch(() => {});
-
-  } else if (event.event === "subscription.disable") {
-    // BUG-PAY-09: provider-disabled should not immediately downgrade — the user paid
-    // for the period. Treat like non-renewing: mark the subscription so the daily
-    // cron downgrades plan when ends_at (next_payment_date) lapses.
-    const disableEndsAt = next_payment_date
-      ? new Date(next_payment_date).toISOString()
-      : null;
-
-    await db.query(
-      `UPDATE subscriptions
-       SET status = 'disabled', auto_renew = false,
-           ${disableEndsAt ? "ends_at = $2," : ""}
-           updated_at = NOW()
-       WHERE user_id = $1`,
-      disableEndsAt ? [resolvedUserId, disableEndsAt] : [resolvedUserId]
     ).catch(() => {});
   }
 

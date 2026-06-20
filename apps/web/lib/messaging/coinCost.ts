@@ -158,7 +158,8 @@ export async function incrementDailyCount(
  * Check whether today's daily DM limits have been reached for a user.
  *
  * This is a READ-ONLY check — it does not modify counters.
- * Call {@link incrementDailyCount} after a successful send.
+ * Prefer {@link checkAndIncrementDailyCount} over calling this separately with
+ * {@link incrementDailyCount} to avoid the TOCTOU race (BUG-10).
  *
  * @param userId - Authenticated user's UUID
  * @param plan   - The user's subscription plan
@@ -188,4 +189,53 @@ export async function checkDailyLimitReached(
     replyLimitReached:
       limits.replyLimit !== null && replyCount >= limits.replyLimit,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Atomic check-and-increment (BUG-10)
+// ---------------------------------------------------------------------------
+
+/**
+ * Atomically check the daily DM limit and increment the counter in one Redis
+ * round-trip, eliminating the TOCTOU race between separate check+increment calls.
+ *
+ * Returns whether the action is allowed and the new counter value after increment.
+ * If allowed=false the counter was NOT incremented.
+ *
+ * @param userId - Authenticated user's UUID
+ * @param type   - "sent" (initiated DM) or "reply"
+ * @param plan   - The user's subscription plan
+ * @param date   - Reference date (defaults to now)
+ */
+export async function checkAndIncrementDailyCount(
+  userId: string,
+  type: "sent" | "reply",
+  plan: Plan,
+  date: Date = new Date()
+): Promise<{ allowed: boolean; newCount: number }> {
+  const limits = getDailyDMLimits(plan);
+  const limit = type === "sent" ? limits.sentLimit : limits.replyLimit;
+
+  // null limit = unlimited — just increment without a check
+  if (limit === null) {
+    const newCount = await incrementDailyCount(userId, type, date);
+    return { allowed: true, newCount };
+  }
+
+  const key = buildCountKey(userId, type, date);
+
+  // Atomic Lua: check current count vs limit; only increment if under limit.
+  // Returns [allowed (1|0), resultCount]
+  const CHECK_AND_INCREMENT_LUA = `
+local count = tonumber(redis.call('GET', KEYS[1])) or 0
+if count >= tonumber(ARGV[1]) then
+  return {0, count}
+end
+local newVal = redis.call('INCR', KEYS[1])
+redis.call('EXPIRE', KEYS[1], 90000)
+return {1, newVal}
+`;
+
+  const result = await redis.eval(CHECK_AND_INCREMENT_LUA, 1, key, String(limit)) as [number, number];
+  return { allowed: result[0] === 1, newCount: result[1] };
 }

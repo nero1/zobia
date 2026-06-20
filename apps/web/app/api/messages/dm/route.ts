@@ -26,8 +26,7 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import {
   getDMCost,
   canInitiateDM,
-  checkDailyLimitReached,
-  incrementDailyCount,
+  checkAndIncrementDailyCount,
 } from "@/lib/messaging/coinCost";
 import { filterDMContent } from "@/lib/messaging/antispam";
 import { recordWarContribution } from "@/lib/guilds/recordWarContribution";
@@ -408,20 +407,19 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       );
     }
 
-    // 5. Check daily limits
-    const dailyCheck = await checkDailyLimitReached(
+    // 5. Atomically check daily limits and increment counter (BUG-10: eliminates
+    //    the TOCTOU race between separate checkDailyLimitReached + incrementDailyCount calls)
+    const dmType = isInitiating ? "sent" : "reply";
+    const { allowed: dailyAllowed } = await checkAndIncrementDailyCount(
       auth.user.sub,
+      dmType,
       sender.plan
     );
-    if (isInitiating && dailyCheck.sentLimitReached) {
+    if (!dailyAllowed) {
       throw conflict(
-        "You have reached your daily DM limit. Try again tomorrow.",
-        "DAILY_LIMIT_REACHED"
-      );
-    }
-    if (!isInitiating && dailyCheck.replyLimitReached) {
-      throw conflict(
-        "You have reached your daily reply limit. Try again tomorrow.",
+        isInitiating
+          ? "You have reached your daily DM limit. Try again tomorrow."
+          : "You have reached your daily reply limit. Try again tomorrow.",
         "DAILY_LIMIT_REACHED"
       );
     }
@@ -604,10 +602,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // Trigger matching daily quest progress for sending a DM
     void triggerActivityQuestProgress(auth.user.sub, "send_text_message", db);
 
-    // 12. Increment daily counter
-    incrementDailyCount(auth.user.sub, isInitiating ? "sent" : "reply").catch(
-      (err) => console.error("[dm:POST] Daily count increment failed", err)
-    );
+    // 12. Daily counter already incremented atomically in step 5 (BUG-10)
 
     // 13. Update conversation score — best-effort
     updateConversationScore(auth.user.sub, body.recipientId, "message_sent").catch(

@@ -58,6 +58,8 @@ export interface AuthTokens {
   refreshToken: string;
   /** Seconds until the access token expires. */
   expiresIn: number;
+  /** Seconds until the refresh token expires (used to set refresh cookie maxAge). */
+  refreshTtl: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -191,7 +193,7 @@ export async function createSession(
     await redis.zremrangebyrank(userSessionsKey(user.id), 0, -(MAX_SESSIONS + 1));
   }
 
-  return { accessToken, refreshToken, expiresIn: accessTtl };
+  return { accessToken, refreshToken, expiresIn: accessTtl, refreshTtl };
 }
 
 /**
@@ -283,7 +285,7 @@ export async function getSession(sid: string): Promise<SessionRecord | null> {
  */
 export async function refreshAccessToken(
   refreshToken: string
-): Promise<Pick<AuthTokens, "accessToken" | "expiresIn"> & { newRefreshToken?: string; refreshTtl?: number }> {
+): Promise<Pick<AuthTokens, "accessToken" | "expiresIn"> & { newRefreshToken?: string; refreshTtl: number }> {
   const payload = await verifyRefreshToken(refreshToken);
 
   // Read fresh (never the L1 cache): rotation compares token hashes that change

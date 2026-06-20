@@ -49,6 +49,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       accessToken: result.accessToken,
       refreshToken: result.newRefreshToken ?? refreshToken,
       expiresIn: result.expiresIn,
+      refreshTtl: result.refreshTtl,
     };
 
     const { accessCookie, refreshCookie } = buildCookieHeaders(

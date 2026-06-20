@@ -329,6 +329,11 @@ export async function getLeaderboard(
     } catch {
       // Hall of Fame injection is best-effort — never breaks the leaderboard
     }
+
+    // BUG-13: cap entries to pageSize after HoF injection to avoid over-returning
+    if (entries.length > pageSize) {
+      entries.length = pageSize;
+    }
   }
 
   return {

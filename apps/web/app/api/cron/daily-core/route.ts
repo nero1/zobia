@@ -45,15 +45,19 @@ export const GET = async (req: NextRequest) => {
   }
 
   // 2. Update login streaks — set-based, single-pass
+  // BUG-04: use CURRENT_DATE (not CURRENT_DATE - 1) so users who logged in today
+  //         get their streak incremented during the same night's CRON run.
+  // BUG-21: update each column from its own current value to avoid cross-column
+  //         references that are confusing and error-prone in a single SET clause.
   try {
     const [streakUpdate, streakReset] = await Promise.all([
       db.query<{ count: string }>(
         `WITH updated AS (
            UPDATE users
            SET login_streak_days = login_streak_days + 1,
-               login_streak      = login_streak_days + 1,
+               login_streak      = login_streak + 1,
                updated_at        = NOW()
-           WHERE last_login_date = CURRENT_DATE - 1
+           WHERE last_login_date = CURRENT_DATE
            RETURNING 1
          )
          SELECT COUNT(*) AS count FROM updated`
@@ -82,15 +86,17 @@ export const GET = async (req: NextRequest) => {
   }
 
   // 3. Award daily login XP — set-based
+  // BUG-03: also upsert leaderboard_snapshots for every user who receives XP.
+  // BUG-04: use CURRENT_DATE so today's logins qualify (same as the streak fix above).
   try {
-    const loginXpResult = await db.query<{ count: string }>(
+    const loginXpResult = await db.query<{ user_id: string; new_xp_total: string }>(
       `WITH awarded AS (
          INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
          SELECT id, $1, 'main', 'daily_login',
                 'daily_login:' || id::text || ':' || CURRENT_DATE::text,
                 $1, NOW()
          FROM users
-         WHERE last_login_date = CURRENT_DATE - 1
+         WHERE last_login_date = CURRENT_DATE
            AND deleted_at IS NULL
          ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
          RETURNING user_id
@@ -98,13 +104,29 @@ export const GET = async (req: NextRequest) => {
        updated AS (
          UPDATE users SET xp_total = xp_total + $1, updated_at = NOW()
          WHERE id IN (SELECT user_id FROM awarded)
-         RETURNING 1
+         RETURNING id AS user_id, xp_total AS new_xp_total
        )
-       SELECT COUNT(*) AS count FROM awarded`,
+       SELECT user_id, new_xp_total::text FROM updated`,
       [XP_VALUES.daily_login]
     );
+
+    const usersAwarded = loginXpResult.rows.length;
+
+    // BUG-03: batch-upsert leaderboard snapshots for all awarded users
+    if (usersAwarded > 0) {
+      const userIds = loginXpResult.rows.map(r => r.user_id);
+      const xpTotals = loginXpResult.rows.map(r => Number(r.new_xp_total));
+      await db.query(
+        `INSERT INTO leaderboard_snapshots (user_id, track, scope, city, season_id, xp_value, updated_at)
+         SELECT unnest($1::uuid[]), 'main', 'global', NULL, NULL, unnest($2::int[]), NOW()
+         ON CONFLICT (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))
+         DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()`,
+        [userIds, xpTotals]
+      ).catch((err: unknown) => errors.push(`dailyLoginXP:leaderboard: ${String(err)}`));
+    }
+
     results.dailyLoginXP = {
-      usersAwarded: parseInt(loginXpResult.rows[0]?.count ?? "0"),
+      usersAwarded,
       xpPerUser: XP_VALUES.daily_login,
     };
   } catch (err) {

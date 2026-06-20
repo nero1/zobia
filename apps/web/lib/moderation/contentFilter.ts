@@ -265,7 +265,8 @@ export async function applyAutoModeration(
   message: MessageInput,
   room: RoomContext,
   sender: SenderContext,
-  db: DatabaseAdapter
+  db: DatabaseAdapter,
+  messageContext: "room" | "dm" = "room"
 ): Promise<AutoModerationResult> {
   const defaultResult: AutoModerationResult = {
     blocked: false,
@@ -295,7 +296,8 @@ export async function applyAutoModeration(
       sender.id,
       message.content,
       60_000,
-      db
+      db,
+      messageContext
     );
     if (isDuplicate) {
       return {

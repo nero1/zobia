@@ -249,7 +249,14 @@ export async function processPendingGiftDrops(db: DatabaseAdapter): Promise<{
         const batchRows: { id: string }[] = batchResult.rows;
         if (batchRows.length === 0) break;
         const batchIds = batchRows.map((r) => r.id);
-        await insertNotificationBatch(db, batchIds, 'gift_drop_announced', { giftDropId: drop.id, batchIndex })
+        await insertNotificationBatch(
+          db,
+          batchIds,
+          'gift_drop_announced',
+          'Monthly Gift Drop Announced!',
+          'A limited-time exclusive gift is dropping soon. Check it out before it\'s gone!',
+          { giftDropId: drop.id, batchIndex }
+        )
           .catch((err: unknown) =>
             console.error(`[monthlyGiftDrop] Failed to send notifications for drop ${drop.id} batch ${batchIndex}:`, err)
           );
