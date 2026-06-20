@@ -29,29 +29,13 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { timingSafeEqual } from "crypto";
 import { loadManifest } from "@/lib/manifest";
 import { processPendingPayouts, reconcileStuckPayouts } from "@/lib/payments/payouts";
-import { env } from "@/lib/env";
-
-function isValidSecret(provided: string, expected: string): boolean {
-  if (!provided || !expected) return false;
-  try {
-    const a = Buffer.from(provided);
-    const b = Buffer.from(expected);
-    if (a.length !== b.length) return false;
-    return timingSafeEqual(a, b);
-  } catch {
-    return false;
-  }
-}
+import { validateCronSecret } from "@/lib/cron/auth";
 
 export const POST = async (req: NextRequest) => {
   // ── Auth ──────────────────────────────────────────────────────────────────
-  const authHeader = req.headers.get("authorization") ?? "";
-  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-
-  if (!env.CRON_SECRET || !isValidSecret(token, env.CRON_SECRET)) {
+  if (!validateCronSecret(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

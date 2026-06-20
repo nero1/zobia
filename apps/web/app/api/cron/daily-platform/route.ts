@@ -264,10 +264,11 @@ export const GET = async (req: NextRequest) => {
             [elderId, meta]
           ).catch(() => {}),
           db.query(
-            `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
+            `INSERT INTO notifications (user_id, type, title, body, metadata, reference_id, is_read, created_at)
              VALUES ($1, 'master_teacher_award', 'Master Teacher Award',
-                     'You have been awarded the Master Teacher badge for this season!', $2, false, NOW())`,
-            [elderId, meta]
+                     'You have been awarded the Master Teacher badge for this season!', $2, $3, false, NOW())
+             ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
+            [elderId, meta, `master_teacher:${elderId}:${seasonId}`]
           ).catch(() => {}),
         ]);
         results.masterTeacherAward = { elderId, seasonId };

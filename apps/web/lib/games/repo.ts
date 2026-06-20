@@ -83,7 +83,13 @@ export interface GameListOptions {
   tab?: "new" | "popular" | "trending";
   category?: string;
   free?: boolean;
-  cursor?: string; // ISO timestamp for cursor-based pagination
+  /**
+   * Opaque pagination cursor returned by the previous page.
+   * "new" tab: ISO timestamp string.
+   * "popular" tab: base64url-encoded JSON { play_count, id }.
+   * "trending" tab: base64url-encoded JSON { recent_plays, id }.
+   */
+  cursor?: string;
   limit?: number;
 }
 
@@ -122,6 +128,7 @@ export async function listGames(opts: GameListOptions = {}): Promise<GameListRes
 
   let orderBy: string;
   let trendingJoin = "";
+  let extraSelect = "";
 
   if (tab === "new") {
     if (cursor) {
@@ -138,16 +145,33 @@ export async function listGames(opts: GameListOptions = {}): Promise<GameListRes
         GROUP BY game_id
       ) tp ON tp.game_id = g.id
     `;
+    extraSelect = ", COALESCE(tp.recent_plays, 0) AS recent_plays";
     if (cursor) {
-      params.push(cursor);
-      where.push(`g.created_at < $${params.length}`);
+      try {
+        const { recent_plays: cp, id: cid } = JSON.parse(
+          Buffer.from(cursor, "base64url").toString("utf-8")
+        ) as { recent_plays: number; id: string };
+        params.push(cp, cid);
+        const pN = params.length - 1;
+        where.push(
+          `(COALESCE(tp.recent_plays, 0) < $${pN} OR (COALESCE(tp.recent_plays, 0) = $${pN} AND g.id < $${pN + 1}::uuid))`
+        );
+      } catch { /* invalid cursor — ignore, return first page */ }
     }
-    orderBy = "COALESCE(tp.recent_plays,0) DESC, g.play_count DESC";
+    orderBy = "COALESCE(tp.recent_plays, 0) DESC, g.play_count DESC";
   } else {
     // popular (default)
     if (cursor) {
-      params.push(cursor);
-      where.push(`g.created_at < $${params.length}`);
+      try {
+        const { play_count: cp, id: cid } = JSON.parse(
+          Buffer.from(cursor, "base64url").toString("utf-8")
+        ) as { play_count: number; id: string };
+        params.push(cp, cid);
+        const pN = params.length - 1;
+        where.push(
+          `(g.play_count < $${pN} OR (g.play_count = $${pN} AND g.id < $${pN + 1}::uuid))`
+        );
+      } catch { /* invalid cursor — ignore, return first page */ }
     }
     orderBy = "g.play_count DESC, g.avg_rating DESC";
   }
@@ -156,7 +180,7 @@ export async function listGames(opts: GameListOptions = {}): Promise<GameListRes
   const rows_param = `$${params.length}`;
 
   const { rows } = await db.query<GameConfigRow & { recent_plays?: number }>(
-    `SELECT ${SUMMARY_COLUMNS}
+    `SELECT ${SUMMARY_COLUMNS}${extraSelect}
      FROM games g
      ${trendingJoin}
      WHERE ${where.join(" AND ")}
@@ -167,7 +191,23 @@ export async function listGames(opts: GameListOptions = {}): Promise<GameListRes
 
   const hasMore = rows.length > limit;
   const items = hasMore ? rows.slice(0, limit) : rows;
-  const nextCursor = hasMore ? items[items.length - 1].created_at : null;
+
+  let nextCursor: string | null = null;
+  if (hasMore && items.length > 0) {
+    const last = items[items.length - 1];
+    if (tab === "new") {
+      nextCursor = last.created_at;
+    } else if (tab === "popular") {
+      nextCursor = Buffer.from(
+        JSON.stringify({ play_count: last.play_count, id: last.id })
+      ).toString("base64url");
+    } else {
+      // trending
+      nextCursor = Buffer.from(
+        JSON.stringify({ recent_plays: last.recent_plays ?? 0, id: last.id })
+      ).toString("base64url");
+    }
+  }
 
   return {
     games: items.map(toSummary),

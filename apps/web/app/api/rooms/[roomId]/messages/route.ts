@@ -410,6 +410,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // without an extra round-trip.
     const { rows: senderStatusRows } = await db.query<{
       username: string;
+      display_name: string | null;
       avatar_emoji: string;
       is_creator: boolean;
       is_suspended: boolean;
@@ -417,7 +418,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       suspended_until: string | null;
       plan: Plan;
     }>(
-      `SELECT username, avatar_emoji,
+      `SELECT username, display_name, avatar_emoji,
               COALESCE(is_creator, false) AS is_creator,
               COALESCE(is_suspended, false) AS is_suspended,
               COALESCE(is_banned, false) AS is_banned,
@@ -451,7 +452,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         id: row.id,
         userId: row.sender_id,
         username: senderStatus?.username ?? "",
-        displayName: senderStatus?.username ?? "",
+        displayName: senderStatus?.display_name ?? senderStatus?.username ?? "",
         avatarEmoji: senderStatus?.avatar_emoji ?? "👤",
         senderIsCreator: Boolean(senderStatus?.is_creator),
         content: msgContent ?? "",

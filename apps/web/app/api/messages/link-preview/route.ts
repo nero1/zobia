@@ -20,6 +20,7 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -136,7 +137,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Check cache — memory (120s) first, then Redis (3600s)
-    const cacheKey = `link-preview:${Buffer.from(rawUrl).toString("base64").slice(0, 64)}`;
+    const cacheKey = `link-preview:${createHash("sha256").update(rawUrl).digest("hex")}`;
     const memCached = memGet<LinkPreviewResult>(cacheKey);
     if (memCached) return NextResponse.json(memCached, { status: 200 });
     try {

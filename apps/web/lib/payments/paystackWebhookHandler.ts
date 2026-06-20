@@ -623,6 +623,15 @@ export async function processSubscriptionEvent(
     notifType = "subscription_activated";
     notifTitle = "Subscription Activated";
     notifBody = "Your subscription is now active. Enjoy your benefits!";
+  } else if (event.event === "subscription.disable") {
+    notifType = "subscription_disabled";
+    notifTitle = "Subscription Disabled";
+    const endDate = next_payment_date
+      ? new Date(next_payment_date).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
+      : null;
+    notifBody = endDate
+      ? `Your subscription has been disabled. You will continue to have access until ${endDate}.`
+      : "Your subscription has been disabled.";
   } else if (isNonRenewing) {
     notifType = "subscription_non_renewing";
     notifTitle = "Subscription Ending";
