@@ -276,6 +276,16 @@ async function purgeStaleTokens(tokens: Set<string>): Promise<void> {
  * @returns Count of tickets resolved in this run
  */
 export async function pollPushReceipts(): Promise<number> {
+  // Session-level advisory lock prevents concurrent CRON runs from double-processing
+  // the same tickets. pg_try_advisory_lock returns immediately (non-blocking); if
+  // another CRON instance is already running we simply skip this run.
+  const { rows: lockRows } = await db.query<{ acquired: boolean }>(
+    `SELECT pg_try_advisory_lock(1, hashtext('pollPushReceipts')) AS acquired`
+  );
+  if (!lockRows[0]?.acquired) {
+    return 0;
+  }
+
   let totalResolved = 0;
 
   try {
@@ -291,8 +301,7 @@ export async function pollPushReceipts(): Promise<number> {
        WHERE status = 'pending'
          AND created_at < NOW() - INTERVAL '15 minutes'
        ORDER BY created_at ASC
-       LIMIT 1000
-       FOR UPDATE SKIP LOCKED`
+       LIMIT 1000`
     );
 
     if (pendingTickets.length === 0) return 0;
@@ -383,6 +392,8 @@ export async function pollPushReceipts(): Promise<number> {
     }
   } catch (err) {
     console.error("[push/receipts] pollPushReceipts failed:", err);
+  } finally {
+    await db.query(`SELECT pg_advisory_unlock(1, hashtext('pollPushReceipts'))`).catch(() => {});
   }
 
   return totalResolved;

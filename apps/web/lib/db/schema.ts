@@ -124,8 +124,8 @@ export const users = pgTable("users", {
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 
   // XP & Rank — bigint (8-byte) so heavy users never overflow int32 (~2.1 B cap)
-  xpTotal: bigint("xp_total", { mode: "number" }).notNull().default(0),
-  legacyScore: bigint("legacy_score", { mode: "number" }).notNull().default(0),
+  xpTotal: bigint("xp_total", { mode: "bigint" }).notNull().default(BigInt(0)),
+  legacyScore: bigint("legacy_score", { mode: "bigint" }).notNull().default(BigInt(0)),
   rankName: text("rank_name").notNull().default("Beginner"),
   rankLevel: integer("rank_level").notNull().default(1),
   rankSublevel: integer("rank_sublevel").notNull().default(1),
@@ -136,13 +136,13 @@ export const users = pgTable("users", {
   customCrest: text("custom_crest"),
 
   // Track XP — bigint to match xp_total
-  xpSocial: bigint("xp_social", { mode: "number" }).notNull().default(0),
-  xpCreator: bigint("xp_creator", { mode: "number" }).notNull().default(0),
-  xpCompetitor: bigint("xp_competitor", { mode: "number" }).notNull().default(0),
-  xpGenerosity: bigint("xp_generosity", { mode: "number" }).notNull().default(0),
-  xpKnowledge: bigint("xp_knowledge", { mode: "number" }).notNull().default(0),
-  xpExplorer: bigint("xp_explorer", { mode: "number" }).notNull().default(0),
-  xpGaming: bigint("xp_gaming", { mode: "number" }).notNull().default(0),
+  xpSocial: bigint("xp_social", { mode: "bigint" }).notNull().default(BigInt(0)),
+  xpCreator: bigint("xp_creator", { mode: "bigint" }).notNull().default(BigInt(0)),
+  xpCompetitor: bigint("xp_competitor", { mode: "bigint" }).notNull().default(BigInt(0)),
+  xpGenerosity: bigint("xp_generosity", { mode: "bigint" }).notNull().default(BigInt(0)),
+  xpKnowledge: bigint("xp_knowledge", { mode: "bigint" }).notNull().default(BigInt(0)),
+  xpExplorer: bigint("xp_explorer", { mode: "bigint" }).notNull().default(BigInt(0)),
+  xpGaming: bigint("xp_gaming", { mode: "bigint" }).notNull().default(BigInt(0)),
 
   // Track Levels
   levelSocial: integer("level_social").notNull().default(1),
@@ -154,8 +154,8 @@ export const users = pgTable("users", {
   levelGaming: integer("level_gaming").notNull().default(1),
 
   // Economy
-  coinBalance: bigint("coin_balance", { mode: "number" }).notNull().default(0),
-  starBalance: bigint("star_balance", { mode: "number" }).notNull().default(0),
+  coinBalance: bigint("coin_balance", { mode: "bigint" }).notNull().default(BigInt(0)),
+  starBalance: bigint("star_balance", { mode: "bigint" }).notNull().default(BigInt(0)),
   availableEarningsKobo: bigint("available_earnings_kobo", {
     mode: "bigint",
   })
@@ -238,7 +238,7 @@ export const users = pgTable("users", {
   warningCount: integer("warning_count").notNull().default(0),
   bannedAt: timestamp("banned_at", { withTimezone: true }),
   bannedBy: uuid("banned_by"),
-  seasonXp: bigint("season_xp", { mode: "number" }).notNull().default(0),
+  seasonXp: bigint("season_xp", { mode: "bigint" }).notNull().default(BigInt(0)),
   planActivatedAt: timestamp("plan_activated_at", { withTimezone: true }),
   require2faSetup: boolean("require_2fa_setup").notNull().default(false),
 
@@ -487,7 +487,7 @@ export const messages = pgTable("messages", {
   content: text("content"),
   mediaUrl: text("media_url"),
   metadata: jsonb("metadata"),
-  coinCost: bigint("coin_cost", { mode: "number" }).default(0),
+  coinCost: bigint("coin_cost", { mode: "bigint" }).default(BigInt(0)),
   replyCountFromRecipient: integer("reply_count_from_recipient").default(0),
   idempotencyKey: text("idempotency_key"),
   isRead: boolean("is_read").notNull().default(false),
@@ -753,14 +753,14 @@ export const guilds = pgTable("guilds", {
     .notNull()
     .references(() => users.id, { onDelete: "restrict" }),
   tier: text("tier").notNull().default("bronze_1"),
-  guildXp: bigint("guild_xp", { mode: "number" }).notNull().default(0),
+  guildXp: bigint("guild_xp", { mode: "bigint" }).notNull().default(BigInt(0)),
   memberCount: integer("member_count").notNull().default(1),
-  treasuryBalance: bigint("treasury_balance", { mode: "number" })
+  treasuryBalance: bigint("treasury_balance", { mode: "bigint" })
     .notNull()
-    .default(0),
-  treasuryCap: bigint("treasury_cap", { mode: "number" })
+    .default(BigInt(0)),
+  treasuryCap: bigint("treasury_cap", { mode: "bigint" })
     .notNull()
-    .default(50000),
+    .default(BigInt(50000)),
   recruitmentType: text("recruitment_type").notNull().default("open"),
   warsWon: integer("wars_won").notNull().default(0),
   warsLost: integer("wars_lost").notNull().default(0),
@@ -813,12 +813,12 @@ export const guildWars = pgTable("guild_wars", {
     .notNull()
     .references(() => guilds.id, { onDelete: "cascade" }),
   status: text("status").notNull().default("active"),
-  challengerPoints: bigint("challenger_points", { mode: "number" })
+  challengerPoints: bigint("challenger_points", { mode: "bigint" })
     .notNull()
-    .default(0),
-  defenderPoints: bigint("defender_points", { mode: "number" })
+    .default(BigInt(0)),
+  defenderPoints: bigint("defender_points", { mode: "bigint" })
     .notNull()
-    .default(0),
+    .default(BigInt(0)),
   winnerGuildId: uuid("winner_guild_id").references(() => guilds.id),
   startsAt: timestamp("starts_at", { withTimezone: true })
     .notNull()
@@ -964,9 +964,9 @@ export const guildTreasuryLedger = pgTable("guild_treasury_ledger", {
     .notNull()
     .references(() => guilds.id, { onDelete: "cascade" }),
   userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
-  amount: bigint("amount", { mode: "number" }).notNull(),
-  balanceBefore: bigint("balance_before", { mode: "number" }).notNull(),
-  balanceAfter: bigint("balance_after", { mode: "number" }).notNull(),
+  amount: bigint("amount", { mode: "bigint" }).notNull(),
+  balanceBefore: bigint("balance_before", { mode: "bigint" }).notNull(),
+  balanceAfter: bigint("balance_after", { mode: "bigint" }).notNull(),
   transactionType: text("transaction_type").notNull(),
   description: text("description"),
   referenceId: text("reference_id"),
@@ -982,7 +982,7 @@ export const guildTierHistory = pgTable(
       .references(() => guilds.id, { onDelete: "cascade" }),
     fromTier: text("from_tier").notNull(),
     toTier: text("to_tier").notNull(),
-    guildXpAt: bigint("guild_xp_at", { mode: "number" }).notNull(),
+    guildXpAt: bigint("guild_xp_at", { mode: "bigint" }).notNull(),
     changedAt: timestamp("changed_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1049,8 +1049,8 @@ export const allianceWars = pgTable(
       () => guildAlliances.id,
       { onDelete: "set null" }
     ),
-    alliance1Xp: bigint("alliance_1_xp", { mode: "number" }).notNull().default(0),
-    alliance2Xp: bigint("alliance_2_xp", { mode: "number" }).notNull().default(0),
+    alliance1Xp: bigint("alliance_1_xp", { mode: "bigint" }).notNull().default(BigInt(0)),
+    alliance2Xp: bigint("alliance_2_xp", { mode: "bigint" }).notNull().default(BigInt(0)),
     startedAt: timestamp("started_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1136,11 +1136,11 @@ export const rooms = pgTable("rooms", {
   memberCount: integer("member_count").notNull().default(0),
 
   // Pricing
-  subscriptionPriceKobo: bigint("subscription_price_kobo", { mode: "number" }),
-  entryFeeKobo: bigint("entry_fee_kobo", { mode: "number" }),
-  subscriptionPriceNgn: bigint("subscription_price_ngn", { mode: "number" }),
-  entryFeeNgn: bigint("entry_fee_ngn", { mode: "number" }),
-  enrolmentFeeNgn: bigint("enrolment_fee_ngn", { mode: "number" }),
+  subscriptionPriceKobo: bigint("subscription_price_kobo", { mode: "bigint" }),
+  entryFeeKobo: bigint("entry_fee_kobo", { mode: "bigint" }),
+  subscriptionPriceNgn: bigint("subscription_price_ngn", { mode: "bigint" }),
+  entryFeeNgn: bigint("entry_fee_ngn", { mode: "bigint" }),
+  enrolmentFeeNgn: bigint("enrolment_fee_ngn", { mode: "bigint" }),
 
   // ClassRoom
   curriculum: jsonb("curriculum"),
@@ -1233,7 +1233,7 @@ export const roomMessages = pgTable("room_messages", {
   content: text("content"),
   mediaUrl: text("media_url"),
   metadata: jsonb("metadata"),
-  coinCost: bigint("coin_cost", { mode: "number" }).default(0),
+  coinCost: bigint("coin_cost", { mode: "bigint" }).default(BigInt(0)),
   replyCountFromRecipient: integer("reply_count_from_recipient").default(0),
   isDeleted: boolean("is_deleted").default(false),
   isFlagged: boolean("is_flagged").default(false),
@@ -1352,7 +1352,7 @@ export const roomSubscriptions = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     status: text("status").notNull().default("active"),
-    amountKobo: bigint("amount_kobo", { mode: "number" }),
+    amountKobo: bigint("amount_kobo", { mode: "bigint" }),
     startedAt: timestamp("started_at", { withTimezone: true }).defaultNow(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
@@ -1454,9 +1454,9 @@ export const dropRoomReplays = pgTable("drop_room_replays", {
     .references(() => users.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   highlights: jsonb("highlights").notNull(),
-  replayFeeKobo: bigint("replay_fee_kobo", { mode: "number" })
+  replayFeeKobo: bigint("replay_fee_kobo", { mode: "bigint" })
     .notNull()
-    .default(0),
+    .default(BigInt(0)),
   isPublished: boolean("is_published").default(false),
   publishedAt: timestamp("published_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
@@ -1613,7 +1613,7 @@ export const userSeasonPasses = pgTable(
       .notNull()
       .references(() => seasons.id, { onDelete: "cascade" }),
     isPaid: boolean("is_paid").notNull().default(false),
-    seasonXp: bigint("season_xp", { mode: "number" }).notNull().default(0),
+    seasonXp: bigint("season_xp", { mode: "bigint" }).notNull().default(BigInt(0)),
     seasonRank: integer("season_rank"),
     purchasedAt: timestamp("purchased_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
@@ -1688,7 +1688,7 @@ export const seasonRankArchives = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     finalRank: integer("final_rank"),
-    finalSeasonXp: bigint("final_season_xp", { mode: "number" }).notNull().default(0),
+    finalSeasonXp: bigint("final_season_xp", { mode: "bigint" }).notNull().default(BigInt(0)),
     archivedAt: timestamp("archived_at", { withTimezone: true }).defaultNow(),
   },
   (t) => ({
@@ -1712,7 +1712,7 @@ export const leaderboardSnapshots = pgTable(
     seasonId: uuid("season_id").references(() => seasons.id, {
       onDelete: "cascade",
     }),
-    xpValue: bigint("xp_value", { mode: "number" }).notNull().default(0),
+    xpValue: bigint("xp_value", { mode: "bigint" }).notNull().default(BigInt(0)),
     rankPosition: integer("rank_position"),
     // Migration 004 (db): for rank-change notifications
     lastNotifiedRank: integer("last_notified_rank"),
@@ -1739,7 +1739,7 @@ export const leaderboardRankSnapshots = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     scope: text("scope").notNull().default("global"),
     rank: integer("rank").notNull(),
-    xp: bigint("xp", { mode: "number" }).notNull().default(0),
+    xp: bigint("xp", { mode: "bigint" }).notNull().default(BigInt(0)),
     snappedAt: timestamp("snapped_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1867,7 +1867,7 @@ export const rankUpEvents = pgTable("rank_up_events", {
     .references(() => users.id, { onDelete: "cascade" }),
   rankFrom: text("rank_from").notNull(),
   rankTo: text("rank_to").notNull(),
-  xpAtEvent: bigint("xp_at_event", { mode: "number" }).notNull(),
+  xpAtEvent: bigint("xp_at_event", { mode: "bigint" }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
@@ -1890,7 +1890,7 @@ export const hallOfFame = pgTable("hall_of_fame", {
     .unique()
     .references(() => users.id, { onDelete: "cascade" }),
   prestigeCount: integer("prestige_count").notNull(),
-  legacyScore: bigint("legacy_score", { mode: "number" }).notNull().default(0),
+  legacyScore: bigint("legacy_score", { mode: "bigint" }).notNull().default(BigInt(0)),
   inductedAt: timestamp("inducted_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -1930,9 +1930,9 @@ export const coinLedger = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    amount: bigint("amount", { mode: "number" }).notNull(),
-    balanceBefore: bigint("balance_before", { mode: "number" }).notNull(),
-    balanceAfter: bigint("balance_after", { mode: "number" }).notNull(),
+    amount: bigint("amount", { mode: "bigint" }).notNull(),
+    balanceBefore: bigint("balance_before", { mode: "bigint" }).notNull(),
+    balanceAfter: bigint("balance_after", { mode: "bigint" }).notNull(),
     transactionType: text("transaction_type").notNull(),
     referenceId: text("reference_id"),
     description: text("description"),
@@ -1959,13 +1959,13 @@ export const starLedger = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     // SCHEMA-STAR-01: bigint to match the signed amount semantic (stars can be large)
-    amount: bigint("amount", { mode: "number" }).notNull(),
-    balanceBefore: bigint("balance_before", { mode: "number" })
+    amount: bigint("amount", { mode: "bigint" }).notNull(),
+    balanceBefore: bigint("balance_before", { mode: "bigint" })
       .notNull()
-      .default(0),
-    balanceAfter: bigint("balance_after", { mode: "number" })
+      .default(BigInt(0)),
+    balanceAfter: bigint("balance_after", { mode: "bigint" })
       .notNull()
-      .default(0),
+      .default(BigInt(0)),
     transactionType: text("transaction_type").notNull(),
     description: text("description"),
     referenceId: text("reference_id"),
@@ -2018,14 +2018,14 @@ export const payments = pgTable("payments", {
     .references(() => users.id, { onDelete: "cascade" }),
   // Migration 014 (db): added business_upgrade to payment_type CHECK
   paymentType: text("payment_type").notNull(),
-  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "bigint" }).notNull(),
   currency: text("currency").notNull().default("NGN"),
   provider: text("provider").notNull(),
   providerReference: text("provider_reference").unique(),
   providerTransactionId: text("provider_transaction_id"),
   status: text("status").notNull().default("pending"),
-  coinsCredited: bigint("coins_credited", { mode: "number" }),
-  amountReceivedKobo: bigint("amount_received_kobo", { mode: "number" }),
+  coinsCredited: bigint("coins_credited", { mode: "bigint" }),
+  amountReceivedKobo: bigint("amount_received_kobo", { mode: "bigint" }),
   idempotencyKey: text("idempotency_key").unique(),
   referenceId: text("reference_id"),
   paymentUrl: text("payment_url"),
@@ -2101,7 +2101,7 @@ export const storeItems = pgTable("store_items", {
   name: text("name").notNull().unique(),
   description: text("description"),
   itemType: text("item_type").notNull(),
-  priceKobo: bigint("price_kobo", { mode: "number" }),
+  priceKobo: bigint("price_kobo", { mode: "bigint" }),
   currency: text("currency").notNull().default("NGN"),
   coinsCost: integer("coins_cost"),
   starsCost: integer("stars_cost"),
@@ -2265,8 +2265,8 @@ export const auditDiscrepancies = pgTable("audit_discrepancies", {
   userId: uuid("user_id").notNull(),
   // Migration 012 (db): CHECK broadened to include 'xp'
   assetType: text("asset_type").notNull(),
-  ledgerSum: bigint("ledger_sum", { mode: "number" }).notNull(),
-  walletBalance: bigint("wallet_balance", { mode: "number" }).notNull(),
+  ledgerSum: bigint("ledger_sum", { mode: "bigint" }).notNull(),
+  walletBalance: bigint("wallet_balance", { mode: "bigint" }).notNull(),
   detectedAt: timestamp("detected_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -2503,8 +2503,8 @@ export const referralCommissions = pgTable("referral_commissions", {
   triggerEventId: text("trigger_event_id").notNull().unique(),
   // Migration 009 (lib) / 012 (db): added tier column
   tier: text("tier").notNull().default("standard"),
-  purchaseAmountKobo: bigint("purchase_amount_kobo", { mode: "number" }).notNull(),
-  commissionKobo: bigint("commission_kobo", { mode: "number" }).notNull(),
+  purchaseAmountKobo: bigint("purchase_amount_kobo", { mode: "bigint" }).notNull(),
+  commissionKobo: bigint("commission_kobo", { mode: "bigint" }).notNull(),
   commissionCoins: integer("commission_coins").notNull().default(0),
   status: text("status").notNull().default("pending"),
   createdAt: timestamp("created_at", { withTimezone: true })
@@ -2632,7 +2632,7 @@ export const merchProducts = pgTable("merch_products", {
   name: text("name").notNull(),
   description: text("description"),
   productType: text("product_type").notNull().default("digital"),
-  priceKobo: bigint("price_kobo", { mode: "number" }).notNull(),
+  priceKobo: bigint("price_kobo", { mode: "bigint" }).notNull(),
   imageUrl: text("image_url"),
   isActive: boolean("is_active").default(true),
   stock: integer("stock"),
@@ -2687,7 +2687,7 @@ export const classroomEnrolments = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     paid: boolean("paid").notNull().default(false),
-    feeKobo: bigint("fee_kobo", { mode: "number" }).notNull().default(0),
+    feeKobo: bigint("fee_kobo", { mode: "bigint" }).notNull().default(BigInt(0)),
     enrolledAt: timestamp("enrolled_at", { withTimezone: true }).defaultNow(),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     certificateIssued: boolean("certificate_issued").default(false),
@@ -2788,11 +2788,11 @@ export const games = pgTable(
     rewardStarsPerWin: integer("reward_stars_per_win").notNull().default(0),
     playCostCredits: integer("play_cost_credits").notNull().default(0),
     playCostStars: integer("play_cost_stars").notNull().default(0),
-    maxScore: bigint("max_score", { mode: "number" }),
+    maxScore: bigint("max_score", { mode: "bigint" }),
     minPlaySeconds: integer("min_play_seconds").notNull().default(0),
     isPublic: boolean("is_public").notNull().default(true),
     isActive: boolean("is_active").notNull().default(true),
-    playCount: bigint("play_count", { mode: "number" }).notNull().default(0),
+    playCount: bigint("play_count", { mode: "bigint" }).notNull().default(BigInt(0)),
     avgRating: numeric("avg_rating", { precision: 3, scale: 2 }).notNull().default("0"),
     ratingCount: integer("rating_count").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -2842,7 +2842,7 @@ export const gamePlays = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    score: bigint("score", { mode: "number" }).notNull().default(0),
+    score: bigint("score", { mode: "bigint" }).notNull().default(BigInt(0)),
     sessionNonce: text("session_nonce").notNull(),
     counted: boolean("counted").notNull().default(false),
     challengeRoundId: uuid("challenge_round_id"),
@@ -2866,7 +2866,7 @@ export const gameBestScores = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    bestScore: bigint("best_score", { mode: "number" }).notNull().default(0),
+    bestScore: bigint("best_score", { mode: "bigint" }).notNull().default(BigInt(0)),
     plays: integer("plays").notNull().default(0),
     wins: integer("wins").notNull().default(0),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -2913,8 +2913,8 @@ export const gameChallengeRounds = pgTable(
     roundNo: integer("round_no").notNull(),
     challengerPlayId: uuid("challenger_play_id"),
     opponentPlayId: uuid("opponent_play_id"),
-    challengerScore: bigint("challenger_score", { mode: "number" }),
-    opponentScore: bigint("opponent_score", { mode: "number" }),
+    challengerScore: bigint("challenger_score", { mode: "bigint" }),
+    opponentScore: bigint("opponent_score", { mode: "bigint" }),
     roundWinnerId: uuid("round_winner_id").references(() => users.id, {
       onDelete: "set null",
     }),
@@ -3332,7 +3332,7 @@ export const subscriptionPlans = pgTable(
     plan: text("plan").notNull(),
     name: text("name").notNull(),
     interval: text("interval").notNull().default("monthly"),
-    priceKobo: bigint("price_kobo", { mode: "number" }).notNull(),
+    priceKobo: bigint("price_kobo", { mode: "bigint" }).notNull(),
     currency: text("currency").notNull().default("NGN"),
     isActive: boolean("is_active").notNull().default(true),
     sortOrder: integer("sort_order").notNull().default(0),
@@ -3641,7 +3641,7 @@ export const platformCouncilMembers = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     cycleMonth: text("cycle_month").notNull(),
-    legacyScore: bigint("legacy_score", { mode: "number" }).notNull(),
+    legacyScore: bigint("legacy_score", { mode: "bigint" }).notNull(),
     joinedAt: timestamp("joined_at", { withTimezone: true }).defaultNow(),
     leftAt: timestamp("left_at", { withTimezone: true }),
   },
@@ -3681,7 +3681,7 @@ export const councilInvitations = pgTable("council_invitations", {
     .defaultNow(),
   acceptedAt: timestamp("accepted_at", { withTimezone: true }),
   dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
-  legacyScore: bigint("legacy_score", { mode: "number" }).notNull().default(0),
+  legacyScore: bigint("legacy_score", { mode: "bigint" }).notNull().default(BigInt(0)),
 });
 
 // ---------------------------------------------------------------------------
@@ -3759,7 +3759,7 @@ export const refunds = pgTable("refunds", {
   userId: uuid("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
-  amountCoins: bigint("amount_coins", { mode: "number" }).notNull(),
+  amountCoins: bigint("amount_coins", { mode: "bigint" }).notNull(),
   reason: text("reason"),
   referenceId: text("reference_id"),
   status: text("status").notNull().default("processed"),
