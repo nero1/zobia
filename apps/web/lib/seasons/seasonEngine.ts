@@ -376,7 +376,18 @@ export async function createSeasonCeremonyRoom(
       ]
     );
 
-    return roomRows[0]?.id ?? null;
+    const roomId = roomRows[0]?.id;
+    if (!roomId) return null;
+
+    // Add the admin as the initial room member so the room is not empty on creation.
+    await db.query(
+      `INSERT INTO room_members (room_id, user_id, role, joined_at)
+       VALUES ($1, $2, 'admin', NOW())
+       ON CONFLICT (room_id, user_id) DO NOTHING`,
+      [roomId, adminId]
+    );
+
+    return roomId;
   } catch (err) {
     console.error('[seasonEngine] createSeasonCeremonyRoom failed:', err);
     return null;

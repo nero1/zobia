@@ -682,19 +682,21 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // BUG-18: count AFTER insert so the cap is inclusive of the current message
     const todayMsgCount = await countTodayMessages(roomId, userId);
 
-    // Award XP (non-blocking) — publish reward_earned after so the floating
-    // notification fires, then trigger any matching daily quest progress.
-    maybeAwardMessageXP(message.id, userId, todayMsgCount, senderStatus?.plan ?? 'free')
-      .then((xp) => {
-        if (xp > 0) {
-          return publishRealtimeEvent(`user:${userId}`, "reward_earned", {
-            type: "xp",
-            amount: xp,
-          });
-        }
-      })
-      .catch(() => {});
-    void triggerActivityQuestProgress(userId, "send_room_message", db);
+    // Award XP only if the message doesn't need moderator approval first.
+    // When requiresApproval is true, XP is awarded by the moderation approve action.
+    if (!requiresApproval) {
+      maybeAwardMessageXP(message.id, userId, todayMsgCount, senderStatus?.plan ?? 'free')
+        .then((xp) => {
+          if (xp > 0) {
+            return publishRealtimeEvent(`user:${userId}`, "reward_earned", {
+              type: "xp",
+              amount: xp,
+            });
+          }
+        })
+        .catch(() => {});
+      void triggerActivityQuestProgress(userId, "send_room_message", db);
+    }
 
     // Publish to realtime provider (non-blocking — never delays the HTTP response)
     if (senderStatus && !requiresApproval) {

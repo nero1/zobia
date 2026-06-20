@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { compare } from "bcryptjs"; // BUG-PERF-03: static import avoids per-request module resolution
+import { compare, hashSync } from "bcryptjs"; // BUG-PERF-03: static import avoids per-request module resolution
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { handleApiError, unauthorized } from "@/lib/api/errors";
@@ -38,6 +38,9 @@ const totpLoginSchema = z.object({
   password: z.string().min(1, "Password required"),
   code: z.string().regex(/^\d{6}$/, "Code must be 6 digits"),
 });
+
+// Module-level dummy hash for constant-time comparison when user is not found.
+const DUMMY_HASH = hashSync("timing-equalization-sentinel", 12);
 
 // ---------------------------------------------------------------------------
 // DB row
@@ -77,7 +80,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const user = rows[0];
 
     // Always run bcrypt to prevent timing attacks
-    const hash = user?.password_hash ?? "$2b$12$invalidhashfortimingattack0000000";
+    const hash = user?.password_hash ?? DUMMY_HASH;
     const passwordValid = await compare(body.password, hash);
 
     if (!user || !passwordValid || !user.is_admin || user.deleted_at) {

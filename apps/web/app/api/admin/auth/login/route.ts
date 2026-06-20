@@ -20,7 +20,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
-import { compare } from "bcryptjs"; // BUG-PERF-03: static import avoids per-request module resolution
+import { compare, hashSync } from "bcryptjs"; // BUG-PERF-03: static import avoids per-request module resolution
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
@@ -36,6 +36,11 @@ const loginSchema = z.object({
   email: z.string().email("Valid email required"),
   password: z.string().min(1, "Password required"),
 });
+
+// Module-level dummy hash for constant-time comparison when user is not found.
+// A valid 60-char bcrypt hash prevents timing attacks that would otherwise
+// reveal whether an email address exists in the database.
+const DUMMY_HASH = hashSync("timing-equalization-sentinel", 12);
 
 // ---------------------------------------------------------------------------
 // DB row
@@ -74,7 +79,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const user = rows[0];
 
     // Constant-time failure path: always run bcrypt compare to prevent timing attacks
-    const passwordHash = user?.password_hash ?? "$2b$12$invalidhashfortimingatack000000000";
+    const passwordHash = user?.password_hash ?? DUMMY_HASH;
     const passwordValid = await compare(body.password, passwordHash);
 
     if (!user || !passwordValid || !user.is_admin || user.deleted_at) {
@@ -88,7 +93,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       // a 5-minute TTL and consumed (GETDEL) by the setup endpoint.
       const setupToken = randomBytes(32).toString("hex");
       await redis.setex(`admin_pre_auth:setup:${setupToken}`, 300, user.id);
-      return NextResponse.json({ success: true, needsSetup: true, setupToken }, { status: 200 });
+      // Store token in HttpOnly cookie — not in the JSON body which is XSS-readable.
+      const resp = NextResponse.json({ success: true, needsSetup: true }, { status: 200 });
+      resp.headers.set(
+        "Set-Cookie",
+        `admin_setup_token=${setupToken}; HttpOnly; SameSite=Strict; Path=/api/admin/auth/totp/setup; Max-Age=300`
+      );
+      return resp;
     }
 
     return NextResponse.json({ success: true, needsSetup: false }, { status: 200 });

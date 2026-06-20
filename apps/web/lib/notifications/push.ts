@@ -480,7 +480,15 @@ export async function sendPushNotificationBatch(
   if (notifications.length === 0) return;
 
   try {
-    const userIds = [...new Set(notifications.map((n) => n.userId))];
+    // Deduplicate notifications by userId so each user receives at most one push
+    // per batch call, regardless of how many events triggered it (BUG-N-01).
+    const seen = new Set<string>();
+    const dedupedNotifications = notifications.filter((n) => {
+      if (seen.has(n.userId)) return false;
+      seen.add(n.userId);
+      return true;
+    });
+    const userIds = dedupedNotifications.map((n) => n.userId);
 
     // Fetch active tokens for all users — excludes stale/abandoned devices
     const { rows } = await db.query<{ user_id: string; token: string }>(
@@ -501,7 +509,7 @@ export async function sendPushNotificationBatch(
 
     // Build one Expo message per (notification × device token) pair
     const messages: Array<{ msg: ExpoMessage; token: string; userId: string }> = [];
-    for (const notification of notifications) {
+    for (const notification of dedupedNotifications) {
       const tokens = tokenMap.get(notification.userId) ?? [];
       for (const token of tokens) {
         const { sound, priority } = resolveExpoPriority(notification.priority);

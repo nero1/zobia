@@ -49,8 +49,8 @@ const setupSchema = z.object({
 // ---------------------------------------------------------------------------
 
 async function resolveAdminUserId(req: NextRequest): Promise<string> {
-  // 1. Check for pre-auth setup token (issued by /api/admin/auth/login when needsSetup: true)
-  const preAuthToken = req.headers.get("x-admin-pre-auth");
+  // 1. Check for pre-auth setup token stored in HttpOnly cookie (issued by /api/admin/auth/login when needsSetup: true)
+  const preAuthToken = req.cookies.get("admin_setup_token")?.value;
   if (preAuthToken) {
     const userId = await redis.getdel(`admin_pre_auth:setup:${preAuthToken}`);
     if (userId) return userId;

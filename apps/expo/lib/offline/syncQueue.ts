@@ -44,38 +44,46 @@ export async function syncPendingMessages(): Promise<void> {
 
     const pending = await getPendingMessages();
 
-    for (const msg of pending) {
-      try {
-        // BUG-20: mark in-flight before calling API to prevent double-send on crash-restart
-        await markMessageSending(msg.id);
+    // Process in concurrent batches of 3 so one stuck message does not block others.
+    const BATCH_SIZE = 3;
+    for (let i = 0; i < pending.length; i += BATCH_SIZE) {
+      const batch = pending.slice(i, i + BATCH_SIZE);
 
-        // Route to the correct endpoint based on conversation type
-        const endpoint =
-          msg.conversationType === 'room'
-            ? `/rooms/${msg.conversationId}/messages`
-            : msg.conversationType === 'group'
-            ? `/messages/group/${msg.conversationId}`
-            : `/messages/dm/${msg.conversationId}`;
+      await Promise.allSettled(
+        batch.map(async (msg) => {
+          try {
+            // mark in-flight before calling API to prevent double-send on crash-restart
+            await markMessageSending(msg.id);
 
-        await apiClient.post(endpoint, {
-          content: msg.content,
-          messageType: msg.messageType,
-          idempotencyKey: msg.idempotencyKey,
-        });
+            // Route to the correct endpoint based on conversation type
+            const endpoint =
+              msg.conversationType === 'room'
+                ? `/rooms/${msg.conversationId}/messages`
+                : msg.conversationType === 'group'
+                ? `/messages/group/${msg.conversationId}`
+                : `/messages/dm/${msg.conversationId}`;
 
-        await markMessageSent(msg.id);
-      } catch (err) {
-        const status = (err as AxiosError)?.response?.status;
-        if (status !== undefined && status >= 400 && status < 500) {
-          // Client error (bad request, auth failure, validation) — retrying won't help
-          await markMessagePermanentlyFailed(msg.id);
-          console.warn(`[offline:sync] Permanent failure for message ${msg.id} (HTTP ${status})`);
-        } else {
-          // Server error or network failure — schedule for retry
-          await markMessageFailed(msg.id);
-          console.warn(`[offline:sync] Transient failure for message ${msg.id}`, err);
-        }
-      }
+            await apiClient.post(endpoint, {
+              content: msg.content,
+              messageType: msg.messageType,
+              idempotencyKey: msg.idempotencyKey,
+            });
+
+            await markMessageSent(msg.id);
+          } catch (err) {
+            const status = (err as AxiosError)?.response?.status;
+            if (status !== undefined && status >= 400 && status < 500) {
+              // Client error (bad request, auth failure, validation) — retrying won't help
+              await markMessagePermanentlyFailed(msg.id);
+              console.warn(`[offline:sync] Permanent failure for message ${msg.id} (HTTP ${status})`);
+            } else {
+              // Server error or network failure — schedule for retry
+              await markMessageFailed(msg.id);
+              console.warn(`[offline:sync] Transient failure for message ${msg.id}`, err);
+            }
+          }
+        })
+      );
     }
   } catch (err) {
     console.error('[offline:sync] Sync failed', err);

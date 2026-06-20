@@ -12,7 +12,7 @@ export const maxDuration = 10;
  *
  * Responsibilities (idempotent — safe to call multiple times):
  *  1. Find users who have earned XP in the last 15 minutes (active users).
- *  2. Batch-upsert leaderboard_snapshots for all active users × all 7 tracks
+ *  2. Batch-upsert leaderboard_snapshots for all active users × all 8 tracks
  *     in a SINGLE INSERT using unnest() — replaces 7 serial calls per user.
  *  3. Detect rank changes since the previous snapshot.
  *  4. Batch-update last_notified_rank + batch-insert rank-change notifications
@@ -222,6 +222,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const notifTypes: string[] = [];
     const notifPrevRanks: number[] = [];
     const notifNewRanks: number[] = [];
+    const notifIsPromotion: boolean[] = [];
 
     for (const { user_id, new_rank: newRank } of rankRows) {
       updateUserIds.push(user_id);
@@ -231,12 +232,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       if (previousRank !== null && newRank !== previousRank) {
         rankChanges++;
         const enteredTop10 = newRank <= 10 && previousRank > 10;
+        const isPromotion = newRank < previousRank;
         const shouldNotify = enteredTop10 || newRank <= 50;
         if (shouldNotify) {
           notifUserIds.push(user_id);
-          notifTypes.push(enteredTop10 ? "leaderboard_top10_entry" : "leaderboard_rank_change");
+          notifTypes.push(enteredTop10 ? "leaderboard_top10_entry" : isPromotion ? "leaderboard_rank_up" : "leaderboard_rank_down");
           notifPrevRanks.push(previousRank);
           notifNewRanks.push(newRank);
+          notifIsPromotion.push(isPromotion);
         }
       }
     }
@@ -260,9 +263,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
                 CASE
                   WHEN sub.ntype = 'leaderboard_top10_entry' THEN 'You''re in the Top 10!'
                   WHEN sub.ntype = 'leaderboard_rank_up'     THEN 'You''re climbing the leaderboard!'
+                  WHEN sub.ntype = 'leaderboard_rank_down'   THEN 'Your leaderboard rank dropped'
                   ELSE 'Your leaderboard rank has changed'
                 END,
-                'You moved from rank #' || sub.prev_rank || ' to rank #' || sub.new_rank || '.',
+                CASE
+                  WHEN sub.is_promotion THEN
+                    'You rose from rank #' || sub.prev_rank || ' to rank #' || sub.new_rank || '. Keep it up!'
+                  ELSE
+                    'You dropped from rank #' || sub.prev_rank || ' to rank #' || sub.new_rank || '. Stay active to climb back!'
+                END,
                 jsonb_build_object(
                   'previous_rank',  sub.prev_rank,
                   'new_rank',       sub.new_rank,
@@ -275,7 +284,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
                       unnest($2::text[]) AS ntype,
                       unnest($3::int[])  AS prev_rank,
                       unnest($4::int[])  AS new_rank,
-                      unnest($5::bool[]) AS entered_top10) sub
+                      unnest($5::bool[]) AS entered_top10,
+                      unnest($6::bool[]) AS is_promotion) sub
          ON CONFLICT DO NOTHING`,
         [
           notifUserIds,
@@ -283,6 +293,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           notifPrevRanks,
           notifNewRanks,
           notifTypes.map(t => t === "leaderboard_top10_entry"),
+          notifIsPromotion,
         ]
       ).catch(() => {});
     }

@@ -1657,5 +1657,11 @@
   "games.status.cancelled": "Cancelled",
   "games.status.expired": "Expired",
   "errors.wager_too_high": "Wager exceeds the maximum allowed amount of {{max}} credits.",
-  "errors.invalid_request_body": "Invalid request body"
+  "errors.invalid_request_body": "Invalid request body",
+  "errors.content_filtered": "Message blocked by content filter",
+  "errors.iap_timeout": "Purchase verification timed out. Please try again.",
+  "notification.rank_promotion": "You rose from rank #{{previousRank}} to rank #{{newRank}}. Keep it up!",
+  "notification.rank_drop": "You dropped from rank #{{previousRank}} to rank #{{newRank}}. Stay active to climb back!",
+  "notification.rank_top10": "You're in the Top 10!",
+  "notification.rank_climbing": "You're climbing the leaderboard!"
 }
