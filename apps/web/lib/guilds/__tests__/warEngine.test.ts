@@ -584,7 +584,7 @@ describe('distributeWarRewards', () => {
 
     // distributeWarRewards defers XP awards via pendingXPAwards so the caller
     // (resolveWar) can issue them post-commit, avoiding phantom DLQ entries.
-    const pendingXPAwards: Array<{ userId: string; amount: number; track: string; source: string; ref: string }> = [];
+    const pendingXPAwards: Array<{ userId: string; amount: number; track: "competitor"; source: string; ref: string }> = [];
     await distributeWarRewards('war-1', 'guild-a', mockDb, undefined, pendingXPAwards);
 
     expect(pendingXPAwards.length).toBeGreaterThan(0);
