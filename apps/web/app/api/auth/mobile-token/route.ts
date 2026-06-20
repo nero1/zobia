@@ -24,10 +24,17 @@ import { validateBody } from "@/lib/api/middleware";
 import { badRequest, handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
 
-const ExchangeSchema = z.object({
-  code: z.string().min(1).max(128),
-  pre_auth_code: z.string().min(1).max(128).optional(),
-});
+const ExchangeSchema = z
+  .object({
+    // Exactly one of `code` or `pre_auth_code` must be provided.
+    // `code` is the single-use OAuth exchange code (normal login flow).
+    // `pre_auth_code` is the opaque token from the 2FA deep-link (2FA flow).
+    code: z.string().min(1).max(128).optional(),
+    pre_auth_code: z.string().min(1).max(128).optional(),
+  })
+  .refine((d) => !!d.code || !!d.pre_auth_code, {
+    message: "Either code or pre_auth_code is required",
+  });
 
 interface ExchangePayload {
   accessToken: string;
@@ -53,6 +60,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         throw badRequest("Invalid or expired pre-auth code", "INVALID_PRE_AUTH_CODE");
       }
       return NextResponse.json({ preAuthToken });
+    }
+
+    if (!code) {
+      // Handled by Zod refine — should not reach here
+      throw badRequest("code is required", "MISSING_CODE");
     }
 
     // Atomically GET-and-DEL to make the code single-use (no getdel in interface)

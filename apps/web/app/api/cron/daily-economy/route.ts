@@ -93,6 +93,7 @@ export const GET = async (req: NextRequest) => {
                      WHERE user_id = users.id AND transaction_type = 'subscription_bonus'
                        AND reference_id LIKE 'plan:' || users.id::text || ':' || $4
                    )
+                 FOR UPDATE
                ),
                ledger_rows AS (
                  INSERT INTO coin_ledger

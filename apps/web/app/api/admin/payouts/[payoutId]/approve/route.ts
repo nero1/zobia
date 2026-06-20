@@ -59,12 +59,15 @@ export const POST = withAdminAuth(
         throw badRequest(`Cannot approve a payout in status: ${payout.status}`);
       }
 
-      // Block for banned users
+      // Block for banned or deleted users
       const { rows: userRows } = await db.query<{ is_banned: boolean }>(
-        `SELECT COALESCE(is_banned, false) AS is_banned FROM users WHERE id = $1`,
+        `SELECT COALESCE(is_banned, false) AS is_banned FROM users WHERE id = $1 AND deleted_at IS NULL`,
         [payout.creator_id]
       );
-      if (userRows[0]?.is_banned) {
+      if (!userRows[0]) {
+        throw badRequest("Cannot approve payout: creator account not found or deleted", "USER_NOT_FOUND");
+      }
+      if (userRows[0].is_banned) {
         throw badRequest("Cannot approve payout for a banned user");
       }
 

@@ -44,6 +44,10 @@ export async function POST(req: NextRequest) {
     const ip = getClientIp(req);
     await enforceRateLimit(ip, "ip", { ...RATE_LIMITS.apiWrite, limit: 10 });
 
+    // Mobile callers (Expo app) cannot receive cookies; they need tokens in the
+    // response body. Detected via ?platform=mobile query param.
+    const isMobile = req.nextUrl.searchParams.get("platform") === "mobile";
+
     const { code, preAuthToken } = await validateBody(req, verifySchema);
 
     // Also rate-limit by userId to prevent credential stuffing across IPs
@@ -92,8 +96,14 @@ export async function POST(req: NextRequest) {
         totp_enabled: boolean;
         onboarding_completed: boolean;
         is_moderator: boolean;
+        avatar_emoji: string | null;
+        city: string | null;
+        xp_total: number | null;
+        rank_name: string | null;
+        is_creator: boolean;
       }>(
-        `SELECT id, email, username, is_admin, totp_secret, totp_enabled, onboarding_completed, is_moderator
+        `SELECT id, email, username, is_admin, totp_secret, totp_enabled, onboarding_completed, is_moderator,
+                avatar_emoji, city, xp_total, rank_name, COALESCE(is_creator, false) AS is_creator
          FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
         [userId]
       );
@@ -124,9 +134,36 @@ export async function POST(req: NextRequest) {
 
       // Create full session
       const authTokens = await createSession(
-        { id: user.id, email: user.email, username: user.username ?? "", is_admin: user.is_admin },
+        {
+          id: user.id,
+          email: user.email,
+          username: user.username ?? "",
+          is_admin: user.is_admin,
+          is_moderator: user.is_moderator,
+          is_creator: user.is_creator,
+        },
         { ip }
       );
+
+      if (isMobile) {
+        // Mobile clients cannot receive HttpOnly cookies — return tokens in the
+        // response body so the Expo app can store them in SecureStore.
+        return NextResponse.json({
+          success: true,
+          onboardingCompleted: user.onboarding_completed,
+          accessToken: authTokens.accessToken,
+          refreshToken: authTokens.refreshToken,
+          userId: user.id,
+          user: {
+            id: user.id,
+            username: user.username ?? "",
+            avatarEmoji: user.avatar_emoji ?? "😎",
+            city: user.city ?? "",
+            xp: user.xp_total ?? 0,
+            rankTier: user.rank_name ?? "Beginner",
+          },
+        });
+      }
 
       const { accessCookie, refreshCookie } = buildCookieHeaders(authTokens);
       const response = NextResponse.json({

@@ -64,6 +64,10 @@ export async function processPaymentSucceeded(
 ): Promise<void> {
   const { id: providerReference, metadata, amount } = data;
 
+  // Capture referral commission params from within the transaction so we can
+  // fire awardReferralCommissions after the transaction commits (B12).
+  let referralPayload: { userId: string; coins: number; paymentId: string; amountSmallestUnit: number } | null = null;
+
   await db.transaction(async (tx) => {
     // Idempotency guard
     const { rows: existing } = await tx.query<{ id: string; status: string }>(
@@ -357,6 +361,20 @@ export async function processPaymentSucceeded(
       );
     } else {
       // Coin pack — use server-authoritative amount (BUG-02)
+      if (serverCoinsGranted <= 0) {
+        // Zero-coin grant would be a no-op credit but could still throw; log to DLQ and skip.
+        console.error(
+          `[webhook/dodopayments] coin_pack payment ${paymentId} resolved to 0 coins — queued for review`,
+          { paymentId, metadata }
+        );
+        await tx.query(
+          `INSERT INTO failed_webhooks (provider, event_type, payload, error, created_at)
+           VALUES ('dodopayments', 'payment.succeeded', $1::jsonb, $2, NOW())`,
+          [JSON.stringify({ paymentId, metadata }), 'coin_pack_zero_grant_post_db_resolve']
+        ).catch(() => {});
+        return; // do not throw — let the transaction commit with status=completed
+      }
+
       await creditCoins(
         userId,
         serverCoinsGranted,
@@ -367,10 +385,8 @@ export async function processPaymentSucceeded(
         tx
       );
 
-      // Award referral commissions; pass actual kobo amount for monetary audit records
-      await awardReferralCommissions(tx, userId, serverCoinsGranted, paymentId, amount).catch((err) =>
-        console.error("[webhook/dodo] Referral commission error:", err)
-      );
+      // Capture params for post-transaction referral commission award (B12 — reduces hot-path lock time)
+      referralPayload = { userId, coins: serverCoinsGranted, paymentId, amountSmallestUnit: amount };
     }
 
     // Seed 5% of gross revenue into Creator Fund (PRD §14)
@@ -386,6 +402,13 @@ export async function processPaymentSucceeded(
       );
     }
   });
+
+  // Award referral commissions after the transaction commits so commission writes
+  // do not extend the hot-path lock hold time (B12).
+  if (referralPayload) {
+    await awardReferralCommissions(db, referralPayload.userId, referralPayload.coins, referralPayload.paymentId, referralPayload.amountSmallestUnit)
+      .catch((err) => console.error("[webhook/dodo] Referral commission error:", err));
+  }
 }
 
 export async function processPayoutEvent(event: DodoPayoutEvent): Promise<void> {

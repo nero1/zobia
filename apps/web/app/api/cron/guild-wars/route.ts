@@ -176,17 +176,16 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         // resolveWar() sets status = 'completed' internally within its own transaction
         const result = await resolveWar(war.id, db);
 
-        // Award rematch token to the losing guild
-        const loserGuildId = result.winnerGuildId === war.challenger_guild_id
-          ? war.defender_guild_id
-          : war.challenger_guild_id;
-        await db.query(
-          `INSERT INTO guild_war_rematch_tokens
-             (guild_id, war_id, discount_percent, is_used, expires_at)
-           VALUES ($1, $2, 50, false, NOW() + INTERVAL '7 days')
-           ON CONFLICT DO NOTHING`,
-          [loserGuildId, war.id]
-        );
+        // Award rematch token to the losing guild — skip on draw (no loser)
+        if (result.outcome !== 'draw' && result.loserGuildId) {
+          await db.query(
+            `INSERT INTO guild_war_rematch_tokens
+               (guild_id, war_id, discount_percent, is_used, expires_at)
+             VALUES ($1, $2, 50, false, NOW() + INTERVAL '7 days')
+             ON CONFLICT DO NOTHING`,
+            [result.loserGuildId, war.id]
+          );
+        }
 
         resolved++;
       } catch (err) {

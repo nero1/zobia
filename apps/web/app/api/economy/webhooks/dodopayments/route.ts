@@ -46,8 +46,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // 2. Validate HMAC-SHA256 signature
   const isValid = verifyWebhookSignature(rawBody, signature);
   if (!isValid) {
-    console.warn("[webhook/dodopayments] Invalid signature rejected");
-    return NextResponse.json({ received: false }, { status: 401 });
+    console.warn("[webhook/dodopayments] Invalid HMAC signature — discarding event");
+    return NextResponse.json({ received: true }, { status: 200 });
   }
 
   // 3. Parse event

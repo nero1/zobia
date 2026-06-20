@@ -10,6 +10,7 @@
 
 import type { DatabaseAdapter } from "@/lib/db/interface";
 import { creditCoins } from "@/lib/economy/coins";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -620,7 +621,17 @@ export async function claimPassMilestone(
         );
       }
       const packUuid = packResult.rows[0]?.id;
-      if (!packUuid) throw new Error(`[seasonEngine] Sticker pack not found: ${val.packId}`);
+      if (!packUuid) {
+        logger.error({ milestoneId, userId }, '[seasonEngine] Sticker pack not found for milestone reward — skipping grant');
+        await client.query(
+          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
+           VALUES ('missing_sticker_pack', 'warning', $1, $2::jsonb, NOW())`,
+          [`Sticker pack not found for milestone ${milestoneId}`, JSON.stringify({ milestoneId, userId })]
+        ).catch(() => {});
+        // fall through — milestone is still marked claimed
+        claimed = { rewardType: milestone.reward_type, rewardValue: milestone.reward_value };
+        return;
+      }
       await client.query(
         `INSERT INTO user_sticker_packs (user_id, pack_id, unlocked_at)
          VALUES ($1, $2, NOW())

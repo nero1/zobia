@@ -71,6 +71,10 @@ export async function processChargeSuccess(
 ): Promise<void> {
   const { reference, metadata, amount } = data;
 
+  // Capture referral commission params from within the transaction so we can
+  // fire awardReferralCommissions after the transaction commits (B12).
+  let referralPayload: { userId: string; coins: number; paymentId: string; amountKobo: number } | null = null;
+
   await db.transaction(async (tx) => {
     // Idempotency guard — check if this reference was already processed
     const { rows: existing } = await tx.query<{ id: string; status: string }>(
@@ -296,10 +300,8 @@ export async function processChargeSuccess(
         tx
       );
 
-      // Award referral commissions; pass actual kobo amount for monetary audit records
-      await awardReferralCommissions(tx, userId, serverCoinsGranted, paymentId, amount).catch((err) =>
-        console.error("[webhook/paystack] Referral commission error:", err)
-      );
+      // Capture params for post-transaction referral commission award (B12 — reduces hot-path lock time)
+      referralPayload = { userId, coins: serverCoinsGranted, paymentId, amountKobo: amount };
     }
 
     // Seed 5% of gross revenue into Creator Fund (PRD §14)
@@ -315,6 +317,13 @@ export async function processChargeSuccess(
       );
     }
   });
+
+  // Award referral commissions after the transaction commits so commission writes
+  // do not extend the hot-path lock hold time (B12).
+  if (referralPayload) {
+    await awardReferralCommissions(db, referralPayload.userId, referralPayload.coins, referralPayload.paymentId, referralPayload.amountKobo)
+      .catch((err) => console.error("[webhook/paystack] Referral commission error:", err));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -585,11 +594,12 @@ export async function processSubscriptionEvent(
 
     await db.query(
       `UPDATE subscriptions
-       SET status = 'disabled', auto_renew = false,
-           ${disableEndsAt ? "ends_at = $2," : ""}
+       SET status = 'disabled',
+           auto_renew = false,
+           ends_at = $2,
            updated_at = NOW()
        WHERE user_id = $1`,
-      disableEndsAt ? [resolvedUserId, disableEndsAt] : [resolvedUserId]
+      [resolvedUserId, disableEndsAt ?? null]
     ).catch(() => {});
 
   } else if (isNonRenewing) {
