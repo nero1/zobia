@@ -119,7 +119,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       throw badRequest("No pending 2FA setup found. Please restart the setup process.", "TOTP_NO_PENDING");
     }
 
-    if (!verifyTotp(pendingSecret, code)) {
+    if (!(await verifyTotp(pendingSecret, code))) {
       throw badRequest("Invalid TOTP code. Please try again.", "TOTP_INVALID_CODE");
     }
 

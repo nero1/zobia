@@ -20,7 +20,7 @@ import React, {
 } from 'react';
 import { AppState } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
-import { JWT_KEY, REFRESH_TOKEN_KEY, onUnauthenticated } from '@/lib/api/client';
+import { JWT_KEY, REFRESH_TOKEN_KEY, onUnauthenticated, onUserUpdated } from '@/lib/api/client';
 import { env } from '@/lib/env';
 import type { RankName } from '@zobia/types';
 
@@ -176,11 +176,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Subscribe to unauthenticated events (triggered when token refresh fails).
+  // Also clears SecureStore so stale credentials don't persist across app restarts.
   useEffect(() => {
     const unsubscribe = onUnauthenticated(() => {
-      setSessionExpired(true);
-      setToken(null);
-      setUser(null);
+      (async () => {
+        try {
+          await Promise.all([
+            SecureStore.deleteItemAsync(JWT_KEY),
+            SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY),
+            SecureStore.deleteItemAsync('zobia_user'),
+          ]);
+        } catch {}
+        setSessionExpired(true);
+        setToken(null);
+        setUser(null);
+      })();
+    });
+    return unsubscribe;
+  }, []);
+
+  // Subscribe to user-updated events (triggered after a successful silent token rotation)
+  // so the in-memory user state reflects the latest XP, rank, and plan without re-login.
+  useEffect(() => {
+    const unsubscribe = onUserUpdated((userJson) => {
+      try {
+        setUser(JSON.parse(userJson) as AuthUser);
+      } catch {}
     });
     return unsubscribe;
   }, []);
@@ -230,6 +251,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       writes.push(SecureStore.setItemAsync(REFRESH_TOKEN_KEY, refreshToken));
     }
     await Promise.all(writes);
+    setSessionExpired(false);
     setToken(jwt);
     setUser(authUser);
   }, []);

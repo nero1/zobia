@@ -23,6 +23,7 @@ import { db } from "@/lib/db";
 import { validateCronSecret, checkCronIdempotency } from "@/lib/cron/auth";
 import { resetDailyQuests } from "@/lib/quests/questEngine";
 import { XP_VALUES } from "@/lib/xp/engine";
+import { getCurrentSeason } from "@/lib/seasons/seasonEngine";
 
 export const GET = async (req: NextRequest) => {
   if (!validateCronSecret(req)) {
@@ -89,7 +90,7 @@ export const GET = async (req: NextRequest) => {
   // BUG-03: also upsert leaderboard_snapshots for every user who receives XP.
   // BUG-04: use CURRENT_DATE so today's logins qualify (same as the streak fix above).
   try {
-    const loginXpResult = await db.query<{ user_id: string; new_xp_total: string }>(
+    const loginXpResult = await db.query<{ user_id: string; new_xp_total: string; city: string | null; season_xp: string }>(
       `WITH awarded AS (
          INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
          SELECT id, $1, 'main', 'daily_login',
@@ -104,25 +105,56 @@ export const GET = async (req: NextRequest) => {
        updated AS (
          UPDATE users SET xp_total = xp_total + $1, updated_at = NOW()
          WHERE id IN (SELECT user_id FROM awarded)
-         RETURNING id AS user_id, xp_total AS new_xp_total
+         RETURNING id AS user_id, xp_total AS new_xp_total, city, season_xp
        )
-       SELECT user_id, new_xp_total::text FROM updated`,
+       SELECT user_id, new_xp_total::text, city, season_xp::text FROM updated`,
       [XP_VALUES.daily_login]
     );
 
     const usersAwarded = loginXpResult.rows.length;
 
-    // BUG-03: batch-upsert leaderboard snapshots for all awarded users
     if (usersAwarded > 0) {
       const userIds = loginXpResult.rows.map(r => r.user_id);
       const xpTotals = loginXpResult.rows.map(r => Number(r.new_xp_total));
+
+      // Global scope snapshot
       await db.query(
         `INSERT INTO leaderboard_snapshots (user_id, track, scope, city, season_id, xp_value, updated_at)
          SELECT unnest($1::uuid[]), 'main', 'global', NULL, NULL, unnest($2::int[]), NOW()
          ON CONFLICT (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))
          DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()`,
         [userIds, xpTotals]
-      ).catch((err: unknown) => errors.push(`dailyLoginXP:leaderboard: ${String(err)}`));
+      ).catch((err: unknown) => errors.push(`dailyLoginXP:leaderboard:global: ${String(err)}`));
+
+      // City-scoped snapshots for users with a city set
+      const cityUsers = loginXpResult.rows.filter(r => r.city);
+      if (cityUsers.length > 0) {
+        await db.query(
+          `INSERT INTO leaderboard_snapshots (user_id, track, scope, city, season_id, xp_value, updated_at)
+           SELECT unnest($1::uuid[]), 'main', 'city', unnest($2::text[]), NULL, unnest($3::int[]), NOW()
+           ON CONFLICT (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))
+           DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()`,
+          [cityUsers.map(r => r.user_id), cityUsers.map(r => r.city), cityUsers.map(r => Number(r.new_xp_total))]
+        ).catch((err: unknown) => errors.push(`dailyLoginXP:leaderboard:city: ${String(err)}`));
+      }
+
+      // Season-scoped snapshots if an active season exists
+      try {
+        const activeSeason = await getCurrentSeason(db);
+        if (activeSeason) {
+          const seasonUserIds = loginXpResult.rows.map(r => r.user_id);
+          const seasonXps = loginXpResult.rows.map(r => Number(r.season_xp));
+          await db.query(
+            `INSERT INTO leaderboard_snapshots (user_id, track, scope, city, season_id, xp_value, updated_at)
+             SELECT unnest($1::uuid[]), 'main', 'season', NULL, $2::uuid, unnest($3::int[]), NOW()
+             ON CONFLICT (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))
+             DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()`,
+            [seasonUserIds, activeSeason.id, seasonXps]
+          ).catch((err: unknown) => errors.push(`dailyLoginXP:leaderboard:season: ${String(err)}`));
+        }
+      } catch (seasonErr) {
+        errors.push(`dailyLoginXP:leaderboard:season: ${String(seasonErr)}`);
+      }
     }
 
     results.dailyLoginXP = {

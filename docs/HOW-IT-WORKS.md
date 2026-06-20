@@ -633,6 +633,8 @@ Deletion is batched by joining `room_messages` against the sender's subscription
 
 **Session-expired notice for open pages:** When a long-lived page (most commonly an open chat room) outlives its session, its background polls and the next user action receive a `401`. A client `authFetch` wrapper (`lib/api/authFetch.ts`) and the axios interceptor first attempt one silent refresh; if that fails the session is truly gone, and they raise an app-wide event (`lib/auth/sessionExpiredBus.ts`) that mounts a blocking "you've been signed out — sign in again" modal (`components/auth/SessionExpiredModal.tsx`, mounted in `app/(app)/layout.tsx`). The Expo app surfaces the same notice via `components/auth/SessionExpiredModal.tsx` driven by the auth context's `sessionExpired` flag. This closes the gap where a room left open after auto-logout used to keep showing stale content with silently-failing polls.
 
+**Expo mobile auth hardening:** On an irrecoverable 401, the Expo auth context clears all three SecureStore keys (`zobia_jwt`, `zobia_rt`, `zobia_user`) before transitioning to the signed-out state, so stale credentials cannot cause a re-authentication loop on the next app restart. After a successful silent token refresh, the Axios interceptor fetches `/api/users/me` and fires an `onUserUpdated` event; the auth context subscribes to this event and updates the in-memory user object with fresh XP, rank, and city — fields that are not embedded in the JWT payload and would otherwise go stale until re-login.
+
 ### Redis Cost Controls
 
 The platform runs comfortably on a **free Redis tier + Vercel Hobby**. Because every authenticated request is a serverless invocation that previously made several Redis reads, two layers keep both command volume and invocation count low without degrading perceived latency:
@@ -799,10 +801,9 @@ Location: `lib/guilds/warEngine.ts`
 2. **Active phase (48 hours)**: All member activity earns War Points. `calculateWarPoints(activity, isFinalHour)` returns points; during the Final Hour the multiplier is `FINAL_HOUR_MULTIPLIER = 2`.
 3. **Final Hour**: When `ends_at - 1 hour ≤ now`, the hourly CRON transitions the war to `final_hour` status and notifies all members.
 4. **Resolution**: When `ends_at < now`, the hourly CRON calls `resolveWar(db, warId)`. The engine:
-   - Determines the winner (higher total war points).
-   - Calls `distributeWarRewards()` to distribute XP + credits to winning guild members by contribution rank.
-   - Awards a Rematch Token to the losing guild captain.
-   - Updates `guilds.wars_won` / `wars_lost`.
+   - Determines the winner by strict comparison (`score1 > score2`). Equal scores result in a **draw**.
+   - **Win path**: calls `distributeWarRewards()` to distribute XP + credits to winning guild members by contribution rank; awards a Rematch Token to the losing guild captain; increments `guilds.wars_won` / `wars_lost`.
+   - **Draw path**: sets `winner_alliance_id = NULL` on the war record; increments `wars_drawn` on both participating guilds and their alliances; awards each member half the win XP (`ALLIANCE_WAR_DRAW_XP`); sends a draw notification.
 5. All war calculations use integer arithmetic. No floating-point values.
 
 ### Season System
@@ -951,6 +952,8 @@ The server sends push notifications via `apps/web/lib/notifications/push.ts` usi
 `POST https://exp.host/--/api/v2/push/send` — up to 100 messages per request. Expo returns a **push ticket** for each message:
 - `status: "ok"` with `id` — the message was accepted; the ticket ID is persisted to the `push_tickets` table for stage-2 polling.
 - `status: "error"` with `details.error = "DeviceNotRegistered"` — the token is stale; it is immediately purged from `user_push_tokens`.
+
+**Device-ID deduplication:** When a user reinstalls the Expo app, the new install may register a new push token while the old token is still in `user_push_tokens`. To prevent duplicate delivery, the send batch fetches the `device_id` column alongside each token and keeps only one token per (`user_id`, `device_id`) pair — the most recently seen one (ordered by `last_seen_at DESC`). Tokens without a `device_id` are always included. This ensures one notification per physical device even when multiple tokens exist.
 
 #### Stage 2 — Receipt polling (deferred, ≥ 15 minutes later)
 

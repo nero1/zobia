@@ -255,10 +255,16 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       ).catch(() => {});
     }
 
-    // Batch INSERT rank-change notifications
+    // Batch INSERT rank-change notifications.
+    // reference_id is a deterministic daily key so ON CONFLICT DO NOTHING correctly
+    // deduplicates repeated CRON runs within the same day (partial index requires IS NOT NULL).
     if (notifUserIds.length > 0) {
+      const today = now.toISOString().slice(0, 10);
+      const notifReferenceIds = notifUserIds.map(
+        (uid, i) => `rank_change:${uid}:main:global:${notifTypes[i]}:${today}`
+      );
       await db.query(
-        `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
+        `INSERT INTO notifications (user_id, type, title, body, metadata, reference_id, is_read, created_at)
          SELECT sub.uid, sub.ntype,
                 CASE
                   WHEN sub.ntype = 'leaderboard_top10_entry' THEN 'You''re in the Top 10!'
@@ -279,14 +285,16 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
                   'scope',          'global',
                   'entered_top_10', sub.entered_top10
                 ),
+                sub.ref_id,
                 false, NOW()
          FROM (SELECT unnest($1::uuid[]) AS uid,
                       unnest($2::text[]) AS ntype,
                       unnest($3::int[])  AS prev_rank,
                       unnest($4::int[])  AS new_rank,
                       unnest($5::bool[]) AS entered_top10,
-                      unnest($6::bool[]) AS is_promotion) sub
-         ON CONFLICT DO NOTHING`,
+                      unnest($6::bool[]) AS is_promotion,
+                      unnest($7::text[]) AS ref_id) sub
+         ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
         [
           notifUserIds,
           notifTypes,
@@ -294,6 +302,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           notifNewRanks,
           notifTypes.map(t => t === "leaderboard_top10_entry"),
           notifIsPromotion,
+          notifReferenceIds,
         ]
       ).catch(() => {});
     }

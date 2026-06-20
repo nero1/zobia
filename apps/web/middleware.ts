@@ -61,7 +61,7 @@ function buildCsp(nonce: string): string {
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    `style-src 'self' 'nonce-${nonce}' https://fonts.googleapis.com`,
     "worker-src 'self'",
     "font-src 'self' https://fonts.gstatic.com",
     "img-src 'self' data: blob: https:",
@@ -131,6 +131,10 @@ const PUBLIC_PREFIXES = [
   "/screenshots",
   // PWA entry — handles its own auth-check + redirect client-side
   "/pwa-start",
+  // Payment provider webhook endpoints — authenticated via HMAC signatures,
+  // not browser Origin header. These must bypass CSRF checks.
+  "/api/economy/webhooks/paystack",
+  "/api/economy/webhooks/dodopayments",
 ];
 
 /** Routes that require admin JWT claim. */

@@ -518,18 +518,29 @@ export async function sendPushNotificationBatch(
     });
     const userIds = dedupedNotifications.map((n) => n.userId);
 
-    // Fetch active tokens for all users — excludes stale/abandoned devices
-    const { rows } = await db.query<{ user_id: string; token: string }>(
-      `SELECT user_id, token FROM user_push_tokens
+    // Fetch active tokens for all users — excludes stale/abandoned devices.
+    // ORDER BY last_seen_at DESC so deduplication by device_id keeps the most recent token.
+    const { rows } = await db.query<{ user_id: string; token: string; device_id: string | null }>(
+      `SELECT user_id, token, device_id FROM user_push_tokens
        WHERE user_id = ANY($1)
-         AND (last_seen_at IS NULL OR last_seen_at > NOW() - INTERVAL '90 days')`,
+         AND (last_seen_at IS NULL OR last_seen_at > NOW() - INTERVAL '90 days')
+       ORDER BY last_seen_at DESC NULLS LAST`,
       [userIds]
     );
 
-    // Build a userId → token[] map (accumulate all tokens per user)
+    // Build a userId → token[] map with device_id deduplication (mirrors sendPushNotification).
+    // A user who reinstalled without unregistering gets multiple tokens for the same physical
+    // device; keep only the most-recently-seen token per device_id to avoid duplicate deliveries.
     const tokenMap = new Map<string, string[]>();
+    const seenDevicesByUser = new Map<string, Set<string>>();
     for (const row of rows) {
       if (!isValidExpoToken(row.token)) continue;
+      if (row.device_id) {
+        const seenDevices = seenDevicesByUser.get(row.user_id) ?? new Set<string>();
+        if (seenDevices.has(row.device_id)) continue;
+        seenDevices.add(row.device_id);
+        seenDevicesByUser.set(row.user_id, seenDevices);
+      }
       const existing = tokenMap.get(row.user_id) ?? [];
       existing.push(row.token);
       tokenMap.set(row.user_id, existing);
