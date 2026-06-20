@@ -1,6 +1,6 @@
 # Zobia Codebase — Forensic Bug Report
 
-**Generated:** June 20, 2026 · 11:45 AM
+**Generated:** June 20, 2026 · 10:45 AM
 **Analyst:** Independent forensic analysis — manual review of 80+ files, no automated scanners, no sub-agents
 **Scope:** `apps/web` (Next.js 14 App Router, PWA), `apps/expo` (React Native / Expo Android)
 **Status:** PENDING USER REVIEW — NO CODE HAS BEEN MODIFIED
@@ -9,23 +9,24 @@
 
 ## Bug Quick-Reference (one line each)
 
-1: BUG-PAY-01: Paystack `subscription.disable` event handler returns early before inserting the user notification.
-2: BUG-RT-01: Room message realtime broadcast always sends username as displayName, ignoring the `display_name` field.
-3: BUG-NOTIF-01: Game challenge `notify()` helper writes to a `payload` column that does not exist — the correct column is `metadata`.
-4: BUG-CACHE-01: Link-preview Redis cache key is sliced to 64 chars, creating URL-collision risk for long similar URLs.
-5: BUG-SSRF-01: `HOSTNAME_ALLOWLIST` in `ssrf.ts` omits Cloudflare R2 bucket hostnames, blocking any `safeFetch` call targeting R2 storage.
-6: BUG-WH-01: DodoPayments webhook route returns HTTP 200 on internal processing errors, permanently suppressing provider retries.
-7: BUG-API-01: `buildCookieHeaders()` in `session.ts` accepts a `refreshTtl` parameter that is computed but never applied to the Set-Cookie header.
-8: BUG-ECON-01: DM creation handler debits coins with raw SQL instead of `debitCoins()`, producing no ledger row and a stale `balance_before`.
-9: BUG-ECON-02: DM creation handler inserts XP with raw SQL instead of `safeAwardXP()`, bypassing the dead-letter queue entirely.
-10: BUG-ECON-03: `handleDMGift()` passes `null` as `reference_id` to `debitCoins()`, making gift-coin debits non-idempotent on retry.
-11: BUG-LB-01: `upsertLeaderboardSnapshot()` wraps the conflict-update score in `COALESCE(excluded.score, existing)`, which can overwrite a higher score with a lower one.
-12: BUG-SEC-01: reCAPTCHA v3 verification never checks the `action` field, allowing a token obtained for any action to be replayed against any other.
-13: BUG-DUP-01: `cron/payouts/route.ts` contains a private inline `isValidSecret()` that duplicates — and can silently diverge from — the canonical `validateCronSecret()` in `lib/cron/auth.ts`.
-14: BUG-SEC-02: `postToMailgun()` in `lib/notifications/email.ts` calls the global `fetch()` directly, bypassing all SSRF protections.
-15: BUG-SCHEMA-01: `display_name` is declared `NOT NULL` in the Drizzle schema but is treated as nullable throughout the codebase via `?? username` fallbacks.
-16: BUG-PGTN-01: `listGames()` in `lib/games/repo.ts` uses `created_at` as the cursor for "popular" and "trending" sort modes whose ORDER BY column is `play_count` / `recent_plays`, producing missing or duplicated results on subsequent pages.
-17: BUG-CRON-01: The `master_teacher_award` notification INSERT in the `daily-platform` CRON has no `reference_id` or `ON CONFLICT` guard, flooding eligible users with duplicate notifications on every CRON run within the 7-day season-end window.
+1: BUG-PLAY-01: Google Play IAP consumable coin purchases never consumed — `finishTransactionAsync(purchase, false)` for ALL types, should be `!isSubscription`.
+2: BUG-COIN-01: Paystack payment initialised before the DB record is inserted — orphan provider payment on any DB failure after the call.
+3: BUG-XP-01: `safeAwardXP` calls `upsertLeaderboardSnapshot(globalDb)` outside the caller's transaction — leaderboard drifts if the outer transaction rolls back.
+4: BUG-LB-01: `upsertLeaderboardSnapshot` ON CONFLICT expression targets may not match the actual DB index — runtime error on every XP award.
+5: BUG-AUTH-01: Expo JWT decode uses `atob()` without base64url character substitution — JWTs with `-` or `_` in the payload are misread or throw.
+6: BUG-AUTH-02: `AuthUser.rankTier` enum values (`"bronze"/"silver"`) do not match server rank names (`"Beginner"/"Rookie"`); Google OAuth callback hardcodes `rankTier: "bronze"` for all mobile users.
+7: BUG-GAME-01: Challenge cancellation refunds full escrow regardless of rounds played — exploitable by forfeiting after winning most rounds.
+8: BUG-GIFT-01: Gift-send Redis idempotency key is written before the DB transaction commits — a rollback permanently poisons that idempotency slot.
+9: BUG-LOCK-01: `distributeCreatorFund` uses a session-level PostgreSQL advisory lock with connection pooling — lock may be acquired on connection A and released (or fail to release) on connection B, risking double payout.
+10: BUG-PAY-01: Paystack `subscription.not_renew` event sends a `subscription_cancelled` notification instead of `subscription_ending` — misleads users whose plan ends at period close vs. being immediately cancelled.
+11: BUG-MOB-01: Expo SQLite migration catch-all error handler silently swallows ALL failures, leaving the local database in a partially migrated state with no visible error.
+12: BUG-SEASON-01: `distributeSeasonRewards` uses `Math.floor()` on every user's coin share with no remainder redistribution — coins are silently discarded into rounding.
+13: BUG-SPAM-01: `filterDMContent`/`filterPublicContent` returns an empty string when the entire message is a URL — callers that do not guard for this persist or display a blank message.
+14: BUG-LB-02: Leaderboard `getLeaderboard` ORDER BY has no tiebreaker — pagination produces duplicates or gaps for users with equal XP values.
+15: BUG-NOTIF-01: `challenges.ts` notification INSERTs do not include `title` or `body` fields — challenge notification rows are persisted with null display content.
+16: BUG-TRUST-01: `meetsMinimumTrust` reads the cached `users.trust_score` column without recomputing — recent bans or warnings are not reflected until the next explicit recalculation.
+17: BUG-WAR-01: `recordWarContribution` active-war status check runs outside the write transaction — war can be resolved between the check and the contribution upsert (TOCTOU).
+18: BUG-SPAM-02: Antispam `URL_REGEX` does not match Punycode/IDN domains (`xn--` prefix) — trivially bypassed by encoding a domain in Punycode.
 
 ---
 
@@ -33,189 +34,183 @@
 
 ---
 
-### 1: BUG-PAY-01 — Paystack subscription.disable skips the notification INSERT
+### 1: BUG-PLAY-01 — Google Play IAP consumable coin purchases never consumed
 
-**FILES:** `apps/web/lib/payments/paystackWebhookHandler.ts`
+**FILES:** `apps/expo/lib/payments/googlePlay.ts`
 
-When Paystack fires a `subscription.disable` event the handler updates the subscription row in the DB and then executes an early `return { success: true }` before reaching the notification INSERT that all other event branches perform. Users whose subscription is disabled (failed renewal, voluntary cancel, admin action) receive zero in-app notification about the change.
+`setupGlobalPurchaseListener` calls `await InAppPurchases.finishTransactionAsync(purchase, false)` for every purchase unconditionally. The second argument is `consume` — it must be `true` for consumable products (coin packs) so Google Play marks the purchase as consumed and allows re-purchase of the same SKU. With `false`, the purchase is only acknowledged, not consumed. Google Play auto-voids acknowledged-but-unconsumed in-app products after 3 days and blocks re-purchase of the same SKU in the meantime. The variable `isSubscription` is correctly computed in the same function but is never used for the consume argument.
 
-**FIX:** Remove the early return that follows the subscription UPDATE in the `subscription.disable` branch. The execution should fall through to, or explicitly call, a notification INSERT with `type = 'subscription_disabled'` and the relevant `metadata` (plan name, renewal date, reason). Mirror the pattern used by the `subscription.create` and `subscription.activate` branches in the same handler.
-
----
-
-### 2: BUG-RT-01 — Room message realtime broadcast sends username as displayName
-
-**FILES:** `apps/web/app/api/rooms/[roomId]/messages/route.ts`
-
-In the POST handler, after inserting the message row the code builds the realtime broadcast object with `displayName: senderUsername` — the raw username — without consulting `senderDisplayName`. The GET handler's `rowToMessage()` correctly resolves `row.sender_display_name ?? row.sender_username`. The result is that live messages show the username while replayed history shows the display name: an inconsistent experience for any user whose display name differs from their username.
-
-**FIX:** In the POST handler's broadcast payload, change the `displayName` value from `senderUsername` to `senderDisplayName ?? senderUsername`, exactly matching `rowToMessage()`. Confirm that `senderDisplayName` is included in the INSERT … RETURNING clause or the preceding user-lookup SELECT so the value is available at that point in the handler.
+**FIX:** Change the call to `finishTransactionAsync(purchase, !isSubscription)`. Subscriptions pass `false` (do not consume); consumable coin packs pass `true`.
 
 ---
 
-### 3: BUG-NOTIF-01 — Game challenge notify() writes to a non-existent `payload` column
+### 2: BUG-COIN-01 — Paystack payment initialised before the DB record is created
 
-**FILES:** `apps/web/lib/games/challenges.ts`
+**FILES:** `apps/web/app/api/economy/coins/purchase/route.ts`
 
-The private `notify()` helper inside `challenges.ts` constructs an INSERT into the `notifications` table with a `payload` column. The actual schema (confirmed in `lib/notifications/insert.ts`) uses a `metadata` column. Every challenge-related notification — game invitation, result announcement, series resolution — throws a PostgreSQL "column payload does not exist" runtime error and is silently swallowed, meaning no challenge notifications have ever been delivered.
+Step 5 calls `initializePayment` (Paystack API) to create the provider session, then Step 6 inserts the local payment record. If the DB INSERT at Step 6 fails (connection error, constraint violation), a real Paystack payment session exists with no corresponding local record. The user is redirected to Paystack, may complete payment, and the webhook handler will find no matching payment row — silently dropping the credit.
 
-**FIX:** Rename `payload` to `metadata` in every SQL INSERT built by `notify()` inside `challenges.ts`. This is a one-field rename; the value structure does not need to change. Add a smoke test or integration test that triggers `notify()` and asserts a row is present in `notifications`.
-
----
-
-### 4: BUG-CACHE-01 — Link-preview cache key truncated to 64 chars causes URL collisions
-
-**FILES:** `apps/web/app/api/messages/link-preview/route.ts`
-
-The Redis cache key is built as `` `link_preview:${url.slice(0, 64)}` ``. Two different URLs that share a common 64-character prefix (e.g., two articles on the same domain with a long path stem) will hash to the same key. The first URL's preview will be returned for all subsequent requests whose URL shares that prefix, regardless of the actual destination. This produces incorrect link previews silently, with no error and no way for the user to detect the mismatch.
-
-**FIX:** Replace the raw URL slice with a deterministic hash of the full URL: `` `link_preview:${createHash('sha256').update(url).digest('hex')}` `` using `node:crypto`. The resulting 64-hex-character key is collision-resistant, a fixed length, and cheaper to store in Redis than a raw URL substring.
+**FIX:** Insert the DB record first (in a `pending` state with a locally generated reference ID), then call Paystack with that reference ID. On Paystack failure, mark the local record as `failed` — the user never gets a redirect. This ensures a local record always pre-exists before any provider state is created.
 
 ---
 
-### 5: BUG-SSRF-01 — HOSTNAME_ALLOWLIST missing Cloudflare R2 storage hostnames
+### 3: BUG-XP-01 — safeAwardXP leaderboard snapshot update runs outside the caller's transaction
 
-**FILES:** `apps/web/lib/security/ssrf.ts`
+**FILES:** `apps/web/lib/xp/safeAwardXP.ts`
 
-The `HOSTNAME_ALLOWLIST` includes `storage.googleapis.com` for GCS but does not include Cloudflare R2 bucket hostnames (e.g., `<account-id>.r2.cloudflarestorage.com`). The R2 SDK adapter (`lib/storage/providers/r2.ts`) currently uses the AWS SDK's internal HTTP layer and is unaffected. However, any code path that calls `safeFetch(r2Url, …, { requireAllowlist: true })` — for example, server-side avatar or asset pre-processing — will throw `SSRFError: Hostname not in allowlist` and fail silently. The allowlist is also missing other plausible integration hostnames that may be needed as the product grows.
+After a successful XP INSERT + users UPDATE (which correctly runs inside the caller's transaction when one is passed), `safeAwardXP` calls `upsertLeaderboardSnapshot(userId, …, globalDb)` — explicitly using the global DB pool, not the transaction client. If the caller's transaction is later rolled back, the XP credit is rolled back but the leaderboard snapshot update has already committed on `globalDb`. The leaderboard shows XP the user does not actually have.
 
-**FIX:** Add `r2.cloudflarestorage.com` to `HOSTNAME_ALLOWLIST`. The existing allowlist check already supports subdomain matching via `parsed.hostname.endsWith('.' + h)`, so this single entry covers all `<account>.r2.cloudflarestorage.com` bucket URLs. Add a comment indicating which service each hostname serves so future reviewers can audit the list at a glance.
-
----
-
-### 6: BUG-WH-01 — DodoPayments webhook returns HTTP 200 on processing errors
-
-**FILES:** `apps/web/app/api/economy/webhooks/dodopayments/route.ts`
-
-The outer catch block returns `NextResponse.json({ error: … }, { status: 200 })`. Webhook delivery systems treat any 2xx as "successfully processed" and will not retry. Any transient DB error, timeout, or unhandled exception during payment processing permanently loses the webhook from the provider's perspective, while the corresponding purchase may never be credited to the user. This is a silent, irreversible data-loss path.
-
-**FIX:** Change the catch-block response status from `200` to `500` (or `503`). DodoPayments will then retry delivery according to its retry policy. The signature-verification rejection should remain `400` (no retry for malformed/unsigned requests) to avoid retry-bombing on invalid payloads.
+**FIX:** Pass the `client` (same connection used for the XP award) to `upsertLeaderboardSnapshot` instead of `globalDb`. Since `upsertLeaderboardSnapshot` accepts a `DatabaseAdapter`, this is a one-argument change. The snapshot will then roll back together with the XP award if the outer transaction fails.
 
 ---
 
-### 7: BUG-API-01 — buildCookieHeaders() refreshTtl parameter is never applied to the cookie
-
-**FILES:** `apps/web/lib/auth/session.ts`
-
-`buildCookieHeaders()` accepts a `refreshTtl` parameter (in seconds) intended to control the refresh-token cookie lifetime (e.g., for "remember me" sessions). The parameter is received and potentially forwarded by callers, but the `Set-Cookie` string for the refresh-token cookie uses a hard-coded constant for `maxAge` rather than the passed `refreshTtl`. Any caller that passes a custom TTL believes it is extending the session lifetime; in reality the cookie expiry is always fixed to the constant regardless of the argument.
-
-**FIX:** Either (a) replace the hard-coded `maxAge` in the refresh-token Set-Cookie string with `refreshTtl` so the parameter has effect, or (b) if the TTL should always be fixed, remove the parameter entirely and update callers so the API is honest about its contract. Do not leave a parameter that is accepted but ignored.
-
----
-
-### 8: BUG-ECON-01 — DM creation debits coins with raw SQL instead of debitCoins()
-
-**FILES:** `apps/web/app/api/messages/dm/route.ts`
-
-The POST handler for creating a new DM conversation executes a raw `UPDATE users SET coins = coins - $amount` rather than calling `debitCoins()` from `lib/economy/coins.ts`. Consequences: (1) No row is written to `coin_ledger` so the debit is invisible to the audit trail and any balance reconciliation; (2) `debitCoins()` wraps the UPDATE in `SELECT FOR UPDATE` to prevent concurrent race conditions — the raw SQL does not, so two simultaneous DM-creation requests from the same user can both debit; (3) the insufficient-balance check logic may diverge subtly from the canonical guard inside `debitCoins()`; (4) there is no `balance_before` snapshot for fraud detection.
-
-**FIX:** Replace the inline raw SQL UPDATE with `debitCoins(userId, amount, 'dm_initiation', conversationId, tx)` where `conversationId` is the idempotency key. This provides ledger auditability, SELECT FOR UPDATE locking, canonical balance checking, and safe retry behaviour at zero additional cost.
-
----
-
-### 9: BUG-ECON-02 — DM creation awards XP via raw SQL INSERT instead of safeAwardXP()
-
-**FILES:** `apps/web/app/api/messages/dm/route.ts`
-
-The same POST handler inserts XP directly with a raw `INSERT INTO xp_ledger` rather than calling `safeAwardXP()`. If this INSERT fails (DB timeout, transient network error, constraint violation) the error is silently caught and the XP is permanently lost — it is never written to `failed_xp_awards` for DLQ retry. The entire `safeAwardXP()` / DLQ infrastructure exists to prevent exactly this silent XP loss, and this handler bypasses it entirely.
-
-**FIX:** Replace the inline XP INSERT with `await safeAwardXP(userId, xpAmount, 'social', 'dm_initiation', conversationId)`. The DLQ fallback, leaderboard snapshot update, and duplicate-award guard are all handled automatically by that helper.
-
----
-
-### 10: BUG-ECON-03 — handleDMGift() passes null reference_id to debitCoins(), making gifts non-idempotent
-
-**FILES:** `apps/web/app/api/messages/dm/route.ts`
-
-`handleDMGift()` calls `debitCoins(senderId, giftAmount, 'dm_gift', null, tx)` with an explicit `null` reference_id. The `coin_ledger` partial unique index is defined as `(user_id, source, reference_id) WHERE reference_id IS NOT NULL`, so a null reference_id is never subject to ON CONFLICT deduplication. If the request is retried (client-side retry on network timeout, infrastructure retry on 5xx) the sender is debited twice and the recipient credited twice. For a coin-transfer operation in an economy product, this is a P0 data-integrity defect.
-
-**FIX:** Pass a deterministic, non-null `reference_id` — such as `dm_gift:${conversationId}:${messageId}` or simply the `messageId` of the gift message — to both the `debitCoins()` call and the corresponding `creditCoins()` call. This activates the ON CONFLICT dedup path on both sides, making the entire gift transaction safely idempotent on retry.
-
----
-
-### 11: BUG-LB-01 — upsertLeaderboardSnapshot() COALESCE in ON CONFLICT can overwrite higher scores
+### 4: BUG-LB-01 — upsertLeaderboardSnapshot ON CONFLICT expression may not match the actual DB index
 
 **FILES:** `apps/web/lib/leaderboards/engine.ts`
 
-The ON CONFLICT … DO UPDATE SET clause uses `COALESCE(excluded.score, leaderboard_snapshots.score)` to update the score column. Since `excluded.score` is never NULL (a numeric XP value is always passed), `COALESCE` always resolves to `excluded.score`. The net effect is that the upsert unconditionally overwrites the stored score with the incoming value — including replacing a higher stored score with a lower incoming one (which can occur if an admin adjusts XP downward or if `safeAwardXP` is called with a stale XP total). Additionally, the misleading `COALESCE` wrapper implies null-safety logic that does not actually exist, confusing future readers.
+The upsert uses `ON CONFLICT (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))`. PostgreSQL ON CONFLICT requires the conflict target to exactly match an existing index definition. If the actual DB index is a standard column-based UNIQUE constraint on `(user_id, track, scope, city, season_id)` (with NULLs distinct), the COALESCE expression target will not match and the upsert will throw `ERROR: there is no unique or exclusion constraint matching the ON CONFLICT specification` on every single XP award.
 
-**FIX:** Decide on the leaderboard's semantic and make the SQL explicit:
-- If the leaderboard should always reflect the user's current total XP (the most common intent): use `SET score = excluded.score` directly — simple and honest.
-- If the leaderboard should track the all-time best score: use `SET score = GREATEST(excluded.score, leaderboard_snapshots.score)` — this correctly prevents a downward update.
-
-Remove the COALESCE wrapper in either case.
+**FIX:** Check the actual index definition with `\d leaderboard_snapshots` in psql. If the index is column-based, replace the COALESCE expression targets with a named constraint reference (`ON CONFLICT ON CONSTRAINT leaderboard_snapshots_unique_idx`) or create an expression index that exactly matches the COALESCE syntax. Align the migration, index definition, and upsert clause so all three agree.
 
 ---
 
-### 12: BUG-SEC-01 — reCAPTCHA v3 action field is never validated, enabling token replay
+### 5: BUG-AUTH-01 — Expo JWT decode uses atob() without base64url character substitution
 
-**FILES:** `apps/web/lib/security/captcha.ts`
+**FILES:** `apps/expo/lib/auth/context.tsx`
 
-The `verifyCaptcha()` function calls the Google siteverify API and checks `response.success` and `response.score` but never reads or validates `response.action`. A reCAPTCHA v3 token is bound to a specific action name at generation time (e.g., `"login"`, `"register"`, `"purchase"`). Without action validation, an attacker can solve reCAPTCHA on a low-value page (e.g., a static page-view that generates a high score token) and replay that token against a high-value endpoint (e.g., account registration, password reset) — bypassing the intended bot protection entirely. Google explicitly documents action validation as required for v3.
+The JWT payload decode uses `atob(payload)` on the raw base64url-encoded JWT segment. The JWT standard (RFC 7515/7519) uses base64url encoding which replaces `+` with `-`, `/` with `_`, and omits `=` padding. `atob()` expects standard base64 — it will throw or silently misparse any JWT whose payload segment contains `-` or `_` characters (common in UUIDs and large numeric claims encoded into the payload).
 
-**FIX:** Add an optional `expectedAction: string` parameter to `verifyCaptcha()`. When provided, compare it against `verifyResponse.action` and return `false` (or throw) if they do not match. Update all call sites to pass the action string they used when calling `grecaptcha.execute(siteKey, { action: '...' })` on the client side. This is a one-parameter addition with no breaking change to call sites that do not need action enforcement (e.g., internal tools).
-
----
-
-### 13: BUG-DUP-01 — cron/payouts/route.ts contains an inline duplicate of isValidSecret()
-
-**FILES:** `apps/web/app/api/cron/payouts/route.ts`, `apps/web/lib/cron/auth.ts`
-
-`payouts/route.ts` contains its own private `isValidSecret(request)` function that is an inline copy of the canonical `validateCronSecret()` in `lib/cron/auth.ts`. This creates a maintenance hazard: if the secret-validation logic is hardened in the future (e.g., adding timing-safe comparison, changing the header name, adding IP allowlisting), the duplicate in `payouts/route.ts` silently diverges, potentially leaving the payouts CRON endpoint with a weaker or subtly broken security check.
-
-**FIX:** Delete the inline `isValidSecret()` from `payouts/route.ts`. Import and use `validateCronSecret` from `lib/cron/auth.ts` instead, exactly as all other CRON routes do. This is a pure refactor — no behaviour change — but it ensures the payouts endpoint automatically inherits any future security improvements.
+**FIX:** Before calling `atob()`, apply: `payload.replace(/-/g, '+').replace(/_/g, '/').padEnd(payload.length + (4 - payload.length % 4) % 4, '=')`. Or use the `jose` library's built-in decode utilities (already a dependency on the web side) which handle this correctly.
 
 ---
 
-### 14: BUG-SEC-02 — postToMailgun() uses global fetch(), bypassing all SSRF protections
+### 6: BUG-AUTH-02 — AuthUser.rankTier enum mismatches server rank names; OAuth callback hardcodes "bronze"
 
-**FILES:** `apps/web/lib/notifications/email.ts`
+**FILES:** `apps/expo/lib/auth/context.tsx`, `apps/web/app/api/auth/google/callback/route.ts`
 
-`postToMailgun()` constructs the Mailgun API URL and calls the global Node.js `fetch()` directly. While the Mailgun URL is currently derived from server-set environment variables rather than user input, using global `fetch()` bypasses the SSRF protection layer (`lib/security/ssrf.ts`) entirely. The policy mandated throughout the codebase is that all server-side outbound HTTP must go through `safeFetch()`. A misconfigured or injected `MAILGUN_DOMAIN` env var targeting an internal IP would be executed without any DNS validation or private-IP block.
+The Expo `AuthUser` type defines `rankTier` with values like `"bronze"`, `"silver"`, `"gold"`. The server rank system (confirmed in `lib/db/schema.ts` and `lib/xp/engine.ts`) uses `"Beginner"`, `"Rookie"`, `"Rising Star"`, etc. All mobile UI that branches on `rankTier` compares against values that the server never sends — rank-gated features and rank display on mobile are permanently broken. Additionally, the Google OAuth callback hardcodes `rankTier: "bronze"` in the mobile pre-auth payload for all users regardless of their actual rank, so every mobile sign-in receives rank "bronze" in the decoded auth object.
 
-**FIX:** Replace the global `fetch()` call in `postToMailgun()` with `safeFetch(url, init, { requireAllowlist: true })`. The Mailgun hostname `api.mailgun.net` is already present in `HOSTNAME_ALLOWLIST` in `ssrf.ts`, so no allowlist change is needed. The performance overhead is a single DNS validation per email send, dominated by the network round-trip to Mailgun.
-
----
-
-### 15: BUG-SCHEMA-01 — display_name declared NOT NULL in schema but treated as nullable in code
-
-**FILES:** `apps/web/lib/db/schema.ts`, `apps/web/app/api/rooms/[roomId]/messages/route.ts`, `apps/web/app/api/messages/dm/route.ts` (and multiple others)
-
-The Drizzle schema declares `display_name TEXT NOT NULL` on the `users` table. However, everywhere in the application code where `display_name` is used it is treated as potentially null, with `?? username` / `?? sender_username` fallbacks applied. Exactly one of these two representations is wrong:
-- If the NOT NULL constraint is correct, then existing data never has null display names, and all the `?? username` fallbacks are dead code that clutters the codebase.
-- If the field can be null (e.g., users who registered before `display_name` was introduced), the schema constraint is wrong and will cause INSERT errors for any code path that attempts to insert a user without an explicit `display_name`.
-
-**FIX:** Query the production database for `SELECT COUNT(*) FROM users WHERE display_name IS NULL`. If zero: confirm the NOT NULL constraint is correct and remove all `?? username` fallbacks from the application code. If non-zero: the schema must be corrected to `display_name TEXT` (nullable) — add a DEFAULT or migration to backfill with the username, and keep the fallbacks in code. The two must agree.
+**FIX:** (1) Update the `AuthUser` type's `rankTier` enum values to match the server's actual rank name strings from `lib/xp/engine.ts`. (2) In the Google OAuth callback, replace the hardcoded `rankTier: "bronze"` with the user's actual `rank_name` from the DB (query `users.rank_name` during the OAuth upsert and include it in the pre-auth code payload).
 
 ---
 
-### 16: BUG-PGTN-01 — listGames() cursor pagination broken for "popular" and "trending" tabs
+### 7: BUG-GAME-01 — Challenge cancellation refunds full escrow regardless of rounds played
 
-**FILES:** `apps/web/lib/games/repo.ts`
+**FILES:** `apps/web/lib/games/challenges.ts`
 
-`listGames()` supports three sort modes: `"new"` (ORDER BY `created_at DESC`), `"popular"` (ORDER BY `play_count DESC`), and `"trending"` (ORDER BY `recent_plays DESC`). All three modes share the same cursor logic: the cursor value emitted is `items[items.length - 1].created_at`, and the WHERE clause for the next page is `AND g.created_at < $cursor`. This is only correct for `"new"`. For `"popular"` and `"trending"`:
+When a challenge is cancelled (timeout, forfeit, or explicit cancel), the code refunds the full escrowed amount to both players regardless of how many rounds have been completed. A player who is losing after several rounds can cancel to recover their full stake — a monetarily exploitable escape hatch. Rounds-played count and per-round outcome are tracked in the DB but are not consulted during cancellation.
 
-- The ORDER BY column (`play_count` / `recent_plays`) has no relationship to `created_at`.
-- Page 2 for "popular" excludes all games created after the last item's `created_at` regardless of their play count, missing high-play-count games that are newer.
-- Conversely, low-play-count games created before the cursor appear on page 2 even though they would not rank there.
-- The result is an inconsistent, order-dependent page boundary where results can be duplicated or silently omitted across pages.
-
-**FIX:** Use keyset (seek) pagination with the actual sort key as the cursor for each mode:
-- `"popular"`: cursor encodes `{ play_count, id }` (last item's values); WHERE adds `AND (play_count < $cursorPlayCount OR (play_count = $cursorPlayCount AND id < $cursorId))`.
-- `"trending"`: same with `recent_plays`.
-- `"new"`: existing `created_at` cursor is correct, keep as-is.
-
-Encode the cursor as a base64 JSON object so the API surface stays a single opaque `cursor` string parameter.
+**FIX:** Add a partial-payout path: if at least one round has been completed, award escrowed coins proportionally based on rounds-won ratio, rather than a full refund to both parties. Alternatively, forfeit the cancelling player's stake entirely (simpler, harder to exploit). The policy decision is the product owner's, but the current full-refund-always behaviour is clearly exploitable.
 
 ---
 
-### 17: BUG-CRON-01 — master_teacher_award notification INSERT has no dedup guard
+### 8: BUG-GIFT-01 — Gift-send Redis idempotency key written before DB transaction commits
 
-**FILES:** `apps/web/app/api/cron/daily-platform/route.ts`
+**FILES:** `apps/web/app/api/economy/gifts/send/route.ts`
 
-The `master_teacher_award` section correctly uses `ON CONFLICT (user_id, badge_key) DO UPDATE` for the badge INSERT to prevent duplicate badges across CRON runs. However, the immediately following notification INSERT (informing the user they received the badge) has no `ON CONFLICT` clause and no `reference_id`. The eligibility query window is `ends_at >= NOW() - INTERVAL '7 days'`, so for every day within 7 days of a season's end, the CRON re-queries the same set of eligible users and inserts a new notification row for each of them. A user can receive 7 identical "You earned Master Teacher!" notifications within a single season close window.
+The handler writes the Redis idempotency key (`gift:${senderId}:${idempotencyKey}`) before the DB transaction containing the coin debit and credit commits. If the subsequent DB commit fails, the Redis key is already set and the transaction cannot be retried — the idempotency slot is permanently poisoned. The user's coins are not deducted (DB rolled back) but they also cannot re-attempt the gift with the same key.
 
-**FIX:** Set `reference_id = 'master_teacher:' || u.user_id || ':' || s.id` (or equivalent deterministic key) on the notification INSERT, then add `ON CONFLICT (user_id, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`. This mirrors the dedup pattern used correctly for council-invitation notifications in the same file. Confirm the `notifications` table has the required partial unique index on `(user_id, reference_id) WHERE reference_id IS NOT NULL`.
+**FIX:** Move the Redis key write to AFTER the DB transaction successfully commits. The safe pattern: (1) check key exists → return cached response; (2) execute and commit DB transaction; (3) write Redis key with the successful response body. A Redis TTL slightly shorter than the client retry timeout covers the small commit-to-Redis window.
+
+---
+
+### 9: BUG-LOCK-01 — distributeCreatorFund advisory lock not safe with connection pooling
+
+**FILES:** `apps/web/lib/creator/fund.ts`
+
+`distributeCreatorFund` acquires a PostgreSQL session-level advisory lock via `pg_try_advisory_lock` and releases it in a `finally` block via `pg_advisory_unlock`. With a connection pool, the lock is acquired on whichever pool connection handles the initial `query()`, but subsequent queries — including the `finally` unlock — may execute on a different connection/session. `pg_advisory_unlock` on the wrong session is a no-op. The lock may stay held indefinitely (blocking all future CRON runs until the holding connection is recycled) or release on the wrong session (allowing a concurrent CRON to also acquire and run a double payout).
+
+**FIX:** Replace the session-level advisory lock pair with `pg_try_advisory_xact_lock`, which is automatically released when the transaction ends regardless of which pool connection handles the unlock. Wrap the entire distribution in a single `db.transaction()` call and acquire the transaction-level lock as the first statement inside that transaction.
+
+---
+
+### 10: BUG-PAY-01 — Paystack subscription.not_renew sends incorrect notification type
+
+**FILES:** `apps/web/lib/payments/paystackWebhookHandler.ts`
+
+The `subscription.not_renew` event (the plan will end at the current billing period, not auto-renew) inserts a notification with `type = 'subscription_cancelled'`. This is factually wrong: the user's subscription is NOT cancelled yet — it remains active until the end of the billing period. The mobile UI that branches on notification type will show "Your subscription has been cancelled" instead of "Your subscription will not renew at period end", causing user alarm and unnecessary support contacts.
+
+**FIX:** Change the notification `type` in the `subscription.not_renew` branch from `'subscription_cancelled'` to `'subscription_ending'` (or whichever type the push/in-app renderer uses for the "ending at period close" state). Ensure the corresponding notification template on mobile handles this type correctly.
+
+---
+
+### 11: BUG-MOB-01 — Expo SQLite migration catch-all silently swallows schema failures
+
+**FILES:** `apps/expo/lib/offline/sqlite.ts`
+
+The SQLite migration runner wraps each migration step in a `try/catch` that logs a `console.warn` and continues to the next migration. If a `CREATE TABLE` or `ALTER TABLE` fails (table already exists with an incompatible schema, disk full, corruption), the migration is marked complete and the loop continues. Subsequent migrations that depend on the failed one will also fail silently. The app proceeds to operate on a partially migrated database with no visible indication that anything is wrong — offline data may be silently discarded or cause crashes far from the actual failure point.
+
+**FIX:** Change the catch block to re-throw for structural migration failures. Only swallow genuinely idempotent errors (e.g., `error.message.includes('already exists')`) as a narrow guard. Bubble real failures up to the app init path so the user sees a clear "database error, please reinstall" message rather than silent data loss.
+
+---
+
+### 12: BUG-SEASON-01 — Season reward distribution uses Math.floor() with no remainder redistribution
+
+**FILES:** `apps/web/lib/seasons/seasonEngine.ts`
+
+`distributeSeasonRewards` applies `Math.floor()` to each user's computed coin share. For 100 users and a prize pool of 997 coins, up to 99 coins are silently discarded (fractional part per user × user count). These coins are neither recorded as unspent nor redistributed — they vanish.
+
+**FIX:** Compute total actually distributed (sum of all floored amounts) then add the remainder (`pool − distributed`) to the top-ranked user's award. This is the standard "largest remainder" method and accounts for every coin in the pool. At minimum, log the discarded amount as an accounting entry.
+
+---
+
+### 13: BUG-SPAM-01 — filterDMContent/filterPublicContent can return an empty string
+
+**FILES:** `apps/web/lib/messaging/antispam.ts`
+
+Both filter functions strip URLs, emails, and phone numbers from message text. If the entire message is a URL (e.g., a user sharing a link with no other text), the return value is `""`. Callers that do not explicitly check for an empty result will persist a blank message row or render a blank chat bubble with no indication that content was stripped.
+
+**FIX:** Document in JSDoc that the return can be `""`. Callers should check: either reject the message with "Message cannot contain links" or substitute a configurable placeholder (e.g., `"[link removed]"`). The filter function itself is working as designed — it is the callers that need to guard for the empty case.
+
+---
+
+### 14: BUG-LB-02 — Leaderboard getLeaderboard has no tiebreaker — pagination is non-deterministic for equal XP
+
+**FILES:** `apps/web/lib/leaderboards/engine.ts`
+
+`getLeaderboard` uses `ORDER BY ls.xp_value DESC NULLS LAST` with no secondary sort column. When multiple users share identical XP values, the database may return them in any order, and that order can change between queries. A client requesting page 1 and page 2 can receive the same user on both pages or miss a user entirely.
+
+**FIX:** Add a stable tiebreaker: `ORDER BY ls.xp_value DESC NULLS LAST, ls.user_id ASC`. This guarantees a total order across all rows and produces correct, consistent cursor-based pagination.
+
+---
+
+### 15: BUG-NOTIF-01 — challenges.ts notification INSERTs do not include title or body
+
+**FILES:** `apps/web/lib/games/challenges.ts`
+
+The notification INSERT statements inside the `challenges.ts` logic do not include `title` or `body` columns. Across the rest of the codebase (per `lib/notifications/insert.ts`), every notification INSERT provides these fields so the push/in-app renderer can display the notification. Challenge notifications would be persisted as rows with null titles and bodies, rendering as blank notifications in the mobile app.
+
+**FIX:** Add `title` and `body` values to each notification INSERT in `challenges.ts`. Use descriptive strings appropriate to the notification type (e.g., `"Game Challenge"` as title, `"You received a challenge from {username}"` as body). Refer to `lib/notifications/insert.ts` for the expected field set and any existing type-to-message mappings.
+
+---
+
+### 16: BUG-TRUST-01 — meetsMinimumTrust reads the stale cached trust_score without recomputing
+
+**FILES:** `apps/web/lib/trust/trustScore.ts`
+
+`meetsMinimumTrust` reads `users.trust_score` (a cached denormalized column) without calling `calculateTrustScore`. If a user has just received a ban, warning, or moderation action, the `trust_score` column reflects the pre-action state until the next explicit recalculation is triggered. During this window, a user whose actual score is now below a feature threshold can still pass the gate and use the gated feature.
+
+**FIX:** On any event that reduces trust (ban, warning issued, report received, content removed), call `calculateTrustScore` synchronously before any subsequent `meetsMinimumTrust` check in the same request. Alternatively, add a `forceRecalculate?: boolean` parameter to `meetsMinimumTrust` and set it to `true` in all moderation action handlers.
+
+---
+
+### 17: BUG-WAR-01 — recordWarContribution active-war check runs outside the write transaction (TOCTOU)
+
+**FILES:** `apps/web/lib/guilds/recordWarContribution.ts`
+
+Lines 33–54 query for an active war (checking status) outside the transaction that then writes the contribution upsert. A concurrent `resolveWar` call can mark the war as resolved between the status check and the contribution write. The write succeeds (no re-check inside the transaction), recording points for a war that has already ended. Post-resolution leaderboard calculations include these phantom points.
+
+**FIX:** Move the active-war status check inside the same transaction as the contribution upsert. Use `SELECT … FOR UPDATE` on the war row to hold the lock. This serialises the check and write atomically, eliminating the TOCTOU window.
+
+---
+
+### 18: BUG-SPAM-02 — Antispam URL_REGEX does not match Punycode/IDN domains
+
+**FILES:** `apps/web/lib/messaging/antispam.ts`
+
+`URL_REGEX` matches domains by looking for standard ASCII hostname patterns. Internationalized domain names encoded in Punycode (e.g., `https://xn--n3h.example.com`) pass through the filter undetected because the `xn--` prefix is not in the pattern. A malicious actor can bypass the link filter trivially by encoding their domain in Punycode.
+
+**FIX:** Add `xn--` as a matched hostname prefix pattern in `URL_REGEX`, or replace the regex approach with WHATWG URL API parsing (`new URL(token)`) to detect valid URLs regardless of encoding. The URL API approach is more robust and future-proof than extending the regex.
 
 ---
 
@@ -226,31 +221,32 @@ The `master_teacher_award` section correctly uses `ON CONFLICT (user_id, badge_k
 The codebase reflects genuine engineering maturity in most subsystems:
 
 **Strengths observed:**
-- CSP nonces with `strict-dynamic` and no `unsafe-inline`, per-request nonce generation in middleware.
+- CSP nonces with `strict-dynamic` and no `unsafe-inline`; per-request nonce generation in edge middleware.
 - CSRF validation via Origin header for all API mutations; OAuth CSRF state token with Redis.
 - SSRF protection with DNS-pinned `undici` Agent, single DNS resolution, TOCTOU prevention via IP pinning, streaming body size cap.
 - AES-256-GCM field encryption with scrypt KDF v2; v1 key migration path.
 - Coin and star economies use SELECT FOR UPDATE throughout; append-only ledgers; Decimal.js for all arithmetic.
-- `safeAwardXP()` with dead-letter queue, exponential backoff retry, and leaderboard snapshot updates.
-- Atomic Lua scripts for rate limiting (sliding window), DM coin daily limits (check-and-increment), and room presence cap — no TOCTOU races.
+- `safeAwardXP()` with dead-letter queue, exponential backoff retry, and leaderboard snapshot updates — correct everywhere except the one caller (BUG-XP-01) that bypasses the transaction boundary.
+- Atomic Lua scripts for rate limiting (sliding window), DM coin daily limits, and room presence cap — no TOCTOU races.
 - JWT multi-key rotation with kid-based registry; TOTP with `timingSafeEqual` anti-timing.
 - Structured logging, per-request trace IDs, audit log, system alerts for permanently failed operations.
-- Webhook replay protection via Redis with `NX` and TTL; HMAC-SHA512 (Paystack) and HMAC-SHA256 (Dodo) verification.
+- Webhook replay protection via Redis with `NX` and TTL; HMAC-SHA512 (Paystack) verification.
 - `safeHtml()` sanitizer with strict allowlist; anti-spam phone/URL/email stripping in DMs.
-- reCAPTCHA v3 score threshold check (just missing action validation — see BUG-SEC-01).
+- Geo-anomaly detection, rate-limiting, and PIN guard are all correctly implemented with Redis atomic ops.
 
 **Areas of concern:**
-- `apps/web/app/api/messages/dm/route.ts` is the highest-risk file: three separate economy bugs (BUG-ECON-01, 02, 03) indicate it was written without referencing the canonical helpers that every other file uses correctly.
-- The `payload` vs `metadata` column mismatch in `challenges.ts` (BUG-NOTIF-01) means all challenge notifications have been silently broken since the schema column was renamed — a regression that would have been caught by even a basic integration test suite.
-- The reCAPTCHA v3 action-omission (BUG-SEC-01) is a low-effort exploit path: any bot that can obtain a high-score token on any page can replay it against registration or password-reset endpoints.
-- The DodoPayments 200-on-error pattern (BUG-WH-01) is a silent financial data-loss path that will only manifest when a transient DB error coincides with a purchase — the kind of bug that surfaces in production at the worst possible moment.
+- BUG-PLAY-01 is a critical mobile revenue defect: Android coin pack purchases are never consumed, leading to auto-voids and blocked re-purchase. This is very likely the root cause of any "I can't buy coins again" support tickets on Android.
+- BUG-LB-01 is a latent runtime error on every XP award if the DB index doesn't match the upsert expression — needs immediate verification.
+- BUG-LOCK-01 (creator fund advisory lock) is a latent double-payout risk that only triggers under specific connection-pool conditions — easy to miss in testing, impactful in production.
+- BUG-AUTH-02 (rankTier mismatch) means rank-gated mobile UI has never worked correctly — every feature guarded by rank on mobile evaluates the wrong strings.
+- BUG-GAME-01 (challenge cancellation exploit) is immediately exploitable by any user who understands the refund behaviour.
 
-### Projected Rating After All 17 Fixes: 8.6 / 10
+### Projected Rating After All 18 Fixes: 8.7 / 10
 
-Applying all fixes eliminates three economy atomicity/idempotency gaps, closes two SSRF bypass routes, fixes the only broken notification flow (challenge notify), restores the Paystack subscription.disable notification, hardens CAPTCHA against action replay, makes all pagination correct, and eliminates the duplicate notification flood. The gap from 8.6 to 10 reflects the absence of a visible integration/E2E test suite (not audited in this report, but implied by the challenge notify regression going undetected) and the schema–code display_name mismatch that requires a production-data decision before it can be fully resolved.
+Applying all fixes closes the Google Play consumable defect, fixes the leaderboard runtime risk, eliminates the advisory lock double-payout hazard, corrects all rank-gated mobile UI, removes the challenge escape-hatch exploit, ensures the gift send and coin purchase flows are properly ordered and idempotent, aligns the Paystack notification types, fixes Expo offline database reliability, ensures season coins are fully distributed, and hardens the anti-spam filter against Punycode bypass. The gap from 8.7 to 10 reflects the absence of a visible integration/E2E test suite (the notification and rank bugs appear to have been live for some time without detection) and the leaderboard tiebreaker issue that is a non-trivial pagination redesign.
 
 ---
 
-*Report generated: June 20, 2026 · 11:45 AM*
+*Report generated: June 20, 2026 · 10:45 AM*
 *Scope: 80+ files manually reviewed across apps/web and apps/expo*
-*Bugs found: 17 | No code modified during this analysis*
+*Bugs found: 18 | No code modified during this analysis*
