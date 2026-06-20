@@ -628,7 +628,7 @@ export async function claimPassMilestone(
         [userId, packUuid]
       );
     } else {
-      console.error(`[claimPassMilestone] Unhandled reward_type '${milestone.reward_type}' for milestone ${milestoneId}`);
+      throw new Error(`[claimPassMilestone] Unhandled reward_type '${milestone.reward_type}' for milestone ${milestoneId} — add handler before season goes live`);
     }
 
     claimed = { rewardType: milestone.reward_type, rewardValue: milestone.reward_value };

@@ -70,7 +70,9 @@ const PUBLIC_PREFIXES = [
   "/api/auth",
   "/api/auth/silent-refresh",
   "/api/health",
-  "/api/manifest",
+  // /api/manifest is intentionally NOT listed here — it exposes app configuration
+  // (feature flags, payment params) and must require authentication.
+  // Unauthenticated callers should use /api/public/config for the minimal safe subset.
   // UI configuration — safe to expose without auth (no user data returned)
   "/api/config",
   // Public slug/username → internal id resolver for deep links (read-only,
@@ -219,7 +221,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
       "Report-To",
       JSON.stringify({
         group: "csp-endpoint",
-        max_age: 86400,
+        max_age: 10886400,
         endpoints: [{ url: "/api/security/csp-report" }],
       })
     );
@@ -228,9 +230,11 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     res.headers.set("Cross-Origin-Resource-Policy", "same-origin");
     res.headers.set("Cross-Origin-Embedder-Policy", "credentialless");
     res.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
+    res.headers.set("X-Content-Type-Options", "nosniff");
+    res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
     // SEC-HSTS-01: HSTS in production only (non-prod may be HTTP).
     if (process.env.NODE_ENV === "production") {
-      res.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload");
+      res.headers.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
     }
     return res;
   }
@@ -246,6 +250,8 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
       { status: 403 }
     );
     res.headers.set("Content-Security-Policy", csp);
+    res.headers.set("X-Content-Type-Options", "nosniff");
+    res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
     return res;
   }
 
@@ -313,6 +319,8 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
           { status: 401 }
         );
         res.headers.set("Content-Security-Policy", csp);
+        res.headers.set("X-Content-Type-Options", "nosniff");
+        res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
         return res;
       }
       // Page route: attempt silent refresh if a refresh token cookie is present
@@ -337,6 +345,8 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
           { status: 401 }
         );
         res.headers.set("Content-Security-Policy", csp);
+        res.headers.set("X-Content-Type-Options", "nosniff");
+        res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
         return res;
       }
       // Page route: attempt silent refresh if a refresh token cookie is present

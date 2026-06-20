@@ -98,6 +98,12 @@ export async function assignNemesis(
       `u.id != $1`,
       `u.deleted_at IS NULL`,
       `u.xp_total BETWEEN $2 AND $3`,
+      // Exclude users in any block relationship with the target (mutual-block safety)
+      `u.id NOT IN (
+         SELECT blocked_id FROM user_blocks WHERE blocker_id = $1
+         UNION
+         SELECT blocker_id FROM user_blocks WHERE blocked_id = $1
+       )`,
     ];
     const params: (string | number)[] = [userId, minXP, maxXP];
     let paramIdx = 4;

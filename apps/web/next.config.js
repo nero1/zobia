@@ -111,10 +111,6 @@ const securityHeaders = [
     value: "on",
   },
   {
-    key: "Strict-Transport-Security",
-    value: "max-age=63072000; includeSubDomains; preload",
-  },
-  {
     key: "X-Frame-Options",
     value: "SAMEORIGIN",
   },
@@ -130,15 +126,8 @@ const securityHeaders = [
     key: "Permissions-Policy",
     value: "camera=(), microphone=(), geolocation=(), browsing-topics=()",
   },
-  // Report-To: configure browser CSP violation reporting endpoint (STRUC-10)
-  {
-    key: "Report-To",
-    value: JSON.stringify({
-      group: "csp-endpoint",
-      max_age: 10886400,
-      endpoints: [{ url: "/api/security/csp-report" }],
-    }),
-  },
+  // Report-To and Strict-Transport-Security are set per-request in middleware.ts
+  // (withCsp) to avoid duplicate conflicting headers. Do not add them here.
   // Content-Security-Policy is set dynamically per-request in middleware.ts
   // with a per-request nonce. Removing it here prevents duplicate CSP headers
   // which would otherwise cause browsers to AND both policies (the static one

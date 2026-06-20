@@ -104,7 +104,7 @@ export async function generateDailyDeck(
             OR (plan_required = 'plus' AND $2 IN ('plus','pro','max'))
             OR (plan_required = 'pro' AND $2 IN ('pro','max'))
             OR (plan_required = 'max' AND $2 = 'max'))
-     ORDER BY HASHTEXT(CONCAT($3, id::text)) -- deterministic shuffle per user
+     ORDER BY MD5(CONCAT($3::text, id::text)) -- deterministic stable shuffle per user
      LIMIT $4`,
     [today, plan, userId, deckSize]
   );

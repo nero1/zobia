@@ -157,10 +157,10 @@ export const users = pgTable("users", {
   coinBalance: bigint("coin_balance", { mode: "number" }).notNull().default(0),
   starBalance: bigint("star_balance", { mode: "number" }).notNull().default(0),
   availableEarningsKobo: bigint("available_earnings_kobo", {
-    mode: "number",
+    mode: "bigint",
   })
     .notNull()
-    .default(0),
+    .default(BigInt(0)),
   payoutRecipientCode: text("payout_recipient_code"),
   payoutAccountLast4: text("payout_account_last4"),
 
@@ -2301,15 +2301,15 @@ export const creatorEarnings = pgTable("creator_earnings", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   sourceType: text("source_type").notNull(),
-  grossAmountKobo: bigint("gross_amount_kobo", { mode: "number" })
+  grossAmountKobo: bigint("gross_amount_kobo", { mode: "bigint" })
     .notNull()
-    .default(0),
-  platformFeeKobo: bigint("platform_fee_kobo", { mode: "number" })
+    .default(BigInt(0)),
+  platformFeeKobo: bigint("platform_fee_kobo", { mode: "bigint" })
     .notNull()
-    .default(0),
-  netAmountKobo: bigint("net_amount_kobo", { mode: "number" })
+    .default(BigInt(0)),
+  netAmountKobo: bigint("net_amount_kobo", { mode: "bigint" })
     .notNull()
-    .default(0),
+    .default(BigInt(0)),
   referenceId: text("reference_id"),
   paidOut: boolean("paid_out").default(false),
   payoutId: uuid("payout_id"),
@@ -2325,10 +2325,10 @@ export const creatorPayouts = pgTable(
   creatorId: uuid("creator_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
-  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
-  grossKobo: bigint("gross_kobo", { mode: "number" }),
-  netKobo: bigint("net_kobo", { mode: "number" }),
-  platformFeeKobo: bigint("platform_fee_kobo", { mode: "number" }),
+  amountKobo: bigint("amount_kobo", { mode: "bigint" }).notNull(),
+  grossKobo: bigint("gross_kobo", { mode: "bigint" }),
+  netKobo: bigint("net_kobo", { mode: "bigint" }),
+  platformFeeKobo: bigint("platform_fee_kobo", { mode: "bigint" }),
   provider: text("provider").notNull(),
   bankAccountReference: text("bank_account_reference"),
   bankAccountLast4: text("bank_account_last4"),
@@ -2523,8 +2523,8 @@ export const sponsoredQuests = pgTable("sponsored_quests", {
   targetAction: text("target_action"),
   targetValue: integer("target_value"),
   rewardCoins: integer("reward_coins"),
-  creatorPayoutKobo: bigint("creator_payout_kobo", { mode: "number" }),
-  platformFeeKobo: bigint("platform_fee_kobo", { mode: "number" }),
+  creatorPayoutKobo: bigint("creator_payout_kobo", { mode: "bigint" }),
+  platformFeeKobo: bigint("platform_fee_kobo", { mode: "bigint" }),
   platformSharePercent: integer("platform_share_percent").notNull().default(30),
   creatorSharePercent: integer("creator_share_percent").notNull().default(70),
   minCreatorTier: text("min_creator_tier").notNull().default("verified"),
@@ -2654,11 +2654,11 @@ export const merchOrders = pgTable("merch_orders", {
   storeId: uuid("store_id").references(() => merchStores.id, {
     onDelete: "set null",
   }),
-  amountKobo: bigint("amount_kobo", { mode: "number" }),
-  priceKobo: bigint("price_kobo", { mode: "number" }),
-  creatorShareKobo: bigint("creator_share_kobo", { mode: "number" }),
-  creatorNetKobo: bigint("creator_net_kobo", { mode: "number" }),
-  platformFeeKobo: bigint("platform_fee_kobo", { mode: "number" }).notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "bigint" }),
+  priceKobo: bigint("price_kobo", { mode: "bigint" }),
+  creatorShareKobo: bigint("creator_share_kobo", { mode: "bigint" }),
+  creatorNetKobo: bigint("creator_net_kobo", { mode: "bigint" }),
+  platformFeeKobo: bigint("platform_fee_kobo", { mode: "bigint" }).notNull(),
   paymentMethod: text("payment_method"),
   status: text("status").notNull().default("pending"),
   shippingName: text("shipping_name"),

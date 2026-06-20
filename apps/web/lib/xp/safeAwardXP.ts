@@ -51,8 +51,21 @@ const TRACK_COLUMN: Record<XPTrack, string> = {
  * @param amount      - XP amount (positive integer)
  * @param track       - Which XP track to credit
  * @param source      - Source event name (e.g. 'send_gift_message')
- * @param referenceId - Optional idempotency key (prevents double-award on retry)
- * @param dbClient    - Optional transaction client; falls back to global db
+ * @param referenceId - Idempotency key (prevents double-award on retry).
+ *                      ALWAYS provide this. Callers passing null disable retry
+ *                      deduplication — the DLQ partial-index only fires when
+ *                      reference_id IS NOT NULL, so null-referenceId awards
+ *                      can double-award on CRON retry.
+ * @param dbClient    - Optional transaction client; falls back to global db.
+ *                      IMPORTANT: Only call this function AFTER the caller's
+ *                      outer transaction has committed. If the caller's
+ *                      transaction rolls back, the DLQ entry created here
+ *                      (via globalDb) will describe XP that was never actually
+ *                      lost — the CRON retry will attempt to re-award XP that
+ *                      is already correctly absent. The reference_id guard on
+ *                      the ledger INSERT prevents actual double-awards for
+ *                      non-null referenceIds, but phantom DLQ entries may
+ *                      appear and consume retry slots unnecessarily.
  */
 export async function safeAwardXP(
   userId: string,

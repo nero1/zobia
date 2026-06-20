@@ -291,7 +291,8 @@ export async function pollPushReceipts(): Promise<number> {
        WHERE status = 'pending'
          AND created_at < NOW() - INTERVAL '15 minutes'
        ORDER BY created_at ASC
-       LIMIT 1000`
+       LIMIT 1000
+       FOR UPDATE SKIP LOCKED`
     );
 
     if (pendingTickets.length === 0) return 0;
