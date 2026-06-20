@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { compare, hashSync } from "bcryptjs"; // BUG-PERF-03: static import avoids per-request module resolution
+import { compare, hash } from "bcryptjs"; // BUG-PERF-03: static import avoids per-request module resolution
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { handleApiError, unauthorized } from "@/lib/api/errors";
@@ -39,8 +39,9 @@ const totpLoginSchema = z.object({
   code: z.string().regex(/^\d{6}$/, "Code must be 6 digits"),
 });
 
-// Module-level dummy hash for constant-time comparison when user is not found.
-const DUMMY_HASH = hashSync("timing-equalization-sentinel", 12);
+// Module-level dummy hash (async) for constant-time comparison when user is not found.
+// Using hash() (async) avoids blocking the Node.js event loop on cold start.
+const DUMMY_HASH_PROMISE = hash("timing-equalization-sentinel", 12);
 
 // ---------------------------------------------------------------------------
 // DB row
@@ -80,8 +81,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const user = rows[0];
 
     // Always run bcrypt to prevent timing attacks
-    const hash = user?.password_hash ?? DUMMY_HASH;
-    const passwordValid = await compare(body.password, hash);
+    const passwordHash = user?.password_hash ?? (await DUMMY_HASH_PROMISE);
+    const passwordValid = await compare(body.password, passwordHash);
 
     if (!user || !passwordValid || !user.is_admin || user.deleted_at) {
       throw unauthorized("Invalid credentials");

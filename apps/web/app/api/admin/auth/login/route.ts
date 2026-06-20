@@ -20,7 +20,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
-import { compare, hashSync } from "bcryptjs"; // BUG-PERF-03: static import avoids per-request module resolution
+import { compare, hash } from "bcryptjs"; // BUG-PERF-03: static import avoids per-request module resolution
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
@@ -37,10 +37,11 @@ const loginSchema = z.object({
   password: z.string().min(1, "Password required"),
 });
 
-// Module-level dummy hash for constant-time comparison when user is not found.
+// Module-level dummy hash (async) for constant-time comparison when user is not found.
+// Using hash() (async) avoids blocking the Node.js event loop on cold start.
 // A valid 60-char bcrypt hash prevents timing attacks that would otherwise
 // reveal whether an email address exists in the database.
-const DUMMY_HASH = hashSync("timing-equalization-sentinel", 12);
+const DUMMY_HASH_PROMISE = hash("timing-equalization-sentinel", 12);
 
 // ---------------------------------------------------------------------------
 // DB row
@@ -79,7 +80,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const user = rows[0];
 
     // Constant-time failure path: always run bcrypt compare to prevent timing attacks
-    const passwordHash = user?.password_hash ?? DUMMY_HASH;
+    const passwordHash = user?.password_hash ?? (await DUMMY_HASH_PROMISE);
     const passwordValid = await compare(body.password, passwordHash);
 
     if (!user || !passwordValid || !user.is_admin || user.deleted_at) {

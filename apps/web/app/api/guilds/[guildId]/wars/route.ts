@@ -155,115 +155,128 @@ export const POST = withAuth(
         WAR_ENTRY_FEE_COINS * (1 - rematchDiscountPercent / 100)
       );
 
-      const result = await db.transaction(async (client) => {
-        // 1. Verify caller is captain and lock guild row
-        const guildRow = await client.query<{
-          captain_id: string;
-          last_war_ended_at: string | null;
-          guild_xp: number;
-          treasury_balance: number;
-        }>(
-          `SELECT captain_id, last_war_ended_at, guild_xp, treasury_balance
-           FROM guilds WHERE id = $1 AND is_active = TRUE FOR UPDATE`,
-          [guildId]
+      // Find opponent BEFORE the outer transaction. findWarOpponent opens its
+      // own db.transaction() on a separate connection; nesting it inside the
+      // outer transaction would put the FOR UPDATE SKIP LOCKED lock on a
+      // different connection than the war INSERT, breaking lock atomicity.
+      // The Redis opponent lock (acquired immediately below) covers the window
+      // between the SELECT and the war INSERT.
+      const opponentId = await findWarOpponent(guildId, db);
+      if (!opponentId) {
+        throw badRequest(
+          "No suitable opponent found. Try again later.",
+          "NO_OPPONENT_FOUND"
         );
-        if (!guildRow.rows[0]) throw notFound("Guild not found");
-        if (guildRow.rows[0].captain_id !== userId) {
-          throw forbidden("Only the guild captain can declare war");
-        }
+      }
 
-        // 2. Check treasury covers the entry fee
-        if (guildRow.rows[0].treasury_balance < effectiveFee) {
-          throw badRequest(
-            `Insufficient guild treasury. ${effectiveFee} coins required (current: ${guildRow.rows[0].treasury_balance}).`,
-            "INSUFFICIENT_TREASURY"
-          );
-        }
-
-        // 3. Check existing active war
-        const activeWar = await client.query<{ id: string }>(
-          `SELECT id FROM guild_wars
-           WHERE (challenger_guild_id = $1 OR defender_guild_id = $1)
-             AND status IN ('active', 'final_hour')
-           LIMIT 1`,
-          [guildId]
+      // Acquire a short-lived Redis distributed lock on the opponent guild so two
+      // concurrent declarations cannot claim the same defender between SELECT and INSERT.
+      // The unique partial index on guild_wars(defender_guild_id) is the DB-level fallback.
+      const opponentLockKey = `war:lock:opponent:${opponentId}`;
+      const lockAcquired = await redis.set(opponentLockKey, "1", "EX", 30, "NX");
+      if (!lockAcquired) {
+        throw conflict(
+          "This opponent guild was just claimed by another declaration. Please try again.",
+          "OPPONENT_CLAIMED"
         );
-        if (activeWar.rows.length > 0) {
-          throw conflict("Guild is already in an active war", "WAR_ALREADY_ACTIVE");
-        }
+      }
 
-        // 4. Check cooldown (duration is 48h during a War Event, 72h otherwise)
-        const { last_war_ended_at } = guildRow.rows[0];
-        if (last_war_ended_at) {
-          const cooldownEnd =
-            new Date(last_war_ended_at).getTime() + effectiveCooldownHours * 60 * 60 * 1000;
-          if (Date.now() < cooldownEnd) {
-            const hoursRemaining = Math.ceil((cooldownEnd - Date.now()) / (60 * 60 * 1000));
-            throw badRequest(
-              `War cooldown active. ${hoursRemaining} hour(s) remaining.`,
-              "WAR_COOLDOWN_ACTIVE"
-            );
-          }
-        }
-
-        // 5. Deduct entry fee from guild treasury
-        if (effectiveFee > 0) {
-          await client.query(
-            `UPDATE guilds SET treasury_balance = treasury_balance - $1, updated_at = NOW()
-             WHERE id = $2`,
-            [effectiveFee, guildId]
-          );
-        }
-
-        // 6. Consume rematch token if one was used (atomic, inside same transaction)
-        if (rematchDiscountPercent > 0) {
-          await client.query(
-            `UPDATE guild_war_rematch_tokens
-             SET is_used = true
-             WHERE id = (
-               SELECT id FROM guild_war_rematch_tokens
-               WHERE guild_id = $1 AND is_used = false AND expires_at > NOW()
-               ORDER BY created_at ASC
-               LIMIT 1
-             )`,
+      let result: {
+        warId: string;
+        challengerGuildId: string;
+        defenderGuildId: string;
+        startsAt: string;
+        endsAt: string;
+        finalHourStartsAt: string;
+        entryFeePaid: number;
+        rematchDiscountApplied: boolean;
+      };
+      try {
+        result = await db.transaction(async (client) => {
+          // 1. Verify caller is captain and lock guild row
+          const guildRow = await client.query<{
+            captain_id: string;
+            last_war_ended_at: string | null;
+            guild_xp: number;
+            treasury_balance: number;
+          }>(
+            `SELECT captain_id, last_war_ended_at, guild_xp, treasury_balance
+             FROM guilds WHERE id = $1 AND is_active = TRUE FOR UPDATE`,
             [guildId]
           );
-        }
+          if (!guildRow.rows[0]) throw notFound("Guild not found");
+          if (guildRow.rows[0].captain_id !== userId) {
+            throw forbidden("Only the guild captain can declare war");
+          }
 
-        // 7. Find opponent
-        const opponentId = await findWarOpponent(guildId, db);
-        if (!opponentId) {
-          throw badRequest(
-            "No suitable opponent found. Try again later.",
-            "NO_OPPONENT_FOUND"
+          // 2. Check treasury covers the entry fee
+          if (guildRow.rows[0].treasury_balance < effectiveFee) {
+            throw badRequest(
+              `Insufficient guild treasury. ${effectiveFee} coins required (current: ${guildRow.rows[0].treasury_balance}).`,
+              "INSUFFICIENT_TREASURY"
+            );
+          }
+
+          // 3. Check existing active war
+          const activeWar = await client.query<{ id: string }>(
+            `SELECT id FROM guild_wars
+             WHERE (challenger_guild_id = $1 OR defender_guild_id = $1)
+               AND status IN ('active', 'final_hour')
+             LIMIT 1`,
+            [guildId]
           );
-        }
+          if (activeWar.rows.length > 0) {
+            throw conflict("Guild is already in an active war", "WAR_ALREADY_ACTIVE");
+          }
 
-        // 7b. Acquire a short-lived Redis distributed lock on the opponent guild so two
-        // concurrent declarations cannot claim the same defender between SELECT and INSERT.
-        // The unique partial index on guild_wars(defender_guild_id) is the DB-level fallback.
-        const opponentLockKey = `war:lock:opponent:${opponentId}`;
-        const lockAcquired = await redis.set(opponentLockKey, "1", "EX", 30, "NX");
-        if (!lockAcquired) {
-          throw conflict(
-            "This opponent guild was just claimed by another declaration. Please try again.",
-            "OPPONENT_CLAIMED"
+          // 4. Check cooldown (duration is 48h during a War Event, 72h otherwise)
+          const { last_war_ended_at } = guildRow.rows[0];
+          if (last_war_ended_at) {
+            const cooldownEnd =
+              new Date(last_war_ended_at).getTime() + effectiveCooldownHours * 60 * 60 * 1000;
+            if (Date.now() < cooldownEnd) {
+              const hoursRemaining = Math.ceil((cooldownEnd - Date.now()) / (60 * 60 * 1000));
+              throw badRequest(
+                `War cooldown active. ${hoursRemaining} hour(s) remaining.`,
+                "WAR_COOLDOWN_ACTIVE"
+              );
+            }
+          }
+
+          // 5. Deduct entry fee from guild treasury
+          if (effectiveFee > 0) {
+            await client.query(
+              `UPDATE guilds SET treasury_balance = treasury_balance - $1, updated_at = NOW()
+               WHERE id = $2`,
+              [effectiveFee, guildId]
+            );
+          }
+
+          // 6. Consume rematch token if one was used (atomic, inside same transaction)
+          if (rematchDiscountPercent > 0) {
+            await client.query(
+              `UPDATE guild_war_rematch_tokens
+               SET is_used = true
+               WHERE id = (
+                 SELECT id FROM guild_war_rematch_tokens
+                 WHERE guild_id = $1 AND is_used = false AND expires_at > NOW()
+                 ORDER BY created_at ASC
+                 LIMIT 1
+               )`,
+              [guildId]
+            );
+          }
+
+          // 7. Create war record
+          const startsAt = new Date(Date.now() + WAR_START_OFFSET_MS);
+          const endsAt = new Date(
+            startsAt.getTime() + WAR_DURATION_HOURS * 60 * 60 * 1000
           );
-        }
+          const finalHourStartsAt = new Date(
+            endsAt.getTime() - FINAL_HOUR_OFFSET_MINUTES * 60 * 1000
+          );
 
-        // 8. Create war record — release opponent lock after INSERT (in finally)
-        const startsAt = new Date(Date.now() + WAR_START_OFFSET_MS);
-        const endsAt = new Date(
-          startsAt.getTime() + WAR_DURATION_HOURS * 60 * 60 * 1000
-        );
-        const finalHourStartsAt = new Date(
-          endsAt.getTime() - FINAL_HOUR_OFFSET_MINUTES * 60 * 1000
-        );
-
-        // eslint-disable-next-line prefer-const
-        let warResult!: { rows: Array<{ id: string }> };
-        try {
-          warResult = await client.query<{ id: string }>(
+          const warResult = await client.query<{ id: string }>(
             `INSERT INTO guild_wars
                (challenger_guild_id, defender_guild_id, status,
                 challenger_points, defender_points, winner_guild_id,
@@ -272,24 +285,24 @@ export const POST = withAuth(
              RETURNING id`,
             [guildId, opponentId, startsAt.toISOString(), endsAt.toISOString(), finalHourStartsAt.toISOString()]
           );
-        } finally {
-          // Release the lock — TTL handles any cleanup if this fails
-          await redis.del(opponentLockKey).catch(() => {});
-        }
 
-        const warId = warResult.rows[0].id;
+          const warId = warResult.rows[0].id;
 
-        return {
-          warId,
-          challengerGuildId: guildId,
-          defenderGuildId: opponentId,
-          startsAt: startsAt.toISOString(),
-          endsAt: endsAt.toISOString(),
-          finalHourStartsAt: finalHourStartsAt.toISOString(),
-          entryFeePaid: effectiveFee,
-          rematchDiscountApplied: rematchDiscountPercent > 0,
-        };
-      });
+          return {
+            warId,
+            challengerGuildId: guildId,
+            defenderGuildId: opponentId,
+            startsAt: startsAt.toISOString(),
+            endsAt: endsAt.toISOString(),
+            finalHourStartsAt: finalHourStartsAt.toISOString(),
+            entryFeePaid: effectiveFee,
+            rematchDiscountApplied: rematchDiscountPercent > 0,
+          };
+        });
+      } finally {
+        // Release the opponent lock — TTL handles cleanup if this call fails
+        await redis.del(opponentLockKey).catch(() => {});
+      }
 
       return NextResponse.json({ success: true, data: result, error: null }, { status: 201 });
     } catch (err) {

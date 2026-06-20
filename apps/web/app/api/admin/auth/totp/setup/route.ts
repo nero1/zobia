@@ -48,11 +48,16 @@ const setupSchema = z.object({
 // Dual-auth resolver — pre-auth token first, then admin JWT fallback
 // ---------------------------------------------------------------------------
 
-async function resolveAdminUserId(req: NextRequest): Promise<string> {
+// consume=false: read-only (GET — must not destroy the token so POST can still use it)
+// consume=true:  destructive (POST — one-time consume via GETDEL)
+async function resolveAdminUserId(req: NextRequest, consume: boolean): Promise<string> {
   // 1. Check for pre-auth setup token stored in HttpOnly cookie (issued by /api/admin/auth/login when needsSetup: true)
   const preAuthToken = req.cookies.get("admin_setup_token")?.value;
   if (preAuthToken) {
-    const userId = await redis.getdel(`admin_pre_auth:setup:${preAuthToken}`);
+    const key = `admin_pre_auth:setup:${preAuthToken}`;
+    const userId = consume
+      ? await redis.getdel(key)
+      : await redis.get(key);
     if (userId) return userId;
     throw unauthorized("Invalid or expired setup token");
   }
@@ -76,7 +81,7 @@ async function resolveAdminUserId(req: NextRequest): Promise<string> {
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
-    const adminId = await resolveAdminUserId(req);
+    const adminId = await resolveAdminUserId(req, false); // read-only — preserve token for POST
 
     const secret = generateTotpSecret();
 
@@ -100,7 +105,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
-    const adminId = await resolveAdminUserId(req);
+    const adminId = await resolveAdminUserId(req, true); // consume token (one-time use)
     const body = await validateBody(req, setupSchema);
 
     const valid = await verifyTotp(body.secret, body.verificationCode);

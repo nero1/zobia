@@ -146,18 +146,20 @@ async function createServiceAccountJwt(sa: ServiceAccountJson): Promise<string> 
   return `${signingInput}.${signatureB64}`;
 }
 
-// Module-level cache for the Google OAuth2 access token — avoids signing a new
-// JWT on every request. Token is valid for 3600s; we refresh 60s early.
-let _oauthCache: { token: string; expiresAt: number } | null = null;
+// Module-level cache keyed by service account client_email so rotating
+// GOOGLE_PLAY_SERVICE_ACCOUNT_JSON immediately invalidates the stale token
+// instead of serving it for up to ~59 minutes.
+const _oauthCache: Record<string, { token: string; expiresAt: number }> = {};
 
 /**
  * Exchange a service account JWT for an OAuth2 access token.
- * Results are cached at module scope for the lifetime of the token.
+ * Results are cached at module scope per service-account identity.
  */
 async function getGoogleAccessToken(sa: ServiceAccountJson): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
-  if (_oauthCache && _oauthCache.expiresAt > now + 60) {
-    return _oauthCache.token;
+  const cached = _oauthCache[sa.client_email];
+  if (cached && cached.expiresAt > now + 60) {
+    return cached.token;
   }
 
   const jwt = await createServiceAccountJwt(sa);
@@ -187,7 +189,7 @@ async function getGoogleAccessToken(sa: ServiceAccountJson): Promise<string> {
 
   const data = (await resp.json()) as { access_token: string; expires_in?: number };
   const expiresIn = data.expires_in ?? 3600;
-  _oauthCache = { token: data.access_token, expiresAt: now + expiresIn - 60 };
+  _oauthCache[sa.client_email] = { token: data.access_token, expiresAt: now + expiresIn - 60 };
   return data.access_token;
 }
 
@@ -443,7 +445,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     // --- One-time coin purchase flow ---
     const coinsToGrant = COIN_PRODUCTS[body.productId];
-    if (!coinsToGrant) {
+    if (coinsToGrant === undefined) {
       throw badRequest(`Unknown productId: ${body.productId}`, "UNKNOWN_PRODUCT");
     }
 
