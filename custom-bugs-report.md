@@ -1,38 +1,65 @@
-# Zobia Codebase — Forensic Bug Report
+# Zobia Codebase — Forensic Bug Report (New Findings)
 
-**Generated:** June 20, 2026 · 10:45 AM  
-**Updated:** June 20, 2026 · 12:30 PM (second-pass deep review — additional 5 bugs found)  
-**Analyst:** Independent forensic analysis — manual review of 100+ files, no automated scanners, no sub-agents  
-**Scope:** `apps/web` (Next.js 14 App Router, PWA), `apps/expo` (React Native / Expo Android)  
+**Generated:** June 20, 2026 · 10:41 AM
+**Analyst:** Independent forensic analysis — manual review of 100+ files, no automated scanners, no sub-agents
+**Scope:** `apps/web` (Next.js 14 App Router, PWA, Route Handlers, Edge Middleware), `apps/expo` (React Native / Expo Android)
 **Status:** PENDING USER REVIEW — NO CODE HAS BEEN MODIFIED
+**Note:** All 23 bugs from the prior report have been fixed. This report covers only new findings from the current full-codebase pass.
 
 ---
 
-## Bug Quick-Reference (one line each)
+## Current Code Quality Assessment
 
-1: BUG-PLAY-01: Google Play IAP consumable coin purchases never consumed — `finishTransactionAsync(purchase, false)` for ALL types, should be `!isSubscription`.
-2: BUG-COIN-01: Paystack payment initialised before the DB record is inserted — orphan provider payment on any DB failure after the call.
-3: BUG-XP-01: `safeAwardXP` calls `upsertLeaderboardSnapshot(globalDb)` outside the caller's transaction — leaderboard drifts if the outer transaction rolls back.
-4: BUG-LB-01: `upsertLeaderboardSnapshot` ON CONFLICT expression targets may not match the actual DB index — runtime error on every XP award.
-5: BUG-AUTH-01: Expo JWT decode uses `atob()` without base64url character substitution — JWTs with `-` or `_` in the payload are misread or throw.
-6: BUG-AUTH-02: `AuthUser.rankTier` enum values (`"bronze"/"silver"`) do not match server rank names (`"Beginner"/"Rookie"`); Google OAuth callback hardcodes `rankTier: "bronze"` for all mobile users.
-7: BUG-GAME-01: Challenge cancellation refunds full escrow regardless of rounds played — exploitable; losing challenger can always cancel for full refund.
-8: BUG-GIFT-01: Gift-send Redis idempotency key is written before the DB transaction commits — a rollback permanently poisons that idempotency slot.
-9: BUG-LOCK-01: `distributeCreatorFund` uses a session-level PostgreSQL advisory lock with connection pooling — lock may be acquired on connection A and released (or fail to release) on connection B, risking double payout.
-10: BUG-PAY-01: ~~Paystack `subscription.not_renew` sends incorrect notification type~~ — **ALREADY FIXED** in current code (notification now correctly uses `subscription_non_renewing` type). TASK-12 can be skipped.
-11: BUG-MOB-01: Expo SQLite migration catch-all error handler silently swallows ALL failures, leaving the local database in a partially migrated state with no visible error.
-12: BUG-SEASON-01: `distributeSeasonRewards` uses `Math.floor()` on every user's coin share with no remainder redistribution — coins are silently discarded into rounding.
-13: BUG-SPAM-01: `filterDMContent`/`filterPublicContent` returns an empty string when the entire message is a URL — callers that do not guard for this persist or display a blank message.
-14: BUG-LB-02: Leaderboard `getLeaderboard` ORDER BY has no tiebreaker — pagination produces duplicates or gaps for users with equal XP values.
-15: BUG-NOTIF-01: `challenges.ts` notification INSERTs do not include `title` or `body` fields — challenge notification rows are persisted with null display content.
-16: BUG-TRUST-01: `meetsMinimumTrust` reads the cached `users.trust_score` column without recomputing — recent bans or warnings are not reflected until the next explicit recalculation.
-17: BUG-WAR-01: `recordWarContribution` active-war status check runs outside the write transaction — war can be resolved between the check and the contribution upsert (TOCTOU).
-18: BUG-SPAM-02: Antispam `URL_REGEX` does not match Punycode/IDN domains (`xn--` prefix) — trivially bypassed by encoding a domain in Punycode.
-19: BUG-DM-01: `handleDMGift()` in the DM route awards XP via three raw fire-and-forget SQL queries instead of `safeAwardXP` — no DLQ fallback, non-atomic; INSERT can succeed while the two UPDATE users queries fail silently.
-20: BUG-XP-02: Room message XP daily cap has an off-by-one error — `countTodayMessages()` is called after the INSERT, so the 50th message returns count = 50, triggers `>= 50` cap, and earns no XP. Only 49 of the intended 50 daily messages earn XP.
-21: BUG-AUTH-03: `buildCookieHeaders` ignores `tokens.refreshTtl` — the `refreshTtl` parameter defaults to the global `REFRESH_TOKEN_TTL_SECONDS` constant; callers in `telegram/callback`, `google/callback`, and `2fa/verify` pass only `authTokens` so creator/moderator sessions receive a cookie with the wrong `Max-Age`.
-22: BUG-IAP-01: Server-side IAP verification acknowledges consumable coin packs via the `:acknowledge` endpoint instead of `:consume` — coin pack SKUs remain acknowledged but unconsumed; users cannot repurchase the same SKU (Google Play auto-voids after ~3 days).
-23: BUG-LOGIN-01: Daily login Redis NX idempotency key is written before the DB transaction — if the transaction fails after the key is set, the user permanently loses their daily XP for that calendar day (all retries see "already claimed today").
+### Rating: 7.5 / 10
+
+The prior 23 fixes substantially hardened the financial and auth layers. What remains is a mix of security gaps in the admin and IAP flows, several data-integrity race conditions in messaging and guild/season systems, and a cluster of mobile-side reliability issues. The codebase architecture is sound — the new bugs are mostly edge-case misses and incomplete guards rather than structural problems.
+
+**Strengths (unchanged):**
+- CTE-gated XP awards, DLQ with exponential backoff, leaderboard snapshot upserts
+- Advisory-lock-safe creator fund, SELECT FOR UPDATE throughout the coin engine
+- Atomic Lua scripts for rate limiting, DM daily limits, room presence
+- CSP nonces, CSRF origin check, SSRF-pinned fetch, field-level AES-256-GCM encryption
+- JWT kid-based key rotation, TOTP anti-replay via Redis NX
+- Webhook HMAC-SHA512 validation (once BUG-S-01 response code is fixed)
+
+**Remaining gaps:**
+- Three security issues in the admin auth flow (BUG-A-01, BUG-S-01, BUG-S-02) that allow timing oracles, webhook abuse, and token leakage
+- IAP/payment flow has four reliability/security gaps (BUG-P-01 through P-05) — consumable purchases can be replayed, the endpoint is unthrottled, and OAuth tokens are re-signed on every request
+- Mobile-side billing client has a race on init and no recovery path for mid-flow crashes (BUG-E-01, BUG-E-02)
+- Several TOCTOU/ordering bugs: DM count before tx commit (BUG-M-03), quest progress fire-and-forget (BUG-Q-01), XP before moderation approval (BUG-M-01), war-opponent pairing race (BUG-G-01)
+
+### Projected Rating After All 24 Fixes: 9.2 / 10
+
+Closing these gaps eliminates the remaining exploit surface on the admin flow, makes the IAP pipeline reliable and non-replayable, fixes streak/quest data integrity, and hardens the mobile billing and offline flows. The gap from 9.2 to 10 reflects the absence of an integration/E2E test suite and the minor code quality items (BUG-C-01, BUG-L-03, BUG-L-04) that carry negligible runtime risk.
+
+---
+
+## Bug Quick-Reference
+
+1: BUG-A-01: Admin login dummy bcrypt hash is malformed — timing oracle allows admin account enumeration
+2: BUG-S-01: Paystack webhook returns 401 on invalid signature — triggers infinite retries from Paystack infrastructure
+3: BUG-S-02: Admin 2FA step-1 setupToken returned in JSON response body — exfiltrable via XSS on the login page
+4: BUG-P-01: IAP verify only checks purchaseState, not consumptionState — same purchase token can be redeemed multiple times before consume
+5: BUG-P-02: verifyAndActivateSubscription silently skips coin grant when plan's monthlyCoins is 0 or undefined
+6: BUG-P-03: IAP verify endpoint has no rate limiting — purchase token replay is unthrottled
+7: BUG-P-04: IAP Google Play API calls have no fetch timeout — hangs on slow Google endpoints until serverless platform cuts off
+8: BUG-P-05: createServiceAccountJwt re-signs a new OAuth JWT on every IAP request — no token caching despite 1-hour validity
+9: BUG-E-01: initGooglePlayBilling sets `initialised = true` after `await connectAsync()` — concurrent init calls race and double-connect
+10: BUG-E-02: No pending-purchase replay on Expo app startup — coins permanently lost after mid-flow crash or app kill
+11: BUG-E-03: Expo offline sync queue processes messages sequentially — a stuck or slow message blocks all subsequent queued sends
+12: BUG-G-01: findWarOpponent reads eligible guilds outside a transaction — two simultaneous calls can pair the same guild into two different wars
+13: BUG-SE-01: createSeasonCeremonyRoom inserts the room but no room_members row — creator cannot send messages or manage the room
+14: BUG-M-01: Room message XP awarded at creation time, before moderation approval — XP earned on messages that are later rejected
+15: BUG-M-02: DM coin debit has no reference_id when idempotencyKey header is absent — coin debit cannot be deduplicated on client retry
+16: BUG-M-03: DM daily message count incremented in Redis before coin debit transaction commits — count leaks permanently on rollback
+17: BUG-M-04: DM GET reactions aggregation returns SQL NULL for zero-reaction messages — callers receive null instead of []
+18: BUG-M-05: Spam-blocked DM POST returns a fabricated non-UUID message id — clients that store it hit FK or format errors later
+19: BUG-Q-01: triggerActivityQuestProgress called fire-and-forget with only .catch(() => {}) — quest progress silently lost on any error
+20: BUG-C-02: Daily-core streak CRON neither increments nor resets streak for users whose last_login_date = CURRENT_DATE − 1
+21: BUG-N-01: sendPushNotificationBatch deduplicates userIds for token fetch but not for the message-build loop — duplicate inputs send duplicate pushes
+22: BUG-C-01: guild-wars CRON selects guild_a_id and guild_b_id columns but never uses them — dead data in query
+23: BUG-L-03: Leaderboards CRON comment says "7 tracks" but TRACKS constant contains 8 entries
+24: BUG-L-04: Leaderboards CRON sends identical rank-change notification copy for both rank promotions and demotions
 
 ---
 
@@ -40,268 +67,259 @@
 
 ---
 
-### 1: BUG-PLAY-01 — Google Play IAP consumable coin purchases never consumed
+### 1: BUG-A-01 — Admin login dummy bcrypt hash is malformed (timing oracle)
 
-**FILES:** `apps/expo/lib/payments/googlePlay.ts`
+**FILES:** `apps/web/app/api/admin/auth/login/route.ts`
 
-`setupGlobalPurchaseListener` calls `await InAppPurchases.finishTransactionAsync(purchase, false)` for every purchase unconditionally. The second argument is `consume` — it must be `true` for consumable products (coin packs) so Google Play marks the purchase as consumed and allows re-purchase of the same SKU. With `false`, the purchase is only acknowledged, not consumed. Google Play auto-voids acknowledged-but-unconsumed in-app products after 3 days and blocks re-purchase of the same SKU in the meantime. The variable `isSubscription` is correctly computed in the same function but is never used for the consume argument.
+The dummy hash used for timing equalization on unknown-email logins is `"$2b$12$invalidhashfortimingatack000000000"`. This string is only 37 characters; a valid bcrypt hash is always exactly 60 characters. Additionally it contains a typo ("timingatack" instead of "timingattack"). bcrypt implementations reject structurally invalid hashes before performing any work, returning essentially instantly. This creates a measurable timing difference: requests for non-existent admin emails return in microseconds, while requests for valid emails take the full ~200ms bcrypt work-factor time. An attacker can enumerate which email addresses belong to admin accounts by measuring response latency.
 
-**FIX:** Change the call to `finishTransactionAsync(purchase, !isSubscription)`. Subscriptions pass `false` (do not consume); consumable coin packs pass `true`.
-
----
-
-### 2: BUG-COIN-01 — Paystack payment initialised before the DB record is created
-
-**FILES:** `apps/web/app/api/economy/coins/purchase/route.ts`
-
-Step 5 calls `initializePayment` (Paystack API) to create the provider session, then Step 6 inserts the local payment record. If the DB INSERT at Step 6 fails (connection error, constraint violation), a real Paystack payment session exists with no corresponding local record. The user is redirected to Paystack, may complete payment, and the webhook handler will find no matching payment row — silently dropping the credit.
-
-**FIX:** Insert the DB record first (in a `pending` state with a locally generated reference ID), then call Paystack with that reference ID. On Paystack failure, mark the local record as `failed` — the user never gets a redirect. This ensures a local record always pre-exists before any provider state is created.
+**FIX:** Replace the malformed string with a valid pre-computed bcrypt hash. Generate one at module load time: `const DUMMY_HASH = bcrypt.hashSync("timing-equalization-dummy", 12)` (run once at startup, not per request). Use this in the `bcrypt.compare()` call for the unknown-email branch. Alternatively, hard-code a valid 60-char hash that was pre-generated offline — just ensure it starts with `$2b$12$` and is exactly 60 chars with a valid structure.
 
 ---
 
-### 3: BUG-XP-01 — safeAwardXP leaderboard snapshot update runs outside the caller's transaction
+### 2: BUG-S-01 — Paystack webhook returns 401 on invalid signature (triggers infinite provider retries)
 
-**FILES:** `apps/web/lib/xp/safeAwardXP.ts`
+**FILES:** `apps/web/app/api/economy/webhooks/paystack/route.ts`
 
-After a successful XP INSERT + users UPDATE (which correctly runs inside the caller's transaction when one is passed), `safeAwardXP` calls `upsertLeaderboardSnapshot(userId, …, globalDb)` — explicitly using the global DB pool, not the transaction client. If the caller's transaction is later rolled back, the XP credit is rolled back but the leaderboard snapshot update has already committed on `globalDb`. The leaderboard shows XP the user does not actually have.
+When HMAC-SHA512 signature validation fails, the route returns `NextResponse.json({ error: "Invalid signature" }, { status: 401 })`. Paystack (and virtually all webhook providers) treat any non-2xx response as a delivery failure and retry the webhook, typically with exponential backoff for 24–72 hours. A single spoofed or misconfigured webhook delivery therefore causes Paystack to repeatedly hammer the endpoint, wasting serverless invocations and inflating logs with false errors. In a worst case, a flood of intentionally invalid webhooks becomes a low-effort denial-of-wallet attack on serverless billing.
 
-**FIX:** Pass the `client` (same connection used for the XP award) to `upsertLeaderboardSnapshot` instead of `globalDb`. Since `upsertLeaderboardSnapshot` accepts a `DatabaseAdapter`, this is a one-argument change. The snapshot will then roll back together with the XP award if the outer transaction fails.
-
----
-
-### 4: BUG-LB-01 — upsertLeaderboardSnapshot ON CONFLICT expression may not match the actual DB index
-
-**FILES:** `apps/web/lib/leaderboards/engine.ts`
-
-The upsert uses `ON CONFLICT (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))`. PostgreSQL ON CONFLICT requires the conflict target to exactly match an existing index definition. If the actual DB index is a standard column-based UNIQUE constraint on `(user_id, track, scope, city, season_id)` (with NULLs distinct), the COALESCE expression target will not match and the upsert will throw `ERROR: there is no unique or exclusion constraint matching the ON CONFLICT specification` on every single XP award.
-
-**FIX:** Check the actual index definition with `\d leaderboard_snapshots` in psql. If the index is column-based, replace the COALESCE expression targets with a named constraint reference (`ON CONFLICT ON CONSTRAINT leaderboard_snapshots_unique_idx`) or create an expression index that exactly matches the COALESCE syntax. Align the migration, index definition, and upsert clause so all three agree.
+**FIX:** Return `200 OK` (or `204 No Content`) for all signature mismatches. The response body can be empty or contain a generic acknowledgement — the point is to tell Paystack "received, stop retrying." Keep the existing `logger.warn` (or upgrade to `logger.error`) so mismatches are still observable for security investigation. Do not include any detail about why the request was rejected in the response body.
 
 ---
 
-### 5: BUG-AUTH-01 — Expo JWT decode uses atob() without base64url character substitution
+### 3: BUG-S-02 — Admin 2FA step-1 setupToken returned in JSON body (XSS-exfiltrable)
 
-**FILES:** `apps/expo/lib/auth/context.tsx`
+**FILES:** `apps/web/app/api/admin/auth/login/route.ts`
 
-The JWT payload decode uses `atob(payload)` on the raw base64url-encoded JWT segment. The JWT standard (RFC 7515/7519) uses base64url encoding which replaces `+` with `-`, `/` with `_`, and omits `=` padding. `atob()` expects standard base64 — it will throw or silently misparse any JWT whose payload segment contains `-` or `_` characters (common in UUIDs and large numeric claims encoded into the payload).
+After a successful email + password check (step 1 of the two-step admin login), the route returns a JSON response that includes `setupToken`. This token proves that the password was correctly entered and is required to complete TOTP verification in step 2. By placing it in the JSON body it is accessible to any JavaScript executing on the page — including injected scripts from an XSS vulnerability on the admin login page. An attacker with XSS can exfiltrate the setupToken and immediately POST it with a valid TOTP code (from a compromised authenticator) to complete admin login without the victim's involvement.
 
-**FIX:** Before calling `atob()`, apply: `payload.replace(/-/g, '+').replace(/_/g, '/').padEnd(payload.length + (4 - payload.length % 4) % 4, '=')`. Or use the `jose` library's built-in decode utilities (already a dependency on the web side) which handle this correctly.
-
----
-
-### 6: BUG-AUTH-02 — AuthUser.rankTier enum mismatches server rank names; OAuth callback hardcodes "bronze"
-
-**FILES:** `apps/expo/lib/auth/context.tsx`, `apps/web/app/api/auth/google/callback/route.ts`
-
-The Expo `AuthUser` type defines `rankTier` with values like `"bronze"`, `"silver"`, `"gold"`. The server rank system (confirmed in `lib/db/schema.ts` and `lib/xp/engine.ts`) uses `"Beginner"`, `"Rookie"`, `"Rising Star"`, etc. All mobile UI that branches on `rankTier` compares against values that the server never sends — rank-gated features and rank display on mobile are permanently broken. Additionally, the Google OAuth callback hardcodes `rankTier: "bronze"` in the mobile pre-auth payload for all users regardless of their actual rank, so every mobile sign-in receives rank "bronze" in the decoded auth object.
-
-**FIX:** (1) Update the `AuthUser` type's `rankTier` enum values to match the server's actual rank name strings from `lib/xp/engine.ts`. (2) In the Google OAuth callback, replace the hardcoded `rankTier: "bronze"` with the user's actual `rank_name` from the DB (query `users.rank_name` during the OAuth upsert and include it in the pre-auth code payload).
+**FIX:** Set `setupToken` exclusively as an `HttpOnly; Secure; SameSite=Strict` cookie, not in the JSON body. The TOTP route (step 2) reads it from the cookie instead of from the POST body. The JSON response from step 1 should contain only enough information for the UI to know "proceed to TOTP screen" — no sensitive token. This closes the XSS exfiltration path because `HttpOnly` cookies are inaccessible to JavaScript.
 
 ---
 
-### 7: BUG-GAME-01 — Challenge cancellation refunds full escrow regardless of rounds played
-
-**FILES:** `apps/web/lib/games/challenges.ts`
-
-When a challenge is cancelled, the code refunds the full escrowed amount to both players regardless of how many rounds have been completed. A challenger who is losing after several rounds can cancel to recover their full stake — a monetarily exploitable escape hatch. The cancellation is restricted to the challenger (not the opponent), meaning only the challenger can exploit this: if they are behind (opponent winning 2–0 in a best-of-5), they cancel and get a full refund, denying the winning opponent their payout. Rounds-played count and per-round outcome are tracked in the DB but are not consulted during cancellation.
-
-**FIX:** Add a partial-payout path: if at least one round has been completed, award escrowed coins proportionally based on rounds-won ratio, rather than a full refund to both parties. Alternatively, forfeit the cancelling player's stake entirely (simpler, harder to exploit). The policy decision is the product owner's, but the current full-refund-always behaviour is clearly exploitable.
-
----
-
-### 8: BUG-GIFT-01 — Gift-send Redis idempotency key written before DB transaction commits
-
-**FILES:** `apps/web/app/api/economy/gifts/send/route.ts`
-
-The handler writes the Redis idempotency key (`gift:${senderId}:${idempotencyKey}`) before the DB transaction containing the coin debit and credit commits. If the subsequent DB commit fails, the Redis key is already set and the transaction cannot be retried — the idempotency slot is permanently poisoned. The user's coins are not deducted (DB rolled back) but they also cannot re-attempt the gift with the same key. The error handler attempts a Redis key delete on non-balance errors, but there is a race window between the error and the cleanup.
-
-**FIX:** Move the Redis key write to AFTER the DB transaction successfully commits. The safe pattern: (1) check key exists → return cached response; (2) execute and commit DB transaction; (3) write Redis key with the successful response body. A Redis TTL slightly shorter than the client retry timeout covers the small commit-to-Redis window.
-
----
-
-### 9: BUG-LOCK-01 — distributeCreatorFund advisory lock not safe with connection pooling
-
-**FILES:** `apps/web/lib/creator/fund.ts`
-
-`distributeCreatorFund` acquires a PostgreSQL session-level advisory lock via `pg_try_advisory_lock` and releases it in a `finally` block via `pg_advisory_unlock`. With a connection pool, the lock is acquired on whichever pool connection handles the initial `query()`, but subsequent queries — including the `finally` unlock — may execute on a different connection/session. `pg_advisory_unlock` on the wrong session is a no-op. The lock may stay held indefinitely (blocking all future CRON runs until the holding connection is recycled) or release on the wrong session (allowing a concurrent CRON to also acquire and run a double payout).
-
-**FIX:** Replace the session-level advisory lock pair with `pg_try_advisory_xact_lock`, which is automatically released when the transaction ends regardless of which pool connection handles the unlock. Wrap the entire distribution in a single `db.transaction()` call and acquire the transaction-level lock as the first statement inside that transaction.
-
----
-
-### 10: BUG-PAY-01 — ~~Paystack subscription.not_renew sends incorrect notification type~~ [ALREADY FIXED]
-
-**FILES:** `apps/web/lib/payments/paystackWebhookHandler.ts`
-
-**Note:** On second-pass review, the current codebase already correctly handles this case. The notification block at lines 635–638 of `paystackWebhookHandler.ts` checks `else if (isNonRenewing)` and sets `notifType = "subscription_non_renewing"` with title `"Subscription Ending"`. The bug described (sending `subscription_cancelled` instead) is not present in the current code. TASK-12 in the fix plan can be skipped or removed.
-
----
-
-### 11: BUG-MOB-01 — Expo SQLite migration catch-all silently swallows schema failures
-
-**FILES:** `apps/expo/lib/offline/sqlite.ts`
-
-The SQLite migration runner wraps each migration step in a `try/catch` that logs a `console.warn` and continues to the next migration. If a `CREATE TABLE` or `ALTER TABLE` fails (table already exists with an incompatible schema, disk full, corruption), the migration is marked complete and the loop continues. Subsequent migrations that depend on the failed one will also fail silently. The app proceeds to operate on a partially migrated database with no visible indication that anything is wrong — offline data may be silently discarded or cause crashes far from the actual failure point.
-
-**FIX:** Change the catch block to re-throw for structural migration failures. Only swallow genuinely idempotent errors (e.g., `error.message.includes('already exists')`) as a narrow guard. Bubble real failures up to the app init path so the user sees a clear "database error, please reinstall" message rather than silent data loss.
-
----
-
-### 12: BUG-SEASON-01 — Season reward distribution uses Math.floor() with no remainder redistribution
-
-**FILES:** `apps/web/lib/seasons/seasonEngine.ts`
-
-`distributeSeasonRewards` applies `Math.floor()` to each user's computed coin share. For 100 users and a prize pool of 997 coins, up to 99 coins are silently discarded (fractional part per user × user count). These coins are neither recorded as unspent nor redistributed — they vanish.
-
-**FIX:** Compute total actually distributed (sum of all floored amounts) then add the remainder (`pool − distributed`) to the top-ranked user's award. This is the standard "largest remainder" method and accounts for every coin in the pool. At minimum, log the discarded amount as an accounting entry.
-
----
-
-### 13: BUG-SPAM-01 — filterDMContent/filterPublicContent can return an empty string
-
-**FILES:** `apps/web/lib/messaging/antispam.ts`
-
-Both filter functions strip URLs, emails, and phone numbers from message text. If the entire message is a URL (e.g., a user sharing a link with no other text), the return value is `""`. Callers that do not explicitly check for an empty result will persist a blank message row or render a blank chat bubble with no indication that content was stripped.
-
-**FIX:** Document in JSDoc that the return can be `""`. Callers should check: either reject the message with "Message cannot contain links" or substitute a configurable placeholder (e.g., `"[link removed]"`). The filter function itself is working as designed — it is the callers that need to guard for the empty case.
-
----
-
-### 14: BUG-LB-02 — Leaderboard getLeaderboard has no tiebreaker — pagination is non-deterministic for equal XP
-
-**FILES:** `apps/web/lib/leaderboards/engine.ts`
-
-`getLeaderboard` uses `ORDER BY ls.xp_value DESC NULLS LAST` with no secondary sort column. When multiple users share identical XP values, the database may return them in any order, and that order can change between queries. A client requesting page 1 and page 2 can receive the same user on both pages or miss a user entirely.
-
-**FIX:** Add a stable tiebreaker: `ORDER BY ls.xp_value DESC NULLS LAST, ls.user_id ASC`. This guarantees a total order across all rows and produces correct, consistent cursor-based pagination.
-
----
-
-### 15: BUG-NOTIF-01 — challenges.ts notification INSERTs do not include title or body
-
-**FILES:** `apps/web/lib/games/challenges.ts`
-
-The `notify()` helper function at line 418 uses a raw INSERT with only `(user_id, type, metadata, is_read, created_at)` — no `title` or `body` columns. Across the rest of the codebase (per `lib/notifications/insert.ts`), every notification INSERT provides these fields so the push/in-app renderer can display the notification. Challenge notifications would be persisted as rows with null titles and bodies, rendering as blank notifications in the mobile app.
-
-**FIX:** Add `title` and `body` values to each notification INSERT in `challenges.ts`. Use descriptive strings appropriate to the notification type (e.g., `"Game Challenge"` as title, `"You received a challenge from {username}"` as body). Refer to `lib/notifications/insert.ts` for the expected field set and any existing type-to-message mappings.
-
----
-
-### 16: BUG-TRUST-01 — meetsMinimumTrust reads the stale cached trust_score without recomputing
-
-**FILES:** `apps/web/lib/trust/trustScore.ts`
-
-`meetsMinimumTrust` reads `users.trust_score` (a cached denormalized column) without calling `calculateTrustScore`. If a user has just received a ban, warning, or moderation action, the `trust_score` column reflects the pre-action state until the next explicit recalculation is triggered. During this window, a user whose actual score is now below a feature threshold can still pass the gate and use the gated feature.
-
-**FIX:** On any event that reduces trust (ban, warning issued, report received, content removed), call `calculateTrustScore` synchronously before any subsequent `meetsMinimumTrust` check in the same request. Alternatively, add a `forceRecalculate?: boolean` parameter to `meetsMinimumTrust` and set it to `true` in all moderation action handlers.
-
----
-
-### 17: BUG-WAR-01 — recordWarContribution active-war check runs outside the write transaction (TOCTOU)
-
-**FILES:** `apps/web/lib/guilds/recordWarContribution.ts`
-
-Lines 33–54 query for an active war (checking status) outside the transaction that then writes the contribution upsert. A concurrent `resolveWar` call can mark the war as resolved between the status check and the contribution write. The write succeeds (no re-check inside the transaction), recording points for a war that has already ended. Post-resolution leaderboard calculations include these phantom points.
-
-**FIX:** Move the active-war status check inside the same transaction as the contribution upsert. Use `SELECT … FOR UPDATE` on the war row to hold the lock. This serialises the check and write atomically, eliminating the TOCTOU window.
-
----
-
-### 18: BUG-SPAM-02 — Antispam URL_REGEX does not match Punycode/IDN domains
-
-**FILES:** `apps/web/lib/messaging/antispam.ts`
-
-`URL_REGEX` matches domains by looking for standard ASCII hostname patterns. Internationalized domain names encoded in Punycode (e.g., `https://xn--n3h.example.com`) pass through the filter undetected because the `xn--` prefix is not in the pattern. A malicious actor can bypass the link filter trivially by encoding their domain in Punycode.
-
-**FIX:** Add `xn--` as a matched hostname prefix pattern in `URL_REGEX`, or replace the regex approach with WHATWG URL API parsing (`new URL(token)`) to detect valid URLs regardless of encoding. The URL API approach is more robust and future-proof than extending the regex.
-
----
-
-### 19: BUG-DM-01 — handleDMGift() awards XP via raw SQL, bypassing safeAwardXP and its DLQ
-
-**FILES:** `apps/web/app/api/messages/dm/route.ts`
-
-The `handleDMGift()` function awards XP for gift transactions using three separate fire-and-forget raw SQL queries: one `INSERT INTO xp_ledger` for both sender and recipient in a multi-row INSERT, then two separate `UPDATE users SET xp_total = …` queries. All three are called with `.catch(() => {})` — any failure is silently swallowed. This bypasses `safeAwardXP` entirely, meaning there is no dead-letter queue fallback, no retry on failure, and the three queries are non-atomic: if the `xp_ledger` INSERT succeeds but one of the `UPDATE users` queries fails, the ledger shows XP the user's `xp_total` does not reflect. This is inconsistent with how every other XP award in the codebase (normal DM flow, gift send route, gaming rewards, etc.) uses `safeAwardXP`.
-
-**FIX:** Refactor `handleDMGift()` to call `safeAwardXP` separately for the sender (generosity track) and recipient (social track) instead of the raw multi-row INSERT + UPDATE pattern. Use distinct `reference_id` values per award (e.g., `gift_xp_sent:${giftId}` and `gift_xp_recv:${giftId}`) to maintain idempotency. This ensures DLQ fallback, atomic ledger+balance updates, and consistency with the rest of the XP engine.
-
----
-
-### 20: BUG-XP-02 — Room message XP daily cap off-by-one; only 49 of 50 intended messages earn XP
-
-**FILES:** `apps/web/app/api/rooms/[roomId]/messages/route.ts`
-
-`countTodayMessages()` is called AFTER the message INSERT has committed. When the user sends their 50th message of the day, the count returns 50. The cap check `if (todayMsgCount >= ROOM_MESSAGE_XP_DAILY_CAP) return 0` (where `ROOM_MESSAGE_XP_DAILY_CAP = 50`) evaluates `50 >= 50 = true` and suppresses XP for the 50th message. Only 49 messages per day earn XP instead of the intended 50.
-
-**FIX:** Change the condition from `>= ROOM_MESSAGE_XP_DAILY_CAP` to `> ROOM_MESSAGE_XP_DAILY_CAP` (strictly greater than). With the count computed post-insert, this correctly allows the 50th message (count = 50, `50 > 50 = false`) to earn XP and only suppresses message 51 onward (count = 51, `51 > 50 = true`).
-
----
-
-### 21: BUG-AUTH-03 — buildCookieHeaders ignores tokens.refreshTtl; callers get wrong cookie Max-Age for non-default roles
-
-**FILES:** `apps/web/lib/auth/session.ts`, `apps/web/app/api/auth/telegram/callback/route.ts`, `apps/web/app/api/auth/google/callback/route.ts`, `apps/web/app/api/auth/2fa/verify/route.ts`
-
-`buildCookieHeaders(tokens, secure, refreshTtl)` has a `refreshTtl` parameter that defaults to `REFRESH_TOKEN_TTL_SECONDS`. The function uses this parameter for the refresh cookie's `Max-Age` and ignores `tokens.refreshTtl` (which carries the actual role-specific TTL from `createSession`). Three callers — `telegram/callback` (line 186), `google/callback` (line 426), and `2fa/verify` (line 131) — call `buildCookieHeaders(authTokens)` without passing the TTL. When a creator or moderator logs in via any of these paths, `createSession` correctly sets their role-specific TTL in `authTokens.refreshTtl`, but the cookie `Max-Age` is set to the default user TTL. The `refresh/route.ts` and `admin/auth/totp/route.ts` callers are both correct (they pass `refreshTtl` explicitly).
-
-**FIX:** Either (a) change `buildCookieHeaders` to use `tokens.refreshTtl` instead of the separate `refreshTtl` parameter (simplest — the parameter becomes redundant and can be removed), or (b) update all three incorrect callers to pass `authTokens.refreshTtl` as the third argument: `buildCookieHeaders(authTokens, undefined, authTokens.refreshTtl)`.
-
----
-
-### 22: BUG-IAP-01 — Server-side IAP calls :acknowledge instead of :consume for consumable coin packs
+### 4: BUG-P-01 — IAP verify checks purchaseState only, not consumptionState (purchase token replayable before consume)
 
 **FILES:** `apps/web/app/api/economy/iap/verify/route.ts`
 
-The `acknowledgeGooglePlayPurchase()` function at line 249 calls the Google Play API at `purchases/products/${productId}/tokens/${purchaseToken}:acknowledge` for all one-time products. For consumable products (all coin packs: `coins_starter`, `coins_regular`, etc.), Google Play requires the `:consume` endpoint, not `:acknowledge`. Acknowledging a consumable only marks it as acknowledged — it remains in a "not consumed" state. The result: (1) users cannot repurchase the same coin pack SKU because Google Play will not allow re-purchase of an acknowledged-but-not-consumed product; (2) Google Play auto-voids acknowledged-but-unconsumed purchases after approximately 3 days, potentially causing confusion. This is distinct from BUG-PLAY-01 (client-side) but related; between them, no path currently consumes coin pack purchases.
+`verifyGooglePlayPurchase` validates `purchaseData.purchaseState === 0` (confirmed purchase) but does not check `purchaseData.consumptionState`. For consumable products (all coin packs), `consumptionState === 0` means "not yet consumed" and `consumptionState === 1` means "already consumed." Without this check, the same `purchaseToken` can be submitted to the verify endpoint multiple times before the server calls the `:consume` endpoint — coins are credited on each submission. This is especially acute given BUG-P-03 (no rate limiting) and BUG-IAP-01 from the prior report.
 
-**FIX:** Change `acknowledgeGooglePlayPurchase` to call `:consume` for consumable products. Since all products in `COIN_PRODUCTS` are consumable, the simplest fix is to always use the `:consume` endpoint for one-time products: change the URL suffix from `:acknowledge` to `:consume`. Subscription acknowledgements (which use a different function path via `verifyAndActivateSubscription`) are already correct and unaffected.
-
----
-
-### 23: BUG-LOGIN-01 — Daily login Redis NX key written before DB transaction; failure permanently blocks daily XP
-
-**FILES:** `apps/web/app/api/login/daily/route.ts`
-
-At line 99, the handler calls `redis.set(redisKey, "1", "EX", DAILY_LOGIN_KEY_TTL_SECONDS, "NX")` to acquire the daily idempotency slot before the DB transaction at line 121. If the DB transaction fails for any reason (connection error, constraint, timeout), the Redis key is already set with a 48-hour TTL. The error handler at line 239 calls `handleApiError(err)` but does NOT delete the Redis key. On all subsequent retry attempts that same calendar day, the Redis check at line 100 sees the key already set and returns `alreadyClaimedToday: true` with `xpAwarded: 0` — the user's streak is not updated and daily XP is permanently lost for that day. This is the same anti-pattern as BUG-GIFT-01.
-
-**FIX:** In the DB transaction catch block (before returning the error response), delete the Redis key: `await redis.del(redisKey).catch(() => {})`. This unblocks retries. Alternatively and more robustly, move the Redis NX set to AFTER the DB transaction commits successfully — since the DB transaction itself is protected by `FOR UPDATE` and the same-day `lastLogin === today` guard, concurrent requests that race through would be idempotent on the DB side, and the Redis key then acts only as a caching optimization rather than an ordering gate.
+**FIX:** For consumable products, add `&& purchaseData.consumptionState === 0` to the purchase validity check. If `consumptionState` is already 1, the purchase was previously consumed — return a 409 or the existing idempotent success response depending on whether the server's ledger already recorded this `purchaseToken`. The existing `reference_id`-based coin ledger deduplication should also catch this, but the consumptionState check adds a hard stop at the Google Play layer before any DB write.
 
 ---
 
-## Code Quality Assessment
+### 5: BUG-P-02 — verifyAndActivateSubscription silently skips coin grant when plan.monthlyCoins is 0 or undefined
 
-### Current Rating: 7.0 / 10
+**FILES:** `apps/web/app/api/economy/iap/verify/route.ts`
 
-The codebase reflects genuine engineering maturity in most subsystems:
+The subscription activation path contains a guard along the lines of `if (plan.monthlyCoins) { await creditCoins(...) }`. If the product manifest entry for a subscription SKU has `monthlyCoins` set to `0`, `null`, or is missing the field entirely (a misconfiguration that is easy to introduce when adding new plans), the guard evaluates falsy and the coin grant is silently skipped. The subscription is marked `active` in the DB, the IAP is acknowledged with Google Play, but the user receives no coins. There is no error, no log, and no alert — the failure is invisible until a user reports it.
 
-**Strengths observed:**
-- CSP nonces with `strict-dynamic` and no `unsafe-inline`; per-request nonce generation in edge middleware.
-- CSRF validation via Origin header for all API mutations; OAuth CSRF state token with Redis.
-- SSRF protection with DNS-pinned `undici` Agent, single DNS resolution, TOCTOU prevention via IP pinning, streaming body size cap.
-- AES-256-GCM field encryption with scrypt KDF v2; v1 key migration path.
-- Coin and star economies use SELECT FOR UPDATE throughout; append-only ledgers; Decimal.js for all arithmetic.
-- `safeAwardXP()` with dead-letter queue, exponential backoff retry, and leaderboard snapshot updates — correct everywhere except the three callers identified in BUG-XP-01 and BUG-DM-01.
-- Atomic Lua scripts for rate limiting (sliding window), DM coin daily limits, and room presence cap — no TOCTOU races.
-- JWT multi-key rotation with kid-based registry; TOTP with `timingSafeEqual` anti-timing.
-- Structured logging, per-request trace IDs, audit log, system alerts for permanently failed operations.
-- Webhook replay protection via Redis with `NX` and TTL; HMAC-SHA512 (Paystack) verification.
-- Geo-anomaly detection, rate-limiting, and PIN guard are all correctly implemented with Redis atomic ops.
-
-**Areas of concern:**
-- BUG-PLAY-01 and BUG-IAP-01 together mean coin pack purchases are never consumed at any level — neither client nor server calls the consume API. Android users experience blocked re-purchases immediately.
-- BUG-LB-01 is a latent runtime error on every XP award if the DB index doesn't match the upsert expression — needs immediate verification.
-- BUG-LOCK-01 (creator fund advisory lock) is a latent double-payout risk that only triggers under specific connection-pool conditions — easy to miss in testing, impactful in production.
-- BUG-AUTH-02 (rankTier mismatch) means rank-gated mobile UI has never worked correctly — every feature guarded by rank on mobile evaluates the wrong strings.
-- BUG-GAME-01 (challenge cancellation exploit) is immediately exploitable by any user who understands the refund behaviour.
-- BUG-LOGIN-01 and BUG-GIFT-01 represent a repeated structural anti-pattern: Redis NX key written before the DB transaction. Any transient DB failure permanently blocks the user's action for the key's TTL window.
-
-### Projected Rating After All 22 Fixes (excluding TASK-12 already resolved): 8.8 / 10
-
-Applying all fixes closes the Google Play consumable defect on both client and server, fixes the leaderboard runtime risk, eliminates the advisory lock double-payout hazard, corrects all rank-gated mobile UI, removes the challenge escape-hatch exploit, ensures gift send, daily login, and coin purchase flows are properly ordered and idempotent, aligns cookie TTLs for all role-based sessions, fixes the room XP cap so all 50 daily messages earn XP, restores DLQ coverage for DM gift XP awards, and hardens the anti-spam filter against Punycode bypass. The gap from 8.8 to 10 reflects the absence of a visible integration/E2E test suite and the leaderboard tiebreaker which is a non-trivial pagination redesign.
+**FIX:** Replace the implicit truthiness check with an explicit type guard: `if (typeof plan.monthlyCoins !== 'number' || plan.monthlyCoins <= 0)` then throw an error or log a `logger.error` with the plan details before returning. A `0`-coin subscription should either be an intentional (documented) design or a config error that raises an alert — it must not silently proceed.
 
 ---
 
-*Report generated: June 20, 2026 · 10:45 AM*  
-*Updated: June 20, 2026 · 12:30 PM*  
-*Scope: 100+ files manually reviewed across apps/web and apps/expo*  
-*Bugs found: 23 total (18 from first pass + 5 from second pass; BUG-PAY-01 confirmed already fixed) | No code modified during this analysis*
+### 6: BUG-P-03 — IAP verify endpoint has no rate limiting
+
+**FILES:** `apps/web/app/api/economy/iap/verify/route.ts`
+
+The `/api/economy/iap/verify` route does not call the existing `rateLimit()` helper from `lib/security/rateLimit.ts`, unlike most other sensitive endpoints. There is no throttle on how many verification requests a single user or IP can submit per minute. Combined with BUG-P-01 (consumptionState not checked), this allows rapid replay of a purchase token before consumption is recorded. Even after BUG-P-01 is fixed, an unthrottled endpoint performs unmetered Google Play API calls at the attacker's pace.
+
+**FIX:** Add a `rateLimit` call at the top of the handler — for example, `await rateLimit(userId, 'iap_verify', 10, 60)` (10 attempts per minute per user). Use the authenticated user ID (not IP) as the key, since IAP requests are always authenticated. Return 429 on breach as the existing rate limiter does.
+
+---
+
+### 7: BUG-P-04 — IAP Google Play API calls have no fetch timeout
+
+**FILES:** `apps/web/app/api/economy/iap/verify/route.ts`
+
+The OAuth token exchange and purchase verification calls to Google Play's REST API are made via `fetchWithSsrf` with no `AbortController` or timeout option set. If Google Play's API is slow, congested, or temporarily unresponsive, the Next.js serverless function will hang until the platform-level timeout (10–30 seconds on Vercel) triggers a 504 response. The user receives no useful error, the purchase state is unknown, and the serverless invocation is billed for the full timeout duration. On high-traffic days, many simultaneous hangs exhaust the function concurrency limit.
+
+**FIX:** Create an `AbortController` with a 5-second timeout and pass its `signal` to each `fetchWithSsrf` call: `const controller = new AbortController(); const timeoutId = setTimeout(() => controller.abort(), 5000); fetch(url, { signal: controller.signal })`. In the catch block, detect `AbortError` and return a 503 / 504 response with a user-friendly "verification timed out, please retry" message so the client knows to try again rather than assuming coins were or were not credited.
+
+---
+
+### 8: BUG-P-05 — createServiceAccountJwt re-signs a new OAuth JWT on every IAP request (no caching)
+
+**FILES:** `apps/web/app/api/economy/iap/verify/route.ts`
+
+`createServiceAccountJwt` is called on every request to the IAP verify endpoint. It re-parses the `GOOGLE_SERVICE_ACCOUNT_KEY` environment variable from JSON and signs a fresh JWT every time. Google's service-account OAuth tokens are valid for 3600 seconds (1 hour). Re-signing on every request wastes CPU on RSA-SHA256 signing, adds latency, and burns through no-rate-limit assumptions. Under load (many concurrent purchases), this is a measurable inefficiency.
+
+**FIX:** Cache the OAuth access token at module level (or in a Redis key) along with its expiry time. Before signing a new JWT, check whether the cached token expires in more than 60 seconds — if so, return the cached token. Invalidate and re-sign only when the token is within 60 seconds of expiry or has expired. A simple module-level object `{ token: string, expiresAt: number }` suffices; no external state is needed since the token is valid app-wide.
+
+---
+
+### 9: BUG-E-01 — initGooglePlayBilling sets `initialised = true` after `await connectAsync()` — concurrent init race
+
+**FILES:** `apps/expo/lib/payments/googlePlay.ts`
+
+```
+let initialised = false;
+async function initGooglePlayBilling() {
+  if (initialised) return;            // both concurrent callers pass this
+  await connectAsync();               // both call connectAsync()
+  initialised = true;                 // set only after async completes
+}
+```
+
+If two components mount simultaneously (e.g., a screen with a purchase button renders while a background task also checks billing readiness), both observe `initialised = false`, both call `connectAsync()`, and both await it. The second `connectAsync()` call on an already-initialising client can throw or create a duplicate connection, leaving the billing client in an undefined state that prevents further purchases.
+
+**FIX:** Set `initialised = true` optimistically before the `await`: move the assignment above `await connectAsync()`. In the `catch` block, reset `initialised = false` so future attempts can retry cleanly. This converts the guard from a post-condition check to an optimistic lock, eliminating the race window.
+
+---
+
+### 10: BUG-E-02 — No pending-purchase replay on Expo app startup — coins permanently lost after mid-flow crash
+
+**FILES:** `apps/expo/lib/payments/googlePlay.ts`
+
+If the app is killed (backgrounded and reclaimed by Android, or crashed) between the moment Google Play confirms a purchase and the moment the server `/api/economy/iap/verify` call completes and returns success, the purchase exists in Google Play's system as "purchased but not consumed" — but the app has no record of it and will not retry. On next launch, `initGooglePlayBilling` connects to the billing client but makes no attempt to recover pending purchases. The user's money has been taken by Google Play but they receive no coins.
+
+**FIX:** After `connectAsync()` in `initGooglePlayBilling`, call the billing library's available-purchases query (e.g., `InAppPurchases.getPurchaseHistoryAsync()` or the equivalent Google Play Billing Library call for pending purchases). For each returned purchase that is not yet consumed, replay it through the server IAP verify flow exactly as a fresh purchase would be. Guard against double-crediting with the existing `reference_id`-based coin ledger deduplication — a replayed `purchaseToken` that was already processed will be a no-op on the server.
+
+---
+
+### 11: BUG-E-03 — Expo offline sync queue processes messages sequentially — one stuck item blocks all subsequent sends
+
+**FILES:** `apps/expo/lib/offline/syncQueue.ts`
+
+`processQueue()` uses a `for...of` loop with `await` on each message send. This is a strictly sequential pipeline: message N+1 does not begin until message N completes (or times out). A single message that hits a slow endpoint, a server returning 5xx, or a network retry holds up every message queued behind it. A user who sent 5 messages while offline and one of them consistently fails (e.g., the recipient no longer exists) will never see messages 2–5 delivered until message 1 is permanently failed or manually cleared.
+
+**FIX:** Process messages concurrently up to a small limit (e.g., 3 at a time) using a concurrency-limited `Promise.allSettled` or a simple semaphore pattern. Alternatively, at minimum skip permanently-failed messages (`retry_count >= 3`) and continue processing the rest, rather than blocking on them. The current `4xx = permanent failure` logic is correct — the issue is that sequentiality propagates transient failures into indefinite blocks.
+
+---
+
+### 12: BUG-G-01 — findWarOpponent reads eligible guilds outside a transaction — two calls can double-pair the same guild
+
+**FILES:** `apps/web/lib/guilds/warEngine.ts`
+
+`findWarOpponent` queries for guilds eligible to enter a war and selects an opponent, but this read happens outside any transaction and without a row-level lock. If the war-pairing CRON triggers two concurrent calls (e.g., two guilds both seeking opponents at the same moment), both calls may read the same eligibility snapshot, both select the same third guild as an opponent, and attempt to create two different wars involving that guild — one of which will violate a constraint or silently pair the guild twice.
+
+**FIX:** Wrap the eligibility read and war INSERT in a single transaction. Use `SELECT ... FOR UPDATE SKIP LOCKED` on the candidate guild rows so concurrent calls skip guilds that another transaction is already pairing. This serialises the pairing without deadlocking: the first caller locks a guild and pairs it; the second caller skips that guild and picks from the remaining eligible set.
+
+---
+
+### 13: BUG-SE-01 — createSeasonCeremonyRoom inserts the room but no room_members row for the creator
+
+**FILES:** `apps/web/lib/seasons/seasonEngine.ts`
+
+`createSeasonCeremonyRoom` inserts a row into the `rooms` table but never inserts a corresponding row into `room_members` for the system or admin user designated as creator. Every other room-creation path in the codebase (normal room creation routes, challenge rooms, guild war rooms) follows the INSERT-room + INSERT-room_members-for-creator pattern. Without a `room_members` row, the ceremony room has zero visible members, the creator cannot send messages into it (membership check fails), the room is invisible in "my rooms" for the admin, and any invite logic that assumes at least one member exists will behave unexpectedly.
+
+**FIX:** Immediately after the `INSERT INTO rooms` call (within the same transaction), also `INSERT INTO room_members (room_id, user_id, role, joined_at) VALUES ($roomId, $adminUserId, 'admin', NOW())`. Use the same admin/system user ID that is set as the room's `created_by`. This mirrors exactly what every other room creation path does.
+
+---
+
+### 14: BUG-M-01 — Room message XP awarded at creation time, before moderation approval
+
+**FILES:** `apps/web/app/api/rooms/[roomId]/messages/route.ts`
+
+When a room has `requires_approval = true`, messages are saved with `status = 'pending'` and must be reviewed by a moderator before becoming visible. The `safeAwardXP` call for sending a room message fires immediately after the INSERT, regardless of the `requires_approval` flag. A user who sends a message that a moderator subsequently rejects earns XP for content that is never displayed. A determined user can spam pending messages across heavily-moderated rooms to farm XP with zero successful messages.
+
+**FIX:** Add an `if (room.requires_approval) return` guard before the `safeAwardXP` call in the message-creation path. Move the XP award to the moderator-approval endpoint — when a moderator approves a pending message, that action triggers `safeAwardXP` for the original sender. For rooms without `requires_approval`, the current immediate-award behaviour is correct and unchanged.
+
+---
+
+### 15: BUG-M-02 — DM coin debit has no reference_id when idempotencyKey header is absent — double-debit on client retry
+
+**FILES:** `apps/web/app/api/messages/dm/[conversationId]/route.ts`
+
+When a client sends a paid DM without an `X-Idempotency-Key` header, the `coinRefId` passed to `debitCoins` is `null`. The coin ledger's deduplication relies on a partial unique index `WHERE reference_id IS NOT NULL` — it has no effect when `reference_id` is null. If a network timeout causes the client to retry the same paid DM, and both the original and retry requests succeed on the server, coins are debited twice with no way to detect or undo the duplicate.
+
+**FIX:** Either (a) require the `X-Idempotency-Key` header for all paid DMs and return `400` if it is missing, or (b) generate a server-side idempotency key from stable attributes (e.g., `sha256(senderId + recipientId + messageContentHash + minuteBucket)`) when the header is absent. Option (a) shifts the responsibility to the client (correct and auditable); option (b) provides a best-effort fallback. Either way, `coinRefId` must never be null for a debit that can be retried.
+
+---
+
+### 16: BUG-M-03 — DM daily message count incremented in Redis before coin debit transaction commits
+
+**FILES:** `apps/web/app/api/messages/dm/[conversationId]/route.ts`
+
+`checkAndIncrementDailyCount` (atomic Redis Lua increment) is called before the database transaction that handles the coin debit and message INSERT. If the DB transaction fails for any reason (insufficient coins, connection error, constraint violation), the Redis counter has already been incremented. The user's daily message allowance is consumed even though no message was sent and no coins were taken. Repeated transient failures compound this: a user can lose their full daily DM allowance to failed transactions with no messages delivered.
+
+**FIX:** Reverse the order: execute and commit the DB transaction (coin debit + message INSERT) first, then increment the Redis counter on success. The DB transaction is the authoritative record; the Redis counter is a fast-path cache that should only advance when the underlying action commits.
+
+---
+
+### 17: BUG-M-04 — DM GET reactions aggregation returns SQL NULL for zero-reaction messages instead of an empty array
+
+**FILES:** `apps/web/app/api/messages/dm/[conversationId]/route.ts`
+
+The query that fetches DM messages uses a `json_agg(...)` aggregate for reactions without a `FILTER (WHERE r.id IS NOT NULL)` clause and without a `COALESCE(..., '[]'::json)` wrapper. PostgreSQL's `json_agg` returns SQL `NULL` (not an empty JSON array) when there are no rows to aggregate. The serialised JSON response includes `"reactions": null` for any message that has zero reactions. Web and mobile clients that call `.map()`, `.length`, or `.filter()` on `reactions` without a null guard will throw `TypeError: Cannot read properties of null` whenever a message with no reactions is rendered.
+
+**FIX:** Replace the bare `json_agg(r.*)` with `COALESCE(json_agg(r.* ORDER BY r.created_at) FILTER (WHERE r.id IS NOT NULL), '[]'::json) AS reactions`. The `FILTER (WHERE r.id IS NOT NULL)` prevents aggregating the null join row from a `LEFT JOIN` when no reactions exist, and `COALESCE(..., '[]')` ensures the column is never null. This is the standard pattern used by the room messages query in the codebase and should be mirrored here.
+
+---
+
+### 18: BUG-M-05 — Spam-blocked DM POST returns a fabricated non-UUID message id — downstream FK and format errors
+
+**FILES:** `apps/web/app/api/messages/dm/[conversationId]/route.ts`
+
+When `filterDMContent` detects spam and the DM is blocked, the route returns an HTTP 200 response with a body that includes a hard-coded placeholder `id` string (not a real UUID). The DM was never persisted, but the response looks like a successful send. Mobile clients that treat this id as a real message id and store it locally (for reply threading, read receipts, optimistic rendering, or receipt confirmation) will later hit errors: the id fails UUID format validation, fails FK lookups, and is absent from any server-side message query. The user may also be confused to see a "delivered" bubble that silently has no server record.
+
+**FIX:** Return a distinct HTTP status code for filtered/blocked content — `422 Unprocessable Entity` with `{ code: "CONTENT_FILTERED", message: "Message blocked by content filter" }` is appropriate. Do not return a 200 with a fake id. Client code should handle 422/CONTENT_FILTERED by displaying a "Message blocked" notice rather than rendering it as a sent bubble, and must not persist the response as a message record.
+
+---
+
+### 19: BUG-Q-01 — triggerActivityQuestProgress called fire-and-forget with only .catch(() => {}) — quest progress silently lost
+
+**FILES:** `apps/web/lib/quests/questEngine.ts` (called from `apps/web/app/api/rooms/[roomId]/messages/route.ts`, `apps/web/app/api/messages/dm/[conversationId]/route.ts`, gift routes, and others)
+
+`triggerActivityQuestProgress` is called without `await` in multiple hot paths (room message sends, DM sends, gift flows). The only error handling is `.catch(() => {})` — failures are silently dropped. If the DB or Redis is under pressure and these calls fail, quest progress permanently lags behind actual user activity. There is no retry, no DLQ entry, no structured log, and no alert. Users who complete activities that should unlock quest milestones or daily rewards may never receive them, with no indication anything went wrong.
+
+**FIX:** At minimum, replace `.catch(() => {})` with `.catch((err) => logger.error({ err, userId, activity }, '[questEngine] triggerActivityQuestProgress failed'))` so failures are observable. For quest progress that has direct reward consequences (XP, coins, milestone unlocks), consider adding a lightweight DLQ entry (similar to `failed_xp_awards`) so failed progress updates can be retried by the daily CRON rather than silently discarded.
+
+---
+
+### 20: BUG-C-02 — Daily-core streak CRON gives an unintended 1-day grace period — streaks should break on the missed day
+
+**FILES:** `apps/web/app/api/cron/daily-core/route.ts`
+
+The CRON runs two streak UPDATE statements:
+1. `SET streak = streak + 1 WHERE last_login_date = CURRENT_DATE` — correct, rewards users who logged in today
+2. `SET streak = 0 WHERE last_login_date < CURRENT_DATE - 1` — resets only users who missed 2+ days
+
+Users whose `last_login_date = CURRENT_DATE - 1` (logged in yesterday, not today) fall through both conditions. Their streak is neither incremented nor reset. If the CRON runs at end-of-day / midnight, these users missed today and their streak should break. Instead, it only breaks on tomorrow's CRON run, effectively giving every user a free 24-hour grace window to skip a day without losing their streak. This may be a product decision that was never made explicitly, but is currently an undocumented and untested behaviour.
+
+**FIX:** If no grace period is intended, change the reset condition to `last_login_date < CURRENT_DATE` — anyone who did not log in today gets reset. If a grace period is intentional, document it explicitly in a code comment and confirm that the streak UI communicates this to users (otherwise it appears as inconsistent behaviour). Either way, the current implicit grace period should be a conscious decision, not an accident.
+
+---
+
+### 21: BUG-N-01 — sendPushNotificationBatch deduplicates userIds for token fetch but not for message-build loop
+
+**FILES:** `apps/web/lib/notifications/push.ts`
+
+`sendPushNotificationBatch(userIds, message, ...)` creates a deduplicated set of user IDs for the database token-lookup query (correct — avoids fetching the same user's tokens twice). However, it then builds the `messages` array for the Expo push batch by iterating the original `userIds` input array, not the deduplicated set. If a caller passes the same userId twice (e.g., a bug in a notification fan-out loop that does not deduplicate its recipient list), the user's push token is fetched once but two identical push messages are built and dispatched. The user receives two identical push notifications for the same event.
+
+**FIX:** Deduplicate `userIds` at the very start of the function: `const uniqueUserIds = [...new Set(userIds)]`. Use `uniqueUserIds` for both the DB token query and the message-build loop. This ensures deduplication applies end-to-end and callers do not need to deduplicate themselves.
+
+---
+
+### 22: BUG-C-01 — guild-wars CRON selects guild_a_id and guild_b_id columns but never uses the values
+
+**FILES:** `apps/web/app/api/cron/guild-wars/route.ts`
+
+The query that fetches wars to resolve includes `guild_a_id` and `guild_b_id` in the `SELECT` list, but the loop body never references `row.guild_a_id` or `row.guild_b_id`. Only `row.id` is passed to `resolveWar`. The selected columns are dead data — they add serialisation overhead and transfer cost with no benefit. This likely reflects an intention to pass guild IDs to `resolveWar` to avoid a re-lookup inside that function, but the implementation was never completed.
+
+**FIX:** Either (a) remove `guild_a_id` and `guild_b_id` from the SELECT list (one-line fix), or (b) pass `row.guild_a_id` and `row.guild_b_id` to `resolveWar` and update its signature to accept and use them, eliminating the redundant DB lookup inside `resolveWar`. Option (b) is the correct completion of the apparent intent; option (a) is the minimal safe fix.
+
+---
+
+### 23: BUG-L-03 — Leaderboards CRON comment says "7 tracks" but TRACKS constant contains 8 entries
+
+**FILES:** `apps/web/app/api/cron/leaderboards/route.ts`
+
+The inline comment above the `TRACKS` array reads `// 7 leaderboard tracks` (or similar), but the array contains 8 entries: `main, social, creator, competitor, generosity, knowledge, explorer, gaming`. This is a documentation inconsistency with no runtime impact, but it misleads developers who rely on the comment when adding a new track and may cause off-by-one errors in any code that uses the comment as a specification rather than counting the array directly.
+
+**FIX:** Update the comment to reflect the actual count: `// 8 leaderboard tracks`. If the TRACKS array is used anywhere by count (e.g., `TRACKS.length` is asserted to equal 7 in a test), update those assertions too.
+
+---
+
+### 24: BUG-L-04 — Leaderboards CRON sends identical notification copy for rank promotions and demotions
+
+**FILES:** `apps/web/app/api/cron/leaderboards/route.ts`
+
+When the leaderboards CRON detects a rank change for a user, it fires a notification using a generic copy (e.g., "Your leaderboard rank has changed") that does not distinguish between a rank improvement (moved up) and a rank drop (moved down). A user who climbs from 50th to 20th and a user who drops from 10th to 40th both receive the same message. This is tonally inconsistent (a drop should not be congratulatory), and misses the opportunity to re-engage users who dropped with a motivational message.
+
+**FIX:** Before sending the notification, compare `newRank` vs `previousRank`. If `newRank < previousRank` (lower number = better position): send a promotion notification (e.g., "You climbed to #20 on the leaderboard 🎉"). If `newRank > previousRank` (dropped): send a demotion notification (e.g., "You dropped to #40 — keep playing to climb back up"). Use distinct `notification_type` values so the mobile app can render them with different icons/colours.
+
+---
+
+*Report generated: June 20, 2026 · 10:41 AM*
+*Scope: 100+ files manually reviewed across apps/web and apps/expo — all prior 23 bugs confirmed fixed*
+*New bugs found: 24 | No code modified during this analysis*
