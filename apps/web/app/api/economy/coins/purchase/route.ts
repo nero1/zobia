@@ -121,7 +121,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const requestId = body.clientRequestId ?? crypto.randomUUID();
     const idempotencyKey = `purchase:${userId}:${body.packId}:${requestId}`;
 
-    // 4. Check for an already-pending payment for this exact key (within 10 minutes)
+    // 4. Check for an already-completed pending payment for this exact key (within 10 minutes).
+    // Only return cached data when provider_reference is set — otherwise the payment is still
+    // being initialised by a concurrent request and we should wait for it to resolve rather
+    // than returning null payment details.
     const { rows: existingRows } = await db.query<{
       payment_url: string;
       provider_reference: string;
@@ -130,6 +133,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
        FROM payments
        WHERE idempotency_key = $1
          AND status = 'pending'
+         AND provider_reference IS NOT NULL
          AND created_at > NOW() - INTERVAL '10 minutes'
        LIMIT 1`,
       [idempotencyKey]
@@ -143,7 +147,6 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       });
     }
 
-    // 5. Initialize payment with the provider
     const returnUrl = `${env.NEXT_PUBLIC_APP_URL}/economy/purchase/callback`;
     const metadata = {
       userId,
@@ -166,24 +169,17 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       provider = manifest.payment.primaryProvider as Provider;
     }
 
-    const paymentResult = await initializePayment(
-      pack.price_kobo,
-      pack.currency,
-      email,
-      idempotencyKey,
-      metadata,
-      returnUrl,
-      provider
-    );
-
-    const metadataWithUrl = { ...metadata, payment_url: paymentResult.paymentUrl };
-
-    // 6. Persist the pending payment record
-    await db.query(
+    // 5. Persist the payment record FIRST (provider_reference NULL until the provider call
+    //    succeeds). This ensures that if the provider call succeeds but our subsequent DB
+    //    UPDATE fails, we still have an auditable record of the attempt rather than an
+    //    untracked real payment with no local record.
+    const { rows: insertRows } = await db.query<{ id: string }>(
       `INSERT INTO payments
          (user_id, payment_type, amount_kobo, currency, provider, status,
-          idempotency_key, provider_reference, metadata)
-       VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8)`,
+          idempotency_key, metadata)
+       VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7)
+       ON CONFLICT (idempotency_key) DO NOTHING
+       RETURNING id`,
       [
         userId,
         'coin_purchase',
@@ -191,9 +187,42 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         pack.currency,
         provider,
         idempotencyKey,
-        paymentResult.providerReference,
-        JSON.stringify(metadataWithUrl),
+        JSON.stringify(metadata),
       ]
+    );
+
+    const paymentDbId = insertRows[0]?.id;
+
+    // 6. Initialize payment with the provider
+    let paymentResult: { paymentUrl: string; providerReference: string };
+    try {
+      paymentResult = await initializePayment(
+        pack.price_kobo,
+        pack.currency,
+        email,
+        idempotencyKey,
+        metadata,
+        returnUrl,
+        provider
+      );
+    } catch (providerErr) {
+      // Provider call failed — mark the record so it is not retried as 'pending'
+      if (paymentDbId) {
+        await db.query(
+          `UPDATE payments SET status = 'failed' WHERE id = $1`,
+          [paymentDbId]
+        ).catch(() => {});
+      }
+      throw providerErr;
+    }
+
+    // 7. Stamp the provider reference and payment URL onto the record
+    const metadataWithUrl = { ...metadata, payment_url: paymentResult.paymentUrl };
+    await db.query(
+      `UPDATE payments
+       SET provider_reference = $1, metadata = $2
+       WHERE id = $3`,
+      [paymentResult.providerReference, JSON.stringify(metadataWithUrl), paymentDbId]
     );
 
     return NextResponse.json({

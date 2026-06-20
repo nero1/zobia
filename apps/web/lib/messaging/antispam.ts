@@ -52,9 +52,11 @@ export const EMAIL_REGEX =
  *  - http://sub.domain.co.uk
  *  - www.example.com
  *  - ftp://files.example.com
+ *  - https://xn--bcher-kva.example (Punycode/IDN encoded domains)
+ *  - xn--p1ai.xn--p1ai (fully Punycode TLD)
  */
 export const URL_REGEX =
-  /(?:https?|ftp):\/\/[^\s/$.?#].[^\s]*|www\.[a-zA-Z0-9\-]+\.[a-zA-Z]{2,}(?:\/[^\s]*)?|\b[a-zA-Z0-9\-]+\.(?:com|org|net|io|co|uk|ng|app|dev|xyz|info|biz|me|tv|us|ca|au|de|fr|jp|in|br|ru|cn|ai)\b(?:\/[^\s]*)?/gi;
+  /(?:https?|ftp):\/\/[^\s/$.?#].[^\s]*|www\.[a-zA-Z0-9\-]+\.[a-zA-Z0-9\-]{2,}(?:\/[^\s]*)?|\b(?:xn--[a-zA-Z0-9\-]+|[a-zA-Z0-9\-]+)\.(?:xn--[a-zA-Z0-9\-]+|com|org|net|io|co|uk|ng|app|dev|xyz|info|biz|me|tv|us|ca|au|de|fr|jp|in|br|ru|cn|ai)\b(?:\/[^\s]*)?/gi;
 
 // ---------------------------------------------------------------------------
 // Internal helpers

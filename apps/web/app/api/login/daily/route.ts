@@ -89,11 +89,15 @@ interface UserStreakRow {
  * Idempotent: safe to call multiple times per day.
  */
 export const POST = withAuth(async (req: NextRequest, { auth }: { params: Record<string, string>; auth: AuthContext }) => {
+  // Declared outside try so the catch block can delete it if the DB transaction fails.
+  // Without cleanup, a failed transaction would leave the key set for the full TTL,
+  // blocking the user from retrying their daily login claim.
+  let redisKey: string | null = null;
   try {
     const userId = auth.user.sub;
     const today = todayUTC();
     const yesterday = yesterdayUTC();
-    const redisKey = dailyLoginRedisKey(userId, today);
+    redisKey = dailyLoginRedisKey(userId, today);
 
     // Set idempotency key atomically BEFORE the transaction (NX ensures only one wins under concurrency)
     const acquired = await redis.set(redisKey, "1", "EX", DAILY_LOGIN_KEY_TTL_SECONDS, "NX");
@@ -237,6 +241,9 @@ export const POST = withAuth(async (req: NextRequest, { auth }: { params: Record
       error: null,
     });
   } catch (err) {
+    // If the DB transaction failed after we set the Redis key, delete it so the
+    // user can retry their daily login claim without waiting for the TTL to expire.
+    if (redisKey) await redis.del(redisKey).catch(() => {});
     return handleApiError(err);
   }
 });

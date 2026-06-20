@@ -15,7 +15,7 @@
  * Tracks: main | social | creator | competitor | generosity | knowledge | explorer
  */
 
-import type { DatabaseAdapter } from "@/lib/db/interface";
+import type { DatabaseAdapter, TransactionClient } from "@/lib/db/interface";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -215,7 +215,7 @@ export async function getLeaderboard(
 
   const { rows } = await db.query<RawRow>(
     `SELECT
-       ROW_NUMBER() OVER (ORDER BY ls.xp_value DESC NULLS LAST) AS rank,
+       ROW_NUMBER() OVER (ORDER BY ls.xp_value DESC NULLS LAST, ls.user_id ASC) AS rank,
        ls.user_id,
        u.username,
        u.display_name,
@@ -227,7 +227,7 @@ export async function getLeaderboard(
      FROM leaderboard_snapshots ls
      JOIN users u ON u.id = ls.user_id
      ${where}
-     ORDER BY ls.xp_value DESC NULLS LAST
+     ORDER BY ls.xp_value DESC NULLS LAST, ls.user_id ASC
      LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
     [...params, pageSize, offset]
   );
@@ -366,7 +366,7 @@ export async function upsertLeaderboardSnapshot(
   userId: string,
   track: LeaderboardTrack,
   xpValue: number,
-  db: DatabaseAdapter,
+  db: DatabaseAdapter | TransactionClient,
   options?: { scope?: string; city?: string; seasonId?: string }
 ): Promise<void> {
   const scope = options?.scope ?? "global";

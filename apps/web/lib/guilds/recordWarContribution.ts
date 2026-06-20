@@ -30,40 +30,43 @@ export async function recordWarContribution(
   db: DatabaseAdapter
 ): Promise<void> {
   try {
-    // Find the user's guild and whether it's in an active/final_hour war right now
-    const { rows } = await db.query<{
-      war_id: string;
-      guild_id: string;
-      status: 'active' | 'final_hour';
-      is_challenger: boolean;
-    }>(
-      `SELECT gw.id AS war_id,
-              gm.guild_id,
-              gw.status,
-              (gw.challenger_guild_id = gm.guild_id) AS is_challenger
-       FROM guild_members gm
-       JOIN guild_wars gw
-         ON (gw.challenger_guild_id = gm.guild_id OR gw.defender_guild_id = gm.guild_id)
-       WHERE gm.user_id = $1
-         AND gm.left_at IS NULL
-         AND gw.status IN ('active', 'final_hour')
-         AND gw.starts_at <= NOW()
-         AND gw.ends_at > NOW()
-       LIMIT 1`,
-      [userId]
-    );
-
-    // User is not in any active war; nothing to record
-    if (rows.length === 0) return;
-
-    const { war_id, guild_id, status, is_challenger } = rows[0];
-
-    // Calculate war points for this activity (doubled in Final Hour)
-    const pts = calculateWarPoints(activity, status === 'final_hour');
-
-    // Atomically upsert member contribution and update guild-level totals.
-    // Both writes must succeed together — a partial update would corrupt war scores.
+    // The status check and the contribution writes must happen inside the same
+    // transaction. Without this, a concurrent resolveWar call can resolve the war
+    // between the status SELECT and the contribution INSERT (TOCTOU race).
     await db.transaction(async (tx) => {
+      // Find and lock the user's guild war row inside the transaction so a
+      // concurrent resolveWar cannot change the status between the check and write.
+      const { rows } = await tx.query<{
+        war_id: string;
+        guild_id: string;
+        status: 'active' | 'final_hour';
+        is_challenger: boolean;
+      }>(
+        `SELECT gw.id AS war_id,
+                gm.guild_id,
+                gw.status,
+                (gw.challenger_guild_id = gm.guild_id) AS is_challenger
+         FROM guild_members gm
+         JOIN guild_wars gw
+           ON (gw.challenger_guild_id = gm.guild_id OR gw.defender_guild_id = gm.guild_id)
+         WHERE gm.user_id = $1
+           AND gm.left_at IS NULL
+           AND gw.status IN ('active', 'final_hour')
+           AND gw.starts_at <= NOW()
+           AND gw.ends_at > NOW()
+         LIMIT 1
+         FOR UPDATE OF gw`,
+        [userId]
+      );
+
+      // User is not in any active war; nothing to record
+      if (rows.length === 0) return;
+
+      const { war_id, guild_id, status, is_challenger } = rows[0];
+
+      // Calculate war points for this activity (doubled in Final Hour)
+      const pts = calculateWarPoints(activity, status === 'final_hour');
+
       await tx.query(
         `INSERT INTO war_contributions (war_id, user_id, guild_id, war_points, created_at, updated_at)
          VALUES ($1, $2, $3, $4, NOW(), NOW())

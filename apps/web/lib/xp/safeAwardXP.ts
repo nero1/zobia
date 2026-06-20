@@ -91,13 +91,15 @@ export async function safeAwardXP(
       [userId, amount, track, source, referenceId ?? null]
     );
 
-    // BUG-02: update leaderboard snapshot whenever XP is awarded
+    // BUG-02: update leaderboard snapshot whenever XP is awarded.
+    // Use `client` (not globalDb) so the snapshot update participates in the
+    // caller's transaction and is rolled back together if the transaction fails.
     if (rows[0]) {
       const xpTotal = Number(rows[0].xp_total);
       const trackXP = col === "xp_total" ? xpTotal : Number(rows[0][col]);
-      await upsertLeaderboardSnapshot(userId, "main", xpTotal, globalDb).catch(() => {});
+      await upsertLeaderboardSnapshot(userId, "main", xpTotal, client).catch(() => {});
       if (track !== "main") {
-        await upsertLeaderboardSnapshot(userId, track as LeaderboardTrack, trackXP, globalDb).catch(() => {});
+        await upsertLeaderboardSnapshot(userId, track as LeaderboardTrack, trackXP, client).catch(() => {});
       }
     }
   } catch (err) {

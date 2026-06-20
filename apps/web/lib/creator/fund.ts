@@ -217,50 +217,49 @@ export async function calculateFundDistributions(
 // ---------------------------------------------------------------------------
 
 export async function distributeCreatorFund(poolKobo: number): Promise<number> {
-  // FIX-M04: acquire a PostgreSQL advisory lock so concurrent CRON invocations
-  // cannot both read zero existing distributions and both distribute (double-payout).
-  // hashtext('distributeCreatorFund') = stable integer key for this function.
-  const { rows: lockRows } = await db.query<{ acquired: boolean }>(
-    `SELECT pg_try_advisory_lock(hashtext('distributeCreatorFund')) AS acquired`
-  );
-  if (!lockRows[0]?.acquired) {
-    // Another CRON instance is running — skip silently.
-    return 0;
-  }
+  // Use a transaction-level advisory lock (pg_try_advisory_xact_lock) acquired INSIDE
+  // the transaction so PostgreSQL releases it automatically when the transaction ends.
+  // Session-level pg_try_advisory_lock acquired on a pool connection and unlocked in a
+  // finally block is unsafe: the pool may assign a different connection for the unlock,
+  // leaving the lock permanently held until the original connection is recycled.
+  const distributions = await calculateFundDistributions(poolKobo);
+  if (distributions.length === 0) return 0;
 
-  try {
-    const distributions = await calculateFundDistributions(poolKobo);
-    if (distributions.length === 0) return 0;
+  const period = new Date().toISOString().slice(0, 7); // YYYY-MM
+  let distributed = 0;
 
-    const period = new Date().toISOString().slice(0, 7); // YYYY-MM
+  await db.transaction(async (tx) => {
+    // Acquire transaction-level advisory lock — auto-released when the transaction commits
+    // or rolls back. If another instance holds the lock, we skip this run silently.
+    const { rows: lockRows } = await tx.query<{ acquired: boolean }>(
+      `SELECT pg_try_advisory_xact_lock(hashtext('distributeCreatorFund')) AS acquired`
+    );
+    if (!lockRows[0]?.acquired) return;
 
-    await db.transaction(async (tx) => {
-      // Idempotency guard — if any distribution for this period already exists, skip.
-      const { rows: existing } = await tx.query<{ count: string }>(
-        `SELECT COUNT(*)::TEXT AS count FROM creator_earnings
-         WHERE source_type = 'creator_fund' AND reference_id LIKE $1`,
-        [`fund:${period}:%`]
+    // Idempotency guard — if any distribution for this period already exists, skip.
+    const { rows: existing } = await tx.query<{ count: string }>(
+      `SELECT COUNT(*)::TEXT AS count FROM creator_earnings
+       WHERE source_type = 'creator_fund' AND reference_id LIKE $1`,
+      [`fund:${period}:%`]
+    );
+    if (parseInt(existing[0]?.count ?? '0', 10) > 0) return;
+
+    for (const dist of distributions) {
+      await tx.query(
+        `INSERT INTO creator_earnings
+           (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo, reference_id)
+         VALUES ($1, 'creator_fund', $2, 0, $2, $3)`,
+        [dist.creatorId, dist.amountKobo, `fund:${period}:rank${dist.rank}`]
       );
-      if (parseInt(existing[0]?.count ?? '0', 10) > 0) return;
+      await tx.query(
+        `UPDATE users SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1,
+                          updated_at = NOW()
+         WHERE id = $2`,
+        [dist.amountKobo, dist.creatorId]
+      );
+    }
+    distributed = distributions.length;
+  });
 
-      for (const dist of distributions) {
-        await tx.query(
-          `INSERT INTO creator_earnings
-             (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo, reference_id)
-           VALUES ($1, 'creator_fund', $2, 0, $2, $3)`,
-          [dist.creatorId, dist.amountKobo, `fund:${period}:rank${dist.rank}`]
-        );
-        await tx.query(
-          `UPDATE users SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1,
-                            updated_at = NOW()
-           WHERE id = $2`,
-          [dist.amountKobo, dist.creatorId]
-        );
-      }
-    });
-
-    return distributions.length;
-  } finally {
-    await db.query(`SELECT pg_advisory_unlock(hashtext('distributeCreatorFund'))`).catch(() => {});
-  }
+  return distributed;
 }

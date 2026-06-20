@@ -409,7 +409,7 @@ export const ACCESS_TOKEN_COOKIE = "zobia_at";
 export function buildCookieHeaders(
   tokens: AuthTokens,
   secure = process.env.NODE_ENV === "production",
-  refreshTtl: number = REFRESH_TOKEN_TTL_SECONDS
+  refreshTtl: number = tokens.refreshTtl
 ): { accessCookie: string; refreshCookie: string } {
   const flags = `HttpOnly; Path=/; SameSite=Lax${secure ? "; Secure" : ""}`;
 
