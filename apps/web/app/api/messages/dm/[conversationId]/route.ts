@@ -263,7 +263,7 @@ export const GET = withAuth(
         );
         if (recipientRows[0]) {
           const r = recipientRows[0];
-          const replyCost = getDMCost(r.plan as Plan, false);
+          const replyCost = getDMCost(r.plan as Plan, false) ?? 0;
           recipientCanReply = r.coin_balance >= replyCost;
 
           // Also compute the DM cost for the current user
@@ -272,7 +272,7 @@ export const GET = withAuth(
             [auth.user.sub]
           );
           const senderPlan = senderRows[0]?.plan ?? "free";
-          const myDmCost = getDMCost(senderPlan, false);
+          const myDmCost = getDMCost(senderPlan, false) ?? 0;
 
           conversationMeta = {
             conversationId,
@@ -423,7 +423,7 @@ export const POST = withAuth(
       }
 
       // 4. Coin cost (always a reply since conversation exists)
-      const coinCost = getDMCost(sender.plan, false);
+      const coinCost = getDMCost(sender.plan, false) ?? 0;
       if (coinCost > 0 && sender.coin_balance < coinCost && !sender.is_admin) {
         throw conflict(`Insufficient coins. This message costs ${coinCost} coin(s).`, "INSUFFICIENT_COINS");
       }

@@ -14,6 +14,7 @@
 
 import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -197,16 +198,21 @@ export async function updateConversationScore(
   const newStickerUnlocks: string[] = [];
   for (const su of STICKER_UNLOCK_THRESHOLDS) {
     if (previousScore < su.threshold && result.score >= su.threshold) {
-      newStickerUnlocks.push(su.packName);
-      // Persist the unlock and grant the sticker pack to both users (best-effort).
-      // BUG-SK-01 fix: query the pack first so we never consume the threshold
-      // without being able to grant the reward (if pack is missing we skip entirely).
+      // BUG-SK-01 fix: query the pack FIRST. Only consume the unlock threshold
+      // (insert into dm_score_sticker_unlocks) if the pack exists in the DB.
+      // If the pack is missing, log the misconfiguration and skip so the threshold
+      // can fire again once the pack is seeded.
       try {
         const { rows: packRows } = await db.query<{ id: string }>(
           `SELECT id FROM sticker_packs WHERE name = $1 LIMIT 1`,
           [su.packName]
         );
-        if (packRows[0]) {
+        if (!packRows[0]) {
+          logger.error(
+            { packName: su.packName, u1, u2 },
+            "[conversationScore] Sticker pack not found in DB — unlock threshold not consumed; will retry once pack is seeded"
+          );
+        } else {
           await db.query(
             `INSERT INTO dm_score_sticker_unlocks
                (user_id_1, user_id_2, pack_name, unlocked_at)
@@ -220,6 +226,7 @@ export async function updateConversationScore(
              ON CONFLICT (user_id, pack_id) DO NOTHING`,
             [u1, packRows[0].id, u2]
           );
+          newStickerUnlocks.push(su.packName);
         }
       } catch {
         // Non-fatal

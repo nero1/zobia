@@ -1,5 +1,5 @@
--- Migration 0020: Schema cleanup
--- Addresses: BUG-PU-01, BUG-SC-01, BUG-SC-02, BUG-SC-03
+-- Migration 0020: Schema cleanup + city leaderboard backfill
+-- Addresses: BUG-PU-01, BUG-SC-01, BUG-SC-02, BUG-SC-03, BUG-LB-01 (backfill)
 
 -- BUG-PU-01: Add device_id to user_push_tokens for per-device token deduplication
 ALTER TABLE user_push_tokens
@@ -25,3 +25,24 @@ ALTER TABLE xp_ledger
   DROP COLUMN IF EXISTS description,
   DROP COLUMN IF EXISTS ceremony_room_id,
   DROP COLUMN IF EXISTS metadata;
+
+-- BUG-LB-01: One-time backfill of city-scoped leaderboard snapshots.
+-- safeAwardXP now upserts city snapshots on every XP award, but existing users
+-- have no city rows. This inserts city-scoped rows for all eight tracks for
+-- every user that has a non-null city and existing global snapshot entries.
+INSERT INTO leaderboard_snapshots (user_id, track, scope, city, season_id, xp_value, updated_at)
+SELECT
+  ls.user_id,
+  ls.track,
+  'city'           AS scope,
+  u.city,
+  ls.season_id,
+  ls.xp_value,
+  NOW()            AS updated_at
+FROM leaderboard_snapshots ls
+JOIN users u ON u.id = ls.user_id
+WHERE ls.scope = 'global'
+  AND u.city IS NOT NULL
+  AND u.deleted_at IS NULL
+ON CONFLICT (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))
+DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW();

@@ -85,15 +85,26 @@ function notifyUserUpdated(userJson: string): void {
 // Axios instance
 // ---------------------------------------------------------------------------
 
-/** Shared Axios instance for all Zobia API calls. */
+/**
+ * Shared Axios instance for all Zobia API calls.
+ *
+ * IMPORTANT — CSRF Origin requirement:
+ * The server-side CSRF middleware (`apps/web/middleware.ts`) requires all
+ * mutation requests (POST/PUT/PATCH/DELETE) to carry an `Origin` header
+ * matching the API base URL. Mobile HTTP clients do NOT send Origin
+ * automatically, so every own-API call MUST go through this client (which
+ * sets Origin as a default header) OR use the native fetch patched in
+ * `apps/expo/app/_layout.tsx` (which injects Origin for API_BASE_URL calls).
+ *
+ * DO NOT use raw `fetch()` for own-API mutations outside of _layout.tsx
+ * bootstrap code — use `apiClient` instead.
+ */
 export const apiClient = axios.create({
   baseURL: `${env.API_BASE_URL}/api`,
   timeout: 15_000,
   headers: {
     'Content-Type': 'application/json',
     Accept: 'application/json',
-    // Mobile HTTP clients don't send Origin automatically; set it explicitly so
-    // the server-side CSRF origin check accepts requests from the app.
     Origin: env.API_BASE_URL,
   },
 });

@@ -163,8 +163,13 @@ const RL_MEM_TTL_MS = 2_000;
 
 /**
  * Fraction of the limit below which we can safely skip the Redis round-trip.
- * BUG-16: lowered from 0.7 to 0.4; BUG-RL-01: further lowered to 0.25 so
- * the maximum multi-instance overage is capped at ~75% instead of ~120%.
+ * BUG-16: lowered from 0.7 to 0.4; BUG-RL-01: further lowered to 0.25.
+ *
+ * Multi-instance overage formula: N × L1% × limit
+ * At 0.25 with N=3 serverless instances: each instance allows up to 25% of the
+ * limit before hitting Redis. Burst headroom = 3 × 0.25 × limit = 75% of limit
+ * before Redis cuts in. This is a defense-in-depth trade-off between latency
+ * (Redis round-trips) and accuracy. For zero-tolerance endpoints use bypassL1: true.
  */
 const RL_SKIP_THRESHOLD = 0.25;
 
