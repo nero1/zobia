@@ -312,12 +312,15 @@ export const GET = async (req: NextRequest) => {
       }
 
       // Step B: Resolve wars running >= 7 days
+      // RACE-02: Use FOR UPDATE inside a transaction to prevent concurrent CRON
+      // runs from double-resolving the same war.
       const { rows: activeWars } = await db.query<{
         id: string; alliance_1_id: string; alliance_2_id: string; started_at: string;
       }>(
         `SELECT id, alliance_1_id, alliance_2_id, started_at
          FROM alliance_wars
-         WHERE status = 'active' AND started_at <= NOW() - INTERVAL '7 days'`
+         WHERE status = 'active' AND started_at <= NOW() - INTERVAL '7 days'
+         FOR UPDATE`
       );
 
       let warsResolved = 0;
@@ -329,7 +332,8 @@ export const GET = async (req: NextRequest) => {
            FROM xp_ledger xl
            JOIN guild_members gm ON gm.user_id = xl.user_id
            JOIN guild_alliance_members gam ON gam.guild_id = gm.guild_id
-           WHERE gam.alliance_id IN ($1, $2) AND xl.created_at >= $3 AND gm.left_at IS NULL
+           WHERE gam.alliance_id IN ($1, $2) AND xl.created_at >= $3
+             AND (gm.left_at IS NULL OR gm.left_at > $3)
            GROUP BY gam.alliance_id`,
           [war.alliance_1_id, war.alliance_2_id, war.started_at]
         );
@@ -605,20 +609,27 @@ export const GET = async (req: NextRequest) => {
   // SYS-02 + SYS-04: Ledger reconciliation + circuit metrics (parallel, disjoint tables)
   const [reconcileResult, circuitResult] = await Promise.allSettled([
     (async () => {
+      // PERF-03: Limit reconciliation to recently active users (last 30 days) to
+      // avoid a full-table scan on large user bases. Stale accounts are reconciled
+      // lazily the next time they become active.
       const [coinDisc, starDisc] = await Promise.all([
         db.query<{ user_id: string; ledger_sum: string; wallet_balance: string }>(
           `SELECT cl.user_id, SUM(cl.amount)::bigint AS ledger_sum, u.coin_balance AS wallet_balance
            FROM coin_ledger cl JOIN users u ON u.id = cl.user_id
            WHERE u.deleted_at IS NULL
+             AND u.updated_at > NOW() - INTERVAL '30 days'
            GROUP BY cl.user_id, u.coin_balance
-           HAVING SUM(cl.amount) <> u.coin_balance`
+           HAVING SUM(cl.amount) <> u.coin_balance
+           LIMIT 10000`
         ),
         db.query<{ user_id: string; ledger_sum: string; wallet_balance: string }>(
           `SELECT sl.user_id, SUM(sl.amount)::bigint AS ledger_sum, u.star_balance AS wallet_balance
            FROM star_ledger sl JOIN users u ON u.id = sl.user_id
            WHERE u.deleted_at IS NULL
+             AND u.updated_at > NOW() - INTERVAL '30 days'
            GROUP BY sl.user_id, u.star_balance
-           HAVING SUM(sl.amount) <> u.star_balance`
+           HAVING SUM(sl.amount) <> u.star_balance
+           LIMIT 10000`
         ),
       ]);
 
@@ -664,6 +675,17 @@ export const GET = async (req: NextRequest) => {
     errors.push(`ledgerReconciliation: ${String(reconcileResult.reason)}`);
   }
   results.circuitMetrics = circuitResult.status === "fulfilled" ? circuitResult.value : [];
+
+  // SCHEMA-02: Prune expired sessions older than refresh token lifetime (30 days)
+  try {
+    await db.query(
+      `DELETE FROM sessions
+       WHERE expires_at < NOW() - INTERVAL '1 day'
+       LIMIT 10000`
+    );
+  } catch (err) {
+    console.warn('[daily-platform] Failed to prune expired sessions:', err);
+  }
 
   return NextResponse.json({
     success: errors.length === 0,

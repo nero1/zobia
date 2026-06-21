@@ -22,6 +22,24 @@ import type { DatabaseAdapter } from "@/lib/db/interface";
 const NEMESIS_XP_TOLERANCE = 0.10;
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async function withConcurrency<T>(
+  items: T[],
+  fn: (item: T) => Promise<void>,
+  concurrency: number
+): Promise<void> {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += concurrency) {
+    chunks.push(items.slice(i, i + concurrency));
+  }
+  for (const chunk of chunks) {
+    await Promise.allSettled(chunk.map(fn));
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -181,14 +199,15 @@ export async function refreshNemesisAssignments(
   let updated = 0;
   let failed = 0;
 
-  for (const { user_id } of usersResult.rows) {
+  const userIds1 = usersResult.rows.map(r => r.user_id);
+  await withConcurrency(userIds1, async (user_id) => {
     try {
       const result = await assignNemesis(user_id, db);
       if (result) updated++;
     } catch {
       failed++;
     }
-  }
+  }, 10);
 
   // Also assign nemeses to active users who don't have one — BUG-11: filter by is_active, not dismissed_at
   const unassignedResult = await db.query<{ id: string }>(
@@ -202,14 +221,15 @@ export async function refreshNemesisAssignments(
     []
   );
 
-  for (const { id } of unassignedResult.rows) {
+  const userIds2 = unassignedResult.rows.map(r => r.id);
+  await withConcurrency(userIds2, async (id) => {
     try {
       const result = await assignNemesis(id, db);
       if (result) updated++;
     } catch {
       failed++;
     }
-  }
+  }, 10);
 
   return { updated, failed };
 }

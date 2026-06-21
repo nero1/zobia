@@ -167,7 +167,8 @@ export async function processChargeSuccess(
         await tx.query(
           `INSERT INTO creator_earnings
              (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo, reference_id)
-           VALUES ($1, 'subscription', $2, $3, $4, $5)`,
+           VALUES ($1, 'subscription', $2, $3, $4, $5)
+           ON CONFLICT (creator_id, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
           [creator.creator_id, subGrossKobo ?? amount, platformFeeKobo, netKobo, paymentId]
         );
         await tx.query(
@@ -363,7 +364,7 @@ export async function processTransferEvent(
 ): Promise<void> {
   const { reference, status, transfer_code } = event.data;
 
-  // Look up payout by provider_reference (transfer_code stored at initiation)
+  // Look up payout by provider_reference (merchant reference stored at initiation)
   const { rows } = await db.query<{
     id: string;
     creator_id: string;
@@ -375,11 +376,11 @@ export async function processTransferEvent(
      FROM creator_payouts
      WHERE provider_reference = $1
      LIMIT 1`,
-    [transfer_code ?? reference]
+    [reference]
   );
 
   if (!rows[0]) {
-    console.warn(`[webhook/paystack] No payout found for transfer reference: ${transfer_code ?? reference}`);
+    console.warn(`[webhook/paystack] No payout found for transfer reference: ${reference}`);
     return;
   }
 

@@ -72,7 +72,7 @@ export async function GET(req: NextRequest) {
         // (non-deleted, non-banned) users resolve.
         const { rows } = await db.query<{ id: string; username: string }>(
           `SELECT id, username FROM users
-           WHERE username = $1 AND deleted_at IS NULL AND is_banned = FALSE
+           WHERE username = $1 AND deleted_at IS NULL AND COALESCE(is_banned, false) = false
            LIMIT 1`,
           [identifier]
         );

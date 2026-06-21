@@ -58,6 +58,9 @@ const SUBSCRIPTION_PRODUCTS: Record<string, { plan: string; monthlyCoins: number
 const GOOGLE_PLAY_API_BASE =
   "https://androidpublisher.googleapis.com/androidpublisher/v3/applications";
 
+/** Expected Android package name — rejects tokens from other Google Play apps. */
+const EXPECTED_PACKAGE_NAME = process.env.GOOGLE_PLAY_PACKAGE_NAME ?? "com.zobia.app";
+
 // ---------------------------------------------------------------------------
 // Schema
 // ---------------------------------------------------------------------------
@@ -430,6 +433,15 @@ async function verifyAndActivateSubscription(
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const body = await validateBody(req, verifyIapSchema);
+
+    // IAP-01: validate packageName against expected bundle ID
+    if (body.packageName !== EXPECTED_PACKAGE_NAME) {
+      throw badRequest(
+        `Invalid packageName: expected ${EXPECTED_PACKAGE_NAME}`,
+        "INVALID_PACKAGE_NAME"
+      );
+    }
+
     const userId = auth.user.sub;
 
     // Rate-limit per user to prevent purchase-token replay flooding.

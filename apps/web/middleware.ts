@@ -20,6 +20,22 @@ import { type NextRequest, NextResponse } from "next/server";
 import { verifyAccessToken } from "@/lib/auth/jwt";
 
 // ---------------------------------------------------------------------------
+// Security helpers
+// ---------------------------------------------------------------------------
+
+function timingSafeStringEqual(a: string, b: string): boolean {
+  const aBytes = new TextEncoder().encode(a);
+  const bBytes = new TextEncoder().encode(b);
+  // Compare as equal-length, always iterate full length
+  const len = Math.max(aBytes.length, bBytes.length);
+  let result = aBytes.length === bBytes.length ? 0 : 1;
+  for (let i = 0; i < len; i++) {
+    result |= (aBytes[i] ?? 0) ^ (bBytes[i] ?? 0);
+  }
+  return result === 0;
+}
+
+// ---------------------------------------------------------------------------
 // CSP nonce helpers
 // ---------------------------------------------------------------------------
 
@@ -200,8 +216,9 @@ function isCsrfSafe(request: NextRequest): boolean {
     // No Origin header — only allow specific CRON paths with the CRON secret header
     const isCronPath = request.nextUrl.pathname.startsWith("/api/cron/");
     const authHeader = request.headers.get("authorization") ?? "";
-    const hasCronSecret = !!process.env.CRON_SECRET &&
-      authHeader === `Bearer ${process.env.CRON_SECRET}`;
+    const cronSecret = process.env.CRON_SECRET;
+    const hasCronSecret = !!cronSecret &&
+      timingSafeStringEqual(authHeader, `Bearer ${cronSecret}`);
     return isCronPath && hasCronSecret;
   }
 
@@ -209,7 +226,10 @@ function isCsrfSafe(request: NextRequest): boolean {
   const requestOrigin = new URL(request.url).origin;
 
   // Allow requests from our own origin or configured app URL
-  return origin === requestOrigin || (appUrl !== "" && origin === appUrl);
+  const expoOrigin = process.env.EXPO_ORIGIN ?? "";
+  return origin === requestOrigin ||
+    (appUrl !== "" && origin === appUrl) ||
+    (expoOrigin !== "" && origin === expoOrigin);
 }
 
 // ---------------------------------------------------------------------------

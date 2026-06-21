@@ -84,7 +84,7 @@ export const GET = async (req: NextRequest) => {
                SELECT ls.user_id, ROW_NUMBER() OVER (ORDER BY ls.xp_value DESC) AS rank
                FROM leaderboard_snapshots ls JOIN users u ON u.id = ls.user_id
                WHERE ls.season_id = $1 AND ls.scope = 'season' AND u.deleted_at IS NULL
-             ) ls WHERE ls.rank BETWEEN 11 AND 100
+             ) ls WHERE ls.rank <= 100
              ON CONFLICT (user_id, badge_key) WHERE badge_key IS NOT NULL DO NOTHING`,
             [season.id]
           ).catch(() => {});

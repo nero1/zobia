@@ -21,37 +21,9 @@ export const maxDuration = 10;
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { timingSafeEqual } from "crypto";
 import { db } from "@/lib/db";
 import { resolveWar } from "@/lib/guilds/warEngine";
-
-// ---------------------------------------------------------------------------
-// Auth
-// ---------------------------------------------------------------------------
-
-function isValidSecret(provided: string, expected: string): boolean {
-  if (!provided || !expected) return false;
-  try {
-    const a = Buffer.from(provided);
-    const b = Buffer.from(expected);
-    if (a.length !== b.length) return false;
-    return timingSafeEqual(a, b);
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Validates the CRON secret from the Authorization header.
- * Returns true only when the header matches CRON_SECRET exactly.
- */
-function validateCronSecret(req: NextRequest): boolean {
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) return false;
-  const authHeader = req.headers.get("authorization");
-  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : "";
-  return isValidSecret(token, cronSecret);
-}
+import { validateCronSecret } from "@/lib/cron/auth";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -124,11 +96,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         // ensures ON CONFLICT deduplicates CRON re-runs (BUG-NOTIF-02).
         const userIds = membersResult.rows.map((r) => r.user_id);
         if (userIds.length > 0) {
-          // Batch insert notifications (one per member)
+          // Batch insert notifications (one per member) using modern title/body/metadata format
           const values = userIds
             .map(
               (_, i) =>
-                `($${i * 5 + 1}, $${i * 5 + 2}, $${i * 5 + 3}, $${i * 5 + 4}, $${i * 5 + 5})`
+                `($${i * 6 + 1}, $${i * 6 + 2}, $${i * 6 + 3}, $${i * 6 + 4}, $${i * 6 + 5}::jsonb, $${i * 6 + 6})`
             )
             .join(", ");
           const params: (string | boolean)[] = [];
@@ -136,13 +108,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
             params.push(
               userId,
               "guild_war_final_hour",
+              "⚔️ Final Hour!",
+              "Your guild's war is entering the final hour! Give it everything you've got.",
               JSON.stringify({ war_id: war.id }),
-              false,
               `guild_war_final_hour:${war.id}`
             );
           }
           await db.query(
-            `INSERT INTO notifications (user_id, type, payload, is_read, reference_id)
+            `INSERT INTO notifications (user_id, type, title, body, metadata, reference_id)
              VALUES ${values}
              ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
             params
@@ -251,12 +224,16 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // Three separate UPDATEs replace the previous per-guild N+1 loop:
   //   A) Reset guilds that recovered above their tier minimum.
   //   C) Downgrade guilds that have been below-minimum for 7+ days and notify.
-  //   B) Increment below_minimum_days for guilds still below (not yet at 7).
+  //   B) Stamp below_min_since for guilds newly below minimum (first time only).
   //
-  // ORDER MATTERS: downgrade (C) runs BEFORE increment (B). C and B are mutually
-  // exclusive only on the *original* below_minimum_days value (via the `+1`
-  // threshold). If B ran first it would bump a guild from e.g. 5→6, and C would
-  // then see 6 and downgrade it a day early. Running C first preserves correctness.
+  // GUILD-01: consolidated to use below_min_since (timestamp) — the canonical
+  // column also used by daily-guilds — instead of below_minimum_days (integer).
+  // Date math on the timestamp replaces the daily-increment counter pattern.
+  //
+  // ORDER MATTERS: downgrade (C) runs BEFORE stamp (B). Guilds C just downgraded
+  // have below_min_since reset to NULL, so B will re-stamp them at NOW() if they
+  // are still below their (now lower) tier minimum — a fresh countdown at day 0,
+  // which is correct for an understaffed guild.
   //
   // Tier minimums: bronze=5, silver=10, gold=15, platinum=20, legend=25
   // -------------------------------------------------------------------------
@@ -286,20 +263,20 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   let guildTierDowngrades = 0;
 
   try {
-    // A) Reset healthy guilds
+    // A) Reset healthy guilds — clear below_min_since when back above minimum
     await db.query(
       `UPDATE guilds g
-       SET below_minimum_days = 0, updated_at = NOW()
+       SET below_min_since = NULL, updated_at = NOW()
        WHERE g.deleted_at IS NULL AND g.is_active = TRUE
-         AND g.below_minimum_days > 0
+         AND g.below_min_since IS NOT NULL
          AND (
            SELECT COUNT(*) FROM guild_members gm
            WHERE gm.guild_id = g.id AND gm.left_at IS NULL
          ) >= ${TIER_MIN_CASE}`
     );
 
-    // C) Downgrade guilds at exactly 7 days below-minimum, notify captains
-    //    (runs BEFORE the increment so it reads the original below_minimum_days)
+    // C) Downgrade guilds that have been below-minimum for 7+ days, notify captains
+    //    (runs BEFORE the stamp step so it reads the original below_min_since)
     const downgradeWeek = now.toISOString().slice(0, 10);
     const { rows: downgraded } = await db.query<{
       id: string; captain_id: string; old_tier: string; new_tier: string;
@@ -309,14 +286,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
                 ${TIER_DOWNGRADE_CASE} AS new_tier
          FROM guilds g
          WHERE g.deleted_at IS NULL AND g.is_active = TRUE
-           AND g.below_minimum_days + 1 >= 7
+           AND g.below_min_since IS NOT NULL
+           AND g.below_min_since <= NOW() - INTERVAL '7 days'
            AND (
              SELECT COUNT(*) FROM guild_members gm
              WHERE gm.guild_id = g.id AND gm.left_at IS NULL
            ) < ${TIER_MIN_CASE}
        ),
        updated AS (
-         UPDATE guilds SET tier = td.new_tier, below_minimum_days = 0, updated_at = NOW()
+         UPDATE guilds SET tier = td.new_tier, below_min_since = NULL, updated_at = NOW()
          FROM to_downgrade td
          WHERE guilds.id = td.id
          RETURNING guilds.id, td.captain_id, td.old_tier, td.new_tier
@@ -329,9 +307,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       // so each array column is only referenced once — avoids N² cross-join if
       // the same array is unnested more than once in a flat SELECT.
       await db.query(
-        `INSERT INTO notifications (user_id, type, payload, is_read, reference_id, created_at)
+        `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, reference_id, created_at)
          SELECT sub.captain_id,
                 'guild_tier_downgrade',
+                'Guild Tier Downgrade',
+                'Your guild has been downgraded due to insufficient members. Recruit more members to restore your tier.',
                 jsonb_build_object('guildId', sub.guild_id, 'previousTier', sub.old_tier, 'newTier', sub.new_tier),
                 false,
                 'guild_tier_downgrade:' || sub.guild_id || ':' || $5,
@@ -353,15 +333,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       guildTierDowngrades = downgraded.length;
     }
 
-    // B) Increment guilds below-minimum that haven't hit 7 days yet.
-    //    Runs AFTER the downgrade pass. Guilds C just downgraded were reset to 0;
-    //    if still below their (now lower) tier minimum they correctly start a
-    //    fresh countdown at 1, which is acceptable for an understaffed guild.
+    // B) Stamp below_min_since for guilds that are below minimum but not yet flagged.
+    //    Runs AFTER the downgrade pass. Guilds C just downgraded had below_min_since
+    //    reset to NULL; if still below their (now lower) tier minimum they will be
+    //    re-stamped at NOW() here — a fresh 7-day countdown, which is correct.
+    //    COALESCE preserves the existing timestamp for guilds already in the countdown.
     await db.query(
       `UPDATE guilds g
-       SET below_minimum_days = below_minimum_days + 1, updated_at = NOW()
+       SET below_min_since = COALESCE(g.below_min_since, NOW()), updated_at = NOW()
        WHERE g.deleted_at IS NULL AND g.is_active = TRUE
-         AND g.below_minimum_days + 1 < 7
          AND (
            SELECT COUNT(*) FROM guild_members gm
            WHERE gm.guild_id = g.id AND gm.left_at IS NULL

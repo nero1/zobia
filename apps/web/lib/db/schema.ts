@@ -115,7 +115,7 @@ export const users = pgTable("users", {
   isSuspended: boolean("is_suspended").default(false),
   suspendedUntil: timestamp("suspended_until", { withTimezone: true }),
   suspensionReason: text("suspension_reason"),
-  isBanned: boolean("is_banned").default(false),
+  isBanned: boolean("is_banned").notNull().default(false),
   banType: text("ban_type"),
   bannedUntil: timestamp("banned_until", { withTimezone: true }),
   banReason: text("ban_reason"),
@@ -166,6 +166,7 @@ export const users = pgTable("users", {
 
   // Streaks
   loginStreak: integer("login_streak").notNull().default(0),
+  loginStreakDays: integer("login_streak_days").default(0),
   longestStreak: integer("longest_streak").notNull().default(0),
   lastStreakBeforeBreak: integer("last_streak_before_break")
     .notNull()
@@ -471,6 +472,10 @@ export const dmConversations = pgTable(
   },
   (t) => ({
     unique: uniqueIndex("dm_conversations_users_idx").on(t.userId1, t.userId2),
+    userOrdering: check(
+      "dm_conversations_user_ordering",
+      sql`${t.userId1} < ${t.userId2}`
+    ),
   })
 );
 
@@ -637,6 +642,8 @@ export const notifications = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     type: text("type").notNull(),
+    // SCHEMA-06: Legacy format — deprecated in favour of title/body/metadata.
+    // Remove after migrating all remaining callers.
     payload: jsonb("payload"),
     title: text("title"),
     body: text("body"),
@@ -2343,8 +2350,10 @@ export const creatorEarnings = pgTable("creator_earnings", {
     .defaultNow(),
 }, (t) => ({
   // BUG-CREA-01: partial unique index to prevent duplicate creator fund distributions
+  // Scoped to (creator_id, reference_id) so two different creators can each have an
+  // earnings row for the same payment reference (e.g. referral commissions).
   referenceIdIdx: uniqueIndex("creator_earnings_reference_id_idx")
-    .on(t.referenceId)
+    .on(t.creatorId, t.referenceId)
     .where(sql`reference_id IS NOT NULL`),
 }));
 
@@ -2532,7 +2541,7 @@ export const referralCommissions = pgTable("referral_commissions", {
     .references(() => users.id, { onDelete: "cascade" }),
   triggerEventId: text("trigger_event_id").notNull().unique(),
   // Migration 009 (lib) / 012 (db): added tier column
-  tier: text("tier").notNull().default("standard"),
+  tier: text("tier").notNull().default("1"),
   purchaseAmountKobo: bigint("purchase_amount_kobo", { mode: "bigint" }).notNull(),
   commissionKobo: bigint("commission_kobo", { mode: "bigint" }).notNull(),
   commissionCoins: integer("commission_coins").notNull().default(0),
