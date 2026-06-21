@@ -24,6 +24,7 @@ import type { DatabaseAdapter } from "@/lib/db/interface";
 import { redis } from "@/lib/redis";
 import { env } from "@/lib/env";
 import { memGet, memSet, memDel } from "@/lib/cache/memory";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -314,10 +315,10 @@ let _inflightManifest: Promise<ZobiaManifest> | null = null;
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/** Parse a string value as boolean ('true' → true, anything else → false). */
+/** Parse a string value as boolean. Case-insensitive: 'true'/'TRUE'/'True'/'1' → true. */
 function parseBool(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined) return fallback;
-  return value === "true";
+  return value.toLowerCase() === "true" || value === "1";
 }
 
 /** Parse a string value as integer. Returns fallback when not a valid integer. */
@@ -545,7 +546,7 @@ export async function loadManifest(): Promise<ZobiaManifest> {
           manifest = buildManifest(kv);
         }
       } catch (err) {
-        console.error("[manifest] Failed to load from DB, using defaults", err);
+        logger.error({ err }, "[manifest] Failed to load from DB, using defaults");
         kv = {};
       }
 
@@ -619,7 +620,7 @@ export async function getManifestValue(key: string): Promise<string | null> {
     );
     return rows[0]?.value ?? null;
   } catch (err) {
-    console.error(`[manifest] Failed to read key '${key}' from DB`, err);
+    logger.error({ err, key }, "[manifest] Failed to read key from DB");
     return null;
   }
 }

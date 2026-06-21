@@ -223,14 +223,10 @@ export async function calculateFundDistributions(
 // ---------------------------------------------------------------------------
 
 export async function distributeCreatorFund(poolKobo: number): Promise<number> {
-  // Use a transaction-level advisory lock (pg_try_advisory_xact_lock) acquired INSIDE
-  // the transaction so PostgreSQL releases it automatically when the transaction ends.
-  // Session-level pg_try_advisory_lock acquired on a pool connection and unlocked in a
-  // finally block is unsafe: the pool may assign a different connection for the unlock,
-  // leaving the lock permanently held until the original connection is recycled.
-  const distributions = await calculateFundDistributions(poolKobo);
-  if (distributions.length === 0) return 0;
-
+  // TASK-05: calculateFundDistributions is now called INSIDE the transaction and AFTER
+  // the advisory lock is acquired so only one concurrent instance can calculate + distribute.
+  // TASK-06: idempotency key uses creatorId (not rank) so re-runs with changed rankings
+  // cannot credit the wrong creator or miss a creator.
   const period = new Date().toISOString().slice(0, 7); // YYYY-MM
   let distributed = 0;
 
@@ -242,11 +238,17 @@ export async function distributeCreatorFund(poolKobo: number): Promise<number> {
     );
     if (!lockRows[0]?.acquired) return;
 
+    // Calculate distributions INSIDE the lock so scoring uses a consistent DB snapshot
+    // and concurrent instances cannot both complete scoring before either acquires the lock.
+    const distributions = await calculateFundDistributions(poolKobo);
+    if (distributions.length === 0) return;
+
     // Per-creator idempotency via ON CONFLICT DO NOTHING on the unique reference_id.
-    // Each creator has reference_id = fund:{period}:rank{n} which is unique per period.
-    // Re-runs after a mid-loop crash will skip already-credited creators and credit the rest.
+    // Key is fund:{period}:creator:{creatorId} — stable per (period, creator) regardless
+    // of rank changes between runs. Re-runs after a mid-loop crash skip already-credited
+    // creators and credit the rest.
     for (const dist of distributions) {
-      const ref = `fund:${period}:rank${dist.rank}`;
+      const ref = `fund:${period}:creator:${dist.creatorId}`;
       await tx.query(
         `WITH ins AS (
            INSERT INTO creator_earnings

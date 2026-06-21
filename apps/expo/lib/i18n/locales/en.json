@@ -1699,5 +1699,7 @@
   "leaderboard.hallOfFame.pinned": "Hall of Fame — Pinned",
   "leaderboard.hallOfFame.tooltip": "This user is a Hall of Fame member and is permanently featured on this leaderboard.",
   "auth.sessionRefreshed": "Session refreshed.",
-  "auth.sessionRefreshFailed": "Could not refresh session. Please sign in again."
+  "auth.sessionRefreshFailed": "Could not refresh session. Please sign in again.",
+  "payments.purchaseRecovered": "Your previous purchase was recovered successfully — your coins have been credited.",
+  "payments.purchaseInProgress": "A previous purchase for this item is still being processed. Please wait."
 }

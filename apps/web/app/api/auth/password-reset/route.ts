@@ -30,6 +30,8 @@ import { validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { env } from "@/lib/env";
+import { verifyCaptcha, getCaptchaProvider } from "@/lib/security/captcha";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -37,6 +39,7 @@ import { env } from "@/lib/env";
 
 const requestResetSchema = z.object({
   email: z.string().email("Must be a valid email address"),
+  captchaToken: z.string().optional(),
 });
 
 const completeResetSchema = z.object({
@@ -89,6 +92,13 @@ export const POST = async (req: NextRequest) => {
 
     const body = await validateBody(req, requestResetSchema);
 
+    // CAPTCHA verification — provider controlled via x_manifest (captcha_provider key)
+    const captchaProvider = await getCaptchaProvider();
+    if (captchaProvider !== "none") {
+      const captchaOk = await verifyCaptcha(body.captchaToken ?? "", ip, "password_reset");
+      if (!captchaOk) throw badRequest("CAPTCHA verification failed", "CAPTCHA_FAILED");
+    }
+
     const { rows } = await db.query<{
       id: string;
       display_name: string;
@@ -131,7 +141,7 @@ export const POST = async (req: NextRequest) => {
 
     // Send reset email (non-blocking)
     sendResetEmail(user.email, user.display_name, rawToken).catch((err) => {
-      console.error("[password-reset] Failed to send email:", err);
+      logger.error({ err, userId: user.id }, "[password-reset] Failed to send email");
     });
 
     return NextResponse.json({
@@ -193,7 +203,7 @@ export const PATCH = async (req: NextRequest) => {
     // Revoke all existing sessions so a compromised old session cannot survive the reset
     const { invalidateAllSessions } = await import("@/lib/auth/session");
     await invalidateAllSessions(tokenRow.user_id).catch((err) => {
-      console.error("[password-reset] Failed to invalidate sessions:", err);
+      logger.error({ err, userId: tokenRow.user_id }, "[password-reset] Failed to invalidate sessions");
     });
 
     return NextResponse.json({

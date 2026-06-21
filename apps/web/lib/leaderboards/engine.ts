@@ -47,12 +47,22 @@ export interface LeaderboardEntry {
   custom_crest?: string | null;
 }
 
+export interface LeaderboardCursor {
+  xpValue: number;
+  userId: string;
+}
+
 export interface LeaderboardPage {
   entries: LeaderboardEntry[];
+  /** Count of ranked (non-HoF) users. Consistent across all pages. */
   total: number;
+  /** Count of Hall of Fame users injected on page 1. Use this to display total including HoF. */
+  hofCount: number;
   page: number;
   pageSize: number;
   hasMore: boolean;
+  /** Opaque cursor for the next page. Null if there are no more results. */
+  nextCursor: LeaderboardCursor | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -186,10 +196,14 @@ export async function getLeaderboard(
     guildId?: string;
     seasonId?: string;
     country?: string;
+    /** When provided, uses cursor-based pagination instead of OFFSET. Ignores `page`. */
+    cursor?: LeaderboardCursor | null;
   }
 ): Promise<LeaderboardPage> {
   const pageSize = Math.min(options?.pageSize ?? 100, 200);
-  const offset = (Math.max(page, 1) - 1) * pageSize;
+  const cursor = options?.cursor ?? null;
+  // Only use OFFSET when no cursor provided (backward compat)
+  const offset = cursor ? 0 : (Math.max(page, 1) - 1) * pageSize;
 
   // Map scope to the stored scope value (national uses global rows filtered by country)
   const dbScope = scope === "national" ? "global" : scope;
@@ -228,30 +242,57 @@ export async function getLeaderboard(
     conditions.push(`ls.city IS NULL`);
   }
 
+  // Cursor condition: keyset pagination avoids O(N) OFFSET scans
+  if (cursor) {
+    conditions.push(`(ls.xp_value, ls.user_id) < ($${paramIdx}, $${paramIdx + 1})`);
+    params.push(cursor.xpValue, cursor.userId);
+    paramIdx += 2;
+  }
+
   const where = `WHERE ${conditions.join(" AND ")}`;
 
   type RawRow = LeaderboardEntry & { total_count: string };
 
-  const { rows } = await db.query<RawRow>(
-    `SELECT
-       ROW_NUMBER() OVER (ORDER BY ls.xp_value DESC NULLS LAST, ls.user_id ASC) AS rank,
-       ls.user_id,
-       u.username,
-       u.display_name,
-       u.avatar_emoji,
-       u.rank_name,
-       COALESCE(ls.xp_value, 0) AS xp_value,
-       u.city,
-       COUNT(*) OVER () AS total_count
-     FROM leaderboard_snapshots ls
-     JOIN users u ON u.id = ls.user_id
-     ${where}
-     ORDER BY ls.xp_value DESC NULLS LAST, ls.user_id ASC
-     LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
-    [...params, pageSize, offset]
-  );
+  const queryText = cursor
+    ? `SELECT
+         ROW_NUMBER() OVER (ORDER BY ls.xp_value DESC NULLS LAST, ls.user_id ASC) AS rank,
+         ls.user_id,
+         u.username,
+         u.display_name,
+         u.avatar_emoji,
+         u.rank_name,
+         COALESCE(ls.xp_value, 0) AS xp_value,
+         u.city,
+         COUNT(*) OVER () AS total_count
+       FROM leaderboard_snapshots ls
+       JOIN users u ON u.id = ls.user_id
+       ${where}
+       ORDER BY ls.xp_value DESC NULLS LAST, ls.user_id ASC
+       LIMIT $${paramIdx}`
+    : `SELECT
+         ROW_NUMBER() OVER (ORDER BY ls.xp_value DESC NULLS LAST, ls.user_id ASC) AS rank,
+         ls.user_id,
+         u.username,
+         u.display_name,
+         u.avatar_emoji,
+         u.rank_name,
+         COALESCE(ls.xp_value, 0) AS xp_value,
+         u.city,
+         COUNT(*) OVER () AS total_count
+       FROM leaderboard_snapshots ls
+       JOIN users u ON u.id = ls.user_id
+       ${where}
+       ORDER BY ls.xp_value DESC NULLS LAST, ls.user_id ASC
+       LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`;
 
-  let total = parseInt(rows[0]?.total_count ?? "0");
+  const queryParams = cursor
+    ? [...params, pageSize]
+    : [...params, pageSize, offset];
+
+  const { rows } = await db.query<RawRow>(queryText, queryParams);
+
+  const total = parseInt(rows[0]?.total_count ?? "0");
+  let hofCount = 0;
   const entries: LeaderboardEntry[] = rows.map((r) => ({
     rank: Number(r.rank),
     user_id: r.user_id,
@@ -264,9 +305,10 @@ export async function getLeaderboard(
   }));
 
   // PRD §9: Hall of Fame users (Prestige 10) have permanent top-100 visibility on
-  // the global main leaderboard. On page 1 of the global/main leaderboard, fetch
-  // Hall of Fame users not already in the result set and pin them to the list.
-  if (scope === "global" && track === "main" && page === 1) {
+  // the global main leaderboard. On the first page (no cursor, page=1) of the
+  // global/main leaderboard, fetch HoF users not already in the result set.
+  const isFirstPage = cursor === null && Math.max(page, 1) === 1;
+  if (scope === "global" && track === "main" && isFirstPage) {
     try {
       interface HofRow {
         user_id: string;
@@ -362,7 +404,7 @@ export async function getLeaderboard(
             custom_crest: hof.custom_crest ?? null,
           });
         }
-        total += missingHof.length; // LB-03: include HoF entries in total count
+        hofCount += missingHof.length; // HoF count is separate from ranked total so pagination is consistent
       }
     } catch {
       // Hall of Fame injection is best-effort — never breaks the leaderboard
@@ -374,12 +416,24 @@ export async function getLeaderboard(
     }
   }
 
+  const hasMore = cursor
+    ? rows.length === pageSize
+    : offset + pageSize < total;
+
+  const lastEntry = rows[rows.length - 1];
+  const nextCursor: LeaderboardCursor | null =
+    hasMore && lastEntry
+      ? { xpValue: Number(lastEntry.xp_value), userId: lastEntry.user_id }
+      : null;
+
   return {
     entries,
     total,
+    hofCount,
     page,
     pageSize,
-    hasMore: offset + pageSize < total,
+    hasMore,
+    nextCursor,
   };
 }
 
@@ -411,7 +465,11 @@ export async function upsertLeaderboardSnapshot(
   const city = options?.city ?? null;
   const seasonId = options?.seasonId ?? null;
 
-  // Single atomic upsert — no TOCTOU between UPDATE check and INSERT
+  // Single atomic upsert — no TOCTOU between UPDATE check and INSERT.
+  // IMPORTANT (TASK-10): The ON CONFLICT clause MUST exactly match the expression
+  // unique index created in migration 0001_consolidated_schema.sql (leaderboard_snapshots_upsert_idx).
+  // If either is changed, PostgreSQL will fall back to INSERT and silently create duplicates.
+  // Index definition: ON leaderboard_snapshots (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))
   await db.query(
     `INSERT INTO leaderboard_snapshots
        (user_id, track, scope, city, season_id, xp_value, updated_at)

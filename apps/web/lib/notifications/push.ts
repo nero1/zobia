@@ -12,6 +12,7 @@
 
 import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -180,11 +181,12 @@ async function sendExpoBatch(
       method: "POST",
       headers: buildExpoHeaders(),
       body: JSON.stringify(messages.map((m) => m.msg)),
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!response.ok) {
       const text = await response.text().catch(() => "(unreadable)");
-      console.error(`[push] Expo API returned ${response.status}: ${text}`);
+      logger.error({ status: response.status, recipientCount: messages.length }, `[push] Expo API returned ${response.status}: ${text}`);
       // BUG-12: write system_alert so ops can detect silent notification loss
       await db.query(
         `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
@@ -212,9 +214,7 @@ async function sendExpoBatch(
         if (errCode === "DeviceNotRegistered") {
           staleTokens.add(messages[i].token);
         } else {
-          console.error(
-            `[push] Expo ticket error: ${ticket.message ?? "unknown"} (${errCode})`
-          );
+          logger.error({ errCode, message: ticket.message }, `[push] Expo ticket error: ${ticket.message ?? "unknown"} (${errCode})`);
         }
       }
     }
@@ -232,11 +232,11 @@ async function sendExpoBatch(
           params
         )
         .catch((err) =>
-          console.error("[push] Failed to persist push tickets:", err)
+          logger.error({ err }, "[push] Failed to persist push tickets")
         );
     }
   } catch (err) {
-    console.error("[push] Failed to send Expo push batch:", err);
+    logger.error({ err }, "[push] Failed to send Expo push batch");
   }
 
   return staleTokens;
@@ -256,9 +256,9 @@ async function purgeStaleTokens(tokens: Set<string>): Promise<void> {
       `DELETE FROM user_push_tokens WHERE token = ANY($1)`,
       [list]
     );
-    console.info(`[push] Purged ${list.length} stale push token(s).`);
+    logger.info({ count: list.length }, "[push] Purged stale push tokens");
   } catch (err) {
-    console.error("[push] Failed to purge stale tokens:", err);
+    logger.error({ err }, "[push] Failed to purge stale tokens");
   }
 }
 
@@ -324,17 +324,20 @@ export async function pollPushReceipts(): Promise<number> {
           method: "POST",
           headers: buildExpoHeaders(),
           body: JSON.stringify({ ids: ticketIds }),
+          signal: AbortSignal.timeout(10_000),
         });
 
         if (!response.ok) {
-          console.error(
-            `[push/receipts] Expo receipts API returned ${response.status}`
-          );
+          logger.error({ status: response.status }, "[push/receipts] Expo receipts API returned non-200");
           continue;
         }
 
         const result = (await response.json()) as ExpoReceiptsResponse;
 
+        // Collect IDs by outcome for batch DB updates (TASK-18)
+        const okIds: string[] = [];
+        const deviceNotRegisteredIds: string[] = [];
+        const errorIds: string[] = [];
         const staleTokens = new Set<string>();
 
         for (const ticket of batch) {
@@ -342,64 +345,64 @@ export async function pollPushReceipts(): Promise<number> {
           if (!receipt) continue;
 
           if (receipt.status === "ok") {
-            // Mark checked_at and status in one update per ticket so a mid-batch
-            // failure never strands a ticket with checked_at set but status still pending.
-            await db.query(
-              `UPDATE push_tickets
-               SET status = 'ok', checked_at = NOW(), resolved_at = NOW()
-               WHERE id = $1`,
-              [ticket.id]
-            );
+            okIds.push(ticket.id);
             totalResolved++;
           } else if (receipt.status === "error") {
             const errCode = receipt.details?.error ?? "unknown";
 
             if (errCode === "DeviceNotRegistered") {
-              // Purge only the specific token tied to this ticket, not all user tokens.
+              deviceNotRegisteredIds.push(ticket.id);
               if (ticket.token) {
                 staleTokens.add(ticket.token);
               } else {
-                // Legacy ticket without stored token — fall back to looking up by
-                // the specific ticket_id correlation (cannot be done safely, skip).
-                console.warn(`[push/receipts] Ticket ${ticket.ticket_id} has no stored token; cannot purge specific device.`);
+                logger.warn({ ticketId: ticket.ticket_id }, "[push/receipts] Ticket has no stored token; cannot purge specific device");
               }
-
-              await db.query(
-                `UPDATE push_tickets
-                 SET status = 'device_not_registered',
-                     error_code = $2,
-                     checked_at = NOW(),
-                     resolved_at = NOW()
-                 WHERE id = $1`,
-                [ticket.id, errCode]
-              );
             } else {
-              await db.query(
-                `UPDATE push_tickets
-                 SET status = 'error',
-                     error_code = $2,
-                     checked_at = NOW(),
-                     resolved_at = NOW()
-                 WHERE id = $1`,
-                [ticket.id, errCode]
-              );
-              console.error(
-                `[push/receipts] Delivery error for ticket ${ticket.ticket_id}: ${receipt.message ?? "unknown"} (${errCode})`
-              );
+              errorIds.push(ticket.id);
+              logger.error({ ticketId: ticket.ticket_id, errCode, message: receipt.message }, "[push/receipts] Delivery error for ticket");
             }
             totalResolved++;
           }
+        }
+
+        // Batch updates — one query per outcome group instead of one per ticket
+        if (okIds.length > 0) {
+          await db.query(
+            `UPDATE push_tickets
+             SET status = 'ok', checked_at = NOW(), resolved_at = NOW()
+             WHERE id = ANY($1::uuid[])`,
+            [okIds]
+          );
+        }
+        if (deviceNotRegisteredIds.length > 0) {
+          await db.query(
+            `UPDATE push_tickets
+             SET status = 'device_not_registered',
+                 error_code = 'DeviceNotRegistered',
+                 checked_at = NOW(),
+                 resolved_at = NOW()
+             WHERE id = ANY($1::uuid[])`,
+            [deviceNotRegisteredIds]
+          );
+        }
+        if (errorIds.length > 0) {
+          await db.query(
+            `UPDATE push_tickets
+             SET status = 'error', checked_at = NOW(), resolved_at = NOW()
+             WHERE id = ANY($1::uuid[])`,
+            [errorIds]
+          );
         }
 
         if (staleTokens.size > 0) {
           await purgeStaleTokens(staleTokens);
         }
       } catch (batchErr) {
-        console.error("[push/receipts] Failed to process receipt batch:", batchErr);
+        logger.error({ err: batchErr }, "[push/receipts] Failed to process receipt batch");
       }
     }
   } catch (err) {
-    console.error("[push/receipts] pollPushReceipts failed:", err);
+    logger.error({ err }, "[push/receipts] pollPushReceipts failed");
   } finally {
     await redis.del(LOCK_KEY).catch(() => {});
   }
@@ -426,6 +429,9 @@ export async function pollPushReceipts(): Promise<number> {
  * @param body    - Notification body text
  * @param options - Optional delivery options (priority, data, badge, action)
  */
+/** Max push notifications per user per 60-second window before throttling. */
+const MAX_PUSH_PER_USER_PER_MINUTE = 10;
+
 export async function sendPushNotification(
   userId: string,
   title: string,
@@ -433,6 +439,15 @@ export async function sendPushNotification(
   options?: PushNotificationOptions
 ): Promise<void> {
   try {
+    // TASK-14: per-user rate limit to prevent notification floods from pipeline bugs
+    const rateKey = `user:push:rate:${userId}`;
+    const count = await redis.incr(rateKey);
+    if (count === 1) await redis.expire(rateKey, 60);
+    if (count > MAX_PUSH_PER_USER_PER_MINUTE) {
+      logger.warn({ userId, count }, "[push] Per-user push rate limit exceeded — skipping");
+      return;
+    }
+
     // Fetch active tokens for the user. ORDER BY last_seen_at DESC so that when
     // we deduplicate by device_id we keep the most recently seen token per device.
     const { rows } = await db.query<PushTokenRow>(
@@ -492,7 +507,7 @@ export async function sendPushNotification(
     const stale = await sendExpoBatch(messages);
     await purgeStaleTokens(stale);
   } catch (err) {
-    console.error(`[push] sendPushNotification failed for user ${userId}:`, err);
+    logger.error({ err, userId }, "[push] sendPushNotification failed");
   }
 }
 
@@ -597,6 +612,6 @@ export async function sendPushNotificationBatch(
     }
     await purgeStaleTokens(allStale);
   } catch (err) {
-    console.error("[push] sendPushNotificationBatch failed:", err);
+    logger.error({ err }, "[push] sendPushNotificationBatch failed");
   }
 }

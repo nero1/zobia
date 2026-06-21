@@ -5,8 +5,8 @@
  * when the backlog exceeds the configured threshold.
  */
 import type { DatabaseAdapter } from "@/lib/db";
-
-const DLQ_ALERT_THRESHOLD = 100;
+import { logger } from "@/lib/logger";
+import { getManifestValue } from "@/lib/manifest";
 
 export async function checkDlqDepth(
   db: DatabaseAdapter
@@ -17,21 +17,23 @@ export async function checkDlqDepth(
   );
   const depth = parseInt(rows[0]?.count ?? "0", 10);
 
-  if (depth >= DLQ_ALERT_THRESHOLD) {
+  // TASK-23: read threshold from manifest so ops can tune without redeployment
+  const thresholdRaw = await getManifestValue("dlq_alert_threshold").catch(() => null);
+  const threshold = thresholdRaw ? parseInt(thresholdRaw, 10) || 100 : 100;
+
+  if (depth >= threshold) {
     await db
       .query(
         `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
          VALUES ('dlq_depth_exceeded', 'critical', $1, $2::jsonb, NOW())`,
         [
-          `XP dead-letter queue depth ${depth} exceeds threshold ${DLQ_ALERT_THRESHOLD}`,
-          JSON.stringify({ depth, threshold: DLQ_ALERT_THRESHOLD }),
+          `XP dead-letter queue depth ${depth} exceeds threshold ${threshold}`,
+          JSON.stringify({ depth, threshold }),
         ]
       )
       .catch(() => {});
 
-    console.error(
-      `[dlqMonitor] DLQ depth ${depth} exceeds threshold ${DLQ_ALERT_THRESHOLD}`
-    );
+    logger.error({ depth, threshold }, `[dlqMonitor] DLQ depth ${depth} exceeds threshold ${threshold}`);
     return { depth, alerted: true };
   }
 

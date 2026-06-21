@@ -10,7 +10,7 @@
  *   DODOPAYMENTS_API_KEY – your DodoPayments API key
  */
 
-import { createHmac } from "crypto";
+import { createHmac, timingSafeEqual } from "crypto";
 import Decimal from "decimal.js";
 import { env } from "@/lib/env";
 import { dodoPaymentsBreaker } from "@/lib/payments/circuit";
@@ -157,12 +157,10 @@ export function verifyWebhookSignature(
     .update(rawBody)
     .digest("hex");
 
-  if (expected.length !== signature.length) return false;
-  let diff = 0;
-  for (let i = 0; i < expected.length; i++) {
-    diff |= expected.charCodeAt(i) ^ signature.charCodeAt(i);
-  }
-  return diff === 0;
+  const expectedBuf = Buffer.from(expected, "hex");
+  const receivedBuf = Buffer.from(signature, "hex");
+  if (expectedBuf.length !== receivedBuf.length) return false;
+  return timingSafeEqual(expectedBuf, receivedBuf);
 }
 
 /**

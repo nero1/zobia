@@ -20,6 +20,7 @@
 import IORedis from "ioredis";
 import { Redis as UpstashRedis, type SetCommandOptions } from "@upstash/redis";
 import { env } from "@/lib/env";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Shared client interface (subset used by the app)
@@ -28,10 +29,16 @@ import { env } from "@/lib/env";
 /**
  * Chainable batch of commands queued for a single round-trip via `RedisClient.pipeline()`.
  * Both providers implement this interface (ioredis natively, Upstash via adapter).
+ *
+ * @pipeline-commands: del, zremrangebyrank, setex, expire, hset, zadd
  */
 export interface RedisPipeline {
   del(key: string): RedisPipeline;
   zremrangebyrank(key: string, start: number, stop: number): RedisPipeline;
+  setex(key: string, seconds: number, value: string): RedisPipeline;
+  expire(key: string, seconds: number): RedisPipeline;
+  hset(key: string, field: string, value: string): RedisPipeline;
+  zadd(key: string, score: number, member: string): RedisPipeline;
   exec(): Promise<unknown[]>;
 }
 
@@ -89,6 +96,10 @@ function createStubPipeline(): RedisPipeline {
   const stub: RedisPipeline = {
     del: () => stub,
     zremrangebyrank: () => stub,
+    setex: () => stub,
+    expire: () => stub,
+    hset: () => stub,
+    zadd: () => stub,
     exec: async () => [],
   };
   return stub;
@@ -121,16 +132,16 @@ function createIoRedisClient(): IORedis {
     enableReadyCheck: true,
     lazyConnect: true,
     connectTimeout: 8_000,
-    retryStrategy: (times) => Math.min(times * 200, 10_000),
+    retryStrategy: (times) => Math.min(times * 200, 10_000) + Math.floor(Math.random() * 200),
   });
 
   _ioredisClient.on("error", (err) => {
-    console.error("[redis:ioredis] error", err);
+    logger.error({ err }, "[redis:ioredis] error");
   });
 
   _ioredisClient.on("connect", () => {
     if (env.NODE_ENV !== "production") {
-      console.log("[redis:ioredis] connected");
+      logger.debug("[redis:ioredis] connected");
     }
   });
 
@@ -295,6 +306,22 @@ class UpstashAdapter implements RedisClient {
       },
       zremrangebyrank(key: string, start: number, stop: number) {
         batch.zremrangebyrank(key, start, stop);
+        return wrapper;
+      },
+      setex(key: string, seconds: number, value: string) {
+        batch.set(key, value, { ex: seconds });
+        return wrapper;
+      },
+      expire(key: string, seconds: number) {
+        batch.expire(key, seconds);
+        return wrapper;
+      },
+      hset(key: string, field: string, value: string) {
+        batch.hset(key, { [field]: value });
+        return wrapper;
+      },
+      zadd(key: string, score: number, member: string) {
+        batch.zadd(key, { score, member });
         return wrapper;
       },
       exec(): Promise<unknown[]> {

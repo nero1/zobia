@@ -9,9 +9,10 @@
 import { db } from "@/lib/db";
 import { creditCoins } from "@/lib/economy/coins";
 import { creditStars } from "@/lib/economy/stars";
-import { awardReferralCommissions } from "@/lib/referrals/commissions";
+import { awardReferralCommissions, recordFailedCommission } from "@/lib/referrals/commissions";
 import { getCreatorFeeRate, moveToDeadLetterQueue } from "@/lib/payments/payouts";
 import { loadManifest } from "@/lib/manifest";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Paystack webhook event types (subset)
@@ -86,12 +87,12 @@ export async function processChargeSuccess(
     );
 
     if (!existing[0]) {
-      console.error(`[webhook/paystack] No payment record for reference: ${reference}`);
+      logger.error({ reference }, "[webhook/paystack] No payment record for reference");
       return;
     }
 
     if (existing[0].status === "completed") {
-      console.info(`[webhook/paystack] Duplicate event for reference: ${reference}`);
+      logger.info({ reference }, "[webhook/paystack] Duplicate event for reference");
       return;
     }
 
@@ -124,10 +125,7 @@ export async function processChargeSuccess(
         rawMeta.grossKobo === null ||
         (typeof rawMeta.grossKobo !== "number" && typeof rawMeta.grossKobo !== "string")
       ) {
-        console.error(
-          `[webhook/paystack] room_subscription metadata missing required fields`,
-          { reference, rawMeta }
-        );
+        logger.error({ reference, rawMeta }, "[webhook/paystack] room_subscription metadata missing required fields");
         throw new Error(`room_subscription webhook missing required metadata fields (reference: ${reference})`);
       }
       let roomId: string | null = rawMeta.roomId as string;
@@ -144,7 +142,7 @@ export async function processChargeSuccess(
           [roomId]
         );
         if (!roomCheck.rows[0]) {
-          console.warn(`[paystackWebhook] Room ${roomId} not found, skipping room subscription`);
+          logger.warn({ roomId, reference }, "[paystackWebhook] Room not found, skipping room subscription");
           roomId = null;
         }
       }
@@ -233,7 +231,7 @@ export async function processChargeSuccess(
     if (itemType === "business_upgrade") {
       const { businessAccountId, newTier } = metadata;
       if (!businessAccountId || !newTier) {
-        console.error(`[webhook/paystack] business_upgrade missing businessAccountId or newTier in metadata`, { reference, metadata });
+        logger.error({ reference, metadata }, "[webhook/paystack] business_upgrade missing businessAccountId or newTier in metadata");
         return;
       }
 
@@ -254,10 +252,7 @@ export async function processChargeSuccess(
       // the "upgraded" notification anyway would be a false success — raise
       // a system_alert for manual reconciliation instead.
       if (activationResult.rowCount === 0) {
-        console.error(
-          `[webhook/paystack] business_upgrade activation matched 0 rows (stale or already-applied reference)`,
-          { reference, businessAccountId, newTier }
-        );
+        logger.error({ reference, businessAccountId, newTier }, "[webhook/paystack] business_upgrade activation matched 0 rows (stale or already-applied reference)");
         await tx.query(
           `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
            VALUES ('business_upgrade_activation_mismatch', 'warning', $1, $2::jsonb, NOW())`,
@@ -301,10 +296,7 @@ export async function processChargeSuccess(
 
         // Bug #18: Reject underpayments — never credit if paid amount < pack price
         if (packRows[0].price_kobo != null && amount < packRows[0].price_kobo) {
-          console.warn(
-            `[webhook/paystack] Underpayment detected: paid ${amount} kobo for pack ${metadata.packId} ` +
-            `priced at ${packRows[0].price_kobo} kobo. Flagging for manual review.`
-          );
+          logger.warn({ reference, paidKobo: amount, priceKobo: packRows[0].price_kobo, packId: metadata.packId }, "[webhook/paystack] Underpayment detected — flagging for manual review");
           await tx.query(
             `UPDATE payments SET status = 'underpaid', updated_at = NOW() WHERE provider_reference = $1`,
             [reference]
@@ -367,8 +359,19 @@ export async function processChargeSuccess(
   // initial type (null) after the await; the runtime value is correct.
   const capturedReferral = referralPayload as { userId: string; coins: number; paymentId: string; amountKobo: number } | null;
   if (capturedReferral) {
-    await awardReferralCommissions(db, capturedReferral.userId, capturedReferral.coins, capturedReferral.paymentId, capturedReferral.amountKobo)
-      .catch((err) => console.error("[webhook/paystack] Referral commission error:", err));
+    try {
+      await awardReferralCommissions(db, capturedReferral.userId, capturedReferral.coins, capturedReferral.paymentId, capturedReferral.amountKobo);
+    } catch (err) {
+      logger.error({ err, paymentId: capturedReferral.paymentId, userId: capturedReferral.userId }, "[webhook/paystack] Referral commission error — writing to DLQ");
+      await recordFailedCommission(
+        capturedReferral.paymentId,
+        capturedReferral.userId,
+        capturedReferral.coins,
+        capturedReferral.amountKobo,
+        "paystack",
+        err instanceof Error ? err.message : String(err)
+      );
+    }
   }
 }
 
@@ -412,7 +415,7 @@ export async function processTransferEvent(
     );
 
     if (!rows[0]) {
-      console.warn(`[webhook/paystack] No payout found for transfer reference: ${reference}`);
+      logger.warn({ reference }, "[webhook/paystack] No payout found for transfer reference");
       return;
     }
 
@@ -547,7 +550,7 @@ export async function processSubscriptionEvent(
     );
     resolvedUserId = rows[0]?.id ?? null;
     if (!resolvedUserId) {
-      console.warn(`[webhook/paystack] Subscription event: no user for email ${customer.email}`);
+      logger.warn({ email: customer.email }, "[webhook/paystack] Subscription event: no user found for email");
       return;
     }
   }
@@ -574,9 +577,7 @@ export async function processSubscriptionEvent(
       : null;
 
     if (!derivedPlan) {
-      console.error(
-        `[webhook/paystack] Unrecognised plan name '${event.data.plan?.name}' for subscription ${subscription_code}. No plan activated.`
-      );
+      logger.error({ planName: event.data.plan?.name, subscriptionCode: subscription_code, userId: resolvedUserId }, "[webhook/paystack] Unrecognised plan name — no plan activated");
       await db.query(
         `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
          VALUES ('unknown_plan_code', 'critical', $1, $2::jsonb, NOW())`,
@@ -600,7 +601,7 @@ export async function processSubscriptionEvent(
        ON CONFLICT (user_id) DO UPDATE
          SET plan = $2, provider_subscription_id = $3, status = $4, ends_at = $5, updated_at = NOW()`,
       [resolvedUserId, derivedPlan, subscription_code, isActive ? "active" : "inactive", endsAt]
-    ).catch((err) => console.error("[webhook/paystack] subscriptions upsert failed:", err));
+    ).catch((err) => logger.error({ err }, "[webhook/paystack] subscriptions upsert failed"));
 
     await db.transaction(async (tx) => {
       // Update plan
@@ -646,9 +647,9 @@ export async function processSubscriptionEvent(
       // rethrown so the webhook handler can mark the delivery as failed (BUG-PAY-02).
       const pgCode = (err as { code?: string })?.code;
       if (pgCode === '23505') {
-        console.info('[webhook/paystack] subscription_bonus already awarded this month (23505) — skipping');
+        logger.info({ userId: resolvedUserId }, "[webhook/paystack] subscription_bonus already awarded this month (23505) — skipping");
       } else {
-        console.error("[webhook/paystack] Transaction error for subscription bonus:", err);
+        logger.error({ err, userId: resolvedUserId }, "[webhook/paystack] Transaction error for subscription bonus");
         throw err;
       }
     });
@@ -760,6 +761,6 @@ export async function handlePaystackWebhookPayload(
       break;
 
     default:
-      console.info(`[webhook/paystack] Ignoring unhandled event: ${eventType}`);
+      logger.info({ eventType }, "[webhook/paystack] Ignoring unhandled event");
   }
 }

@@ -289,20 +289,47 @@ export async function canAffordStars(
  * @param txClient - Optional transaction client
  * @returns Array of ledger entries, newest first
  */
+export interface StarLedgerCursor {
+  createdAt: string;
+  id: string;
+}
+
+export interface StarLedgerPage {
+  entries: StarLedgerEntry[];
+  nextCursor: StarLedgerCursor | null;
+}
+
 export async function getStarLedgerEntries(
   userId: string,
   limit: number = 20,
-  txClient?: TransactionClient
-): Promise<StarLedgerEntry[]> {
+  txClient?: TransactionClient,
+  cursor?: StarLedgerCursor | null
+): Promise<StarLedgerPage> {
   const query = txClient ?? db;
+  const params: (string | number)[] = [userId, limit];
+  let cursorClause = "";
+
+  if (cursor) {
+    cursorClause = `AND (created_at, id) < ($3::timestamptz, $4::uuid)`;
+    params.push(cursor.createdAt, cursor.id);
+  }
+
   const { rows } = await query.query<StarLedgerEntry>(
     `SELECT id, user_id, amount, balance_before, balance_after,
             transaction_type, reference_id, description, created_at
      FROM star_ledger
      WHERE user_id = $1
+       ${cursorClause}
      ORDER BY created_at DESC, id DESC
      LIMIT $2`,
-    [userId, limit]
+    params
   );
-  return rows;
+
+  const lastRow = rows[rows.length - 1];
+  const nextCursor: StarLedgerCursor | null =
+    rows.length === limit && lastRow
+      ? { createdAt: String(lastRow.created_at), id: lastRow.id }
+      : null;
+
+  return { entries: rows, nextCursor };
 }

@@ -31,6 +31,8 @@ const BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app";
 const STATIC_PAGES: MetadataRoute.Sitemap = [
   // Landing page — public
   { url: BASE_URL, lastModified: new Date(), changeFrequency: "daily", priority: 1.0 },
+  // Help / FAQ — public
+  { url: `${BASE_URL}/help`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.6 },
   // Legal pages — public
   { url: `${BASE_URL}/terms`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.3 },
   { url: `${BASE_URL}/privacy`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.3 },

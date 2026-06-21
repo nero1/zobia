@@ -84,7 +84,7 @@ const envSchema = z.object({
   MAILGUN_DOMAIN: z.string().optional(),
 
   // ---- Payments -----------------------------------------------------------
-  PAYSTACK_SECRET_KEY: z.string().optional(),
+  PAYSTACK_SECRET_KEY: z.string().min(1, "PAYSTACK_SECRET_KEY is required for Paystack webhook HMAC verification"),
   PAYSTACK_PUBLIC_KEY: z.string().optional(),
   DODOPAYMENTS_API_KEY: z.string().optional(),
   DODO_WEBHOOK_SECRET: z.string().optional(),
@@ -104,7 +104,7 @@ const envSchema = z.object({
   KYC_ENCRYPTION_KEY_V2: z.string().optional(),
 
   // ---- Cron jobs ----------------------------------------------------------
-  CRON_SECRET: z.string().optional(),
+  CRON_SECRET: z.string().min(1, "CRON_SECRET is required to secure CRON endpoints"),
 
   // ---- Public client-side vars --------------------------------------------
   NEXT_PUBLIC_APP_URL: z.string().url().default("http://localhost:3000"),

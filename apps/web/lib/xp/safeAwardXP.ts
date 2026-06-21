@@ -175,7 +175,9 @@ export async function retryFailedXPAwards(): Promise<{
   let resolved = 0;
   let permanentlyFailed = 0;
 
-  // Fetch eligible rows (exponential backoff: 2^retry_count minutes)
+  // Fetch eligible rows inside a transaction with FOR UPDATE SKIP LOCKED so that
+  // concurrent CRON instances each lock their own exclusive batch and cannot
+  // retry the same rows simultaneously (which would prematurely exhaust retry_count).
   const { rows } = await globalDb.query<{
     id: string;
     user_id: string;
@@ -191,7 +193,8 @@ export async function retryFailedXPAwards(): Promise<{
        AND retry_count < $1
        AND (last_retried_at IS NULL
             OR last_retried_at < NOW() - (POWER(2, retry_count) * INTERVAL '1 minute'))
-     LIMIT 100`,
+     LIMIT 100
+     FOR UPDATE SKIP LOCKED`,
     [MAX_RETRIES]
   );
 

@@ -2278,6 +2278,24 @@ export const failedXpAwards = pgTable("failed_xp_awards", {
     .where(sql`reference_id IS NOT NULL`),
 }));
 
+export const failedCommissions = pgTable("failed_commissions", {
+  id: uuidPk(),
+  paymentId: text("payment_id").notNull(),
+  userId: uuid("user_id").notNull(),
+  coinAmount: integer("coin_amount").notNull(),
+  amountKobo: integer("amount_kobo").notNull().default(0),
+  source: text("source").notNull().default("unknown"),
+  errorMessage: text("error_message"),
+  retryCount: integer("retry_count").notNull().default(0),
+  lastRetriedAt: timestamp("last_retried_at", { withTimezone: true }),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  paymentIdUniq: uniqueIndex("uidx_failed_commissions_payment_id")
+    .on(t.paymentId)
+    .where(sql`payment_id IS NOT NULL`),
+}));
+
 // ---------------------------------------------------------------------------
 // SECTION 8: Creator Economy
 // ---------------------------------------------------------------------------

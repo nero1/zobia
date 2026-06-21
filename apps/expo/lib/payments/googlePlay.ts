@@ -172,6 +172,14 @@ const purchaseResolvers = new Map<string, PurchaseResolver>();
 const activePurchaseSessions = new Map<string, string>();
 
 /**
+ * Tracks productIds where the client-side timeout fired but the underlying
+ * Google Play purchase may still complete asynchronously. Prevents users from
+ * initiating a duplicate purchase while the original is still being recovered.
+ * Cleared when the listener delivers the late result.
+ */
+const pendingRecovery = new Map<string, boolean>();
+
+/**
  * Register the single global purchase listener.
  * Must be called once after connectAsync() succeeds.
  */
@@ -181,9 +189,13 @@ function setupGlobalPurchaseListener(): void {
       for (const purchase of results) {
         const sessionId = activePurchaseSessions.get(purchase.productId);
         if (!sessionId) {
-          // No active session — this purchase is from a prior app session (e.g. after a crash).
-          // Replay it through the server to ensure coins/plan are credited and the transaction
-          // is finished before Google Play auto-cancels the unacknowledged purchase.
+          // No active session — this purchase is from a prior app session or a
+          // timed-out purchase that is now recovering asynchronously.
+          // Clear the pendingRecovery flag so the user can start a new purchase
+          // once this one is finished.
+          if (pendingRecovery.get(purchase.productId)) {
+            pendingRecovery.delete(purchase.productId);
+          }
           if (purchase.purchaseToken && !purchase.acknowledged) {
             const isSubscription = SUBSCRIPTION_IDS.includes(purchase.productId);
             verifyPurchaseServerSide(
@@ -322,9 +334,13 @@ export async function purchaseCoins(
     return { success: false, coins: 0, error: 'Unknown product ID' };
   }
 
-  // Prevent concurrent purchases of the same product overwriting the resolver map
+  // Prevent concurrent purchases of the same product overwriting the resolver map.
+  // Also block new purchases while a previous timed-out purchase is still recovering.
   if (activePurchaseSessions.has(productId)) {
     return { success: false, coins: 0, error: 'A purchase is already in progress for this product' };
+  }
+  if (pendingRecovery.get(productId)) {
+    return { success: false, coins: 0, error: 'A previous purchase is still being processed — please wait before trying again' };
   }
 
   const sessionId = randomUUID();
@@ -349,11 +365,15 @@ export async function purchaseCoins(
     });
   });
 
+  // When the timeout fires the resolver is removed but purchaseItemAsync continues
+  // running in the background. Mark pendingRecovery so the listener can deliver
+  // the late result and prevent the user from initiating a duplicate purchase.
   const timeoutPromise = new Promise<{ success: boolean; coins: number; error: string }>((resolve) =>
     setTimeout(() => {
       purchaseResolvers.delete(sessionId);
       activePurchaseSessions.delete(productId);
-      resolve({ success: false, coins: 0, error: 'Purchase timed out — please try again' });
+      pendingRecovery.set(productId, true);
+      resolve({ success: false, coins: 0, error: 'Your purchase is still processing — please wait before trying again' });
     }, 5 * 60 * 1000)
   );
 
@@ -430,9 +450,13 @@ export async function purchaseSubscription(
     return { success: false, error: 'Unknown subscription product ID' };
   }
 
-  // Prevent concurrent purchases of the same product overwriting the resolver map
+  // Prevent concurrent purchases of the same product overwriting the resolver map.
+  // Also block new purchases while a previous timed-out purchase is still recovering.
   if (activePurchaseSessions.has(productId)) {
     return { success: false, error: 'A purchase is already in progress for this product' };
+  }
+  if (pendingRecovery.get(productId)) {
+    return { success: false, error: 'A previous purchase is still being processed — please wait before trying again' };
   }
 
   const sessionId = randomUUID();
@@ -460,11 +484,15 @@ export async function purchaseSubscription(
     });
   });
 
+  // When the timeout fires the resolver is removed but purchaseItemAsync continues
+  // running in the background. Mark pendingRecovery so the listener can deliver
+  // the late result and prevent the user from initiating a duplicate purchase.
   const timeoutPromise = new Promise<{ success: boolean; error: string }>((resolve) =>
     setTimeout(() => {
       purchaseResolvers.delete(sessionId);
       activePurchaseSessions.delete(productId);
-      resolve({ success: false, error: 'Purchase timed out — please try again' });
+      pendingRecovery.set(productId, true);
+      resolve({ success: false, error: 'Your purchase is still processing — please wait before trying again' });
     }, 5 * 60 * 1000)
   );
 
