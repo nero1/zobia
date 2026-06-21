@@ -291,6 +291,9 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    - **BUG-CREA-01**: Adds partial unique index on `creator_earnings(reference_id) WHERE reference_id IS NOT NULL` to prevent double-crediting if the creator fund CRON runs twice in the same period.
    - **BUG-RACE-01**: Adds functional unique index on `rooms ((metadata->>'season_ceremony_id')) WHERE metadata->>'season_ceremony_id' IS NOT NULL` — required for the `ON CONFLICT ((metadata->>'season_ceremony_id')) DO NOTHING` guard in `createSeasonCeremonyRoom` to work without throwing a constraint-not-found error.
 
+   Migration `0018_self_referral_constraint.sql` adds:
+   - **BUG-REFERRAL-01**: `CHECK (referred_by IS NULL OR referred_by <> id)` constraint on `users` to prevent self-referrals at the database level. The application layer already guards this; the constraint provides defence-in-depth.
+
 7. Optional seed data: `psql "$DIRECT_URL" < apps/web/lib/db/seed.sql`
 
 ### Option B: Railway PostgreSQL
@@ -598,10 +601,13 @@ are required.
 - **Master toggle:** `feature_games` (Admin → Feature Flags), default on. Per-game
   activation, cover-page editing, rewards, free/paid play cost and stats live at
   `/admin/games`. Runtime config (`game_wager_rake_pct`, `game_challenge_expiry_hours`,
-  `game_default_reward_credits/xp`, `game_max_wager_credits`) at `/admin/config`.
+  `game_default_reward_credits/xp`, `game_max_wager_credits`,
+  `game_max_play_session_age_seconds`) at `/admin/config`.
   `game_max_wager_credits` (default 10 000) is the server-enforced ceiling on per-challenge
   credit wagers; attempts to create a challenge above this value are rejected with
-  `WAGER_TOO_HIGH`.
+  `WAGER_TOO_HIGH`. `game_max_play_session_age_seconds` (default 3600 — 1 hour) is the
+  maximum age of a play session; `/score` submissions older than this are rejected to prevent
+  replay attacks with stale sessions.
 - **Mobile (Expo):** games render in a `react-native-webview` that loads
   `<WEB_BASE_URL>/g/<slug>/embed`. The dependency is declared in `apps/expo/package.json`;
   run `pnpm install` after pulling. No native game code ships — write a game once as a web

@@ -83,11 +83,12 @@ export interface ZobiaManifest {
   };
   // Games feature runtime config (admin-editable at /admin/config)
   games: {
-    wagerRakePct: number;        // platform rake on a challenge wager pot (default 5)
-    challengeExpiryHours: number; // hours a challenge stays open (default 48)
-    defaultRewardCredits: number; // fallback win credits when a game sets 0
-    defaultRewardXp: number;      // fallback win gaming-XP when a game sets 0
-    maxWagerCredits: number;      // server-side ceiling on challenge wager amount (default 10000)
+    wagerRakePct: number;             // platform rake on a challenge wager pot (default 5)
+    challengeExpiryHours: number;     // hours a challenge stays open (default 48)
+    defaultRewardCredits: number;     // fallback win credits when a game sets 0
+    defaultRewardXp: number;          // fallback win gaming-XP when a game sets 0
+    maxWagerCredits: number;          // server-side ceiling on challenge wager amount (default 10000)
+    maxPlaySessionAgeSeconds: number; // max age of a play session before submission is rejected (default 3600)
   };
   // Currency display names (admin-configurable)
   currency: {
@@ -231,6 +232,7 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     defaultRewardCredits: 50,
     defaultRewardXp: 40,
     maxWagerCredits: 10_000,
+    maxPlaySessionAgeSeconds: 3600,
   },
   minimumAge: 18,
   coinToCashRate: 100,
@@ -414,7 +416,8 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       challengeExpiryHours: parseInt10(kv["game_challenge_expiry_hours"], DEFAULT_MANIFEST.games.challengeExpiryHours),
       defaultRewardCredits: parseInt10(kv["game_default_reward_credits"], DEFAULT_MANIFEST.games.defaultRewardCredits),
       defaultRewardXp:      parseInt10(kv["game_default_reward_xp"],      DEFAULT_MANIFEST.games.defaultRewardXp),
-      maxWagerCredits:      parseInt10(kv["game_max_wager_credits"],      DEFAULT_MANIFEST.games.maxWagerCredits),
+      maxWagerCredits:          parseInt10(kv["game_max_wager_credits"],           DEFAULT_MANIFEST.games.maxWagerCredits),
+      maxPlaySessionAgeSeconds: parseInt10(kv["game_max_play_session_age_seconds"], DEFAULT_MANIFEST.games.maxPlaySessionAgeSeconds),
     },
     minimumAge:              parseInt10(kv["minimum_age"],               DEFAULT_MANIFEST.minimumAge),
     coinToCashRate:          parseInt10(kv["coin_to_cash_rate"],         DEFAULT_MANIFEST.coinToCashRate),

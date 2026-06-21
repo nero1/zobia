@@ -6,12 +6,10 @@ export const dynamic = 'force-dynamic';
  * POST /api/auth/2fa/verify
  *   Called during login when totp_enabled=true.
  *
- *   Accepts either:
- *   a) { code, preAuthToken } — pre-auth flow: verifies code, creates full session
- *   b) { code, sessionToken } — legacy: verifies code against an existing session token
+ *   Accepts: { code, preAuthToken } — pre-auth flow: verifies TOTP code, creates full session.
  *
- *   On success with preAuthToken: sets session cookies and returns { success: true }.
- *   On success with sessionToken: returns { valid: true }.
+ *   On success (web): sets session cookies and returns { success: true }.
+ *   On success (mobile ?platform=mobile): returns tokens + full user object in body.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -101,9 +99,10 @@ export async function POST(req: NextRequest) {
         xp_total: number | null;
         rank_name: string | null;
         is_creator: boolean;
+        plan: string | null;
       }>(
         `SELECT id, email, username, is_admin, totp_secret, totp_enabled, onboarding_completed, is_moderator,
-                avatar_emoji, city, xp_total, rank_name, COALESCE(is_creator, false) AS is_creator
+                avatar_emoji, city, xp_total, rank_name, COALESCE(is_creator, false) AS is_creator, plan
          FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
         [userId]
       );
@@ -148,6 +147,7 @@ export async function POST(req: NextRequest) {
       if (isMobile) {
         // Mobile clients cannot receive HttpOnly cookies — return tokens in the
         // response body so the Expo app can store them in SecureStore.
+        // BUG-EXPO-03: include all AuthUser fields so the mobile app has full user state.
         return NextResponse.json({
           success: true,
           onboardingCompleted: user.onboarding_completed,
@@ -161,6 +161,11 @@ export async function POST(req: NextRequest) {
             city: user.city ?? "",
             xp: user.xp_total ?? 0,
             rankTier: user.rank_name ?? "Beginner",
+            plan: (user.plan ?? "free") as "free" | "plus" | "pro" | "max",
+            isAdmin: user.is_admin,
+            isModerator: user.is_moderator,
+            isCreator: user.is_creator,
+            onboardingCompleted: user.onboarding_completed,
           },
         });
       }

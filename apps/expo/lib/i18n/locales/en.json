@@ -1677,5 +1677,13 @@
   "notification.rank_promotion": "You rose from rank #{{previousRank}} to rank #{{newRank}}. Keep it up!",
   "notification.rank_drop": "You dropped from rank #{{previousRank}} to rank #{{newRank}}. Stay active to climb back!",
   "notification.rank_top10": "You're in the Top 10!",
-  "notification.rank_climbing": "You're climbing the leaderboard!"
+  "notification.rank_climbing": "You're climbing the leaderboard!",
+  "games.error.sessionExpired": "Your play session has expired. Please start a new game.",
+  "games.error.sessionTooQuick": "Play session ended too quickly to be valid.",
+  "games.error.challengeExpired": "This challenge has expired.",
+  "games.cancelChallenge.forfeit": "{{amount}} credits forfeited",
+  "games.cancelChallenge.refund": "You will receive {{amount}} credits back.",
+  "seasons.error.seasonEnded": "This season has ended. Milestone claims are now closed.",
+  "rooms.error.muted": "You are muted in this room.",
+  "error.encryptionIntegrity": "Data integrity error — please contact support."
 }

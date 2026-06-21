@@ -36,6 +36,7 @@ interface ChallengeRow {
   wager_credits: number;
   escrow_credits: number;
   winner_id: string | null;
+  expires_at: string;
 }
 
 // ─── Create ──────────────────────────────────────────────────────────────────
@@ -147,18 +148,34 @@ export async function declineChallenge(challengeId: string, userId: string): Pro
 }
 
 export async function cancelChallenge(challengeId: string, userId: string): Promise<void> {
+  let escrowResult: CancelEscrowResult = { challRefund: 0, oppRefund: 0, challForfeitCoins: 0 };
+  let challengerIdForNotify = "";
+  let opponentIdForNotify = "";
+
   await db.transaction(async (tx) => {
     const c = await lockChallenge(tx, challengeId);
     if (c.challenger_id !== userId) throw forbidden("Only the challenger can cancel.");
     if (c.status !== "pending" && c.status !== "active") {
       throw conflict("This challenge can no longer be cancelled.");
     }
+    challengerIdForNotify = c.challenger_id;
+    opponentIdForNotify = c.opponent_id;
     if (c.status === "active" && c.escrow_credits > 0) {
-      await cancelEscrow(tx, c);
+      // BUG-CHALLENGE-01: capture refund amounts so they can be included in notifications
+      escrowResult = await cancelEscrow(tx, c);
     }
     await tx.query(`UPDATE game_challenges SET status = 'cancelled' WHERE id = $1`, [c.id]);
   });
-  await notifyChallengeParticipants(challengeId, "game_challenge_cancelled");
+
+  // Include forfeiture breakdown in cancellation notification metadata (BUG-CHALLENGE-01)
+  const cancelPayload = {
+    challengeId,
+    challForfeitCoins: escrowResult.challForfeitCoins,
+    challRefund: escrowResult.challRefund,
+    oppRefund: escrowResult.oppRefund,
+  };
+  await notify(challengerIdForNotify, "game_challenge_cancelled", cancelPayload).catch(() => {});
+  await notify(opponentIdForNotify, "game_challenge_cancelled", cancelPayload).catch(() => {});
 }
 
 // ─── Play a round ────────────────────────────────────────────────────────────
@@ -179,6 +196,11 @@ export async function prepareChallengeRoundPlay(
     throw forbidden("You are not part of this challenge.");
   }
   if (c.status !== "active") throw conflict("This challenge is not active.");
+  // BUG-GAMES-03: reject play attempts on challenges that have passed their expiry
+  // even if the expiry cron has not yet run to flip the status to 'expired'.
+  if (new Date(c.expires_at) < new Date()) {
+    throw conflict("This challenge has expired.");
+  }
 
   const game = await getGameById(c.game_id);
   if (!game || !game.is_active) throw notFound("Game is unavailable.");
@@ -373,7 +395,7 @@ export async function expireChallenges(): Promise<number> {
 async function lockChallenge(tx: TransactionClient, id: string): Promise<ChallengeRow> {
   const { rows } = await tx.query<ChallengeRow>(
     `SELECT id, game_id, challenger_id, opponent_id, status, rounds,
-            wager_credits, escrow_credits, winner_id
+            wager_credits, escrow_credits, winner_id, expires_at
      FROM game_challenges WHERE id = $1 FOR UPDATE`,
     [id]
   );
@@ -384,7 +406,7 @@ async function lockChallenge(tx: TransactionClient, id: string): Promise<Challen
 async function getChallengeRow(id: string): Promise<ChallengeRow | null> {
   const { rows } = await db.query<ChallengeRow>(
     `SELECT id, game_id, challenger_id, opponent_id, status, rounds,
-            wager_credits, escrow_credits, winner_id
+            wager_credits, escrow_credits, winner_id, expires_at
      FROM game_challenges WHERE id = $1 LIMIT 1`,
     [id]
   );
@@ -422,8 +444,14 @@ async function refundEscrow(tx: TransactionClient, c: ChallengeRow): Promise<voi
  * the opponent's share of completed-round wins — preventing a losing player
  * from cancelling to recoup a wager they should have lost.
  */
-async function cancelEscrow(tx: TransactionClient, c: ChallengeRow): Promise<void> {
-  if (c.wager_credits <= 0) return;
+interface CancelEscrowResult {
+  challRefund: number;
+  oppRefund: number;
+  challForfeitCoins: number;
+}
+
+async function cancelEscrow(tx: TransactionClient, c: ChallengeRow): Promise<CancelEscrowResult> {
+  if (c.wager_credits <= 0) return { challRefund: 0, oppRefund: 0, challForfeitCoins: 0 };
 
   const { rows: tally } = await tx.query<{
     rounds_played: number;
@@ -445,7 +473,7 @@ async function cancelEscrow(tx: TransactionClient, c: ChallengeRow): Promise<voi
   // No rounds played or all draws — full refund, no penalty
   if (rounds_played === 0 || decisiveRounds === 0) {
     await refundEscrow(tx, c);
-    return;
+    return { challRefund: c.wager_credits, oppRefund: c.wager_credits, challForfeitCoins: 0 };
   }
 
   // Challenger forfeits a fraction of their stake equal to their round-win deficit.
@@ -463,6 +491,8 @@ async function cancelEscrow(tx: TransactionClient, c: ChallengeRow): Promise<voi
       `chal:${c.id}:refund:${c.opponent_id}`, "Challenge wager refund + cancellation penalty", { challengeId: c.id }, tx);
   }
   await tx.query(`UPDATE game_challenges SET escrow_credits = 0 WHERE id = $1`, [c.id]);
+
+  return { challRefund, oppRefund, challForfeitCoins };
 }
 
 const CHALLENGE_NOTIFICATION_COPY: Record<string, { title: string; body: string }> = {

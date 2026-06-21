@@ -80,7 +80,9 @@ export async function awardReferralCommissions(
   );
 
   const tier1Id = tier1Rows[0]?.referred_by ?? null;
-  if (!tier1Id) return result;
+  // BUG-REFERRAL-01: also reject self-referrals (data constraint should prevent this,
+  // but guard here in case the CHECK constraint was not applied on an older schema).
+  if (!tier1Id || tier1Id === buyerId) return result;
 
   // Mark referral as qualified on first purchase and award 500 XP to referrer (PRD §referrals)
   const { rows: qualifyRows } = await db.query<{ id: string }>(

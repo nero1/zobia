@@ -272,6 +272,19 @@ export async function processPaymentSucceeded(
           [netKobo, creator.creator_id]
         );
       }
+
+      // BUG-PAY-01: seed Creator Fund for room_subscription payments (was missing)
+      const subCreatorFundKobo = Math.floor((subGrossKobo ?? amount) * 0.05);
+      if (subCreatorFundKobo > 0) {
+        await tx.query(
+          `INSERT INTO x_manifest (key, value, updated_at)
+           VALUES ('creator_fund_balance_kobo', $1::TEXT, NOW())
+           ON CONFLICT (key) DO UPDATE
+             SET value = (COALESCE(x_manifest.value::NUMERIC, 0) + $1)::TEXT,
+                 updated_at = NOW()`,
+          [subCreatorFundKobo]
+        );
+      }
       return;
     }
 
@@ -357,6 +370,9 @@ export async function processPaymentSucceeded(
           tx
         );
       }
+      // BUG-PAY-03: plan subscription payments do not seed Creator Fund
+      // (matches Paystack handler which returns early for subscription itemType).
+      return;
     } else if (itemType === "star_pack") {
       if (serverStarsGranted <= 0) {
         // BUG-PAY-04: throwing here rolls back the entire transaction including the payment

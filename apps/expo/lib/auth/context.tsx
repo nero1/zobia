@@ -59,7 +59,7 @@ function isTokenExpiredOrExpiring(token: string): boolean {
 // Types
 // ---------------------------------------------------------------------------
 
-/** Minimal user payload decoded from the JWT body. */
+/** Full user payload stored in SecureStore and exposed via auth context. */
 export interface AuthUser {
   id: string;
   username: string;
@@ -67,6 +67,12 @@ export interface AuthUser {
   city: string;
   xp: number;
   rankTier: RankName;
+  /** Subscription plan tier. */
+  plan: 'free' | 'plus' | 'pro' | 'max';
+  isAdmin: boolean;
+  isModerator: boolean;
+  isCreator: boolean;
+  onboardingCompleted: boolean;
 }
 
 export interface AuthContextValue {
@@ -103,6 +109,57 @@ const AuthContext = createContext<AuthContextValue>({
 });
 
 // ---------------------------------------------------------------------------
+// Silent refresh helper (BUG-EXPO-01 / BUG-EXPO-02)
+// ---------------------------------------------------------------------------
+
+/**
+ * Attempt a silent token refresh using the persisted refresh token.
+ *
+ * - Network / fetch errors → return null (keep stored credentials intact).
+ * - HTTP 401/403 from the server → credentials are invalid; delete them and return null.
+ * - Success → persist new tokens and return the new access token.
+ *
+ * Never deletes credentials on a network-level failure so offline users stay
+ * logged in until the server explicitly rejects their refresh token.
+ */
+async function silentRefresh(storedRefreshToken: string): Promise<string | null> {
+  try {
+    const resp = await fetch(`${env.API_BASE_URL}/api/auth/refresh`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Refresh-Token': storedRefreshToken,
+        'Origin': env.API_BASE_URL,
+      },
+    });
+
+    if (!resp.ok) {
+      // Server explicitly rejected the refresh token (e.g. 401) — wipe credentials.
+      if (resp.status === 401 || resp.status === 403) {
+        await Promise.all([
+          SecureStore.deleteItemAsync(JWT_KEY),
+          SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY),
+          SecureStore.deleteItemAsync('zobia_user'),
+        ]).catch(() => {});
+      }
+      return null;
+    }
+
+    const data = (await resp.json()) as { accessToken?: string; refreshToken?: string };
+    if (!data.accessToken) return null;
+
+    await SecureStore.setItemAsync(JWT_KEY, data.accessToken);
+    if (data.refreshToken) {
+      await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, data.refreshToken);
+    }
+    return data.accessToken;
+  } catch {
+    // Network failure (TypeError, AbortError, DNS, etc.) — leave credentials intact.
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Provider
 // ---------------------------------------------------------------------------
 
@@ -121,7 +178,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Restore persisted session on app start.
   // If the stored access token is expired or expiring within 60 s, attempt a
-  // silent refresh before setting authenticated state (EXPO-TOKEN-01).
+  // silent refresh before setting authenticated state.
+  // BUG-EXPO-01/02: use silentRefresh() so network errors never log out offline users.
   useEffect(() => {
     (async () => {
       try {
@@ -132,37 +190,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!storedToken || !storedUser) return;
 
         if (isTokenExpiredOrExpiring(storedToken)) {
-          // Attempt a silent token refresh using the persisted refresh token.
           const storedRefreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
           if (!storedRefreshToken) return; // no refresh token — require re-login
 
-          try {
-            const resp = await fetch(`${env.API_BASE_URL}/api/auth/refresh`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'X-Refresh-Token': storedRefreshToken,
-                'Origin': env.API_BASE_URL,
-              },
-            });
-            if (!resp.ok) return; // refresh failed — clear state, require re-login
-            const data = (await resp.json()) as { accessToken?: string; refreshToken?: string };
-            if (!data.accessToken) return;
-
-            await SecureStore.setItemAsync(JWT_KEY, data.accessToken);
-            if (data.refreshToken) {
-              await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, data.refreshToken);
-            }
-            setToken(data.accessToken);
+          const newAccessToken = await silentRefresh(storedRefreshToken);
+          if (newAccessToken) {
+            setToken(newAccessToken);
             setUser(JSON.parse(storedUser) as AuthUser);
-          } catch {
-            // Network failure — clear session and require re-login
-            await Promise.all([
-              SecureStore.deleteItemAsync(JWT_KEY),
-              SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY),
-              SecureStore.deleteItemAsync('zobia_user'),
-            ]).catch(() => {});
           }
+          // If silentRefresh returned null (network failure or server rejection),
+          // credentials have already been cleared by silentRefresh (on 401) or
+          // left intact (on network error) — no further action needed here.
         } else {
           setToken(storedToken);
           setUser(JSON.parse(storedUser) as AuthUser);
@@ -209,34 +247,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // AppState foreground refresh: when the app becomes active and the stored
   // token is expired or expiring within 60 s, attempt a silent refresh so the
   // user doesn't get an auth error immediately after switching back to the app.
+  // BUG-EXPO-01/02: use silentRefresh() so both paths behave consistently.
   useEffect(() => {
     const sub = AppState.addEventListener('change', async (status) => {
       if (status !== 'active' || !token) return;
       if (!isTokenExpiredOrExpiring(token)) return;
 
-      try {
-        const storedRefreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
-        if (!storedRefreshToken) return;
+      const storedRefreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+      if (!storedRefreshToken) return;
 
-        const resp = await fetch(`${env.API_BASE_URL}/api/auth/refresh`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Refresh-Token': storedRefreshToken,
-            'Origin': env.API_BASE_URL,
-          },
-        });
-        if (!resp.ok) return;
-        const data = (await resp.json()) as { accessToken?: string; refreshToken?: string };
-        if (!data.accessToken) return;
-
-        await SecureStore.setItemAsync(JWT_KEY, data.accessToken);
-        if (data.refreshToken) {
-          await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, data.refreshToken);
-        }
-        setToken(data.accessToken);
-      } catch {
-        // Network failure on foreground — leave existing token, will fail on next API call
+      const newAccessToken = await silentRefresh(storedRefreshToken);
+      if (newAccessToken) {
+        setToken(newAccessToken);
       }
     });
     return () => sub.remove();

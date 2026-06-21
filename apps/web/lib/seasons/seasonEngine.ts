@@ -521,6 +521,16 @@ export async function claimPassMilestone(
   let claimed: { rewardType: string; rewardValue: unknown } | null = null;
 
   await db.transaction(async (client) => {
+    // BUG-SEASON-01: reject claims for seasons that are no longer active
+    const { rows: seasonRows } = await client.query<{ is_active: boolean; ends_at: string }>(
+      `SELECT is_active, ends_at FROM seasons WHERE id = $1 LIMIT 1`,
+      [seasonId]
+    );
+    const season = seasonRows[0];
+    if (!season || !season.is_active || new Date(season.ends_at) <= new Date()) {
+      throw new Error('Season is not active — milestone claims are closed');
+    }
+
     // Lock the pass row so concurrent claims for the same user/season are serialised
     const { rows: passRows } = await client.query<{
       season_xp: number; has_paid_pass: boolean;
