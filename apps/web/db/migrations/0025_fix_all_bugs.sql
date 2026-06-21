@@ -88,10 +88,10 @@ BEGIN
       EXECUTE $policy$
         CREATE POLICY messages_self_or_admin ON messages
           USING (
-            sender_id = NULLIF(current_setting(''app.user_id'', true), '''')::uuid
-            OR recipient_id = NULLIF(current_setting(''app.user_id'', true), '''')::uuid
-            OR current_setting(''app.is_admin'', true) = ''true''
-            OR current_setting(''app.is_system'', true) = ''true''
+            sender_id = NULLIF(current_setting('app.user_id', true), '')::uuid
+            OR recipient_id = NULLIF(current_setting('app.user_id', true), '')::uuid
+            OR current_setting('app.is_admin', true) = 'true'
+            OR current_setting('app.is_system', true) = 'true'
           )
       $policy$;
     END IF;
@@ -109,9 +109,9 @@ BEGIN
       EXECUTE $policy$
         CREATE POLICY kyc_submissions_self_or_admin ON kyc_submissions
           USING (
-            user_id = NULLIF(current_setting(''app.user_id'', true), '''')::uuid
-            OR current_setting(''app.is_admin'', true) = ''true''
-            OR current_setting(''app.is_system'', true) = ''true''
+            user_id = NULLIF(current_setting('app.user_id', true), '')::uuid
+            OR current_setting('app.is_admin', true) = 'true'
+            OR current_setting('app.is_system', true) = 'true'
           )
       $policy$;
     END IF;
@@ -129,9 +129,9 @@ BEGIN
       EXECUTE $policy$
         CREATE POLICY creator_kyc_self_or_admin ON creator_kyc
           USING (
-            creator_id = NULLIF(current_setting(''app.user_id'', true), '''')::uuid
-            OR current_setting(''app.is_admin'', true) = ''true''
-            OR current_setting(''app.is_system'', true) = ''true''
+            creator_id = NULLIF(current_setting('app.user_id', true), '')::uuid
+            OR current_setting('app.is_admin', true) = 'true'
+            OR current_setting('app.is_system', true) = 'true'
           )
       $policy$;
     END IF;
@@ -149,8 +149,8 @@ BEGIN
       EXECUTE $policy$
         CREATE POLICY failed_xp_awards_admin_or_system ON failed_xp_awards
           USING (
-            current_setting(''app.is_admin'', true) = ''true''
-            OR current_setting(''app.is_system'', true) = ''true''
+            current_setting('app.is_admin', true) = 'true'
+            OR current_setting('app.is_system', true) = 'true'
           )
       $policy$;
     END IF;

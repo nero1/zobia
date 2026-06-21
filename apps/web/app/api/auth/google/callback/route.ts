@@ -36,7 +36,7 @@ import {
   validateCsrfState,
   clearCsrfCookie,
 } from "@/lib/security/csrf";
-import { handleApiError, badRequest, unauthorized } from "@/lib/api/errors";
+import { badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { env } from "@/lib/env";
 
@@ -269,32 +269,64 @@ async function upsertGoogleUser(profile: {
 // GET /api/auth/google/callback
 // ---------------------------------------------------------------------------
 
+/** Build a Set-Cookie header that clears the named cookie. */
+function clearCookie(name: string, secure: boolean): string {
+  return `${name}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`;
+}
+
+/** Redirect to the auth error page, always clearing all OAuth-related cookies. */
+function authErrorRedirect(
+  req: NextRequest,
+  errorCode: string,
+  statusCode = 302
+): NextResponse {
+  const origin = new URL(req.url).origin;
+  const secure = process.env.NODE_ENV === "production";
+  const dest = new URL(`/auth/error?code=${encodeURIComponent(errorCode)}`, origin);
+  const res = NextResponse.redirect(dest, { status: statusCode });
+  for (const name of ["zobia_csrf_state", "zobia_mobile_redirect", "zobia_web_redirect"]) {
+    res.headers.append("Set-Cookie", clearCookie(name, secure));
+  }
+  return res;
+}
+
 export async function GET(req: NextRequest): Promise<NextResponse> {
+  const origin = new URL(req.url).origin;
+  const secure = process.env.NODE_ENV === "production";
+
   try {
     const ip = getClientIp(req);
-    await enforceRateLimit(ip, "ip", RATE_LIMITS.auth);
+    try {
+      await enforceRateLimit(ip, "ip", RATE_LIMITS.auth);
+    } catch {
+      return authErrorRedirect(req, "rate_limited");
+    }
 
     const { searchParams } = new URL(req.url);
     const error = searchParams.get("error");
 
     // Google-side errors (e.g. user denied access)
     if (error) {
-      return NextResponse.redirect(
-        new URL(`/auth/login?error=${encodeURIComponent(error)}`, new URL(req.url).origin)
+      const res = NextResponse.redirect(
+        new URL(`/auth/login?error=${encodeURIComponent(error)}`, origin)
       );
+      for (const name of ["zobia_csrf_state", "zobia_mobile_redirect", "zobia_web_redirect"]) {
+        res.headers.append("Set-Cookie", clearCookie(name, secure));
+      }
+      return res;
     }
 
     // Validate required query params with Zod before any processing
     const paramsParsed = CallbackQuerySchema.safeParse(Object.fromEntries(searchParams));
     if (!paramsParsed.success) {
-      return NextResponse.json({ data: null, error: "Invalid query params" }, { status: 400 });
+      return authErrorRedirect(req, "invalid_request");
     }
     const { code, state } = paramsParsed.data;
 
-    // Verify CSRF state
+    // Verify CSRF state — cookie may have expired (user paused on Google's page)
     const cookieHeader = req.headers.get("cookie");
     const csrfValid = validateCsrfState(cookieHeader, state);
-    if (!csrfValid) throw unauthorized("Invalid or missing CSRF state token");
+    if (!csrfValid) return authErrorRedirect(req, "session_expired");
 
     // Read the optional mobile deep-link redirect stored during auth initiation
     const mobileRedirectRaw = req.cookies.get("zobia_mobile_redirect")?.value;
@@ -399,6 +431,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         is_admin: user.is_admin,
         is_moderator: user.is_moderator,
         is_creator: user.is_creator,
+        onboarding_completed: user.onboarding_completed,
       },
       { ip }
     );
@@ -476,14 +509,18 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     }
     return response;
   } catch (err) {
-    const code = (err as { code?: string }).code;
-    if (code === "ACCOUNT_BANNED" || code === "ACCOUNT_SUSPENDED") {
-      const reqOrigin = new URL(req.url).origin;
-      return NextResponse.redirect(
-        new URL(`/auth/login?error=${code.toLowerCase()}`, reqOrigin),
+    const errCode = (err as { code?: string }).code;
+    if (errCode === "ACCOUNT_BANNED" || errCode === "ACCOUNT_SUSPENDED") {
+      const res = NextResponse.redirect(
+        new URL(`/auth/login?error=${errCode.toLowerCase()}`, origin),
         { status: 302 }
       );
+      for (const name of ["zobia_csrf_state", "zobia_mobile_redirect", "zobia_web_redirect"]) {
+        res.headers.append("Set-Cookie", clearCookie(name, secure));
+      }
+      return res;
     }
-    return handleApiError(err);
+    // Any other error: show a user-friendly error page (no raw JSON)
+    return authErrorRedirect(req, "unexpected");
   }
 }

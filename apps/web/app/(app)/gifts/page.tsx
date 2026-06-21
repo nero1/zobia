@@ -550,20 +550,29 @@ function GiftsPageContent() {
   return (
     <div className="mx-auto max-w-2xl px-4 py-6 sm:px-6">
       {/* Page header */}
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">🎁 Gifts</h1>
           <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
             Send gifts to friends and see your gift history
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowModal(true)}
-          className="rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-primary-700 active:bg-primary-800"
-        >
-          🎁 Send a Gift
-        </button>
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <button
+            type="button"
+            onClick={() => setShowModal(true)}
+            className="rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-primary-700 active:bg-primary-800"
+          >
+            🎁 Send a Gift
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowModal(true)}
+            className="text-xs text-neutral-400 underline hover:text-neutral-600 dark:hover:text-neutral-300"
+          >
+            Browse gift catalog
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}

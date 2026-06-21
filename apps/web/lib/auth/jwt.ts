@@ -119,6 +119,8 @@ export interface AccessTokenPayload extends JWTPayload {
   sid: string;
   /** Token type — 'pre_auth' tokens are only valid for the 2FA verify endpoint. */
   type?: 'pre_auth' | 'access';
+  /** False when the user has not yet completed onboarding. Absent on old tokens. */
+  onboarding_completed?: boolean;
 }
 
 /** Claims embedded in every refresh token. */

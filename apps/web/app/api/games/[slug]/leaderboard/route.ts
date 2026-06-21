@@ -25,7 +25,9 @@ export const GET = withAuth(
 
       const page = Number(new URL(req.url).searchParams.get("page") ?? "1") || 1;
       const board = await getGameLeaderboard(game.id, page);
-      return NextResponse.json({ success: true, data: board, error: null });
+      return NextResponse.json({ success: true, data: board, error: null }, {
+        headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=120" },
+      });
     } catch (err) {
       return handleApiError(err);
     }

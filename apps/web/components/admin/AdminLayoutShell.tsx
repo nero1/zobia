@@ -41,6 +41,7 @@ const adminNavItems = [
   { href: "/admin/actions-log",        label: "Actions Log",        icon: "📋" },
   { href: "/admin/automated-actions",  label: "Auto Actions",       icon: "🤖" },
   { href: "/admin/creator-spotlight",  label: "Creator Spotlight",  icon: "⭐" },
+  { href: "/admin/gifts",               label: "Gifts Catalog",      icon: "🛍️" },
   { href: "/admin/gift-drop",          label: "Gift Drop",          icon: "🎁" },
   { href: "/admin/seasons",            label: "Seasons",            icon: "🏅" },
   { href: "/admin/sponsored-quests",   label: "Sponsored Quests",   icon: "🎯" },

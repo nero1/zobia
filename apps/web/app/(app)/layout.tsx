@@ -24,6 +24,7 @@ import { OfflineSyncProvider } from "@/components/offline/OfflineSyncProvider";
 import { AnnouncementBanner, type BannerData } from "@/components/announcements/AnnouncementBanner";
 import { AnnouncementModal, type AnnouncementData } from "@/components/announcements/AnnouncementModal";
 import { SessionExpiredModal } from "@/components/auth/SessionExpiredModal";
+import { PWAInstallPrompt } from "@/components/shared/PWAInstallPrompt";
 import { verifyAccessToken } from "@/lib/auth/jwt";
 import { env } from "@/lib/env";
 import {
@@ -110,6 +111,8 @@ export default async function AppLayout({ children }: AppLayoutProps) {
       <AnnouncementBanner banner={banner} />
       {/* Login-event announcement modal */}
       <AnnouncementModal announcement={modal} />
+      {/* PWA / Android app install prompt */}
+      <PWAInstallPrompt />
 
       {/* Top navigation */}
       <Navbar />

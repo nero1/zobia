@@ -118,7 +118,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
         },
       },
       error: null,
-    });
+    }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
   } catch (err) {
     return handleApiError(err);
   }

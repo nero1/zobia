@@ -1,7 +1,7 @@
 # Zobia Social — Product Requirements Document
 ### A Gamified Monetised Social Platform for the Global Mobile Generation
 
-> **Version 1.73 — Product Requirements Document**
+> **Version 1.74 — Product Requirements Document**
 > Covers: Feature Specifications · Technical Architecture · Economy Design · Moderation · Build Sequence
 > Scope: Nigeria-first, Pan-African then Global · Mobile-first PWA + Android APK · Admin-minimal operation
 
@@ -1994,6 +1994,24 @@ Every feature decision on Zobia is tested against this checklist. If any answer 
 - Storage access: all file operations go through the `lib/storage/` abstraction interface — never call a provider-specific SDK directly in business logic.
 - Auth: no `@supabase/supabase-js` or `@supabase/auth-helpers-*` imports in auth-related code. Auth is always platform-managed JWT. An ESLint rule enforces this when `DATABASE_PROVIDER !== 'supabase'`.
 - Deep links: all navigable deep link paths are registered in a single route map file — never hardcode deep link strings in components.
+
+---
+
+## Appendix: Version 1.74 Change Log
+
+### v1.74 — Changelog
+
+- **SQL migration fix (0025):** Dollar-quoted policy blocks in `CREATE POLICY` statements inside `DO $...$` blocks no longer double-escape single quotes — all four affected RLS policies (messages, kyc_submissions, creator_kyc, failed_xp_awards) corrected.
+- **Quest deck shuffle (CSPRNG):** Replaced `ORDER BY MD5(JWT_SECRET || id)` with application-layer Fisher-Yates shuffle using `crypto.randomBytes` rejection-sampling, eliminating the MD5 bias and removing the JWT secret from DB queries entirely.
+- **Cache headers:** Added correct `Cache-Control` headers to six previously uncached API routes: `/api/games/[slug]/leaderboard`, `/api/config/games`, `/api/config/rewards-ui`, `/api/announcements/banner`, `/api/announcements/modal`, `/api/leaderboards/banner`.
+- **Rate-limit cookie clearing:** All rate-limit error paths now clear all session and OAuth cookies before returning the error, preventing stale cookie loops.
+- **Games navigation:** Games added as the 4th item in the user sidebar accordion and the desktop header nav; Messages removed from the bottom mobile toolbar and replaced with Games.
+- **Google OAuth error UX:** All auth callback error paths (CSRF expiry, invalid state, rate limit, banned/suspended) now redirect to a user-friendly `/auth/error?code=...` page instead of returning raw JSON. All OAuth cookies are cleared on every error path. The `/auth/error` page is public (added to middleware's `PUBLIC_PREFIXES`).
+- **Onboarding gate:** JWT `AccessTokenPayload` gains an `onboarding_completed?: boolean` claim. Middleware redirects any authenticated user with `onboarding_completed === false` to `/onboarding` for all app pages not in the allowed-prefixes list.
+- **Username "taken" fix:** The onboarding gate ensures users with incomplete Google-auth sign-up cannot bypass onboarding; the auto-generated username is reserved but the onboarding flow allows claiming a new one before completion.
+- **PWA install prompt:** New `PWAInstallPrompt` client component added to the app layout. On Android, shows an admin-configured APK download link (from `android_app_url` in the manifest). On iOS/desktop, shows the standard "Add to Home Screen" guide or triggers the `beforeinstallprompt` native dialog. "Not now" suppresses for 7 days; "Already installed/downloaded" suppresses for 90 days. Prompt is skipped inside standalone PWA.
+- **Admin gifts catalog:** New admin page `/admin/gifts` with cursor-based pagination for managing all gift items (create, edit, retire/restore). Backed by new admin API routes `GET/POST /api/admin/gifts` and `PATCH/DELETE /api/admin/gifts/:id`. Entry added to admin sidebar nav. User-facing `/gifts` page gains a "Browse gift catalog" link.
+- **i18n:** 23 new English keys added for auth error page and PWA install prompt (`authError.*`, `pwa.*`).
 
 ---
 

@@ -42,6 +42,7 @@ const primaryNavItems = [
   { href: "/home", label: "Home" },
   { href: "/moments", label: "Moments" },
   { href: "/quests", label: "Quests" },
+  { href: "/games", label: "Games" },
   { href: "/rooms", label: "Rooms" },
   { href: "/messages", label: "Messages" },
   { href: "/friends", label: "Friends" },
@@ -53,7 +54,6 @@ const primaryNavItems = [
   { href: "/elder", label: "Elder" },
   { href: "/referrals", label: "Referrals" },
   { href: "/classroom", label: "Classroom" },
-  { href: "/games", label: "Games" },
   { href: "/leaderboards", label: "Leaderboards" },
 ] as const;
 
@@ -100,6 +100,7 @@ function navIcon(label: string): string {
     Admin: "🛡️",
     Home: "🏠",
     Quests: "🎯",
+    Games: "🎮",
     Rooms: "🚪",
     Messages: "💬",
     Friends: "👥",
@@ -113,6 +114,7 @@ function navIcon(label: string): string {
     Classroom: "🏫",
     Leaderboards: "🏆",
     Rankings: "🏆",
+    Moments: "⚡",
     Search: "🔍",
     Profile: "👤",
     Settings: "⚙️",
