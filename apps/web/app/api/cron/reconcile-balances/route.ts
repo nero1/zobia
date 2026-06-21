@@ -1,5 +1,7 @@
 export const dynamic = 'force-dynamic';
-export const maxDuration = 10;
+// BUG-M05: Increase maxDuration to allow reconciliation across large user tables.
+// The default was 10 s which would time out mid-loop on datasets > ~5 000 users.
+export const maxDuration = 300;
 
 /**
  * GET /api/cron/reconcile-balances
@@ -46,8 +48,20 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   let discrepanciesFound = 0;
   let autoCorrected = 0;
   let offset = 0;
+  // BUG-M05: Bound the while(true) loop so a large dataset can't cause a silent
+  // mid-run timeout. MAX_ITERATIONS × BATCH_SIZE = 100 000 users per invocation.
+  // Incomplete runs return a partial-success response so operators know to re-run.
+  const MAX_ITERATIONS = 200;
+  let iterations = 0;
 
   while (true) {
+    if (++iterations > MAX_ITERATIONS) {
+      console.error(`[reconcile-balances] Hit iteration cap (${MAX_ITERATIONS}), stopping early at offset ${offset}`);
+      return NextResponse.json(
+        { ok: false, partial: true, discrepanciesFound, autoCorrected, stoppedAtOffset: offset },
+        { status: 206 }
+      );
+    }
     const { rows: users } = await db.query<{ id: string; xp_total: number; coin_balance: number }>(
       `SELECT id, xp_total, coin_balance FROM users
        WHERE deleted_at IS NULL ORDER BY id LIMIT $1 OFFSET $2`,

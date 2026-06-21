@@ -4,6 +4,11 @@
  * Server-side HTML sanitizer using sanitize-html with a strict allow-list.
  */
 import sanitizeHtmlLib from 'sanitize-html';
+// BUG-M06: marked converts Markdown → HTML before we pass it to sanitizeHtml.
+// Previously, raw Markdown was passed directly to sanitize-html, which does not
+// parse Markdown tokens — embedded `<script>` tags survived because they were
+// wrapped in Markdown syntax that the sanitizer treated as text.
+import { marked } from 'marked';
 
 const SANITIZE_OPTIONS: sanitizeHtmlLib.IOptions = {
   allowedTags: [
@@ -39,7 +44,13 @@ export function sanitizeAnnouncementContent(content: string, contentType: string
     return sanitizeHtml(content);
   }
   if (contentType === 'markdown') {
-    const patched = content.replace(/\]\((?!(https?:|mailto:))[^)]*\)/gi, '](about:blank)');
+    // BUG-M06: Convert Markdown → HTML first, THEN sanitize the resulting HTML.
+    // sanitize-html operates on HTML tokens; passing raw Markdown let embedded
+    // HTML fragments (e.g. <script>) partially survive because they were wrapped
+    // in Markdown syntax that the sanitizer misidentified as plain text.
+    const html = marked.parse(content, { async: false }) as string;
+    // Patch unsafe link targets in the generated HTML (non-http/mailto hrefs)
+    const patched = html.replace(/href="(?!(https?:|mailto:))[^"]*"/gi, 'href="about:blank"');
     return sanitizeHtml(patched);
   }
   return content;

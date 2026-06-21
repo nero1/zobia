@@ -94,14 +94,18 @@ export function validateCsrfState(
   const storedToken = extractCsrfFromCookieHeader(cookieHeader);
   if (!storedToken) return false;
 
-  // Both buffers must be the same length for timingSafeEqual
-  if (storedToken.length !== stateParam.length) return false;
-
+  // BUG-L01: The previous length check (`storedToken.length !== stateParam.length`)
+  // leaked whether the attacker had the correct token length via a timing difference.
+  // timingSafeEqual already returns false for buffers of different lengths; pad both
+  // to the expected CSRF token length so the comparison is always constant-time.
+  // CSRF tokens are always 64 hex chars (32 bytes). Tokens of wrong length are invalid.
+  const EXPECTED_LENGTH = 64;
   try {
-    return timingSafeEqual(
-      Buffer.from(storedToken, "utf8"),
-      Buffer.from(stateParam, "utf8")
-    );
+    const a = Buffer.alloc(EXPECTED_LENGTH, 0);
+    const b = Buffer.alloc(EXPECTED_LENGTH, 0);
+    Buffer.from(storedToken, "utf8").copy(a, 0, 0, EXPECTED_LENGTH);
+    Buffer.from(stateParam, "utf8").copy(b, 0, 0, EXPECTED_LENGTH);
+    return timingSafeEqual(a, b);
   } catch {
     return false;
   }

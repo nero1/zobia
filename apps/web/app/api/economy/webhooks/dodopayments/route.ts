@@ -59,19 +59,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   // 3b. Replay protection — deduplicate by event ID using Redis (STRUC-04)
+  // BUG-C01: Reject events with no unique identifier — a null replayKey would
+  // skip the idempotency check entirely, allowing unlimited replay attacks.
   const eventId = (event as DodoPaymentSucceededEvent).data?.id
     ?? (event as DodoPayoutEvent).data?.reference
     ?? null;
-  const replayKey = eventId ? `webhook:dodo:${event.event}:${eventId}` : null;
-  if (replayKey) {
-    // If Redis SET throws, return 500 so DodoPayments retries the webhook rather
-    // than silently treating a Redis failure as a duplicate event.
-    const alreadySeen = await redis.set(replayKey, "1", "EX", 86400, "NX");
-    if (alreadySeen === null) {
-      // null = NX condition not met → key already existed → duplicate event
-      console.info(`[webhook/dodopayments] Duplicate event ignored: ${replayKey}`);
-      return NextResponse.json({ received: true, duplicate: true });
-    }
+  if (!eventId) {
+    console.warn("[webhook/dodopayments] Event has no unique identifier (id/reference) — rejecting to prevent replay attacks", { eventType: event.event });
+    return NextResponse.json({ received: false, error: "missing_event_id" }, { status: 400 });
+  }
+  const replayKey = `webhook:dodo:${event.event}:${eventId}`;
+  // If Redis SET throws, return 500 so DodoPayments retries the webhook rather
+  // than silently treating a Redis failure as a duplicate event.
+  const alreadySeen = await redis.set(replayKey, "1", "EX", 86400, "NX");
+  if (alreadySeen === null) {
+    // null = NX condition not met → key already existed → duplicate event
+    console.info(`[webhook/dodopayments] Duplicate event ignored: ${replayKey}`);
+    return NextResponse.json({ received: true, duplicate: true });
   }
 
   // 4. Route to handler

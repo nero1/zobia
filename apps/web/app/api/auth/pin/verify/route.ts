@@ -55,16 +55,27 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const userId = auth.user.sub;
     const body = await validateBody(req, verifyPinSchema);
 
-    // Check lockout
+    // BUG-L04: The previous read-then-write pattern had a TOCTOU race — two
+    // concurrent wrong-PIN requests could both read failures=9, both pass the
+    // threshold check, and both proceed to bcrypt. Fix: atomically INCR the
+    // counter before bcrypt to claim a slot, then check the returned value.
+    // Decrement on success (correct PIN) so valid users aren't incorrectly locked.
     const failKey = `pin_fail:${userId}`;
-    const failures = parseInt(await redis.get(failKey) ?? "0", 10);
-    if (failures >= 20) {
+
+    // Atomically increment and check whether we're already over the limit.
+    const tentativeFailures = await redis.incr(failKey);
+    // Set TTL on first increment so the key always expires
+    if (tentativeFailures === 1) {
+      await redis.expire(failKey, 5 * 60);
+    }
+
+    if (tentativeFailures > 20) {
       return NextResponse.json(
         { error: "PIN locked: too many failed attempts. Please re-authenticate.", code: "PIN_LOCKED" },
         { status: 429 }
       );
     }
-    if (failures >= 10) {
+    if (tentativeFailures > 10) {
       const ttl = await redis.ttl(failKey);
       if (ttl > 0) {
         return NextResponse.json(
@@ -82,18 +93,20 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     if (!rows[0]) {
       // No PIN configured — return 422 Unprocessable Entity
+      // Decrement the counter since this is not a real failed attempt
+      await redis.decr(failKey).catch(() => {});
       throw new ApiError(422, "NO_PIN_CONFIGURED", "No PIN configured for this account");
     }
 
     const verified = await bcrypt.compare(body.pin, rows[0].pin_hash);
 
     if (!verified) {
-      // On wrong PIN, increment failure counter with escalating lockout
-      const newFailures = await redis.incr(failKey);
-      const lockoutTtl = newFailures >= 20 ? 24 * 3600 : newFailures >= 10 ? 30 * 60 : 5 * 60;
+      // Wrong PIN — the tentative increment already counted this attempt.
+      // Set escalating TTL based on how many failures have accumulated.
+      const lockoutTtl = tentativeFailures >= 20 ? 24 * 3600 : tentativeFailures >= 10 ? 30 * 60 : 5 * 60;
       await redis.expire(failKey, lockoutTtl);
     } else {
-      // On success, clear the failure counter and record the verified session
+      // Correct PIN — roll back the tentative increment and record the verified session
       await redis.del(failKey);
       await markPinVerified(userId, auth.user.sid);
     }

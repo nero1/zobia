@@ -1135,6 +1135,8 @@
   "errors.payout_in_progress": "You cannot remove your bank account while a payout is in progress. Wait for it to complete first.",
   "errors.payout_pending": "You already have a pending payout. Wait for it to complete before requesting another.",
   "errors.pin_mismatch": "PIN and confirmation do not match",
+  "errors.pin_locked": "PIN locked: too many failed attempts. Please re-authenticate.",
+  "errors.pin_temporarily_locked": "PIN temporarily locked. Try again in {{minutes}} minutes.",
   "errors.play_verify_failed": "Google Play verification failed: {{details}}",
   "errors.prestige_rank_not_met": "Prestige requires {{requiredRank}} rank. Current: {{currentRank}}",
   "errors.prestige_sublevel_not_met": "Prestige requires sublevel III. Current: sublevel {{sublevel}}",

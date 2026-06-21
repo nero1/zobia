@@ -414,6 +414,12 @@ export const GET = async (req: NextRequest) => {
               `UPDATE guild_alliances SET wars_won = wars_won + 1, updated_at = NOW() WHERE id = $1`,
               [winnerId]
             ).catch(() => {}),
+            // BUG-H02: Also increment wars_lost for the losing alliance — was missing,
+            // causing the loser's stat to permanently stay at 0.
+            db.query(
+              `UPDATE guild_alliances SET wars_lost = wars_lost + 1, updated_at = NOW() WHERE id = $1`,
+              [loserId]
+            ).catch(() => {}),
           ]);
 
           // Batch award XP to all winners concurrently via Promise.allSettled
@@ -456,13 +462,11 @@ export const GET = async (req: NextRequest) => {
           ).catch(() => {});
         }
 
-        // Create next week's pairing
-        await db.query(
-          `INSERT INTO alliance_wars (alliance_1_id, alliance_2_id, status, started_at)
-           VALUES ($1, $2, 'active', NOW())
-           ON CONFLICT (alliance_1_id, alliance_2_id) WHERE status = 'active' DO NOTHING`,
-          [war.alliance_1_id, war.alliance_2_id]
-        ).catch(() => {});
+        // BUG-H01: Do NOT immediately re-pair the same two alliances here.
+        // This block was creating a permanent infinite rematch loop — both alliances
+        // become unpaired after resolution and will be matched by the random pairing
+        // query at the top of Step 8 on the next Sunday CRON run, potentially
+        // against different opponents.
 
         warsResolved++;
       }

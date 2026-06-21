@@ -37,6 +37,13 @@ function getKeyForVersion(version: string): Buffer {
   return key;
 }
 
+// BUG-L10: Warm up the scrypt KDF at module load time (runs once per serverless
+// instance cold start) rather than on the first real encrypt/decrypt call.
+// This amortises the ~100 ms blocking cost at startup rather than adding it to
+// the first user-facing request that touches an encrypted field.
+// Errors are silenced here — missing env vars will surface at call time.
+try { getKeyForVersion(CURRENT_VERSION); } catch { /* env var may not be set yet */ }
+
 /**
  * Encrypt a plaintext string for at-rest storage.
  * Returns: "<version>:" + base64(iv + authTag + ciphertext)

@@ -17,6 +17,7 @@
  */
 
 import { db } from "@/lib/db";
+import { redis } from "@/lib/redis";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -141,6 +142,8 @@ export async function advanceFlashXPLifecycle(): Promise<FlashXPLifecycleResult>
         [evt.id]
       );
       if (!rowCount || rowCount === 0) continue;
+      // Invalidate cache so the new active event is picked up immediately
+      await invalidateFlashXPCache();
 
       // FIX-C03: include reference_id so the ON CONFLICT target is valid
       const liveTimeStr = new Intl.DateTimeFormat("en", {
@@ -202,6 +205,8 @@ export async function advanceFlashXPLifecycle(): Promise<FlashXPLifecycleResult>
         `UPDATE flash_xp_events SET is_active = FALSE, updated_at = NOW() WHERE id = $1`,
         [evt.id]
       ).catch(() => {});
+      // Invalidate cache so the expired event stops being served
+      await invalidateFlashXPCache();
       result.expired++;
     }
   } catch {
@@ -211,9 +216,26 @@ export async function advanceFlashXPLifecycle(): Promise<FlashXPLifecycleResult>
   return result;
 }
 
+/** Redis cache key for the active flash XP event. */
+const FLASH_XP_CACHE_KEY = "flash_xp:active_event";
+/** TTL in seconds — flash events transition at most hourly, so 60s staleness is acceptable. */
+const FLASH_XP_CACHE_TTL = 60;
+
+/**
+ * Invalidate the flash XP cache. Call this from the admin panel or lifecycle
+ * CRON whenever a flash event is activated or deactivated.
+ */
+export async function invalidateFlashXPCache(): Promise<void> {
+  await redis.del(FLASH_XP_CACHE_KEY).catch(() => {});
+}
+
 /**
  * Check for an active Flash XP event and apply its multiplier to the given
  * base XP amount.
+ *
+ * BUG-L05: The previous implementation queried the DB on every single XP award
+ * call (could be thousands per minute under load). Replaced with a 60-second
+ * Redis cache so the DB is only hit on cache miss.
  *
  * If multiple events are active (edge case), the highest multiplier wins.
  *
@@ -229,30 +251,64 @@ export async function checkAndApplyFlashXP(
     return { finalXP: 0, flashActive: false, eventName: null, multiplier: 1.0 };
   }
 
-  // Query active flash XP events
-  const { rows } = await db.query<FlashXPEventRow>(
-    `SELECT id, name, multiplier::TEXT AS multiplier
-     FROM flash_xp_events
-     WHERE fires_at <= NOW()
-       AND ends_at > NOW()
-       AND is_active = TRUE
-       AND fired = TRUE
-     ORDER BY multiplier DESC
-     LIMIT 1`
-  );
+  // Try cache first
+  let activeEvent: FlashXPEventRow | null = null;
+  try {
+    const cached = await redis.get(FLASH_XP_CACHE_KEY);
+    if (cached !== null) {
+      // "NONE" sentinel means we cached a negative result (no active event)
+      activeEvent = cached === "NONE" ? null : (JSON.parse(cached) as FlashXPEventRow);
+    } else {
+      // Cache miss — query the DB and populate the cache
+      const { rows } = await db.query<FlashXPEventRow>(
+        `SELECT id, name, multiplier::TEXT AS multiplier
+         FROM flash_xp_events
+         WHERE fires_at <= NOW()
+           AND ends_at > NOW()
+           AND is_active = TRUE
+           AND fired = TRUE
+         ORDER BY multiplier DESC
+         LIMIT 1`
+      );
+      activeEvent = rows[0] ?? null;
+      await redis.set(
+        FLASH_XP_CACHE_KEY,
+        activeEvent ? JSON.stringify(activeEvent) : "NONE",
+        "EX",
+        FLASH_XP_CACHE_TTL
+      ).catch(() => {});
+    }
+  } catch {
+    // Cache failure is non-fatal — fall back to a direct DB query
+    try {
+      const { rows } = await db.query<FlashXPEventRow>(
+        `SELECT id, name, multiplier::TEXT AS multiplier
+         FROM flash_xp_events
+         WHERE fires_at <= NOW()
+           AND ends_at > NOW()
+           AND is_active = TRUE
+           AND fired = TRUE
+         ORDER BY multiplier DESC
+         LIMIT 1`
+      );
+      activeEvent = rows[0] ?? null;
+    } catch {
+      // If DB also fails, skip the flash multiplier rather than breaking XP awards
+      return { finalXP: baseXP, flashActive: false, eventName: null, multiplier: 1.0 };
+    }
+  }
 
-  if (!rows[0]) {
+  if (!activeEvent) {
     return { finalXP: baseXP, flashActive: false, eventName: null, multiplier: 1.0 };
   }
 
-  const event = rows[0];
-  const multiplier = parseFloat(event.multiplier);
+  const multiplier = parseFloat(activeEvent.multiplier);
   const finalXP = Math.floor(baseXP * multiplier);
 
   return {
     finalXP,
     flashActive: true,
-    eventName: event.name,
+    eventName: activeEvent.name,
     multiplier,
   };
 }

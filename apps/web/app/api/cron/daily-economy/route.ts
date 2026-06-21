@@ -91,7 +91,7 @@ export const GET = async (req: NextRequest) => {
                    AND NOT EXISTS (
                      SELECT 1 FROM coin_ledger
                      WHERE user_id = users.id AND transaction_type = 'subscription_bonus'
-                       AND reference_id LIKE 'plan:' || users.id::text || ':' || $4
+                       AND reference_id = 'plan:' || users.id::text || ':' || $4
                    )
                  FOR UPDATE
                ),
