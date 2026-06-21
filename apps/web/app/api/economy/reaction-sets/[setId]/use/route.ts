@@ -122,20 +122,24 @@ export const POST = withAuth(
       // Award XP if within daily cap
       if (canAwardXP) {
         await db.transaction(async (tx) => {
-          await tx.query(
-            `UPDATE users
-             SET xp_total  = xp_total  + $1,
-                 xp_social = xp_social + $1,
-                 updated_at = NOW()
-             WHERE id = $2`,
-            [CUSTOM_REACTION_XP, userId]
-          );
-          await tx.query(
+          const { rows: xpRows } = await tx.query<{ id: string }>(
             `INSERT INTO xp_ledger
                (user_id, amount, track, source, reference_id, multiplier, base_amount)
-             VALUES ($1, $2, 'social', 'custom_reaction', $3, 1.0, $2)`,
+             VALUES ($1, $2, 'social', 'custom_reaction', $3, 1.0, $2)
+             ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
+             RETURNING id`,
             [userId, CUSTOM_REACTION_XP, body.messageId]
           );
+          if (xpRows[0]) {
+            await tx.query(
+              `UPDATE users
+               SET xp_total  = xp_total  + $1,
+                   xp_social = xp_social + $1,
+                   updated_at = NOW()
+               WHERE id = $2`,
+              [CUSTOM_REACTION_XP, userId]
+            );
+          }
         });
       }
 

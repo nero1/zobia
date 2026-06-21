@@ -82,34 +82,63 @@ export const GET = async (req: NextRequest) => {
       const monthKey = nowDate.toISOString().slice(0, 7);
       const PLAN_MONTHLY_BONUS: Record<string, number> = { plus: 50, pro: 200, max: 500 };
       try {
-        await db.transaction(async (tx) => {
-          for (const [plan, bonus] of Object.entries(PLAN_MONTHLY_BONUS)) {
-            await tx.query(
-              `WITH eligible AS (
-                 SELECT id, coin_balance FROM users
-                 WHERE plan = $1 AND deleted_at IS NULL AND NOT COALESCE(is_banned, false)
-                   AND NOT EXISTS (
-                     SELECT 1 FROM coin_ledger
-                     WHERE user_id = users.id AND transaction_type = 'subscription_bonus'
-                       AND reference_id = 'plan:' || users.id::text || ':' || $4
-                   )
-                 FOR UPDATE LIMIT 1000 -- PERF-01: bound rows per CRON run to prevent unbounded lock acquisition
-               ),
-               ledger_rows AS (
-                 INSERT INTO coin_ledger
-                   (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description, created_at)
-                 SELECT id, $2, coin_balance, coin_balance + $2, 'subscription_bonus',
-                        'plan:' || id::text || ':' || $4, $3, NOW()
-                 FROM eligible
-                 ON CONFLICT (user_id, transaction_type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
-                 RETURNING user_id
-               )
-               UPDATE users SET coin_balance = coin_balance + $2, updated_at = NOW()
-               WHERE id IN (SELECT user_id FROM ledger_rows)`,
-              [plan, bonus, `Monthly ${plan} plan bonus`, monthKey]
+        // Process each plan in batches using cursor pagination to avoid
+      // unbounded FOR UPDATE lock acquisition (BUG-ECO-01).
+      for (const [plan, bonus] of Object.entries(PLAN_MONTHLY_BONUS)) {
+          let lastId: string | null = null;
+          let batchSize = 1000;
+          while (batchSize === 1000) {
+            // First collect a page of eligible user IDs (no lock yet)
+            const idParams: string[] = [plan, monthKey];
+            const cursorClause: string = lastId ? `AND id > $3` : "";
+            if (lastId) idParams.push(lastId);
+
+            const eligibleResult = await db.query<{ id: string; coin_balance: number }>(
+              `SELECT id, coin_balance FROM users
+               WHERE plan = $1 AND deleted_at IS NULL AND NOT COALESCE(is_banned, false)
+                 AND NOT EXISTS (
+                   SELECT 1 FROM coin_ledger
+                   WHERE user_id = users.id AND transaction_type = 'subscription_bonus'
+                     AND reference_id = 'plan:' || users.id::text || ':' || $2
+                 )
+                 ${cursorClause}
+               ORDER BY id ASC
+               LIMIT 1000`,
+              idParams
             );
+            const eligibleRows = eligibleResult.rows;
+
+            batchSize = eligibleRows.length;
+            if (eligibleRows.length === 0) break;
+
+            // Advance cursor to the last id in this page regardless of update outcome
+            lastId = eligibleRows[eligibleRows.length - 1].id;
+
+            // Award bonus to this batch
+            const batchIds: string[] = eligibleRows.map((r: { id: string; coin_balance: number }) => r.id);
+            await db.transaction(async (tx) => {
+              await tx.query(
+                `WITH eligible AS (
+                   SELECT id, coin_balance FROM users
+                   WHERE id = ANY($1::uuid[])
+                   FOR UPDATE SKIP LOCKED
+                 ),
+                 ledger_rows AS (
+                   INSERT INTO coin_ledger
+                     (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description, created_at)
+                   SELECT id, $2, coin_balance, coin_balance + $2, 'subscription_bonus',
+                          'plan:' || id::text || ':' || $4, $3, NOW()
+                   FROM eligible
+                   ON CONFLICT (user_id, transaction_type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
+                   RETURNING user_id
+                 )
+                 UPDATE users SET coin_balance = coin_balance + $2, updated_at = NOW()
+                 WHERE id IN (SELECT user_id FROM ledger_rows)`,
+                [batchIds, bonus, `Monthly ${plan} plan bonus`, monthKey]
+              );
+            });
           }
-        });
+        }
         results.monthlyPlanBonus = { ran: true, plansProcessed: Object.keys(PLAN_MONTHLY_BONUS).length };
       } catch (txErr: unknown) {
         if ((txErr as { code?: string })?.code === '23505') {

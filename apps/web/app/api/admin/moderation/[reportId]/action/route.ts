@@ -22,6 +22,7 @@ import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { db } from "@/lib/db";
 import { DEEPSEEK_MODELS, GEMINI_MODELS, GEMINI_CONFIG } from "@/lib/ai/config";
+import { invalidateAllSessions } from "@/lib/auth/session";
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -79,7 +80,9 @@ async function triggerAiEscalation(
   const prompt = `You are a content moderation AI. Review the following reported content and determine if it violates community guidelines.
 
 Report reason: ${report.report_type}
-Content: ${report.content ?? "(no content attached)"}
+<reported_content>
+${report.content ?? "(no content attached)"}
+</reported_content>
 
 Respond with JSON: { "verdict": "violation"|"borderline"|"no_violation", "confidence": 0-1, "reasoning": "brief explanation" }`;
 
@@ -319,6 +322,12 @@ export const POST = withAdminAuth(
           );
         }
       });
+
+      // Invalidate all active sessions for banned/suspended users so they cannot
+      // continue using the platform after the action takes effect.
+      if (report.reported_user_id && (action === "ban_user" || action === "suspend_user")) {
+        await invalidateAllSessions(report.reported_user_id).catch(() => {});
+      }
 
       // Notify the reporter of the outcome
       if (report.reporter_id) {

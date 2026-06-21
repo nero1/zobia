@@ -313,23 +313,21 @@ export const POST = withAuth<QuestParams>(async (req, { params, auth }) => {
           const allDone = parseInt(completedRows[0]?.count ?? "0", 10) >= deckTemplates.length;
 
           if (allDone) {
-            // Idempotency: check if deck bonus was already awarded today
-            const { rows: bonusRows } = await client.query<{ id: string }>(
-              `SELECT id FROM xp_ledger
-               WHERE user_id = $1 AND source = 'deck_bonus' AND created_at::date = $2::date
-               LIMIT 1`,
-              [auth.user.sub, today]
+            // Idempotency: use a deterministic reference_id and ON CONFLICT DO NOTHING
+            // to atomically prevent duplicate deck bonus awards (eliminates TOCTOU race
+            // between a prior SELECT-then-INSERT approach).
+            const deckBonusRef = `deck_bonus:${auth.user.sub}:${today}`;
+            const { rows: bonusInsertRows } = await client.query<{ id: string }>(
+              `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
+               VALUES ($1, $2, 'main', 'deck_bonus', $3, $2, NOW())
+               ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
+               RETURNING id`,
+              [auth.user.sub, DECK_BONUS_XP, deckBonusRef]
             );
 
-            if (bonusRows.length === 0) {
+            if (bonusInsertRows[0]) {
               deckBonusXP = DECK_BONUS_XP;
               deckCompleted = true;
-
-              await client.query(
-                `INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, created_at)
-                 VALUES ($1, $2, 'main', 'deck_bonus', $2, NOW())`,
-                [auth.user.sub, deckBonusXP]
-              );
               await client.query(
                 `UPDATE users SET xp_total = COALESCE(xp_total, 0) + $1, updated_at = NOW() WHERE id = $2`,
                 [deckBonusXP, auth.user.sub]

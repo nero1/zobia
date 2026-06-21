@@ -23,6 +23,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -97,6 +98,8 @@ interface ZobiaContactResult {
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const callerId = auth.user.sub;
+
+    await enforceRateLimit(callerId, "user", RATE_LIMITS.contactsLookup);
 
     const body = await validateBody(req, crossReferenceSchema);
     const { phoneNumbers } = body;

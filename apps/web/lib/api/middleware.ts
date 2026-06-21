@@ -350,13 +350,20 @@ export function withAdminAuth<TParams = Record<string, string>>(
       }
 
       // ALWAYS check is_admin from the database – never trust JWT claim alone
-      const { rows } = await db.query<{ is_admin: boolean }>(
-        "SELECT is_admin FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1",
+      const { rows } = await db.query<{ is_admin: boolean; is_banned: boolean; is_suspended: boolean }>(
+        `SELECT is_admin,
+                COALESCE(is_banned, false) AS is_banned,
+                COALESCE(is_suspended, false) AS is_suspended
+         FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
         [payload.sub]
       );
 
       if (!rows[0]?.is_admin) {
         throw forbidden("Administrator access required");
+      }
+
+      if (rows[0].is_banned || rows[0].is_suspended) {
+        throw forbidden("Account is suspended or banned");
       }
 
       // Geolocation anomaly detection — same protection for admin routes

@@ -203,33 +203,53 @@ export async function clearQueue(): Promise<void> {
  * Reset all 'sending' messages back to 'pending'.
  * Call this on app start / reconnect to recover messages that were in-flight
  * when the tab crashed or the browser was closed mid-send.
+ *
+ * BUG-IDB-01 FIX: use raw IDB callbacks for both the index.getAll and the
+ * subsequent store.put calls so they all execute within the same readwrite
+ * transaction. Awaiting between promisified IDB requests allows the browser to
+ * auto-commit the transaction before the put calls are issued.
  */
 export async function resetSendingMessages(): Promise<number> {
   const db = await openDB();
-  const store = txStore(db, "readwrite");
-  const index = store.index("status");
-  const sendingMessages = await promisify<PendingMessage[]>(
-    index.getAll(IDBKeyRange.only("sending"))
-  );
-  for (const msg of sendingMessages) {
-    await promisify(store.put({ ...msg, status: "pending" as PendingMessageStatus }));
-  }
-  return sendingMessages.length;
+  return new Promise<number>((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    const store = tx.objectStore(STORE_NAME);
+    const index = store.index("status");
+    const getReq = index.getAll(IDBKeyRange.only("sending"));
+    getReq.onsuccess = () => {
+      const messages = (getReq.result ?? []) as PendingMessage[];
+      for (const msg of messages) {
+        store.put({ ...msg, status: "pending" as PendingMessageStatus });
+      }
+      // count captured synchronously; resolve when tx commits
+      tx.oncomplete = () => resolve(messages.length);
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
 }
 
 /**
  * Reset all 'failed' messages back to 'pending' so they are retried.
  * Returns the number of messages re-queued.
+ *
+ * BUG-IDB-01 FIX: same raw-callback pattern as resetSendingMessages.
  */
 export async function retryFailed(): Promise<number> {
   const db = await openDB();
-  const store = txStore(db, "readwrite");
-  const index = store.index("status");
-  const failedMessages = await promisify<PendingMessage[]>(
-    index.getAll(IDBKeyRange.only("failed"))
-  );
-  for (const msg of failedMessages) {
-    await promisify(store.put({ ...msg, status: "pending" as PendingMessageStatus, lastAttemptAt: null }));
-  }
-  return failedMessages.length;
+  return new Promise<number>((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    const store = tx.objectStore(STORE_NAME);
+    const index = store.index("status");
+    const getReq = index.getAll(IDBKeyRange.only("failed"));
+    getReq.onsuccess = () => {
+      const messages = (getReq.result ?? []) as PendingMessage[];
+      for (const msg of messages) {
+        store.put({ ...msg, status: "pending" as PendingMessageStatus, lastAttemptAt: null });
+      }
+      tx.oncomplete = () => resolve(messages.length);
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
 }

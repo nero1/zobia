@@ -289,25 +289,22 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       const creatorShare = room.creator_tier === "icon" ? ICON_CREATOR_SHARE_PERCENT : DEFAULT_CREATOR_SHARE_PERCENT;
       await creditCreatorEarnings(tx, room.creator_id, grossKobo, sub.id, creatorShare);
 
-      // Join room if not already a member
-      await tx.query(
+      // Join room if not already a member; RETURNING tells us if a new row was inserted.
+      const { rows: memberRows } = await tx.query<{ room_id: string }>(
         `INSERT INTO room_members (room_id, user_id, role, joined_at)
          VALUES ($1, $2, 'member', NOW())
-         ON CONFLICT (room_id, user_id) DO NOTHING`,
+         ON CONFLICT (room_id, user_id) DO NOTHING
+         RETURNING room_id`,
         [roomId, userId]
       );
 
-      // Increment member_count (may be a no-op if already counted)
-      await tx.query(
-        `UPDATE rooms
-         SET member_count = member_count + 1, updated_at = NOW()
-         WHERE id = $1
-           AND NOT EXISTS (
-             SELECT 1 FROM room_members
-             WHERE room_id = $1 AND user_id = $2
-           )`,
-        [roomId, userId]
-      );
+      // Only increment member_count when the INSERT actually added a new row.
+      if (memberRows[0]) {
+        await tx.query(
+          `UPDATE rooms SET member_count = member_count + 1, updated_at = NOW() WHERE id = $1`,
+          [roomId]
+        );
+      }
 
       return sub;
     });

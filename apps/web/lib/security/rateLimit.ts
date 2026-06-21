@@ -95,6 +95,8 @@ export const RATE_LIMITS = {
   gameStart: { limit: 60, windowMs: 60 * 1000, name: "game:start" } as RateLimitOptions,
   /** Submitting a game score — bounds reward farming on client-reported scores. */
   gameScore: { limit: 60, windowMs: 60 * 1000, name: "game:score" } as RateLimitOptions,
+  /** Phone-book cross-reference — tight limit to prevent bulk contact enumeration. */
+  contactsLookup: { limit: 5, windowMs: 60 * 1000, name: "contacts:lookup", bypassL1: true } as RateLimitOptions,
 } as const;
 
 // ---------------------------------------------------------------------------

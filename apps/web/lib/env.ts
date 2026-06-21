@@ -87,6 +87,7 @@ const envSchema = z.object({
   PAYSTACK_SECRET_KEY: z.string().optional(),
   PAYSTACK_PUBLIC_KEY: z.string().optional(),
   DODOPAYMENTS_API_KEY: z.string().optional(),
+  DODO_WEBHOOK_SECRET: z.string().optional(),
 
   // ---- Advertising --------------------------------------------------------
   ADMOB_APP_ID: z.string().optional(),

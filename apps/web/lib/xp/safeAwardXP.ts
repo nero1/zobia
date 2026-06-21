@@ -279,7 +279,7 @@ export async function retryFailedXPAwards(): Promise<{
 
       if (newRetryCount >= MAX_RETRIES) {
         permanentlyFailed++;
-        globalDb.query(
+        await globalDb.query(
           `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
            VALUES ('xp_award_permanent_failure', 'warning', $1, $2::jsonb, NOW())`,
           [

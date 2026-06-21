@@ -181,7 +181,10 @@ export async function calculateFundDistributions(
   let distributedKobo = new Decimal(0);
 
   for (const tier of DISTRIBUTION_TIERS) {
-    const cutoff = Math.max(1, Math.floor((tier.topPercent / 100) * total));
+    const rawCutoff = Math.max(1, Math.floor((tier.topPercent / 100) * total));
+    // Ensure each tier starts after the previous one so small pools don't
+    // collapse multiple tiers onto the same creator(s).
+    const cutoff = Math.max(rawCutoff, prevCutoff + 1);
     const inTier = scored.slice(prevCutoff, cutoff);
     if (inTier.length === 0) continue;
 

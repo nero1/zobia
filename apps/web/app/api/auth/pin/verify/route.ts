@@ -64,10 +64,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     // Atomically increment and check whether we're already over the limit.
     const tentativeFailures = await redis.incr(failKey);
-    // Set TTL on first increment so the key always expires
-    if (tentativeFailures === 1) {
-      await redis.expire(failKey, 5 * 60);
-    }
+
+    // Compute escalating TTL and apply it before any early return so the
+    // extended lockout window is always enforced even on repeated over-limit requests.
+    const lockoutTtl = tentativeFailures >= 20 ? 24 * 3600 : tentativeFailures >= 10 ? 30 * 60 : 5 * 60;
+    await redis.expire(failKey, lockoutTtl);
 
     if (tentativeFailures > 20) {
       return NextResponse.json(
@@ -101,10 +102,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const verified = await bcrypt.compare(body.pin, rows[0].pin_hash);
 
     if (!verified) {
-      // Wrong PIN — the tentative increment already counted this attempt.
-      // Set escalating TTL based on how many failures have accumulated.
-      const lockoutTtl = tentativeFailures >= 20 ? 24 * 3600 : tentativeFailures >= 10 ? 30 * 60 : 5 * 60;
-      await redis.expire(failKey, lockoutTtl);
+      // Wrong PIN — TTL already set above before the early-return guards.
     } else {
       // Correct PIN — roll back the tentative increment and record the verified session
       await redis.del(failKey);

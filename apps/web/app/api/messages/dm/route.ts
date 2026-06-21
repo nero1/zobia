@@ -389,6 +389,27 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       );
     }
 
+    // 4b. Idempotency check BEFORE incrementing the daily counter so that retried
+    //     requests with the same idempotency key do not consume quota (BUG-MSG-01).
+    if (body.idempotencyKey) {
+      const { rows: dupRows } = await db.query<{ id: string }>(
+        `SELECT id FROM messages
+         WHERE sender_id = $1 AND idempotency_key = $2
+         LIMIT 1`,
+        [auth.user.sub, body.idempotencyKey]
+      );
+      if (dupRows[0]) {
+        // Return the existing message — do not charge again
+        const { rows: existingMsgRows } = await db.query<MessageRow>(
+          `SELECT id, sender_id, recipient_id, message_type, content, media_url,
+                  coin_cost, reply_count_from_recipient, is_deleted, created_at, updated_at
+           FROM messages WHERE id = $1 LIMIT 1`,
+          [dupRows[0].id]
+        );
+        return NextResponse.json({ message: existingMsgRows[0] }, { status: 200 });
+      }
+    }
+
     // 5. Atomically check daily limits and increment counter (BUG-10: eliminates
     //    the TOCTOU race between separate checkDailyLimitReached + incrementDailyCount calls)
     const dmType = isInitiating ? "sent" : "reply";
@@ -452,26 +473,6 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         },
         { status: 201 }
       );
-    }
-
-    // 8. Idempotency check
-    if (body.idempotencyKey) {
-      const { rows: dupRows } = await db.query<{ id: string }>(
-        `SELECT id FROM messages
-         WHERE sender_id = $1 AND idempotency_key = $2
-         LIMIT 1`,
-        [auth.user.sub, body.idempotencyKey]
-      );
-      if (dupRows[0]) {
-        // Return the existing message — do not charge again
-        const { rows: existingMsgRows } = await db.query<MessageRow>(
-          `SELECT id, sender_id, recipient_id, message_type, content, media_url,
-                  coin_cost, reply_count_from_recipient, is_deleted, created_at, updated_at
-           FROM messages WHERE id = $1 LIMIT 1`,
-          [dupRows[0].id]
-        );
-        return NextResponse.json({ message: existingMsgRows[0] }, { status: 200 });
-      }
     }
 
     // 9. Atomic transaction: deduct coins + create message + upsert conversation

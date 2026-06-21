@@ -248,63 +248,67 @@ async function attemptTransfer(
  * @returns Counts of reconciled (completed) and failed payouts
  */
 export async function reconcileStuckPayouts(): Promise<{ reconciled: number; failed: number }> {
-  // Find payouts stuck in 'processing' for more than 30 minutes
-  const { rows: stuckPayouts } = await db.query<{
-    id: string;
-    provider_reference: string;
-    creator_id: string;
-    net_kobo: number;
-    gross_kobo: number;
-  }>(
-    `WITH candidates AS (
-       SELECT id, provider_reference, creator_id, net_kobo, gross_kobo
-       FROM creator_payouts
-       WHERE status = 'processing'
-         AND updated_at < NOW() - INTERVAL '30 minutes'
-         AND provider_reference IS NOT NULL
-       ORDER BY updated_at ASC
-       LIMIT 50
-       FOR UPDATE SKIP LOCKED
-     )
-     SELECT * FROM candidates`
-  );
-
   let reconciled = 0;
   let failed = 0;
 
-  for (const payout of stuckPayouts) {
+  // Fetch candidates outside of any transaction first (no FOR UPDATE needed here)
+  // so we can call the external Paystack API without holding a DB lock.
+  const { rows: candidateIds } = await db.query<{ id: string; provider_reference: string }>(
+    `SELECT id, provider_reference
+     FROM creator_payouts
+     WHERE status = 'processing'
+       AND updated_at < NOW() - INTERVAL '30 minutes'
+       AND provider_reference IS NOT NULL
+     ORDER BY updated_at ASC
+     LIMIT 50`
+  );
+
+  for (const candidate of candidateIds) {
     try {
-      const transfer = await verifyTransfer(payout.provider_reference);
+      // Verify with external provider before touching the DB
+      const transfer = await verifyTransfer(candidate.provider_reference);
 
       if (transfer.status === "success") {
-        await db.query(
-          `UPDATE creator_payouts SET status = 'completed', updated_at = NOW() WHERE id = $1`,
-          [payout.id]
-        );
+        // Wrap in transaction with FOR UPDATE so concurrent webhook handlers
+        // cannot race with this reconciliation step.
+        await db.transaction(async (tx) => {
+          const { rows: cur } = await tx.query<{ status: string; creator_id: string; net_kobo: number; gross_kobo: number }>(
+            `SELECT status, creator_id, net_kobo, gross_kobo
+             FROM creator_payouts WHERE id = $1 FOR UPDATE SKIP LOCKED`,
+            [candidate.id]
+          );
+          if (!cur[0] || cur[0].status === "completed") return; // already handled
+          await tx.query(
+            `UPDATE creator_payouts SET status = 'completed', updated_at = NOW() WHERE id = $1`,
+            [candidate.id]
+          );
+        });
         reconciled++;
       } else if (transfer.status === "failed" || transfer.status === "reversed") {
         // Restore creator earnings idempotently (guard with earnings_restored flag)
         await db.transaction(async (tx) => {
-          const { rows: cur } = await tx.query<{ earnings_restored: boolean }>(
-            `SELECT earnings_restored FROM creator_payouts WHERE id = $1 FOR UPDATE`,
-            [payout.id]
+          const { rows: cur } = await tx.query<{ status: string; earnings_restored: boolean; creator_id: string; net_kobo: number; gross_kobo: number }>(
+            `SELECT status, earnings_restored, creator_id, net_kobo, gross_kobo
+             FROM creator_payouts WHERE id = $1 FOR UPDATE SKIP LOCKED`,
+            [candidate.id]
           );
+          if (!cur[0] || cur[0].status === "failed") return; // already handled
           await tx.query(
             `UPDATE creator_payouts SET status = 'failed', updated_at = NOW() WHERE id = $1`,
-            [payout.id]
+            [candidate.id]
           );
-          if (cur[0] && !cur[0].earnings_restored) {
-            const restoreAmount = payout.net_kobo ?? payout.gross_kobo;
+          if (!cur[0].earnings_restored) {
+            const restoreAmount = cur[0].net_kobo ?? cur[0].gross_kobo;
             await tx.query(
               `UPDATE creator_payouts SET earnings_restored = true WHERE id = $1`,
-              [payout.id]
+              [candidate.id]
             );
             await tx.query(
               `UPDATE users
                SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1,
                    updated_at = NOW()
                WHERE id = $2`,
-              [restoreAmount, payout.creator_id]
+              [restoreAmount, cur[0].creator_id]
             );
           }
         });
@@ -313,7 +317,7 @@ export async function reconcileStuckPayouts(): Promise<{ reconciled: number; fai
       // For other statuses (pending, otp, abandoned) — leave as 'processing'
       // and let the next reconciliation cycle pick them up again.
     } catch (err) {
-      console.error(`[payouts:reconcile] Failed to reconcile payout ${payout.id}:`, err);
+      console.error(`[payouts:reconcile] Failed to reconcile payout ${candidate.id}:`, err);
     }
   }
 

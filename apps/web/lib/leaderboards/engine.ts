@@ -85,13 +85,16 @@ export async function getUserRank(
     throw new Error("country is required for national leaderboard scope");
   }
 
+  // Map scope to the stored scope value (national uses global rows filtered by country)
+  const dbScope = scope === "national" ? "global" : scope;
+
   // Build the scope conditions shared by both the my_xp CTE and the rank count.
   const rankConditions: string[] = [
     `ls.track = $1`,
     `ls.scope = $2`,
     `u.deleted_at IS NULL`,
   ];
-  const params: (string | number | null)[] = [track, scope];
+  const params: (string | number | null)[] = [track, dbScope];
   let paramIdx = 3;
 
   if (scope === "national" && options?.country) {
