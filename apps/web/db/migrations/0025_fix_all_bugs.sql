@@ -166,6 +166,14 @@ ALTER TABLE xp_ledger ALTER COLUMN amount TYPE bigint;
 
 DO $$
 BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'xp_ledger' AND column_name = 'base_amount') THEN
+    EXECUTE 'ALTER TABLE xp_ledger ALTER COLUMN base_amount TYPE bigint';
+  END IF;
+END
+$$;
+
+DO $$
+BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'failed_xp_awards' AND column_name = 'amount') THEN
     EXECUTE 'ALTER TABLE failed_xp_awards ALTER COLUMN amount TYPE bigint';
   END IF;
