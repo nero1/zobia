@@ -177,12 +177,37 @@ export async function processChargeSuccess(
           [netKobo, creator.creator_id]
         );
       }
+
+      // BUG-PAY-01: seed Creator Fund for room_subscription payments (was missing)
+      const subCreatorFundKobo = Math.floor((subGrossKobo ?? amount) * 0.05);
+      if (subCreatorFundKobo > 0) {
+        await tx.query(
+          `INSERT INTO x_manifest (key, value, updated_at)
+           VALUES ('creator_fund_balance_kobo', $1::TEXT, NOW())
+           ON CONFLICT (key) DO UPDATE
+             SET value = (COALESCE(x_manifest.value::NUMERIC, 0) + $1)::TEXT,
+                 updated_at = NOW()`,
+          [subCreatorFundKobo]
+        );
+      }
       return;
     }
 
     // Drop-room entry payment — payment is already marked completed above.
     // The join route validates payment.status='completed'; no coin credit needed.
     if (itemType === "room_entry") {
+      // BUG-PAY-02: seed Creator Fund for room_entry payments (was missing)
+      const entryCreatorFundKobo = Math.floor(amount * 0.05);
+      if (entryCreatorFundKobo > 0) {
+        await tx.query(
+          `INSERT INTO x_manifest (key, value, updated_at)
+           VALUES ('creator_fund_balance_kobo', $1::TEXT, NOW())
+           ON CONFLICT (key) DO UPDATE
+             SET value = (COALESCE(x_manifest.value::NUMERIC, 0) + $1)::TEXT,
+                 updated_at = NOW()`,
+          [entryCreatorFundKobo]
+        );
+      }
       return;
     }
 

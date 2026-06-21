@@ -1340,6 +1340,13 @@ on accept (`game_wager`); the winner takes the pot minus `game_wager_rake_pct`
 (`game_payout`); decline/cancel/expiry refunds both (`game_refund`). The hourly
 `/api/cron/games` sweep expires stale challenges and refunds escrow.
 
+**Challenge cancellation by challenger:** if cancelled before any rounds are played, both
+stakes are fully refunded. If one or more rounds have been completed, the challenger forfeits
+a fraction of their stake proportional to the opponent's round-win share (e.g. if the
+opponent won 2 of 3 decisive rounds, the challenger forfeits ⅔ of their stake to the
+opponent). The exact refund/forfeit amounts are included in the `game_challenge_cancelled`
+notification metadata (`challRefund`, `oppRefund`, `challForfeitCoins`).
+
 ### Leaderboards & ads
 
 - **Per-game high scores** live in `game_best_scores` and are read with a plain
@@ -1358,7 +1365,9 @@ on accept (`game_wager`); the winner takes the pot minus `game_wager_rake_pct`
   time, sort order, active flag; per-game stats; and games-played milestone management.
 - Runtime config (`/admin/config`): `game_wager_rake_pct`, `game_challenge_expiry_hours`,
   `game_default_reward_credits`, `game_default_reward_xp`, `game_max_wager_credits`
-  (default 10 000 — server-enforced upper bound on per-challenge credit wagers).
+  (default 10 000 — server-enforced upper bound on per-challenge credit wagers),
+  `game_max_play_session_age_seconds` (default 3600 — `/score` submissions older than this
+  are rejected, preventing replay of stale sessions).
 
 ---
 

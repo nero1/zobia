@@ -320,20 +320,27 @@ export async function enforceRateLimit(
   }
 
   // Global endpoint cap — applied after per-user/IP check.
-  // Uses an atomic Lua script to increment and conditionally set TTL in a single
-  // round-trip, eliminating the INCR + EXPIRE race (RL-GLOBAL-01).
+  // BUG-RATE-01: replaced fixed-window INCR+EXPIRE with the same sliding-window
+  // Lua script used for per-user/IP limits, eliminating the 2× burst at window
+  // boundaries. Uses a fixed 60-second window for predictable global throughput.
   if (options.globalLimit) {
     const globalKey = `rate:global:${options.name}`;
-    const GLOBAL_RATE_LUA = `
-local n = redis.call('INCR', KEYS[1])
-if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
-return n`;
-    // BUG-RL-01: global cap always uses a 60-second window regardless of the
-    // per-user window — prevents a 15-min auth window from making the global
-    // cap reset only every 15 minutes instead of every minute.
-    const globalWindowSec = "60";
-    const globalCount = await redis.eval(GLOBAL_RATE_LUA, 1, globalKey, globalWindowSec) as number;
-    if (globalCount > options.globalLimit) {
+    const globalWindowMs = 60_000; // fixed 60-second global window
+    const now = Date.now();
+    const windowStart = now - globalWindowMs;
+    const member = `${now}-${Math.random().toString(36).slice(2)}`;
+    const globalResult = await redis.eval(
+      SLIDING_WINDOW_LUA,
+      1,
+      globalKey,
+      String(now),
+      String(windowStart),
+      String(options.globalLimit),
+      String(globalWindowMs),
+      member
+    ) as [number, number, number];
+
+    if (globalResult[0] === 0) {
       throw tooManyRequests(
         `Global rate limit exceeded for ${options.name}. Please try again later.`
       );
@@ -376,9 +383,14 @@ export function getClientIp(request: Request): string {
     if (vercelIp) return vercelIp.split(",")[0].trim();
   }
 
-  // x-real-ip is set by nginx and other trusted reverse proxies
-  const realIp = request.headers.get("x-real-ip");
-  if (realIp) return realIp.trim();
+  // BUG-IP-01: x-real-ip is only trusted in non-production environments
+  // (local dev, staging) or when explicitly opted in via TRUST_X_REAL_IP=1.
+  // In production on non-Vercel deployments, clients can spoof this header
+  // to bypass IP-based rate limiting. Rely on x-forwarded-for instead.
+  if (process.env.NODE_ENV !== 'production' || process.env.TRUST_X_REAL_IP === '1') {
+    const realIp = request.headers.get("x-real-ip");
+    if (realIp) return realIp.trim();
+  }
 
   // Fallback: parse X-Forwarded-For using TRUSTED_PROXY_COUNT so that the
   // rightmost entry (appended by the closest trusted proxy) is not blindly

@@ -380,11 +380,15 @@ export async function invalidateSession(sid: string, uid: string): Promise<void>
  */
 export async function invalidateAllSessions(uid: string): Promise<void> {
   const sids = await redis.zrange(userSessionsKey(uid), 0, -1);
-  if (sids.length > 0) {
-    for (const sid of sids) evictSessionCache(sid);
-    await redis.del(...sids.map(sessionKey));
+  // BUG-SESSION-01: use a pipeline instead of spread so large session counts
+  // don't exceed Node.js argument stack limits or ioredis varargs limits.
+  const pipeline = redis.pipeline();
+  for (const sid of sids) {
+    evictSessionCache(sid);
+    pipeline.del(sessionKey(sid));
   }
-  await redis.del(userSessionsKey(uid));
+  pipeline.del(userSessionsKey(uid));
+  await pipeline.exec();
 }
 
 // ---------------------------------------------------------------------------

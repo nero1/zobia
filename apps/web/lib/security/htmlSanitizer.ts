@@ -53,5 +53,6 @@ export function sanitizeAnnouncementContent(content: string, contentType: string
     const patched = html.replace(/href="(?!(https?:|mailto:))[^"]*"/gi, 'href="about:blank"');
     return sanitizeHtml(patched);
   }
-  return content;
+  // BUG-SANITIZE-01: unknown content types must never be returned raw — strip all HTML
+  return sanitizeHtmlLib(content, { allowedTags: [], allowedAttributes: {} });
 }

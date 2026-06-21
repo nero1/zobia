@@ -214,12 +214,13 @@ export async function GET(
   const { roomId } = await params;
 
   // ---- Room access check ---------------------------------------------------
+  // BUG-SSE-01: also filter out soft-deleted rooms
   const { rows: roomRows } = await db.query<{
     type: string;
     creator_id: string;
     is_active: boolean;
   }>(
-    `SELECT type, creator_id, is_active FROM rooms WHERE id = $1`,
+    `SELECT type, creator_id, is_active FROM rooms WHERE id = $1 AND deleted_at IS NULL`,
     [roomId]
   );
   const room = roomRows[0];
@@ -229,12 +230,16 @@ export async function GET(
 
   const isCreator = room.creator_id === userId;
 
-  // Check membership
-  const { rows: memberRows } = await db.query<{ role: string }>(
-    `SELECT role FROM room_members WHERE room_id = $1 AND user_id = $2`,
+  // Check membership; BUG-SSE-03: also fetch muted_until to block muted members
+  const { rows: memberRows } = await db.query<{ role: string; muted_until: string | null }>(
+    `SELECT role, muted_until FROM room_members WHERE room_id = $1 AND user_id = $2`,
     [roomId, userId]
   );
   const isMember = memberRows.length > 0;
+  const mutedUntil = memberRows[0]?.muted_until ?? null;
+  if (isMember && mutedUntil && new Date(mutedUntil) > new Date()) {
+    return new Response("You are muted in this room", { status: 403 });
+  }
 
   if (!isMember && !isCreator) {
     // VIP rooms: non-subscribers receive a 403 — paywall must be enforced here
@@ -247,7 +252,10 @@ export async function GET(
 
   // ---- Resolve lastMessageId to a composite cursor -------------------------
   const url = new URL(req.url);
-  const lastMessageId = url.searchParams.get("lastMessageId");
+  const rawLastMessageId = url.searchParams.get("lastMessageId");
+  // BUG-SSE-02: validate UUID format before using in a query to prevent injection
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const lastMessageId = rawLastMessageId && UUID_RE.test(rawLastMessageId) ? rawLastMessageId : null;
 
   let afterCreatedAt: string | null = null;
   let afterId: string | null = null;

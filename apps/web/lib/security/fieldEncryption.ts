@@ -1,5 +1,13 @@
 import { createHash, createCipheriv, createDecipheriv, randomBytes, scryptSync } from "crypto";
 
+/** Thrown when AES-256-GCM authentication tag validation fails (tampered ciphertext). */
+export class DecryptionIntegrityError extends Error {
+  override name = "DecryptionIntegrityError";
+  constructor(message: string) {
+    super(message);
+  }
+}
+
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
@@ -60,7 +68,8 @@ export function encryptField(plaintext: string): string {
 /**
  * Decrypt a field encrypted by encryptField.
  * Reads the version prefix to select the correct key, enabling key rotation.
- * Returns plaintext, or null if decryption fails.
+ * Returns plaintext, or null if decryption fails for non-integrity reasons.
+ * Throws DecryptionIntegrityError if the GCM auth tag fails (tampered ciphertext).
  */
 export function decryptField(ciphertext: string): string | null {
   try {
@@ -72,10 +81,9 @@ export function decryptField(ciphertext: string): string | null {
     const payload = ciphertext.slice(colonIdx + 1);
     return decryptRaw(payload, version);
   } catch (err) {
+    // BUG-ENC-01: re-throw integrity errors (tampered data) and config errors loudly.
+    if (err instanceof DecryptionIntegrityError) throw err;
     const msg = (err instanceof Error ? err.message : String(err));
-    // BUG-ENC-01: a missing encryption key env var is a configuration error and
-    // must not be silently swallowed as "null decryption result" — re-throw so
-    // callers crash loudly rather than silently serving empty KYC data.
     if (msg.includes("env var not set")) throw err;
     console.error("[fieldEncryption] decryptField failed:", msg);
     return null;
@@ -112,7 +120,18 @@ function decryptRaw(base64Payload: string, version: string): string | null {
     decipher.setAuthTag(authTag);
     return decipher.update(encrypted, undefined, "utf8") + decipher.final("utf8");
   } catch (err) {
-    console.error(`[fieldEncryption] decryptRaw(${version}) failed:`, (err as Error).message);
+    const msg = (err instanceof Error ? err.message : String(err));
+    // BUG-ENC-01: GCM auth tag failures indicate tampered ciphertext — re-throw
+    // as a distinct error type so callers don't silently serve empty/corrupt data.
+    if (
+      msg.includes("Unsupported state") ||
+      msg.includes("auth tag") ||
+      msg.includes("unsupported") ||
+      msg.includes("bad decrypt")
+    ) {
+      throw new DecryptionIntegrityError(`GCM auth tag validation failed for version ${version}`);
+    }
+    console.error(`[fieldEncryption] decryptRaw(${version}) failed:`, msg);
     return null;
   }
 }

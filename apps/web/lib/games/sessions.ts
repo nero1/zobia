@@ -139,12 +139,15 @@ export async function finalizeScore(
     throw badRequest("This play session has already been scored.");
   }
 
-  // Minimum-play-time sanity check.
-  if (game.min_play_seconds > 0) {
-    const elapsedSec = (Date.now() - new Date(play.started_at).getTime()) / 1000;
-    if (elapsedSec < game.min_play_seconds) {
-      throw badRequest("Play session ended too quickly to be valid.");
-    }
+  // Minimum and maximum play-time sanity checks.
+  const elapsedSec = (Date.now() - new Date(play.started_at).getTime()) / 1000;
+  if (game.min_play_seconds > 0 && elapsedSec < game.min_play_seconds) {
+    throw badRequest("Play session ended too quickly to be valid.");
+  }
+  // BUG-GAMES-02: reject submissions for sessions older than the configured max age.
+  const sessionCfg = await getGamesConfig();
+  if (elapsedSec > sessionCfg.maxPlaySessionAgeSeconds) {
+    throw badRequest("Play session has expired — please start a new game.");
   }
 
   // Previous best for win detection (non-challenge plays).
@@ -163,8 +166,9 @@ export async function finalizeScore(
   let reward: RewardBundle = { credits: 0, xp: 0, stars: 0 };
 
   // Load reward config before the transaction to avoid holding the lock
-  // while making an I/O call (manifest fetch).
-  const cfg = isWin ? await getGamesConfig() : null;
+  // while making an I/O call (manifest fetch). We already fetched sessionCfg
+  // above for the max-age check; reuse it when a win reward is needed.
+  const cfg = isWin ? sessionCfg : null;
 
   await db.transaction(async (tx) => {
     // Mark the play counted (consumes the nonce). Guarded so a concurrent
@@ -203,8 +207,11 @@ export async function finalizeScore(
     }
   });
 
-  // Every counted play contributes to games-played milestones.
-  await checkPlayMilestones(userId);
+  // Every counted play contributes to games-played milestones. BUG-GAMES-01:
+  // milestone failures must never roll back a successfully-scored play.
+  await checkPlayMilestones(userId).catch(
+    (err) => logger.error({ err, userId }, '[games] checkPlayMilestones failed')
+  );
 
   // Advance the challenge round (settles the series + wager when both played).
   if (isChallenge && play.challenge_round_id) {

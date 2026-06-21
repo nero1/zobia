@@ -92,6 +92,7 @@ interface UserRow {
   city: string | null;
   xp_total: number;
   rank_name: string | null;
+  plan: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -154,7 +155,7 @@ async function upsertGoogleUser(profile: {
   const existing = await db.query<UserRow>(
     `SELECT id, email, username, google_id, is_email_verified, is_admin, is_moderator, is_creator,
             is_banned, is_suspended, deleted_at,
-            totp_enabled, onboarding_completed, display_name, avatar_emoji, city, xp_total, rank_name
+            totp_enabled, onboarding_completed, display_name, avatar_emoji, city, xp_total, rank_name, plan
      FROM users
      WHERE google_id = $1
      LIMIT 1`,
@@ -179,7 +180,7 @@ async function upsertGoogleUser(profile: {
   const emailMatch = await db.query<UserRow>(
     `SELECT id, email, username, google_id, is_email_verified, is_admin, is_moderator, is_creator,
             is_banned, is_suspended, deleted_at,
-            totp_enabled, onboarding_completed, display_name, avatar_emoji, city, xp_total, rank_name
+            totp_enabled, onboarding_completed, display_name, avatar_emoji, city, xp_total, rank_name, plan
      FROM users
      WHERE email = $1 AND deleted_at IS NULL
      LIMIT 1`,
@@ -233,7 +234,7 @@ async function upsertGoogleUser(profile: {
          RETURNING id, email, username, google_id, is_email_verified, is_admin, is_moderator, is_creator,
                    is_banned, is_suspended, deleted_at,
                    totp_enabled, onboarding_completed,
-                   display_name, avatar_emoji, city, xp_total, rank_name`,
+                   display_name, avatar_emoji, city, xp_total, rank_name, plan`,
         [profile.googleId, profile.email, candidateUsername, profile.name, profile.picture]
       );
       if (inserted.rows[0]) return inserted.rows[0];
@@ -249,7 +250,7 @@ async function upsertGoogleUser(profile: {
           const raceMatch = await db.query<UserRow>(
             `SELECT id, email, username, google_id, is_email_verified, is_admin, is_moderator, is_creator,
                     is_banned, is_suspended, deleted_at,
-                    totp_enabled, onboarding_completed, display_name, avatar_emoji, city, xp_total, rank_name
+                    totp_enabled, onboarding_completed, display_name, avatar_emoji, city, xp_total, rank_name, plan
              FROM users WHERE email = $1 AND deleted_at IS NULL LIMIT 1`,
             [profile.email]
           );
@@ -411,6 +412,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // -----------------------------------------------------------------
     if (mobileRedirect) {
       const exchangeCode = crypto.randomBytes(32).toString("hex");
+      // BUG-EXPO-03: include all AuthUser fields so the mobile app has full user state
       const authUser = {
         id: user.id,
         username: user.username ?? "",
@@ -418,6 +420,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         city: user.city ?? "",
         xp: user.xp_total ?? 0,
         rankTier: user.rank_name ?? "Beginner",
+        plan: (user.plan ?? "free") as "free" | "plus" | "pro" | "max",
+        isAdmin: user.is_admin,
+        isModerator: user.is_moderator,
+        isCreator: user.is_creator,
+        onboardingCompleted: user.onboarding_completed,
       };
       await redis.setex(
         `mobile_exchange:${exchangeCode}`,

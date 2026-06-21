@@ -250,6 +250,12 @@ export const users = pgTable("users", {
   check("users_star_balance_max", sql`${t.starBalance} <= 1000000000000`),
 ]);
 
+// BUG-SCHEMA-01: This table predates the current Redis-backed session model.
+// Active sessions are now stored in Redis (key: session:{sid}) via lib/auth/session.ts.
+// This table is NOT actively written or read by any current code path. It is retained
+// to avoid a destructive migration until a decision is made: either backfill it from
+// Redis for audit purposes, or drop it once the Redis-only model is confirmed stable.
+// Do NOT rely on this table for session validation or revocation.
 export const sessions = pgTable("sessions", {
   id: uuidPk(),
   userId: uuid("user_id")
@@ -1509,6 +1515,9 @@ export const questTemplates = pgTable("quest_templates", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
+// BUG-SCHEMA-02: DEPRECATED — superseded by user_quest_progress. No current code
+// path reads or writes this table; use user_quest_progress for all quest tracking.
+// Retained to avoid a destructive migration; schedule for removal once confirmed unused.
 export const userQuests = pgTable(
   "user_quests",
   {
