@@ -258,7 +258,7 @@ function CountdownTimer({ endsAt }: { endsAt: string }) {
 // VIP Subscribe overlay
 // ---------------------------------------------------------------------------
 
-function VIPSubscribeOverlay({ onSubscribe }: { onSubscribe: () => void }) {
+function VIPSubscribeOverlay({ onSubscribe, loading }: { onSubscribe: () => void; loading?: boolean }) {
   return (
     <View style={styles.vipOverlay}>
       <Text style={styles.vipOverlayEmoji}>👑</Text>
@@ -266,7 +266,7 @@ function VIPSubscribeOverlay({ onSubscribe }: { onSubscribe: () => void }) {
       <Text style={styles.vipOverlayBody}>
         Subscribe to read and send messages in this room.
       </Text>
-      <Button label="Subscribe to VIP" onPress={onSubscribe} style={styles.vipBtn} />
+      <Button label="Subscribe to VIP" onPress={onSubscribe} loading={loading} style={styles.vipBtn} />
     </View>
   );
 }
@@ -864,7 +864,7 @@ export default function RoomScreen() {
 
         {/* VIP overlay */}
         {isVIPLocked && (
-          <VIPSubscribeOverlay onSubscribe={handleVIPSubscribe} />
+          <VIPSubscribeOverlay onSubscribe={handleVIPSubscribe} loading={subscribing} />
         )}
 
         {/* Gift spectacle overlay — dims feed, shows gift animation for 3s */}
