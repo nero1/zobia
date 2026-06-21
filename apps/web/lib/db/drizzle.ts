@@ -27,7 +27,6 @@ import { schema } from "./schema";
 export type {
   User,
   NewUser,
-  Session,
   Follow,
   Report,
   ModerationAction,
