@@ -21,6 +21,14 @@ jest.mock('@/lib/payments/paystack', () => ({
   verifyWebhookSignature: jest.fn(),
 }));
 
+jest.mock('@/lib/redis', () => ({
+  redis: {
+    set: jest.fn().mockResolvedValue('OK'),
+    get: jest.fn().mockResolvedValue(null),
+    del: jest.fn().mockResolvedValue(1),
+  },
+}));
+
 const mockQuery = jest.fn();
 const mockTransaction = jest.fn();
 
@@ -101,15 +109,17 @@ beforeEach(() => {
 
 describe('POST /api/economy/webhooks/paystack', () => {
   describe('signature validation', () => {
-    it('returns 401 when signature is invalid', async () => {
+    it('returns 200 when signature is invalid (prevents provider retry loops)', async () => {
       (verifyWebhookSignature as jest.Mock).mockReturnValue(false);
 
       const req = buildRequest(CHARGE_SUCCESS_EVENT, 'bad-sig');
       const res = await POST(req);
 
-      expect(res.status).toBe(401);
+      // Route returns 200 on bad signatures so Paystack does not retry
+      // (a bad signature will never become valid on retry). The payload is discarded.
+      expect(res.status).toBe(200);
       const json = await res.json();
-      expect(json).toMatchObject({ error: expect.stringMatching(/signature/i) });
+      expect(json).toMatchObject({ received: false });
     });
 
     it('returns 200 when signature is valid', async () => {
@@ -162,11 +172,13 @@ describe('POST /api/economy/webhooks/paystack', () => {
 
       expect(res.status).toBe(200);
       expect(creditCoins).toHaveBeenCalledWith(
-        expect.anything(),
         'user-uuid',
         1000,
         expect.any(String),
-        expect.any(String)
+        expect.any(String),
+        expect.any(String),
+        expect.anything(),
+        expect.anything()
       );
     });
   });

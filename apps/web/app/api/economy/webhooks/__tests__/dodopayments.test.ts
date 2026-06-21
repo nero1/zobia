@@ -21,6 +21,14 @@ jest.mock('@/lib/payments/dodopayments', () => ({
   verifyWebhookSignature: jest.fn(),
 }));
 
+jest.mock('@/lib/redis', () => ({
+  redis: {
+    set: jest.fn().mockResolvedValue('OK'),
+    get: jest.fn().mockResolvedValue(null),
+    del: jest.fn().mockResolvedValue(1),
+  },
+}));
+
 const mockQuery = jest.fn();
 const mockTransaction = jest.fn();
 
@@ -129,13 +137,15 @@ beforeEach(() => {
 
 describe('POST /api/economy/webhooks/dodopayments', () => {
   describe('signature validation', () => {
-    it('returns 401 when signature is invalid', async () => {
+    it('returns 200 when signature is invalid (prevents provider retry loops)', async () => {
       (verifyWebhookSignature as jest.Mock).mockReturnValue(false);
 
       const req = buildRequest(makeCoinPackEvent(), 'bad-sig');
       const res = await POST(req);
 
-      expect(res.status).toBe(401);
+      // Route returns 200 on bad signatures so DodoPayments does not retry
+      // (a bad signature will never become valid on retry). The payload is discarded.
+      expect(res.status).toBe(200);
     });
   });
 
@@ -197,8 +207,9 @@ describe('POST /api/economy/webhooks/dodopayments', () => {
       const req = buildRequest(makeStarPackEvent(0));
       const res = await POST(req);
 
-      // Should error out because stars_granted <= 0
-      expect(res.status).toBeGreaterThanOrEqual(400);
+      // Handler writes to failed_webhooks DLQ and returns; route stays 200
+      // (throwing would roll back the payment status update and cause infinite retries)
+      expect(res.status).toBe(200);
       expect(creditStars).not.toHaveBeenCalled();
     });
 

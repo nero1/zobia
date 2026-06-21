@@ -85,7 +85,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.error("[webhook/dodopayments] Processing error:", err);
     // Return 500 so DodoPayments retries delivery on transient errors.
     // Returning 200 here would permanently suppress retries and silently
-    // lose payment events. Signature failures (above) correctly stay 401.
+    // lose payment events. Signature failures (above) return 200 intentionally
+    // to prevent infinite retry loops (a bad signature never becomes valid).
     return NextResponse.json({ received: false, error: "processing_error" }, { status: 500 });
   }
 
