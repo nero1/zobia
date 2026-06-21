@@ -197,8 +197,7 @@ export async function findWarOpponent(
     ];
 
     const { rows } = await db.query<{ id: string }>(
-      `SELECT g.id
-       FROM guilds g
+      `SELECT g.id FROM guilds g
        WHERE g.is_active = TRUE
          AND g.guild_xp BETWEEN $1 AND $2
          AND (g.last_war_ended_at IS NULL
