@@ -45,6 +45,10 @@ function getPool(): Pool {
       max: parseInt(process.env.DB_POOL_SIZE ?? "2", 10),
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 5_000,
+      // BUG-DB-02 FIX: keep idle connections alive so proxy/firewall timeouts
+      // don't silently drop them and cause "Connection terminated unexpectedly".
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 10_000,
       // Guard against runaway queries monopolising the tiny pool (#21)
       options: "-c statement_timeout=10000 -c idle_in_transaction_session_timeout=15000",
     });

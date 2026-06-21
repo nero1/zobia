@@ -24,6 +24,7 @@ interface SentryLike {
 
 interface NewRelicLike {
   noticeError(err: Error | string, attrs?: Record<string, unknown>): void;
+  recordCustomEvent(eventType: string, attrs?: Record<string, unknown>): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -98,6 +99,16 @@ export function trackEvent(
     if (sentry) {
       sentry.captureMessage(name, "info");
       return;
+    }
+  }
+
+  if (env.MONITORING_PROVIDER === "newrelic") {
+    const nr = getNewRelic();
+    if (nr) {
+      nr.recordCustomEvent(name, attributes);
+      return;
+    } else {
+      console.warn("[monitoring/newrelic] SDK not installed — install newrelic to track events");
     }
   }
 

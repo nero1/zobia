@@ -65,6 +65,10 @@ const MAX_AUTH_AGE_SECONDS = 600; // 10 minutes
  * @throws if the hash is invalid or the payload is too old
  */
 export function verifyTelegramLogin(data: TelegramLoginData): TelegramUserProfile {
+  if (!env.TELEGRAM_BOT_TOKEN) {
+    throw new Error("Telegram login is not configured (TELEGRAM_BOT_TOKEN missing)");
+  }
+
   const { hash, ...fields } = data;
 
   // 1. Build the check string

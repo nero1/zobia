@@ -16,13 +16,22 @@ interface CacheEntry<T> {
   expiresAt: number;
 }
 
+/** Maximum number of entries before LRU eviction kicks in. */
+const MAX_SIZE = 500;
+
 const _store = new Map<string, CacheEntry<unknown>>();
 
-/** Prune expired entries to prevent unbounded memory growth. */
+/** Prune expired entries and enforce MAX_SIZE via LRU eviction. */
 function pruneExpired(): void {
   const now = Date.now();
   for (const [key, entry] of _store.entries()) {
     if (entry.expiresAt <= now) _store.delete(key);
+  }
+  // LRU eviction: Map iteration order is insertion order; delete oldest first.
+  while (_store.size > MAX_SIZE) {
+    const oldestKey = _store.keys().next().value;
+    if (oldestKey !== undefined) _store.delete(oldestKey);
+    else break;
   }
 }
 
@@ -53,6 +62,7 @@ export function memGet<T>(key: string): T | undefined {
  */
 export function memSet<T>(key: string, value: T, ttlMs: number): void {
   _store.set(key, { value, expiresAt: Date.now() + ttlMs });
+  if (_store.size > MAX_SIZE) pruneExpired();
 }
 
 /**

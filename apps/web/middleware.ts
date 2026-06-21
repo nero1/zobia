@@ -260,6 +260,14 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   // Generate a per-request trace ID for observability (OBS-TRACE-01).
   const requestId = crypto.randomUUID();
 
+  // CORS: compute allowed origin before withCsp so the closure is always valid.
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
+  const expoOrigin = process.env.EXPO_ORIGIN ?? "";
+  const requestOrigin = request.headers.get("origin") ?? "";
+  const allowedOrigins = [appUrl, expoOrigin].filter(Boolean);
+  const corsOrigin =
+    allowedOrigins.includes(requestOrigin) ? requestOrigin : appUrl || "null";
+
   // Helper: wrap any NextResponse.next() with the CSP header and nonce.
   function withCsp(requestHeaders: Headers): NextResponse {
     requestHeaders.set("x-nonce", nonce);
@@ -288,7 +296,24 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     if (process.env.NODE_ENV === "production") {
       res.headers.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
     }
+    // CORS-01: attach CORS headers for API routes so the Expo app and web PWA can
+    // call the API from their respective origins.
+    if (pathname.startsWith("/api/")) {
+      res.headers.set("Access-Control-Allow-Origin", corsOrigin);
+      res.headers.set("Vary", "Origin");
+      res.headers.set("Access-Control-Allow-Credentials", "true");
+    }
     return res;
+  }
+
+  if (pathname.startsWith("/api/") && request.method.toUpperCase() === "OPTIONS") {
+    const preflight = new NextResponse(null, { status: 204 });
+    preflight.headers.set("Access-Control-Allow-Origin", corsOrigin);
+    preflight.headers.set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+    preflight.headers.set("Access-Control-Allow-Headers", "Content-Type,Authorization,X-Request-ID");
+    preflight.headers.set("Access-Control-Max-Age", "86400");
+    preflight.headers.set("Vary", "Origin");
+    return preflight;
   }
 
   // CSRF check for all API mutation endpoints (including auth POSTs but not GET callbacks)

@@ -27,10 +27,6 @@ const securityHeaders = [
     value: "on",
   },
   {
-    key: "X-Frame-Options",
-    value: "SAMEORIGIN",
-  },
-  {
     key: "X-Content-Type-Options",
     value: "nosniff",
   },
@@ -68,10 +64,25 @@ const nextConfig = {
   },
   images: {
     remotePatterns: [
-      { protocol: "https", hostname: "**.supabase.co" },
-      { protocol: "https", hostname: "**.supabase.in" },
-      { protocol: "https", hostname: "**.r2.dev" },
-      { protocol: "https", hostname: "**.r2.cloudflarestorage.com" },
+      // Use a single-level wildcard (*) instead of double-wildcard (**) to avoid
+      // accepting arbitrary deep subdomains that could be attacker-controlled.
+      // Operators should set NEXT_PUBLIC_SUPABASE_HOST to their specific project host.
+      {
+        protocol: "https",
+        hostname: process.env.NEXT_PUBLIC_SUPABASE_HOST || "*.supabase.co",
+      },
+      {
+        protocol: "https",
+        hostname: process.env.NEXT_PUBLIC_SUPABASE_IN_HOST || "*.supabase.in",
+      },
+      {
+        protocol: "https",
+        hostname: process.env.NEXT_PUBLIC_R2_DEV_HOST || "*.r2.dev",
+      },
+      {
+        protocol: "https",
+        hostname: process.env.NEXT_PUBLIC_R2_STORAGE_HOST || "*.r2.cloudflarestorage.com",
+      },
       { protocol: "https", hostname: "lh3.googleusercontent.com" },
       { protocol: "https", hostname: "t.me" },
       { protocol: "https", hostname: "telegram.org" },

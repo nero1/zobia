@@ -17,7 +17,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { getManifestValue, invalidateManifestCache } from "@/lib/manifest";
-import { getDeepSeekCircuitState } from "@/lib/ai/client";
+import { getDeepSeekCircuitState, getGeminiCircuitState } from "@/lib/ai/client";
 import { env } from "@/lib/env";
 import { withAdminAuth, type AdminContext } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
@@ -54,13 +54,15 @@ export const GET = withAdminAuth(
       const activeGeminiKey =
         geminiKeySource === "override" ? geminiOverride : env.GEMINI_API_KEY;
 
-      // Circuit breaker status
-      const circuit = await getDeepSeekCircuitState();
-      let circuitStatus: "closed" | "open" | "half-open" = "closed";
-      if (circuit.openedAt !== null) {
-        const elapsed = Date.now() - circuit.openedAt;
-        circuitStatus = elapsed >= CIRCUIT_BREAKER.recoveryTimeMs ? "half-open" : "open";
-      }
+      // Circuit breaker status for both providers
+      const [circuit, geminiCircuit] = await Promise.all([
+        getDeepSeekCircuitState(),
+        getGeminiCircuitState(),
+      ]);
+      const toCircuitStatus = (openedAt: number | null): "closed" | "open" | "half-open" => {
+        if (openedAt === null) return "closed";
+        return Date.now() - openedAt >= CIRCUIT_BREAKER.recoveryTimeMs ? "half-open" : "open";
+      };
 
       return NextResponse.json({
         success: true,
@@ -69,7 +71,7 @@ export const GET = withAdminAuth(
             keySource: deepseekKeySource,
             keyMasked: maskKey(activeDeepSeekKey),
             circuit: {
-              status: circuitStatus,
+              status: toCircuitStatus(circuit.openedAt),
               failures: circuit.failures,
               openedAt: circuit.openedAt,
             },
@@ -77,6 +79,11 @@ export const GET = withAdminAuth(
           gemini: {
             keySource: geminiKeySource,
             keyMasked: maskKey(activeGeminiKey),
+            circuit: {
+              status: toCircuitStatus(geminiCircuit.openedAt),
+              failures: geminiCircuit.failures,
+              openedAt: geminiCircuit.openedAt,
+            },
           },
         },
         error: null,

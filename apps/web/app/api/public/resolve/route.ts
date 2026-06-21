@@ -1,5 +1,3 @@
-export const dynamic = "force-dynamic";
-
 /**
  * app/api/public/resolve/route.ts
  *
@@ -25,6 +23,11 @@ import { resolvePublicGame } from "@/lib/public/resolveGame";
 const ROOM_TYPES = ["free_open", "vip", "drop", "tipping", "limited"];
 const COURSE_TYPES = ["classroom"];
 
+// BUG-23 FIX: cache public slug→id lookups to reduce DB load from crawlers/CDN.
+// Hits: 60s CDN + 5m stale-while-revalidate. Misses: 10s (entity may be created soon).
+const CACHE_HEADERS = { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300" };
+const CACHE_HEADERS_SHORT = { "Cache-Control": "public, s-maxage=10, stale-while-revalidate=30" };
+
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
@@ -45,26 +48,26 @@ export async function GET(req: NextRequest) {
           identifier,
           type === "course" ? COURSE_TYPES : ROOM_TYPES
         );
-        if (!resolved) return NextResponse.json({ found: false });
+        if (!resolved) return NextResponse.json({ found: false }, { headers: CACHE_HEADERS_SHORT });
         return NextResponse.json({
           found: true,
           type,
           id: resolved.room.id,
           slug: resolved.room.slug,
           canonicalSlug: resolved.canonicalRedirectSlug ?? resolved.room.slug,
-        });
+        }, { headers: CACHE_HEADERS });
       }
 
       case "game": {
         const resolved = await resolvePublicGame(identifier);
-        if (!resolved) return NextResponse.json({ found: false });
+        if (!resolved) return NextResponse.json({ found: false }, { headers: CACHE_HEADERS_SHORT });
         return NextResponse.json({
           found: true,
           type,
           id: resolved.game.id,
           slug: resolved.game.slug,
           canonicalSlug: resolved.canonicalRedirectSlug ?? resolved.game.slug,
-        });
+        }, { headers: CACHE_HEADERS });
       }
 
       case "profile": {
@@ -76,13 +79,13 @@ export async function GET(req: NextRequest) {
            LIMIT 1`,
           [identifier]
         );
-        if (!rows[0]) return NextResponse.json({ found: false });
+        if (!rows[0]) return NextResponse.json({ found: false }, { headers: CACHE_HEADERS_SHORT });
         return NextResponse.json({
           found: true,
           type,
           id: rows[0].id,
           username: rows[0].username,
-        });
+        }, { headers: CACHE_HEADERS });
       }
 
       default:

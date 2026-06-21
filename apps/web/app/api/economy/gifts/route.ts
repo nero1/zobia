@@ -34,6 +34,8 @@ interface GiftHistoryRow {
   gift_name: string;
   gift_emoji: string;
   gift_tier: number;
+  gift_type_name: string | null;
+  gift_type_slug: string | null;
 }
 
 export const GET = withAuth(async (req: NextRequest, { auth }) => {
@@ -88,13 +90,16 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
               r.username     AS recipient_username,
               r.display_name AS recipient_display_name,
               r.avatar_emoji AS recipient_avatar_emoji,
-              gi.name  AS gift_name,
-              gi.emoji AS gift_emoji,
-              gi.tier  AS gift_tier
+              gi.name        AS gift_name,
+              gi.emoji       AS gift_emoji,
+              gi.tier        AS gift_tier,
+              gt.name        AS gift_type_name,
+              gt.slug        AS gift_type_slug
        FROM gifts g
-       JOIN users s       ON s.id = g.sender_id
-       JOIN users r       ON r.id = g.recipient_id
-       JOIN gift_items gi ON gi.id = g.gift_item_id
+       JOIN users s            ON s.id = g.sender_id
+       JOIN users r            ON r.id = g.recipient_id
+       JOIN gift_items gi      ON gi.id = g.gift_item_id
+       LEFT JOIN gift_types gt ON gt.id = gi.gift_type_id
        WHERE ${typeCondition}
        ${cursorCondition}
        ORDER BY g.created_at DESC, g.id DESC
@@ -124,6 +129,8 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
         name: row.gift_name,
         emoji: row.gift_emoji,
         tier: row.gift_tier,
+        typeName: row.gift_type_name ?? null,
+        typeSlug: row.gift_type_slug ?? null,
       },
     }));
 

@@ -179,10 +179,13 @@ export async function retryFailedXPAwards(): Promise<{
   let resolved = 0;
   let permanentlyFailed = 0;
 
-  // Fetch eligible rows inside a transaction with FOR UPDATE SKIP LOCKED so that
+  // Fetch eligible rows INSIDE a transaction with FOR UPDATE SKIP LOCKED so that
   // concurrent CRON instances each lock their own exclusive batch and cannot
   // retry the same rows simultaneously (which would prematurely exhaust retry_count).
-  const { rows } = await globalDb.query<{
+  // BUG-RACE-02 FIX: the SELECT … FOR UPDATE SKIP LOCKED must execute inside a
+  // wrapping transaction; without BEGIN/COMMIT the row-level lock is released
+  // immediately after the query completes, defeating the SKIP LOCKED intent.
+  let rows: Array<{
     id: string;
     user_id: string;
     amount: number;
@@ -190,19 +193,33 @@ export async function retryFailedXPAwards(): Promise<{
     source: string;
     reference_id: string | null;
     retry_count: number;
-  }>(
-    `SELECT id, user_id, amount, track, source, reference_id, retry_count
-     FROM failed_xp_awards
-     WHERE resolved_at IS NULL
-       AND retry_count < $1
-       AND (last_retried_at IS NULL
-            OR last_retried_at < NOW() - (POWER(2, retry_count) * INTERVAL '1 minute'))
-     LIMIT 100
-     FOR UPDATE SKIP LOCKED`,
-    [MAX_RETRIES]
-  );
+  }> = [];
 
-  for (const row of rows) {
+  await globalDb.transaction(async (lockTx) => {
+    const result = await lockTx.query<{
+      id: string;
+      user_id: string;
+      amount: number;
+      track: XPTrack;
+      source: string;
+      reference_id: string | null;
+      retry_count: number;
+    }>(
+      `SELECT id, user_id, amount, track, source, reference_id, retry_count
+       FROM failed_xp_awards
+       WHERE resolved_at IS NULL
+         AND retry_count < $1
+         AND (last_retried_at IS NULL
+              OR last_retried_at < NOW() - (POWER(2, retry_count) * INTERVAL '1 minute'))
+       LIMIT 100
+       FOR UPDATE SKIP LOCKED`,
+      [MAX_RETRIES]
+    );
+    rows = result.rows;
+
+    // Process each row inside the same transaction that holds the lock so the
+    // lock is held for the full batch-processing duration.
+    for (const row of rows) {
     try {
       const col = TRACK_COLUMN[row.track] ?? "xp_total";
 
@@ -214,41 +231,41 @@ export async function retryFailedXPAwards(): Promise<{
       // double-award (partial-index ON CONFLICT only fires when reference_id IS NOT NULL).
       const effectiveRef = row.reference_id ?? `dlq_retry:${row.user_id}:${row.source}:${row.id}`;
 
-      // Wrap both the XP ledger INSERT and the resolved_at UPDATE in a single transaction
-      // so a partial failure can't leave the award applied but the DLQ row unresolved.
+      // Use lockTx directly for both the XP award and the resolved_at mark.
+      // Opening a nested globalDb.transaction() here would acquire a second pool
+      // connection while lockTx already holds one — deadlocking when pool size ≤ 2.
+      // lockTx's transaction already provides the atomicity we need.
       let retryXpTotal: number | null = null;
       let retryTrackXP: number | null = null;
       let retryCity: string | null = null;
       const retryTrackSelectExpr = col === "xp_total" ? "" : `, ${col}`;
 
-      await globalDb.transaction(async (tx) => {
-        const { rows: retryRows } = await tx.query<{ xp_total: number; city: string | null } & Record<string, unknown>>(
-          `WITH ins AS (
-             INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
-             VALUES ($1, $2, $3, $4, $5, $2, NOW())
-             ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
-             RETURNING id
-           )
-           UPDATE users
-             SET xp_total = xp_total + $2,
-                 ${col === "xp_total" ? "" : `${col} = COALESCE(${col}, 0) + $2,`}
-                 updated_at = NOW()
-           WHERE id = $1 AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM ins)
-           RETURNING xp_total, city${retryTrackSelectExpr}`,
-          [row.user_id, row.amount, row.track, row.source, effectiveRef]
-        );
+      const { rows: retryRows } = await lockTx.query<{ xp_total: number; city: string | null } & Record<string, unknown>>(
+        `WITH ins AS (
+           INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
+           VALUES ($1, $2, $3, $4, $5, $2, NOW())
+           ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
+           RETURNING id
+         )
+         UPDATE users
+           SET xp_total = xp_total + $2,
+               ${col === "xp_total" ? "" : `${col} = COALESCE(${col}, 0) + $2,`}
+               updated_at = NOW()
+         WHERE id = $1 AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM ins)
+         RETURNING xp_total, city${retryTrackSelectExpr}`,
+        [row.user_id, row.amount, row.track, row.source, effectiveRef]
+      );
 
-        if (retryRows[0]) {
-          retryXpTotal = Number(retryRows[0].xp_total);
-          retryTrackXP = col === "xp_total" ? retryXpTotal : Number(retryRows[0][col]);
-          retryCity = retryRows[0].city ?? null;
-        }
+      if (retryRows[0]) {
+        retryXpTotal = Number(retryRows[0].xp_total);
+        retryTrackXP = col === "xp_total" ? retryXpTotal : Number(retryRows[0][col]);
+        retryCity = retryRows[0].city ?? null;
+      }
 
-        await tx.query(
-          `UPDATE failed_xp_awards SET resolved_at = NOW() WHERE id = $1`,
-          [row.id]
-        );
-      });
+      await lockTx.query(
+        `UPDATE failed_xp_awards SET resolved_at = NOW() WHERE id = $1`,
+        [row.id]
+      );
 
       // BUG-02: update leaderboard snapshot after successful retry.
       // BUG-LB-01: also upsert city-scoped snapshot when user has a city.
@@ -276,7 +293,9 @@ export async function retryFailedXPAwards(): Promise<{
       resolved++;
     } catch (err) {
       const newRetryCount = row.retry_count + 1;
-      await globalDb.query(
+      // Use lockTx so the retry_count update is part of the same transaction
+      // that holds the FOR UPDATE SKIP LOCKED lock.
+      await lockTx.query(
         `UPDATE failed_xp_awards
          SET retry_count = $1, last_retried_at = NOW(),
              error_message = $2
@@ -295,8 +314,9 @@ export async function retryFailedXPAwards(): Promise<{
           ]
         ).catch(() => {});
       }
-    }
-  }
+    }  // end catch
+    }  // end for (const row of rows)
+  });  // end globalDb.transaction
 
   return { resolved, permanentlyFailed };
 }

@@ -409,7 +409,7 @@ export async function createSeasonCeremonyRoom(
 
     return roomId;
   } catch (err) {
-    console.error('[seasonEngine] createSeasonCeremonyRoom failed:', err);
+    logger.error({ err }, '[seasonEngine] createSeasonCeremonyRoom failed');
     return null;
   }
 }

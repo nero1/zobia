@@ -70,18 +70,20 @@ export async function checkPayoutFraud(
   const reasons: string[] = [];
 
   // FRAUD-02: Read thresholds from manifest so they can be tuned without deploys
-  const [inflowThresholdRaw, newAccountAgeDaysRaw, maxPayoutsPerDayRaw] = await Promise.all([
+  const [inflowThresholdRaw, newAccountAgeDaysRaw, maxPayoutsPerDayRaw, giftWindowDaysRaw] = await Promise.all([
     getManifestValue('fraud_inflow_threshold_coins'),
     getManifestValue('fraud_new_account_age_days'),
     getManifestValue('fraud_max_payouts_per_day'),
-  ]).catch(() => [null, null, null]);
+    getManifestValue('fraud_gift_window_days'),
+  ]).catch(() => [null, null, null, null]);
 
   const effectiveInflowThreshold = parseInt(inflowThresholdRaw ?? String(SUSPICIOUS_INFLOW_THRESHOLD_COINS), 10) || SUSPICIOUS_INFLOW_THRESHOLD_COINS;
   const effectiveNewAccountAgeDays = parseInt(newAccountAgeDaysRaw ?? String(NEW_ACCOUNT_AGE_DAYS), 10) || NEW_ACCOUNT_AGE_DAYS;
   const effectiveMaxPayoutsPerDay = parseInt(maxPayoutsPerDayRaw ?? String(MAX_PAYOUT_REQUESTS_PER_DAY), 10) || MAX_PAYOUT_REQUESTS_PER_DAY;
+  const effectiveGiftWindowDays = parseInt(giftWindowDaysRaw ?? "7", 10) || 7;
 
   await Promise.all([
-    checkNewAccountGiftInflow(creatorId, db, reasons, effectiveInflowThreshold, effectiveNewAccountAgeDays),
+    checkNewAccountGiftInflow(creatorId, db, reasons, effectiveInflowThreshold, effectiveNewAccountAgeDays, effectiveGiftWindowDays),
     checkPayoutVelocity(creatorId, db, reasons, effectiveMaxPayoutsPerDay),
     checkTrustScore(creatorId, db, reasons),
   ]);
@@ -126,7 +128,8 @@ async function checkNewAccountGiftInflow(
   db: DatabaseAdapter,
   reasons: string[],
   inflowThreshold: number,
-  newAccountAgeDays: number
+  newAccountAgeDays: number,
+  giftWindowDays: number
 ): Promise<void> {
   try {
     // Union room gifts AND direct DM gifts so wash-trading via DMs is caught too
@@ -142,7 +145,7 @@ async function checkNewAccountGiftInflow(
          JOIN users sender ON sender.id = g.sender_id
          WHERE r.creator_id = $1
            AND sender.created_at >= NOW() - ($2 * INTERVAL '1 day')
-           AND g.created_at >= NOW() - INTERVAL '7 days'
+           AND g.created_at >= NOW() - ($3 * INTERVAL '1 day')
 
          UNION ALL
 
@@ -153,9 +156,9 @@ async function checkNewAccountGiftInflow(
          WHERE g2.recipient_id = $1
            AND g2.room_id IS NULL
            AND sender2.created_at >= NOW() - ($2 * INTERVAL '1 day')
-           AND g2.created_at >= NOW() - INTERVAL '7 days'
+           AND g2.created_at >= NOW() - ($3 * INTERVAL '1 day')
        ) combined`,
-      [creatorId, newAccountAgeDays]
+      [creatorId, newAccountAgeDays, giftWindowDays]
     );
 
     const totalCoins = parseInt(rows[0]?.total_coins ?? "0", 10);
@@ -166,7 +169,7 @@ async function checkNewAccountGiftInflow(
       accountCount >= SUSPICIOUS_INFLOW_MIN_ACCOUNTS
     ) {
       reasons.push(
-        `Received ${totalCoins.toLocaleString()} coins from ${accountCount} accounts aged < ${newAccountAgeDays} days in the past 7 days (room + DM gifts combined)`
+        `Received ${totalCoins.toLocaleString()} coins from ${accountCount} accounts aged < ${newAccountAgeDays} days in the past ${giftWindowDays} days (room + DM gifts combined)`
       );
     }
   } catch {

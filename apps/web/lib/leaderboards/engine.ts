@@ -204,13 +204,19 @@ export async function getLeaderboard(
 ): Promise<LeaderboardPage> {
   const pageSize = Math.min(options?.pageSize ?? 100, 200);
   const cursor = options?.cursor ?? null;
-  // Only use OFFSET when no cursor provided (backward compat)
-  const offset = cursor ? 0 : (Math.max(page, 1) - 1) * pageSize;
+  // BUG-41 FIX: OFFSET on large tables causes O(N) full-table scans that grow
+  // with each page. Cursor-based pagination is required for page > 1.
+  // Page 1 without a cursor is still allowed (OFFSET 0 is effectively a no-op).
+  const normalPage = Math.max(page, 1);
+  if (!cursor && normalPage > 1) {
+    throw new Error(
+      "[getLeaderboard] OFFSET-based pagination is disabled for page > 1. " +
+      "Pass a cursor returned from the previous page instead."
+    );
+  }
   // LB-01: for cursor pages, ROW_NUMBER() restarts at 1 because the WHERE clause
   // filters out higher-ranked rows. cursor.rank carries the global rank of the last
   // entry on the previous page so we can shift ROW_NUMBER back to the true position.
-  // For offset pages, ROW_NUMBER() spans the full unfiltered result set (OFFSET only
-  // skips rows after the window computes), so no adjustment is needed.
   const rankOffset = cursor?.rank ?? 0;
 
   // Map scope to the stored scope value (national uses global rows filtered by country)
@@ -261,41 +267,23 @@ export async function getLeaderboard(
 
   type RawRow = LeaderboardEntry & { total_count: string };
 
-  const queryText = cursor
-    ? `SELECT
-         ROW_NUMBER() OVER (ORDER BY ls.xp_value DESC NULLS LAST, ls.user_id ASC) AS rank,
-         ls.user_id,
-         u.username,
-         u.display_name,
-         u.avatar_emoji,
-         u.rank_name,
-         COALESCE(ls.xp_value, 0) AS xp_value,
-         u.city,
-         COUNT(*) OVER () AS total_count
-       FROM leaderboard_snapshots ls
-       JOIN users u ON u.id = ls.user_id
-       ${where}
-       ORDER BY ls.xp_value DESC NULLS LAST, ls.user_id ASC
-       LIMIT $${paramIdx}`
-    : `SELECT
-         ROW_NUMBER() OVER (ORDER BY ls.xp_value DESC NULLS LAST, ls.user_id ASC) AS rank,
-         ls.user_id,
-         u.username,
-         u.display_name,
-         u.avatar_emoji,
-         u.rank_name,
-         COALESCE(ls.xp_value, 0) AS xp_value,
-         u.city,
-         COUNT(*) OVER () AS total_count
-       FROM leaderboard_snapshots ls
-       JOIN users u ON u.id = ls.user_id
-       ${where}
-       ORDER BY ls.xp_value DESC NULLS LAST, ls.user_id ASC
-       LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`;
+  const queryText = `SELECT
+       ROW_NUMBER() OVER (ORDER BY ls.xp_value DESC NULLS LAST, ls.user_id ASC) AS rank,
+       ls.user_id,
+       u.username,
+       u.display_name,
+       u.avatar_emoji,
+       u.rank_name,
+       COALESCE(ls.xp_value, 0) AS xp_value,
+       u.city,
+       COUNT(*) OVER () AS total_count
+     FROM leaderboard_snapshots ls
+     JOIN users u ON u.id = ls.user_id
+     ${where}
+     ORDER BY ls.xp_value DESC NULLS LAST, ls.user_id ASC
+     LIMIT $${paramIdx}`;
 
-  const queryParams = cursor
-    ? [...params, pageSize]
-    : [...params, pageSize, offset];
+  const queryParams = [...params, pageSize];
 
   const { rows } = await db.query<RawRow>(queryText, queryParams);
 
@@ -314,9 +302,9 @@ export async function getLeaderboard(
   }));
 
   // PRD §9: Hall of Fame users (Prestige 10) have permanent top-100 visibility on
-  // the global main leaderboard. On the first page (no cursor, page=1) of the
-  // global/main leaderboard, fetch HoF users not already in the result set.
-  const isFirstPage = cursor === null && Math.max(page, 1) === 1;
+  // the global main leaderboard. On the first page (no cursor) of the global/main leaderboard,
+  // fetch HoF users not already in the result set.
+  const isFirstPage = cursor === null;
   if (scope === "global" && track === "main" && isFirstPage) {
     try {
       interface HofRow {
@@ -425,9 +413,7 @@ export async function getLeaderboard(
     }
   }
 
-  const hasMore = cursor
-    ? rows.length === pageSize
-    : offset + pageSize < total;
+  const hasMore = rows.length === pageSize;
 
   const lastEntry = rows[rows.length - 1];
   const nextCursor: LeaderboardCursor | null =

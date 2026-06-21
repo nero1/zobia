@@ -57,7 +57,7 @@ export default function LoginScreen() {
 
   // Used for Telegram state polling
   const telegramStateRef = useRef<string | null>(null);
-  const telegramPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const telegramPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Cancellation flag — set to true when stopTelegramPoll is called so that
   // any in-flight awaits after that point know to exit without touching state.
   const telegramCancelledRef = useRef(false);
@@ -191,45 +191,51 @@ export default function LoginScreen() {
   }
 
   function startTelegramPoll(state: string) {
-    let attempts = 0;
-    const MAX_ATTEMPTS = 30; // 60 seconds total
-
+    const MAX_ATTEMPTS = 12; // ~2 minutes total with exponential backoff (2,2,4,8,16,16,...)
     // Reset the cancellation flag for this new poll session.
     telegramCancelledRef.current = false;
 
-    telegramPollRef.current = setInterval(async () => {
-      // Check before any async work — stopTelegramPoll may have been called
-      // (e.g. component unmounted) while a previous tick was still awaiting.
+    function scheduleNext(attempt: number) {
       if (telegramCancelledRef.current) return;
-
-      attempts++;
-      try {
-        const { data } = await apiClient.get(`/auth/telegram/status?state=${state}`);
-
-        // Guard after each await: the interval may have been cancelled while
-        // the fetch was in-flight.
+      // Exponential backoff: 2s, 2s, 4s, 8s, 16s, capped at 16s
+      const delayMs = Math.min(2000 * Math.pow(2, Math.max(0, attempt - 2)), 16_000);
+      telegramPollRef.current = setTimeout(async () => {
         if (telegramCancelledRef.current) return;
-
-        if (data.status === 'approved' && data.token && data.user) {
-          stopTelegramPoll();
-          await signIn(data.token, data.user as AuthUser, data.refreshToken);
+        try {
+          const { data } = await apiClient.get(`/auth/telegram/status?state=${state}`);
           if (telegramCancelledRef.current) return;
-          clearSessionExpired();
-          router.replace('/(tabs)');
-        } else if (data.status === 'expired' || attempts >= MAX_ATTEMPTS) {
-          stopTelegramPoll();
-          Alert.alert(t('auth.loginTimeoutTitle'), t('auth.loginTimeoutBody'));
+
+          if (data.status === 'approved' && data.token && data.user) {
+            stopTelegramPoll();
+            await signIn(data.token, data.user as AuthUser, data.refreshToken);
+            if (telegramCancelledRef.current) return;
+            clearSessionExpired();
+            router.replace('/(tabs)');
+            return;
+          } else if (data.status === 'expired' || attempt >= MAX_ATTEMPTS) {
+            stopTelegramPoll();
+            Alert.alert(t('auth.loginTimeoutTitle'), t('auth.loginTimeoutBody'));
+            return;
+          }
+        } catch {
+          // Network error — retry with backoff, but still honour MAX_ATTEMPTS
+          if (attempt >= MAX_ATTEMPTS) {
+            stopTelegramPoll();
+            Alert.alert(t('auth.loginTimeoutTitle'), t('auth.loginTimeoutBody'));
+            return;
+          }
         }
-      } catch {
-        // Network error — keep polling
-      }
-    }, 2000);
+        scheduleNext(attempt + 1);
+      }, delayMs);
+    }
+
+    scheduleNext(0);
   }
 
   function stopTelegramPoll() {
     telegramCancelledRef.current = true;
     if (telegramPollRef.current) {
-      clearInterval(telegramPollRef.current);
+      clearTimeout(telegramPollRef.current);
       telegramPollRef.current = null;
     }
     setTelegramLoading(false);

@@ -120,6 +120,26 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
     results.push({ table: "xp_events", archived: xpEventsArchived });
 
+    // BUG-22 FIX: archive audit_discrepancies and rank_up_events to prevent
+    // unbounded table growth. Rows older than the cutoff that are resolved
+    // (audit_discrepancies) or have already been processed (rank_up_events)
+    // are pruned to keep the live tables small.
+    const auditDiscArchived = await archiveTable(
+      "audit_discrepancies",
+      "audit_discrepancies_archive",
+      "id, user_id, asset_type, ledger_sum, wallet_balance, detected_at, resolved, notes",
+      cutoff
+    );
+    results.push({ table: "audit_discrepancies", archived: auditDiscArchived });
+
+    const rankUpArchived = await archiveTable(
+      "rank_up_events",
+      "rank_up_events_archive",
+      "id, user_id, old_rank, new_rank, xp_at_rank_up, created_at",
+      cutoff
+    );
+    results.push({ table: "rank_up_events", archived: rankUpArchived });
+
     logger.info({ archiveDays, cutoff, results }, "[cron/archive-ledgers] Run complete");
 
     return NextResponse.json({ success: true, archiveDays, cutoff, results });

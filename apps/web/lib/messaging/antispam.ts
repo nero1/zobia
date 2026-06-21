@@ -64,6 +64,16 @@ export function getUrlRegex(): RegExp {
   return /(?:https?|ftp):\/\/[^\s/$.?#].[^\s]*|www\.[a-zA-Z0-9\-]+\.[a-zA-Z0-9\-]{2,}(?:\/[^\s]*)?|\b(?:xn--[a-zA-Z0-9\-]+|[a-zA-Z0-9\-]+)\.(?:xn--[a-zA-Z0-9\-]+|com|org|net|io|co|uk|ng|app|dev|xyz|info|biz|me|tv|us|ca|au|de|fr|jp|in|br|ru|cn|ai)\b(?:\/[^\s]*)?/gi;
 }
 
+/**
+ * Returns a fresh RegExp that matches known spam/phishing link-sharing domains.
+ * These are blocked regardless of context in both DMs and public rooms.
+ *
+ * Covers: Discord invites, common URL shorteners, WhatsApp group/contact links.
+ */
+export function getSpamDomainRegex(): RegExp {
+  return /\b(?:discord\.gg|bit\.ly|t\.co|tinyurl\.com|ow\.ly|buff\.ly|rebrand\.ly|chat\.whatsapp\.com|wa\.me)\b(?:\/[^\s]*)?/gi;
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -79,6 +89,7 @@ function stripContactInfo(content: string): string {
   // then emails, then phone numbers.
   // Each getXxxRegex() call returns a new instance so lastIndex is always 0.
   return content
+    .replace(getSpamDomainRegex(), "")
     .replace(getUrlRegex(), "")
     .replace(getEmailRegex(), "")
     .replace(getPhoneRegex(), (match) => {
