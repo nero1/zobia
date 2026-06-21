@@ -148,6 +148,7 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `PAYSTACK_PUBLIC_KEY` | No | Paystack public key | Paystack dashboard → Settings → API Keys |
 | `DODOPAYMENTS_API_KEY` | No | DodoPayments API key | DodoPayments dashboard → API |
 | `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | No | Google Play service account JSON (base64-encoded or raw) for Android IAP verification | Google Play Console → Setup → API access |
+| `GOOGLE_PLAY_PACKAGE_NAME` | No | Your Android app's package name for IAP purchase validation (default: `com.zobia.app`). Must match the package name in your Google Play Console app. | Google Play Console → App details |
 | `ADMOB_APP_ID` | No | Google AdMob app ID (for rewarded ads + game banner ads in the Expo app) | AdMob → Apps |
 | `NEXT_PUBLIC_ADSENSE_CLIENT` | No | Google AdSense client id (`ca-pub-…`) for web/PWA ad slots (incl. game pages). Without it, `<AdSlot>` renders a labelled placeholder when ads are enabled. | AdSense → Account |
 | `NEXT_PUBLIC_ADSENSE_SLOT` | No | Default AdSense ad-unit slot id used by `<AdSlot>` | AdSense → Ads → By ad unit |
@@ -161,6 +162,7 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `TENOR_API_KEY` | No | Tenor GIF API key — enables Tenor GIF search in messages | console.cloud.google.com → Tenor API |
 | `GIPHY_API_KEY` | No | Giphy GIF API key — fallback GIF search | developers.giphy.com |
 | `EXPO_ACCESS_TOKEN` | No | Expo access token for enhanced push notification delivery | expo.dev → Account → Access tokens |
+| `EXPO_ORIGIN` | No | Origin URL of the Expo mobile app (e.g. `https://expo.dev` or your custom scheme) used by the CSRF middleware to allow requests from the mobile app. Must match the `Origin` header sent by the Expo Axios client. Defaults to `NEXT_PUBLIC_APP_URL` if unset. | Your Expo app origin |
 | `PROFANITY_WORDLIST` | No | Comma-separated list of additional profanity words to block | Custom list |
 | `NEXT_PUBLIC_APP_URL` | Yes | Full public URL of the app (e.g. `https://zobia.vercel.app`, later `https://zobia.org`). Drives canonical URLs, sitemap, `robots.txt`, OG tags and referral links. No trailing slash. | Your domain |
 | `NEXT_PUBLIC_API_URL` | Yes | Full public API URL (e.g. `https://zobia.vercel.app/api`) | Your domain |
@@ -288,11 +290,19 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 
    Migration `0017_partial_index_fixes.sql` adds:
    - **BUG-NEM-01**: Drops the non-partial `UNIQUE(user_id, track, is_active)` constraint on `nemesis_assignments` and replaces it with a partial unique index on `(user_id, track) WHERE is_active = TRUE`. The old constraint meant only one inactive row per (user, track) could exist, causing conflicts after a single reassignment cycle.
-   - **BUG-CREA-01**: Adds partial unique index on `creator_earnings(reference_id) WHERE reference_id IS NOT NULL` to prevent double-crediting if the creator fund CRON runs twice in the same period.
+   - **BUG-CREA-01**: Adds partial unique index on `creator_earnings(reference_id) WHERE reference_id IS NOT NULL` to prevent double-crediting if the creator fund CRON runs twice in the same period. (Superseded by migration `0019` which widens this to `(creator_id, reference_id)`.)
    - **BUG-RACE-01**: Adds functional unique index on `rooms ((metadata->>'season_ceremony_id')) WHERE metadata->>'season_ceremony_id' IS NOT NULL` — required for the `ON CONFLICT ((metadata->>'season_ceremony_id')) DO NOTHING` guard in `createSeasonCeremonyRoom` to work without throwing a constraint-not-found error.
 
    Migration `0018_self_referral_constraint.sql` adds:
    - **BUG-REFERRAL-01**: `CHECK (referred_by IS NULL OR referred_by <> id)` constraint on `users` to prevent self-referrals at the database level. The application layer already guards this; the constraint provides defence-in-depth.
+
+   Migration `0019_bug_fix_schema_changes.sql` adds:
+   - **NULLABLE-01**: Backfills `NULL` values in `users.is_banned` to `false` and adds `NOT NULL DEFAULT false` constraint.
+   - **SCHEMA-01**: Adds `login_streak_days INTEGER DEFAULT 0` column to `users` if not present.
+   - **SCHEMA-04**: Adds `CHECK (user1_id < user2_id)` constraint on `dm_conversations` to enforce canonical conversation ordering (prevents duplicate rows for the same pair).
+   - **SCHEMA-05**: Fixes `referral_commissions.tier` column default from `"standard"` to `"1"` to match the two-tier referral system.
+   - **SCHEMA-07**: Drops the old single-column `creator_earnings_reference_id_idx` unique index and recreates it as a composite unique index on `(creator_id, reference_id)` — prevents double-crediting across creators sharing the same reference.
+   - **GUILD-01**: Drops the legacy `guilds.below_minimum_days` integer column (replaced by the timestamp-based `below_min_since`).
 
 7. Optional seed data: `psql "$DIRECT_URL" < apps/web/lib/db/seed.sql`
 

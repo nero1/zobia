@@ -59,6 +59,7 @@ function formatNotification(n: AppNotification & { payload?: Record<string, unkn
       body = `Your score (${num('contributionScore')}) is below your guild average (${num('guildAverage')}). Step it up!`;
       break;
     case 'guild_war': title = '⚔️ Guild War Update'; body = str('message', 'Your guild has a war update.'); break;
+    case 'guild_war_final_hour': title = '⚔️ Final Hour!'; body = str('message', "Your guild's war is entering the final hour! Give it everything you've got."); break;
     case 'prestige_complete': title = `🔥 Prestige ${num('prestigeCount')} Achieved!`; body = str('title', 'You have been reborn.'); break;
     case 'mystery_xp_drop': title = '✨ Mystery XP Drop!'; body = `You earned ${num('xpAmount').toLocaleString()} bonus XP.`; break;
     case 'flash_xp_announced': title = '⚡ Flash XP Coming Soon'; body = str('message', `${str('name', 'Double XP')} is happening soon — stay active!`); break;
@@ -99,6 +100,8 @@ const TYPE_ICON: Partial<Record<string, IoniconName>> & { default: IoniconName }
   xp: 'star-outline',
   gift: 'gift-outline',
   guild: 'shield-outline',
+  guild_war: 'shield-outline',
+  guild_war_final_hour: 'shield-outline',
   guild_low_contribution: 'trending-down-outline',
   dm: 'chatbubble-outline',
   mention: 'at-outline',

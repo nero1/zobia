@@ -196,7 +196,7 @@ Creators (marked `is_creator = true`) earn revenue from:
 
 Revenue accrues to `creator_earnings`. The daily CRON (on payout day) checks creators above the minimum payout threshold (default: ₦5,000 via Paystack). Creators above the manual-approval threshold (default: ₦100,000) require admin approval before disbursement. Completed payouts record to `creator_payouts`.
 
-**Idempotency:** `creator_earnings` has a partial unique index on `(reference_id) WHERE reference_id IS NOT NULL`. Creator fund distribution supplies a deterministic `reference_id` (e.g. `creator_fund:<date>:<creatorId>`) so the `ON CONFLICT DO NOTHING` guard prevents double-crediting if the CRON runs twice in the same period.
+**Idempotency:** `creator_earnings` has a partial unique index on `(creator_id, reference_id) WHERE reference_id IS NOT NULL`. Creator fund distribution supplies a deterministic `reference_id` (e.g. `creator_fund:<date>:<creatorId>`) so the `ON CONFLICT (creator_id, reference_id) WHERE reference_id IS NOT NULL DO NOTHING` guard prevents double-crediting if the CRON runs twice in the same period. The composite index (rather than a bare `reference_id` index) ensures two different creators can legitimately share the same `reference_id` without collisions.
 
 **Creator Tiers:** The `creator_tier` column on the `users` table follows five levels based on follower count:
 

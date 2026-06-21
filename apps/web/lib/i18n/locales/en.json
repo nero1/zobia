@@ -1138,6 +1138,7 @@
   "errors.pin_locked": "PIN locked: too many failed attempts. Please re-authenticate.",
   "errors.pin_temporarily_locked": "PIN temporarily locked. Try again in {{minutes}} minutes.",
   "errors.play_verify_failed": "Google Play verification failed: {{details}}",
+  "errors.invalid_package_name": "Purchase rejected: invalid app package name.",
   "errors.prestige_rank_not_met": "Prestige requires {{requiredRank}} rank. Current: {{currentRank}}",
   "errors.prestige_sublevel_not_met": "Prestige requires sublevel III. Current: sublevel {{sublevel}}",
   "errors.product_inactive": "This product is no longer available",

@@ -56,6 +56,7 @@ interface Notification {
 function notificationIcon(type: NotificationType): string {
   const map: Record<string, string> = {
     guild_war: "⚔️",
+    guild_war_final_hour: "⚔️",
     guild_low_contribution: "📉",
     nemesis: "🎯",
     quest: "📋",
@@ -121,6 +122,10 @@ function formatNotification(n: RawNotification): Notification {
     case "guild_war":
       title = "⚔️ Guild War Update";
       body = str("message", "Your guild has a war update.");
+      break;
+    case "guild_war_final_hour":
+      title = "⚔️ Final Hour!";
+      body = str("message", "Your guild's war is entering the final hour! Give it everything you've got.");
       break;
     case "guild_low_contribution":
       title = "📉 Low Contribution Alert";
