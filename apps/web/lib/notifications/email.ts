@@ -6,6 +6,7 @@
  */
 
 import { safeFetch } from "@/lib/security/ssrf";
+import { getManifestValue } from "@/lib/manifest";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -121,17 +122,14 @@ function sleep(ms: number): Promise<void> {
  * @param html    - Optional HTML email body
  */
 /**
- * Read the platform-wide email_all_enabled flag from x_manifest.
+ * Read the platform-wide email_all_enabled flag from x_manifest via the
+ * manifest cache (Redis + in-process) rather than a direct DB query.
  * Returns true (enabled) if the flag is not set or set to "true".
- * This is called lazily per-send to respect real-time admin changes.
  */
 async function isPlatformEmailEnabled(): Promise<boolean> {
   try {
-    const { db } = await import("@/lib/db");
-    const { rows } = await db.query<{ value: string }>(
-      `SELECT value FROM x_manifest WHERE key = 'email_all_enabled' LIMIT 1`
-    );
-    return (rows[0]?.value ?? "true") !== "false";
+    const value = await getManifestValue("email_all_enabled");
+    return (value ?? "true") !== "false";
   } catch {
     return true; // fail open — don't silence emails if manifest is unavailable
   }
@@ -189,6 +187,13 @@ export async function sendEmail(
 ): Promise<void> {
   if (!hasMailgunConfig()) return;
   if (!(await isPlatformEmailEnabled())) return;
+
+  // Warn when a notification type is specified without a userId — per-user opt-out
+  // cannot be checked, so the email will bypass the user's preferences.
+  if (notificationType && !userId && notificationType !== "security" && notificationType !== "transactional") {
+    console.warn(`[email] sendEmail called with notificationType='${notificationType}' but no userId — user opt-out not checked for ${to}`);
+  }
+
   if (userId && notificationType) {
     const { db } = await import("@/lib/db");
     if (!(await isEmailTypeEnabledForUser(userId, notificationType, db))) return;

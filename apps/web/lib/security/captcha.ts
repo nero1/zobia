@@ -64,10 +64,18 @@ const RECAPTCHA_MIN_SCORE = 0.5;
 // ---------------------------------------------------------------------------
 
 /**
+ * Last known good provider from a successful manifest read.
+ * Used as a fallback when the manifest/DB is temporarily unavailable so that
+ * a transient DB outage doesn't fall back to "none" in production (which would
+ * block all users if verifyCaptcha rejects "none" in production).
+ */
+let _lastKnownGoodProvider: CaptchaProvider | null = null;
+
+/**
  * Determine which CAPTCHA provider to use by reading the x_manifest.
  * The manifest value is the single source of truth — env keys are never
- * used to infer the active provider. Defaults to "none" when the key is
- * absent or the DB is unavailable.
+ * used to infer the active provider. Falls back to the last known good
+ * provider on DB outage, then to "none" if never successfully read.
  *
  * @returns Active provider identifier
  */
@@ -79,10 +87,14 @@ async function resolveProvider(): Promise<CaptchaProvider> {
       manifestValue === "turnstile" ||
       manifestValue === "none"
     ) {
+      _lastKnownGoodProvider = manifestValue;
       return manifestValue;
     }
   } catch {
-    // DB unavailable — fail safe
+    // DB unavailable — use last known good provider to avoid blocking all users
+    if (_lastKnownGoodProvider !== null) {
+      return _lastKnownGoodProvider;
+    }
   }
   return "none";
 }

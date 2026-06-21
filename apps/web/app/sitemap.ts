@@ -47,17 +47,19 @@ const STATIC_PAGES: MetadataRoute.Sitemap = [
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const entries: MetadataRoute.Sitemap = [...STATIC_PAGES];
 
-  // Public user profiles — active in last 30 days.
-  // These are served at /u/[username] (public, SSR, crawlable).
+  // Public user profiles — those who haven't opted out of sitemap inclusion.
+  // PRIVACY-01: use sitemap_opt_out flag instead of activity recency so users
+  // can permanently opt out without being silently re-included after activity.
+  // Cap reduced to 2000 to keep sitemap files under the 50 MB / 50 000 URL limit.
   try {
     const { rows: profiles } = await db.query<{ username: string; updated_at: string }>(
       `SELECT username, updated_at
        FROM users
        WHERE deleted_at IS NULL
-         AND last_active_at > NOW() - INTERVAL '30 days'
+         AND sitemap_opt_out = FALSE
          AND username IS NOT NULL
-       ORDER BY last_active_at DESC
-       LIMIT 5000`
+       ORDER BY last_active_at DESC NULLS LAST
+       LIMIT 2000`
     );
 
     for (const p of profiles) {

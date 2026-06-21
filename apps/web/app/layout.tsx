@@ -98,7 +98,8 @@ export const viewport: Viewport = {
   ],
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
+  // maximumScale intentionally omitted — setting it to 1 prevents pinch-zoom
+  // on iOS which violates WCAG 1.4.4 (Resize Text, Level AA).
   viewportFit: "cover",
   interactiveWidget: "resizes-content",
 };

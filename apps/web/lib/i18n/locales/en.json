@@ -1051,6 +1051,8 @@
   "settings.privacy.disableFriendRequestsPlanRequired": "Available on Plus plan and above",
   "settings.privacy.hideSections": "Hidden profile sections",
   "settings.privacy.hideSectionsDesc": "Choose which sections to hide from other users",
+  "settings.privacy.sitemapOptOut": "Exclude from search engines",
+  "settings.privacy.sitemapOptOutDesc": "Remove your profile from the public sitemap so search engines won't index it",
   "quests.sendFriendRequests": "Send 3 friend requests",
   "messages.groupTypes.personal": "Personal",
   "messages.groupTypes.general": "General",

@@ -33,6 +33,8 @@ export async function checkCronIdempotency(
     );
     return (rowCount ?? 0) > 0;
   } catch {
-    return true;
+    // Fail-closed: if the idempotency check fails, block the CRON run rather
+    // than allowing a double-run that could double-send emails, double-pay, etc.
+    return false;
   }
 }

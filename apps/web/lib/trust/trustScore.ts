@@ -96,6 +96,13 @@ function computeScore(signals: TrustSignals): number {
 
   let score = 0;
 
+  // TRUST-01: 7-day grace bonus so brand-new unverified users can cross the
+  // send_gift threshold (20) without having to wait weeks for age points alone.
+  // After day 7, the user must verify email (+20) or accumulate age/payment points.
+  if (signals.accountAgeDays < 7) {
+    score += 20;
+  }
+
   // Account age (1 pt per 10 days, max 30 pts at 300 days)
   score += Math.min(30, Math.floor(signals.accountAgeDays / 10));
 

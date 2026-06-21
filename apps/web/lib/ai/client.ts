@@ -20,6 +20,7 @@ import axios from "axios";
 import { env } from "@/lib/env";
 import { getManifestValue } from "@/lib/manifest";
 import { redis } from "@/lib/redis";
+import { atomicIncrWithTtl } from "@/lib/redis/helpers";
 import {
   DEEPSEEK_CONFIG,
   GEMINI_CONFIG,
@@ -89,8 +90,8 @@ async function isCircuitOpen(): Promise<boolean> {
 
 async function recordFailure(): Promise<void> {
   try {
-    const failures = await redis.incr(CB_FAILURES_KEY);
-    await redis.expire(CB_FAILURES_KEY, Math.ceil(CIRCUIT_BREAKER.recoveryTimeMs / 1000) + 60);
+    const ttl = Math.ceil(CIRCUIT_BREAKER.recoveryTimeMs / 1000) + 60;
+    const failures = await atomicIncrWithTtl(redis, CB_FAILURES_KEY, ttl);
 
     if (failures >= CIRCUIT_BREAKER.failureThreshold) {
       const now = Date.now();

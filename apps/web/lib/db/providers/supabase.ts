@@ -33,10 +33,14 @@ function getPool(): Pool {
   if (!_pool) {
     _pool = new Pool({
       connectionString: env.DATABASE_URL,
-      // Supabase enforces SSL in production
+      // Supabase enforces SSL; validate the cert in production.
+      // Set DB_CA_CERT env var to a PEM string if using a custom CA.
       ssl:
         env.NODE_ENV === "production"
-          ? { rejectUnauthorized: false }
+          ? {
+              rejectUnauthorized: true,
+              ...(process.env.DB_CA_CERT ? { ca: process.env.DB_CA_CERT } : {}),
+            }
           : undefined,
       max: parseInt(process.env.DB_POOL_SIZE ?? "2", 10),
       idleTimeoutMillis: 30_000,

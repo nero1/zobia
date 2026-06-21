@@ -1355,6 +1355,8 @@
   "settings.privacy.disableFriendRequestsDesc": "Prevent others from sending you friend requests",
   "settings.privacy.hideSections": "Hidden Profile Sections",
   "settings.privacy.hideSectionsDesc": "Choose which sections of your profile to hide from others",
+  "settings.privacy.sitemapOptOut": "Exclude from search engines",
+  "settings.privacy.sitemapOptOutDesc": "Remove your profile from the public sitemap so search engines won't index it",
   "notifications.title": "Notifications",
   "notifications.markAllRead": "Mark all read",
   "notifications.marking": "Marking…",

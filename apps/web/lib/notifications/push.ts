@@ -12,6 +12,7 @@
 
 import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
+import { atomicIncrWithTtl } from "@/lib/redis/helpers";
 import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
@@ -337,7 +338,7 @@ export async function pollPushReceipts(): Promise<number> {
         // Collect IDs by outcome for batch DB updates (TASK-18)
         const okIds: string[] = [];
         const deviceNotRegisteredIds: string[] = [];
-        const errorIds: string[] = [];
+        const errorDetails: Array<{ id: string; errCode: string }> = [];
         const staleTokens = new Set<string>();
 
         for (const ticket of batch) {
@@ -358,7 +359,7 @@ export async function pollPushReceipts(): Promise<number> {
                 logger.warn({ ticketId: ticket.ticket_id }, "[push/receipts] Ticket has no stored token; cannot purge specific device");
               }
             } else {
-              errorIds.push(ticket.id);
+              errorDetails.push({ id: ticket.id, errCode });
               logger.error({ ticketId: ticket.ticket_id, errCode, message: receipt.message }, "[push/receipts] Delivery error for ticket");
             }
             totalResolved++;
@@ -385,12 +386,14 @@ export async function pollPushReceipts(): Promise<number> {
             [deviceNotRegisteredIds]
           );
         }
-        if (errorIds.length > 0) {
+        if (errorDetails.length > 0) {
+          // PUSH-02: store per-ticket error_code so ops can triage non-DeviceNotRegistered failures
           await db.query(
-            `UPDATE push_tickets
-             SET status = 'error', checked_at = NOW(), resolved_at = NOW()
-             WHERE id = ANY($1::uuid[])`,
-            [errorIds]
+            `UPDATE push_tickets SET status = 'error', error_code = v.err_code,
+                 checked_at = NOW(), resolved_at = NOW()
+             FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::text[]) AS err_code) v
+             WHERE push_tickets.id = v.id`,
+            [errorDetails.map((e) => e.id), errorDetails.map((e) => e.errCode)]
           );
         }
 
@@ -441,8 +444,7 @@ export async function sendPushNotification(
   try {
     // TASK-14: per-user rate limit to prevent notification floods from pipeline bugs
     const rateKey = `user:push:rate:${userId}`;
-    const count = await redis.incr(rateKey);
-    if (count === 1) await redis.expire(rateKey, 60);
+    const count = await atomicIncrWithTtl(redis, rateKey, 60);
     if (count > MAX_PUSH_PER_USER_PER_MINUTE) {
       logger.warn({ userId, count }, "[push] Per-user push rate limit exceeded — skipping");
       return;

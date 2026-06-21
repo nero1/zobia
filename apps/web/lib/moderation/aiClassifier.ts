@@ -254,7 +254,12 @@ Classify this report according to your instructions.`;
     console.warn('[aiClassifier] systemPromptOverride exceeds 4000 chars, ignoring override');
     systemPromptOverride = '';
   }
-  const effectiveSystemPrompt = systemPromptOverride.trim() || CLASSIFICATION_SYSTEM_PROMPT;
+  // Always start from the canonical system prompt then optionally append admin override.
+  // Never let admin override replace the entire prompt including the injection fence;
+  // the fence is hardcoded as the last line so prompt injection cannot remove it.
+  const effectiveSystemPrompt = systemPromptOverride.trim()
+    ? `${CLASSIFICATION_SYSTEM_PROMPT}\n\nAdmin note: ${systemPromptOverride.trim()}`
+    : CLASSIFICATION_SYSTEM_PROMPT;
 
   // aiClient.chat() has a Redis-backed circuit breaker with automatic Gemini
   // fallback — no local circuit state needed (it was per-process anyway).

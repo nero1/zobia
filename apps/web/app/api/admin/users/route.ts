@@ -71,10 +71,8 @@ export interface AdminUser {
 
 const searchSchema = z.object({
   q: z.string().max(200).optional(),
-  page: z
-    .string()
-    .optional()
-    .transform((v) => (v ? Math.max(1, parseInt(v, 10)) : 1)),
+  // ADMIN-01: cursor-based (keyset) pagination — avoids O(N) full-table scans from OFFSET
+  cursor: z.string().optional(), // last seen user id (UUID) from previous page
   limit: z
     .string()
     .optional()
@@ -122,9 +120,7 @@ export const GET = withAdminAuth(async (req, { params, auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
     const { searchParams } = new URL(req.url);
-    const { q, page, limit } = validateSearchParams(searchParams, searchSchema);
-
-    const offset = (page - 1) * limit;
+    const { q, cursor, limit } = validateSearchParams(searchParams, searchSchema);
 
     // Build dynamic WHERE clause
     const conditions: string[] = ["u.deleted_at IS NULL"];
@@ -149,65 +145,68 @@ export const GET = withAdminAuth(async (req, { params, auth }) => {
       }
     }
 
+    // ADMIN-01: keyset pagination — cursor is the created_at+id of the last row on previous page.
+    // Format: "<iso-timestamp>|<uuid>". Falls back gracefully if cursor is absent or malformed.
+    let cursorCreatedAt: string | null = null;
+    let cursorId: string | null = null;
+    if (cursor) {
+      const sep = cursor.lastIndexOf("|");
+      if (sep > 0) {
+        cursorCreatedAt = cursor.slice(0, sep);
+        cursorId = cursor.slice(sep + 1);
+      }
+    }
+
+    if (cursorCreatedAt && cursorId) {
+      conditions.push(`(u.created_at, u.id) < ($${paramIdx}, $${paramIdx + 1})`);
+      queryParams.push(cursorCreatedAt, cursorId);
+      paramIdx += 2;
+    }
+
     const where = conditions.join(" AND ");
 
-    // Count total matching rows
-    const { rows: countRows } = await db.query<{ total: string }>(
-      `SELECT COUNT(*) AS total FROM users u WHERE ${where}`,
-      queryParams
-    );
-    const total = parseInt(countRows[0]?.total ?? "0", 10);
+    // ADMIN-01: no COUNT(*) query needed with keyset pagination (it would scan the full table).
+    // The response omits `total` in favour of `hasMore` + `nextCursor`.
 
-    // Fetch paginated users with report count, payment count, message count, rooms created
+    // ADMIN-03: correlated subqueries instead of full-table GROUP BY derived tables.
+    // Each subquery scans only the rows for the current page's users (index lookups).
+    // ADMIN-02: count ALL-TIME reports, not just pending ones.
     const { rows: rawUsers } = await db.query<AdminUserRow>(
       `SELECT
          u.id, u.email, u.username, u.display_name, u.avatar_url,
          u.avatar_emoji, u.plan, u.trust_score, u.is_admin, u.is_moderator,
          u.is_suspended, u.is_banned, u.onboarding_completed,
          u.created_at, u.updated_at, u.last_active_at, u.city,
-         COALESCE(r.report_count, 0)::int AS report_count,
-         COALESCE(p.payment_history_count, 0)::int AS payment_history_count,
-         COALESCE(m.message_count, 0)::int AS message_count,
-         COALESCE(rc.rooms_created, 0)::int AS rooms_created
+         (SELECT COUNT(*)::int FROM reports       WHERE reported_user_id = u.id)  AS report_count,
+         (SELECT COUNT(*)::int FROM payments      WHERE user_id = u.id)           AS payment_history_count,
+         (SELECT COUNT(*)::int FROM room_messages WHERE sender_id = u.id)         AS message_count,
+         (SELECT COUNT(*)::int FROM rooms         WHERE creator_id = u.id)        AS rooms_created
        FROM users u
-       LEFT JOIN (
-         SELECT reported_user_id, COUNT(*) AS report_count
-         FROM reports
-         WHERE status = 'pending'
-         GROUP BY reported_user_id
-       ) r ON r.reported_user_id = u.id
-       LEFT JOIN (
-         SELECT user_id, COUNT(*) AS payment_history_count
-         FROM payments
-         GROUP BY user_id
-       ) p ON p.user_id = u.id
-       LEFT JOIN (
-         SELECT sender_id, COUNT(*) AS message_count
-         FROM room_messages
-         GROUP BY sender_id
-       ) m ON m.sender_id = u.id
-       LEFT JOIN (
-         SELECT creator_id, COUNT(*) AS rooms_created
-         FROM rooms
-         GROUP BY creator_id
-       ) rc ON rc.creator_id = u.id
        WHERE ${where}
-       ORDER BY u.created_at DESC
-       LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
-      [...queryParams, limit, offset]
+       ORDER BY u.created_at DESC, u.id DESC
+       LIMIT $${paramIdx}`,
+      [...queryParams, limit + 1]
     );
 
-    const users: AdminUser[] = rawUsers.map(toAdminUser);
+    // Detect if there is a next page by fetching limit+1 rows
+    const hasMore = rawUsers.length > limit;
+    const pageRows = hasMore ? rawUsers.slice(0, limit) : rawUsers;
+    const users: AdminUser[] = pageRows.map(toAdminUser);
+
+    const lastRow = pageRows[pageRows.length - 1];
+    const nextCursor = hasMore && lastRow
+      ? `${lastRow.created_at}|${lastRow.id}`
+      : null;
 
     // BUG-45: audit read-path admin access to user profiles
     writeAuditLog({
       actorId: auth.user.sub,
       action: "user_profile_read",
-      metadata: { query: q ?? null, page, limit, total },
+      metadata: { query: q ?? null, cursor: cursor ?? null, limit },
     });
 
     return NextResponse.json(
-      { users, total, page, limit, pages: Math.ceil(total / limit) },
+      { users, hasMore, nextCursor, limit },
       { status: 200 }
     );
   } catch (err) {
