@@ -215,18 +215,12 @@ export async function distributeSeasonRewards(
   seasonId: string,
   db: DatabaseAdapter
 ): Promise<void> {
-  const seasonResult = await db.query<{ reward_pool_coins: number; rankings_reset_at: string | null }>(
-    `SELECT reward_pool_coins, rankings_reset_at FROM seasons WHERE id = $1`,
+  const seasonResult = await db.query<{ reward_pool_coins: number }>(
+    `SELECT reward_pool_coins FROM seasons WHERE id = $1`,
     [seasonId]
   );
   const season = seasonResult.rows[0];
   if (!season) throw new Error(`[seasonEngine] Season not found: ${seasonId}`);
-
-  // Guard: rankings must have been reset before rewards are distributed to prevent
-  // rewarding stale rankings from a previous season or a partially-ended season.
-  if (!season.rankings_reset_at) {
-    throw new Error(`[seasonEngine] Cannot distribute rewards for season ${seasonId}: rankings have not been reset yet. Call resetSeasonRankings() first.`);
-  }
 
   const pool = season.reward_pool_coins;
 
