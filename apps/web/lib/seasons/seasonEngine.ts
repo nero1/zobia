@@ -97,10 +97,9 @@ export function getSeasonPhase(season: Season): SeasonPhase {
   const elapsed = Math.max(0, now - start);
   const ratio = elapsed / total;
 
-  // BUG-SEASON-PHASE-01 FIX: use && (not ||) so final_day only fires when the
-  // season is BOTH in its last 5% AND has fewer than 24 hours remaining —
-  // matching the spec comment "whichever is smaller".
-  if (ratio >= 0.95 && end - now <= 24 * 60 * 60 * 1000) return "final_day";
+  // "final_day" fires when the season is in its last 5% OR fewer than 24 hours
+  // remain — whichever condition is met first.
+  if (ratio >= 0.95 || end - now <= 24 * 60 * 60 * 1000) return "final_day";
   if (ratio >= 0.75) return "push";
   if (ratio >= 0.25) return "mid";
   return "opening";
