@@ -23,6 +23,7 @@ import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -134,41 +135,25 @@ export const POST = withAuth<ReactParams>(async (req: NextRequest, { params, aut
           const reactorCount = parseInt(countRows[0]?.cnt ?? "0");
 
           if (reactorCount === 5 && message.sender_id !== userId) {
-            // Check if milestone was already awarded for this message
-            const { rows: alreadyRows } = await db.query<{ id: string }>(
-              `SELECT id FROM xp_events
-               WHERE user_id = $1 AND action = 'message_reaction_milestone'
-                 AND metadata->>'messageId' = $2
-               LIMIT 1`,
-              [message.sender_id, messageId]
+            // Award 10 XP to message sender on 5th unique reactor milestone.
+            // reference_id is per-message so the award fires exactly once.
+            await safeAwardXP(
+              message.sender_id,
+              10,
+              "social",
+              "message_reaction_milestone",
+              `milestone:reaction5:${messageId}`
             );
-            if (!alreadyRows[0]) {
-              await db.transaction(async (tx) => {
-                await tx.query(
-                  `UPDATE users
-                   SET xp_total = xp_total + 10,
-                       xp_social = xp_social + 10,
-                       updated_at = NOW()
-                   WHERE id = $1`,
-                  [message.sender_id]
-                );
-                await tx.query(
-                  `INSERT INTO xp_events
-                     (user_id, action, xp_awarded, track, metadata)
-                   VALUES ($1, 'message_reaction_milestone', 10, 'social', $2::jsonb)`,
-                  [message.sender_id, JSON.stringify({ messageId, roomId })]
-                );
-              });
-            }
           }
 
-          // Custom reaction XP: 1 XP to reactor
+          // Custom reaction XP: 1 XP to reactor via xp_ledger
           if (body.isCustomReaction) {
-            await db.query(
-              `UPDATE users
-               SET xp_total = xp_total + 1, xp_social = xp_social + 1, updated_at = NOW()
-               WHERE id = $1`,
-              [userId]
+            await safeAwardXP(
+              userId,
+              1,
+              "social",
+              "custom_reaction_room",
+              `custom_reaction:${userId}:${messageId}`
             );
           }
         } catch {

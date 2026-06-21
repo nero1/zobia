@@ -150,10 +150,10 @@ export function verifyWebhookSignature(
   rawBody: Buffer | string,
   signature: string
 ): boolean {
-  const apiKey = env.DODOPAYMENTS_API_KEY;
-  if (!apiKey) return false;
+  const secret = env.DODO_WEBHOOK_SECRET;
+  if (!secret) return false;
 
-  const expected = createHmac("sha256", apiKey)
+  const expected = createHmac("sha256", secret)
     .update(rawBody)
     .digest("hex");
 

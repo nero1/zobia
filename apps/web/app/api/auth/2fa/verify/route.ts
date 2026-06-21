@@ -17,7 +17,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
 import { validateBody } from "@/lib/api/middleware";
-import { handleApiError, badRequest, unauthorized } from "@/lib/api/errors";
+import { handleApiError, badRequest, unauthorized, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { verifyAccessToken } from "@/lib/auth/jwt";
 import { createSession, buildCookieHeaders } from "@/lib/auth/session";
@@ -100,9 +100,15 @@ export async function POST(req: NextRequest) {
         rank_name: string | null;
         is_creator: boolean;
         plan: string | null;
+        is_banned: boolean;
+        is_suspended: boolean;
+        suspended_until: string | null;
       }>(
         `SELECT id, email, username, is_admin, totp_secret, totp_enabled, onboarding_completed, is_moderator,
-                avatar_emoji, city, xp_total, rank_name, COALESCE(is_creator, false) AS is_creator, plan
+                avatar_emoji, city, xp_total, rank_name, COALESCE(is_creator, false) AS is_creator, plan,
+                COALESCE(is_banned, false) AS is_banned,
+                COALESCE(is_suspended, false) AS is_suspended,
+                suspended_until
          FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
         [userId]
       );
@@ -110,6 +116,14 @@ export async function POST(req: NextRequest) {
 
       if (!user || !user.totp_enabled || !user.totp_secret) {
         throw badRequest("2FA is not enabled for this user", "TOTP_NOT_ENABLED");
+      }
+
+      if (user.is_banned) {
+        throw forbidden("Your account has been banned.");
+      }
+
+      if (user.is_suspended && user.suspended_until && new Date(user.suspended_until) > new Date()) {
+        throw forbidden("Your account is currently suspended.");
       }
 
       const secret = user.totp_secret ? decryptField(user.totp_secret) : null;

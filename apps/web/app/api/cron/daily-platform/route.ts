@@ -679,9 +679,12 @@ export const GET = async (req: NextRequest) => {
   // SCHEMA-02: Prune expired sessions older than refresh token lifetime (30 days)
   try {
     await db.query(
-      `DELETE FROM sessions
-       WHERE expires_at < NOW() - INTERVAL '1 day'
-       LIMIT 10000`
+      `WITH expired AS (
+         SELECT id FROM sessions
+         WHERE expires_at < NOW() - INTERVAL '1 day'
+         LIMIT 10000
+       )
+       DELETE FROM sessions WHERE id IN (SELECT id FROM expired)`
     );
   } catch (err) {
     console.warn('[daily-platform] Failed to prune expired sessions:', err);

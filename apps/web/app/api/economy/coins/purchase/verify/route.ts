@@ -47,7 +47,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }): Promise<NextRes
               p.metadata,
               cl.amount AS coins_granted
        FROM payments p
-       LEFT JOIN coin_ledger cl ON cl.reference_id = p.id::text AND cl.type = 'purchase'
+       LEFT JOIN coin_ledger cl ON cl.reference_id = p.id::text AND cl.transaction_type = 'iap_purchase'
        WHERE p.provider_reference = $1
          AND p.user_id = $2
        LIMIT 1`,

@@ -389,6 +389,11 @@ export async function processTransferEvent(
   let payoutId: string | null = null;
   let creatorId: string | null = null;
   let netKobo: number = 0;
+  // Flags for post-transaction side effects (avoid calling moveToDeadLetterQueue
+  // inside the outer tx — it opens its own transaction, causing a nested tx deadlock).
+  let shouldMoveToDLQ = false;
+  let dlqRetryCount = 0;
+  let dlqReason = "";
 
   await db.transaction(async (tx) => {
     const { rows } = await tx.query<{
@@ -431,17 +436,20 @@ export async function processTransferEvent(
       const newRetryCount = payout.retry_count + 1;
 
       if (newRetryCount >= maxRetries) {
-        await moveToDeadLetterQueue(
-          payout.id,
-          payout.creator_id,
-          newRetryCount,
-          `Paystack transfer failed after ${maxRetries} attempts. Status: ${status}`
+        // Mark payout as permanently failed within the transaction, then schedule
+        // DLQ insertion and notification for after the transaction commits.
+        await tx.query(
+          `UPDATE creator_payouts
+           SET status = 'failed',
+               retry_count = $1,
+               last_retry_at = NOW(),
+               updated_at = NOW()
+           WHERE id = $2`,
+          [newRetryCount, payout.id]
         );
-        await notifyPayoutFailure(
-          payout.id,
-          payout.creator_id,
-          `Your payout could not be processed after multiple attempts. Please check your bank account details.`
-        );
+        shouldMoveToDLQ = true;
+        dlqRetryCount = newRetryCount;
+        dlqReason = `Paystack transfer failed after ${maxRetries} attempts. Status: ${status}`;
       } else {
         // Exponential backoff: 5min, 15min, 45min
         const backoffMinutes = [5, 15, 45][Math.min(newRetryCount - 1, 2)];
@@ -458,6 +466,16 @@ export async function processTransferEvent(
       }
     }
   });
+
+  // Post-transaction: move to DLQ (opens its own transaction — must be outside outer tx)
+  if (shouldMoveToDLQ && payoutId && creatorId) {
+    await moveToDeadLetterQueue(payoutId, creatorId, dlqRetryCount, dlqReason);
+    await notifyPayoutFailure(
+      payoutId,
+      creatorId,
+      `Your payout could not be processed after multiple attempts. Please check your bank account details.`
+    );
+  }
 
   // Post-transaction notifications (no row lock needed)
   if (event.event === "transfer.success" && payoutId && creatorId) {

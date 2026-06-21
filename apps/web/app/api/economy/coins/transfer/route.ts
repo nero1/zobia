@@ -193,8 +193,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       await redis.set(idempKey, "done", "EX", 86400).catch(() => {});
     }
 
-    // Award XP (fire-and-forget) — pass idempKey for stable XP reference_ids
-    void awardTransferXP(senderId, body.recipientId, idempKey!);
+    // Award XP — awaited so Vercel serverless doesn't drop it before the fn returns
+    await awardTransferXP(senderId, body.recipientId, idempKey!);
 
     return NextResponse.json({
       success: true,

@@ -96,26 +96,19 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       );
     }
 
-    // 2. Check and increment Redis daily counter (atomic INCR)
+    // 2. Read current Redis counter to check limit BEFORE incrementing
     const redisKey = adRewardRedisKey(userId);
-    const newCount = await redis.incr(redisKey);
+    const currentCountStr = await redis.get(redisKey);
+    const currentCount = currentCountStr ? parseInt(currentCountStr, 10) : 0;
 
-    // On first increment, set expiry to midnight UTC
-    if (newCount === 1) {
-      await redis.expire(redisKey, secondsUntilMidnightUTC());
-    }
-
-    if (newCount > DAILY_AD_REWARD_CAP) {
-      // Undo the increment we just did so the count stays accurate
-      await redis.decr(redisKey);
-      const remaining = 0;
+    if (currentCount >= DAILY_AD_REWARD_CAP) {
       return NextResponse.json(
         {
           error: {
             code: "DAILY_LIMIT_REACHED",
             message: `You've claimed ${DAILY_AD_REWARD_CAP} rewarded ads today. Come back tomorrow!`,
           },
-          remaining,
+          remaining: 0,
         },
         { status: 429 }
       );
@@ -162,6 +155,13 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         ).catch(() => {/* non-fatal if x_manifest table doesn't exist yet */});
       }
     });
+
+    // Increment Redis counter only after DB transaction commits successfully
+    const newCount = await redis.incr(redisKey);
+    // Set expiry on first increment so the key resets at midnight UTC
+    if (newCount === 1) {
+      await redis.expire(redisKey, secondsUntilMidnightUTC());
+    }
 
     const remainingToday = DAILY_AD_REWARD_CAP - newCount;
 

@@ -45,7 +45,8 @@ interface MessageRow {
 interface CoinLedgerRow {
   id: string;
   amount: number;
-  reason: string;
+  transaction_type: string;
+  description: string | null;
   created_at: string;
 }
 
@@ -148,7 +149,7 @@ export const POST = withAuth(async (_req: NextRequest, { auth }) => {
       ),
       // Coin ledger (last 500 entries)
       db.query<CoinLedgerRow>(
-        `SELECT id, amount, reason, created_at
+        `SELECT id, amount, transaction_type, description, created_at
          FROM coin_ledger
          WHERE user_id = $1
          ORDER BY created_at DESC

@@ -492,7 +492,9 @@ export async function resetDailyQuests(
 
   await db.query(
     `DELETE FROM user_quest_decks WHERE assigned_date < CURRENT_DATE - INTERVAL '30 days'`
-  );
+  ).catch((err) => {
+    logger.warn({ err }, "[questEngine] Failed to prune old user_quest_decks rows");
+  });
 
   return { clearedRows: parseInt(result.rows[0]?.count ?? "0") };
 }
