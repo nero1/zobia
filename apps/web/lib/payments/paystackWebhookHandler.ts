@@ -9,7 +9,7 @@
 import { db } from "@/lib/db";
 import { creditCoins } from "@/lib/economy/coins";
 import { creditStars } from "@/lib/economy/stars";
-import { awardReferralCommissions } from "@/lib/referrals/commissions";
+import { awardReferralCommissions, recordFailedCommission } from "@/lib/referrals/commissions";
 import { getCreatorFeeRate, moveToDeadLetterQueue } from "@/lib/payments/payouts";
 import { loadManifest } from "@/lib/manifest";
 
@@ -367,8 +367,19 @@ export async function processChargeSuccess(
   // initial type (null) after the await; the runtime value is correct.
   const capturedReferral = referralPayload as { userId: string; coins: number; paymentId: string; amountKobo: number } | null;
   if (capturedReferral) {
-    await awardReferralCommissions(db, capturedReferral.userId, capturedReferral.coins, capturedReferral.paymentId, capturedReferral.amountKobo)
-      .catch((err) => console.error("[webhook/paystack] Referral commission error:", err));
+    try {
+      await awardReferralCommissions(db, capturedReferral.userId, capturedReferral.coins, capturedReferral.paymentId, capturedReferral.amountKobo);
+    } catch (err) {
+      console.error("[webhook/paystack] Referral commission error — writing to DLQ:", err);
+      await recordFailedCommission(
+        capturedReferral.paymentId,
+        capturedReferral.userId,
+        capturedReferral.coins,
+        capturedReferral.amountKobo,
+        "paystack",
+        err instanceof Error ? err.message : String(err)
+      );
+    }
   }
 }
 

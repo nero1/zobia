@@ -12,11 +12,13 @@
  */
 
 import type { TransactionClient as DatabaseClient } from "@/lib/db";
+import { db as globalDb } from "@/lib/db";
 import Decimal from "decimal.js";
 import { XP_VALUES } from "@/lib/xp/engine";
 import { getManifestValue } from "@/lib/manifest";
 import { creditCoins } from "@/lib/economy/coins";
 import { safeAwardXP } from "@/lib/xp/safeAwardXP";
+import { logger } from "@/lib/logger";
 // Schema-derived types: column name validation at compile time.
 // schema.users.referredBy.name === "referred_by" — any rename triggers a TS error.
 import { schema } from "@/lib/db/schema";
@@ -195,6 +197,117 @@ export async function awardReferralCommissions(
 
   return result;
 }
+
+// ---------------------------------------------------------------------------
+// DLQ: write failed commission attempts
+// ---------------------------------------------------------------------------
+
+/**
+ * Write a failed referral commission to the DLQ table so it can be retried
+ * by the CRON job at /api/cron/retry-commissions.
+ */
+export async function recordFailedCommission(
+  paymentId: string,
+  userId: string,
+  coinAmount: number,
+  amountKobo: number,
+  source: string,
+  errorMessage: string
+): Promise<void> {
+  try {
+    await globalDb.query(
+      `INSERT INTO failed_commissions
+         (payment_id, user_id, coin_amount, amount_kobo, source, error_message, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())
+       ON CONFLICT (payment_id) DO NOTHING`,
+      [paymentId, userId, coinAmount, amountKobo, source, errorMessage]
+    );
+  } catch (err) {
+    logger.error({ err, paymentId, userId }, "[commissions] Failed to write commission to DLQ");
+  }
+}
+
+const MAX_COMMISSION_RETRIES = 5;
+
+/**
+ * Retry failed referral commissions from the DLQ.
+ * Designed to be called from a CRON route. Uses FOR UPDATE SKIP LOCKED so
+ * concurrent CRON instances process disjoint sets of rows.
+ */
+export async function retryFailedCommissions(): Promise<{ retried: number; resolved: number; permanentFailed: number }> {
+  let retried = 0;
+  let resolved = 0;
+  let permanentFailed = 0;
+
+  const { rows: pending } = await globalDb.query<{
+    id: string;
+    payment_id: string;
+    user_id: string;
+    coin_amount: number;
+    amount_kobo: number;
+    source: string;
+    retry_count: number;
+  }>(
+    `SELECT id, payment_id, user_id, coin_amount, amount_kobo, source, retry_count
+     FROM failed_commissions
+     WHERE resolved_at IS NULL
+       AND retry_count < $1
+       AND (last_retried_at IS NULL
+            OR last_retried_at < NOW() - (POWER(2, retry_count) * INTERVAL '1 minute'))
+     LIMIT 50
+     FOR UPDATE SKIP LOCKED`,
+    [MAX_COMMISSION_RETRIES]
+  );
+
+  for (const row of pending) {
+    retried++;
+    try {
+      await awardReferralCommissions(
+        // DatabaseAdapter is structurally compatible with TransactionClient (both have query())
+        globalDb as DatabaseClient,
+        row.user_id,
+        row.coin_amount,
+        row.payment_id,
+        row.amount_kobo
+      );
+
+      await globalDb.query(
+        `UPDATE failed_commissions
+         SET resolved_at = NOW(), last_retried_at = NOW(), retry_count = retry_count + 1
+         WHERE id = $1`,
+        [row.id]
+      );
+      resolved++;
+    } catch (err) {
+      const newCount = row.retry_count + 1;
+      await globalDb.query(
+        `UPDATE failed_commissions
+         SET retry_count = $1, last_retried_at = NOW(), error_message = $2
+         WHERE id = $3`,
+        [newCount, err instanceof Error ? err.message : String(err), row.id]
+      );
+
+      if (newCount >= MAX_COMMISSION_RETRIES) {
+        permanentFailed++;
+        logger.error({ paymentId: row.payment_id, userId: row.user_id, newCount }, "[commissions] Commission permanently failed after max retries");
+        await globalDb.query(
+          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
+           VALUES ('commission_permanent_failure', 'critical', $1, $2::jsonb, NOW())`,
+          [
+            `Referral commission for payment ${row.payment_id} failed after ${MAX_COMMISSION_RETRIES} retries`,
+            JSON.stringify({ paymentId: row.payment_id, userId: row.user_id, retryCount: newCount }),
+          ]
+        ).catch(() => {});
+      }
+    }
+  }
+
+  return { retried, resolved, permanentFailed };
+}
+
+// ---------------------------------------------------------------------------
+// Commission stats
+// ---------------------------------------------------------------------------
 
 /**
  * Get commission stats for a referrer.

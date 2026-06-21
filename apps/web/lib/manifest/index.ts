@@ -314,10 +314,10 @@ let _inflightManifest: Promise<ZobiaManifest> | null = null;
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/** Parse a string value as boolean ('true' → true, anything else → false). */
+/** Parse a string value as boolean. Case-insensitive: 'true'/'TRUE'/'True'/'1' → true. */
 function parseBool(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined) return fallback;
-  return value === "true";
+  return value.toLowerCase() === "true" || value === "1";
 }
 
 /** Parse a string value as integer. Returns fallback when not a valid integer. */

@@ -48,20 +48,38 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const rawLimit = parseInt(url.searchParams.get("limit") ?? "20", 10);
     const limit = Math.min(Math.max(1, rawLimit), 50);
 
+    // Cursor-based pagination: ?cursor={createdAt}:{id}
+    const cursorParam = url.searchParams.get("cursor");
+    let coinCursor = undefined;
+    let starCursorParam = url.searchParams.get("star_cursor");
+    let starCursor = undefined;
+    if (cursorParam) {
+      const sep = cursorParam.lastIndexOf(":");
+      if (sep > 0) {
+        coinCursor = { createdAt: cursorParam.slice(0, sep), id: cursorParam.slice(sep + 1) };
+      }
+    }
+    if (starCursorParam) {
+      const sep = starCursorParam.lastIndexOf(":");
+      if (sep > 0) {
+        starCursor = { createdAt: starCursorParam.slice(0, sep), id: starCursorParam.slice(sep + 1) };
+      }
+    }
+
     // Fetch user row (xp_total + plan), balances, and ledger entries in parallel
-    const [userRow, coins, stars, coinLedger, starLedger] = await Promise.all([
+    const [userRow, coins, stars, coinLedgerPage, starLedgerPage] = await Promise.all([
       db.query<{ xp_total: number; plan: string | null }>(
         `SELECT xp_total, plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
         [userId]
       ).then((r) => r.rows[0] ?? { xp_total: 0, plan: null }),
       getBalance(userId).catch(() => 0),
       getStarBalance(userId).catch(() => 0),
-      getLedgerEntries(userId, limit).catch(() => []),
-      getStarLedgerEntries(userId, limit).catch(() => []),
+      getLedgerEntries(userId, limit, undefined, coinCursor).catch(() => ({ entries: [], nextCursor: null })),
+      getStarLedgerEntries(userId, limit, undefined, starCursor).catch(() => ({ entries: [], nextCursor: null })),
     ]);
 
     // Shape the ledger entries for the client
-    const transactions = coinLedger.map((entry) => ({
+    const transactions = coinLedgerPage.entries.map((entry) => ({
       id: entry.id,
       amount: entry.amount,
       balanceBefore: entry.balance_before,
@@ -72,7 +90,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       createdAt: entry.created_at,
     }));
 
-    const starTransactions = starLedger.map((entry) => ({
+    const starTransactions = starLedgerPage.entries.map((entry) => ({
       id: entry.id,
       amount: entry.amount,
       balanceBefore: entry.balance_before,
@@ -82,6 +100,14 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       description: entry.description ?? null,
       createdAt: entry.created_at,
     }));
+
+    // Encode cursors as {createdAt}:{id} strings for the client
+    const nextCursor = coinLedgerPage.nextCursor
+      ? `${coinLedgerPage.nextCursor.createdAt}:${coinLedgerPage.nextCursor.id}`
+      : null;
+    const nextStarCursor = starLedgerPage.nextCursor
+      ? `${starLedgerPage.nextCursor.createdAt}:${starLedgerPage.nextCursor.id}`
+      : null;
 
     return NextResponse.json({
       coins,
@@ -90,6 +116,8 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       plan: userRow.plan ?? null,
       transactions,
       starTransactions,
+      nextCursor,
+      nextStarCursor,
     });
   } catch (err) {
     return handleApiError(err);

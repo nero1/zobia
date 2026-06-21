@@ -12,6 +12,7 @@
 
 import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -180,6 +181,7 @@ async function sendExpoBatch(
       method: "POST",
       headers: buildExpoHeaders(),
       body: JSON.stringify(messages.map((m) => m.msg)),
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!response.ok) {
@@ -324,6 +326,7 @@ export async function pollPushReceipts(): Promise<number> {
           method: "POST",
           headers: buildExpoHeaders(),
           body: JSON.stringify({ ids: ticketIds }),
+          signal: AbortSignal.timeout(10_000),
         });
 
         if (!response.ok) {
@@ -335,6 +338,10 @@ export async function pollPushReceipts(): Promise<number> {
 
         const result = (await response.json()) as ExpoReceiptsResponse;
 
+        // Collect IDs by outcome for batch DB updates (TASK-18)
+        const okIds: string[] = [];
+        const deviceNotRegisteredIds: string[] = [];
+        const errorIds: string[] = [];
         const staleTokens = new Set<string>();
 
         for (const ticket of batch) {
@@ -342,53 +349,55 @@ export async function pollPushReceipts(): Promise<number> {
           if (!receipt) continue;
 
           if (receipt.status === "ok") {
-            // Mark checked_at and status in one update per ticket so a mid-batch
-            // failure never strands a ticket with checked_at set but status still pending.
-            await db.query(
-              `UPDATE push_tickets
-               SET status = 'ok', checked_at = NOW(), resolved_at = NOW()
-               WHERE id = $1`,
-              [ticket.id]
-            );
+            okIds.push(ticket.id);
             totalResolved++;
           } else if (receipt.status === "error") {
             const errCode = receipt.details?.error ?? "unknown";
 
             if (errCode === "DeviceNotRegistered") {
-              // Purge only the specific token tied to this ticket, not all user tokens.
+              deviceNotRegisteredIds.push(ticket.id);
               if (ticket.token) {
                 staleTokens.add(ticket.token);
               } else {
-                // Legacy ticket without stored token — fall back to looking up by
-                // the specific ticket_id correlation (cannot be done safely, skip).
                 console.warn(`[push/receipts] Ticket ${ticket.ticket_id} has no stored token; cannot purge specific device.`);
               }
-
-              await db.query(
-                `UPDATE push_tickets
-                 SET status = 'device_not_registered',
-                     error_code = $2,
-                     checked_at = NOW(),
-                     resolved_at = NOW()
-                 WHERE id = $1`,
-                [ticket.id, errCode]
-              );
             } else {
-              await db.query(
-                `UPDATE push_tickets
-                 SET status = 'error',
-                     error_code = $2,
-                     checked_at = NOW(),
-                     resolved_at = NOW()
-                 WHERE id = $1`,
-                [ticket.id, errCode]
-              );
+              errorIds.push(ticket.id);
               console.error(
                 `[push/receipts] Delivery error for ticket ${ticket.ticket_id}: ${receipt.message ?? "unknown"} (${errCode})`
               );
             }
             totalResolved++;
           }
+        }
+
+        // Batch updates — one query per outcome group instead of one per ticket
+        if (okIds.length > 0) {
+          await db.query(
+            `UPDATE push_tickets
+             SET status = 'ok', checked_at = NOW(), resolved_at = NOW()
+             WHERE id = ANY($1::uuid[])`,
+            [okIds]
+          );
+        }
+        if (deviceNotRegisteredIds.length > 0) {
+          await db.query(
+            `UPDATE push_tickets
+             SET status = 'device_not_registered',
+                 error_code = 'DeviceNotRegistered',
+                 checked_at = NOW(),
+                 resolved_at = NOW()
+             WHERE id = ANY($1::uuid[])`,
+            [deviceNotRegisteredIds]
+          );
+        }
+        if (errorIds.length > 0) {
+          await db.query(
+            `UPDATE push_tickets
+             SET status = 'error', checked_at = NOW(), resolved_at = NOW()
+             WHERE id = ANY($1::uuid[])`,
+            [errorIds]
+          );
         }
 
         if (staleTokens.size > 0) {
@@ -426,6 +435,9 @@ export async function pollPushReceipts(): Promise<number> {
  * @param body    - Notification body text
  * @param options - Optional delivery options (priority, data, badge, action)
  */
+/** Max push notifications per user per 60-second window before throttling. */
+const MAX_PUSH_PER_USER_PER_MINUTE = 10;
+
 export async function sendPushNotification(
   userId: string,
   title: string,
@@ -433,6 +445,15 @@ export async function sendPushNotification(
   options?: PushNotificationOptions
 ): Promise<void> {
   try {
+    // TASK-14: per-user rate limit to prevent notification floods from pipeline bugs
+    const rateKey = `user:push:rate:${userId}`;
+    const count = await redis.incr(rateKey);
+    if (count === 1) await redis.expire(rateKey, 60);
+    if (count > MAX_PUSH_PER_USER_PER_MINUTE) {
+      logger.warn({ userId, count }, "[push] Per-user push rate limit exceeded — skipping");
+      return;
+    }
+
     // Fetch active tokens for the user. ORDER BY last_seen_at DESC so that when
     // we deduplicate by device_id we keep the most recently seen token per device.
     const { rows } = await db.query<PushTokenRow>(

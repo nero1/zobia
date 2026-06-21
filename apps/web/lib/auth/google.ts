@@ -93,6 +93,7 @@ export async function exchangeGoogleCode(
       redirect_uri: redirectUri,
       grant_type: "authorization_code",
     }),
+    signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) throw new Error(`Token exchange failed: ${res.status}`);
   return res.json();
@@ -113,6 +114,7 @@ export async function fetchGoogleUserProfile(
 ): Promise<GoogleUserProfile> {
   const res = await fetch(GOOGLE_USERINFO_ENDPOINT, {
     headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) throw new Error(`Profile fetch failed: ${res.status}`);
   const data = await res.json() as {

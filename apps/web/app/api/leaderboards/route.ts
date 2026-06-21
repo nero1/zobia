@@ -27,6 +27,7 @@ import {
   getUserRank,
   type LeaderboardScope,
   type LeaderboardTrack,
+  type LeaderboardCursor,
 } from "@/lib/leaderboards/engine";
 
 // ---------------------------------------------------------------------------
@@ -61,6 +62,17 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const cityParam = searchParams.get("city");
     const limit = Math.min(parseInt(searchParams.get("limit") ?? "100"), 200);
     const page = Math.max(parseInt(searchParams.get("page") ?? "1"), 1);
+
+    // Cursor-based pagination: cursor={xpValue}:{userId} — supersedes page if provided
+    let cursor: LeaderboardCursor | null = null;
+    const cursorParam = searchParams.get("cursor");
+    if (cursorParam) {
+      const [xpStr, userId] = cursorParam.split(":");
+      const xpValue = parseInt(xpStr, 10);
+      if (!isNaN(xpValue) && userId) {
+        cursor = { xpValue, userId };
+      }
+    }
 
     const scope: LeaderboardScope = VALID_SCOPES.includes(scopeParam as LeaderboardScope)
       ? (scopeParam as LeaderboardScope)
@@ -107,6 +119,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       guildId: guildId ?? undefined,
       seasonId: seasonId ?? undefined,
       country,
+      cursor,
     });
 
     const userRank = await getUserRank(auth.user.sub, track, scope, db, {

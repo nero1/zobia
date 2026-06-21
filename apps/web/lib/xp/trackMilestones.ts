@@ -19,6 +19,7 @@
 
 import type { ProgressionTrack } from "@zobia/types";
 import type { DatabaseAdapter } from "@/lib/db";
+import { logger } from "@/lib/logger";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -268,9 +269,9 @@ export async function checkAndAwardTrackMilestones(
         [userId, milestone.track, milestone.level, milestone.unlockKey]
       );
     } catch (err) {
-      console.warn(
-        `[trackMilestones] Could not insert track_milestone_unlocks for user=${userId} track=${milestone.track} level=${milestone.level}:`,
-        err
+      logger.warn(
+        { err, userId, track: milestone.track, level: milestone.level },
+        "[trackMilestones] Could not insert track_milestone_unlocks"
       );
     }
 
@@ -295,10 +296,9 @@ export async function checkAndAwardTrackMilestones(
       // user_badges table may not exist or have a different schema — non-fatal
     }
 
-    // Log capability grants for observability
-    console.info(
-      `[trackMilestones] Unlocked: user=${userId} track=${milestone.track} ` +
-        `level=${milestone.level} title="${milestone.title}" key=${milestone.unlockKey}`
+    logger.info(
+      { userId, track: milestone.track, level: milestone.level, title: milestone.title, unlockKey: milestone.unlockKey },
+      "[trackMilestones] Milestone unlocked"
     );
   }
 

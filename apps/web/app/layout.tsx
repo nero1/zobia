@@ -139,9 +139,8 @@ async function getFooterScripts(): Promise<Array<{ id: string; content: string }
 export default async function RootLayout({ children }: RootLayoutProps) {
   const footerScripts = await getFooterScripts();
 
-  // Read CSP nonce injected by middleware so we can apply it to footer scripts.
   const requestHeaders = await headers();
-  const nonce = requestHeaders.get("x-nonce") ?? "";
+  void requestHeaders; // headers() called to satisfy Next.js dynamic rendering requirements
 
   // Resolve locale from the i18n cookie set by the browser language detector.
   const cookieStore = await cookies();
@@ -181,16 +180,16 @@ export default async function RootLayout({ children }: RootLayoutProps) {
             </I18nProvider>
           </ReactQueryProvider>
         </ThemeProvider>
+        {/* TASK-01: Admin footer scripts are served via a sandboxed external script src
+            (/api/static/footer-script/[id]) rather than being injected inline with the
+            page nonce. This prevents a compromised admin account from executing arbitrary
+            JS in every visitor's session via the nonce — the script content is approved
+            at save-time and served with its own Content-Security-Policy header. */}
         {footerScripts.filter(s => s.content.trim()).map((script) => (
-          <div
+          <script
             key={script.id}
-            dangerouslySetInnerHTML={{
-              // Inject the CSP nonce into every <script> tag so admin-added
-              // scripts are allowed through the nonce-based policy.
-              __html: nonce
-                ? script.content.replace(/<script(\s|>)/gi, `<script nonce="${nonce}"$1`)
-                : script.content,
-            }}
+            src={`/api/static/footer-script/${script.id}`}
+            async
           />
         ))}
       </body>

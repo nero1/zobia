@@ -9,7 +9,7 @@
 import { db } from "@/lib/db";
 import { creditCoins } from "@/lib/economy/coins";
 import { creditStars } from "@/lib/economy/stars";
-import { awardReferralCommissions } from "@/lib/referrals/commissions";
+import { awardReferralCommissions, recordFailedCommission } from "@/lib/referrals/commissions";
 import { moveToDeadLetterQueue, getCreatorFeeRate } from "@/lib/payments/payouts";
 
 // ---------------------------------------------------------------------------
@@ -444,8 +444,19 @@ export async function processPaymentSucceeded(
   // initial type (null) after the await; the runtime value is correct.
   const capturedReferral = referralPayload as { userId: string; coins: number; paymentId: string; amountSmallestUnit: number } | null;
   if (capturedReferral) {
-    await awardReferralCommissions(db, capturedReferral.userId, capturedReferral.coins, capturedReferral.paymentId, capturedReferral.amountSmallestUnit)
-      .catch((err) => console.error("[webhook/dodo] Referral commission error:", err));
+    try {
+      await awardReferralCommissions(db, capturedReferral.userId, capturedReferral.coins, capturedReferral.paymentId, capturedReferral.amountSmallestUnit);
+    } catch (err) {
+      console.error("[webhook/dodo] Referral commission error — writing to DLQ:", err);
+      await recordFailedCommission(
+        capturedReferral.paymentId,
+        capturedReferral.userId,
+        capturedReferral.coins,
+        capturedReferral.amountSmallestUnit,
+        "dodopayments",
+        err instanceof Error ? err.message : String(err)
+      );
+    }
   }
 }
 

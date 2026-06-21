@@ -18,6 +18,7 @@
 
 import type { DatabaseAdapter } from "@/lib/db/interface";
 import { sanitizeAnnouncementContent } from "@/lib/security/htmlSanitizer";
+import { getManifestValue } from "@/lib/manifest";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -98,14 +99,10 @@ export async function getActiveModalForUser(
   user: AnnouncementUser,
   db: DatabaseAdapter
 ): Promise<ResolvedModal | null> {
-  // Read display mode from manifest
-  const { rows: manifestRows } = await db.query<{ value: string }>(
-    `SELECT value FROM x_manifest WHERE key = 'announcement_modal_mode'`
-  );
-  const displayMode =
-    (manifestRows[0]?.value as "serial" | "random") ?? "serial";
+  // TASK-30: use manifest cache instead of raw SQL to avoid an extra uncached DB hit
+  const displayMode = ((await getManifestValue("announcement_modal_mode")) ?? "serial") as "serial" | "random";
 
-  // Fetch all active, in-schedule modals
+  // TASK-19: LIMIT 50 prevents unbounded fetch when hundreds of announcements exist
   const { rows: modals } = await db.query<{
     id: string;
     title: string;
@@ -127,10 +124,10 @@ export async function getActiveModalForUser(
        AND (starts_at IS NULL OR starts_at <= NOW())
        AND (ends_at IS NULL OR ends_at >= NOW())
        AND deleted_at IS NULL
-     ORDER BY display_order ASC`
+     ORDER BY display_order ASC
+     LIMIT 50`
   );
 
-  // Filter by targeting
   const eligible = modals.filter((m) =>
     matchesTargeting(user, m.target_plans, m.target_roles)
   );
@@ -140,18 +137,21 @@ export async function getActiveModalForUser(
   let selected = eligible[0];
 
   if (displayMode === "serial") {
-    // Find the first modal the user hasn't viewed
+    const eligibleIds = eligible.map((m) => m.id);
+    // TASK-32: bound query to only eligible modal IDs to prevent unbounded scan
     const { rows: viewedRows } = await db.query<{ modal_id: string }>(
-      `SELECT modal_id FROM user_modal_views WHERE user_id = $1`,
-      [userId]
+      `SELECT modal_id FROM user_modal_views
+       WHERE user_id = $1 AND modal_id = ANY($2::uuid[])`,
+      [userId, eligibleIds]
     );
     const viewedIds = new Set(viewedRows.map((r) => r.modal_id));
     const unviewed = eligible.filter((m) => !viewedIds.has(m.id));
     if (unviewed.length === 0) {
-      // All modals viewed — reset so they show again on next login
+      // TASK-31: reset only the currently eligible modal views, not ALL user views
       await db.query(
-        `DELETE FROM user_modal_views WHERE user_id = $1`,
-        [userId]
+        `DELETE FROM user_modal_views
+         WHERE user_id = $1 AND modal_id = ANY($2::uuid[])`,
+        [userId, eligibleIds]
       );
       selected = eligible[0];
     } else {
@@ -160,10 +160,6 @@ export async function getActiveModalForUser(
   } else if (displayMode === "random") {
     selected = eligible[Math.floor(Math.random() * eligible.length)];
   }
-
-  // Do NOT record the view here — the client must call confirmAnnouncementView()
-  // after the modal is actually displayed. Recording here causes the modal to be
-  // permanently marked "seen" even if the client crashes before rendering it.
 
   return {
     id: selected.id,
@@ -234,6 +230,7 @@ export async function getActiveBannerForUser(
   user: AnnouncementUser,
   db: DatabaseAdapter
 ): Promise<ResolvedBanner | null> {
+  // TASK-19: LIMIT 50 prevents unbounded fetch
   const { rows: banners } = await db.query<{
     id: string;
     title: string;
@@ -256,7 +253,7 @@ export async function getActiveBannerForUser(
        AND (ends_at IS NULL OR ends_at >= NOW())
        AND deleted_at IS NULL
      ORDER BY display_order ASC
-     LIMIT 20`
+     LIMIT 50`
   );
 
   const eligible = banners.filter((b) =>
@@ -265,20 +262,18 @@ export async function getActiveBannerForUser(
 
   if (eligible.length === 0) return null;
 
-  // Read display mode from manifest (default "serial")
-  const { rows: manifestRows } = await db.query<{ value: string }>(
-    `SELECT value FROM x_manifest WHERE key = 'announcement_banner_mode'`
-  );
-  const displayMode =
-    (manifestRows[0]?.value as "serial" | "random") ?? "serial";
+  // TASK-30: use manifest cache instead of raw SQL to avoid uncached DB hit
+  const displayMode = ((await getManifestValue("announcement_banner_mode")) ?? "serial") as "serial" | "random";
 
   let selected = eligible[0];
 
   if (displayMode === "serial") {
-    // Find the first banner the user hasn't viewed yet
+    const eligibleIds = eligible.map((b) => b.id);
+    // TASK-32: bound query to only eligible banner IDs
     const { rows: viewedRows } = await db.query<{ banner_id: string }>(
-      `SELECT banner_id FROM user_banner_views WHERE user_id = $1`,
-      [userId]
+      `SELECT banner_id FROM user_banner_views
+       WHERE user_id = $1 AND banner_id = ANY($2::uuid[])`,
+      [userId, eligibleIds]
     );
     const viewedIds = new Set(viewedRows.map((r) => r.banner_id));
     const unviewed = eligible.filter((b) => !viewedIds.has(b.id));
@@ -287,9 +282,6 @@ export async function getActiveBannerForUser(
   } else if (displayMode === "random") {
     selected = eligible[Math.floor(Math.random() * eligible.length)];
   }
-
-  // Do NOT record the view here — the client must call confirmAnnouncementView()
-  // after the banner is actually rendered.
 
   return {
     id: selected.id,

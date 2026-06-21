@@ -525,20 +525,29 @@ export async function getRematchDiscount(
 
 /**
  * Mark a rematch token as used after it has been applied.
+ * Uses a single atomic CTE to prevent TOCTOU races where two concurrent
+ * calls both read the same unused token before either updates it.
+ * Returns true if a token was consumed, false if no eligible token existed.
  */
 export async function consumeRematchToken(
   guildId: string,
   db: DatabaseAdapter
-): Promise<void> {
-  await db.query(
-    `UPDATE guild_war_rematch_tokens
-     SET is_used = true
-     WHERE id = (
-       SELECT id FROM guild_war_rematch_tokens
-       WHERE guild_id = $1 AND is_used = false AND expires_at > NOW()
-       ORDER BY created_at ASC
-       LIMIT 1
-     )`,
+): Promise<boolean> {
+  const { rows } = await db.query<{ id: string }>(
+    `WITH consumed AS (
+       UPDATE guild_war_rematch_tokens
+         SET is_used = true
+       WHERE id = (
+         SELECT id FROM guild_war_rematch_tokens
+         WHERE guild_id = $1 AND is_used = false AND expires_at > NOW()
+         ORDER BY created_at ASC
+         LIMIT 1
+         FOR UPDATE SKIP LOCKED
+       )
+       RETURNING id
+     )
+     SELECT id FROM consumed`,
     [guildId]
   );
+  return rows.length > 0;
 }
