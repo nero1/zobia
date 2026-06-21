@@ -114,6 +114,7 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `DIRECT_URL` | Yes | Direct connection string — bypasses the pooler, used for migrations only | Supabase → Settings → Database → "Use the direct connection string" |
 | `DB_POOL_SIZE` | No | Connection pool size for the pooled `DATABASE_URL` (default: `2`). Keep at 2 for serverless/Vercel functions to avoid exhausting the PgBouncer connection limit. | — |
 | `DB_DIRECT_POOL_SIZE` | No | Connection pool size for `DIRECT_URL` used in migrations/long-running scripts (default: `2`). | — |
+| `DB_CA_CERT` | No | PEM-encoded CA certificate for TLS verification of the database connection. Required when using a self-signed or custom CA (e.g. DigitalOcean managed Postgres CA). Leave unset to use the system CA bundle. SSL is always enforced (`rejectUnauthorized: true`). | Download from your DB provider's dashboard |
 | `STORAGE_PROVIDER` | Yes | Storage backend: `supabase-storage` \| `r2` \| `s3` | Choose your provider |
 | `R2_ACCOUNT_ID` | If R2 | Cloudflare account ID | Cloudflare dashboard → right sidebar |
 | `R2_ACCESS_KEY_ID` | If R2 | R2 API access key ID | Cloudflare → R2 → Manage R2 API tokens |
@@ -654,7 +655,7 @@ User-facing feed APIs (gifts history, inbox, guilds discovery, season leaderboar
 - **Request:** pass `cursor=<opaque_string>` (returned by a previous response as `nextCursor`).
 - **Response:** each paginated endpoint returns a `nextCursor` field. A `null` value means there are no more pages.
 - The cursor is a base64-encoded JSON value containing enough information to resume the query from the exact position. Do not construct cursors manually — always use the value returned by the API.
-- Admin-only routes (`/api/admin/*`) may still use `OFFSET`/`page` pagination for simplicity.
+- `/api/admin/users` uses cursor-based pagination with a `cursor` param (format: `"<iso-timestamp>|<uuid>"`); the response includes `hasMore` and `nextCursor` instead of `total`/`pages`. Most other admin routes still use `OFFSET`/`page` pagination.
 
 ---
 

@@ -10,6 +10,7 @@ export const dynamic = 'force-dynamic';
  *   profile_private         boolean — hide profile from non-friends
  *   profile_hidden_sections string[] — array of section keys to hide
  *   disable_friend_requests boolean — stop receiving friend requests
+ *   sitemap_opt_out         boolean — exclude profile from public sitemap (no plan gate)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -49,6 +50,7 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
       profile_private?: boolean;
       profile_hidden_sections?: string[];
       disable_friend_requests?: boolean;
+      sitemap_opt_out?: boolean;
     };
 
     // Fetch current user plan + prestige
@@ -93,6 +95,10 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
       updates.disable_friend_requests = Boolean(body.disable_friend_requests);
     }
 
+    if (body.sitemap_opt_out !== undefined) {
+      updates.sitemap_opt_out = Boolean(body.sitemap_opt_out);
+    }
+
     if (Object.keys(updates).length === 0) {
       throw badRequest('No valid fields to update');
     }
@@ -120,12 +126,14 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
       profile_private: boolean;
       profile_hidden_sections: string[];
       disable_friend_requests: boolean;
+      sitemap_opt_out: boolean;
     }>(
       `SELECT COALESCE(plan, 'free') AS plan,
               COALESCE(prestige_count, 0) AS prestige_count,
               COALESCE(profile_private, false) AS profile_private,
               COALESCE(profile_hidden_sections, '[]'::jsonb) AS profile_hidden_sections,
-              COALESCE(disable_friend_requests, false) AS disable_friend_requests
+              COALESCE(disable_friend_requests, false) AS disable_friend_requests,
+              COALESCE(sitemap_opt_out, false) AS sitemap_opt_out
        FROM users WHERE id = $1 LIMIT 1`,
       [userId]
     );
@@ -146,6 +154,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
           ? user.profile_hidden_sections
           : [],
         disable_friend_requests: user.disable_friend_requests,
+        sitemap_opt_out: user.sitemap_opt_out,
       },
       capabilities: {
         canLockProfile: userEligible(user.plan, user.prestige_count, lockAllowed),

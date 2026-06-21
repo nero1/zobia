@@ -233,18 +233,20 @@ Count badges on the Received and Sent sub-tabs show pending counts at a glance.
 
 ### Profile Privacy
 
-Users can control the visibility of their profile through three privacy settings, each gated to specific plans/ranks:
+Users can control the visibility of their profile through four privacy settings. The first three are gated to specific plans/ranks; the fourth is available to all users:
 
 | Setting | Default gate | What it does |
 |---|---|---|
 | **Private Profile** | Pro / Max / Prestige 1+ | Hides the profile entirely from non-friends (returns 403) |
 | **Hide profile sections** | Plus / Pro / Max / Prestige 1+ | Removes individual sections (avatar, bio, rank, xp, guild, seasons, badges) from the non-owner view |
 | **Disable friend requests** | Plus / Pro / Max / Prestige 1+ | Prevents the "Add Friend" button appearing on the user's profile |
+| **Sitemap opt-out** | All users (no plan gate) | Excludes the user's profile URL from the public `/sitemap.xml` so search engines do not index it |
 
-Settings are stored as three columns on the `users` table:
+Settings are stored as four columns on the `users` table:
 - `profile_private` — BOOLEAN
 - `profile_hidden_sections` — JSONB array of section keys
 - `disable_friend_requests` — BOOLEAN
+- `sitemap_opt_out` — BOOLEAN (default `false`; toggled via `PATCH /api/users/me/privacy`)
 
 **Enforcement** happens in `GET /api/users/[userId]/profile`:
 1. If the profile owner is banned → 403 `ACCOUNT_RESTRICTED`.
