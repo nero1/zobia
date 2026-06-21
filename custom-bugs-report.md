@@ -1,4 +1,4 @@
-# Zobia Social — Forensic Bug Report
+# Zobia Social — Forensic Bug Report (New Findings)
 
 **Generated:** June 21, 2026 — 10:45 AM
 **Scope:** Full forensic review — `apps/web` (Next.js 15, App Router, PWA) + `apps/expo` (React Native Android) + shared packages
@@ -7,7 +7,24 @@
 
 ---
 
-## Quick Index (All Bugs — One Line Each)
+## Relationship to Prior Report
+
+The prior report (`121c030`) documented 39 bugs (BUG-SEC-01 through BUG-MOB-02). Commit `81f3f24` claimed to fix all 39. This fresh analysis was conducted against the post-fix codebase. **All 38 bugs below are new — none are re-reports of the original 39.**
+
+They fall into three categories:
+
+**A — Completely new findings (28 bugs):** Areas the original analysis did not cover.
+> FRAUD-03, AUTH-02, CSRF-01, AI-01, KYC-01, DB-01, XP-02, GUILD-01, XP-01, SEASON-01, QUEST-01, RATE-01, GEO-01, EMAIL-01, EMAIL-02, MANIFEST-01, FRAUD-02, AI-02, CSP-01, CRON-01, PUSH-02, DISC-01, RECONCILE-01, MOBILE-01, ADMIN-02, ADMIN-03, TRUST-01, ACCESS-01
+
+**B — New bugs introduced by the fixes (7 bugs):** The fix for an old bug created or revealed a new one.
+> RLS-01 (fix for BUG-SEC-02 added a broken OR clause), PUSH-01 (fix for BUG-PRIV-02 is non-atomic), LB-01 (fix for BUG-PERF-01 produces wrong rank numbers), CAPTCHA-01 (fix for BUG-SEC-03 fails open on DB outage), CSP-02 (fix for BUG-SEC-01 added a misleading no-op header), PRIVACY-01 (fix for BUG-SEO-01 reveals user activity recency), ADMIN-01 (same OFFSET problem as BUG-PERF-01 now present on the admin users endpoint)
+
+**C — Incomplete fixes (3 bugs):** The old fix was applied partially or missed a specific callsite.
+> RLS-02 (BUG-SEC-02 fix only covered 4 tables, financial tables still unprotected), DODOPAY-01 (BUG-ERR-01 fix added timeouts elsewhere but missed `dodoRequest`), OAUTH-01 (BUG-ERR-01 fix added timeouts but Google OAuth still uses raw `fetch` instead of `safeFetch`, leaving SSRF protection absent)
+
+---
+
+## Quick Index (All 38 New Bugs — One Line Each)
 
 1.  **RLS-01** — RLS `users` policy `OR deleted_at IS NULL` clause defeats the entire policy
 2.  **RLS-02** — Row-Level Security missing on payments, gifts, payouts, referrals, moderation tables
