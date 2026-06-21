@@ -156,52 +156,60 @@ export async function findWarOpponent(
   guildId: string,
   db: DatabaseAdapter
 ): Promise<string | null> {
-  // BUG-35 FIX: Collapse the separate "busy guild" query and the "candidate"
-  // query into a single atomic CTE. Previously, two round-trips created a
-  // TOCTOU window: a guild could slip past the busy check between the two
-  // queries and be matched into a second concurrent war.
+  // Step 1: Load own guild stats.
+  const { rows: selfRows } = await db.query<{ id: string; guild_xp: string | number; city: string | null }>(
+    `SELECT id, guild_xp, city FROM guilds WHERE id = $1 AND is_active = TRUE`,
+    [guildId]
+  );
+  const self = selfRows[0];
+  if (!self) return null;
+
+  const selfXP = Number(self.guild_xp);
+  const minXP = Math.floor(selfXP * (1 - OPPONENT_XP_TOLERANCE));
+  const maxXP = Math.ceil(selfXP * (1 + OPPONENT_XP_TOLERANCE));
+
+  // Step 2: Collect all guild IDs currently locked in an active war.
+  const { rows: busyRows } = await db.query<{ guild_id: string }>(
+    `SELECT DISTINCT unnest(ARRAY[challenger_guild_id, defender_guild_id]) AS guild_id
+     FROM guild_wars
+     WHERE status IN ('active', 'final_hour')`
+  );
+  // Exclude both busy guilds and the declaring guild itself (exclusion applied
+  // SQL-side via g.id != ALL($4::uuid[]) to avoid TOCTOU between the busy
+  // check and the candidate fetch).
+  const excludedIds: string[] = [...busyRows.map((r) => r.guild_id), guildId];
+
   const manifestCooldown = await getManifestValue('warCooldownHours').catch(() => null);
   const effectiveCooldownHours =
     (typeof manifestCooldown === 'number' && manifestCooldown > 0)
       ? manifestCooldown
       : WAR_COOLDOWN_HOURS;
-  // Try same-city first, then any city.
+
+  // Step 3: Find candidates within ±15% XP band, preferring same city first.
   for (const cityFilter of [true, false]) {
-    const cityJoin = cityFilter
-      ? `AND g.city = self.city`
-      : "";
+    const cityClause = cityFilter && self.city ? `AND g.city = $5` : '';
+    const params: (number | string | string[])[] = [
+      minXP,
+      maxXP,
+      effectiveCooldownHours,
+      excludedIds,
+      ...(cityFilter && self.city ? [self.city] : []),
+    ];
 
     const { rows } = await db.query<{ id: string }>(
-      `WITH self AS (
-         SELECT guild_xp, city
-         FROM guilds
-         WHERE id = $1 AND is_active = TRUE
-       ),
-       busy AS (
-         SELECT unnest(ARRAY[challenger_guild_id, defender_guild_id]) AS guild_id
-         FROM guild_wars
-         WHERE status IN ('active', 'final_hour')
-       )
-       SELECT g.id
-       FROM guilds g
-       CROSS JOIN self
+      `SELECT g.id FROM guilds g
        WHERE g.is_active = TRUE
-         AND g.id != $1
-         AND g.id NOT IN (SELECT guild_id FROM busy)
-         AND g.guild_xp BETWEEN
-               FLOOR(self.guild_xp * $2) AND
-               CEIL(self.guild_xp  * $3)
+         AND g.guild_xp BETWEEN $1 AND $2
          AND (g.last_war_ended_at IS NULL
-              OR g.last_war_ended_at < NOW() - ($4 * INTERVAL '1 hour'))
-         ${cityJoin}
-       ORDER BY ABS(g.guild_xp - self.guild_xp) ASC
+              OR g.last_war_ended_at < NOW() - ($3 * INTERVAL '1 hour'))
+         AND g.id != ALL($4::uuid[])
+         ${cityClause}
+       ORDER BY ABS(g.guild_xp - ${selfXP}) ASC
        LIMIT 5`,
-      [guildId, 1 - OPPONENT_XP_TOLERANCE, 1 + OPPONENT_XP_TOLERANCE, effectiveCooldownHours]
+      params
     );
 
-    if (rows.length > 0) {
-      return rows[0].id;
-    }
+    if (rows.length > 0) return rows[0].id;
   }
 
   return null;

@@ -42,12 +42,12 @@ function useNavUser() {
 // ---------------------------------------------------------------------------
 
 const bottomTabItems = [
-  { href: "/home",     label: "Home",    shortLabel: "Home"   },
-  { href: "/quests",   label: "Quests",  shortLabel: "Quests" },
-  { href: "/messages", label: "Messages",shortLabel: "Msgs"   },
-  { href: "/friends",  label: "Friends", shortLabel: "Friends"},
-  { href: "/wallet",   label: "Wallet",  shortLabel: "Wallet" },
-  { href: "/profile",  label: "Profile", shortLabel: "Profile"},
+  { href: "/home",    label: "Home",    shortLabel: "Home"   },
+  { href: "/quests",  label: "Quests",  shortLabel: "Quests" },
+  { href: "/games",   label: "Games",   shortLabel: "Games"  },
+  { href: "/friends", label: "Friends", shortLabel: "Friends"},
+  { href: "/wallet",  label: "Wallet",  shortLabel: "Wallet" },
+  { href: "/profile", label: "Profile", shortLabel: "Profile"},
 ] as const;
 
 // Full nav for desktop + drawer
@@ -55,6 +55,7 @@ const primaryNavItems = [
   { href: "/home",         label: "Home",         icon: "🏠" },
   { href: "/moments",      label: "Moments",      icon: "⚡" },
   { href: "/quests",       label: "Quests",       icon: "🎯" },
+  { href: "/games",        label: "Games",        icon: "🎮" },
   { href: "/rooms",        label: "Rooms",        icon: "🚪" },
   { href: "/messages",     label: "Messages",     icon: "💬" },
   { href: "/friends",      label: "Friends",      icon: "👥" },
@@ -80,12 +81,12 @@ const secondaryNavItems = [
 // ---------------------------------------------------------------------------
 
 const TAB_ICONS: Record<string, { active: string; inactive: string }> = {
-  Home:     { active: "🏠", inactive: "🏡" },
-  Quests:   { active: "🎯", inactive: "🎯" },
-  Messages: { active: "💬", inactive: "💭" },
-  Friends:  { active: "👥", inactive: "👥" },
-  Wallet:   { active: "🪙", inactive: "🪙" },
-  Profile:  { active: "👤", inactive: "👤" },
+  Home:    { active: "🏠", inactive: "🏡" },
+  Quests:  { active: "🎯", inactive: "🎯" },
+  Games:   { active: "🎮", inactive: "🕹️" },
+  Friends: { active: "👥", inactive: "👥" },
+  Wallet:  { active: "🪙", inactive: "🪙" },
+  Profile: { active: "👤", inactive: "👤" },
 };
 
 function TabIcon({ label, isActive }: { label: string; isActive: boolean }) {

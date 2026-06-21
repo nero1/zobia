@@ -12,6 +12,7 @@ import { loadManifest } from "@/lib/manifest";
 export async function GET() {
   try {
     const m = await loadManifest();
+    const CACHE = { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300" };
     return NextResponse.json({
       success: true,
       data: {
@@ -22,7 +23,7 @@ export async function GET() {
         challengeExpiryHours: m.games.challengeExpiryHours,
       },
       error: null,
-    });
+    }, { headers: CACHE });
   } catch {
     return NextResponse.json({
       success: true,

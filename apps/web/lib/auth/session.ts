@@ -117,6 +117,7 @@ export async function createSession(
     is_admin: boolean;
     is_moderator?: boolean;
     is_creator?: boolean;
+    onboarding_completed?: boolean;
   },
   options: { ip?: string; ua?: string; adminSession?: boolean } = {}
 ): Promise<AuthTokens> {
@@ -136,6 +137,9 @@ export async function createSession(
       username: user.username,
       is_admin: user.is_admin,
       sid,
+      ...(typeof user.onboarding_completed === "boolean"
+        ? { onboarding_completed: user.onboarding_completed }
+        : {}),
     }, accessTtl),
     signRefreshToken(user.id, sid, refreshTtl),
   ]);
@@ -208,7 +212,7 @@ export async function createSession(
  */
 export async function rotateSession(
   oldSid: string | null,
-  user: { id: string; email: string | null; username: string; is_admin: boolean; is_moderator?: boolean; is_creator?: boolean },
+  user: { id: string; email: string | null; username: string; is_admin: boolean; is_moderator?: boolean; is_creator?: boolean; onboarding_completed?: boolean },
   options: { ip?: string; ua?: string; adminSession?: boolean } = {}
 ): Promise<AuthTokens> {
   // Invalidate the old session before creating the new one

@@ -251,16 +251,22 @@ export async function reconcileStuckPayouts(): Promise<{ reconciled: number; fai
   let reconciled = 0;
   let failed = 0;
 
-  // Fetch candidates outside of any transaction first (no FOR UPDATE needed here)
-  // so we can call the external Paystack API without holding a DB lock.
+  // BUG-PY01 FIX: Use CTE with FOR UPDATE SKIP LOCKED so concurrent reconciler
+  // invocations cannot both pick up the same stuck payout. The lock is released
+  // immediately after the SELECT, before the external API call, to avoid holding
+  // it for the duration of the Paystack round-trip.
   const { rows: candidateIds } = await db.query<{ id: string; provider_reference: string }>(
-    `SELECT id, provider_reference
-     FROM creator_payouts
-     WHERE status = 'processing'
-       AND updated_at < NOW() - INTERVAL '30 minutes'
-       AND provider_reference IS NOT NULL
-     ORDER BY updated_at ASC
-     LIMIT 50`
+    `WITH candidates AS (
+       SELECT id, provider_reference
+       FROM creator_payouts
+       WHERE status = 'processing'
+         AND updated_at < NOW() - INTERVAL '30 minutes'
+         AND provider_reference IS NOT NULL
+       ORDER BY updated_at ASC
+       LIMIT 50
+       FOR UPDATE SKIP LOCKED
+     )
+     SELECT id, provider_reference FROM candidates`
   );
 
   for (const candidate of candidateIds) {

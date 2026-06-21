@@ -141,6 +141,7 @@ const PUBLIC_PREFIXES = [
   "/terms",
   "/privacy",
   "/onboarding",
+  "/auth/error",
   // Static images served from /public — must be reachable by crawlers/OG scrapers
   "/og-image.png",
   "/og-image",
@@ -169,7 +170,20 @@ interface TokenPayload {
   is_admin?: boolean;
   sid?: string;
   type?: string;
+  onboarding_completed?: boolean;
 }
+
+/** Routes that incomplete-onboarding users may access without being redirected. */
+const ONBOARDING_ALLOWED_PREFIXES = [
+  "/onboarding",
+  "/auth",
+  "/api",
+  "/_next",
+  "/pwa-start",
+  "/terms",
+  "/privacy",
+  "/auth/error",
+];
 
 async function verifyToken(token: string): Promise<TokenPayload | null> {
   try {
@@ -441,6 +455,17 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
       const response = NextResponse.redirect(loginUrl);
       response.cookies.set(ACCESS_TOKEN_COOKIE, "", { maxAge: 0 });
       return response;
+    }
+
+    // Onboarding gate: users with onboarding_completed === false must finish
+    // onboarding before accessing any app page. Only enforced when the JWT
+    // explicitly carries the claim (old tokens without it are not redirected).
+    if (
+      payload.onboarding_completed === false &&
+      !pathname.startsWith("/api/") &&
+      !ONBOARDING_ALLOWED_PREFIXES.some((p) => pathname.startsWith(p))
+    ) {
+      return NextResponse.redirect(new URL("/onboarding", request.url));
     }
 
     // Strip inbound spoofed identity headers — handlers re-verify JWT themselves

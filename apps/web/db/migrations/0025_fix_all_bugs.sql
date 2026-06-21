@@ -88,10 +88,10 @@ BEGIN
       EXECUTE $policy$
         CREATE POLICY messages_self_or_admin ON messages
           USING (
-            sender_id = NULLIF(current_setting(''app.user_id'', true), '''')::uuid
-            OR recipient_id = NULLIF(current_setting(''app.user_id'', true), '''')::uuid
-            OR current_setting(''app.is_admin'', true) = ''true''
-            OR current_setting(''app.is_system'', true) = ''true''
+            sender_id = NULLIF(current_setting('app.user_id', true), '')::uuid
+            OR recipient_id = NULLIF(current_setting('app.user_id', true), '')::uuid
+            OR current_setting('app.is_admin', true) = 'true'
+            OR current_setting('app.is_system', true) = 'true'
           )
       $policy$;
     END IF;
@@ -109,9 +109,9 @@ BEGIN
       EXECUTE $policy$
         CREATE POLICY kyc_submissions_self_or_admin ON kyc_submissions
           USING (
-            user_id = NULLIF(current_setting(''app.user_id'', true), '''')::uuid
-            OR current_setting(''app.is_admin'', true) = ''true''
-            OR current_setting(''app.is_system'', true) = ''true''
+            user_id = NULLIF(current_setting('app.user_id', true), '')::uuid
+            OR current_setting('app.is_admin', true) = 'true'
+            OR current_setting('app.is_system', true) = 'true'
           )
       $policy$;
     END IF;
@@ -129,9 +129,9 @@ BEGIN
       EXECUTE $policy$
         CREATE POLICY creator_kyc_self_or_admin ON creator_kyc
           USING (
-            creator_id = NULLIF(current_setting(''app.user_id'', true), '''')::uuid
-            OR current_setting(''app.is_admin'', true) = ''true''
-            OR current_setting(''app.is_system'', true) = ''true''
+            creator_id = NULLIF(current_setting('app.user_id', true), '')::uuid
+            OR current_setting('app.is_admin', true) = 'true'
+            OR current_setting('app.is_system', true) = 'true'
           )
       $policy$;
     END IF;
@@ -149,8 +149,8 @@ BEGIN
       EXECUTE $policy$
         CREATE POLICY failed_xp_awards_admin_or_system ON failed_xp_awards
           USING (
-            current_setting(''app.is_admin'', true) = ''true''
-            OR current_setting(''app.is_system'', true) = ''true''
+            current_setting('app.is_admin', true) = 'true'
+            OR current_setting('app.is_system', true) = 'true'
           )
       $policy$;
     END IF;
@@ -163,6 +163,14 @@ $$;
 -- =============================================================================
 
 ALTER TABLE xp_ledger ALTER COLUMN amount TYPE bigint;
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'xp_ledger' AND column_name = 'base_amount') THEN
+    EXECUTE 'ALTER TABLE xp_ledger ALTER COLUMN base_amount TYPE bigint';
+  END IF;
+END
+$$;
 
 DO $$
 BEGIN
@@ -264,7 +272,17 @@ BEGIN
         AND indexdef ILIKE '%unique%'
         AND (indexdef ILIKE '%(user_id%asset_type%' OR indexdef ILIKE '%(asset_type%user_id%')
     LOOP
-      EXECUTE format('DROP INDEX IF EXISTS %I', idx_name);
+      -- Unique indexes backed by a CONSTRAINT must be dropped via ALTER TABLE DROP CONSTRAINT
+      -- (which automatically drops the backing index). Standalone unique indexes use DROP INDEX.
+      IF EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = idx_name
+          AND conrelid = 'audit_discrepancies'::regclass
+      ) THEN
+        EXECUTE format('ALTER TABLE audit_discrepancies DROP CONSTRAINT IF EXISTS %I', idx_name);
+      ELSE
+        EXECUTE format('DROP INDEX IF EXISTS %I', idx_name);
+      END IF;
     END LOOP;
 
     -- Add detected_at column if missing

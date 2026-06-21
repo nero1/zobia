@@ -793,6 +793,14 @@ Without this, `POST /api/cron/payouts` will fail on every bank transfer attempt.
 
 These can be updated from the Admin → Config panel at any time.
 
+**PWA install prompt `x_manifest` key** (optional):
+
+| Key | Default | Description |
+|---|---|---|
+| `android_app_url` | _(empty)_ | Full URL to the Android APK or Play Store listing. When set, Android users see a download prompt instead of the PWA install guide. Set via **Admin → Config** or directly in `x_manifest`. |
+
+---
+
 **Fraud-detection `x_manifest` keys** (admin-configurable; default values shown):
 
 | Key | Default | Description |

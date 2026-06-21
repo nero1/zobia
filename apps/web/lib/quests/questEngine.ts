@@ -13,9 +13,9 @@
  * Quests reset at midnight UTC (stored as quest_date = YYYY-MM-DD in UTC).
  */
 
+import { randomBytes } from "crypto";
 import type { DatabaseAdapter } from "@/lib/db/interface";
 import type { Plan } from "@zobia/types";
-import { env } from "@/lib/env";
 import { ACTION_TRACKS } from "@/lib/xp/engine";
 import { creditCoins } from "@/lib/economy/coins";
 import { safeAwardXP } from "@/lib/xp/safeAwardXP";
@@ -73,6 +73,25 @@ export interface QuestDeckItem extends QuestTemplate {
 }
 
 // ---------------------------------------------------------------------------
+// CSPRNG helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns a cryptographically random integer in [0, max) using rejection
+ * sampling to avoid modulo bias.
+ */
+function cryptoRandInt(max: number): number {
+  if (max <= 1) return 0;
+  const bytesNeeded = 4;
+  const limit = 0x100000000 - (0x100000000 % max);
+  let val: number;
+  do {
+    val = randomBytes(bytesNeeded).readUInt32BE(0);
+  } while (val >= limit);
+  return val % max;
+}
+
+// ---------------------------------------------------------------------------
 // generateDailyDeck
 // ---------------------------------------------------------------------------
 
@@ -96,8 +115,11 @@ export async function generateDailyDeck(
   const today = new Date().toISOString().slice(0, 10);
   const deckSize = DECK_SIZE_BY_PLAN[plan] ?? 3;
 
-  // Fetch eligible quest templates for this plan
-  const { rows: templates } = await db.query<QuestTemplate>(
+  // Fetch ALL eligible quest templates for this plan without a DB-level shuffle.
+  // Selection is done in application code via a CSPRNG-based Fisher-Yates shuffle
+  // so no key material is passed to the DB and the shuffle is cryptographically
+  // unpredictable.
+  const { rows: allTemplates } = await db.query<QuestTemplate>(
     `SELECT id, title, description, action_type, target_count,
             xp_reward, coin_reward, category, icon, plan_required
      FROM quest_templates
@@ -106,15 +128,22 @@ export async function generateDailyDeck(
        AND (plan_required IS NULL OR plan_required = 'free'
             OR (plan_required = 'plus' AND $2 IN ('plus','pro','max'))
             OR (plan_required = 'pro' AND $2 IN ('pro','max'))
-            OR (plan_required = 'max' AND $2 = 'max'))
-     ORDER BY MD5(CONCAT($3::text, $1::text, id::text, $5::text)) -- BUG-13 FIX: server secret salt makes daily deck unguessable by clients
-     LIMIT $4`,
-    [today, plan, userId, deckSize, env.JWT_SECRET.slice(0, 16)]
+            OR (plan_required = 'max' AND $2 = 'max'))`,
+    [today, plan]
   );
 
-  if (templates.length === 0) return [];
+  // Fisher-Yates shuffle using crypto.randomBytes — O(n) in-place, unbiased
+  const templates = [...allTemplates];
+  for (let i = templates.length - 1; i > 0; i--) {
+    // Generate an unbiased random index in [0, i] using rejection sampling
+    const j = cryptoRandInt(i + 1);
+    [templates[i], templates[j]] = [templates[j], templates[i]];
+  }
+  const selectedTemplates = templates.slice(0, deckSize);
 
-  const questIds = templates.map((t) => t.id);
+  if (selectedTemplates.length === 0) return [];
+
+  const questIds = selectedTemplates.map((t) => t.id);
 
   // Persist the deck assignment so checkDeckCompletion can scope its query correctly.
   // Uses ON CONFLICT DO NOTHING for idempotency on repeated calls within the same day.
@@ -146,7 +175,7 @@ export async function generateDailyDeck(
 
   const progressMap = new Map(progresses.map((p) => [p.quest_id, p]));
 
-  return templates.map((template) => {
+  return selectedTemplates.map((template) => {
     const p = progressMap.get(template.id);
     return {
       ...template,

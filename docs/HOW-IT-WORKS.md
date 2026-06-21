@@ -1448,3 +1448,47 @@ await Promise.allSettled(
   warWinners.map((w) => safeAwardXP(w.user_id, XP, 'competitor', 'alliance_war_victory', `war_${warId}_${w.user_id}`))
 );
 ```
+
+---
+
+## Auth Error Page
+
+When Google OAuth fails (CSRF expiry, rate limit, banned/suspended account, stale token), the callback redirects to `/auth/error?code=<errorCode>` instead of showing raw JSON. The page renders a user-friendly message with a "Back to sign in" button. The `/auth/error` route is public (no auth required). All OAuth cookies (`zobia_csrf_state`, `zobia_mobile_redirect`, `zobia_web_redirect`) are cleared on every error path.
+
+Supported error codes: `session_expired`, `rate_limited`, `invalid_request`, `unexpected`.
+
+---
+
+## Onboarding Gate
+
+After Google OAuth completes, the access JWT includes an `onboarding_completed` boolean claim. Middleware checks `payload.onboarding_completed === false` (strict — old tokens without the claim pass through) and redirects any request to an app page (non-API, non-auth, non-onboarding prefix) to `/onboarding`. This prevents users from bypassing onboarding by directly navigating to app pages after a partial Google sign-up.
+
+---
+
+## PWA Install Prompt
+
+The `PWAInstallPrompt` component (rendered in the app layout) shows a platform-appropriate install prompt once per visit window:
+
+- **Android:** shows an "Install the app" banner with a link to the admin-configured APK download URL (`android_app_url` in the manifest). If no URL is configured, the prompt does not appear on Android.
+- **iOS:** shows a manual "Tap Share → Add to Home Screen" guide.
+- **Desktop (Chrome/Edge):** triggers the browser's native `beforeinstallprompt` dialog when available.
+
+Dismissal is stored in `localStorage` under `zobia_pwa_prompt`:
+- "Not now" → suppress for 7 days
+- "Already installed / downloaded" → suppress for 90 days
+
+The prompt never appears inside a standalone PWA (detected via `window.matchMedia("(display-mode: standalone)")`).
+
+---
+
+## Gifts Catalog Admin
+
+Admins can manage the full gift item catalog at `/admin/gifts`. The page lists all gift items (active and retired) with cursor-based pagination suited to large catalogs. Actions: create a new gift item, edit any field (name, emoji, coin cost, tier, animation URL, spectacle threshold), retire an item (soft-disable), or restore a retired one.
+
+API:
+- `GET  /api/admin/gifts`       — list with cursor pagination and optional `?retired=true`
+- `POST /api/admin/gifts`       — create a new gift item
+- `PATCH /api/admin/gifts/:id`  — update any field
+- `DELETE /api/admin/gifts/:id` — retire (sets `is_active = FALSE`)
+
+User-facing `/gifts` page has a "Browse gift catalog" link that opens the send-gift modal so users can explore available gifts before choosing a recipient.
