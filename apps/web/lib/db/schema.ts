@@ -1199,6 +1199,12 @@ export const rooms = pgTable("rooms", {
   check("rooms_subscription_price_ngn_max", sql`${t.subscriptionPriceNgn} IS NULL OR ${t.subscriptionPriceNgn} <= 1000000000000`),
   check("rooms_entry_fee_ngn_max", sql`${t.entryFeeNgn} IS NULL OR ${t.entryFeeNgn} <= 1000000000000`),
   check("rooms_enrolment_fee_ngn_max", sql`${t.enrolmentFeeNgn} IS NULL OR ${t.enrolmentFeeNgn} <= 1000000000000`),
+  // BUG-RACE-01: functional partial unique index required for the ON CONFLICT
+  // ((metadata->>'season_ceremony_id')) DO NOTHING in createSeasonCeremonyRoom.
+  // Without this index PostgreSQL throws 'no unique constraint matching ON CONFLICT'.
+  uniqueIndex("rooms_season_ceremony_id_idx")
+    .on(sql`(metadata->>'season_ceremony_id')`)
+    .where(sql`metadata->>'season_ceremony_id' IS NOT NULL`),
 ]);
 
 export const roomMembers = pgTable(

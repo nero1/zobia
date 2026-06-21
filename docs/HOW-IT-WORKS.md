@@ -196,6 +196,8 @@ Creators (marked `is_creator = true`) earn revenue from:
 
 Revenue accrues to `creator_earnings`. The daily CRON (on payout day) checks creators above the minimum payout threshold (default: ₦5,000 via Paystack). Creators above the manual-approval threshold (default: ₦100,000) require admin approval before disbursement. Completed payouts record to `creator_payouts`.
 
+**Idempotency:** `creator_earnings` has a partial unique index on `(reference_id) WHERE reference_id IS NOT NULL`. Creator fund distribution supplies a deterministic `reference_id` (e.g. `creator_fund:<date>:<creatorId>`) so the `ON CONFLICT DO NOTHING` guard prevents double-crediting if the CRON runs twice in the same period.
+
 **Creator Tiers:** The `creator_tier` column on the `users` table follows five levels based on follower count:
 
 | Tier | Minimum followers | Creator Fund eligible |
@@ -286,6 +288,8 @@ Once enrolled, future revenue from the in-room AdMob/ad network is shared with t
 Every week, each user can be assigned a Nemesis: another user within 10% of their XP on their highest active track. The algorithm prefers users in the same city, excludes mutual friends. The Nemesis is displayed on the home screen with an XP delta. Notifications fire when the Nemesis overtakes the user or falls behind. A **Challenge** button starts a 7-day XP sprint between the two users.
 
 **Atomicity:** The nemesis assignment (deactivate old record + insert new) is performed inside a single database transaction. Either both succeed or neither does — users can never be left without an active nemesis due to a partial write.
+
+**Uniqueness:** A partial unique index on `nemesis_assignments(user_id, track) WHERE is_active = TRUE` ensures only one active nemesis per user per track at the DB level. The old non-partial index on `(user_id, track, is_active)` allowed multiple active rows for the same user/track pair.
 
 ### Elder System
 
