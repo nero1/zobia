@@ -264,7 +264,17 @@ BEGIN
         AND indexdef ILIKE '%unique%'
         AND (indexdef ILIKE '%(user_id%asset_type%' OR indexdef ILIKE '%(asset_type%user_id%')
     LOOP
-      EXECUTE format('DROP INDEX IF EXISTS %I', idx_name);
+      -- Unique indexes backed by a CONSTRAINT must be dropped via ALTER TABLE DROP CONSTRAINT
+      -- (which automatically drops the backing index). Standalone unique indexes use DROP INDEX.
+      IF EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = idx_name
+          AND conrelid = 'audit_discrepancies'::regclass
+      ) THEN
+        EXECUTE format('ALTER TABLE audit_discrepancies DROP CONSTRAINT IF EXISTS %I', idx_name);
+      ELSE
+        EXECUTE format('DROP INDEX IF EXISTS %I', idx_name);
+      END IF;
     END LOOP;
 
     -- Add detected_at column if missing
