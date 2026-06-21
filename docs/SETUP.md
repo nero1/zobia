@@ -283,6 +283,14 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    - Unique index on `audit_discrepancies (user_id, asset_type)` — prevents duplicate discrepancy records per user per asset type
    - Unique index on `guild_quest_contributions (quest_id, user_id)` — prevents a user from being credited twice for the same guild quest
 
+   Migration `0016_custom_bugs_gaps_fixes.sql` adds:
+   - `guilds.wars_drawn INTEGER NOT NULL DEFAULT 0` — backfills the draw-outcome counter used by the Alliance Wars resolution path
+
+   Migration `0017_partial_index_fixes.sql` adds:
+   - **BUG-NEM-01**: Drops the non-partial `UNIQUE(user_id, track, is_active)` constraint on `nemesis_assignments` and replaces it with a partial unique index on `(user_id, track) WHERE is_active = TRUE`. The old constraint meant only one inactive row per (user, track) could exist, causing conflicts after a single reassignment cycle.
+   - **BUG-CREA-01**: Adds partial unique index on `creator_earnings(reference_id) WHERE reference_id IS NOT NULL` to prevent double-crediting if the creator fund CRON runs twice in the same period.
+   - **BUG-RACE-01**: Adds functional unique index on `rooms ((metadata->>'season_ceremony_id')) WHERE metadata->>'season_ceremony_id' IS NOT NULL` — required for the `ON CONFLICT ((metadata->>'season_ceremony_id')) DO NOTHING` guard in `createSeasonCeremonyRoom` to work without throwing a constraint-not-found error.
+
 7. Optional seed data: `psql "$DIRECT_URL" < apps/web/lib/db/seed.sql`
 
 ### Option B: Railway PostgreSQL

@@ -353,24 +353,18 @@ export async function createSeasonCeremonyRoom(
     const adminId = adminRows[0]?.id;
     if (!adminId) return null;
 
-    // Check if a ceremony room already exists for this season
-    const { rows: existing } = await db.query<{ id: string }>(
-      `SELECT id FROM rooms WHERE metadata->>'season_ceremony_id' = $1 LIMIT 1`,
-      [seasonId]
-    );
-    if (existing[0]) return existing[0].id;
-
     const closesAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
     const slug = `season-${seasonId.slice(0, 8)}-ceremony`;
 
-    // Wrap both INSERTs in a single transaction so a failure on room_members
-    // never leaves an orphaned room that would be returned by the "already
-    // exists" guard above on every subsequent call.
+    // BUG-RACE-01: move the existence check inside the transaction and use
+    // ON CONFLICT DO NOTHING so concurrent CRON invocations cannot both pass
+    // the guard and insert two ceremony rooms for the same season.
     const roomId = await db.transaction(async (tx) => {
       const { rows: roomRows } = await tx.query<{ id: string }>(
         `INSERT INTO rooms
            (creator_id, name, description, type, slug, is_active, ends_at, metadata)
          VALUES ($1, $2, $3, 'free_open', $4, TRUE, $5, $6)
+         ON CONFLICT ((metadata->>'season_ceremony_id')) DO NOTHING
          RETURNING id`,
         [
           adminId,
@@ -382,8 +376,16 @@ export async function createSeasonCeremonyRoom(
         ]
       );
 
-      const id = roomRows[0]?.id;
-      if (!id) return null;
+      if (!roomRows[0]) {
+        // Another concurrent invocation already inserted this room — return its id
+        const { rows: existingRows } = await tx.query<{ id: string }>(
+          `SELECT id FROM rooms WHERE metadata->>'season_ceremony_id' = $1 LIMIT 1`,
+          [seasonId]
+        );
+        return existingRows[0]?.id ?? null;
+      }
+
+      const id = roomRows[0].id;
 
       // Add the admin as the initial room member so the room is not empty on creation.
       await tx.query(

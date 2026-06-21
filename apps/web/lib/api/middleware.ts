@@ -28,6 +28,7 @@ import {
 } from "@/lib/auth/jwt";
 import {
   getSession,
+  getSessionFresh,
   invalidateSession,
   ACCESS_TOKEN_COOKIE,
   REFRESH_TOKEN_COOKIE,
@@ -334,8 +335,9 @@ export function withAdminAuth<TParams = Record<string, string>>(
       const store = requestContext.getStore();
       if (store) store.userId = payload.sub;
 
-      // Confirm session is still alive in Redis
-      const session = await getSession(payload.sid);
+      // BUG-L1-01: bypass the 3-second L1 in-process cache for admin paths so a
+      // de-provisioned admin cannot continue to act within the staleness window.
+      const session = await getSessionFresh(payload.sid);
       if (!session) {
         const cleared = NextResponse.json(
           { error: "Unauthorised", code: "SESSION_REVOKED" },

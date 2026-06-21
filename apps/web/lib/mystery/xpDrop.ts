@@ -41,7 +41,7 @@ const MAX_XP = XP_VALUES.mystery_xp_drop_max;
  * Selects a random batch of recently active users and awards each a
  * random XP amount between MIN_XP and MAX_XP.
  *
- * Each award is recorded in xp_ledger with action = 'mystery_drop'.
+ * Each award is recorded in xp_ledger with source = 'mystery_drop'.
  * Users who already received a mystery drop in the last 24 hours are skipped.
  *
  * @param db        - Active database adapter.
@@ -61,6 +61,8 @@ export async function triggerMysteryXPDrop(
 
   // Find eligible users: active recently, no mystery drop in last 24h.
   // TABLESAMPLE avoids a full-table scan that ORDER BY RANDOM() would cause.
+  // BUG-XP-ACTION-01: xp_ledger has no `action` column — eligibility check must
+  // use `source` instead of `action` to match the actual schema.
   const eligibleResult = await db.query<{ id: string }>(
     `SELECT u.id
      FROM users u TABLESAMPLE BERNOULLI(5)
@@ -68,7 +70,7 @@ export async function triggerMysteryXPDrop(
        AND u.last_active_at >= $1
        AND u.id NOT IN (
          SELECT user_id FROM xp_ledger
-         WHERE action = 'mystery_drop'
+         WHERE source = 'mystery_drop'
            AND created_at >= NOW() - INTERVAL '24 hours'
        )
      LIMIT $2`,
@@ -84,7 +86,7 @@ export async function triggerMysteryXPDrop(
          AND u.last_active_at >= $1
          AND u.id NOT IN (
            SELECT user_id FROM xp_ledger
-           WHERE action = 'mystery_drop'
+           WHERE source = 'mystery_drop'
              AND created_at >= NOW() - INTERVAL '24 hours'
          )
        ORDER BY RANDOM()
@@ -111,8 +113,8 @@ export async function triggerMysteryXPDrop(
         // (user_id, source, reference_id) added in migration 0003.
         await client.query(
           `WITH ins AS (
-             INSERT INTO xp_ledger (user_id, amount, track, source, action, base_amount, reference_id, created_at)
-             VALUES ($1, $2, 'main', 'mystery_drop', 'mystery_drop', $2, $3, NOW())
+             INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, reference_id, created_at)
+             VALUES ($1, $2, 'main', 'mystery_drop', $2, $3, NOW())
              ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
              RETURNING id
            )

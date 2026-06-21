@@ -135,6 +135,9 @@ const PUBLIC_PREFIXES = [
   // not browser Origin header. These must bypass CSRF checks.
   "/api/economy/webhooks/paystack",
   "/api/economy/webhooks/dodopayments",
+  // Legacy webhook paths (pre-economy namespace refactor)
+  "/api/webhooks/paystack",
+  "/api/webhooks/dodopayments",
 ];
 
 /** Routes that require admin JWT claim. */

@@ -1199,6 +1199,12 @@ export const rooms = pgTable("rooms", {
   check("rooms_subscription_price_ngn_max", sql`${t.subscriptionPriceNgn} IS NULL OR ${t.subscriptionPriceNgn} <= 1000000000000`),
   check("rooms_entry_fee_ngn_max", sql`${t.entryFeeNgn} IS NULL OR ${t.entryFeeNgn} <= 1000000000000`),
   check("rooms_enrolment_fee_ngn_max", sql`${t.enrolmentFeeNgn} IS NULL OR ${t.enrolmentFeeNgn} <= 1000000000000`),
+  // BUG-RACE-01: functional partial unique index required for the ON CONFLICT
+  // ((metadata->>'season_ceremony_id')) DO NOTHING in createSeasonCeremonyRoom.
+  // Without this index PostgreSQL throws 'no unique constraint matching ON CONFLICT'.
+  uniqueIndex("rooms_season_ceremony_id_idx")
+    .on(sql`(metadata->>'season_ceremony_id')`)
+    .where(sql`metadata->>'season_ceremony_id' IS NOT NULL`),
 ]);
 
 export const roomMembers = pgTable(
@@ -1603,7 +1609,7 @@ export const seasons = pgTable("seasons", {
   }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   // Migration 012 (db): added updated_at
-  updatedAt: timestamp("updated_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
 export const userSeasonPasses = pgTable(
@@ -1782,11 +1788,10 @@ export const nemesisAssignments = pgTable(
       .defaultNow(),
   },
   (t) => ({
-    unique: uniqueIndex("nemesis_assignments_user_track_active_idx").on(
-      t.userId,
-      t.track,
-      t.isActive
-    ),
+    // BUG-NEM-01: partial unique index — only one active nemesis per (user, track)
+    activeIdx: uniqueIndex("nemesis_assignments_active_idx")
+      .on(t.userId, t.track)
+      .where(sql`is_active = TRUE`),
   })
 );
 
@@ -2327,7 +2332,12 @@ export const creatorEarnings = pgTable("creator_earnings", {
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
-});
+}, (t) => ({
+  // BUG-CREA-01: partial unique index to prevent duplicate creator fund distributions
+  referenceIdIdx: uniqueIndex("creator_earnings_reference_id_idx")
+    .on(t.referenceId)
+    .where(sql`reference_id IS NOT NULL`),
+}));
 
 export const creatorPayouts = pgTable(
   "creator_payouts",

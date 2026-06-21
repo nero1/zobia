@@ -25,6 +25,7 @@ import { grantGamingReward, checkPlayMilestones, type RewardBundle } from "@/lib
 import { updateBestScore } from "@/lib/games/leaderboard";
 import { recordChallengeRoundPlay } from "@/lib/games/challenges";
 import { getGamesConfig } from "@/lib/games/config";
+import { logger } from "@/lib/logger";
 import type { GameConfigRow } from "@/lib/games/repo";
 
 export interface StartedSession {
@@ -208,7 +209,7 @@ export async function finalizeScore(
   // Advance the challenge round (settles the series + wager when both played).
   if (isChallenge && play.challenge_round_id) {
     await recordChallengeRoundPlay(play.challenge_round_id, userId, play.id, score).catch(
-      () => {}
+      (err) => logger.error({ err, userId, challengeRoundId: play.challenge_round_id }, '[games] recordChallengeRoundPlay failed')
     );
   }
 

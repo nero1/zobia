@@ -256,7 +256,7 @@ export async function getBalance(
   txClient?: TransactionClient
 ): Promise<number> {
   const query = txClient ?? db;
-  const { rows } = await query.query<{ coin_balance: number }>(
+  const { rows } = await query.query<{ coin_balance: string }>(
     `SELECT coin_balance FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
     [userId]
   );

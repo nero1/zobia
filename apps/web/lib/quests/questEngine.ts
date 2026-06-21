@@ -23,12 +23,14 @@ import { logger } from "@/lib/logger";
 
 // Maps a ProgressionTrack name to the corresponding users table column
 const TRACK_COLUMN: Record<string, string> = {
+  main: "xp_total",
   social: "xp_social",
   creator: "xp_creator",
   competitor: "xp_competitor",
   generosity: "xp_generosity",
   knowledge: "xp_knowledge",
   explorer: "xp_explorer",
+  gaming: "xp_gaming",
 };
 
 // ---------------------------------------------------------------------------
