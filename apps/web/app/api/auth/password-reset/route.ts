@@ -31,6 +31,7 @@ import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { env } from "@/lib/env";
 import { verifyCaptcha, getCaptchaProvider } from "@/lib/security/captcha";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -140,7 +141,7 @@ export const POST = async (req: NextRequest) => {
 
     // Send reset email (non-blocking)
     sendResetEmail(user.email, user.display_name, rawToken).catch((err) => {
-      console.error("[password-reset] Failed to send email:", err);
+      logger.error({ err, userId: user.id }, "[password-reset] Failed to send email");
     });
 
     return NextResponse.json({
@@ -202,7 +203,7 @@ export const PATCH = async (req: NextRequest) => {
     // Revoke all existing sessions so a compromised old session cannot survive the reset
     const { invalidateAllSessions } = await import("@/lib/auth/session");
     await invalidateAllSessions(tokenRow.user_id).catch((err) => {
-      console.error("[password-reset] Failed to invalidate sessions:", err);
+      logger.error({ err, userId: tokenRow.user_id }, "[password-reset] Failed to invalidate sessions");
     });
 
     return NextResponse.json({

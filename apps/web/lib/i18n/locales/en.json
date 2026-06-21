@@ -1481,5 +1481,16 @@
   "pwa.updateDismiss": "Later",
   "leaderboard.hallOfFame.label": "Hall of Fame",
   "leaderboard.hallOfFame.pinned": "Hall of Fame — Pinned",
-  "leaderboard.hallOfFame.tooltip": "This user is a Hall of Fame member and is permanently featured on this leaderboard."
+  "leaderboard.hallOfFame.tooltip": "This user is a Hall of Fame member and is permanently featured on this leaderboard.",
+  "nav.help": "Help",
+  "auth.restore.requestTitle": "Restore your account",
+  "auth.restore.requestBody": "Enter your registered email address to receive an account restore link.",
+  "auth.restore.emailLabel": "Email address",
+  "auth.restore.submit": "Send restore link",
+  "auth.restore.checkEmail": "If that email belongs to a deleted account, a restore link has been sent.",
+  "auth.restore.restoreTitle": "Restoring your account…",
+  "auth.restore.restoreBody": "Please wait while we restore your account.",
+  "auth.restore.success": "Account restored successfully. Welcome back!",
+  "errors.restore_token_invalid": "Invalid or expired restore token.",
+  "errors.restore_failed": "Account restore failed. Please try again or contact support."
 }

@@ -20,6 +20,7 @@
 import IORedis from "ioredis";
 import { Redis as UpstashRedis, type SetCommandOptions } from "@upstash/redis";
 import { env } from "@/lib/env";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Shared client interface (subset used by the app)
@@ -135,12 +136,12 @@ function createIoRedisClient(): IORedis {
   });
 
   _ioredisClient.on("error", (err) => {
-    console.error("[redis:ioredis] error", err);
+    logger.error({ err }, "[redis:ioredis] error");
   });
 
   _ioredisClient.on("connect", () => {
     if (env.NODE_ENV !== "production") {
-      console.log("[redis:ioredis] connected");
+      logger.debug("[redis:ioredis] connected");
     }
   });
 

@@ -186,7 +186,7 @@ async function sendExpoBatch(
 
     if (!response.ok) {
       const text = await response.text().catch(() => "(unreadable)");
-      console.error(`[push] Expo API returned ${response.status}: ${text}`);
+      logger.error({ status: response.status, recipientCount: messages.length }, `[push] Expo API returned ${response.status}: ${text}`);
       // BUG-12: write system_alert so ops can detect silent notification loss
       await db.query(
         `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
@@ -214,9 +214,7 @@ async function sendExpoBatch(
         if (errCode === "DeviceNotRegistered") {
           staleTokens.add(messages[i].token);
         } else {
-          console.error(
-            `[push] Expo ticket error: ${ticket.message ?? "unknown"} (${errCode})`
-          );
+          logger.error({ errCode, message: ticket.message }, `[push] Expo ticket error: ${ticket.message ?? "unknown"} (${errCode})`);
         }
       }
     }
@@ -234,11 +232,11 @@ async function sendExpoBatch(
           params
         )
         .catch((err) =>
-          console.error("[push] Failed to persist push tickets:", err)
+          logger.error({ err }, "[push] Failed to persist push tickets")
         );
     }
   } catch (err) {
-    console.error("[push] Failed to send Expo push batch:", err);
+    logger.error({ err }, "[push] Failed to send Expo push batch");
   }
 
   return staleTokens;
@@ -258,9 +256,9 @@ async function purgeStaleTokens(tokens: Set<string>): Promise<void> {
       `DELETE FROM user_push_tokens WHERE token = ANY($1)`,
       [list]
     );
-    console.info(`[push] Purged ${list.length} stale push token(s).`);
+    logger.info({ count: list.length }, "[push] Purged stale push tokens");
   } catch (err) {
-    console.error("[push] Failed to purge stale tokens:", err);
+    logger.error({ err }, "[push] Failed to purge stale tokens");
   }
 }
 
@@ -330,9 +328,7 @@ export async function pollPushReceipts(): Promise<number> {
         });
 
         if (!response.ok) {
-          console.error(
-            `[push/receipts] Expo receipts API returned ${response.status}`
-          );
+          logger.error({ status: response.status }, "[push/receipts] Expo receipts API returned non-200");
           continue;
         }
 
@@ -359,13 +355,11 @@ export async function pollPushReceipts(): Promise<number> {
               if (ticket.token) {
                 staleTokens.add(ticket.token);
               } else {
-                console.warn(`[push/receipts] Ticket ${ticket.ticket_id} has no stored token; cannot purge specific device.`);
+                logger.warn({ ticketId: ticket.ticket_id }, "[push/receipts] Ticket has no stored token; cannot purge specific device");
               }
             } else {
               errorIds.push(ticket.id);
-              console.error(
-                `[push/receipts] Delivery error for ticket ${ticket.ticket_id}: ${receipt.message ?? "unknown"} (${errCode})`
-              );
+              logger.error({ ticketId: ticket.ticket_id, errCode, message: receipt.message }, "[push/receipts] Delivery error for ticket");
             }
             totalResolved++;
           }
@@ -404,11 +398,11 @@ export async function pollPushReceipts(): Promise<number> {
           await purgeStaleTokens(staleTokens);
         }
       } catch (batchErr) {
-        console.error("[push/receipts] Failed to process receipt batch:", batchErr);
+        logger.error({ err: batchErr }, "[push/receipts] Failed to process receipt batch");
       }
     }
   } catch (err) {
-    console.error("[push/receipts] pollPushReceipts failed:", err);
+    logger.error({ err }, "[push/receipts] pollPushReceipts failed");
   } finally {
     await redis.del(LOCK_KEY).catch(() => {});
   }
@@ -513,7 +507,7 @@ export async function sendPushNotification(
     const stale = await sendExpoBatch(messages);
     await purgeStaleTokens(stale);
   } catch (err) {
-    console.error(`[push] sendPushNotification failed for user ${userId}:`, err);
+    logger.error({ err, userId }, "[push] sendPushNotification failed");
   }
 }
 
@@ -618,6 +612,6 @@ export async function sendPushNotificationBatch(
     }
     await purgeStaleTokens(allStale);
   } catch (err) {
-    console.error("[push] sendPushNotificationBatch failed:", err);
+    logger.error({ err }, "[push] sendPushNotificationBatch failed");
   }
 }

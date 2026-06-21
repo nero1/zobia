@@ -11,6 +11,7 @@ import { creditCoins } from "@/lib/economy/coins";
 import { creditStars } from "@/lib/economy/stars";
 import { awardReferralCommissions, recordFailedCommission } from "@/lib/referrals/commissions";
 import { moveToDeadLetterQueue, getCreatorFeeRate } from "@/lib/payments/payouts";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // DodoPayments webhook event types
@@ -80,16 +81,12 @@ export async function processPaymentSucceeded(
     );
 
     if (!existing[0]) {
-      console.error(
-        `[webhook/dodopayments] No payment record for reference: ${providerReference}`
-      );
+      logger.error({ providerReference }, "[webhook/dodopayments] No payment record for reference");
       return;
     }
 
     if (existing[0].status === "completed") {
-      console.info(
-        `[webhook/dodopayments] Duplicate event for reference: ${providerReference}`
-      );
+      logger.info({ providerReference }, "[webhook/dodopayments] Duplicate event for reference");
       return;
     }
 
@@ -117,7 +114,7 @@ export async function processPaymentSucceeded(
         [itemSlug]
       );
       if (!itemRows[0]) {
-        console.error(`[webhook/dodopayments] Unknown store item slug: ${itemSlug}`);
+        logger.error({ itemSlug, paymentId }, "[webhook/dodopayments] Unknown store item slug");
         return;
       }
       if (itemRows[0].coins_granted != null) serverCoinsGranted = itemRows[0].coins_granted;
@@ -128,10 +125,7 @@ export async function processPaymentSucceeded(
     // Safety guard: if this is a coin_pack but we could not resolve an amount
     // from the database (no itemSlug), reject silently rather than crediting 0.
     if (itemType === "coin_pack" && !grantResolvedFromDb && serverCoinsGranted === 0) {
-      console.error(
-        `[webhook/dodopayments] coin_pack payment ${paymentId} has no itemSlug and coinsGranted=0 — queued for manual review`,
-        { paymentId, metadata }
-      );
+      logger.error({ paymentId, metadata }, "[webhook/dodopayments] coin_pack payment has no itemSlug and coinsGranted=0 — queued for manual review");
       await tx.query(
         `INSERT INTO failed_webhooks (provider, event_type, payload, error, created_at)
          VALUES ('dodopayments', 'payment.succeeded', $1::jsonb, $2, NOW())`,
@@ -148,7 +142,7 @@ export async function processPaymentSucceeded(
         reference?: string;
       };
       if (!businessAccountId || !newTier) {
-        console.error(`[webhook/dodopayments] business_upgrade missing businessAccountId or newTier`, { providerReference, metadata });
+        logger.error({ providerReference, metadata }, "[webhook/dodopayments] business_upgrade missing businessAccountId or newTier");
         return;
       }
 
@@ -170,9 +164,9 @@ export async function processPaymentSucceeded(
       // prior webhook delivery) — sending the notification anyway would be a
       // false success. Raise a system_alert for manual reconciliation.
       if (activationResult.rowCount === 0) {
-        console.error(
-          `[webhook/dodopayments] business_upgrade activation matched 0 rows (stale or already-applied reference)`,
-          { paymentRef, businessAccountId, newTier }
+        logger.error(
+          { paymentRef, businessAccountId, newTier },
+          "[webhook/dodopayments] business_upgrade activation matched 0 rows (stale or already-applied reference)"
         );
         await tx.query(
           `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
@@ -213,7 +207,7 @@ export async function processPaymentSucceeded(
       // BUG-PAY-05: validate roomId is a UUID before querying to prevent DB errors
       const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (!roomId || !UUID_RE.test(roomId)) {
-        console.error(`[webhook/dodopayments] room_subscription has invalid roomId: ${roomId}`, { paymentId, metadata });
+        logger.error({ roomId, paymentId, metadata }, "[webhook/dodopayments] room_subscription has invalid roomId");
         return;
       }
 
@@ -223,7 +217,7 @@ export async function processPaymentSucceeded(
         [roomId]
       );
       if (!roomCheck.rows[0]) {
-        console.warn(`[webhook/dodopayments] Room ${roomId} not found, skipping room subscription`);
+        logger.warn({ roomId }, "[webhook/dodopayments] Room not found, skipping room subscription");
         roomId = null as unknown as string;
       }
 
@@ -297,9 +291,9 @@ export async function processPaymentSucceeded(
       // user receives an unintended tier upgrade.
       const rawPlanName = metadata.planName ?? "";
       if (!VALID_PLANS.includes(rawPlanName as (typeof VALID_PLANS)[number])) {
-        console.error(
-          `[webhook/dodopayments] Unrecognised plan name: "${rawPlanName}" — aborting subscription activation`,
-          { providerReference, metadata }
+        logger.error(
+          { rawPlanName, providerReference, metadata },
+          "[webhook/dodopayments] Unrecognised plan name — aborting subscription activation"
         );
         await tx.query(
           `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
@@ -378,7 +372,7 @@ export async function processPaymentSucceeded(
       if (serverStarsGranted <= 0) {
         // BUG-PAY-04: throwing here rolls back the entire transaction including the payment
         // status update, so the webhook retries forever. Write to DLQ and return instead.
-        console.error(`[webhook/dodopayments] star_pack has zero/negative stars for payment ${paymentId}`, { metadata });
+        logger.error({ paymentId, metadata }, "[webhook/dodopayments] star_pack has zero/negative stars");
         await tx.query(
           `INSERT INTO failed_webhooks (provider, event_type, payload, error, created_at)
            VALUES ('dodopayments', 'payment.succeeded', $1::jsonb, $2, NOW())`,
@@ -398,9 +392,9 @@ export async function processPaymentSucceeded(
       // Coin pack — use server-authoritative amount (BUG-02)
       if (serverCoinsGranted <= 0) {
         // Zero-coin grant would be a no-op credit but could still throw; log to DLQ and skip.
-        console.error(
-          `[webhook/dodopayments] coin_pack payment ${paymentId} resolved to 0 coins — queued for review`,
-          { paymentId, metadata }
+        logger.error(
+          { paymentId, metadata },
+          "[webhook/dodopayments] coin_pack payment resolved to 0 coins — queued for review"
         );
         await tx.query(
           `INSERT INTO failed_webhooks (provider, event_type, payload, error, created_at)
@@ -447,7 +441,7 @@ export async function processPaymentSucceeded(
     try {
       await awardReferralCommissions(db, capturedReferral.userId, capturedReferral.coins, capturedReferral.paymentId, capturedReferral.amountSmallestUnit);
     } catch (err) {
-      console.error("[webhook/dodo] Referral commission error — writing to DLQ:", err);
+      logger.error({ err, paymentId: capturedReferral.paymentId, userId: capturedReferral.userId }, "[webhook/dodo] Referral commission error — writing to DLQ");
       await recordFailedCommission(
         capturedReferral.paymentId,
         capturedReferral.userId,
@@ -480,7 +474,7 @@ export async function processPayoutEvent(event: DodoPayoutEvent): Promise<void> 
   );
   const payout = rows[0];
   if (!payout) {
-    console.warn(`[webhook/dodopayments] payout.failed for unknown reference: ${reference}`);
+    logger.warn({ reference }, "[webhook/dodopayments] payout.failed for unknown reference");
     return;
   }
 
@@ -511,6 +505,6 @@ export async function handleDodoWebhookPayload(
       break;
 
     default:
-      console.info(`[webhook/dodopayments] Ignoring unhandled event: ${eventType}`);
+      logger.info({ eventType }, "[webhook/dodopayments] Ignoring unhandled event");
   }
 }
