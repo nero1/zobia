@@ -500,7 +500,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
       // 9b. Deduct coins via debitCoins() — writes a ledger row and is idempotent
       //     on conversationId, preventing double-charges on client retries.
-      if (coinCost > 0 && !sender.is_admin) {
+      if (coinCost !== null && coinCost > 0 && !sender.is_admin) {
         try {
           await debitCoins(
             auth.user.sub,
