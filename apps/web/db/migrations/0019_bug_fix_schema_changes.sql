@@ -18,7 +18,7 @@ DO $$ BEGIN
   ) THEN
     ALTER TABLE dm_conversations
       ADD CONSTRAINT dm_conversations_user_ordering
-      CHECK (user1_id < user2_id);
+      CHECK (user_id_1 < user_id_2);
   END IF;
 END $$;
 
