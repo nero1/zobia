@@ -381,88 +381,103 @@ export async function processTransferEvent(
 ): Promise<void> {
   const { reference, status, transfer_code } = event.data;
 
-  // Look up payout by provider_reference (merchant reference stored at initiation)
-  const { rows } = await db.query<{
-    id: string;
-    creator_id: string;
-    gross_kobo: number;
-    net_kobo: number;
-    retry_count: number;
-  }>(
-    `SELECT id, creator_id, gross_kobo, net_kobo, retry_count
-     FROM creator_payouts
-     WHERE provider_reference = $1
-     LIMIT 1`,
-    [reference]
-  );
+  // BUG-PAY-01 FIX: wrap the payout read and all subsequent status updates in a
+  // single transaction with FOR UPDATE so the webhook handler and the CRON batch
+  // processor mutually exclude each other on the same payout row. Without FOR UPDATE
+  // both could read the row concurrently and double-increment retry_count or initiate
+  // two Paystack transfer calls for the same payout.
+  let payoutId: string | null = null;
+  let creatorId: string | null = null;
+  let netKobo: number = 0;
 
-  if (!rows[0]) {
-    console.warn(`[webhook/paystack] No payout found for transfer reference: ${reference}`);
-    return;
-  }
+  await db.transaction(async (tx) => {
+    const { rows } = await tx.query<{
+      id: string;
+      creator_id: string;
+      gross_kobo: number;
+      net_kobo: number;
+      retry_count: number;
+    }>(
+      `SELECT id, creator_id, gross_kobo, net_kobo, retry_count
+       FROM creator_payouts
+       WHERE provider_reference = $1
+       LIMIT 1
+       FOR UPDATE`,
+      [reference]
+    );
 
-  const payout = rows[0];
+    if (!rows[0]) {
+      console.warn(`[webhook/paystack] No payout found for transfer reference: ${reference}`);
+      return;
+    }
 
-  if (event.event === "transfer.success") {
-    await db.transaction(async (tx) => {
+    const payout = rows[0];
+    payoutId = payout.id;
+    creatorId = payout.creator_id;
+    netKobo = payout.net_kobo;
+
+    if (event.event === "transfer.success") {
       await tx.query(
         `UPDATE creator_payouts
          SET status = 'completed', completed_at = NOW(), updated_at = NOW()
          WHERE id = $1`,
         [payout.id]
       );
-    });
 
-    // Notify creator of successful payout
+    } else if (event.event === "transfer.failed") {
+      const manifest = await loadManifest();
+      const maxRetries = manifest.payouts.maxRetries;
+
+      const newRetryCount = payout.retry_count + 1;
+
+      if (newRetryCount >= maxRetries) {
+        await moveToDeadLetterQueue(
+          payout.id,
+          payout.creator_id,
+          newRetryCount,
+          `Paystack transfer failed after ${maxRetries} attempts. Status: ${status}`
+        );
+        await notifyPayoutFailure(
+          payout.id,
+          payout.creator_id,
+          `Your payout could not be processed after multiple attempts. Please check your bank account details.`
+        );
+      } else {
+        // Exponential backoff: 5min, 15min, 45min
+        const backoffMinutes = [5, 15, 45][Math.min(newRetryCount - 1, 2)];
+        await tx.query(
+          `UPDATE creator_payouts
+           SET status = 'failed',
+               retry_count = $1,
+               last_retry_at = NOW(),
+               next_retry_at = NOW() + ($2 || ' minutes')::INTERVAL,
+               updated_at = NOW()
+           WHERE id = $3`,
+          [newRetryCount, backoffMinutes, payout.id]
+        );
+      }
+    }
+  });
+
+  // Post-transaction notifications (no row lock needed)
+  if (event.event === "transfer.success" && payoutId && creatorId) {
     await db.query(
       `INSERT INTO notifications
          (user_id, type, title, body, metadata, created_at)
        VALUES ($1, 'payout_completed', 'Payout Successful',
          'Your payout has been processed and is on its way to your bank account.',
          $2::jsonb, NOW())`,
-      [payout.creator_id, JSON.stringify({ payoutId: payout.id, reference })]
+      [creatorId, JSON.stringify({ payoutId, reference })]
     ).catch(() => {});
+  }
 
-  } else if (event.event === "transfer.failed") {
-    const manifest = await loadManifest();
-    const maxRetries = manifest.payouts.maxRetries;
-
-    const newRetryCount = payout.retry_count + 1;
-
-    if (newRetryCount >= maxRetries) {
-      await moveToDeadLetterQueue(
-        payout.id,
-        payout.creator_id,
-        newRetryCount,
-        `Paystack transfer failed after ${maxRetries} attempts. Status: ${status}`
-      );
-      await notifyPayoutFailure(
-        payout.id,
-        payout.creator_id,
-        `Your payout could not be processed after multiple attempts. Please check your bank account details.`
-      );
-    } else {
-      // Exponential backoff: 5min, 15min, 45min
-      const backoffMinutes = [5, 15, 45][Math.min(newRetryCount - 1, 2)];
-      await db.query(
-        `UPDATE creator_payouts
-         SET status = 'failed',
-             retry_count = $1,
-             last_retry_at = NOW(),
-             next_retry_at = NOW() + ($2 || ' minutes')::INTERVAL,
-             updated_at = NOW()
-         WHERE id = $3`,
-        [newRetryCount, backoffMinutes, payout.id]
-      );
-    }
-
-  } else if (event.event === "transfer.reversed") {
+  if (event.event === "transfer.reversed" && payoutId && creatorId) {
     // Restore earnings to creator — guard with FOR UPDATE + earnings_restored flag
     // to prevent duplicate webhook deliveries from double-crediting (#8)
     await db.transaction(async (tx) => {
       const { rows: cur } = await tx.query<{ status: string; earnings_restored: boolean }>(
         `SELECT status, earnings_restored FROM creator_payouts WHERE id = $1 FOR UPDATE`,
-        [payout.id]
+        [payoutId]
       );
       if (!cur[0] || cur[0].status === "reversed") return; // already handled
 
@@ -470,19 +485,19 @@ export async function processTransferEvent(
         `UPDATE creator_payouts
          SET status = 'reversed', updated_at = NOW()
          WHERE id = $1`,
-        [payout.id]
+        [payoutId]
       );
 
       if (!cur[0].earnings_restored) {
         await tx.query(
           `UPDATE creator_payouts SET earnings_restored = true WHERE id = $1`,
-          [payout.id]
+          [payoutId]
         );
         await tx.query(
           `UPDATE users
            SET available_earnings_kobo = available_earnings_kobo + $1, updated_at = NOW()
            WHERE id = $2`,
-          [payout.net_kobo, payout.creator_id]
+          [netKobo, creatorId]
         );
       }
     });
@@ -494,7 +509,7 @@ export async function processTransferEvent(
        VALUES ($1, 'payout_reversed', 'Payout Reversed',
          'Your payout was reversed by the payment network. Your earnings have been restored to your balance. Please verify your bank account details.',
          $2::jsonb, NOW())`,
-      [payout.creator_id, JSON.stringify({ payoutId: payout.id })]
+      [creatorId, JSON.stringify({ payoutId })]
     ).catch(() => {});
   }
 }

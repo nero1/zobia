@@ -437,14 +437,20 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       await redis.set(idempKey, "completed", "EX", 86400).catch(() => {});
     }
 
-    // 4. Award XP (fire-and-forget) — fetch sender plan for multiplier
-    db.query<{ plan: Plan }>(
-      `SELECT COALESCE(plan, 'free') AS plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [senderId]
-    ).then(({ rows }) => {
-      const senderPlan: Plan = rows[0]?.plan ?? 'free';
-      return awardGiftXP(senderId, body.recipientId, giftItem.tier, senderPlan, giftId, body.roomId);
-    }).catch((err) => logger.error({ err }, '[gifts:POST] XP award failed'));
+    // 4. Award XP — await so the award is guaranteed to run before the serverless
+    // function returns. BUG-XP-FIRE-01 FIX: fire-and-forget promises may be
+    // garbage-collected when Vercel terminates the invocation after the response is
+    // sent, silently dropping all XP grants with no DLQ fallback.
+    try {
+      const { rows: planRows } = await db.query<{ plan: Plan }>(
+        `SELECT COALESCE(plan, 'free') AS plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+        [senderId]
+      );
+      const senderPlan: Plan = planRows[0]?.plan ?? 'free';
+      await awardGiftXP(senderId, body.recipientId, giftItem.tier, senderPlan, giftId, body.roomId);
+    } catch (err) {
+      logger.error({ err }, '[gifts:POST] XP award failed');
+    }
 
     // 5. Record guild war contribution (fire-and-forget)
     recordWarContribution(senderId, 'send_gift', db).catch((err) =>

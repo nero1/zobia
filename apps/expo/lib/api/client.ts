@@ -156,14 +156,20 @@ async function refreshAccessToken(): Promise<string | null> {
         });
         if (meRes.ok) {
           const me = (await meRes.json()) as Record<string, unknown>;
+          // BUG-MOB-01 FIX: include ALL AuthUser fields so plan-gated UI, admin
+          // panels, and onboarding checks are never stale after a token rotation.
           const updatedUser = {
             id: (me.id ?? me.user_id ?? '') as string,
             username: (me.username ?? '') as string,
             avatarEmoji: (me.avatarEmoji ?? me.avatar_emoji ?? '') as string,
             city: (me.city ?? '') as string,
             xp: Number(me.xp ?? me.xp_total ?? 0),
-            // BUG-M02: 'iron' is not a valid RankName — the lowest valid rank is 'Beginner'
             rankTier: (me.rankTier ?? me.rank_name ?? 'Beginner') as string,
+            plan: (me.plan ?? 'free') as string,
+            isAdmin: Boolean(me.isAdmin ?? me.is_admin ?? false),
+            isModerator: Boolean(me.isModerator ?? me.is_moderator ?? false),
+            isCreator: Boolean(me.isCreator ?? me.is_creator ?? false),
+            onboardingCompleted: Boolean(me.onboardingCompleted ?? me.onboarding_completed ?? false),
           };
           const userJson = JSON.stringify(updatedUser);
           await SecureStore.setItemAsync('zobia_user', userJson);

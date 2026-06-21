@@ -21,6 +21,7 @@ import type { DatabaseAdapter } from "@/lib/db/interface";
 // When the DB schema changes, these imports break at compile time rather than
 // at runtime. Use schema.$inferSelect field names as authoritative references.
 import { schema } from "@/lib/db/schema";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -321,14 +322,9 @@ export async function updateTrustScore(
 ): Promise<void> {
   try {
     const newScore = await calculateTrustScore(userId, db);
-    console.info(
-      `[trustScore] Updated for user ${userId} (event: ${event}) → ${newScore}`
-    );
+    logger.info({ userId, event, score: newScore }, '[trustScore] Updated');
   } catch (err) {
-    console.error(
-      `[trustScore] Failed to update for user ${userId} (event: ${event}):`,
-      err
-    );
+    logger.error({ userId, event, err }, '[trustScore] Failed to update');
   }
 }
 
