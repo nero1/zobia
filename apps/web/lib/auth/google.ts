@@ -54,6 +54,7 @@ const SCOPES = ["openid", "email", "profile"];
  * @returns Full OAuth redirect URL
  */
 export function buildGoogleAuthUrl(state: string): string {
+  if (!env.GOOGLE_CLIENT_ID) throw new Error("Google OAuth is not configured (GOOGLE_CLIENT_ID missing)");
   const redirectUri = `${env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")}/api/auth/google/callback`;
 
   const params = new URLSearchParams({
@@ -82,6 +83,9 @@ export function buildGoogleAuthUrl(state: string): string {
 export async function exchangeGoogleCode(
   code: string
 ): Promise<GoogleTokenResponse> {
+  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
+    throw new Error("Google OAuth is not configured (GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET missing)");
+  }
   const redirectUri = `${env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")}/api/auth/google/callback`;
 
   const res = await safeFetch(

@@ -80,7 +80,10 @@ export async function initiateAccountRestore(email: string): Promise<boolean> {
   if (!user) return false;
 
   const rawToken = await signRestoreToken(user.id);
-  const restoreUrl = `${env.NEXT_PUBLIC_APP_URL}/auth/restore?token=${encodeURIComponent(rawToken)}`;
+  // BUG-AUTH-01 FIX: use a URL fragment (#token=) so the token is never sent in
+  // server request logs or Referer headers when the user clicks the link.
+  // The restore page reads window.location.hash and POSTs the token to the API.
+  const restoreUrl = `${env.NEXT_PUBLIC_APP_URL}/auth/restore#token=${encodeURIComponent(rawToken)}`;
   const displayName = user.display_name ?? "there";
 
   try {
@@ -127,11 +130,13 @@ export async function completeAccountRestore(token: string): Promise<RestoreResu
 
   const { userId, jti } = payload;
 
-  // BUG-45 FIX: single-use token enforcement via Redis.
-  // If the jti was already consumed, reject immediately to prevent replay.
+  // BUG-45 FIX: single-use token enforcement via atomic Redis SET NX.
+  // SET NX is atomic: if the key already exists it returns null (already consumed);
+  // if it didn't exist it sets it and returns "OK" (first use). This eliminates
+  // the TOCTOU race between a separate EXISTS check and a subsequent SET.
   const usedKey = `restore:used:${jti}`;
-  const alreadyUsed = await redis.exists(usedKey).catch(() => 0);
-  if (alreadyUsed) {
+  const marked = await redis.set(usedKey, "1", "EX", RESTORE_TOKEN_TTL_SECONDS, "NX").catch(() => null);
+  if (marked === null) {
     return { success: false, error: "Restore link has already been used. Please request a new one." };
   }
 
@@ -165,8 +170,7 @@ export async function completeAccountRestore(token: string): Promise<RestoreResu
     [userId, userId, JSON.stringify({ method: "self_restore_token" })]
   ).catch(() => {});
 
-  // Mark token as consumed so it cannot be replayed.
-  await redis.set(usedKey, "1", "EX", RESTORE_TOKEN_TTL_SECONDS).catch(() => {});
+  // (Token already marked consumed atomically via SET NX above)
 
   // Issue new session tokens
   try {

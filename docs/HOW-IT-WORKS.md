@@ -532,6 +532,8 @@ Atomicity: every debit operation pairs the `UPDATE users SET coin_balance = ...`
 - After `payout_max_retries` (default 3) failures: move to `payout_dead_letter_queue`, restore `net_kobo` (falling back to `gross_kobo`) to creator's `available_earnings_kobo`, notify creator and create admin `system_alert`.
 
 **Paystack Webhook (`POST /api/economy/webhooks/paystack`):**
+- Validates `Content-Type: application/json` before reading the body — returns HTTP 415 if the header is absent or wrong (prevents parser-confusion attacks).
+- Validates HMAC-SHA512 signature (`x-paystack-signature`) before any processing — invalid signatures return 200 with `{ received: false }` so Paystack does not retry.
 - `transfer.success` → payout status `completed`, creator notified.
 - `transfer.failed` → retry logic or DLQ (same as CRON failure path).
 - `transfer.reversed` → payout status `reversed`, `net_kobo` (falling back to `gross_kobo`) restored to creator's `available_earnings_kobo`, creator notified.
@@ -589,7 +591,7 @@ Plan-based message retention limits are enforced nightly:
 - **Plus plan**: Messages older than 180 days are permanently deleted.
 - **Pro / Max plan**: No deletion — unlimited history.
 
-Deletion is batched by joining `room_messages` against the sender's subscription plan. Results (`freeDeleted`, `plusDeleted`) are included in the CRON response JSON for monitoring.
+Deletion is batched by joining the `messages` table against the sender's **current** subscription plan (`users.plan`). A user who upgrades to Plus retains messages that would otherwise fall outside the free window; a user who downgrades has the stricter free window applied on the next nightly run. Messages with a non-null `retain_until` timestamp are never pruned before that date. Results (`freeDeleted`, `plusDeleted`) are included in the CRON response JSON for monitoring.
 
 ### Offline Sync
 
@@ -858,7 +860,7 @@ War points stop accumulating for the suspended user's guild. The guild still com
 If the platform's payment provider balance falls below the `payout_low_balance_alert_kobo` threshold in `x_manifest`, the admin alert system fires a `payout_low_balance` system alert. Payouts are queued but not processed. Admin tops up the account → the queue processes on the next CRON run or manual trigger.
 
 **AI provider failure**
-The circuit breaker counts consecutive failures per provider. After 3 failures, the router switches to the fallback provider. If both DeepSeek and Gemini are failing, the report is held in `pending` status and a `ai_provider_failure` system alert fires. Human moderators can process the backlog manually. The circuit breaker resets after a configurable cool-down period.
+Both DeepSeek and Gemini have independent circuit breakers persisted in Redis (`ai:circuit:deepseek:*` and `ai:circuit:gemini:*`). After 3 consecutive failures, the respective provider's circuit opens and the request is routed to the other provider. If both circuits are open simultaneously, the call throws an error and the moderation report is held in `pending` status — a `ai_provider_failure` system alert fires. Human moderators can process the backlog manually. Each circuit enters a half-open state after the configurable recovery window and resets on the next successful call. The admin AI Settings page (`/admin/ai-settings`) shows the circuit status and failure count for both providers.
 
 **CRON failure**
 CRON failures are caught, logged to Redis (`cron_failure:<handler>:<date>`), and trigger a `cron_failure` system alert. The daily quest deck rollover is designed to be safe to apply late: if the CRON runs at 1:00 AM instead of midnight, it detects which users need their deck reset and applies it. Partial runs (e.g. CRON hit a timeout at user #5000 of 10000) are handled by idempotent checks — already-reset users are skipped on re-run.

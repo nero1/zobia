@@ -218,7 +218,12 @@ export default function LoginScreen() {
             return;
           }
         } catch {
-          // Network error — retry with backoff
+          // Network error — retry with backoff, but still honour MAX_ATTEMPTS
+          if (attempt >= MAX_ATTEMPTS) {
+            stopTelegramPoll();
+            Alert.alert(t('auth.loginTimeoutTitle'), t('auth.loginTimeoutBody'));
+            return;
+          }
         }
         scheduleNext(attempt + 1);
       }, delayMs);

@@ -53,35 +53,46 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         { status: 206 }
       );
     }
-    // BUG-CRON-03: use a single CTE to read both balance and ledger sum atomically,
-    // eliminating the TOCTOU window between the two separate queries.
-    const { rows: users } = await db.query<{ id: string; xp_total: string; coin_balance: string }>(
-      `SELECT id, xp_total::text, coin_balance::text FROM users
-       WHERE deleted_at IS NULL AND id > $1 ORDER BY id LIMIT $2`,
+    // BUG-CRON-03 FIX: single CTE reads wallet balances and ledger sums in one
+    // snapshot-consistent query, eliminating the TOCTOU window where a concurrent
+    // XP award could change balances between the separate SELECT and SUM queries.
+    const { rows: batchRows } = await db.query<{
+      id: string;
+      xp_total: string;
+      coin_balance: string;
+      xp_ledger_sum: string;
+      coin_ledger_sum: string;
+    }>(
+      `WITH batch AS (
+         SELECT id, xp_total::text, coin_balance::text
+         FROM users
+         WHERE deleted_at IS NULL AND id > $1
+         ORDER BY id LIMIT $2
+       ),
+       xp_sums AS (
+         SELECT user_id, COALESCE(SUM(amount), 0)::text AS ledger_sum
+         FROM xp_ledger WHERE user_id IN (SELECT id FROM batch) GROUP BY user_id
+       ),
+       coin_sums AS (
+         SELECT user_id, COALESCE(SUM(amount), 0)::text AS ledger_sum
+         FROM coin_ledger WHERE user_id IN (SELECT id FROM batch) GROUP BY user_id
+       )
+       SELECT b.id, b.xp_total, b.coin_balance,
+              COALESCE(x.ledger_sum, '0') AS xp_ledger_sum,
+              COALESCE(c.ledger_sum, '0') AS coin_ledger_sum
+       FROM batch b
+       LEFT JOIN xp_sums x ON x.user_id = b.id
+       LEFT JOIN coin_sums c ON c.user_id = b.id`,
       [lastId, BATCH_SIZE]
     );
+    const users = batchRows;
     if (users.length === 0) break;
 
-    const userIds = users.map((u) => u.id);
     lastId = users[users.length - 1].id;
 
-    // Fetch ledger sums for the batch in parallel
-    const [{ rows: xpSums }, { rows: coinSums }] = await Promise.all([
-      db.query<{ user_id: string; ledger_sum: string }>(
-        `SELECT user_id, COALESCE(SUM(amount), 0)::text AS ledger_sum
-         FROM xp_ledger WHERE user_id = ANY($1) GROUP BY user_id`,
-        [userIds]
-      ),
-      db.query<{ user_id: string; ledger_sum: string }>(
-        `SELECT user_id, COALESCE(SUM(amount), 0)::text AS ledger_sum
-         FROM coin_ledger WHERE user_id = ANY($1) GROUP BY user_id`,
-        [userIds]
-      ),
-    ]);
-
     // BUG-CRON-02: use BigInt to avoid IEEE 754 precision loss on large balances
-    const xpMap   = new Map(xpSums.map((r) => [r.user_id, BigInt(r.ledger_sum)]));
-    const coinMap = new Map(coinSums.map((r) => [r.user_id, BigInt(r.ledger_sum)]));
+    const xpMap   = new Map(users.map((r) => [r.id, BigInt(r.xp_ledger_sum)]));
+    const coinMap = new Map(users.map((r) => [r.id, BigInt(r.coin_ledger_sum)]));
 
     // Classify discrepancies for this batch
     const discXpIds: string[] = [], discXpLedger: bigint[] = [], discXpBal: bigint[] = [];

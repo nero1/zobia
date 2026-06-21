@@ -114,6 +114,8 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `DIRECT_URL` | Yes | Direct connection string — bypasses the pooler, used for migrations only | Supabase → Settings → Database → "Use the direct connection string" |
 | `DB_POOL_SIZE` | No | Connection pool size for the pooled `DATABASE_URL` (default: `2`). Keep at 2 for serverless/Vercel functions to avoid exhausting the PgBouncer connection limit. | — |
 | `DB_DIRECT_POOL_SIZE` | No | Connection pool size for `DIRECT_URL` used in migrations/long-running scripts (default: `2`). | — |
+
+> **TCP keepalive is always enabled** on all database pools (`keepAlive: true`, initial delay 10 s). This prevents idle connections from being silently dropped by NAT or cloud provider firewalls — a common issue on Railway and DigitalOcean managed databases. No configuration is needed.
 | `DB_CA_CERT` | No | PEM-encoded CA certificate for TLS verification of the database connection. Required when using a self-signed or custom CA (e.g. DigitalOcean managed Postgres CA). Leave unset to use the system CA bundle. SSL is always enforced (`rejectUnauthorized: true`). | Download from your DB provider's dashboard |
 | `STORAGE_PROVIDER` | Yes | Storage backend: `supabase-storage` \| `r2` \| `s3` | Choose your provider |
 | `R2_ACCOUNT_ID` | If R2 | Cloudflare account ID | Cloudflare dashboard → right sidebar |
@@ -135,9 +137,9 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `UPSTASH_REDIS_REST_TOKEN` | If Upstash | Upstash REST token | Upstash → Database → REST API |
 | `JWT_SECRET` | Yes | Secret for signing access tokens (min 32 chars) | `openssl rand -hex 64` |
 | `JWT_REFRESH_SECRET` | Yes | Secret for signing refresh tokens (different from JWT_SECRET) | `openssl rand -hex 64` |
-| `GOOGLE_CLIENT_ID` | Yes | Google OAuth 2.0 client ID | Google Cloud Console → Credentials |
-| `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth 2.0 client secret | Google Cloud Console → Credentials |
-| `TELEGRAM_BOT_TOKEN` | Yes | Telegram bot token for Telegram Login | @BotFather → /newbot |
+| `GOOGLE_CLIENT_ID` | No | Google OAuth 2.0 client ID — Google login is hidden when not set | Google Cloud Console → Credentials |
+| `GOOGLE_CLIENT_SECRET` | No | Google OAuth 2.0 client secret — required when GOOGLE_CLIENT_ID is set | Google Cloud Console → Credentials |
+| `TELEGRAM_BOT_TOKEN` | No | Telegram bot token — Telegram login widget is hidden when not set | @BotFather → /newbot |
 | `TELEGRAM_WEBHOOK_SECRET` | No | Secret for authenticating incoming Telegram webhook requests | Generate a random string |
 | `NEXT_PUBLIC_TELEGRAM_BOT_USERNAME` | Yes | Bot username **without** the `@` (e.g. `ZobiaBot`) — used by the Telegram Login Widget on the frontend. Without this, the widget is hidden. | @BotFather → `/mybots` → select your bot → username shown at the top |
 | `DEEPSEEK_API_KEY` | No* | DeepSeek API key for AI moderation. Optional — app starts without it, but AI moderation calls will fail if not set. | platform.deepseek.com → API Keys |
@@ -790,6 +792,17 @@ Without this, `POST /api/cron/payouts` will fail on every bank transfer attempt.
 | `bank_account_first_add_creator_xp` | `10` | Creator Track XP for first bank account add |
 
 These can be updated from the Admin → Config panel at any time.
+
+**Fraud-detection `x_manifest` keys** (admin-configurable; default values shown):
+
+| Key | Default | Description |
+|---|---|---|
+| `fraud_gift_window_days` | `7` | Look-back window (days) for new-account gift-inflow fraud check |
+| `fraud_inflow_threshold_coins` | `5000` | Min coins received from new accounts within the fraud window to flag a payout |
+| `fraud_new_account_age_days` | `7` | Account age (days) below which a gift sender is treated as a "new account" |
+| `fraud_max_payouts_per_day` | `3` | Max payout requests per creator per 24 h before a velocity fraud flag fires |
+
+All four keys are read at payout time from `apps/web/lib/fraud/payouts.ts`. Adjusting them takes effect on the next payout request with no deployment needed.
 
 ### DodoPayments Setup (Global Payments)
 

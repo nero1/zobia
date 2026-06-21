@@ -227,6 +227,32 @@ const CONFIG_META: Record<string, ConfigMeta> = {
     group: "Economy",
   },
 
+  // Fraud Detection
+  fraud_gift_window_days: {
+    label: "Gift Fraud Window (days)",
+    description: "Look-back window for new-account gift-inflow fraud check. Default: 7.",
+    type: "number",
+    group: "Fraud Detection",
+  },
+  fraud_inflow_threshold_coins: {
+    label: "Gift Inflow Threshold (coins)",
+    description: "Minimum coins received from new accounts within the fraud window to trigger a flag. Default: 5000.",
+    type: "number",
+    group: "Fraud Detection",
+  },
+  fraud_new_account_age_days: {
+    label: "New Account Age (days)",
+    description: "Age (days) below which a gift sender is treated as a 'new account' for fraud purposes. Default: 7.",
+    type: "number",
+    group: "Fraud Detection",
+  },
+  fraud_max_payouts_per_day: {
+    label: "Max Payout Requests per Day",
+    description: "Maximum payout requests per creator per 24 h before a velocity fraud flag fires. Default: 3.",
+    type: "number",
+    group: "Fraud Detection",
+  },
+
   // Limits
   minimum_age: {
     label: "Minimum Registration Age",
@@ -378,6 +404,7 @@ const GROUP_ORDER = [
   "Floating Notifications",
   "Payments",
   "Economy",
+  "Fraud Detection",
   "AdMob",
   "Limits",
   "AI Moderation",
