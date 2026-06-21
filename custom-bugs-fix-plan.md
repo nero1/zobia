@@ -7,23 +7,23 @@ All 15 bugs from `custom-bugs-report.md`. Ordered highest-to-lowest impact. Do N
 
 ## Fix Order and Priority
 
-| # | Bug ID | Severity | Effort |
-|---|--------|----------|--------|
-| 1 | BUG-DM-01 | CRITICAL | Low |
-| 2 | BUG-RL-01 | CRITICAL | Low |
-| 3 | BUG-PAY-01 | HIGH | Medium |
-| 4 | BUG-XP-DLQ-01 | HIGH | Low |
-| 5 | BUG-MOB-01 | HIGH | Medium |
-| 6 | BUG-IDEM-01 | HIGH | Medium |
-| 7 | BUG-XP-FIRE-01 | MEDIUM-HIGH | Low |
-| 8 | BUG-IDB-01 | HIGH | Medium |
-| 9 | BUG-IDB-02 | MEDIUM | Medium |
-| 10 | BUG-SW-01 | MEDIUM | Low |
-| 11 | BUG-SW-02 | MEDIUM | Low |
-| 12 | BUG-SEASON-PHASE-01 | MEDIUM | Low |
-| 13 | BUG-ANTISPAM-01 | MEDIUM | Medium |
-| 14 | BUG-HOF-01 | LOW | Medium |
-| 15 | BUG-LOG-01 | LOW | Low |
+| # | Bug ID | Severity | Effort | Status |
+|---|--------|----------|--------|--------|
+| 1 | BUG-DM-01 | CRITICAL | Low | ✅ Fixed |
+| 2 | BUG-RL-01 | CRITICAL | Low | ✅ Fixed |
+| 3 | BUG-PAY-01 | HIGH | Medium | ✅ Fixed |
+| 4 | BUG-XP-DLQ-01 | HIGH | Low | ✅ Fixed |
+| 5 | BUG-MOB-01 | HIGH | Medium | ✅ Fixed |
+| 6 | BUG-IDEM-01 | HIGH | Medium | ✅ Fixed |
+| 7 | BUG-XP-FIRE-01 | MEDIUM-HIGH | Low | ✅ Fixed |
+| 8 | BUG-IDB-01 | HIGH | Medium | ✅ Fixed |
+| 9 | BUG-IDB-02 | MEDIUM | Medium | ✅ Fixed |
+| 10 | BUG-SW-01 | MEDIUM | Low | ✅ Fixed |
+| 11 | BUG-SW-02 | MEDIUM | Low | ✅ Fixed |
+| 12 | BUG-SEASON-PHASE-01 | MEDIUM | Low | ✅ Fixed |
+| 13 | BUG-ANTISPAM-01 | MEDIUM | Medium | ✅ Fixed |
+| 14 | BUG-HOF-01 | LOW | Medium | ✅ Fixed |
+| 15 | BUG-LOG-01 | LOW | Low | ✅ Fixed |
 
 ---
 

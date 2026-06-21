@@ -1692,5 +1692,10 @@
   "messages.error.replyLimitReached": "You have reached your daily reply limit. Try again tomorrow.",
   "leaderboard.city.label": "City Leaderboard",
   "leaderboard.city.empty": "No city leaderboard data yet.",
-  "error.encryptionIntegrity": "Data integrity error — please contact support."
+  "error.encryptionIntegrity": "Data integrity error — please contact support.",
+  "leaderboard.hallOfFame.label": "Hall of Fame",
+  "leaderboard.hallOfFame.pinned": "Hall of Fame — Pinned",
+  "leaderboard.hallOfFame.tooltip": "This user is a Hall of Fame member and is permanently featured on this leaderboard.",
+  "auth.sessionRefreshed": "Session refreshed.",
+  "auth.sessionRefreshFailed": "Could not refresh session. Please sign in again."
 }

@@ -100,7 +100,11 @@ export async function awardReferralCommissions(
     const coinBonus = parseInt(coinBonusStr ?? "100", 10) || 100;
 
     // Award XP
-    await safeAwardXP(tier1Id, xpBonus, 'social', 'referral_first_purchase', `referral_qualified:${qualifyRows[0].id}`, db);
+    // BUG-XP-DLQ-01 FIX: do not pass the global db adapter as dbClient — the DLQ
+    // guard in safeAwardXP is `if (!dbClient)`, so passing the truthy global adapter
+    // bypasses the guard and silently drops XP award failures. Omitting the argument
+    // lets safeAwardXP use its internal global db and enables DLQ writes on failure.
+    await safeAwardXP(tier1Id, xpBonus, 'social', 'referral_first_purchase', `referral_qualified:${qualifyRows[0].id}`);
 
     // Award one-time coin bonus
     if (coinBonus > 0) {

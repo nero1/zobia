@@ -308,28 +308,46 @@ export async function getLeaderboard(
       // BUG-11: Batch-fetch ranks for HoF users not already in the result set —
       // replaces one getUserRank call (2 DB round-trips) per missing user with a
       // single COUNT(*)+1 subquery across all missing users at once.
+      //
+      // BUG-HOF-01 FIX: for HoF users with no leaderboard_snapshots row, the
+      // original query used COALESCE(ls.xp_value, 0) = 0 which placed them at
+      // rank = (all users with any XP) + 1, injecting them at the bottom of the
+      // list. We now detect the no-snapshot case via `has_snapshot` and assign
+      // rank = total + 1 for these users. The `is_hall_of_fame: true` flag lets
+      // the frontend render them in a visually distinct pinned section above the
+      // ranked list, not mixed into rank-ordered entries.
       const missingHof = hofRows.filter((h) => !presentIds.has(h.user_id));
       if (missingHof.length > 0) {
         const missingIds = missingHof.map((h) => h.user_id);
-        const { rows: rankRows } = await db.query<{ user_id: string; rank: string }>(
+        const { rows: rankRows } = await db.query<{ user_id: string; rank: string | null; has_snapshot: boolean }>(
           `SELECT
              target.user_id,
-             (SELECT COUNT(*) + 1
-              FROM leaderboard_snapshots ls2
-              JOIN users u2 ON u2.id = ls2.user_id AND u2.deleted_at IS NULL
-              WHERE ls2.track = 'main' AND ls2.scope = 'global'
-                AND ls2.season_id IS NULL
-                AND ls2.xp_value > COALESCE(ls.xp_value, 0))::text AS rank
+             ls.user_id IS NOT NULL AS has_snapshot,
+             CASE WHEN ls.user_id IS NULL THEN NULL
+               ELSE (SELECT COUNT(*) + 1
+                     FROM leaderboard_snapshots ls2
+                     JOIN users u2 ON u2.id = ls2.user_id AND u2.deleted_at IS NULL
+                     WHERE ls2.track = 'main' AND ls2.scope = 'global'
+                       AND ls2.season_id IS NULL
+                       AND ls2.xp_value > COALESCE(ls.xp_value, 0))::text
+             END AS rank
            FROM leaderboard_snapshots ls
            RIGHT JOIN (SELECT unnest($1::uuid[]) AS user_id) target ON ls.user_id = target.user_id
              AND ls.track = 'main' AND ls.scope = 'global' AND ls.season_id IS NULL`,
           [missingIds]
         );
-        const rankMap = new Map(rankRows.map((r) => [r.user_id, parseInt(r.rank ?? "1")]));
+        const rankMap = new Map(rankRows.map((r) => [
+          r.user_id,
+          // null rank means no snapshot — assign total+1 (honest "unranked" position)
+          r.rank !== null ? parseInt(r.rank) : null,
+        ]));
 
         for (const hof of missingHof) {
+          const computedRank = rankMap.get(hof.user_id);
           entries.push({
-            rank: rankMap.get(hof.user_id) ?? (entries.length + 1),
+            // null → no snapshot: place at total+1 so the frontend can detect
+            // and pin these in a separate HoF section, not in the ranked list.
+            rank: computedRank ?? (total + 1),
             user_id: hof.user_id,
             username: hof.username,
             display_name: hof.display_name,

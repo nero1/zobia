@@ -204,17 +204,10 @@ async function handleDMGift(
       tx
     );
 
-    if (recipient.is_creator && recipientCoins > 0) {
-      await tx.query(
-        `INSERT INTO creator_earnings (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo)
-         VALUES ($1, 'gift', $2, $3, $4)`,
-        [recipientId, giftItem.coin_cost, platformFee, recipientCoins]
-      ).catch(() => {});
-      await tx.query(
-        `UPDATE users SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1, updated_at = NOW() WHERE id = $2`,
-        [recipientCoins, recipientId]
-      ).catch(() => {});
-    }
+    // BUG-DM-01 FIX: DM gifts are virtual-coin denominated, NOT fiat (kobo).
+    // Inserting coin values into creator_earnings kobo columns corrupts payout
+    // accounting. The coin_ledger entries from creditCoins above are the
+    // canonical record. Fiat conversion happens at withdrawal time only.
 
     const { rows: convUpsert } = await tx.query<{ id: string }>(
       `INSERT INTO dm_conversations (user_id_1, user_id_2)
@@ -520,12 +513,18 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         }
       }
 
-      // 9c. Create message record
+      // 9c. Create message record.
+      // BUG-IDEM-01 FIX: use ON CONFLICT on the unique partial index
+      // (messages_sender_idempotency_key_uq) to enforce idempotency atomically at
+      // the DB level. The pre-check SELECT (step 8) remains as a fast-path but is
+      // no longer the correctness guard — only the DB constraint is.
       const { rows: msgRows } = await tx.query<MessageRow>(
         `INSERT INTO messages
            (sender_id, recipient_id, conversation_id, message_type, content,
             media_url, coin_cost, reply_count_from_recipient, idempotency_key, sender_plan_at_creation)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         ON CONFLICT (sender_id, idempotency_key) WHERE idempotency_key IS NOT NULL
+         DO NOTHING
          RETURNING id, sender_id, recipient_id, message_type, content, media_url,
                    coin_cost, reply_count_from_recipient, is_deleted,
                    created_at, updated_at`,
@@ -543,10 +542,25 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         ]
       );
 
-      return msgRows[0];
+      // If the INSERT was a no-op (idempotency conflict), msgRows is empty.
+      // Return null so the caller can fetch and return the existing message.
+      return msgRows[0] ?? null;
     });
 
     if (!message) {
+      // ON CONFLICT DO NOTHING returned zero rows — a concurrent request with the
+      // same idempotency key already inserted this message. Fetch and return it.
+      if (body.idempotencyKey) {
+        const { rows: existingRows } = await db.query<MessageRow>(
+          `SELECT id, sender_id, recipient_id, message_type, content, media_url,
+                  coin_cost, reply_count_from_recipient, is_deleted, created_at, updated_at
+           FROM messages WHERE sender_id = $1 AND idempotency_key = $2 LIMIT 1`,
+          [auth.user.sub, body.idempotencyKey]
+        );
+        if (existingRows[0]) {
+          return NextResponse.json({ message: existingRows[0] }, { status: 200 });
+        }
+      }
       throw new Error("Message creation failed");
     }
 

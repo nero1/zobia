@@ -29,16 +29,24 @@
  * Returns a fresh RegExp that matches international phone numbers.
  * Covers:
  *  - +234 801 234 5678  (international prefix)
- *  - 0801 234 5678      (local Nigerian format)
- *  - (555) 123-4567     (US format)
- *  - 555.123.4567
- *  - 5551234567         (bare 10-digit)
+ *  - 0801 234 5678      (local Nigerian format with leading 0)
+ *  - (555) 123-4567     (US format with area code parens)
+ *
+ * BUG-ANTISPAM-01 FIX: the previous pattern matched ANY nine-plus-digit
+ * sequence in three groups (e.g. "Score: 234 567 891"), causing false
+ * positives on reference numbers, game scores, and prices. The new pattern
+ * requires the number to begin with an internationally recognised indicator:
+ *  - `+` followed by a country code (international format), OR
+ *  - a leading `0` (Nigerian and many other local formats), OR
+ *  - an area code in parentheses `(NNN)`
+ * Bare digit sequences without any of these prefixes are NOT treated as
+ * phone numbers.
  *
  * BUG-L02: \b word boundary prevents ISO date strings like 2026-06-20 from
  * being partially matched.
  */
 export function getPhoneRegex(): RegExp {
-  return /\b(?:\+?\d{1,3}[\s\-.])?(?:\(?\d{1,4}\)?[\s\-.]?)?\d{3,4}[\s\-.]?\d{3,4}[\s\-.]?\d{3,4}\b/g;
+  return /(?:\+\d{1,3}[\s\-.]?\(?\d{1,4}\)?[\s\-.]?\d{3,4}[\s\-.]?\d{3,4}[\s\-.]?\d{0,4}|0\d{1}[\s\-.]?\d{3,4}[\s\-.]?\d{3,4}[\s\-.]?\d{0,4}|\(\d{2,4}\)[\s\-.]?\d{3,4}[\s\-.]?\d{3,4})\b/g;
 }
 
 /**
@@ -74,9 +82,11 @@ function stripContactInfo(content: string): string {
     .replace(getUrlRegex(), "")
     .replace(getEmailRegex(), "")
     .replace(getPhoneRegex(), (match) => {
-      // Only strip if the match looks like a real phone number (≥ 7 numeric chars)
+      // Only strip if the match has ≥ 10 numeric chars (minimum for any valid
+      // international phone number). This is a secondary guard against edge-case
+      // false positives not caught by the regex prefix requirement.
       const digits = match.replace(/\D/g, "");
-      return digits.length >= 7 ? "" : match;
+      return digits.length >= 10 ? "" : match;
     })
     .replace(/\s{2,}/g, " ") // collapse leftover whitespace
     .trim();

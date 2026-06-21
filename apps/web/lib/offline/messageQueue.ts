@@ -37,12 +37,16 @@ export interface PendingMessage {
 // DB bootstrap
 // ---------------------------------------------------------------------------
 
+// BUG-IDB-01 FIX: use a lazy getter that clears the cached promise on rejection
+// so the next call retries the open. The original module-level assignment cached
+// a rejected promise permanently, breaking the offline queue for the entire
+// session with no recovery path (e.g. private-browsing IDB block, quota exceeded).
 let dbPromise: Promise<IDBDatabase> | null = null;
 
 function openDB(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise;
 
-  dbPromise = new Promise((resolve, reject) => {
+  dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
     if (typeof window === "undefined" || !("indexedDB" in window)) {
       reject(new Error("IndexedDB not available"));
       return;
@@ -61,6 +65,11 @@ function openDB(): Promise<IDBDatabase> {
 
     req.onsuccess = (e) => resolve((e.target as IDBOpenDBRequest).result);
     req.onerror = (e) => reject((e.target as IDBOpenDBRequest).error);
+  }).catch((err) => {
+    // Clear the cache so the next caller can retry the open rather than
+    // receiving the same permanent rejection for the rest of the session.
+    dbPromise = null;
+    throw err;
   });
 
   return dbPromise;
@@ -123,17 +132,33 @@ export async function getPendingMessages(): Promise<PendingMessage[]> {
 }
 
 /**
- * Update the status of a queued message.
+ * Update the status of a queued message atomically.
+ *
+ * BUG-IDB-02 FIX: perform the get and put inside a single readwrite
+ * transaction using raw IDB callbacks (no `await` between get and put).
+ * Awaiting between two separate promisified IDB operations allows the
+ * browser to auto-commit the transaction between them, and allows a
+ * concurrent call to read a stale snapshot and silently overwrite the
+ * first call's put with stale data (lost update).
  */
 export async function updateMessageStatus(
   id: string,
   updates: Partial<Pick<PendingMessage, "status" | "attempts" | "lastAttemptAt">>
 ): Promise<void> {
   const db = await openDB();
-  const store = txStore(db, "readwrite");
-  const existing = await promisify<PendingMessage>(store.get(id));
-  if (!existing) return;
-  await promisify(store.put({ ...existing, ...updates }));
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    const store = tx.objectStore(STORE_NAME);
+    const getReq = store.get(id);
+    getReq.onsuccess = () => {
+      const existing = getReq.result as PendingMessage | undefined;
+      if (!existing) { resolve(); return; }
+      store.put({ ...existing, ...updates });
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
 }
 
 /**
