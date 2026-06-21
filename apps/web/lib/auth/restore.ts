@@ -12,6 +12,15 @@ import { logger } from "@/lib/logger";
 import { createSession } from "@/lib/auth/session";
 import * as jose from "jose";
 
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 const RESTORE_TOKEN_TTL_SECONDS = 48 * 60 * 60; // 48 hours
 
 // ---------------------------------------------------------------------------
@@ -74,14 +83,16 @@ export async function initiateAccountRestore(email: string): Promise<boolean> {
 
   try {
     const { sendEmail } = await import("@/lib/notifications/email");
+    const safeDisplayName = escapeHtml(displayName);
     await sendEmail(
       user.email,
       "Restore your Zobia account",
       `Hi ${displayName}, click the link to restore your account: ${restoreUrl} (expires in 48 hours)`,
-      `<p>Hi ${displayName},</p>
+      `<p>Hi ${safeDisplayName},</p>
        <p>We received a request to restore your Zobia Social account.</p>
        <p><a href="${restoreUrl}" style="background:#2563eb;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block">Restore Account</a></p>
-       <p>This link expires in 48 hours. If you didn't request this, you can safely ignore this email.</p>`
+       <p>This link expires in 48 hours. If you didn't request this, you can safely ignore this email.</p>`,
+      "security"
     );
   } catch (err) {
     logger.error({ err, userId: user.id }, "[restore] Failed to send restore email");

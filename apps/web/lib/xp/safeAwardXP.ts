@@ -152,6 +152,10 @@ export async function safeAwardXP(
       ).catch((dlqErr) => {
         logger.error({ userId, source }, `[safeAwardXP] Failed to write to DLQ: ${dlqErr}`);
       });
+    } else {
+      // Rethrow when caller provided a transaction client so the outer transaction
+      // can roll back cleanly and the caller knows the award failed.
+      throw err;
     }
   }
 }

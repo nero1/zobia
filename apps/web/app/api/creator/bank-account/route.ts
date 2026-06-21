@@ -271,13 +271,14 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     await db.query(
       `INSERT INTO creator_bank_accounts
-         (creator_id, bank_name, bank_code, account_number, account_name,
+         (creator_id, bank_name, bank_code, account_number, is_encrypted, account_name,
           account_number_last4, recipient_code, xp_awarded)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE)
+       VALUES ($1, $2, $3, $4, TRUE, $5, $6, $7, FALSE)
        ON CONFLICT (creator_id) DO UPDATE
          SET bank_name = EXCLUDED.bank_name,
              bank_code = EXCLUDED.bank_code,
              account_number = EXCLUDED.account_number,
+             is_encrypted = TRUE,
              account_name = EXCLUDED.account_name,
              account_number_last4 = EXCLUDED.account_number_last4,
              recipient_code = EXCLUDED.recipient_code,

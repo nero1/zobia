@@ -139,7 +139,7 @@ export async function recordAndCheckAnomaly(
     // Log admin alert only when the threshold is reached — inserting on every
     // anomaly floods the table for mobile users with dynamic IPs (OPS-02).
     if (count >= ANOMALY_THRESHOLD) {
-      db.query(
+      await db.query(
         `INSERT INTO system_alerts
            (type, severity, message, metadata, created_at)
          VALUES

@@ -163,6 +163,8 @@ const HOSTNAME_ALLOWLIST: string[] = [
   "api.cloudflare.com",        // Cloudflare API
   "r2.cloudflarestorage.com",  // Cloudflare R2 object storage — subdomain matching covers <account>.r2.cloudflarestorage.com
   "storage.googleapis.com",    // Google Cloud Storage
+  "oauth2.googleapis.com",     // Google OAuth 2.0 token endpoint (OAUTH-01)
+  "www.googleapis.com",        // Google UserInfo endpoint (OAUTH-01)
   "giphy.com",                 // Giphy GIF library
   "api.giphy.com",             // Giphy GIF API
   "tenor.com",                 // Tenor GIF library

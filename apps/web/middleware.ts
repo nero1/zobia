@@ -80,7 +80,8 @@ function buildCsp(nonce: string): string {
     `style-src 'self' 'nonce-${nonce}' https://fonts.googleapis.com`,
     "worker-src 'self'",
     "font-src 'self' https://fonts.gstatic.com",
-    "img-src 'self' data: blob: https:",
+    // CSP-01: explicit allowlist instead of bare https: (which allows any HTTPS host)
+    "img-src 'self' data: blob: https://lh3.googleusercontent.com https://*.supabase.co https://*.r2.cloudflarestorage.com https://media.giphy.com https://media.tenor.com https://c.tenor.com https://storage.googleapis.com https://img.youtube.com",
     `connect-src ${connectSrc}`,
     "frame-src 'self' https://www.google.com https://challenges.cloudflare.com",
     "object-src 'none'",

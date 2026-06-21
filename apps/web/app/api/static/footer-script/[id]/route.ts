@@ -41,8 +41,14 @@ export async function GET(
       headers: {
         "Content-Type": "application/javascript; charset=utf-8",
         "Cache-Control": "public, max-age=300, stale-while-revalidate=600",
-        // Restrict what the script itself can do — no nested script loading, no iframes
-        "Content-Security-Policy": "default-src 'none'; script-src 'self'",
+        // CSP-02: A Content-Security-Policy on a JS response has no effect on what
+        // the script can do when executed by the parent page — the parent's own CSP
+        // governs execution. The parent page's nonce-based CSP (set by middleware)
+        // allows this script only because it loads from 'self'. What actually limits
+        // blast radius here is: (1) admin access control on who can upload scripts,
+        // (2) the middleware CSP which blocks 'unsafe-eval', cross-origin fetches, etc.
+        // X-Content-Type-Options prevents MIME-sniffing the JS as HTML to trigger XSS.
+        "X-Content-Type-Options": "nosniff",
       },
     });
   } catch {

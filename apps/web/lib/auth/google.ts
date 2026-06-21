@@ -8,6 +8,7 @@
  */
 
 import { env } from "@/lib/env";
+import { safeFetch } from "@/lib/security/ssrf";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -83,18 +84,22 @@ export async function exchangeGoogleCode(
 ): Promise<GoogleTokenResponse> {
   const redirectUri = `${env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")}/api/auth/google/callback`;
 
-  const res = await fetch(GOOGLE_TOKEN_ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      code,
-      client_id: env.GOOGLE_CLIENT_ID,
-      client_secret: env.GOOGLE_CLIENT_SECRET,
-      redirect_uri: redirectUri,
-      grant_type: "authorization_code",
-    }),
-    signal: AbortSignal.timeout(10_000),
-  });
+  const res = await safeFetch(
+    GOOGLE_TOKEN_ENDPOINT,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code,
+        client_id: env.GOOGLE_CLIENT_ID,
+        client_secret: env.GOOGLE_CLIENT_SECRET,
+        redirect_uri: redirectUri,
+        grant_type: "authorization_code",
+      }).toString(),
+      signal: AbortSignal.timeout(10_000),
+    },
+    { requireAllowlist: true }
+  );
   if (!res.ok) throw new Error(`Token exchange failed: ${res.status}`);
   return res.json();
 }
@@ -112,10 +117,14 @@ export async function exchangeGoogleCode(
 export async function fetchGoogleUserProfile(
   accessToken: string
 ): Promise<GoogleUserProfile> {
-  const res = await fetch(GOOGLE_USERINFO_ENDPOINT, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    signal: AbortSignal.timeout(10_000),
-  });
+  const res = await safeFetch(
+    GOOGLE_USERINFO_ENDPOINT,
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(10_000),
+    },
+    { requireAllowlist: true }
+  );
   if (!res.ok) throw new Error(`Profile fetch failed: ${res.status}`);
   const data = await res.json() as {
     sub: string;

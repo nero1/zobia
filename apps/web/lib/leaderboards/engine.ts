@@ -50,6 +50,8 @@ export interface LeaderboardEntry {
 export interface LeaderboardCursor {
   xpValue: number;
   userId: string;
+  /** Global rank of the last entry on the previous page. Used to compute correct ranks on subsequent pages. */
+  rank?: number;
 }
 
 export interface LeaderboardPage {
@@ -204,6 +206,12 @@ export async function getLeaderboard(
   const cursor = options?.cursor ?? null;
   // Only use OFFSET when no cursor provided (backward compat)
   const offset = cursor ? 0 : (Math.max(page, 1) - 1) * pageSize;
+  // LB-01: for cursor pages, ROW_NUMBER() restarts at 1 because the WHERE clause
+  // filters out higher-ranked rows. cursor.rank carries the global rank of the last
+  // entry on the previous page so we can shift ROW_NUMBER back to the true position.
+  // For offset pages, ROW_NUMBER() spans the full unfiltered result set (OFFSET only
+  // skips rows after the window computes), so no adjustment is needed.
+  const rankOffset = cursor?.rank ?? 0;
 
   // Map scope to the stored scope value (national uses global rows filtered by country)
   const dbScope = scope === "national" ? "global" : scope;
@@ -294,7 +302,8 @@ export async function getLeaderboard(
   const total = parseInt(rows[0]?.total_count ?? "0");
   let hofCount = 0;
   const entries: LeaderboardEntry[] = rows.map((r) => ({
-    rank: Number(r.rank),
+    // LB-01: add rankOffset so cursor pages show true global rank, not page-local ROW_NUMBER
+    rank: rankOffset + Number(r.rank),
     user_id: r.user_id,
     username: r.username,
     display_name: r.display_name,
@@ -423,7 +432,7 @@ export async function getLeaderboard(
   const lastEntry = rows[rows.length - 1];
   const nextCursor: LeaderboardCursor | null =
     hasMore && lastEntry
-      ? { xpValue: Number(lastEntry.xp_value), userId: lastEntry.user_id }
+      ? { xpValue: Number(lastEntry.xp_value), userId: lastEntry.user_id, rank: rankOffset + rows.length }
       : null;
 
   return {

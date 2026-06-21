@@ -79,8 +79,8 @@ export const RATE_LIMITS = {
   xpAward: { limit: 500, windowMs: 60 * 1000, name: "xp:award" } as RateLimitOptions,
   /** Onboarding endpoints (low limit, one-time flow). */
   onboarding: { limit: 30, windowMs: 10 * 60 * 1000, name: "onboarding" } as RateLimitOptions,
-  /** Admin operations. */
-  admin: { limit: 120, windowMs: 60 * 1000, name: "admin" } as RateLimitOptions,
+  /** Admin operations. bypassL1 ensures multi-instance over-counting can't exceed the limit. */
+  admin: { limit: 120, windowMs: 60 * 1000, name: "admin", bypassL1: true } as RateLimitOptions,
   /** PIN verification — tight limit to prevent brute-force of 4-digit keyspace (BUG-14). */
   pinVerify: { limit: 5, windowMs: 15 * 60 * 1000, name: "pin:verify", bypassL1: true } as RateLimitOptions,
   /** Gift sending — separate hourly limit to prevent gift spam / draining (STRUC-09). */

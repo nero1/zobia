@@ -111,58 +111,44 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       }
     }
 
-    // Batch-upsert XP discrepancies
+    // DISC-01: plain INSERT (no ON CONFLICT UPDATE) so each detection is a new row.
+    // History is preserved; use the active index (WHERE resolved = false) for lookups.
     if (discXpIds.length > 0) {
       await db.query(
         `INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at)
-         SELECT unnest($1::uuid[]), 'xp', unnest($2::int[]), unnest($3::int[]), NOW()
-         ON CONFLICT (user_id, asset_type) DO UPDATE
-           SET ledger_sum = EXCLUDED.ledger_sum,
-               wallet_balance = EXCLUDED.wallet_balance,
-               detected_at = NOW(),
-               resolved = FALSE`,
+         SELECT unnest($1::uuid[]), 'xp', unnest($2::int[]), unnest($3::int[]), NOW()`,
         [discXpIds, discXpLedger, discXpBal]
       ).catch(() => {});
     }
 
-    // Batch-upsert coin discrepancies
     if (discCoinIds.length > 0) {
       await db.query(
         `INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at)
-         SELECT unnest($1::uuid[]), 'coins', unnest($2::int[]), unnest($3::int[]), NOW()
-         ON CONFLICT (user_id, asset_type) DO UPDATE
-           SET ledger_sum = EXCLUDED.ledger_sum,
-               wallet_balance = EXCLUDED.wallet_balance,
-               detected_at = NOW(),
-               resolved = FALSE`,
+         SELECT unnest($1::uuid[]), 'coins', unnest($2::int[]), unnest($3::int[]), NOW()`,
         [discCoinIds, discCoinLedger, discCoinBal]
       ).catch(() => {});
     }
 
-    // AUDIT-01: Insert per-user audit records before auto-correcting XP discrepancies
+    // AUDIT-01: Insert audit records and alert on ALL auto-corrections (RECONCILE-01).
+    // Threshold removed — even small corrections should be visible to the ops team.
     for (let i = 0; i < fixXpIds.length; i++) {
       const userId = fixXpIds[i];
       const ledgerSum = fixXpValues[i];
       const walletBalance = discXpBal[discXpIds.indexOf(userId)];
+      const discrepancyAmount = Math.abs(Number(ledgerSum) - Number(walletBalance));
       await db.query(
         `INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at, notes)
-         VALUES ($1, $2, $3, $4, NOW(), 'auto-corrected by reconcile-balances CRON')
-         ON CONFLICT (user_id, asset_type) DO UPDATE
-           SET ledger_sum = $3, wallet_balance = $4, detected_at = NOW(), resolved = false, notes = 'auto-corrected by reconcile-balances CRON'`,
-        [userId, 'xp', ledgerSum, walletBalance]
+         VALUES ($1, 'xp', $2, $3, NOW(), 'auto-corrected by reconcile-balances CRON')`,
+        [userId, ledgerSum, walletBalance]
       ).catch(() => {});
-      // OPS-01: Alert on large XP discrepancies
-      const discrepancyAmount = Math.abs(Number(ledgerSum) - Number(walletBalance));
-      if (discrepancyAmount > 1000) {
-        await db.query(
-          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-           VALUES ('balance_discrepancy', 'warning', $1, $2::jsonb, NOW())`,
-          [
-            `Large balance discrepancy detected for user ${userId}: xp balance differs by ${discrepancyAmount}`,
-            JSON.stringify({ userId, assetType: 'xp', ledgerSum, walletBalance, discrepancyAmount }),
-          ]
-        ).catch(() => {});
-      }
+      await db.query(
+        `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
+         VALUES ('balance_discrepancy', 'warning', $1, $2::jsonb, NOW())`,
+        [
+          `XP balance auto-corrected for user ${userId}: delta ${discrepancyAmount}`,
+          JSON.stringify({ userId, assetType: 'xp', ledgerSum, walletBalance, discrepancyAmount }),
+        ]
+      ).catch(() => {});
     }
 
     // Batch auto-correct XP
@@ -175,30 +161,24 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       ).catch(() => {});
     }
 
-    // AUDIT-01: Insert per-user audit records before auto-correcting coin discrepancies
     for (let i = 0; i < fixCoinIds.length; i++) {
       const userId = fixCoinIds[i];
       const ledgerSum = fixCoinValues[i];
       const walletBalance = discCoinBal[discCoinIds.indexOf(userId)];
+      const discrepancyAmount = Math.abs(Number(ledgerSum) - Number(walletBalance));
       await db.query(
         `INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at, notes)
-         VALUES ($1, $2, $3, $4, NOW(), 'auto-corrected by reconcile-balances CRON')
-         ON CONFLICT (user_id, asset_type) DO UPDATE
-           SET ledger_sum = $3, wallet_balance = $4, detected_at = NOW(), resolved = false, notes = 'auto-corrected by reconcile-balances CRON'`,
-        [userId, 'coins', ledgerSum, walletBalance]
+         VALUES ($1, 'coins', $2, $3, NOW(), 'auto-corrected by reconcile-balances CRON')`,
+        [userId, ledgerSum, walletBalance]
       ).catch(() => {});
-      // OPS-01: Alert on large coin discrepancies
-      const discrepancyAmount = Math.abs(Number(ledgerSum) - Number(walletBalance));
-      if (discrepancyAmount > 1000) {
-        await db.query(
-          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-           VALUES ('balance_discrepancy', 'warning', $1, $2::jsonb, NOW())`,
-          [
-            `Large balance discrepancy detected for user ${userId}: coins balance differs by ${discrepancyAmount}`,
-            JSON.stringify({ userId, assetType: 'coins', ledgerSum, walletBalance, discrepancyAmount }),
-          ]
-        ).catch(() => {});
-      }
+      await db.query(
+        `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
+         VALUES ('balance_discrepancy', 'warning', $1, $2::jsonb, NOW())`,
+        [
+          `Coin balance auto-corrected for user ${userId}: delta ${discrepancyAmount}`,
+          JSON.stringify({ userId, assetType: 'coins', ledgerSum, walletBalance, discrepancyAmount }),
+        ]
+      ).catch(() => {});
     }
 
     // Batch auto-correct coins
