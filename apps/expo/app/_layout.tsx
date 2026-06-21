@@ -9,12 +9,15 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { QueryClientProvider } from '@tanstack/react-query';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
+import * as SecureStore from 'expo-secure-store';
+import * as Crypto from 'expo-crypto';
 import NetInfo from '@react-native-community/netinfo';
 
 import { AuthProvider } from '@/lib/auth/context';
 import { ThemeProvider, useTheme } from '@/lib/theme';
 import { FloatingNotificationProvider } from '@/components/providers/FloatingNotificationProvider';
-import { queryClient, apiClient } from '@/lib/api/client';
+import { queryClient, apiClient, JWT_KEY } from '@/lib/api/client';
+import { env } from '@/lib/env';
 import { AnnouncementModal } from '@/components/announcements/AnnouncementModal';
 import { SessionExpiredModal } from '@/components/auth/SessionExpiredModal';
 import { useAuth } from '@/lib/auth/hooks';
@@ -77,6 +80,50 @@ Notifications.setNotificationHandler({
 // Push token registration
 // ---------------------------------------------------------------------------
 
+// BUG-CS-01: Patch global.fetch to add Origin + Authorization headers for
+// own-API calls. Mobile HTTP clients don't send Origin automatically, so
+// every raw fetch() to our backend would fail the server-side CSRF check.
+// This patch is applied once at module load and covers all call sites in the app.
+const _originalFetch = global.fetch.bind(global);
+global.fetch = async function csrfPatchedFetch(
+  input: Parameters<typeof fetch>[0],
+  init?: Parameters<typeof fetch>[1]
+): Promise<Response> {
+  const url = typeof input === 'string'
+    ? input
+    : input instanceof URL
+      ? input.href
+      : (input as Request).url;
+
+  if (url.startsWith(env.API_BASE_URL)) {
+    const headers = new Headers((init?.headers ?? {}) as HeadersInit);
+    if (!headers.has('Origin')) {
+      headers.set('Origin', env.API_BASE_URL);
+    }
+    if (!headers.has('Authorization')) {
+      const token = await SecureStore.getItemAsync(JWT_KEY).catch(() => null);
+      if (token) headers.set('Authorization', `Bearer ${token}`);
+    }
+    return _originalFetch(input, { ...init, headers });
+  }
+  return _originalFetch(input, init);
+};
+
+const DEVICE_ID_KEY = 'zobia_device_id';
+
+/** Returns a stable per-installation UUID, generating one on first call. */
+async function getOrCreateDeviceId(): Promise<string> {
+  try {
+    const existing = await SecureStore.getItemAsync(DEVICE_ID_KEY);
+    if (existing) return existing;
+    const id = Crypto.randomUUID();
+    await SecureStore.setItemAsync(DEVICE_ID_KEY, id);
+    return id;
+  } catch {
+    return Crypto.randomUUID();
+  }
+}
+
 /**
  * Request notification permission and register the device's Expo push token
  * with the backend so the server can reach this device.
@@ -114,9 +161,12 @@ async function registerForPushNotifications(): Promise<void> {
 
   if (!token) return;
 
+  const deviceId = await getOrCreateDeviceId();
+  const platform = Platform.OS === 'ios' ? 'ios' : 'android';
+
   // Register token with backend (fire-and-forget)
   apiClient
-    .post('/users/push-token', { token })
+    .post('/users/push-token', { token, platform, deviceId })
     .catch((err) => console.warn('[push] Token registration failed:', err));
 }
 

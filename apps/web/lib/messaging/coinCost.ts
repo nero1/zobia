@@ -41,10 +41,11 @@ export interface DailyLimitCheckResult {
 // Coin cost table
 // ---------------------------------------------------------------------------
 
-/** Coin cost to INITIATE a new DM conversation (first message to a new recipient). */
-const INITIATE_COST: Record<Plan, number> = {
-  free: 0,  // not applicable — Free cannot initiate
-  plus: 0,  // not applicable — Plus cannot initiate
+/** Coin cost to INITIATE a new DM conversation (first message to a new recipient).
+ *  null = plan is not permitted to initiate (distinct from "free to initiate"). */
+const INITIATE_COST: Record<Plan, number | null> = {
+  free: null,  // not permitted — Free cannot initiate
+  plus: null,  // not permitted — Plus cannot initiate
   pro: 1,
   max: 0,
 };
@@ -64,16 +65,17 @@ const REPLY_COST: Record<Plan, number> = {
 /**
  * Compute the coin cost for a DM action.
  *
- * Returns the integer number of coins to deduct before the message is created.
- * Returns 0 when the action is free for the given plan.
+ * Returns the integer number of coins to deduct before the message is created,
+ * or null when the plan is not permitted to perform the action (e.g. free/plus
+ * initiating). A return of 0 means the action is free; null means forbidden.
  *
  * @param senderPlan  - The sender's subscription plan
  * @param isInitiating - True when starting a brand-new conversation
- * @returns Integer coin cost (≥ 0)
+ * @returns Integer coin cost (≥ 0) or null if the plan cannot perform the action
  */
-export function getDMCost(senderPlan: Plan, isInitiating: boolean): number {
+export function getDMCost(senderPlan: Plan, isInitiating: boolean): number | null {
   if (isInitiating) {
-    return INITIATE_COST[senderPlan] ?? 0;
+    return INITIATE_COST[senderPlan] ?? null;
   }
   return REPLY_COST[senderPlan] ?? 0;
 }

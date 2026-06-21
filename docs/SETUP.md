@@ -1164,7 +1164,10 @@ EXPO_ACCESS_TOKEN=your_expo_access_token
 When a user logs into the Expo app on a physical device, the app automatically:
 1. Requests notification permission via `expo-notifications`.
 2. Retrieves the Expo Push Token.
-3. Registers the token with the backend via `POST /api/users/push-token`.
+3. Generates or retrieves a stable per-installation `deviceId` (UUID stored in `expo-secure-store`).
+4. Registers the token and device ID with the backend via `POST /api/users/push-token` (`{ token, platform, deviceId }`).
+
+The `deviceId` enables deduplication when a user reinstalls the app: only the most recently registered token per `(user_id, device_id)` pair receives notifications, preventing duplicate delivery after reinstalls.
 
 No configuration is needed beyond including `expo-notifications` in your Expo SDK (already included in `apps/expo/package.json`).
 

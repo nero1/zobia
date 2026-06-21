@@ -482,12 +482,12 @@ export async function resetDailyQuests(
 
   // DATA-01: purge old expired rows to prevent unbounded table growth
   await db.query(
-    `DELETE FROM quest_progress
-     WHERE status = 'expired'
-       AND date < $1::date - INTERVAL '7 days'`,
+    `DELETE FROM user_quest_progress
+     WHERE expired_at IS NOT NULL
+       AND quest_date < $1::date - INTERVAL '7 days'`,
     [todayUTC]
   ).catch((err) => {
-    console.warn("[questEngine] Failed to purge old quest_progress rows:", err);
+    logger.error({ err }, "[questEngine] Failed to purge old user_quest_progress rows");
   });
 
   await db.query(

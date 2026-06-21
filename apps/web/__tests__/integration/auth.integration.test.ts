@@ -5,9 +5,12 @@
  * - Users table accepts a new user registration row
  * - Duplicate username is rejected (unique constraint)
  * - Duplicate email is rejected (unique constraint)
- * - Session creation and lookup
- * - Session expiry semantics (expired sessions not fetched for active auth)
  * - Soft-delete: deleted_at IS NULL filter on user lookups
+ *
+ * NOTE: Session tests were removed in BUG-SC-01 — the `sessions` DB table was
+ * dropped (migration 0020). All auth sessions are stored in Redis. Session
+ * behaviour is covered by unit tests in lib/auth/__tests__/session.test.ts
+ * and the mock Redis layer in test/setup/redis.ts.
  *
  * Requires: TEST_DATABASE_URL
  */
@@ -81,58 +84,9 @@ describe("Auth flow [integration]", () => {
     }
   });
 
-  it("creates a session and retrieves it by refresh token hash", async () => {
-    if (!dbAvailable) return;
-    const { client, rollback } = await createTestTransaction();
-    try {
-      const user = await createUser(client);
-      const sessionId = uuid();
-      const tokenHash = "hashed_refresh_token_abc";
-      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-
-      await client.query(
-        `INSERT INTO sessions (id, user_id, refresh_token_hash, expires_at)
-         VALUES ($1, $2, $3, $4)`,
-        [sessionId, user.id, tokenHash, expiresAt]
-      );
-
-      const { rows } = await client.query(
-        `SELECT s.id, s.user_id, u.username
-         FROM sessions s
-         JOIN users u ON u.id = s.user_id
-         WHERE s.refresh_token_hash = $1 AND s.expires_at > NOW() AND u.deleted_at IS NULL`,
-        [tokenHash]
-      );
-      expect(rows).toHaveLength(1);
-      expect((rows[0] as { username: string }).username).toBe(user.username);
-    } finally {
-      await rollback();
-    }
-  });
-
-  it("expired sessions are not returned by active-session query", async () => {
-    if (!dbAvailable) return;
-    const { client, rollback } = await createTestTransaction();
-    try {
-      const user = await createUser(client);
-      const sessionId = uuid();
-      const pastExpiry = new Date(Date.now() - 60_000).toISOString(); // 1 min ago
-
-      await client.query(
-        `INSERT INTO sessions (id, user_id, refresh_token_hash, expires_at)
-         VALUES ($1, $2, 'expired_token_hash', $3)`,
-        [sessionId, user.id, pastExpiry]
-      );
-
-      const { rows } = await client.query(
-        `SELECT id FROM sessions WHERE refresh_token_hash = 'expired_token_hash' AND expires_at > NOW()`,
-        []
-      );
-      expect(rows).toHaveLength(0);
-    } finally {
-      await rollback();
-    }
-  });
+  // Session DB tests removed — the `sessions` table was dropped in migration 0020
+  // (BUG-SC-01). Auth sessions are now exclusively stored in Redis.
+  // See: lib/auth/__tests__/session.test.ts for unit-level session coverage.
 
   it("soft-deleted users are invisible to application queries", async () => {
     if (!dbAvailable) return;

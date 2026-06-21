@@ -624,7 +624,7 @@ Deletion is batched by joining `room_messages` against the sender's subscription
 
 1. **Login** → backend issues two tokens:
    - **Access token** (JWT, 15-minute TTL) signed with `JWT_SECRET`. Stored in HttpOnly cookie (web) or Expo SecureStore (Android).
-   - **Refresh token** (JWT, 30-day TTL) signed with `JWT_REFRESH_SECRET`. Stored in Redis under key `session:<refreshToken>` with a 30-day expiry, and in the `sessions` table for auditability.
+   - **Refresh token** (JWT, 30-day TTL) signed with `JWT_REFRESH_SECRET`. Stored in Redis under key `session:<refreshToken>` with a 30-day expiry. (The `sessions` DB table was dropped in migration 0020; all session state lives in Redis.)
 
 **Key rotation for refresh tokens:** Both access tokens and refresh tokens embed a `kid` (key ID) in their JWT header. During a key rotation, verification looks up the matching secret from a registry keyed by `kid` (built from `JWT_REFRESH_SECRET` and any `JWT_REFRESH_SECRET_v{N}` env vars). This allows old refresh tokens to remain valid through the rotation grace period without requiring forced logouts. See `SETUP.md` → Environment Variables Reference for rotation procedure.
 2. **API call with valid access token** → validates JWT → proceeds.
@@ -875,6 +875,9 @@ The onboarding flow generates a referral code and immediately checks for uniquen
 
 **Leaderboard tie**
 `upsertLeaderboardSnapshot` uses a `COUNT(*)` of users with higher XP to calculate `rank_position`. Tied users receive the same rank position. The next rank is offset by the number of tied users (standard competition ranking: 1, 1, 3, 4...).
+
+**City leaderboard snapshots**
+`safeAwardXP` now upserts both a global-scope and a city-scoped `leaderboard_snapshots` row whenever XP is awarded, using the `city` field from the `users` row returned by the UPDATE. City-scoped rows use `scope = 'city'` and carry the `city` value. The Elder badge and city rankings are therefore always up-to-date without a separate CRON step.
 
 **Duplicate daily login claim**
 The Redis key `daily_login:<userId>:<YYYY-MM-DD>` prevents double-awards within the same calendar day. The `/api/login/daily` endpoint is idempotent — if the key exists, it returns the current streak without re-awarding XP and includes `alreadyClaimedToday: true` in the response.

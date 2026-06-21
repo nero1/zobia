@@ -25,6 +25,7 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 const pushTokenSchema = z.object({
   token: z.string().min(1).max(512),
   platform: z.enum(["android", "ios"]),
+  deviceId: z.string().min(1).max(255).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -48,11 +49,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const body = await validateBody(req, pushTokenSchema);
 
     await db.query(
-      `INSERT INTO user_push_tokens (user_id, token, platform, created_at, updated_at)
-       VALUES ($1, $2, $3, NOW(), NOW())
-       ON CONFLICT (user_id, platform)
-       DO UPDATE SET token = $2, updated_at = NOW()`,
-      [userId, body.token, body.platform]
+      `INSERT INTO user_push_tokens (user_id, token, platform, device_id, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, NOW(), NOW())
+       ON CONFLICT (user_id, token)
+       DO UPDATE SET platform = $3, device_id = COALESCE($4, user_push_tokens.device_id), updated_at = NOW()`,
+      [userId, body.token, body.platform, body.deviceId ?? null]
     );
 
     return NextResponse.json({ success: true, data: { registered: true }, error: null });

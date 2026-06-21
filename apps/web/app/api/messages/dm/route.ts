@@ -416,7 +416,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // 6. Compute coin cost
     const coinCost = getDMCost(sender.plan, isInitiating);
 
-    if (coinCost > 0 && sender.coin_balance < coinCost && !sender.is_admin) {
+    if (coinCost !== null && coinCost > 0 && sender.coin_balance < coinCost && !sender.is_admin) {
       return NextResponse.json(
         {
           error: {

@@ -171,13 +171,13 @@ export const POST = withAuth(async (_req: NextRequest, { auth }) => {
          WHERE gm.user_id = $1`,
         [userId]
       ),
-      // Quest history
+      // Quest history (from user_quest_progress — user_quests was dropped in migration 0020)
       db.query<QuestRow>(
-        `SELECT uq.quest_id, q.title, uq.completed_at, uq.progress
-         FROM user_quests uq
-         JOIN quests q ON q.id = uq.quest_id
-         WHERE uq.user_id = $1
-         ORDER BY uq.completed_at DESC NULLS LAST`,
+        `SELECT uqp.quest_id, qt.title, uqp.completed_at, uqp.progress_count AS progress
+         FROM user_quest_progress uqp
+         JOIN quest_templates qt ON qt.id = uqp.quest_id
+         WHERE uqp.user_id = $1
+         ORDER BY uqp.completed_at DESC NULLS LAST`,
         [userId]
       ),
     ]);

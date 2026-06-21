@@ -88,7 +88,7 @@ export async function safeAwardXP(
 
     // BUG-01: single CTE — UPDATE only fires when INSERT actually inserts a row
     // BUG-02: RETURNING xp_total (and track column) so we can update leaderboard_snapshots
-    const { rows } = await (client as DatabaseAdapter).query<{ id: string; xp_total: number } & Record<string, unknown>>(
+    const { rows } = await (client as DatabaseAdapter).query<{ id: string; xp_total: number; city: string | null } & Record<string, unknown>>(
       `WITH ins AS (
          INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
          VALUES ($1, $2, $3, $4, $5, $2, NOW())
@@ -100,19 +100,19 @@ export async function safeAwardXP(
              ${col === "xp_total" ? "" : `${col} = COALESCE(${col}, 0) + $2,`}
              updated_at = NOW()
        WHERE id = $1 AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM ins)
-       RETURNING id, xp_total${trackSelectExpr}`,
+       RETURNING id, xp_total, city${trackSelectExpr}`,
       [userId, amount, track, source, referenceId ?? null]
     );
 
     // BUG-02: update leaderboard snapshot whenever XP is awarded.
+    // BUG-LB-01: also upsert city-scoped snapshot when the user has a city set.
     // Use `client` (not globalDb) so the snapshot update participates in the
     // caller's transaction and is rolled back together if the transaction fails.
     if (rows[0]) {
       const xpTotal = Number(rows[0].xp_total);
       const trackXP = col === "xp_total" ? xpTotal : Number(rows[0][col]);
+      const city = rows[0].city ?? null;
       // BUG-M01: Log snapshot failures instead of silently swallowing them.
-      // XP is already awarded; snapshot failures must not roll it back, but
-      // they must be visible so leaderboard drift is caught in monitoring.
       await upsertLeaderboardSnapshot(userId, "main", xpTotal, client).catch((err) => {
         logger.warn({ err, userId, track: "main" }, "[leaderboard] snapshot upsert failed after XP award");
       });
@@ -120,6 +120,17 @@ export async function safeAwardXP(
         await upsertLeaderboardSnapshot(userId, track as LeaderboardTrack, trackXP, client).catch((err) => {
           logger.warn({ err, userId, track }, "[leaderboard] snapshot upsert failed after XP award");
         });
+      }
+      // City-scoped snapshots
+      if (city) {
+        await upsertLeaderboardSnapshot(userId, "main", xpTotal, client, { scope: "city", city }).catch((err) => {
+          logger.warn({ err, userId, city, track: "main" }, "[leaderboard] city snapshot upsert failed after XP award");
+        });
+        if (track !== "main") {
+          await upsertLeaderboardSnapshot(userId, track as LeaderboardTrack, trackXP, client, { scope: "city", city }).catch((err) => {
+            logger.warn({ err, userId, city, track }, "[leaderboard] city snapshot upsert failed after XP award");
+          });
+        }
       }
     }
   } catch (err) {
@@ -200,10 +211,11 @@ export async function retryFailedXPAwards(): Promise<{
       // so a partial failure can't leave the award applied but the DLQ row unresolved.
       let retryXpTotal: number | null = null;
       let retryTrackXP: number | null = null;
+      let retryCity: string | null = null;
       const retryTrackSelectExpr = col === "xp_total" ? "" : `, ${col}`;
 
       await globalDb.transaction(async (tx) => {
-        const { rows: retryRows } = await tx.query<{ xp_total: number } & Record<string, unknown>>(
+        const { rows: retryRows } = await tx.query<{ xp_total: number; city: string | null } & Record<string, unknown>>(
           `WITH ins AS (
              INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
              VALUES ($1, $2, $3, $4, $5, $2, NOW())
@@ -215,13 +227,14 @@ export async function retryFailedXPAwards(): Promise<{
                  ${col === "xp_total" ? "" : `${col} = COALESCE(${col}, 0) + $2,`}
                  updated_at = NOW()
            WHERE id = $1 AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM ins)
-           RETURNING xp_total${retryTrackSelectExpr}`,
+           RETURNING xp_total, city${retryTrackSelectExpr}`,
           [row.user_id, row.amount, row.track, row.source, effectiveRef]
         );
 
         if (retryRows[0]) {
           retryXpTotal = Number(retryRows[0].xp_total);
           retryTrackXP = col === "xp_total" ? retryXpTotal : Number(retryRows[0][col]);
+          retryCity = retryRows[0].city ?? null;
         }
 
         await tx.query(
@@ -230,7 +243,8 @@ export async function retryFailedXPAwards(): Promise<{
         );
       });
 
-      // BUG-02: update leaderboard snapshot after successful retry
+      // BUG-02: update leaderboard snapshot after successful retry.
+      // BUG-LB-01: also upsert city-scoped snapshot when user has a city.
       if (retryXpTotal !== null) {
         await upsertLeaderboardSnapshot(row.user_id, "main", retryXpTotal, globalDb).catch((err) => {
           logger.warn({ err, userId: row.user_id, track: "main" }, "[leaderboard] snapshot upsert failed after DLQ retry");
@@ -239,6 +253,16 @@ export async function retryFailedXPAwards(): Promise<{
           await upsertLeaderboardSnapshot(row.user_id, row.track as LeaderboardTrack, retryTrackXP, globalDb).catch((err) => {
             logger.warn({ err, userId: row.user_id, track: row.track }, "[leaderboard] snapshot upsert failed after DLQ retry");
           });
+        }
+        if (retryCity) {
+          await upsertLeaderboardSnapshot(row.user_id, "main", retryXpTotal, globalDb, { scope: "city", city: retryCity }).catch((err) => {
+            logger.warn({ err, userId: row.user_id, city: retryCity, track: "main" }, "[leaderboard] city snapshot upsert failed after DLQ retry");
+          });
+          if (row.track !== "main" && retryTrackXP !== null) {
+            await upsertLeaderboardSnapshot(row.user_id, row.track as LeaderboardTrack, retryTrackXP, globalDb, { scope: "city", city: retryCity }).catch((err) => {
+              logger.warn({ err, userId: row.user_id, city: retryCity, track: row.track }, "[leaderboard] city snapshot upsert failed after DLQ retry");
+            });
+          }
         }
       }
 
