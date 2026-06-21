@@ -248,7 +248,7 @@ export async function getLeaderboard(
     [...params, pageSize, offset]
   );
 
-  const total = parseInt(rows[0]?.total_count ?? "0");
+  let total = parseInt(rows[0]?.total_count ?? "0");
   const entries: LeaderboardEntry[] = rows.map((r) => ({
     rank: Number(r.rank),
     user_id: r.user_id,
@@ -308,7 +308,7 @@ export async function getLeaderboard(
       // BUG-11: Batch-fetch ranks for HoF users not already in the result set —
       // replaces one getUserRank call (2 DB round-trips) per missing user with a
       // single COUNT(*)+1 subquery across all missing users at once.
-      const missingHof = hofRows.filter((h) => !presentIds.has(h.user_id) && entries.length < 100);
+      const missingHof = hofRows.filter((h) => !presentIds.has(h.user_id));
       if (missingHof.length > 0) {
         const missingIds = missingHof.map((h) => h.user_id);
         const { rows: rankRows } = await db.query<{ user_id: string; rank: string }>(
@@ -341,6 +341,7 @@ export async function getLeaderboard(
             custom_crest: hof.custom_crest ?? null,
           });
         }
+        total += missingHof.length; // LB-03: include HoF entries in total count
       }
     } catch {
       // Hall of Fame injection is best-effort — never breaks the leaderboard

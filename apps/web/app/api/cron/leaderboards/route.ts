@@ -22,32 +22,8 @@ export const maxDuration = 10;
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { timingSafeEqual } from "crypto";
 import { db } from "@/lib/db";
-
-// ---------------------------------------------------------------------------
-// Auth
-// ---------------------------------------------------------------------------
-
-function isValidSecret(provided: string, expected: string): boolean {
-  if (!provided || !expected) return false;
-  try {
-    const a = Buffer.from(provided);
-    const b = Buffer.from(expected);
-    if (a.length !== b.length) return false;
-    return timingSafeEqual(a, b);
-  } catch {
-    return false;
-  }
-}
-
-function validateCronSecret(req: NextRequest): boolean {
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) return false;
-  const authHeader = req.headers.get("authorization");
-  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : "";
-  return isValidSecret(token, cronSecret);
-}
+import { validateCronSecret } from "@/lib/cron/auth";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -106,7 +82,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
        FROM xp_ledger xl
        JOIN users u ON u.id = xl.user_id
        WHERE xl.created_at >= $1
-         AND u.is_banned = false
+         AND COALESCE(u.is_banned, false) = false
          AND u.deleted_at IS NULL
        ORDER BY xl.user_id`,
       [windowStart.toISOString()]
@@ -184,7 +160,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
          'global',
          NULL,
          NULL,
-         unnest($3::int[]),
+         unnest($3::bigint[]),
          NOW()
        ON CONFLICT (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))
        DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()`,

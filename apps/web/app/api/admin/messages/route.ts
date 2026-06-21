@@ -57,7 +57,7 @@ async function resolveRecipients(
       const { rows } = await db.query<{ id: string; telegram_id: string | null }>(
         `SELECT id, telegram_id FROM users
          WHERE id IN (${placeholders})
-           AND is_banned = false
+           AND COALESCE(is_banned, false) = false
            AND deleted_at IS NULL`,
         targetUserIds
       );
@@ -66,7 +66,7 @@ async function resolveRecipients(
     case "all": {
       const { rows } = await db.query<{ id: string; telegram_id: string | null }>(
         `SELECT id, telegram_id FROM users
-         WHERE is_banned = false AND deleted_at IS NULL`
+         WHERE COALESCE(is_banned, false) = false AND deleted_at IS NULL`
       );
       return rows;
     }
@@ -78,7 +78,7 @@ async function resolveRecipients(
          JOIN user_subscriptions s ON s.user_id = u.id
          WHERE s.plan_id IN (${placeholders})
            AND s.status = 'active'
-           AND u.is_banned = false
+           AND COALESCE(u.is_banned, false) = false
            AND u.deleted_at IS NULL`,
         targetPlans
       );
@@ -91,7 +91,7 @@ async function resolveRecipients(
         `SELECT u.id, u.telegram_id FROM users u
          JOIN admin_roles r ON r.user_id = u.id
          WHERE r.role IN (${placeholders})
-           AND u.is_banned = false
+           AND COALESCE(u.is_banned, false) = false
            AND u.deleted_at IS NULL`,
         targetRoles
       );

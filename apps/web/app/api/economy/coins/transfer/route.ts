@@ -143,7 +143,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // Verify the recipient exists
     const { rows: recipientRows } = await db.query<{ id: string; username: string }>(
       `SELECT id, username FROM users
-       WHERE id = $1 AND deleted_at IS NULL AND is_banned = FALSE
+       WHERE id = $1 AND deleted_at IS NULL AND COALESCE(is_banned, false) = false
        LIMIT 1`,
       [body.recipientId]
     );

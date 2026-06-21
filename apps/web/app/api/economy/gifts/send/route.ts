@@ -190,9 +190,14 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // Check early — but do NOT write yet. The key is committed to Redis only after the
     // DB transaction succeeds (BUG-GIFT-01). Writing it before the transaction meant a
     // failed transaction left a stale key that blocked legitimate client retries.
+    // RACE-01: returning 409 here ensures clients that race two concurrent requests
+    // both see a definitive "already processed" signal rather than a misleading 200.
     const existingKey = await redis.get(idempKey);
     if (existingKey !== null) {
-      return NextResponse.json({ success: true, duplicate: true, message: "Duplicate request - gift already sent" });
+      return NextResponse.json(
+        { success: true, duplicate: true, message: "Duplicate request - gift already sent" },
+        { status: 409 }
+      );
     }
 
     // FIX-C5 (BUG-18): If a roomId is provided, ensure the sender is an active member
@@ -233,7 +238,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const { rows: recipientRows } = await db.query<UserRow>(
       `SELECT id, username, COALESCE(is_creator, false) AS is_creator, creator_tier
        FROM users
-       WHERE id = $1 AND deleted_at IS NULL AND is_banned = FALSE
+       WHERE id = $1 AND deleted_at IS NULL AND COALESCE(is_banned, false) = false
        LIMIT 1`,
       [body.recipientId]
     );

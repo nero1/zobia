@@ -58,7 +58,7 @@ export async function createChallenge(params: {
   if (!game || !game.is_active) throw notFound("Game not found.");
 
   const { rows: oppRows } = await db.query<{ id: string }>(
-    `SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL AND is_banned = FALSE LIMIT 1`,
+    `SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL AND COALESCE(is_banned, false) = false LIMIT 1`,
     [opponentId]
   );
   if (!oppRows[0]) throw notFound("Opponent not found.");

@@ -196,7 +196,7 @@ export function withAuth<TParams = Record<string, string>>(
       // Redis status reads for ~15s at a time instead of one GET per request.
       const statusKey = `user:status:${payload.sub}`;
       const statusMemKey = `status:${payload.sub}`;
-      const STATUS_MEM_TTL_MS = 15_000;
+      const STATUS_MEM_TTL_MS = 5_000; // AUTH-02: shortened from 15s so bans propagate faster
       let accountBlocked = false;
       // Sensitive mutation endpoints (payments, payouts, transfers, gifts) fail CLOSED
       // when status cannot be confirmed — a brief Redis/DB outage is preferable to
@@ -239,7 +239,7 @@ export function withAuth<TParams = Record<string, string>>(
               [payload.sub]
             ).catch(() => {});
           }
-          await redis.setex(statusKey, 30, accountBlocked ? "blocked" : "ok").catch(() => {});
+          await redis.setex(statusKey, 10, accountBlocked ? "blocked" : "ok").catch(() => {}); // AUTH-02: shorter TTL so ban propagates faster
           memSet(statusMemKey, accountBlocked ? "blocked" : "ok", STATUS_MEM_TTL_MS);
         }
       } catch {

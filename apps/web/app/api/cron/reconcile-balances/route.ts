@@ -17,37 +17,22 @@ export const maxDuration = 300;
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { timingSafeEqual } from "crypto";
 import { db } from "@/lib/db";
+import { validateCronSecret } from "@/lib/cron/auth";
 
 const BATCH_SIZE = 500;
 const AUTO_CORRECT_THRESHOLD = 50;
 
-function isValidSecret(provided: string, expected: string): boolean {
-  if (!provided || !expected) return false;
-  try {
-    const a = Buffer.from(provided);
-    const b = Buffer.from(expected);
-    if (a.length !== b.length) return false;
-    return timingSafeEqual(a, b);
-  } catch {
-    return false;
-  }
-}
-
 export async function GET(req: NextRequest): Promise<NextResponse> {
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
-
-  const authHeader = req.headers.get("authorization");
-  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : "";
-  if (!isValidSecret(token, cronSecret)) {
+  if (!validateCronSecret(req)) {
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   }
 
   let discrepanciesFound = 0;
   let autoCorrected = 0;
-  let offset = 0;
+  // PERF-06: Use keyset (cursor-based) pagination instead of OFFSET to avoid
+  // full-table scans that grow with each page. Cursor is the last seen user id.
+  let lastId = '00000000-0000-0000-0000-000000000000';
   // BUG-M05: Bound the while(true) loop so a large dataset can't cause a silent
   // mid-run timeout. MAX_ITERATIONS × BATCH_SIZE = 100 000 users per invocation.
   // Incomplete runs return a partial-success response so operators know to re-run.
@@ -56,20 +41,21 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   while (true) {
     if (++iterations > MAX_ITERATIONS) {
-      console.error(`[reconcile-balances] Hit iteration cap (${MAX_ITERATIONS}), stopping early at offset ${offset}`);
+      console.error(`[reconcile-balances] Hit iteration cap (${MAX_ITERATIONS}), stopping early at cursor ${lastId}`);
       return NextResponse.json(
-        { ok: false, partial: true, discrepanciesFound, autoCorrected, stoppedAtOffset: offset },
+        { ok: false, partial: true, discrepanciesFound, autoCorrected, stoppedAtCursor: lastId },
         { status: 206 }
       );
     }
     const { rows: users } = await db.query<{ id: string; xp_total: number; coin_balance: number }>(
       `SELECT id, xp_total, coin_balance FROM users
-       WHERE deleted_at IS NULL ORDER BY id LIMIT $1 OFFSET $2`,
-      [BATCH_SIZE, offset]
+       WHERE deleted_at IS NULL AND id > $1 ORDER BY id LIMIT $2`,
+      [lastId, BATCH_SIZE]
     );
     if (users.length === 0) break;
 
     const userIds = users.map((u) => u.id);
+    lastId = users[users.length - 1].id;
 
     // Fetch ledger sums for the batch in parallel
     const [{ rows: xpSums }, { rows: coinSums }] = await Promise.all([
@@ -153,6 +139,32 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       ).catch(() => {});
     }
 
+    // AUDIT-01: Insert per-user audit records before auto-correcting XP discrepancies
+    for (let i = 0; i < fixXpIds.length; i++) {
+      const userId = fixXpIds[i];
+      const ledgerSum = fixXpValues[i];
+      const walletBalance = discXpBal[discXpIds.indexOf(userId)];
+      await db.query(
+        `INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at, notes)
+         VALUES ($1, $2, $3, $4, NOW(), 'auto-corrected by reconcile-balances CRON')
+         ON CONFLICT (user_id, asset_type) DO UPDATE
+           SET ledger_sum = $3, wallet_balance = $4, detected_at = NOW(), resolved = false, notes = 'auto-corrected by reconcile-balances CRON'`,
+        [userId, 'xp', ledgerSum, walletBalance]
+      ).catch(() => {});
+      // OPS-01: Alert on large XP discrepancies
+      const discrepancyAmount = Math.abs(Number(ledgerSum) - Number(walletBalance));
+      if (discrepancyAmount > 1000) {
+        await db.query(
+          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
+           VALUES ('balance_discrepancy', 'warning', $1, $2::jsonb, NOW())`,
+          [
+            `Large balance discrepancy detected for user ${userId}: xp balance differs by ${discrepancyAmount}`,
+            JSON.stringify({ userId, assetType: 'xp', ledgerSum, walletBalance, discrepancyAmount }),
+          ]
+        ).catch(() => {});
+      }
+    }
+
     // Batch auto-correct XP
     if (fixXpIds.length > 0) {
       await db.query(
@@ -161,6 +173,32 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
          WHERE id = updates.uid`,
         [fixXpIds, fixXpValues]
       ).catch(() => {});
+    }
+
+    // AUDIT-01: Insert per-user audit records before auto-correcting coin discrepancies
+    for (let i = 0; i < fixCoinIds.length; i++) {
+      const userId = fixCoinIds[i];
+      const ledgerSum = fixCoinValues[i];
+      const walletBalance = discCoinBal[discCoinIds.indexOf(userId)];
+      await db.query(
+        `INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at, notes)
+         VALUES ($1, $2, $3, $4, NOW(), 'auto-corrected by reconcile-balances CRON')
+         ON CONFLICT (user_id, asset_type) DO UPDATE
+           SET ledger_sum = $3, wallet_balance = $4, detected_at = NOW(), resolved = false, notes = 'auto-corrected by reconcile-balances CRON'`,
+        [userId, 'coins', ledgerSum, walletBalance]
+      ).catch(() => {});
+      // OPS-01: Alert on large coin discrepancies
+      const discrepancyAmount = Math.abs(Number(ledgerSum) - Number(walletBalance));
+      if (discrepancyAmount > 1000) {
+        await db.query(
+          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
+           VALUES ('balance_discrepancy', 'warning', $1, $2::jsonb, NOW())`,
+          [
+            `Large balance discrepancy detected for user ${userId}: coins balance differs by ${discrepancyAmount}`,
+            JSON.stringify({ userId, assetType: 'coins', ledgerSum, walletBalance, discrepancyAmount }),
+          ]
+        ).catch(() => {});
+      }
     }
 
     // Batch auto-correct coins
@@ -172,8 +210,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         [fixCoinIds, fixCoinValues]
       ).catch(() => {});
     }
-
-    offset += BATCH_SIZE;
   }
 
   return NextResponse.json({ ok: true, discrepanciesFound, autoCorrected });

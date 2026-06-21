@@ -120,13 +120,18 @@ export const GET = async (req: NextRequest) => {
       personalContextMap.set(user.user_id, ctx);
     }));
 
-    // Credit comeback coins for 90-day inactive users (fire-and-forget per user)
+    // PERF-07: Await comeback coin transactions with bounded concurrency instead
+    // of fire-and-forget, to prevent unbounded parallel DB connections.
     const comebackMonthKey = new Date().toISOString().slice(0, 7);
-    for (const user of inactiveUsers.filter(u => u.days_inactive === 90)) {
-      db.transaction(async (tx) => {
-        await creditCoins(user.user_id, 200, "comeback_bonus_reserved", `comeback:${user.user_id}:${comebackMonthKey}`, "Comeback bonus — expires in 7 days if unused", {}, tx);
-      }).catch(() => {});
-    }
+    await withConcurrency(
+      inactiveUsers.filter(u => u.days_inactive === 90),
+      5,
+      async (user) => {
+        await db.transaction(async (tx) => {
+          await creditCoins(user.user_id, 200, "comeback_bonus_reserved", `comeback:${user.user_id}:${comebackMonthKey}`, "Comeback bonus — expires in 7 days if unused", {}, tx);
+        });
+      }
+    );
 
     let dispatched = 0;
     const notifiedIds: string[] = [];
@@ -155,7 +160,9 @@ export const GET = async (req: NextRequest) => {
          FROM (SELECT unnest($1::uuid[]) AS uid, unnest($2::int[]) AS days) upd
          WHERE user_id = upd.uid AND inactive_days = upd.days AND push_email_notified = false`,
         [notifiedIds, notifiedDays]
-      ).catch(() => {});
+      ).catch((err) => {
+        console.error('[daily-notify] Failed to mark notifications as sent:', err);
+      });
     }
 
     results.reengagementDispatched = { dispatched };

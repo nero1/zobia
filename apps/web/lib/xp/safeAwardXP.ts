@@ -126,16 +126,22 @@ export async function safeAwardXP(
     const errorMessage = err instanceof Error ? err.message : String(err);
     logger.error({ userId, amount, track, source }, `[safeAwardXP] Failed to award ${amount} XP (${track}/${source}) to ${userId}: ${errorMessage}`);
 
-    // Write to DLQ — awaited so the write completes before the serverless function returns
-    await globalDb.query(
-      `INSERT INTO failed_xp_awards
-         (user_id, amount, track, source, reference_id, error_message, failed_at, retry_count)
-       VALUES ($1, $2, $3, $4, $5, $6, NOW(), 0)
-       ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
-      [userId, amount, track, source, referenceId ?? null, errorMessage]
-    ).catch((dlqErr) => {
-      logger.error({ userId, source }, `[safeAwardXP] Failed to write to DLQ: ${dlqErr}`);
-    });
+    // DLQ-01: Only write to the DLQ when NOT inside a caller's transaction.
+    // If dbClient is a TransactionClient (caller-provided tx), the outer
+    // transaction may still roll back — writing DLQ here would create a phantom
+    // entry describing XP that was never actually lost.
+    // Callers that provide a transaction client are responsible for error handling.
+    if (!dbClient) {
+      await globalDb.query(
+        `INSERT INTO failed_xp_awards
+           (user_id, amount, track, source, reference_id, error_message, failed_at, retry_count)
+         VALUES ($1, $2, $3, $4, $5, $6, NOW(), 0)
+         ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
+        [userId, amount, track, source, referenceId ?? null, errorMessage]
+      ).catch((dlqErr) => {
+        logger.error({ userId, source }, `[safeAwardXP] Failed to write to DLQ: ${dlqErr}`);
+      });
+    }
   }
 }
 

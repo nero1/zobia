@@ -106,7 +106,7 @@ export async function generateDailyDeck(
             OR (plan_required = 'plus' AND $2 IN ('plus','pro','max'))
             OR (plan_required = 'pro' AND $2 IN ('pro','max'))
             OR (plan_required = 'max' AND $2 = 'max'))
-     ORDER BY MD5(CONCAT($3::text, id::text)) -- deterministic stable shuffle per user
+     ORDER BY MD5(CONCAT($3::text, $1::text, id::text)) -- deterministic stable shuffle per user per day
      LIMIT $4`,
     [today, plan, userId, deckSize]
   );
@@ -479,6 +479,16 @@ export async function resetDailyQuests(
      SELECT COUNT(*) AS count FROM deleted`,
     [todayUTC]
   );
+
+  // DATA-01: purge old expired rows to prevent unbounded table growth
+  await db.query(
+    `DELETE FROM quest_progress
+     WHERE status = 'expired'
+       AND date < $1::date - INTERVAL '7 days'`,
+    [todayUTC]
+  ).catch((err) => {
+    console.warn("[questEngine] Failed to purge old quest_progress rows:", err);
+  });
 
   await db.query(
     `DELETE FROM user_quest_decks WHERE assigned_date < CURRENT_DATE - INTERVAL '30 days'`

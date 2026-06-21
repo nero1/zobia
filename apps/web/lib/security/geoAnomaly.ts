@@ -136,18 +136,20 @@ export async function recordAndCheckAnomaly(
       String(ANOMALY_WINDOW_SECONDS * 1000)
     ) as number;
 
-    // Log admin alert (fire-and-forget, non-blocking)
-    db.query(
-      `INSERT INTO system_alerts
-         (type, severity, message, metadata, created_at)
-       VALUES
-         ('geo_anomaly', $1, $2, $3::jsonb, NOW())`,
-      [
-        count >= ANOMALY_THRESHOLD ? "warning" : "info",
-        `User ${userId} session IP changed from ${loginIp} to ${currentIp} (anomaly #${count} in the last hour).`,
-        JSON.stringify({ userId, sessionId, loginIp, currentIp, anomalyCount: count }),
-      ]
-    ).catch(() => {}); // Non-fatal — logging must not block requests
+    // Log admin alert only when the threshold is reached — inserting on every
+    // anomaly floods the table for mobile users with dynamic IPs (OPS-02).
+    if (count >= ANOMALY_THRESHOLD) {
+      db.query(
+        `INSERT INTO system_alerts
+           (type, severity, message, metadata, created_at)
+         VALUES
+           ('geo_anomaly', 'warning', $1, $2::jsonb, NOW())`,
+        [
+          `User ${userId} session IP changed from ${loginIp} to ${currentIp} — anomaly threshold reached (${count} in the last hour). Session will be invalidated.`,
+          JSON.stringify({ userId, sessionId, loginIp, currentIp, anomalyCount: count }),
+        ]
+      ).catch(() => {}); // Non-fatal — logging must not block requests
+    }
 
     return count >= ANOMALY_THRESHOLD;
   } catch {

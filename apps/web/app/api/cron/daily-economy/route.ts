@@ -93,7 +93,7 @@ export const GET = async (req: NextRequest) => {
                      WHERE user_id = users.id AND transaction_type = 'subscription_bonus'
                        AND reference_id = 'plan:' || users.id::text || ':' || $4
                    )
-                 FOR UPDATE
+                 FOR UPDATE LIMIT 1000 -- PERF-01: bound rows per CRON run to prevent unbounded lock acquisition
                ),
                ledger_rows AS (
                  INSERT INTO coin_ledger

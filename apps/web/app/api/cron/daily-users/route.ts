@@ -121,25 +121,35 @@ export const GET = async (req: NextRequest) => {
 
     let expiredBonuses = 0;
     const { debitCoins } = await import("@/lib/economy/coins");
-    for (const row of expiredBonusUsers) {
-      try {
-        await db.transaction(async (tx) => {
-          await debitCoins(
-            row.user_id,
-            COMEBACK_COIN_AMOUNT,
-            "comeback_bonus_expired",
-            `comeback_reversal:${row.user_id}:${row.ledger_id}`,
-            "Comeback bonus expired (7-day window passed)",
-            {},
-            tx
-          );
-        });
-        expiredBonuses++;
-      } catch (coinErr) {
-        if ((coinErr as NodeJS.ErrnoException)?.code !== 'INSUFFICIENT_BALANCE') {
-          console.error('[cron/daily-users] Comeback bonus expiry error:', row.user_id, coinErr);
-        }
-      }
+
+    // PERF-04: replace sequential per-user transactions with batched concurrent
+    // execution (max 10 in-flight at once) to avoid holding a long queue of
+    // serialised DB round-trips while still protecting each row with its own tx.
+    const CONCURRENCY = 10;
+    for (let i = 0; i < expiredBonusUsers.length; i += CONCURRENCY) {
+      const chunk = expiredBonusUsers.slice(i, i + CONCURRENCY);
+      await Promise.allSettled(
+        chunk.map(async (row) => {
+          try {
+            await db.transaction(async (tx) => {
+              await debitCoins(
+                row.user_id,
+                COMEBACK_COIN_AMOUNT,
+                "comeback_bonus_expired",
+                `comeback_reversal:${row.user_id}:${row.ledger_id}`,
+                "Comeback bonus expired (7-day window passed)",
+                {},
+                tx
+              );
+            });
+            expiredBonuses++;
+          } catch (coinErr) {
+            if ((coinErr as NodeJS.ErrnoException)?.code !== 'INSUFFICIENT_BALANCE') {
+              console.error('[cron/daily-users] Comeback bonus expiry error:', row.user_id, coinErr);
+            }
+          }
+        })
+      );
     }
     results.comebackBonusExpiry = { expired: expiredBonuses };
   } catch (err) {

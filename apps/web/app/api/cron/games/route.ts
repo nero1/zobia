@@ -11,26 +11,11 @@ export const maxDuration = 10;
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { timingSafeEqual } from "crypto";
 import { expireChallenges } from "@/lib/games/challenges";
-
-function isValidSecret(provided: string, expected: string): boolean {
-  if (!provided || !expected) return false;
-  try {
-    const a = Buffer.from(provided);
-    const b = Buffer.from(expected);
-    if (a.length !== b.length) return false;
-    return timingSafeEqual(a, b);
-  } catch {
-    return false;
-  }
-}
+import { validateCronSecret } from "@/lib/cron/auth";
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
-  const cronSecret = process.env.CRON_SECRET;
-  const authHeader = req.headers.get("authorization");
-  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : "";
-  if (!cronSecret || !isValidSecret(token, cronSecret)) {
+  if (!validateCronSecret(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

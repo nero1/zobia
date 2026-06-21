@@ -122,12 +122,9 @@ const securityHeaders = [
     key: "Referrer-Policy",
     value: "strict-origin-when-cross-origin",
   },
-  {
-    key: "Permissions-Policy",
-    value: "camera=(), microphone=(), geolocation=(), browsing-topics=()",
-  },
-  // Report-To and Strict-Transport-Security are set per-request in middleware.ts
-  // (withCsp) to avoid duplicate conflicting headers. Do not add them here.
+  // Report-To, Strict-Transport-Security, and Permissions-Policy are set
+  // per-request in middleware.ts (withCsp) to avoid duplicate conflicting
+  // headers. Do not add them here.
   // Content-Security-Policy is set dynamically per-request in middleware.ts
   // with a per-request nonce. Removing it here prevents duplicate CSP headers
   // which would otherwise cause browsers to AND both policies (the static one

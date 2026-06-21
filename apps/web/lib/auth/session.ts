@@ -295,6 +295,19 @@ export async function refreshAccessToken(
     throw new Error("Session has been revoked or has expired");
   }
 
+  // AUTH-01: Acquire a distributed lock to prevent concurrent refresh races.
+  // The lock key is per-session so concurrent refreshes for DIFFERENT users
+  // are not serialised unnecessarily.
+  const lockKey = `refresh_lock:${payload.sid}`;
+  const lockToken = randomUUID();
+  const lockAcquired = await redis.set(lockKey, lockToken, "PX", 10_000, "NX");
+  if (!lockAcquired) {
+    // Another refresh for this session is in flight. Fail fast — the client
+    // should retry once the in-flight refresh resolves.
+    throw new Error("Concurrent refresh in progress. Please retry.");
+  }
+
+  try {
   // Reuse detection — if session has a stored hash and it doesn't match, check grace window
   if (session.refreshTokenHash) {
     const presentedHash = createHash("sha256").update(refreshToken).digest("hex");
@@ -354,6 +367,15 @@ export async function refreshAccessToken(
   ).catch(() => {});
 
   return { accessToken, expiresIn: accessTtl, newRefreshToken, refreshTtl };
+  } finally {
+    // Release the lock (only if we still own it — Lua script for atomicity)
+    await redis.eval(
+      `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end`,
+      1,
+      lockKey,
+      lockToken
+    ).catch(() => {});
+  }
 }
 
 // ---------------------------------------------------------------------------
