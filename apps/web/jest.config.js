@@ -6,6 +6,7 @@ const config = {
   preset: 'ts-jest',
   testEnvironment: 'node',
   rootDir: '.',
+  setupFiles: ['<rootDir>/jest.env.setup.js'],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/$1',
     '^@zobia/types$': '<rootDir>/../../shared/types/index.ts',
@@ -28,7 +29,7 @@ const config = {
   coverageDirectory: 'coverage',
   coverageReporters: ['text', 'lcov'],
   testTimeout: isIntegration ? 60_000 : 30_000,
-  ...(isIntegration ? { maxWorkers: 1, runInBand: true } : {}),
+  ...(isIntegration ? { maxWorkers: 1 } : {}),
 };
 
 module.exports = config;
