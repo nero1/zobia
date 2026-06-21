@@ -110,9 +110,16 @@ export async function safeAwardXP(
     if (rows[0]) {
       const xpTotal = Number(rows[0].xp_total);
       const trackXP = col === "xp_total" ? xpTotal : Number(rows[0][col]);
-      await upsertLeaderboardSnapshot(userId, "main", xpTotal, client).catch(() => {});
+      // BUG-M01: Log snapshot failures instead of silently swallowing them.
+      // XP is already awarded; snapshot failures must not roll it back, but
+      // they must be visible so leaderboard drift is caught in monitoring.
+      await upsertLeaderboardSnapshot(userId, "main", xpTotal, client).catch((err) => {
+        logger.warn({ err, userId, track: "main" }, "[leaderboard] snapshot upsert failed after XP award");
+      });
       if (track !== "main") {
-        await upsertLeaderboardSnapshot(userId, track as LeaderboardTrack, trackXP, client).catch(() => {});
+        await upsertLeaderboardSnapshot(userId, track as LeaderboardTrack, trackXP, client).catch((err) => {
+          logger.warn({ err, userId, track }, "[leaderboard] snapshot upsert failed after XP award");
+        });
       }
     }
   } catch (err) {
@@ -219,9 +226,13 @@ export async function retryFailedXPAwards(): Promise<{
 
       // BUG-02: update leaderboard snapshot after successful retry
       if (retryXpTotal !== null) {
-        await upsertLeaderboardSnapshot(row.user_id, "main", retryXpTotal, globalDb).catch(() => {});
+        await upsertLeaderboardSnapshot(row.user_id, "main", retryXpTotal, globalDb).catch((err) => {
+          logger.warn({ err, userId: row.user_id, track: "main" }, "[leaderboard] snapshot upsert failed after DLQ retry");
+        });
         if (row.track !== "main" && retryTrackXP !== null) {
-          await upsertLeaderboardSnapshot(row.user_id, row.track as LeaderboardTrack, retryTrackXP, globalDb).catch(() => {});
+          await upsertLeaderboardSnapshot(row.user_id, row.track as LeaderboardTrack, retryTrackXP, globalDb).catch((err) => {
+            logger.warn({ err, userId: row.user_id, track: row.track }, "[leaderboard] snapshot upsert failed after DLQ retry");
+          });
         }
       }
 

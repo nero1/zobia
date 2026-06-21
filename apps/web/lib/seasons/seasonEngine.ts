@@ -586,37 +586,45 @@ export async function claimPassMilestone(
     } else if (milestone.reward_type === 'xp_bonus') {
       const val = milestone.reward_value as { bonusXP: number };
       const referenceId = `season:${seasonId}:milestone:${milestoneId}:user:${userId}`;
-      // CTE gate — UPDATE only fires when INSERT actually inserts (idempotency)
+      // BUG-H04: Use a single CTE that gates the user_season_passes UPDATE on the
+      // users UPDATE succeeding. If the user is soft-deleted, the users UPDATE
+      // returns 0 rows, so the pass UPDATE is skipped — preventing XP discrepancies.
       const { rows: xpRows } = await client.query<{ xp_total: number; season_xp: number }>(
         `WITH ins AS (
            INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
            VALUES ($1, $2, 'main', 'season_milestone_bonus', $3, $2, NOW())
            ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
            RETURNING id
+         ),
+         user_updated AS (
+           UPDATE users
+             SET xp_total  = xp_total  + $2,
+                 season_xp = season_xp + $2,
+                 updated_at = NOW()
+           WHERE id = $1 AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM ins)
+           RETURNING id, xp_total, season_xp
          )
-         UPDATE users
-           SET xp_total  = xp_total  + $2,
-               season_xp = season_xp + $2,
-               updated_at = NOW()
-         WHERE id = $1 AND EXISTS (SELECT 1 FROM ins)
-         RETURNING xp_total, season_xp`,
-        [userId, val.bonusXP, referenceId]
-      );
-      // Mirror the season XP onto the season pass row so leaderboards stay in sync
-      await client.query(
-        `UPDATE user_season_passes
-           SET season_xp = season_xp + $1
-         WHERE user_id = $2 AND season_id = $3`,
-        [val.bonusXP, userId, seasonId]
+         UPDATE user_season_passes
+           SET season_xp = season_xp + $2
+         WHERE user_id = $1 AND season_id = $4
+           AND EXISTS (SELECT 1 FROM user_updated)
+         RETURNING (SELECT xp_total FROM user_updated) AS xp_total,
+                   (SELECT season_xp FROM user_updated) AS season_xp`,
+        [userId, val.bonusXP, referenceId, seasonId]
       );
       // Sync leaderboard snapshot so rank reflects the new XP immediately
       if (xpRows[0]) {
         const newXpTotal = Number(xpRows[0].xp_total);
-        await upsertLeaderboardSnapshot(userId, "main", newXpTotal, client).catch(() => {});
+        // BUG-M01: log snapshot failures rather than silently swallowing them
+        await upsertLeaderboardSnapshot(userId, "main", newXpTotal, client).catch((err) => {
+          logger.warn({ err, userId, track: "main" }, "[leaderboard] snapshot upsert failed after season XP bonus");
+        });
         await upsertLeaderboardSnapshot(userId, "main", Number(xpRows[0].season_xp), client, {
           scope: "season",
           seasonId,
-        }).catch(() => {});
+        }).catch((err) => {
+          logger.warn({ err, userId, seasonId }, "[leaderboard] season snapshot upsert failed after season XP bonus");
+        });
       }
     } else if (milestone.reward_type === 'sticker_pack') {
       const val = milestone.reward_value as { packId: string };

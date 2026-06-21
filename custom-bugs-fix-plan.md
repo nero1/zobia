@@ -9,7 +9,7 @@ This plan covers all 24 bugs identified in `custom-bugs-report.md`. Tasks are or
 
 ---
 
-### TASK-C01 · BUG-C01: DodoPayments webhook replay dedup bypass
+### ✅ TASK-C01 · BUG-C01: DodoPayments webhook replay dedup bypass
 **Files:** `apps/web/app/api/economy/webhooks/dodopayments/route.ts`, `apps/web/lib/payments/dodoWebhookHandler.ts`
 
 **Steps:**
@@ -21,7 +21,7 @@ This plan covers all 24 bugs identified in `custom-bugs-report.md`. Tasks are or
 
 ---
 
-### TASK-C02 · BUG-C02: DodoPayments silent 'pro' plan fallback
+### ✅ TASK-C02 · BUG-C02: DodoPayments silent 'pro' plan fallback
 **Files:** `apps/web/lib/payments/dodoWebhookHandler.ts`
 
 **Steps:**
@@ -33,7 +33,7 @@ This plan covers all 24 bugs identified in `custom-bugs-report.md`. Tasks are or
 
 ---
 
-### TASK-C03 · BUG-C03: `uniqueUsername` SQL regex from unsanitised email prefix (ReDoS)
+### ✅ TASK-C03 · BUG-C03: `uniqueUsername` SQL regex from unsanitised email prefix (ReDoS)
 **Files:** `apps/web/app/api/auth/google/callback/route.ts`
 
 **Steps:**
@@ -45,7 +45,7 @@ This plan covers all 24 bugs identified in `custom-bugs-report.md`. Tasks are or
 
 ---
 
-### TASK-C04 · BUG-C04: `safeFetch` forwards all headers to redirect destinations
+### ✅ TASK-C04 · BUG-C04: `safeFetch` forwards all headers to redirect destinations
 **Files:** `apps/web/lib/security/ssrf.ts`
 
 **Steps:**
@@ -61,7 +61,7 @@ This plan covers all 24 bugs identified in `custom-bugs-report.md`. Tasks are or
 
 ---
 
-### TASK-H01 · BUG-H01: Alliance wars immediate re-pair after resolution
+### ✅ TASK-H01 · BUG-H01: Alliance wars immediate re-pair after resolution
 **Files:** `apps/web/app/api/cron/daily-platform/route.ts`, `apps/web/lib/guilds/warEngine.ts` (if `findWarOpponent` is called there)
 
 **Steps:**
@@ -72,7 +72,7 @@ This plan covers all 24 bugs identified in `custom-bugs-report.md`. Tasks are or
 
 ---
 
-### TASK-H02 · BUG-H02: Alliance war loser's `wars_lost` never incremented
+### ✅ TASK-H02 · BUG-H02: Alliance war loser's `wars_lost` never incremented
 **Files:** `apps/web/app/api/cron/daily-platform/route.ts`, `apps/web/lib/guilds/warEngine.ts`
 
 **Steps:**
@@ -83,7 +83,7 @@ This plan covers all 24 bugs identified in `custom-bugs-report.md`. Tasks are or
 
 ---
 
-### TASK-H03 · BUG-H03: SSRF — IPv4-mapped IPv6 addresses bypass private IP check
+### ✅ TASK-H03 · BUG-H03: SSRF — IPv4-mapped IPv6 addresses bypass private IP check
 **Files:** `apps/web/lib/security/ssrf.ts`
 
 **Steps:**
@@ -93,7 +93,7 @@ This plan covers all 24 bugs identified in `custom-bugs-report.md`. Tasks are or
 
 ---
 
-### TASK-H04 · BUG-H04: `claimPassMilestone` awards XP bonus to deleted users
+### ✅ TASK-H04 · BUG-H04: `claimPassMilestone` awards XP bonus to deleted users
 **Files:** `apps/web/lib/seasons/seasonEngine.ts`
 
 **Steps:**
@@ -107,7 +107,7 @@ This plan covers all 24 bugs identified in `custom-bugs-report.md`. Tasks are or
 
 ---
 
-### TASK-M01 · BUG-M01: Leaderboard snapshot errors silently swallowed
+### ✅ TASK-M01 · BUG-M01: Leaderboard snapshot errors silently swallowed
 **Files:** `apps/web/lib/xp/safeAwardXP.ts`, `apps/web/lib/leaderboards/engine.ts` (call sites)
 
 **Steps:**
@@ -118,7 +118,7 @@ This plan covers all 24 bugs identified in `custom-bugs-report.md`. Tasks are or
 
 ---
 
-### TASK-M02 · BUG-M02: Expo API client maps unknown rank tier to invalid `'iron'`
+### ✅ TASK-M02 · BUG-M02: Expo API client maps unknown rank tier to invalid `'iron'`
 **Files:** `apps/expo/lib/api/client.ts`
 
 **Steps:**
@@ -129,7 +129,7 @@ This plan covers all 24 bugs identified in `custom-bugs-report.md`. Tasks are or
 
 ---
 
-### TASK-M03 · BUG-M03: `useOfflineSync` calls `resetSendingMessages` outside `isRunning` guard
+### ✅ TASK-M03 · BUG-M03: `useOfflineSync` calls `resetSendingMessages` outside `isRunning` guard
 **Files:** `apps/web/lib/offline/useOfflineSync.ts`
 
 **Steps:**
@@ -140,7 +140,7 @@ This plan covers all 24 bugs identified in `custom-bugs-report.md`. Tasks are or
 
 ---
 
-### TASK-M04 · BUG-M04: `getUserRank` TOCTOU (two-query rank fetch)
+### ✅ TASK-M04 · BUG-M04: `getUserRank` TOCTOU (two-query rank fetch)
 **Files:** `apps/web/lib/leaderboards/engine.ts`
 
 **Steps:**
@@ -157,7 +157,7 @@ This plan covers all 24 bugs identified in `custom-bugs-report.md`. Tasks are or
 
 ---
 
-### TASK-M05 · BUG-M05: `reconcile-balances` unbounded `while(true)` loop
+### ✅ TASK-M05 · BUG-M05: `reconcile-balances` unbounded `while(true)` loop
 **Files:** `apps/web/app/api/cron/reconcile-balances/route.ts`
 
 **Steps:**
@@ -168,7 +168,7 @@ This plan covers all 24 bugs identified in `custom-bugs-report.md`. Tasks are or
 
 ---
 
-### TASK-M06 · BUG-M06: `sanitizeAnnouncementContent` passes raw markdown to HTML sanitizer
+### ✅ TASK-M06 · BUG-M06: `sanitizeAnnouncementContent` passes raw markdown to HTML sanitizer
 **Files:** `apps/web/lib/security/htmlSanitizer.ts`
 
 **Steps:**
@@ -183,7 +183,7 @@ This plan covers all 24 bugs identified in `custom-bugs-report.md`. Tasks are or
 
 ---
 
-### TASK-L01 · BUG-L01: `validateCsrfState` non-timing-safe length check
+### ✅ TASK-L01 · BUG-L01: `validateCsrfState` non-timing-safe length check
 **Files:** `apps/web/lib/security/csrf.ts`
 
 **Steps:**
@@ -193,7 +193,7 @@ This plan covers all 24 bugs identified in `custom-bugs-report.md`. Tasks are or
 
 ---
 
-### TASK-L02 · BUG-L02: PHONE_REGEX partial-matches ISO date strings
+### ✅ TASK-L02 · BUG-L02: PHONE_REGEX partial-matches ISO date strings
 **Files:** `apps/web/lib/messaging/antispam.ts`
 
 **Steps:**
@@ -203,7 +203,7 @@ This plan covers all 24 bugs identified in `custom-bugs-report.md`. Tasks are or
 
 ---
 
-### TASK-L03 · BUG-L03: Expo `signIn` persists JWT without structural validation
+### ✅ TASK-L03 · BUG-L03: Expo `signIn` persists JWT without structural validation
 **Files:** `apps/expo/lib/auth/context.tsx`
 
 **Steps:**
@@ -213,7 +213,7 @@ This plan covers all 24 bugs identified in `custom-bugs-report.md`. Tasks are or
 
 ---
 
-### TASK-L04 · BUG-L04: PIN verify lockout TOCTOU
+### ✅ TASK-L04 · BUG-L04: PIN verify lockout TOCTOU
 **Files:** `apps/web/app/api/auth/pin/verify/route.ts`
 
 **Steps:**
@@ -224,7 +224,7 @@ This plan covers all 24 bugs identified in `custom-bugs-report.md`. Tasks are or
 
 ---
 
-### TASK-L05 · BUG-L05: `checkAndApplyFlashXP` issues a DB query on every XP award
+### ✅ TASK-L05 · BUG-L05: `checkAndApplyFlashXP` issues a DB query on every XP award
 **Files:** `apps/web/lib/events/flashXP.ts`
 
 **Steps:**
@@ -235,7 +235,7 @@ This plan covers all 24 bugs identified in `custom-bugs-report.md`. Tasks are or
 
 ---
 
-### TASK-L06 · BUG-L06: Monthly plan bonus uses `LIKE` instead of `=`
+### ✅ TASK-L06 · BUG-L06: Monthly plan bonus uses `LIKE` instead of `=`
 **Files:** `apps/web/app/api/cron/daily-economy/route.ts`
 
 **Steps:**
@@ -246,7 +246,7 @@ This plan covers all 24 bugs identified in `custom-bugs-report.md`. Tasks are or
 
 ---
 
-### TASK-L07 · BUG-L07: `upsertGoogleUser` retry loop ignores email uniqueness races
+### ✅ TASK-L07 · BUG-L07: `upsertGoogleUser` retry loop ignores email uniqueness races
 **Files:** `apps/web/app/api/auth/google/callback/route.ts`
 
 **Steps:**
@@ -256,7 +256,7 @@ This plan covers all 24 bugs identified in `custom-bugs-report.md`. Tasks are or
 
 ---
 
-### TASK-L08 · BUG-L08: `getUserRank` missing `season_id IS NULL` filter
+### 🔵 TASK-L08 · BUG-L08: `getUserRank` missing `season_id IS NULL` filter — FALSE POSITIVE (already fixed in codebase)
 **Files:** `apps/web/lib/leaderboards/engine.ts`
 
 **Steps:**
@@ -267,7 +267,7 @@ This plan covers all 24 bugs identified in `custom-bugs-report.md`. Tasks are or
 
 ---
 
-### TASK-L09 · BUG-L09: `pollPushReceipts` holds session-level advisory lock with pooled connections
+### ✅ TASK-L09 · BUG-L09: `pollPushReceipts` holds session-level advisory lock with pooled connections
 **Files:** `apps/web/lib/notifications/push.ts`
 
 **Steps:**
@@ -278,7 +278,7 @@ This plan covers all 24 bugs identified in `custom-bugs-report.md`. Tasks are or
 
 ---
 
-### TASK-L10 · BUG-L10: scrypt KDF cold-start latency per serverless instance
+### ✅ TASK-L10 · BUG-L10: scrypt KDF cold-start latency per serverless instance
 **Files:** `apps/web/lib/security/fieldEncryption.ts`
 
 **Steps:**

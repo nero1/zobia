@@ -605,7 +605,7 @@ Deletion is batched by joining `room_messages` against the sender's subscription
   (`lib/chat/messageCache.ts`).
 - Recent messages, the user's profile, and the active quest deck are stored in IndexedDB.
 - Outgoing messages composed while offline are saved to IndexedDB with status `pending_sync`.
-- On reconnect (`online` event), the client flushes the IndexedDB queue to the server API.
+- On reconnect (`online` event), the `useOfflineSync` hook flushes the IndexedDB queue to the server API. The hook uses a single `isRunning` mutex that covers both the `resetSendingMessages` call and the subsequent `flushQueue` — preventing concurrent reset+flush cycles if the `online` event and mount `useEffect` fire simultaneously.
 
 **Android (MMKV + Expo SQLite)**
 - MMKV provides ultra-fast synchronous key-value storage for session tokens, user preferences, and feature flags.
@@ -1097,7 +1097,9 @@ When `fires_at <= NOW()` and `fired = FALSE`, the CRON:
 
 1. Atomically marks the event as `fired = TRUE`.
 2. Inserts a `flash_xp_live` high-urgency notification for all users active in the last 7 days.
-3. The XP award route (`POST /api/xp/award`) checks `flash_xp_events` for any row where `fired = TRUE AND fires_at <= NOW() AND ends_at > NOW()` and applies the multiplier.
+3. The XP award path calls `checkAndApplyFlashXP`, which checks for any active flash event and applies the multiplier.
+
+**Flash XP caching:** `checkAndApplyFlashXP` maintains a 60-second Redis cache (`flash_xp:active_event`) to avoid a DB query on every single XP award. The cache is invalidated whenever the lifecycle CRON fires or expires an event, ensuring the multiplier is always applied within 60 seconds of activation. A Redis failure falls back gracefully to a direct DB query.
 
 The admin controls the exact fire time — from the user perspective, it fires "at a random moment" within the announced window.
 

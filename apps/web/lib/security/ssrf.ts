@@ -47,10 +47,15 @@ function ip4ToInt(ip: string): number {
 
 function isPrivateIp(hostname: string): boolean {
   // IPv6 private/loopback ranges
-  if (hostname === "::1") return true;
+  if (hostname === "::1" || hostname === "::") return true;
   if (hostname.startsWith("fe80:")) return true;
   if (hostname.startsWith("fc") || hostname.startsWith("fd")) return true;
   if (hostname.startsWith("fec0:")) return true;
+  // BUG-H03: IPv4-mapped IPv6 addresses (::ffff:a.b.c.d) bypass the IPv4 private
+  // range checks because they contain ":" and hit the early-return below. Unwrap
+  // and re-check against the standard IPv4 ranges before the early-return.
+  const v4mapped = hostname.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+  if (v4mapped) return isPrivateIp(v4mapped[1]);
   if (hostname.includes(":")) return false; // public IPv6 — allow
 
   // Parse IPv4
@@ -345,7 +350,28 @@ export async function safeFetch(
     // Resolve relative redirects against the original URL so the hostname is
     // correctly preserved for re-validation.
     const redirectUrl = new URL(location, url).toString();
-    return safeFetch(redirectUrl, init, { ...options, _hops: hops + 1 });
+
+    // BUG-C04: Strip sensitive headers when following a cross-origin redirect.
+    // A malicious redirect chain (e.g. 302 to attacker.example.com) could
+    // harvest credentials forwarded in the original init.headers.
+    const redirectHost = new URL(redirectUrl).hostname.toLowerCase();
+    const originalHost = parsed.hostname.toLowerCase();
+    let redirectInit = init;
+    if (redirectHost !== originalHost) {
+      const SENSITIVE_HEADERS = new Set([
+        "authorization", "cookie", "x-api-key", "x-auth-token",
+        "x-access-token", "proxy-authorization",
+      ]);
+      const safeHeaders = new Headers(callerHeaders);
+      for (const name of Array.from(safeHeaders.keys())) {
+        if (SENSITIVE_HEADERS.has(name.toLowerCase())) {
+          safeHeaders.delete(name);
+        }
+      }
+      redirectInit = { ...init, headers: safeHeaders };
+    }
+
+    return safeFetch(redirectUrl, redirectInit, { ...options, _hops: hops + 1 });
   }
 
   const maxBytes = options?.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;

@@ -36,7 +36,7 @@ Before you begin, you will need accounts and tools for the following:
 git clone https://github.com/your-org/zobia-social.git
 cd zobia-social
 
-# 2. Install dependencies
+# 2. Install dependencies (includes `marked` for announcement markdown rendering)
 pnpm install
 
 # 3. Copy environment variables

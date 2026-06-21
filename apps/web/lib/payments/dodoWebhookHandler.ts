@@ -276,10 +276,26 @@ export async function processPaymentSucceeded(
     // Handle subscription activation (PRD §3)
     if (itemType === "subscription") {
       const VALID_PLANS = ["plus", "pro", "max"] as const;
-      const rawPlanName = metadata.planName ?? "pro";
-      const planName = VALID_PLANS.includes(rawPlanName as (typeof VALID_PLANS)[number])
-        ? rawPlanName
-        : "pro";
+      // BUG-C02: Never fall back to a default plan — an unrecognised plan name
+      // means the provider's catalogue diverged from ours. Alert and abort so no
+      // user receives an unintended tier upgrade.
+      const rawPlanName = metadata.planName ?? "";
+      if (!VALID_PLANS.includes(rawPlanName as (typeof VALID_PLANS)[number])) {
+        console.error(
+          `[webhook/dodopayments] Unrecognised plan name: "${rawPlanName}" — aborting subscription activation`,
+          { providerReference, metadata }
+        );
+        await tx.query(
+          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
+           VALUES ('unknown_dodo_plan', 'warning', $1, $2::jsonb, NOW())`,
+          [
+            `Unknown DodoPayments plan name: "${rawPlanName}"`,
+            JSON.stringify({ providerReference, rawPlanName, metadata }),
+          ]
+        ).catch(() => {});
+        return;
+      }
+      const planName = rawPlanName as (typeof VALID_PLANS)[number];
 
       // BUG-14: use metadata.interval to compute ends_at instead of hard-coding 1 month.
       // Common DodoPayments interval values: "monthly", "yearly", "6month".

@@ -243,6 +243,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [token]);
 
   const signIn = useCallback(async (jwt: string, authUser: AuthUser, refreshToken?: string) => {
+    // BUG-L03: Validate JWT structure before persisting. A malformed response
+    // (proxy error, network glitch, future API version mismatch) could persist
+    // garbage to SecureStore, causing a cryptic crash on the next app launch.
+    // This is structural validation only — signature verification is server-side.
+    const JWT_SEGMENT_RE = /^[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+$/;
+    if (!jwt || !JWT_SEGMENT_RE.test(jwt)) {
+      throw new Error('signIn received a malformed access token — refusing to persist invalid credentials');
+    }
+    if (refreshToken && !JWT_SEGMENT_RE.test(refreshToken)) {
+      throw new Error('signIn received a malformed refresh token — refusing to persist invalid credentials');
+    }
+
     const writes: Promise<void>[] = [
       SecureStore.setItemAsync(JWT_KEY, jwt),
       SecureStore.setItemAsync('zobia_user', JSON.stringify(authUser)),

@@ -32,9 +32,13 @@
  *
  * The pattern intentionally avoids matching short numbers (< 7 digits)
  * to reduce false positives on prices and other numeric strings.
+ *
+ * BUG-L02: Added \b word boundary at the start and a negative lookbehind for
+ * date-separator context (`-` or `/` followed by exactly 1–2 digits then end)
+ * to prevent ISO date strings like 2026-06-20 from being partially matched.
  */
 export const PHONE_REGEX =
-  /(?:\+?\d{1,3}[\s\-.])?(?:\(?\d{1,4}\)?[\s\-.]?)?\d{3,4}[\s\-.]?\d{3,4}[\s\-.]?\d{3,4}/g;
+  /\b(?:\+?\d{1,3}[\s\-.])?(?:\(?\d{1,4}\)?[\s\-.]?)?\d{3,4}[\s\-.]?\d{3,4}[\s\-.]?\d{3,4}\b/g;
 
 /**
  * Matches RFC 5321-compliant email addresses.

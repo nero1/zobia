@@ -151,7 +151,8 @@ async function refreshAccessToken(): Promise<string | null> {
             avatarEmoji: (me.avatarEmoji ?? me.avatar_emoji ?? '') as string,
             city: (me.city ?? '') as string,
             xp: Number(me.xp ?? me.xp_total ?? 0),
-            rankTier: (me.rankTier ?? me.rank_name ?? 'iron') as string,
+            // BUG-M02: 'iron' is not a valid RankName — the lowest valid rank is 'Beginner'
+            rankTier: (me.rankTier ?? me.rank_name ?? 'Beginner') as string,
           };
           const userJson = JSON.stringify(updatedUser);
           await SecureStore.setItemAsync('zobia_user', userJson);

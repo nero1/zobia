@@ -109,19 +109,30 @@ export function useOfflineSync(): void {
   }, []);
 
   useEffect(() => {
+    // BUG-M03: resetSendingMessages was called outside the isRunning guard, allowing
+    // concurrent resets when both the "online" event and the mount useEffect fired
+    // simultaneously. Wrap the entire reset+flush sequence inside a single guard.
+    const safeResetAndFlush = () => {
+      if (isRunning.current) return;
+      isRunning.current = true;
+      resetSendingMessages()
+        .then(() => {
+          if (navigator.onLine) return flushQueue();
+        })
+        .finally(() => {
+          isRunning.current = false;
+        });
+    };
+
     const handleOnline = () => {
-      // Reset any in-flight "sending" messages that were stranded by a crash
-      // before attempting to flush, so they are re-sent correctly.
-      void resetSendingMessages().then(() => flushQueue());
+      safeResetAndFlush();
     };
 
     window.addEventListener("online", handleOnline);
 
     // On mount: reset stranded "sending" messages from a previous session,
     // then flush if already online.
-    void resetSendingMessages().then(() => {
-      if (navigator.onLine) void flushQueue();
-    });
+    safeResetAndFlush();
 
     return () => {
       window.removeEventListener("online", handleOnline);

@@ -76,67 +76,83 @@ export async function getUserRank(
   db: DatabaseAdapter,
   options?: { city?: string; guildId?: string; seasonId?: string; country?: string }
 ): Promise<number | null> {
-  // Get the user's own xp_value from the snapshot for this track/scope
-  const { rows: userRows } = await db.query<{ xp_value: string }>(
-    `SELECT xp_value FROM leaderboard_snapshots
-     WHERE user_id = $1 AND track = $2 AND scope = $3
-       AND (city IS NOT DISTINCT FROM $4)
-       AND (season_id IS NOT DISTINCT FROM $5)
-     LIMIT 1`,
-    [userId, track, scope,
-     options?.city ?? null, options?.seasonId ?? null]
-  );
+  // BUG-M04: The original implementation used two separate queries (fetch user XP,
+  // then count higher-ranked users). Between them, other users' XP could change,
+  // producing a stale rank. Replaced with a single CTE that reads the user's XP
+  // and computes the rank atomically from the same snapshot of the table.
 
-  if (!userRows[0]) return null;
-  const userXP = parseInt(userRows[0].xp_value);
+  if (scope === "national" && !options?.country) {
+    throw new Error("country is required for national leaderboard scope");
+  }
 
-  // Build scope conditions for the rank count
-  const conditions: string[] = [
+  // Build the scope conditions shared by both the my_xp CTE and the rank count.
+  const rankConditions: string[] = [
     `ls.track = $1`,
     `ls.scope = $2`,
     `u.deleted_at IS NULL`,
-    `ls.xp_value > $3`,
-    `ls.user_id != $4`,
   ];
-  const params: (string | number | null)[] = [track, scope, userXP, userId];
-  let paramIdx = 5;
+  const params: (string | number | null)[] = [track, scope];
+  let paramIdx = 3;
 
-  if (scope === "national") {
-    if (!options?.country) {
-      throw new Error("country is required for national leaderboard scope");
-    }
-    conditions.push(`COALESCE(u.country, '') = $${paramIdx++}`);
+  if (scope === "national" && options?.country) {
+    rankConditions.push(`COALESCE(u.country, '') = $${paramIdx++}`);
     params.push(options.country);
   } else if (scope === "city" && options?.city) {
-    conditions.push(`ls.city = $${paramIdx++}`);
+    rankConditions.push(`ls.city = $${paramIdx++}`);
     params.push(options.city);
   } else if (scope === "guild" && options?.guildId) {
-    conditions.push(`u.guild_id = $${paramIdx++}`);
+    rankConditions.push(`u.guild_id = $${paramIdx++}`);
     params.push(options.guildId);
   }
 
   if (options?.seasonId) {
-    conditions.push(`ls.season_id = $${paramIdx++}`);
+    rankConditions.push(`ls.season_id = $${paramIdx++}`);
     params.push(options.seasonId);
   } else {
-    conditions.push(`ls.season_id IS NULL`);
+    rankConditions.push(`ls.season_id IS NULL`);
   }
 
-  // For non-city scopes, exclude rows that have a city value (those belong to city leaderboards)
   if (scope !== "city") {
-    conditions.push(`ls.city IS NULL`);
+    rankConditions.push(`ls.city IS NULL`);
   }
 
-  const { rows } = await db.query<{ rank: string }>(
-    `SELECT COUNT(*) + 1 AS rank
-     FROM leaderboard_snapshots ls
-     JOIN users u ON u.id = ls.user_id
-     WHERE ${conditions.join(" AND ")}`,
+  // userId placeholder for the CTE user filter and rank exclusion
+  const userIdIdx = paramIdx++;
+  params.push(userId);
+
+  const cityParam = options?.city ?? null;
+  const seasonParam = options?.seasonId ?? null;
+  const cityIdx = paramIdx++;
+  const seasonIdx = paramIdx++;
+  params.push(cityParam, seasonParam);
+
+  const { rows } = await db.query<{ rank: string | null }>(
+    `WITH my_xp AS (
+       SELECT xp_value
+       FROM leaderboard_snapshots
+       WHERE user_id = $${userIdIdx}
+         AND track = $1
+         AND scope = $2
+         AND (city IS NOT DISTINCT FROM $${cityIdx})
+         AND (season_id IS NOT DISTINCT FROM $${seasonIdx})
+       LIMIT 1
+     )
+     SELECT
+       CASE WHEN (SELECT xp_value FROM my_xp) IS NULL THEN NULL
+            ELSE (
+              SELECT COUNT(*) + 1
+              FROM leaderboard_snapshots ls
+              JOIN users u ON u.id = ls.user_id
+              WHERE ${rankConditions.join(" AND ")}
+                AND ls.xp_value > (SELECT xp_value FROM my_xp)
+            )
+       END AS rank`,
     params
   );
 
-  const rank = parseInt(rows[0]?.rank ?? "1");
-  return rank;
+  const rankVal = rows[0]?.rank;
+  if (rankVal === null || rankVal === undefined) return null;
+  return parseInt(rankVal);
 }
 
 // ---------------------------------------------------------------------------

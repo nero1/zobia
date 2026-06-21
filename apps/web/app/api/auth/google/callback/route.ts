@@ -120,23 +120,27 @@ const DB_USERNAME_MAX_LENGTH = 30;
 
 /** Find a unique username by appending a numeric suffix if the base is taken. */
 async function uniqueUsername(base: string): Promise<string> {
-  // Use exact match + numeric-suffix pattern to avoid over-fetching unrelated usernames (L-06)
+  // BUG-C03: Sanitize base before embedding in SQL ~ (POSIX regex) operator.
+  // Any caller could pass a string with regex metacharacters, which would cause
+  // wrong matches (e.g. '.' matches any char) or catastrophic backtracking (ReDoS).
+  // Strip to only safe alphanumeric/underscore characters.
+  const safeBase = base.replace(/[^a-z0-9_]/gi, "").slice(0, DB_USERNAME_MAX_LENGTH) || "user";
   const { rows } = await db.query<{ username: string }>(
     `SELECT username FROM users
      WHERE (username = $1 OR username ~ ('^' || $1 || '[0-9]+$'))
        AND deleted_at IS NULL`,
-    [base]
+    [safeBase]
   );
   const taken = new Set(rows.map((r) => r.username));
-  if (!taken.has(base)) return base;
+  if (!taken.has(safeBase)) return safeBase;
   for (let i = 2; i < 10_000; i++) {
     const suffix = String(i);
-    const candidate = `${base.slice(0, DB_USERNAME_MAX_LENGTH - suffix.length)}${suffix}`;
+    const candidate = `${safeBase.slice(0, DB_USERNAME_MAX_LENGTH - suffix.length)}${suffix}`;
     if (!taken.has(candidate)) return candidate;
   }
   // Last-resort fallback: 4-char random suffix, sliced to fit
   const suffix = Math.random().toString(36).slice(2, 6);
-  return `${base.slice(0, DB_USERNAME_MAX_LENGTH - suffix.length)}${suffix}`;
+  return `${safeBase.slice(0, DB_USERNAME_MAX_LENGTH - suffix.length)}${suffix}`;
 }
 
 /** Upsert the user in the database, returning the existing or new record. */
@@ -234,8 +238,25 @@ async function upsertGoogleUser(profile: {
       );
       if (inserted.rows[0]) return inserted.rows[0];
     } catch (insertErr) {
-      const pgCode = (insertErr as { code?: string }).code;
-      if (pgCode === "23505" && attempt < 2) continue;
+      const pgErr = insertErr as { code?: string; constraint?: string };
+      if (pgErr.code === "23505") {
+        // BUG-L07: distinguish username race from email race.
+        // If the email unique constraint fired, a concurrent request just beat us
+        // to the insert — look up and return that newly-created row instead of
+        // retrying the insert (which would just fail again for the same reason).
+        const constraintName = pgErr.constraint ?? "";
+        if (constraintName.includes("email") || constraintName === "users_email_key") {
+          const raceMatch = await db.query<UserRow>(
+            `SELECT id, email, username, google_id, is_email_verified, is_admin, is_moderator, is_creator,
+                    is_banned, is_suspended, deleted_at,
+                    totp_enabled, onboarding_completed, display_name, avatar_emoji, city, xp_total, rank_name
+             FROM users WHERE email = $1 AND deleted_at IS NULL LIMIT 1`,
+            [profile.email]
+          );
+          if (raceMatch.rows[0]) return raceMatch.rows[0];
+        }
+        if (attempt < 2) continue;
+      }
       throw insertErr;
     }
   }
