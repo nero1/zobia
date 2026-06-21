@@ -179,10 +179,13 @@ export async function retryFailedXPAwards(): Promise<{
   let resolved = 0;
   let permanentlyFailed = 0;
 
-  // Fetch eligible rows inside a transaction with FOR UPDATE SKIP LOCKED so that
+  // Fetch eligible rows INSIDE a transaction with FOR UPDATE SKIP LOCKED so that
   // concurrent CRON instances each lock their own exclusive batch and cannot
   // retry the same rows simultaneously (which would prematurely exhaust retry_count).
-  const { rows } = await globalDb.query<{
+  // BUG-RACE-02 FIX: the SELECT … FOR UPDATE SKIP LOCKED must execute inside a
+  // wrapping transaction; without BEGIN/COMMIT the row-level lock is released
+  // immediately after the query completes, defeating the SKIP LOCKED intent.
+  let rows: Array<{
     id: string;
     user_id: string;
     amount: number;
@@ -190,19 +193,33 @@ export async function retryFailedXPAwards(): Promise<{
     source: string;
     reference_id: string | null;
     retry_count: number;
-  }>(
-    `SELECT id, user_id, amount, track, source, reference_id, retry_count
-     FROM failed_xp_awards
-     WHERE resolved_at IS NULL
-       AND retry_count < $1
-       AND (last_retried_at IS NULL
-            OR last_retried_at < NOW() - (POWER(2, retry_count) * INTERVAL '1 minute'))
-     LIMIT 100
-     FOR UPDATE SKIP LOCKED`,
-    [MAX_RETRIES]
-  );
+  }> = [];
 
-  for (const row of rows) {
+  await globalDb.transaction(async (lockTx) => {
+    const result = await lockTx.query<{
+      id: string;
+      user_id: string;
+      amount: number;
+      track: XPTrack;
+      source: string;
+      reference_id: string | null;
+      retry_count: number;
+    }>(
+      `SELECT id, user_id, amount, track, source, reference_id, retry_count
+       FROM failed_xp_awards
+       WHERE resolved_at IS NULL
+         AND retry_count < $1
+         AND (last_retried_at IS NULL
+              OR last_retried_at < NOW() - (POWER(2, retry_count) * INTERVAL '1 minute'))
+       LIMIT 100
+       FOR UPDATE SKIP LOCKED`,
+      [MAX_RETRIES]
+    );
+    rows = result.rows;
+
+    // Process each row inside the same transaction that holds the lock so the
+    // lock is held for the full batch-processing duration.
+    for (const row of rows) {
     try {
       const col = TRACK_COLUMN[row.track] ?? "xp_total";
 
@@ -295,8 +312,9 @@ export async function retryFailedXPAwards(): Promise<{
           ]
         ).catch(() => {});
       }
-    }
-  }
+    }  // end catch
+    }  // end for (const row of rows)
+  });  // end globalDb.transaction
 
   return { resolved, permanentlyFailed };
 }

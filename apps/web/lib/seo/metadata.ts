@@ -5,6 +5,7 @@
  */
 
 import { Metadata } from 'next';
+import { env } from '@/lib/env';
 
 export interface SEOConfig {
   title: string;
@@ -23,7 +24,7 @@ export interface SEOConfig {
  * Includes meta tags, OpenGraph, Twitter Card, and canonical URLs.
  */
 export function generateMetadata(config: SEOConfig): Metadata {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://zobia.vercel.app';
+  const baseUrl = env.NEXT_PUBLIC_APP_URL || 'https://zobia.vercel.app';
   const title = `${config.title} | Zobia Social`;
   const description = config.description;
   const image = config.image || `${baseUrl}/og-default.png`;
@@ -68,7 +69,7 @@ export function generateStructuredData(
   type: 'Person' | 'Thing' | 'LocalBusiness' | 'BreadcrumbList',
   data: Record<string, any>
 ): string {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://zobia.vercel.app';
+  const baseUrl = env.NEXT_PUBLIC_APP_URL || 'https://zobia.vercel.app';
 
   const schema = {
     '@context': 'https://schema.org',
@@ -126,8 +127,7 @@ export function generateLocalBusinessSchema(business: {
   image?: string;
   genre?: string;
 }): string {
-  return generateStructuredData('Thing', {
-    '@type': 'LocalBusiness',
+  return generateStructuredData('LocalBusiness', {
     name: business.name,
     description: business.description,
     url: business.url,

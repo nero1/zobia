@@ -11,7 +11,10 @@ export const dynamic = 'force-dynamic';
  *   region        — filter by region (nigeria|global)
  *   appealPending — "true" to show only payouts with pending appeals
  *   limit         — max records (default 50, max 200)
- *   offset        — pagination offset (default 0)
+ *   cursor        — opaque keyset cursor from previous page (base64 JSON {grossKobo, createdAt, id})
+ *
+ * BUG-20 FIX: OFFSET pagination is replaced with keyset (cursor) pagination to
+ * avoid O(N) full-table scans on large payout tables.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -49,7 +52,15 @@ export const GET = withAdminAuth(async (req: NextRequest, _ctx) => {
     const region = url.searchParams.get("region");
     const appealPending = url.searchParams.get("appealPending") === "true";
     const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "50", 10), 200);
-    const offset = Math.max(parseInt(url.searchParams.get("offset") ?? "0", 10), 0);
+    const cursorParam = url.searchParams.get("cursor");
+    let cursor: { grossKobo: number; createdAt: string; id: string } | null = null;
+    if (cursorParam) {
+      try {
+        cursor = JSON.parse(Buffer.from(cursorParam, "base64url").toString("utf8"));
+      } catch {
+        // Ignore malformed cursor — start from beginning
+      }
+    }
 
     // Build dynamic WHERE clauses
     const conditions: string[] = [];
@@ -72,6 +83,15 @@ export const GET = withAdminAuth(async (req: NextRequest, _ctx) => {
       conditions.push(`cp.appeal_status = 'pending'`);
     }
 
+    // Keyset cursor condition — sort is (gross_kobo DESC, created_at ASC, id ASC)
+    if (cursor) {
+      conditions.push(
+        `(cp.gross_kobo < $${paramIndex} OR (cp.gross_kobo = $${paramIndex} AND (cp.created_at > $${paramIndex + 1} OR (cp.created_at = $${paramIndex + 1} AND cp.id > $${paramIndex + 2}))))`
+      );
+      params.push(cursor.grossKobo, cursor.createdAt, cursor.id);
+      paramIndex += 3;
+    }
+
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     const { rows } = await db.query<AdminPayoutRow>(
@@ -86,19 +106,19 @@ export const GET = withAdminAuth(async (req: NextRequest, _ctx) => {
        FROM creator_payouts cp
        JOIN users u ON u.id = cp.creator_id
        ${where}
-       ORDER BY cp.gross_kobo DESC, cp.created_at ASC
-       LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
-      [...params, limit, offset]
+       ORDER BY cp.gross_kobo DESC, cp.created_at ASC, cp.id ASC
+       LIMIT $${paramIndex++}`,
+      [...params, limit]
     );
 
-    const countParams = [...params];
-    const { rows: countRows } = await db.query<{ total: string }>(
-      `SELECT COUNT(*)::TEXT AS total
-       FROM creator_payouts cp
-       JOIN users u ON u.id = cp.creator_id
-       ${where}`,
-      countParams
-    );
+    const lastRow = rows[rows.length - 1];
+    const nextCursor =
+      rows.length === limit && lastRow
+        ? Buffer.from(
+            JSON.stringify({ grossKobo: lastRow.gross_kobo, createdAt: lastRow.created_at, id: lastRow.id }),
+            "utf8"
+          ).toString("base64url")
+        : null;
 
     return NextResponse.json({
       payouts: rows.map((p) => ({
@@ -123,9 +143,9 @@ export const GET = withAdminAuth(async (req: NextRequest, _ctx) => {
         createdAt: p.created_at,
         approvedAt: p.approved_at,
       })),
-      total: parseInt(countRows[0]?.total ?? "0", 10),
       limit,
-      offset,
+      nextCursor,
+      hasMore: nextCursor !== null,
     });
   } catch (err) {
     return handleApiError(err);

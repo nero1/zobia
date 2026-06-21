@@ -65,11 +65,13 @@ const envSchema = z.object({
     .min(32, "JWT_REFRESH_SECRET must be at least 32 characters"),
 
   // ---- Google OAuth -------------------------------------------------------
-  GOOGLE_CLIENT_ID: z.string().min(1, "GOOGLE_CLIENT_ID is required"),
-  GOOGLE_CLIENT_SECRET: z.string().min(1, "GOOGLE_CLIENT_SECRET is required"),
+  // Optional — Google OAuth login is only enabled when both are set.
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
 
   // ---- Telegram -----------------------------------------------------------
-  TELEGRAM_BOT_TOKEN: z.string().min(1, "TELEGRAM_BOT_TOKEN is required"),
+  // Optional — Telegram login is only enabled when set.
+  TELEGRAM_BOT_TOKEN: z.string().optional(),
 
   // ---- AI providers -------------------------------------------------------
   DEEPSEEK_API_KEY: z.string().optional(),
@@ -84,7 +86,8 @@ const envSchema = z.object({
   MAILGUN_DOMAIN: z.string().optional(),
 
   // ---- Payments -----------------------------------------------------------
-  PAYSTACK_SECRET_KEY: z.string().min(1, "PAYSTACK_SECRET_KEY is required for Paystack webhook HMAC verification"),
+  // Optional — required only when Paystack is the active payment provider.
+  PAYSTACK_SECRET_KEY: z.string().optional(),
   PAYSTACK_PUBLIC_KEY: z.string().optional(),
   DODOPAYMENTS_API_KEY: z.string().optional(),
   DODO_WEBHOOK_SECRET: z.string().optional(),

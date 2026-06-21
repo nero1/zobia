@@ -1,5 +1,5 @@
 export const dynamic = 'force-dynamic';
-export const maxDuration = 10;
+export const maxDuration = 55;
 
 /**
  * app/api/cron/daily-core/route.ts
@@ -209,12 +209,20 @@ export const GET = async (req: NextRequest) => {
 
   // 6. Enforce plan-based message history limits — set-based DELETEs
   try {
+    // BUG-47 FIX: honour retain_until so messages with purchased or admin-set
+    // long-term retention are not pruned before their retention window expires.
+    // BUG-48 FIX: use the sender's CURRENT plan (not plan at creation) to
+    // determine retention. A user who upgrades to plus retains all their
+    // messages; a user who downgrades is pruned to the free window.
     const [freeDeleted, plusDeleted] = await Promise.all([
       db.query<{ count: string }>(
         `WITH deleted AS (
            DELETE FROM messages m
-           WHERE m.sender_plan_at_creation = 'free'
+           USING users u
+           WHERE u.id = m.sender_id
+             AND COALESCE(u.plan, 'free') = 'free'
              AND m.created_at < NOW() - INTERVAL '90 days'
+             AND (m.retain_until IS NULL OR m.retain_until <= NOW())
            RETURNING 1
          )
          SELECT COUNT(*)::text AS count FROM deleted`
@@ -222,8 +230,11 @@ export const GET = async (req: NextRequest) => {
       db.query<{ count: string }>(
         `WITH deleted AS (
            DELETE FROM messages m
-           WHERE m.sender_plan_at_creation = 'plus'
+           USING users u
+           WHERE u.id = m.sender_id
+             AND COALESCE(u.plan, 'free') = 'plus'
              AND m.created_at < NOW() - INTERVAL '180 days'
+             AND (m.retain_until IS NULL OR m.retain_until <= NOW())
            RETURNING 1
          )
          SELECT COUNT(*)::text AS count FROM deleted`

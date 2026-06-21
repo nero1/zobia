@@ -369,12 +369,14 @@ export async function meetsMinimumTrust(
     trust_score: number | null;
     account_age_days: number;
     is_banned: boolean;
+    is_verified: boolean;
   };
   const { rows } = await db.query<TrustGateRow>(
     `SELECT
        trust_score,
        EXTRACT(DAY FROM (NOW() - created_at))::int AS account_age_days,
-       is_banned
+       is_banned,
+       is_verified
      FROM users
      WHERE id = $1 AND deleted_at IS NULL`,
     [userId]
@@ -400,6 +402,12 @@ export async function meetsMinimumTrust(
   // ClassRoom requires 30-day account age in addition to trust score
   if (feature === "classroom_creation") {
     if (user.account_age_days < CLASSROOM_MIN_AGE_DAYS) return false;
+  }
+
+  // send_gift requires email verification for accounts younger than 7 days to
+  // prevent the grace bonus (+20) from trivially bypassing the trust gate.
+  if (feature === "send_gift" && user.account_age_days < 7 && !user.is_verified) {
+    return false;
   }
 
   return true;

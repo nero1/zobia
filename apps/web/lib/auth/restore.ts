@@ -10,6 +10,7 @@ import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { createSession } from "@/lib/auth/session";
+import { redis } from "@/lib/redis";
 import * as jose from "jose";
 
 function escapeHtml(s: string): string {
@@ -36,19 +37,20 @@ export async function signRestoreToken(userId: string): Promise<string> {
   return new jose.SignJWT({ sub: userId, purpose: "account_restore" })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
+    .setJti(crypto.randomUUID())
     .setExpirationTime(`${RESTORE_TOKEN_TTL_SECONDS}s`)
     .sign(getRestoreSecret());
 }
 
-export async function verifyRestoreToken(token: string): Promise<{ userId: string } | null> {
+export async function verifyRestoreToken(token: string): Promise<{ userId: string; jti: string } | null> {
   try {
     const { payload } = await jose.jwtVerify(token, getRestoreSecret(), {
       algorithms: ["HS256"],
     });
-    if (payload.purpose !== "account_restore" || typeof payload.sub !== "string") {
+    if (payload.purpose !== "account_restore" || typeof payload.sub !== "string" || typeof payload.jti !== "string") {
       return null;
     }
-    return { userId: payload.sub };
+    return { userId: payload.sub, jti: payload.jti };
   } catch {
     return null;
   }
@@ -123,7 +125,15 @@ export async function completeAccountRestore(token: string): Promise<RestoreResu
     return { success: false, error: "Invalid or expired restore token" };
   }
 
-  const { userId } = payload;
+  const { userId, jti } = payload;
+
+  // BUG-45 FIX: single-use token enforcement via Redis.
+  // If the jti was already consumed, reject immediately to prevent replay.
+  const usedKey = `restore:used:${jti}`;
+  const alreadyUsed = await redis.exists(usedKey).catch(() => 0);
+  if (alreadyUsed) {
+    return { success: false, error: "Restore link has already been used. Please request a new one." };
+  }
 
   const { rows } = await db.query<{
     id: string;
@@ -154,6 +164,9 @@ export async function completeAccountRestore(token: string): Promise<RestoreResu
      VALUES ($1, 'account_restore', 'user', $2, $3::jsonb, NOW())`,
     [userId, userId, JSON.stringify({ method: "self_restore_token" })]
   ).catch(() => {});
+
+  // Mark token as consumed so it cannot be replayed.
+  await redis.set(usedKey, "1", "EX", RESTORE_TOKEN_TTL_SECONDS).catch(() => {});
 
   // Issue new session tokens
   try {

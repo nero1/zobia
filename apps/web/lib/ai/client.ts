@@ -16,7 +16,6 @@
  * ```
  */
 
-import axios from "axios";
 import { env } from "@/lib/env";
 import { getManifestValue } from "@/lib/manifest";
 import { redis } from "@/lib/redis";
@@ -116,6 +115,64 @@ async function recordSuccess(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Gemini circuit breaker — same pattern as DeepSeek but separate Redis keys
+// ---------------------------------------------------------------------------
+
+const GCB_FAILURES_KEY = "ai:circuit:gemini:failures";
+const GCB_OPENED_AT_KEY = "ai:circuit:gemini:opened_at";
+let _geminiCircuitCache: CircuitCache | null = null;
+
+export async function getGeminiCircuitState(): Promise<{ failures: number; openedAt: number | null }> {
+  const [failures, openedAt] = await Promise.all([
+    redis.get(GCB_FAILURES_KEY),
+    redis.get(GCB_OPENED_AT_KEY),
+  ]);
+  return {
+    failures: parseInt(failures ?? "0", 10),
+    openedAt: openedAt ? parseInt(openedAt, 10) : null,
+  };
+}
+
+async function isGeminiCircuitOpen(): Promise<boolean> {
+  if (_geminiCircuitCache && Date.now() - _geminiCircuitCache.checkedAt < CACHE_TTL_MS) {
+    return _geminiCircuitCache.open;
+  }
+  try {
+    const openedAtRaw = await redis.get(GCB_OPENED_AT_KEY);
+    if (!openedAtRaw) { _geminiCircuitCache = { open: false, checkedAt: Date.now() }; return false; }
+    const elapsed = Date.now() - parseInt(openedAtRaw, 10);
+    if (elapsed >= CIRCUIT_BREAKER.recoveryTimeMs) {
+      await redis.del(GCB_FAILURES_KEY, GCB_OPENED_AT_KEY);
+      _geminiCircuitCache = { open: false, checkedAt: Date.now() };
+      return false;
+    }
+    _geminiCircuitCache = { open: true, checkedAt: Date.now() };
+    return true;
+  } catch { return false; }
+}
+
+async function recordGeminiFailure(): Promise<void> {
+  try {
+    const ttl = Math.ceil(CIRCUIT_BREAKER.recoveryTimeMs / 1000) + 60;
+    const failures = await atomicIncrWithTtl(redis, GCB_FAILURES_KEY, ttl);
+    if (failures >= CIRCUIT_BREAKER.failureThreshold) {
+      await redis.set(GCB_OPENED_AT_KEY, String(Date.now()), "EX", ttl);
+      _geminiCircuitCache = { open: true, checkedAt: Date.now() };
+      console.warn(`[ai:circuit-breaker] Gemini circuit OPEN after ${failures} failures (global)`);
+    } else {
+      _geminiCircuitCache = null;
+    }
+  } catch { /* Redis failure — don't block */ }
+}
+
+async function recordGeminiSuccess(): Promise<void> {
+  try {
+    await redis.del(GCB_FAILURES_KEY, GCB_OPENED_AT_KEY);
+    _geminiCircuitCache = { open: false, checkedAt: Date.now() };
+  } catch { /* ignore */ }
+}
+
+// ---------------------------------------------------------------------------
 // DeepSeek adapter
 // ---------------------------------------------------------------------------
 
@@ -151,6 +208,9 @@ async function callDeepSeek(
   if (!effectiveKey) {
     throw new Error("DeepSeek API key is not configured. Set DEEPSEEK_API_KEY or add an override in AI Settings.");
   }
+  if (!effectiveKey.startsWith("sk-")) {
+    throw new Error("DeepSeek API key has an unexpected format (expected prefix 'sk-'). Check DEEPSEEK_API_KEY.");
+  }
 
   const body = {
     model,
@@ -161,13 +221,29 @@ async function callDeepSeek(
     temperature: options.temperature ?? DEEPSEEK_CONFIG.temperature,
   };
 
-  const { data } = await axios.post<DeepSeekResponse>(endpoint, body, {
-    headers: {
-      Authorization: `Bearer ${effectiveKey}`,
-      "Content-Type": "application/json",
-    },
-    timeout: DEEPSEEK_CONFIG.timeoutMs,
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), DEEPSEEK_CONFIG.timeoutMs);
+  let res: Response;
+  try {
+    res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${effectiveKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`DeepSeek API error ${res.status}: ${text}`);
+  }
+
+  const data = (await res.json()) as DeepSeekResponse;
 
   return {
     content: data.choices[0]?.message?.content ?? "",
@@ -237,6 +313,9 @@ async function callGemini(
   if (!effectiveKey) {
     throw new Error("Gemini API key is not configured. Set GEMINI_API_KEY or add an override in AI Settings.");
   }
+  if (!effectiveKey.startsWith("AIza")) {
+    throw new Error("Gemini API key has an unexpected format (expected prefix 'AIza'). Check GEMINI_API_KEY.");
+  }
 
   const endpoint = `${GEMINI_CONFIG.apiBaseUrl}/models/${model}:generateContent`;
 
@@ -248,13 +327,28 @@ async function callGemini(
     },
   };
 
-  const { data } = await axios.post<GeminiResponse>(endpoint, body, {
-    headers: {
-      "Content-Type": "application/json",
-      "x-goog-api-key": effectiveKey,
-    },
-    timeout: GEMINI_CONFIG.timeoutMs,
-  });
+  const geminiController = new AbortController();
+  const geminiTimeoutId = setTimeout(() => geminiController.abort(), GEMINI_CONFIG.timeoutMs);
+  let geminiRes: Response;
+  try {
+    geminiRes = await fetch(`${endpoint}?key=${encodeURIComponent(effectiveKey)}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: geminiController.signal,
+    });
+  } finally {
+    clearTimeout(geminiTimeoutId);
+  }
+
+  if (!geminiRes.ok) {
+    const text = await geminiRes.text().catch(() => "");
+    throw new Error(`Gemini API error ${geminiRes.status}: ${text}`);
+  }
+
+  const data = (await geminiRes.json()) as GeminiResponse;
 
   const text =
     data.candidates[0]?.content?.parts?.map((p) => p.text).join("") ?? "";
@@ -303,8 +397,18 @@ async function chat(
     console.warn("[ai:circuit-breaker] DeepSeek circuit is OPEN (global), using Gemini");
   }
 
-  // Fallback: Gemini
-  return callGemini(messages, options);
+  // Fallback: Gemini — also protected by its own circuit breaker
+  if (await isGeminiCircuitOpen()) {
+    throw new Error("[ai] Both DeepSeek and Gemini circuits are open — AI unavailable");
+  }
+  try {
+    const response = await callGemini(messages, options);
+    await recordGeminiSuccess();
+    return response;
+  } catch (err) {
+    await recordGeminiFailure();
+    throw err;
+  }
 }
 
 /**

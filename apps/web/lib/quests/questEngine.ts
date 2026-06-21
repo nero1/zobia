@@ -15,6 +15,7 @@
 
 import type { DatabaseAdapter } from "@/lib/db/interface";
 import type { Plan } from "@zobia/types";
+import { env } from "@/lib/env";
 import { ACTION_TRACKS } from "@/lib/xp/engine";
 import { creditCoins } from "@/lib/economy/coins";
 import { safeAwardXP } from "@/lib/xp/safeAwardXP";
@@ -106,9 +107,9 @@ export async function generateDailyDeck(
             OR (plan_required = 'plus' AND $2 IN ('plus','pro','max'))
             OR (plan_required = 'pro' AND $2 IN ('pro','max'))
             OR (plan_required = 'max' AND $2 = 'max'))
-     ORDER BY MD5(CONCAT($3::text, $1::text, id::text)) -- deterministic stable shuffle per user per day
+     ORDER BY MD5(CONCAT($3::text, $1::text, id::text, $5::text)) -- BUG-13 FIX: server secret salt makes daily deck unguessable by clients
      LIMIT $4`,
-    [today, plan, userId, deckSize]
+    [today, plan, userId, deckSize, env.JWT_SECRET.slice(0, 16)]
   );
 
   if (templates.length === 0) return [];

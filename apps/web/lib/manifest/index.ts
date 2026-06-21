@@ -214,7 +214,7 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     googleEnabled: true,
     telegramEnabled: true,
   },
-  captchaProvider: "none",
+  captchaProvider: "turnstile",
   gifProvider: "giphy",
   pwa: {
     webEnabled: true,
@@ -738,9 +738,9 @@ export async function isFeatureAvailableForUser(
 
     availableFrom = rows[0].available_from ? new Date(rows[0].available_from) : null;
     earlyAccessPlans = rows[0].early_access_plans ?? null;
-  } catch {
-    // DB error — fail open so a schema issue doesn't block all users
-    return true;
+  } catch (err) {
+    logger.error({ err, featureKey, userPlan }, '[manifest] Feature gate DB error — denying access');
+    return false;
   }
 
   const now = new Date();

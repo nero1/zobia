@@ -39,6 +39,11 @@ import {
  * signature validation — processing errors are logged, not retried.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  // 0. Validate Content-Type before any body parsing
+  if (!req.headers.get("content-type")?.includes("application/json")) {
+    return NextResponse.json({ error: "Unsupported Media Type" }, { status: 415 });
+  }
+
   // 1. Read raw body bytes for signature validation
   const rawBody = Buffer.from(await req.arrayBuffer());
   const signature = req.headers.get("x-paystack-signature") ?? "";
