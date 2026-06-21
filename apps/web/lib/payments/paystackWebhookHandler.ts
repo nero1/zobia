@@ -10,7 +10,8 @@ import { db } from "@/lib/db";
 import { creditCoins } from "@/lib/economy/coins";
 import { creditStars } from "@/lib/economy/stars";
 import { awardReferralCommissions } from "@/lib/referrals/commissions";
-import { getCreatorFeeRate } from "@/lib/payments/payouts";
+import { getCreatorFeeRate, moveToDeadLetterQueue, notifyPayoutFailure } from "@/lib/payments/payouts";
+import { loadManifest } from "@/lib/manifest";
 
 // ---------------------------------------------------------------------------
 // Paystack webhook event types (subset)
@@ -113,11 +114,27 @@ export async function processChargeSuccess(
 
     // VIP room subscription — activate room access
     if (itemType === "room_subscription") {
-      let { roomId, grossKobo: subGrossKobo, subscriptionDays = 30 } = metadata as unknown as {
-        roomId: string | null | undefined;
-        grossKobo: number;
-        subscriptionDays?: number;
-      };
+      const rawMeta = metadata as Record<string, unknown>;
+      // Validate required fields before any DB write — missing fields must NOT return 200
+      // (Paystack would consider the event delivered and stop retrying)
+      if (
+        !rawMeta.roomId ||
+        typeof rawMeta.roomId !== "string" ||
+        rawMeta.grossKobo === undefined ||
+        rawMeta.grossKobo === null ||
+        (typeof rawMeta.grossKobo !== "number" && typeof rawMeta.grossKobo !== "string")
+      ) {
+        console.error(
+          `[webhook/paystack] room_subscription metadata missing required fields`,
+          { reference, rawMeta }
+        );
+        throw new Error(`room_subscription webhook missing required metadata fields (reference: ${reference})`);
+      }
+      let roomId: string | null = rawMeta.roomId as string;
+      const subGrossKobo = Number(rawMeta.grossKobo);
+      const subscriptionDays = typeof rawMeta.subscriptionDays === "number"
+        ? rawMeta.subscriptionDays
+        : 30;
       const expiresAt = new Date(Date.now() + subscriptionDays * 24 * 60 * 60 * 1000).toISOString();
 
       // Verify the room exists before inserting a subscription
@@ -142,7 +159,7 @@ export async function processChargeSuccess(
          VALUES ($1, $2, 'active', $3, NOW(), $4)
          ON CONFLICT (room_id, user_id) DO UPDATE
            SET status = 'active', amount_kobo = $3, started_at = NOW(), expires_at = $4`,
-        [roomId, userId, subGrossKobo ?? amount, expiresAt]
+        [roomId, userId, subGrossKobo, expiresAt]
       );
 
       await tx.query(
@@ -162,14 +179,14 @@ export async function processChargeSuccess(
       if (creator) {
         const feeRate = getCreatorFeeRate(creator.creator_tier);
         const sharePercent = Math.round((1 - feeRate) * 100);
-        const netKobo = Math.floor(((subGrossKobo ?? amount) * sharePercent) / 100);
-        const platformFeeKobo = (subGrossKobo ?? amount) - netKobo;
+        const netKobo = Math.floor((subGrossKobo * sharePercent) / 100);
+        const platformFeeKobo = subGrossKobo - netKobo;
         await tx.query(
           `INSERT INTO creator_earnings
              (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo, reference_id)
            VALUES ($1, 'subscription', $2, $3, $4, $5)
            ON CONFLICT (creator_id, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
-          [creator.creator_id, subGrossKobo ?? amount, platformFeeKobo, netKobo, paymentId]
+          [creator.creator_id, subGrossKobo, platformFeeKobo, netKobo, paymentId]
         );
         await tx.query(
           `UPDATE users
@@ -180,7 +197,7 @@ export async function processChargeSuccess(
       }
 
       // BUG-PAY-01: seed Creator Fund for room_subscription payments (was missing)
-      const subCreatorFundKobo = Math.floor((subGrossKobo ?? amount) * 0.05);
+      const subCreatorFundKobo = Math.floor(subGrossKobo * 0.05);
       if (subCreatorFundKobo > 0) {
         await tx.query(
           `INSERT INTO x_manifest (key, value, updated_at)
@@ -407,10 +424,6 @@ export async function processTransferEvent(
     ).catch(() => {});
 
   } else if (event.event === "transfer.failed") {
-    // Import retry logic from payouts lib
-    const { moveToDeadLetterQueue, notifyPayoutFailure } = await import("@/lib/payments/payouts");
-    const { loadManifest } = await import("@/lib/manifest");
-
     const manifest = await loadManifest();
     const maxRetries = manifest.payouts.maxRetries;
 

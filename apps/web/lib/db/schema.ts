@@ -257,19 +257,8 @@ export const users = pgTable("users", {
 // to avoid a destructive migration until a decision is made: either backfill it from
 // Redis for audit purposes, or drop it once the Redis-only model is confirmed stable.
 // Do NOT rely on this table for session validation or revocation.
-export const sessions = pgTable("sessions", {
-  id: uuidPk(),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  refreshTokenHash: text("refresh_token_hash").notNull(),
-  deviceInfo: jsonb("device_info"),
-  ipAddress: text("ip_address"),
-  isAdminSession: boolean("is_admin_session").default(false),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-  lastUsedAt: timestamp("last_used_at", { withTimezone: true }).defaultNow(),
-});
+// BUG-SC-01: sessions table removed — all auth sessions are stored in Redis.
+// See migration 0020_schema_cleanup.sql.
 
 export const userPins = pgTable("user_pins", {
   id: uuidPk(),
@@ -306,6 +295,7 @@ export const userPushTokens = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     token: text("token").notNull(),
     platform: text("platform").notNull().default("android"),
+    deviceId: text("device_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow(),
@@ -1522,36 +1512,8 @@ export const questTemplates = pgTable("quest_templates", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
-// BUG-SCHEMA-02: DEPRECATED — superseded by user_quest_progress. No current code
-// path reads or writes this table; use user_quest_progress for all quest tracking.
-// Retained to avoid a destructive migration; schedule for removal once confirmed unused.
-export const userQuests = pgTable(
-  "user_quests",
-  {
-    id: uuidPk(),
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
-    questTemplateId: uuid("quest_template_id")
-      .notNull()
-      .references(() => questTemplates.id, { onDelete: "cascade" }),
-    date: date("date").notNull(),
-    progress: integer("progress").notNull().default(0),
-    target: integer("target").notNull(),
-    isCompleted: boolean("is_completed").default(false),
-    completedAt: timestamp("completed_at", { withTimezone: true }),
-    xpReward: integer("xp_reward").notNull(),
-    coinReward: integer("coin_reward").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-  },
-  (t) => ({
-    unique: uniqueIndex("user_quests_user_template_date_idx").on(
-      t.userId,
-      t.questTemplateId,
-      t.date
-    ),
-  })
-);
+// BUG-SC-02: userQuests table removed — superseded by user_quest_progress.
+// See migration 0020_schema_cleanup.sql.
 
 export const userQuestProgress = pgTable(
   "user_quest_progress",
@@ -2017,15 +1979,8 @@ export const xpLedger = pgTable(
     amount: integer("amount").notNull(),
     track: text("track").notNull().default("main"),
     source: text("source").notNull(),
-    action: text("action"),
-    xpAmount: integer("xp_amount"),
-    xpNet: integer("xp_net"),
     referenceId: text("reference_id"),
-    multiplier: decimal("multiplier", { precision: 4, scale: 2 }).default("1.0"),
     baseAmount: integer("base_amount").notNull(),
-    description: text("description"),
-    ceremonyRoomId: uuid("ceremony_room_id"),
-    metadata: jsonb("metadata"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (t) => ({
@@ -3826,8 +3781,7 @@ export type NewCronStateRow = typeof cronState.$inferInsert;
 // Users & Auth
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
-export type Session = typeof sessions.$inferSelect;
-export type NewSession = typeof sessions.$inferInsert;
+// Session / NewSession types removed — sessions table was dropped (BUG-SC-01).
 export type UserPin = typeof userPins.$inferSelect;
 export type NewUserPin = typeof userPins.$inferInsert;
 export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
@@ -3944,8 +3898,7 @@ export type NewBrandedRoom = typeof brandedRooms.$inferInsert;
 // Quests, Seasons & Progression
 export type QuestTemplate = typeof questTemplates.$inferSelect;
 export type NewQuestTemplate = typeof questTemplates.$inferInsert;
-export type UserQuest = typeof userQuests.$inferSelect;
-export type NewUserQuest = typeof userQuests.$inferInsert;
+// UserQuest / NewUserQuest types removed — userQuests table was dropped (BUG-SC-02).
 export type UserQuestProgress = typeof userQuestProgress.$inferSelect;
 export type NewUserQuestProgress = typeof userQuestProgress.$inferInsert;
 export type UserQuestDeck = typeof userQuestDecks.$inferSelect;
@@ -4179,7 +4132,6 @@ export const schema = {
 
   // Users & Auth
   users,
-  sessions,
   userPins,
   passwordResetTokens,
   userPushTokens,
@@ -4244,7 +4196,6 @@ export const schema = {
 
   // Quests, Seasons & Progression
   questTemplates,
-  userQuests,
   userQuestProgress,
   userQuestDecks,
   seasons,

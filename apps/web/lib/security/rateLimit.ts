@@ -89,8 +89,8 @@ export const RATE_LIMITS = {
   coinPurchase: { limit: 10, windowMs: 60 * 60 * 1000, name: "coin:purchase", globalLimit: 1000, bypassL1: true } as RateLimitOptions,
   /** Payout request — daily limit to prevent abuse of the payout system (STRUC-09). */
   payoutRequest: { limit: 3, windowMs: 24 * 60 * 60 * 1000, name: "payout:request", globalLimit: 1000, bypassL1: true } as RateLimitOptions,
-  /** Star gifting — hourly limit (STRUC-09). */
-  starGift: { limit: 30, windowMs: 60 * 60 * 1000, name: "star:gift" } as RateLimitOptions,
+  /** Star gifting — hourly limit (STRUC-09). bypassL1 ensures every star gift hits Redis. */
+  starGift: { limit: 30, windowMs: 60 * 60 * 1000, name: "star:gift", bypassL1: true } as RateLimitOptions,
   /** Starting a game play session. */
   gameStart: { limit: 60, windowMs: 60 * 1000, name: "game:start" } as RateLimitOptions,
   /** Submitting a game score — bounds reward farming on client-reported scores. */
@@ -163,11 +163,10 @@ const RL_MEM_TTL_MS = 2_000;
 
 /**
  * Fraction of the limit below which we can safely skip the Redis round-trip.
- * BUG-16: lowered from 0.7 to 0.4 — at 0.7 with 3 instances the per-process
- * cache could allow up to 210% of the intended limit before hitting Redis.
- * At 0.4 the maximum multi-instance overage is capped at ~120%.
+ * BUG-16: lowered from 0.7 to 0.4; BUG-RL-01: further lowered to 0.25 so
+ * the maximum multi-instance overage is capped at ~75% instead of ~120%.
  */
-const RL_SKIP_THRESHOLD = 0.4;
+const RL_SKIP_THRESHOLD = 0.25;
 
 // ---------------------------------------------------------------------------
 // Core sliding-window implementation

@@ -1682,9 +1682,15 @@
   "games.error.sessionExpired": "Your play session has expired. Please start a new game.",
   "games.error.sessionTooQuick": "Play session ended too quickly to be valid.",
   "games.error.challengeExpired": "This challenge has expired.",
+  "games.error.alreadyScored": "This play session has already been scored.",
   "games.cancelChallenge.forfeit": "{{amount}} credits forfeited",
   "games.cancelChallenge.refund": "You will receive {{amount}} credits back.",
   "seasons.error.seasonEnded": "This season has ended. Milestone claims are now closed.",
   "rooms.error.muted": "You are muted in this room.",
+  "messages.error.cannotInitiate": "Your current plan does not allow starting new DM conversations. Upgrade to Pro or Max.",
+  "messages.error.dmLimitReached": "You have reached your daily DM limit. Try again tomorrow.",
+  "messages.error.replyLimitReached": "You have reached your daily reply limit. Try again tomorrow.",
+  "leaderboard.city.label": "City Leaderboard",
+  "leaderboard.city.empty": "No city leaderboard data yet.",
   "error.encryptionIntegrity": "Data integrity error — please contact support."
 }

@@ -198,21 +198,22 @@ export async function updateConversationScore(
   for (const su of STICKER_UNLOCK_THRESHOLDS) {
     if (previousScore < su.threshold && result.score >= su.threshold) {
       newStickerUnlocks.push(su.packName);
-      // Persist the unlock and grant the sticker pack to both users (best-effort)
+      // Persist the unlock and grant the sticker pack to both users (best-effort).
+      // BUG-SK-01 fix: query the pack first so we never consume the threshold
+      // without being able to grant the reward (if pack is missing we skip entirely).
       try {
-        await db.query(
-          `INSERT INTO dm_score_sticker_unlocks
-             (user_id_1, user_id_2, pack_name, unlocked_at)
-           VALUES ($1, $2, $3, NOW())
-           ON CONFLICT (user_id_1, user_id_2, pack_name) DO NOTHING`,
-          [u1, u2, su.packName]
-        );
-        // Grant the sticker pack to both users in the pair (look up pack_id by name)
         const { rows: packRows } = await db.query<{ id: string }>(
           `SELECT id FROM sticker_packs WHERE name = $1 LIMIT 1`,
           [su.packName]
         );
         if (packRows[0]) {
+          await db.query(
+            `INSERT INTO dm_score_sticker_unlocks
+               (user_id_1, user_id_2, pack_name, unlocked_at)
+             VALUES ($1, $2, $3, NOW())
+             ON CONFLICT (user_id_1, user_id_2, pack_name) DO NOTHING`,
+            [u1, u2, su.packName]
+          );
           await db.query(
             `INSERT INTO user_sticker_packs (user_id, pack_id)
              VALUES ($1, $2), ($3, $2)

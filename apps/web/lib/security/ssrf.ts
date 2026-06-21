@@ -48,7 +48,9 @@ function ip4ToInt(ip: string): number {
 function isPrivateIp(hostname: string): boolean {
   // IPv6 private/loopback ranges
   if (hostname === "::1" || hostname === "::") return true;
-  if (hostname.startsWith("fe80:")) return true;
+  // Cover the full fe80::/10 link-local range (fe80:: through febf::) not just fe80:
+  const firstGroup = parseInt(hostname.split(':')[0], 16);
+  if (!isNaN(firstGroup) && firstGroup >= 0xfe80 && firstGroup <= 0xfebf) return true;
   if (hostname.startsWith("fc") || hostname.startsWith("fd")) return true;
   if (hostname.startsWith("fec0:")) return true;
   // BUG-H03: IPv4-mapped IPv6 addresses (::ffff:a.b.c.d) bypass the IPv4 private

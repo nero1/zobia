@@ -150,25 +150,16 @@ export async function finalizeScore(
     throw badRequest("Play session has expired — please start a new game.");
   }
 
-  // Previous best for win detection (non-challenge plays).
-  const { rows: bestRows } = await db.query<{ best_score: number }>(
-    `SELECT best_score FROM game_best_scores WHERE game_id = $1 AND user_id = $2 LIMIT 1`,
-    [game.id, userId]
-  );
-  const previousBest = bestRows[0]?.best_score ?? -1;
-  const isNewBest = score > previousBest;
-
   const isChallenge = !!play.challenge_round_id;
-  // A non-challenge "win" = a new personal best with a positive score. This
-  // rewards genuine improvement and resists farming by replaying for zero.
-  const isWin = !isChallenge && isNewBest && score > 0;
 
+  let isNewBest = false;
+  let isWin = false;
   let reward: RewardBundle = { credits: 0, xp: 0, stars: 0 };
 
-  // Load reward config before the transaction to avoid holding the lock
-  // while making an I/O call (manifest fetch). We already fetched sessionCfg
-  // above for the max-age check; reuse it when a win reward is needed.
-  const cfg = isWin ? sessionCfg : null;
+  // Load reward config before the transaction so we don't hold the row lock
+  // while doing a network/IO call. We'll decide isWin inside the transaction
+  // once we have the atomic best-score check.
+  const cfg = sessionCfg;
 
   await db.transaction(async (tx) => {
     // Mark the play counted (consumes the nonce). Guarded so a concurrent
@@ -183,6 +174,19 @@ export async function finalizeScore(
     if (updated.length === 0) {
       throw badRequest("This play session has already been scored.");
     }
+
+    // Personal-best check is inside the transaction so it's atomic with the
+    // counted=TRUE mark. Two concurrent plays cannot both see the same stale
+    // previousBest and both claim a new-personal-best reward.
+    const { rows: bestRows } = await tx.query<{ best_score: number }>(
+      `SELECT best_score FROM game_best_scores WHERE game_id = $1 AND user_id = $2 LIMIT 1 FOR UPDATE`,
+      [game.id, userId]
+    );
+    const previousBest = bestRows[0]?.best_score ?? -1;
+    isNewBest = score > previousBest;
+
+    // A non-challenge "win" = a new personal best with a positive score.
+    isWin = !isChallenge && isNewBest && score > 0;
 
     await updateBestScore(game.id, userId, score, isWin, tx);
 

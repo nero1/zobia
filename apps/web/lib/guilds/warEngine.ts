@@ -103,7 +103,8 @@ interface GuildWarRow {
 
 interface GuildRow {
   id: string;
-  guild_xp: number;
+  // pg driver returns PostgreSQL bigint as a string to avoid IEEE 754 precision loss
+  guild_xp: string | number;
   city: string | null;
   last_war_ended_at: string | null;
 }
@@ -161,8 +162,10 @@ export async function findWarOpponent(
   const self = selfResult.rows[0];
   if (!self) return null;
 
-  const minXP = Math.floor(self.guild_xp * (1 - OPPONENT_XP_TOLERANCE));
-  const maxXP = Math.ceil(self.guild_xp * (1 + OPPONENT_XP_TOLERANCE));
+  // pg driver returns bigint as a string; cast before arithmetic to avoid NaN
+  const guildXp = Number(self.guild_xp);
+  const minXP = Math.floor(guildXp * (1 - OPPONENT_XP_TOLERANCE));
+  const maxXP = Math.ceil(guildXp * (1 + OPPONENT_XP_TOLERANCE));
 
   // Guilds currently involved in an active war
   const activeWarResult = await db.query<{ guild_id: string }>(
@@ -204,7 +207,7 @@ export async function findWarOpponent(
        WHERE ${conditions.join(" AND ")}
        ORDER BY ABS(g.guild_xp - $${paramIdx}) ASC
        LIMIT 5`,
-      [...params, self.guild_xp]
+      [...params, guildXp]
     );
 
     if (candidateResult.rows.length > 0) {
