@@ -328,7 +328,10 @@ export async function enforceRateLimit(
 local n = redis.call('INCR', KEYS[1])
 if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
 return n`;
-    const globalWindowSec = Math.round(options.windowMs / 1000).toString();
+    // BUG-RL-01: global cap always uses a 60-second window regardless of the
+    // per-user window — prevents a 15-min auth window from making the global
+    // cap reset only every 15 minutes instead of every minute.
+    const globalWindowSec = "60";
     const globalCount = await redis.eval(GLOBAL_RATE_LUA, 1, globalKey, globalWindowSec) as number;
     if (globalCount > options.globalLimit) {
       throw tooManyRequests(

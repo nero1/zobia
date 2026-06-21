@@ -28,6 +28,8 @@ import { redis } from "@/lib/redis";
 import { requirePinVerified } from "@/lib/auth/pinGuard";
 import { loadManifest } from "@/lib/manifest";
 import { calculateFinalXP, PLAN_XP_MULTIPLIERS_BP } from "@/lib/xp/engine";
+import { safeAwardXP } from "@/lib/xp/safeAwardXP";
+import { logger } from "@/lib/logger";
 import type { Plan } from "@zobia/types";
 
 // Platform takes 20% of gifts received by creators (PRD §14)
@@ -83,107 +85,52 @@ async function awardGiftXP(
   giftId: string,
   roomId?: string | null
 ): Promise<void> {
-  try {
-    // PRD §6: Sending a gift message is a messaging action — apply plan multiplier
-    const { baseXp: senderBaseXp, finalXp: senderXP } = calculateFinalXP(
-      'send_gift_message',
-      { plan: senderPlan, isMessagingAction: true }
-    );
-    const senderMultiplierBP = PLAN_XP_MULTIPLIERS_BP[senderPlan];
+  // PRD §6: Sending a gift message is a messaging action — apply plan multiplier
+  const { finalXp: senderXP } = calculateFinalXP(
+    'send_gift_message',
+    { plan: senderPlan, isMessagingAction: true }
+  );
 
-    // Recipient XP (receive_gift_and_react) — not a messaging action, no plan multiplier
-    const { baseXp: recipBaseXp, finalXp: recipientXP } = calculateFinalXP(
-      'receive_gift_and_react',
-      { plan: 'free', isMessagingAction: false }
-    );
+  // Recipient XP (receive_gift_and_react) — not a messaging action, no plan multiplier
+  const { finalXp: recipientXP } = calculateFinalXP(
+    'receive_gift_and_react',
+    { plan: 'free', isMessagingAction: false }
+  );
 
-    // first_time_gifted XP (non-messaging, flat)
-    const { baseXp: firstGiftBaseXp, finalXp: firstGiftXP } = calculateFinalXP(
-      'first_time_gifted',
-      { plan: 'free', isMessagingAction: false }
-    );
+  // first_time_gifted XP (non-messaging, flat)
+  const { finalXp: firstGiftXP } = calculateFinalXP(
+    'first_time_gifted',
+    { plan: 'free', isMessagingAction: false }
+  );
 
-    // being_tipped_in_room XP (non-messaging, flat)
-    const { baseXp: tippedBaseXp, finalXp: tippedXP } = calculateFinalXP(
-      'being_tipped_in_room',
-      { plan: 'free', isMessagingAction: false }
-    );
+  // being_tipped_in_room XP (non-messaging, flat)
+  const { finalXp: tippedXP } = calculateFinalXP(
+    'being_tipped_in_room',
+    { plan: 'free', isMessagingAction: false }
+  );
 
-    const isTippedInRoom = !!roomId;
+  // BUG-XP-GIFT-01: use safeAwardXP so failures write to the DLQ instead of being
+  // silently dropped. Called after the main gift transaction has already committed.
+  await safeAwardXP(senderId, senderXP, 'generosity', 'gift_sent', `gift:${giftId}:sender`);
+  await safeAwardXP(recipientId, recipientXP, 'social', 'gift_received', `gift:${giftId}:recipient`);
 
-    await db.transaction(async (tx) => {
-      // PRD §6: Atomically claim the first_time_gifted bonus — avoids race conditions
-      // when concurrent gifts arrive simultaneously for the same recipient.
-      const { rows: firstGiftRows } = await tx.query<{ id: string }>(
-        `UPDATE users SET first_gift_received_xp_awarded = TRUE
-         WHERE id = $1 AND first_gift_received_xp_awarded IS NOT TRUE
-         RETURNING id`,
-        [recipientId]
-      );
-      const isFirstGift = firstGiftRows.length > 0;
-
-      // FIX-H01: CTE pattern — UPDATE only fires when the INSERT actually inserts
-      // a new row, preventing double-award on duplicate gift requests.
-
-      // Sender XP (generosity track)
-      await tx.query(
-        `WITH ins AS (
-           INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
-           VALUES ($1, $2, 'generosity', 'gift_sent', $3, $4, $5)
-           ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
-           RETURNING id
-         )
-         UPDATE users SET xp_total = xp_total + $2, xp_generosity = xp_generosity + $2, updated_at = NOW()
-         WHERE id = $1 AND EXISTS (SELECT 1 FROM ins)`,
-        [senderId, senderXP, `gift:${giftId}:sender`, senderMultiplierBP, senderBaseXp]
-      );
-
-      // Recipient base XP (social track)
-      await tx.query(
-        `WITH ins AS (
-           INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
-           VALUES ($1, $2, 'social', 'gift_received', $3, 100, $4)
-           ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
-           RETURNING id
-         )
-         UPDATE users SET xp_total = xp_total + $2, xp_social = xp_social + $2, updated_at = NOW()
-         WHERE id = $1 AND EXISTS (SELECT 1 FROM ins)`,
-        [recipientId, recipientXP, `gift:${giftId}:recipient`, recipBaseXp]
-      );
-
-      if (isFirstGift) {
-        await tx.query(
-          `WITH ins AS (
-             INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
-             VALUES ($1, $2, 'social', 'first_time_gifted', $3, 100, $4)
-             ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
-             RETURNING id
-           )
-           UPDATE users SET xp_total = xp_total + $2, xp_social = xp_social + $2, updated_at = NOW()
-           WHERE id = $1 AND EXISTS (SELECT 1 FROM ins)`,
-          [recipientId, firstGiftXP, `gift:${giftId}:first`, firstGiftBaseXp]
-        );
-      }
-
-      if (isTippedInRoom) {
-        // FIX-H02: add ON CONFLICT guard and use gift-specific reference_id so
-        // duplicate gift requests cannot produce duplicate room-tip ledger entries.
-        await tx.query(
-          `WITH ins AS (
-             INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
-             VALUES ($1, $2, 'creator', 'being_tipped_in_room', $3, 100, $4)
-             ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
-             RETURNING id
-           )
-           UPDATE users SET xp_total = xp_total + $2, xp_creator = xp_creator + $2, updated_at = NOW()
-           WHERE id = $1 AND EXISTS (SELECT 1 FROM ins)`,
-          [recipientId, tippedXP, `gift:${giftId}:tipped_in_room`, tippedBaseXp]
-        );
-      }
-    });
-  } catch (err) {
-    console.error("[gifts/send] Failed to award XP:", err);
+  // Atomically claim first_time_gifted bonus to avoid a race when concurrent gifts arrive
+  const { rows: firstGiftRows } = await db.query<{ id: string }>(
+    `UPDATE users SET first_gift_received_xp_awarded = TRUE
+     WHERE id = $1 AND first_gift_received_xp_awarded IS NOT TRUE
+     RETURNING id`,
+    [recipientId]
+  );
+  if (firstGiftRows.length > 0) {
+    await safeAwardXP(recipientId, firstGiftXP, 'social', 'first_time_gifted', `gift:${giftId}:first`);
   }
+
+  if (roomId) {
+    await safeAwardXP(recipientId, tippedXP, 'creator', 'being_tipped_in_room', `gift:${giftId}:tipped_in_room`);
+  }
+
+  // Suppress unused variable warning — giftTier kept in signature for future spectacle XP scaling
+  void giftTier;
 }
 
 // ---------------------------------------------------------------------------
@@ -492,7 +439,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     ).then(({ rows }) => {
       const senderPlan: Plan = rows[0]?.plan ?? 'free';
       return awardGiftXP(senderId, body.recipientId, giftItem.tier, senderPlan, giftId, body.roomId);
-    }).catch((err) => console.error('[gifts:POST] XP award failed', err));
+    }).catch((err) => logger.error({ err }, '[gifts:POST] XP award failed'));
 
     // 5. Record guild war contribution (fire-and-forget)
     recordWarContribution(senderId, 'send_gift', db).catch((err) =>

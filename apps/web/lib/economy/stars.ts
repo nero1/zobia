@@ -254,7 +254,7 @@ export async function getStarBalance(
   txClient?: TransactionClient
 ): Promise<number> {
   const query = txClient ?? db;
-  const { rows } = await query.query<{ star_balance: number }>(
+  const { rows } = await query.query<{ star_balance: string }>(
     `SELECT star_balance FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
     [userId]
   );

@@ -148,6 +148,6 @@ export async function checkPlayMilestones(userId: string): Promise<void> {
       );
     }
   } catch (err) {
-    logger.warn({ userId }, `[games] checkPlayMilestones failed: ${err}`);
+    logger.error({ err, userId }, `[games] checkPlayMilestones failed`);
   }
 }

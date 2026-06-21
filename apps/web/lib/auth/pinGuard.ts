@@ -52,6 +52,11 @@ export async function markPinVerified(userId: string, sessionId: string): Promis
  * @returns true if PIN was recently verified (within the last 5 minutes) for this session
  */
 export async function requirePinVerified(userId: string, sessionId: string): Promise<boolean> {
-  const value = await redis.get(pinOkKey(userId, sessionId));
-  return value !== null;
+  try {
+    const value = await redis.get(pinOkKey(userId, sessionId));
+    return value !== null;
+  } catch {
+    // Fail closed on Redis outage — do not allow sensitive operations
+    return false;
+  }
 }

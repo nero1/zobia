@@ -18,11 +18,15 @@
  */
 
 // ---------------------------------------------------------------------------
-// Regex patterns
+// Regex factories (BUG-REGEX-01)
 // ---------------------------------------------------------------------------
+// Exported as factory functions rather than singleton RegExp instances so that
+// callers always get a fresh object with lastIndex = 0. Singleton globals with
+// the /g flag are stateful — external callers that forget to reset lastIndex
+// before reuse will silently miss matches.
 
 /**
- * Matches international phone numbers in common formats.
+ * Returns a fresh RegExp that matches international phone numbers.
  * Covers:
  *  - +234 801 234 5678  (international prefix)
  *  - 0801 234 5678      (local Nigerian format)
@@ -30,37 +34,27 @@
  *  - 555.123.4567
  *  - 5551234567         (bare 10-digit)
  *
- * The pattern intentionally avoids matching short numbers (< 7 digits)
- * to reduce false positives on prices and other numeric strings.
- *
- * BUG-L02: Added \b word boundary at the start and a negative lookbehind for
- * date-separator context (`-` or `/` followed by exactly 1–2 digits then end)
- * to prevent ISO date strings like 2026-06-20 from being partially matched.
+ * BUG-L02: \b word boundary prevents ISO date strings like 2026-06-20 from
+ * being partially matched.
  */
-export const PHONE_REGEX =
-  /\b(?:\+?\d{1,3}[\s\-.])?(?:\(?\d{1,4}\)?[\s\-.]?)?\d{3,4}[\s\-.]?\d{3,4}[\s\-.]?\d{3,4}\b/g;
+export function getPhoneRegex(): RegExp {
+  return /\b(?:\+?\d{1,3}[\s\-.])?(?:\(?\d{1,4}\)?[\s\-.]?)?\d{3,4}[\s\-.]?\d{3,4}[\s\-.]?\d{3,4}\b/g;
+}
 
 /**
- * Matches RFC 5321-compliant email addresses.
- * Uses a deliberately broad local-part to avoid false negatives.
+ * Returns a fresh RegExp that matches RFC 5321-compliant email addresses.
  */
-export const EMAIL_REGEX =
-  /[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}/g;
+export function getEmailRegex(): RegExp {
+  return /[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}/g;
+}
 
 /**
- * Matches URLs — http/https/ftp/www-prefixed links and bare domains with
- * a TLD suffix. Avoids matching plain numbers like "1.5".
- *
- * Covers:
- *  - https://example.com/path?q=1
- *  - http://sub.domain.co.uk
- *  - www.example.com
- *  - ftp://files.example.com
- *  - https://xn--bcher-kva.example (Punycode/IDN encoded domains)
- *  - xn--p1ai.xn--p1ai (fully Punycode TLD)
+ * Returns a fresh RegExp that matches URLs — http/https/ftp/www-prefixed links
+ * and bare domains with a known TLD suffix.
  */
-export const URL_REGEX =
-  /(?:https?|ftp):\/\/[^\s/$.?#].[^\s]*|www\.[a-zA-Z0-9\-]+\.[a-zA-Z0-9\-]{2,}(?:\/[^\s]*)?|\b(?:xn--[a-zA-Z0-9\-]+|[a-zA-Z0-9\-]+)\.(?:xn--[a-zA-Z0-9\-]+|com|org|net|io|co|uk|ng|app|dev|xyz|info|biz|me|tv|us|ca|au|de|fr|jp|in|br|ru|cn|ai)\b(?:\/[^\s]*)?/gi;
+export function getUrlRegex(): RegExp {
+  return /(?:https?|ftp):\/\/[^\s/$.?#].[^\s]*|www\.[a-zA-Z0-9\-]+\.[a-zA-Z0-9\-]{2,}(?:\/[^\s]*)?|\b(?:xn--[a-zA-Z0-9\-]+|[a-zA-Z0-9\-]+)\.(?:xn--[a-zA-Z0-9\-]+|com|org|net|io|co|uk|ng|app|dev|xyz|info|biz|me|tv|us|ca|au|de|fr|jp|in|br|ru|cn|ai)\b(?:\/[^\s]*)?/gi;
+}
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -75,15 +69,11 @@ export const URL_REGEX =
 function stripContactInfo(content: string): string {
   // Order matters: strip URLs first (they may contain @ signs),
   // then emails, then phone numbers.
-  // Reset lastIndex on ALL global regexes before each replace to prevent
-  // stale state from a previous call causing missed matches (BUG-SEC-08).
-  URL_REGEX.lastIndex = 0;
-  EMAIL_REGEX.lastIndex = 0;
-  PHONE_REGEX.lastIndex = 0;
+  // Each getXxxRegex() call returns a new instance so lastIndex is always 0.
   return content
-    .replace(URL_REGEX, "")
-    .replace(EMAIL_REGEX, "")
-    .replace(PHONE_REGEX, (match) => {
+    .replace(getUrlRegex(), "")
+    .replace(getEmailRegex(), "")
+    .replace(getPhoneRegex(), (match) => {
       // Only strip if the match looks like a real phone number (≥ 7 numeric chars)
       const digits = match.replace(/\D/g, "");
       return digits.length >= 7 ? "" : match;
@@ -151,15 +141,10 @@ export function filterPublicContent(
  * @returns True if the content contains phone numbers, emails, or URLs
  */
 export function containsContactInfo(content: string): boolean {
-  // Reset lastIndex for ALL global regexes before testing (BUG-SEC-08)
-  URL_REGEX.lastIndex = 0;
-  EMAIL_REGEX.lastIndex = 0;
-  PHONE_REGEX.lastIndex = 0;
-
-  if (URL_REGEX.test(content)) return true;
-  if (EMAIL_REGEX.test(content)) return true;
+  if (getUrlRegex().test(content)) return true;
+  if (getEmailRegex().test(content)) return true;
 
   // Phone check: only count if 7+ consecutive digits are present
-  const phoneMatches = content.match(PHONE_REGEX) ?? [];
+  const phoneMatches = content.match(getPhoneRegex()) ?? [];
   return phoneMatches.some((m) => m.replace(/\D/g, "").length >= 7);
 }

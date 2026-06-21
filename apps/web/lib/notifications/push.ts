@@ -449,9 +449,16 @@ export async function sendPushNotification(
     // device twice (e.g. uninstall/reinstall) resulting in multiple tokens for
     // the same physical device. Keep only the most-recently-active one per
     // device to avoid duplicate deliveries.
+    // BUG-PUSH-DEDUP-01: also deduplicate null-device_id rows by token value so a
+    // user with N legacy rows without device_id doesn't receive N notifications.
     const seenDeviceIds = new Set<string>();
+    const seenTokens = new Set<string>();
     const dedupedRows = rows.filter((r) => {
-      if (!r.device_id) return true; // Legacy rows without device_id: always include
+      if (!r.device_id) {
+        if (seenTokens.has(r.token)) return false;
+        seenTokens.add(r.token);
+        return true;
+      }
       if (seenDeviceIds.has(r.device_id)) return false;
       seenDeviceIds.add(r.device_id);
       return true;
@@ -537,8 +544,10 @@ export async function sendPushNotificationBatch(
     // Build a userId → token[] map with device_id deduplication (mirrors sendPushNotification).
     // A user who reinstalled without unregistering gets multiple tokens for the same physical
     // device; keep only the most-recently-seen token per device_id to avoid duplicate deliveries.
+    // BUG-PUSH-DEDUP-01: also deduplicate null-device_id rows by token value per user.
     const tokenMap = new Map<string, string[]>();
     const seenDevicesByUser = new Map<string, Set<string>>();
+    const seenTokensByUser = new Map<string, Set<string>>();
     for (const row of rows) {
       if (!isValidExpoToken(row.token)) continue;
       if (row.device_id) {
@@ -546,6 +555,11 @@ export async function sendPushNotificationBatch(
         if (seenDevices.has(row.device_id)) continue;
         seenDevices.add(row.device_id);
         seenDevicesByUser.set(row.user_id, seenDevices);
+      } else {
+        const seenTokens = seenTokensByUser.get(row.user_id) ?? new Set<string>();
+        if (seenTokens.has(row.token)) continue;
+        seenTokens.add(row.token);
+        seenTokensByUser.set(row.user_id, seenTokens);
       }
       const existing = tokenMap.get(row.user_id) ?? [];
       existing.push(row.token);

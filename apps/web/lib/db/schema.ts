@@ -1603,7 +1603,7 @@ export const seasons = pgTable("seasons", {
   }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   // Migration 012 (db): added updated_at
-  updatedAt: timestamp("updated_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
 export const userSeasonPasses = pgTable(
@@ -1782,11 +1782,10 @@ export const nemesisAssignments = pgTable(
       .defaultNow(),
   },
   (t) => ({
-    unique: uniqueIndex("nemesis_assignments_user_track_active_idx").on(
-      t.userId,
-      t.track,
-      t.isActive
-    ),
+    // BUG-NEM-01: partial unique index — only one active nemesis per (user, track)
+    activeIdx: uniqueIndex("nemesis_assignments_active_idx")
+      .on(t.userId, t.track)
+      .where(sql`is_active = TRUE`),
   })
 );
 
@@ -2327,7 +2326,12 @@ export const creatorEarnings = pgTable("creator_earnings", {
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
-});
+}, (t) => ({
+  // BUG-CREA-01: partial unique index to prevent duplicate creator fund distributions
+  referenceIdIdx: uniqueIndex("creator_earnings_reference_id_idx")
+    .on(t.referenceId)
+    .where(sql`reference_id IS NOT NULL`),
+}));
 
 export const creatorPayouts = pgTable(
   "creator_payouts",

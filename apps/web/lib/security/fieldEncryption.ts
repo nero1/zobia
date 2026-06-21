@@ -72,7 +72,12 @@ export function decryptField(ciphertext: string): string | null {
     const payload = ciphertext.slice(colonIdx + 1);
     return decryptRaw(payload, version);
   } catch (err) {
-    console.error("[fieldEncryption] decryptField failed:", (err as Error).message);
+    const msg = (err instanceof Error ? err.message : String(err));
+    // BUG-ENC-01: a missing encryption key env var is a configuration error and
+    // must not be silently swallowed as "null decryption result" — re-throw so
+    // callers crash loudly rather than silently serving empty KYC data.
+    if (msg.includes("env var not set")) throw err;
+    console.error("[fieldEncryption] decryptField failed:", msg);
     return null;
   }
 }

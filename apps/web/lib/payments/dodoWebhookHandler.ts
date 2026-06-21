@@ -29,6 +29,8 @@ export interface DodoPaymentSucceededEvent {
       coinsGranted?: number;
       starsGranted?: number;
       itemType: "coin_pack" | "star_pack" | "subscription" | "room_subscription" | "business_upgrade";
+      // BUG-DODO-01: itemSlug used for server-authoritative grant amount resolution
+      itemSlug?: string;
       packName?: string;
       businessAccountId?: string;
       newTier?: string;
@@ -102,7 +104,7 @@ export async function processPaymentSucceeded(
     const { userId, itemType } = metadata;
 
     // Resolve server-authoritative grant amounts from store_items to prevent metadata tampering (BUG-02)
-    const itemSlug = (metadata as { itemSlug?: string }).itemSlug;
+    const itemSlug = metadata.itemSlug;
     let serverCoinsGranted = metadata.coinsGranted ?? 0;
     let serverStarsGranted = metadata.starsGranted ?? 0;
     let grantResolvedFromDb = false;

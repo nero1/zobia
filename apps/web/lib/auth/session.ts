@@ -235,7 +235,7 @@ export async function rotateSession(
  * chain. Token rotation is rare relative to ordinary requests, so always paying
  * the Redis read here costs almost nothing.
  */
-async function getSessionFresh(sid: string): Promise<SessionRecord | null> {
+export async function getSessionFresh(sid: string): Promise<SessionRecord | null> {
   const raw = await redis.get(sessionKey(sid));
   if (!raw) return null;
   try {

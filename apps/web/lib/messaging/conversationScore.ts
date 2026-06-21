@@ -204,7 +204,7 @@ export async function updateConversationScore(
           `INSERT INTO dm_score_sticker_unlocks
              (user_id_1, user_id_2, pack_name, unlocked_at)
            VALUES ($1, $2, $3, NOW())
-           ON CONFLICT DO NOTHING`,
+           ON CONFLICT (user_id_1, user_id_2, pack_name) DO NOTHING`,
           [u1, u2, su.packName]
         );
         // Grant the sticker pack to both users in the pair (look up pack_id by name)

@@ -17,7 +17,7 @@
  */
 
 import type { DatabaseAdapter } from "@/lib/db/interface";
-import { sanitizeHtml } from "@/lib/security/htmlSanitizer";
+import { sanitizeAnnouncementContent } from "@/lib/security/htmlSanitizer";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -168,10 +168,7 @@ export async function getActiveModalForUser(
   return {
     id: selected.id,
     title: selected.title,
-    content:
-      selected.content_type === "html"
-        ? sanitizeHtml(selected.content)
-        : selected.content,
+    content: sanitizeAnnouncementContent(selected.content, selected.content_type),
     content_type: selected.content_type as ResolvedModal["content_type"],
     display_order: selected.display_order,
     starts_at: selected.starts_at,
@@ -297,10 +294,7 @@ export async function getActiveBannerForUser(
   return {
     id: selected.id,
     title: selected.title,
-    content:
-      selected.content_type === "html"
-        ? sanitizeHtml(selected.content)
-        : selected.content,
+    content: sanitizeAnnouncementContent(selected.content, selected.content_type),
     content_type: selected.content_type as ResolvedBanner["content_type"],
     link_url: selected.link_url,
     starts_at: selected.starts_at,
