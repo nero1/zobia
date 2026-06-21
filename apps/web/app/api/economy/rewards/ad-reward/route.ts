@@ -96,12 +96,20 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       );
     }
 
-    // 2. Read current Redis counter to check limit BEFORE incrementing
+    // 2. Atomically claim a daily slot in Redis. INCR is atomic so two concurrent
+    // requests racing at count=4 will get distinct values (5 and 6); the one that
+    // gets 6 returns the slot and is rejected. This eliminates the TOCTOU window
+    // that existed when using GET then INCR as two separate operations.
     const redisKey = adRewardRedisKey(userId);
-    const currentCountStr = await redis.get(redisKey);
-    const currentCount = currentCountStr ? parseInt(currentCountStr, 10) : 0;
+    const newCount = await redis.incr(redisKey);
+    // Set TTL on the first claim so the key resets at midnight UTC.
+    if (newCount === 1) {
+      await redis.expire(redisKey, secondsUntilMidnightUTC());
+    }
 
-    if (currentCount >= DAILY_AD_REWARD_CAP) {
+    if (newCount > DAILY_AD_REWARD_CAP) {
+      // Return the slot we just claimed so the counter stays accurate.
+      await redis.decr(redisKey).catch(() => {});
       return NextResponse.json(
         {
           error: {
@@ -117,50 +125,49 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // 3. Award random coins and write to coin_ledger atomically
     const coinsAwarded = randomIntInclusive(MIN_COINS, MAX_COINS);
 
-    await db.transaction(async (client) => {
-      // Lock user row and get current balance
-      const lockResult = await client.query<{ coin_balance: number }>(
-        `SELECT coin_balance FROM users
-         WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
-        [userId]
-      );
-      const balanceBefore = lockResult.rows[0]?.coin_balance ?? 0;
-      const balanceAfter = balanceBefore + coinsAwarded;
+    try {
+      await db.transaction(async (client) => {
+        // Lock user row and get current balance
+        const lockResult = await client.query<{ coin_balance: number }>(
+          `SELECT coin_balance FROM users
+           WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+          [userId]
+        );
+        const balanceBefore = lockResult.rows[0]?.coin_balance ?? 0;
+        const balanceAfter = balanceBefore + coinsAwarded;
 
-      // Update user balance
-      await client.query(
-        `UPDATE users SET coin_balance = $1, updated_at = NOW() WHERE id = $2`,
-        [balanceAfter, userId]
-      );
-
-      // Append-only ledger entry
-      await client.query(
-        `INSERT INTO coin_ledger
-           (user_id, amount, balance_before, balance_after, transaction_type, description, created_at)
-         VALUES ($1, $2, $3, $4, 'ad_reward', 'Rewarded ad bonus', NOW())`,
-        [userId, coinsAwarded, balanceBefore, balanceAfter]
-      );
-
-      // Creator Fund auto-seeding: 5% of ad revenue contributed to the weekly creator pool.
-      // Platform rate: 100 coins = 1 kobo for fund accounting purposes.
-      const creatorFundContributionKobo = Math.floor(coinsAwarded * 0.05);
-      if (creatorFundContributionKobo > 0) {
+        // Update user balance
         await client.query(
-          `INSERT INTO x_manifest (key, value, updated_at)
-           VALUES ('creator_fund_balance_kobo', $1::TEXT, NOW())
-           ON CONFLICT (key) DO UPDATE
-           SET value = (COALESCE(x_manifest.value::NUMERIC, 0) + $1)::TEXT,
-               updated_at = NOW()`,
-          [creatorFundContributionKobo]
-        ).catch(() => {/* non-fatal if x_manifest table doesn't exist yet */});
-      }
-    });
+          `UPDATE users SET coin_balance = $1, updated_at = NOW() WHERE id = $2`,
+          [balanceAfter, userId]
+        );
 
-    // Increment Redis counter only after DB transaction commits successfully
-    const newCount = await redis.incr(redisKey);
-    // Set expiry on first increment so the key resets at midnight UTC
-    if (newCount === 1) {
-      await redis.expire(redisKey, secondsUntilMidnightUTC());
+        // Append-only ledger entry
+        await client.query(
+          `INSERT INTO coin_ledger
+             (user_id, amount, balance_before, balance_after, transaction_type, description, created_at)
+           VALUES ($1, $2, $3, $4, 'ad_reward', 'Rewarded ad bonus', NOW())`,
+          [userId, coinsAwarded, balanceBefore, balanceAfter]
+        );
+
+        // Creator Fund auto-seeding: 5% of ad revenue contributed to the weekly creator pool.
+        // Platform rate: 100 coins = 1 kobo for fund accounting purposes.
+        const creatorFundContributionKobo = Math.floor(coinsAwarded * 0.05);
+        if (creatorFundContributionKobo > 0) {
+          await client.query(
+            `INSERT INTO x_manifest (key, value, updated_at)
+             VALUES ('creator_fund_balance_kobo', $1::TEXT, NOW())
+             ON CONFLICT (key) DO UPDATE
+             SET value = (COALESCE(x_manifest.value::NUMERIC, 0) + $1)::TEXT,
+                 updated_at = NOW()`,
+            [creatorFundContributionKobo]
+          ).catch(() => {/* non-fatal if x_manifest table doesn't exist yet */});
+        }
+      });
+    } catch (dbErr) {
+      // DB transaction failed — release the Redis slot so the user can retry.
+      await redis.decr(redisKey).catch(() => {});
+      throw dbErr;
     }
 
     const remainingToday = DAILY_AD_REWARD_CAP - newCount;

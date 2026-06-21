@@ -10,7 +10,7 @@ import { db } from "@/lib/db";
 import { creditCoins } from "@/lib/economy/coins";
 import { creditStars } from "@/lib/economy/stars";
 import { awardReferralCommissions } from "@/lib/referrals/commissions";
-import { getCreatorFeeRate, moveToDeadLetterQueue, notifyPayoutFailure } from "@/lib/payments/payouts";
+import { getCreatorFeeRate, moveToDeadLetterQueue } from "@/lib/payments/payouts";
 import { loadManifest } from "@/lib/manifest";
 
 // ---------------------------------------------------------------------------
@@ -467,14 +467,10 @@ export async function processTransferEvent(
     }
   });
 
-  // Post-transaction: move to DLQ (opens its own transaction — must be outside outer tx)
+  // Post-transaction: move to DLQ (opens its own transaction — must be outside outer tx).
+  // moveToDeadLetterQueue already calls notifyPayoutFailure internally, so no separate call needed.
   if (shouldMoveToDLQ && payoutId && creatorId) {
     await moveToDeadLetterQueue(payoutId, creatorId, dlqRetryCount, dlqReason);
-    await notifyPayoutFailure(
-      payoutId,
-      creatorId,
-      `Your payout could not be processed after multiple attempts. Please check your bank account details.`
-    );
   }
 
   // Post-transaction notifications (no row lock needed)

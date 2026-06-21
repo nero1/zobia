@@ -540,6 +540,8 @@
   "nav.openMenu": "Open navigation menu",
   "nav.closeMenu": "Close menu",
   "nav.userArea": "User Area",
+  "auth.error.accountBanned": "Your account has been banned.",
+  "auth.error.accountSuspended": "Your account has been suspended.",
   "auth.login": "Log In",
   "auth.logout": "Log Out",
   "auth.register": "Create Account",
