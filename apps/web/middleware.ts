@@ -76,7 +76,10 @@ function buildCsp(nonce: string): string {
 
   return [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
+    // CSP Level 3: 'strict-dynamic' propagates trust to dynamically loaded scripts
+    // and makes 'self' redundant (it is silently ignored when 'strict-dynamic' is present).
+    // Keeping 'self' would not weaken security but adds confusion — omit it per spec.
+    `script-src 'nonce-${nonce}' 'strict-dynamic'`,
     `style-src 'self' 'nonce-${nonce}' https://fonts.googleapis.com`,
     "worker-src 'self'",
     "font-src 'self' https://fonts.gstatic.com",
@@ -279,8 +282,10 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   const expoOrigin = process.env.EXPO_ORIGIN ?? "";
   const requestOrigin = request.headers.get("origin") ?? "";
   const allowedOrigins = [appUrl, expoOrigin].filter(Boolean);
-  const corsOrigin =
-    allowedOrigins.includes(requestOrigin) ? requestOrigin : appUrl || "null";
+  // Only set CORS header for origins in the allowlist; do not fall back to
+  // string "null" which would let null-origin requests (e.g. sandboxed iframes)
+  // pass credential checks in some browsers.
+  const corsOrigin = allowedOrigins.includes(requestOrigin) ? requestOrigin : null;
 
   // Helper: wrap any NextResponse.next() with the CSP header and nonce.
   function withCsp(requestHeaders: Headers): NextResponse {
@@ -312,7 +317,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     }
     // CORS-01: attach CORS headers for API routes so the Expo app and web PWA can
     // call the API from their respective origins.
-    if (pathname.startsWith("/api/")) {
+    if (pathname.startsWith("/api/") && corsOrigin) {
       res.headers.set("Access-Control-Allow-Origin", corsOrigin);
       res.headers.set("Vary", "Origin");
       res.headers.set("Access-Control-Allow-Credentials", "true");
@@ -322,7 +327,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 
   if (pathname.startsWith("/api/") && request.method.toUpperCase() === "OPTIONS") {
     const preflight = new NextResponse(null, { status: 204 });
-    preflight.headers.set("Access-Control-Allow-Origin", corsOrigin);
+    if (corsOrigin) preflight.headers.set("Access-Control-Allow-Origin", corsOrigin);
     preflight.headers.set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
     preflight.headers.set("Access-Control-Allow-Headers", "Content-Type,Authorization,X-Request-ID");
     preflight.headers.set("Access-Control-Max-Age", "86400");

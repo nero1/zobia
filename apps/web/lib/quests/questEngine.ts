@@ -98,9 +98,9 @@ function cryptoRandInt(max: number): number {
 /**
  * Generates (or returns cached) the daily quest deck for a user.
  *
- * Quest selection is deterministic per (user_id, date): uses the user ID
- * as a seed so different users may get different quests while remaining
- * consistent for the same user throughout the day.
+ * Quest selection uses a cryptographically random Fisher-Yates shuffle
+ * (crypto.randomBytes) — not a seeded deterministic source, so each call
+ * may return a different ordering even for the same user and date.
  *
  * @param userId - UUID of the user requesting the deck.
  * @param plan   - The user's subscription plan.

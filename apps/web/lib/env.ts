@@ -19,9 +19,15 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   DIRECT_URL: z.string().min(1, "DIRECT_URL is required"),
   /** Max connections per serverless instance for the pooled connection. Default: 2. */
-  DB_POOL_SIZE: z.string().optional(),
+  DB_POOL_SIZE: z.coerce.number().int().positive().default(2),
   /** Max connections per serverless instance for the direct (non-pooled) connection. Default: 2. */
-  DB_DIRECT_POOL_SIZE: z.string().optional(),
+  DB_DIRECT_POOL_SIZE: z.coerce.number().int().positive().default(2),
+  /** PEM-encoded CA certificate for Railway TLS verification (optional). */
+  RAILWAY_CA_CERT: z.string().optional(),
+  /** PEM-encoded CA certificate for DigitalOcean TLS verification (optional). */
+  DO_CA_CERT: z.string().optional(),
+  /** PEM-encoded CA certificate for Supabase TLS verification (optional). */
+  DB_CA_CERT: z.string().optional(),
 
   // ---- Storage ------------------------------------------------------------
   STORAGE_PROVIDER: z.enum(["supabase-storage", "r2", "s3"]),
@@ -134,6 +140,16 @@ const envSchema = z.object({
 
   // ---- JWT key rotation ---------------------------------------------------
   JWT_KEY_ID: z.string().default("v1"),
+  /** Versioned JWT secrets for zero-downtime key rotation (kid-based). */
+  JWT_SECRET_v1: z.string().min(32).optional(),
+  JWT_SECRET_v2: z.string().min(32).optional(),
+
+  // ---- Image hosts --------------------------------------------------------
+  /** Specific Supabase project hostname for Next.js image optimization allowlist. */
+  NEXT_PUBLIC_SUPABASE_HOST: z.string().optional(),
+  NEXT_PUBLIC_SUPABASE_IN_HOST: z.string().optional(),
+  NEXT_PUBLIC_R2_DEV_HOST: z.string().optional(),
+  NEXT_PUBLIC_R2_STORAGE_HOST: z.string().optional(),
 
   // ---- Runtime ------------------------------------------------------------
   NODE_ENV: z

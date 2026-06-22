@@ -14,6 +14,7 @@
  */
 
 import type { DatabaseAdapter } from "@/lib/db/interface";
+import { logger } from "@/lib/logger";
 import { getManifestValue } from "@/lib/manifest";
 
 // ---------------------------------------------------------------------------
@@ -70,20 +71,22 @@ export async function checkPayoutFraud(
   const reasons: string[] = [];
 
   // FRAUD-02: Read thresholds from manifest so they can be tuned without deploys
-  const [inflowThresholdRaw, newAccountAgeDaysRaw, maxPayoutsPerDayRaw, giftWindowDaysRaw] = await Promise.all([
+  const [inflowThresholdRaw, newAccountAgeDaysRaw, maxPayoutsPerDayRaw, giftWindowDaysRaw, minAccountsRaw] = await Promise.all([
     getManifestValue('fraud_inflow_threshold_coins'),
     getManifestValue('fraud_new_account_age_days'),
     getManifestValue('fraud_max_payouts_per_day'),
     getManifestValue('fraud_gift_window_days'),
-  ]).catch(() => [null, null, null, null]);
+    getManifestValue('fraud_inflow_min_accounts'),
+  ]).catch(() => [null, null, null, null, null]);
 
   const effectiveInflowThreshold = parseInt(inflowThresholdRaw ?? String(SUSPICIOUS_INFLOW_THRESHOLD_COINS), 10) || SUSPICIOUS_INFLOW_THRESHOLD_COINS;
   const effectiveNewAccountAgeDays = parseInt(newAccountAgeDaysRaw ?? String(NEW_ACCOUNT_AGE_DAYS), 10) || NEW_ACCOUNT_AGE_DAYS;
   const effectiveMaxPayoutsPerDay = parseInt(maxPayoutsPerDayRaw ?? String(MAX_PAYOUT_REQUESTS_PER_DAY), 10) || MAX_PAYOUT_REQUESTS_PER_DAY;
   const effectiveGiftWindowDays = parseInt(giftWindowDaysRaw ?? "7", 10) || 7;
+  const effectiveMinAccounts = parseInt(minAccountsRaw ?? String(SUSPICIOUS_INFLOW_MIN_ACCOUNTS), 10) || SUSPICIOUS_INFLOW_MIN_ACCOUNTS;
 
   await Promise.all([
-    checkNewAccountGiftInflow(creatorId, db, reasons, effectiveInflowThreshold, effectiveNewAccountAgeDays, effectiveGiftWindowDays),
+    checkNewAccountGiftInflow(creatorId, db, reasons, effectiveInflowThreshold, effectiveNewAccountAgeDays, effectiveGiftWindowDays, effectiveMinAccounts),
     checkPayoutVelocity(creatorId, db, reasons, effectiveMaxPayoutsPerDay),
     checkTrustScore(creatorId, db, reasons),
   ]);
@@ -129,16 +132,15 @@ async function checkNewAccountGiftInflow(
   reasons: string[],
   inflowThreshold: number,
   newAccountAgeDays: number,
-  giftWindowDays: number
+  giftWindowDays: number,
+  minAccounts: number
 ): Promise<void> {
   try {
-    // Union room gifts AND direct DM gifts so wash-trading via DMs is caught too
     const { rows } = await db.query<{ total_coins: string; account_count: string }>(
       `SELECT
          COALESCE(SUM(combined.coin_cost), 0)::TEXT  AS total_coins,
          COUNT(DISTINCT combined.sender_id)::TEXT      AS account_count
        FROM (
-         -- Room gifts received in the creator's rooms
          SELECT g.coin_cost, g.sender_id
          FROM gifts g
          JOIN rooms r ON r.id = g.room_id
@@ -149,7 +151,6 @@ async function checkNewAccountGiftInflow(
 
          UNION ALL
 
-         -- Direct (DM) gifts sent to the creator
          SELECT g2.coin_cost, g2.sender_id
          FROM gifts g2
          JOIN users sender2 ON sender2.id = g2.sender_id
@@ -166,14 +167,17 @@ async function checkNewAccountGiftInflow(
 
     if (
       totalCoins >= inflowThreshold &&
-      accountCount >= SUSPICIOUS_INFLOW_MIN_ACCOUNTS
+      accountCount >= minAccounts
     ) {
       reasons.push(
         `Received ${totalCoins.toLocaleString()} coins from ${accountCount} accounts aged < ${newAccountAgeDays} days in the past ${giftWindowDays} days (room + DM gifts combined)`
       );
     }
-  } catch {
-    // Non-fatal: skip this check if the gifts table doesn't exist yet
+  } catch (err) {
+    // BUG-FRAUD-01: fail-safe — flag as suspicious when the check itself fails
+    // so a DB error cannot silently allow a fraudulent payout through.
+    logger.error({ err, creatorId }, "[fraud] checkNewAccountGiftInflow failed — flagging as suspicious");
+    reasons.push("gift_inflow_check_unavailable");
   }
 }
 
@@ -197,8 +201,10 @@ async function checkPayoutVelocity(
     if (count >= maxPayoutsPerDay) {
       reasons.push(`${count} payout requests in the past 24 hours (max ${maxPayoutsPerDay})`);
     }
-  } catch {
-    // Non-fatal
+  } catch (err) {
+    // BUG-FRAUD-01: fail-safe — flag as suspicious so a DB error cannot allow rapid payouts
+    logger.error({ err, creatorId }, "[fraud] checkPayoutVelocity failed — flagging as suspicious");
+    reasons.push("velocity_check_unavailable");
   }
 }
 
@@ -217,7 +223,9 @@ async function checkTrustScore(
     if (score < MIN_TRUST_SCORE_FOR_AUTO) {
       reasons.push(`Trust score ${score} is below the auto-approval minimum (${MIN_TRUST_SCORE_FOR_AUTO})`);
     }
-  } catch {
-    // Non-fatal
+  } catch (err) {
+    // BUG-FRAUD-01: fail-safe — flag as suspicious so a DB error cannot silently pass a low-trust account
+    logger.error({ err, creatorId }, "[fraud] checkTrustScore failed — flagging as suspicious");
+    reasons.push("trust_score_check_unavailable");
   }
 }

@@ -120,12 +120,35 @@ export default i18n;
 export async function getServerTranslation(
   locale: SupportedLocale = DEFAULT_LOCALE
 ): Promise<(key: string, options?: Record<string, unknown>) => string> {
-  let messages: Record<string, string>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let messages: Record<string, any>;
   try {
-    messages = (await import(`./locales/${locale}.json`)) as unknown as Record<string, string>;
+    messages = (await import(`./locales/${locale}.json`)) as unknown as Record<string, unknown>;
   } catch {
-    messages = (await import(`./locales/en.json`)) as unknown as Record<string, string>;
+    messages = (await import(`./locales/en.json`)) as unknown as Record<string, unknown>;
   }
 
-  return (key: string) => messages[key] ?? key;
+  // BUG-I18N-02: support dot-notation nested keys (e.g. "errors.network")
+  // Falls back to flat lookup first so existing flat keys still work.
+  function resolve(key: string): string {
+    if (key in messages) return messages[key] as string;
+    const parts = key.split(".");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let node: any = messages;
+    for (const part of parts) {
+      if (node == null || typeof node !== "object") return key;
+      node = node[part];
+    }
+    return typeof node === "string" ? node : key;
+  }
+
+  return (key: string, options?: Record<string, unknown>) => {
+    let value = resolve(key);
+    if (options) {
+      for (const [k, v] of Object.entries(options)) {
+        value = value.replaceAll(`{{${k}}}`, String(v));
+      }
+    }
+    return value;
+  };
 }

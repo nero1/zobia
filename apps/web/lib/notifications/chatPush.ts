@@ -16,8 +16,10 @@
  */
 
 import { db } from "@/lib/db";
+import { logger } from "@/lib/logger";
 import { sendPushNotification, sendPushNotificationBatch } from "@/lib/notifications/push";
-import { isUserOnline } from "@/lib/presence/keys";
+import { presenceRedisKey } from "@/lib/presence/keys";
+import { redis } from "@/lib/redis";
 
 /**
  * Per-category push preference columns on the `users` table. Each chat surface
@@ -49,10 +51,23 @@ async function eligibleRecipients(
     [userIds],
   );
   const allowed = rows.map((r) => r.id);
-  const checks = await Promise.all(
-    allowed.map(async (id) => ((await isUserOnline(id)) ? null : id)),
-  );
-  return checks.filter((id): id is string => id !== null);
+  if (allowed.length === 0) return [];
+
+  // BUG-PERF-02: batch presence check via Redis pipeline — O(1) round trips
+  // instead of one EXISTS call per user.
+  let offlineIds: string[] = allowed;
+  try {
+    const pipeline = redis.pipeline();
+    for (const id of allowed) pipeline.exists(presenceRedisKey(id));
+    const results = await pipeline.exec();
+    offlineIds = allowed.filter((_, i) => {
+      const [err, count] = results?.[i] ?? [null, 0];
+      return !err && (count as number) === 0;
+    });
+  } catch {
+    // Redis unavailable — fail open (send to all pref-enabled users)
+  }
+  return offlineIds;
 }
 
 /** Push a DM to the recipient if they are offline and have DM pushes enabled. */
@@ -71,7 +86,7 @@ export async function notifyDirectMessage(opts: {
       data: { type: "dm", conversationId: opts.conversationId },
     });
   } catch (err) {
-    console.error("[chatPush] DM push failed", err);
+    logger.error({ err }, "[chatPush] DM push failed");
   }
 }
 
@@ -101,7 +116,7 @@ export async function notifyGroupMessage(opts: {
       })),
     );
   } catch (err) {
-    console.error("[chatPush] group push failed", err);
+    logger.error({ err }, "[chatPush] group push failed");
   }
 }
 
@@ -127,7 +142,7 @@ export async function notifyRoomMentions(opts: {
       })),
     );
   } catch (err) {
-    console.error("[chatPush] room mention push failed", err);
+    logger.error({ err }, "[chatPush] room mention push failed");
   }
 }
 

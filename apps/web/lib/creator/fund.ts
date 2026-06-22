@@ -12,6 +12,7 @@
 
 import Decimal from "decimal.js";
 import { db } from "@/lib/db";
+import type { TransactionClient } from "@/lib/db/interface";
 
 export interface CreatorFundDistribution {
   creatorId: string;
@@ -79,10 +80,11 @@ function normalise(values: number[]): number[] {
 // ---------------------------------------------------------------------------
 
 export async function calculateFundDistributions(
-  poolKobo: number
+  poolKobo: number,
+  dbClient: TransactionClient | typeof db = db
 ): Promise<CreatorFundDistribution[]> {
   // Check for an active IWD / female-creator cultural event boost
-  const { rows: eventRows } = await db.query<{ multiplier: string }>(
+  const { rows: eventRows } = await dbClient.query<{ multiplier: string }>(
     `SELECT xp_multiplier::TEXT AS multiplier
      FROM platform_events
      WHERE event_type = 'cultural'
@@ -97,7 +99,7 @@ export async function calculateFundDistributions(
   // Joining multiple one-to-many tables to the same user row in a single query
   // causes a Cartesian fan-out that inflates aggregate values (e.g. SUM of xp_earned
   // grows by the number of follower rows, not the actual XP).
-  const { rows: creators } = await db.query<CreatorMetrics>(
+  const { rows: creators } = await dbClient.query<CreatorMetrics>(
     `WITH eng AS (
        SELECT user_id,
               COALESCE(SUM(amount), 0)::INTEGER           AS xp_earned_30d,
@@ -204,15 +206,13 @@ export async function calculateFundDistributions(
     prevCutoff = cutoff;
   }
 
-  // Redistribute any undistributed remainder evenly across all recipients
+  // Redistribute any undistributed remainder (pool rounding dust) to the top creator.
+  // Distributing evenly only works when remainder >= distributions.length; for smaller
+  // remainders bonusPerCreator would be 0 and the dust would be silently dropped.
+  // Crediting the top creator is simpler, deterministic, and keeps the pool fully paid out.
   const remainder = new Decimal(poolKobo).sub(distributedKobo).floor();
   if (remainder.gt(0) && distributions.length > 0) {
-    const bonusPerCreator = remainder.div(distributions.length).floor();
-    if (bonusPerCreator.gt(0)) {
-      for (const dist of distributions) {
-        dist.amountKobo += bonusPerCreator.toNumber();
-      }
-    }
+    distributions[0].amountKobo += remainder.toNumber();
   }
 
   return distributions;
@@ -240,7 +240,8 @@ export async function distributeCreatorFund(poolKobo: number): Promise<number> {
 
     // Calculate distributions INSIDE the lock so scoring uses a consistent DB snapshot
     // and concurrent instances cannot both complete scoring before either acquires the lock.
-    const distributions = await calculateFundDistributions(poolKobo);
+    // Pass tx so all reads run inside the same transaction (BUG-TX-01 fix).
+    const distributions = await calculateFundDistributions(poolKobo, tx);
     if (distributions.length === 0) return;
 
     // Per-creator idempotency via ON CONFLICT DO NOTHING on the unique reference_id.

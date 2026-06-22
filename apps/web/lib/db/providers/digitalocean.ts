@@ -36,9 +36,13 @@ export function getPool(): Pool {
   if (!_pool) {
     _pool = new Pool({
       connectionString: env.DATABASE_URL,
-      // DigitalOcean Managed Postgres always requires SSL
-      ssl: { rejectUnauthorized: false },
-      max: parseInt(process.env.DB_POOL_SIZE ?? "2", 10),
+      // DigitalOcean Managed Postgres always requires SSL with cert validation.
+      // Set DO_CA_CERT to the PEM certificate downloaded from the DO control panel.
+      ssl: {
+        rejectUnauthorized: true,
+        ...(env.DO_CA_CERT ? { ca: env.DO_CA_CERT } : {}),
+      },
+      max: env.DB_POOL_SIZE,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 8_000,
       keepAlive: true,
@@ -48,7 +52,9 @@ export function getPool(): Pool {
     });
 
     _pool.on("error", (err) => {
-      console.error("[db:digitalocean] pool error", err);
+      import("@/lib/logger").then(({ logger }) =>
+        logger.error({ err }, "[db:digitalocean] pool error")
+      ).catch(() => {});
     });
   }
   return _pool;
@@ -62,16 +68,21 @@ function getDirectPool(): Pool {
   if (!_directPool) {
     _directPool = new Pool({
       connectionString: env.DIRECT_URL,
-      ssl: { rejectUnauthorized: false },
+      ssl: {
+        rejectUnauthorized: true,
+        ...(env.DO_CA_CERT ? { ca: env.DO_CA_CERT } : {}),
+      },
       // Keep direct connections minimal; used only for transactions
-      max: parseInt(process.env.DB_DIRECT_POOL_SIZE ?? "2", 10),
+      max: env.DB_DIRECT_POOL_SIZE,
       idleTimeoutMillis: 15_000,
       connectionTimeoutMillis: 8_000,
       options: "-c statement_timeout=30000 -c idle_in_transaction_session_timeout=60000",
     });
 
     _directPool.on("error", (err) => {
-      console.error("[db:digitalocean:direct] pool error", err);
+      import("@/lib/logger").then(({ logger }) =>
+        logger.error({ err }, "[db:digitalocean:direct] pool error")
+      ).catch(() => {});
     });
   }
   return _directPool;
@@ -120,7 +131,9 @@ export class DigitalOceanDatabaseAdapter implements DatabaseAdapter {
       return result;
     } catch (err) {
       try { await client.query("ROLLBACK"); } catch (rollbackErr) {
-        console.error("[db] ROLLBACK failed:", rollbackErr);
+        import("@/lib/logger").then(({ logger }) =>
+          logger.error({ err: rollbackErr }, "[db:digitalocean] ROLLBACK failed")
+        ).catch(() => {});
       }
       throw err;
     } finally {

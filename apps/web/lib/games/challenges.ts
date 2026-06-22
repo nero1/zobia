@@ -549,7 +549,44 @@ export interface ChallengeListItem {
   completedAt: string | null;
 }
 
-export async function listUserChallenges(userId: string): Promise<ChallengeListItem[]> {
+export interface ChallengesPage {
+  challenges: ChallengeListItem[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+/**
+ * List challenges for a user with cursor-based pagination (BUG-PAGINATE-01).
+ * Uses a composite (created_at, id) keyset cursor to guarantee stable ordering
+ * even when multiple challenges share the same created_at timestamp.
+ *
+ * Cursor format: "<ISO timestamp>|<uuid>" — opaque to callers.
+ *
+ * @param userId  - UUID of the user
+ * @param cursor  - Opaque cursor from the previous page
+ * @param limit   - Page size (default 20, max 100)
+ */
+export async function listUserChallenges(
+  userId: string,
+  cursor?: string | null,
+  limit = 20
+): Promise<ChallengesPage> {
+  const pageSize = Math.min(Math.max(1, limit), 100);
+  const params: (string | number)[] = [userId];
+  let cursorClause = "";
+
+  if (cursor) {
+    const [cursorTs, cursorId] = cursor.split("|");
+    if (cursorTs && cursorId) {
+      params.push(cursorTs, cursorId);
+      // Composite keyset: rows strictly older than (created_at, id) of the last seen row.
+      // The tie-break on id (descending UUID) ensures deterministic paging when timestamps collide.
+      cursorClause = `AND (c.created_at < $${params.length - 1}::timestamptz
+                        OR (c.created_at = $${params.length - 1}::timestamptz AND c.id < $${params.length}::uuid))`;
+    }
+  }
+  params.push(pageSize + 1); // fetch one extra to detect hasMore
+
   const { rows } = await db.query<Record<string, unknown>>(
     `SELECT c.id, c.game_id, g.slug AS game_slug, g.name AS game_name,
             c.challenger_id, cu.username AS challenger_username,
@@ -561,12 +598,21 @@ export async function listUserChallenges(userId: string): Promise<ChallengeListI
      JOIN games g ON g.id = c.game_id
      JOIN users cu ON cu.id = c.challenger_id
      JOIN users ou ON ou.id = c.opponent_id
-     WHERE c.challenger_id = $1 OR c.opponent_id = $1
-     ORDER BY c.created_at DESC
-     LIMIT 100`,
-    [userId]
+     WHERE (c.challenger_id = $1 OR c.opponent_id = $1)
+       ${cursorClause}
+     ORDER BY c.created_at DESC, c.id DESC
+     LIMIT $${params.length}`,
+    params
   );
-  return rows.map(mapChallengeRow);
+
+  const hasMore = rows.length > pageSize;
+  const page = rows.slice(0, pageSize).map(mapChallengeRow);
+  const lastItem = page[page.length - 1];
+  const nextCursor = hasMore && lastItem
+    ? `${lastItem.createdAt}|${lastItem.id}`
+    : null;
+
+  return { challenges: page, nextCursor, hasMore };
 }
 
 export async function getChallengeDetail(

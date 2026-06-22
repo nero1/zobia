@@ -6,6 +6,7 @@
  */
 
 import { db } from "@/lib/db";
+import { logger } from "@/lib/logger";
 
 export type AuditAction =
   | "login_success"
@@ -59,6 +60,6 @@ export function writeAuditLog(params: AuditLogParams): void {
       params.userAgent ?? null,
     ]
   ).catch((err) => {
-    console.error("[audit] Failed to write audit log:", err);
+    logger.error({ err }, "[audit] Failed to write audit log");
   });
 }

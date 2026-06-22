@@ -1582,6 +1582,8 @@ export const seasons = pgTable("seasons", {
   passPriceCoins: integer("pass_price_coins").notNull().default(500),
   rewardPoolCoins: integer("reward_pool_coins").notNull().default(0),
   isActive: boolean("is_active").default(false),
+  /** Timestamp when end-of-season ranking reset was performed (BUG-DB-01). */
+  rankingsResetAt: timestamp("rankings_reset_at", { withTimezone: true }),
   createdBy: uuid("created_by").references(() => users.id, {
     onDelete: "set null",
   }),

@@ -6,6 +6,7 @@
  *   - app/api/cron/daily/route.ts (failed-webhook retry queue)
  */
 
+import Decimal from "decimal.js";
 import { db } from "@/lib/db";
 import { creditCoins } from "@/lib/economy/coins";
 import { creditStars } from "@/lib/economy/stars";
@@ -176,8 +177,8 @@ export async function processChargeSuccess(
       const creator = roomRow.rows[0];
       if (creator) {
         const feeRate = getCreatorFeeRate(creator.creator_tier);
-        const sharePercent = Math.round((1 - feeRate) * 100);
-        const netKobo = Math.floor((subGrossKobo * sharePercent) / 100);
+        // Use Decimal.js to avoid IEEE 754 float errors on kobo arithmetic (BUG-FIN-01).
+        const netKobo = new Decimal(subGrossKobo).mul(new Decimal(1).minus(feeRate)).floor().toNumber();
         const platformFeeKobo = subGrossKobo - netKobo;
         await tx.query(
           `INSERT INTO creator_earnings

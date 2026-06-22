@@ -13,6 +13,24 @@ import * as SecureStore from 'expo-secure-store';
 import { env } from '@/lib/env';
 import { JWT_KEY } from '@/lib/api/client';
 
+/** Max retry attempts for transient network failures (BUG-NET-01). */
+const MAX_RETRIES = 3;
+/** Initial backoff delay in ms; doubles on each retry. */
+const RETRY_BASE_MS = 500;
+
+function isRetryableError(err: unknown): boolean {
+  if (err instanceof TypeError) return true; // network error / DNS failure
+  return false;
+}
+
+function isRetryableStatus(status: number, method?: string): boolean {
+  // Only retry idempotent methods — POST/PATCH are unsafe to retry because
+  // the server may have already partially committed (e.g. payment charged).
+  const safe = !method || ['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE'].includes(method.toUpperCase());
+  if (!safe) return false;
+  return status === 408 || status === 429 || status >= 500;
+}
+
 export async function apiFetch(
   input: RequestInfo | URL,
   init?: RequestInit
@@ -36,5 +54,29 @@ export async function apiFetch(
     const token = await SecureStore.getItemAsync(JWT_KEY).catch(() => null);
     if (token) headers.set('Authorization', `Bearer ${token}`);
   }
-  return fetch(input, { ...init, headers });
+
+  const requestInit = { ...init, headers };
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      await new Promise((res) => setTimeout(res, RETRY_BASE_MS * Math.pow(2, attempt - 1)));
+    }
+    try {
+      const response = await fetch(input, requestInit);
+      if (attempt < MAX_RETRIES && isRetryableStatus(response.status, init?.method)) {
+        lastError = new Error(`HTTP ${response.status}`);
+        continue;
+      }
+      return response;
+    } catch (err) {
+      if (attempt < MAX_RETRIES && isRetryableError(err)) {
+        lastError = err;
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw lastError ?? new Error('apiFetch: max retries exceeded');
 }
