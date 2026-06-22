@@ -30,10 +30,11 @@ import { logger } from "@/lib/logger";
  * Chainable batch of commands queued for a single round-trip via `RedisClient.pipeline()`.
  * Both providers implement this interface (ioredis natively, Upstash via adapter).
  *
- * @pipeline-commands: del, zremrangebyrank, setex, expire, hset, zadd
+ * @pipeline-commands: del, exists, zremrangebyrank, setex, expire, hset, zadd
  */
 export interface RedisPipeline {
   del(key: string): RedisPipeline;
+  exists(key: string): RedisPipeline;
   zremrangebyrank(key: string, start: number, stop: number): RedisPipeline;
   setex(key: string, seconds: number, value: string): RedisPipeline;
   expire(key: string, seconds: number): RedisPipeline;
@@ -95,6 +96,7 @@ const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 function createStubPipeline(): RedisPipeline {
   const stub: RedisPipeline = {
     del: () => stub,
+    exists: () => stub,
     zremrangebyrank: () => stub,
     setex: () => stub,
     expire: () => stub,
@@ -302,6 +304,10 @@ class UpstashAdapter implements RedisClient {
     const wrapper: RedisPipeline = {
       del(key: string) {
         batch.del(key);
+        return wrapper;
+      },
+      exists(key: string) {
+        batch.exists(key);
         return wrapper;
       },
       zremrangebyrank(key: string, start: number, stop: number) {

@@ -61,8 +61,9 @@ async function eligibleRecipients(
     for (const id of allowed) pipeline.exists(presenceRedisKey(id));
     const results = await pipeline.exec();
     offlineIds = allowed.filter((_, i) => {
-      const [err, count] = results?.[i] ?? [null, 0];
-      return !err && (count as number) === 0;
+      const tuple = (results?.[i] ?? [null, 0]) as [Error | null, number];
+      const [err, count] = tuple;
+      return !err && count === 0;
     });
   } catch {
     // Redis unavailable — fail open (send to all pref-enabled users)
