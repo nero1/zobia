@@ -35,11 +35,11 @@ CREATE POLICY star_ledger_isolation ON star_ledger
   );
 
 -- ---------------------------------------------------------------------------
--- payout_requests
+-- creator_payouts (table was previously misnamed payout_requests)
 -- ---------------------------------------------------------------------------
-ALTER TABLE payout_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE creator_payouts ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY payout_requests_isolation ON payout_requests
+CREATE POLICY creator_payouts_isolation ON creator_payouts
   FOR ALL
   USING (
     current_setting('app.current_user_id', TRUE) = ''
@@ -47,11 +47,11 @@ CREATE POLICY payout_requests_isolation ON payout_requests
   );
 
 -- ---------------------------------------------------------------------------
--- user_notifications
+-- notifications (table was previously misnamed user_notifications)
 -- ---------------------------------------------------------------------------
-ALTER TABLE user_notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY user_notifications_isolation ON user_notifications
+CREATE POLICY notifications_isolation ON notifications
   FOR ALL
   USING (
     current_setting('app.current_user_id', TRUE) = ''
@@ -60,6 +60,7 @@ CREATE POLICY user_notifications_isolation ON user_notifications
 
 -- ---------------------------------------------------------------------------
 -- dm_conversations: user can access their own conversations
+-- Columns are user_id_1 / user_id_2 (not user_a_id / user_b_id)
 -- ---------------------------------------------------------------------------
 ALTER TABLE dm_conversations ENABLE ROW LEVEL SECURITY;
 
@@ -67,8 +68,8 @@ CREATE POLICY dm_conversations_isolation ON dm_conversations
   FOR ALL
   USING (
     current_setting('app.current_user_id', TRUE) = ''
-    OR user_a_id::text = current_setting('app.current_user_id', TRUE)
-    OR user_b_id::text = current_setting('app.current_user_id', TRUE)
+    OR user_id_1::text = current_setting('app.current_user_id', TRUE)
+    OR user_id_2::text = current_setting('app.current_user_id', TRUE)
   );
 
 -- ---------------------------------------------------------------------------
