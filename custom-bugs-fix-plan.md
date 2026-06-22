@@ -455,11 +455,12 @@ In `apps/web/next.config.js`:
 - ✅ TASK-25: Bot strikes create moderation report in `moderation_reports`; logger used throughout
 - ✅ TASK-26: All `console.error` replaced with `logger.error` in lib files; audit log uses logger
 - ✅ TASK-27: Fraud check failure flags payout as suspicious (`trust_score_check_unavailable` reason)
-- ✅ TASK-28: Expo and web apps support Nigerian Pidgin locale; dot-notation i18n keys resolve correctly
-- ✅ TASK-29: Bare domain regex removed from `getUrlRegex()`; only protocol/www-prefixed URLs matched
+- ✅ TASK-28: Full Pidgin locale coverage — web 1524/1524 keys, Expo 1639/1639 leaf keys; dot-notation keys resolve correctly
+- ✅ TASK-29: Bare domain regex removed from `getUrlRegex()`; only protocol/www-prefixed URLs matched; `(?<![a-zA-Z0-9])` lookbehind prevents mid-word `www.` matches
 - ✅ TASK-30: `vipRoomPricing` and `currenciesAccepted` populated from `x_manifest` in `buildManifest()`
 - 🟡 TASK-31: SQLite encryption documented with TODO comment and migration guide reference in `sqlite.ts`
 - ✅ TASK-32: Image domain env vars added to `env.ts` and `.env.example` with per-project hostname guidance
+- ✅ TASK-33: `SUSPICIOUS_INFLOW_MIN_ACCOUNTS` reads from manifest (`fraud_inflow_min_accounts` key); quest engine comment corrected to "cryptographically random Fisher-Yates shuffle"
 
 ---
 

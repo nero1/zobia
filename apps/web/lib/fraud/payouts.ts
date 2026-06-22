@@ -71,20 +71,22 @@ export async function checkPayoutFraud(
   const reasons: string[] = [];
 
   // FRAUD-02: Read thresholds from manifest so they can be tuned without deploys
-  const [inflowThresholdRaw, newAccountAgeDaysRaw, maxPayoutsPerDayRaw, giftWindowDaysRaw] = await Promise.all([
+  const [inflowThresholdRaw, newAccountAgeDaysRaw, maxPayoutsPerDayRaw, giftWindowDaysRaw, minAccountsRaw] = await Promise.all([
     getManifestValue('fraud_inflow_threshold_coins'),
     getManifestValue('fraud_new_account_age_days'),
     getManifestValue('fraud_max_payouts_per_day'),
     getManifestValue('fraud_gift_window_days'),
-  ]).catch(() => [null, null, null, null]);
+    getManifestValue('fraud_inflow_min_accounts'),
+  ]).catch(() => [null, null, null, null, null]);
 
   const effectiveInflowThreshold = parseInt(inflowThresholdRaw ?? String(SUSPICIOUS_INFLOW_THRESHOLD_COINS), 10) || SUSPICIOUS_INFLOW_THRESHOLD_COINS;
   const effectiveNewAccountAgeDays = parseInt(newAccountAgeDaysRaw ?? String(NEW_ACCOUNT_AGE_DAYS), 10) || NEW_ACCOUNT_AGE_DAYS;
   const effectiveMaxPayoutsPerDay = parseInt(maxPayoutsPerDayRaw ?? String(MAX_PAYOUT_REQUESTS_PER_DAY), 10) || MAX_PAYOUT_REQUESTS_PER_DAY;
   const effectiveGiftWindowDays = parseInt(giftWindowDaysRaw ?? "7", 10) || 7;
+  const effectiveMinAccounts = parseInt(minAccountsRaw ?? String(SUSPICIOUS_INFLOW_MIN_ACCOUNTS), 10) || SUSPICIOUS_INFLOW_MIN_ACCOUNTS;
 
   await Promise.all([
-    checkNewAccountGiftInflow(creatorId, db, reasons, effectiveInflowThreshold, effectiveNewAccountAgeDays, effectiveGiftWindowDays),
+    checkNewAccountGiftInflow(creatorId, db, reasons, effectiveInflowThreshold, effectiveNewAccountAgeDays, effectiveGiftWindowDays, effectiveMinAccounts),
     checkPayoutVelocity(creatorId, db, reasons, effectiveMaxPayoutsPerDay),
     checkTrustScore(creatorId, db, reasons),
   ]);
@@ -130,7 +132,8 @@ async function checkNewAccountGiftInflow(
   reasons: string[],
   inflowThreshold: number,
   newAccountAgeDays: number,
-  giftWindowDays: number
+  giftWindowDays: number,
+  minAccounts: number
 ): Promise<void> {
   try {
     const { rows } = await db.query<{ total_coins: string; account_count: string }>(
@@ -164,7 +167,7 @@ async function checkNewAccountGiftInflow(
 
     if (
       totalCoins >= inflowThreshold &&
-      accountCount >= SUSPICIOUS_INFLOW_MIN_ACCOUNTS
+      accountCount >= minAccounts
     ) {
       reasons.push(
         `Received ${totalCoins.toLocaleString()} coins from ${accountCount} accounts aged < ${newAccountAgeDays} days in the past ${giftWindowDays} days (room + DM gifts combined)`
