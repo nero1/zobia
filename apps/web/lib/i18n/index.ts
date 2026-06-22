@@ -120,8 +120,7 @@ export default i18n;
 export async function getServerTranslation(
   locale: SupportedLocale = DEFAULT_LOCALE
 ): Promise<(key: string, options?: Record<string, unknown>) => string> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let messages: Record<string, any>;
+  let messages: Record<string, unknown>;
   try {
     messages = (await import(`./locales/${locale}.json`)) as unknown as Record<string, unknown>;
   } catch {
@@ -133,11 +132,10 @@ export async function getServerTranslation(
   function resolve(key: string): string {
     if (key in messages) return messages[key] as string;
     const parts = key.split(".");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let node: any = messages;
+    let node: unknown = messages;
     for (const part of parts) {
       if (node == null || typeof node !== "object") return key;
-      node = node[part];
+      node = (node as Record<string, unknown>)[part];
     }
     return typeof node === "string" ? node : key;
   }
