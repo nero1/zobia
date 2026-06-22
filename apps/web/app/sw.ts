@@ -14,13 +14,28 @@ const serwist = new Serwist({
   precacheEntries: self.__SW_MANIFEST,
   skipWaiting: true,
   clientsClaim: true,
-  navigationPreload: true,
-  // Auth routes must bypass the service worker entirely so the browser
-  // handles Set-Cookie headers on OAuth redirects natively.
+  // Navigation preload disabled: when enabled it can cause the SW to intercept
+  // navigation requests to auth routes and mis-handle them, breaking Set-Cookie
+  // on OAuth redirects. Disabling it keeps auth cookie handling 100% native.
+  navigationPreload: false,
   runtimeCaching: [
+    // Auth routes must NOT go through a Workbox/Serwist caching strategy.
+    // Using a raw fetch() passthrough ensures the browser's native cookie jar
+    // processes Set-Cookie headers correctly on both the initiation fetch and
+    // the OAuth callback navigation — the "session_expired" bug was caused by
+    // the old NetworkOnly strategy failing (c.handle is not a function) and
+    // silently dropping Set-Cookie on the CSRF state cookie response.
     {
       matcher: /^\/(auth|api\/auth)\/.*/i,
-      handler: "NetworkOnly",
+      handler: async ({ request, event }) => {
+        // Navigation preload is disabled, but guard anyway.
+        const fetchEvent = event as FetchEvent & { preloadResponse?: Promise<Response | undefined> };
+        if (fetchEvent.preloadResponse) {
+          const preloaded = await fetchEvent.preloadResponse;
+          if (preloaded) return preloaded;
+        }
+        return fetch(request);
+      },
     },
     // PWA entry point — network-first with offline fallback
     {
@@ -32,7 +47,7 @@ const serwist = new Serwist({
         expiration: { maxEntries: 1, maxAgeSeconds: 24 * 60 * 60 },
       },
     },
-    // SW-STALE-01: auth-sensitive API endpoints must always be NetworkOnly
+    // Auth-sensitive API endpoints must always be NetworkOnly
     {
       matcher: /\/api\/users\/me(\/|$|\?)/i,
       handler: "NetworkOnly",
