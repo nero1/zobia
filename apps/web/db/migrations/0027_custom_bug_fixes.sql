@@ -10,15 +10,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS messages_idempotency_key_unique
   ON messages (idempotency_key)
   WHERE idempotency_key IS NOT NULL;
 
--- TASK-16 (BUG-NOTIF-01): Partial unique index on user_notifications for dedup
+-- TASK-16 (BUG-NOTIF-01): Partial unique index on notifications for dedup
 -- Prevents duplicate system notifications of the same type when reference_id is NULL
-CREATE UNIQUE INDEX IF NOT EXISTS user_notifications_type_null_ref_unique
-  ON user_notifications (user_id, type)
+CREATE UNIQUE INDEX IF NOT EXISTS notifications_type_null_ref_unique
+  ON notifications (user_id, type)
   WHERE reference_id IS NULL;
 
 -- TASK-17 (BUG-DM-01): Prevent self-DM conversations at DB level
+-- Columns are user_id_1 / user_id_2 (not user_a_id / user_b_id)
 ALTER TABLE dm_conversations
-  ADD CONSTRAINT dm_no_self_chat CHECK (user_a_id <> user_b_id);
+  ADD CONSTRAINT dm_no_self_chat CHECK (user_id_1 <> user_id_2);
 
 -- TASK-20 (BUG-DB-02): Add created_at to push_tickets if missing for pruning CRON
 ALTER TABLE push_tickets
