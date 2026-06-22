@@ -113,20 +113,18 @@ function LoginContent() {
     setAuthError(null);
     try {
       const captchaToken = await getCaptchaToken();
-      const webRedirectSuffix = redirectParam ? `&web_redirect=${encodeURIComponent(redirectParam)}` : "";
-      const url = captchaToken
-        ? `/api/auth/google?captcha_token=${encodeURIComponent(captchaToken)}${webRedirectSuffix}`
-        : redirectParam
-          ? `/api/auth/google?web_redirect=${encodeURIComponent(redirectParam)}`
-          : "/api/auth/google";
-      const res = await fetch(url);
-      const data = await res.json() as { url?: string; error?: { message?: string; code?: string } };
-      if (!res.ok || !data.url) {
-        setAuthError(translateApiError(t, data?.error?.code, data?.error?.message ?? t("auth.error.oauthFailed")));
-        setIsLoading(null);
-        return;
-      }
-      window.location.href = data.url;
+      // Navigate directly to the API endpoint rather than fetch()ing it.
+      // The server responds with a 302 redirect to Google, setting the CSRF
+      // cookie in the same response. Using window.location.href (browser
+      // navigation) guarantees the cookie is committed to the browser's jar
+      // before the redirect chain continues — this is more reliable than a
+      // fetch() whose Set-Cookie may be dropped if a ServiceWorker intercepts
+      // the request and its handler fails.
+      const params = new URLSearchParams();
+      if (captchaToken) params.set("captcha_token", captchaToken);
+      if (redirectParam) params.set("web_redirect", redirectParam);
+      const qs = params.toString();
+      window.location.href = `/api/auth/google${qs ? `?${qs}` : ""}`;
     } catch {
       setAuthError(t("auth.error.oauthFailed"));
       setIsLoading(null);
