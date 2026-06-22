@@ -53,6 +53,7 @@ import {
   recordAndCheckAnomaly,
 } from "@/lib/security/geoAnomaly";
 import { requestContext, logger } from "@/lib/logger";
+import type { TransactionClient } from "@/lib/db/interface";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -62,6 +63,14 @@ import { requestContext, logger } from "@/lib/logger";
 export interface AuthContext {
   /** Decoded and validated access token payload. */
   user: AccessTokenPayload;
+  /**
+   * BUG-SEC-03: Run a database callback inside a transaction where
+   * `app.current_user_id` is set via `SET LOCAL` so PostgreSQL RLS
+   * policies can reference `current_setting('app.current_user_id', TRUE)`.
+   * Uses `SET LOCAL` which is scoped to the transaction and is safe with
+   * PgBouncer in transaction-mode pooling.
+   */
+  withRLS: <T>(fn: (client: TransactionClient) => Promise<T>) => Promise<T>;
 }
 
 /** Context object injected into admin handlers. */
@@ -268,12 +277,20 @@ export function withAuth<TParams = Record<string, string>>(
         );
       }
 
+      // BUG-SEC-03: Build a withRLS helper that sets app.current_user_id via SET LOCAL
+      // inside a transaction, enabling PostgreSQL RLS policies per request.
+      const withRLS = <T>(fn: (client: TransactionClient) => Promise<T>): Promise<T> =>
+        db.transaction(async (client) => {
+          await client.query(`SELECT set_config('app.current_user_id', $1, TRUE)`, [payload.sub]);
+          return fn(client);
+        });
+
       const start = Date.now();
       let result: NextResponse | ApiError;
       try {
         result = await handler(req, {
           params: await ctx.params,
-          auth: { user: payload },
+          auth: { user: payload, withRLS },
         });
       } catch (handlerErr) {
         logger.error({ requestId, userId: payload.sub, durationMs: Date.now() - start }, "request handler threw");
@@ -376,12 +393,18 @@ export function withAdminAuth<TParams = Record<string, string>>(
         );
       }
 
+      const withRLSAdmin = <T>(fn: (client: TransactionClient) => Promise<T>): Promise<T> =>
+        db.transaction(async (client) => {
+          await client.query(`SELECT set_config('app.current_user_id', $1, TRUE)`, [payload.sub]);
+          return fn(client);
+        });
+
       const start = Date.now();
       let result: NextResponse | ApiError;
       try {
         result = await handler(req, {
           params: await ctx.params,
-          auth: { user: payload, isAdmin: true },
+          auth: { user: payload, isAdmin: true, withRLS: withRLSAdmin },
         });
       } catch (handlerErr) {
         logger.error({ requestId, userId: payload.sub, durationMs: Date.now() - start }, "request handler threw");

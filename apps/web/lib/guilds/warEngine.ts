@@ -196,6 +196,7 @@ export async function findWarOpponent(
       ...(cityFilter && self.city ? [self.city] : []),
     ];
 
+    const selfXPParam = cityFilter && self.city ? 6 : 5;
     const { rows } = await db.query<{ id: string }>(
       `SELECT g.id FROM guilds g
        WHERE g.is_active = TRUE
@@ -204,9 +205,9 @@ export async function findWarOpponent(
               OR g.last_war_ended_at < NOW() - ($3 * INTERVAL '1 hour'))
          AND g.id != ALL($4::uuid[])
          ${cityClause}
-       ORDER BY ABS(g.guild_xp - ${selfXP}) ASC
+       ORDER BY ABS(g.guild_xp - $${selfXPParam}) ASC
        LIMIT 5`,
-      params
+      [...params, selfXP]
     );
 
     if (rows.length > 0) return rows[0].id;

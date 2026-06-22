@@ -11,6 +11,7 @@
  */
 
 import type { DatabaseAdapter } from "@/lib/db/interface";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -38,7 +39,7 @@ export type AutoModerationReason =
 export interface MessageInput {
   content: string;
   senderId: string;
-  roomId: string;
+  roomId: string | null;
 }
 
 /** Minimal room object for context-aware moderation. */
@@ -279,6 +280,28 @@ export async function applyAutoModeration(
   try {
     const isBot = await detectBotBehavior(sender.id, db);
     if (isBot) {
+      // BUG-MOD-01: increment strike counter and create moderation report on bot detection
+      try {
+        await db.query(
+          `UPDATE users
+           SET moderation_strike_count = COALESCE(moderation_strike_count, 0) + 1,
+               updated_at = NOW()
+           WHERE id = $1`,
+          [sender.id]
+        );
+        await db.query(
+          `INSERT INTO moderation_reports
+             (reported_user_id, reason, auto_generated, metadata, created_at)
+           VALUES ($1, 'bot_behavior', TRUE, $2, NOW())
+           ON CONFLICT DO NOTHING`,
+          [
+            sender.id,
+            JSON.stringify({ roomId: message.roomId ?? null, contentPreview: message.content.slice(0, 100) }),
+          ]
+        );
+      } catch (reportErr) {
+        logger.error({ err: reportErr, userId: sender.id }, "[contentFilter] failed to write bot moderation report");
+      }
       return {
         blocked: true,
         reason: "bot_behavior",
@@ -287,7 +310,7 @@ export async function applyAutoModeration(
       };
     }
   } catch (err) {
-    console.error("[contentFilter] detectBotBehavior error:", err);
+    logger.error({ err, userId: sender.id }, "[contentFilter] detectBotBehavior error");
   }
 
   // ---- 2. Duplicate message check ----
@@ -308,7 +331,7 @@ export async function applyAutoModeration(
       };
     }
   } catch (err) {
-    console.error("[contentFilter] detectDuplicateMessage error:", err);
+    logger.error({ err, userId: sender.id }, "[contentFilter] detectDuplicateMessage error");
   }
 
   // ---- 3. Profanity filter ----

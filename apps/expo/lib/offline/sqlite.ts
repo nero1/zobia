@@ -3,6 +3,26 @@
  *
  * SQLite-backed offline message queue for Android.
  * Queues outgoing messages when the device is offline and syncs when reconnected.
+ *
+ * TASK-31 (BUG-PRIV-01) — SQLite Encryption TODO:
+ * The current implementation stores message content in plaintext. For production,
+ * encrypt the database at rest using one of:
+ *
+ *   1. `@op-engineering/op-sqlite` — supports an `encryptionKey` option in `open()`.
+ *      Derive the key from Android Keystore + the user's session ID:
+ *        const keyMaterial = await Crypto.digestStringAsync(
+ *          Crypto.CryptoDigestAlgorithm.SHA256,
+ *          `${deviceId}:${userId}`
+ *        );
+ *        const db = open({ name: DB_NAME, encryptionKey: keyMaterial });
+ *
+ *   2. `expo-sqlite-encrypted` — wraps SQLCipher; similar API.
+ *
+ * Once encryption is enabled, document it in the app's privacy policy:
+ * "Offline message drafts are encrypted at rest using AES-256 with a key
+ *  derived from the device's secure enclave."
+ *
+ * See: https://ospfranco.notion.site/op-sqlite-docs for migration guide.
  */
 
 import * as SQLite from 'expo-sqlite';

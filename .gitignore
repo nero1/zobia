@@ -105,6 +105,13 @@ web_modules/
 .next
 out
 
+# Serwist/Workbox service worker build artifacts — generated at build time
+# Do not commit these; they are rebuilt on every Next.js build.
+apps/web/public/sw.js
+apps/web/public/sw.js.map
+apps/web/public/workbox-*.js
+apps/web/public/workbox-*.js.map
+
 # Nuxt.js build / generate output
 .nuxt
 dist

@@ -549,7 +549,35 @@ export interface ChallengeListItem {
   completedAt: string | null;
 }
 
-export async function listUserChallenges(userId: string): Promise<ChallengeListItem[]> {
+export interface ChallengesPage {
+  challenges: ChallengeListItem[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+/**
+ * List challenges for a user with cursor-based pagination (BUG-PAGINATE-01).
+ * Replaces the old LIMIT 100 hard cap with a keyset cursor on created_at + id.
+ *
+ * @param userId  - UUID of the user
+ * @param cursor  - Opaque cursor from the previous page (created_at ISO string of last item)
+ * @param limit   - Page size (default 20, max 100)
+ */
+export async function listUserChallenges(
+  userId: string,
+  cursor?: string | null,
+  limit = 20
+): Promise<ChallengesPage> {
+  const pageSize = Math.min(Math.max(1, limit), 100);
+  const params: (string | number)[] = [userId];
+  let cursorClause = "";
+  if (cursor) {
+    params.push(cursor);
+    // Keyset: fetch rows older than the cursor's created_at
+    cursorClause = `AND c.created_at < $${params.length}`;
+  }
+  params.push(pageSize + 1); // fetch one extra to detect hasMore
+
   const { rows } = await db.query<Record<string, unknown>>(
     `SELECT c.id, c.game_id, g.slug AS game_slug, g.name AS game_name,
             c.challenger_id, cu.username AS challenger_username,
@@ -561,12 +589,20 @@ export async function listUserChallenges(userId: string): Promise<ChallengeListI
      JOIN games g ON g.id = c.game_id
      JOIN users cu ON cu.id = c.challenger_id
      JOIN users ou ON ou.id = c.opponent_id
-     WHERE c.challenger_id = $1 OR c.opponent_id = $1
+     WHERE (c.challenger_id = $1 OR c.opponent_id = $1)
+       ${cursorClause}
      ORDER BY c.created_at DESC
-     LIMIT 100`,
-    [userId]
+     LIMIT $${params.length}`,
+    params
   );
-  return rows.map(mapChallengeRow);
+
+  const hasMore = rows.length > pageSize;
+  const page = rows.slice(0, pageSize).map(mapChallengeRow);
+  const nextCursor = hasMore && page.length > 0
+    ? (page[page.length - 1].createdAt ?? null)
+    : null;
+
+  return { challenges: page, nextCursor, hasMore };
 }
 
 export async function getChallengeDetail(

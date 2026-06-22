@@ -21,11 +21,12 @@ import sw from './locales/sw.json';
 import am from './locales/am.json';
 import zu from './locales/zu.json';
 import pt from './locales/pt.json';
+import pidgin from './locales/pidgin.json';
 
 /** Supported locale codes. */
-export type SupportedLocale = 'en' | 'fr' | 'ar' | 'ha' | 'sw' | 'am' | 'zu' | 'pt';
+export type SupportedLocale = 'en' | 'fr' | 'ar' | 'ha' | 'sw' | 'am' | 'zu' | 'pt' | 'pidgin';
 
-const SUPPORTED_LOCALES: SupportedLocale[] = ['en', 'fr', 'ar', 'ha', 'sw', 'am', 'zu', 'pt'];
+const SUPPORTED_LOCALES: SupportedLocale[] = ['en', 'fr', 'ar', 'ha', 'sw', 'am', 'zu', 'pt', 'pidgin'];
 
 /** Derive the best supported locale from the device's preferred locales. */
 function resolveLocale(): SupportedLocale {
@@ -51,6 +52,7 @@ i18n
       am: { translation: am },
       zu: { translation: zu },
       pt: { translation: pt },
+      pidgin: { translation: pidgin },
     },
     lng: resolveLocale(),
     fallbackLng: 'en',

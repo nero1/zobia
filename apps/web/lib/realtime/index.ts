@@ -19,6 +19,7 @@
  */
 
 import { env } from "@/lib/env";
+import { logger } from "@/lib/logger";
 import type { RealtimeProvider } from "./interface";
 
 // BUG-RT-06: module-level singleton so the same provider instance (and its
@@ -75,6 +76,6 @@ export async function publishRealtimeEvent(
       await provider.publish(channel, event, data);
     }
   } catch (err) {
-    console.error("[realtime] Provider publish failed", err);
+    logger.error({ err }, "[realtime] Provider publish failed");
   }
 }

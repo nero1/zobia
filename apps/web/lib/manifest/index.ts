@@ -387,6 +387,13 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       physicalGoodsEnabled:       parseBool(kv["physical_goods_enabled"],                       DEFAULT_MANIFEST.features.physicalGoodsEnabled),
       physicalGoodsManualFulfillment:  parseBool(kv["physical_goods_fulfillment_manual"]  ?? "true",  DEFAULT_MANIFEST.features.physicalGoodsManualFulfillment),
       physicalGoodsPartnerFulfillment: parseBool(kv["physical_goods_fulfillment_partner"],            DEFAULT_MANIFEST.features.physicalGoodsPartnerFulfillment),
+      // BUG-MANIFEST-01: populate vipRoomPricing from x_manifest keys
+      vipRoomPricing: kv["vip_room_pricing_min_ngn"] && kv["vip_room_pricing_max_ngn"]
+        ? {
+            minNgn: parseInt10(kv["vip_room_pricing_min_ngn"], 200),
+            maxNgn: parseInt10(kv["vip_room_pricing_max_ngn"], 10000),
+          }
+        : undefined,
     },
     currency: {
       softNameSingular:    unquote(kv["currency_soft_name_singular"])    ?? DEFAULT_MANIFEST.currency.softNameSingular,
@@ -449,6 +456,10 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       primaryProvider,
       paystackEnabled:     parseBool(kv["payment_paystack_enabled"],     DEFAULT_MANIFEST.payment.paystackEnabled),
       dodopaymentsEnabled: parseBool(kv["payment_dodopayments_enabled"], DEFAULT_MANIFEST.payment.dodopaymentsEnabled),
+      // BUG-MANIFEST-01: populate currenciesAccepted from x_manifest key
+      currenciesAccepted: kv["payment_currencies_accepted"]
+        ? kv["payment_currencies_accepted"].split(",").map((c) => c.trim()).filter(Boolean)
+        : undefined,
     },
     payouts: {
       enabled:      parseBool(kv["payouts_enabled"],              DEFAULT_MANIFEST.payouts.enabled),

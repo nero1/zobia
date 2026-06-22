@@ -12,7 +12,7 @@ declare const self: ServiceWorkerGlobalScope;
 
 const serwist = new Serwist({
   precacheEntries: self.__SW_MANIFEST,
-  skipWaiting: true,
+  skipWaiting: false,
   clientsClaim: true,
   // Navigation preload disabled: when enabled it can cause the SW to intercept
   // navigation requests to auth routes and mis-handle them, breaking Set-Cookie

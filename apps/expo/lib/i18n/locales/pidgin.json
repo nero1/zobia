@@ -1,0 +1,62 @@
+{
+  "common": {
+    "comingSoon": "E dey come soon…",
+    "loading": "Loading…",
+    "error": "Something do wrong",
+    "retry": "Try again",
+    "cancel": "Cancel",
+    "save": "Save",
+    "next": "Next",
+    "back": "Back",
+    "skip": "Skip",
+    "done": "Done",
+    "continue": "Continue",
+    "offline": "You dey offline",
+    "offlineMessage": "Some features no go work",
+    "dismiss": "Dismiss",
+    "goHome": "Go home"
+  },
+  "deeplink": {
+    "profileNotFound": "This profile no dey available.",
+    "roomNotFound": "This room no dey available.",
+    "courseNotFound": "This class no dey available."
+  },
+  "games": {
+    "title": "Games",
+    "comingSoonTitle": "Games dey come soon",
+    "comingSoonBody": "You go fit play this game inside app soon. We don save your invite."
+  },
+  "auth": {
+    "loginTitle": "Welcome to Zobia",
+    "loginSubtitle": "Sign in to connect with your community",
+    "loginWithGoogle": "Continue with Google",
+    "loginWithTelegram": "Continue with Telegram",
+    "loggingIn": "Dey sign in…",
+    "logoutConfirm": "You sure say you want to sign out?",
+    "googleOpening": "Dey open Google…",
+    "telegramWaiting": "Waiting for Telegram…",
+    "telegramRequiredTitle": "You Need Telegram",
+    "telegramRequiredBody": "Install Telegram first, then try again.",
+    "loginTimeoutTitle": "Login Don Timeout",
+    "loginTimeoutBody": "Telegram login don timeout. Try again and finish login for Telegram.",
+    "callbackError": "Login callback fail. Try again.",
+    "googleError": "Google Sign-In fail. Try again.",
+    "telegramError": "Telegram login fail. Try again.",
+    "sessionExpiredTitle": "Session Don Expire",
+    "sessionExpiredMessage": "Your session don expire. Sign in again to continue.",
+    "sessionExpiredSignIn": "Sign in"
+  },
+  "onboarding": {
+    "step1Title": "Set up your profile",
+    "step1Subtitle": "Choose username, pick avatar, and tell us where you dey from.",
+    "usernamePlaceholder": "username",
+    "usernameLabel": "Username",
+    "avatarLabel": "Avatar emoji",
+    "cityLabel": "Your city",
+    "cityPlaceholder": "e.g. Lagos, Abuja, London…",
+    "step2Title": "Wetin be your vibe?",
+    "step2Subtitle": "Answer 4 quick questions make we match you with the right rooms.",
+    "q1": "How you like to spend your evenings?",
+    "q1a": "Chilling with music"
+  }
+}

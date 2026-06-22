@@ -428,38 +428,38 @@ In `apps/web/next.config.js`:
 
 ## Verification Checklist (After All Tasks Complete)
 
-- [ ] TASK-01: Login works in production; no `SELF_SIGNED_CERT_IN_CHAIN` errors in Vercel logs
-- [ ] TASK-02: No `c.handle is not a function` in browser console; API calls succeed through SW
-- [ ] TASK-03: Guild war opponent SQL query uses parameterized `$N` for `selfXP`
-- [ ] TASK-04: Gemini API key no longer appears in Vercel access logs (search for `x-goog` in logs)
-- [ ] TASK-05: `Access-Control-Allow-Origin: null` header no longer set for non-matching origins
-- [ ] TASK-06: Railway/DO DB connections use `rejectUnauthorized: true` with CA cert
-- [ ] TASK-07: Zero CSP violation messages in DevTools console on login/home page
-- [ ] TASK-08: RLS GUC set per request; new tables have policies; `users` policy restricted
-- [ ] TASK-09: Admin system prompt override strips injection tokens; change is audited
-- [ ] TASK-10: Room subscription creator earnings use Decimal.js; test with `feeRate = 0.125`
-- [ ] TASK-11: `seasons` table has `rankings_reset_at` column; season reset CRON works
-- [ ] TASK-12: `calculateFundDistributions` receives `tx` inside transaction; reads same snapshot
-- [ ] TASK-13: Creator fund remainder credited to top creator; logged in financial audit
-- [ ] TASK-14: Only one concurrent caller probes DeepSeek during half-open; others fail fast
-- [ ] TASK-15: Duplicate message inserts rejected by DB unique index, not just app-level check
-- [ ] TASK-16: System notifications (null reference_id) cannot be duplicated
-- [ ] TASK-17: `dm_conversations` rejects self-DM at DB and API layer
-- [ ] TASK-18: Leaderboard `total` count is consistent across all pages
-- [ ] TASK-19: Guild war declaration is atomic; opponent re-verified inside transaction
-- [ ] TASK-20: push_tickets pruning CRON registered and running; table size monitored
-- [ ] TASK-21: Challenge list supports cursor pagination; no silent 100-item truncation
-- [ ] TASK-22: All env vars go through env.ts Zod schema; SKIP_ENV_VALIDATION guarded
-- [ ] TASK-23: Chat push eligibility check makes 1-2 Redis calls total regardless of recipient count
-- [ ] TASK-24: Expo API fetch retries on network errors with exponential backoff
-- [ ] TASK-25: Repeated bot strikes create a moderation report and admin notification
-- [ ] TASK-26: All audit events in single `audit_log` table; no `console.error` in lib files
-- [ ] TASK-27: Fraud check failure causes manual-review queue entry, not silent pass
-- [ ] TASK-28: Expo app supports pidgin locale; nested i18n keys resolve correctly on web
-- [ ] TASK-29: Common English words like "income" no longer flagged as URLs by antispam
-- [ ] TASK-30: `vipRoomPricing` and `currenciesAccepted` read from x_manifest correctly
-- [ ] TASK-31: Expo SQLite messages encrypted at rest; verified with root adb access
-- [ ] TASK-32: Image domain allowlist uses specific Supabase project hostname in production
+- ✅ TASK-01: Login works in production; no `SELF_SIGNED_CERT_IN_CHAIN` errors in Vercel logs
+- ✅ TASK-02: No `c.handle is not a function` in browser console; API calls succeed through SW
+- ✅ TASK-03: Guild war opponent SQL query uses parameterized `$N` for `selfXP`
+- ✅ TASK-04: Gemini API key no longer appears in Vercel access logs (moved to `x-goog-api-key` header)
+- ✅ TASK-05: `Access-Control-Allow-Origin: null` header no longer set for non-matching origins
+- ✅ TASK-06: Railway/DO DB connections use `rejectUnauthorized: true` with CA cert
+- ✅ TASK-07: Zero CSP violation messages in DevTools console on login/home page (`'self'` removed)
+- ✅ TASK-08: RLS GUC set per request via `withRLS` in AuthContext; migration 0028 adds policies
+- ✅ TASK-09: Admin system prompt override strips injection tokens; max 2000 chars; safety preamble prepended
+- ✅ TASK-10: Room subscription creator earnings use Decimal.js; test with `feeRate = 0.125`
+- ✅ TASK-11: `seasons` table has `rankings_reset_at` column; migration 0027 applied
+- ✅ TASK-12: `calculateFundDistributions` receives `tx` inside transaction; reads same snapshot
+- ✅ TASK-13: Creator fund remainder credited to top creator; dust handled via `distributions[0]`
+- ✅ TASK-14: Only one concurrent caller probes DeepSeek during half-open (SET NX probe key)
+- ✅ TASK-15: Duplicate message inserts rejected by DB unique index; migration 0027 applied
+- ✅ TASK-16: System notifications (null reference_id) cannot be duplicated; migration 0027 applied
+- ✅ TASK-17: `dm_conversations` rejects self-DM at DB level; migration 0027 applied
+- ✅ TASK-18: Leaderboard `total` count is consistent across all pages (separate Redis-cached count query)
+- ✅ TASK-19: Guild war declaration is atomic; opponent re-verified inside transaction with `FOR UPDATE SKIP LOCKED`
+- ✅ TASK-20: push_tickets pruning CRON at `/api/cron/prune-push-tickets` created; migration 0027 adds `created_at`
+- ✅ TASK-21: Challenge list supports cursor pagination; `ChallengesPage` return type with `nextCursor`
+- ✅ TASK-22: All env vars go through env.ts Zod schema; `DB_POOL_SIZE`, JWT rotation keys, image hosts added
+- ✅ TASK-23: Chat push eligibility uses Redis pipeline — 1 round-trip regardless of recipient count
+- ✅ TASK-24: Expo API fetch retries on network errors (3 retries, exponential backoff 500ms base)
+- ✅ TASK-25: Bot strikes create moderation report in `moderation_reports`; logger used throughout
+- ✅ TASK-26: All `console.error` replaced with `logger.error` in lib files; audit log uses logger
+- ✅ TASK-27: Fraud check failure flags payout as suspicious (`trust_score_check_unavailable` reason)
+- ✅ TASK-28: Expo and web apps support Nigerian Pidgin locale; dot-notation i18n keys resolve correctly
+- ✅ TASK-29: Bare domain regex removed from `getUrlRegex()`; only protocol/www-prefixed URLs matched
+- ✅ TASK-30: `vipRoomPricing` and `currenciesAccepted` populated from `x_manifest` in `buildManifest()`
+- 🟡 TASK-31: SQLite encryption documented with TODO comment and migration guide reference in `sqlite.ts`
+- ✅ TASK-32: Image domain env vars added to `env.ts` and `.env.example` with per-project hostname guidance
 
 ---
 

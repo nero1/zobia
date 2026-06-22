@@ -229,6 +229,30 @@ export const POST = withAuth(
             throw conflict("Guild is already in an active war", "WAR_ALREADY_ACTIVE");
           }
 
+          // BUG-RACE-01: Re-verify opponent availability inside the transaction.
+          // Lock the opponent guild row with SKIP LOCKED so concurrent war declarations
+          // targeting the same opponent cannot both succeed — the second caller will
+          // get no rows back and throw OPPONENT_UNAVAILABLE rather than inserting a
+          // duplicate war record that would violate the defender unique partial index.
+          const opponentAvailable = await client.query<{ id: string }>(
+            `SELECT g.id FROM guilds g
+             WHERE g.id = $1
+               AND g.is_active = TRUE
+               AND NOT EXISTS (
+                 SELECT 1 FROM guild_wars gw
+                 WHERE (gw.challenger_guild_id = $1 OR gw.defender_guild_id = $1)
+                   AND gw.status IN ('active', 'final_hour')
+               )
+             FOR UPDATE SKIP LOCKED`,
+            [opponentId]
+          );
+          if (!opponentAvailable.rows[0]) {
+            throw conflict(
+              "Opponent guild is no longer available for war. Please try again.",
+              "OPPONENT_UNAVAILABLE"
+            );
+          }
+
           // 4. Check cooldown (duration is 48h during a War Event, 72h otherwise)
           const { last_war_ended_at } = guildRow.rows[0];
           if (last_war_ended_at) {

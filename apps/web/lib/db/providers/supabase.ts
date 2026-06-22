@@ -39,10 +39,10 @@ function getPool(): Pool {
         env.NODE_ENV === "production"
           ? {
               rejectUnauthorized: true,
-              ...(process.env.DB_CA_CERT ? { ca: process.env.DB_CA_CERT } : {}),
+              ...(env.DB_CA_CERT ? { ca: env.DB_CA_CERT } : {}),
             }
           : undefined,
-      max: parseInt(process.env.DB_POOL_SIZE ?? "2", 10),
+      max: env.DB_POOL_SIZE,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 5_000,
       // BUG-DB-02 FIX: keep idle connections alive so proxy/firewall timeouts
@@ -54,7 +54,9 @@ function getPool(): Pool {
     });
 
     _pool.on("error", (err) => {
-      console.error("[db:supabase] pool error", err);
+      import("@/lib/logger").then(({ logger }) =>
+        logger.error({ err }, "[db:supabase] pool error")
+      ).catch(() => {});
     });
   }
   return _pool;
@@ -104,7 +106,9 @@ export class SupabaseDatabaseAdapter implements DatabaseAdapter {
       return result;
     } catch (err) {
       try { await client.query("ROLLBACK"); } catch (rollbackErr) {
-        console.error("[db] ROLLBACK failed:", rollbackErr);
+        import("@/lib/logger").then(({ logger }) =>
+          logger.error({ err: rollbackErr }, "[db:supabase] ROLLBACK failed")
+        ).catch(() => {});
       }
       throw err;
     } finally {

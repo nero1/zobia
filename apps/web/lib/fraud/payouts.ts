@@ -14,6 +14,7 @@
  */
 
 import type { DatabaseAdapter } from "@/lib/db/interface";
+import { logger } from "@/lib/logger";
 import { getManifestValue } from "@/lib/manifest";
 
 // ---------------------------------------------------------------------------
@@ -132,13 +133,11 @@ async function checkNewAccountGiftInflow(
   giftWindowDays: number
 ): Promise<void> {
   try {
-    // Union room gifts AND direct DM gifts so wash-trading via DMs is caught too
     const { rows } = await db.query<{ total_coins: string; account_count: string }>(
       `SELECT
          COALESCE(SUM(combined.coin_cost), 0)::TEXT  AS total_coins,
          COUNT(DISTINCT combined.sender_id)::TEXT      AS account_count
        FROM (
-         -- Room gifts received in the creator's rooms
          SELECT g.coin_cost, g.sender_id
          FROM gifts g
          JOIN rooms r ON r.id = g.room_id
@@ -149,7 +148,6 @@ async function checkNewAccountGiftInflow(
 
          UNION ALL
 
-         -- Direct (DM) gifts sent to the creator
          SELECT g2.coin_cost, g2.sender_id
          FROM gifts g2
          JOIN users sender2 ON sender2.id = g2.sender_id
@@ -172,8 +170,11 @@ async function checkNewAccountGiftInflow(
         `Received ${totalCoins.toLocaleString()} coins from ${accountCount} accounts aged < ${newAccountAgeDays} days in the past ${giftWindowDays} days (room + DM gifts combined)`
       );
     }
-  } catch {
-    // Non-fatal: skip this check if the gifts table doesn't exist yet
+  } catch (err) {
+    // BUG-FRAUD-01: fail-safe — flag as suspicious when the check itself fails
+    // so a DB error cannot silently allow a fraudulent payout through.
+    logger.error({ err, creatorId }, "[fraud] checkNewAccountGiftInflow failed — flagging as suspicious");
+    reasons.push("gift_inflow_check_unavailable");
   }
 }
 
@@ -197,8 +198,10 @@ async function checkPayoutVelocity(
     if (count >= maxPayoutsPerDay) {
       reasons.push(`${count} payout requests in the past 24 hours (max ${maxPayoutsPerDay})`);
     }
-  } catch {
-    // Non-fatal
+  } catch (err) {
+    // BUG-FRAUD-01: fail-safe — flag as suspicious so a DB error cannot allow rapid payouts
+    logger.error({ err, creatorId }, "[fraud] checkPayoutVelocity failed — flagging as suspicious");
+    reasons.push("velocity_check_unavailable");
   }
 }
 
@@ -217,7 +220,9 @@ async function checkTrustScore(
     if (score < MIN_TRUST_SCORE_FOR_AUTO) {
       reasons.push(`Trust score ${score} is below the auto-approval minimum (${MIN_TRUST_SCORE_FOR_AUTO})`);
     }
-  } catch {
-    // Non-fatal
+  } catch (err) {
+    // BUG-FRAUD-01: fail-safe — flag as suspicious so a DB error cannot silently pass a low-trust account
+    logger.error({ err, creatorId }, "[fraud] checkTrustScore failed — flagging as suspicious");
+    reasons.push("trust_score_check_unavailable");
   }
 }

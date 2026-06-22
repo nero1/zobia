@@ -16,6 +16,7 @@
  */
 
 import type { DatabaseAdapter, TransactionClient } from "@/lib/db/interface";
+import { redis } from "@/lib/redis";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -263,9 +264,35 @@ export async function getLeaderboard(
     paramIdx += 2;
   }
 
-  const where = `WHERE ${conditions.join(" AND ")}`;
+  // Build a WHERE clause without the cursor condition for the count query.
+  // COUNT(*) OVER() inside a cursor-filtered query returns the count of the
+  // current page only, not the full result set (BUG-PERF-01).
+  const countConditions = conditions.filter(
+    (c) => !c.startsWith("(ls.xp_value, ls.user_id) <")
+  );
+  const countWhere = `WHERE ${countConditions.join(" AND ")}`;
+  const countParams = params.slice(0, params.length - (cursor ? 2 : 0));
 
-  type RawRow = LeaderboardEntry & { total_count: string };
+  // Cache the total count in Redis for 60 s to avoid a full-table count on every page flip.
+  const countCacheKey = `lb:count:${track}:${dbScope}:${city ?? ""}:${options?.seasonId ?? ""}:${options?.guildId ?? ""}`;
+  let total = 0;
+  try {
+    const cached = await redis.get(countCacheKey);
+    if (cached !== null) {
+      total = parseInt(cached, 10);
+    } else {
+      const { rows: countRows } = await db.query<{ count: string }>(
+        `SELECT COUNT(*) AS count FROM leaderboard_snapshots ls JOIN users u ON u.id = ls.user_id ${countWhere}`,
+        countParams
+      );
+      total = parseInt(countRows[0]?.count ?? "0", 10);
+      await redis.set(countCacheKey, String(total), "EX", 60);
+    }
+  } catch {
+    // Redis unavailable — fall through to 0; pagination will still work
+  }
+
+  const where = `WHERE ${conditions.join(" AND ")}`;
 
   const queryText = `SELECT
        ROW_NUMBER() OVER (ORDER BY ls.xp_value DESC NULLS LAST, ls.user_id ASC) AS rank,
@@ -275,8 +302,7 @@ export async function getLeaderboard(
        u.avatar_emoji,
        u.rank_name,
        COALESCE(ls.xp_value, 0) AS xp_value,
-       u.city,
-       COUNT(*) OVER () AS total_count
+       u.city
      FROM leaderboard_snapshots ls
      JOIN users u ON u.id = ls.user_id
      ${where}
@@ -285,9 +311,7 @@ export async function getLeaderboard(
 
   const queryParams = [...params, pageSize];
 
-  const { rows } = await db.query<RawRow>(queryText, queryParams);
-
-  const total = parseInt(rows[0]?.total_count ?? "0");
+  const { rows } = await db.query<LeaderboardEntry>(queryText, queryParams);
   let hofCount = 0;
   const entries: LeaderboardEntry[] = rows.map((r) => ({
     // LB-01: add rankOffset so cursor pages show true global rank, not page-local ROW_NUMBER

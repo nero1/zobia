@@ -36,10 +36,13 @@ export function getPool(): Pool {
       connectionString: env.DATABASE_URL,
       ssl:
         env.NODE_ENV === "production"
-          ? { rejectUnauthorized: false }
+          ? {
+              rejectUnauthorized: true,
+              ...(env.RAILWAY_CA_CERT ? { ca: env.RAILWAY_CA_CERT } : {}),
+            }
           : undefined,
       // Railway recommends keeping pool size small to avoid exhaustion
-      max: parseInt(process.env.DB_POOL_SIZE ?? "2", 10),
+      max: env.DB_POOL_SIZE,
       idleTimeoutMillis: 20_000,
       connectionTimeoutMillis: 8_000,
       keepAlive: true,
@@ -49,7 +52,9 @@ export function getPool(): Pool {
     });
 
     _pool.on("error", (err) => {
-      console.error("[db:railway] pool error", err);
+      import("@/lib/logger").then(({ logger }) =>
+        logger.error({ err }, "[db:railway] pool error")
+      ).catch(() => {});
     });
   }
   return _pool;
@@ -64,16 +69,21 @@ function getDirectPool(): Pool {
       connectionString: env.DIRECT_URL,
       ssl:
         env.NODE_ENV === "production"
-          ? { rejectUnauthorized: false }
+          ? {
+              rejectUnauthorized: true,
+              ...(env.RAILWAY_CA_CERT ? { ca: env.RAILWAY_CA_CERT } : {}),
+            }
           : undefined,
-      max: parseInt(process.env.DB_DIRECT_POOL_SIZE ?? "2", 10),
+      max: env.DB_DIRECT_POOL_SIZE,
       idleTimeoutMillis: 10_000,
       connectionTimeoutMillis: 8_000,
       options: "-c statement_timeout=30000 -c idle_in_transaction_session_timeout=60000",
     });
 
     _directPool.on("error", (err) => {
-      console.error("[db:railway:direct] pool error", err);
+      import("@/lib/logger").then(({ logger }) =>
+        logger.error({ err }, "[db:railway:direct] pool error")
+      ).catch(() => {});
     });
   }
   return _directPool;
@@ -125,7 +135,9 @@ export class RailwayDatabaseAdapter implements DatabaseAdapter {
       return result;
     } catch (err) {
       try { await client.query("ROLLBACK"); } catch (rollbackErr) {
-        console.error("[db] ROLLBACK failed:", rollbackErr);
+        import("@/lib/logger").then(({ logger }) =>
+          logger.error({ err: rollbackErr }, "[db:railway] ROLLBACK failed")
+        ).catch(() => {});
       }
       throw err;
     } finally {

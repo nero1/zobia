@@ -57,11 +57,16 @@ export function getEmailRegex(): RegExp {
 }
 
 /**
- * Returns a fresh RegExp that matches URLs — http/https/ftp/www-prefixed links
- * and bare domains with a known TLD suffix.
+ * Returns a fresh RegExp that matches URLs — http/https/ftp/www-prefixed links only.
+ *
+ * BUG-SPAM-01 FIX: the previous pattern matched bare domain-like tokens (e.g.
+ * "word.io", "game.app") causing false positives on ordinary English words.
+ * The new pattern REQUIRES an explicit protocol prefix (https?://, ftp://) OR
+ * a "www." prefix. Bare "domain.tld" tokens are intentionally NOT matched since
+ * they produce too many false positives to be useful.
  */
 export function getUrlRegex(): RegExp {
-  return /(?:https?|ftp):\/\/[^\s/$.?#].[^\s]*|www\.[a-zA-Z0-9\-]+\.[a-zA-Z0-9\-]{2,}(?:\/[^\s]*)?|\b(?:xn--[a-zA-Z0-9\-]+|[a-zA-Z0-9\-]+)\.(?:xn--[a-zA-Z0-9\-]+|com|org|net|io|co|uk|ng|app|dev|xyz|info|biz|me|tv|us|ca|au|de|fr|jp|in|br|ru|cn|ai)\b(?:\/[^\s]*)?/gi;
+  return /(?:https?|ftp):\/\/[^\s/$.?#][^\s]*|www\.[a-zA-Z0-9\-]+\.[a-zA-Z0-9\-]{2,}(?:\/[^\s]*)?/gi;
 }
 
 /**
