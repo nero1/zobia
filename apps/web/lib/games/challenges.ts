@@ -557,10 +557,13 @@ export interface ChallengesPage {
 
 /**
  * List challenges for a user with cursor-based pagination (BUG-PAGINATE-01).
- * Replaces the old LIMIT 100 hard cap with a keyset cursor on created_at + id.
+ * Uses a composite (created_at, id) keyset cursor to guarantee stable ordering
+ * even when multiple challenges share the same created_at timestamp.
+ *
+ * Cursor format: "<ISO timestamp>|<uuid>" — opaque to callers.
  *
  * @param userId  - UUID of the user
- * @param cursor  - Opaque cursor from the previous page (created_at ISO string of last item)
+ * @param cursor  - Opaque cursor from the previous page
  * @param limit   - Page size (default 20, max 100)
  */
 export async function listUserChallenges(
@@ -571,10 +574,16 @@ export async function listUserChallenges(
   const pageSize = Math.min(Math.max(1, limit), 100);
   const params: (string | number)[] = [userId];
   let cursorClause = "";
+
   if (cursor) {
-    params.push(cursor);
-    // Keyset: fetch rows older than the cursor's created_at
-    cursorClause = `AND c.created_at < $${params.length}`;
+    const [cursorTs, cursorId] = cursor.split("|");
+    if (cursorTs && cursorId) {
+      params.push(cursorTs, cursorId);
+      // Composite keyset: rows strictly older than (created_at, id) of the last seen row.
+      // The tie-break on id (descending UUID) ensures deterministic paging when timestamps collide.
+      cursorClause = `AND (c.created_at < $${params.length - 1}::timestamptz
+                        OR (c.created_at = $${params.length - 1}::timestamptz AND c.id < $${params.length}::uuid))`;
+    }
   }
   params.push(pageSize + 1); // fetch one extra to detect hasMore
 
@@ -591,15 +600,16 @@ export async function listUserChallenges(
      JOIN users ou ON ou.id = c.opponent_id
      WHERE (c.challenger_id = $1 OR c.opponent_id = $1)
        ${cursorClause}
-     ORDER BY c.created_at DESC
+     ORDER BY c.created_at DESC, c.id DESC
      LIMIT $${params.length}`,
     params
   );
 
   const hasMore = rows.length > pageSize;
   const page = rows.slice(0, pageSize).map(mapChallengeRow);
-  const nextCursor = hasMore && page.length > 0
-    ? (page[page.length - 1].createdAt ?? null)
+  const lastItem = page[page.length - 1];
+  const nextCursor = hasMore && lastItem
+    ? `${lastItem.createdAt}|${lastItem.id}`
     : null;
 
   return { challenges: page, nextCursor, hasMore };

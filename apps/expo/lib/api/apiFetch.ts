@@ -23,7 +23,11 @@ function isRetryableError(err: unknown): boolean {
   return false;
 }
 
-function isRetryableStatus(status: number): boolean {
+function isRetryableStatus(status: number, method?: string): boolean {
+  // Only retry idempotent methods — POST/PATCH are unsafe to retry because
+  // the server may have already partially committed (e.g. payment charged).
+  const safe = !method || ['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE'].includes(method.toUpperCase());
+  if (!safe) return false;
   return status === 408 || status === 429 || status >= 500;
 }
 
@@ -60,7 +64,7 @@ export async function apiFetch(
     }
     try {
       const response = await fetch(input, requestInit);
-      if (attempt < MAX_RETRIES && isRetryableStatus(response.status)) {
+      if (attempt < MAX_RETRIES && isRetryableStatus(response.status, init?.method)) {
         lastError = new Error(`HTTP ${response.status}`);
         continue;
       }

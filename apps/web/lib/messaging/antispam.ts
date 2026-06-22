@@ -66,7 +66,8 @@ export function getEmailRegex(): RegExp {
  * they produce too many false positives to be useful.
  */
 export function getUrlRegex(): RegExp {
-  return /(?:https?|ftp):\/\/[^\s/$.?#][^\s]*|www\.[a-zA-Z0-9\-]+\.[a-zA-Z0-9\-]{2,}(?:\/[^\s]*)?/gi;
+  // Word-boundary before "www." prevents matching mid-word tokens like "notawww.example.com".
+  return /(?:https?|ftp):\/\/[^\s/$.?#][^\s]*|(?<![a-zA-Z0-9])www\.[a-zA-Z0-9\-]+\.[a-zA-Z0-9\-]{2,}(?:\/[^\s]*)?/gi;
 }
 
 /**
