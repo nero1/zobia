@@ -27,6 +27,9 @@
   "engines": {
     "node": ">=20.0.0"
   },
+  "overrides": {
+    "scheduler": "0.23.2"
+  },
   "devDependencies": {
     "react-native": "0.74.0"
   }
