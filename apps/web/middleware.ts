@@ -291,6 +291,16 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   function withCsp(requestHeaders: Headers): NextResponse {
     requestHeaders.set("x-nonce", nonce);
     requestHeaders.set("x-request-id", requestId);
+    // CRITICAL (BUG-CSP-NONCE): Next.js automatically applies the per-request
+    // nonce to its own framework <script> tags (the inline bootstrap and the
+    // chunk loaders) ONLY when it can read the Content-Security-Policy from the
+    // *request* headers. Setting only x-nonce is not enough — without the CSP on
+    // the request, Next emits its inline bootstrap script with NO nonce, and our
+    // `script-src 'nonce-…' 'strict-dynamic'` policy then blocks it, which breaks
+    // hydration entirely (the page renders but no client JS runs). This header on
+    // the request is NOT sent to the browser (only the response CSP is enforced);
+    // it is purely the channel Next uses to discover the nonce.
+    requestHeaders.set("Content-Security-Policy", csp);
     const res = NextResponse.next({ request: { headers: requestHeaders } });
     res.headers.set("Content-Security-Policy", csp);
     res.headers.set("X-Request-ID", requestId);

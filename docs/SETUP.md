@@ -116,7 +116,7 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `DB_DIRECT_POOL_SIZE` | No | Connection pool size for `DIRECT_URL` used in migrations/long-running scripts (default: `2`). | — |
 
 > **TCP keepalive is always enabled** on all database pools (`keepAlive: true`, initial delay 10 s). This prevents idle connections from being silently dropped by NAT or cloud provider firewalls — a common issue on Railway and DigitalOcean managed databases. No configuration is needed.
-| `DB_CA_CERT` | No | PEM-encoded CA certificate for TLS verification of the database connection. Required when using a self-signed or custom CA (e.g. DigitalOcean managed Postgres CA). Leave unset to use the system CA bundle. SSL is always enforced (`rejectUnauthorized: true`). | Download from your DB provider's dashboard |
+| `DB_CA_CERT` | **Yes for Supabase** | PEM-encoded CA certificate for TLS verification of the database connection. **Required for Supabase** — its pooler uses a private CA that is not in Node's system trust store, so without this the driver fails with `SELF_SIGNED_CERT_IN_CHAIN` in production. Also required for any other self-signed/custom CA. SSL is always enforced (`rejectUnauthorized: true`). | Supabase → Settings → Database → SSL Configuration → Download certificate |
 | `STORAGE_PROVIDER` | Yes | Storage backend: `supabase-storage` \| `r2` \| `s3` | Choose your provider |
 | `R2_ACCOUNT_ID` | If R2 | Cloudflare account ID | Cloudflare dashboard → right sidebar |
 | `R2_ACCESS_KEY_ID` | If R2 | R2 API access key ID | Cloudflare → R2 → Manage R2 API tokens |
@@ -208,6 +208,22 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 
    Copy the **pooler transaction mode** string → paste as `DATABASE_URL`.  
    Copy the **direct connection string** → paste as `DIRECT_URL`.
+
+   > **Required: download the SSL CA certificate.** Supabase's connection
+   > pooler presents a **private** CA chain that is not in Node's system trust
+   > store. Because the app enforces TLS verification in production
+   > (`rejectUnauthorized: true`), you **must** provide the CA or every query
+   > fails with `self-signed certificate in certificate chain`
+   > (`SELF_SIGNED_CERT_IN_CHAIN`) — which silently breaks login, the manifest,
+   > and all DB-backed features. To fix it:
+   >
+   > 1. Go to **Settings → Database → SSL Configuration → "Download
+   >    certificate"** (a `prod-ca-*.crt` file).
+   > 2. Open the file and copy its full PEM contents (including the
+   >    `-----BEGIN CERTIFICATE-----` / `-----END CERTIFICATE-----` lines).
+   > 3. Set it as `DB_CA_CERT`. On Vercel: **Project → Settings → Environment
+   >    Variables → Add** `DB_CA_CERT`, paste the multi-line PEM as the value,
+   >    apply it to **Production** (and Preview), then **redeploy**.
 6. Run all migrations in order (use the canonical `db/migrations/` directory, **not** `lib/db/migrations/`):
    ```bash
    cd apps/web
@@ -1236,3 +1252,59 @@ Floating currency notifications are enabled by default. To configure:
 - **Demo/Preview**: Admin Panel → Notifications Demo
 
 No additional environment variables are required for this feature.
+
+---
+
+## Troubleshooting
+
+### Login button does nothing / blank or non-interactive pages (CSP)
+
+**Symptoms:** Clicking "Continue with Google" (or any button) does nothing. The
+browser console shows:
+
+```
+Content-Security-Policy: The page's settings blocked an inline script
+(script-src-elem) … "script-src 'nonce-…' 'strict-dynamic'"
+```
+
+**Cause:** Next.js only stamps its per-request CSP `nonce` onto its own
+framework `<script>` tags when it can read the `Content-Security-Policy` from the
+**request** headers. If the middleware sets the nonce only on the response, the
+inline bootstrap script ships without a nonce and `strict-dynamic` blocks it, so
+no client JS hydrates.
+
+**Fix:** `apps/web/middleware.ts` sets `Content-Security-Policy` on the forwarded
+request headers inside `withCsp()` (in addition to the response header). This is
+already in place — if you customise the middleware, keep that line.
+
+### `TypeError: c.handle is not a function` from `sw.js`
+
+**Symptoms:** The console shows `A ServiceWorker passed a promise to
+FetchEvent.respondWith() that rejected with 'TypeError: c.handle is not a
+function'` and `_next/static/chunks/*.js` fail to load.
+
+**Cause:** Serwist's `runtimeCaching[].handler` must be a Strategy **instance**
+(e.g. `new NetworkOnly()`), not a workbox/next-pwa **string** name
+(`"NetworkOnly"`) or a bare function.
+
+**Fix:** `apps/web/app/sw.ts` uses Strategy instances (`NetworkOnly`,
+`NetworkFirst`, `CacheFirst`, `StaleWhileRevalidate`) with `ExpirationPlugin`.
+After changing the SW, hard-reload and **unregister the old service worker**
+(DevTools → Application → Service Workers → Unregister) once, since clients may
+still run the previous `sw.js`.
+
+### `self-signed certificate in certificate chain` (SELF_SIGNED_CERT_IN_CHAIN)
+
+**Symptoms:** Server logs show `Error: self-signed certificate in certificate
+chain` and features that read the DB (login, manifest) fail or fall back to
+defaults.
+
+**Cause:** TLS verification is enforced in production, but the database
+provider's CA is not in Node's system trust store (Supabase's pooler uses a
+private CA).
+
+**Fix:** Provide the provider CA via `DB_CA_CERT` (Supabase), `RAILWAY_CA_CERT`
+(Railway) or `DO_CA_CERT` (DigitalOcean). For Supabase: Settings → Database →
+SSL Configuration → Download certificate, then paste the full PEM into
+`DB_CA_CERT` (multi-line is fine on Vercel) and redeploy. See the database
+provider section above.
