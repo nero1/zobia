@@ -129,9 +129,8 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const comparison = await compareNemesisProgress(userId, nemesisRow.nemesis_id, "main", db);
 
     // Recent XP activity for both parties (last 20 events combined).
-    // xp_ledger stores the action label in `source` (NOT NULL); `action` is a
-    // nullable alias column that may be empty on newer rows. `xp_net` is similarly
-    // optional — fall back to `amount` which is always present.
+    // xp_ledger stores the action label in `source`; `xp_net` is nullable,
+    // fall back to `amount` which is always present.
     const { rows: activityRows } = await db.query<{
       id: string;
       user_id: string;
@@ -139,13 +138,13 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       xp_net: number;
       created_at: string;
     }>(
-      `(SELECT id, user_id, COALESCE(action, source) AS action,
+      `(SELECT id, user_id, source AS action,
                COALESCE(xp_net, amount) AS xp_net, created_at
         FROM xp_ledger
         WHERE user_id = $1 AND created_at > NOW() - INTERVAL '7 days'
         ORDER BY created_at DESC LIMIT 10)
        UNION ALL
-       (SELECT id, user_id, COALESCE(action, source) AS action,
+       (SELECT id, user_id, source AS action,
                COALESCE(xp_net, amount) AS xp_net, created_at
         FROM xp_ledger
         WHERE user_id = $2 AND created_at > NOW() - INTERVAL '7 days'
