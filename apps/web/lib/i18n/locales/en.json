@@ -1525,5 +1525,26 @@
   "pwa.androidBody": "Get the Android app for the best experience.",
   "pwa.androidDownloadBtn": "Download",
   "pwa.androidAlreadyDid": "Already downloaded",
-  "pwa.androidDismiss": "Not now"
+  "pwa.androidDismiss": "Not now",
+
+  "games.category.trivia": "Trivia",
+  "games.category.strategy": "Strategy",
+  "games.category.sports": "Sports",
+  "games.category.music": "Music",
+
+  "games.rating.rateThisGame": "Rate this game",
+  "games.rating.updateRating": "Update your rating",
+  "games.rating.yourRating": "Your rating",
+  "games.rating.thankYou": "Thanks for rating!",
+  "games.rating.playFirst": "Play this game first to rate it",
+  "games.rating.notPlayed": "Play at least once to leave a rating",
+
+  "games.admin.search": "Search games…",
+  "games.admin.allCategories": "All categories",
+  "games.admin.viewList": "List",
+  "games.admin.viewCards": "Cards",
+  "games.admin.noResults": "No games match your search.",
+  "games.admin.total": "{{count}} total",
+
+  "games.error.notPlayed": "You must play this game at least once before rating it."
 }

@@ -1296,10 +1296,15 @@ Events are stored with JSONB `metadata` for event-specific flags (e.g. `gift_xp_
 The games feature is a modular mini-games arcade spanning web, PWA and the Expo app.
 Everything except the game engines themselves is generic infrastructure.
 
+The platform ships **57 games across 13 categories**: Puzzle, Action, Arcade, Tap, Word,
+Casual, Board, Card, Idle, Trivia, Strategy, Sports, and Music. 26 games were in the
+initial launch; migration `0029_games_catalog_expansion.sql` adds 30 more.
+
 ### Surfaces
 
 - **Directory** — `/games` (web, in `(app)` group) and the Expo `app/games/index.tsx`
-  screen list active games grouped by category (Puzzle / Action / Arcade).
+  screen list active games grouped by category (13 categories: Puzzle, Action, Arcade,
+  Tap, Word, Casual, Board, Card, Idle, Trivia, Strategy, Sports, Music).
 - **Public cover** — `/g/<slug>` (`apps/web/app/g/[slug]/page.tsx`, SSR, crawlable;
   Expo `app/g/[slug].tsx`). Guests see a **login gate**; members get a **Play** CTA and
   a **share** button (`buildGameReferralUrl` → `/g/<slug>?r=<code>`).
@@ -1364,12 +1369,28 @@ notification metadata (`challRefund`, `oppRefund`, `challForfeitCoins`).
   (AdSense when `NEXT_PUBLIC_ADSENSE_CLIENT` is set, else a labelled placeholder) and Expo
   `components/ads/AdBanner.tsx` (AdMob) — gated by the `admob_ads` feature flag.
 
+### Star Rating System
+
+Players can rate any game they have played (1–5 stars). The play-gate is enforced
+server-side: `POST /api/games/<slug>/rate` checks `game_best_scores` for the user+game
+pair (one row = has played) before accepting a rating.
+
+- **Cover page (`/g/<slug>`):** `GET /api/games/<slug>/my-rating` returns
+  `{ yourRating, hasPlayed }`. The rating widget is shown only when `hasPlayed = true`; if
+  not yet played, the play CTA is shown instead.
+- **Post-game screen (`GameRunner`):** the rating widget is shown automatically after every
+  solo play session, directly on the result screen — no extra navigation needed.
+- **Storage:** `game_ratings (game_id, user_id, rating)` unique on `(game_id, user_id)`;
+  each upsert recalculates `games.avg_rating` and `games.rating_count` atomically.
+
 ### Admin
 
 - **`feature_games`** master toggle (Feature Flags) disables the directory, API and pages.
 - **`/admin/games`** — CRUD over the cover page (name, slug, descriptions, emoji, cover
   image URL, category, engine), per-game rewards, free/paid play cost, score cap, min play
   time, sort order, active flag; per-game stats; and games-played milestone management.
+  The admin games page defaults to **list view** (sortable table); a card-grid view is also
+  available. Category filter and text search are supported client-side.
 - Runtime config (`/admin/config`): `game_wager_rake_pct`, `game_challenge_expiry_hours`,
   `game_default_reward_credits`, `game_default_reward_xp`, `game_max_wager_credits`
   (default 10 000 — server-enforced upper bound on per-challenge credit wagers),

@@ -12,6 +12,7 @@ import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { assertGamesEnabled } from "@/lib/games/config";
+import { db } from "@/lib/db";
 import { getActiveGameBySlug, upsertGameRating } from "@/lib/games/repo";
 
 export const POST = withAuth(
@@ -28,6 +29,15 @@ export const POST = withAuth(
 
       const game = await getActiveGameBySlug(params.slug);
       if (!game) throw notFound("Game not found.");
+
+      // Enforce play-gate: user must have played at least once.
+      const { rows: playRows } = await db.query<{ exists: boolean }>(
+        `SELECT EXISTS(SELECT 1 FROM game_best_scores WHERE game_id = $1 AND user_id = $2) AS exists`,
+        [game.id, auth.user.sub]
+      );
+      if (!playRows[0]?.exists) {
+        throw badRequest("You must play this game at least once before rating it.");
+      }
 
       const result = await upsertGameRating(game.id, auth.user.sub, rating as 1 | 2 | 3 | 4 | 5);
 

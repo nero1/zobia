@@ -1068,9 +1068,9 @@ export interface SponsoredQuest {
 // ─── Games / Gaming ──────────────────────────────────────────────────────────
 
 /** Static game categories. New categories are added by the dev in code. */
-export type GameCategory = 'Puzzle' | 'Action' | 'Arcade' | 'Tap' | 'Idle' | 'Card' | 'Board' | 'Word' | 'Casual';
+export type GameCategory = 'Puzzle' | 'Action' | 'Arcade' | 'Tap' | 'Idle' | 'Card' | 'Board' | 'Word' | 'Casual' | 'Trivia' | 'Strategy' | 'Sports' | 'Music';
 
-export const GAME_CATEGORIES: GameCategory[] = ['Tap', 'Arcade', 'Puzzle', 'Card', 'Board', 'Idle', 'Word', 'Action', 'Casual'];
+export const GAME_CATEGORIES: GameCategory[] = ['Tap', 'Arcade', 'Puzzle', 'Card', 'Board', 'Idle', 'Word', 'Action', 'Casual', 'Trivia', 'Strategy', 'Sports', 'Music'];
 
 /** Public/cover representation of a game (directory + /g/<slug> page). */
 export interface GameSummary {

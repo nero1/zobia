@@ -1,7 +1,7 @@
 # Zobia Social — Product Requirements Document
 ### A Gamified Monetised Social Platform for the Global Mobile Generation
 
-> **Version 1.74 — Product Requirements Document**
+> **Version 1.75 — Product Requirements Document**
 > Covers: Feature Specifications · Technical Architecture · Economy Design · Moderation · Build Sequence
 > Scope: Nigeria-first, Pan-African then Global · Mobile-first PWA + Android APK · Admin-minimal operation
 
@@ -1859,11 +1859,16 @@ wager rake).
 - **Public game pages** at `/g/<slug>` are crawlable cover pages. Non-members see a
   **login gate** ("Log in to play this game"); members get a **Play** CTA and a
   **share** button that appends their referral code (`/g/<slug>?r=<code>`).
-- **Categories (9 categories, 26 games):** Tap (Tap Frenzy, Bubble Burst, Reaction Rush,
-  Color Tap), Arcade (Snake, Brick Buster, Flappy Duck, Stack Tower), Puzzle (Tetris, 2048,
-  Memory Match, Slide Puzzle, Minesweeper, Color Sort), Card (Blackjack, Whot!, Higher or Lower),
-  Board (Chess, Ludo), Idle (Cookie Kingdom, Galaxy Miner), Word (Word Scramble, Simon Says),
-  Action (Speed Dodge, Star Blaster), Casual (Rock Paper Scissors).
+- **Categories (13 categories, 57 games):** Tap (Tap Frenzy, Bubble Burst, Reaction Rush,
+  Color Tap, Speed Tap, Color Rain), Arcade (Snake, Brick Buster, Flappy Duck, Stack Tower,
+  Platform Jumper, Pixel Runner, Asteroid Dodge), Puzzle (Tetris, 2048, Memory Match, Slide
+  Puzzle, Minesweeper, Color Sort, Sudoku, Word Search, Lights Out, Number Match, Nonogram,
+  Pipe Connect, Sliding Blocks, Mahjong Solitaire), Card (Blackjack, Whot!, Higher or Lower),
+  Board (Chess, Ludo, Ayo), Idle (Cookie Kingdom, Galaxy Miner), Word (Word Scramble, Simon
+  Says, Word Guess, Hangman, Anagram Rush), Action (Speed Dodge, Star Blaster, Whack-a-Mole,
+  Fruit Slicer), Casual (Rock Paper Scissors, Tic Tac Toe, Connect Four), Trivia (Quick Quiz,
+  True or False, Emoji Quiz, Flag Quiz), Strategy (Gem Swap, Dots & Boxes), Sports (Penalty
+  Kick, Basketball Shot), Music (Beat Tap).
 - **Cross-platform:** each game is a single HTML5/canvas module rendered on web/PWA
   directly and inside the Expo app via a WebView embed (`/g/<slug>/embed`). Write
   once, run everywhere.
@@ -2012,6 +2017,36 @@ Every feature decision on Zobia is tested against this checklist. If any answer 
 - **PWA install prompt:** New `PWAInstallPrompt` client component added to the app layout. On Android, shows an admin-configured APK download link (from `android_app_url` in the manifest). On iOS/desktop, shows the standard "Add to Home Screen" guide or triggers the `beforeinstallprompt` native dialog. "Not now" suppresses for 7 days; "Already installed/downloaded" suppresses for 90 days. Prompt is skipped inside standalone PWA.
 - **Admin gifts catalog:** New admin page `/admin/gifts` with cursor-based pagination for managing all gift items (create, edit, retire/restore). Backed by new admin API routes `GET/POST /api/admin/gifts` and `PATCH/DELETE /api/admin/gifts/:id`. Entry added to admin sidebar nav. User-facing `/gifts` page gains a "Browse gift catalog" link.
 - **i18n:** 23 new English keys added for auth error page and PWA install prompt (`authError.*`, `pwa.*`).
+
+---
+
+## Appendix: Version 1.75 Change Log
+
+### v1.75 — Changelog
+
+- **Games Catalog Major Expansion (30 new games, 4 new categories):** Added Sudoku, Word
+  Search, Lights Out, Number Match, Nonogram, Pipe Connect, Sliding Blocks, Mahjong Solitaire
+  (Puzzle); Whack-a-Mole, Fruit Slicer (Action); Ayo — traditional Nigerian Mancala (Board);
+  Platform Jumper, Pixel Runner, Asteroid Dodge (Arcade); Speed Tap, Color Rain (Tap); Quick
+  Quiz, True or False, Emoji Quiz, Flag Quiz (Trivia — new); Word Guess, Hangman, Anagram Rush
+  (Word); Tic Tac Toe, Connect Four (Casual); Gem Swap, Dots & Boxes (Strategy — new); Penalty
+  Kick, Basketball Shot (Sports — new); Beat Tap (Music — new). Total catalog: 57 games.
+- **GameCategory type expanded** to include Trivia, Strategy, Sports, Music. GAME_CATEGORIES
+  array updated in shared types.
+- **User star rating system with play-gate:** Interactive 1–5 star rating widget added to
+  GameRunner result screen (after every play) and the `/g/<slug>` cover page (for users who
+  have already played). Server-side play-gate enforced at `POST /api/games/<slug>/rate` —
+  checks `game_best_scores` table; returns 400 if user has never played. New
+  `GET /api/games/<slug>/my-rating` endpoint returns `{ yourRating, hasPlayed }`.
+- **Admin games management card/list views:** Admin `/admin/games` page now has a list
+  (table, default) + card grid toggle, inline search, and category filter dropdown. All 30
+  new engine keys and 4 new categories added to admin selectors.
+- **i18n (English):** New strings for Trivia/Strategy/Sports/Music categories, rating UI
+  ("Rate this game", "Thanks for rating!", play-gate prompt), and admin view controls.
+- **DB migration 0029:** Seeds all 30 new games; idempotent `ON CONFLICT DO NOTHING`.
+- **Scalability:** Games list uses cursor-based pagination (offset+cursor keyset) already
+  in place, designed for thousands of games. Redis leaderboard cache 60s TTL. Rating
+  play-gate is a single indexed lookup on `game_best_scores (game_id, user_id)`.
 
 ---
 
