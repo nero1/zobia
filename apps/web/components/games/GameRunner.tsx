@@ -19,6 +19,12 @@ import type { GameDifficulty } from "@/components/games/types";
 
 type Phase = "pregame" | "starting" | "playing" | "submitting" | "result" | "error";
 
+interface RatingState {
+  submitted: boolean;
+  selected: number;  // 0 = none chosen yet
+  saved: number;     // the actually saved rating (0 = not rated)
+}
+
 interface FinalizeResult {
   score: number;
   isWin: boolean;
@@ -87,6 +93,8 @@ export default function GameRunner({
   const [liveScore, setLiveScore] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<FinalizeResult | null>(null);
+  const [rating, setRating] = useState<RatingState>({ submitted: false, selected: 0, saved: 0 });
+  const [ratingHover, setRatingHover] = useState(0);
   const nonceRef = useRef<string | null>(null);
   const Engine = getEngine(engineKey);
 
@@ -174,6 +182,21 @@ export default function GameRunner({
       return next;
     });
   };
+
+  const submitRating = useCallback(async (stars: number) => {
+    if (rating.submitted) return;
+    setRating(prev => ({ ...prev, selected: stars, submitted: true }));
+    try {
+      await authFetch(`/api/games/${slug}/rate`, {
+        method: "POST",
+        body: JSON.stringify({ rating: stars }),
+      });
+      setRating(prev => ({ ...prev, saved: stars }));
+    } catch {
+      // Non-critical — silently fail rating submission
+      setRating(prev => ({ ...prev, submitted: false }));
+    }
+  }, [authFetch, slug, rating.submitted]);
 
   const changeDifficulty = (d: GameDifficulty) => {
     setDifficulty(d);
@@ -343,11 +366,52 @@ export default function GameRunner({
           {result.challengeRoundId && (
             <div className="text-xs text-muted-foreground">Round submitted. Check the challenge for results.</div>
           )}
+
+          {/* ── Star rating widget ── */}
+          {!challengeId && (
+            <div className="w-full border-t border-border pt-3 mt-1">
+              {rating.saved > 0 ? (
+                <div className="flex flex-col items-center gap-1">
+                  <span className="text-xs text-muted-foreground">Your rating</span>
+                  <span className="text-amber-400 text-xl tracking-wide">
+                    {"★".repeat(rating.saved)}{"☆".repeat(5 - rating.saved)}
+                  </span>
+                  <span className="text-xs text-emerald-400">Thanks for rating!</span>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-1.5">
+                  <span className="text-xs text-muted-foreground">Rate this game</span>
+                  <div
+                    className="flex gap-1"
+                    onMouseLeave={() => setRatingHover(0)}
+                  >
+                    {[1, 2, 3, 4, 5].map(star => (
+                      <button
+                        key={star}
+                        type="button"
+                        onMouseEnter={() => setRatingHover(star)}
+                        onClick={() => void submitRating(star)}
+                        disabled={rating.submitted}
+                        className={`text-2xl transition-transform active:scale-90 disabled:opacity-50 ${
+                          star <= (ratingHover || rating.selected)
+                            ? "text-amber-400"
+                            : "text-neutral-600"
+                        }`}
+                      >
+                        ★
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex gap-2 w-full mt-1">
             {!challengeId && (
               <button
                 type="button"
-                onClick={() => setPhase("pregame")}
+                onClick={() => { setPhase("pregame"); setRating({ submitted: false, selected: 0, saved: 0 }); setRatingHover(0); }}
                 className="flex-1 rounded-xl bg-primary px-4 py-3 text-sm font-bold text-primary-foreground hover:opacity-90"
               >
                 Play again

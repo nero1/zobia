@@ -17,8 +17,12 @@
 
 import { useEffect, useState } from "react";
 
-const CATEGORIES = ["Tap", "Arcade", "Puzzle", "Card", "Board", "Idle", "Word", "Action", "Casual"];
+const CATEGORIES = [
+  "Tap", "Arcade", "Puzzle", "Card", "Board", "Idle", "Word", "Action", "Casual",
+  "Trivia", "Strategy", "Sports", "Music",
+];
 const ENGINE_KEYS = [
+  // Original 26
   "tetris", "g2048", "carRacing", "spaceShooter", "snake", "breakout",
   "tapFrenzy", "bubbleBurst", "reactionRush", "colorTap",
   "flappyDuck", "stackTower",
@@ -28,6 +32,19 @@ const ENGINE_KEYS = [
   "chess", "ludo",
   "wordScramble", "simonSays",
   "rockPaperScissors",
+  // Expansion: 30 new
+  "sudoku", "wordSearch", "lightsOut", "numberMatch", "nonogram",
+  "pipeConnect", "slidingBlocks", "mahjongSolitaire",
+  "whackAMole", "fruitSlicer",
+  "ayo",
+  "platformJumper", "pixelRunner", "asteroidDodge",
+  "speedTap", "colorRain",
+  "quickQuiz", "trueOrFalse", "emojiQuiz", "flagQuiz",
+  "wordGuess", "hangman", "anagramRush",
+  "ticTacToe", "connectFour",
+  "gemSwap", "dotsAndBoxes",
+  "penaltyKick", "basketballShot",
+  "beatTap",
 ];
 
 interface GameRow {
@@ -76,11 +93,16 @@ const EMPTY: FormState = {
   is_active: true,
 };
 
+type AdminViewMode = "list" | "card";
+
 export default function AdminGamesPage() {
   const [games, setGames] = useState<GameRow[]>([]);
   const [editing, setEditing] = useState<FormState | null>(null);
   const [stats, setStats] = useState<Record<string, unknown> | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<AdminViewMode>("list");
+  const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<string>("");
 
   const load = () => {
     fetch("/api/admin/games", { credentials: "include" })
@@ -89,6 +111,12 @@ export default function AdminGamesPage() {
       .catch(() => {});
   };
   useEffect(load, []);
+
+  const filtered = games.filter((g) => {
+    const matchesSearch = !search || g.name.toLowerCase().includes(search.toLowerCase()) || g.slug.includes(search.toLowerCase());
+    const matchesCat = !categoryFilter || g.category === categoryFilter;
+    return matchesSearch && matchesCat;
+  });
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -150,53 +178,134 @@ export default function AdminGamesPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
-      <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Games</h1>
+      {/* Header */}
+      <div className="mb-4 flex items-center justify-between flex-wrap gap-2">
+        <h1 className="text-2xl font-bold">Games <span className="text-sm font-normal text-neutral-500">({games.length} total)</span></h1>
         <button onClick={() => setEditing({ ...EMPTY })} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">
           + New game
         </button>
       </div>
 
+      {/* Search + filter row */}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <input
+          type="text"
+          placeholder="Search games…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="rounded-lg border px-3 py-1.5 text-sm flex-1 min-w-40"
+        />
+        <select
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value)}
+          className="rounded-lg border px-2 py-1.5 text-sm"
+        >
+          <option value="">All categories</option>
+          {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+        </select>
+
+        {/* View toggle — list default for admin */}
+        <div className="flex rounded-lg border overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setViewMode("list")}
+            className={`px-3 py-1.5 text-xs font-medium transition-colors ${viewMode === "list" ? "bg-primary text-primary-foreground" : "bg-white text-neutral-600 hover:bg-neutral-50"}`}
+          >
+            ☰ List
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("card")}
+            className={`px-3 py-1.5 text-xs font-medium transition-colors ${viewMode === "card" ? "bg-primary text-primary-foreground" : "bg-white text-neutral-600 hover:bg-neutral-50"}`}
+          >
+            ⊞ Cards
+          </button>
+        </div>
+      </div>
+
       {msg && <p className="mb-3 text-sm text-amber-600">{msg}</p>}
 
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b text-left text-neutral-500">
-            <th className="py-2">Game</th>
-            <th>Category</th>
-            <th>Plays</th>
-            <th>Players</th>
-            <th>Wins</th>
-            <th>Reward</th>
-            <th>Cost</th>
-            <th>Active</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {games.map((g) => (
-            <tr key={g.id} className="border-b">
-              <td className="py-2">{g.cover_emoji} {g.name} <span className="text-xs text-neutral-400">/{g.slug}</span></td>
-              <td>{g.category}</td>
-              <td>{g.play_count}</td>
-              <td>{g.players}</td>
-              <td>{g.total_wins}</td>
-              <td>{g.reward_credits_per_win}c/{g.reward_xp_per_win}xp{g.reward_stars_per_win ? `/${g.reward_stars_per_win}⭐` : ""}</td>
-              <td>{g.play_cost_credits || g.play_cost_stars ? `${g.play_cost_credits}c${g.play_cost_stars ? `/${g.play_cost_stars}⭐` : ""}` : "Free"}</td>
-              <td>
-                <button onClick={() => toggleActive(g)} className={`rounded px-2 py-0.5 text-xs ${g.is_active ? "bg-emerald-100 text-emerald-700" : "bg-neutral-200 text-neutral-600"}`}>
-                  {g.is_active ? "On" : "Off"}
-                </button>
-              </td>
-              <td className="space-x-2 whitespace-nowrap text-right">
-                <button onClick={() => viewStats(g)} className="text-xs text-blue-600">Stats</button>
-                <button onClick={() => setEditing({ ...g })} className="text-xs text-neutral-600">Edit</button>
-                <button onClick={() => del(g)} className="text-xs text-red-600">Delete</button>
-              </td>
+      {/* List view (table) */}
+      {viewMode === "list" && (
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b text-left text-neutral-500">
+              <th className="py-2">Game</th>
+              <th>Category</th>
+              <th>Plays</th>
+              <th>Players</th>
+              <th>Reward</th>
+              <th>Cost</th>
+              <th>Active</th>
+              <th></th>
             </tr>
+          </thead>
+          <tbody>
+            {filtered.map((g) => (
+              <tr key={g.id} className="border-b hover:bg-neutral-50">
+                <td className="py-2">{g.cover_emoji} {g.name} <span className="text-xs text-neutral-400">/{g.slug}</span></td>
+                <td><span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs">{g.category}</span></td>
+                <td>{g.play_count}</td>
+                <td>{g.players}</td>
+                <td className="text-xs text-neutral-600">{g.reward_credits_per_win}c/{g.reward_xp_per_win}xp{g.reward_stars_per_win ? `/${g.reward_stars_per_win}⭐` : ""}</td>
+                <td className="text-xs">{g.play_cost_credits || g.play_cost_stars ? `${g.play_cost_credits}c${g.play_cost_stars ? `/${g.play_cost_stars}⭐` : ""}` : <span className="text-emerald-600">Free</span>}</td>
+                <td>
+                  <button onClick={() => toggleActive(g)} className={`rounded px-2 py-0.5 text-xs ${g.is_active ? "bg-emerald-100 text-emerald-700" : "bg-neutral-200 text-neutral-600"}`}>
+                    {g.is_active ? "On" : "Off"}
+                  </button>
+                </td>
+                <td className="space-x-2 whitespace-nowrap text-right">
+                  <button onClick={() => viewStats(g)} className="text-xs text-blue-600">Stats</button>
+                  <button onClick={() => setEditing({ ...g })} className="text-xs text-neutral-600">Edit</button>
+                  <button onClick={() => del(g)} className="text-xs text-red-600">Del</button>
+                </td>
+              </tr>
+            ))}
+            {filtered.length === 0 && (
+              <tr><td colSpan={8} className="py-8 text-center text-neutral-400">No games match your search.</td></tr>
+            )}
+          </tbody>
+        </table>
+      )}
+
+      {/* Card view */}
+      {viewMode === "card" && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+          {filtered.map((g) => (
+            <div key={g.id} className="rounded-xl border bg-white p-3 flex flex-col gap-2 hover:shadow-md transition-shadow">
+              <div className="flex items-center gap-2">
+                <span className="text-3xl">{g.cover_emoji}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-sm truncate">{g.name}</div>
+                  <div className="text-[10px] text-neutral-500 truncate">/{g.slug}</div>
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-1">
+                <span className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] font-medium">{g.category}</span>
+                <button onClick={() => toggleActive(g)} className={`rounded px-1.5 py-0.5 text-[10px] ${g.is_active ? "bg-emerald-100 text-emerald-700" : "bg-neutral-200 text-neutral-500"}`}>
+                  {g.is_active ? "Active" : "Off"}
+                </button>
+              </div>
+              <div className="text-[10px] text-neutral-500">{g.play_count} plays · {g.players} players</div>
+              <div className="text-[10px]">
+                {g.play_cost_credits || g.play_cost_stars ? (
+                  <span className="text-amber-600">{g.play_cost_credits}c cost</span>
+                ) : (
+                  <span className="text-emerald-600">Free</span>
+                )}
+              </div>
+              <div className="flex gap-1.5 text-[11px] mt-auto">
+                <button onClick={() => viewStats(g)} className="text-blue-600 hover:underline">Stats</button>
+                <button onClick={() => setEditing({ ...g })} className="text-neutral-600 hover:underline">Edit</button>
+                <button onClick={() => del(g)} className="text-red-500 hover:underline">Del</button>
+              </div>
+            </div>
           ))}
-        </tbody>
-      </table>
+          {filtered.length === 0 && (
+            <div className="col-span-full py-8 text-center text-neutral-400">No games match your search.</div>
+          )}
+        </div>
+      )}
 
       {stats && (
         <div className="mt-4 rounded-xl border bg-neutral-50 p-4 text-sm">

@@ -7,10 +7,11 @@
  *  - Guests see "Log in to play" buttons (Google + more options), preserving a
  *    redirect back to the game and any captured referral code.
  *  - Logged-in members see a "Play now" button plus a "Share" button that copies
- *    a referral link to the game.
+ *    a referral link to the game. Members who have played at least once also see
+ *    the interactive star-rating widget.
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth/hooks";
 import { buildGameReferralUrl } from "@zobia/shared/utils";
 
@@ -18,6 +19,10 @@ export default function GameCoverActions({ slug, name }: { slug: string; name: s
   const { user, isLoading } = useAuth();
   const [copied, setCopied] = useState(false);
   const [refCode, setRefCode] = useState<string | null>(null);
+  const [myRating, setMyRating] = useState<number | null>(null);
+  const [hasPlayed, setHasPlayed] = useState(false);
+  const [ratingHover, setRatingHover] = useState(0);
+  const [ratingSaved, setRatingSaved] = useState(false);
 
   const playPath = `/g/${slug}/play`;
 
@@ -28,6 +33,32 @@ export default function GameCoverActions({ slug, name }: { slug: string; name: s
       .then((b) => setRefCode(b?.data?.referralCode ?? null))
       .catch(() => {});
   }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    fetch(`/api/games/${slug}/my-rating`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((b) => {
+        setMyRating(b?.data?.yourRating ?? null);
+        setHasPlayed(b?.data?.hasPlayed ?? false);
+      })
+      .catch(() => {});
+  }, [user, slug]);
+
+  const submitRating = useCallback(async (stars: number) => {
+    setMyRating(stars);
+    setRatingSaved(true);
+    try {
+      await fetch(`/api/games/${slug}/rate`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rating: stars }),
+      });
+    } catch {
+      // Non-critical
+    }
+  }, [slug]);
 
   async function handleGoogle() {
     try {
@@ -62,13 +93,52 @@ export default function GameCoverActions({ slug, name }: { slug: string; name: s
 
   if (user) {
     return (
-      <div className="flex flex-col items-center gap-3">
+      <div className="flex flex-col items-center gap-4">
         <a
           href={playPath}
           className="inline-block rounded-lg bg-primary px-8 py-3 text-base font-semibold text-primary-foreground transition hover:opacity-90"
         >
           ▶ Play {name}
         </a>
+
+        {/* Star rating widget — only shown after at least one play */}
+        {hasPlayed && (
+          <div className="flex flex-col items-center gap-1">
+            {myRating && ratingSaved ? (
+              <>
+                <span className="text-xs text-muted-foreground">Your rating</span>
+                <span className="text-amber-400 text-2xl tracking-wide">
+                  {"★".repeat(myRating)}{"☆".repeat(5 - myRating)}
+                </span>
+                <span className="text-xs text-emerald-400">Thanks for rating!</span>
+              </>
+            ) : (
+              <>
+                <span className="text-xs text-muted-foreground">
+                  {myRating ? "Update your rating" : "Rate this game"}
+                </span>
+                <div className="flex gap-1.5" onMouseLeave={() => setRatingHover(0)}>
+                  {[1, 2, 3, 4, 5].map(star => (
+                    <button
+                      key={star}
+                      type="button"
+                      onMouseEnter={() => setRatingHover(star)}
+                      onClick={() => void submitRating(star)}
+                      className={`text-2xl transition-transform active:scale-90 ${
+                        star <= (ratingHover || myRating || 0)
+                          ? "text-amber-400"
+                          : "text-neutral-600 hover:text-amber-300"
+                      }`}
+                    >
+                      ★
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         <button
           type="button"
           onClick={handleShare}

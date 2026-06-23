@@ -76,6 +76,60 @@ export const GAME_REGISTRY: GameDefinition[] = [
   { slug: "simon-says",           engineKey: "simonSays",          category: "Word",    defaultName: "Simon Says",          defaultEmoji: "🌈" },
   // Casual
   { slug: "rock-paper-scissors",  engineKey: "rockPaperScissors",  category: "Casual",  defaultName: "Rock Paper Scissors", defaultEmoji: "✊" },
+
+  // ── Expansion: 30 new games ───────────────────────────────────────────────
+
+  // Puzzle (8 new)
+  { slug: "sudoku",          engineKey: "sudoku",            category: "Puzzle",   defaultName: "Sudoku",           defaultEmoji: "🔢" },
+  { slug: "word-search",     engineKey: "wordSearch",        category: "Puzzle",   defaultName: "Word Search",      defaultEmoji: "🔍" },
+  { slug: "lights-out",      engineKey: "lightsOut",         category: "Puzzle",   defaultName: "Lights Out",       defaultEmoji: "💡" },
+  { slug: "number-match",    engineKey: "numberMatch",       category: "Puzzle",   defaultName: "Number Match",     defaultEmoji: "🔟" },
+  { slug: "nonogram",        engineKey: "nonogram",          category: "Puzzle",   defaultName: "Nonogram",         defaultEmoji: "🖼️" },
+  { slug: "pipe-connect",    engineKey: "pipeConnect",       category: "Puzzle",   defaultName: "Pipe Connect",     defaultEmoji: "🔧" },
+  { slug: "sliding-blocks",  engineKey: "slidingBlocks",     category: "Puzzle",   defaultName: "Sliding Blocks",   defaultEmoji: "🧩" },
+  { slug: "mahjong",         engineKey: "mahjongSolitaire",  category: "Puzzle",   defaultName: "Mahjong Solitaire",defaultEmoji: "🀄" },
+
+  // Action (2 new)
+  { slug: "whack-a-mole",   engineKey: "whackAMole",        category: "Action",   defaultName: "Whack-a-Mole",     defaultEmoji: "🔨" },
+  { slug: "fruit-slicer",   engineKey: "fruitSlicer",       category: "Action",   defaultName: "Fruit Slicer",     defaultEmoji: "🍎" },
+
+  // Board (1 new — Ayo, traditional Nigerian mancala)
+  { slug: "ayo",            engineKey: "ayo",               category: "Board",    defaultName: "Ayo",              defaultEmoji: "🏺" },
+
+  // Arcade (3 new)
+  { slug: "platform-jumper", engineKey: "platformJumper",   category: "Arcade",   defaultName: "Platform Jumper",  defaultEmoji: "🦘" },
+  { slug: "pixel-runner",    engineKey: "pixelRunner",      category: "Arcade",   defaultName: "Pixel Runner",     defaultEmoji: "🏃" },
+  { slug: "asteroid-dodge",  engineKey: "asteroidDodge",    category: "Arcade",   defaultName: "Asteroid Dodge",   defaultEmoji: "☄️" },
+
+  // Tap (2 new)
+  { slug: "speed-tap",      engineKey: "speedTap",          category: "Tap",      defaultName: "Speed Tap",        defaultEmoji: "🎯" },
+  { slug: "color-rain",     engineKey: "colorRain",         category: "Tap",      defaultName: "Color Rain",       defaultEmoji: "🌈" },
+
+  // Trivia (4 new — new category)
+  { slug: "quick-quiz",     engineKey: "quickQuiz",         category: "Trivia",   defaultName: "Quick Quiz",       defaultEmoji: "🧠" },
+  { slug: "true-or-false",  engineKey: "trueOrFalse",       category: "Trivia",   defaultName: "True or False",    defaultEmoji: "✅" },
+  { slug: "emoji-quiz",     engineKey: "emojiQuiz",         category: "Trivia",   defaultName: "Emoji Quiz",       defaultEmoji: "😎" },
+  { slug: "flag-quiz",      engineKey: "flagQuiz",          category: "Trivia",   defaultName: "Flag Quiz",        defaultEmoji: "🚩" },
+
+  // Word (3 new)
+  { slug: "word-guess",     engineKey: "wordGuess",         category: "Word",     defaultName: "Word Guess",       defaultEmoji: "💬" },
+  { slug: "hangman",        engineKey: "hangman",           category: "Word",     defaultName: "Hangman",          defaultEmoji: "🎭" },
+  { slug: "anagram-rush",   engineKey: "anagramRush",       category: "Word",     defaultName: "Anagram Rush",     defaultEmoji: "🔀" },
+
+  // Casual (2 new)
+  { slug: "tic-tac-toe",   engineKey: "ticTacToe",          category: "Casual",   defaultName: "Tic Tac Toe",      defaultEmoji: "⭕" },
+  { slug: "connect-four",  engineKey: "connectFour",        category: "Casual",   defaultName: "Connect Four",     defaultEmoji: "🔴" },
+
+  // Strategy (2 new — new category)
+  { slug: "gem-swap",       engineKey: "gemSwap",           category: "Strategy", defaultName: "Gem Swap",         defaultEmoji: "💎" },
+  { slug: "dots-and-boxes", engineKey: "dotsAndBoxes",      category: "Strategy", defaultName: "Dots & Boxes",     defaultEmoji: "📦" },
+
+  // Sports (2 new — new category)
+  { slug: "penalty-kick",   engineKey: "penaltyKick",       category: "Sports",   defaultName: "Penalty Kick",     defaultEmoji: "⚽" },
+  { slug: "basketball-shot",engineKey: "basketballShot",    category: "Sports",   defaultName: "Basketball Shot",  defaultEmoji: "🏀" },
+
+  // Music (1 new — new category)
+  { slug: "beat-tap",       engineKey: "beatTap",           category: "Music",    defaultName: "Beat Tap",         defaultEmoji: "🎵" },
 ];
 
 /** Look up a game definition by its engine key. */

@@ -61,6 +61,60 @@ export const ENGINES: Record<string, Engine> = {
   simonSays:         d(() => import("@/components/games/engines/simonSays")),
   // Casual
   rockPaperScissors: d(() => import("@/components/games/engines/rockPaperScissors")),
+
+  // ── Expansion: 30 new games ───────────────────────────────────────────────
+
+  // Puzzle (8 new)
+  sudoku:            d(() => import("@/components/games/engines/sudoku")),
+  wordSearch:        d(() => import("@/components/games/engines/wordSearch")),
+  lightsOut:         d(() => import("@/components/games/engines/lightsOut")),
+  numberMatch:       d(() => import("@/components/games/engines/numberMatch")),
+  nonogram:          d(() => import("@/components/games/engines/nonogram")),
+  pipeConnect:       d(() => import("@/components/games/engines/pipeConnect")),
+  slidingBlocks:     d(() => import("@/components/games/engines/slidingBlocks")),
+  mahjongSolitaire:  d(() => import("@/components/games/engines/mahjongSolitaire")),
+
+  // Action (2 new)
+  whackAMole:        d(() => import("@/components/games/engines/whackAMole")),
+  fruitSlicer:       d(() => import("@/components/games/engines/fruitSlicer")),
+
+  // Board (1 new — Ayo/Mancala)
+  ayo:               d(() => import("@/components/games/engines/ayo")),
+
+  // Arcade (3 new)
+  platformJumper:    d(() => import("@/components/games/engines/platformJumper")),
+  pixelRunner:       d(() => import("@/components/games/engines/pixelRunner")),
+  asteroidDodge:     d(() => import("@/components/games/engines/asteroidDodge")),
+
+  // Tap (2 new)
+  speedTap:          d(() => import("@/components/games/engines/speedTap")),
+  colorRain:         d(() => import("@/components/games/engines/colorRain")),
+
+  // Trivia (4 new)
+  quickQuiz:         d(() => import("@/components/games/engines/quickQuiz")),
+  trueOrFalse:       d(() => import("@/components/games/engines/trueOrFalse")),
+  emojiQuiz:         d(() => import("@/components/games/engines/emojiQuiz")),
+  flagQuiz:          d(() => import("@/components/games/engines/flagQuiz")),
+
+  // Word (3 new)
+  wordGuess:         d(() => import("@/components/games/engines/wordGuess")),
+  hangman:           d(() => import("@/components/games/engines/hangman")),
+  anagramRush:       d(() => import("@/components/games/engines/anagramRush")),
+
+  // Casual (2 new)
+  ticTacToe:         d(() => import("@/components/games/engines/ticTacToe")),
+  connectFour:       d(() => import("@/components/games/engines/connectFour")),
+
+  // Strategy (2 new)
+  gemSwap:           d(() => import("@/components/games/engines/gemSwap")),
+  dotsAndBoxes:      d(() => import("@/components/games/engines/dotsAndBoxes")),
+
+  // Sports (2 new)
+  penaltyKick:       d(() => import("@/components/games/engines/penaltyKick")),
+  basketballShot:    d(() => import("@/components/games/engines/basketballShot")),
+
+  // Music (1 new)
+  beatTap:           d(() => import("@/components/games/engines/beatTap")),
 };
 
 export function getEngine(engineKey: string | null | undefined): Engine | null {
