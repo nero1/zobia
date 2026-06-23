@@ -181,7 +181,7 @@ export default function SpeedTap({
         {over && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 rounded-2xl">
             <div className="text-4xl mb-2">🎯</div>
-            <div className="text-white font-bold text-xl">Time's Up!</div>
+            <div className="text-white font-bold text-xl">Time&apos;s Up!</div>
             <div className="text-emerald-400 font-bold text-lg mt-1">Score: {score}</div>
           </div>
         )}
