@@ -9,6 +9,7 @@
     "shared"
   ],
   "scripts": {
+    "postinstall": "patch-package",
     "dev:web": "cd apps/web && npm run dev",
     "dev:expo": "cd apps/expo && npx expo start",
     "build:web": "cd apps/web && npm run build",
@@ -33,6 +34,7 @@
     "scheduler": "0.23.2"
   },
   "devDependencies": {
+    "patch-package": "^8.0.1",
     "react-native": "0.74.0"
   }
 }
