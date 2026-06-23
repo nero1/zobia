@@ -312,36 +312,51 @@ export async function safeFetch(
   // BUG-19 fix: resolve + validate hostname once, get pinned IP
   const { parsed, pinnedIp } = await validateOutboundUrl(url);
 
-  if (options?.requireAllowlist) {
-    const allowed = HOSTNAME_ALLOWLIST.some(
-      (h) => parsed.hostname === h || parsed.hostname.endsWith(`.${h}`)
-    );
-    if (!allowed) {
-      throw new SSRFError(`Hostname not in allowlist: ${parsed.hostname}`);
-    }
+  const isAllowlisted = HOSTNAME_ALLOWLIST.some(
+    (h) => parsed.hostname === h || parsed.hostname.endsWith(`.${h}`)
+  );
+
+  if (options?.requireAllowlist && !isAllowlisted) {
+    throw new SSRFError(`Hostname not in allowlist: ${parsed.hostname}`);
   }
 
   const callerHeaders = new Headers((init?.headers as HeadersInit | undefined) ?? {});
 
-  // Create an undici Agent that intercepts DNS for this hostname and returns
-  // the pinned IP, preventing a second DNS lookup (DNS rebinding TOCTOU) while
-  // keeping the original URL so TLS SNI uses the correct hostname (S-02).
-  const pinnedAgent = new UndiciAgent({
-    connect: {
-      lookup(_hostname: string, _options: unknown, callback: (err: Error | null, address: string, family: number) => void) {
-        callback(null, pinnedIp, 4);
-      },
-    },
-  });
+  // Disable automatic redirect following — we validate each hop.
+  // Strategy split: allowlisted hosts bypass the undici custom Agent because
+  // UndiciAgent with connect.lookup fails in Vercel's serverless runtime
+  // (TypeError: fetch failed). For allowlisted hosts the SSRF risk is already
+  // mitigated by (a) the static allowlist and (b) the DNS validation above, so
+  // native fetch is safe. For user/admin-supplied URLs we keep the undici
+  // DNS-pinning Agent to eliminate the TOCTOU window between validation and fetch.
+  let response: Response;
 
-  // Disable automatic redirect following — we validate each hop
-  const response = await (undiciFetch as unknown as typeof fetch)(url, {
-    ...init,
-    headers: callerHeaders,
-    redirect: "manual",
-    // @ts-expect-error undici dispatcher option
-    dispatcher: pinnedAgent,
-  }) as Response;
+  if (isAllowlisted) {
+    response = await fetch(url, {
+      ...init,
+      headers: callerHeaders,
+      redirect: "manual",
+    });
+  } else {
+    // Create an undici Agent that intercepts DNS for this hostname and returns
+    // the pinned IP, preventing a second DNS lookup (DNS rebinding TOCTOU) while
+    // keeping the original URL so TLS SNI uses the correct hostname (S-02).
+    const pinnedAgent = new UndiciAgent({
+      connect: {
+        lookup(_hostname: string, _options: unknown, callback: (err: Error | null, address: string, family: number) => void) {
+          callback(null, pinnedIp, 4);
+        },
+      },
+    });
+
+    response = await (undiciFetch as unknown as typeof fetch)(url, {
+      ...init,
+      headers: callerHeaders,
+      redirect: "manual",
+      // @ts-expect-error undici dispatcher option
+      dispatcher: pinnedAgent,
+    }) as Response;
+  }
 
   // Handle redirects manually to prevent SSRF via 302.
   // Each redirect target is re-validated by the recursive call to safeFetch,
