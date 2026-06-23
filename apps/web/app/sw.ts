@@ -1,6 +1,13 @@
 import { defaultCache } from "@serwist/next/worker";
-import type { PrecacheEntry, SerwistGlobalConfig } from "serwist";
-import { Serwist } from "serwist";
+import type { PrecacheEntry, RuntimeCaching, SerwistGlobalConfig } from "serwist";
+import {
+  CacheFirst,
+  ExpirationPlugin,
+  NetworkFirst,
+  NetworkOnly,
+  Serwist,
+  StaleWhileRevalidate,
+} from "serwist";
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -10,99 +17,95 @@ declare global {
 
 declare const self: ServiceWorkerGlobalScope;
 
+const DAY_SECONDS = 24 * 60 * 60;
+
+// IMPORTANT (BUG-SW-HANDLER): Serwist's `runtimeCaching[].handler` must be a
+// Strategy *instance* that exposes a `.handle()` method (e.g. new NetworkOnly()).
+// The previous config carried over the next-pwa / workbox-build syntax — string
+// handler names ("NetworkOnly", "StaleWhileRevalidate", …) and a bare async
+// function. Serwist has no `.handle` on those, so every matched request threw
+// `TypeError: c.handle is not a function` inside the generated sw.js, which broke
+// JS chunk loading and navigation. All handlers below are now real instances.
+const runtimeCaching: RuntimeCaching[] = [
+  // Auth routes must NOT be cached: NetworkOnly is a plain pass-through to the
+  // network, so the browser's native cookie jar processes Set-Cookie on both the
+  // OAuth initiation request and the callback navigation. (A bare fetch function
+  // cannot be used here — see the BUG-SW-HANDLER note above.)
+  {
+    matcher: /^\/(auth|api\/auth)\/.*/i,
+    handler: new NetworkOnly(),
+  },
+  // PWA entry point — network-first with a short timeout and offline fallback.
+  {
+    matcher: /^\/pwa-start.*/i,
+    handler: new NetworkFirst({
+      cacheName: "pwa-start",
+      networkTimeoutSeconds: 3,
+      plugins: [new ExpirationPlugin({ maxEntries: 1, maxAgeSeconds: DAY_SECONDS })],
+    }),
+  },
+  // All API routes: NetworkOnly so responses (including auth-sensitive ones
+  // like /api/users/me and /api/creator/wallet) are never served from cache.
+  {
+    matcher: /\/api\/.*$/i,
+    handler: new NetworkOnly(),
+  },
+  // Google Fonts (long-lived, immutable).
+  {
+    matcher: /^https:\/\/fonts\.(gstatic|googleapis)\.com\/.*/i,
+    handler: new CacheFirst({
+      cacheName: "google-fonts",
+      plugins: [new ExpirationPlugin({ maxEntries: 4, maxAgeSeconds: 365 * DAY_SECONDS })],
+    }),
+  },
+  // Static font files.
+  {
+    matcher: /\.(?:eot|otf|ttc|ttf|woff|woff2|font\.css)$/i,
+    handler: new StaleWhileRevalidate({ cacheName: "static-font-assets" }),
+  },
+  // Images.
+  {
+    matcher: /\.(?:jpg|jpeg|gif|png|svg|ico|webp)$/i,
+    handler: new StaleWhileRevalidate({
+      cacheName: "static-image-assets",
+      plugins: [new ExpirationPlugin({ maxEntries: 64, maxAgeSeconds: DAY_SECONDS })],
+    }),
+  },
+  // JS files.
+  {
+    matcher: /\.(?:js)$/i,
+    handler: new StaleWhileRevalidate({
+      cacheName: "static-js-assets",
+      plugins: [new ExpirationPlugin({ maxEntries: 32, maxAgeSeconds: DAY_SECONDS })],
+    }),
+  },
+  // CSS files.
+  {
+    matcher: /\.(?:css|less)$/i,
+    handler: new StaleWhileRevalidate({
+      cacheName: "static-style-assets",
+      plugins: [new ExpirationPlugin({ maxEntries: 32, maxAgeSeconds: DAY_SECONDS })],
+    }),
+  },
+  // Everything else (Serwist's sensible defaults for documents, etc.).
+  ...defaultCache,
+];
+
 const serwist = new Serwist({
   precacheEntries: self.__SW_MANIFEST,
-  skipWaiting: false,
+  // skipWaiting + clientsClaim: activate the new SW immediately and take control
+  // of existing clients. This is important for rolling out the BUG-SW-HANDLER fix
+  // above: returning visitors are currently controlled by a broken sw.js whose
+  // fetch handler throws on every request. Without skipWaiting they would stay
+  // stuck on the broken worker until every tab is closed; with it, the corrected
+  // worker recovers them on the next load.
+  skipWaiting: true,
   clientsClaim: true,
   // Navigation preload disabled: when enabled it can cause the SW to intercept
   // navigation requests to auth routes and mis-handle them, breaking Set-Cookie
   // on OAuth redirects. Disabling it keeps auth cookie handling 100% native.
   navigationPreload: false,
-  runtimeCaching: [
-    // Auth routes must NOT go through a Workbox/Serwist caching strategy.
-    // Using a raw fetch() passthrough ensures the browser's native cookie jar
-    // processes Set-Cookie headers correctly on both the initiation fetch and
-    // the OAuth callback navigation — the "session_expired" bug was caused by
-    // the old NetworkOnly strategy failing (c.handle is not a function) and
-    // silently dropping Set-Cookie on the CSRF state cookie response.
-    {
-      matcher: /^\/(auth|api\/auth)\/.*/i,
-      handler: async ({ request, event }) => {
-        // Navigation preload is disabled, but guard anyway.
-        const fetchEvent = event as FetchEvent & { preloadResponse?: Promise<Response | undefined> };
-        if (fetchEvent.preloadResponse) {
-          const preloaded = await fetchEvent.preloadResponse;
-          if (preloaded) return preloaded;
-        }
-        return fetch(request);
-      },
-    },
-    // PWA entry point — network-first with offline fallback
-    {
-      matcher: /^\/pwa-start.*/i,
-      handler: "NetworkFirst",
-      options: {
-        cacheName: "pwa-start",
-        networkTimeoutSeconds: 3,
-        expiration: { maxEntries: 1, maxAgeSeconds: 24 * 60 * 60 },
-      },
-    },
-    // Auth-sensitive API endpoints must always be NetworkOnly
-    {
-      matcher: /\/api\/users\/me(\/|$|\?)/i,
-      handler: "NetworkOnly",
-    },
-    {
-      matcher: /\/api\/creator\/wallet(\/|$|\?)/i,
-      handler: "NetworkOnly",
-    },
-    // All API routes: NetworkOnly to prevent caching API responses
-    {
-      matcher: /\/api\/.*$/i,
-      handler: "NetworkOnly",
-    },
-    // Google Fonts
-    {
-      matcher: /^https:\/\/fonts\.(gstatic|googleapis)\.com\/.*/i,
-      handler: "CacheFirst",
-      options: {
-        cacheName: "google-fonts",
-        expiration: { maxEntries: 4, maxAgeSeconds: 365 * 24 * 60 * 60 },
-      },
-    },
-    // Static font files
-    {
-      matcher: /\.(?:eot|otf|ttc|ttf|woff|woff2|font\.css)$/i,
-      handler: "StaleWhileRevalidate",
-      options: { cacheName: "static-font-assets" },
-    },
-    // Images
-    {
-      matcher: /\.(?:jpg|jpeg|gif|png|svg|ico|webp)$/i,
-      handler: "StaleWhileRevalidate",
-      options: {
-        cacheName: "static-image-assets",
-        expiration: { maxEntries: 64, maxAgeSeconds: 24 * 60 * 60 },
-      },
-    },
-    // JS files
-    {
-      matcher: /\.(?:js)$/i,
-      handler: "StaleWhileRevalidate",
-      options: {
-        cacheName: "static-js-assets",
-        expiration: { maxEntries: 32, maxAgeSeconds: 24 * 60 * 60 },
-      },
-    },
-    // CSS files
-    {
-      matcher: /\.(?:css|less)$/i,
-      handler: "StaleWhileRevalidate",
-      options: { cacheName: "static-style-assets", expiration: { maxEntries: 32, maxAgeSeconds: 24 * 60 * 60 } },
-    },
-    // Everything else
-    ...defaultCache,
-  ],
+  runtimeCaching,
 });
 
 serwist.addEventListeners();
