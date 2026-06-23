@@ -1455,7 +1455,7 @@ await Promise.allSettled(
 
 When Google OAuth fails (CSRF expiry, rate limit, banned/suspended account, stale token), the callback redirects to `/auth/error?code=<errorCode>` instead of showing raw JSON. The page renders a user-friendly message with a "Back to sign in" button. The `/auth/error` route is public (no auth required). All OAuth cookies (`zobia_csrf_state`, `zobia_mobile_redirect`, `zobia_web_redirect`) are cleared on every error path.
 
-Supported error codes: `session_expired`, `rate_limited`, `invalid_request`, `unexpected`.
+Supported error codes: `session_expired`, `rate_limited`, `invalid_request`, `email_not_verified`, `unexpected`.
 
 ---
 

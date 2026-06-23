@@ -510,6 +510,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return response;
   } catch (err) {
     const errCode = (err as { code?: string }).code;
+    // Always log the raw error so Vercel function logs capture it for diagnosis.
+    console.error("[google-callback] Auth error:", {
+      code: errCode,
+      message: (err as Error).message,
+      stack: (err as Error).stack,
+    });
     if (errCode === "ACCOUNT_BANNED" || errCode === "ACCOUNT_SUSPENDED") {
       const res = NextResponse.redirect(
         new URL(`/auth/login?error=${errCode.toLowerCase()}`, origin),
@@ -519,6 +525,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         res.headers.append("Set-Cookie", clearCookie(name, secure));
       }
       return res;
+    }
+    if (errCode === "EMAIL_NOT_VERIFIED") {
+      return authErrorRedirect(req, "email_not_verified");
     }
     // Any other error: show a user-friendly error page (no raw JSON)
     return authErrorRedirect(req, "unexpected");

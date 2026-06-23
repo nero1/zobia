@@ -114,9 +114,9 @@ const PUBLIC_PREFIXES = [
   "/api/auth",
   "/api/auth/silent-refresh",
   "/api/health",
-  // /api/manifest is intentionally NOT listed here — it exposes app configuration
-  // (feature flags, payment params) and must require authentication.
-  // Unauthenticated callers should use /api/public/config for the minimal safe subset.
+  // Public-safe manifest subset (feature flags, payment provider, captcha keys).
+  // The route handler strips secrets — only allowlisted sections are returned.
+  "/api/manifest",
   // UI configuration — safe to expose without auth (no user data returned)
   "/api/config",
   // Public slug/username → internal id resolver for deep links (read-only,

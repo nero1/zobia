@@ -141,7 +141,9 @@ export default async function RootLayout({ children }: RootLayoutProps) {
   const footerScripts = await getFooterScripts();
 
   const requestHeaders = await headers();
-  void requestHeaders; // headers() called to satisfy Next.js dynamic rendering requirements
+  // Read the per-request CSP nonce injected by middleware so we can propagate it
+  // to ThemeProvider (which injects an inline script + style to prevent FOUC).
+  const nonce = requestHeaders.get("x-nonce") ?? undefined;
 
   // Resolve locale from the i18n cookie set by the browser language detector.
   const cookieStore = await cookies();
@@ -168,6 +170,7 @@ export default async function RootLayout({ children }: RootLayoutProps) {
           defaultTheme="system"
           enableSystem
           disableTransitionOnChange
+          nonce={nonce}
         >
           <ReactQueryProvider>
             <I18nProvider>
