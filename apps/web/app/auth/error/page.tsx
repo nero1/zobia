@@ -18,7 +18,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 
-type ErrorCode = "session_expired" | "rate_limited" | "invalid_request" | "unexpected";
+type ErrorCode = "session_expired" | "rate_limited" | "invalid_request" | "unexpected" | "email_not_verified";
 
 function ErrorContent() {
   const { t } = useTranslation();
@@ -43,6 +43,12 @@ function ErrorContent() {
       title: t("authError.invalidRequest.title"),
       body: t("authError.invalidRequest.body"),
       hint: t("authError.invalidRequest.hint"),
+    },
+    email_not_verified: {
+      icon: "📧",
+      title: t("authError.emailNotVerified.title"),
+      body: t("authError.emailNotVerified.body"),
+      hint: t("authError.emailNotVerified.hint"),
     },
     unexpected: {
       icon: "⚠️",
