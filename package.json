@@ -9,7 +9,7 @@
     "shared"
   ],
   "scripts": {
-    "postinstall": "patch-package",
+    "postinstall": "[ -n \"$EAS_BUILD_PLATFORM\" ] && npx patch-package || true",
     "dev:web": "cd apps/web && npm run dev",
     "dev:expo": "cd apps/expo && npx expo start",
     "build:web": "cd apps/web && npm run build",
