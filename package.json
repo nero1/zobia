@@ -28,6 +28,8 @@
     "node": ">=20.0.0"
   },
   "overrides": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
     "scheduler": "0.23.2"
   },
   "devDependencies": {
