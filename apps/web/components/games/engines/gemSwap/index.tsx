@@ -276,7 +276,7 @@ export default function GemSwapGame({
       {gameOver && (
         <div className="flex flex-col items-center gap-1 mt-2">
           <span className="text-4xl animate-bounce">🎉</span>
-          <span className="text-emerald-400 font-bold text-xl">Time's Up!</span>
+          <span className="text-emerald-400 font-bold text-xl">Time&apos;s Up!</span>
           <span className="text-muted-foreground text-sm">Final Score: {score}</span>
         </div>
       )}

@@ -5,7 +5,7 @@
  * Score = distance. Collision = game over.
  */
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
 
@@ -60,7 +60,7 @@ export default function PixelRunner({
   useEffect(() => { onReady?.(); }, [onReady]);
 
   const baseSpeed = BASE_SPEED[difficulty] ?? 5;
-  const spawnDist = SPAWN_DIST[difficulty] ?? [200, 360];
+  const spawnDist = useMemo(() => SPAWN_DIST[difficulty] ?? [200, 360], [difficulty]);
 
   const [charY, setCharY] = useState(GROUND_Y - CHAR_H);
   const [obstacles, setObstacles] = useState<Obstacle[]>([]);
