@@ -4,8 +4,10 @@ on:
   push:
     branches:
       - main
+      - 'claude/eas-apk-build-action-0rrvlf'
     paths:
       - 'apps/expo/**'
+      - '.github/workflows/build-android.yml'
   workflow_dispatch:
     inputs:
       profile:
