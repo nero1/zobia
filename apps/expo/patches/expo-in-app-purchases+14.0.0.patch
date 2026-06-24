@@ -3,14 +3,14 @@ index 2c50e2f..1e3b618 100644
 --- a/node_modules/expo-in-app-purchases/android/build.gradle
 +++ b/node_modules/expo-in-app-purchases/android/build.gradle
 @@ -37,7 +37,7 @@ buildscript {
- 
+
  // Creating sources with comments
  task androidSourcesJar(type: Jar) {
 -  classifier = 'sources'
 +  archiveClassifier.set('sources')
    from android.sourceSets.main.java.srcDirs
  }
- 
+
 @@ -45,7 +45,7 @@ afterEvaluate {
    publishing {
      publications {
@@ -20,3 +20,12 @@ index 2c50e2f..1e3b618 100644
          // Add additional sourcesJar to artifacts
          artifact(androidSourcesJar)
        }
+@@ -59,7 +59,7 @@ afterEvaluate {
+ }
+
+ android {
+-  compileSdkVersion safeExtGet("compileSdkVersion", 31)
++  compileSdkVersion 34
+
+   compileOptions {
+     sourceCompatibility JavaVersion.VERSION_11

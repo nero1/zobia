@@ -972,7 +972,7 @@ To ensure the Creator Fund pool is correctly seeded on the 1st of each month, ad
 
 - Expo account at [expo.dev](https://expo.dev) — create a project named `zobia-social`
 - EAS CLI installed globally: `npm install -g eas-cli`
-- Android `targetSdkVersion` set to **36** in `apps/expo/app.json`
+- Android `compileSdkVersion` and `targetSdkVersion` both set to **36** in `apps/expo/app.json` (Google Play requires `targetSdkVersion ≥ 36`; `compileSdkVersion` must be ≥ `targetSdkVersion`)
 
 ### Build steps
 
@@ -992,17 +992,20 @@ The `eas.json` file in `apps/expo/` defines:
 
 ### Android API Level 36
 
-Verify in `apps/expo/app.json`:
+Both `compileSdkVersion` and `targetSdkVersion` must be 36. Verify in `apps/expo/app.json`:
 
 ```json
 {
   "expo": {
     "android": {
+      "compileSdkVersion": 36,
       "targetSdkVersion": 36
     }
   }
 }
 ```
+
+> **`compileSdkVersion` must equal `targetSdkVersion`.** Setting only `targetSdkVersion: 36` without `compileSdkVersion: 36` causes AGP to compile the app against API 34 while targeting 36 — that inconsistency is what the above snippet avoids.
 
 ### Keystore management
 
@@ -1406,3 +1409,47 @@ private CA).
 SSL Configuration → Download certificate, then paste the full PEM into
 `DB_CA_CERT` (multi-line is fine on Vercel) and redeploy. See the database
 provider section above.
+
+### `expo-in-app-purchases:compileReleaseJavaWithJavac` build failure
+
+**Symptoms:** EAS build fails after ~4 minutes of native compilation with:
+
+```
+Execution failed for task ':expo-in-app-purchases:compileReleaseJavaWithJavac'.
+> Compilation failed; see the compiler error output for details.
+```
+
+**Cause:** `expo-in-app-purchases` 14.0.0 uses billing library 4.0.0, which has old
+SKU-based Java APIs (`SkuDetails`, `querySkuDetailsAsync`, `setVrPurchaseFlow`, etc.)
+that are incompatible with `compileSdkVersion 36`. The module's `build.gradle` reads
+`compileSdkVersion` from the root project via `safeExtGet("compileSdkVersion", 31)`,
+so raising `compileSdkVersion` to 36 in `app.json` silently propagates to this module
+and breaks its Java compilation.
+
+**Fix (already applied):** `apps/expo/patches/expo-in-app-purchases+14.0.0.patch`
+hardcodes `compileSdkVersion 34` inside the module's `build.gradle`. This is applied
+automatically by `patch-package` during the EAS build's `npm install` (via the
+`postinstall` script in `apps/expo/package.json`). The main app still compiles and
+targets SDK 36 — only this specific module uses SDK 34 for its own Java compilation,
+which is valid Gradle practice.
+
+If you ever remove or regenerate the patch, re-apply it with:
+
+```bash
+cd apps/expo
+npx patch-package expo-in-app-purchases
+```
+
+Or add the following hunk to `apps/expo/patches/expo-in-app-purchases+14.0.0.patch`:
+
+```diff
+@@ -59,7 +59,7 @@ afterEvaluate {
+ }
+
+ android {
+-  compileSdkVersion safeExtGet("compileSdkVersion", 31)
++  compileSdkVersion 34
+
+   compileOptions {
+     sourceCompatibility JavaVersion.VERSION_11
+```
