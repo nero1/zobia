@@ -998,7 +998,7 @@ Credit packs (Section 11), Star packs (where admin enables direct Star purchase)
 
 | Platform | Nigeria | Rest of World |
 |---|---|---|
-| Android App | Google Play Billing only (via Expo In-App Purchases) | Google Play Billing only |
+| Android App | Google Play Billing only (via react-native-iap) | Google Play Billing only |
 | Web / PWA | Paystack (primary) + DodoPayments (admin-toggled option) | DodoPayments |
 
 Google Play Billing is the exclusive in-app purchase mechanism on Android — this is a Google Play Store policy requirement. Paystack and DodoPayments are web/PWA-only and must not be integrated as in-app purchase flows within the Android APK itself.
@@ -1291,7 +1291,7 @@ The platform Vitality Calendar incorporates Nigerian, Pan-African, and global cu
 | AI (Fallback) | Google Gemini |
 | Payments (Nigeria Web/PWA) | Paystack (primary) + DodoPayments (available as toggle) |
 | Payments (International Web/PWA) | DodoPayments |
-| Payments (Android In-App) | Google Play Billing only (via Expo In-App Purchases). No Paystack or DodoPayments SDK in the Android app for in-app purchases. |
+| Payments (Android In-App) | Google Play Billing only (via react-native-iap). No Paystack or DodoPayments SDK in the Android app for in-app purchases. |
 | Advertising (Mobile) | AdMob via `react-native-google-mobile-ads` |
 | CAPTCHA | Google reCAPTCHA (default) / Cloudflare Turnstile (toggle). Admin can switch which is active. |
 | Deep Links | Expo Linking + Android App Links + iOS Universal Links. SEO-friendly public paths (`/u/<username>`, `/r/<slug>`, `/c/<slug>`, `/g/<slug>`) resolve via `GET /api/public/resolve` to internal UUIDs. Deep links supported for: user profiles, Rooms, courses, games, Guilds, referral links (`?r=` on any page), shared content, and notification tap targets. |
@@ -1643,7 +1643,7 @@ The MVP Build Sequence follows a phased approach. Each phase ends with a stable,
 - Credit packs and pricing (admin-configurable in database).
 - Paystack integration (Nigeria web/PWA — credit purchases and subscriptions).
 - DodoPayments integration (international web/PWA — credit purchases and subscriptions; also available as Nigeria web option via admin toggle).
-- Google Play Billing integration (Android APK only — via Expo In-App Purchases). This is the sole in-app purchase mechanism on Android per Google Play policy.
+- Google Play Billing integration (Android APK only — via react-native-iap; replaces the deprecated expo-in-app-purchases, which does not build on Expo SDK 51). This is the sole in-app purchase mechanism on Android per Google Play policy.
 - Gift system: gift catalogue, gift animations, gift messages, room-wide spectacle logic.
 - Credit gifting between users (with 5% platform fee).
 - DM Credit cost enforcement (deducted from sender's wallet on send).
