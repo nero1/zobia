@@ -13,6 +13,7 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
+import Constants from 'expo-constants';
 import NetInfo from '@react-native-community/netinfo';
 
 import { AuthProvider } from '@/lib/auth/context';
@@ -134,7 +135,13 @@ async function registerForPushNotifications(): Promise<void> {
     return;
   }
 
-  const tokenData = await Notifications.getExpoPushTokenAsync();
+  // BUG-015 FIX: pass projectId so getExpoPushTokenAsync() works correctly
+  // with the EAS build infrastructure. Without projectId, this call is
+  // deprecated since Expo SDK 47 and will fail in production EAS builds.
+  const projectId = Constants.expoConfig?.extra?.eas?.projectId as string | undefined;
+  const tokenData = await Notifications.getExpoPushTokenAsync(
+    projectId ? { projectId } : undefined
+  );
   const token = tokenData.data;
 
   if (!token) return;

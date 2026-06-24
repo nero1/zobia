@@ -16,6 +16,7 @@
 
 import { redis } from "@/lib/redis";
 import { memGet, memSet, memDel } from "@/lib/cache/memory";
+import { db } from "@/lib/db";
 import {
   signAccessToken,
   signRefreshToken,
@@ -87,9 +88,17 @@ const userSessionsKey = (uid: string) => `user_sessions:${uid}`;
 // negatives are never cached so a fresh login is visible immediately.
 // ---------------------------------------------------------------------------
 
-/** Per-instance TTL for a cached session record (ms). Kept short to bound
- *  the revocation window: a banned/logged-out session is rejected within 3 s. */
-const SESSION_CACHE_TTL_MS = 3_000;
+// BUG-005 FIX: reduce L1 cache TTL from 3 s to 500 ms.
+// The 3 s window was too wide: a banned user could continue to make requests
+// for up to 3 s per warm instance after the ban was applied. 500 ms bounds the
+// revocation propagation delay to a single polling cycle on most chat surfaces
+// while still saving the majority of per-request Redis reads.
+// Account-status checks (banned/suspended/deleted) in withAuth are applied
+// regardless of the cached record, so a freshly banned user is already blocked
+// on the next status check; this TTL reduction is an additional defence-in-depth
+// measure for latency-sensitive invalidation (logout, token rotation).
+/** Per-instance TTL for a cached session record (ms). Keeps the revocation window ≤ 500 ms. */
+const SESSION_CACHE_TTL_MS = 500;
 const sessionCacheKey = (sid: string) => `sess:${sid}`;
 
 /** Drop the in-process cache entry for a session (after revoke / rotate). */
@@ -165,6 +174,14 @@ export async function createSession(
     refreshTtl,
     JSON.stringify(record)
   );
+
+  // Record daily login for Creator Fund active-day tracking (BUG-027)
+  await db.query(
+    `INSERT INTO user_daily_logins (user_id, login_date)
+     VALUES ($1, CURRENT_DATE)
+     ON CONFLICT (user_id, login_date) DO NOTHING`,
+    [user.id]
+  ).catch(() => {}); // non-fatal
 
   // Track session in per-user sorted set, scored by creation time.
   // Atomically extend TTL only when the new lifetime would exceed the current one

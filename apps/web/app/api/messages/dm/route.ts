@@ -29,6 +29,7 @@ import {
   checkAndIncrementDailyCount,
 } from "@/lib/messaging/coinCost";
 import { filterDMContent } from "@/lib/messaging/antispam";
+import { canonicalDmPair } from "@/lib/messaging/canonicalDmPair";
 import { recordWarContribution } from "@/lib/guilds/recordWarContribution";
 import { updateConversationScore } from "@/lib/messaging/conversationScore";
 import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
@@ -371,10 +372,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
            0
          )::int AS message_count
        FROM dm_conversations c
-       WHERE (c.user_id_1 = $1 AND c.user_id_2 = $2)
-          OR (c.user_id_1 = $2 AND c.user_id_2 = $1)
+       WHERE c.user_id_1 = $1 AND c.user_id_2 = $2
        LIMIT 1`,
-      [auth.user.sub, body.recipientId]
+      // BUG-020 FIX: use canonicalDmPair to ensure the lookup hits the unique index
+      // on (user_id_1, user_id_2). Previously the OR condition bypassed the index.
+      canonicalDmPair(auth.user.sub, body.recipientId)
     );
 
     const existingConv = convRows[0] ?? null;

@@ -488,14 +488,22 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     // BUG-35: Validate the redirect param as a same-origin relative path before use.
     // Rejects protocol-relative (//evil.com) and absolute (https://evil.com) values.
+    // BUG-030 FIX: tighten the redirect allowlist regex from /^\/[^/]/ to
+    // /^\/[a-zA-Z0-9\/_-]*$/ (path-only, no query strings or fragments).
+    // The old regex allowed /?foo=bar which could carry XSS payloads in query params,
+    // and //evil.com was only blocked by the [^/] constraint on the second char
+    // (which would pass e.g. /auth?next=//evil.com). The new regex is stricter:
+    // only alphanumeric characters, forward slashes, underscores, and hyphens
+    // are allowed in the redirect path — no query strings, no fragments.
+    const SAFE_REDIRECT_RE = /^\/[a-zA-Z0-9/_-]*$/;
     const redirectParam = req.nextUrl.searchParams.get("redirect");
-    const safeRedirect = typeof redirectParam === "string" && /^\/[^/]/.test(redirectParam)
+    const safeRedirect = typeof redirectParam === "string" && SAFE_REDIRECT_RE.test(redirectParam)
       ? redirectParam
       : null;
 
     // Web redirect cookie (set during /api/auth/google initiation) takes priority
     // over the default /home destination so users land where they were going.
-    const destination = webRedirect && /^\/[^/]/.test(webRedirect)
+    const destination = webRedirect && SAFE_REDIRECT_RE.test(webRedirect)
       ? new URL(webRedirect, reqOrigin)
       : safeRedirect
         ? new URL(safeRedirect, reqOrigin)

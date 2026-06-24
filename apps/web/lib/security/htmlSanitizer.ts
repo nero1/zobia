@@ -49,9 +49,12 @@ export function sanitizeAnnouncementContent(content: string, contentType: string
     // HTML fragments (e.g. <script>) partially survive because they were wrapped
     // in Markdown syntax that the sanitizer misidentified as plain text.
     const html = marked.parse(content, { async: false }) as string;
-    // Patch unsafe link targets in the generated HTML (non-http/mailto hrefs)
-    const patched = html.replace(/href="(?!(https?:|mailto:))[^"]*"/gi, 'href="about:blank"');
-    return sanitizeHtml(patched);
+    // BUG-014 FIX: removed the `href="about:blank"` rewrite. `about:` is not in
+    // allowedSchemes so sanitize-html strips those hrefs entirely anyway — the
+    // rewrite was dead code that produced `href="about:blank"` in output (a
+    // navigable URL) rather than no href at all.  Passing directly to
+    // sanitizeHtml achieves the correct result: non-https/mailto hrefs are dropped.
+    return sanitizeHtml(html);
   }
   // BUG-SANITIZE-01: unknown content types must never be returned raw — strip all HTML
   return sanitizeHtmlLib(content, { allowedTags: [], allowedAttributes: {} });

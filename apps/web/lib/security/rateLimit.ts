@@ -47,8 +47,19 @@ export interface RateLimitOptions {
    * When true, skip the in-process L1 counter cache and always hit Redis.
    * Use on sensitive endpoints (auth, PIN, payment) where multi-instance over-
    * counting from the per-process cache would be unacceptable.
+   * Equivalent to setting `skipThreshold: 0`.
    */
   bypassL1?: boolean;
+  /**
+   * BUG-013 FIX: Override the global `RL_SKIP_THRESHOLD` for this endpoint.
+   * Fraction of the limit below which in-process counting may skip the Redis
+   * round-trip. Set to 0 to always hit Redis (same effect as `bypassL1: true`).
+   * Defaults to `RL_SKIP_THRESHOLD` (0.25) when not set.
+   *
+   * Security-sensitive endpoints (auth, login, OTP, payment) should use 0.
+   * Read-only endpoints may use the default 0.25 to reduce Redis load.
+   */
+  skipThreshold?: number;
 }
 
 /** Result of a rate-limit check. */
@@ -196,11 +207,13 @@ async function slidingWindowCheck(
   // In-process fast-path: if we've checked Redis recently AND the in-process
   // count is well below the limit, skip the Redis round-trip entirely.
   // BUG-16: skip fast-path when bypassL1 is set (sensitive endpoints like auth/PIN)
+  // BUG-013 FIX: also skip when skipThreshold is explicitly 0
+  const effectiveSkipThreshold = options.bypassL1 ? 0 : (options.skipThreshold ?? RL_SKIP_THRESHOLD);
   const memKey = `rl_mem:${key}`;
   const memEntry = memGet<RlMemEntry>(memKey);
-  if (!options.bypassL1 && memEntry && (now - memEntry.windowStart) < RL_MEM_TTL_MS) {
+  if (effectiveSkipThreshold > 0 && memEntry && (now - memEntry.windowStart) < RL_MEM_TTL_MS) {
     const inMemCount = memEntry.count;
-    if (inMemCount < options.limit * RL_SKIP_THRESHOLD) {
+    if (inMemCount < options.limit * effectiveSkipThreshold) {
       // Increment in-process count only; skips Redis entirely for this request
       memSet<RlMemEntry>(memKey, { count: inMemCount + 1, windowStart: memEntry.windowStart }, RL_MEM_TTL_MS);
       return {

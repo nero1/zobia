@@ -99,13 +99,25 @@ export async function calculateFundDistributions(
   // Joining multiple one-to-many tables to the same user row in a single query
   // causes a Cartesian fan-out that inflates aggregate values (e.g. SUM of xp_earned
   // grows by the number of follower rows, not the actual XP).
+  //
+  // BUG-027 FIX (complete): `active_days_30d` is now sourced from user_daily_logins,
+  // a dedicated table populated on every login (session creation). This tracks actual
+  // calendar days the user authenticated — the canonical definition of an "active day"
+  // for Creator Fund consistency scoring. Decoupled from XP/message activity so
+  // engagement (40%) and consistency (15%) dimensions are truly independent.
   const { rows: creators } = await dbClient.query<CreatorMetrics>(
     `WITH eng AS (
        SELECT user_id,
-              COALESCE(SUM(amount), 0)::INTEGER           AS xp_earned_30d,
-              COUNT(DISTINCT created_at::date)::INTEGER   AS active_days_30d
+              COALESCE(SUM(amount), 0)::INTEGER           AS xp_earned_30d
        FROM xp_ledger
        WHERE created_at >= NOW() - INTERVAL '30 days'
+       GROUP BY user_id
+     ),
+     act AS (
+       SELECT user_id,
+              COUNT(*)::INTEGER AS active_days_30d
+       FROM user_daily_logins
+       WHERE login_date >= (CURRENT_DATE - INTERVAL '30 days')::date
        GROUP BY user_id
      ),
      grw AS (
@@ -138,9 +150,10 @@ export async function calculateFundDistributions(
        COALESCE(eng.xp_earned_30d, 0)        AS xp_earned_30d,
        COALESCE(grw.new_followers_30d, 0)    AS new_followers_30d,
        COALESCE(qst.quests_completed_30d, 0) AS quests_completed_30d,
-       COALESCE(eng.active_days_30d, 0)      AS active_days_30d
+       COALESCE(act.active_days_30d, 0)      AS active_days_30d
      FROM users u
      LEFT JOIN eng ON eng.user_id = u.id
+     LEFT JOIN act ON act.user_id = u.id
      LEFT JOIN grw ON grw.user_id = u.id
      LEFT JOIN qst ON qst.user_id = u.id
      WHERE u.is_creator = TRUE

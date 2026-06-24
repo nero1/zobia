@@ -29,23 +29,25 @@ import { debitCoins } from "@/lib/economy/coins";
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Booster configuration: cost in coins, XP multiplier, duration in hours. */
+// BUG-007 FIX: multiplier stored as integer basis points (100 = 1.0×, 200 = 2.0×)
+// to avoid decimal precision issues. Column type changed from decimal(4,2) to integer.
+/** Booster configuration: cost in coins, XP multiplier in basis points, duration in hours. */
 const BOOSTER_CONFIG = {
   xp_booster: {
     cost: 200,
-    multiplier: 2.0,
+    multiplier: 200, // 2.0× → 200 bp
     durationHours: 24,
     description: "2× XP for 24 hours",
   },
   quest_accelerator: {
     cost: 500,
-    multiplier: 1.5,
+    multiplier: 150, // 1.5× → 150 bp
     durationHours: 24 * 7, // 7 days
     description: "+50% XP on quests for 7 days",
   },
   guild_war_boost: {
     cost: 300,
-    multiplier: 2.0,
+    multiplier: 200, // 2.0× → 200 bp
     durationHours: 24 * 30, // expires after 30 days if war hasn't occurred
     description: "Double personal War Points for next guild war",
   },

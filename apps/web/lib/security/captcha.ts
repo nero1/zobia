@@ -19,6 +19,12 @@
 
 import { env } from "@/lib/env";
 import { getManifestValue } from "@/lib/manifest";
+// BUG-018 FIX: use safeFetch instead of bare fetch() for CAPTCHA verification
+// endpoints. CAPTCHA tokens are server-side verified against Google / Cloudflare;
+// using the global fetch() leaves those calls unprotected against SSRF attacks
+// (e.g. if the verification URL were ever sourced from user/admin input).
+// Both www.google.com and challenges.cloudflare.com are now in HOSTNAME_ALLOWLIST.
+import { safeFetch } from "@/lib/security/ssrf";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -127,7 +133,7 @@ async function verifyRecaptcha(
   });
   if (userIp) body.set("remoteip", userIp);
 
-  const res = await fetch(RECAPTCHA_VERIFY_URL, {
+  const res = await safeFetch(RECAPTCHA_VERIFY_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: body.toString(),
@@ -182,7 +188,7 @@ async function verifyTurnstile(
   });
   if (userIp) body.set("remoteip", userIp);
 
-  const res = await fetch(TURNSTILE_VERIFY_URL, {
+  const res = await safeFetch(TURNSTILE_VERIFY_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: body.toString(),

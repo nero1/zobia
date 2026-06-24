@@ -681,6 +681,26 @@ export const userInactivityEvents = pgTable("user_inactivity_events", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
+// BUG-027 (complete): tracks one row per user per calendar day they logged in.
+// Used by Creator Fund active-day scoring to decouple login presence from XP/message activity.
+export const userDailyLogins = pgTable(
+  "user_daily_logins",
+  {
+    id: uuidPk(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    loginDate: date("login_date").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => ({
+    userDateUnique: uniqueIndex("uidx_user_daily_logins_user_date").on(
+      t.userId,
+      t.loginDate
+    ),
+  })
+);
+
 export const moments = pgTable("moments", {
   id: uuidPk(),
   userId: uuid("user_id")
@@ -1480,7 +1500,7 @@ export const brandedRooms = pgTable("branded_rooms", {
   roomId: uuid("room_id").references(() => rooms.id, { onDelete: "set null" }),
   brandName: text("brand_name").notNull(),
   brandLogoUrl: text("brand_logo_url"),
-  sponsorBudgetCoins: integer("sponsor_budget_coins").notNull().default(0),
+  sponsorBudgetCoins: bigint("sponsor_budget_coins", { mode: "number" }).notNull().default(0),
   joinBonusCoins: integer("join_bonus_coins").notNull().default(5),
   isActive: boolean("is_active").default(true),
   startsAt: timestamp("starts_at", { withTimezone: true }),
@@ -2021,7 +2041,7 @@ export const giftItems = pgTable("gift_items", {
   id: uuidPk(),
   name: text("name").notNull().unique(),
   emoji: text("emoji").notNull(),
-  coinCost: integer("coin_cost").notNull().default(0),
+  coinCost: bigint("coin_cost", { mode: "number" }).notNull().default(0),
   tier: integer("tier").notNull(),
   spectacleThresholdCoins: integer("spectacle_threshold_coins"),
   animationUrl: text("animation_url"),
@@ -2043,7 +2063,7 @@ export const giftTypes = pgTable("gift_types", {
   id: uuidPk(),
   name: text("name").notNull().unique(),
   emoji: text("emoji").notNull(),
-  coinCost: integer("coin_cost").notNull(),
+  coinCost: bigint("coin_cost", { mode: "number" }).notNull(),
   xpValue: integer("xp_value").notNull().default(0),
   isActive: boolean("is_active").notNull().default(true),
   isLimitedEdition: boolean("is_limited_edition").notNull().default(false),
@@ -2068,8 +2088,8 @@ export const gifts = pgTable("gifts", {
   giftTypeId: uuid("gift_type_id").references(() => giftTypes.id, {
     onDelete: "restrict",
   }),
-  coinValue: integer("coin_value").notNull(),
-  coinCost: integer("coin_cost").notNull(),
+  coinValue: bigint("coin_value", { mode: "number" }).notNull(),
+  coinCost: bigint("coin_cost", { mode: "number" }).notNull(),
   animationUrl: text("animation_url"),
   messageId: uuid("message_id").references(() => messages.id, {
     onDelete: "set null",
@@ -2086,9 +2106,9 @@ export const storeItems = pgTable("store_items", {
   itemType: text("item_type").notNull(),
   priceKobo: bigint("price_kobo", { mode: "bigint" }),
   currency: text("currency").notNull().default("NGN"),
-  coinsCost: integer("coins_cost"),
+  coinsCost: bigint("coins_cost", { mode: "number" }),
   starsCost: integer("stars_cost"),
-  coinsGranted: integer("coins_granted"),
+  coinsGranted: bigint("coins_granted", { mode: "number" }),
   starsGranted: integer("stars_granted"),
   cosmeticType: text("cosmetic_type"),
   bonusLabel: text("bonus_label"),
@@ -2142,9 +2162,7 @@ export const userXpBoosters = pgTable("user_xp_boosters", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   boosterType: text("booster_type"),
-  multiplier: decimal("multiplier", { precision: 4, scale: 2 })
-    .notNull()
-    .default("2.0"),
+  multiplier: integer("multiplier").notNull().default(200),
   isActive: boolean("is_active").notNull().default(true),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
@@ -2284,8 +2302,8 @@ export const failedCommissions = pgTable("failed_commissions", {
   id: uuidPk(),
   paymentId: text("payment_id").notNull(),
   userId: uuid("user_id").notNull(),
-  coinAmount: integer("coin_amount").notNull(),
-  amountKobo: integer("amount_kobo").notNull().default(0),
+  coinAmount: bigint("coin_amount", { mode: "number" }).notNull(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull().default(0),
   source: text("source").notNull().default("unknown"),
   errorMessage: text("error_message"),
   retryCount: integer("retry_count").notNull().default(0),
@@ -2519,7 +2537,7 @@ export const referralCommissions = pgTable("referral_commissions", {
   tier: text("tier").notNull().default("1"),
   purchaseAmountKobo: bigint("purchase_amount_kobo", { mode: "bigint" }).notNull(),
   commissionKobo: bigint("commission_kobo", { mode: "bigint" }).notNull(),
-  commissionCoins: integer("commission_coins").notNull().default(0),
+  commissionCoins: bigint("commission_coins", { mode: "number" }).notNull().default(0),
   status: text("status").notNull().default("pending"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
@@ -2536,7 +2554,7 @@ export const sponsoredQuests = pgTable("sponsored_quests", {
   requirements: text("requirements"),
   targetAction: text("target_action"),
   targetValue: integer("target_value"),
-  rewardCoins: integer("reward_coins"),
+  rewardCoins: bigint("reward_coins", { mode: "number" }),
   creatorPayoutKobo: bigint("creator_payout_kobo", { mode: "bigint" }),
   platformFeeKobo: bigint("platform_fee_kobo", { mode: "bigint" }),
   platformSharePercent: integer("platform_share_percent").notNull().default(30),
@@ -2574,7 +2592,7 @@ export const sponsoredQuestApplications = pgTable(
     payoutId: uuid("payout_id").references(() => creatorPayouts.id, {
       onDelete: "set null",
     }),
-    payoutCoins: integer("payout_coins"),
+    payoutCoins: bigint("payout_coins", { mode: "number" }),
     paidAt: timestamp("paid_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
@@ -3468,7 +3486,10 @@ export const moderationReports = pgTable("moderation_reports", {
   reportedUserId: uuid("reported_user_id").references(() => users.id, {
     onDelete: "set null",
   }),
-  reportedMessageId: uuid("reported_message_id"),
+  reportedMessageId: uuid("reported_message_id").references(
+    () => roomMessages.id,
+    { onDelete: "set null" }
+  ),
   reportedRoomId: uuid("reported_room_id").references(() => rooms.id, {
     onDelete: "set null",
   }),
@@ -3844,6 +3865,8 @@ export type UserMessage = typeof userMessages.$inferSelect;
 export type NewUserMessage = typeof userMessages.$inferInsert;
 export type UserInactivityEvent = typeof userInactivityEvents.$inferSelect;
 export type NewUserInactivityEvent = typeof userInactivityEvents.$inferInsert;
+export type UserDailyLogin = typeof userDailyLogins.$inferSelect;
+export type NewUserDailyLogin = typeof userDailyLogins.$inferInsert;
 export type Moment = typeof moments.$inferSelect;
 export type NewMoment = typeof moments.$inferInsert;
 export type MomentView = typeof momentViews.$inferSelect;
@@ -4175,6 +4198,7 @@ export const schema = {
   notifications,
   userMessages,
   userInactivityEvents,
+  userDailyLogins,
   moments,
   momentViews,
   momentReactions,

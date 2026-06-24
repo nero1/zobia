@@ -23,9 +23,9 @@ import {
   markMessageSending,
   resetFailedMessages,
 } from './sqlite';
-// resetSendingMessages is exported from ./sqlite and should be called once at
-// app startup (not here) to recover messages interrupted by a crash.
-export { resetSendingMessages } from './sqlite';
+import { resetSendingMessages } from './sqlite';
+// Re-export so callers can still use the named import from syncQueue.
+export { resetSendingMessages };
 
 /**
  * Sync all pending offline messages to the backend.
@@ -39,13 +39,16 @@ export async function syncPendingMessages(): Promise<void> {
   }
 
   try {
+    // BUG-023 FIX: reset messages stuck in 'sending' state back to 'pending' on
+    // every reconnect sync pass. When the network drops while a send is in flight,
+    // the message stays in 'sending' and is never retried on reconnect because
+    // getPendingMessages() only returns 'pending' rows.
+    // Duplicate-send safety: all messages carry an idempotencyKey that the backend
+    // deduplicates via ON CONFLICT DO NOTHING, so re-queuing a message that was
+    // already delivered is safe — the second send will be a no-op on the server.
+    await resetSendingMessages();
     // Reset failed messages (under retry ceiling) back to pending before this sync pass
     await resetFailedMessages();
-    // NOTE: resetSendingMessages() is intentionally NOT called here.
-    // It should only be called once on app startup (in the app initialisation flow)
-    // to recover messages interrupted by a crash. Calling it on every sync would
-    // re-queue messages that are legitimately in-flight from a concurrent sync pass,
-    // causing duplicate sends.
 
     const pending = await getPendingMessages();
 

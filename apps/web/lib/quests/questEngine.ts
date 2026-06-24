@@ -21,6 +21,7 @@ import { creditCoins } from "@/lib/economy/coins";
 import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 import { publishRealtimeEvent } from "@/lib/realtime";
 import { logger } from "@/lib/logger";
+import { redis } from "@/lib/redis";
 
 // Maps a ProgressionTrack name to the corresponding users table column
 const TRACK_COLUMN: Record<string, string> = {
@@ -115,75 +116,123 @@ export async function generateDailyDeck(
   const today = new Date().toISOString().slice(0, 10);
   const deckSize = DECK_SIZE_BY_PLAN[plan] ?? 3;
 
-  // Fetch ALL eligible quest templates for this plan without a DB-level shuffle.
-  // Selection is done in application code via a CSPRNG-based Fisher-Yates shuffle
-  // so no key material is passed to the DB and the shuffle is cryptographically
-  // unpredictable.
-  const { rows: allTemplates } = await db.query<QuestTemplate>(
-    `SELECT id, title, description, action_type, target_count,
-            xp_reward, coin_reward, category, icon, plan_required
-     FROM quest_templates
-     WHERE is_active = TRUE
-       AND (valid_date IS NULL OR valid_date = $1)
-       AND (plan_required IS NULL OR plan_required = 'free'
-            OR (plan_required = 'plus' AND $2 IN ('plus','pro','max'))
-            OR (plan_required = 'pro' AND $2 IN ('pro','max'))
-            OR (plan_required = 'max' AND $2 = 'max'))`,
-    [today, plan]
-  );
+  // BUG-006 FIX: acquire a per-user+date distributed lock before inserting the
+  // deck. Without this, two concurrent requests arriving at the same time (e.g.
+  // two tabs opening simultaneously) could each insert a disjoint subset of
+  // quests, producing a deck larger than deckSize — because ON CONFLICT DO
+  // NOTHING operates per-row, not per-user+date.
+  const lockKey = `quest_deck_lock:${userId}:${today}`;
+  const lockValue = randomBytes(16).toString("hex");
+  const LOCK_TTL_SECONDS = 10;
 
-  // Fisher-Yates shuffle using crypto.randomBytes — O(n) in-place, unbiased
-  const templates = [...allTemplates];
-  for (let i = templates.length - 1; i > 0; i--) {
-    // Generate an unbiased random index in [0, i] using rejection sampling
-    const j = cryptoRandInt(i + 1);
-    [templates[i], templates[j]] = [templates[j], templates[i]];
+  const acquired = await redis.set(lockKey, lockValue, "EX", LOCK_TTL_SECONDS, "NX");
+
+  if (acquired !== "OK") {
+    // Another instance is generating the deck — wait briefly then fall through
+    // to the re-query below (the other instance will have persisted the rows).
+    await new Promise((r) => setTimeout(r, 150));
   }
-  const selectedTemplates = templates.slice(0, deckSize);
 
-  if (selectedTemplates.length === 0) return [];
-
-  const questIds = selectedTemplates.map((t) => t.id);
-
-  // Persist the deck assignment so checkDeckCompletion can scope its query correctly.
-  // Uses ON CONFLICT DO NOTHING for idempotency on repeated calls within the same day.
-  if (questIds.length > 0) {
-    const values = questIds
-      .map((_, i) => `($1, $${i + 2}, $${questIds.length + 2})`)
-      .join(", ");
-    await db.query(
-      `INSERT INTO user_quest_decks (user_id, quest_id, assigned_date)
-       VALUES ${values}
-       ON CONFLICT (user_id, quest_id, assigned_date) DO NOTHING`,
-      [userId, ...questIds, today]
+  try {
+    // BUG-009 FIX: check whether a deck already exists for this user+date
+    // before generating a new shuffle. If it does, skip the INSERT entirely
+    // and go straight to the stable DB re-query below.
+    const { rows: existingDeck } = await db.query<{ quest_id: string }>(
+      `SELECT quest_id FROM user_quest_decks WHERE user_id = $1 AND assigned_date = $2::date LIMIT 1`,
+      [userId, today]
     );
+
+    if (existingDeck.length === 0) {
+      // Fetch ALL eligible quest templates for this plan without a DB-level shuffle.
+      // Selection is done in application code via a CSPRNG-based Fisher-Yates shuffle
+      // so no key material is passed to the DB and the shuffle is cryptographically
+      // unpredictable.
+      const { rows: allTemplates } = await db.query<QuestTemplate>(
+        `SELECT id, title, description, action_type, target_count,
+                xp_reward, coin_reward, category, icon, plan_required
+         FROM quest_templates
+         WHERE is_active = TRUE
+           AND (valid_date IS NULL OR valid_date = $1)
+           AND (plan_required IS NULL OR plan_required = 'free'
+                OR (plan_required = 'plus' AND $2 IN ('plus','pro','max'))
+                OR (plan_required = 'pro' AND $2 IN ('pro','max'))
+                OR (plan_required = 'max' AND $2 = 'max'))`,
+        [today, plan]
+      );
+
+      // Fisher-Yates shuffle using crypto.randomBytes — O(n) in-place, unbiased
+      const templates = [...allTemplates];
+      for (let i = templates.length - 1; i > 0; i--) {
+        const j = cryptoRandInt(i + 1);
+        [templates[i], templates[j]] = [templates[j], templates[i]];
+      }
+      const selectedTemplates = templates.slice(0, deckSize);
+
+      if (selectedTemplates.length > 0) {
+        const questIds = selectedTemplates.map((t) => t.id);
+        const values = questIds
+          .map((_, i) => `($1, $${i + 2}, $${questIds.length + 2})`)
+          .join(", ");
+        await db.query(
+          `INSERT INTO user_quest_decks (user_id, quest_id, assigned_date)
+           VALUES ${values}
+           ON CONFLICT (user_id, quest_id, assigned_date) DO NOTHING`,
+          [userId, ...questIds, today]
+        );
+      }
+    }
+  } finally {
+    // Release the lock only if we still own it (avoid releasing a lock taken
+    // by another instance after our TTL expired).
+    const currentVal = await redis.get(lockKey);
+    if (currentVal === lockValue) {
+      await redis.del(lockKey);
+    }
   }
 
-  const { rows: progresses } = await db.query<{
+  // BUG-009 FIX: always re-query user_quest_decks + quest_templates after the
+  // INSERT so the returned array reflects what is actually in the DB in a
+  // stable, deterministic order (id ASC). Returning the in-memory shuffled
+  // array produced different orderings on repeated calls within the same day.
+  const { rows: assignedRows } = await db.query<QuestTemplate & {
     quest_id: string;
     progress_count: number;
     completed: boolean;
     completed_at: string | null;
   }>(
-    `SELECT quest_id, progress_count, completed, completed_at
-     FROM user_quest_progress
-     WHERE user_id = $1
-       AND quest_date = $2
-       AND quest_id = ANY($3::uuid[])`,
-    [userId, today, questIds]
+    `SELECT
+       qt.id, qt.title, qt.description, qt.action_type, qt.target_count,
+       qt.xp_reward, qt.coin_reward, qt.category, qt.icon, qt.plan_required,
+       COALESCE(uqp.progress_count, 0) AS progress_count,
+       COALESCE(uqp.completed, FALSE) AS completed,
+       uqp.completed_at
+     FROM user_quest_decks uqd
+     JOIN quest_templates qt ON qt.id = uqd.quest_id
+     LEFT JOIN user_quest_progress uqp
+       ON uqp.user_id = $1
+      AND uqp.quest_id = qt.id
+      AND uqp.quest_date = $2
+     WHERE uqd.user_id = $1
+       AND uqd.assigned_date = $2::date
+     ORDER BY uqd.id ASC`,
+    [userId, today]
   );
 
-  const progressMap = new Map(progresses.map((p) => [p.quest_id, p]));
-
-  return selectedTemplates.map((template) => {
-    const p = progressMap.get(template.id);
-    return {
-      ...template,
-      progress_count: p?.progress_count ?? 0,
-      completed: p?.completed ?? false,
-      completed_at: p?.completed_at ?? null,
-    };
-  });
+  return assignedRows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    action_type: row.action_type,
+    target_count: row.target_count,
+    xp_reward: row.xp_reward,
+    coin_reward: row.coin_reward,
+    category: row.category,
+    icon: row.icon,
+    plan_required: row.plan_required,
+    progress_count: row.progress_count,
+    completed: row.completed,
+    completed_at: row.completed_at ?? null,
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -213,6 +262,15 @@ export async function updateQuestProgress(
   xp_awarded: number;
   coins_awarded: number;
 }> {
+  // BUG-022 FIX: reject non-positive increments before touching the DB.
+  // A zero or negative increment would decrement progress or be a no-op,
+  // neither of which is a valid quest progress update. Callers that pass
+  // a negative increment (e.g. due to a sign-flip bug) would silently corrupt
+  // quest progress without this guard.
+  if (typeof increment !== "number" || !Number.isFinite(increment) || increment <= 0) {
+    throw new Error(`[questEngine] updateQuestProgress: increment must be a positive number, got ${increment}`);
+  }
+
   const today = new Date().toISOString().slice(0, 10);
 
   // Collect XP award details inside the transaction and issue safeAwardXP

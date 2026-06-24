@@ -233,74 +233,80 @@ const MAX_COMMISSION_RETRIES = 5;
  * Retry failed referral commissions from the DLQ.
  * Designed to be called from a CRON route. Uses FOR UPDATE SKIP LOCKED so
  * concurrent CRON instances process disjoint sets of rows.
+ *
+ * BUG-001 FIX: wrap the SELECT … FOR UPDATE SKIP LOCKED and all processing
+ * inside a single globalDb.transaction() so the row-level lock is held for
+ * the full batch-processing duration, preventing concurrent CRON instances
+ * from picking up and double-processing the same rows.
  */
 export async function retryFailedCommissions(): Promise<{ retried: number; resolved: number; permanentFailed: number }> {
   let retried = 0;
   let resolved = 0;
   let permanentFailed = 0;
 
-  const { rows: pending } = await globalDb.query<{
-    id: string;
-    payment_id: string;
-    user_id: string;
-    coin_amount: number;
-    amount_kobo: number;
-    source: string;
-    retry_count: number;
-  }>(
-    `SELECT id, payment_id, user_id, coin_amount, amount_kobo, source, retry_count
-     FROM failed_commissions
-     WHERE resolved_at IS NULL
-       AND retry_count < $1
-       AND (last_retried_at IS NULL
-            OR last_retried_at < NOW() - (POWER(2, retry_count) * INTERVAL '1 minute'))
-     LIMIT 50
-     FOR UPDATE SKIP LOCKED`,
-    [MAX_COMMISSION_RETRIES]
-  );
+  await globalDb.transaction(async (tx) => {
+    const { rows: pending } = await tx.query<{
+      id: string;
+      payment_id: string;
+      user_id: string;
+      coin_amount: number;
+      amount_kobo: number;
+      source: string;
+      retry_count: number;
+    }>(
+      `SELECT id, payment_id, user_id, coin_amount, amount_kobo, source, retry_count
+       FROM failed_commissions
+       WHERE resolved_at IS NULL
+         AND retry_count < $1
+         AND (last_retried_at IS NULL
+              OR last_retried_at < NOW() - (POWER(2, retry_count) * INTERVAL '1 minute'))
+       LIMIT 50
+       FOR UPDATE SKIP LOCKED`,
+      [MAX_COMMISSION_RETRIES]
+    );
 
-  for (const row of pending) {
-    retried++;
-    try {
-      await awardReferralCommissions(
-        // DatabaseAdapter is structurally compatible with TransactionClient (both have query())
-        globalDb as DatabaseClient,
-        row.user_id,
-        row.coin_amount,
-        row.payment_id,
-        row.amount_kobo
-      );
+    for (const row of pending) {
+      retried++;
+      try {
+        await awardReferralCommissions(
+          tx as DatabaseClient,
+          row.user_id,
+          row.coin_amount,
+          row.payment_id,
+          row.amount_kobo
+        );
 
-      await globalDb.query(
-        `UPDATE failed_commissions
-         SET resolved_at = NOW(), last_retried_at = NOW(), retry_count = retry_count + 1
-         WHERE id = $1`,
-        [row.id]
-      );
-      resolved++;
-    } catch (err) {
-      const newCount = row.retry_count + 1;
-      await globalDb.query(
-        `UPDATE failed_commissions
-         SET retry_count = $1, last_retried_at = NOW(), error_message = $2
-         WHERE id = $3`,
-        [newCount, err instanceof Error ? err.message : String(err), row.id]
-      );
+        await tx.query(
+          `UPDATE failed_commissions
+           SET resolved_at = NOW(), last_retried_at = NOW(), retry_count = retry_count + 1
+           WHERE id = $1`,
+          [row.id]
+        );
+        resolved++;
+      } catch (err) {
+        const newCount = row.retry_count + 1;
+        await tx.query(
+          `UPDATE failed_commissions
+           SET retry_count = $1, last_retried_at = NOW(), error_message = $2
+           WHERE id = $3`,
+          [newCount, err instanceof Error ? err.message : String(err), row.id]
+        );
 
-      if (newCount >= MAX_COMMISSION_RETRIES) {
-        permanentFailed++;
-        logger.error({ paymentId: row.payment_id, userId: row.user_id, newCount }, "[commissions] Commission permanently failed after max retries");
-        await globalDb.query(
-          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-           VALUES ('commission_permanent_failure', 'critical', $1, $2::jsonb, NOW())`,
-          [
-            `Referral commission for payment ${row.payment_id} failed after ${MAX_COMMISSION_RETRIES} retries`,
-            JSON.stringify({ paymentId: row.payment_id, userId: row.user_id, retryCount: newCount }),
-          ]
-        ).catch(() => {});
+        if (newCount >= MAX_COMMISSION_RETRIES) {
+          permanentFailed++;
+          logger.error({ paymentId: row.payment_id, userId: row.user_id, newCount }, "[commissions] Commission permanently failed after max retries");
+          await tx.query(
+            `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
+             VALUES ('commission_permanent_failure', 'critical', $1, $2::jsonb, NOW())`,
+            [
+              `Referral commission for payment ${row.payment_id} failed after ${MAX_COMMISSION_RETRIES} retries`,
+              JSON.stringify({ paymentId: row.payment_id, userId: row.user_id, retryCount: newCount }),
+            ]
+          ).catch(() => {});
+        }
       }
     }
-  }
+  });
 
   return { retried, resolved, permanentFailed };
 }

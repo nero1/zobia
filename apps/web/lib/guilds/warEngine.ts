@@ -210,7 +210,11 @@ export async function findWarOpponent(
       [...params, selfXP]
     );
 
-    if (rows.length > 0) return rows[0].id;
+    // BUG-011 FIX: pick a random candidate from the pool instead of always
+    // returning the closest XP match. Always selecting rows[0] made matchmaking
+    // deterministic and predictable — the same guild would always be matched
+    // against the same opponent, enabling gaming of the system.
+    if (rows.length > 0) return rows[Math.floor(Math.random() * rows.length)].id;
   }
 
   return null;

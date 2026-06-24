@@ -469,8 +469,8 @@ Calculation flow:
    - Plan multiplier (free=100bp, plus=110bp, pro=125bp, max=150bp)
    - Guild tier bonus (read from `getGuildXPBoostPercent(guildTier)`)
    - Season pass bonus (read from active season config)
-   - Active booster (per-user temporary multiplier stored in Redis)
-3. All multipliers are whole-number basis points (100bp = 1.0×). Integer division is used throughout — no floating-point values enter or exit the engine.
+   - Active booster (per-user temporary multiplier from `user_xp_boosters.multiplier`, stored as integer basis points — 200 = 2.0×, 150 = 1.5×)
+3. All multipliers are whole-number basis points (100bp = 1.0×). Integer division is used throughout — no floating-point values enter or exit the engine. **`user_xp_boosters.multiplier` uses the same basis-point scale** — the column type is `INTEGER` (not `DECIMAL`), so 200 means 2.0× and 150 means 1.5×.
 4. Minimum award when base > 0 is 1 XP.
 5. The result is written to `xp_ledger` and added to `users.xp_total` and the relevant track column.
 
@@ -1062,6 +1062,8 @@ When a user sends a gift to another user via `POST /api/economy/gifts/send` (wit
 2. Credits the recipient's coin balance.
 3. **Creates a DM message** with `message_type = 'gift'` so it appears in the conversation feed.
 4. Upserts the `dm_conversations` record to ensure the conversation is trackable.
+
+**Canonical pair ordering:** `dm_conversations` enforces `user_id_1 < user_id_2` via a CHECK constraint (`dm_canonical_pair`). All INSERT and SELECT operations on this table must use `canonicalDmPair(a, b)` from `lib/messaging/canonicalDmPair.ts` to sort the two UUIDs into ascending order before querying. This ensures exactly one row per user pair and allows the `(user_id_1, user_id_2)` unique index to be used efficiently.
 
 The gift message displays as a special bubble (`🎁 Gift Name (X coins)`) in both sender's and recipient's DM view.
 
