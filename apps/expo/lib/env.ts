@@ -17,7 +17,7 @@ import { z } from 'zod';
 
 const EnvSchema = z.object({
   /** Base URL of the Zobia API (no trailing slash). */
-  API_BASE_URL: z.string().url().default('https://api.zobia.app'),
+  API_BASE_URL: z.string().url().default('https://zobia.vercel.app'),
 
   /**
    * Base URL of the public web app (no trailing slash). Used to build

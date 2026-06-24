@@ -12,7 +12,8 @@
         "buildType": "apk",
         "gradleCommand": ":app:assembleDebug",
         "env": {
-          "APP_ENV": "development"
+          "APP_ENV": "development",
+          "API_BASE_URL": "https://zobia.vercel.app"
         }
       }
     },
@@ -23,7 +24,8 @@
         "buildType": "apk",
         "gradleCommand": ":app:assembleRelease",
         "env": {
-          "APP_ENV": "preview"
+          "APP_ENV": "preview",
+          "API_BASE_URL": "https://zobia.vercel.app"
         }
       }
     },
@@ -34,7 +36,8 @@
         "buildType": "app-bundle",
         "gradleCommand": ":app:bundleRelease",
         "env": {
-          "APP_ENV": "production"
+          "APP_ENV": "production",
+          "API_BASE_URL": "https://zobia.vercel.app"
         }
       }
     }

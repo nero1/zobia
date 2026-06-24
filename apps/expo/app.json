@@ -88,6 +88,7 @@
       "router": {
         "origin": "https://zobia.vercel.app"
       },
+      "API_BASE_URL": "https://zobia.vercel.app",
       "WEB_BASE_URL": "https://zobia.vercel.app",
       "eas": {
         "projectId": "ad68e531-aa48-4873-8d41-3bca8f18b9a4"
