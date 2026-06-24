@@ -1410,60 +1410,55 @@ SSL Configuration → Download certificate, then paste the full PEM into
 `DB_CA_CERT` (multi-line is fine on Vercel) and redeploy. See the database
 provider section above.
 
-### `expo-in-app-purchases:compileReleaseJavaWithJavac` build failure
+### In-app purchases: `react-native-iap` (not `expo-in-app-purchases`)
 
-**Symptoms:** EAS build fails after ~4 minutes of native compilation with:
+Android in-app purchases (coin top-ups and subscriptions) use **`react-native-iap`**.
+We migrated away from `expo-in-app-purchases`, which is **deprecated and does not build
+on Expo SDK 51**.
+
+**Why `expo-in-app-purchases` was removed:** EAS builds failed at
+`:expo-in-app-purchases:compileReleaseJavaWithJavac` with:
 
 ```
-Execution failed for task ':expo-in-app-purchases:compileReleaseJavaWithJavac'.
-> Compilation failed; see the compiler error output for details.
+import expo.modules.core.ExportedModule;          error: cannot find symbol
+import expo.modules.core.interfaces.ExpoMethod;   error: cannot find symbol
+public class InAppPurchasesModule extends ExportedModule ...
 ```
 
-**Cause:** This is **not** a `compileSdkVersion` problem (an earlier fix wrongly pinned
-the module to `compileSdkVersion 34`; that build still failed). The module compiles
-fine against SDK 36 — the failure is a **Play Billing version conflict**.
+`expo-in-app-purchases@14.0.0` is written against the **legacy unimodules API**
+(`ExportedModule`, `@ExpoMethod`). Expo SDK 51's `expo-modules-core` (1.12.26) **removed**
+those base classes, so the module's Java can no longer compile — and no `build.gradle`
+patch (compileSdkVersion, Play Billing version, etc.) can fix it, because the missing
+symbols are the module's own React/Expo bridge base classes, not Android framework or
+Billing classes.
 
-`expo-in-app-purchases` 14.0.0 declares `api 'com.android.billingclient:billing:4.0.0'`
-and its Java code uses SKU-based APIs (`SkuDetails`, `SkuType`, `querySkuDetailsAsync`,
-`SkuDetailsParams`, `setVrPurchaseFlow`, `Purchase.getSkus()`) that were **removed in
-Play Billing 5.0+**. When another dependency on the classpath requests a newer Billing
-version, Gradle conflict-resolves Billing *upward* across the whole build, those SKU
-classes/methods disappear, and `compileReleaseJavaWithJavac` fails with
-`cannot find symbol`. Changing `compileSdkVersion` has no effect on this, because the
-missing symbols come from the Billing AAR, not from `android.jar`.
+> A previous attempt blamed `compileSdkVersion 36` and pinned the module to
+> `compileSdkVersion 34`; that build still failed. A second attempt forced Play Billing
+> back to `4.0.0`; that resolved the `SkuDetails`/`getSkus` symbols but the build still
+> failed on `ExportedModule`/`ExpoMethod`. The package is simply incompatible with SDK 51.
 
-**Fix (applied):** `apps/expo/patches/expo-in-app-purchases+14.0.0.patch` adds a
-`resolutionStrategy { force 'com.android.billingclient:billing:4.0.0' }` to the module's
-`build.gradle`, pinning Billing to the 4.x line that provides the SKU APIs. The patch
-also keeps two Gradle 8 compatibility fixes (`archiveClassifier.set(...)` and
-`components.getByName('release')`). It is applied automatically by `patch-package` during
-the EAS build's `npm install` (via the `postinstall` script).
+**What changed:**
+
+- Removed `expo-in-app-purchases` from `apps/expo/package.json` and deleted its
+  `patches/expo-in-app-purchases+14.0.0.patch`.
+- Added `react-native-iap` (Play Billing v6/v7, maintained).
+- Rewrote `apps/expo/lib/payments/googlePlay.ts` against the `react-native-iap` API
+  (`initConnection`, `getProducts`/`getSubscriptions`, `requestPurchase`/
+  `requestSubscription`, `finishTransaction`, `purchaseUpdatedListener`/
+  `purchaseErrorListener`). The public wrapper API
+  (`initGooglePlayBilling`, `getCoinProducts`, `purchaseCoins`,
+  `getSubscriptionProducts`, `purchaseSubscription`, `disconnectGooglePlayBilling`) and
+  the **verify-server-side-before-acknowledge** flow are unchanged.
 
 The app keeps `compileSdkVersion: 36` and `targetSdkVersion: 36` in `app.json` — Google
-Play's "target API 36" requirement is satisfied by the **app's** `targetSdkVersion`, and
-is completely independent of which Billing library this one module links against.
+Play's "target API 36" requirement depends only on the **app's** `targetSdkVersion`.
 
-If you ever regenerate the patch, re-apply it with:
+**Android subscription note:** Play Billing v5+ purchases a specific *offer*, identified
+by an `offerToken` from the product details. `getSubscriptionProducts()` caches the
+token; `purchaseSubscription()` passes it through (fetching on demand if the catalogue
+hasn't loaded). Ensure each subscription product in the Play Console has at least one
+active base plan/offer or `requestSubscription` will have no offer to purchase.
 
-```bash
-cd apps/expo
-npx patch-package expo-in-app-purchases
-```
-
-Or add the following hunk to `apps/expo/patches/expo-in-app-purchases+14.0.0.patch`:
-
-```diff
-@@ -81,6 +81,18 @@ android {
-   }
- }
-
-+configurations.all {
-+  resolutionStrategy {
-+    force 'com.android.billingclient:billing:4.0.0'
-+  }
-+}
-+
-
- allprojects {
-   repositories {
-```
+`react-native-iap` autolinks under the Expo dev-client / EAS build — no extra config
+plugin is required — and contributes the `com.android.vending.BILLING` permission via its
+own manifest.

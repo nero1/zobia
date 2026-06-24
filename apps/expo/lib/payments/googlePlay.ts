@@ -2,7 +2,12 @@
  * lib/payments/googlePlay.ts
  *
  * Google Play Billing integration (Android only).
- * Uses expo-in-app-purchases for coin top-ups and subscription plans.
+ * Uses react-native-iap for coin top-ups and subscription plans.
+ *
+ * NOTE: This used to use expo-in-app-purchases, which is deprecated and no
+ * longer compiles on Expo SDK 51 (its native module targets the removed
+ * legacy `ExportedModule`/`@ExpoMethod` unimodules API). react-native-iap is
+ * the maintained replacement and links against modern Play Billing (v6/v7).
  *
  * Product IDs must be created in the Google Play Console.
  * Matching coin amounts are defined below.
@@ -11,21 +16,38 @@
  *  1. purchaseCoins() triggers the Google Play billing sheet
  *  2. The global listener receives the purchase and calls verifyPurchaseServerSide
  *  3. Server verifies with Google Play Developer API and credits coins
- *  4. finishTransactionAsync() is called ONLY after confirmed server credit
+ *  4. finishTransaction({ isConsumable: true }) is called ONLY after confirmed server credit
  *
  * Purchase flow (subscriptions):
  *  1. purchaseSubscription() triggers the Google Play billing sheet
  *  2. The global listener receives the purchase and calls verifyPurchaseServerSide
  *  3. Server verifies with Google Play subscriptions API and activates plan
- *  4. finishTransactionAsync(purchase, false) acknowledges ONLY after server credit
+ *  4. finishTransaction({ isConsumable: false }) acknowledges ONLY after server credit
  */
 
-import { Platform } from 'react-native';
-import * as InAppPurchases from 'expo-in-app-purchases';
+import { Platform, type EmitterSubscription } from 'react-native';
+import {
+  initConnection,
+  endConnection,
+  getProducts,
+  getSubscriptions,
+  requestPurchase,
+  requestSubscription,
+  finishTransaction,
+  flushFailedPurchasesCachedAsPendingAndroid,
+  purchaseUpdatedListener,
+  purchaseErrorListener,
+  type Product,
+  type Subscription,
+  type Purchase,
+  type PurchaseError,
+} from 'react-native-iap';
 import { apiClient } from '@/lib/api/client';
 import { randomUUID } from 'expo-crypto';
 
 const APP_PACKAGE_NAME = 'com.zobia.app';
+
+type AnyPurchase = Purchase;
 
 // ---------------------------------------------------------------------------
 // Product catalogue
@@ -120,6 +142,49 @@ const SUBSCRIPTION_IDS = [
 ];
 
 // ---------------------------------------------------------------------------
+// react-native-iap helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Android subscriptions are purchased against a specific *offer*, identified by
+ * an offerToken returned in the product details. We cache the most recent token
+ * per subscription product ID so purchaseSubscription() can pass it through.
+ */
+const subscriptionOfferTokens = new Map<string, string>();
+
+/** Read the Android purchase token from a react-native-iap purchase object. */
+function getPurchaseToken(purchase: AnyPurchase): string | undefined {
+  // On Android this is `purchaseToken`; transactionReceipt is the JSON fallback.
+  return purchase.purchaseToken ?? undefined;
+}
+
+/** Whether the purchase has already been acknowledged on the Play side. */
+function isAcknowledged(purchase: AnyPurchase): boolean {
+  return Boolean((purchase as { isAcknowledgedAndroid?: boolean }).isAcknowledgedAndroid);
+}
+
+/** Extract the recurring formatted price + offerToken from an Android subscription. */
+function readAndroidSubscription(sub: Subscription): { price?: string; offerToken?: string } {
+  const offers = (sub as { subscriptionOfferDetails?: Array<{
+    offerToken?: string;
+    pricingPhases?: { pricingPhaseList?: Array<{ formattedPrice?: string }> };
+  }> }).subscriptionOfferDetails;
+
+  if (Array.isArray(offers) && offers.length > 0) {
+    const offer = offers[0];
+    const phases = offer?.pricingPhases?.pricingPhaseList;
+    // Use the last pricing phase — that's the ongoing recurring price after any
+    // free-trial / introductory phases.
+    const price =
+      Array.isArray(phases) && phases.length > 0
+        ? phases[phases.length - 1]?.formattedPrice
+        : undefined;
+    return { price, offerToken: offer?.offerToken };
+  }
+  return {};
+}
+
+// ---------------------------------------------------------------------------
 // Server verification
 // ---------------------------------------------------------------------------
 
@@ -157,7 +222,11 @@ async function verifyPurchaseServerSide(
 // Global purchase resolver map (BUG-10)
 // ---------------------------------------------------------------------------
 
-type PurchaseResolver = (result: { coinsGranted?: number; plan?: string } | null) => void;
+type PurchaseOutcome =
+  | { status: 'success'; coinsGranted: number; plan?: string }
+  | { status: 'failed'; error: string };
+
+type PurchaseResolver = (outcome: PurchaseOutcome) => void;
 
 /**
  * Maps sessionId → pending resolver. Each purchase gets a unique sessionId so
@@ -179,72 +248,98 @@ const activePurchaseSessions = new Map<string, string>();
  */
 const pendingRecovery = new Map<string, boolean>();
 
+const VERIFY_FAILED_MESSAGE =
+  'Server verification failed — please contact support if coins are missing';
+
+// ---------------------------------------------------------------------------
+// Global listeners
+// ---------------------------------------------------------------------------
+
+let purchaseUpdateSub: EmitterSubscription | null = null;
+let purchaseErrorSub: EmitterSubscription | null = null;
+
 /**
- * Register the single global purchase listener.
- * Must be called once after connectAsync() succeeds.
+ * Register the single global purchase + error listeners.
+ * Must be called once after initConnection() succeeds.
  */
-function setupGlobalPurchaseListener(): void {
-  InAppPurchases.setPurchaseListener(async ({ responseCode, results }) => {
-    if (responseCode === InAppPurchases.IAPResponseCode.OK && results) {
-      for (const purchase of results) {
-        const sessionId = activePurchaseSessions.get(purchase.productId);
-        if (!sessionId) {
-          // No active session — this purchase is from a prior app session or a
-          // timed-out purchase that is now recovering asynchronously.
-          // Clear the pendingRecovery flag so the user can start a new purchase
-          // once this one is finished.
-          if (pendingRecovery.get(purchase.productId)) {
-            pendingRecovery.delete(purchase.productId);
-          }
-          if (purchase.purchaseToken && !purchase.acknowledged) {
-            const isSubscription = SUBSCRIPTION_IDS.includes(purchase.productId);
-            verifyPurchaseServerSide(
-              purchase.purchaseToken,
-              purchase.productId,
-              APP_PACKAGE_NAME,
-              isSubscription
-            )
-              .then(async (result) => {
-                if (result !== null) {
-                  try {
-                    await InAppPurchases.finishTransactionAsync(purchase, !isSubscription);
-                  } catch {}
-                }
-              })
-              .catch(() => {});
-          }
-          continue;
-        }
-        const resolver = purchaseResolvers.get(sessionId);
-        if (!resolver || !purchase.purchaseToken) continue;
+function setupGlobalPurchaseListeners(): void {
+  purchaseUpdateSub?.remove();
+  purchaseErrorSub?.remove();
 
-        // Remove before async work to prevent double-resolution.
-        activePurchaseSessions.delete(purchase.productId);
-        purchaseResolvers.delete(sessionId);
+  purchaseUpdateSub = purchaseUpdatedListener(async (purchase: AnyPurchase) => {
+    const productId = purchase.productId;
+    const purchaseToken = getPurchaseToken(purchase);
+    const isSubscription = SUBSCRIPTION_IDS.includes(productId);
 
-        const isSubscription = SUBSCRIPTION_IDS.includes(purchase.productId);
-
-        // BUG-05: verify server-side FIRST; only consume/acknowledge on success.
-        const verifyResult = await verifyPurchaseServerSide(
-          purchase.purchaseToken,
-          purchase.productId,
+    const sessionId = activePurchaseSessions.get(productId);
+    if (!sessionId) {
+      // No active session — this purchase is from a prior app session or a
+      // timed-out purchase that is now recovering asynchronously. Clear the
+      // pendingRecovery flag so the user can start a new purchase once this one
+      // is finished.
+      if (pendingRecovery.get(productId)) {
+        pendingRecovery.delete(productId);
+      }
+      if (purchaseToken && !isAcknowledged(purchase)) {
+        const result = await verifyPurchaseServerSide(
+          purchaseToken,
+          productId,
           APP_PACKAGE_NAME,
           isSubscription
         ).catch(() => null);
-
-        if (verifyResult !== null) {
-          // Only finish the transaction after confirmed server credit.
+        if (result !== null) {
           try {
-            await InAppPurchases.finishTransactionAsync(purchase, !isSubscription);
-          } catch (finishErr) {
-            console.warn('[googlePlay] finishTransactionAsync failed:', finishErr);
-          }
+            await finishTransaction({ purchase, isConsumable: !isSubscription });
+          } catch {}
         }
-        // If verifyResult === null we do NOT consume so Play Store can replay it.
-
-        resolver(verifyResult);
       }
+      return;
     }
+
+    const resolver = purchaseResolvers.get(sessionId);
+    if (!resolver || !purchaseToken) return;
+
+    // Remove before async work to prevent double-resolution.
+    activePurchaseSessions.delete(productId);
+    purchaseResolvers.delete(sessionId);
+
+    // BUG-05: verify server-side FIRST; only consume/acknowledge on success.
+    const verifyResult = await verifyPurchaseServerSide(
+      purchaseToken,
+      productId,
+      APP_PACKAGE_NAME,
+      isSubscription
+    ).catch(() => null);
+
+    if (verifyResult !== null) {
+      // Only finish the transaction after confirmed server credit.
+      try {
+        await finishTransaction({ purchase, isConsumable: !isSubscription });
+      } catch (finishErr) {
+        console.warn('[googlePlay] finishTransaction failed:', finishErr);
+      }
+      resolver({
+        status: 'success',
+        coinsGranted: verifyResult.coinsGranted,
+        plan: verifyResult.plan,
+      });
+    } else {
+      // Do NOT finish the transaction so Play Store can replay it.
+      resolver({ status: 'failed', error: VERIFY_FAILED_MESSAGE });
+    }
+  });
+
+  purchaseErrorSub = purchaseErrorListener((error: PurchaseError) => {
+    // react-native-iap surfaces user cancellation and billing failures here
+    // (rather than rejecting requestPurchase). Resolve any waiting session.
+    const productId = error.productId;
+    if (!productId) return;
+    const sessionId = activePurchaseSessions.get(productId);
+    if (!sessionId) return;
+    const resolver = purchaseResolvers.get(sessionId);
+    activePurchaseSessions.delete(productId);
+    purchaseResolvers.delete(sessionId);
+    resolver?.({ status: 'failed', error: error.message || 'Purchase failed' });
   });
 }
 
@@ -260,11 +355,16 @@ let initialised = false;
 export async function initGooglePlayBilling(): Promise<void> {
   if (Platform.OS !== 'android' || initialised) return;
   // Set flag before await to prevent a second concurrent call from also
-  // entering connectAsync while the first is still in flight (race window fix).
+  // entering initConnection while the first is still in flight (race window fix).
   initialised = true;
   try {
-    await InAppPurchases.connectAsync();
-    setupGlobalPurchaseListener();
+    await initConnection();
+    // Recommended on Android: reconcile any purchases stuck in the pending
+    // state from a previous run. Failure here is non-fatal.
+    try {
+      await flushFailedPurchasesCachedAsPendingAndroid();
+    } catch {}
+    setupGlobalPurchaseListeners();
   } catch (err) {
     // Reset so the caller can retry after a failed init attempt.
     initialised = false;
@@ -285,16 +385,15 @@ export async function getCoinProducts(): Promise<CoinProduct[]> {
   if (Platform.OS !== 'android') return [];
 
   try {
-    const { responseCode, results } = await InAppPurchases.getProductsAsync(PRODUCT_IDS);
-
-    if (responseCode !== InAppPurchases.IAPResponseCode.OK || !results) {
+    const results: Product[] = await getProducts({ skus: PRODUCT_IDS });
+    if (!results || results.length === 0) {
       return COIN_PRODUCTS;
     }
 
     return COIN_PRODUCTS.map((local) => {
       const store = results.find((r) => r.productId === local.id);
       return store
-        ? { ...local, price: store.price ?? local.price, title: store.title }
+        ? { ...local, price: store.localizedPrice ?? local.price, title: store.title }
         : local;
     });
   } catch {
@@ -345,27 +444,25 @@ export async function purchaseCoins(
 
   const sessionId = randomUUID();
   const purchasePromise = new Promise<{ success: boolean; coins: number; purchaseToken?: string; error?: string }>((resolve) => {
-    purchaseResolvers.set(sessionId, (result) => {
-      if (result !== null) {
-        resolve({ success: true, coins: result.coinsGranted ?? 0 });
+    purchaseResolvers.set(sessionId, (outcome) => {
+      if (outcome.status === 'success') {
+        resolve({ success: true, coins: outcome.coinsGranted });
       } else {
-        resolve({
-          success: false,
-          coins: 0,
-          error: 'Server verification failed — please contact support if coins are missing',
-        });
+        resolve({ success: false, coins: 0, error: outcome.error });
       }
     });
     activePurchaseSessions.set(productId, sessionId);
 
-    InAppPurchases.purchaseItemAsync(productId).catch((err: Error) => {
+    requestPurchase({ skus: [productId] }).catch((err: unknown) => {
+      // Errors usually arrive via purchaseErrorListener; this is a safety net.
+      if (!purchaseResolvers.has(sessionId)) return;
       purchaseResolvers.delete(sessionId);
       activePurchaseSessions.delete(productId);
-      resolve({ success: false, coins: 0, error: err.message });
+      resolve({ success: false, coins: 0, error: err instanceof Error ? err.message : 'Purchase failed' });
     });
   });
 
-  // When the timeout fires the resolver is removed but purchaseItemAsync continues
+  // When the timeout fires the resolver is removed but the purchase continues
   // running in the background. Mark pendingRecovery so the listener can deliver
   // the late result and prevent the user from initiating a duplicate purchase.
   const timeoutPromise = new Promise<{ success: boolean; coins: number; error: string }>((resolve) =>
@@ -385,7 +482,11 @@ export async function purchaseCoins(
  */
 export async function disconnectGooglePlayBilling(): Promise<void> {
   if (Platform.OS !== 'android' || !initialised) return;
-  await InAppPurchases.disconnectAsync();
+  purchaseUpdateSub?.remove();
+  purchaseErrorSub?.remove();
+  purchaseUpdateSub = null;
+  purchaseErrorSub = null;
+  await endConnection();
   initialised = false;
 }
 
@@ -403,17 +504,17 @@ export async function getSubscriptionProducts(annual = false): Promise<Subscript
   if (Platform.OS !== 'android') return localProducts;
 
   try {
-    const { responseCode, results } = await InAppPurchases.getProductsAsync(SUBSCRIPTION_IDS);
-
-    if (responseCode !== InAppPurchases.IAPResponseCode.OK || !results) {
+    const results: Subscription[] = await getSubscriptions({ skus: SUBSCRIPTION_IDS });
+    if (!results || results.length === 0) {
       return localProducts;
     }
 
     return localProducts.map((local) => {
       const store = results.find((r) => r.productId === local.id);
-      return store
-        ? { ...local, monthlyPrice: store.price ?? local.monthlyPrice }
-        : local;
+      if (!store) return local;
+      const { price, offerToken } = readAndroidSubscription(store);
+      if (offerToken) subscriptionOfferTokens.set(local.id, offerToken);
+      return price ? { ...local, monthlyPrice: price } : local;
     });
   } catch {
     return localProducts;
@@ -459,32 +560,56 @@ export async function purchaseSubscription(
     return { success: false, error: 'A previous purchase is still being processed — please wait before trying again' };
   }
 
+  // Android Play Billing v5+ requires the offerToken for the subscription offer;
+  // react-native-iap throws without it. Ensure it's cached (getSubscriptionProducts
+  // populates it); fetch on demand if the catalogue wasn't loaded yet.
+  let offerToken = subscriptionOfferTokens.get(productId);
+  if (!offerToken) {
+    try {
+      const subs = await getSubscriptions({ skus: SUBSCRIPTION_IDS });
+      const store = subs.find((s) => s.productId === productId);
+      if (store) {
+        const info = readAndroidSubscription(store);
+        if (info.offerToken) {
+          offerToken = info.offerToken;
+          subscriptionOfferTokens.set(productId, info.offerToken);
+        }
+      }
+    } catch {
+      // handled by the offerToken guard below
+    }
+  }
+  if (!offerToken) {
+    return {
+      success: false,
+      error: 'Subscription offer is unavailable right now — please try again shortly',
+    };
+  }
+  const resolvedOfferToken = offerToken;
+
   const sessionId = randomUUID();
   const purchasePromise = new Promise<{ success: boolean; plan?: string; coinsGranted?: number; purchaseToken?: string; error?: string }>((resolve) => {
-    purchaseResolvers.set(sessionId, (result) => {
-      if (result !== null) {
-        resolve({
-          success: true,
-          plan: result.plan,
-          coinsGranted: result.coinsGranted,
-        });
+    purchaseResolvers.set(sessionId, (outcome) => {
+      if (outcome.status === 'success') {
+        resolve({ success: true, plan: outcome.plan, coinsGranted: outcome.coinsGranted });
       } else {
-        resolve({
-          success: false,
-          error: 'Server verification failed — please contact support if coins are missing',
-        });
+        resolve({ success: false, error: outcome.error });
       }
     });
     activePurchaseSessions.set(productId, sessionId);
 
-    InAppPurchases.purchaseItemAsync(productId).catch((err: Error) => {
+    requestSubscription({
+      subscriptionOffers: [{ sku: productId, offerToken: resolvedOfferToken }],
+    }).catch((err: unknown) => {
+      // Errors usually arrive via purchaseErrorListener; this is a safety net.
+      if (!purchaseResolvers.has(sessionId)) return;
       purchaseResolvers.delete(sessionId);
       activePurchaseSessions.delete(productId);
-      resolve({ success: false, error: err.message });
+      resolve({ success: false, error: err instanceof Error ? err.message : 'Purchase failed' });
     });
   });
 
-  // When the timeout fires the resolver is removed but purchaseItemAsync continues
+  // When the timeout fires the resolver is removed but the purchase continues
   // running in the background. Mark pendingRecovery so the listener can deliver
   // the late result and prevent the user from initiating a duplicate purchase.
   const timeoutPromise = new Promise<{ success: boolean; error: string }>((resolve) =>

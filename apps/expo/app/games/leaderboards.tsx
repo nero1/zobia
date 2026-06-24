@@ -46,7 +46,7 @@ export default function GamesLeaderboardsScreen() {
     <Screen>
       <Stack.Screen options={{ title: t('games.leaderboards', 'Leaderboards') }} />
       <View style={styles.pills}>
-        {(gamesQ.data ?? []).map((g) => (
+        {(gamesQ.data ?? []).map((g: GameSummary) => (
           <Pressable key={g.slug} onPress={() => setSlug(g.slug)}
             style={[styles.pill, { backgroundColor: slug === g.slug ? colors.primary : colors.surface }]}>
             <Text style={{ color: slug === g.slug ? '#fff' : colors.text, fontSize: 12 }}>{g.name}</Text>

@@ -76,7 +76,7 @@ export default function ChallengesScreen() {
           <View style={[styles.form, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <Text style={[styles.h2, { color: colors.text }]}>{t('games.newChallenge', 'New challenge')}</Text>
             <View style={styles.gameRow}>
-              {(gamesQ.data ?? []).map((g) => (
+              {(gamesQ.data ?? []).map((g: GameSummary) => (
                 <Pressable key={g.slug} onPress={() => setForm({ ...form, gameSlug: g.slug })}
                   style={[styles.chip, { backgroundColor: form.gameSlug === g.slug ? colors.primary : colors.background }]}>
                   <Text style={{ color: form.gameSlug === g.slug ? '#fff' : colors.text, fontSize: 12 }}>{g.name}</Text>
@@ -128,7 +128,7 @@ export default function ChallengesScreen() {
                 {incoming ? `${t('games.from', 'from')} @${c.challengerUsername}` : `${t('games.to', 'to')} @${c.opponentUsername}`}
                 {' · '}{c.rounds === 1 ? t('games.bestOf1', 'Best of 1') : t('games.bestOf3', 'Best of 3')}
                 {c.wagerCredits > 0 ? ` · ${c.wagerCredits} ${t('games.credits', 'credits')}` : ''}
-                {' · '}{t(`games.status.${c.status}`, c.status)}
+                {' · '}{t(`games.status.${c.status}`, c.status) as string}
               </Text>
               <View style={styles.actions}>
                 {incoming && c.status === 'pending' && (

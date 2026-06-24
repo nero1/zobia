@@ -25,6 +25,8 @@ import { OfflineBanner } from '@/components/offline/OfflineBanner';
 // Types
 // ---------------------------------------------------------------------------
 
+type Edge = 'top' | 'bottom' | 'left' | 'right';
+
 interface ScreenProps {
   children: ReactNode;
   /** When true the content area is scrollable. Default: false. */
@@ -35,6 +37,13 @@ interface ScreenProps {
   hideOfflineBanner?: boolean;
   /** Opt-out of bottom safe-area padding (e.g. screens with a sticky footer). */
   disableBottomInset?: boolean;
+  /**
+   * Explicit list of safe-area edges to pad. When provided it fully controls
+   * which insets are applied (and `disableBottomInset` is ignored). When
+   * omitted, the default is top/left/right plus bottom (unless
+   * `disableBottomInset` is set).
+   */
+  edges?: Edge[];
 }
 
 // ---------------------------------------------------------------------------
@@ -59,17 +68,21 @@ export function Screen({
   contentStyle,
   hideOfflineBanner = false,
   disableBottomInset = false,
+  edges,
 }: ScreenProps) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
+  const appliedEdges: Edge[] =
+    edges ?? (['top', 'left', 'right', ...(disableBottomInset ? [] : ['bottom'])] as Edge[]);
+
   const containerStyle: ViewStyle = {
     flex: 1,
     backgroundColor: colors.background,
-    paddingTop: insets.top,
-    paddingLeft: insets.left,
-    paddingRight: insets.right,
-    paddingBottom: disableBottomInset ? 0 : insets.bottom,
+    paddingTop: appliedEdges.includes('top') ? insets.top : 0,
+    paddingLeft: appliedEdges.includes('left') ? insets.left : 0,
+    paddingRight: appliedEdges.includes('right') ? insets.right : 0,
+    paddingBottom: appliedEdges.includes('bottom') ? insets.bottom : 0,
   };
 
   const content = scrollable ? (
