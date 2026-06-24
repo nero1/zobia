@@ -80,3 +80,12 @@ ALTER TABLE moderation_reports
     FOREIGN KEY (reported_message_id)
     REFERENCES room_messages (id)
     ON DELETE SET NULL;
+
+-- ---------------------------------------------------------------------------
+-- BUG-022: user_quest_progress — non-negative progress_count constraint
+-- Guards against negative values accumulating due to concurrent or erroneous
+-- decrement calls. The application layer already validates increment > 0, but
+-- a DB CHECK is the last line of defence.
+-- ---------------------------------------------------------------------------
+ALTER TABLE user_quest_progress
+  ADD CONSTRAINT chk_progress_nonneg CHECK (progress_count >= 0);
