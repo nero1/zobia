@@ -30,7 +30,6 @@
         "backgroundColor": "#ffffff"
       },
       "package": "org.zobia.social",
-      "targetSdkVersion": 36,
       "intentFilters": [
         {
           "action": "VIEW",
