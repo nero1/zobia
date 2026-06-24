@@ -78,7 +78,8 @@
         {
           "username": "zobia"
         }
-      ]
+      ],
+      "./plugins/withIapPlayFlavor"
     ],
     "experiments": {
       "typedRoutes": true
