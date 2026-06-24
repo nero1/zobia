@@ -1419,21 +1419,31 @@ Execution failed for task ':expo-in-app-purchases:compileReleaseJavaWithJavac'.
 > Compilation failed; see the compiler error output for details.
 ```
 
-**Cause:** `expo-in-app-purchases` 14.0.0 uses billing library 4.0.0, which has old
-SKU-based Java APIs (`SkuDetails`, `querySkuDetailsAsync`, `setVrPurchaseFlow`, etc.)
-that are incompatible with `compileSdkVersion 36`. The module's `build.gradle` reads
-`compileSdkVersion` from the root project via `safeExtGet("compileSdkVersion", 31)`,
-so raising `compileSdkVersion` to 36 in `app.json` silently propagates to this module
-and breaks its Java compilation.
+**Cause:** This is **not** a `compileSdkVersion` problem (an earlier fix wrongly pinned
+the module to `compileSdkVersion 34`; that build still failed). The module compiles
+fine against SDK 36 — the failure is a **Play Billing version conflict**.
 
-**Fix (already applied):** `apps/expo/patches/expo-in-app-purchases+14.0.0.patch`
-hardcodes `compileSdkVersion 34` inside the module's `build.gradle`. This is applied
-automatically by `patch-package` during the EAS build's `npm install` (via the
-`postinstall` script in `apps/expo/package.json`). The main app still compiles and
-targets SDK 36 — only this specific module uses SDK 34 for its own Java compilation,
-which is valid Gradle practice.
+`expo-in-app-purchases` 14.0.0 declares `api 'com.android.billingclient:billing:4.0.0'`
+and its Java code uses SKU-based APIs (`SkuDetails`, `SkuType`, `querySkuDetailsAsync`,
+`SkuDetailsParams`, `setVrPurchaseFlow`, `Purchase.getSkus()`) that were **removed in
+Play Billing 5.0+**. When another dependency on the classpath requests a newer Billing
+version, Gradle conflict-resolves Billing *upward* across the whole build, those SKU
+classes/methods disappear, and `compileReleaseJavaWithJavac` fails with
+`cannot find symbol`. Changing `compileSdkVersion` has no effect on this, because the
+missing symbols come from the Billing AAR, not from `android.jar`.
 
-If you ever remove or regenerate the patch, re-apply it with:
+**Fix (applied):** `apps/expo/patches/expo-in-app-purchases+14.0.0.patch` adds a
+`resolutionStrategy { force 'com.android.billingclient:billing:4.0.0' }` to the module's
+`build.gradle`, pinning Billing to the 4.x line that provides the SKU APIs. The patch
+also keeps two Gradle 8 compatibility fixes (`archiveClassifier.set(...)` and
+`components.getByName('release')`). It is applied automatically by `patch-package` during
+the EAS build's `npm install` (via the `postinstall` script).
+
+The app keeps `compileSdkVersion: 36` and `targetSdkVersion: 36` in `app.json` — Google
+Play's "target API 36" requirement is satisfied by the **app's** `targetSdkVersion`, and
+is completely independent of which Billing library this one module links against.
+
+If you ever regenerate the patch, re-apply it with:
 
 ```bash
 cd apps/expo
@@ -1443,13 +1453,17 @@ npx patch-package expo-in-app-purchases
 Or add the following hunk to `apps/expo/patches/expo-in-app-purchases+14.0.0.patch`:
 
 ```diff
-@@ -59,7 +59,7 @@ afterEvaluate {
+@@ -81,6 +81,18 @@ android {
+   }
  }
 
- android {
--  compileSdkVersion safeExtGet("compileSdkVersion", 31)
-+  compileSdkVersion 34
++configurations.all {
++  resolutionStrategy {
++    force 'com.android.billingclient:billing:4.0.0'
++  }
++}
++
 
-   compileOptions {
-     sourceCompatibility JavaVersion.VERSION_11
+ allprojects {
+   repositories {
 ```
