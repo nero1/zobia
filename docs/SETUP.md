@@ -1462,3 +1462,19 @@ active base plan/offer or `requestSubscription` will have no offer to purchase.
 `react-native-iap` autolinks under the Expo dev-client / EAS build — no extra config
 plugin is required — and contributes the `com.android.vending.BILLING` permission via its
 own manifest.
+
+**`react-native-iap` Gradle variant ambiguity (`amazon` vs `play`)**
+
+`react-native-iap` v12+ exposes two product flavors — `amazon` and `play` — which causes
+Gradle to fail with:
+
+```
+Could not resolve project :react-native-iap.
+  > Cannot choose between amazonReleaseApiElements and playReleaseApiElements
+```
+
+**Fix:** `apps/expo/plugins/withIapPlayFlavor.js` is a config plugin that injects
+`missingDimensionStrategy 'store', 'play'` into the app-level `build.gradle`
+`defaultConfig` block, telling Gradle to always use the Play Store flavor. It is
+registered in `app.json → plugins` and runs automatically on every EAS build — no
+manual action required.
