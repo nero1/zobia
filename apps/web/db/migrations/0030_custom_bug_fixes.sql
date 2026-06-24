@@ -89,3 +89,55 @@ ALTER TABLE moderation_reports
 -- ---------------------------------------------------------------------------
 ALTER TABLE user_quest_progress
   ADD CONSTRAINT chk_progress_nonneg CHECK (progress_count >= 0);
+
+-- ---------------------------------------------------------------------------
+-- Schema consistency: widen coin/amount columns from INTEGER to BIGINT
+-- Matches the coin_balance (bigint) and gifts.coin_cost (already bigint).
+-- ---------------------------------------------------------------------------
+ALTER TABLE failed_commissions
+  ALTER COLUMN coin_amount TYPE BIGINT USING coin_amount::BIGINT;
+
+ALTER TABLE gift_items
+  ALTER COLUMN coin_cost TYPE BIGINT USING coin_cost::BIGINT;
+
+ALTER TABLE gift_types
+  ALTER COLUMN coin_cost TYPE BIGINT USING coin_cost::BIGINT;
+
+ALTER TABLE store_items
+  ALTER COLUMN coins_cost TYPE BIGINT USING coins_cost::BIGINT,
+  ALTER COLUMN coins_granted TYPE BIGINT USING coins_granted::BIGINT;
+
+ALTER TABLE sponsored_quest_applications
+  ALTER COLUMN payout_coins TYPE BIGINT USING payout_coins::BIGINT;
+
+ALTER TABLE branded_rooms
+  ALTER COLUMN sponsor_budget_coins TYPE BIGINT USING sponsor_budget_coins::BIGINT;
+
+ALTER TABLE referral_commissions
+  ALTER COLUMN commission_coins TYPE BIGINT USING commission_coins::BIGINT;
+
+ALTER TABLE sponsored_quests
+  ALTER COLUMN reward_coins TYPE BIGINT USING reward_coins::BIGINT;
+
+-- ---------------------------------------------------------------------------
+-- BUG-027 (complete): user_daily_logins table for Creator Fund active-day tracking
+-- Replaces xp_ledger-based active-day counting with actual login dates.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS user_daily_logins (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  login_date  DATE NOT NULL,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uidx_user_daily_logins_user_date
+  ON user_daily_logins (user_id, login_date);
+
+-- Backfill: seed from distinct session dates in the last 90 days
+-- (best-effort; sessions table is the source of truth for past logins)
+INSERT INTO user_daily_logins (user_id, login_date)
+SELECT DISTINCT user_id, created_at::date AS login_date
+FROM sessions
+WHERE created_at >= NOW() - INTERVAL '90 days'
+  AND deleted_at IS NULL
+ON CONFLICT (user_id, login_date) DO NOTHING;

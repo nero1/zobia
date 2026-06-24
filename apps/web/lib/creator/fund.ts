@@ -100,14 +100,11 @@ export async function calculateFundDistributions(
   // causes a Cartesian fan-out that inflates aggregate values (e.g. SUM of xp_earned
   // grows by the number of follower rows, not the actual XP).
   //
-  // BUG-027 FIX: split `active_days_30d` from the `eng` (XP) CTE into its own
-  // `act` CTE sourced from UNION of room_messages + messages sent dates.
-  // Previously both xp_earned_30d AND active_days_30d were derived from xp_ledger,
-  // creating strong positive correlation between the Engagement (40%) and Consistency
-  // (15%) dimensions — effectively giving XP activity a 55% combined weight instead
-  // of the intended 40%+15% split. Using actual message-send dates for consistency
-  // decouples the two dimensions so a creator who sends many messages on a few days
-  // vs one who is active every day are scored differently on the Consistency axis.
+  // BUG-027 FIX (complete): `active_days_30d` is now sourced from user_daily_logins,
+  // a dedicated table populated on every login (session creation). This tracks actual
+  // calendar days the user authenticated — the canonical definition of an "active day"
+  // for Creator Fund consistency scoring. Decoupled from XP/message activity so
+  // engagement (40%) and consistency (15%) dimensions are truly independent.
   const { rows: creators } = await dbClient.query<CreatorMetrics>(
     `WITH eng AS (
        SELECT user_id,
@@ -117,23 +114,10 @@ export async function calculateFundDistributions(
        GROUP BY user_id
      ),
      act AS (
-       -- Count distinct calendar days the creator sent at least one message
-       -- (room message OR DM) in the last 30 days. This is a cleaner proxy for
-       -- "active days" than XP ledger dates because XP can be awarded passively
-       -- (e.g. by receiving reactions) and would inflate the consistency score.
        SELECT user_id,
-              COUNT(DISTINCT active_date)::INTEGER AS active_days_30d
-       FROM (
-         SELECT sender_id AS user_id, created_at::date AS active_date
-         FROM room_messages
-         WHERE created_at >= NOW() - INTERVAL '30 days'
-           AND deleted_at IS NULL
-         UNION
-         SELECT sender_id AS user_id, created_at::date AS active_date
-         FROM messages
-         WHERE created_at >= NOW() - INTERVAL '30 days'
-           AND deleted_at IS NULL
-       ) msg_dates
+              COUNT(*)::INTEGER AS active_days_30d
+       FROM user_daily_logins
+       WHERE login_date >= (CURRENT_DATE - INTERVAL '30 days')::date
        GROUP BY user_id
      ),
      grw AS (

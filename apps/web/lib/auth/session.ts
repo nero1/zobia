@@ -16,6 +16,7 @@
 
 import { redis } from "@/lib/redis";
 import { memGet, memSet, memDel } from "@/lib/cache/memory";
+import { db } from "@/lib/db";
 import {
   signAccessToken,
   signRefreshToken,
@@ -173,6 +174,14 @@ export async function createSession(
     refreshTtl,
     JSON.stringify(record)
   );
+
+  // Record daily login for Creator Fund active-day tracking (BUG-027)
+  await db.query(
+    `INSERT INTO user_daily_logins (user_id, login_date)
+     VALUES ($1, CURRENT_DATE)
+     ON CONFLICT (user_id, login_date) DO NOTHING`,
+    [user.id]
+  ).catch(() => {}); // non-fatal
 
   // Track session in per-user sorted set, scored by creation time.
   // Atomically extend TTL only when the new lifetime would exceed the current one
