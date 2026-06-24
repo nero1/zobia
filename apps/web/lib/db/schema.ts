@@ -2068,8 +2068,8 @@ export const gifts = pgTable("gifts", {
   giftTypeId: uuid("gift_type_id").references(() => giftTypes.id, {
     onDelete: "restrict",
   }),
-  coinValue: integer("coin_value").notNull(),
-  coinCost: integer("coin_cost").notNull(),
+  coinValue: bigint("coin_value", { mode: "number" }).notNull(),
+  coinCost: bigint("coin_cost", { mode: "number" }).notNull(),
   animationUrl: text("animation_url"),
   messageId: uuid("message_id").references(() => messages.id, {
     onDelete: "set null",
@@ -2142,9 +2142,7 @@ export const userXpBoosters = pgTable("user_xp_boosters", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   boosterType: text("booster_type"),
-  multiplier: decimal("multiplier", { precision: 4, scale: 2 })
-    .notNull()
-    .default("2.0"),
+  multiplier: integer("multiplier").notNull().default(200),
   isActive: boolean("is_active").notNull().default(true),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
@@ -2285,7 +2283,7 @@ export const failedCommissions = pgTable("failed_commissions", {
   paymentId: text("payment_id").notNull(),
   userId: uuid("user_id").notNull(),
   coinAmount: integer("coin_amount").notNull(),
-  amountKobo: integer("amount_kobo").notNull().default(0),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull().default(0),
   source: text("source").notNull().default("unknown"),
   errorMessage: text("error_message"),
   retryCount: integer("retry_count").notNull().default(0),
@@ -3468,7 +3466,10 @@ export const moderationReports = pgTable("moderation_reports", {
   reportedUserId: uuid("reported_user_id").references(() => users.id, {
     onDelete: "set null",
   }),
-  reportedMessageId: uuid("reported_message_id"),
+  reportedMessageId: uuid("reported_message_id").references(
+    () => roomMessages.id,
+    { onDelete: "set null" }
+  ),
   reportedRoomId: uuid("reported_room_id").references(() => rooms.id, {
     onDelete: "set null",
   }),

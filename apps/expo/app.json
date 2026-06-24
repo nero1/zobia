@@ -90,6 +90,7 @@
       },
       "API_BASE_URL": "https://zobia.vercel.app",
       "WEB_BASE_URL": "https://zobia.vercel.app",
+      "telegramBotName": "Zobia_bot_bot",
       "eas": {
         "projectId": "ad68e531-aa48-4873-8d41-3bca8f18b9a4"
       }

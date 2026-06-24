@@ -66,6 +66,16 @@ const TRACK_COLUMN: Record<XPTrack, string> = {
  *                      the ledger INSERT prevents actual double-awards for
  *                      non-null referenceIds, but phantom DLQ entries may
  *                      appear and consume retry slots unnecessarily.
+ *
+ * @throws When `dbClient` is provided (caller-supplied transaction) and the XP
+ *         award fails. The DLQ write is intentionally skipped in this case because
+ *         the outer transaction may still roll back — a DLQ entry created before
+ *         commit describes XP that was never lost and would cause spurious retries.
+ *         Callers that pass `dbClient` MUST either:
+ *         (a) catch the thrown error and write their own DLQ record via globalDb
+ *             AFTER the transaction commits, or
+ *         (b) use `safeAwardXPFireAndForget` for best-effort awards that should
+ *             never block or roll back their surrounding transaction.
  */
 export async function safeAwardXP(
   userId: string,
@@ -158,6 +168,42 @@ export async function safeAwardXP(
       throw err;
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Fire-and-forget wrapper
+// ---------------------------------------------------------------------------
+
+/**
+ * BUG-026 FIX: Award XP in a true fire-and-forget manner.
+ *
+ * Calls `safeAwardXP` without a `dbClient` (so DLQ is always available on
+ * failure) and suppresses the returned Promise — the caller never awaits it and
+ * the XP award never blocks or throws into the caller's execution context.
+ *
+ * Use this when XP is a secondary side-effect of an already-committed action
+ * (e.g. post-transaction reward in a serverless handler). Do NOT use inside a
+ * database transaction — call it AFTER `tx.commit()` / the transaction block.
+ *
+ * @param userId      - User UUID
+ * @param amount      - XP amount (positive integer)
+ * @param track       - Which XP track to credit
+ * @param source      - Source event name
+ * @param referenceId - Idempotency key — provide this to enable DLQ dedup
+ */
+export function safeAwardXPFireAndForget(
+  userId: string,
+  amount: number,
+  track: XPTrack,
+  source: string,
+  referenceId?: string | null
+): void {
+  safeAwardXP(userId, amount, track, source, referenceId).catch((err) => {
+    logger.error(
+      { userId, amount, track, source },
+      `[safeAwardXPFireAndForget] Unexpected error (DLQ write already attempted): ${err}`
+    );
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -269,21 +315,26 @@ export async function retryFailedXPAwards(): Promise<{
 
       // BUG-02: update leaderboard snapshot after successful retry.
       // BUG-LB-01: also upsert city-scoped snapshot when user has a city.
+      // BUG-017 FIX: use lockTx (not globalDb) so snapshot upserts participate in
+      // the same transaction that holds the FOR UPDATE SKIP LOCKED row locks.
+      // Using globalDb here would auto-commit the snapshot outside the lock
+      // transaction, causing the snapshot to be visible before the DLQ row is
+      // marked resolved (and potentially racing with concurrent CRON instances).
       if (retryXpTotal !== null) {
-        await upsertLeaderboardSnapshot(row.user_id, "main", retryXpTotal, globalDb).catch((err) => {
+        await upsertLeaderboardSnapshot(row.user_id, "main", retryXpTotal, lockTx).catch((err) => {
           logger.warn({ err, userId: row.user_id, track: "main" }, "[leaderboard] snapshot upsert failed after DLQ retry");
         });
         if (row.track !== "main" && retryTrackXP !== null) {
-          await upsertLeaderboardSnapshot(row.user_id, row.track as LeaderboardTrack, retryTrackXP, globalDb).catch((err) => {
+          await upsertLeaderboardSnapshot(row.user_id, row.track as LeaderboardTrack, retryTrackXP, lockTx).catch((err) => {
             logger.warn({ err, userId: row.user_id, track: row.track }, "[leaderboard] snapshot upsert failed after DLQ retry");
           });
         }
         if (retryCity) {
-          await upsertLeaderboardSnapshot(row.user_id, "main", retryXpTotal, globalDb, { scope: "city", city: retryCity }).catch((err) => {
+          await upsertLeaderboardSnapshot(row.user_id, "main", retryXpTotal, lockTx, { scope: "city", city: retryCity }).catch((err) => {
             logger.warn({ err, userId: row.user_id, city: retryCity, track: "main" }, "[leaderboard] city snapshot upsert failed after DLQ retry");
           });
           if (row.track !== "main" && retryTrackXP !== null) {
-            await upsertLeaderboardSnapshot(row.user_id, row.track as LeaderboardTrack, retryTrackXP, globalDb, { scope: "city", city: retryCity }).catch((err) => {
+            await upsertLeaderboardSnapshot(row.user_id, row.track as LeaderboardTrack, retryTrackXP, lockTx, { scope: "city", city: retryCity }).catch((err) => {
               logger.warn({ err, userId: row.user_id, city: retryCity, track: row.track }, "[leaderboard] city snapshot upsert failed after DLQ retry");
             });
           }

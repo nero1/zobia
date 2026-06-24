@@ -60,6 +60,9 @@ export interface PaystackSubscriptionEvent {
     customer: { email: string; customer_code: string; metadata?: { userId?: string; starsGranted?: number } };
     next_payment_date?: string;
     cancelledAt?: string;
+    // BUG-029 FIX: createdAt is provided by Paystack on all subscription events.
+    // Used to derive a stable month key that doesn't shift at midnight.
+    createdAt?: string;
   };
 }
 
@@ -615,15 +618,22 @@ export async function processSubscriptionEvent(
       // BUG-21: Key on `plan:{userId}:{YYYY-MM}` rather than subscription_code so
       // that the CRON's monthly_plan_bonus (which uses the same pattern) hits the same
       // dedup key and only one credit is issued when both fire on the 1st of the month.
+      // BUG-029 FIX: derive YYYY-MM from the event's createdAt timestamp (set by
+      // Paystack), not from new Date() (server wall-clock). Using new Date() causes a
+      // midnight race: a webhook delivered at 23:59 on the 31st and retried at 00:01
+      // on the 1st would produce two different monthKeys and double-award the bonus.
+      // Including subscription_code in the key further prevents duplicate awards when
+      // the same subscription fires multiple renewal events within the same month.
       const MONTHLY_PLAN_BONUS: Record<string, number> = { plus: 50, pro: 200, max: 500 };
       const bonusCoins = MONTHLY_PLAN_BONUS[derivedPlan];
       if (bonusCoins && bonusCoins > 0) {
-        const monthKey = new Date().toISOString().slice(0, 7); // YYYY-MM
+        const eventMonthKey = new Date(event.data.createdAt ?? Date.now()).toISOString().slice(0, 7); // YYYY-MM
+        const subscriptionCode = event.data.subscription_code;
         await creditCoins(
           resolvedUserId,
           bonusCoins,
           "subscription_bonus",
-          `plan:${resolvedUserId}:${monthKey}`,
+          `plan:${resolvedUserId}:${eventMonthKey}:${subscriptionCode}`,
           `${derivedPlan} plan subscription — monthly coin bonus`,
           { plan: derivedPlan },
           tx

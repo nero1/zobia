@@ -99,13 +99,41 @@ export async function calculateFundDistributions(
   // Joining multiple one-to-many tables to the same user row in a single query
   // causes a Cartesian fan-out that inflates aggregate values (e.g. SUM of xp_earned
   // grows by the number of follower rows, not the actual XP).
+  //
+  // BUG-027 FIX: split `active_days_30d` from the `eng` (XP) CTE into its own
+  // `act` CTE sourced from UNION of room_messages + messages sent dates.
+  // Previously both xp_earned_30d AND active_days_30d were derived from xp_ledger,
+  // creating strong positive correlation between the Engagement (40%) and Consistency
+  // (15%) dimensions — effectively giving XP activity a 55% combined weight instead
+  // of the intended 40%+15% split. Using actual message-send dates for consistency
+  // decouples the two dimensions so a creator who sends many messages on a few days
+  // vs one who is active every day are scored differently on the Consistency axis.
   const { rows: creators } = await dbClient.query<CreatorMetrics>(
     `WITH eng AS (
        SELECT user_id,
-              COALESCE(SUM(amount), 0)::INTEGER           AS xp_earned_30d,
-              COUNT(DISTINCT created_at::date)::INTEGER   AS active_days_30d
+              COALESCE(SUM(amount), 0)::INTEGER           AS xp_earned_30d
        FROM xp_ledger
        WHERE created_at >= NOW() - INTERVAL '30 days'
+       GROUP BY user_id
+     ),
+     act AS (
+       -- Count distinct calendar days the creator sent at least one message
+       -- (room message OR DM) in the last 30 days. This is a cleaner proxy for
+       -- "active days" than XP ledger dates because XP can be awarded passively
+       -- (e.g. by receiving reactions) and would inflate the consistency score.
+       SELECT user_id,
+              COUNT(DISTINCT active_date)::INTEGER AS active_days_30d
+       FROM (
+         SELECT sender_id AS user_id, created_at::date AS active_date
+         FROM room_messages
+         WHERE created_at >= NOW() - INTERVAL '30 days'
+           AND deleted_at IS NULL
+         UNION
+         SELECT sender_id AS user_id, created_at::date AS active_date
+         FROM messages
+         WHERE created_at >= NOW() - INTERVAL '30 days'
+           AND deleted_at IS NULL
+       ) msg_dates
        GROUP BY user_id
      ),
      grw AS (
@@ -138,9 +166,10 @@ export async function calculateFundDistributions(
        COALESCE(eng.xp_earned_30d, 0)        AS xp_earned_30d,
        COALESCE(grw.new_followers_30d, 0)    AS new_followers_30d,
        COALESCE(qst.quests_completed_30d, 0) AS quests_completed_30d,
-       COALESCE(eng.active_days_30d, 0)      AS active_days_30d
+       COALESCE(act.active_days_30d, 0)      AS active_days_30d
      FROM users u
      LEFT JOIN eng ON eng.user_id = u.id
+     LEFT JOIN act ON act.user_id = u.id
      LEFT JOIN grw ON grw.user_id = u.id
      LEFT JOIN qst ON qst.user_id = u.id
      WHERE u.is_creator = TRUE

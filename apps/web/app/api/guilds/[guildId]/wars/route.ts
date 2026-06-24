@@ -193,6 +193,23 @@ export const POST = withAuth(
       };
       try {
         result = await db.transaction(async (client) => {
+          // BUG-012 FIX: acquire a PostgreSQL advisory transaction lock on the
+          // declaring guild before any DML so only one concurrent war declaration
+          // per guild can proceed at a time. pg_try_advisory_xact_lock uses an
+          // integer key — we hash the UUID to a stable bigint.
+          const lockResult = await client.query<{ acquired: boolean }>(
+            `SELECT pg_try_advisory_xact_lock(
+               ('x' || substr(md5($1), 1, 16))::bit(64)::bigint
+             ) AS acquired`,
+            [guildId]
+          );
+          if (!lockResult.rows[0]?.acquired) {
+            throw conflict(
+              "Another war declaration is already in progress for this guild. Please try again.",
+              "CONCURRENT_WAR_DECLARATION"
+            );
+          }
+
           // 1. Verify caller is captain and lock guild row
           const guildRow = await client.query<{
             captain_id: string;

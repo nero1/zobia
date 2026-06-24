@@ -25,6 +25,8 @@ import * as WebBrowser from 'expo-web-browser';
 import * as ExpoLinking from 'expo-linking';
 import * as Crypto from 'expo-crypto';
 
+import Constants from 'expo-constants';
+
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/lib/auth/hooks';
@@ -40,7 +42,11 @@ WebBrowser.maybeCompleteAuthSession();
 // Constants
 // ---------------------------------------------------------------------------
 
-const TELEGRAM_BOT = 'Zobia_bot_bot';
+// BUG-024 FIX: read Telegram bot name from EAS app config so it can be changed
+// without a code change or app store submission. Falls back to the original
+// hardcoded value if the config entry is absent (e.g. in local development).
+const TELEGRAM_BOT: string =
+  (Constants.expoConfig?.extra?.telegramBotName as string | undefined) ?? 'Zobia_bot_bot';
 
 // ---------------------------------------------------------------------------
 // Component
@@ -120,10 +126,16 @@ export default function LoginScreen() {
     }
   }
 
+  // BUG-016 FIX: include clearSessionExpired in the dependency array.
+  // handleDeepLink calls clearSessionExpired() on successful auth; omitting it
+  // meant that if clearSessionExpired changed identity (e.g. after a re-render
+  // caused by a session expiry event), handleDeepLink would hold a stale closure
+  // and call the old function. The eslint-disable comment is no longer needed.
   useEffect(() => {
     const subscription = ExpoLinking.addEventListener('url', handleDeepLink);
     return () => subscription.remove();
-  }, [signIn, router]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signIn, router, clearSessionExpired]);
 
   // -------------------------------------------------------------------------
   // Google OAuth

@@ -1546,5 +1546,15 @@
   "games.admin.noResults": "No games match your search.",
   "games.admin.total": "{{count}} total",
 
-  "games.error.notPlayed": "You must play this game at least once before rating it."
+  "games.error.notPlayed": "You must play this game at least once before rating it.",
+
+  "admin.moderation.messageDeleted": "Message deleted",
+  "admin.moderation.messageDeletedHint": "The original message was deleted after this report was filed.",
+
+  "wallet.boosterMultiplier": "{{multiplier}}× XP",
+
+  "errors.quest_increment_invalid": "Quest progress increment must be a positive number.",
+
+  "offline.syncingMessages": "Syncing unsent messages…",
+  "offline.syncComplete": "Messages synced successfully."
 }

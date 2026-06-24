@@ -66,7 +66,26 @@ export async function grantGamingReward(
 
   if (xp > 0) {
     // safeAwardXP updates xp_total + xp_gaming. We then recompute level_gaming.
-    await safeAwardXP(userId, xp, "gaming", source, `${referenceId}:xp`, client);
+    // BUG-026 FIX: when `client` is a caller-supplied transaction, safeAwardXP rethrows
+    // on failure instead of writing to the DLQ. Catch here and write the DLQ entry via
+    // globalDb (outside the transaction) so XP is never silently lost. We do NOT rethrow
+    // so the rest of the reward bundle (credits, stars) and the outer transaction can
+    // commit successfully — XP will be retried by the daily CRON.
+    try {
+      await safeAwardXP(userId, xp, "gaming", source, `${referenceId}:xp`, client);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      logger.error({ userId, source, referenceId }, `[grantGamingReward] XP award failed inside tx — writing to DLQ: ${errorMessage}`);
+      await globalDb.query(
+        `INSERT INTO failed_xp_awards
+           (user_id, amount, track, source, reference_id, error_message, failed_at, retry_count)
+         VALUES ($1, $2, 'gaming', $3, $4, $5, NOW(), 0)
+         ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
+        [userId, xp, source, `${referenceId}:xp`, errorMessage]
+      ).catch((dlqErr) => {
+        logger.error({ userId, source }, `[grantGamingReward] Failed to write XP to DLQ: ${dlqErr}`);
+      });
+    }
     await recomputeGamingLevel(userId, client ?? globalDb);
   }
 

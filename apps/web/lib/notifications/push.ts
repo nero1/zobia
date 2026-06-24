@@ -410,6 +410,15 @@ export async function pollPushReceipts(): Promise<number> {
     await redis.del(LOCK_KEY).catch(() => {});
   }
 
+  // BUG-010 FIX: purge resolved push_tickets older than 30 days so the table
+  // doesn't grow unbounded. Tickets are small rows but accumulate at the rate
+  // of every notification sent; without a purge the table becomes a hot GC target.
+  await db.query(
+    `DELETE FROM push_tickets
+     WHERE resolved_at IS NOT NULL
+       AND resolved_at < NOW() - INTERVAL '30 days'`
+  ).catch((err) => logger.error({ err }, "[push] Failed to purge resolved push_tickets"));
+
   return totalResolved;
 }
 
@@ -538,10 +547,28 @@ export async function sendPushNotificationBatch(
   if (notifications.length === 0) return;
 
   try {
+    // BUG-025 FIX: apply the same per-user rate limit as sendPushNotification.
+    // Without this check, callers using the batch path could send an unlimited
+    // number of push notifications to the same user within 60 seconds, bypassing
+    // the MAX_PUSH_PER_USER_PER_MINUTE guard that single-send enforces.
+    const filteredNotifications = (await Promise.all(
+      notifications.map(async (n) => {
+        const rateKey = `user:push:rate:${n.userId}`;
+        const count = await atomicIncrWithTtl(redis, rateKey, 60).catch(() => 0);
+        if (count > MAX_PUSH_PER_USER_PER_MINUTE) {
+          logger.warn({ userId: n.userId, count }, "[push] Per-user push rate limit exceeded in batch — skipping");
+          return null;
+        }
+        return n;
+      })
+    )).filter((n): n is NonNullable<typeof n> => n !== null);
+
+    if (filteredNotifications.length === 0) return;
+
     // Deduplicate notifications by userId so each user receives at most one push
     // per batch call, regardless of how many events triggered it (BUG-N-01).
     const seen = new Set<string>();
-    const dedupedNotifications = notifications.filter((n) => {
+    const dedupedNotifications = filteredNotifications.filter((n) => {
       if (seen.has(n.userId)) return false;
       seen.add(n.userId);
       return true;

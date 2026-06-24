@@ -84,7 +84,8 @@ function buildCsp(nonce: string): string {
     "worker-src 'self'",
     "font-src 'self' https://fonts.gstatic.com",
     // CSP-01: explicit allowlist instead of bare https: (which allows any HTTPS host)
-    "img-src 'self' data: blob: https://lh3.googleusercontent.com https://*.supabase.co https://*.r2.cloudflarestorage.com https://media.giphy.com https://media.tenor.com https://c.tenor.com https://storage.googleapis.com https://img.youtube.com",
+    // BUG-008 FIX: added https://t.me and https://telegram.org for Telegram profile avatars
+    "img-src 'self' data: blob: https://lh3.googleusercontent.com https://*.supabase.co https://*.r2.cloudflarestorage.com https://media.giphy.com https://media.tenor.com https://c.tenor.com https://storage.googleapis.com https://img.youtube.com https://t.me https://telegram.org",
     `connect-src ${connectSrc}`,
     "frame-src 'self' https://www.google.com https://challenges.cloudflare.com",
     "object-src 'none'",

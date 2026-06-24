@@ -90,6 +90,13 @@ export function getSpamDomainRegex(): RegExp {
  * @param content - Raw message content
  * @returns Content with all contact-info patterns removed
  */
+// BUG-002 FIX: unified minimum digit threshold used by both stripContactInfo
+// and containsContactInfo so the two functions agree on what counts as a phone
+// number.  Previously stripContactInfo used 10 while containsContactInfo used 7,
+// meaning a 7-9 digit sequence would be flagged by containsContactInfo but not
+// stripped — leaving the number in the message.
+const MIN_PHONE_DIGITS = 7;
+
 function stripContactInfo(content: string): string {
   // Order matters: strip URLs first (they may contain @ signs),
   // then emails, then phone numbers.
@@ -99,11 +106,9 @@ function stripContactInfo(content: string): string {
     .replace(getUrlRegex(), "")
     .replace(getEmailRegex(), "")
     .replace(getPhoneRegex(), (match) => {
-      // Only strip if the match has ≥ 10 numeric chars (minimum for any valid
-      // international phone number). This is a secondary guard against edge-case
-      // false positives not caught by the regex prefix requirement.
+      // Only strip if the match has ≥ MIN_PHONE_DIGITS numeric chars.
       const digits = match.replace(/\D/g, "");
-      return digits.length >= 10 ? "" : match;
+      return digits.length >= MIN_PHONE_DIGITS ? "" : match;
     })
     .replace(/\s{2,}/g, " ") // collapse leftover whitespace
     .trim();
@@ -171,7 +176,6 @@ export function containsContactInfo(content: string): boolean {
   if (getUrlRegex().test(content)) return true;
   if (getEmailRegex().test(content)) return true;
 
-  // Phone check: only count if 7+ consecutive digits are present
   const phoneMatches = content.match(getPhoneRegex()) ?? [];
-  return phoneMatches.some((m) => m.replace(/\D/g, "").length >= 7);
+  return phoneMatches.some((m) => m.replace(/\D/g, "").length >= MIN_PHONE_DIGITS);
 }

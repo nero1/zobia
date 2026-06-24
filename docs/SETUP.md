@@ -761,6 +761,17 @@ Both methods are protected — just by different mechanisms. This is the correct
 4. The bot username is shown at the top of BotFather's reply (e.g. `ZobiaBot`) — copy it **without the `@`** to `NEXT_PUBLIC_TELEGRAM_BOT_USERNAME`. This is required for the Login Widget to appear on the register/login pages.
 5. Send `/setdomain` to BotFather → select your bot → enter your domain (e.g. `zobia.social`).
 6. The Telegram Login Widget will now work on your domain.
+7. **Mobile (Expo):** The Expo app reads the bot name from `Constants.expoConfig?.extra?.telegramBotName`. Set it in `apps/expo/app.json` under `extra` so different EAS build profiles (development/staging/production) can use different bots:
+   ```json
+   {
+     "expo": {
+       "extra": {
+         "telegramBotName": "ZobiaBot"
+       }
+     }
+   }
+   ```
+   The value must match the bot username **without the `@`**. Omitting it falls back to the hardcoded development bot name.
 
 ---
 
@@ -1308,7 +1319,21 @@ When a user logs into the Expo app on a physical device, the app automatically:
 
 The `deviceId` enables deduplication when a user reinstalls the app: only the most recently registered token per `(user_id, device_id)` pair receives notifications, preventing duplicate delivery after reinstalls.
 
-No configuration is needed beyond including `expo-notifications` in your Expo SDK (already included in `apps/expo/package.json`).
+**EAS Project ID (required since Expo SDK 47):** `Notifications.getExpoPushTokenAsync()` now requires the EAS `projectId` to be passed explicitly. The app reads this from `Constants.expoConfig?.extra?.eas?.projectId`. Ensure your `apps/expo/app.json` (or `app.config.js`) includes the EAS project ID in the `extra.eas` block:
+
+```json
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "your-eas-project-id-here"
+      }
+    }
+  }
+}
+```
+
+Find your project ID at [expo.dev](https://expo.dev) → your project → Project ID. Without this, push tokens may be silently invalid on SDK 47+.
 
 To test push notifications locally:
 ```bash
