@@ -1,16 +1,16 @@
 diff --git a/node_modules/expo-in-app-purchases/android/build.gradle b/node_modules/expo-in-app-purchases/android/build.gradle
-index 2c50e2f..1e3b618 100644
+index 2c50e2f..1958de2 100644
 --- a/node_modules/expo-in-app-purchases/android/build.gradle
 +++ b/node_modules/expo-in-app-purchases/android/build.gradle
 @@ -37,7 +37,7 @@ buildscript {
-
+ 
  // Creating sources with comments
  task androidSourcesJar(type: Jar) {
 -  classifier = 'sources'
 +  archiveClassifier.set('sources')
    from android.sourceSets.main.java.srcDirs
  }
-
+ 
 @@ -45,7 +45,7 @@ afterEvaluate {
    publishing {
      publications {
@@ -20,12 +20,22 @@ index 2c50e2f..1e3b618 100644
          // Add additional sourcesJar to artifacts
          artifact(androidSourcesJar)
        }
-@@ -59,7 +59,7 @@ afterEvaluate {
+@@ -81,6 +81,18 @@ android {
+   }
  }
-
- android {
--  compileSdkVersion safeExtGet("compileSdkVersion", 31)
-+  compileSdkVersion 34
-
-   compileOptions {
-     sourceCompatibility JavaVersion.VERSION_11
+ 
++// expo-in-app-purchases 14.0.0 targets Play Billing 4.x and uses SKU-based APIs
++// (SkuDetails, querySkuDetailsAsync, setVrPurchaseFlow, Purchase.getSkus) that were
++// removed in Billing 5.0+. When another dependency pulls a newer Billing version onto
++// the classpath, Gradle conflict-resolves billing upward and this module fails to
++// compile (compileReleaseJavaWithJavac: cannot find symbol). Pin Billing to 4.0.0 so
++// the module compiles while the app keeps compileSdkVersion / targetSdkVersion 36.
++configurations.all {
++  resolutionStrategy {
++    force 'com.android.billingclient:billing:4.0.0'
++  }
++}
++
+ 
+ allprojects {
+   repositories {
