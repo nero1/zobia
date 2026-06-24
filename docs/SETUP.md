@@ -23,7 +23,7 @@ Before you begin, you will need accounts and tools for the following:
 
 ### Local Tools
 - **Node.js 20+** — `node --version` must show v20 or higher
-- **pnpm** — `npm install -g pnpm`
+- **npm 10+** — bundled with Node 20. **This repo is an npm-workspaces monorepo with a single root `package-lock.json`.** Do **not** use pnpm or yarn, and do **not** run `npm install` inside `apps/expo` — that creates a nested `apps/expo/package-lock.json` and a divergent `node_modules` that breaks the EAS Android build. See [Mobile (Expo) Android APK Build](#mobile-expo-android-apk-build).
 - **EAS CLI** — `npm install -g eas-cli`
 - **Git**
 
@@ -36,8 +36,9 @@ Before you begin, you will need accounts and tools for the following:
 git clone https://github.com/your-org/zobia-social.git
 cd zobia-social
 
-# 2. Install dependencies (includes `marked` for announcement markdown rendering)
-pnpm install
+# 2. Install dependencies — ALWAYS from the repo root (npm workspaces).
+#    Never run `npm install` inside apps/expo or apps/web individually.
+npm install
 
 # 3. Copy environment variables
 cp apps/web/.env.example apps/web/.env.local
@@ -52,8 +53,8 @@ for f in db/migrations/*.sql; do
   psql "$DATABASE_URL" < "$f"
 done
 
-# 6. Start the development server
-pnpm dev
+# 6. Start the development server (web)
+npm run dev:web
 
 # 7. Open http://localhost:3000
 ```
@@ -81,6 +82,100 @@ curl https://your-domain.com/api/health
 ```
 
 `GET /api/health` returns HTTP 200 when all backing services (database and Redis) are reachable. It returns HTTP 503 with `"status": "degraded"` if any service is unavailable. Configure your load balancer or uptime monitor to poll this endpoint.
+
+---
+
+## Mobile (Expo) Android APK Build
+
+> **Read this before touching the Expo app or the Android build.** This monorepo
+> hits several non-obvious traps that have historically broken the EAS APK build
+> at the very last step (the Metro JS bundle), *after* ~4 minutes of native
+> compilation. Each is cheap to avoid and expensive to debug from scratch.
+
+The Android APK is built in the cloud with **Expo EAS Build** — there is no local
+Android Studio requirement. It is triggered by `.github/workflows/build-android.yml`
+(which runs `eas build --platform android --profile preview`) and requires the
+`EXPO_TOKEN` repository secret. Without `EXPO_TOKEN` the workflow skips the build
+(this is the only reason older runs "passed"). Target is **Android API level 36**.
+
+### ⚠️ The five rules that keep the Android build green
+
+1. **One lockfile, installed from the root.** This is an npm-workspaces monorepo.
+   Run `npm install` **only from the repo root**. Never run it inside `apps/expo`
+   or `apps/web` — that produces a nested `package-lock.json` and a divergent
+   `node_modules`, which is exactly what fragments dependency resolution on EAS.
+   There must be exactly one `package-lock.json`, at the repo root.
+
+2. **Do NOT unify the React version.** The two apps run different React majors **on
+   purpose**:
+   - `apps/web` (Next.js 15) → `react@18.3.1`
+   - `apps/expo` (React Native 0.74) → `react@18.2.0` (RN 0.74 has a *strict*
+     `react@18.2.0` peer; 18.3.1 makes `npm install` fail with `ERESOLVE`).
+
+   Because of this split, **`expo-router` cannot hoist to the root `node_modules`** —
+   it stays nested under `apps/expo/node_modules` so it binds the app's `react@18.2.0`.
+   Do not "fix" the warning by aligning versions; that either breaks the install
+   (RN peer) or causes a dual-React runtime crash (`Invalid hook call`).
+
+3. **Keep the explicit expo-router Babel plugin in `apps/expo/babel.config.js`.**
+   `babel-preset-expo` only applies its expo-router transform if it can
+   `require.resolve('expo-router')` relative to **its own** location. `babel-preset-expo`
+   hoists to the repo root, but (per rule 2) `expo-router` is nested under `apps/expo`,
+   so that detection silently fails, the transform is skipped, and
+   `process.env.EXPO_ROUTER_APP_ROOT` is left un-inlined. The release bundle then dies with:
+
+   ```
+   SyntaxError: expo-router/_ctx.android.js: Invalid call ... process.env.EXPO_ROUTER_APP_ROOT
+   First argument of `require.context` should be a string
+   ```
+
+   `apps/expo/babel.config.js` works around this by applying
+   `babel-preset-expo/build/expo-router-plugin`'s `expoRouterBabelPlugin` explicitly
+   (resolved from `apps/expo`, so it loads the correct nested copy). **Do not remove it**
+   unless the React split above is also removed.
+
+4. **AdMob app ID lives in `app.json`, as a root-level key — and the warning is expected.**
+   `react-native-google-mobile-ads` reads the app ID at build time from its **own** Gradle
+   script (`android/app-json.gradle`), not from an Expo config plugin. It must therefore sit
+   as a **sibling of the `expo` object** in `apps/expo/app.json`:
+
+   ```jsonc
+   {
+     "expo": { ... },
+     "react-native-google-mobile-ads": {
+       "android_app_id": "ca-app-pub-XXXXXXXX~XXXXXXXX",
+       "ios_app_id": "ca-app-pub-XXXXXXXX~XXXXXXXX"
+     }
+   }
+   ```
+
+   Expo CLI prints `Ignoring extra key in Expo config: "react-native-google-mobile-ads"` —
+   this is **harmless and expected**; Expo's config normaliser ignores the key but Gradle
+   still reads the raw file. If `android_app_id` is *missing*, the Gradle build hard-fails
+   with `System.exit(1)` (it will not even reach the bundle step). The values above are
+   Google's official **test** IDs — replace them with your live AdMob IDs before release.
+
+5. **`mobileAds().initialize()` must run at startup.** The native app ID in the manifest is
+   only half of the wiring — the SDK must also be initialised once in JS or ads silently
+   never serve (no crash, just no-fill). This repo calls `initializeAds()`
+   (`apps/expo/lib/ads/admob.ts`) from the root layout's startup effect
+   (`apps/expo/app/_layout.tsx`). Per-surface ad unit IDs come from
+   `EXPO_PUBLIC_ADMOB_*` env vars and fall back to `TestIds` in dev.
+
+### Triggering a build
+
+- `.github/workflows/build-android.yml` auto-runs on pushes to `main` (and the
+  configured build branch) that touch `apps/expo/**`. Feature branches are **not**
+  auto-built — use **Actions → Build Android APK → Run workflow** (`workflow_dispatch`)
+  to build any branch manually, or merge to `main`.
+- To validate the JS bundle locally **without** a native build (catches rules 1–3 in
+  seconds rather than via a full cloud build):
+
+  ```bash
+  cd apps/expo
+  NODE_ENV=production npx expo export --platform android --output-dir /tmp/expo-export
+  # Success looks like: "Android Bundled … node_modules/expo-router/entry.js (NNNN modules)"
+  ```
 
 ### Building without a full set of env vars (CI / local type-check)
 
@@ -642,8 +737,8 @@ are required.
   replay attacks with stale sessions.
 - **Mobile (Expo):** games render in a `react-native-webview` that loads
   `<WEB_BASE_URL>/g/<slug>/embed`. The dependency is declared in `apps/expo/package.json`;
-  run `pnpm install` after pulling. No native game code ships — write a game once as a web
-  engine and it runs on web, PWA and mobile.
+  run `npm install` (from the repo root) after pulling. No native game code ships — write a
+  game once as a web engine and it runs on web, PWA and mobile.
 - **Ads:** set `NEXT_PUBLIC_ADSENSE_CLIENT` / `NEXT_PUBLIC_ADSENSE_SLOT` (web) and/or
   `ADMOB_APP_ID` (Expo) and enable the `admob_ads` flag to show ads on game surfaces;
   otherwise web shows a labelled placeholder and mobile renders nothing.

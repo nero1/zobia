@@ -1300,6 +1300,29 @@ The platform Vitality Calendar incorporates Nigerian, Pan-African, and global cu
 | APK Build & Distribution | Expo EAS Build (cloud build, free tier for MVP). Keystore managed via EAS or GitHub secrets for self-managed signing. |
 | Hosting (Web/API/Admin) | Vercel (Hobby Plan for MVP, upgrade as needed) |
 
+### 22.0.1 — Mobile (Expo) Build Constraints (must-read before building the APK)
+
+The monorepo deliberately runs **two different React majors** — `apps/web` (Next.js 15)
+on `react@18.3.1` and `apps/expo` (React Native 0.74) on `react@18.2.0`, because RN 0.74
+has a strict `react@18.2.0` peer. This split has non-obvious consequences that have
+repeatedly broken the EAS Android build at the final Metro-bundle step. The full
+runbook lives in **`docs/SETUP.md` → "Mobile (Expo) Android APK Build"**; the
+non-negotiable rules are:
+
+1. **Single npm lockfile, installed from the repo root.** npm-workspaces only — never
+   `npm install` inside `apps/expo`/`apps/web`; never commit a nested `package-lock.json`.
+2. **Do not unify the React versions.** The split is intentional; unifying either fails
+   `npm install` (RN peer) or causes a dual-React `Invalid hook call` crash.
+3. **Keep the explicit `expoRouterBabelPlugin` in `apps/expo/babel.config.js`.** Because
+   `expo-router` stays nested under `apps/expo` (it binds `react@18.2.0`), the root-hoisted
+   `babel-preset-expo` can't auto-detect it, so the router transform must be applied
+   explicitly or the release bundle fails on `EXPO_ROUTER_APP_ROOT` / `require.context`.
+4. **AdMob app ID is a root-level `react-native-google-mobile-ads` key in `app.json`** (read
+   by the library's Gradle script, not an Expo plugin); the Expo "Ignoring extra key"
+   warning is expected. `mobileAds().initialize()` runs once at startup via `initializeAds()`.
+5. **Target Android API level 36.** Builds run via `.github/workflows/build-android.yml`
+   and require the `EXPO_TOKEN` secret (no token ⇒ the APK step is skipped).
+
 ### 22.1 — Database Provider Architecture
 
 The platform abstracts all database access behind a provider interface. The active provider is selected via the `DATABASE_PROVIDER` environment variable. Supported values at launch: `supabase`, `railway`, `digitalocean`.
