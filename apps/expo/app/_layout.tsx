@@ -10,6 +10,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import * as Crypto from 'expo-crypto';
+import * as SecureStore from 'expo-secure-store';
 import NetInfo from '@react-native-community/netinfo';
 
 import { AuthProvider } from '@/lib/auth/context';
@@ -22,6 +23,7 @@ import { useAuth } from '@/lib/auth/hooks';
 import { initOfflineDB } from '@/lib/offline/sqlite';
 import { syncPendingMessages } from '@/lib/offline/syncQueue';
 import { initStore } from '@/lib/offline/store';
+import { initializeAds } from '@/lib/ads/admob';
 import { useReferralCaptureFromLink } from '@/lib/deeplinks/referral';
 import '@/lib/i18n';
 
@@ -178,6 +180,10 @@ function RootLayoutNav() {
     initStore().catch((err) =>
       console.warn('[offline] MMKV store init failed', err)
     );
+    // Initialise the Google Mobile Ads SDK once at startup. Without this, ads
+    // never serve (no crash — they just no-fill). The native app ID is set in
+    // app.json under the root-level `react-native-google-mobile-ads` key.
+    initializeAds();
   }, []);
 
   // Register push token once the user's identity is established.

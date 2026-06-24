@@ -9,7 +9,7 @@
  */
 
 import { Platform } from 'react-native';
-import {
+import mobileAds, {
   RewardedAd,
   RewardedAdEventType,
   AdEventType,
@@ -18,6 +18,38 @@ import {
   BannerAdSize,
   InterstitialAd,
 } from 'react-native-google-mobile-ads';
+
+// ---------------------------------------------------------------------------
+// SDK initialization
+// ---------------------------------------------------------------------------
+
+let adsInitialized = false;
+
+/**
+ * Initialize the Google Mobile Ads SDK. MUST be called once at app startup
+ * (before any ad is loaded) or ads silently never serve — `RewardedAd.load()`
+ * and `<BannerAd />` will just error/no-fill.
+ *
+ * The native AdMob app ID itself is configured separately, in app.json under
+ * the ROOT-level `react-native-google-mobile-ads` key (android_app_id /
+ * ios_app_id). That key is read at build time by the library's own Gradle
+ * script (android/app-json.gradle), NOT by an Expo config plugin — so it lives
+ * as a sibling of the `expo` object, and Expo CLI's "Ignoring extra key" warning
+ * for it is expected and harmless.
+ *
+ * Safe to call multiple times; initialization only runs once.
+ */
+export async function initializeAds(): Promise<void> {
+  if (adsInitialized) return;
+  adsInitialized = true;
+  try {
+    await mobileAds().initialize();
+  } catch (err) {
+    // Don't let an ads failure block app startup.
+    adsInitialized = false;
+    console.warn('[ads] Google Mobile Ads init failed', err);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Ad Unit IDs
