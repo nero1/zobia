@@ -59,6 +59,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",
+    "patch-package": "^8.0.1",
     "@types/react": "~18.2.0",
     "@typescript-eslint/eslint-plugin": "^8.61.1",
     "@typescript-eslint/parser": "^8.61.1",
