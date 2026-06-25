@@ -36,6 +36,7 @@ interface StoreItemRow {
   coins_granted: number | null;
   stars_granted: number | null;
   bonus_label: string | null;
+  iap_product_id: string | null;
   cosmetic_type: string | null;
   is_exclusive: boolean;
   is_featured: boolean;
@@ -59,6 +60,7 @@ export const GET = withAuth(async (_req: NextRequest, _ctx) => {
       db.query<StoreItemRow>(
         `SELECT id, name, description, item_type, price_kobo, currency,
                 coins_cost, stars_cost, coins_granted, stars_granted, bonus_label,
+                iap_product_id,
                 cosmetic_type, COALESCE(is_exclusive, false) AS is_exclusive,
                 is_featured, sort_order, metadata
          FROM store_items
@@ -78,6 +80,7 @@ export const GET = withAuth(async (_req: NextRequest, _ctx) => {
         currency: r.currency ?? "NGN",
         coinsGranted: r.coins_granted,
         bonusLabel: r.bonus_label,
+        iapProductId: r.iap_product_id ?? null,
         isFeatured: r.is_featured,
       }));
 
