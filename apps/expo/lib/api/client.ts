@@ -30,6 +30,12 @@ export const JWT_KEY = 'zobia_jwt';
 /** Key used to persist the refresh token in SecureStore. */
 export const REFRESH_TOKEN_KEY = 'zobia_rt';
 
+/** In-memory JWT cache to avoid SecureStore reads on every request. */
+let _cachedToken: string | null = null;
+
+/** Update the in-memory JWT cache (call from AuthContext on sign-in/out/restore). */
+export function setCachedToken(t: string | null): void { _cachedToken = t; }
+
 // ---------------------------------------------------------------------------
 // Auth event emitter
 // ---------------------------------------------------------------------------
@@ -140,6 +146,7 @@ export async function refreshAccessToken(): Promise<string | null> {
       if (!newToken) return null;
 
       await SecureStore.setItemAsync(JWT_KEY, newToken);
+      _cachedToken = newToken;
 
       // Persist the rotated refresh token so the next refresh succeeds
       const newRefreshToken = res.data.refreshToken;
@@ -191,7 +198,8 @@ export async function refreshAccessToken(): Promise<string | null> {
 // Request interceptor — attach stored JWT as Bearer token.
 apiClient.interceptors.request.use(
   async (config: InternalAxiosRequestConfig) => {
-    const token = await SecureStore.getItemAsync(JWT_KEY);
+    const token = _cachedToken ?? await SecureStore.getItemAsync(JWT_KEY);
+    if (token && !_cachedToken) _cachedToken = token;
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -271,6 +279,6 @@ focusManager.setEventListener((handleFocus) => {
 
 onlineManager.setEventListener((setOnline) => {
   return NetInfo.addEventListener((state) => {
-    setOnline(Boolean(state.isConnected));
+    setOnline(Boolean(state.isConnected && state.isInternetReachable !== false));
   });
 });

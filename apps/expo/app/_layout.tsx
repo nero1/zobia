@@ -25,7 +25,7 @@ import { AnnouncementModal } from '@/components/announcements/AnnouncementModal'
 import { SessionExpiredModal } from '@/components/auth/SessionExpiredModal';
 import { useAuth } from '@/lib/auth/hooks';
 import { initOfflineDB } from '@/lib/offline/sqlite';
-import { syncPendingMessages } from '@/lib/offline/syncQueue';
+import { syncPendingMessages, resetSendingMessages } from '@/lib/offline/syncQueue';
 import { initStore } from '@/lib/offline/store';
 import { initializeAds } from '@/lib/ads/admob';
 import { initGooglePlayBilling, endBillingConnection } from '@/lib/payments/googlePlay';
@@ -168,7 +168,6 @@ async function registerForPushNotifications(): Promise<void> {
         await new Promise((resolve) => setTimeout(resolve, base * (0.5 + 0.5 * Math.random())));
       } else {
         console.warn('[push] Token registration failed after retries:', err);
-        Alert.alert('Push Notifications', "Couldn't set up push notifications. You can retry in Settings.");
       }
     }
   }
@@ -203,12 +202,23 @@ function RootLayoutNav() {
       await initOfflineDB().catch((err) =>
         console.warn('[offline] SQLite init failed', err)
       );
+      await resetSendingMessages().catch((err) =>
+        console.warn('[offline] resetSendingMessages failed', err)
+      );
       try {
         await initStore();
       } catch (err) {
         console.warn('[offline] MMKV store init failed', err);
       } finally {
         if (active) setStoreReady(true);
+      }
+      const lastResponse = await Notifications.getLastNotificationResponseAsync();
+      if (lastResponse) {
+        const data = lastResponse.notification.request.content.data as Record<string, unknown>;
+        const action = data?.action as string | undefined;
+        if (action && VALID_PUSH_ROUTES.some((re) => re.test(action))) {
+          try { router.push(action as Parameters<typeof router.push>[0]); } catch {}
+        }
       }
     })();
     // Ads and billing do not depend on MMKV — start them in parallel.
