@@ -18,6 +18,7 @@
 
 import { db } from "@/lib/db";
 import { initiateTransfer, verifyTransfer } from "@/lib/payments/paystack";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -363,17 +364,29 @@ export async function moveToDeadLetterQueue(
     // earnings_restored guards against double-credit when both the DLQ cron and the
     // transfer.failed webhook fire.
     if (!current[0].earnings_restored) {
-      const restoreAmount = current[0].net_kobo ?? current[0].gross_kobo;
-      await tx.query(
-        `UPDATE creator_payouts SET earnings_restored = true WHERE id = $1`,
-        [payoutId]
-      );
-      await tx.query(
-        `UPDATE users
-         SET available_earnings_kobo = available_earnings_kobo + $1, updated_at = NOW()
-         WHERE id = $2`,
-        [restoreAmount, creatorId]
-      );
+      const restoreAmount = current[0].net_kobo;
+      if (restoreAmount == null) {
+        logger.error({ payoutId, creatorId }, "[payout/dlq] net_kobo is null — cannot restore earnings safely; requires manual review");
+        await tx.query(
+          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
+           VALUES ('payout_dlq_null_net_kobo', 'critical', $1, $2::jsonb, NOW())`,
+          [
+            `Payout ${payoutId} moved to DLQ but net_kobo is null — earnings not restored`,
+            JSON.stringify({ payoutId, creatorId, grossKobo: current[0].gross_kobo }),
+          ]
+        ).catch(() => {});
+      } else {
+        await tx.query(
+          `UPDATE creator_payouts SET earnings_restored = true WHERE id = $1`,
+          [payoutId]
+        );
+        await tx.query(
+          `UPDATE users
+           SET available_earnings_kobo = available_earnings_kobo + $1, updated_at = NOW()
+           WHERE id = $2`,
+          [restoreAmount, creatorId]
+        );
+      }
     }
 
     // Insert dead-letter record (ON CONFLICT to tolerate duplicate calls)

@@ -313,7 +313,15 @@ export async function pollPushReceipts(): Promise<number> {
        LIMIT 1000`
     );
 
-    if (pendingTickets.length === 0) return 0;
+    if (pendingTickets.length === 0) {
+      // Still run cleanup even when no tickets are pending (BUG-PUSH-01)
+      await db.query(
+        `DELETE FROM push_tickets
+         WHERE resolved_at IS NOT NULL
+           AND resolved_at < NOW() - INTERVAL '30 days'`
+      ).catch((err) => logger.error({ err }, "[push] Failed to purge resolved push_tickets"));
+      return 0;
+    }
 
     // Poll in batches of 100 (Expo limit)
     for (let i = 0; i < pendingTickets.length; i += EXPO_BATCH_SIZE) {

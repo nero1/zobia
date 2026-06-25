@@ -473,6 +473,22 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
       return response;
     }
 
+    // Reject pre-auth tokens from accessing app routes — they must complete 2FA first.
+    // API callers get 401; page routes are redirected to the 2FA verify page.
+    if (payload.type === 'pre_auth') {
+      if (pathname.startsWith("/api/")) {
+        const res = NextResponse.json(
+          { error: "Unauthorised", code: "PRE_AUTH_TOKEN" },
+          { status: 401 }
+        );
+        res.headers.set("Content-Security-Policy", csp);
+        res.headers.set("X-Content-Type-Options", "nosniff");
+        res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+        return res;
+      }
+      return NextResponse.redirect(new URL("/auth/2fa", request.url));
+    }
+
     // Onboarding gate: users with onboarding_completed === false must finish
     // onboarding before accessing any app page. Only enforced when the JWT
     // explicitly carries the claim (old tokens without it are not redirected).

@@ -424,7 +424,8 @@ export async function checkDeckCompletion(
       bonus_already_awarded: boolean;
     }>(
       `SELECT
-         COUNT(*) AS total,
+         (SELECT COUNT(*) FROM user_quest_decks
+          WHERE user_id = $1 AND assigned_date = $2::date) AS total,
          COUNT(*) FILTER (WHERE uqp.completed = TRUE) AS completed_count,
          EXISTS (
            SELECT 1 FROM xp_ledger

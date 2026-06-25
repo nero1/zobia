@@ -4,41 +4,114 @@
  * SQLite-backed offline message queue for Android.
  * Queues outgoing messages when the device is offline and syncs when reconnected.
  *
- * TASK-31 (BUG-PRIV-01) — SQLite Encryption TODO:
- * The current implementation stores message content in plaintext. For production,
- * encrypt the database at rest using one of:
+ * BUG-PRIV-01 FIX: message content is now encrypted at rest using AES-256-GCM
+ * before being written to SQLite. The encryption key is generated once per device
+ * and stored in expo-secure-store (backed by Android Keystore / iOS Secure Enclave).
  *
- *   1. `@op-engineering/op-sqlite` — supports an `encryptionKey` option in `open()`.
- *      Derive the key from Android Keystore + the user's session ID:
- *        const keyMaterial = await Crypto.digestStringAsync(
- *          Crypto.CryptoDigestAlgorithm.SHA256,
- *          `${deviceId}:${userId}`
- *        );
- *        const db = open({ name: DB_NAME, encryptionKey: keyMaterial });
- *
- *   2. `expo-sqlite-encrypted` — wraps SQLCipher; similar API.
- *
- * Once encryption is enabled, document it in the app's privacy policy:
- * "Offline message drafts are encrypted at rest using AES-256 with a key
- *  derived from the device's secure enclave."
- *
- * See: https://ospfranco.notion.site/op-sqlite-docs for migration guide.
+ * Encryption format: `${base64url(iv)}.${base64url(ciphertext)}`
+ * The prefix `v1:` distinguishes encrypted from legacy plaintext rows so that
+ * existing installations can be migrated without data loss.
  */
 
 import * as SQLite from 'expo-sqlite';
+import * as SecureStore from 'expo-secure-store';
 
 // ---------------------------------------------------------------------------
 // Database setup
 // ---------------------------------------------------------------------------
 
 let db: SQLite.SQLiteDatabase | null = null;
+let encryptionKey: CryptoKey | null = null;
 
 const DB_NAME = 'zobia_offline.db';
+const SECURE_KEY_NAME = 'offline_db_aes_key_v1';
+const ENCRYPTION_PREFIX = 'v1:';
+
+// ---------------------------------------------------------------------------
+// Encryption helpers
+// ---------------------------------------------------------------------------
+
+function toBase64Url(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+function fromBase64Url(b64: string): Uint8Array {
+  const padded = b64.replace(/-/g, '+').replace(/_/g, '/');
+  const padLen = (4 - (padded.length % 4)) % 4;
+  const withPad = padded + '='.repeat(padLen);
+  const binary = atob(withPad);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+async function getOrCreateEncryptionKey(): Promise<CryptoKey> {
+  if (encryptionKey) return encryptionKey;
+
+  let rawKeyBase64 = await SecureStore.getItemAsync(SECURE_KEY_NAME);
+
+  if (!rawKeyBase64) {
+    // Generate a new 256-bit AES key
+    const rawBytes = crypto.getRandomValues(new Uint8Array(32));
+    rawKeyBase64 = toBase64Url(rawBytes.buffer);
+    await SecureStore.setItemAsync(SECURE_KEY_NAME, rawKeyBase64, {
+      keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+    });
+  }
+
+  const keyBytes = fromBase64Url(rawKeyBase64);
+  encryptionKey = await crypto.subtle.importKey(
+    'raw',
+    keyBytes,
+    { name: 'AES-GCM' },
+    false,
+    ['encrypt', 'decrypt']
+  );
+  return encryptionKey;
+}
+
+async function encryptContent(plaintext: string): Promise<string> {
+  const key = await getOrCreateEncryptionKey();
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encoded = new TextEncoder().encode(plaintext);
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
+  return ENCRYPTION_PREFIX + toBase64Url(iv.buffer) + '.' + toBase64Url(ciphertext);
+}
+
+async function decryptContent(stored: string): Promise<string> {
+  if (!stored.startsWith(ENCRYPTION_PREFIX)) {
+    // Legacy plaintext row — return as-is (migration path)
+    return stored;
+  }
+  const key = await getOrCreateEncryptionKey();
+  const payload = stored.slice(ENCRYPTION_PREFIX.length);
+  const dotIdx = payload.indexOf('.');
+  if (dotIdx === -1) throw new Error('Malformed encrypted content');
+  const iv = fromBase64Url(payload.slice(0, dotIdx));
+  const ciphertext = fromBase64Url(payload.slice(dotIdx + 1));
+  const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+  return new TextDecoder().decode(decrypted);
+}
+
+// ---------------------------------------------------------------------------
+// Database setup
+// ---------------------------------------------------------------------------
 
 /**
  * Initialise the offline SQLite database and create tables if needed.
+ * Also initialises the encryption key (loaded from SecureStore or generated).
  */
 export async function initOfflineDB(): Promise<void> {
+  // Prime the encryption key so the first queueMessage call doesn't race
+  await getOrCreateEncryptionKey();
+
   db = await SQLite.openDatabaseAsync(DB_NAME);
 
   await db.execAsync(`
@@ -90,9 +163,10 @@ function getDB(): SQLite.SQLiteDatabase {
 
 /**
  * Queue a message for later delivery.
+ * Content is encrypted with AES-256-GCM before being written to SQLite.
  *
  * @param conversationId   - DM conversation ID or group chat ID
- * @param content          - Message content
+ * @param content          - Message content (stored encrypted)
  * @param messageType      - 'text' | 'gif' | 'sticker' | etc.
  * @param conversationType - 'dm' | 'group'
  * @returns Generated local ID for the queued message
@@ -105,12 +179,13 @@ export async function queueMessage(
 ): Promise<string> {
   const localId = `offline_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   const idempotencyKey = `${localId}_${Date.now()}`;
+  const encryptedContent = await encryptContent(content);
 
   await getDB().runAsync(
     `INSERT INTO offline_messages
        (id, conversation_id, conversation_type, content, message_type, idempotency_key, created_at, retry_count, sync_status)
      VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'pending')`,
-    [localId, conversationId, conversationType, content, messageType, idempotencyKey, Date.now()]
+    [localId, conversationId, conversationType, encryptedContent, messageType, idempotencyKey, Date.now()]
   );
 
   return localId;
@@ -118,6 +193,7 @@ export async function queueMessage(
 
 /**
  * Get all messages waiting to be sent.
+ * Content is decrypted before being returned.
  */
 export async function getPendingMessages(): Promise<{
   id: string;
@@ -143,15 +219,15 @@ export async function getPendingMessages(): Promise<{
      ORDER BY created_at ASC`
   );
 
-  return rows.map((r) => ({
+  return Promise.all(rows.map(async (r) => ({
     id: r.id,
     conversationId: r.conversation_id,
     conversationType: (r.conversation_type === 'group' ? 'group' : r.conversation_type === 'room' ? 'room' : 'dm') as 'dm' | 'group' | 'room',
-    content: r.content,
+    content: await decryptContent(r.content),
     messageType: r.message_type,
     idempotencyKey: r.idempotency_key,
     createdAt: r.created_at,
-  }));
+  })));
 }
 
 /**
@@ -230,13 +306,13 @@ export async function getPermanentlyFailedMessages(): Promise<{
      ORDER BY created_at ASC`
   );
 
-  return rows.map((r) => ({
+  return Promise.all(rows.map(async (r) => ({
     id: r.id,
     conversationId: r.conversation_id,
-    content: r.content,
+    content: await decryptContent(r.content),
     retryCount: r.retry_count,
     createdAt: r.created_at,
-  }));
+  })));
 }
 
 /**

@@ -16,6 +16,7 @@ export const maxDuration = 10;
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { validateCronSecret, checkCronIdempotency } from "@/lib/cron/auth";
+import { logger } from "@/lib/logger";
 
 export const GET = async (req: NextRequest) => {
   if (!validateCronSecret(req)) {
@@ -263,7 +264,9 @@ export const GET = async (req: NextRequest) => {
             }
           });
           payoutsInitiated++;
-        } catch { /* Non-fatal per-creator */ }
+        } catch (err) {
+          logger.error({ err, creatorId: candidate.creator_id }, "[payout] Weekly automated payout failed for creator");
+        }
       }
       results.weeklyAutomatedPayouts = { initiated: payoutsInitiated };
     }
@@ -304,7 +307,7 @@ export const GET = async (req: NextRequest) => {
             }
             streakQualified++;
           } catch (err) {
-            console.error("[cron/daily-economy] Referral streak error:", err);
+            logger.error({ err, referrerId: referral.referrer_id, referralId: referral.id }, "[cron/daily-economy] Referral streak qualification failed");
           }
         }
       });

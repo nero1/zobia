@@ -1,7 +1,7 @@
 # Zobia Social — Product Requirements Document
 ### A Gamified Monetised Social Platform for the Global Mobile Generation
 
-> **Version 1.75 — Product Requirements Document**
+> **Version 1.76 — Product Requirements Document**
 > Covers: Feature Specifications · Technical Architecture · Economy Design · Moderation · Build Sequence
 > Scope: Nigeria-first, Pan-African then Global · Mobile-first PWA + Android APK · Admin-minimal operation
 
@@ -192,6 +192,7 @@ A new user must feel the core loop — the sensation of earning something — wi
 - After onboarding, the user is periodically (but not aggressively) encouraged to add an email address for account recovery and to set a password. Both are optional but surfaced as strongly recommended.
 - Users may optionally set a 4-digit PIN to protect login and sensitive operations (payments, payout requests). PIN is not mandatory.
 - 2FA defaults to authenticator app (Google Authenticator, Authy, or equivalent). No SMS 2FA.
+- The 2FA login flow uses a short-lived `pre_auth` JWT type. After verifying email + password the server issues a `pre_auth` token scoped only to the `/api/auth/2fa/verify` endpoint. All other API routes and app pages reject `pre_auth` tokens, redirecting the browser to `/auth/2fa`. A full-access access token is issued only after successful TOTP verification. TOTP codes are replay-protected with a Redis atomic SET NX keyed by `totp:used:<userId>:<code>` (90-second TTL matching the TOTP window).
 - On Android, the JWT is stored in Expo SecureStore. On web, in an HttpOnly cookie.
 
 ### The Onboarding Flow
@@ -1431,7 +1432,7 @@ The Vercel Hobby Plan allows a maximum of one CRON run per day. This once-daily 
 **Android (React Native):**
 - On-device storage via MMKV (fast key-value) for session state, preferences, and lightweight cached data.
 - Expo SQLite for structured offline data (cached messages, quest deck, user profile).
-- Outgoing messages queued in SQLite when offline and synced when connectivity resumes.
+- Outgoing messages queued in SQLite when offline and synced when connectivity resumes. Message content in the offline queue is encrypted at rest with AES-256-GCM; the per-device key is generated once and stored in expo-secure-store (backed by Android Keystore / iOS Secure Enclave).
 - All screens have graceful offline states — no white screens or crashes on no-internet load.
 
 ### Scalability
@@ -1464,7 +1465,7 @@ The platform applies multiple overlapping security layers. No single mechanism i
 
 - **Injection (SQL, NoSQL, Command):** All database queries use parameterised queries via the database provider's client. No raw SQL string interpolation regardless of which provider is active. The provider abstraction layer enforces this.
 - **Broken Authentication:** JWT + Redis invalidation, 2FA for sensitive operations, 4-digit PIN option, strong password policy, session expiry.
-- **Sensitive Data Exposure:** All data in transit via HTTPS/TLS. Sensitive fields (bank account numbers, USDT wallet addresses) encrypted at rest using AES-256-GCM. PII minimisation — only collect what is needed.
+- **Sensitive Data Exposure:** All data in transit via HTTPS/TLS. Sensitive fields (bank account numbers, USDT wallet addresses, offline message queue content on Android) encrypted at rest using AES-256-GCM. PII minimisation — only collect what is needed.
 - **XML External Entities:** Not applicable (JSON API). Input validation on all incoming data.
 - **Broken Access Control:** Row Level Security on all PostgreSQL tables (all supported database providers). is_admin and role checks verified against the database on every privileged operation. API routes validate permissions server-side, never trusting client claims.
 - **Security Misconfiguration:** Vercel environment variables for all secrets. No secrets in code. Secret rotation runbook in SETUP.md.
