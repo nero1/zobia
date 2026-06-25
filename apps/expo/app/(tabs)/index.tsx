@@ -906,6 +906,8 @@ export default function HomeScreen() {
   const dailyLoginMutation = useMutation({
     mutationFn: postDailyLogin,
     onSuccess: (result) => {
+      const today = new Date().toISOString().slice(0, 10);
+      try { storage.set('daily_login_last_date', today); } catch {}
       if (result.firstLoginToday) {
         setToastMessage(
           t('home.dailyLoginXP', 'Daily login: +{{xp}} XP', { xp: result.xpAwarded })
@@ -918,6 +920,9 @@ export default function HomeScreen() {
         }, 3500);
       }
     },
+    onError: (err) => {
+      console.warn('[daily-login] Failed to award daily XP', err);
+    },
   });
 
   useEffect(() => {
@@ -926,7 +931,6 @@ export default function HomeScreen() {
     const today = new Date().toISOString().slice(0, 10);
     try {
       if (storage.getString('daily_login_last_date') === today) return;
-      storage.set('daily_login_last_date', today);
     } catch {
       // MMKV not yet initialized; still fire the mutation (server deduplicates)
     }

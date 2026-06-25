@@ -239,12 +239,12 @@ function MyGuildView({ guild }: { guild: MyGuild }) {
   const tierCfg = TIER_CONFIG[guild.tier];
 
   const handleViewFull = useCallback(() => {
-    router.push(`/guilds/${guild.id}` as never);
+    router.push({ pathname: '/guilds/[guildId]', params: { guildId: guild.id } });
   }, [router, guild.id]);
 
   const handleJoinWar = useCallback(() => {
     if (guild.activeWar) {
-      router.push(`/guilds/${guild.id}/war/${guild.activeWar.warId}` as never);
+      router.push({ pathname: '/guilds/[guildId]/war/[warId]', params: { guildId: guild.id, warId: guild.activeWar.warId } });
     }
   }, [router, guild.id, guild.activeWar]);
 
@@ -339,11 +339,11 @@ export default function GuildScreen() {
   });
 
   const handleDiscover = useCallback(() => {
-    router.push('/guilds' as never);
+    router.push('/guilds');
   }, [router]);
 
   const handleCreate = useCallback(() => {
-    router.push('/guilds/create' as never);
+    router.push('/guilds/create');
   }, [router]);
 
   // Render loading state

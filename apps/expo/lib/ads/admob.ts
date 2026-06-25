@@ -91,6 +91,7 @@ export async function loadRewardedAd(): Promise<void> {
       () => {
         adLoaded = true;
         adLoading = false;
+        unsubscribeError();
         unsubscribeLoaded();
         resolve();
       }
@@ -101,6 +102,7 @@ export async function loadRewardedAd(): Promise<void> {
       (error) => {
         adLoaded = false;
         adLoading = false;
+        unsubscribeLoaded();
         unsubscribeError();
         reject(error);
       }
@@ -238,6 +240,7 @@ export async function loadInterstitialAd(): Promise<void> {
       () => {
         interstitialLoaded = true;
         interstitialLoading = false;
+        unsubError();
         unsubLoaded();
         resolve();
       }
@@ -248,6 +251,7 @@ export async function loadInterstitialAd(): Promise<void> {
       (error) => {
         interstitialLoaded = false;
         interstitialLoading = false;
+        unsubLoaded();
         unsubError();
         reject(error);
       }

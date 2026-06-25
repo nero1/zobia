@@ -28,6 +28,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { Screen } from '@/components/ui/Screen';
 import { colors } from '@/lib/theme/colors';
 import { useTheme } from '@/lib/theme';
@@ -254,6 +255,7 @@ function SectionHeader({ title, action }: SectionHeaderProps) {
 
 export default function MessagesScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
   const { colors: themeColors } = useTheme();
 
   const {
@@ -284,24 +286,24 @@ export default function MessagesScreen() {
 
   const handleConvPress = useCallback(
     (item: DMConversation) => {
-      router.push(`/messages/${item.conversationId}` as never);
+      router.push(`/messages/${item.conversationId}` as Parameters<typeof router.push>[0]);
     },
     [router],
   );
 
   const handleGroupPress = useCallback(
     (item: GroupChat) => {
-      router.push(`/messages/group/${item.id}` as never);
+      router.push(`/messages/group/${item.id}` as Parameters<typeof router.push>[0]);
     },
     [router],
   );
 
   const handleNewMessage = useCallback(() => {
-    router.push('/messages/new' as never);
+    router.push('/messages/new' as Parameters<typeof router.push>[0]);
   }, [router]);
 
   const handleNewGroup = useCallback(() => {
-    router.push('/messages/group/create' as never);
+    router.push('/messages/group/create' as Parameters<typeof router.push>[0]);
   }, [router]);
 
   const handleRefresh = useCallback(() => {
@@ -315,14 +317,14 @@ export default function MessagesScreen() {
     <Screen>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={[styles.title, { color: themeColors.text }]}>Messages</Text>
+        <Text style={[styles.title, { color: themeColors.text }]}>{t('messages.title')}</Text>
         <Pressable
           style={styles.newBtn}
           onPress={handleNewMessage}
           accessibilityRole="button"
           accessibilityLabel="New message"
         >
-          <Text style={styles.newBtnText}>+ New</Text>
+          <Text style={styles.newBtnText}>{t('messages.newBtn')}</Text>
         </Pressable>
       </View>
 
@@ -339,24 +341,24 @@ export default function MessagesScreen() {
         }
       >
         {/* Direct Messages section */}
-        <SectionHeader title="Direct Messages" />
+        <SectionHeader title={t('messages.directMessages')} />
 
         {dmLoading ? (
           <SkeletonList count={3} />
         ) : dmError ? (
           <View style={styles.inlineCentered}>
-            <Text style={styles.errorText}>Could not load DMs.</Text>
+            <Text style={styles.errorText}>{t('messages.dmLoadError')}</Text>
           </View>
         ) : conversations.length === 0 ? (
           <View style={styles.inlineCentered}>
             <Text style={styles.emptyEmoji}>💬</Text>
-            <Text style={styles.emptyText}>No conversations yet.</Text>
+            <Text style={styles.emptyText}>{t('messages.noConversations')}</Text>
             <Pressable
               onPress={handleNewMessage}
               style={styles.emptyAction}
               accessibilityRole="button"
             >
-              <Text style={styles.emptyActionText}>Start a conversation →</Text>
+              <Text style={styles.emptyActionText}>{t('messages.startConversation')}</Text>
             </Pressable>
           </View>
         ) : (
@@ -367,26 +369,26 @@ export default function MessagesScreen() {
 
         {/* Group Chats section */}
         <SectionHeader
-          title="Group Chats"
-          action={{ label: '+ New Group', onPress: handleNewGroup }}
+          title={t('messages.groupChats')}
+          action={{ label: t('messages.newGroup'), onPress: handleNewGroup }}
         />
 
         {groupsLoading ? (
           <SkeletonList count={2} />
         ) : groupsError ? (
           <View style={styles.inlineCentered}>
-            <Text style={styles.errorText}>Could not load group chats.</Text>
+            <Text style={styles.errorText}>{t('messages.groupLoadError')}</Text>
           </View>
         ) : groups.length === 0 ? (
           <View style={styles.inlineCentered}>
             <Text style={styles.emptyEmoji}>👥</Text>
-            <Text style={styles.emptyText}>No group chats yet.</Text>
+            <Text style={styles.emptyText}>{t('messages.noGroupChats')}</Text>
             <Pressable
               onPress={handleNewGroup}
               style={styles.emptyAction}
               accessibilityRole="button"
             >
-              <Text style={styles.emptyActionText}>Create a group →</Text>
+              <Text style={styles.emptyActionText}>{t('messages.createGroup')}</Text>
             </Pressable>
           </View>
         ) : (

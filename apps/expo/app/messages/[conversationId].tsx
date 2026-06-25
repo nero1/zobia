@@ -117,12 +117,12 @@ async function fetchChatTheme(): Promise<ChatTheme> {
  * Without this the conversation never rendered — the API returns `items`
  * (not `messages`) and snake_case columns, so the list was always empty.
  */
-function mapApiDM(raw: Record<string, unknown>): DM {
+function mapApiDM(raw: Record<string, unknown>, currentUserId?: string): DM {
   const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
   const messageType = (str(raw.message_type) ?? str(raw.messageType) ?? 'text') as MessageType;
   const content = str(raw.content);
   const media = str(raw.media_url) ?? str(raw.mediaUrl);
-  // Aggregate raw reaction rows ({ emoji, userId }) into { emoji, count }.
+  // Aggregate raw reaction rows ({ emoji, userId }) into { emoji, count, userReacted }.
   const reactionRows = Array.isArray(raw.reactions) ? (raw.reactions as Record<string, unknown>[]) : [];
   const reactionMap = new Map<string, { emoji: string; count: number; userReacted: boolean }>();
   for (const r of reactionRows) {
@@ -130,6 +130,9 @@ function mapApiDM(raw: Record<string, unknown>): DM {
     if (!emoji) continue;
     const entry = reactionMap.get(emoji) ?? { emoji, count: 0, userReacted: false };
     entry.count += 1;
+    if (currentUserId && (r.userId === currentUserId || r.user_id === currentUserId)) {
+      entry.userReacted = true;
+    }
     reactionMap.set(emoji, entry);
   }
   return {
@@ -145,11 +148,11 @@ function mapApiDM(raw: Record<string, unknown>): DM {
   };
 }
 
-async function fetchMessages(id: string, after?: string): Promise<DM[]> {
+async function fetchMessages(id: string, after?: string, currentUserId?: string): Promise<DM[]> {
   const url = after ? `/messages/dm/${id}?after=${encodeURIComponent(after)}` : `/messages/dm/${id}`;
   const { data } = await apiClient.get(url);
   const rows: Record<string, unknown>[] = data.items ?? data.messages ?? [];
-  return rows.map(mapApiDM);
+  return rows.map((r) => mapApiDM(r, currentUserId));
 }
 
 async function sendDM(
@@ -605,7 +608,7 @@ export default function DMConversationScreen() {
       if (event !== 'new_message') return;
       const raw = (data as { message?: Record<string, unknown> })?.message;
       if (!raw) return;
-      const incoming = mapApiDM(raw);
+      const incoming = mapApiDM(raw, myUserId);
       if (!incoming.id) return;
       queryClient.setQueryData<DM[]>(['dm-messages', conversationId], (prev: DM[] | undefined) => {
         const list = prev ?? [];
@@ -620,7 +623,7 @@ export default function DMConversationScreen() {
     queryFn: async () => {
       const prev = queryClient.getQueryData<DM[]>(['dm-messages', conversationId]) ?? [];
       const after = newestCreatedAt(prev);
-      const incoming = await fetchMessages(conversationId!, after);
+      const incoming = await fetchMessages(conversationId!, after, myUserId);
       return after ? mergeNewestFirst(prev, incoming) : incoming;
     },
     enabled: !!conversationId,
@@ -692,7 +695,7 @@ export default function DMConversationScreen() {
         ...EMOJI_REACTIONS.map((emoji) => ({
           text: emoji,
           onPress: () => {
-            apiClient.post(`/messages/dm/${conversationId}/messages/${messageId}/react`, { emoji })
+            apiClient.post(`/messages/dm/${conversationId}/reactions`, { messageId, emoji })
               .catch(() => {});
           },
         })),

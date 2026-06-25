@@ -17,6 +17,11 @@ interface AdminStats {
   coinsInCirculation: number;
 }
 
+/** Format a count (integer) for display in admin stat cards. */
+function formatAdminStat(value: number): string {
+  return new Intl.NumberFormat('en').format(value);
+}
+
 function StatCard({
   title, value, route, color
 }: {
@@ -74,12 +79,12 @@ export default function AdminOverviewScreen() {
       </View>
 
       <View className="flex-row flex-wrap px-2">
-        <StatCard title={t('admin.totalUsers', 'Total Users')} value={stats?.totalUsers ?? 0} route="/admin/users" color="bg-blue-600" />
-        <StatCard title={t('admin.activeRooms', 'Active Rooms')} value={stats?.activeRooms ?? 0} route="/rooms" color="bg-emerald-600" />
-        <StatCard title={t('admin.dailyLogins', 'Daily Logins')} value={stats?.dailyLogins ?? 0} route="/admin/users" color="bg-violet-600" />
-        <StatCard title={t('admin.pendingReports', 'Pending Reports')} value={stats?.pendingReports ?? 0} route="/admin/moderation" color="bg-red-500" />
-        <StatCard title={t('admin.pendingPayouts', 'Pending Payouts')} value={stats?.pendingPayouts ?? 0} route="/admin/financial" color="bg-amber-500" />
-        <StatCard title={t('admin.coinsInCirculation', '{{currency}} in Circulation', { currency: currency.softPlural })} value={(stats?.coinsInCirculation ?? 0).toLocaleString()} route="/admin/financial" color="bg-teal-600" />
+        <StatCard title={t('admin.totalUsers', 'Total Users')} value={formatAdminStat(stats?.totalUsers ?? 0)} route="/admin/users" color="bg-blue-600" />
+        <StatCard title={t('admin.activeRooms', 'Active Rooms')} value={formatAdminStat(stats?.activeRooms ?? 0)} route="/rooms" color="bg-emerald-600" />
+        <StatCard title={t('admin.dailyLogins', 'Daily Logins')} value={formatAdminStat(stats?.dailyLogins ?? 0)} route="/admin/users" color="bg-violet-600" />
+        <StatCard title={t('admin.pendingReports', 'Pending Reports')} value={formatAdminStat(stats?.pendingReports ?? 0)} route="/admin/moderation" color="bg-red-500" />
+        <StatCard title={t('admin.pendingPayouts', 'Pending Payouts')} value={formatAdminStat(stats?.pendingPayouts ?? 0)} route="/admin/financial" color="bg-amber-500" />
+        <StatCard title={t('admin.coinsInCirculation', '{{currency}} in Circulation', { currency: currency.softPlural })} value={formatAdminStat(stats?.coinsInCirculation ?? 0)} route="/admin/financial" color="bg-teal-600" />
       </View>
 
       <View className="mx-4 mt-4">

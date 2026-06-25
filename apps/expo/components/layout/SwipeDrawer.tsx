@@ -260,6 +260,8 @@ export function SwipeDrawer({ children }: SwipeDrawerProps) {
   }, [translateX, backdropOpacity, isDrawerOpen]);
 
   const pan = Gesture.Pan()
+    .activeOffsetX([-10, 10])
+    .failOffsetY([-15, 15])
     .onBegin((e) => {
       // Allow gesture if touching from left edge (to open) OR drawer is open (to close/drag)
       canHandle.value = e.absoluteX <= EDGE_THRESHOLD || isDrawerOpen.value;

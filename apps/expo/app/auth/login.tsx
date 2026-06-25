@@ -74,7 +74,15 @@ export default function LoginScreen() {
 
   async function handleDeepLink(event: { url: string }) {
     const url = event.url;
-    if (!url.includes('auth/callback')) return;
+    let isValidCallback = false;
+    try {
+      const parsedUrl = new URL(url);
+      const expectedOrigin = new URL(env.API_BASE_URL).origin;
+      isValidCallback = parsedUrl.origin === expectedOrigin && parsedUrl.pathname.startsWith('/api/auth/callback');
+    } catch {
+      // malformed URL
+    }
+    if (!isValidCallback) return;
 
     try {
       const parsed = ExpoLinking.parse(url);

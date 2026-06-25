@@ -29,6 +29,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
+      "googleServicesFile": "./google-services.json",
       "package": "org.zobia.social",
       "compileSdkVersion": 36,
       "targetSdkVersion": 36,
@@ -85,7 +86,8 @@
       [
         "expo-updates",
         {
-          "username": "zobia"
+          "username": "zobia",
+          "runtimeVersion": { "policy": "sdkVersion" }
         }
       ],
       "./plugins/withIapPlayFlavor"
@@ -97,7 +99,6 @@
       "router": {
         "origin": "https://zobia.vercel.app"
       },
-      "APP_ENV": "development",
       "API_BASE_URL": "https://zobia.vercel.app",
       "WEB_BASE_URL": "https://zobia.vercel.app",
       "telegramBotName": "Zobia_bot_bot",

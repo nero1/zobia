@@ -1619,6 +1619,7 @@
   "errors.username_taken": "This username is already taken",
   "errors.war_already_active": "Guild is already in an active war",
   "errors.war_cooldown_active": "War cooldown active. {{hoursRemaining}} hour(s) remaining.",
+  "settings.invalidDate": "Invalid date. Please check the day and month values.",
   "settings.push.dms": "Direct message pushes",
   "settings.push.dmsDesc": "Get notified about new DMs when you are away",
   "settings.push.groups": "Group chat pushes",

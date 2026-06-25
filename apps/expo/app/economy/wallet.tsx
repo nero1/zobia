@@ -22,6 +22,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import Decimal from 'decimal.js';
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { apiClient } from '@/lib/api/client';
@@ -72,9 +73,10 @@ async function fetchWallet(): Promise<WalletData> {
 // ---------------------------------------------------------------------------
 
 function formatCoins(amount: number): string {
-  if (amount >= 1_000_000) return `${(amount / 1_000_000).toFixed(2)}M`;
-  if (amount >= 1_000) return `${(amount / 1_000).toFixed(1)}K`;
-  return amount.toLocaleString();
+  const d = new Decimal(amount);
+  if (d.gte(1_000_000)) return `${d.div(1_000_000).toFixed(2)}M`;
+  if (d.gte(1_000)) return `${d.div(1_000).toFixed(1)}K`;
+  return d.toNumber().toLocaleString();
 }
 
 function formatDate(iso: string, locale = 'en'): string {

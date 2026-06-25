@@ -21,7 +21,7 @@ import React, {
 } from 'react';
 import { AppState, Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
-import { JWT_KEY, REFRESH_TOKEN_KEY, onUnauthenticated, onUserUpdated, refreshAccessToken } from '@/lib/api/client';
+import { apiClient, JWT_KEY, REFRESH_TOKEN_KEY, onUnauthenticated, onUserUpdated, refreshAccessToken, setCachedToken } from '@/lib/api/client';
 import { env } from '@/lib/env';
 import { clearStore } from '@/lib/offline/store';
 import { disconnectGooglePlayBilling } from '@/lib/payments/googlePlay';
@@ -162,10 +162,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (isTokenExpiredOrExpiring(storedToken)) {
           const newAccessToken = await refreshAccessToken();
           if (newAccessToken) {
+            setCachedToken(newAccessToken);
             setToken(newAccessToken);
             setUser(parsedUser);
           }
         } else {
+          setCachedToken(storedToken);
           setToken(storedToken);
           setUser(parsedUser);
         }
@@ -249,6 +251,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       writes.push(SecureStore.setItemAsync(REFRESH_TOKEN_KEY, refreshToken));
     }
     await Promise.all(writes);
+    setCachedToken(jwt);
     setSessionExpired(false);
     setToken(jwt);
     setUser(authUser);
@@ -260,16 +263,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Best-effort server logout — invalidates Redis session and refresh token.
     // Fires and forgets: network failure or server error must never block local signout.
     if (token) {
-      fetch(`${env.API_BASE_URL}/api/auth/logout`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      }).catch(() => {});
+      apiClient.post('/auth/logout').catch(() => {});
     }
     await Promise.all([
       SecureStore.deleteItemAsync(JWT_KEY),
       SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY),
       SecureStore.deleteItemAsync('zobia_user'),
     ]);
+    setCachedToken(null);
     // BUG-010 FIX: clear MMKV store on sign-out to prevent cross-account data
     // leakage (cached feed, draft messages, preferences) on shared devices.
     try { clearStore(); } catch { /* store may not be initialised yet */ }

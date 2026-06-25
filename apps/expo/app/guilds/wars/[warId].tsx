@@ -79,6 +79,7 @@ function useCountdown(endsAt: string) {
       if (diff <= 0) {
         setDisplay('Ended');
         setIsFinalHour(false);
+        clearInterval(id);
         return;
       }
       const h = Math.floor(diff / 3_600_000);
@@ -146,7 +147,7 @@ export default function LiveWarScreen() {
     queryKey: ['war', warId],
     queryFn: () => fetchWar(warId!),
     enabled: !!warId,
-    refetchInterval: 10_000,
+    refetchInterval: war?.status === 'ended' ? false : 10_000,
   });
 
   const { display: countdown, isFinalHour } = useCountdown(war?.endsAt ?? new Date(Date.now() + 3_600_000).toISOString());
@@ -196,7 +197,8 @@ export default function LiveWarScreen() {
     );
   }
 
-  const guild1Winning = war.guild1.score >= war.guild2.score;
+  const isTied = war.guild1.score === war.guild2.score;
+  const guild1Winning = !isTied && war.guild1.score > war.guild2.score;
 
   return (
     <Screen disableBottomInset>
@@ -225,7 +227,7 @@ export default function LiveWarScreen() {
                 <Text
                   style={[
                     styles.guildScore,
-                    { color: guild1Winning ? colors.semantic.success : themeColors.text },
+                    { color: isTied ? themeColors.text : (guild1Winning ? colors.semantic.success : themeColors.text) },
                   ]}
                 >
                   {war.guild1.score.toLocaleString()}
@@ -246,7 +248,7 @@ export default function LiveWarScreen() {
                 <Text
                   style={[
                     styles.guildScore,
-                    { color: !guild1Winning ? colors.semantic.success : themeColors.text },
+                    { color: isTied ? themeColors.text : (!guild1Winning ? colors.semantic.success : themeColors.text) },
                   ]}
                 >
                   {war.guild2.score.toLocaleString()}
