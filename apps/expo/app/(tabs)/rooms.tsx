@@ -189,9 +189,14 @@ function useRoomsQuery(
     [tab, typeFilter, availability, searchQuery, userCity]
   );
 
+  // BUG-MED-05: use a ref so `fetchRooms` doesn't include `loading` in its
+  // deps (which caused a stale-closure loop and double-fetches on every render).
+  const loadingRef = useRef(false);
+
   const fetchRooms = useCallback(
     async (cursor?: string, isRefresh = false) => {
-      if (loading) return;
+      if (loadingRef.current) return;
+      loadingRef.current = true;
       try {
         if (isRefresh) {
           setRefreshing(true);
@@ -220,11 +225,12 @@ function useRoomsQuery(
       } catch {
         setError('rooms.loadError');
       } finally {
+        loadingRef.current = false;
         setLoading(false);
         setRefreshing(false);
       }
     },
-    [buildParams, loading]
+    [buildParams]
   );
 
   useEffect(() => {
@@ -232,8 +238,7 @@ function useRoomsQuery(
     setNextCursor(null);
     setHasMore(true);
     fetchRooms(undefined, false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, typeFilter, availability, searchQuery]);
+  }, [tab, typeFilter, availability, searchQuery, fetchRooms]);
 
   const refresh = useCallback(() => fetchRooms(undefined, true), [fetchRooms]);
   const loadMore = useCallback(() => {
@@ -342,7 +347,6 @@ export default function RoomsScreen() {
             value={searchQuery}
             onChangeText={setSearchQuery}
             returnKeyType="search"
-            clearButtonMode="while-editing"
           />
         </View>
         <Pressable
@@ -370,7 +374,7 @@ export default function RoomsScreen() {
                 activeTab === tab.key && styles.tabTextActive,
               ]}
             >
-              {tab.label}
+              {t(`rooms.tab.${tab.key}`)}
             </Text>
           </Pressable>
         ))}

@@ -141,13 +141,11 @@ export default function LoginScreen() {
     try {
       const redirectUri = ExpoLinking.createURL('auth/callback');
 
-      // Step 1: fetch the Google OAuth URL from the backend.
-      // /api/auth/google returns JSON { url } — it does NOT redirect directly.
-      const apiUrl =
-        `${env.API_BASE_URL}/api/auth/google?platform=mobile&redirect=${encodeURIComponent(redirectUri)}`;
-      const apiRes = await fetch(apiUrl);
-      if (!apiRes.ok) throw new Error('Failed to initiate Google login');
-      const { url: googleAuthUrl } = (await apiRes.json()) as { url: string };
+      // Step 1: fetch the Google OAuth URL from the backend via apiClient so
+      // the Origin header and any future auth middleware are applied correctly.
+      const { data: { url: googleAuthUrl } } = await apiClient.get<{ url: string }>(
+        `/auth/google?platform=mobile&redirect=${encodeURIComponent(redirectUri)}`
+      );
 
       // Step 2: open the actual Google consent screen and wait for the deep-link callback.
       const result = await WebBrowser.openAuthSessionAsync(googleAuthUrl, redirectUri);

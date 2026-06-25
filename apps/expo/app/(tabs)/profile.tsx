@@ -29,6 +29,7 @@ import { Screen } from '@/components/ui/Screen';
 import { useAuth } from '@/lib/auth/hooks';
 import { CoinBalance } from '@/components/economy/CoinBalance';
 import { colors, rankColors, type RankTier } from '@/lib/theme/colors';
+import { useTheme } from '@/lib/theme';
 import { apiClient } from '@/lib/api/client';
 import { useCurrency } from '@/lib/hooks/useCurrency';
 
@@ -138,6 +139,7 @@ export default function ProfileScreen() {
   const { user } = useAuth();
   const router = useRouter();
   const currency = useCurrency();
+  const { colors: themeColors } = useTheme();
 
   const { data: profile, isLoading } = useQuery({
     queryKey: ['ownProfile', user?.id],
@@ -154,7 +156,7 @@ export default function ProfileScreen() {
     <Screen scrollable>
       {/* ── Top action bar ──────────────────────────────────────── */}
       <View style={styles.topBar}>
-        <Text style={styles.topBarTitle}>{t('profile.title', 'Profile')}</Text>
+        <Text style={[styles.topBarTitle, { color: themeColors.text }]}>{t('profile.title', 'Profile')}</Text>
         <Pressable
           onPress={() => router.push('/settings')}
           accessibilityLabel="Settings"
@@ -195,14 +197,14 @@ export default function ProfileScreen() {
 
       {/* ── Name + meta ────────────────────────────────────────── */}
       <View style={styles.nameSection}>
-        <Text style={styles.username}>
+        <Text style={[styles.username, { color: themeColors.text }]}>
           {profile?.username ?? user?.username ?? t('profile.title')}
         </Text>
         {profile?.displayName ? (
-          <Text style={styles.displayName}>{profile.displayName}</Text>
+          <Text style={[styles.displayName, { color: themeColors.textMuted }]}>{profile.displayName}</Text>
         ) : null}
         {profile?.joinedAt ? (
-          <Text style={styles.metaText}>
+          <Text style={[styles.metaText, { color: themeColors.textMuted }]}>
             Playing since {formatPlayingSince(profile.joinedAt)}
           </Text>
         ) : null}
@@ -331,21 +333,23 @@ export default function ProfileScreen() {
         </View>
       </Pressable>
 
-      {/* ── Creator Dashboard (shown for creators) ─────────────── */}
-      <Pressable
-        onPress={() => router.push('/creator/dashboard')}
-        accessibilityLabel="Open creator dashboard"
-        style={({ pressed }) => [styles.walletCard, pressed && styles.pressed]}
-      >
-        <View style={styles.walletRow}>
-          <Text style={styles.walletIcon}>🎙️</Text>
-          <View style={styles.walletTextGroup}>
-            <Text style={styles.walletTitle}>Creator Dashboard</Text>
-            <Text style={styles.walletSubtitle}>Revenue, members & payouts</Text>
+      {/* ── Creator Dashboard (shown for creators only) ─────────── */}
+      {user?.isCreator && (
+        <Pressable
+          onPress={() => router.push('/creator/dashboard')}
+          accessibilityLabel="Open creator dashboard"
+          style={({ pressed }) => [styles.walletCard, pressed && styles.pressed]}
+        >
+          <View style={styles.walletRow}>
+            <Text style={styles.walletIcon}>🎙️</Text>
+            <View style={styles.walletTextGroup}>
+              <Text style={styles.walletTitle}>Creator Dashboard</Text>
+              <Text style={styles.walletSubtitle}>Revenue, members & payouts</Text>
+            </View>
+            <Text style={styles.walletChevron}>›</Text>
           </View>
-          <Text style={styles.walletChevron}>›</Text>
-        </View>
-      </Pressable>
+        </Pressable>
+      )}
     </Screen>
   );
 }

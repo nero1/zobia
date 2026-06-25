@@ -176,3 +176,7 @@ pnpm-lock.yaml
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Google service account key (EAS submit credentials — never commit)
+google-service-account.json
+apps/expo/google-service-account.json
