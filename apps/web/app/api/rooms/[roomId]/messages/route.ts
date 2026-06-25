@@ -36,6 +36,7 @@ import type { Plan } from "@zobia/types";
 import { publishRealtimeEvent } from "@/lib/realtime";
 import { notifyRoomMentions, parseMentions } from "@/lib/notifications/chatPush";
 import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -200,7 +201,7 @@ async function maybeAwardMessageXP(
     await safeAwardXP(userId, finalXp, "social", "send_message", `msg_${messageId}`);
     return finalXp;
   } catch (err) {
-    console.error("[rooms/messages] XP award failed (non-fatal):", err);
+    logger.error({ err: err }, "[rooms/messages] XP award failed (non-fatal):");
     return 0;
   }
 }

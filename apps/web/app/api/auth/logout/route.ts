@@ -26,6 +26,7 @@ import {
   JwtVerificationError,
 } from "@/lib/auth/jwt";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { logger } from "@/lib/logger";
 
 /**
  * POST /api/auth/logout
@@ -62,7 +63,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // Expired token is fine – we still want to clear the cookies.
       // Only log unexpected errors.
       if (!(err instanceof JwtVerificationError)) {
-        console.error("[api:auth:logout] Error invalidating session", err);
+        logger.error({ err: err }, "[api:auth:logout] Error invalidating session");
       }
     }
   }

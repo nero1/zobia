@@ -25,6 +25,7 @@ import { getManifestValue } from "@/lib/manifest";
 // (e.g. if the verification URL were ever sourced from user/admin input).
 // Both www.google.com and challenges.cloudflare.com are now in HOSTNAME_ALLOWLIST.
 import { safeFetch } from "@/lib/security/ssrf";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -123,7 +124,7 @@ async function verifyRecaptcha(
   expectedAction?: string
 ): Promise<boolean> {
   if (!env.RECAPTCHA_SECRET_KEY) {
-    console.warn("[captcha] RECAPTCHA_SECRET_KEY not configured");
+    logger.warn("[captcha] RECAPTCHA_SECRET_KEY not configured");
     return false;
   }
 
@@ -140,26 +141,26 @@ async function verifyRecaptcha(
   });
 
   if (!res.ok) {
-    console.error("[captcha:recaptcha] HTTP error", res.status);
+    logger.error({ err: res.status }, "[captcha:recaptcha] HTTP error");
     return false;
   }
 
   const data = (await res.json()) as RecaptchaVerifyResponse;
 
   if (!data.success) {
-    console.warn("[captcha:recaptcha] Verification failed", data["error-codes"]);
+    logger.warn({ err: data["error-codes"] }, "[captcha:recaptcha] Verification failed");
     return false;
   }
 
   // For v3, enforce minimum score
   if (data.score !== undefined && data.score < RECAPTCHA_MIN_SCORE) {
-    console.warn("[captcha:recaptcha] Score too low", data.score);
+    logger.warn({ err: data.score }, "[captcha:recaptcha] Score too low");
     return false;
   }
 
   // Validate action field to prevent cross-endpoint token replay attacks
   if (expectedAction && data.action !== expectedAction) {
-    console.warn("[captcha:recaptcha] Action mismatch", { expected: expectedAction, got: data.action });
+    logger.warn({ expected: expectedAction, got: data.action }, "[captcha:recaptcha] Action mismatch");
     return false;
   }
 
@@ -178,7 +179,7 @@ async function verifyTurnstile(
   userIp?: string
 ): Promise<boolean> {
   if (!env.CLOUDFLARE_TURNSTILE_SECRET_KEY) {
-    console.warn("[captcha] CLOUDFLARE_TURNSTILE_SECRET_KEY not configured");
+    logger.warn("[captcha] CLOUDFLARE_TURNSTILE_SECRET_KEY not configured");
     return false;
   }
 
@@ -195,14 +196,14 @@ async function verifyTurnstile(
   });
 
   if (!res.ok) {
-    console.error("[captcha:turnstile] HTTP error", res.status);
+    logger.error({ err: res.status }, "[captcha:turnstile] HTTP error");
     return false;
   }
 
   const data = (await res.json()) as TurnstileVerifyResponse;
 
   if (!data.success) {
-    console.warn("[captcha:turnstile] Verification failed", data["error-codes"]);
+    logger.warn({ err: data["error-codes"] }, "[captcha:turnstile] Verification failed");
     return false;
   }
 
@@ -246,13 +247,13 @@ export async function verifyCaptcha(
       return verifyTurnstile(token, userIp);
     case "none":
       if (process.env.NODE_ENV === "production") {
-        console.warn("[captcha] No CAPTCHA provider configured in production — blocking request");
+        logger.warn("[captcha] No CAPTCHA provider configured in production — blocking request");
         return false;
       }
       return true;
     default: {
       const _exhaustive: never = provider;
-      console.error("[captcha] Unknown provider:", _exhaustive);
+      logger.error({ err: _exhaustive }, "[captcha] Unknown provider:");
       return false;
     }
   }

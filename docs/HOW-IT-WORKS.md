@@ -116,7 +116,7 @@ XP is earned on eight tracks: `main` (overall), `social`, `creator`, `competitor
 
 **Stars** (premium currency) — Purchased via Paystack or DodoPayments. Used for exclusive cosmetics and season pass upgrades. Stored in `users.star_balance` (bigint — safe up to ~9.2 × 10¹⁸); all mutations go through `star_ledger`. The display name is admin-configurable via `currency_premium_name_singular` / `currency_premium_name_plural` (defaults: Star / Stars).
 
-**Subscription lifecycle:** Paystack fires webhook events for all subscription state changes (`subscription.create`, `subscription.disable`, `subscription.not_renew`, `invoice.payment_failed`). The webhook handler maps each event's `isActive` flag to either `"active"` or `"inactive"` in the `subscriptions` table. Cancelled or failed subscriptions are correctly reflected as `status = "inactive"` — users do not retain access after cancelling or missing a payment.
+**Subscription lifecycle:** Paystack fires webhook events for all subscription state changes (`subscription.create`, `subscription.disable`, `subscription.not_renew`, `invoice.payment_failed`). The webhook handler maps each event's `isActive` flag to either `"active"` or `"inactive"` in the `subscriptions` table. Cancelled or failed subscriptions are correctly reflected as `status = "inactive"` — users do not retain access after cancelling or missing a payment. For `subscription.disable` events: `ends_at` is set to `next_payment_date` when provided; when absent the existing `ends_at` is preserved (if set), otherwise it falls back to `NOW()` — ensuring users never retain premium access indefinitely when both fields are absent.
 
 ### Gifting
 
@@ -509,7 +509,7 @@ Atomicity: every debit operation pairs the `UPDATE users SET coin_balance = ...`
 ### Payout Pipeline
 
 **Account Setup:**
-- *Nigeria:* Creator adds a bank account via a two-step Paystack verify-and-confirm flow. `GET /bank/resolve` returns the account name from Paystack; the creator confirms and `POST /api/creator/bank-account` (with `confirmed: true`) calls `createTransferRecipient` to generate a `recipient_code`, which is stored encrypted in `creator_bank_accounts`. The account number is separately encrypted with AES-256-GCM via `encryptField`.
+- *Nigeria:* Creator adds a bank account via a two-step Paystack verify-and-confirm flow. `GET /bank/resolve` returns the account name from Paystack; the creator confirms and `POST /api/creator/bank-account` (with `confirmed: true`) calls `createTransferRecipient` to generate a `recipient_code`, which is stored encrypted in `creator_bank_accounts`. The account number is separately encrypted with AES-256-GCM via `encryptField`. **Security gate:** editing or deleting an existing account requires PIN/TOTP/password verification. When TOTP is used, the same atomic Redis `SET NX` replay guard applies (key: `totp:used:<userId>:<code>`, TTL: 90 s) to prevent code reuse within the same time window.
 - *Global:* Creator provides a Tron (TRC20) wallet address, which is validated (34 chars, starts with 'T') and stored encrypted in `creator_wallet_addresses`.
 
 **Payout Request (`POST /api/creator/payouts`):**

@@ -32,6 +32,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { loadManifest } from "@/lib/manifest";
 import { processPendingPayouts, reconcileStuckPayouts } from "@/lib/payments/payouts";
 import { validateCronSecret } from "@/lib/cron/auth";
+import { logger } from "@/lib/logger";
 
 export const POST = async (req: NextRequest) => {
   // ── Auth ──────────────────────────────────────────────────────────────────
@@ -69,7 +70,7 @@ export const POST = async (req: NextRequest) => {
       timestamp: new Date().toISOString(),
     });
   } catch (err) {
-    console.error("[cron/payouts] Fatal error:", err);
+    logger.error({ err }, "[cron/payouts] Fatal error");
     return NextResponse.json(
       {
         error: "Internal error during payout processing",

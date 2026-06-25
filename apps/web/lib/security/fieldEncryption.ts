@@ -1,4 +1,5 @@
 import { createHash, createCipheriv, createDecipheriv, randomBytes, scryptSync } from "crypto";
+import { logger } from "@/lib/logger";
 
 /** Thrown when AES-256-GCM authentication tag validation fails (tampered ciphertext). */
 export class DecryptionIntegrityError extends Error {
@@ -85,7 +86,7 @@ export function decryptField(ciphertext: string): string | null {
     if (err instanceof DecryptionIntegrityError) throw err;
     const msg = (err instanceof Error ? err.message : String(err));
     if (msg.includes("env var not set")) throw err;
-    console.error("[fieldEncryption] decryptField failed:", msg);
+    logger.error({ err: msg }, "[fieldEncryption] decryptField failed:");
     return null;
   }
 }
@@ -131,7 +132,7 @@ function decryptRaw(base64Payload: string, version: string): string | null {
     ) {
       throw new DecryptionIntegrityError(`GCM auth tag validation failed for version ${version}`);
     }
-    console.error(`[fieldEncryption] decryptRaw(${version}) failed:`, msg);
+    logger.error({ err: msg }, `[fieldEncryption] decryptRaw(${version}) failed:`);
     return null;
   }
 }

@@ -30,6 +30,7 @@ import { redis } from "@/lib/redis";
 import { requirePinVerified } from "@/lib/auth/pinGuard";
 import { calculateFinalXP, PLAN_XP_MULTIPLIERS_BP } from "@/lib/xp/engine";
 import type { Plan } from "@zobia/types";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Request schema
@@ -87,7 +88,7 @@ async function awardTransferXP(
     ]);
   } catch (err) {
     // XP is best-effort — don't fail the transfer if XP recording fails
-    console.error("[coins/transfer] Failed to award XP:", err);
+    logger.error({ err: err }, "[coins/transfer] Failed to award XP:");
   }
 }
 

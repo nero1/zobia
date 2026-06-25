@@ -24,6 +24,7 @@ import { handleApiError, badRequest, conflict, internalError } from "@/lib/api/e
 import { creditCoins } from "@/lib/economy/coins";
 import { db } from "@/lib/db";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -225,10 +226,7 @@ async function verifyGooglePlayPurchase(
       );
     }
     // Dev/test mode only — trust the purchase without verifying with Google
-    console.warn(
-      "[iap/verify] GOOGLE_PLAY_SERVICE_ACCOUNT_JSON not set — running in trusted dev mode. " +
-        "DO NOT use this in production."
-    );
+    logger.warn("[iap/verify] GOOGLE_PLAY_SERVICE_ACCOUNT_JSON not set — running in trusted dev mode. DO NOT use this in production.");
     return {
       purchaseState: 0,
       consumptionState: 0,
@@ -277,7 +275,7 @@ async function consumeGooglePlayPurchase(
 ): Promise<void> {
   const saJson = process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON;
   if (!saJson) {
-    console.warn("[iap/verify] Skipping Google Play consume in dev mode");
+    logger.warn("[iap/verify] Skipping Google Play consume in dev mode");
     return;
   }
 
@@ -306,7 +304,7 @@ async function consumeGooglePlayPurchase(
   if (!resp.ok && resp.status !== 204) {
     // Non-fatal: log but don't fail the credit — coins were already granted
     const text = await resp.text();
-    console.error(`[iap/verify] Failed to consume purchase: ${text}`);
+    logger.error(`[iap/verify] Failed to consume purchase: ${text}`);
   }
 }
 
@@ -379,9 +377,9 @@ async function verifyAndActivateSubscription(
         headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
         body: "{}",
       });
-      if (!ackResp.ok) console.error("[iap/verify] Subscription ack failed:", ackResp.status);
+      if (!ackResp.ok) logger.error({ status: ackResp.status }, "[iap/verify] Subscription ack failed");
     } catch (e) {
-      console.error("[iap/verify] Subscription ack error:", e);
+      logger.error({ err: e }, "[iap/verify] Subscription ack error:");
     } finally {
       clearTimeout(ackTimer);
     }
@@ -391,7 +389,7 @@ async function verifyAndActivateSubscription(
         "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON is not configured. Subscription verification is disabled."
       );
     }
-    console.warn("[iap/verify] GOOGLE_PLAY_SERVICE_ACCOUNT_JSON not set — trusting subscription in dev mode");
+    logger.warn("[iap/verify] GOOGLE_PLAY_SERVICE_ACCOUNT_JSON not set — trusting subscription in dev mode");
   }
 
   // Activate plan and credit monthly coin bonus atomically (BUG-FIN-17: single transaction)

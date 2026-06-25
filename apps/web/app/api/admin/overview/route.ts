@@ -22,6 +22,7 @@ import { db } from "@/lib/db";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -85,7 +86,7 @@ async function runCountQueries(
       const raw = result.value.rows[0]?.value ?? "0";
       map.set(label, parseFloat(raw) || 0);
     } else {
-      console.error(`[admin:overview] Query '${label}' failed:`, result.reason);
+      logger.error({ err: result.reason }, `[admin:overview] Query '${label}' failed:`);
       map.set(label, 0);
     }
   });

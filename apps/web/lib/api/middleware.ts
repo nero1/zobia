@@ -443,7 +443,7 @@ export function withAdminAuth<TParams = Record<string, string>>(
  * @returns Next.js compatible route handler
  */
 export function withRateLimit<TParams = Record<string, string>>(
-  handler: (req: NextRequest, ctx: { params: any }) => Promise<NextResponse>,
+  handler: (req: NextRequest, ctx: { params: Promise<TParams> }) => Promise<NextResponse>,
   options: RateLimitOptions
 ): (req: NextRequest, ctx: { params: Promise<TParams> }) => Promise<NextResponse> {
   return async (req, ctx) => {

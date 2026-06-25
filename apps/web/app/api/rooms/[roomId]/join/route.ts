@@ -32,6 +32,7 @@ import { XP_VALUES } from "@/lib/xp/engine";
 import { recordWarContribution } from "@/lib/guilds/recordWarContribution";
 import { publishRealtimeEvent } from "@/lib/realtime";
 import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // DB row types
@@ -135,7 +136,7 @@ async function awardJoinXP(roomId: string, userId: string): Promise<number> {
 
     return xp;
   } catch (err) {
-    console.error("[rooms/join] XP award failed (non-fatal):", err);
+    logger.error({ err: err }, "[rooms/join] XP award failed (non-fatal):");
     return 0;
   }
 }
@@ -147,7 +148,7 @@ async function awardJoinXP(roomId: string, userId: string): Promise<number> {
 async function firePostJoinSideEffects(roomId: string, userId: string): Promise<void> {
   const joinXp = await awardJoinXP(roomId, userId);
   recordWarContribution(userId, "join_room", db).catch((err) =>
-    console.error("[rooms:join] war contribution failed", err)
+    logger.error({ err: err }, "[rooms:join] war contribution failed");
   );
   if (joinXp > 0) {
     publishRealtimeEvent(`user:${userId}`, "reward_earned", {

@@ -1,7 +1,7 @@
 # Zobia Social — Product Requirements Document
 ### A Gamified Monetised Social Platform for the Global Mobile Generation
 
-> **Version 1.76 — Product Requirements Document**
+> **Version 1.77 — Product Requirements Document**
 > Covers: Feature Specifications · Technical Architecture · Economy Design · Moderation · Build Sequence
 > Scope: Nigeria-first, Pan-African then Global · Mobile-first PWA + Android APK · Admin-minimal operation
 
@@ -811,7 +811,7 @@ Automated fraud checks run on every payout request:
 Flagged payouts are not blocked — they are routed to `awaiting_approval` for admin decision. A critical-severity system alert is also created for admin visibility.
 
 **Security Gate:**
-Updating or removing a bank account or wallet address requires the creator to verify with their PIN, authenticator code, or password. If no security method is set, a PIN encouragement modal is shown after the first account add.
+Updating or removing a bank account or wallet address requires the creator to verify with their PIN, authenticator code, or password. If no security method is set, a PIN encouragement modal is shown after the first account add. When the creator authenticates with an authenticator code (TOTP), the same atomic Redis replay guard used throughout the platform applies: the code is marked `totp:used:<userId>:<code>` (TTL 90 s) via `SET NX` and rejected if already consumed.
 
 ---
 

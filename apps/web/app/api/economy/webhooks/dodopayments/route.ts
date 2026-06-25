@@ -22,6 +22,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyWebhookSignature } from "@/lib/payments/dodopayments";
 import { redis } from "@/lib/redis";
 import {
+import { logger } from "@/lib/logger";
   handleDodoWebhookPayload,
   type DodoPaymentSucceededEvent,
   type DodoPayoutEvent,
@@ -46,7 +47,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // 2. Validate HMAC-SHA256 signature
   const isValid = verifyWebhookSignature(rawBody, signature);
   if (!isValid) {
-    console.warn("[webhook/dodopayments] Invalid HMAC signature — discarding event");
+    logger.warn("[webhook/dodopayments] Invalid HMAC signature — discarding event");
     return NextResponse.json({ received: true }, { status: 200 });
   }
 
@@ -65,7 +66,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     ?? (event as DodoPayoutEvent).data?.reference
     ?? null;
   if (!eventId) {
-    console.warn("[webhook/dodopayments] Event has no unique identifier (id/reference) — rejecting to prevent replay attacks", { eventType: event.event });
+    logger.warn({ eventType: event.event }, "[webhook/dodopayments] Event has no unique identifier (id/reference) — rejecting to prevent replay attacks");
     return NextResponse.json({ received: false, error: "missing_event_id" }, { status: 400 });
   }
   const replayKey = `webhook:dodo:${event.event}:${eventId}`;
@@ -74,7 +75,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const alreadySeen = await redis.set(replayKey, "1", "EX", 86400, "NX");
   if (alreadySeen === null) {
     // null = NX condition not met → key already existed → duplicate event
-    console.info(`[webhook/dodopayments] Duplicate event ignored: ${replayKey}`);
+    logger.info(`[webhook/dodopayments] Duplicate event ignored: ${replayKey}`);
     return NextResponse.json({ received: true, duplicate: true });
   }
 
@@ -82,7 +83,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     await handleDodoWebhookPayload(event.event, event);
   } catch (err) {
-    console.error("[webhook/dodopayments] Processing error:", err);
+    logger.error({ err: err }, "[webhook/dodopayments] Processing error:");
     // Return 500 so DodoPayments retries delivery on transient errors.
     // Returning 200 here would permanently suppress retries and silently
     // lose payment events. Signature failures (above) return 200 intentionally

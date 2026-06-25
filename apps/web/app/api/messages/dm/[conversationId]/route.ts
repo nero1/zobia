@@ -29,6 +29,7 @@ import { publishRealtimeEvent } from "@/lib/realtime";
 import { notifyDirectMessage } from "@/lib/notifications/chatPush";
 import { calculateFinalXP } from "@/lib/xp/engine";
 import type { Plan } from "@zobia/types";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -222,7 +223,7 @@ export const GET = withAuth(
            AND is_deleted = FALSE`,
         [conversationId, auth.user.sub]
       ).catch((err) =>
-        console.error("[dm/[conversationId]:GET] Mark read failed", err)
+        logger.error({ err: err }, "[dm/[conversationId]:GET] Mark read failed");
       );
 
       // Cursor pagination only applies to the backlog query, not delta polling.

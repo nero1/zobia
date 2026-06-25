@@ -7,6 +7,7 @@
 
 import { safeFetch } from "@/lib/security/ssrf";
 import { getManifestValue } from "@/lib/manifest";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,9 +33,7 @@ function hasMailgunConfig(): boolean {
   const domain = process.env.MAILGUN_DOMAIN;
 
   if (!apiKey || !domain) {
-    console.warn(
-      "[email] MAILGUN_API_KEY or MAILGUN_DOMAIN is not set — email sending is disabled."
-    );
+    logger.warn("[email] MAILGUN_API_KEY or MAILGUN_DOMAIN is not set — email sending is disabled.");
     return false;
   }
   return true;
@@ -90,12 +89,10 @@ async function postToMailgun(payload: EmailPayload): Promise<void> {
 
     if (!response.ok) {
       const text = await response.text().catch(() => "(unreadable)");
-      console.error(
-        `[email] Mailgun returned ${response.status} for ${payload.to}: ${text}`
-      );
+      logger.error({ status: response.status, to: payload.to, body: text }, `[email] Mailgun error`);
     }
   } catch (err) {
-    console.error(`[email] Failed to send email to ${payload.to}:`, err);
+    logger.error({ err: err }, `[email] Failed to send email to ${payload.to}:`);
   }
 }
 
@@ -191,7 +188,7 @@ export async function sendEmail(
   // Warn when a notification type is specified without a userId — per-user opt-out
   // cannot be checked, so the email will bypass the user's preferences.
   if (notificationType && !userId && notificationType !== "security" && notificationType !== "transactional") {
-    console.warn(`[email] sendEmail called with notificationType='${notificationType}' but no userId — user opt-out not checked for ${to}`);
+    logger.warn(`[email] sendEmail called with notificationType='${notificationType}' but no userId — user opt-out not checked for ${to}`);
   }
 
   if (userId && notificationType) {

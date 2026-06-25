@@ -13,6 +13,7 @@
 
 import { aiClient } from "@/lib/ai/client";
 import { db } from "@/lib/db";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -182,7 +183,7 @@ function parseClassificationResponse(
   try {
     parsed = JSON.parse(cleaned) as Record<string, unknown>;
   } catch {
-    console.error("[aiClassifier] Failed to parse AI response:", raw);
+    logger.error({ err: raw }, "[aiClassifier] Failed to parse AI response:");
     return fallbackResult(provider);
   }
 
@@ -251,7 +252,7 @@ Classify this report according to your instructions.`;
   }));
   let systemPromptOverride = config.systemPromptOverride;
   if (systemPromptOverride && systemPromptOverride.length > 4000) {
-    console.warn('[aiClassifier] systemPromptOverride exceeds 4000 chars, ignoring override');
+    logger.warn('[aiClassifier] systemPromptOverride exceeds 4000 chars, ignoring override');
     systemPromptOverride = '';
   }
   // Always start from the canonical system prompt then optionally append admin override.
@@ -276,7 +277,7 @@ Classify this report according to your instructions.`;
     // so the ClassificationResult accurately reflects which model served the response.
     return parseClassificationResponse(response.content, response.provider);
   } catch (err) {
-    console.error("[aiClassifier] AI classify failed:", err);
+    logger.error({ err: err }, "[aiClassifier] AI classify failed:");
     return fallbackResult("none");
   }
 }

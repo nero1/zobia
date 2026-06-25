@@ -31,6 +31,7 @@ import { handleApiError, notFound, badRequest, conflict } from "@/lib/api/errors
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { invalidateAllSessions } from "@/lib/auth/session";
 import { sendEmail } from "@/lib/notifications/email";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -264,7 +265,7 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
     // (outside transaction – Redis is not transactional with DB)
     if (body.action === "suspend" || body.action === "ban" || body.action === "force_2fa" || body.action === "reset_password") {
       await invalidateAllSessions(userId).catch((err) => {
-        console.error("[admin:actions] Failed to invalidate sessions", err);
+        logger.error({ err: err }, "[admin:actions] Failed to invalidate sessions");
       });
     }
 

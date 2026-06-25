@@ -35,6 +35,7 @@ import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 import { ROOM_MESSAGE_XP_DAILY_CAP, calculateFinalXP } from "@/lib/xp/engine";
 import { publishRealtimeEvent } from "@/lib/realtime";
 import type { Plan } from "@zobia/types";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -139,7 +140,7 @@ async function decrementHealthScore(
       [roomId, penalty]
     );
   } catch (err) {
-    console.error("[rooms/moderation] Health score update failed:", err);
+    logger.error({ err: err }, "[rooms/moderation] Health score update failed:");
   }
 }
 
@@ -167,7 +168,7 @@ async function logModerationAction(
       [roomId, moderatorId, action, targetUserId ?? null, JSON.stringify(metadata)]
     );
   } catch (err) {
-    console.error("[rooms/moderation] Audit log write failed:", err);
+    logger.error({ err: err }, "[rooms/moderation] Audit log write failed:");
   }
 }
 

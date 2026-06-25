@@ -19,6 +19,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { validateCronSecret } from "@/lib/cron/auth";
 import { getManifestValue } from "@/lib/manifest";
+import { logger } from "@/lib/logger";
 
 const BATCH_SIZE = 500;
 const DEFAULT_AUTO_CORRECT_THRESHOLD = 50;
@@ -47,7 +48,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   while (true) {
     if (++iterations > MAX_ITERATIONS) {
-      console.error(`[reconcile-balances] Hit iteration cap (${MAX_ITERATIONS}), stopping early at cursor ${lastId}`);
+      logger.error({ maxIterations: MAX_ITERATIONS, lastId }, '[reconcile-balances] Hit iteration cap, stopping early');
       return NextResponse.json(
         { ok: false, partial: true, discrepanciesFound, autoCorrected, stoppedAtCursor: lastId },
         { status: 206 }

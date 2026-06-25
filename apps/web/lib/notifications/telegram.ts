@@ -37,7 +37,7 @@ async function _sendTelegramMessage(
 ): Promise<TelegramSendResult> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) {
-    console.warn("[telegram] TELEGRAM_BOT_TOKEN not set — skipping send");
+    logger.warn("[telegram] TELEGRAM_BOT_TOKEN not set — skipping send");
     return { ok: false, error: "no_token" };
   }
 
@@ -57,17 +57,14 @@ async function _sendTelegramMessage(
 
     if (!response.ok) {
       const body = await response.text().catch(() => "");
-      console.error(
-        `[telegram] API error ${response.status} for user ${telegramId}:`,
-        body
-      );
+      logger.error({ status: response.status, body }, `[telegram] API error for user ${telegramId}`);
       return { ok: false, error: `http_${response.status}` };
     }
 
     return { ok: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[telegram] Send failed for user ${telegramId}:`, message);
+    logger.error({ err: message }, `[telegram] Send failed for user ${telegramId}:`);
     return { ok: false, error: message };
   }
 }
@@ -89,9 +86,7 @@ export function sendTelegramMessage(telegramId: string, text: string): void {
   // Fire-and-forget: deliberately not awaited
   _sendTelegramMessage(telegramId, text).then((result) => {
     if (!result.ok) {
-      console.warn(
-        `[telegram] Message to ${telegramId} failed (${result.error}) — continuing`
-      );
+      logger.warn({ telegramId, error: result.error }, `[telegram] Message delivery failed — continuing`);
     }
   });
 }

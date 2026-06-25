@@ -33,6 +33,7 @@ import { processPendingGiftDrops } from "@/lib/events/monthlyGiftDrop";
 import { sendBulkTelegramMessages } from "@/lib/notifications/telegram";
 import { retryFailedXPAwards } from "@/lib/xp/safeAwardXP";
 import { getAllCircuitMetrics } from "@/lib/payments/circuit";
+import { logger } from "@/lib/logger";
 
 const ALLIANCE_WAR_VICTORY_XP = 300;
 
@@ -687,7 +688,7 @@ export const GET = async (req: NextRequest) => {
        DELETE FROM sessions WHERE id IN (SELECT id FROM expired)`
     );
   } catch (err) {
-    console.warn('[daily-platform] Failed to prune expired sessions:', err);
+    logger.warn({ err }, '[daily-platform] Failed to prune expired sessions');
   }
 
   return NextResponse.json({

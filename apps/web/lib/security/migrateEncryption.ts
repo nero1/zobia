@@ -15,6 +15,7 @@
 
 import { db } from "@/lib/db";
 import { migrateFieldEncryption } from "@/lib/security/fieldEncryption";
+import { logger } from "@/lib/logger";
 
 const BATCH_SIZE = 500;
 
@@ -28,7 +29,7 @@ async function migrateColumn(
   let errors = 0;
   let lastId: string | null = null;
 
-  console.log(`[migrate] Starting ${table}.${column} ...`);
+  logger.info(`[migrate] Starting ${table}.${column} ...`);
 
   while (true) {
     const queryResult = await db.query<{ id: string; val: string }>(
@@ -48,7 +49,7 @@ async function migrateColumn(
       try {
         const newVal = migrateFieldEncryption(row.val);
         if (newVal === null) {
-          console.warn(`[migrate] Decryption failed for ${table}.${column} id=${row.id} — skipping`);
+          logger.warn(`[migrate] Decryption failed for ${table}.${column} id=${row.id} — skipping`);
           errors++;
         } else if (newVal === row.val) {
           // Already at current version
@@ -61,7 +62,7 @@ async function migrateColumn(
           migrated++;
         }
       } catch (err) {
-        console.error(`[migrate] Error migrating ${table}.${column} id=${row.id}:`, err);
+        logger.error({ err: err }, `[migrate] Error migrating ${table}.${column} id=${row.id}:`);
         errors++;
       }
     }
@@ -70,7 +71,7 @@ async function migrateColumn(
     lastId = rows[rows.length - 1].id;
   }
 
-  console.log(`[migrate] ${table}.${column}: migrated=${migrated} skipped=${skipped} errors=${errors}`);
+  logger.info(`[migrate] ${table}.${column}: migrated=${migrated} skipped=${skipped} errors=${errors}`);
   return { migrated, skipped, errors };
 }
 
@@ -96,7 +97,7 @@ export async function runEncryptionMigration(): Promise<{
     totalErrors += result.errors;
   }
 
-  console.log(`[migrate] Done — total migrated=${totalMigrated} skipped=${totalSkipped} errors=${totalErrors}`);
+  logger.info(`[migrate] Done — total migrated=${totalMigrated} skipped=${totalSkipped} errors=${totalErrors}`);
   return { totalMigrated, totalSkipped, totalErrors };
 }
 
@@ -104,11 +105,11 @@ export async function runEncryptionMigration(): Promise<{
 if (require.main === module) {
   runEncryptionMigration()
     .then((result) => {
-      console.log("[migrate] Complete:", result);
+      logger.info({ err: result }, "[migrate] Complete:");
       process.exit(0);
     })
     .catch((err) => {
-      console.error("[migrate] Fatal:", err);
+      logger.error({ err: err }, "[migrate] Fatal:");
       process.exit(1);
     });
 }

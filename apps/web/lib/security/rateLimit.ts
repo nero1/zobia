@@ -21,6 +21,7 @@
 import { redis } from "@/lib/redis";
 import { ApiError, tooManyRequests } from "@/lib/api/errors";
 import { memGet, memSet } from "@/lib/cache/memory";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -426,7 +427,7 @@ export function getClientIp(request: Request): string {
         parseInt(process.env.TRUSTED_PROXY_COUNT ?? "1", 10)
       );
       if (trustedProxyCount >= ips.length) {
-        console.warn(`[rateLimit] TRUSTED_PROXY_COUNT (${trustedProxyCount}) exceeds XFF depth (${ips.length}); falling back to leftmost IP`);
+        logger.warn(`[rateLimit] TRUSTED_PROXY_COUNT (${trustedProxyCount}) exceeds XFF depth (${ips.length}); falling back to leftmost IP`);
       }
       const index = Math.max(0, ips.length - trustedProxyCount - 1);
       return ips[index];

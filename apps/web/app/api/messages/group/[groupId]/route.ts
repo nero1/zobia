@@ -26,6 +26,7 @@ import { recordWarContribution } from '@/lib/guilds/recordWarContribution';
 import { publishRealtimeEvent } from '@/lib/realtime';
 import { notifyGroupMessage } from '@/lib/notifications/chatPush';
 import { triggerActivityQuestProgress } from '@/lib/quests/questEngine';
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -89,7 +90,7 @@ async function maybeAwardGroupMessageXP(groupId: string, messageId: string, user
 
     return xp;
   } catch (err) {
-    console.error('[group:POST] XP award failed (non-fatal):', err);
+    logger.error({ err: err }, '[group:POST] XP award failed (non-fatal):');
     return 0;
   }
 }
@@ -276,7 +277,7 @@ export const POST = withAuth(async (
 
   // Record guild war contribution (non-blocking)
   recordWarContribution(userId, 'send_message', db).catch((err) =>
-    console.error('[group:POST] war contribution failed', err)
+    logger.error({ err: err }, '[group:POST] war contribution failed');
   );
 
   // Realtime broadcast — push to open clients so group members see new messages

@@ -122,7 +122,7 @@ export async function compressImage(
   } catch (err: unknown) {
     // Sharp not installed or failed — return original buffer (graceful degradation)
     if ((err as NodeJS.ErrnoException).code !== 'MODULE_NOT_FOUND') {
-      console.error('[compress] Sharp error:', err);
+      logger.error({ err: err }, '[compress] Sharp error:');
     }
 
     return {

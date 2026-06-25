@@ -21,6 +21,7 @@ import { verifyWebhookSignature } from "@/lib/payments/paystack";
 import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
 import {
+import { logger } from "@/lib/logger";
   handlePaystackWebhookPayload,
   type PaystackChargeEvent,
   type PaystackTransferEvent,
@@ -51,7 +52,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // 2. Validate HMAC-SHA512 signature — reject silently to avoid oracle attacks
   const isValid = verifyWebhookSignature(rawBody, signature);
   if (!isValid) {
-    console.warn("[webhook/paystack] Invalid signature rejected");
+    logger.warn("[webhook/paystack] Invalid signature rejected");
     // Return 200 so Paystack does not retry — a bad signature will never become valid on retry.
     return NextResponse.json({ received: false }, { status: 200 });
   }
@@ -77,7 +78,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const alreadySeen = await redis.set(replayKey, "1", "EX", 86400, "NX");
   if (alreadySeen === null) {
     // null = NX condition not met → key already existed → duplicate event
-    console.info(`[webhook/paystack] Duplicate event ignored: ${replayKey}`);
+    logger.info({ replayKey }, `[webhook/paystack] Duplicate event ignored`);
     return NextResponse.json({ received: true, duplicate: true });
   }
 
@@ -88,11 +89,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const errCode = (err as NodeJS.ErrnoException).code;
     const isTransient = errCode === "ECONNREFUSED" || errCode === "ETIMEDOUT" || errCode === "ECONNRESET";
     if (isTransient) {
-      console.error("[webhook/paystack] Transient error (Paystack will retry):", err);
+      logger.error({ err: err }, "[webhook/paystack] Transient error (Paystack will retry):");
       return NextResponse.json({ received: false, error: "Processing failed" }, { status: 500 });
     }
     // Non-recoverable error — log for ops review but return 200 to stop Paystack retry loops
-    console.error("[webhook/paystack] Non-recoverable processing error:", err);
+    logger.error({ err: err }, "[webhook/paystack] Non-recoverable processing error:");
     db.query(
       `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
        VALUES ('webhook_processing_error', 'critical', $1, $2::jsonb, NOW())`,

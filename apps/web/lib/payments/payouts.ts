@@ -324,7 +324,7 @@ export async function reconcileStuckPayouts(): Promise<{ reconciled: number; fai
       // For other statuses (pending, otp, abandoned) — leave as 'processing'
       // and let the next reconciliation cycle pick them up again.
     } catch (err) {
-      console.error(`[payouts:reconcile] Failed to reconcile payout ${candidate.id}:`, err);
+      logger.error({ err: err }, `[payouts:reconcile] Failed to reconcile payout ${candidate.id}:`);
     }
   }
 

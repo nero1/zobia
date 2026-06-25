@@ -26,6 +26,7 @@ import { loadManifest } from "@/lib/manifest";
 import { verifyCaptcha } from "@/lib/security/captcha";
 import { randomBytes } from "crypto";
 import { creditCoins } from "@/lib/economy/coins";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -286,7 +287,7 @@ export const POST = withAuth(async (req, { params, auth }) => {
          ON CONFLICT (user_id, quest_type) DO NOTHING`,
         [auth.user.sub, JSON.stringify(newMemberQuestProgress)]
       ).catch(() => {
-        console.warn('[onboarding/complete] Could not insert new_member quest (non-fatal)');
+        logger.warn('[onboarding/complete] Could not insert new_member quest (non-fatal)');
       });
 
       return { referralCode };

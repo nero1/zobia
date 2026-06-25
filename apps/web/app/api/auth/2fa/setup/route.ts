@@ -108,12 +108,6 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const { code } = await validateBody(req, confirmSchema);
     const userId = auth.user.sub;
 
-    // Replay protection: reject codes that were already used in the last 90s (S-04)
-    const alreadyUsed = await redis.get(usedTotpKey(userId, code));
-    if (alreadyUsed) {
-      throw badRequest("TOTP code already used. Please wait for a new code.", "TOTP_REPLAY");
-    }
-
     const pendingSecret = await redis.get(pendingTotpKey(userId));
     if (!pendingSecret) {
       throw badRequest("No pending 2FA setup found. Please restart the setup process.", "TOTP_NO_PENDING");
@@ -123,8 +117,12 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       throw badRequest("Invalid TOTP code. Please try again.", "TOTP_INVALID_CODE");
     }
 
-    // Mark code as used to prevent replay (90s covers the TOTP window)
-    await redis.set(usedTotpKey(userId, code), "1", "EX", 90);
+    // Anti-replay: atomically mark code as used for 90s (BUG-AUTH-03).
+    // SET NX ensures two concurrent requests cannot both consume the same OTP.
+    const marked = await redis.set(usedTotpKey(userId, code), "1", "EX", 90, "NX");
+    if (marked === null) {
+      throw badRequest("TOTP code already used. Please wait for a new code.", "TOTP_REPLAY");
+    }
 
     // Persist secret and enable TOTP
     await db.query(

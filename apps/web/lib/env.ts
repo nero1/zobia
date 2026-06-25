@@ -8,6 +8,7 @@
  */
 
 import { z } from "zod";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -218,10 +219,7 @@ if (!_parsed.success && process.env.SKIP_ENV_VALIDATION !== "1") {
 }
 
 if (!_parsed.success && process.env.SKIP_ENV_VALIDATION === "1") {
-  console.warn(
-    "[env] SKIP_ENV_VALIDATION=1: environment validation was skipped. " +
-    "All env accesses return undefined. Do not use this in production."
-  );
+  logger.warn("[env] SKIP_ENV_VALIDATION=1: environment validation was skipped. All env accesses return undefined. Do not use this in production.");
 }
 
 export const env: Env = _parsed.success
