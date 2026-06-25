@@ -42,6 +42,7 @@ import { Button } from '@/components/ui/Button';
 import { MessageBubble, type MessageBubbleProps, type MessageReaction } from '@/components/rooms/MessageBubble';
 import { TopGifters, type GifterEntry } from '@/components/rooms/TopGifters';
 import { GiftSpectacle, type GiftSpectacleData } from '@/components/rooms/GiftSpectacle';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
@@ -381,6 +382,8 @@ export default function RoomScreen() {
   const queryClient = useQueryClient();
   const { colors: themeColors, isDark } = useTheme();
   const currency = useCurrency();
+  const insets = useSafeAreaInsets();
+  const keyboardOffset = Platform.OS === 'ios' ? insets.top + 44 : 0;
   const { t } = useTranslation();
   const { user: authUser } = useAuth();
   const currentUserId = authUser?.id ?? null;
@@ -402,6 +405,9 @@ export default function RoomScreen() {
   const [highlightPending, setHighlightPending] = useState(false);
   // GIF picker state
   const [gifPickerVisible, setGifPickerVisible] = useState(false);
+  // Reaction picker state (replaces nested Alert — BUG-UI-01)
+  const [reactionModalVisible, setReactionModalVisible] = useState(false);
+  const [reactionTargetMessageId, setReactionTargetMessageId] = useState<string | null>(null);
   // VIP subscribe state
   const [subscribing, setSubscribing] = useState(false);
   const subscribingRef = useRef(false);
@@ -643,13 +649,8 @@ export default function RoomScreen() {
       {
         text: '😂 React',
         onPress: () => {
-          Alert.alert('React', 'Choose a reaction:', [
-            { text: '❤️', onPress: () => apiClient.patch(`/rooms/${roomId}/messages/${messageId}/reactions`, { emoji: '❤️' }).catch(() => {}) },
-            { text: '😂', onPress: () => apiClient.patch(`/rooms/${roomId}/messages/${messageId}/reactions`, { emoji: '😂' }).catch(() => {}) },
-            { text: '🔥', onPress: () => apiClient.patch(`/rooms/${roomId}/messages/${messageId}/reactions`, { emoji: '🔥' }).catch(() => {}) },
-            { text: '👏', onPress: () => apiClient.patch(`/rooms/${roomId}/messages/${messageId}/reactions`, { emoji: '👏' }).catch(() => {}) },
-            { text: 'Cancel', style: 'cancel' },
-          ]);
+          setReactionTargetMessageId(messageId);
+          setReactionModalVisible(true);
         },
       },
       {
@@ -870,7 +871,7 @@ export default function RoomScreen() {
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={88}
+        keyboardVerticalOffset={keyboardOffset}
       >
         {/* Drop banner */}
         {room?.roomType === 'drop' && (
@@ -967,7 +968,7 @@ export default function RoomScreen() {
           <XPBadge visible={xpFlash} />
           {/* Member Highlight inline input */}
           {highlightMode && (
-            <View style={[styles.highlightBar, { backgroundColor: isDark ? colors.neutral[800] : '#f3f0ff', borderColor: themeColors.border }]}>
+            <View style={[styles.highlightBar, { backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100], borderColor: themeColors.border }]}>
               <Text style={[styles.highlightLabel, { color: themeColors.text }]}>👑 Highlight username:</Text>
               <TextInput
                 style={[styles.highlightInput, { backgroundColor: isDark ? colors.neutral[700] : '#fff', color: themeColors.text }]}
@@ -1021,12 +1022,12 @@ export default function RoomScreen() {
           />
           {/* Zobia Moment button */}
           <Pressable
-            style={[styles.iconBtn, { backgroundColor: isMoment ? '#7c3aed' : (isDark ? '#7c3aed22' : '#ede9fe') }]}
+            style={[styles.iconBtn, { backgroundColor: isMoment ? colors.brand.blue : (isDark ? colors.brand.blue + '22' : colors.neutral[100]) }]}
             onPress={() => setIsMoment((v) => !v)}
             accessibilityLabel="Toggle Zobia Moment (disappears in 24h)"
             accessibilityRole="button"
           >
-            <Text style={[styles.iconBtnText, { color: isMoment ? '#fff' : '#7c3aed' }]}>⚡</Text>
+            <Text style={[styles.iconBtnText, { color: isMoment ? colors.neutral[0] : colors.brand.blue }]}>⚡</Text>
           </Pressable>
           <Pressable
             style={styles.iconBtn}
@@ -1049,7 +1050,7 @@ export default function RoomScreen() {
           {/* Room Powers button — only for room creator */}
           {room?.isCreator && (
             <Pressable
-              style={[styles.iconBtn, { backgroundColor: isDark ? colors.neutral[700] : '#f3f0ff' }]}
+              style={[styles.iconBtn, { backgroundColor: isDark ? colors.neutral[700] : colors.neutral[100] }]}
               onPress={() => {
                 Alert.alert(
                   'Room Powers',
@@ -1109,6 +1110,39 @@ export default function RoomScreen() {
         onClose={() => setGifPickerVisible(false)}
         onSelect={handleGifSelect}
       />
+      {/* Reaction picker modal */}
+      <Modal
+        visible={reactionModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setReactionModalVisible(false)}
+      >
+        <Pressable
+          style={styles.reactionOverlay}
+          onPress={() => setReactionModalVisible(false)}
+        >
+          <View style={[styles.reactionSheet, { backgroundColor: themeColors.surface }]}>
+            <Text style={[styles.reactionTitle, { color: themeColors.textMuted }]}>React</Text>
+            <View style={styles.reactionRow}>
+              {(['❤️', '😂', '🔥', '👏', '😮', '😢'] as const).map((emoji) => (
+                <Pressable
+                  key={emoji}
+                  style={styles.reactionBtn}
+                  onPress={() => {
+                    if (reactionTargetMessageId) {
+                      apiClient.patch(`/rooms/${roomId}/messages/${reactionTargetMessageId}/reactions`, { emoji }).catch(() => {});
+                    }
+                    setReactionModalVisible(false);
+                    setReactionTargetMessageId(null);
+                  }}
+                >
+                  <Text style={styles.reactionEmoji}>{emoji}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
     </Screen>
   );
 }
@@ -1288,7 +1322,7 @@ const styles = StyleSheet.create({
   // Moment message wrapper
   momentWrapper: {
     borderWidth: 2,
-    borderColor: '#7c3aed',
+    borderColor: colors.brand.blue,
     borderRadius: 18,
     marginHorizontal: 8,
     marginVertical: 2,
@@ -1296,11 +1330,11 @@ const styles = StyleSheet.create({
   },
   momentBadge: {
     fontSize: 10,
-    color: '#7c3aed',
+    color: colors.brand.blue,
     fontWeight: '700',
     textAlign: 'center',
     paddingVertical: 3,
-    backgroundColor: '#ede9fe',
+    backgroundColor: colors.brand.blue + '22',
   },
 
   // Moment label above input
@@ -1308,7 +1342,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -28,
     left: 12,
-    backgroundColor: '#7c3aed',
+    backgroundColor: colors.brand.blue,
     borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 3,
@@ -1316,13 +1350,13 @@ const styles = StyleSheet.create({
   },
   momentActiveLabelText: {
     fontSize: 11,
-    color: '#fff',
+    color: colors.neutral[0],
     fontWeight: '700',
   },
 
   textInputMoment: {
     borderWidth: 2,
-    borderColor: '#7c3aed',
+    borderColor: colors.brand.blue,
   },
 
   // Member Highlight bar
@@ -1408,4 +1442,33 @@ const styles = StyleSheet.create({
   gifGrid: { paddingBottom: 24 },
   gifCell: { flex: 1, margin: 4 },
   gifThumb: { width: '100%', height: 120, borderRadius: 8, backgroundColor: colors.neutral[200] },
+
+  // Reaction picker modal
+  reactionOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
+  },
+  reactionSheet: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    paddingBottom: 36,
+  },
+  reactionTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 14,
+  },
+  reactionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  reactionBtn: {
+    padding: 10,
+  },
+  reactionEmoji: {
+    fontSize: 32,
+  },
 });

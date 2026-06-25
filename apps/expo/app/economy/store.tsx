@@ -22,7 +22,6 @@ import {
   Platform,
   TextInput,
 } from 'react-native';
-import * as Crypto from 'expo-crypto';
 import { useRouter } from 'expo-router';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import type { AxiosError } from 'axios';
@@ -34,8 +33,7 @@ import { useTheme } from '@/lib/theme';
 import { useTranslation } from 'react-i18next';
 import { useCurrency } from '@/lib/hooks/useCurrency';
 import { translateApiError } from '@/lib/i18n/apiErrors';
-import { purchaseCoins, COIN_PRODUCTS, initGooglePlayBilling } from '@/lib/payments/googlePlay';
-import { useAuth } from '@/lib/auth/hooks';
+import { purchaseCoins, purchaseStars, COIN_PRODUCTS, STAR_PRODUCTS, initGooglePlayBilling } from '@/lib/payments/googlePlay';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -62,6 +60,7 @@ interface StarPack {
   starsGranted: number;
   bonusLabel: string | null;
   isFeatured: boolean;
+  iapProductId: string | null;
 }
 
 interface BoosterItem {
@@ -216,7 +215,6 @@ export default function StoreScreen() {
   const { colors: themeColors } = useTheme();
   const currency = useCurrency();
   const { t } = useTranslation();
-  const { user } = useAuth();
   const [purchasingId, setPurchasingId] = useState<string | null>(null);
   const [purchasingStarId, setPurchasingStarId] = useState<string | null>(null);
   const [purchasingBoosterId, setPurchasingBoosterId] = useState<string | null>(null);
@@ -303,8 +301,7 @@ export default function StoreScreen() {
   };
 
   const handleBuy = (packId: string, packType: 'coin_pack' | 'star_pack') => {
-    // On Android, coin packs must go through Google Play Billing (Play Store policy
-    // prohibits external payment URLs for digital content).
+    // On Android, all digital goods must go through Google Play Billing.
     if (Platform.OS === 'android' && packType === 'coin_pack') {
       const pack = data?.coinPacks.find((p) => p.id === packId);
       const playProduct = pack
@@ -338,6 +335,39 @@ export default function StoreScreen() {
       return;
     }
 
+    if (Platform.OS === 'android' && packType === 'star_pack') {
+      const pack = data?.starPacks.find((p) => p.id === packId);
+      const playProduct = pack
+        ? STAR_PRODUCTS.find((sp) =>
+            pack.iapProductId
+              ? sp.id === pack.iapProductId
+              : sp.stars === pack.starsGranted
+          )
+        : null;
+      if (!playProduct) {
+        Alert.alert('Unavailable', 'This pack is not available for purchase on Android yet.');
+        return;
+      }
+      setPurchasingStarId(packId);
+      (async () => {
+        try {
+          await initGooglePlayBilling();
+          const result = await purchaseStars(playProduct.id);
+          if (result.success) {
+            Alert.alert('Success!', `You received ${result.stars.toLocaleString()} stars!`);
+          } else if (result.error !== 'Purchase cancelled') {
+            Alert.alert('Purchase Failed', result.error ?? 'Could not complete purchase.');
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Could not connect to Google Play.';
+          Alert.alert('Purchase Failed', msg);
+        } finally {
+          setPurchasingStarId(null);
+        }
+      })();
+      return;
+    }
+
     if (pinStatus?.hasPinSet) {
       setPinPending({ packId, packType });
       setPinInput('');
@@ -351,11 +381,7 @@ export default function StoreScreen() {
   const submitPin = async () => {
     if (pinInput.length !== 4 || (!pinPending && !boosterPinPending)) return;
     try {
-      const pinHash = await Crypto.digestStringAsync(
-        Crypto.CryptoDigestAlgorithm.SHA256,
-        `${user?.id ?? ''}:${pinInput}`
-      );
-      await apiClient.post('/auth/pin/verify', { pinHash });
+      await apiClient.post('/auth/pin/verify', { pin: pinInput });
       setPinModalVisible(false);
       if (boosterPinPending) {
         setPurchasingBoosterId(boosterPinPending.boosterId);

@@ -75,7 +75,6 @@ async function requestAndFetchContacts(): Promise<string[]> {
 // ---------------------------------------------------------------------------
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/;
-const CURRENT_YEAR = new Date().getFullYear();
 const MINIMUM_AGE = 18;
 
 function validateUsername(value: string): string | undefined {
@@ -86,6 +85,7 @@ function validateUsername(value: string): string | undefined {
 }
 
 function validateBirthYear(value: string): string | undefined {
+  const CURRENT_YEAR = new Date().getFullYear();
   if (!value.trim()) return 'Year of birth is required';
   const yr = parseInt(value.trim(), 10);
   if (isNaN(yr) || yr < 1900 || yr > CURRENT_YEAR) return `Enter a valid year between 1900 and ${CURRENT_YEAR}`;

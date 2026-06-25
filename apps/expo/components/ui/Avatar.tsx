@@ -15,6 +15,7 @@ import React from 'react';
 import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { Image } from 'expo-image';
 import { rankColors, type RankTier } from '@/lib/theme/colors';
+import { env } from '@/lib/env';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -65,8 +66,6 @@ const SIZE_MAP: Record<AvatarSize, { container: number; fontSize: number; ring: 
  * // Remote image avatar, no ring
  * <Avatar imageUri={user.photoUrl} size="md" accessibilityLabel="Alice's avatar" />
  */
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? '';
-
 export function Avatar({
   emoji = '🙂',
   imageUri,
@@ -80,7 +79,7 @@ export function Avatar({
   const ringColor = rankTier ? rankColors[rankTier] : 'transparent';
   const ringWidth = rankTier ? ring : 0;
   const frameUri = activeFrameId
-    ? `${API_BASE}/cosmetics/frames/${activeFrameId}.svg`
+    ? `${env.API_BASE_URL}/cosmetics/frames/${activeFrameId}.png`
     : null;
 
   return (

@@ -136,12 +136,12 @@ export default function QuestsTab() {
       {memberQuest && (
         <Pressable
           onPress={() => router.push('/quests/new-member' as never)}
-          style={[styles.card, { backgroundColor: cardBg, borderColor: '#8b5cf6' }]}
+          style={[styles.card, { backgroundColor: cardBg, borderColor: colors.brand.blue }]}
         >
           <View style={styles.cardHeader}>
             <Text style={styles.cardIcon}>🎯</Text>
             <Text style={[styles.cardTitle, { color: textPrimary }]}>{t('newMemberQuest.title')}</Text>
-            <Text style={[styles.badge, { backgroundColor: '#ede9fe', color: '#7c3aed' }]}>
+            <Text style={[styles.badge, { backgroundColor: colors.brand.blue + '22', color: colors.brand.blue }]}>
               {memberQuest.steps.filter((s) => s.completed).length}/{memberQuest.steps.length}
             </Text>
           </View>
@@ -154,7 +154,7 @@ export default function QuestsTab() {
                 styles.progressFill,
                 {
                   width: `${Math.round((memberQuest.steps.filter((s) => s.completed).length / Math.max(1, memberQuest.steps.length)) * 100)}%` as unknown as number,
-                  backgroundColor: '#8b5cf6',
+                  backgroundColor: colors.brand.blue,
                 },
               ]}
             />

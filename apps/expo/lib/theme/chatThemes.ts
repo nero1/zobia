@@ -31,7 +31,7 @@ export const CHAT_THEMES: ThemeConfig[] = [
     id: 'midnight',
     label: 'Midnight',
     emoji: '🌙',
-    bubbleOwn: '#6366f1',
+    bubbleOwn: colors.brand.blue,
     bubbleOther: '#1e1b4b',
     requiresPaid: true,
   },

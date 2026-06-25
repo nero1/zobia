@@ -722,6 +722,7 @@
   "settings.newPassword": "New password",
   "settings.confirmNewPassword": "Confirm new password",
   "settings.changePasswordButton": "Change Password",
+  "settings.changePasswordSuccess": "Password changed successfully.",
   "settings.changingPassword": "Changing…",
   "settings.appLanguage": "App language",
   "settings.dangerZone": "Danger Zone",
