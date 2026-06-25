@@ -46,7 +46,6 @@ export function GameWebView({ slug, challengeId, onGameOver }: GameWebViewProps)
   }
 
   const params = new URLSearchParams();
-  if (token) params.set('t', token);
   if (challengeId) params.set('c', challengeId);
   const uri = `${env.API_BASE_URL}/g/${encodeURIComponent(slug)}/embed?${params.toString()}`;
 
@@ -75,7 +74,7 @@ export function GameWebView({ slug, challengeId, onGameOver }: GameWebViewProps)
       source={{ uri }}
       injectedJavaScriptBeforeContentLoaded={injectedBefore}
       onMessage={handleMessage}
-      originWhitelist={['*']}
+      originWhitelist={['https://zobia.vercel.app']}
       javaScriptEnabled
       domStorageEnabled
       startInLoadingState

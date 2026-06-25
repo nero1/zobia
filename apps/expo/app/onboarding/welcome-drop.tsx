@@ -73,9 +73,6 @@ export default function WelcomeDrop() {
   const { username, emoji, city, vibeAnswers: vibeAnswersParam, birthYear } = params;
 
   useEffect(() => {
-    // Mark onboarding complete in MMKV.
-    setItem(STORE_KEYS.ONBOARDING_COMPLETE, true);
-
     // Persist onboarding data to the server.
     const vibeAnswers = vibeAnswersParam ? JSON.parse(vibeAnswersParam) : {};
     // Replay any referral code captured from a ?r= deep/universal link.
@@ -91,6 +88,8 @@ export default function WelcomeDrop() {
         referral_code: referralCode ?? undefined,
       })
       .then(() => {
+        // Mark onboarding complete only after server confirms it.
+        setItem(STORE_KEYS.ONBOARDING_COMPLETE, true);
         // Attribution recorded — clear so a later organic signup on this
         // device is not misattributed to the same referrer.
         clearPendingReferralCode();

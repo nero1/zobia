@@ -23,7 +23,7 @@ import { useCurrency } from '@/lib/hooks/useCurrency';
 
 interface QuizQuestion {
   key: string;
-  questionKey: string;
+  questionText: string;
   options: { label: string; value: string }[];
 }
 
@@ -37,7 +37,7 @@ function useQuizQuestions(): QuizQuestion[] {
     {
       // PRD §4: seeds Room recommendations
       key: 'q1',
-      questionKey: 'What do you do most?',
+      questionText: 'What do you do most?',
       options: [
         { label: 'Argue 🗣️', value: 'argue' },
         { label: 'Gist 😂', value: 'gist' },
@@ -48,7 +48,7 @@ function useQuizQuestions(): QuizQuestion[] {
     {
       // PRD §4: surfaces Guild discovery vs solo track emphasis
       key: 'q2',
-      questionKey: 'Are you a lone wolf or a crew person?',
+      questionText: 'Are you a lone wolf or a crew person?',
       options: [
         { label: 'Total lone wolf 🐺', value: 'lone_wolf' },
         { label: 'Mostly solo', value: 'mostly_solo' },
@@ -59,7 +59,7 @@ function useQuizQuestions(): QuizQuestion[] {
     {
       // PRD §4: adjusts onboarding tone
       key: 'q3',
-      questionKey: 'What brings you here?',
+      questionText: 'What brings you here?',
       options: [
         { label: 'Connect with friends 👥', value: 'friends' },
         { label: `Stack ${currency.softPlural.toLowerCase()} 💰`, value: 'money' },
@@ -70,7 +70,7 @@ function useQuizQuestions(): QuizQuestion[] {
     {
       // PRD §4: seeds social and competitive graph by city vibe
       key: 'q4',
-      questionKey: "Pick your city's vibe:",
+      questionText: "Pick your city's vibe:",
       options: [
         { label: 'Competitive — always on top 🏆', value: 'competitive' },
         { label: 'Social — everyone knows everyone 🤗', value: 'social' },
@@ -157,7 +157,7 @@ export default function VibeQuiz() {
       {questions.map((q) => (
         <View key={q.key} style={styles.question}>
           <Text style={[styles.questionText, { color: textColor }]}>
-            {q.questionKey}
+            {q.questionText}
           </Text>
           <View style={styles.options}>
             {q.options.map((opt) => {

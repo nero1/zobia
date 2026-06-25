@@ -45,7 +45,7 @@ import {
 import { apiClient } from '@/lib/api/client';
 import { randomUUID } from 'expo-crypto';
 
-const APP_PACKAGE_NAME = 'com.zobia.app';
+const APP_PACKAGE_NAME = 'org.zobia.social';
 
 type AnyPurchase = Purchase;
 
@@ -70,7 +70,7 @@ export interface SubscriptionProduct {
 }
 
 /** Maps Play Store product IDs to coin amounts (base + bonus = total). */
-const COIN_PRODUCTS: CoinProduct[] = [
+export const COIN_PRODUCTS: CoinProduct[] = [
   { id: 'coins_starter', coins: 100,    price: '₦200' },   // 100 base, no bonus
   { id: 'coins_regular', coins: 350,    price: '₦500' },   // 300 base + 50 bonus
   { id: 'coins_big',     coins: 800,    price: '₦1,000' }, // 700 base + 100 bonus

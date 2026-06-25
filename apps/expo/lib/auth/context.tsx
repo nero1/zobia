@@ -20,7 +20,7 @@ import React, {
 } from 'react';
 import { AppState } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
-import { JWT_KEY, REFRESH_TOKEN_KEY, onUnauthenticated, onUserUpdated } from '@/lib/api/client';
+import { JWT_KEY, REFRESH_TOKEN_KEY, onUnauthenticated, onUserUpdated, refreshAccessToken } from '@/lib/api/client';
 import { env } from '@/lib/env';
 import type { RankName } from '@zobia/types';
 
@@ -108,56 +108,6 @@ const AuthContext = createContext<AuthContextValue>({
   signOut: async () => {},
 });
 
-// ---------------------------------------------------------------------------
-// Silent refresh helper (BUG-EXPO-01 / BUG-EXPO-02)
-// ---------------------------------------------------------------------------
-
-/**
- * Attempt a silent token refresh using the persisted refresh token.
- *
- * - Network / fetch errors → return null (keep stored credentials intact).
- * - HTTP 401/403 from the server → credentials are invalid; delete them and return null.
- * - Success → persist new tokens and return the new access token.
- *
- * Never deletes credentials on a network-level failure so offline users stay
- * logged in until the server explicitly rejects their refresh token.
- */
-async function silentRefresh(storedRefreshToken: string): Promise<string | null> {
-  try {
-    const resp = await fetch(`${env.API_BASE_URL}/api/auth/refresh`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Refresh-Token': storedRefreshToken,
-        'Origin': env.API_BASE_URL,
-      },
-    });
-
-    if (!resp.ok) {
-      // Server explicitly rejected the refresh token (e.g. 401) — wipe credentials.
-      if (resp.status === 401 || resp.status === 403) {
-        await Promise.all([
-          SecureStore.deleteItemAsync(JWT_KEY),
-          SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY),
-          SecureStore.deleteItemAsync('zobia_user'),
-        ]).catch(() => {});
-      }
-      return null;
-    }
-
-    const data = (await resp.json()) as { accessToken?: string; refreshToken?: string };
-    if (!data.accessToken) return null;
-
-    await SecureStore.setItemAsync(JWT_KEY, data.accessToken);
-    if (data.refreshToken) {
-      await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, data.refreshToken);
-    }
-    return data.accessToken;
-  } catch {
-    // Network failure (TypeError, AbortError, DNS, etc.) — leave credentials intact.
-    return null;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Provider
@@ -190,17 +140,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!storedToken || !storedUser) return;
 
         if (isTokenExpiredOrExpiring(storedToken)) {
-          const storedRefreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
-          if (!storedRefreshToken) return; // no refresh token — require re-login
-
-          const newAccessToken = await silentRefresh(storedRefreshToken);
+          const newAccessToken = await refreshAccessToken();
           if (newAccessToken) {
             setToken(newAccessToken);
             setUser(JSON.parse(storedUser) as AuthUser);
           }
-          // If silentRefresh returned null (network failure or server rejection),
-          // credentials have already been cleared by silentRefresh (on 401) or
-          // left intact (on network error) — no further action needed here.
         } else {
           setToken(storedToken);
           setUser(JSON.parse(storedUser) as AuthUser);
@@ -247,16 +191,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // AppState foreground refresh: when the app becomes active and the stored
   // token is expired or expiring within 60 s, attempt a silent refresh so the
   // user doesn't get an auth error immediately after switching back to the app.
-  // BUG-EXPO-01/02: use silentRefresh() so both paths behave consistently.
   useEffect(() => {
     const sub = AppState.addEventListener('change', async (status) => {
       if (status !== 'active' || !token) return;
       if (!isTokenExpiredOrExpiring(token)) return;
 
-      const storedRefreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
-      if (!storedRefreshToken) return;
-
-      const newAccessToken = await silentRefresh(storedRefreshToken);
+      const newAccessToken = await refreshAccessToken();
       if (newAccessToken) {
         setToken(newAccessToken);
       }

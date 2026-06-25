@@ -182,7 +182,7 @@ function useRoomsQuery(
       if (tab === 'friends') params.friends_in_room = '1';
       if (typeFilter !== 'all') params.type = typeFilter;
       if (availability !== 'all') params.availability = availability;
-      if (searchQuery.trim()) params.category = searchQuery.trim();
+      if (searchQuery.trim()) params.search = searchQuery.trim();
       if (cursor) params.cursor = cursor;
       return params;
     },

@@ -336,10 +336,7 @@ export default function MessagesScreen() {
         }
       >
         {/* Direct Messages section */}
-        <SectionHeader
-          title="Direct Messages"
-          action={{ label: '+ New', onPress: handleNewMessage }}
-        />
+        <SectionHeader title="Direct Messages" />
 
         {dmLoading ? (
           <SkeletonList count={3} />

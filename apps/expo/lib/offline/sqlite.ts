@@ -22,6 +22,7 @@ import * as SecureStore from 'expo-secure-store';
 
 let db: SQLite.SQLiteDatabase | null = null;
 let encryptionKey: CryptoKey | null = null;
+let _encKeyPromise: Promise<CryptoKey> | null = null;
 
 const DB_NAME = 'zobia_offline.db';
 const SECURE_KEY_NAME = 'offline_db_aes_key_v1';
@@ -54,27 +55,32 @@ function fromBase64Url(b64: string): Uint8Array {
 
 async function getOrCreateEncryptionKey(): Promise<CryptoKey> {
   if (encryptionKey) return encryptionKey;
+  if (_encKeyPromise) return _encKeyPromise;
 
-  let rawKeyBase64 = await SecureStore.getItemAsync(SECURE_KEY_NAME);
+  _encKeyPromise = (async () => {
+    let rawKeyBase64 = await SecureStore.getItemAsync(SECURE_KEY_NAME);
 
-  if (!rawKeyBase64) {
-    // Generate a new 256-bit AES key
-    const rawBytes = crypto.getRandomValues(new Uint8Array(32));
-    rawKeyBase64 = toBase64Url(rawBytes.buffer);
-    await SecureStore.setItemAsync(SECURE_KEY_NAME, rawKeyBase64, {
-      keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
-    });
-  }
+    if (!rawKeyBase64) {
+      // Generate a new 256-bit AES key
+      const rawBytes = crypto.getRandomValues(new Uint8Array(32));
+      rawKeyBase64 = toBase64Url(rawBytes.buffer);
+      await SecureStore.setItemAsync(SECURE_KEY_NAME, rawKeyBase64, {
+        keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+      });
+    }
 
-  const keyBytes = fromBase64Url(rawKeyBase64);
-  encryptionKey = await crypto.subtle.importKey(
-    'raw',
-    keyBytes,
-    { name: 'AES-GCM' },
-    false,
-    ['encrypt', 'decrypt']
-  );
-  return encryptionKey;
+    const keyBytes = fromBase64Url(rawKeyBase64);
+    encryptionKey = await crypto.subtle.importKey(
+      'raw',
+      keyBytes,
+      { name: 'AES-GCM' },
+      false,
+      ['encrypt', 'decrypt']
+    );
+    return encryptionKey;
+  })();
+
+  return _encKeyPromise;
 }
 
 async function encryptContent(plaintext: string): Promise<string> {

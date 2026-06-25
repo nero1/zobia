@@ -185,6 +185,7 @@ export default function ProfileScreen() {
 
         {/* Edit profile */}
         <Pressable
+          onPress={() => router.push('/profile/edit')}
           accessibilityLabel="Edit profile"
           style={({ pressed }) => [styles.editProfileBtn, pressed && styles.pressed]}
         >

@@ -19,6 +19,7 @@ import {
   Linking,
   Alert,
   Modal,
+  Platform,
   TextInput,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -32,6 +33,7 @@ import { useTheme } from '@/lib/theme';
 import { useTranslation } from 'react-i18next';
 import { useCurrency } from '@/lib/hooks/useCurrency';
 import { translateApiError } from '@/lib/i18n/apiErrors';
+import { purchaseCoins, COIN_PRODUCTS } from '@/lib/payments/googlePlay';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -296,6 +298,31 @@ export default function StoreScreen() {
   };
 
   const handleBuy = (packId: string, packType: 'coin_pack' | 'star_pack') => {
+    // On Android, coin packs must go through Google Play Billing (Play Store policy
+    // prohibits external payment URLs for digital content).
+    if (Platform.OS === 'android' && packType === 'coin_pack') {
+      const pack = data?.coinPacks.find((p) => p.id === packId);
+      const playProduct = pack
+        ? COIN_PRODUCTS.find((cp) => cp.coins === pack.coinsGranted)
+        : null;
+      if (!playProduct) {
+        Alert.alert('Unavailable', 'This pack is not available for purchase on Android yet.');
+        return;
+      }
+      setPurchasingId(packId);
+      purchaseCoins(playProduct.id)
+        .then((result) => {
+          if (result.success) {
+            Alert.alert('Success!', `You received ${result.coins.toLocaleString()} coins!`);
+          } else {
+            Alert.alert('Purchase Failed', result.error ?? 'Could not complete purchase.');
+          }
+        })
+        .catch(() => Alert.alert('Error', 'An unexpected error occurred.'))
+        .finally(() => setPurchasingId(null));
+      return;
+    }
+
     if (pinStatus?.hasPinSet) {
       setPinPending({ packId, packType });
       setPinInput('');

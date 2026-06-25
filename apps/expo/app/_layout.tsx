@@ -3,7 +3,7 @@ import '../global.css';
 export { ErrorBoundary } from 'expo-router';
 
 import { useEffect, useRef } from 'react';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -27,6 +27,7 @@ import { initOfflineDB } from '@/lib/offline/sqlite';
 import { syncPendingMessages } from '@/lib/offline/syncQueue';
 import { initStore } from '@/lib/offline/store';
 import { initializeAds } from '@/lib/ads/admob';
+import { initGooglePlayBilling, disconnectGooglePlayBilling } from '@/lib/payments/googlePlay';
 import { useReferralCaptureFromLink } from '@/lib/deeplinks/referral';
 import '@/lib/i18n';
 
@@ -64,8 +65,7 @@ function debouncedSync() {
 /** Allowlist of valid in-app routes that a push notification may navigate to. */
 const VALID_PUSH_ROUTES: RegExp[] = [
   /^\/rooms\/[a-f0-9-]+$/,
-  /^\/inbox$/,
-  /^\/inbox\/[a-f0-9-]+$/,
+  /^\/messages\/[a-f0-9-]+$/,
   /^\/profile\/[^/]+$/,
   /^\/events\/[a-f0-9-]+$/,
   /^\/quests$/,
@@ -193,6 +193,11 @@ function RootLayoutNav() {
     // never serve (no crash — they just no-fill). The native app ID is set in
     // app.json under the root-level `react-native-google-mobile-ads` key.
     initializeAds();
+    if (Platform.OS === 'android') {
+      initGooglePlayBilling().catch((err) =>
+        console.warn('[billing] Google Play Billing init failed', err)
+      );
+    }
   }, []);
 
   // Register push token once the user's identity is established.
@@ -202,6 +207,18 @@ function RootLayoutNav() {
     if (!user?.id) return;
     registerForPushNotifications();
   }, [user?.id]);
+
+  // Disconnect Google Play Billing when the app goes to the background
+  // to free the service connection and avoid stale listeners.
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const sub = AppState.addEventListener('change', (status) => {
+      if (status === 'background' || status === 'inactive') {
+        disconnectGooglePlayBilling().catch(() => {});
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   // Listen for internet reconnection and sync pending messages.
   // Debounced 2 s to prevent concurrent sync runs during flapping connections.

@@ -830,13 +830,7 @@ export default function DMConversationScreen() {
           {/* Zobia Moment button — ephemeral 24h message */}
           <Pressable
             style={[styles.iconBtn, { backgroundColor: isDark ? '#7c3aed22' : '#ede9fe' }]}
-            onPress={() => {
-              if (inputText.trim()) {
-                handleSendMoment();
-              } else {
-                setShowMomentConfirm(true);
-              }
-            }}
+            onPress={handleSendMoment}
             accessibilityLabel="Send Zobia Moment (disappears in 24h)"
             accessibilityRole="button"
           >

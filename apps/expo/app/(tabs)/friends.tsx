@@ -4,7 +4,7 @@
  * Friends tab — My Friends, Requests (Received/Sent), and Discover sections.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -16,6 +16,7 @@ import {
   useColorScheme,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
 
@@ -69,41 +70,58 @@ export default function FriendsTab() {
   const textSecondary = isDark ? colors.neutral[400] : colors.neutral[500];
   const subTabActiveBg = isDark ? colors.neutral[800] : colors.neutral[0];
 
+  const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>('friends');
   const [requestsSubTab, setRequestsSubTab] = useState<RequestsSubTab>('received');
-  const [friends, setFriends] = useState<Friend[]>([]);
-  const [receivedRequests, setReceivedRequests] = useState<FriendRequest[]>([]);
-  const [sentRequests, setSentRequests] = useState<FriendRequest[]>([]);
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [actioning, setActioning] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      const [fr, rr, sr, sugg] = await Promise.all([
-        apiClient.get('/friends').catch(() => null),
-        apiClient.get('/friends/requests').catch(() => null),
-        apiClient.get('/friends/requests/sent').catch(() => null),
-        apiClient.get('/friends/suggestions').catch(() => null),
-      ]);
-      setFriends((fr?.data?.data ?? []) as Friend[]);
-      setReceivedRequests((rr?.data?.data ?? []) as FriendRequest[]);
-      setSentRequests((sr?.data?.data ?? []) as FriendRequest[]);
-      setSuggestions((sugg?.data?.suggestions ?? []) as Suggestion[]);
-    } catch { /* non-fatal */ }
-    finally { setLoading(false); setRefreshing(false); }
-  }, []);
+  const { data: friends = [], isLoading: friendsLoading, refetch: refetchFriends } = useQuery<Friend[]>({
+    queryKey: ['friends'],
+    queryFn: async () => {
+      const { data } = await apiClient.get('/friends');
+      return (data?.data ?? []) as Friend[];
+    },
+  });
 
-  useEffect(() => { void load(); }, [load]);
+  const { data: receivedRequests = [], refetch: refetchReceived } = useQuery<FriendRequest[]>({
+    queryKey: ['friend-requests', 'received'],
+    queryFn: async () => {
+      const { data } = await apiClient.get('/friends/requests');
+      return (data?.data ?? []) as FriendRequest[];
+    },
+  });
 
-  const onRefresh = () => { setRefreshing(true); void load(); };
+  const { data: sentRequests = [], refetch: refetchSent } = useQuery<FriendRequest[]>({
+    queryKey: ['friend-requests', 'sent'],
+    queryFn: async () => {
+      const { data } = await apiClient.get('/friends/requests/sent');
+      return (data?.data ?? []) as FriendRequest[];
+    },
+  });
+
+  const { data: suggestions = [], refetch: refetchSuggestions } = useQuery<Suggestion[]>({
+    queryKey: ['friend-suggestions'],
+    queryFn: async () => {
+      const { data } = await apiClient.get('/friends/suggestions');
+      return (data?.suggestions ?? []) as Suggestion[];
+    },
+  });
+
+  const loading = friendsLoading;
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    Promise.all([refetchFriends(), refetchReceived(), refetchSent(), refetchSuggestions()])
+      .finally(() => setRefreshing(false));
+  }, [refetchFriends, refetchReceived, refetchSent, refetchSuggestions]);
 
   const respondToRequest = async (requestId: string, action: 'accept' | 'reject') => {
     setActioning(requestId);
     try {
       await apiClient.put(`/friends/${requestId}`, { action });
-      setReceivedRequests((prev) => prev.filter((r) => r.id !== requestId));
+      await qc.invalidateQueries({ queryKey: ['friend-requests'] });
+      if (action === 'accept') await qc.invalidateQueries({ queryKey: ['friends'] });
     } catch { /* non-fatal */ }
     finally { setActioning(null); }
   };
@@ -112,7 +130,7 @@ export default function FriendsTab() {
     setActioning(requestId);
     try {
       await apiClient.delete(`/friends/${requestId}`);
-      setSentRequests((prev) => prev.filter((r) => r.id !== requestId));
+      await qc.invalidateQueries({ queryKey: ['friend-requests', 'sent'] });
     } catch { /* non-fatal */ }
     finally { setActioning(null); }
   };
@@ -121,7 +139,7 @@ export default function FriendsTab() {
     setActioning(userId);
     try {
       await apiClient.post('/friends', { userId });
-      setSuggestions((prev) => prev.filter((s) => s.id !== userId));
+      await qc.invalidateQueries({ queryKey: ['friend-suggestions'] });
     } catch { /* non-fatal */ }
     finally { setActioning(null); }
   };
@@ -130,7 +148,7 @@ export default function FriendsTab() {
     setActioning(friendId);
     try {
       await apiClient.delete(`/friends/${friendId}`);
-      setFriends((prev) => prev.filter((f) => f.id !== friendId));
+      await qc.invalidateQueries({ queryKey: ['friends'] });
     } catch { /* non-fatal */ }
     finally { setActioning(null); }
   };
@@ -272,22 +290,22 @@ export default function FriendsTab() {
 
       {/* Main tab bar */}
       <View style={[styles.tabBar, { backgroundColor: cardBg, borderColor: border }]}>
-        {tabs.map((t) => (
+        {tabs.map((tabItem) => (
           <Pressable
-            key={t.id}
-            onPress={() => setTab(t.id)}
+            key={tabItem.id}
+            onPress={() => setTab(tabItem.id)}
             style={[
               styles.tabBtn,
-              tab === t.id && { backgroundColor: isDark ? colors.neutral[800] : colors.neutral[50] },
+              tab === tabItem.id && { backgroundColor: isDark ? colors.neutral[800] : colors.neutral[50] },
             ]}
           >
             <Text
               style={[
                 styles.tabBtnText,
-                { color: tab === t.id ? (isDark ? colors.neutral[50] : colors.neutral[900]) : textSecondary },
+                { color: tab === tabItem.id ? (isDark ? colors.neutral[50] : colors.neutral[900]) : textSecondary },
               ]}
             >
-              {t.label}
+              {tabItem.label}
             </Text>
           </Pressable>
         ))}
