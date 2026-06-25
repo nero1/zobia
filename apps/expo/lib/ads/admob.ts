@@ -135,16 +135,23 @@ export async function showRewardedAd(): Promise<RewardedAdResult> {
       return;
     }
 
+    let earnedResult: RewardedAdResult | null = null;
+    let resolved = false;
+
+    const settle = (result: RewardedAdResult) => {
+      if (!resolved) {
+        resolved = true;
+        resolve(result);
+      }
+    };
+
     const unsubscribeEarned = rewardedAd.addAdEventListener(
       RewardedAdEventType.EARNED_REWARD,
       (reward) => {
-        adLoaded = false;
-        rewardedAd = null;
+        earnedResult = { rewarded: true, reward: { type: reward.type, amount: reward.amount } };
         unsubscribeEarned();
-        resolve({
-          rewarded: true,
-          reward: { type: reward.type, amount: reward.amount },
-        });
+        // Resolve immediately — CLOSED may not fire on all SDK versions.
+        settle(earnedResult);
       }
     );
 
@@ -154,15 +161,20 @@ export async function showRewardedAd(): Promise<RewardedAdResult> {
         adLoaded = false;
         rewardedAd = null;
         unsubscribeClose();
-        // BUG-MOB-23: also unsubscribe the earned listener to prevent a leak when
-        // the user closes the ad without watching it to completion.
         unsubscribeEarned();
-        resolve({ rewarded: false });
+        // Delay so EARNED_REWARD callback has time to arrive if it hasn't yet.
+        setTimeout(() => {
+          settle(earnedResult ?? { rewarded: false });
+        }, 150);
       }
     );
 
     rewardedAd.show().catch(() => {
-      resolve({ rewarded: false });
+      adLoaded = false;
+      rewardedAd = null;
+      unsubscribeEarned();
+      unsubscribeClose();
+      settle({ rewarded: false });
     });
   });
 }
@@ -267,6 +279,7 @@ export async function showInterstitialAd(
     );
 
     interstitialAd.show().catch(() => {
+      unsubClosed();
       interstitialLoaded = false;
       interstitialAd = null;
       resolve(false);

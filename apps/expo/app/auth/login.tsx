@@ -126,11 +126,15 @@ export default function LoginScreen() {
     }
   }
 
+  // Keep a ref to the latest handleDeepLink so the stable addEventListener
+  // subscription always calls the current closure without re-subscribing.
+  const handleDeepLinkRef = useRef(handleDeepLink);
+  useEffect(() => { handleDeepLinkRef.current = handleDeepLink; });
+
   useEffect(() => {
-    const subscription = ExpoLinking.addEventListener('url', handleDeepLink);
+    const subscription = ExpoLinking.addEventListener('url', (event) => handleDeepLinkRef.current(event));
     return () => subscription.remove();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signIn, router, clearSessionExpired, t]);
+  }, []);
 
   // -------------------------------------------------------------------------
   // Google OAuth

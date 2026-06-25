@@ -14,10 +14,10 @@ import {
   StyleSheet,
   Text,
   View,
-  useColorScheme,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { colors } from '@/lib/theme/colors';
+import { useTheme } from '@/lib/theme';
 import { apiClient } from '@/lib/api/client';
 import { useCurrency } from '@/lib/hooks/useCurrency';
 
@@ -46,8 +46,7 @@ interface WalletData {
 }
 
 export default function WalletTab() {
-  const scheme = useColorScheme();
-  const isDark = scheme === 'dark';
+  const { isDark } = useTheme();
   const router = useRouter();
   const currency = useCurrency();
 

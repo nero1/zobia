@@ -22,6 +22,7 @@ import {
   Platform,
   TextInput,
 } from 'react-native';
+import * as Crypto from 'expo-crypto';
 import { useRouter } from 'expo-router';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import type { AxiosError } from 'axios';
@@ -34,6 +35,7 @@ import { useTranslation } from 'react-i18next';
 import { useCurrency } from '@/lib/hooks/useCurrency';
 import { translateApiError } from '@/lib/i18n/apiErrors';
 import { purchaseCoins, COIN_PRODUCTS, initGooglePlayBilling } from '@/lib/payments/googlePlay';
+import { useAuth } from '@/lib/auth/hooks';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -214,6 +216,7 @@ export default function StoreScreen() {
   const { colors: themeColors } = useTheme();
   const currency = useCurrency();
   const { t } = useTranslation();
+  const { user } = useAuth();
   const [purchasingId, setPurchasingId] = useState<string | null>(null);
   const [purchasingStarId, setPurchasingStarId] = useState<string | null>(null);
   const [purchasingBoosterId, setPurchasingBoosterId] = useState<string | null>(null);
@@ -316,18 +319,22 @@ export default function StoreScreen() {
         return;
       }
       setPurchasingId(packId);
-      initGooglePlayBilling()
-        .catch(() => {})
-        .then(() => purchaseCoins(playProduct.id))
-        .then((result) => {
+      (async () => {
+        try {
+          await initGooglePlayBilling();
+          const result = await purchaseCoins(playProduct.id);
           if (result.success) {
             Alert.alert('Success!', `You received ${result.coins.toLocaleString()} coins!`);
-          } else {
+          } else if (result.error !== 'Purchase cancelled') {
             Alert.alert('Purchase Failed', result.error ?? 'Could not complete purchase.');
           }
-        })
-        .catch(() => Alert.alert('Error', 'An unexpected error occurred.'))
-        .finally(() => setPurchasingId(null));
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Could not connect to Google Play.';
+          Alert.alert('Purchase Failed', msg);
+        } finally {
+          setPurchasingId(null);
+        }
+      })();
       return;
     }
 
@@ -344,7 +351,11 @@ export default function StoreScreen() {
   const submitPin = async () => {
     if (pinInput.length !== 4 || (!pinPending && !boosterPinPending)) return;
     try {
-      await apiClient.post('/auth/pin/verify', { pin: pinInput });
+      const pinHash = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        `${user?.id ?? ''}:${pinInput}`
+      );
+      await apiClient.post('/auth/pin/verify', { pinHash });
       setPinModalVisible(false);
       if (boosterPinPending) {
         setPurchasingBoosterId(boosterPinPending.boosterId);

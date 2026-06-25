@@ -182,12 +182,18 @@ export default function PublicProfileScreen() {
   });
 
   const friendMutation = useMutation({
-    mutationFn: () => toggleFriend(userId!, profile!.isFriend),
+    mutationFn: () => {
+      if (!userId || !profile) return Promise.reject(new Error('Profile not loaded'));
+      return toggleFriend(userId, profile.isFriend);
+    },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['profile', userId] }),
   });
 
   const followMutation = useMutation({
-    mutationFn: () => toggleFollow(userId!, profile!.isFollowing),
+    mutationFn: () => {
+      if (!userId || !profile) return Promise.reject(new Error('Profile not loaded'));
+      return toggleFollow(userId, profile.isFollowing);
+    },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['profile', userId] }),
   });
 

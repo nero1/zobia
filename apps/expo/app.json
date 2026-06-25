@@ -33,7 +33,11 @@
       "compileSdkVersion": 36,
       "targetSdkVersion": 36,
       "minSdkVersion": 24,
-      "permissions": ["android.permission.POST_NOTIFICATIONS", "android.permission.ACCESS_NETWORK_STATE"],
+      "permissions": [
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.READ_CONTACTS"
+      ],
       "intentFilters": [
         {
           "action": "VIEW",
@@ -90,7 +94,8 @@
       "router": {
         "origin": "https://zobia.vercel.app"
       },
-      "API_BASE_URL": "https://zobia.vercel.app",
+      "APP_ENV": "$APP_ENV",
+      "API_BASE_URL": "$API_BASE_URL",
       "WEB_BASE_URL": "https://zobia.vercel.app",
       "telegramBotName": "Zobia_bot_bot",
       "eas": {
