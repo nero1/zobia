@@ -20,7 +20,7 @@ import { colors } from '@/lib/theme/colors';
 import { useTheme } from '@/lib/theme';
 import { apiClient } from '@/lib/api/client';
 import { useCurrency } from '@/lib/hooks/useCurrency';
-import { koboToNairaInt, koboToNairaStr } from '@/lib/utils/currency';
+import { koboToNairaStr } from '@/lib/utils/currency';
 
 interface Balance {
   coins: number;
@@ -42,7 +42,7 @@ interface WalletData {
   stars: number;
   xp: number;
   plan: string;
-  incomeMonth: number;
+  incomeMonthKobo: number;
   pendingPayouts: PendingPayout[];
 }
 
@@ -78,7 +78,7 @@ export default function WalletTab() {
       };
 
       const earningsData = earningsRes?.data ?? earningsRes ?? {};
-      const incomeMonth = koboToNairaInt(earningsData?.month?.netKobo ?? 0);
+      const incomeMonthKobo: number = earningsData?.month?.netKobo ?? 0;
 
       const payoutsData = payoutsRes?.data ?? payoutsRes ?? {};
       const pendingStatuses = new Set(['pending', 'awaiting_approval', 'processing']);
@@ -86,7 +86,7 @@ export default function WalletTab() {
         (p: PendingPayout) => pendingStatuses.has(p.status ?? '')
       );
 
-      setWalletData({ coins: bal.coins, stars: bal.stars, xp: bal.xp ?? 0, plan: bal.plan ?? 'free', incomeMonth, pendingPayouts });
+      setWalletData({ coins: bal.coins, stars: bal.stars, xp: bal.xp ?? 0, plan: bal.plan ?? 'free', incomeMonthKobo, pendingPayouts });
     } catch {
       // non-fatal
     } finally {
@@ -141,13 +141,15 @@ export default function WalletTab() {
       </View>
 
       {/* Income this month */}
-      {(walletData?.incomeMonth ?? 0) > 0 && (
+      {/* BUG-042 FIX: koboToNairaStr uses Decimal.js (no float rounding) */}
+      {/* BUG-043 FIX: koboToNairaStr includes the currency symbol, no hardcoded ₦ */}
+      {(walletData?.incomeMonthKobo ?? 0) > 0 && (
         <View style={[styles.card, { backgroundColor: cardBg, borderColor: border }]}>
           <Text style={[styles.sectionLabel, { color: textSecondary }]}>Income This Month</Text>
           <View style={styles.row}>
             <Text style={styles.balanceIcon}>💰</Text>
             <Text style={[styles.balanceAmount, { color: textPrimary }]}>
-              ₦{walletData!.incomeMonth.toLocaleString()}
+              {koboToNairaStr(walletData!.incomeMonthKobo)}
             </Text>
           </View>
           <Text style={[styles.cardSubtext, { color: textSecondary }]}>From gifts, tips, and sponsorships</Text>

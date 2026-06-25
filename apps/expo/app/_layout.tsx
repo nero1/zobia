@@ -70,7 +70,7 @@ function debouncedSync() {
 /** Allowlist of valid in-app routes that a push notification may navigate to. */
 const VALID_PUSH_ROUTES: RegExp[] = [
   /^\/rooms\/[a-f0-9-]+$/,
-  /^\/messages\/dm\/[0-9a-f-]{36}$/,
+  /^\/messages\/[0-9a-f-]{36}$/,
   /^\/messages\/group\/[a-f0-9-]+$/,
   /^\/profile\/[0-9a-f-]{36}$/,
   /^\/events\/[a-f0-9-]+$/,
@@ -164,7 +164,8 @@ async function registerForPushNotifications(): Promise<void> {
       return;
     } catch (err) {
       if (attempt < MAX_PUSH_RETRIES - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, attempt)));
+        const base = 1000 * Math.pow(2, attempt);
+        await new Promise((resolve) => setTimeout(resolve, base * (0.5 + 0.5 * Math.random())));
       } else {
         console.warn('[push] Token registration failed after retries:', err);
         Alert.alert('Push Notifications', "Couldn't set up push notifications. You can retry in Settings.");
@@ -188,7 +189,9 @@ function RootLayoutNav() {
   // Capture any ?r=<code> referral from the launch URL or links received while
   // running, so the referral attaches at onboarding regardless of which page
   // the link pointed to (profile, room, course, game).
-  useReferralCaptureFromLink();
+  // BUG-004 FIX: gate behind storeReady — captureReferralFromUrl writes to
+  // MMKV via setItem() which throws if initStore() hasn't completed yet.
+  useReferralCaptureFromLink(storeReady);
 
   // BUG-CRIT-03: Await initStore() so we know when MMKV is ready before any
   // component that uses `storage` (e.g. RewardedAdButton, AnnouncementModal)

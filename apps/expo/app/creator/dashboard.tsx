@@ -30,6 +30,7 @@ import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
 import { translateApiError } from '@/lib/i18n/apiErrors';
+import { koboToNairaStr } from '@/lib/utils/currency';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -96,8 +97,10 @@ async function requestPayout(): Promise<{ message: string }> {
 // Helpers
 // ---------------------------------------------------------------------------
 
+// BUG-032 FIX: use koboToNairaStr (Decimal.js) not raw JS division to avoid
+// floating-point rounding errors in financial display.
 function formatKobo(kobo: number): string {
-  return `₦${(kobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 0 })}`;
+  return koboToNairaStr(kobo);
 }
 
 function formatDate(iso: string): string {
@@ -184,6 +187,9 @@ export default function CreatorDashboardScreen() {
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
+  // BUG-033 FIX: track PIN attempts to lock out after 5 failures.
+  const [pinAttempts, setPinAttempts] = useState(0);
+  const PIN_MAX_ATTEMPTS = 5;
 
   const { data: pinStatus } = useQuery<{ hasPinSet: boolean }>({
     queryKey: ['auth', 'pin', 'status'],
@@ -228,6 +234,7 @@ export default function CreatorDashboardScreen() {
     if (pinStatus?.hasPinSet) {
       setPinInput('');
       setPinError('');
+      setPinAttempts(0);
       setPinModalVisible(true);
     } else {
       Alert.alert(
@@ -243,13 +250,25 @@ export default function CreatorDashboardScreen() {
 
   const submitPayoutPin = async () => {
     if (pinInput.length !== 4) return;
+    // BUG-033 FIX: lockout after PIN_MAX_ATTEMPTS failures.
+    if (pinAttempts >= PIN_MAX_ATTEMPTS) {
+      setPinError(`Too many incorrect attempts. Please try again later.`);
+      return;
+    }
     try {
       await apiClient.post('/auth/pin/verify', { pin: pinInput });
+      setPinAttempts(0);
       setPinModalVisible(false);
       payoutMutation.mutate();
     } catch {
-      setPinError('Incorrect PIN. Please try again.');
+      const newAttempts = pinAttempts + 1;
+      setPinAttempts(newAttempts);
       setPinInput('');
+      if (newAttempts >= PIN_MAX_ATTEMPTS) {
+        setPinError(`Too many incorrect attempts. Please try again later.`);
+      } else {
+        setPinError(`Incorrect PIN. ${PIN_MAX_ATTEMPTS - newAttempts} attempt${PIN_MAX_ATTEMPTS - newAttempts === 1 ? '' : 's'} remaining.`);
+      }
     }
   };
 

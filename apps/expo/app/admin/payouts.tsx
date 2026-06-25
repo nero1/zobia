@@ -7,7 +7,7 @@
  * Route: /admin/payouts (accessible from admin tab)
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useCurrency } from '@/lib/hooks/useCurrency';
 import {
   View,
@@ -22,10 +22,9 @@ import {
   StyleSheet,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { storage } from '@/lib/offline/store';
+import { apiClient } from '@/lib/api/client';
 import { translateApiError } from '@/lib/i18n/apiErrors';
-
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? '';
+import { koboToNairaStr } from '@/lib/utils/currency';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -64,10 +63,6 @@ type TabKey = 'awaiting_approval' | 'processing' | 'completed' | 'failed' | 'app
 // Helpers
 // ---------------------------------------------------------------------------
 
-function koboToNaira(kobo: number) {
-  return `₦${(kobo / 100).toLocaleString('en-NG', { minimumFractionDigits: 2 })}`;
-}
-
 function formatDate(iso: string) {
   return new Date(iso).toLocaleString('en-US', {
     month: 'short',
@@ -97,9 +92,10 @@ export default function AdminPayoutsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [offset, setOffset] = useState(0);
-  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [actingId, setActingId] = useState<string | null>(null);
+  // BUG-025 FIX: use cursor-based pagination to avoid skip/duplicate on insertion.
+  const cursorRef = useRef<string | null>(null);
 
   // Reject modal
   const [rejectModalId, setRejectModalId] = useState<string | null>(null);
@@ -107,49 +103,52 @@ export default function AdminPayoutsScreen() {
 
   const LIMIT = 30;
 
-  async function loadPayouts(newOffset: number, replace: boolean, currentTab: TabKey) {
-    const token = storage.getString('authToken');
-    const statusParam = currentTab === 'appeals' ? 'awaiting_approval&appealPending=true' : currentTab;
-    const res = await fetch(
-      `${API_BASE}/api/admin/payouts?status=${statusParam}&limit=${LIMIT}&offset=${newOffset}`,
-      { headers: token ? { Authorization: `Bearer ${token}` } : {} }
-    ).catch(() => null);
+  // BUG-023/024 FIX: use apiClient (JWT interceptor) instead of raw fetch +
+  // MMKV-based token. Auth tokens live in SecureStore; apiClient reads them.
+  const loadPayouts = useCallback(async (reset: boolean, currentTab: TabKey) => {
+    const statusParam = currentTab === 'appeals' ? 'awaiting_approval' : currentTab;
+    const params = new URLSearchParams({ status: statusParam, limit: String(LIMIT) });
+    if (currentTab === 'appeals') params.set('appealPending', 'true');
+    if (!reset && cursorRef.current) params.set('cursor', cursorRef.current);
 
-    if (res?.ok) {
-      const data = await res.json();
+    try {
+      const { data } = await apiClient.get(`/admin/payouts?${params}`);
       const fetched: Payout[] = data.payouts ?? [];
-      setPayouts((prev) => (replace ? fetched : [...prev, ...fetched]));
-      setTotal(data.total ?? 0);
-      setOffset(newOffset + fetched.length);
+      setPayouts((prev) => (reset ? fetched : [...prev, ...fetched]));
+      cursorRef.current = data.nextCursor ?? null;
+      setHasMore(Boolean(data.nextCursor));
+    } catch (err) {
+      console.error('[admin] Failed to load payouts:', err);
     }
     setLoading(false);
     setRefreshing(false);
     setLoadingMore(false);
-  }
+  }, []);
 
   useEffect(() => {
     setLoading(true);
     setPayouts([]);
-    setOffset(0);
-    void loadPayouts(0, true, tab);
-  }, [tab]);
+    cursorRef.current = null;
+    void loadPayouts(true, tab);
+  }, [tab, loadPayouts]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    setOffset(0);
-    void loadPayouts(0, true, tab);
-  }, [tab]);
+    cursorRef.current = null;
+    void loadPayouts(true, tab);
+  }, [tab, loadPayouts]);
 
   const loadMore = useCallback(() => {
-    if (loadingMore || offset >= total) return;
+    if (loadingMore || !hasMore) return;
     setLoadingMore(true);
-    void loadPayouts(offset, false, tab);
-  }, [loadingMore, offset, total, tab]);
+    void loadPayouts(false, tab);
+  }, [loadingMore, hasMore, tab, loadPayouts]);
 
   async function handleApprove(payout: Payout) {
     Alert.alert(
       'Approve payout?',
-      `Approve ${koboToNaira(payout.netKobo)} for @${payout.creator.username}?${
+      // BUG-026 FIX: use koboToNairaStr (Decimal.js) not raw division.
+      `Approve ${koboToNairaStr(payout.netKobo)} for @${payout.creator.username}?${
         payout.bankAccountSnapshot
           ? `\nBank: ${payout.bankAccountSnapshot.bank_name} ····${payout.bankAccountSnapshot.last4}`
           : payout.walletAddressSnapshot
@@ -162,20 +161,14 @@ export default function AdminPayoutsScreen() {
           text: 'Approve',
           onPress: async () => {
             setActingId(payout.id);
-            const token = storage.getString('authToken');
-            const res = await fetch(`${API_BASE}/api/admin/payouts/${payout.id}/approve`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                ...(token ? { Authorization: `Bearer ${token}` } : {}),
-              },
-            }).catch(() => null);
-            if (res?.ok) {
+            try {
+              await apiClient.post(`/admin/payouts/${payout.id}/approve`);
               setPayouts((prev) => prev.filter((p) => p.id !== payout.id));
-              setTotal((t) => Math.max(0, t - 1));
-            } else {
-              const err = await res?.json().catch(() => null);
-              Alert.alert('Error', translateApiError(t, err?.error?.code, err?.error?.message ?? 'Failed to approve payout.'));
+            } catch (err: unknown) {
+              const apiErr = err as { response?: { data?: { error?: { code?: string; message?: string } } } };
+              const code = apiErr?.response?.data?.error?.code;
+              const msg = apiErr?.response?.data?.error?.message;
+              Alert.alert('Error', translateApiError(t, code, msg ?? 'Failed to approve payout.'));
             }
             setActingId(null);
           },
@@ -191,24 +184,16 @@ export default function AdminPayoutsScreen() {
       return;
     }
     setActingId(rejectModalId);
-    const token = storage.getString('authToken');
-    const res = await fetch(`${API_BASE}/api/admin/payouts/${rejectModalId}/reject`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({ reason: rejectReason }),
-    }).catch(() => null);
-
-    if (res?.ok) {
+    try {
+      await apiClient.post(`/admin/payouts/${rejectModalId}/reject`, { reason: rejectReason });
       setPayouts((prev) => prev.filter((p) => p.id !== rejectModalId));
-      setTotal((t) => Math.max(0, t - 1));
       setRejectModalId(null);
       setRejectReason('');
-    } else {
-      const err = await res?.json().catch(() => null);
-      Alert.alert('Error', translateApiError(t, err?.error?.code, err?.error?.message ?? 'Failed to reject payout.'));
+    } catch (err: unknown) {
+      const apiErr = err as { response?: { data?: { error?: { code?: string; message?: string } } } };
+      const code = apiErr?.response?.data?.error?.code;
+      const msg = apiErr?.response?.data?.error?.message;
+      Alert.alert('Error', translateApiError(t, code, msg ?? 'Failed to reject payout.'));
     }
     setActingId(null);
   }
@@ -226,21 +211,14 @@ export default function AdminPayoutsScreen() {
           style: action === 'dismiss' ? 'destructive' : 'default',
           onPress: async () => {
             setActingId(payoutId);
-            const token = storage.getString('authToken');
-            const res = await fetch(`${API_BASE}/api/admin/payouts/${payoutId}/appeal`, {
-              method: 'PATCH',
-              headers: {
-                'Content-Type': 'application/json',
-                ...(token ? { Authorization: `Bearer ${token}` } : {}),
-              },
-              body: JSON.stringify({ action }),
-            }).catch(() => null);
-            if (res?.ok) {
+            try {
+              await apiClient.patch(`/admin/payouts/${payoutId}/appeal`, { action });
               setPayouts((prev) => prev.filter((p) => p.id !== payoutId));
-              setTotal((t) => Math.max(0, t - 1));
-            } else {
-              const err = await res?.json().catch(() => null);
-              Alert.alert('Error', translateApiError(t, err?.error?.code, err?.error?.message ?? 'Failed to resolve appeal.'));
+            } catch (err: unknown) {
+              const apiErr = err as { response?: { data?: { error?: { code?: string; message?: string } } } };
+              const code = apiErr?.response?.data?.error?.code;
+              const msg = apiErr?.response?.data?.error?.message;
+              Alert.alert('Error', translateApiError(t, code, msg ?? 'Failed to resolve appeal.'));
             }
             setActingId(null);
           },
@@ -323,8 +301,8 @@ export default function AdminPayoutsScreen() {
                   )}
                 </View>
                 <View style={styles.amountBlock}>
-                  <Text style={styles.netAmount}>{koboToNaira(item.netKobo)}</Text>
-                  <Text style={styles.grossAmount}>gross {koboToNaira(item.grossKobo)}</Text>
+                  <Text style={styles.netAmount}>{koboToNairaStr(item.netKobo)}</Text>
+                  <Text style={styles.grossAmount}>gross {koboToNairaStr(item.grossKobo)}</Text>
                 </View>
               </View>
 

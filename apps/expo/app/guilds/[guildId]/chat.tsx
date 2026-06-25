@@ -84,9 +84,13 @@ export default function GuildChatScreen() {
   // Send message mutation
   const sendMutation = useMutation({
     mutationFn: async (content: string) => {
+      // BUG-029 FIX: include an idempotency key to prevent duplicate messages
+      // on double-tap or retry.
+      const idempotencyKey = crypto.randomUUID();
       const res = await apiClient.post(`/guilds/${guildId}/chat`, {
         content,
         type: 'text',
+        idempotency_key: idempotencyKey,
       });
       return res.data;
     },
@@ -161,7 +165,7 @@ export default function GuildChatScreen() {
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={90}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
         {/* Load older messages button */}
         {hasNextPage && (

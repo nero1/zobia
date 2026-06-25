@@ -19,10 +19,12 @@ import React, {
   useState,
   type ReactNode,
 } from 'react';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { JWT_KEY, REFRESH_TOKEN_KEY, onUnauthenticated, onUserUpdated, refreshAccessToken } from '@/lib/api/client';
 import { env } from '@/lib/env';
+import { clearStore } from '@/lib/offline/store';
+import { disconnectGooglePlayBilling } from '@/lib/payments/googlePlay';
 import type { RankName } from '@zobia/types';
 
 // ---------------------------------------------------------------------------
@@ -140,15 +142,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         ]);
         if (!storedToken || !storedUser) return;
 
+        // BUG-006 FIX: validate the stored user JSON before using it.
+        // Corrupt SecureStore data (disk error, migration mismatch) must not
+        // crash the app on startup — log and fall through to the login screen.
+        let parsedUser: AuthUser | null = null;
+        try {
+          const candidate = JSON.parse(storedUser) as Partial<AuthUser>;
+          if (
+            typeof candidate?.id === 'string' &&
+            typeof candidate?.username === 'string'
+          ) {
+            parsedUser = candidate as AuthUser;
+          }
+        } catch {
+          console.warn('[auth] Stored user JSON is corrupt — forcing re-login');
+        }
+        if (!parsedUser) return;
+
         if (isTokenExpiredOrExpiring(storedToken)) {
           const newAccessToken = await refreshAccessToken();
           if (newAccessToken) {
             setToken(newAccessToken);
-            setUser(JSON.parse(storedUser) as AuthUser);
+            setUser(parsedUser);
           }
         } else {
           setToken(storedToken);
-          setUser(JSON.parse(storedUser) as AuthUser);
+          setUser(parsedUser);
         }
       } catch {
         // Storage read failures are non-fatal — user just needs to log in.
@@ -236,12 +255,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    // BUG-007 FIX: remove illegal `Origin` header — mobiles/WebViews ignore
+    // or reject it; the axios apiClient handles auth without it.
     // Best-effort server logout — invalidates Redis session and refresh token.
     // Fires and forgets: network failure or server error must never block local signout.
     if (token) {
       fetch(`${env.API_BASE_URL}/api/auth/logout`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, Origin: env.API_BASE_URL },
+        headers: { Authorization: `Bearer ${token}` },
       }).catch(() => {});
     }
     await Promise.all([
@@ -249,6 +270,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY),
       SecureStore.deleteItemAsync('zobia_user'),
     ]);
+    // BUG-010 FIX: clear MMKV store on sign-out to prevent cross-account data
+    // leakage (cached feed, draft messages, preferences) on shared devices.
+    try { clearStore(); } catch { /* store may not be initialised yet */ }
+    // BUG-014 FIX: disconnect Google Play Billing so IAP session resolver maps
+    // (purchaseResolvers, activePurchaseSessions, pendingRecovery) are cleared
+    // and wrong-user purchase callbacks cannot fire after account switch.
+    if (Platform.OS === 'android') {
+      disconnectGooglePlayBilling().catch(() => {});
+    }
     setToken(null);
     setUser(null);
     setSessionExpired(false);

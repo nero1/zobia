@@ -190,7 +190,9 @@ export async function queueMessage(
   conversationType: 'dm' | 'group' | 'room' = 'dm',
   providedIdempotencyKey?: string,
 ): Promise<string> {
-  const localId = `offline_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  // BUG-009 FIX: use crypto.randomUUID() instead of Date.now()+random —
+  // UUID v4 is collision-safe; Date+random can collide under rapid concurrent sends.
+  const localId = `offline_${crypto.randomUUID()}`;
   const idempotencyKey = providedIdempotencyKey ?? localId;
   const encryptedContent = await encryptContent(content);
 

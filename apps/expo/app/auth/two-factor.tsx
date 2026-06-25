@@ -21,8 +21,14 @@ import { Input } from '@/components/ui/Input';
 import { useAuth } from '@/lib/auth/hooks';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
-import { env } from '@/lib/env';
+import { apiClient } from '@/lib/api/client';
 import type { AuthUser } from '@/lib/auth/context';
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const TOTP_MAX_ATTEMPTS = 5;
 
 // ---------------------------------------------------------------------------
 // Component
@@ -39,13 +45,16 @@ export default function TwoFactorScreen() {
   const [loading, setLoading] = useState(false);
   const [resolvingToken, setResolvingToken] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lockedOut, setLockedOut] = useState(false);
 
   // The actual pre-auth JWT resolved from the opaque preAuthCode.
   const preAuthTokenRef = useRef<string | null>(null);
+  // Track failed attempts without triggering re-renders.
+  const totpAttemptsRef = useRef(0);
 
   // -------------------------------------------------------------------------
   // Step 1: Exchange the opaque deep-link code for the real pre-auth JWT.
-  // This happens on mount, before the user enters a TOTP code.
+  // Uses apiClient so the auth interceptor and proxy config are applied.
   // -------------------------------------------------------------------------
   useEffect(() => {
     if (!preAuthCode) {
@@ -58,31 +67,19 @@ export default function TwoFactorScreen() {
 
     (async () => {
       try {
-        const res = await fetch(`${env.API_BASE_URL}/api/auth/mobile-token`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Origin: env.API_BASE_URL,
-          },
-          body: JSON.stringify({ pre_auth_code: preAuthCode }),
-        });
+        const { data } = await apiClient.post<{ preAuthToken?: string }>(
+          '/auth/mobile-token',
+          { pre_auth_code: preAuthCode }
+        );
 
         if (cancelled) return;
 
-        if (!res.ok) {
+        if (!data.preAuthToken) {
           setError(t('auth.twoFaVerify.invalidToken'));
           return;
         }
 
-        const { preAuthToken } = (await res.json()) as { preAuthToken?: string };
-        if (cancelled) return;
-
-        if (!preAuthToken) {
-          setError(t('auth.twoFaVerify.invalidToken'));
-          return;
-        }
-
-        preAuthTokenRef.current = preAuthToken;
+        preAuthTokenRef.current = data.preAuthToken;
       } catch {
         if (!cancelled) setError(t('auth.twoFaVerify.networkError'));
       } finally {
@@ -95,8 +92,11 @@ export default function TwoFactorScreen() {
 
   // -------------------------------------------------------------------------
   // Step 2: User enters 6-digit TOTP code and submits.
+  // Rate-limited to TOTP_MAX_ATTEMPTS failures before lockout.
   // -------------------------------------------------------------------------
   async function handleVerify() {
+    if (lockedOut) return;
+
     const trimmedCode = code.trim();
     if (trimmedCode.length !== 6) return;
 
@@ -110,29 +110,27 @@ export default function TwoFactorScreen() {
     setLoading(true);
 
     try {
-      const res = await fetch(
-        `${env.API_BASE_URL}/api/auth/2fa/verify?platform=mobile`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Origin: env.API_BASE_URL,
-          },
-          body: JSON.stringify({ code: trimmedCode, preAuthToken }),
-        }
-      );
-
-      const data = (await res.json()) as {
+      const { data } = await apiClient.post<{
         success?: boolean;
         error?: string;
         accessToken?: string;
         refreshToken?: string;
         onboardingCompleted?: boolean;
         user?: AuthUser;
-      };
+      }>(
+        '/auth/2fa/verify',
+        { code: trimmedCode, preAuthToken },
+        { params: { platform: 'mobile' } }
+      );
 
-      if (!res.ok || !data.success) {
-        setError(data.error ?? t('auth.twoFaVerify.error'));
+      if (!data.success) {
+        totpAttemptsRef.current += 1;
+        if (totpAttemptsRef.current >= TOTP_MAX_ATTEMPTS) {
+          setLockedOut(true);
+          setError(t('auth.twoFaVerify.lockedOut'));
+        } else {
+          setError(data.error ?? t('auth.twoFaVerify.error'));
+        }
         return;
       }
 
@@ -148,8 +146,15 @@ export default function TwoFactorScreen() {
       } else {
         router.replace('/(tabs)');
       }
-    } catch {
-      setError(t('auth.twoFaVerify.networkError'));
+    } catch (err) {
+      totpAttemptsRef.current += 1;
+      if (totpAttemptsRef.current >= TOTP_MAX_ATTEMPTS) {
+        setLockedOut(true);
+        setError(t('auth.twoFaVerify.lockedOut'));
+      } else {
+        const apiMsg = (err as { response?: { data?: { error?: string } } }).response?.data?.error;
+        setError(apiMsg ?? t('auth.twoFaVerify.networkError'));
+      }
     } finally {
       setLoading(false);
     }
@@ -191,6 +196,7 @@ export default function TwoFactorScreen() {
               textContentType="oneTimeCode"
               maxLength={6}
               autoFocus
+              editable={!lockedOut}
               error={error ?? undefined}
               style={styles.codeInput}
             />
@@ -200,7 +206,7 @@ export default function TwoFactorScreen() {
               variant="primary"
               size="lg"
               loading={loading}
-              disabled={loading || code.length !== 6}
+              disabled={loading || code.length !== 6 || lockedOut}
               onPress={handleVerify}
               style={styles.submitButton}
             />

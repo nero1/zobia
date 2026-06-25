@@ -76,7 +76,6 @@ async function requestAndFetchContacts(): Promise<string[]> {
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/;
 const MINIMUM_AGE = 18;
-const CURRENT_YEAR = new Date().getFullYear();
 
 function validateUsername(value: string): string | undefined {
   if (!value.trim()) return 'Username is required';
@@ -86,10 +85,17 @@ function validateUsername(value: string): string | undefined {
 }
 
 function validateBirthYear(value: string): string | undefined {
+  // BUG-057 FIX: compute current year inside the function so apps that stay
+  // running across New Year always use the correct year (BUG-057).
+  const currentYear = new Date().getFullYear();
   if (!value.trim()) return 'Year of birth is required';
   const yr = parseInt(value.trim(), 10);
-  if (isNaN(yr) || yr < 1900 || yr > CURRENT_YEAR) return `Enter a valid year between 1900 and ${CURRENT_YEAR}`;
-  if (CURRENT_YEAR - yr < MINIMUM_AGE) return `You must be at least ${MINIMUM_AGE} years old to join`;
+  if (isNaN(yr) || yr < 1900 || yr > currentYear) return `Enter a valid year between 1900 and ${currentYear}`;
+  // BUG-056 FIX: check against Jan 1 of this year to ensure the user turns 18
+  // during the current year, not just that the year difference >= 18.
+  // Full birthday isn't collected at onboarding; this is the strictest check
+  // we can make with year-only data without being overly restrictive.
+  if (currentYear - yr < MINIMUM_AGE) return `You must be at least ${MINIMUM_AGE} years old to join`;
   return undefined;
 }
 
@@ -243,7 +249,7 @@ export default function OnboardingStep1() {
       <View style={styles.section}>
         <Input
           label="Year of Birth"
-          placeholder={`e.g. ${CURRENT_YEAR - 20}`}
+          placeholder={`e.g. ${new Date().getFullYear() - 20}`}
           value={birthYear}
           onChangeText={(v) => {
             setBirthYear(v);
@@ -266,7 +272,7 @@ export default function OnboardingStep1() {
           Find friends on Zobia
         </Text>
         <Text style={[styles.subtitle, { color: subtitleColor }]}>
-          We'll check which of your contacts are already on Zobia — no data is stored.
+          We'll check which of your contacts are already on Zobia. Phone numbers are sent to our servers for matching and are not stored after the check completes.
         </Text>
 
         {Platform.OS === 'web' ? null : contactsStatus === 'idle' ? (

@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity,
-  ActivityIndicator, RefreshControl
+  ActivityIndicator, RefreshControl, Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { useTranslation } from "react-i18next";
 import { apiClient } from "@/lib/api/client";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 
@@ -34,6 +35,7 @@ function StatCard({
 }
 
 export default function AdminOverviewScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const currency = useCurrency();
   const [stats, setStats] = useState<AdminStats | null>(null);
@@ -44,7 +46,11 @@ export default function AdminOverviewScreen() {
     try {
       const { data } = await apiClient.get('/admin/overview');
       setStats(data.data?.stats ?? null);
-    } catch { /* ignore */ }
+    } catch (err) {
+      // BUG-018 FIX: surface load failures so admins aren't silently shown zeros.
+      console.error('[admin] Failed to load overview stats:', err);
+      Alert.alert(t('common.error'), t('admin.statsLoadError', 'Failed to load dashboard stats. Pull down to retry.'));
+    }
     setLoading(false);
     setRefreshing(false);
   }
@@ -63,21 +69,21 @@ export default function AdminOverviewScreen() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void loadStats(); }} />}
     >
       <View className="px-4 pt-6 pb-2">
-        <Text className="text-2xl font-bold text-gray-900">Admin Dashboard</Text>
-        <Text className="text-gray-500 text-sm mt-1">Platform overview</Text>
+        <Text className="text-2xl font-bold text-gray-900">{t('admin.dashboardTitle', 'Admin Dashboard')}</Text>
+        <Text className="text-gray-500 text-sm mt-1">{t('admin.dashboardSubtitle', 'Platform overview')}</Text>
       </View>
 
       <View className="flex-row flex-wrap px-2">
-        <StatCard title="Total Users" value={stats?.totalUsers ?? 0} route="/admin/users" color="bg-blue-600" />
-        <StatCard title="Active Rooms" value={stats?.activeRooms ?? 0} route="/rooms" color="bg-emerald-600" />
-        <StatCard title="Daily Logins" value={stats?.dailyLogins ?? 0} route="/admin/users" color="bg-violet-600" />
-        <StatCard title="Pending Reports" value={stats?.pendingReports ?? 0} route="/admin/moderation" color="bg-red-500" />
-        <StatCard title="Pending Payouts" value={stats?.pendingPayouts ?? 0} route="/admin/financial" color="bg-amber-500" />
-        <StatCard title={`${currency.softPlural} in Circulation`} value={(stats?.coinsInCirculation ?? 0).toLocaleString()} route="/admin/financial" color="bg-teal-600" />
+        <StatCard title={t('admin.totalUsers', 'Total Users')} value={stats?.totalUsers ?? 0} route="/admin/users" color="bg-blue-600" />
+        <StatCard title={t('admin.activeRooms', 'Active Rooms')} value={stats?.activeRooms ?? 0} route="/rooms" color="bg-emerald-600" />
+        <StatCard title={t('admin.dailyLogins', 'Daily Logins')} value={stats?.dailyLogins ?? 0} route="/admin/users" color="bg-violet-600" />
+        <StatCard title={t('admin.pendingReports', 'Pending Reports')} value={stats?.pendingReports ?? 0} route="/admin/moderation" color="bg-red-500" />
+        <StatCard title={t('admin.pendingPayouts', 'Pending Payouts')} value={stats?.pendingPayouts ?? 0} route="/admin/financial" color="bg-amber-500" />
+        <StatCard title={t('admin.coinsInCirculation', '{{currency}} in Circulation', { currency: currency.softPlural })} value={(stats?.coinsInCirculation ?? 0).toLocaleString()} route="/admin/financial" color="bg-teal-600" />
       </View>
 
       <View className="mx-4 mt-4">
-        <Text className="text-gray-700 font-semibold text-base mb-3">Quick Actions</Text>
+        <Text className="text-gray-700 font-semibold text-base mb-3">{t('admin.quickActions', 'Quick Actions')}</Text>
         {[
           { label: "Moderation Queue", route: "/admin/moderation", icon: "🛡️" },
           { label: "Financial Overview", route: "/admin/financial", icon: "💰" },

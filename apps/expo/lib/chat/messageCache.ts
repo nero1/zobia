@@ -27,7 +27,8 @@ export function writeCachedMessages<T>(key: string, messages: T[]): void {
       cachedAt: Date.now(),
     };
     setItem(PREFIX + key, payload);
-  } catch {
-    // Non-fatal — cache is best-effort.
+  } catch (err) {
+    // Non-fatal — cache is best-effort, but log so storage corruption is visible.
+    console.error('[messageCache] write failed:', err);
   }
 }

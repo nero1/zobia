@@ -41,9 +41,15 @@ export function clearPendingReferralCode(): void {
 /**
  * Hook: capture a referral code from the launch URL (cold start) and from any
  * link received while the app is running (warm). Call once at the app root.
+ *
+ * BUG-004 FIX: accepts `storeReady` and only runs after MMKV is initialised.
+ * captureReferralFromUrl → setItem() → getStorage() throws if initStore()
+ * hasn't been called yet, which on cold launch races with MMKV bootstrap.
  */
-export function useReferralCaptureFromLink(): void {
+export function useReferralCaptureFromLink(storeReady = false): void {
   useEffect(() => {
+    if (!storeReady) return;
+
     // Cold start: app opened directly from a referral link.
     Linking.getInitialURL()
       .then(captureReferralFromUrl)
@@ -52,5 +58,5 @@ export function useReferralCaptureFromLink(): void {
     // Warm: link received while the app is already open.
     const sub = Linking.addEventListener('url', ({ url }) => captureReferralFromUrl(url));
     return () => sub.remove();
-  }, []);
+  }, [storeReady]);
 }

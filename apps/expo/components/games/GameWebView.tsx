@@ -54,6 +54,9 @@ export function GameWebView({ slug, challengeId, onGameOver }: GameWebViewProps)
 
   const handleMessage = async (e: WebViewMessageEvent) => {
     try {
+      // Cap payload size to prevent memory exhaustion from malformed messages.
+      if (e.nativeEvent.data.length > 65_536) return;
+
       const msg = JSON.parse(e.nativeEvent.data) as {
         type: string;
         requestId?: string;
@@ -64,8 +67,18 @@ export function GameWebView({ slug, challengeId, onGameOver }: GameWebViewProps)
         reward?: { credits: number; xp: number; stars: number };
       };
 
+      if (typeof msg !== 'object' || msg === null || typeof msg.type !== 'string') return;
+
       if (msg.type === 'game_over') {
-        onGameOverRef.current?.({ score: msg.score ?? 0, reward: msg.reward });
+        const score = typeof msg.score === 'number' && isFinite(msg.score) ? Math.max(0, Math.floor(msg.score)) : 0;
+        const reward = (msg.reward && typeof msg.reward === 'object')
+          ? {
+              credits: typeof msg.reward.credits === 'number' ? Math.max(0, Math.floor(msg.reward.credits)) : 0,
+              xp: typeof msg.reward.xp === 'number' ? Math.max(0, Math.floor(msg.reward.xp)) : 0,
+              stars: typeof msg.reward.stars === 'number' ? Math.max(0, Math.floor(msg.reward.stars)) : 0,
+            }
+          : undefined;
+        onGameOverRef.current?.({ score, reward });
         return;
       }
 
@@ -89,8 +102,12 @@ export function GameWebView({ slug, challengeId, onGameOver }: GameWebViewProps)
         }
 
         try {
+          // Only allow a plain object or undefined as the request body.
+          const safeBody = (msg.body && typeof msg.body === 'object' && !Array.isArray(msg.body))
+            ? msg.body
+            : undefined;
           type ApiMethod = (url: string, data?: unknown) => Promise<{ data: unknown }>;
-          const response = await (apiClient[method as 'get' | 'post'] as ApiMethod)(endpoint, msg.body);
+          const response = await (apiClient[method as 'get' | 'post'] as ApiMethod)(endpoint, safeBody);
           webViewRef.current?.postMessage(
             JSON.stringify({ type: 'API_RESPONSE', requestId: msg.requestId, data: response.data })
           );

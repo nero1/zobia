@@ -85,6 +85,13 @@ export default function WalletScreen() {
       setError('Please confirm you have read and understood the warning.');
       return;
     }
+    // BUG-034 FIX: validate TRC20 address format — must start with T and be
+    // exactly 34 Base58 characters (T + 33 [1-9A-HJ-NP-Za-km-z]).
+    const TRC20_RE = /^T[1-9A-HJ-NP-Za-km-z]{33}$/;
+    if (!TRC20_RE.test(address)) {
+      setError('Invalid Tron (TRC20) address. It must start with "T" and be exactly 34 characters long, using Base58 characters only.');
+      return;
+    }
     setError(null);
     setSubmitting(true);
     try {
