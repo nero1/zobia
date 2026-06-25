@@ -81,10 +81,8 @@ function mapGroupMessage(raw: Record<string, unknown>): GroupMessage {
 }
 
 async function fetchGroupMeta(groupId: string): Promise<GroupMeta> {
-  // The group list endpoint carries the meta; find this group within it.
-  const { data } = await apiClient.get('/messages/group');
-  const items: Record<string, unknown>[] = data.items ?? [];
-  const g = items.find((it) => it.id === groupId) ?? {};
+  const { data } = await apiClient.get(`/messages/group/${groupId}`);
+  const g: Record<string, unknown> = data.group ?? data;
   const str = (v: unknown, fallback = ''): string => (typeof v === 'string' ? v : fallback);
   const num = (v: unknown): number => (typeof v === 'number' ? v : 0);
   return {
@@ -294,20 +292,12 @@ export default function GroupConversationScreen() {
     sendMutation.mutate({ content: text, idempotencyKey: randomUUID() });
   }, [inputText, sendMutation]);
 
-  // Deduplicate pending messages against server messages: if the server already
-  // has a matching message (same sender + content), hide the optimistic bubble.
-  const serverMessageSet = new Set(
-    messages.map((m) => `${m.senderUserId}|${m.content}`)
-  );
-  const filteredPending = pendingMessages.filter((p) => {
-    const key = `${p.senderUserId}|${p.content}`;
-    if (!serverMessageSet.has(key)) return true;
-    const serverMatch = messages.find(
-      (m) => m.senderUserId === p.senderUserId && m.content === p.content
-    );
-    if (!serverMatch) return true;
-    return Math.abs(new Date(serverMatch.createdAt).getTime() - new Date(p.createdAt).getTime()) > 5000;
-  });
+  // Pending messages use `pending-N` local IDs; server messages use UUIDs.
+  // They never collide, so ID-based dedup is exact: when onSuccess fires it
+  // removes the pending entry, and during the brief overlap between a polling
+  // refetch and mutation settling both will show — which is fine.
+  const serverIds = new Set(messages.map((m) => m.id));
+  const filteredPending = pendingMessages.filter((p) => !serverIds.has(p.id));
   const combinedMessages = [...filteredPending, ...messages];
 
   // Scroll to newest message when the list grows, but only when already near
@@ -330,7 +320,7 @@ export default function GroupConversationScreen() {
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={88}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
       >
         {/* Message list */}
         {isLoading ? (

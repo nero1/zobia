@@ -92,16 +92,21 @@ export function FloatingNotificationProvider({ children }: Props) {
   const configRef = useRef(config);
   configRef.current = config;
 
-  // Fetch config on mount
+  // BUG-048 FIX: use AbortController so the setState() is not called on an
+  // unmounted component if the provider unmounts before the response arrives.
   useEffect(() => {
+    const controller = new AbortController();
     apiClient
-      .get<{ data: { floatingNotifications: FloatingNotifConfig } }>('/config/rewards-ui')
+      .get<{ data: { floatingNotifications: FloatingNotifConfig } }>('/config/rewards-ui', {
+        signal: controller.signal,
+      })
       .then((res) => {
         if (res.data?.data?.floatingNotifications) {
           setConfig(res.data.data.floatingNotifications);
         }
       })
       .catch(() => {});
+    return () => controller.abort();
   }, []);
 
   // ---------------------------------------------------------------------------

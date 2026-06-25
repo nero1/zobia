@@ -15,7 +15,7 @@
  *  - Offline: pending message visual (clock icon)
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { randomUUID } from 'expo-crypto';
 import {
   ActivityIndicator,
@@ -645,9 +645,14 @@ export default function DMConversationScreen() {
       setPendingMessages((prev) => [optimistic, ...prev]);
       return { optimistic };
     },
-    onSuccess: (_, __, ctx) => {
+    onSuccess: (serverDm, _, ctx) => {
       setPendingMessages((prev) => prev.filter((m) => m.id !== ctx?.optimistic.id));
-      queryClient.invalidateQueries({ queryKey: ['dm-messages', conversationId] });
+      // Merge confirmed server message into cache rather than refetching immediately,
+      // avoiding a race where the query refetches before the server write is visible.
+      queryClient.setQueryData<DM[]>(['dm-messages', conversationId], (prev = []) => {
+        if (!serverDm?.id || prev.some((m) => m.id === serverDm.id)) return prev;
+        return [serverDm, ...prev];
+      });
     },
     onError: (_, values, ctx) => {
       setPendingMessages((prev) =>
@@ -704,16 +709,18 @@ export default function DMConversationScreen() {
       return;
     }
     setInputText('');
-    sendMutation.mutate({ content: text, type: 'moment' });
+    sendMutation.mutate({ content: text, type: 'moment', idempotencyKey: randomUUID() });
   }, [inputText, sendMutation]);
 
   // Deduplicate pending messages against server messages using the message ID.
   // Pending messages use a local `pending-N` id; once the server confirms the
   // send they are removed from pendingMessages in onSuccess, so only truly
   // outstanding optimistic messages appear here.
-  const serverMessageIds = new Set(messages.map((m) => m.id));
-  const filteredPending = pendingMessages.filter((p) => !serverMessageIds.has(p.id));
-  const combinedMessages = [...filteredPending, ...messages];
+  const combinedMessages = useMemo(() => {
+    const serverMessageIds = new Set(messages.map((m) => m.id));
+    const filteredPending = pendingMessages.filter((p) => !serverMessageIds.has(p.id));
+    return [...filteredPending, ...messages];
+  }, [messages, pendingMessages]);
   const insufficientCoins =
     conversation &&
     !conversation.isUnlimited &&
@@ -745,7 +752,7 @@ export default function DMConversationScreen() {
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={88}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
       >
         {/* Connection badge */}
         {badgeData?.hasBadge && (

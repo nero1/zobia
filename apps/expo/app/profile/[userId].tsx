@@ -202,10 +202,9 @@ export default function PublicProfileScreen() {
       ...REPORT_REASONS.map((reason) => ({
         text: reason,
         onPress: () => {
-          reportUser(userId!, reason).catch(() => {
-            Alert.alert('Error', t('publicProfile.reportError'));
-          });
-          Alert.alert(t('publicProfile.reportedTitle'), t('publicProfile.reportedBody'));
+          reportUser(userId!, reason)
+            .then(() => Alert.alert(t('publicProfile.reportedTitle'), t('publicProfile.reportedBody')))
+            .catch(() => Alert.alert('Error', t('publicProfile.reportError')));
         },
       })),
       { text: t('action.cancel'), style: 'cancel' },

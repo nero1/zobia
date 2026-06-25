@@ -837,31 +837,37 @@ export default function HomeScreen() {
   const presenceQuery = useQuery({
     queryKey: ['presence'],
     queryFn: fetchPresence,
+    staleTime: 60_000,
   });
 
   const friendsQuery = useQuery({
     queryKey: ['friends'],
     queryFn: fetchFriends,
+    staleTime: 2 * 60_000,
   });
 
   const nemesisQuery = useQuery({
     queryKey: ['nemesis'],
     queryFn: fetchNemesis,
+    staleTime: 2 * 60_000,
   });
 
   const questsQuery = useQuery({
     queryKey: ['quests', 'daily'],
     queryFn: fetchDailyQuests,
+    staleTime: 60_000,
   });
 
   const leaderboardMeQuery = useQuery({
     queryKey: ['leaderboard', 'me'],
     queryFn: fetchLeaderboardMe,
+    staleTime: 5 * 60_000,
   });
 
   const userProfileQuery = useQuery({
     queryKey: ['users', 'me'],
     queryFn: fetchUserProfile,
+    staleTime: 5 * 60_000,
   });
 
   // Guild discovery: only fetch if user has been signed up for >24h and has no guild
@@ -870,6 +876,7 @@ export default function HomeScreen() {
     queryKey: ['guilds', 'discovery'],
     queryFn: fetchGuildDiscovery,
     enabled: showGuildDiscovery,
+    staleTime: 10 * 60_000,
   });
 
   // New member quest — only fetch for users signed up <7 days ago
@@ -914,7 +921,9 @@ export default function HomeScreen() {
   });
 
   useEffect(() => {
-    const today = new Date().toDateString();
+    // BUG-040 FIX: use ISO date (YYYY-MM-DD) instead of toDateString()
+    // which is locale/timezone-dependent and differs across devices.
+    const today = new Date().toISOString().slice(0, 10);
     try {
       if (storage.getString('daily_login_last_date') === today) return;
       storage.set('daily_login_last_date', today);

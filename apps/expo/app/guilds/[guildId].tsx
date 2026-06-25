@@ -13,7 +13,7 @@
  *  - Skeleton loader + offline graceful state
  */
 
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated } from 'react-native';
 import {
   Alert,
@@ -23,6 +23,9 @@ import {
   Text,
   View,
 } from 'react-native';
+
+const MEMBERS_PAGE_SIZE = 10;
+const WARS_PAGE_SIZE = 5;
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Screen } from '@/components/ui/Screen';
@@ -215,6 +218,9 @@ export default function GuildDetailScreen() {
   const { colors: themeColors } = useTheme();
   const currency = useCurrency();
 
+  const [membersShown, setMembersShown] = useState(MEMBERS_PAGE_SIZE);
+  const [warsShown, setWarsShown] = useState(WARS_PAGE_SIZE);
+
   const { data: guild, isLoading, isError } = useQuery({
     queryKey: ['guild', guildId],
     queryFn: () => fetchGuild(guildId!),
@@ -287,8 +293,8 @@ export default function GuildDetailScreen() {
     <Screen>
       <SectionList<GuildMember | WarRecord>
         sections={[
-          { title: 'members', data: guild.members as (GuildMember | WarRecord)[] },
-          { title: 'wars', data: guild.warHistory as (GuildMember | WarRecord)[] },
+          { title: 'members', data: guild.members.slice(0, membersShown) as (GuildMember | WarRecord)[] },
+          { title: 'wars', data: guild.warHistory.slice(0, warsShown) as (GuildMember | WarRecord)[] },
         ]}
         keyExtractor={(item) =>
           'userId' in item ? item.userId : (item as WarRecord).warId
@@ -376,6 +382,35 @@ export default function GuildDetailScreen() {
             </Text>
           ) : null
         }
+        renderSectionFooter={({ section }) => {
+          if (section.title === 'members' && guild.members.length > membersShown) {
+            return (
+              <Pressable
+                style={styles.loadMoreBtn}
+                onPress={() => setMembersShown((n) => n + MEMBERS_PAGE_SIZE)}
+                accessibilityRole="button"
+              >
+                <Text style={[styles.loadMoreText, { color: colors.brand.blue }]}>
+                  Load more members ({guild.members.length - membersShown} remaining)
+                </Text>
+              </Pressable>
+            );
+          }
+          if (section.title === 'wars' && guild.warHistory.length > warsShown) {
+            return (
+              <Pressable
+                style={styles.loadMoreBtn}
+                onPress={() => setWarsShown((n) => n + WARS_PAGE_SIZE)}
+                accessibilityRole="button"
+              >
+                <Text style={[styles.loadMoreText, { color: colors.brand.blue }]}>
+                  Load more wars ({guild.warHistory.length - warsShown} remaining)
+                </Text>
+              </Pressable>
+            );
+          }
+          return null;
+        }}
         showsVerticalScrollIndicator={false}
       />
     </Screen>
@@ -495,6 +530,13 @@ const styles = StyleSheet.create({
 
   errorState: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
   errorText: { fontSize: 15, textAlign: 'center' },
+
+  loadMoreBtn: {
+    paddingVertical: 12,
+    alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  loadMoreText: { fontSize: 14, fontWeight: '600' },
 
   skeletonContainer: { padding: 16, gap: 12 },
   skeletonHeader: {

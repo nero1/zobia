@@ -650,6 +650,10 @@ export default function RoomScreen() {
     sendMutation.mutate({ roomId, content: text, message_type: isMoment ? 'moment' : 'text', idempotencyKey: randomUUID() });
   }, [inputText, roomId, isMoment, sendMutation]);
 
+  const handleReactionPress = useCallback((messageId: string, emoji: string) => {
+    apiClient.patch(`/rooms/${roomId}/messages/${messageId}/reactions`, { emoji }).catch(() => {});
+  }, [roomId]);
+
   const handleLongPress = useCallback((messageId: string) => {
     const msg = messages.find((m: Message) => m.id === messageId);
     const isOwn = msg?.senderUserId === currentUserId;
@@ -791,6 +795,7 @@ export default function RoomScreen() {
       await apiClient.post(`/rooms/${roomId}/messages`, {
         content: gif.title || 'GIF',
         message_type: 'gif',
+        idempotency_key: randomUUID(),
         metadata: { gifUrl: gif.url, previewUrl: gif.previewUrl },
       });
       queryClient.invalidateQueries({ queryKey: ['room-messages', roomId] });
@@ -862,6 +867,7 @@ export default function RoomScreen() {
             giftName={item.giftName}
             giftEmoji={item.giftEmoji}
             onLongPress={handleLongPress}
+            onReactionPress={handleReactionPress}
           />
           {isMomentMsg && (
             <Text style={styles.momentBadge}>⚡ Moment · 24h</Text>
@@ -869,7 +875,7 @@ export default function RoomScreen() {
         </View>
       );
     },
-    [handleLongPress, currentUserId],
+    [handleLongPress, handleReactionPress, currentUserId],
   );
 
   const isVIPLocked =

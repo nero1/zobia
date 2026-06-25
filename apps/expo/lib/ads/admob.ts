@@ -169,10 +169,11 @@ export async function showRewardedAd(): Promise<RewardedAdResult> {
         rewardedAd = null;
         unsubscribeClose();
         unsubscribeEarned();
-        // Delay so EARNED_REWARD callback has time to arrive if it hasn't yet.
-        setTimeout(() => {
-          settle(earnedResult ?? { rewarded: false });
-        }, 150);
+        // BUG-016 FIX: resolve immediately using earnedResult captured by the
+        // EARNED_REWARD handler. The previous 150 ms setTimeout could lose the
+        // reward on slow devices or when EARNED_REWARD fires after CLOSED.
+        // EARNED_REWARD already calls settle() which guards against double-resolve.
+        settle(earnedResult ?? { rewarded: false });
       }
     );
 

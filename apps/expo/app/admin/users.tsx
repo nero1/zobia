@@ -180,10 +180,14 @@ export default function AdminUsersScreen() {
       setUsers(reset ? rows : (prev) => [...prev, ...rows]);
       cursorRef.current = data.data?.nextCursor ?? null;
       setHasMore(Boolean(data.data?.nextCursor));
-    } catch { /* ignore */ }
+    } catch (err) {
+      // BUG-020 FIX: surface load failures so admins see an error rather than blank.
+      console.error('[admin] Failed to load users:', err);
+      Alert.alert(t('common.error'), t('admin.usersLoadError', 'Failed to load users. Pull down to retry.'));
+    }
     setLoading(false);
     setRefreshing(false);
-  }, [search]); // cursor intentionally omitted — use cursorRef instead (FIX-10)
+  }, [search, t]); // cursor intentionally omitted — use cursorRef instead (FIX-10)
 
   useEffect(() => { void loadUsers(true); }, [loadUsers]);
 

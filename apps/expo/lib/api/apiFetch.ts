@@ -61,7 +61,9 @@ export async function apiFetch(
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     if (attempt > 0) {
       const baseDelay = Math.min(RETRY_BASE_MS * Math.pow(2, attempt - 1), 30_000);
-      await new Promise((res) => setTimeout(res, Math.random() * baseDelay));
+      // BUG-008 FIX: guarantee a minimum floor of baseDelay/2 so that
+      // Math.random() returning ~0 doesn't collapse the retry into no-op.
+      await new Promise((res) => setTimeout(res, baseDelay / 2 + Math.random() * (baseDelay / 2)));
     }
     try {
       const response = await fetch(input, requestInit);

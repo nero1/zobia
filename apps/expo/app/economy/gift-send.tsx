@@ -181,10 +181,12 @@ export default function GiftSendScreen() {
   const [currencyMode, setCurrencyMode] = useState<'coins' | 'stars'>('coins');
 
   // PIN verification state
+  const PIN_MAX_ATTEMPTS = 5;
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinVerifying, setPinVerifying] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
+  const [pinAttempts, setPinAttempts] = useState(0);
   const pendingSendParams = useRef<{ giftItemId: string; recipientId: string; roomId?: string; currency?: 'coins' | 'stars' } | null>(null);
 
   const { data: catalogue, isLoading: catalogueLoading } = useQuery<GiftCatalogue>({
@@ -219,6 +221,7 @@ export default function GiftSendScreen() {
         pendingSendParams.current = variables;
         setPinInput('');
         setPinError(null);
+        setPinAttempts(0);
         setPinModalVisible(true);
         return;
       }
@@ -241,6 +244,14 @@ export default function GiftSendScreen() {
 
   const handlePinVerify = async () => {
     if (pinVerifying) return;
+    if (pinAttempts >= PIN_MAX_ATTEMPTS) {
+      setPinModalVisible(false);
+      setPinInput('');
+      setPinAttempts(0);
+      pendingSendParams.current = null;
+      Alert.alert('Too many attempts', 'PIN entry locked. Please try again later.');
+      return;
+    }
     const pin = pinInput.trim();
     if (pin.length !== 4) {
       setPinError('Enter your 4-digit PIN');
@@ -251,19 +262,28 @@ export default function GiftSendScreen() {
     try {
       const { data } = await apiClient.post<{ verified: boolean }>('/auth/pin/verify', { pin });
       if (!data.verified) {
-        setPinError('Incorrect PIN. Please try again.');
+        const remaining = PIN_MAX_ATTEMPTS - (pinAttempts + 1);
+        setPinAttempts((n) => n + 1);
+        setPinError(remaining > 0 ? `Incorrect PIN. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.` : 'Incorrect PIN.');
+        if (remaining <= 0) {
+          setPinModalVisible(false);
+          setPinInput('');
+          setPinAttempts(0);
+          pendingSendParams.current = null;
+          Alert.alert('Too many attempts', 'PIN entry locked. Please try again later.');
+        }
         return;
       }
       // PIN verified — close modal and retry the gift send
       setPinModalVisible(false);
       setPinInput('');
+      setPinAttempts(0);
       if (pendingSendParams.current) {
         sendMutation.mutate(pendingSendParams.current);
         pendingSendParams.current = null;
       }
-    } catch (e) {
-      const axiosErr = e as AxiosError<{ error?: { message?: string } }>;
-      setPinError(axiosErr.response?.data?.error?.message ?? 'Verification failed. Try again.');
+    } catch {
+      setPinError('Verification failed. Please try again.');
     } finally {
       setPinVerifying(false);
     }

@@ -12,6 +12,7 @@
 
 import React, { useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Modal,
   Pressable,
@@ -20,7 +21,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Screen } from '@/components/ui/Screen';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
@@ -42,21 +43,29 @@ interface AdminMessage {
 // API
 // ---------------------------------------------------------------------------
 
-async function fetchInboxMessages(): Promise<AdminMessage[]> {
-  const { data } = await apiClient.get<Record<string, unknown>>('/inbox');
-  // API returns { items: [...], unread_count, limit, offset }
+interface InboxPage {
+  messages: AdminMessage[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+async function fetchInboxPage(cursor?: string): Promise<InboxPage> {
+  const url = cursor ? `/inbox?cursor=${encodeURIComponent(cursor)}&limit=20` : '/inbox?limit=20';
+  const { data } = await apiClient.get<Record<string, unknown>>(url);
   const rawList = (
     Array.isArray(data) ? data :
     Array.isArray((data as Record<string, unknown[]>).items) ? (data as Record<string, unknown[]>).items :
     (data as Record<string, unknown[]>).messages ?? []
   ) as Record<string, unknown>[];
-  return rawList.map((m) => ({
+  const messages = rawList.map((m) => ({
     id: String(m.id ?? ''),
     subject: String(m.subject ?? '(no subject)'),
     body: String(m.body ?? ''),
     sentAt: String(m.created_at ?? m.sentAt ?? new Date().toISOString()),
     isRead: m.read_at != null || Boolean(m.isRead),
   }));
+  const nextCursor = typeof data.nextCursor === 'string' ? data.nextCursor : null;
+  return { messages, nextCursor, hasMore: !!nextCursor };
 }
 
 async function markAsRead(messageId: string): Promise<void> {
@@ -218,10 +227,21 @@ export default function InboxScreen() {
   const { colors: themeColors } = useTheme();
   const [selectedMessage, setSelectedMessage] = useState<AdminMessage | null>(null);
 
-  const { data: messages = [], isLoading, isError } = useQuery({
+  const {
+    data,
+    isLoading,
+    isError,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery<InboxPage>({
     queryKey: ['inbox-admin'],
-    queryFn: fetchInboxMessages,
+    queryFn: ({ pageParam }) => fetchInboxPage(pageParam as string | undefined),
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    initialPageParam: undefined,
   });
+
+  const messages = data?.pages.flatMap((p) => p.messages) ?? [];
 
   const readMutation = useMutation({
     mutationFn: markAsRead,
@@ -253,6 +273,8 @@ export default function InboxScreen() {
             <MessageRow message={item} onPress={() => handleOpen(item)} />
           )}
           showsVerticalScrollIndicator={false}
+          onEndReached={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage(); }}
+          onEndReachedThreshold={0.3}
           ListHeaderComponent={() => (
             <View style={[styles.listHeader, { borderBottomColor: themeColors.border }]}>
               <Text style={[styles.listHeaderTitle, { color: themeColors.text }]}>Inbox</Text>
@@ -261,6 +283,11 @@ export default function InboxScreen() {
               </Text>
             </View>
           )}
+          ListFooterComponent={isFetchingNextPage ? () => (
+            <View style={styles.loadingMore}>
+              <ActivityIndicator size="small" color={colors.brand.blue} />
+            </View>
+          ) : null}
           ListEmptyComponent={() => (
             <View style={styles.emptyState}>
               <Text style={styles.emptyEmoji}>📬</Text>
@@ -376,6 +403,8 @@ const styles = StyleSheet.create({
 
   errorState: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
   errorText: { fontSize: 15, textAlign: 'center' },
+
+  loadingMore: { paddingVertical: 16, alignItems: 'center' },
 
   skeletonContainer: { padding: 16, gap: 10 },
   skeletonRow: { height: 72, borderRadius: 10, backgroundColor: colors.neutral[200] },
