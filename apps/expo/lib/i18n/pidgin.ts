@@ -47,7 +47,7 @@ export const PIDGIN_SUGGESTIONS: Record<string, string[]> = {
  * Returns up to 3 suggestions.
  */
 export function getPidginSuggestions(input: string, locale: string): string[] {
-  if (!locale.startsWith('en-NG') && locale !== 'ng') return [];
+  if (!locale.startsWith('en-NG') && locale !== 'ng' && locale !== 'pidgin') return [];
 
   const lower = input.toLowerCase().trim();
   if (lower.length < 2) return [];
@@ -68,5 +68,5 @@ export function getPidginSuggestions(input: string, locale: string): string[] {
  * Check if the platform should show Pidgin suggestions for this locale.
  */
 export function isPidginLocale(locale: string): boolean {
-  return locale.startsWith('en-NG') || locale === 'ng';
+  return locale.startsWith('en-NG') || locale === 'ng' || locale === 'pidgin';
 }

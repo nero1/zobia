@@ -687,7 +687,23 @@ export default function DMConversationScreen() {
     sendMutation.mutate({ content: text, type: 'moment' });
   }, [inputText, sendMutation]);
 
-  const combinedMessages = [...pendingMessages, ...messages];
+  // Deduplicate pending messages against server messages: if the server already
+  // has a matching message (same sender + content + within 5 s), hide the
+  // optimistic bubble so it doesn't double-render.
+  const serverMessageSet = new Set(
+    messages.map((m) => `${m.senderUserId}|${m.content ?? ''}`)
+  );
+  const filteredPending = pendingMessages.filter((p) => {
+    const key = `${p.senderUserId}|${p.content ?? ''}`;
+    if (!serverMessageSet.has(key)) return true;
+    // Keep pending if the server message is more than 5 s newer (edge case)
+    const serverMatch = messages.find(
+      (m) => m.senderUserId === p.senderUserId && m.content === p.content
+    );
+    if (!serverMatch) return true;
+    return Math.abs(new Date(serverMatch.createdAt).getTime() - new Date(p.createdAt).getTime()) > 5000;
+  });
+  const combinedMessages = [...filteredPending, ...messages];
   const insufficientCoins =
     conversation &&
     !conversation.isUnlimited &&

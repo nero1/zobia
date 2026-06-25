@@ -98,7 +98,12 @@ export function AnnouncementBanner() {
 
   if (!banner || dismissed) return null;
 
-  const bgColor = colors.brand.blue;
+  const bgColor =
+    banner.contentType === 'danger'
+      ? colors.semantic.error
+      : banner.contentType === 'warning'
+      ? colors.brand.gold
+      : colors.brand.blue;
 
   return (
     <View style={[styles.banner, { backgroundColor: bgColor }]}>

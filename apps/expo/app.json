@@ -33,7 +33,7 @@
       "compileSdkVersion": 36,
       "targetSdkVersion": 36,
       "minSdkVersion": 24,
-      "permissions": ["android.permission.POST_NOTIFICATIONS"],
+      "permissions": ["android.permission.POST_NOTIFICATIONS", "android.permission.ACCESS_NETWORK_STATE"],
       "intentFilters": [
         {
           "action": "VIEW",

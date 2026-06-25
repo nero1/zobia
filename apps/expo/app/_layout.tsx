@@ -66,12 +66,14 @@ function debouncedSync() {
 const VALID_PUSH_ROUTES: RegExp[] = [
   /^\/rooms\/[a-f0-9-]+$/,
   /^\/messages\/[a-f0-9-]+$/,
+  /^\/messages\/group\/[a-f0-9-]+$/,
   /^\/profile\/[^/]+$/,
   /^\/events\/[a-f0-9-]+$/,
   /^\/quests$/,
   /^\/leaderboards$/,
   /^\/seasons$/,
   /^\/guilds\/[a-f0-9-]+$/,
+  /^\/guilds\/[a-f0-9-]+\/chat$/,
   /^\/notifications$/,
 ];
 
@@ -208,12 +210,16 @@ function RootLayoutNav() {
     registerForPushNotifications();
   }, [user?.id]);
 
-  // Disconnect Google Play Billing when the app goes to the background
-  // to free the service connection and avoid stale listeners.
+  // Manage Google Play Billing connection with app lifecycle.
+  // Reconnect when app returns to foreground (covers cold start + resume);
+  // disconnect only on true background (not on 'inactive' which is a transient
+  // state during phone calls, Control Center, etc. on Android).
   useEffect(() => {
     if (Platform.OS !== 'android') return;
     const sub = AppState.addEventListener('change', (status) => {
-      if (status === 'background' || status === 'inactive') {
+      if (status === 'active') {
+        initGooglePlayBilling().catch(() => {});
+      } else if (status === 'background') {
         disconnectGooglePlayBilling().catch(() => {});
       }
     });

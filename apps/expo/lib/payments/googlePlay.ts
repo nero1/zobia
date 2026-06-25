@@ -55,6 +55,8 @@ type AnyPurchase = Purchase;
 
 export interface CoinProduct {
   id: string;
+  /** Server-side UUID for the coin pack (matches CoinPack.id from /economy/store). */
+  productId?: string;
   price: string;
   coins: number;
   title?: string;

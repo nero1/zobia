@@ -80,6 +80,12 @@ async function getOrCreateEncryptionKey(): Promise<CryptoKey> {
     return encryptionKey;
   })();
 
+  // Clear the cached promise on rejection so callers can retry
+  _encKeyPromise = _encKeyPromise.catch((err) => {
+    _encKeyPromise = null;
+    throw err;
+  });
+
   return _encKeyPromise;
 }
 

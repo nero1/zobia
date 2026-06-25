@@ -34,6 +34,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@/lib/auth/hooks';
 import type { AxiosError } from 'axios';
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
@@ -71,6 +72,7 @@ const LANGUAGES = [
   { code: 'am', label: 'አማርኛ' },
   { code: 'zu', label: 'IsiZulu' },
   { code: 'pt', label: 'Português' },
+  { code: 'pidgin', label: 'Pidgin' },
 ];
 
 type ThemeMode = 'light' | 'dark' | 'system';
@@ -567,7 +569,8 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const { colors: themeColors, isDark } = useTheme();
+  const { colors: themeColors, isDark, setUserTheme } = useTheme();
+  const { signOut } = useAuth();
 
   const { data, isLoading } = useQuery({
     queryKey: ['user-settings'],
@@ -681,7 +684,7 @@ export default function SettingsScreen() {
         style: 'destructive',
         onPress: async () => {
           await logoutUser().catch(() => {});
-          router.replace('/auth/login');
+          await signOut();
         },
       },
     ]);
@@ -711,7 +714,7 @@ export default function SettingsScreen() {
     try {
       await deleteAccount(deletePin.trim());
       setShowDeleteModal(false);
-      router.replace('/auth/login');
+      await signOut();
     } catch (err) {
       const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
       const code = axiosErr.response?.data?.error?.code ?? null;
@@ -869,7 +872,7 @@ export default function SettingsScreen() {
         {THEME_OPTIONS.map((opt) => (
           <Pressable
             key={opt.key}
-            onPress={() => set('theme', opt.key)}
+            onPress={() => { set('theme', opt.key); setUserTheme(opt.key); }}
             style={[
               styles.themeBtn,
               merged.theme === opt.key && { backgroundColor: colors.brand.blue },

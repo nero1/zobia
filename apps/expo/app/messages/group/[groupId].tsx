@@ -289,7 +289,21 @@ export default function GroupConversationScreen() {
     sendMutation.mutate(text);
   }, [inputText, sendMutation]);
 
-  const combinedMessages = [...pendingMessages, ...messages];
+  // Deduplicate pending messages against server messages: if the server already
+  // has a matching message (same sender + content), hide the optimistic bubble.
+  const serverMessageSet = new Set(
+    messages.map((m) => `${m.senderUserId}|${m.content}`)
+  );
+  const filteredPending = pendingMessages.filter((p) => {
+    const key = `${p.senderUserId}|${p.content}`;
+    if (!serverMessageSet.has(key)) return true;
+    const serverMatch = messages.find(
+      (m) => m.senderUserId === p.senderUserId && m.content === p.content
+    );
+    if (!serverMatch) return true;
+    return Math.abs(new Date(serverMatch.createdAt).getTime() - new Date(p.createdAt).getTime()) > 5000;
+  });
+  const combinedMessages = [...filteredPending, ...messages];
 
   // Scroll to newest message when the list grows, but only when already near
   // the bottom (offset 0 on an inverted FlatList = visual bottom = newest).

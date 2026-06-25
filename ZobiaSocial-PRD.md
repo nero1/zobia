@@ -1,7 +1,7 @@
 # Zobia Social — Product Requirements Document
 ### A Gamified Monetised Social Platform for the Global Mobile Generation
 
-> **Version 1.77 — Product Requirements Document**
+> **Version 1.78 — Product Requirements Document**
 > Covers: Feature Specifications · Technical Architecture · Economy Design · Moderation · Build Sequence
 > Scope: Nigeria-first, Pan-African then Global · Mobile-first PWA + Android APK · Admin-minimal operation
 
@@ -1233,7 +1233,7 @@ A fixed, non-scrolling banner pinned at the top of every screen, used for persis
 
 ### Supported Languages at Launch
 
-English, French, Arabic, Hausa, Kiswahili, Amharic, IsiZulu, Portuguese
+English, French, Arabic, Hausa, Kiswahili, Amharic, IsiZulu, Portuguese, Pidgin
 
 The i18n architecture must support adding additional languages without code changes — new language files are added to the translations directory and picked up automatically.
 
@@ -1742,7 +1742,7 @@ The MVP Build Sequence follows a phased approach. Each phase ends with a stable,
 - Deep links fully verified: all defined deep link routes tested (profiles, Rooms, Guilds, referrals, notification tap targets). Android App Links verified working with HTTPS domain association file.
 - Database provider switch tested: a full regression run executed with `DATABASE_PROVIDER=railway` and `DATABASE_PROVIDER=digitalocean` to confirm zero Supabase dependencies leak in non-Supabase modes.
 - Storage provider switch tested: Cloudflare R2 storage adapter verified working as a Supabase Storage replacement.
-- Full i18n wiring: all eight launch languages (English, French, Arabic, Hausa, Kiswahili, Amharic, IsiZulu, Portuguese) with translations. RTL layout for Arabic.
+- Full i18n wiring: all nine launch languages (English, French, Arabic, Hausa, Kiswahili, Amharic, IsiZulu, Portuguese, Pidgin) with translations. RTL layout for Arabic.
 - APK build configuration from x_manifest (AdMob IDs, payment provider selection, feature flags).
 - Performance audit: Lighthouse scores, low-bandwidth simulation tests.
 - Accessibility audit (screen reader compatibility, contrast ratios, touch target sizes).
@@ -2171,6 +2171,16 @@ When a logged-in user visits the root URL (`/` or the bare domain e.g. `zobia.ve
 
 ---
 
-*ZobiaSocial PRD v1.6*
+## Appendix: Version 1.78 Change Log
+
+### v1.78 — Changelog
+
+- **Pidgin added as a supported language:** Pidgin is now listed as a ninth launch language. The `isPidginLocale` helper and `getPidginSuggestions` now match both `'pcm'` and `'pidgin'` locale codes, and the settings screen language picker includes Pidgin as a selectable option.
+- **Bug fixes (31 code-fixable issues):** Critical auth/session-expiry fixes (signOut clears session-expired flag; handleLogout/handleConfirmDelete now call signIn correctly); theme preference persisted synchronously via a dedicated unencrypted MMKV instance; SQLite encryption-key promise cache cleared on rejection; Google Play Billing reconnects on app foreground and initialises before purchase; push-notification route allowlist extended to cover group messages and guild chat; broadcast messages now render in MessageBubble; pending-message deduplication is content-based; KeyboardAvoidingView behaviour corrected per platform; floating notification timers cleaned up on unmount; gift spectacle detection moved from React Query `select` to a pure `useEffect`; wallet date formatting passes active locale; AppState token-refresh listener uses ref to avoid stale closure; several minor type-safety, comment, and i18n improvements.
+- **Remaining external items (not fixable in code):** BUG-CRIT-04 (AdMob production IDs — requires AdMob account), BUG-MED-21 (iOS AASA deployment), BUG-LOW-23 (Telegram bot name — requires BotFather verification).
+
+---
+
+*ZobiaSocial PRD v1.78*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*
