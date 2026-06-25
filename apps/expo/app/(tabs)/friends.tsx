@@ -84,7 +84,7 @@ export default function FriendsTab() {
     },
   });
 
-  const { data: receivedRequests = [], refetch: refetchReceived } = useQuery<FriendRequest[]>({
+  const { data: receivedRequests = [], isLoading: requestsLoading, refetch: refetchReceived } = useQuery<FriendRequest[]>({
     queryKey: ['friend-requests', 'received'],
     queryFn: async () => {
       const { data } = await apiClient.get('/friends/requests');
@@ -100,7 +100,7 @@ export default function FriendsTab() {
     },
   });
 
-  const { data: suggestions = [], refetch: refetchSuggestions } = useQuery<Suggestion[]>({
+  const { data: suggestions = [], isLoading: suggestionsLoading, refetch: refetchSuggestions } = useQuery<Suggestion[]>({
     queryKey: ['friend-suggestions'],
     queryFn: async () => {
       const { data } = await apiClient.get('/friends/suggestions');
@@ -108,7 +108,7 @@ export default function FriendsTab() {
     },
   });
 
-  const loading = friendsLoading;
+  const loading = friendsLoading || requestsLoading || suggestionsLoading;
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);

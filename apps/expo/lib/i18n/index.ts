@@ -29,12 +29,17 @@ export type SupportedLocale = 'en' | 'fr' | 'ar' | 'ha' | 'sw' | 'am' | 'zu' | '
 
 const SUPPORTED_LOCALES: SupportedLocale[] = ['en', 'fr', 'ar', 'ha', 'sw', 'am', 'zu', 'pt', 'pidgin'];
 
+/**
+ * Shared MMKV instance for non-sensitive user preferences (language, UI prefs).
+ * Intentionally unencrypted — this data is not sensitive.
+ */
+export const prefsStore = new MMKV({ id: 'zobia_prefs' });
+
 /** Derive the best supported locale: user preference → device locale → English. */
 function resolveLocale(): SupportedLocale {
   // Check user's saved language preference (needed for locales with no OS equivalent, e.g. Pidgin)
   try {
-    const prefStore = new MMKV({ id: 'zobia_prefs' });
-    const saved = prefStore.getString('user_language') as SupportedLocale | undefined;
+    const saved = prefsStore.getString('user_language') as SupportedLocale | undefined;
     if (saved && SUPPORTED_LOCALES.includes(saved)) return saved;
   } catch {
     // MMKV unavailable during first launch — fall through to device locale

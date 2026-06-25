@@ -36,12 +36,14 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/auth/hooks';
 import type { AxiosError } from 'axios';
+import i18n from 'i18next';
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
 import { translateApiError } from '@/lib/i18n/apiErrors';
+import { prefsStore } from '@/lib/i18n';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -166,14 +168,14 @@ function ChatPushToggles() {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const { data } = useQuery({
-    queryKey: ['chat-push-prefs'],
-    queryFn: async () => {
-      const res = await apiClient.get('/users/me/settings');
-      const push = res.data?.data?.notifications?.push ?? {};
+    queryKey: ['user-settings'],
+    queryFn: fetchSettings,
+    select: (settings) => {
+      const n = settings?.notifications ?? {};
       return {
-        dm: push.dmMessages ?? true,
-        group: push.groupMessages ?? true,
-        roomMention: push.roomMentions ?? true,
+        dm: n['dm_notifications'] ?? true,
+        group: n['group_notifications'] ?? true,
+        roomMention: n['room_mention_notifications'] ?? true,
       };
     },
   });
@@ -181,7 +183,7 @@ function ChatPushToggles() {
   const value = local ?? data ?? { dm: true, group: true, roomMention: true };
   const mut = useMutation({
     mutationFn: (patch: Record<string, boolean>) => apiClient.patch('/users/me/settings', patch),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['chat-push-prefs'] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['user-settings'] }),
   });
   const toggle = (k: 'dm' | 'group' | 'roomMention', column: string, v: boolean) => {
     setLocal({ ...value, [k]: v });
@@ -676,6 +678,11 @@ export default function SettingsScreen() {
     patchMutation.mutate(patch);
   };
 
+  // Updates local state only — use onEndEditing to fire the mutation.
+  const setLocalField = (key: keyof UserSettings, value: UserSettings[keyof UserSettings]) => {
+    setSettings((prev) => ({ ...prev, [key]: value }));
+  };
+
   const handleLogout = () => {
     Alert.alert('Log Out', 'Are you sure you want to log out?', [
       { text: 'Cancel', style: 'cancel' },
@@ -742,7 +749,7 @@ export default function SettingsScreen() {
           placeholder="Display name"
           placeholderTextColor={themeColors.textMuted}
           value={merged.displayName}
-          onChangeText={(v) => set('displayName', v)}
+          onChangeText={(v) => setLocalField('displayName', v)}
           maxLength={40}
           returnKeyType="done"
           onEndEditing={() => patchMutation.mutate({ displayName: merged.displayName })}
@@ -752,7 +759,7 @@ export default function SettingsScreen() {
           placeholder="Bio (optional)"
           placeholderTextColor={themeColors.textMuted}
           value={merged.bio}
-          onChangeText={(v) => set('bio', v)}
+          onChangeText={(v) => setLocalField('bio', v)}
           maxLength={150}
           multiline
           numberOfLines={3}
@@ -763,10 +770,11 @@ export default function SettingsScreen() {
           placeholder="Email"
           placeholderTextColor={themeColors.textMuted}
           value={merged.email}
-          onChangeText={(v) => set('email', v)}
+          onChangeText={(v) => setLocalField('email', v)}
           keyboardType="email-address"
           autoCapitalize="none"
           returnKeyType="done"
+          onEndEditing={() => patchMutation.mutate({ email: merged.email })}
         />
         {/* Date of birth */}
         <View style={[styles.dobRow, { borderBottomColor: themeColors.border }]}>
@@ -809,7 +817,7 @@ export default function SettingsScreen() {
 
         <Pressable
           style={[styles.settingsRow, { borderBottomColor: themeColors.border }]}
-          onPress={() => Alert.alert('Change Password', 'Password change flow would open here.')}
+          onPress={() => router.push('/settings/change-password' as never)}
           accessibilityRole="button"
         >
           <Text style={[styles.settingsRowLabel, { color: themeColors.text }]}>Change Password</Text>
@@ -840,7 +848,11 @@ export default function SettingsScreen() {
           {LANGUAGES.map((lang) => (
             <Pressable
               key={lang.code}
-              onPress={() => set('language', lang.code)}
+              onPress={() => {
+                set('language', lang.code);
+                void i18n.changeLanguage(lang.code);
+                try { prefsStore.set('user_language', lang.code); } catch {}
+              }}
               style={[
                 styles.langPill,
                 merged.language === lang.code && {

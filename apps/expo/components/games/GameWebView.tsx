@@ -20,6 +20,16 @@ import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { apiClient } from '@/lib/api/client';
 import { env } from '@/lib/env';
 
+const ALLOWED_GAME_METHODS = new Set(['get', 'post']);
+
+const ALLOWED_GAME_ENDPOINTS: RegExp[] = [
+  /^\/games\/[^/]+\/score$/,
+  /^\/games\/[^/]+\/events$/,
+  /^\/games\/[^/]+\/state$/,
+  /^\/challenges\/[^/]+\/score$/,
+  /^\/challenges\/[^/]+\/events$/,
+];
+
 interface GameWebViewProps {
   slug: string;
   /** When set, plays a round of this challenge instead of a solo run. */
@@ -62,10 +72,25 @@ export function GameWebView({ slug, challengeId, onGameOver }: GameWebViewProps)
       // postMessage-based API proxy — game posts API_REQUEST, host responds with
       // API_RESPONSE. The JWT never touches WebView script scope (BUG-SEC-01).
       if (msg.type === 'API_REQUEST' && msg.requestId && msg.method && msg.endpoint) {
+        const method = msg.method.toLowerCase();
+        const endpoint = msg.endpoint;
+        const reject = (reason: string) =>
+          webViewRef.current?.postMessage(
+            JSON.stringify({ type: 'API_RESPONSE', requestId: msg.requestId, error: reason })
+          );
+
+        if (!ALLOWED_GAME_METHODS.has(method)) {
+          reject('Method not allowed');
+          return;
+        }
+        if (!ALLOWED_GAME_ENDPOINTS.some((re) => re.test(endpoint))) {
+          reject('Endpoint not allowed');
+          return;
+        }
+
         try {
-          const method = msg.method.toLowerCase() as 'get' | 'post' | 'put' | 'patch' | 'delete';
           type ApiMethod = (url: string, data?: unknown) => Promise<{ data: unknown }>;
-          const response = await (apiClient[method] as ApiMethod)(msg.endpoint, msg.body);
+          const response = await (apiClient[method as 'get' | 'post'] as ApiMethod)(endpoint, msg.body);
           webViewRef.current?.postMessage(
             JSON.stringify({ type: 'API_RESPONSE', requestId: msg.requestId, data: response.data })
           );

@@ -23,6 +23,7 @@ import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import { colors } from '@/lib/theme/colors';
+import { useTheme } from '@/lib/theme';
 import { useCurrency } from '@/lib/hooks/useCurrency';
 
 // ---------------------------------------------------------------------------
@@ -81,6 +82,7 @@ function formatCoins(amount: number): string {
 export function CoinBalance({ style, variant = 'compact' }: CoinBalanceProps) {
   const router = useRouter();
   const currency = useCurrency();
+  const { colors: themeColors } = useTheme();
 
   const { data, isLoading } = useQuery<BalanceResponse>({
     queryKey: ['wallet', 'balance'],
@@ -100,6 +102,7 @@ export function CoinBalance({ style, variant = 'compact' }: CoinBalanceProps) {
       accessibilityRole="button"
       style={({ pressed }) => [
         styles.container,
+        { backgroundColor: themeColors.surface },
         pressed && styles.pressed,
         style,
       ]}

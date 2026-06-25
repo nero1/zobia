@@ -1,7 +1,7 @@
 # Zobia Social — Product Requirements Document
 ### A Gamified Monetised Social Platform for the Global Mobile Generation
 
-> **Version 1.79 — Product Requirements Document**
+> **Version 1.80 — Product Requirements Document**
 > Covers: Feature Specifications · Technical Architecture · Economy Design · Moderation · Build Sequence
 > Scope: Nigeria-first, Pan-African then Global · Mobile-first PWA + Android APK · Admin-minimal operation
 
@@ -1318,9 +1318,12 @@ non-negotiable rules are:
    `expo-router` stays nested under `apps/expo` (it binds `react@18.2.0`), the root-hoisted
    `babel-preset-expo` can't auto-detect it, so the router transform must be applied
    explicitly or the release bundle fails on `EXPO_ROUTER_APP_ROOT` / `require.context`.
-4. **AdMob app ID is a root-level `react-native-google-mobile-ads` key in `app.json`** (read
-   by the library's Gradle script, not an Expo plugin); the Expo "Ignoring extra key"
-   warning is expected. `mobileAds().initialize()` runs once at startup via `initializeAds()`.
+4. **AdMob App IDs are configured via `app.config.ts`** (a dynamic Expo config that reads
+   `ADMOB_APP_ID_ANDROID` and `ADMOB_APP_ID_IOS` environment variables, falling back to
+   Google's public test IDs for non-production builds). The `react-native-google-mobile-ads`
+   block is merged at build time by `app.config.ts`; it must **not** appear as a static key
+   in `app.json`. Production App IDs are set via EAS build environment variables.
+   `mobileAds().initialize()` runs once at startup via `initializeAds()`.
 5. **Target Android API level 36.** Builds run via `.github/workflows/build-android.yml`
    and require the `EXPO_TOKEN` secret (no token ⇒ the APK step is skipped).
 
@@ -2170,6 +2173,18 @@ Admins can change these from **Admin → Platform Configuration → Economy**. C
 When a logged-in user visits the root URL (`/` or the bare domain e.g. `zobia.vercel.app`), they are now redirected to `/home` instead of seeing the public marketing landing page. This is enforced in `middleware.ts` — the existing JWT verification is reused; no additional DB call is made.
 
 ---
+
+## Appendix: Version 1.80 Change Log
+
+### v1.80 — Changelog
+
+- **PIN verification sends plaintext (BUG-SEC-02 revised):** The store PIN submission now sends `{ pin: plaintext }` directly to the server instead of a client-side SHA-256 hash. Client-side hashing was removed because (a) the server must hash the PIN itself with a server-side salt for security, and (b) the v1.79 implementation exposed the hash over the wire with no additional benefit. Hashing is the server's responsibility.
+- **Dynamic AdMob App IDs via `app.config.ts` (BUG-CFG-01):** AdMob App IDs are now driven by `ADMOB_APP_ID_ANDROID` / `ADMOB_APP_ID_IOS` env vars read in `app.config.ts`. Non-production builds fall back to Google's public test IDs. The static `react-native-google-mobile-ads` block has been removed from `app.json`.
+- **Star packs purchasable via Google Play Billing (BUG-PAY-01):** `purchaseStars()` function added to `lib/payments/googlePlay.ts` following the same session/resolver/timeout pattern as `purchaseCoins()`. The global purchase listener now forwards `starsGranted` from server verification to the resolver. `store.tsx` routes star-pack purchases through Google Play Billing on Android instead of opening an external URL.
+- **Change Password screen (BUG-UI-11):** `/settings/change-password` route is now implemented with a three-field form (current password, new password, confirm). The settings screen "Change Password" row navigates to this screen instead of showing a stub Alert.
+- **EAS build channels + OTA targeting (BUG-CFG-02):** `eas.json` now includes `"channel"` fields (`development`, `preview`, `production`) in each build profile, enabling channel-based OTA update targeting via `expo-updates`.
+- **DropRoomTimer ESLint/deps fix:** `useEffect` dependency in `DropRoomTimer` now uses `dropEndsAt` as the dependency and computes the initial value inside the effect, eliminating the `react-hooks/exhaustive-deps` warning introduced by the v1.78 timer-leak fix.
+- **i18n string added:** `settings.changePasswordSuccess` — "Password changed successfully."
 
 ## Appendix: Version 1.79 Change Log
 

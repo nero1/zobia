@@ -137,7 +137,22 @@ export const ANNUAL_SUBSCRIPTION_PRODUCTS: SubscriptionProduct[] = [
   },
 ];
 
-const PRODUCT_IDS = COIN_PRODUCTS.map((p) => p.id);
+export interface StarProduct {
+  id: string;
+  price: string;
+  stars: number;
+  title?: string;
+}
+
+/** Maps Play Store product IDs to star amounts. */
+export const STAR_PRODUCTS: StarProduct[] = [
+  { id: 'stars_starter', stars: 10,   price: '₦500' },
+  { id: 'stars_regular', stars: 30,   price: '₦1,200' },
+  { id: 'stars_big',     stars: 80,   price: '₦2,500' },
+  { id: 'stars_boss',    stars: 200,  price: '₦5,000' },
+];
+
+const PRODUCT_IDS = [...COIN_PRODUCTS.map((p) => p.id), ...STAR_PRODUCTS.map((p) => p.id)];
 const SUBSCRIPTION_IDS = [
   ...SUBSCRIPTION_PRODUCTS.map((p) => p.id),
   ...ANNUAL_SUBSCRIPTION_PRODUCTS.map((p) => p.id),
@@ -198,11 +213,12 @@ async function verifyPurchaseServerSide(
   productId: string,
   packageName: string,
   isSubscription = false
-): Promise<{ coinsGranted: number; plan?: string } | null> {
+): Promise<{ coinsGranted: number; starsGranted?: number; plan?: string } | null> {
   try {
     const response = await apiClient.post<{
       success: boolean;
       coinsGranted: number;
+      starsGranted?: number;
       plan?: string;
     }>('/economy/iap/verify', {
       purchaseToken,
@@ -211,7 +227,11 @@ async function verifyPurchaseServerSide(
       isSubscription,
     });
     if (response.data.success) {
-      return { coinsGranted: response.data.coinsGranted, plan: response.data.plan };
+      return {
+        coinsGranted: response.data.coinsGranted,
+        starsGranted: response.data.starsGranted,
+        plan: response.data.plan,
+      };
     }
     return null;
   } catch (err) {
@@ -225,7 +245,7 @@ async function verifyPurchaseServerSide(
 // ---------------------------------------------------------------------------
 
 type PurchaseOutcome =
-  | { status: 'success'; coinsGranted: number; plan?: string }
+  | { status: 'success'; coinsGranted: number; starsGranted?: number; plan?: string }
   | { status: 'failed'; error: string };
 
 type PurchaseResolver = (outcome: PurchaseOutcome) => void;
@@ -323,6 +343,7 @@ function setupGlobalPurchaseListeners(): void {
       resolver({
         status: 'success',
         coinsGranted: verifyResult.coinsGranted,
+        starsGranted: verifyResult.starsGranted,
         plan: verifyResult.plan,
       });
     } else {
@@ -485,6 +506,73 @@ export async function purchaseCoins(
 }
 
 /**
+ * Initiate a star pack purchase via Google Play.
+ *
+ * Mirrors purchaseCoins() — same session/resolver/timeout pattern.
+ *
+ * @param productId - Play Store product ID (e.g. 'stars_starter')
+ * @returns Purchase result with stars granted, or failure info
+ */
+export async function purchaseStars(
+  productId: string
+): Promise<{
+  success: boolean;
+  stars: number;
+  error?: string;
+}> {
+  if (Platform.OS !== 'android') {
+    return { success: false, stars: 0, error: 'Android only' };
+  }
+
+  const product = STAR_PRODUCTS.find((p) => p.id === productId);
+  if (!product) {
+    return { success: false, stars: 0, error: 'Unknown product ID' };
+  }
+
+  if (activePurchaseSessions.has(productId)) {
+    return { success: false, stars: 0, error: 'A purchase is already in progress for this product' };
+  }
+  if (pendingRecovery.get(productId)) {
+    return { success: false, stars: 0, error: 'A previous purchase is still being processed — please wait before trying again' };
+  }
+
+  const sessionId = randomUUID();
+  const purchasePromise = new Promise<{ success: boolean; stars: number; error?: string }>((resolve) => {
+    purchaseResolvers.set(sessionId, (outcome) => {
+      if (outcome.status === 'success') {
+        resolve({ success: true, stars: outcome.starsGranted ?? 0 });
+      } else {
+        resolve({ success: false, stars: 0, error: outcome.error });
+      }
+    });
+    activePurchaseSessions.set(productId, sessionId);
+
+    requestPurchase({ skus: [productId] }).catch((err: unknown) => {
+      if (!purchaseResolvers.has(sessionId)) return;
+      purchaseResolvers.delete(sessionId);
+      activePurchaseSessions.delete(productId);
+      resolve({ success: false, stars: 0, error: err instanceof Error ? err.message : 'Purchase failed' });
+    });
+  });
+
+  let starTimeoutId: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<{ success: boolean; stars: number; error: string }>((resolve) => {
+    starTimeoutId = setTimeout(() => {
+      purchaseResolvers.delete(sessionId);
+      activePurchaseSessions.delete(productId);
+      pendingRecovery.set(productId, true);
+      resolve({ success: false, stars: 0, error: 'Your purchase is still processing — please wait before trying again' });
+    }, 5 * 60 * 1000);
+  });
+
+  try {
+    return await Promise.race([purchasePromise, timeoutPromise]);
+  } finally {
+    clearTimeout(starTimeoutId!);
+  }
+}
+
+/**
  * Disconnect from Google Play Billing. Call on app unmount.
  */
 export async function disconnectGooglePlayBilling(): Promise<void> {
@@ -498,6 +586,7 @@ export async function disconnectGooglePlayBilling(): Promise<void> {
   purchaseResolvers.clear();
   activePurchaseSessions.clear();
   pendingRecovery.clear();
+  subscriptionOfferTokens.clear();
 }
 
 // ---------------------------------------------------------------------------

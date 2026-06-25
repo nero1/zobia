@@ -135,12 +135,13 @@ function DropRoomTimer({ dropEndsAt }: DropRoomTimerProps) {
   );
 
   useEffect(() => {
-    if (secondsLeft <= 0) return;
+    const initial = Math.max(0, Math.floor((new Date(dropEndsAt).getTime() - Date.now()) / 1000));
+    if (initial <= 0) return;
     const interval = setInterval(() => {
       setSecondsLeft((prev) => Math.max(0, prev - 1));
     }, 1000);
     return () => clearInterval(interval);
-  }, [secondsLeft]);
+  }, [dropEndsAt]);
 
   const isClosed = secondsLeft <= 0;
 
@@ -385,7 +386,7 @@ const styles = StyleSheet.create({
   },
   fullBadge: {
     position: 'absolute',
-    top: 8,
+    top: 30,
     left: 8,
     backgroundColor: colors.semantic.warning,
     borderRadius: 6,

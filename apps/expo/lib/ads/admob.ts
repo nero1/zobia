@@ -71,11 +71,16 @@ export const REWARDED_AD_UNIT_ID: string = IS_DEV
 
 let rewardedAd: RewardedAd | null = null;
 let adLoaded = false;
+let adLoading = false;
 
 /**
  * Pre-load a rewarded ad. Call this ahead of when you'll show it.
+ * Returns immediately if an ad is already loaded or currently loading.
  */
 export async function loadRewardedAd(): Promise<void> {
+  if (adLoaded || adLoading) return;
+  adLoading = true;
+
   return new Promise((resolve, reject) => {
     rewardedAd = RewardedAd.createForAdRequest(REWARDED_AD_UNIT_ID, {
       requestNonPersonalizedAdsOnly: true,
@@ -85,6 +90,7 @@ export async function loadRewardedAd(): Promise<void> {
       RewardedAdEventType.LOADED,
       () => {
         adLoaded = true;
+        adLoading = false;
         unsubscribeLoaded();
         resolve();
       }
@@ -94,6 +100,7 @@ export async function loadRewardedAd(): Promise<void> {
       AdEventType.ERROR,
       (error) => {
         adLoaded = false;
+        adLoading = false;
         unsubscribeError();
         reject(error);
       }

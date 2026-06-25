@@ -59,7 +59,7 @@ export const FloatingNotificationContext = createContext<FloatingNotificationCon
 
 const XP_COLORS    = { backgroundColor: '#10b981', textColor: '#ffffff' };
 const CREDIT_COLORS = { backgroundColor: '#f59e0b', textColor: '#1a1a1a' };
-const STAR_COLORS   = { backgroundColor: '#8b5cf6', textColor: '#ffffff' };
+const STAR_COLORS   = { backgroundColor: '#D97706', textColor: '#ffffff' };
 const REFERRAL_COLORS = { backgroundColor: '#3b82f6', textColor: '#ffffff' };
 const QUEST_COLORS  = { backgroundColor: '#ef4444', textColor: '#ffffff' };
 const GIFT_COLORS   = { backgroundColor: '#ec4899', textColor: '#ffffff' };

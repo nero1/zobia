@@ -46,7 +46,7 @@ import type { RoomType } from '@zobia/shared/types';
 
 type DiscoveryTab = 'trending' | 'nearby' | 'friends';
 
-type FilterChip = RoomType | 'all';
+type FilterChip = Exclude<RoomType, 'guild'> | 'all';
 
 interface DiscoveryTabConfig {
   key: DiscoveryTab;
@@ -80,7 +80,6 @@ const ROOM_TYPE_FILTER_COLOR: Record<FilterChip, string> = {
   drop: colors.semantic.error,
   tipping: colors.brand.green,
   classroom: '#0D9488',
-  guild: colors.brand.gold,
 };
 
 // ---------------------------------------------------------------------------
@@ -303,7 +302,7 @@ export default function RoomsScreen() {
     if (error) {
       return (
         <View style={styles.centered}>
-          <Text style={styles.errorText}>{error}</Text>
+          <Text style={styles.errorText}>{t(error)}</Text>
         </View>
       );
     }
