@@ -651,7 +651,7 @@ export default function RoomScreen() {
   }, [inputText, roomId, isMoment, sendMutation]);
 
   const handleReactionPress = useCallback((messageId: string, emoji: string) => {
-    apiClient.patch(`/rooms/${roomId}/messages/${messageId}/reactions`, { emoji }).catch(() => {});
+    apiClient.post(`/rooms/${roomId}/messages/${messageId}/reactions`, { emoji }).catch(() => {});
   }, [roomId]);
 
   const handleLongPress = useCallback((messageId: string) => {
@@ -1145,7 +1145,7 @@ export default function RoomScreen() {
                   style={styles.reactionBtn}
                   onPress={() => {
                     if (reactionTargetMessageId) {
-                      apiClient.patch(`/rooms/${roomId}/messages/${reactionTargetMessageId}/reactions`, { emoji }).catch(() => {});
+                      apiClient.post(`/rooms/${roomId}/messages/${reactionTargetMessageId}/reactions`, { emoji }).catch(() => {});
                     }
                     setReactionModalVisible(false);
                     setReactionTargetMessageId(null);

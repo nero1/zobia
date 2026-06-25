@@ -1,7 +1,7 @@
 # Zobia Social — Product Requirements Document
 ### A Gamified Monetised Social Platform for the Global Mobile Generation
 
-> **Version 1.80 — Product Requirements Document**
+> **Version 1.81 — Product Requirements Document**
 > Covers: Feature Specifications · Technical Architecture · Economy Design · Moderation · Build Sequence
 > Scope: Nigeria-first, Pan-African then Global · Mobile-first PWA + Android APK · Admin-minimal operation
 
@@ -2129,6 +2129,66 @@ Every feature decision on Zobia is tested against this checklist. If any answer 
 
 ---
 
+## Appendix: Version 1.81 Change Log
+
+### v1.81 — Changelog
+
+Security hardening, reliability improvements, UX/i18n consistency, and build configuration fixes across the Expo mobile app.
+
+#### Security
+
+- **OAuth deep link validation (BUG-SEC-01):** The deep-link handler in `auth/login.tsx` now performs strict origin + pathname validation using `new URL()` instead of a substring match (`url.includes('auth/callback')`). A crafted URL like `https://evil.com/?r=auth/callback` is now correctly rejected.
+- **signOut CSRF fix (BUG-SEC-02):** `signOut()` in `lib/auth/context.tsx` now calls `apiClient.post('/auth/logout')` instead of a raw `fetch()`. The raw fetch bypassed the CSRF `Origin` header required by server middleware.
+- **Captive portal false-online fix (BUG-SEC-03):** `onlineManager` in `lib/api/client.ts` now checks `state.isInternetReachable !== false` in addition to `state.isConnected`, preventing spurious API calls on hotel/airport Wi-Fi captive portals.
+- **JWT in-memory cache (BUG-SEC-04):** A module-level `_cachedToken` variable in `lib/api/client.ts` holds the current access token after the first SecureStore read. All request interceptor calls use the cache and only fall back to SecureStore when the cache is empty. The cache is populated on `signIn`, `restoreSession`, and token refresh; cleared on `signOut`. This eliminates one Android Keystore round-trip per concurrent API request.
+- **APP_ENV removed from app.json (BUG-SEC-05):** `"APP_ENV": "development"` has been removed from `app.json` `extra`. Each EAS build profile's `env` block in `eas.json` now sets the correct value (`development`, `preview`, `staging`, `production`), so the build pipeline controls the environment rather than a hardcoded default.
+- **OTA runtimeVersion policy (BUG-SEC-07 / BUG-CFG-03):** `"runtimeVersion": { "policy": "sdkVersion" }` added to the `expo-updates` plugin config in `app.json`, preventing incompatible JS bundles from being pushed to old native builds.
+
+#### Reliability / Data Integrity
+
+- **Cold-start offline queue reset (BUG-REL-01):** `resetSendingMessages()` is now called immediately after `initOfflineDB()` on every cold start in `app/_layout.tsx`, ensuring messages stuck in `sending` state from a previous crash are retried on next launch rather than requiring a connectivity cycle.
+- **Daily login XP persistence (BUG-REL-02):** The MMKV `daily_login_last_date` write in `app/(tabs)/index.tsx` is now inside the mutation's `onSuccess` callback rather than pre-mutation. On server error, the key is not written and the mutation retries on the next launch. An `onError` handler logs the failure.
+- **Room auto-scroll on entry (BUG-REL-03):** `isAtBottomRef` in `app/rooms/[roomId].tsx` is initialised to `true` (was `false`), so new messages auto-scroll immediately when entering a room.
+- **Presence heartbeat gated on membership (BUG-REL-04):** The heartbeat `setInterval` in the room screen now returns early if `!isMember`, preventing spurious 401/403 heartbeat calls for private rooms the user has not joined.
+- **Idempotency key field name standardised (BUG-REL-05):** GIF/sticker sends in `app/rooms/[roomId].tsx` now use `idempotencyKey` (camelCase), matching all other send paths. The inconsistent `idempotency_key` (snake_case) field is removed.
+- **DM reaction `userReacted` fix (BUG-REL-06):** `mapApiDM()` in `app/messages/[conversationId].tsx` now accepts and uses `currentUserId` to set `userReacted: true` on reactions the current user has applied. Reaction pills now correctly highlight for own reactions.
+- **Ad load listener cross-cleanup (BUG-REL-07):** In `lib/ads/admob.ts`, the LOADED callback now calls `unsubscribeError()` before resolving, and the ERROR callback calls `unsubscribeLoaded()` before rejecting, for both `loadRewardedAd()` and `loadInterstitialAd()`.
+- **SlugRedirect timeout (BUG-REL-08):** `components/deeplink/SlugRedirect.tsx` now uses an `AbortController` with a 15-second timeout. On abort or unrecoverable error, an error state with a "Go Back" button is rendered instead of an infinite spinner.
+- **Cold-start notification routing (BUG-REL-09):** `app/_layout.tsx` now calls `Notifications.getLastNotificationResponseAsync()` on startup. If a notification response is present (app was cold-started from a push tap), it is routed through the same `VALID_PUSH_ROUTES` allowlist handler used for foreground taps.
+- **Android keyboard double-offset fix (BUG-REL-10):** `<KeyboardAvoidingView>` in `app/rooms/[roomId].tsx` now uses `behavior={Platform.OS === 'ios' ? 'padding' : undefined}`. On Android, `softwareKeyboardLayoutMode: "pan"` in `app.json` already handles the shift; the additional `KeyboardAvoidingView` was causing a double-offset.
+- **Dedup set cap check order (BUG-REL-11):** The `seenIds` pruning in the room message dedup loop now occurs *before* `seenIds.add(id)` (check `size >= 500`), preventing the set from momentarily growing to 501 entries.
+- **PIN double-advance race prevention (BUG-REL-12):** `app/settings/pin.tsx` uses an `advancingRef` to ensure `advance()` cannot be called twice within the 150 ms transition window, even when both the hidden `TextInput.onChangeText` and a numpad `Pressable.onPress` fire simultaneously.
+- **War countdown timer stops on end (BUG-REL-13):** The countdown `tick()` function in `app/guilds/wars/[warId].tsx` now calls `clearInterval(id)` when `diff <= 0`, preventing indefinite state updates after the war has ended.
+- **War query polling stops on end (BUG-REL-14):** `refetchInterval` in the war screen query is now `war?.status === 'ended' ? false : 10_000`, stopping the 10-second polling once the war is over.
+- **Tied-score display fix (BUG-REL-15):** `guild1Winning` in the war screen is now `!isTied && guild1.score > guild2.score`. When scores are tied, both are rendered in the neutral text colour rather than highlighting guild 1 as the winner.
+- **Settings patch silent failure fixed (BUG-REL-16):** `patchMutation` in `app/settings/index.tsx` now has an `onError` handler that shows an `Alert` with `t('settings.saveFailed')`, making setting save failures visible to the user.
+- **Date-of-birth calendrical validation (BUG-REL-17):** After the regex check in the DoB save flow, the date is now validated calendrically via `new Date()` and compared back to the ISO string. Structurally valid but impossible dates (e.g. 2000-13-45) are now rejected.
+
+#### UX / I18N / Consistency
+
+- **Push registration failure no longer blocks app (BUG-UX-01):** The `Alert.alert()` on push token registration failure in `app/_layout.tsx` has been replaced with `console.warn()`. Push failures are non-blocking; the user can retry via Settings.
+- **Quests tab migrated to React Query (BUG-UX-02):** `app/(tabs)/quests.tsx` now uses `useQuery` for both daily quests and new-member quest data, enabling stale-while-revalidate, background refetch on tab focus, and pull-to-refresh via `refetch()`.
+- **Wallet tab migrated to React Query (BUG-UX-03):** `app/(tabs)/wallet.tsx` now uses `useQuery` with `queryKey: ['wallet', 'summary']`, replacing the manual `useState`/`useEffect` pattern.
+- **Settings `/users/me` deduplicated (BUG-UX-04):** `TwoFactorSection` and the DoB pre-fill in `app/settings/index.tsx` now share a single `useQuery` with `queryKey: ['user-me-totp']`, eliminating the duplicate `/users/me` network call.
+- **Data export uses file sharing (BUG-UX-05):** `handleExport()` in `app/settings/index.tsx` now writes the JSON to `FileSystem.cacheDirectory` via `expo-file-system` and shares via `Share.shareAsync()` with `mimeType: 'application/json'`. The previous `Share.share({ message: json })` approach failed or truncated on Android for large payloads.
+- **`formatPlayingSince` uses active locale (BUG-UX-06):** `app/(tabs)/profile.tsx` now passes `i18n.language` to `formatPlayingSince()` instead of the hardcoded `'en-US'` locale.
+- **Profile tab i18n (BUG-UX-07):** "Edit Profile", "Track Levels", "Season History", "No Guild", "No past seasons yet", "My Wallet", "Credit Store", "Creator Dashboard" are now passed through `t()` using the `profile.*` keys added to `lib/i18n/locales/en.json`.
+- **Messages tab section headers i18n (BUG-UX-08):** "Direct Messages" and "Group Chats" in `app/(tabs)/messages.tsx` are now `t('messages.directMessages')` and `t('messages.groupChats')`.
+- **SwipeDrawer gesture conflict resolved (BUG-UX-09):** The pan gesture in `components/layout/SwipeDrawer.tsx` now sets `.activeOffsetX([5, Infinity]).failOffsetY([-10, 10])`, preventing the drawer from opening when the user is horizontally scrolling child content.
+- **PIN brute-force rate limiting (BUG-UX-10):** Both `app/settings/pin.tsx` and `app/economy/store.tsx` now track failed PIN attempts and lock the numpad for 30 seconds after 5 consecutive failures.
+- **Reaction endpoints corrected and standardised (BUG-UX-11):** DM reactions now call `POST /messages/dm/{conversationId}/reactions` with `{ messageId, emoji }` in the request body (was incorrectly calling `/messages/dm/{id}/messages/{msgId}/react`). Room reactions now use `POST` (was `PATCH`) to match the server route at `/api/rooms/{roomId}/messages/{messageId}/reactions`.
+- **`formatCoins()` uses Decimal.js (BUG-UX-12):** `app/economy/wallet.tsx` now computes M/K coin display values using `new Decimal(amount).div(...)` instead of native float division, eliminating precision risk at large balances.
+- **Admin user list guard against double-fetch (BUG-UX-13):** `FlatList.onEndReached` in `app/admin/users.tsx` now checks `!loading && !refreshing` before calling `loadUsers()`, preventing a second page from being fetched while one is already in flight.
+- **Typed route objects replace `as never` casts (BUG-UX-14):** Route pushes in `app/(tabs)/guild.tsx` now use typed `{ pathname, params }` objects and static string routes, enabling TypeScript to catch route renames at compile time.
+- **Admin financial formatting deterministic (BUG-UX-15):** All numeric metrics in `app/admin/index.tsx` now use `.toLocaleString('en-US')` with an explicit locale, ensuring consistent display across all admin devices regardless of device locale.
+
+#### Build Configuration
+
+- **`googleServicesFile` added to `app.json` (BUG-CFG-02):** `"googleServicesFile": "./google-services.json"` is now present in the `android` block, enabling reliable FCM delivery on Android API 33+.
+- **`prefsStore` intent documented (BUG-CFG-04):** The unencrypted MMKV instance in `lib/i18n/index.ts` now has an explicit comment confirming it stores only UI language preference (non-sensitive) and must never be used for user data or auth tokens.
+
+---
+
 ## Appendix: Version 1.71 Change Log
 
 ### v1.71 — Changelog
@@ -2219,6 +2279,6 @@ When a logged-in user visits the root URL (`/` or the bare domain e.g. `zobia.ve
 
 ---
 
-*ZobiaSocial PRD v1.79*
+*ZobiaSocial PRD v1.81*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

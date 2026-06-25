@@ -224,6 +224,10 @@ export default function StoreScreen() {
   const [pinPending, setPinPending] = useState<PurchaseArgs | null>(null);
   const [boosterPinPending, setBoosterPinPending] = useState<{ boosterId: string; boosterType: string } | null>(null);
   const [pinError, setPinError] = useState('');
+  const [pinFailedAttempts, setPinFailedAttempts] = useState(0);
+  const [pinLockedUntil, setPinLockedUntil] = useState<number | null>(null);
+  const PIN_MAX_ATTEMPTS = 5;
+  const PIN_LOCKOUT_MS = 30_000;
 
   const { data, isLoading, isError, refetch } = useQuery<StoreData>({
     queryKey: ['economy', 'store'],
@@ -381,8 +385,15 @@ export default function StoreScreen() {
 
   const submitPin = async () => {
     if (pinInput.length !== 4 || (!pinPending && !boosterPinPending)) return;
+    if (pinLockedUntil !== null && Date.now() < pinLockedUntil) {
+      const secsLeft = Math.ceil((pinLockedUntil - Date.now()) / 1000);
+      setPinError(`Too many attempts. Try again in ${secsLeft}s.`);
+      return;
+    }
     try {
       await apiClient.post('/auth/pin/verify', { pin: pinInput });
+      setPinFailedAttempts(0);
+      setPinLockedUntil(null);
       setPinModalVisible(false);
       if (boosterPinPending) {
         setPurchasingBoosterId(boosterPinPending.boosterId);
@@ -393,7 +404,15 @@ export default function StoreScreen() {
         setPinPending(null);
       }
     } catch {
-      setPinError('Incorrect PIN. Please try again.');
+      const nextAttempts = pinFailedAttempts + 1;
+      if (nextAttempts >= PIN_MAX_ATTEMPTS) {
+        setPinLockedUntil(Date.now() + PIN_LOCKOUT_MS);
+        setPinFailedAttempts(0);
+        setPinError(`Too many attempts. Try again in ${PIN_LOCKOUT_MS / 1000}s.`);
+      } else {
+        setPinFailedAttempts(nextAttempts);
+        setPinError('Incorrect PIN. Please try again.');
+      }
       setPinInput('');
     }
   };
@@ -548,8 +567,8 @@ export default function StoreScreen() {
               </Pressable>
               <Pressable
                 onPress={submitPin}
-                style={[styles.pinConfirmBtn, pinInput.length < 4 && styles.pinConfirmDisabled]}
-                disabled={pinInput.length < 4}
+                style={[styles.pinConfirmBtn, (pinInput.length < 4 || (pinLockedUntil !== null && Date.now() < pinLockedUntil)) && styles.pinConfirmDisabled]}
+                disabled={pinInput.length < 4 || (pinLockedUntil !== null && Date.now() < pinLockedUntil)}
               >
                 <Text style={styles.pinConfirmText}>{t('action.confirm')}</Text>
               </Pressable>

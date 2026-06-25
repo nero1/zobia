@@ -695,7 +695,7 @@ export default function DMConversationScreen() {
         ...EMOJI_REACTIONS.map((emoji) => ({
           text: emoji,
           onPress: () => {
-            apiClient.post(`/messages/dm/${conversationId}/messages/${messageId}/react`, { emoji })
+            apiClient.post(`/messages/dm/${conversationId}/reactions`, { messageId, emoji })
               .catch(() => {});
           },
         })),
