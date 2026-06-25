@@ -38,6 +38,7 @@
         "android.permission.ACCESS_NETWORK_STATE",
         "android.permission.READ_CONTACTS"
       ],
+      "softwareKeyboardLayoutMode": "pan",
       "intentFilters": [
         {
           "action": "VIEW",
@@ -76,6 +77,8 @@
       "bundler": "metro"
     },
     "plugins": [
+      "expo-notifications",
+      "expo-contacts",
       "expo-router",
       "expo-secure-store",
       "expo-localization",
@@ -94,8 +97,8 @@
       "router": {
         "origin": "https://zobia.vercel.app"
       },
-      "APP_ENV": "$APP_ENV",
-      "API_BASE_URL": "$API_BASE_URL",
+      "APP_ENV": "development",
+      "API_BASE_URL": "https://zobia.vercel.app",
       "WEB_BASE_URL": "https://zobia.vercel.app",
       "telegramBotName": "Zobia_bot_bot",
       "eas": {

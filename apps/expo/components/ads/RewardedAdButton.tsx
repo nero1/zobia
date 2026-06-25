@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { TouchableOpacity, Text, ActivityIndicator, Alert } from "react-native";
 import { loadRewardedAd, showRewardedAd } from "@/lib/ads/admob";
 import { storage } from "@/lib/offline/store";
@@ -30,6 +30,7 @@ export function RewardedAdButton({ onRewarded, disabled }: RewardedAdButtonProps
   const currency = useCurrency();
   const [loading, setLoading] = useState(false);
   const [adsWatched, setAdsWatched] = useState(0);
+  const pendingRef = useRef(false);
 
   useEffect(() => {
     try {
@@ -62,6 +63,9 @@ export function RewardedAdButton({ onRewarded, disabled }: RewardedAdButtonProps
       return;
     }
 
+    if (pendingRef.current) return;
+    pendingRef.current = true;
+
     setLoading(true);
     try {
       const result = await showRewardedAd();
@@ -84,6 +88,7 @@ export function RewardedAdButton({ onRewarded, disabled }: RewardedAdButtonProps
       Alert.alert("Error", "Could not show ad. Please try again.");
     } finally {
       setLoading(false);
+      pendingRef.current = false;
     }
   }
 

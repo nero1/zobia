@@ -573,16 +573,29 @@ export async function purchaseStars(
 }
 
 /**
- * Disconnect from Google Play Billing. Call on app unmount.
+ * Close only the IPC connection to Google Play Billing without dropping
+ * any in-flight purchase resolvers. Use this when the app is backgrounded
+ * so pending purchases are not lost.
  */
-export async function disconnectGooglePlayBilling(): Promise<void> {
+export async function endBillingConnection(): Promise<void> {
   if (Platform.OS !== 'android' || !initialised) return;
   purchaseUpdateSub?.remove();
   purchaseErrorSub?.remove();
   purchaseUpdateSub = null;
   purchaseErrorSub = null;
-  await endConnection();
+  try {
+    await endConnection();
+  } catch {}
   initialised = false;
+}
+
+/**
+ * Disconnect from Google Play Billing and clear all session state.
+ * Only call this when you want to fully reset (e.g. on sign-out).
+ * Do NOT call on app background — use endBillingConnection() instead.
+ */
+export async function disconnectGooglePlayBilling(): Promise<void> {
+  await endBillingConnection();
   purchaseResolvers.clear();
   activePurchaseSessions.clear();
   pendingRecovery.clear();

@@ -71,6 +71,9 @@ export default function TabLayout() {
   const scheme = useColorScheme();
   const isDark = scheme === 'dark';
   const { user } = useAuth();
+  // NOTE (FIX-18): This `isAdmin` flag is UI-only — it controls tab visibility.
+  // Actual security is enforced server-side on every admin API endpoint.
+  // A compromised client cannot access real admin data even if this flag is bypassed.
   const isAdmin = user?.isAdmin === true;
   const { bottom } = useSafeAreaInsets();
 

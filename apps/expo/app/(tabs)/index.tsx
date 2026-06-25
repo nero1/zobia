@@ -873,12 +873,12 @@ export default function HomeScreen() {
   });
 
   // New member quest — only fetch for users signed up <7 days ago
-  const isNewUser = (() => {
+  const isNewUser = React.useMemo(() => {
     if (!userProfileQuery.data) return false;
     const signupMs = new Date(userProfileQuery.data.created_at).getTime();
     const daysElapsed = (Date.now() - signupMs) / (1000 * 60 * 60 * 24);
     return daysElapsed < 7;
-  })();
+  }, [userProfileQuery.data]);
   const newMemberQuestQuery = useQuery({
     queryKey: ['new-member-quest'],
     queryFn: fetchNewMemberQuest,

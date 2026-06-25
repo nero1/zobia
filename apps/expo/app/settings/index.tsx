@@ -44,6 +44,7 @@ import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
 import { translateApiError } from '@/lib/i18n/apiErrors';
 import { prefsStore } from '@/lib/i18n';
+import { env } from '@/lib/env';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -233,8 +234,23 @@ function TwoFactorSection() {
   const { colors: themeColors, isDark } = useTheme();
   const { t } = useTranslation();
 
-  const [totpEnabled, setTotpEnabled] = useState(false);
-  const [loadingStatus, setLoadingStatus] = useState(true);
+  // FIX-35: Use React Query to fetch 2FA status (caches result, avoids duplicate fetches)
+  const { data: meData, isLoading: loadingStatus } = useQuery({
+    queryKey: ['user-me-totp'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ user?: { totp_enabled?: boolean } }>('/users/me');
+      return res.data;
+    },
+    staleTime: 60_000,
+  });
+  const [totpEnabled, setTotpEnabled] = useState<boolean | null>(null);
+  // Sync totpEnabled from query data when available, unless locally overridden
+  React.useEffect(() => {
+    if (meData?.user?.totp_enabled !== undefined) {
+      setTotpEnabled(meData.user.totp_enabled ?? false);
+    }
+  }, [meData]);
+  const totpStatus = totpEnabled ?? meData?.user?.totp_enabled ?? false;
 
   // Setup modal
   const [showSetupModal, setShowSetupModal] = useState(false);
@@ -248,19 +264,6 @@ function TwoFactorSection() {
   const [disableCode, setDisableCode] = useState('');
   const [disableLoading, setDisableLoading] = useState(false);
 
-  // Fetch current 2FA status
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await apiClient.get<{ user?: { totp_enabled?: boolean } }>('/users/me');
-        setTotpEnabled(res.data?.user?.totp_enabled ?? false);
-      } catch {
-        // non-fatal
-      } finally {
-        setLoadingStatus(false);
-      }
-    })();
-  }, []);
 
   const handleOpenSetup = async () => {
     setSetupCode('');
@@ -344,10 +347,10 @@ function TwoFactorSection() {
         <View style={[styles.settingsRow, { borderBottomColor: themeColors.border }]}>
           <View style={{ flex: 1 }}>
             <Text style={[styles.settingsRowLabel, { color: themeColors.text }]}>
-              {loadingStatus ? 'Loading…' : totpEnabled ? '2FA Enabled' : '2FA Disabled'}
+              {loadingStatus ? 'Loading…' : totpStatus ? '2FA Enabled' : '2FA Disabled'}
             </Text>
             <Text style={[styles.toggleDesc, { color: themeColors.textMuted }]}>
-              {totpEnabled
+              {totpStatus
                 ? 'Your account is protected with an authenticator app.'
                 : 'Add an extra layer of security to your account.'}
             </Text>
@@ -355,7 +358,7 @@ function TwoFactorSection() {
         </View>
 
         {/* Strongly recommended notice */}
-        {!totpEnabled && !loadingStatus && (
+        {!totpStatus && !loadingStatus && (
           <View style={[styles.amberNotice, amberBox]}>
             <Text style={[styles.amberNoticeText, { color: isDark ? '#fbbf24' : '#92400e' }]}>
               Strongly recommended — protects your account even if your password is compromised.
@@ -366,7 +369,7 @@ function TwoFactorSection() {
         {/* Action button */}
         {!loadingStatus && (
           <View style={{ padding: 12 }}>
-            {totpEnabled ? (
+            {totpStatus ? (
               <Button
                 label="Disable 2FA"
                 variant="danger"
@@ -524,8 +527,15 @@ function PrivacyDataSection() {
     setExporting(true);
     try {
       const res = await apiClient.get('/users/me/export');
+      const json = JSON.stringify(res.data, null, 2);
+      // FIX-36: Share as a file. expo-file-system is needed to write a temp file;
+      // until it is added to the project, we fall back to sharing as text.
+      // TODO: install expo-file-system and replace with:
+      //   const path = FileSystem.cacheDirectory + 'zobia-export.json';
+      //   await FileSystem.writeAsStringAsync(path, json, { encoding: 'utf8' });
+      //   await Share.shareAsync(path, { mimeType: 'application/json', dialogTitle: 'Zobia Data Export' });
       await Share.share({
-        message: JSON.stringify(res.data, null, 2),
+        message: json,
         title: 'Zobia Data Export',
       });
     } catch {
@@ -1026,7 +1036,7 @@ export default function SettingsScreen() {
       <View style={[styles.card, { backgroundColor: themeColors.surface }]}>
         <Pressable
           style={[styles.settingsRow, { borderBottomColor: themeColors.border }]}
-          onPress={() => Linking.openURL('https://zobia.app/terms')}
+          onPress={() => Linking.openURL(`${env.API_BASE_URL}/terms`)}
           accessibilityRole="link"
           accessibilityLabel="Terms of Service"
         >
@@ -1040,7 +1050,7 @@ export default function SettingsScreen() {
         </Pressable>
         <Pressable
           style={[styles.settingsRow, { borderBottomColor: 'transparent' }]}
-          onPress={() => Linking.openURL('https://zobia.app/privacy')}
+          onPress={() => Linking.openURL(`${env.API_BASE_URL}/privacy`)}
           accessibilityRole="link"
           accessibilityLabel="Privacy Policy"
         >
@@ -1103,7 +1113,7 @@ export default function SettingsScreen() {
               value={deletePin}
               onChangeText={setDeletePin}
               keyboardType="number-pad"
-              maxLength={8}
+              maxLength={4}
               secureTextEntry
               returnKeyType="done"
               autoFocus

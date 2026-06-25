@@ -3,9 +3,7 @@ import {
   View, Text, FlatList, TouchableOpacity,
   Alert, ActivityIndicator, RefreshControl
 } from "react-native";
-import { storage } from "@/lib/offline/store";
-
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "";
+import { apiClient } from "@/lib/api/client";
 
 interface Report {
   id: string;
@@ -25,13 +23,10 @@ export default function AdminModerationScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   async function loadReports() {
-    const token = storage.getString("authToken");
-    const res = await fetch(`${API_BASE}/api/admin/moderation?status=pending&limit=30`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    }).catch(() => null);
-    if (!res?.ok) return;
-    const data = await res.json();
-    setReports(data.data?.reports ?? []);
+    try {
+      const { data } = await apiClient.get('/admin/moderation?status=pending&limit=30');
+      setReports(data.data?.reports ?? []);
+    } catch { /* ignore */ }
     setLoading(false);
     setRefreshing(false);
   }
@@ -39,18 +34,10 @@ export default function AdminModerationScreen() {
   useEffect(() => { void loadReports(); }, []);
 
   async function handleAction(reportId: string, action: "warn" | "suspend" | "dismiss") {
-    const token = storage.getString("authToken");
-    const res = await fetch(`${API_BASE}/api/admin/moderation/${reportId}/action`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({ action }),
-    });
-    if (res.ok) {
+    try {
+      await apiClient.post(`/admin/moderation/${reportId}/action`, { action });
       setReports((prev) => prev.filter((r) => r.id !== reportId));
-    } else {
+    } catch {
       Alert.alert("Error", "Action failed. Please try again.");
     }
   }

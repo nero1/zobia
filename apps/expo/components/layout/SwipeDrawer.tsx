@@ -107,6 +107,8 @@ function DrawerContent({ onClose }: { onClose: () => void }) {
   const pathname = usePathname();
   const { user, signOut } = useAuth();
   const { isDark } = useTheme();
+  // NOTE (FIX-18): This `isAdmin` flag is UI-only — it gates the admin nav item.
+  // Actual security is enforced server-side; a compromised client cannot access real admin data.
   const isAdmin = user?.isAdmin === true;
 
   const bg = isDark ? colors.neutral[900] : colors.neutral[0];

@@ -60,7 +60,8 @@ export async function apiFetch(
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     if (attempt > 0) {
-      await new Promise((res) => setTimeout(res, RETRY_BASE_MS * Math.pow(2, attempt - 1)));
+      const baseDelay = Math.min(RETRY_BASE_MS * Math.pow(2, attempt - 1), 30_000);
+      await new Promise((res) => setTimeout(res, Math.random() * baseDelay));
     }
     try {
       const response = await fetch(input, requestInit);

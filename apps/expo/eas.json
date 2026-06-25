@@ -33,6 +33,20 @@
         }
       }
     },
+    "staging": {
+      "distribution": "internal",
+      "channel": "staging",
+      "node": "20.19.4",
+      "runtimeVersion": { "policy": "appVersion" },
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease",
+        "env": {
+          "APP_ENV": "staging",
+          "API_BASE_URL": "https://zobia.vercel.app"
+        }
+      }
+    },
     "production": {
       "distribution": "store",
       "channel": "production",

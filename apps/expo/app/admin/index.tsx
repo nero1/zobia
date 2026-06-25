@@ -4,10 +4,8 @@ import {
   ActivityIndicator, RefreshControl
 } from "react-native";
 import { useRouter } from "expo-router";
-import { storage } from "@/lib/offline/store";
+import { apiClient } from "@/lib/api/client";
 import { useCurrency } from "@/lib/hooks/useCurrency";
-
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "";
 
 interface AdminStats {
   totalUsers: number;
@@ -44,11 +42,7 @@ export default function AdminOverviewScreen() {
 
   async function loadStats() {
     try {
-      const token = storage.getString("authToken");
-      const res = await fetch(`${API_BASE}/api/admin/overview`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      const data = await res.json();
+      const { data } = await apiClient.get('/admin/overview');
       setStats(data.data?.stats ?? null);
     } catch { /* ignore */ }
     setLoading(false);

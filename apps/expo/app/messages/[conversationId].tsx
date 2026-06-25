@@ -16,8 +16,10 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { randomUUID } from 'expo-crypto';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -154,10 +156,12 @@ async function sendDM(
   conversationId: string,
   content: string,
   messageType: MessageType = 'text',
+  idempotencyKey?: string,
 ): Promise<DM> {
   const { data } = await apiClient.post(`/messages/dm/${conversationId}`, {
     content,
     messageType,
+    idempotencyKey,
   });
   return mapApiDM(data.message ?? {});
 }
@@ -410,20 +414,17 @@ interface StickerPickerProps {
 }
 
 function StickerPickerModal({ visible, onClose, onSelect }: StickerPickerProps) {
-  const [packs, setPacks] = useState<StickerPack[]>([]);
   const [activePackIdx, setActivePackIdx] = useState(0);
-  const [loading, setLoading] = useState(false);
   const { colors: themeColors } = useTheme();
   const router = useRouter();
 
-  useEffect(() => {
-    if (!visible) return;
-    setLoading(true);
-    fetchStickerPacks()
-      .then(setPacks)
-      .catch(() => setPacks([]))
-      .finally(() => setLoading(false));
-  }, [visible]);
+  // FIX-23: Use React Query to cache sticker packs (staleTime = 5 min)
+  const { data: packs = [], isLoading: loading } = useQuery({
+    queryKey: ['sticker-packs'],
+    queryFn: fetchStickerPacks,
+    staleTime: 5 * 60 * 1000,
+    enabled: visible,
+  });
 
   const activePack = packs[activePackIdx];
 
@@ -636,8 +637,8 @@ export default function DMConversationScreen() {
   }, [messages, conversationId]);
 
   const sendMutation = useMutation({
-    mutationFn: ({ content, type }: { content: string; type: MessageType }) =>
-      sendDM(conversationId!, content, type),
+    mutationFn: ({ content, type, idempotencyKey }: { content: string; type: MessageType; idempotencyKey: string }) =>
+      sendDM(conversationId!, content, type, idempotencyKey),
     onMutate: ({ content, type }) => {
       const localId = `pending-${++pendingIdCounterRef.current}`;
       const optimistic = makePendingMessage(content, myUserId, type, localId);
@@ -654,9 +655,10 @@ export default function DMConversationScreen() {
           m.id === ctx?.optimistic.id ? { ...m, status: 'failed' as MessageStatus } : m,
         ),
       );
-      queueMessage(conversationId!, values.content, values.type).catch(() =>
+      queueMessage(conversationId!, values.content, values.type, 'dm', values.idempotencyKey).catch(() =>
         console.warn('[offline] queueMessage failed')
       );
+      Alert.alert('Message queued', 'Message queued — will send when back online.');
     },
   });
 
@@ -664,20 +666,35 @@ export default function DMConversationScreen() {
     const text = inputText.trim();
     if (!text) return;
     setInputText('');
-    sendMutation.mutate({ content: text, type: 'text' });
+    sendMutation.mutate({ content: text, type: 'text', idempotencyKey: randomUUID() });
   }, [inputText, sendMutation]);
 
   const handleGifSelect = useCallback((gifUrl: string) => {
-    sendMutation.mutate({ content: gifUrl, type: 'gif' });
+    sendMutation.mutate({ content: gifUrl, type: 'gif', idempotencyKey: randomUUID() });
   }, [sendMutation]);
 
   const handleStickerSelect = useCallback((emoji: string) => {
-    sendMutation.mutate({ content: emoji, type: 'sticker' });
+    sendMutation.mutate({ content: emoji, type: 'sticker', idempotencyKey: randomUUID() });
   }, [sendMutation]);
 
-  const handleLongPress = useCallback((_messageId: string) => {
-    // Reaction picker — future enhancement
-  }, []);
+  const handleLongPress = useCallback((messageId: string) => {
+    // FIX-22: Minimal reaction picker — show common emojis as an action sheet
+    const EMOJI_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
+    Alert.alert(
+      'React to message',
+      undefined,
+      [
+        ...EMOJI_REACTIONS.map((emoji) => ({
+          text: emoji,
+          onPress: () => {
+            apiClient.post(`/messages/dm/${conversationId}/messages/${messageId}/react`, { emoji })
+              .catch(() => {});
+          },
+        })),
+        { text: 'Cancel', style: 'cancel' as const },
+      ],
+    );
+  }, [conversationId]);
 
   const handleSendMoment = useCallback(() => {
     const text = inputText.trim();

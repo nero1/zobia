@@ -221,9 +221,12 @@ export const INTERSTITIAL_AD_UNIT_ID: string = IS_DEV
 
 let interstitialAd: InterstitialAd | null = null;
 let interstitialLoaded = false;
+let interstitialLoading = false;
 
 /** Pre-load an interstitial ad. */
 export async function loadInterstitialAd(): Promise<void> {
+  if (interstitialLoading || interstitialLoaded) return Promise.resolve();
+  interstitialLoading = true;
   return new Promise((resolve, reject) => {
     interstitialAd = InterstitialAd.createForAdRequest(INTERSTITIAL_AD_UNIT_ID, {
       requestNonPersonalizedAdsOnly: true,
@@ -233,6 +236,7 @@ export async function loadInterstitialAd(): Promise<void> {
       AdEventType.LOADED,
       () => {
         interstitialLoaded = true;
+        interstitialLoading = false;
         unsubLoaded();
         resolve();
       }
@@ -242,6 +246,7 @@ export async function loadInterstitialAd(): Promise<void> {
       AdEventType.ERROR,
       (error) => {
         interstitialLoaded = false;
+        interstitialLoading = false;
         unsubError();
         reject(error);
       }

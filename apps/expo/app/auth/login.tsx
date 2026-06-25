@@ -312,7 +312,7 @@ export default function LoginScreen() {
         {t('legal.agreePrefix')}{' '}
         <Text
           style={[styles.legalLink, { color: colors.brand.blue }]}
-          onPress={() => Linking.openURL('https://zobia.app/terms')}
+          onPress={() => Linking.openURL(`${env.API_BASE_URL}/terms`)}
           accessibilityRole="link"
         >
           {t('legal.termsOfService')}
@@ -320,7 +320,7 @@ export default function LoginScreen() {
         {' '}{t('legal.and')}{' '}
         <Text
           style={[styles.legalLink, { color: colors.brand.blue }]}
-          onPress={() => Linking.openURL('https://zobia.app/privacy')}
+          onPress={() => Linking.openURL(`${env.API_BASE_URL}/privacy`)}
           accessibilityRole="link"
         >
           {t('legal.privacyPolicy')}
