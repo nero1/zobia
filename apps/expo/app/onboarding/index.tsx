@@ -51,10 +51,20 @@ async function requestAndFetchContacts(): Promise<string[]> {
     fields: [Contacts.Fields.PhoneNumbers],
   });
 
+  const seen = new Set<string>();
   const numbers: string[] = [];
   for (const contact of data) {
     for (const phone of contact.phoneNumbers ?? []) {
-      if (phone.number) numbers.push(phone.number.replace(/\s+/g, ''));
+      if (!phone.number) continue;
+      const raw = phone.number.trim();
+      const hasPlus = raw.startsWith('+');
+      const digits = raw.replace(/\D/g, '');
+      if (digits.length < 7) continue;
+      const normalized = hasPlus ? `+${digits}` : digits;
+      if (!seen.has(normalized)) {
+        seen.add(normalized);
+        numbers.push(normalized);
+      }
     }
   }
   return numbers;

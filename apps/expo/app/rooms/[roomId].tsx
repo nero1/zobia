@@ -305,6 +305,7 @@ function GifPickerModal({
   const [results, setResults] = useState<GifResult[]>([]);
   const [loading, setLoading] = useState(false);
   const { colors: themeColors } = useTheme();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleSearch = useCallback(async (q: string) => {
     if (!q.trim()) { setResults([]); return; }
@@ -334,7 +335,11 @@ function GifPickerModal({
             placeholder="Search GIFs…"
             placeholderTextColor={themeColors.textMuted}
             value={query}
-            onChangeText={(t) => { setQuery(t); handleSearch(t); }}
+            onChangeText={(text) => {
+              setQuery(text);
+              if (debounceRef.current) clearTimeout(debounceRef.current);
+              debounceRef.current = setTimeout(() => handleSearch(text), 350);
+            }}
             returnKeyType="search"
             onSubmitEditing={() => handleSearch(query)}
           />
@@ -631,7 +636,7 @@ export default function RoomScreen() {
             {
               text: 'Report',
               style: 'destructive',
-              onPress: () => apiClient.post(`/users/${messageId}/report`, { reason: 'inappropriate_content' }).catch(() => {}),
+              onPress: () => apiClient.post(`/rooms/${roomId}/messages/${messageId}/report`, { reason: 'inappropriate_content' }).catch(() => {}),
             },
           ]);
         },
@@ -789,7 +794,7 @@ export default function RoomScreen() {
     <Screen hideOfflineBanner disableBottomInset>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior="padding"
         keyboardVerticalOffset={88}
       >
         {/* Drop banner */}

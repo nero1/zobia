@@ -107,6 +107,7 @@ export default function AdminDashboardTab() {
     queryKey: ['admin', 'quick-stats'],
     queryFn: fetchQuickStats,
     refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
   });
 
   return (
@@ -162,7 +163,7 @@ export default function AdminDashboardTab() {
           icon="←"
           title="User Area"
           subtitle="Back to the main app"
-          onPress={() => router.push('/home')}
+          onPress={() => router.push('/(tabs)')}
         />
 
         <Text style={[styles.sectionLabel, { color: themeColors.textMuted, marginTop: 12 }]}>SECTIONS</Text>

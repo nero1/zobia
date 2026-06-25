@@ -32,6 +32,8 @@
       "package": "org.zobia.social",
       "compileSdkVersion": 36,
       "targetSdkVersion": 36,
+      "minSdkVersion": 24,
+      "permissions": ["android.permission.POST_NOTIFICATIONS"],
       "intentFilters": [
         {
           "action": "VIEW",

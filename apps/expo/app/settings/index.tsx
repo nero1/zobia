@@ -40,7 +40,6 @@ import { Button } from '@/components/ui/Button';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
-import { storage } from '@/lib/offline/store';
 import { translateApiError } from '@/lib/i18n/apiErrors';
 
 // ---------------------------------------------------------------------------
@@ -62,8 +61,6 @@ interface UserSettings {
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? '';
 
 const LANGUAGES = [
   { code: 'en', label: 'English' },
@@ -251,13 +248,8 @@ function TwoFactorSection() {
   useEffect(() => {
     (async () => {
       try {
-        const token = storage.getString('authToken');
-        const res = await fetch(`${API_BASE}/api/users/me`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        if (!res.ok) return;
-        const data = (await res.json()) as { user?: { totp_enabled?: boolean } };
-        setTotpEnabled(data.user?.totp_enabled ?? false);
+        const res = await apiClient.get<{ user?: { totp_enabled?: boolean } }>('/users/me');
+        setTotpEnabled(res.data?.user?.totp_enabled ?? false);
       } catch {
         // non-fatal
       } finally {
@@ -272,18 +264,9 @@ function TwoFactorSection() {
     setSetupQrUrl(null);
     setShowSetupModal(true);
     try {
-      const token = storage.getString('authToken');
-      const res = await fetch(`${API_BASE}/api/auth/2fa/setup`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!res.ok) {
-        Alert.alert('Error', 'Failed to start 2FA setup. Please try again.');
-        setShowSetupModal(false);
-        return;
-      }
-      const data = (await res.json()) as { secret: string; qrCodeUrl: string };
-      setSetupSecret(data.secret);
-      setSetupQrUrl(data.qrCodeUrl);
+      const res = await apiClient.get<{ secret: string; qrCodeUrl: string }>('/auth/2fa/setup');
+      setSetupSecret(res.data.secret);
+      setSetupQrUrl(res.data.qrCodeUrl);
     } catch {
       Alert.alert('Error', 'Failed to start 2FA setup. Please try again.');
       setShowSetupModal(false);
@@ -294,26 +277,15 @@ function TwoFactorSection() {
     if (!setupCode.trim()) return;
     setSetupLoading(true);
     try {
-      const token = storage.getString('authToken');
-      const res = await fetch(`${API_BASE}/api/auth/2fa/setup`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ code: setupCode.trim() }),
-      });
-      if (!res.ok) {
-        const d = (await res.json()) as { error?: { code?: string; message?: string } };
-        Alert.alert('Error', translateApiError(t, d.error?.code, d.error?.message ?? 'Invalid code. Please try again.'));
-        return;
-      }
+      await apiClient.post('/auth/2fa/setup', { code: setupCode.trim() });
       setTotpEnabled(true);
       setShowSetupModal(false);
       Alert.alert('Success', 'Two-factor authentication has been enabled.');
     } catch (e) {
-      const err = e as Error & { code?: string | null };
-      Alert.alert('Error', translateApiError(t, err.code, e instanceof Error ? e.message : 'Invalid code. Please try again.'));
+      const axiosErr = e as import('axios').AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? 'Invalid code. Please try again.';
+      Alert.alert('Error', translateApiError(t, code, message));
     } finally {
       setSetupLoading(false);
     }
@@ -341,26 +313,15 @@ function TwoFactorSection() {
     if (!disableCode.trim()) return;
     setDisableLoading(true);
     try {
-      const token = storage.getString('authToken');
-      const res = await fetch(`${API_BASE}/api/auth/2fa/disable`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ code: disableCode.trim() }),
-      });
-      if (!res.ok) {
-        const d = (await res.json()) as { error?: { code?: string; message?: string } };
-        Alert.alert('Error', translateApiError(t, d.error?.code, d.error?.message ?? 'Invalid code. Please try again.'));
-        return;
-      }
+      await apiClient.post('/auth/2fa/disable', { code: disableCode.trim() });
       setTotpEnabled(false);
       setShowDisableModal(false);
       Alert.alert('Disabled', 'Two-factor authentication has been disabled.');
     } catch (e) {
-      const err = e as Error & { code?: string | null };
-      Alert.alert('Error', translateApiError(t, err.code, e instanceof Error ? e.message : 'Invalid code. Please try again.'));
+      const axiosErr = e as import('axios').AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? 'Invalid code. Please try again.';
+      Alert.alert('Error', translateApiError(t, code, message));
     } finally {
       setDisableLoading(false);
     }
@@ -558,17 +519,9 @@ function PrivacyDataSection() {
   const handleExport = async () => {
     setExporting(true);
     try {
-      const token = storage.getString('authToken');
-      const res = await fetch(`${API_BASE}/api/users/me/export`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!res.ok) {
-        Alert.alert('Error', 'Failed to export data. Please try again.');
-        return;
-      }
-      const data = await res.json();
+      const res = await apiClient.get('/users/me/export');
       await Share.share({
-        message: JSON.stringify(data, null, 2),
+        message: JSON.stringify(res.data, null, 2),
         title: 'Zobia Data Export',
       });
     } catch {
@@ -640,6 +593,9 @@ export default function SettingsScreen() {
   });
 
   const [settings, setSettings] = useState<Partial<UserSettings>>({});
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletePin, setDeletePin] = useState('');
+  const [deletePending, setDeletePending] = useState(false);
 
   // Date of birth (fetched separately from profile)
   const [dateOfBirth, setDateOfBirth] = useState('');
@@ -741,27 +697,29 @@ export default function SettingsScreen() {
           text: 'Delete',
           style: 'destructive',
           onPress: () => {
-            Alert.prompt(
-              'Confirm PIN',
-              'Enter your 4-digit PIN',
-              async (pin) => {
-                if (!pin) return;
-                try {
-                  await deleteAccount(pin);
-                  router.replace('/auth/login');
-                } catch (err) {
-                  const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
-                  const code = axiosErr.response?.data?.error?.code ?? null;
-                  const message = axiosErr.response?.data?.error?.message ?? axiosErr.message ?? 'Could not delete account. Check your PIN.';
-                  Alert.alert('Error', translateApiError(t, code, message));
-                }
-              },
-              'secure-text',
-            );
+            setDeletePin('');
+            setShowDeleteModal(true);
           },
         },
       ],
     );
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deletePin.trim()) return;
+    setDeletePending(true);
+    try {
+      await deleteAccount(deletePin.trim());
+      setShowDeleteModal(false);
+      router.replace('/auth/login');
+    } catch (err) {
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? axiosErr.message ?? 'Could not delete account. Check your PIN.';
+      Alert.alert('Error', translateApiError(t, code, message));
+    } finally {
+      setDeletePending(false);
+    }
   };
 
   const fieldStyle = {
@@ -987,12 +945,7 @@ export default function SettingsScreen() {
           label="HD Send (Wi-Fi only)"
           description="Send higher-quality images when connected to Wi-Fi"
           value={merged.hdSendEnabled}
-          onChange={async (v) => {
-            set('hdSendEnabled', v);
-            try {
-              await apiClient.patch('/settings', { hd_send_enabled: v });
-            } catch { /* settings mutation handles this */ }
-          }}
+          onChange={(v) => set('hdSendEnabled', v)}
         />
       </View>
 
@@ -1102,6 +1055,53 @@ export default function SettingsScreen() {
           style={styles.dangerBtn}
         />
       </View>
+
+      {/* Delete Account Modal — replaces Alert.prompt() (iOS-only) */}
+      <Modal
+        visible={showDeleteModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowDeleteModal(false)}
+      >
+        <View style={[styles.modalContainer, { backgroundColor: themeColors.background }]}>
+          <View style={styles.modalHeader}>
+            <Text style={[styles.modalTitle, { color: themeColors.text }]}>Confirm Deletion</Text>
+            <Pressable onPress={() => setShowDeleteModal(false)} hitSlop={12}>
+              <Text style={[styles.modalClose, { color: themeColors.textMuted }]}>✕</Text>
+            </Pressable>
+          </View>
+          <View style={[styles.modalBody, { gap: 16 }]}>
+            <Text style={[styles.modalInstruction, { color: themeColors.text }]}>
+              Enter your 4-digit PIN to permanently delete your account. This cannot be undone.
+            </Text>
+            <TextInput
+              style={[
+                styles.codeInput,
+                {
+                  backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100],
+                  color: themeColors.text,
+                  borderColor: themeColors.border,
+                },
+              ]}
+              placeholder="PIN"
+              placeholderTextColor={themeColors.textMuted}
+              value={deletePin}
+              onChangeText={setDeletePin}
+              keyboardType="number-pad"
+              maxLength={8}
+              secureTextEntry
+              returnKeyType="done"
+              autoFocus
+            />
+            <Button
+              label={deletePending ? 'Deleting…' : 'Delete My Account'}
+              variant="danger"
+              onPress={handleConfirmDelete}
+              disabled={deletePending || !deletePin.trim()}
+            />
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }

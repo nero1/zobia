@@ -38,6 +38,7 @@ import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/hooks';
 import { useCurrency } from '@/lib/hooks/useCurrency';
 import { useFloatingNotification } from '@/hooks/useFloatingNotification';
+import { storage } from '@/lib/offline/store';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -353,7 +354,7 @@ function GuildDiscoveryPanel({ guilds }: GuildDiscoveryPanelProps) {
         <Pressable
           key={guild.id}
           style={styles.guildDiscoveryCard}
-          onPress={() => router.push(`/guild/${guild.id}` as never)}
+          onPress={() => router.push(`/guilds/${guild.id}` as never)}
           accessibilityRole="button"
           accessibilityLabel={`View ${guild.name} guild`}
         >
@@ -411,7 +412,7 @@ function Toast({ message, visible }: ToastProps) {
     }
   }, [visible, opacity]);
 
-  if (!visible && opacity === null) return null;
+  if (!visible) return null;
 
   return (
     <Animated.View style={[styles.toast, { opacity }]} pointerEvents="none">
@@ -906,6 +907,9 @@ export default function HomeScreen() {
   });
 
   useEffect(() => {
+    const today = new Date().toDateString();
+    if (storage.getString('daily_login_last_date') === today) return;
+    storage.set('daily_login_last_date', today);
     dailyLoginMutation.mutate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

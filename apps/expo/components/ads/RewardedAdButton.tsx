@@ -1,10 +1,9 @@
-"use client";
-
 import React, { useState, useEffect } from "react";
 import { TouchableOpacity, Text, ActivityIndicator, Alert } from "react-native";
 import { loadRewardedAd, showRewardedAd } from "@/lib/ads/admob";
 import { storage } from "@/lib/offline/store";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { apiClient } from "@/lib/api/client";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -13,7 +12,6 @@ import { useCurrency } from "@/lib/hooks/useCurrency";
 const AD_DAILY_CAP = 5;
 const AD_WATCHED_KEY = "ads_watched_today";
 const AD_DATE_KEY = "ads_last_reset_date";
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -70,27 +68,16 @@ export function RewardedAdButton({ onRewarded, disabled }: RewardedAdButtonProps
 
       if (result.rewarded) {
         // Credit coins server-side
-        const token = storage.getString("authToken");
-        const response = await fetch(`${API_BASE_URL}/api/economy/rewards/ad-reward`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-        });
+        const response = await apiClient.post<{ data?: { coinsAwarded?: number } }>('/economy/rewards/ad-reward');
+        const coinsAwarded = response.data?.data?.coinsAwarded ?? 10;
+        const newWatched = adsWatched + 1;
+        storage.set(AD_WATCHED_KEY, newWatched);
+        setAdsWatched(newWatched);
+        onRewarded(coinsAwarded);
 
-        if (response.ok) {
-          const json = await response.json() as { data?: { coinsAwarded?: number } };
-          const coinsAwarded = json?.data?.coinsAwarded ?? 10;
-          const newWatched = adsWatched + 1;
-          storage.set(AD_WATCHED_KEY, newWatched);
-          setAdsWatched(newWatched);
-          onRewarded(coinsAwarded);
-
-          // Pre-load next ad
-          if (newWatched < AD_DAILY_CAP) {
-            void preloadAd();
-          }
+        // Pre-load next ad
+        if (newWatched < AD_DAILY_CAP) {
+          void preloadAd();
         }
       }
     } catch {

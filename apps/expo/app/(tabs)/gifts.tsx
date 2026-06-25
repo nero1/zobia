@@ -170,7 +170,7 @@ export default function GiftsScreen() {
   const borderColor = isDark ? colors.neutral[800] : colors.neutral[200];
   const textPrimary = isDark ? colors.neutral[50] : colors.neutral[900];
 
-  const { data, isLoading, isError, refetch } = useQuery<{ gifts: GiftRecord[] }>({
+  const { data, isLoading, isRefetching, isError, refetch } = useQuery<{ gifts: GiftRecord[] }>({
     queryKey: ['gifts', tab],
     queryFn: async () => {
       const { data } = await apiClient.get<{ gifts: GiftRecord[] }>(
@@ -241,7 +241,7 @@ export default function GiftsScreen() {
           contentContainerStyle={{ paddingBottom: insets.bottom + 80 }}
           showsVerticalScrollIndicator={false}
           onRefresh={refetch}
-          refreshing={isLoading}
+          refreshing={isRefetching}
         />
       )}
     </Screen>

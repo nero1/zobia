@@ -222,7 +222,11 @@ export default function LoginScreen() {
             await signIn(data.token, data.user as AuthUser, data.refreshToken);
             if (telegramCancelledRef.current) return;
             clearSessionExpired();
-            router.replace('/(tabs)');
+            if (!data.onboardingCompleted) {
+              router.replace('/onboarding');
+            } else {
+              router.replace('/(tabs)');
+            }
             return;
           } else if (data.status === 'expired' || attempt >= MAX_ATTEMPTS) {
             stopTelegramPoll();

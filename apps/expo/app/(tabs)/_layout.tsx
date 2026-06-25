@@ -70,8 +70,7 @@ export default function TabLayout() {
   const scheme = useColorScheme();
   const isDark = scheme === 'dark';
   const { user } = useAuth();
-  // is_admin may be present on the user object if the API includes it.
-  const isAdmin = (user as (typeof user & { is_admin?: boolean }) | null)?.is_admin === true;
+  const isAdmin = user?.isAdmin === true;
 
   const tabBarBg = isDark ? colors.neutral[900] : colors.neutral[0];
   const activeTint = colors.brand.blue;
