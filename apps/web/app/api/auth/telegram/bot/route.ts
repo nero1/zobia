@@ -18,6 +18,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { db } from "@/lib/db";
 import { createSession } from "@/lib/auth/session";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -169,7 +170,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       [state, session.accessToken, userPayload]
     );
   } catch (err) {
-    console.error("[telegram:bot] Error processing start command:", err);
+    logger.error({ err: err }, "[telegram:bot] Error processing start command:");
   }
 
   return NextResponse.json({ ok: true });

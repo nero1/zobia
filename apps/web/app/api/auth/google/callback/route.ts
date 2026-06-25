@@ -39,6 +39,7 @@ import {
 import { badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { env } from "@/lib/env";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Query param schema
@@ -519,11 +520,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   } catch (err) {
     const errCode = (err as { code?: string }).code;
     // Always log the raw error so Vercel function logs capture it for diagnosis.
-    console.error("[google-callback] Auth error:", {
-      code: errCode,
-      message: (err as Error).message,
-      stack: (err as Error).stack,
-    });
+    logger.error({ err, code: errCode }, "[google-callback] Auth error");
     if (errCode === "ACCOUNT_BANNED" || errCode === "ACCOUNT_SUSPENDED") {
       const res = NextResponse.redirect(
         new URL(`/auth/login?error=${errCode.toLowerCase()}`, origin),

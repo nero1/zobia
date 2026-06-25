@@ -38,6 +38,7 @@ import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 import { publishRealtimeEvent } from "@/lib/realtime";
 import { calculateFinalXP } from "@/lib/xp/engine";
 import type { Plan } from "@zobia/types";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Rate limit preset for DM sends (tighter than generic write)
@@ -584,7 +585,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
             });
           }
         })
-        .catch((err) => console.error("[dm:POST] XP award failed", err));
+        .catch((err) => logger.error({ err }, "[dm:POST] XP award failed"));
     }
 
     // Trigger matching daily quest progress for sending a DM
@@ -594,12 +595,12 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     // 13. Update conversation score — best-effort
     updateConversationScore(auth.user.sub, body.recipientId, "message_sent").catch(
-      (err) => console.error("[dm:POST] Conversation score update failed", err)
+      (err) => logger.error({ err }, "[dm:POST] Conversation score update failed")
     );
 
     // 14. Record guild war contribution — best-effort
     recordWarContribution(auth.user.sub, 'send_message', db).catch((err) =>
-      console.error("[dm:POST] war contribution failed", err)
+      logger.error({ err: err }, "[dm:POST] war contribution failed");
     );
 
     // 15. Realtime broadcast — push the new message to open clients

@@ -25,6 +25,7 @@ import {
   badRequest,
 } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -392,7 +393,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           ]
         )
         .catch((err) =>
-          console.error("[broadcasts] Telegram queue enqueue failed:", err)
+          logger.error({ err: err }, "[broadcasts] Telegram queue enqueue failed:");
         );
     }
 

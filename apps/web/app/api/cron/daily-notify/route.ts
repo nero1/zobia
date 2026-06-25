@@ -15,6 +15,7 @@ export const maxDuration = 10;
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { validateCronSecret, checkCronIdempotency } from "@/lib/cron/auth";
+import { logger } from "@/lib/logger";
 
 const CONCURRENCY = 5;
 
@@ -161,7 +162,7 @@ export const GET = async (req: NextRequest) => {
          WHERE user_id = upd.uid AND inactive_days = upd.days AND push_email_notified = false`,
         [notifiedIds, notifiedDays]
       ).catch((err) => {
-        console.error('[daily-notify] Failed to mark notifications as sent:', err);
+        logger.error({ err }, '[daily-notify] Failed to mark notifications as sent');
       });
     }
 

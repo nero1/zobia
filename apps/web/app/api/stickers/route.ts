@@ -24,6 +24,7 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { debitCoins } from "@/lib/economy/coins";
 import { verifyAccessToken, extractBearerToken } from "@/lib/auth/jwt";
 import { getSession, ACCESS_TOKEN_COOKIE } from "@/lib/auth/session";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -214,7 +215,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       }
     } catch (badgeErr) {
       // Badge tracking is non-critical — log but don't fail the purchase
-      console.error('[stickers] badge tracking error:', badgeErr);
+      logger.error({ err: badgeErr }, '[stickers] badge tracking error');
     }
 
     return NextResponse.json(

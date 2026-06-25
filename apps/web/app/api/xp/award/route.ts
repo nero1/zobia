@@ -38,6 +38,7 @@ import {
   type TrackMilestone,
 } from "@/lib/xp/trackMilestones";
 import { awardMilestoneStickers } from "@/lib/stickers/milestoneStickers";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -453,7 +454,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         }
       } catch (err) {
         // Milestone check failure must never break the XP award response
-        console.error("[xp/award] Milestone check failed (non-fatal):", err);
+        logger.error({ err: err }, "[xp/award] Milestone check failed (non-fatal):");
       }
     }
 
@@ -513,7 +514,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           );
         } catch (err) {
           // Failure in quest progress tracking must never surface to the caller
-          console.error("[xp/award] New Member Quest step update failed (non-fatal):", err);
+          logger.error({ err: err }, "[xp/award] New Member Quest step update failed (non-fatal):");
         }
       })();
     }

@@ -21,6 +21,7 @@ import { handleApiError, badRequest, forbidden, notFound } from "@/lib/api/error
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { updateConversationScore } from "@/lib/messaging/conversationScore";
 import { recordWarContribution } from "@/lib/guilds/recordWarContribution";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -192,13 +193,13 @@ export const POST = withAuth(
             ).catch(() => {});
           }
         } catch (err) {
-          console.error("[reactions:POST] XP award failed", err);
+          logger.error({ err: err }, "[reactions:POST] XP award failed");
         }
       })();
 
       // Record guild war contribution (fire-and-forget)
       recordWarContribution(auth.user.sub, 'react_to_message', db).catch((err) =>
-        console.error('[reactions:POST] war contribution failed', err)
+        logger.error({ err: err }, '[reactions:POST] war contribution failed');
       );
 
       return NextResponse.json({ reaction }, { status: 201 });

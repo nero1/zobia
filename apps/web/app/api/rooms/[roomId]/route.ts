@@ -26,6 +26,7 @@ import {
   forbidden,
 } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -346,7 +347,7 @@ export const DELETE = withAuth(async (req: NextRequest, { params, auth }) => {
           `UPDATE users SET xp_total = xp_total + 50, xp_creator = xp_creator + 50, updated_at = NOW() WHERE id = $1`,
           [auth.user.sub]
         )
-      ).catch((err) => console.error("[rooms/delete] host_room_session_30_min XP failed:", err));
+      ).catch((err) => logger.error({ err: err }, "[rooms/delete] host_room_session_30_min XP failed:"))
     }
 
     return new NextResponse(null, { status: 204 });

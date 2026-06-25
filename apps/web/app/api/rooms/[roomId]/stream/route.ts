@@ -46,6 +46,7 @@ import {
 } from "@/lib/auth/jwt";
 import { getSession, ACCESS_TOKEN_COOKIE } from "@/lib/auth/session";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -306,7 +307,7 @@ export async function GET(
           enqueue({ type: "message", payload: rowToMessage(msg) });
         }
       } catch (err) {
-        console.error("[stream] initial fetch error:", err);
+        logger.error({ err: err }, "[stream] initial fetch error:");
       }
 
       // Instruct the client to subscribe via the realtime provider's native SDK.

@@ -34,6 +34,7 @@ import { db } from "@/lib/db";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { encryptField, decryptField } from "@/lib/security/fieldEncryption";
 import { verifyTotp } from "@/lib/auth/totp";
+import { redis } from "@/lib/redis";
 import { resolveAccount, createTransferRecipient } from "@/lib/payments/paystack";
 import { getBankByCode } from "@/lib/payments/supported-banks";
 import { loadManifest } from "@/lib/manifest";
@@ -136,8 +137,14 @@ async function verifySecurityGate(
     if (!verified && hasTotp && /^\d{6}$/.test(pinOrCode)) {
       // Decrypt the stored AES-256-GCM secret before TOTP verification (B-02)
       const plainSecret = decryptField(row!.totp_secret!);
-      if (plainSecret) {
-        verified = verifyTotp(plainSecret, pinOrCode);
+      if (plainSecret && verifyTotp(plainSecret, pinOrCode)) {
+        // Anti-replay: atomically mark this TOTP code as used for 90 seconds (BUG-AUTH-03)
+        const replayKey = `totp:used:${userId}:${pinOrCode}`;
+        const marked = await redis.set(replayKey, "1", "EX", 90, "NX");
+        if (marked === null) {
+          throw forbidden("Authenticator code already used. Please wait for a new code.", "TOTP_REPLAY");
+        }
+        verified = true;
       }
     }
 

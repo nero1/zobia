@@ -15,6 +15,7 @@
  */
 
 import { redis } from "@/lib/redis";
+import { logger } from "@/lib/logger";
 
 /** A presence entry is stale once it has not been refreshed for this long. */
 export const PRESENCE_TTL_MS = 70_000; // ~1.5× a 45s client heartbeat
@@ -74,7 +75,7 @@ export async function admitRoomPresence(
     return { admitted: res[0] === 1, count: res[1] ?? 0 };
   } catch (err) {
     // Fail open: if Redis is unavailable, never lock users out of rooms.
-    console.error("[presence:room] admit failed (failing open)", err);
+    logger.error({ err: err }, "[presence:room] admit failed (failing open)");
     return { admitted: true, count: 0 };
   }
 }
@@ -93,7 +94,7 @@ export async function getRoomPresenceCount(roomId: string): Promise<number> {
     const count = (await redis.eval(script, 1, roomPresenceKey(roomId), cutoff)) as number;
     return typeof count === "number" ? count : 0;
   } catch (err) {
-    console.error("[presence:room] count failed", err);
+    logger.error({ err: err }, "[presence:room] count failed");
     return 0;
   }
 }
@@ -103,6 +104,6 @@ export async function leaveRoomPresence(roomId: string, userId: string): Promise
   try {
     await redis.zrem(roomPresenceKey(roomId), userId);
   } catch (err) {
-    console.error("[presence:room] leave failed", err);
+    logger.error({ err: err }, "[presence:room] leave failed");
   }
 }

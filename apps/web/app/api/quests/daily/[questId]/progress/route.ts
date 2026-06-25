@@ -20,6 +20,7 @@ import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { recordWarContribution } from "@/lib/guilds/recordWarContribution";
 import { publishRealtimeEvent } from "@/lib/realtime";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -352,7 +353,7 @@ export const POST = withAuth<QuestParams>(async (req, { params, auth }) => {
     // Fire-and-forget post-completion side effects
     if (outcome.newly_completed) {
       recordWarContribution(auth.user.sub, 'complete_quest', db).catch((err) =>
-        console.error('[quests:POST] war contribution failed', err)
+        logger.error({ err: err }, '[quests:POST] war contribution failed');
       );
 
       // Notify client to show floating reward notifications

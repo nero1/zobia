@@ -21,6 +21,7 @@ import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { db } from "@/lib/db";
 import { classifyReport, type ReportType } from "@/lib/moderation/aiClassifier";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -201,7 +202,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           );
         })
         .catch((err) => {
-          console.error("[reports] AI classification/pipeline failed:", err);
+          logger.error({ err: err }, "[reports] AI classification/pipeline failed:");
         });
     }
 

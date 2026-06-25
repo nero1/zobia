@@ -18,6 +18,7 @@ export const maxDuration = 10;
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { validateCronSecret, checkCronIdempotency } from "@/lib/cron/auth";
+import { logger } from "@/lib/logger";
 
 const INACTIVITY_TRIGGERS = [3, 7, 14, 30, 90] as const;
 const COMEBACK_COIN_AMOUNT = 200;
@@ -145,7 +146,7 @@ export const GET = async (req: NextRequest) => {
             expiredBonuses++;
           } catch (coinErr) {
             if ((coinErr as NodeJS.ErrnoException)?.code !== 'INSUFFICIENT_BALANCE') {
-              console.error('[cron/daily-users] Comeback bonus expiry error:', row.user_id, coinErr);
+              logger.error({ err: row.user_id, coinErr }, '[cron/daily-users] Comeback bonus expiry error:');
             }
           }
         })

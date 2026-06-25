@@ -21,6 +21,7 @@ import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { db } from "@/lib/db";
 import { writeAuditLog } from "@/lib/audit/auditLog";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Helper: coin economy summary
@@ -243,7 +244,7 @@ async function detectAnomalies(): Promise<AnomalyAlert[]> {
       });
     }
   } catch (err) {
-    console.error("[admin/financial] Anomaly detection error:", err);
+    logger.error({ err: err }, "[admin/financial] Anomaly detection error:");
     alerts.push({
       level: "info",
       code: "ANOMALY_CHECK_ERROR",

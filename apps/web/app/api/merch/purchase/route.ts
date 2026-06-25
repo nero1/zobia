@@ -44,6 +44,7 @@ import { debitCoins, creditCoins } from "@/lib/economy/coins";
 import { initializePayment } from "@/lib/payments";
 import { requireFeatureEnabled } from "@/lib/manifest";
 import type { TransactionClient } from "@/lib/db/interface";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -350,7 +351,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       ).catch(() => {});
 
       // Log for monitoring/alerting and surface a clean error to the client.
-      console.error("[merch/purchase] Payment initialisation failed:", paymentErr);
+      logger.error({ err: paymentErr }, "[merch/purchase] Payment initialisation failed:");
 
       return NextResponse.json(
         {

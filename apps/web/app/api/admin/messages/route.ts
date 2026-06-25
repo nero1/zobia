@@ -22,6 +22,7 @@ import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { db } from "@/lib/db";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -192,7 +193,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
           ]
         )
         .catch((err) =>
-          console.error("[admin/messages] Telegram queue enqueue failed:", err)
+          logger.error({ err: err }, "[admin/messages] Telegram queue enqueue failed:");
         );
     }
 

@@ -16,6 +16,7 @@
 
 import type { DatabaseAdapter } from "@/lib/db/interface";
 import { insertNotificationBatch } from "@/lib/notifications/insert";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -258,7 +259,7 @@ export async function processPendingGiftDrops(db: DatabaseAdapter): Promise<{
           { giftDropId: drop.id, batchIndex }
         )
           .catch((err: unknown) =>
-            console.error(`[monthlyGiftDrop] Failed to send notifications for drop ${drop.id} batch ${batchIndex}:`, err)
+            logger.error({ err: err }, `[monthlyGiftDrop] Failed to send notifications for drop ${drop.id} batch ${batchIndex}:`);
           );
         if (batchRows.length < BATCH_SIZE) break;
         cursorId = batchRows[batchRows.length - 1].id;

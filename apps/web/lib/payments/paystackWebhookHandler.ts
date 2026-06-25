@@ -677,14 +677,21 @@ export async function processSubscriptionEvent(
       : null;
 
     if (!disableEndsAt) {
-      logger.warn({ userId: resolvedUserId, subscriptionCode: subscription_code }, "[webhook/paystack] subscription.disable received without next_payment_date — preserving existing ends_at");
+      logger.warn({ userId: resolvedUserId, subscriptionCode: subscription_code }, "[webhook/paystack] subscription.disable received without next_payment_date — falling back to NOW()");
     }
 
+    // Use next_payment_date when present; fall back to the existing ends_at (if
+    // already set), or NOW() as a last resort so the user never retains premium
+    // indefinitely when both next_payment_date and ends_at are absent.
     await db.query(
       `UPDATE subscriptions
        SET status = 'disabled',
            auto_renew = false,
-           ends_at = CASE WHEN $2::timestamptz IS NOT NULL THEN $2::timestamptz ELSE ends_at END,
+           ends_at = CASE
+             WHEN $2::timestamptz IS NOT NULL THEN $2::timestamptz
+             WHEN ends_at IS NOT NULL THEN ends_at
+             ELSE NOW()
+           END,
            updated_at = NOW()
        WHERE user_id = $1`,
       [resolvedUserId, disableEndsAt]

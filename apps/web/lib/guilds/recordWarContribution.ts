@@ -14,6 +14,7 @@
 
 import { calculateWarPoints, type WarActivity } from './warEngine';
 import type { DatabaseAdapter } from '@/lib/db/interface';
+import { logger } from "@/lib/logger";
 
 /**
  * Record a war point contribution for a user during an active guild war.
@@ -95,6 +96,6 @@ export async function recordWarContribution(
   } catch (err) {
     // Best-effort: log but do not throw
     // Prevents war contribution failures from breaking message sends, etc.
-    console.error('[recordWarContribution]', err);
+    logger.error({ err: err }, '[recordWarContribution]');
   }
 }

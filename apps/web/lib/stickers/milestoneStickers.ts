@@ -10,6 +10,7 @@
  */
 
 import type { DatabaseAdapter } from "@/lib/db";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -165,7 +166,7 @@ export async function awardMilestoneStickers(
     await checkStickerCollectorBadges(userId, db).catch(() => {});
   } catch (err) {
     // Non-fatal — log and continue
-    console.error("[milestoneStickers] Failed to award pack", { userId, unlockKey, err });
+    logger.error({ userId, unlockKey, err }, "[milestoneStickers] Failed to award pack");
   }
 
   return awarded;
