@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { Animated, StyleSheet, View, Dimensions } from 'react-native';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -21,6 +21,13 @@ interface Props {
 }
 
 export function ConfettiOverlay({ onDone }: Props) {
+  // BUG-MED-09: Stabilise onDone via a ref so the animation effect never
+  // needs to list it as a dependency — avoids restarting the animation every
+  // time the parent re-renders.
+  const onDoneRef = useRef(onDone);
+  useEffect(() => { onDoneRef.current = onDone; }, [onDone]);
+  const stableOnDone = useCallback(() => onDoneRef.current(), []);
+
   const particles = useRef<Particle[]>(
     Array.from({ length: 40 }, (_, i) => ({
       x: Math.random() * SCREEN_WIDTH,
@@ -77,10 +84,10 @@ export function ConfettiOverlay({ onDone }: Props) {
     });
 
     const master = Animated.parallel(animations);
-    master.start(() => onDone());
+    master.start(() => stableOnDone());
 
     return () => master.stop();
-  }, [onDone, particles]);
+  }, [stableOnDone, particles]);
 
   return (
     <View style={styles.container} pointerEvents="none">

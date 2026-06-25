@@ -107,7 +107,7 @@ function DrawerContent({ onClose }: { onClose: () => void }) {
   const pathname = usePathname();
   const { user, signOut } = useAuth();
   const { isDark } = useTheme();
-  const isAdmin = (user as (typeof user & { is_admin?: boolean }) | null)?.is_admin === true;
+  const isAdmin = user?.isAdmin === true;
 
   const bg = isDark ? colors.neutral[900] : colors.neutral[0];
   const divider = isDark ? colors.neutral[800] : colors.neutral[200];

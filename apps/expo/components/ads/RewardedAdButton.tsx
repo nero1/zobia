@@ -32,20 +32,20 @@ export function RewardedAdButton({ onRewarded, disabled }: RewardedAdButtonProps
   const [adsWatched, setAdsWatched] = useState(0);
 
   useEffect(() => {
-    // Reset daily counter if date has changed
-    const today = new Date().toDateString();
-    const lastReset = storage.getString(AD_DATE_KEY);
-    if (lastReset !== today) {
-      storage.set(AD_DATE_KEY, today);
-      storage.set(AD_WATCHED_KEY, 0);
-    }
-
-    const watched = storage.getNumber(AD_WATCHED_KEY) ?? 0;
-    setAdsWatched(watched);
-
-    // Pre-load ad if quota not exhausted
-    if (watched < AD_DAILY_CAP) {
-      void preloadAd();
+    try {
+      const today = new Date().toDateString();
+      const lastReset = storage.getString(AD_DATE_KEY);
+      if (lastReset !== today) {
+        storage.set(AD_DATE_KEY, today);
+        storage.set(AD_WATCHED_KEY, 0);
+      }
+      const watched = storage.getNumber(AD_WATCHED_KEY) ?? 0;
+      setAdsWatched(watched);
+      if (watched < AD_DAILY_CAP) {
+        void preloadAd();
+      }
+    } catch {
+      // MMKV not yet initialised — daily cap defaults to 0, ad will still load
     }
   }, []);
 

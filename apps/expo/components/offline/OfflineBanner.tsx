@@ -67,12 +67,12 @@ export function OfflineBanner({ message }: OfflineBannerProps) {
     opacity: isVisible.value,
     // Slide from -40 (hidden above) to 0 (visible)
     transform: [{ translateY: (isVisible.value - 1) * 40 }],
-    pointerEvents: isVisible.value > 0 ? 'auto' : 'none',
   }));
 
   return (
     <Animated.View
       style={[styles.banner, animatedStyle]}
+      pointerEvents={shown ? 'auto' : 'none'}
       accessibilityRole="alert"
       accessibilityLiveRegion="polite"
     >

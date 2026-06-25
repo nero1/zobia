@@ -219,9 +219,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!jwt || !JWT_SEGMENT_RE.test(jwt)) {
       throw new Error('signIn received a malformed access token — refusing to persist invalid credentials');
     }
-    if (refreshToken && !JWT_SEGMENT_RE.test(refreshToken)) {
-      throw new Error('signIn received a malformed refresh token — refusing to persist invalid credentials');
-    }
+    // Refresh tokens may be opaque strings (not JWTs) — skip structural
+    // validation and let the server reject invalid values on next refresh.
 
     const writes: Promise<void>[] = [
       SecureStore.setItemAsync(JWT_KEY, jwt),

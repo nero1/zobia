@@ -15,6 +15,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { storage } from '@/lib/offline/store';
 import { apiClient } from '@/lib/api/client';
 import { colors } from '@/lib/theme/colors';
@@ -63,6 +64,7 @@ function getSessionKey(id: string): string {
  * dismissal persistence.
  */
 export function AnnouncementModal() {
+  const { t } = useTranslation();
   const [announcement, setAnnouncement] = useState<AnnouncementModalData | null>(null);
   const [visible, setVisible] = useState(false);
 
@@ -145,7 +147,7 @@ export function AnnouncementModal() {
             accessibilityRole="button"
             accessibilityLabel="Dismiss"
           >
-            <Text style={styles.dismissText}>Got it</Text>
+            <Text style={styles.dismissText}>{t('announcements.dismiss', 'Got it')}</Text>
           </Pressable>
         </Pressable>
       </Pressable>

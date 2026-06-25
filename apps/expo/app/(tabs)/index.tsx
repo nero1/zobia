@@ -155,6 +155,7 @@ interface NewMemberQuestProgress {
 }
 
 interface SpotlightCreator {
+  id: string;
   username: string;
   display_name: string | null;
   avatar_emoji: string | null;
@@ -300,7 +301,7 @@ function CreatorSpotlightCard({ spotlight }: { spotlight: SpotlightData }) {
   return (
     <Pressable
       style={[styles.spotlightCard, { backgroundColor: themeColors.surface, borderColor: '#f59e0b' }]}
-      onPress={() => router.push(`/profile/${spotlight.creator.username}` as never)}
+      onPress={() => router.push(`/profile/${spotlight.creator.id}` as never)}
       accessibilityRole="button"
       accessibilityLabel={`View creator ${displayName}`}
     >
@@ -821,6 +822,7 @@ function SectionError({ message, onRetry }: SectionErrorProps) {
 export default function HomeScreen() {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const { colors: themeColors } = useTheme();
   const queryClient = useQueryClient();
   const { questUpdateKey } = useFloatingNotification();
   const [showLoginToast, setShowLoginToast] = useState(false);
@@ -1042,7 +1044,7 @@ export default function HomeScreen() {
       >
         {/* Page header */}
         <View style={styles.pageHeader}>
-          <Text style={styles.pageTitle}>{t('home.title', 'Home')}</Text>
+          <Text style={[styles.pageTitle, { color: themeColors.text }]}>{t('home.title', 'Home')}</Text>
           {user?.username ? (
             <Text style={styles.pageSubtitle}>
               {t('home.greeting', 'Hey, {{name}}', { name: user.username.split(' ')[0] })}
@@ -1109,7 +1111,6 @@ const styles = StyleSheet.create({
   pageTitle: {
     fontSize: 26,
     fontWeight: '800',
-    color: colors.neutral[900],
   },
   pageSubtitle: {
     fontSize: 14,

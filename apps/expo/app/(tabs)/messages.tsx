@@ -30,6 +30,7 @@ import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { Screen } from '@/components/ui/Screen';
 import { colors } from '@/lib/theme/colors';
+import { useTheme } from '@/lib/theme';
 import { apiClient } from '@/lib/api/client';
 
 // ---------------------------------------------------------------------------
@@ -230,9 +231,10 @@ interface SectionHeaderProps {
 }
 
 function SectionHeader({ title, action }: SectionHeaderProps) {
+  const { colors: themeColors } = useTheme();
   return (
     <View style={styles.sectionHeader}>
-      <Text style={styles.sectionTitle}>{title}</Text>
+      <Text style={[styles.sectionTitle, { color: themeColors.text }]}>{title}</Text>
       {action && (
         <Pressable
           onPress={action.onPress}
@@ -252,6 +254,7 @@ function SectionHeader({ title, action }: SectionHeaderProps) {
 
 export default function MessagesScreen() {
   const router = useRouter();
+  const { colors: themeColors } = useTheme();
 
   const {
     data: conversations = [],
@@ -312,7 +315,7 @@ export default function MessagesScreen() {
     <Screen>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>Messages</Text>
+        <Text style={[styles.title, { color: themeColors.text }]}>Messages</Text>
         <Pressable
           style={styles.newBtn}
           onPress={handleNewMessage}

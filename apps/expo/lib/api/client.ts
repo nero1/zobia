@@ -122,7 +122,7 @@ export async function refreshAccessToken(): Promise<string | null> {
 
       const res = await axios.post<{ accessToken: string; refreshToken?: string; expiresIn: number }>(
         `${env.API_BASE_URL}/api/auth/refresh`,
-        null,
+        {},
         {
           headers: {
             'X-Refresh-Token': refreshToken,

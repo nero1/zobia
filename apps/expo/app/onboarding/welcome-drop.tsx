@@ -76,7 +76,12 @@ export default function WelcomeDrop() {
     // Persist onboarding data to the server.
     const vibeAnswers = vibeAnswersParam ? JSON.parse(vibeAnswersParam) : {};
     // Replay any referral code captured from a ?r= deep/universal link.
-    const referralCode = getPendingReferralCode();
+    let referralCode: string | null = null;
+    try {
+      referralCode = getPendingReferralCode();
+    } catch {
+      // MMKV read failure is non-fatal — proceed without referral attribution
+    }
     apiClient
       .post('/onboarding/complete', {
         username: username,

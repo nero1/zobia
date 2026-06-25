@@ -2,8 +2,9 @@ import '../global.css';
 
 export { ErrorBoundary } from 'expo-router';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AppState, Platform } from 'react-native';
+import * as SplashScreen from 'expo-splash-screen';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -30,6 +31,10 @@ import { initializeAds } from '@/lib/ads/admob';
 import { initGooglePlayBilling, disconnectGooglePlayBilling } from '@/lib/payments/googlePlay';
 import { useReferralCaptureFromLink } from '@/lib/deeplinks/referral';
 import '@/lib/i18n';
+
+// BUG-CRIT-02: Prevent the native splash from auto-hiding so we can control
+// it ourselves — hide only after auth state is resolved and MMKV is ready.
+SplashScreen.preventAutoHideAsync();
 
 // ---------------------------------------------------------------------------
 // Push notification configuration
@@ -173,8 +178,9 @@ async function registerForPushNotifications(): Promise<void> {
 
 function RootLayoutNav() {
   const { isDark } = useTheme();
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const router = useRouter();
+  const [storeReady, setStoreReady] = useState(false);
   const notificationListener = useRef<Notifications.Subscription | null>(null);
   const responseListener = useRef<Notifications.Subscription | null>(null);
 
@@ -183,24 +189,47 @@ function RootLayoutNav() {
   // the link pointed to (profile, room, course, game).
   useReferralCaptureFromLink();
 
-  // Initialise offline database and encrypted MMKV store
+  // BUG-CRIT-03: Await initStore() so we know when MMKV is ready before any
+  // component that uses `storage` (e.g. RewardedAdButton, AnnouncementModal)
+  // tries to read from it. setStoreReady(true) only fires in the finally block
+  // so a crash in initStore still unblocks the app (degraded, no persistence).
   useEffect(() => {
-    initOfflineDB().catch((err) =>
-      console.warn('[offline] SQLite init failed', err)
-    );
-    initStore().catch((err) =>
-      console.warn('[offline] MMKV store init failed', err)
-    );
-    // Initialise the Google Mobile Ads SDK once at startup. Without this, ads
-    // never serve (no crash — they just no-fill). The native app ID is set in
-    // app.json under the root-level `react-native-google-mobile-ads` key.
+    let active = true;
+    (async () => {
+      await initOfflineDB().catch((err) =>
+        console.warn('[offline] SQLite init failed', err)
+      );
+      try {
+        await initStore();
+      } catch (err) {
+        console.warn('[offline] MMKV store init failed', err);
+      } finally {
+        if (active) setStoreReady(true);
+      }
+    })();
+    // Ads and billing do not depend on MMKV — start them in parallel.
     initializeAds();
     if (Platform.OS === 'android') {
       initGooglePlayBilling().catch((err) =>
         console.warn('[billing] Google Play Billing init failed', err)
       );
     }
+    return () => { active = false; };
   }, []);
+
+  // BUG-CRIT-02: Hide splash screen once auth state resolves and store is ready.
+  useEffect(() => {
+    if (!isLoading && storeReady) {
+      SplashScreen.hideAsync();
+    }
+  }, [isLoading, storeReady]);
+
+  // BUG-CRIT-01: Auth gate — redirect unauthenticated users to the login screen.
+  useEffect(() => {
+    if (!isLoading && storeReady && !user) {
+      router.replace('/auth/login');
+    }
+  }, [isLoading, storeReady, user, router]);
 
   // Register push token once the user's identity is established.
   // Scoped to user?.id so token refresh (which mutates other user fields)
@@ -278,6 +307,9 @@ function RootLayoutNav() {
       responseListener.current?.remove();
     };
   }, [router]);
+
+  // Don't render the nav tree until auth state is resolved and store is ready.
+  if (isLoading || !storeReady) return null;
 
   return (
     <>
