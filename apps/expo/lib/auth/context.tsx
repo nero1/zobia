@@ -15,6 +15,7 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -188,13 +189,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsubscribe;
   }, []);
 
+  // Keep a stable ref to the current token so the AppState listener never
+  // needs to be re-subscribed on every token rotation (BUG-LOW-29).
+  const tokenRef = useRef(token);
+  useEffect(() => { tokenRef.current = token; }, [token]);
+
   // AppState foreground refresh: when the app becomes active and the stored
   // token is expired or expiring within 60 s, attempt a silent refresh so the
   // user doesn't get an auth error immediately after switching back to the app.
   useEffect(() => {
     const sub = AppState.addEventListener('change', async (status) => {
-      if (status !== 'active' || !token) return;
-      if (!isTokenExpiredOrExpiring(token)) return;
+      if (status !== 'active' || !tokenRef.current) return;
+      if (!isTokenExpiredOrExpiring(tokenRef.current)) return;
 
       const newAccessToken = await refreshAccessToken();
       if (newAccessToken) {
@@ -202,7 +208,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     });
     return () => sub.remove();
-  }, [token]);
+  }, []);
 
   const signIn = useCallback(async (jwt: string, authUser: AuthUser, refreshToken?: string) => {
     // BUG-L03: Validate JWT structure before persisting. A malformed response
@@ -246,6 +252,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     ]);
     setToken(null);
     setUser(null);
+    setSessionExpired(false);
   }, [token]);
 
   const clearSessionExpired = useCallback(() => {

@@ -307,6 +307,12 @@ function GifPickerModal({
   const { colors: themeColors } = useTheme();
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
   const handleSearch = useCallback(async (q: string) => {
     if (!q.trim()) { setResults([]); return; }
     setLoading(true);
@@ -469,31 +475,38 @@ export default function RoomScreen() {
     // Instant first paint from the persisted cache; refetch immediately (stale).
     initialData: () => (roomId ? readCachedMessages<Message>(`room:${roomId}`) ?? undefined : undefined),
     initialDataUpdatedAt: 0,
-    select: (data) => {
-      // Detect newly arrived gift messages above spectacle threshold
-      const minThreshold = room?.minGiftSpectacleCoin ?? 50;
-      for (const msg of data) {
-        if (!prevMessageIdsRef.current.has(msg.id)) {
-          if (
-            msg.messageType === 'gift' &&
-            typeof msg.giftCoinValue === 'number' &&
-            msg.giftCoinValue >= minThreshold &&
-            !spectacle
-          ) {
-            setSpectacle({
-              senderDisplayName: msg.senderDisplayName,
-              senderAvatarEmoji: msg.senderAvatarEmoji,
-              giftName: msg.giftName ?? 'Gift',
-              giftEmoji: msg.giftEmoji ?? '🎁',
-              coinValue: msg.giftCoinValue,
-            });
-          }
-          prevMessageIdsRef.current.add(msg.id);
-        }
-      }
-      return data;
-    },
+    select: (data) => data,
   });
+
+  // Detect newly arrived high-value gift messages and trigger the spectacle
+  // overlay. This runs as a side-effect of message updates, NOT inside the
+  // select callback (which must be a pure transformation).
+  useEffect(() => {
+    if (!messages.length) return;
+    const minThreshold = room?.minGiftSpectacleCoin ?? 50;
+    for (const msg of messages) {
+      if (!prevMessageIdsRef.current.has(msg.id)) {
+        if (
+          msg.messageType === 'gift' &&
+          typeof msg.giftCoinValue === 'number' &&
+          msg.giftCoinValue >= minThreshold
+        ) {
+          setSpectacle((prev) =>
+            prev
+              ? prev
+              : {
+                  senderDisplayName: msg.senderDisplayName,
+                  senderAvatarEmoji: msg.senderAvatarEmoji,
+                  giftName: msg.giftName ?? 'Gift',
+                  giftEmoji: msg.giftEmoji ?? '🎁',
+                  coinValue: msg.giftCoinValue as number,
+                }
+          );
+        }
+        prevMessageIdsRef.current.add(msg.id);
+      }
+    }
+  }, [messages, room?.minGiftSpectacleCoin]);
 
   // Top gifters (refresh every 30s)
   const { data: gifters = [] } = useQuery({
@@ -794,7 +807,7 @@ export default function RoomScreen() {
     <Screen hideOfflineBanner disableBottomInset>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior="padding"
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={88}
       >
         {/* Drop banner */}

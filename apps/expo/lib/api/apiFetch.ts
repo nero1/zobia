@@ -13,8 +13,8 @@ import * as SecureStore from 'expo-secure-store';
 import { env } from '@/lib/env';
 import { JWT_KEY } from '@/lib/api/client';
 
-/** Max retry attempts for transient network failures (BUG-NET-01). */
-const MAX_RETRIES = 3;
+/** Total number of attempts for transient network failures (1 initial + 3 retries). */
+const MAX_ATTEMPTS = 4;
 /** Initial backoff delay in ms; doubles on each retry. */
 const RETRY_BASE_MS = 500;
 
@@ -58,19 +58,19 @@ export async function apiFetch(
   const requestInit = { ...init, headers };
   let lastError: unknown;
 
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     if (attempt > 0) {
       await new Promise((res) => setTimeout(res, RETRY_BASE_MS * Math.pow(2, attempt - 1)));
     }
     try {
       const response = await fetch(input, requestInit);
-      if (attempt < MAX_RETRIES && isRetryableStatus(response.status, init?.method)) {
+      if (attempt < MAX_ATTEMPTS - 1 && isRetryableStatus(response.status, init?.method)) {
         lastError = new Error(`HTTP ${response.status}`);
         continue;
       }
       return response;
     } catch (err) {
-      if (attempt < MAX_RETRIES && isRetryableError(err)) {
+      if (attempt < MAX_ATTEMPTS - 1 && isRetryableError(err)) {
         lastError = err;
         continue;
       }

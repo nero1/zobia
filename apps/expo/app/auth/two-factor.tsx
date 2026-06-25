@@ -200,7 +200,7 @@ export default function TwoFactorScreen() {
               variant="primary"
               size="lg"
               loading={loading}
-              disabled={loading || code.length !== 6 || !!error && code.length !== 6}
+              disabled={loading || code.length !== 6}
               onPress={handleVerify}
               style={styles.submitButton}
             />

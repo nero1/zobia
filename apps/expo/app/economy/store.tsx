@@ -33,7 +33,7 @@ import { useTheme } from '@/lib/theme';
 import { useTranslation } from 'react-i18next';
 import { useCurrency } from '@/lib/hooks/useCurrency';
 import { translateApiError } from '@/lib/i18n/apiErrors';
-import { purchaseCoins, COIN_PRODUCTS } from '@/lib/payments/googlePlay';
+import { purchaseCoins, COIN_PRODUCTS, initGooglePlayBilling } from '@/lib/payments/googlePlay';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -67,6 +67,7 @@ interface BoosterItem {
   description: string | null;
   coinsCost: number;
   isFeatured: boolean;
+  type: string;
 }
 
 interface StoreData {
@@ -303,14 +304,16 @@ export default function StoreScreen() {
     if (Platform.OS === 'android' && packType === 'coin_pack') {
       const pack = data?.coinPacks.find((p) => p.id === packId);
       const playProduct = pack
-        ? COIN_PRODUCTS.find((cp) => cp.coins === pack.coinsGranted)
+        ? COIN_PRODUCTS.find((cp) => cp.productId === pack.id || cp.coins === pack.coinsGranted)
         : null;
       if (!playProduct) {
         Alert.alert('Unavailable', 'This pack is not available for purchase on Android yet.');
         return;
       }
       setPurchasingId(packId);
-      purchaseCoins(playProduct.id)
+      initGooglePlayBilling()
+        .catch(() => {})
+        .then(() => purchaseCoins(playProduct.id))
         .then((result) => {
           if (result.success) {
             Alert.alert('Success!', `You received ${result.coins.toLocaleString()} coins!`);
@@ -462,7 +465,7 @@ export default function StoreScreen() {
                 size="sm"
                 variant="secondary"
                 loading={purchasingBoosterId === booster.id}
-                onPress={() => handleBuyBooster(booster.id, booster.id)}
+                onPress={() => handleBuyBooster(booster.id, booster.type)}
               />
             </View>
           ))}

@@ -13,5 +13,5 @@ export function isPidginEnabled(
 ): boolean {
   if (!adminEnabled) return false;
   if (userSetting !== null) return userSetting;
-  return ['en-NG', 'ha', 'ng', 'yo', 'ig'].some((l) => locale.startsWith(l));
+  return ['en-NG', 'ha', 'ng', 'yo', 'ig', 'pidgin'].some((l) => locale.startsWith(l));
 }

@@ -54,7 +54,7 @@ const TELEGRAM_BOT: string =
 
 export default function LoginScreen() {
   const { t } = useTranslation();
-  const { signIn, sessionExpired, clearSessionExpired } = useAuth();
+  const { signIn, clearSessionExpired } = useAuth();
   const { isDark } = useTheme();
   const router = useRouter();
 
@@ -126,16 +126,11 @@ export default function LoginScreen() {
     }
   }
 
-  // BUG-016 FIX: include clearSessionExpired in the dependency array.
-  // handleDeepLink calls clearSessionExpired() on successful auth; omitting it
-  // meant that if clearSessionExpired changed identity (e.g. after a re-render
-  // caused by a session expiry event), handleDeepLink would hold a stale closure
-  // and call the old function. The eslint-disable comment is no longer needed.
   useEffect(() => {
     const subscription = ExpoLinking.addEventListener('url', handleDeepLink);
     return () => subscription.remove();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signIn, router, clearSessionExpired]);
+  }, [signIn, router, clearSessionExpired, t]);
 
   // -------------------------------------------------------------------------
   // Google OAuth
@@ -209,7 +204,8 @@ export default function LoginScreen() {
 
     function scheduleNext(attempt: number) {
       if (telegramCancelledRef.current) return;
-      // Exponential backoff: 2s, 2s, 4s, 8s, 16s, capped at 16s
+      // Exponential backoff: 2s, 2s, 2s, 4s, 8s, 16s, capped at 16s
+      // (attempts 0-2 all get 2s because max(0, attempt-2) bottoms out at 0)
       const delayMs = Math.min(2000 * Math.pow(2, Math.max(0, attempt - 2)), 16_000);
       telegramPollRef.current = setTimeout(async () => {
         if (telegramCancelledRef.current) return;
@@ -271,14 +267,7 @@ export default function LoginScreen() {
 
   return (
     <Screen contentStyle={styles.content}>
-      {/* Session expired banner */}
-      {sessionExpired && (
-        <View style={[styles.expiredBanner, { backgroundColor: '#fffbeb', borderColor: '#fde68a', borderWidth: 1 }]}>
-          <Text style={[styles.expiredText, { color: '#92400e' }]}>
-            Your session has expired. Please sign in to continue.
-          </Text>
-        </View>
-      )}
+      {/* Session-expired notice is handled globally by SessionExpiredModal in _layout.tsx */}
 
       {/* Logo / wordmark area */}
       <View style={styles.hero}>

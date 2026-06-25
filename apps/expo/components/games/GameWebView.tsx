@@ -5,9 +5,13 @@
  * (<API_BASE_URL>/g/<slug>/embed) in a WebView. The same HTML5 engine powers
  * web, PWA and mobile — write once, run everywhere.
  *
- * Auth: the stored access token is injected via the URL and as a global so the
- * embed's fetches authenticate without a cookie. Score/reward lifecycle events
- * are posted back from the embed via window.ReactNativeWebView.postMessage.
+ * Auth: the stored access token is injected into window.__ZOBIA_TOKEN__ via
+ * injectedJavaScriptBeforeContentLoaded so the embed's fetches can authenticate.
+ * NOTE: the full JWT is accessible to all scripts running in the WebView.
+ * For additional security, consider requesting a short-lived scoped game session
+ * token from the server instead of exposing the full access token.
+ * Score/reward lifecycle events are posted back from the embed via
+ * window.ReactNativeWebView.postMessage.
  */
 
 import { useEffect, useRef, useState } from 'react';

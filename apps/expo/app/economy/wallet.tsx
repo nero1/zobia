@@ -77,9 +77,9 @@ function formatCoins(amount: number): string {
   return amount.toLocaleString();
 }
 
-function formatDate(iso: string): string {
+function formatDate(iso: string, locale = 'en'): string {
   const date = new Date(iso);
-  return date.toLocaleDateString('en-NG', {
+  return date.toLocaleDateString(locale, {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
@@ -107,6 +107,7 @@ function txTypeLabel(type: string): string {
 // ---------------------------------------------------------------------------
 
 function TransactionItem({ item }: { item: Transaction }) {
+  const { i18n } = useTranslation();
   const isCredit = item.amount > 0;
   return (
     <View style={styles.txItem}>
@@ -119,7 +120,7 @@ function TransactionItem({ item }: { item: Transaction }) {
               {item.description}
             </Text>
           ) : null}
-          <Text style={styles.txDate}>{formatDate(item.createdAt)}</Text>
+          <Text style={styles.txDate}>{formatDate(item.createdAt, i18n.language)}</Text>
         </View>
       </View>
       <Text style={[styles.txAmount, isCredit ? styles.txCredit : styles.txDebit]}>

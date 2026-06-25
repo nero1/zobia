@@ -78,6 +78,16 @@ export function FloatingNotificationProvider({ children }: Props) {
   const [config, setConfig] = useState<FloatingNotifConfig>(DEFAULT_CONFIG);
   const [notifications, setNotifications] = useState<FloatingItem[]>([]);
   const [showConfetti, setShowConfetti] = useState(false);
+  const realtimeTimerIds = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  // Clean up any pending delayed notifications on unmount
+  useEffect(() => {
+    const ids = realtimeTimerIds;
+    return () => {
+      ids.current.forEach(clearTimeout);
+      ids.current = [];
+    };
+  }, []);
   const [questUpdateKey, setQuestUpdateKey] = useState(0);
   const configRef = useRef(config);
   configRef.current = config;
@@ -166,7 +176,7 @@ export function FloatingNotificationProvider({ children }: Props) {
         }
         break;
 
-      case 'quest_complete':
+      case 'quest_complete': {
         if ((payload.xpAmount ?? 0) > 0) {
           addNotification({
             label: t('floatingNotif.xpEarned', { amount: payload.xpAmount }),
@@ -175,32 +185,36 @@ export function FloatingNotificationProvider({ children }: Props) {
           maybeConfetti(payload.xpAmount ?? 0, configRef.current.xpThreshold);
         }
         if ((payload.coinAmount ?? 0) > 0) {
-          setTimeout(() => {
+          const tid = setTimeout(() => {
             addNotification({
               label: t('floatingNotif.creditsEarned', { amount: payload.coinAmount, currency: 'Credits' }),
               ...CREDIT_COLORS,
             });
           }, 400);
+          realtimeTimerIds.current.push(tid);
         }
         setQuestUpdateKey((k) => k + 1);
         break;
+      }
 
-      case 'deck_complete':
+      case 'deck_complete': {
         setShowConfetti(true);
         addNotification({
           label: t('floatingNotif.questsComplete', 'Daily Quests Complete! 🎉'),
           ...QUEST_COLORS,
         });
         if ((payload.xpAmount ?? 0) > 0) {
-          setTimeout(() => {
+          const tid = setTimeout(() => {
             addNotification({
               label: t('floatingNotif.xpEarned', { amount: payload.xpAmount }),
               ...XP_COLORS,
             });
           }, 400);
+          realtimeTimerIds.current.push(tid);
         }
         setQuestUpdateKey((k) => k + 1);
         break;
+      }
 
       case 'gift':
         if ((payload.amount ?? 1) > 0) {
@@ -269,7 +283,7 @@ export function FloatingNotificationProvider({ children }: Props) {
       label: t('floatingNotif.questsComplete', 'Daily Quests Complete! 🎉'),
       ...QUEST_COLORS,
     });
-    setTimeout(() => {
+    const tid1 = setTimeout(() => {
       if (xpReward > 0) {
         addNotification({
           label: t('floatingNotif.xpEarned', { amount: xpReward }),
@@ -277,7 +291,8 @@ export function FloatingNotificationProvider({ children }: Props) {
         });
       }
     }, 400);
-    setTimeout(() => {
+    realtimeTimerIds.current.push(tid1);
+    const tid2 = setTimeout(() => {
       if (coinReward > 0) {
         addNotification({
           label: t('floatingNotif.creditsEarned', { amount: coinReward, currency: coinName }),
@@ -285,6 +300,7 @@ export function FloatingNotificationProvider({ children }: Props) {
         });
       }
     }, 800);
+    realtimeTimerIds.current.push(tid2);
   }, [t, addNotification]);
 
   const fireConfetti = useCallback(() => {

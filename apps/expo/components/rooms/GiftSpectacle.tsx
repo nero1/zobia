@@ -67,6 +67,30 @@ export const GiftSpectacle = memo(function GiftSpectacle({
   const scaleAnim = useRef(new Animated.Value(0.5)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
   const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Keep onDismiss in a ref so the auto-dismiss timer always calls the latest
+  // callback even if the prop identity changes between mount and fire time.
+  const onDismissRef = useRef(onDismiss);
+  useEffect(() => { onDismissRef.current = onDismiss; }, [onDismiss]);
+
+  const handleDismiss = () => {
+    if (dismissTimerRef.current) {
+      clearTimeout(dismissTimerRef.current);
+      dismissTimerRef.current = null;
+    }
+
+    // Animate out
+    Animated.timing(opacityAnim, {
+      toValue: 0,
+      duration: 250,
+      useNativeDriver: true,
+      easing: Easing.in(Easing.ease),
+    }).start(() => {
+      onDismissRef.current();
+    });
+  };
+
+  const handleDismissRef = useRef(handleDismiss);
+  useEffect(() => { handleDismissRef.current = handleDismiss; });
 
   useEffect(() => {
     if (!data) return;
@@ -91,34 +115,19 @@ export const GiftSpectacle = memo(function GiftSpectacle({
       }),
     ]).start();
 
-    // Auto-dismiss timer
+    // Auto-dismiss timer — calls through ref so it always uses the latest handler
     dismissTimerRef.current = setTimeout(() => {
-      handleDismiss();
+      handleDismissRef.current();
     }, displayDurationMs);
 
     return () => {
       if (dismissTimerRef.current) {
         clearTimeout(dismissTimerRef.current);
+        dismissTimerRef.current = null;
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
-
-  const handleDismiss = () => {
-    if (dismissTimerRef.current) {
-      clearTimeout(dismissTimerRef.current);
-    }
-
-    // Animate out
-    Animated.timing(opacityAnim, {
-      toValue: 0,
-      duration: 250,
-      useNativeDriver: true,
-      easing: Easing.in(Easing.ease),
-    }).start(() => {
-      onDismiss();
-    });
-  };
 
   if (!data) return null;
 

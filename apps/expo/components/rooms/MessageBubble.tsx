@@ -147,11 +147,11 @@ export const MessageBubble = memo(function MessageBubble({
     onLongPress?.(id);
   }, [id, onLongPress]);
 
-  // System messages: centred, no avatar
-  if (messageType === 'system') {
+  // System / broadcast messages: centred, no avatar
+  if (messageType === 'system' || messageType === 'broadcast') {
     return (
       <View style={[styles.systemRow, style]}>
-        <Text style={styles.systemText}>{content}</Text>
+        <Text style={styles.systemText}>{content ?? ''}</Text>
       </View>
     );
   }
