@@ -2113,6 +2113,8 @@ export const storeItems = pgTable("store_items", {
   starsGranted: integer("stars_granted"),
   cosmeticType: text("cosmetic_type"),
   bonusLabel: text("bonus_label"),
+  /** Google Play / IAP product ID for coin-pack items (e.g. 'coins_starter'). */
+  iapProductId: text("iap_product_id"),
   isFeatured: boolean("is_featured").notNull().default(false),
   isActive: boolean("is_active").notNull().default(true),
   isExclusive: boolean("is_exclusive").notNull().default(false),

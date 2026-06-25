@@ -47,6 +47,7 @@ interface CoinPack {
   currency: string;
   coinsGranted: number;
   bonusLabel: string | null;
+  iapProductId: string | null;
   isFeatured: boolean;
 }
 
@@ -304,7 +305,11 @@ export default function StoreScreen() {
     if (Platform.OS === 'android' && packType === 'coin_pack') {
       const pack = data?.coinPacks.find((p) => p.id === packId);
       const playProduct = pack
-        ? COIN_PRODUCTS.find((cp) => cp.productId === pack.id || cp.coins === pack.coinsGranted)
+        ? COIN_PRODUCTS.find((cp) =>
+            pack.iapProductId
+              ? cp.id === pack.iapProductId
+              : cp.coins === pack.coinsGranted
+          )
         : null;
       if (!playProduct) {
         Alert.alert('Unavailable', 'This pack is not available for purchase on Android yet.');
