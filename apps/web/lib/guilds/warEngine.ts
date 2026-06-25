@@ -179,10 +179,11 @@ export async function findWarOpponent(
   // check and the candidate fetch).
   const excludedIds: string[] = [...busyRows.map((r) => r.guild_id), guildId];
 
-  const manifestCooldown = await getManifestValue('warCooldownHours').catch(() => null);
+  const manifestCooldown = await getManifestValue('war_event_cooldown_hours').catch(() => null);
+  const parsedCooldown = manifestCooldown !== null ? parseInt(manifestCooldown, 10) : NaN;
   const effectiveCooldownHours =
-    (typeof manifestCooldown === 'number' && manifestCooldown > 0)
-      ? manifestCooldown
+    (!isNaN(parsedCooldown) && parsedCooldown > 0)
+      ? parsedCooldown
       : WAR_COOLDOWN_HOURS;
 
   // Step 3: Find candidates within ±15% XP band, preferring same city first.

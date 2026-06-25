@@ -32,6 +32,7 @@ import {
   invalidateSession,
   ACCESS_TOKEN_COOKIE,
   REFRESH_TOKEN_COOKIE,
+  type SessionRecord,
 } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
@@ -86,7 +87,7 @@ export interface AdminContext extends AuthContext {
 export type AuthHandler<TParams = Record<string, string>> = (
   req: NextRequest,
   ctx: { params: TParams; auth: AuthContext }
-) => Promise<NextResponse>;
+) => Promise<NextResponse | ApiError>;
 
 /**
  * Admin route handler type.
@@ -94,7 +95,7 @@ export type AuthHandler<TParams = Record<string, string>> = (
 export type AdminHandler<TParams = Record<string, string>> = (
   req: NextRequest,
   ctx: { params: TParams; auth: AdminContext }
-) => Promise<NextResponse>;
+) => Promise<NextResponse | ApiError>;
 
 // ---------------------------------------------------------------------------
 // Token extraction
@@ -124,10 +125,8 @@ function extractToken(req: NextRequest): string | null {
  * false if the session should be invalidated due to suspicious IP activity.
  */
 async function runGeoAnomalyCheck(
-  session: any, // eslint-disable-line
-  currentIp: string | undefined,
-  _db: any, // eslint-disable-line
-  _redis: any // eslint-disable-line
+  session: SessionRecord,
+  currentIp: string | undefined
 ): Promise<boolean> {
   if (session.ip && currentIp && isIpAnomalous(session.ip, currentIp)) {
     const shouldInvalidate = await recordAndCheckAnomaly(
@@ -155,7 +154,7 @@ async function runGeoAnomalyCheck(
  * @returns Next.js compatible route handler
  */
 export function withAuth<TParams = Record<string, string>>(
-  handler: (req: NextRequest, ctx: { params: any; auth: any }) => Promise<NextResponse | ApiError> // eslint-disable-line
+  handler: AuthHandler<TParams>
 ): (req: NextRequest, ctx: { params: Promise<TParams> }) => Promise<NextResponse> {
   return async (req, ctx) => {
     const requestId = randomUUID();
@@ -269,7 +268,7 @@ export function withAuth<TParams = Record<string, string>>(
       // Compare login IP vs current request IP. After threshold of drastic
       // IP changes within 1 hour, force session invalidation.
       const currentIp = getClientIp(req);
-      const geoCheckPassed = await runGeoAnomalyCheck(session, currentIp, db, redis);
+      const geoCheckPassed = await runGeoAnomalyCheck(session, currentIp);
       if (!geoCheckPassed) {
         await invalidateSession(payload.sid, payload.sub).catch(() => {});
         throw unauthorized(
@@ -330,7 +329,7 @@ export function withAuth<TParams = Record<string, string>>(
  * @returns Next.js compatible route handler
  */
 export function withAdminAuth<TParams = Record<string, string>>(
-  handler: (req: NextRequest, ctx: { params: any; auth: any }) => Promise<NextResponse | ApiError> // eslint-disable-line
+  handler: AdminHandler<TParams>
 ): (req: NextRequest, ctx: { params: Promise<TParams> }) => Promise<NextResponse> {
   return async (req, ctx) => {
     const requestId = randomUUID();
@@ -385,7 +384,7 @@ export function withAdminAuth<TParams = Record<string, string>>(
 
       // Geolocation anomaly detection — same protection for admin routes
       const currentIp = getClientIp(req);
-      const geoCheckPassed = await runGeoAnomalyCheck(session, currentIp, db, redis);
+      const geoCheckPassed = await runGeoAnomalyCheck(session, currentIp);
       if (!geoCheckPassed) {
         await invalidateSession(payload.sid, payload.sub).catch(() => {});
         throw unauthorized(

@@ -618,6 +618,7 @@ Deletion is batched by joining the `messages` table against the sender's **curre
 **Android (MMKV + Expo SQLite)**
 - MMKV provides ultra-fast synchronous key-value storage for session tokens, user preferences, and feature flags.
 - Expo SQLite stores structured offline data: recent message threads, the quest deck, and cached profile data.
+- **Offline queue encryption:** message content is encrypted at rest with AES-256-GCM before being written to SQLite (`lib/offline/sqlite.ts`). A 256-bit key is generated once per device using `crypto.getRandomValues` and stored in expo-secure-store with `WHEN_UNLOCKED_THIS_DEVICE_ONLY` (Android Keystore / iOS Secure Enclave). Stored rows use the format `v1:<base64url(iv)>.<base64url(ciphertext)>`; rows without the `v1:` prefix are treated as legacy plaintext for backward-compat migration.
 - Same sync-on-reconnect pattern: NetInfo `addEventListener` fires the sync when connectivity is restored.
 - The same small, grey, **closeable** offline banner appears at the top of each screen (`components/offline/OfflineBanner.tsx`, mounted via the shared `Screen` wrapper) and is i18n-driven (`common.offline`).
 - Offline messages have a 72-hour TTL in SQLite. Messages older than 72 hours that never synced are dropped with a "message not sent" notice displayed to the user.
@@ -785,7 +786,7 @@ This applies to any `"use client"` page that reads search params. Examples in th
 **No Supabase Auth anywhere.** All auth is platform-managed.
 
 - **Google OAuth**: Frontend redirects to Google → Google calls `/api/auth/google/callback?code=...` → backend exchanges code for Google tokens → backend verifies Google ID token → creates or retrieves Zobia user by `google_id`.
-  - **If the user has 2FA enabled**: instead of issuing a JWT pair immediately, the backend issues a short-lived opaque pre-auth code and redirects the browser to `/auth/2fa/verify`. The frontend then calls `POST /api/auth/2fa/pre-auth-token` with the opaque code to exchange it for a TOTP challenge. After the user enters a valid TOTP code, the backend issues the full Zobia JWT pair. The opaque code is never placed in the URL query string.
+  - **If the user has 2FA enabled**: instead of issuing a full JWT pair, the backend issues a short-lived `pre_auth` JWT (type `pre_auth`, 5-minute TTL). The edge middleware (`middleware.ts`) enforces that `pre_auth` tokens can only reach `/api/auth/2fa/verify`; all other API routes return `401 PRE_AUTH_TOKEN` and all app routes redirect to `/auth/2fa`. After the user submits a valid TOTP code via `POST /api/auth/2fa/verify`, the backend verifies the code, performs an atomic Redis `SET NX` replay check (key: `totp:used:<userId>:<code>`, TTL: 90 s), and only then issues the full JWT pair. The opaque code is never placed in the URL query string.
   - **If 2FA is not enabled**: the backend issues the Zobia JWT pair directly.
 - **Telegram Login**: Telegram Login Widget posts data to `/api/auth/telegram` → backend performs HMAC-SHA256 verification using the bot token as key → creates or retrieves user by `telegram_id` → issues JWT pair.
 - **JWT validation**: `lib/auth/jwt.ts` using the `jose` library. No third-party auth SDK.

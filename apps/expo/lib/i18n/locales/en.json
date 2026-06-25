@@ -1594,6 +1594,7 @@
   "errors.totp_no_pending": "No pending 2FA setup found. Please restart the setup process.",
   "errors.totp_not_enabled": "2FA is not currently enabled",
   "errors.totp_replay": "TOTP code already used. Please wait for a new code.",
+  "errors.pre_auth_token": "Authentication incomplete. Please complete two-factor verification.",
   "errors.treasury_cap_exceeded": "Donation would exceed treasury cap of {{cap}}",
   "errors.trust_score_too_low": "Your account trust score is too low to request a payout.",
   "errors.unknown_manifest_key": "Unknown manifest key: '{{key}}'.",

@@ -643,11 +643,12 @@ export async function processSubscriptionEvent(
       // Award subscription stars if the plan includes a star grant (BUG-56).
       const subscriptionStars = customer.metadata?.starsGranted ?? 0;
       if (subscriptionStars > 0) {
+        const eventMonthKeyStars = new Date(event.data.createdAt ?? Date.now()).toISOString().slice(0, 7);
         await creditStars(
           resolvedUserId,
           subscriptionStars,
           "purchase",
-          `plan:stars:${resolvedUserId}:${new Date().toISOString().slice(0, 7)}`,
+          `plan:stars:${resolvedUserId}:${eventMonthKeyStars}`,
           `${derivedPlan} plan subscription — star bonus`,
           tx
         );
@@ -675,14 +676,18 @@ export async function processSubscriptionEvent(
       ? new Date(next_payment_date).toISOString()
       : null;
 
+    if (!disableEndsAt) {
+      logger.warn({ userId: resolvedUserId, subscriptionCode: subscription_code }, "[webhook/paystack] subscription.disable received without next_payment_date — preserving existing ends_at");
+    }
+
     await db.query(
       `UPDATE subscriptions
        SET status = 'disabled',
            auto_renew = false,
-           ends_at = $2,
+           ends_at = CASE WHEN $2::timestamptz IS NOT NULL THEN $2::timestamptz ELSE ends_at END,
            updated_at = NOW()
        WHERE user_id = $1`,
-      [resolvedUserId, disableEndsAt ?? null]
+      [resolvedUserId, disableEndsAt]
     ).catch(() => {});
 
   } else if (isNonRenewing) {

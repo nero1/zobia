@@ -145,19 +145,30 @@ export async function resetSeasonRankings(
       [seasonId]
     );
 
-    // Sync users.season_xp to 0 for all participants so the season leaderboard
-    // starts clean. Only zero out users who actually had a pass for this season.
+    // Mark season as inactive first so the subsequent users.season_xp sync can
+    // correctly identify any remaining active seasons for concurrent participants.
     await client.query(
-      `UPDATE users SET season_xp = 0, updated_at = NOW()
-       WHERE id IN (
-         SELECT user_id FROM user_season_passes WHERE season_id = $1
-       )`,
+      `UPDATE seasons SET is_active = FALSE, rankings_reset_at = NOW(), updated_at = NOW() WHERE id = $1`,
       [seasonId]
     );
 
-    // Mark season as inactive and record when rankings were reset
+    // Sync users.season_xp to reflect the user's current active season (if any),
+    // or 0 if they are not participating in any other season.
+    // This prevents zeroing XP for users enrolled in a concurrent active season.
     await client.query(
-      `UPDATE seasons SET is_active = FALSE, rankings_reset_at = NOW(), updated_at = NOW() WHERE id = $1`,
+      `UPDATE users u
+       SET season_xp = COALESCE((
+         SELECT usp.season_xp
+         FROM user_season_passes usp
+         JOIN seasons s ON s.id = usp.season_id
+         WHERE usp.user_id = u.id AND s.is_active = TRUE
+         ORDER BY s.starts_at DESC
+         LIMIT 1
+       ), 0),
+       updated_at = NOW()
+       WHERE u.id IN (
+         SELECT user_id FROM user_season_passes WHERE season_id = $1
+       )`,
       [seasonId]
     );
   });

@@ -42,13 +42,6 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const { code } = await validateBody(req, disableSchema);
     const userId = auth.user.sub;
 
-    // Replay protection: reject codes that were already used in the last 90s
-    const replayKey = `totp:used:${userId}:${code}`;
-    const alreadyUsed = await redis.get(replayKey);
-    if (alreadyUsed) {
-      throw badRequest("TOTP code already used. Please wait for a new code.", "TOTP_REPLAY");
-    }
-
     // Fetch current TOTP secret
     const { rows: userRows } = await db.query<{ totp_secret: string | null; totp_enabled: boolean }>(
       "SELECT totp_secret, totp_enabled FROM users WHERE id = $1",
@@ -70,8 +63,13 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       throw badRequest("Invalid TOTP code", "TOTP_INVALID_CODE");
     }
 
-    // Mark code as used to prevent replay attacks (S-05)
-    await redis.set(replayKey, "1", "EX", 90);
+    // Atomic anti-replay: SET NX ensures only one request can consume this code
+    // within the 90-second TOTP window, even under concurrent requests (BUG-AUTH-03).
+    const replayKey = `totp:used:${userId}:${code}`;
+    const marked = await redis.set(replayKey, "1", "EX", 90, "NX");
+    if (marked === null) {
+      throw badRequest("TOTP code already used. Please wait for a new code.", "TOTP_REPLAY");
+    }
 
     // Clear TOTP secret and disable
     await db.query(
