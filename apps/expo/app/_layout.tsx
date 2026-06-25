@@ -3,7 +3,7 @@ import '../global.css';
 export { ErrorBoundary } from 'expo-router';
 
 import { useEffect, useRef, useState } from 'react';
-import { AppState, Platform } from 'react-native';
+import { Alert, AppState, Platform } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -28,7 +28,7 @@ import { initOfflineDB } from '@/lib/offline/sqlite';
 import { syncPendingMessages } from '@/lib/offline/syncQueue';
 import { initStore } from '@/lib/offline/store';
 import { initializeAds } from '@/lib/ads/admob';
-import { initGooglePlayBilling, disconnectGooglePlayBilling } from '@/lib/payments/googlePlay';
+import { initGooglePlayBilling, endBillingConnection } from '@/lib/payments/googlePlay';
 import { useReferralCaptureFromLink } from '@/lib/deeplinks/referral';
 import '@/lib/i18n';
 
@@ -70,9 +70,9 @@ function debouncedSync() {
 /** Allowlist of valid in-app routes that a push notification may navigate to. */
 const VALID_PUSH_ROUTES: RegExp[] = [
   /^\/rooms\/[a-f0-9-]+$/,
-  /^\/messages\/[a-f0-9-]+$/,
+  /^\/messages\/dm\/[0-9a-f-]{36}$/,
   /^\/messages\/group\/[a-f0-9-]+$/,
-  /^\/profile\/[^/]+$/,
+  /^\/profile\/[0-9a-f-]{36}$/,
   /^\/events\/[a-f0-9-]+$/,
   /^\/quests$/,
   /^\/leaderboards$/,
@@ -167,6 +167,7 @@ async function registerForPushNotifications(): Promise<void> {
         await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, attempt)));
       } else {
         console.warn('[push] Token registration failed after retries:', err);
+        Alert.alert('Push Notifications', "Couldn't set up push notifications. You can retry in Settings.");
       }
     }
   }
@@ -249,7 +250,7 @@ function RootLayoutNav() {
       if (status === 'active') {
         initGooglePlayBilling().catch(() => {});
       } else if (status === 'background') {
-        disconnectGooglePlayBilling().catch(() => {});
+        endBillingConnection().catch(() => {});
       }
     });
     return () => sub.remove();

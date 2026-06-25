@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View, Text, FlatList, TextInput, TouchableOpacity,
   ActivityIndicator, RefreshControl, Alert, Modal, Pressable,
@@ -6,9 +6,7 @@ import {
 } from "react-native";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
-import { storage } from "@/lib/offline/store";
-
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "";
+import { apiClient } from "@/lib/api/client";
 
 interface User {
   id: string;
@@ -29,26 +27,11 @@ async function performUserAction(
   reason?: string,
   durationHours?: number,
 ): Promise<void> {
-  const token = storage.getString("authToken");
   const body: Record<string, unknown> = { action };
   if (reason) body.reason = reason;
   if (durationHours !== undefined) body.duration_hours = durationHours;
 
-  const res = await fetch(`${API_BASE}/api/admin/users/${userId}/actions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    const data = (await res.json().catch(() => ({}))) as { error?: { code?: string; message?: string }; message?: string };
-    const err = new Error(data.error?.message ?? data.message ?? "Action failed") as Error & { code?: string | null };
-    err.code = data.error?.code ?? null;
-    throw err;
-  }
+  await apiClient.post(`/admin/users/${userId}/actions`, body);
 }
 
 // ---------------------------------------------------------------------------
@@ -102,6 +85,7 @@ function ReasonModal({ visible, title, onConfirm, onCancel }: ReasonModalProps) 
             numberOfLines={4}
             textAlignVertical="top"
             autoFocus
+            maxLength={500}
           />
 
           <TouchableOpacity
@@ -173,7 +157,10 @@ export default function AdminUsersScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState("");
-  const [cursor, setCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+
+  // Use a ref for the cursor to avoid it appearing in useCallback deps (FIX-10)
+  const cursorRef = useRef<string | null>(null);
 
   // Reason modal state
   const [reasonModal, setReasonModal] = useState<{
@@ -183,23 +170,20 @@ export default function AdminUsersScreen() {
   }>({ visible: false, title: "", onConfirm: () => {} });
 
   const loadUsers = useCallback(async (reset = false) => {
-    const token = storage.getString("authToken");
     const params = new URLSearchParams({ limit: "30" });
     if (search) params.set("search", search);
-    if (!reset && cursor) params.set("cursor", cursor);
+    if (!reset && cursorRef.current) params.set("cursor", cursorRef.current);
 
-    const res = await fetch(`${API_BASE}/api/admin/users?${params}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    }).catch(() => null);
-
-    if (!res?.ok) return;
-    const data = await res.json();
-    const rows: User[] = data.data?.users ?? [];
-    setUsers(reset ? rows : (prev) => [...prev, ...rows]);
-    setCursor(data.data?.nextCursor ?? null);
+    try {
+      const { data } = await apiClient.get(`/admin/users?${params}`);
+      const rows: User[] = data.data?.users ?? [];
+      setUsers(reset ? rows : (prev) => [...prev, ...rows]);
+      cursorRef.current = data.data?.nextCursor ?? null;
+      setHasMore(Boolean(data.data?.nextCursor));
+    } catch { /* ignore */ }
     setLoading(false);
     setRefreshing(false);
-  }, [search, cursor]);
+  }, [search]); // cursor intentionally omitted — use cursorRef instead (FIX-10)
 
   useEffect(() => { void loadUsers(true); }, [loadUsers]);
 
@@ -221,6 +205,7 @@ export default function AdminUsersScreen() {
     try {
       await performUserAction(userId, action, reason, durationHours);
       // Refresh the list to reflect updated state
+      cursorRef.current = null;
       void loadUsers(true);
       Alert.alert("Done", `Action "${action}" applied to @${username}.`);
     } catch (e) {
@@ -301,8 +286,8 @@ export default function AdminUsersScreen() {
       <FlatList
         data={users}
         keyExtractor={(u) => u.id}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void loadUsers(true); }} />}
-        onEndReached={() => { if (cursor) void loadUsers(); }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); cursorRef.current = null; void loadUsers(true); }} />}
+        onEndReached={() => { if (hasMore) void loadUsers(); }}
         onEndReachedThreshold={0.3}
         ListEmptyComponent={
           loading

@@ -3,10 +3,9 @@ import {
   View, Text, ScrollView, TouchableOpacity,
   Alert, ActivityIndicator, RefreshControl
 } from "react-native";
-import { storage } from "@/lib/offline/store";
+import { apiClient } from "@/lib/api/client";
 import { useCurrency } from "@/lib/hooks/useCurrency";
-
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "";
+import { koboToNairaStr } from "@/lib/utils/currency";
 
 interface FinancialStats {
   totalRevenueKobo: number;
@@ -25,7 +24,7 @@ interface PayoutRequest {
 }
 
 function koboToNaira(kobo: number) {
-  return `₦${(kobo / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
+  return koboToNairaStr(kobo);
 }
 
 export default function AdminFinancialScreen() {
@@ -36,14 +35,12 @@ export default function AdminFinancialScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   async function loadData() {
-    const token = storage.getString("authToken");
-    const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
     const [statsRes, payoutsRes] = await Promise.all([
-      fetch(`${API_BASE}/api/admin/financial`, { headers }),
-      fetch(`${API_BASE}/api/admin/payouts?status=pending&limit=20`, { headers }),
+      apiClient.get('/admin/financial').catch(() => null),
+      apiClient.get('/admin/payouts?status=pending&limit=20').catch(() => null),
     ]);
-    if (statsRes.ok) setStats((await statsRes.json()).data?.stats ?? null);
-    if (payoutsRes.ok) setPayouts((await payoutsRes.json()).data?.payouts ?? []);
+    if (statsRes) setStats(statsRes.data.data?.stats ?? null);
+    if (payoutsRes) setPayouts(payoutsRes.data.data?.payouts ?? []);
     setLoading(false);
     setRefreshing(false);
   }
@@ -51,27 +48,21 @@ export default function AdminFinancialScreen() {
   useEffect(() => { void loadData(); }, []);
 
   async function approvePayout(payoutId: string) {
-    const token = storage.getString("authToken");
-    const res = await fetch(`${API_BASE}/api/admin/payouts/${payoutId}/approve`, {
-      method: "POST",
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    if (res.ok) setPayouts((prev) => prev.filter((p) => p.id !== payoutId));
-    else Alert.alert("Error", "Approval failed.");
+    try {
+      await apiClient.post(`/admin/payouts/${payoutId}/approve`);
+      setPayouts((prev) => prev.filter((p) => p.id !== payoutId));
+    } catch {
+      Alert.alert("Error", "Approval failed.");
+    }
   }
 
   async function rejectPayout(payoutId: string) {
-    const token = storage.getString("authToken");
-    const res = await fetch(`${API_BASE}/api/admin/payouts/${payoutId}/reject`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({ reason: "Rejected by admin" }),
-    });
-    if (res.ok) setPayouts((prev) => prev.filter((p) => p.id !== payoutId));
-    else Alert.alert("Error", "Rejection failed.");
+    try {
+      await apiClient.post(`/admin/payouts/${payoutId}/reject`, { reason: "Rejected by admin" });
+      setPayouts((prev) => prev.filter((p) => p.id !== payoutId));
+    } catch {
+      Alert.alert("Error", "Rejection failed.");
+    }
   }
 
   if (loading) return <View className="flex-1 items-center justify-center"><ActivityIndicator color="#2563EB" /></View>;

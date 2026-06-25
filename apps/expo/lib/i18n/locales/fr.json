@@ -1564,5 +1564,8 @@
   "games.status.expired": "Expired",
   "errors.wager_too_high": "Wager exceeds the maximum allowed amount of {{max}} credits.",
   "errors.invalid_request_body": "Invalid request body",
-  "announcements.dismiss": "Got it"
+  "announcements.dismiss": "Got it",
+  "notifications.registrationFailed": "Couldn't set up push notifications. You can retry in Settings.",
+  "admin.reasonPlaceholder": "Enter a reason for this action…",
+  "chat.messageQueued": "Message queued — will send when you're back online."
 }

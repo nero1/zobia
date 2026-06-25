@@ -10,6 +10,8 @@
  */
 
 import React, { useState } from 'react';
+// FIX-15: Use Decimal.js-based formatting for kobo-to-naira conversions
+import { koboToNairaStr } from '@/lib/utils/currency';
 import {
   View,
   Text,
@@ -125,10 +127,9 @@ async function purchaseBooster({ boosterType }: BoosterPurchaseArgs): Promise<Bo
 // ---------------------------------------------------------------------------
 
 function formatKobo(kobo: number, currencyCode = 'NGN'): string {
-  const amount = kobo / 100;
-  // Basic formatting for React Native (Intl may be limited on some builds).
-  const formatted = amount.toLocaleString('en-NG');
-  return currencyCode === 'NGN' ? `₦${formatted}` : `${formatted} ${currencyCode}`;
+  if (currencyCode === 'NGN') return koboToNairaStr(kobo);
+  const formatted = (kobo / 100).toLocaleString('en-NG');
+  return `${formatted} ${currencyCode}`;
 }
 
 // ---------------------------------------------------------------------------

@@ -20,6 +20,7 @@ import { colors } from '@/lib/theme/colors';
 import { useTheme } from '@/lib/theme';
 import { apiClient } from '@/lib/api/client';
 import { useCurrency } from '@/lib/hooks/useCurrency';
+import { koboToNairaInt, koboToNairaStr } from '@/lib/utils/currency';
 
 interface Balance {
   coins: number;
@@ -77,7 +78,7 @@ export default function WalletTab() {
       };
 
       const earningsData = earningsRes?.data ?? earningsRes ?? {};
-      const incomeMonth = Math.floor((earningsData?.month?.netKobo ?? 0) / 100);
+      const incomeMonth = koboToNairaInt(earningsData?.month?.netKobo ?? 0);
 
       const payoutsData = payoutsRes?.data ?? payoutsRes ?? {};
       const pendingStatuses = new Set(['pending', 'awaiting_approval', 'processing']);
@@ -169,7 +170,7 @@ export default function WalletTab() {
               </View>
               <View style={{ alignItems: 'flex-end', gap: 4 }}>
                 <Text style={[styles.payoutAmount, { color: textPrimary }]}>
-                  ₦{((p.gross_kobo ?? 0) / 100).toLocaleString()}
+                  {koboToNairaStr(p.gross_kobo ?? 0)}
                 </Text>
                 <View style={styles.statusBadge}>
                   <Text style={styles.statusText}>{(p.status ?? 'pending').replace(/_/g, ' ')}</Text>

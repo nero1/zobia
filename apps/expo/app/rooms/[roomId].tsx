@@ -16,6 +16,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { randomUUID } from 'expo-crypto';
 import {
   ActivityIndicator,
   Alert,
@@ -98,6 +99,7 @@ interface SendMessagePayload {
   roomId: string;
   content: string;
   message_type?: RoomMessageType;
+  idempotencyKey?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -185,6 +187,7 @@ async function sendMessage(payload: SendMessagePayload): Promise<Message> {
   const { data } = await apiClient.post(`/rooms/${payload.roomId}/messages`, {
     content: payload.content,
     message_type: payload.message_type ?? 'text',
+    idempotencyKey: payload.idempotencyKey,
   });
   return mapApiMessage(data.message ?? {});
 }
@@ -515,6 +518,11 @@ export default function RoomScreen() {
         prevMessageIdsRef.current.add(msg.id);
       }
     }
+    const MAX_DEDUP_SIZE = 500;
+    if (prevMessageIdsRef.current.size > MAX_DEDUP_SIZE) {
+      const entries = [...prevMessageIdsRef.current];
+      prevMessageIdsRef.current = new Set(entries.slice(-MAX_DEDUP_SIZE));
+    }
   }, [messages, room?.minGiftSpectacleCoin]);
 
   // Top gifters (refresh every 30s)
@@ -627,7 +635,8 @@ export default function RoomScreen() {
         queryClient.setQueryData(['room-messages', roomId], ctx.previous);
       }
       if (roomId) {
-        queueMessage(roomId, vars.content, vars.message_type ?? 'text', 'room').catch(() => {});
+        queueMessage(roomId, vars.content, vars.message_type ?? 'text', 'room', vars.idempotencyKey).catch(() => {});
+        Alert.alert('Message queued', 'Message queued — will send when back online.');
       }
     },
     onSettled: () => {
@@ -638,7 +647,7 @@ export default function RoomScreen() {
   const handleSend = useCallback(() => {
     const text = inputText.trim();
     if (!text || !roomId) return;
-    sendMutation.mutate({ roomId, content: text, message_type: isMoment ? 'moment' : 'text' });
+    sendMutation.mutate({ roomId, content: text, message_type: isMoment ? 'moment' : 'text', idempotencyKey: randomUUID() });
   }, [inputText, roomId, isMoment, sendMutation]);
 
   const handleLongPress = useCallback((messageId: string) => {

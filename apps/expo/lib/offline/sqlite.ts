@@ -187,10 +187,11 @@ export async function queueMessage(
   conversationId: string,
   content: string,
   messageType: string = 'text',
-  conversationType: 'dm' | 'group' | 'room' = 'dm'
+  conversationType: 'dm' | 'group' | 'room' = 'dm',
+  providedIdempotencyKey?: string,
 ): Promise<string> {
   const localId = `offline_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-  const idempotencyKey = localId;
+  const idempotencyKey = providedIdempotencyKey ?? localId;
   const encryptedContent = await encryptContent(content);
 
   await getDB().runAsync(

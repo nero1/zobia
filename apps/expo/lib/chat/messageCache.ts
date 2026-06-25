@@ -1,33 +1,32 @@
-/**
- * lib/chat/messageCache.ts (Expo)
- *
- * Persisted chat cache backed by the app's encrypted MMKV store. Mirrors the
- * web localStorage cache: lets chat screens render the last messages instantly
- * on open (and offline) before the network responds. The React Query poll +
- * realtime path still runs and dedupes by id, so this is an instant-first-paint
- * optimisation, never the source of truth.
- */
-
 import { getItem, setItem } from '@/lib/offline/store';
 
 const PREFIX = 'chatcache_';
 const CAP = 50;
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-/** Read cached messages for a conversation key, or null if none. */
+interface CachedPayload<T> {
+  messages: T[];
+  cachedAt: number;
+}
+
 export function readCachedMessages<T>(key: string): T[] | null {
   try {
-    const arr = getItem<T[] | null>(PREFIX + key, null);
-    return Array.isArray(arr) ? arr : null;
+    const payload = getItem<CachedPayload<T> | null>(PREFIX + key, null);
+    if (!payload || !Array.isArray(payload.messages)) return null;
+    if (Date.now() - (payload.cachedAt ?? 0) > CACHE_TTL_MS) return null;
+    return payload.messages;
   } catch {
     return null;
   }
 }
 
-/** Persist the most recent messages for a conversation key (capped). */
 export function writeCachedMessages<T>(key: string, messages: T[]): void {
   try {
-    const trimmed = messages.length > CAP ? messages.slice(0, CAP) : messages;
-    setItem(PREFIX + key, trimmed);
+    const payload: CachedPayload<T> = {
+      messages: messages.length > CAP ? messages.slice(0, CAP) : messages,
+      cachedAt: Date.now(),
+    };
+    setItem(PREFIX + key, payload);
   } catch {
     // Non-fatal — cache is best-effort.
   }

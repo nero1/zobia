@@ -13,8 +13,10 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { randomUUID } from 'expo-crypto';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -102,8 +104,8 @@ async function fetchGroupMessages(groupId: string, after?: string): Promise<Grou
   return rows.map(mapGroupMessage);
 }
 
-async function sendGroupMessage(groupId: string, content: string): Promise<GroupMessage> {
-  const { data } = await apiClient.post(`/messages/group/${groupId}`, { content });
+async function sendGroupMessage(groupId: string, content: string, idempotencyKey?: string): Promise<GroupMessage> {
+  const { data } = await apiClient.post(`/messages/group/${groupId}`, { content, idempotencyKey });
   return mapGroupMessage(data.data ?? data.message ?? {});
 }
 
@@ -262,8 +264,9 @@ export default function GroupConversationScreen() {
   }, [messages, groupId]);
 
   const sendMutation = useMutation({
-    mutationFn: (content: string) => sendGroupMessage(groupId!, content),
-    onMutate: (content) => {
+    mutationFn: ({ content, idempotencyKey }: { content: string; idempotencyKey: string }) =>
+      sendGroupMessage(groupId!, content, idempotencyKey),
+    onMutate: ({ content }) => {
       const optimistic = makePendingMessage(content, myUserId);
       setPendingMessages((prev) => [optimistic, ...prev]);
       setSpamBlocked(false);
@@ -274,11 +277,13 @@ export default function GroupConversationScreen() {
       if (result.blocked) setSpamBlocked(true);
       queryClient.invalidateQueries({ queryKey: ['group-messages', groupId] });
     },
-    onError: (_, content, ctx) => {
+    onError: (_, vars, ctx) => {
       setPendingMessages((prev) => prev.filter((m) => m.id !== ctx?.optimistic.id));
-      queueMessage(groupId!, content, 'text').catch(() =>
+      queueMessage(groupId!, vars.content, 'text', 'group', vars.idempotencyKey).catch(() =>
         console.warn('[offline] queueMessage failed')
       );
+      // FIX-46: Show user feedback when group message is queued offline
+      Alert.alert('Message queued', 'Message queued — will send when back online.');
     },
   });
 
@@ -286,7 +291,7 @@ export default function GroupConversationScreen() {
     const text = inputText.trim();
     if (!text) return;
     setInputText('');
-    sendMutation.mutate(text);
+    sendMutation.mutate({ content: text, idempotencyKey: randomUUID() });
   }, [inputText, sendMutation]);
 
   // Deduplicate pending messages against server messages: if the server already

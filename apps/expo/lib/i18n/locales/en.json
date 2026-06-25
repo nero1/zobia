@@ -1707,5 +1707,8 @@
   "auth.sessionRefreshFailed": "Could not refresh session. Please sign in again.",
   "payments.purchaseRecovered": "Your previous purchase was recovered successfully — your coins have been credited.",
   "payments.purchaseInProgress": "A previous purchase for this item is still being processed. Please wait.",
-  "announcements.dismiss": "Got it"
+  "announcements.dismiss": "Got it",
+  "notifications.registrationFailed": "Couldn't set up push notifications. You can retry in Settings.",
+  "admin.reasonPlaceholder": "Enter a reason for this action…",
+  "chat.messageQueued": "Message queued — will send when you're back online."
 }

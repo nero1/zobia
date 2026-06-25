@@ -78,9 +78,11 @@ export function Avatar({
   const { container: containerSize, fontSize, ring } = SIZE_MAP[size];
   const ringColor = rankTier ? rankColors[rankTier] : 'transparent';
   const ringWidth = rankTier ? ring : 0;
-  const frameUri = activeFrameId
-    ? `${env.API_BASE_URL}/cosmetics/frames/${activeFrameId}.png`
-    : null;
+  const SAFE_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+  const frameUri =
+    activeFrameId && SAFE_ID_RE.test(activeFrameId)
+      ? `${env.API_BASE_URL}/cosmetics/frames/${activeFrameId}.png`
+      : null;
 
   return (
     <View
