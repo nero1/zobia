@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { apiClient } from '@/lib/api/client';
 import { useTheme } from '@/lib/theme';
@@ -40,12 +40,14 @@ export function SlugRedirect({
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15_000);
 
     async function resolve() {
       try {
         const { data } = await apiClient.get<{ found: boolean; id?: string }>(
           '/public/resolve',
-          { params: { type, id: identifier } },
+          { params: { type, id: identifier }, signal: controller.signal },
         );
         if (cancelled) return;
         if (data?.found && data.id) {
@@ -61,15 +63,22 @@ export function SlugRedirect({
     resolve();
     return () => {
       cancelled = true;
+      clearTimeout(timeoutId);
+      controller.abort();
     };
   }, [type, identifier, toInternalPath]);
 
   return (
     <View style={[styles.container, { backgroundColor: themeColors.background }]}>
       {notFound ? (
-        <Text style={[styles.text, { color: themeColors.textMuted }]}>
-          {notFoundLabel}
-        </Text>
+        <>
+          <Text style={[styles.text, { color: themeColors.textMuted }]}>
+            {notFoundLabel}
+          </Text>
+          <Pressable onPress={() => router.back()} style={styles.backBtn}>
+            <Text style={styles.backBtnText}>Go Back</Text>
+          </Pressable>
+        </>
       ) : (
         <ActivityIndicator color={themeColors.primary} size="large" />
       )}
@@ -78,6 +87,8 @@ export function SlugRedirect({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  container: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 16 },
   text: { fontSize: 16, textAlign: 'center' },
+  backBtn: { marginTop: 8, paddingVertical: 10, paddingHorizontal: 20 },
+  backBtnText: { fontSize: 15, fontWeight: '600', color: '#1A73E8' },
 });

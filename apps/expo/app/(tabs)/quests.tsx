@@ -5,7 +5,7 @@
  * Navigates to detailed quest screens for more actions.
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -17,6 +17,7 @@ import {
   useColorScheme,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useQuery } from '@tanstack/react-query';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
 import { useTranslation } from 'react-i18next';
@@ -57,6 +58,25 @@ interface MemberQuestData {
   rewardClaimed: boolean;
 }
 
+async function fetchDailyQuests(): Promise<DailyQuest[]> {
+  const { data } = await apiClient.get<{ quests: DailyQuestApiRow[] }>('/quests/daily');
+  return (data?.quests ?? []).map((q) => ({
+    id: String(q.id ?? ''),
+    title: String(q.title ?? ''),
+    description: String(q.description ?? ''),
+    xpReward: Number(q.xp_reward ?? q.xpReward ?? 0),
+    progress: Number(q.progress_count ?? q.progress ?? 0),
+    goal: Number(q.target_count ?? q.goal ?? 1),
+    completed: Boolean(q.completed ?? false),
+  }));
+}
+
+async function fetchMemberQuest(): Promise<MemberQuestData | null> {
+  const { data } = await apiClient.get<MemberQuestData>('/quests/new-member');
+  if (data && !data.allComplete && !data.rewardClaimed) return data;
+  return null;
+}
+
 export default function QuestsTab() {
   const scheme = useColorScheme();
   const isDark = scheme === 'dark';
@@ -64,54 +84,48 @@ export default function QuestsTab() {
   const { t } = useTranslation();
   const { questUpdateKey } = useFloatingNotification();
 
-  const [dailyQuests, setDailyQuests] = useState<DailyQuest[]>([]);
-  const [memberQuest, setMemberQuest] = useState<MemberQuestData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-
   const bg = isDark ? colors.neutral[950] : colors.neutral[50];
   const cardBg = isDark ? colors.neutral[900] : colors.neutral[0];
   const border = isDark ? colors.neutral[800] : colors.neutral[200];
   const textPrimary = isDark ? colors.neutral[50] : colors.neutral[900];
   const textSecondary = isDark ? colors.neutral[400] : colors.neutral[500];
 
-  const load = useCallback(async () => {
-    try {
-      const [dailyRes, memberRes] = await Promise.all([
-        apiClient.get<{ quests: DailyQuestApiRow[] }>('/quests/daily'),
-        apiClient.get<MemberQuestData>('/quests/new-member'),
-      ]);
-      const mapped: DailyQuest[] = (dailyRes.data?.quests ?? []).map((q) => ({
-        id: String(q.id ?? ''),
-        title: String(q.title ?? ''),
-        description: String(q.description ?? ''),
-        xpReward: Number(q.xp_reward ?? q.xpReward ?? 0),
-        progress: Number(q.progress_count ?? q.progress ?? 0),
-        goal: Number(q.target_count ?? q.goal ?? 1),
-        completed: Boolean(q.completed ?? false),
-      }));
-      setDailyQuests(mapped);
-      const md = memberRes.data;
-      if (md && !md.allComplete && !md.rewardClaimed) {
-        setMemberQuest(md);
-      }
-    } catch {
-      // non-fatal
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
+  const {
+    data: dailyQuests = [],
+    isLoading: dailyLoading,
+    isRefetching: dailyRefetching,
+    refetch: refetchDaily,
+  } = useQuery({
+    queryKey: ['quests', 'daily'],
+    queryFn: fetchDailyQuests,
+    staleTime: 60_000,
+  });
 
-  useEffect(() => { void load(); }, [load]);
+  const {
+    data: memberQuest = null,
+    isLoading: memberLoading,
+    isRefetching: memberRefetching,
+    refetch: refetchMember,
+  } = useQuery({
+    queryKey: ['quests', 'new-member'],
+    queryFn: fetchMemberQuest,
+    staleTime: 60_000,
+  });
+
+  const loading = dailyLoading || memberLoading;
+  const refreshing = dailyRefetching || memberRefetching;
 
   // Refresh when quest progress changes via realtime
   useEffect(() => {
     if (questUpdateKey === 0) return;
-    void load();
-  }, [questUpdateKey, load]);
+    void refetchDaily();
+    void refetchMember();
+  }, [questUpdateKey, refetchDaily, refetchMember]);
 
-  const onRefresh = () => { setRefreshing(true); void load(); };
+  const onRefresh = () => {
+    void refetchDaily();
+    void refetchMember();
+  };
 
   const completedCount = dailyQuests.filter((q) => q.completed).length;
   const totalCount = dailyQuests.length;
@@ -135,7 +149,7 @@ export default function QuestsTab() {
       {/* New Member Quest */}
       {memberQuest && (
         <Pressable
-          onPress={() => router.push('/quests/new-member' as never)}
+          onPress={() => router.push('/quests/new-member' as Parameters<typeof router.push>[0])}
           style={[styles.card, { backgroundColor: cardBg, borderColor: colors.brand.blue }]}
         >
           <View style={styles.cardHeader}>
@@ -216,7 +230,7 @@ export default function QuestsTab() {
       </View>
 
       <Pressable
-        onPress={() => router.push('/quests/daily' as never)}
+        onPress={() => router.push('/quests/daily' as Parameters<typeof router.push>[0])}
         style={[styles.link, { borderColor: border }]}
       >
         <Text style={{ color: colors.brand.blue, fontSize: 14, fontWeight: '600' }}>

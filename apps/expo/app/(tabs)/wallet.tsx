@@ -5,7 +5,7 @@
  * Navigates to the full wallet screen for transactions and coin store.
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -16,6 +16,7 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useQuery } from '@tanstack/react-query';
 import { colors } from '@/lib/theme/colors';
 import { useTheme } from '@/lib/theme';
 import { apiClient } from '@/lib/api/client';
@@ -46,14 +47,44 @@ interface WalletData {
   pendingPayouts: PendingPayout[];
 }
 
+async function fetchWalletData(): Promise<WalletData> {
+  const [balRes, earningsRes, payoutsRes] = await Promise.all([
+    apiClient.get('/economy/coins/balance'),
+    apiClient.get('/creator/earnings').catch(() => null),
+    apiClient.get('/creator/payouts').catch(() => null),
+  ]);
+
+  const balPayload = balRes.data ?? balRes;
+  const bal: Balance = {
+    coins: balPayload.coins ?? 0,
+    stars: balPayload.stars ?? 0,
+    xp: balPayload.xp ?? 0,
+    plan: balPayload.plan ?? 'free',
+  };
+
+  const earningsData = earningsRes?.data ?? earningsRes ?? {};
+  const incomeMonthKobo: number = earningsData?.month?.netKobo ?? 0;
+
+  const payoutsData = payoutsRes?.data ?? payoutsRes ?? {};
+  const pendingStatuses = new Set(['pending', 'awaiting_approval', 'processing']);
+  const pendingPayouts: PendingPayout[] = (payoutsData?.payouts ?? []).filter(
+    (p: PendingPayout) => pendingStatuses.has(p.status ?? '')
+  );
+
+  return {
+    coins: bal.coins,
+    stars: bal.stars,
+    xp: bal.xp ?? 0,
+    plan: bal.plan ?? 'free',
+    incomeMonthKobo,
+    pendingPayouts,
+  };
+}
+
 export default function WalletTab() {
   const { isDark } = useTheme();
   const router = useRouter();
   const currency = useCurrency();
-
-  const [walletData, setWalletData] = useState<WalletData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
 
   const bg = isDark ? colors.neutral[950] : colors.neutral[50];
   const cardBg = isDark ? colors.neutral[900] : colors.neutral[0];
@@ -61,43 +92,18 @@ export default function WalletTab() {
   const textPrimary = isDark ? colors.neutral[50] : colors.neutral[900];
   const textSecondary = isDark ? colors.neutral[400] : colors.neutral[500];
 
-  const load = useCallback(async () => {
-    try {
-      const [balRes, earningsRes, payoutsRes] = await Promise.all([
-        apiClient.get('/economy/coins/balance'),
-        apiClient.get('/creator/earnings').catch(() => null),
-        apiClient.get('/creator/payouts').catch(() => null),
-      ]);
+  const {
+    data: walletData = null,
+    isLoading: loading,
+    isRefetching: refreshing,
+    refetch,
+  } = useQuery({
+    queryKey: ['wallet', 'summary'],
+    queryFn: fetchWalletData,
+    staleTime: 60_000,
+  });
 
-      const balPayload = balRes.data ?? balRes;
-      const bal: Balance = {
-        coins: balPayload.coins ?? 0,
-        stars: balPayload.stars ?? 0,
-        xp: balPayload.xp ?? 0,
-        plan: balPayload.plan ?? 'free',
-      };
-
-      const earningsData = earningsRes?.data ?? earningsRes ?? {};
-      const incomeMonthKobo: number = earningsData?.month?.netKobo ?? 0;
-
-      const payoutsData = payoutsRes?.data ?? payoutsRes ?? {};
-      const pendingStatuses = new Set(['pending', 'awaiting_approval', 'processing']);
-      const pendingPayouts: PendingPayout[] = (payoutsData?.payouts ?? []).filter(
-        (p: PendingPayout) => pendingStatuses.has(p.status ?? '')
-      );
-
-      setWalletData({ coins: bal.coins, stars: bal.stars, xp: bal.xp ?? 0, plan: bal.plan ?? 'free', incomeMonthKobo, pendingPayouts });
-    } catch {
-      // non-fatal
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
-
-  useEffect(() => { void load(); }, [load]);
-
-  const onRefresh = () => { setRefreshing(true); void load(); };
+  const onRefresh = () => { void refetch(); };
 
   if (loading) {
     return (
@@ -191,14 +197,14 @@ export default function WalletTab() {
             {((walletData?.plan ?? 'free').charAt(0).toUpperCase() + (walletData?.plan ?? 'free').slice(1))} Plan
           </Text>
         </View>
-        <Pressable onPress={() => router.push('/settings/subscription' as never)}>
+        <Pressable onPress={() => router.push('/settings/subscription' as Parameters<typeof router.push>[0])}>
           <Text style={{ color: colors.brand.blue, fontSize: 13, fontWeight: '600' }}>Manage →</Text>
         </Pressable>
       </View>
 
       {/* Go to full wallet */}
       <Pressable
-        onPress={() => router.push('/economy/wallet' as never)}
+        onPress={() => router.push('/economy/wallet' as Parameters<typeof router.push>[0])}
         style={[styles.ctaButton, { backgroundColor: colors.brand.blue }]}
       >
         <Text style={styles.ctaText}>View Full Wallet &amp; Buy {currency.softPlural}</Text>

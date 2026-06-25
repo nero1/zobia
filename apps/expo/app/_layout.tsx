@@ -3,7 +3,7 @@ import '../global.css';
 export { ErrorBoundary } from 'expo-router';
 
 import { useEffect, useRef, useState } from 'react';
-import { Alert, AppState, Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';

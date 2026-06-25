@@ -45,6 +45,7 @@ import { apiClient } from '@/lib/api/client';
 import { translateApiError } from '@/lib/i18n/apiErrors';
 import { prefsStore } from '@/lib/i18n';
 import { env } from '@/lib/env';
+import { cacheDirectory, writeAsStringAsync, EncodingType } from 'expo-file-system';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -528,16 +529,11 @@ function PrivacyDataSection() {
     try {
       const res = await apiClient.get('/users/me/export');
       const json = JSON.stringify(res.data, null, 2);
-      // FIX-36: Share as a file. expo-file-system is needed to write a temp file;
-      // until it is added to the project, we fall back to sharing as text.
-      // TODO: install expo-file-system and replace with:
-      //   const path = FileSystem.cacheDirectory + 'zobia-export.json';
-      //   await FileSystem.writeAsStringAsync(path, json, { encoding: 'utf8' });
-      //   await Share.shareAsync(path, { mimeType: 'application/json', dialogTitle: 'Zobia Data Export' });
-      await Share.share({
-        message: json,
-        title: 'Zobia Data Export',
-      });
+      // BUG-UX-05 FIX: write export to a temp file and share it as a proper
+      // .json attachment instead of pasting raw JSON as a text message.
+      const path = (cacheDirectory ?? '') + 'zobia-export.json';
+      await writeAsStringAsync(path, json, { encoding: EncodingType.UTF8 });
+      await Share.share({ url: path, title: 'Zobia Data Export' });
     } catch {
       Alert.alert('Error', 'Could not export your data. Please try again.');
     } finally {
@@ -612,26 +608,33 @@ export default function SettingsScreen() {
   const [deletePin, setDeletePin] = useState('');
   const [deletePending, setDeletePending] = useState(false);
 
-  // Date of birth (fetched separately from profile)
+  // Date of birth — fetched via React Query (shares cache with TwoFactorSection's 'user-me-totp' query)
+  const { data: meData } = useQuery({
+    queryKey: ['user-me-totp'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ user?: { totp_enabled?: boolean; date_of_birth?: string | null } }>('/users/me');
+      return res.data;
+    },
+    staleTime: 60_000,
+  });
   const [dateOfBirth, setDateOfBirth] = useState('');
   const [dobSaving, setDobSaving] = useState(false);
   const [dobError, setDobError] = useState<string | null>(null);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const { data: profileData } = await apiClient.get<{ user?: { date_of_birth?: string | null } }>('/users/me');
-        if (profileData?.user?.date_of_birth) {
-          setDateOfBirth(profileData.user.date_of_birth);
-        }
-      } catch { /* non-fatal */ }
-    })();
-  }, []);
+    const dob = meData?.user?.date_of_birth;
+    if (dob) setDateOfBirth(dob);
+  }, [meData]);
 
   async function saveDateOfBirth() {
     if (!dateOfBirth.trim()) { setDobError('Please enter a date of birth.'); return; }
     const dobRegex = /^\d{4}-\d{2}-\d{2}$/;
     if (!dobRegex.test(dateOfBirth.trim())) { setDobError('Please use YYYY-MM-DD format (e.g. 1995-06-15).'); return; }
+    const parsedDob = new Date(dateOfBirth.trim());
+    if (isNaN(parsedDob.getTime()) || parsedDob.toISOString().slice(0, 10) !== dateOfBirth.trim()) {
+      setDobError(t('settings.invalidDate', 'Invalid date. Please check the day and month values.'));
+      return;
+    }
     setDobError(null);
     setDobSaving(true);
     try {
@@ -680,6 +683,12 @@ export default function SettingsScreen() {
   const patchMutation = useMutation({
     mutationFn: updateSettings,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['user-settings'] }),
+    onError: (err: Error) => {
+      const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
+      const code = axiosErr.response?.data?.error?.code ?? null;
+      const message = axiosErr.response?.data?.error?.message ?? axiosErr.message;
+      Alert.alert(t('common.error'), translateApiError(t, code, message));
+    },
   });
 
   const set = (key: keyof UserSettings, value: UserSettings[keyof UserSettings]) => {

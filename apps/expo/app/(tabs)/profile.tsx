@@ -84,10 +84,10 @@ async function fetchOwnProfile(userId: string): Promise<OwnProfile> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Format an ISO date string as "Month YYYY" (e.g. "March 2024"). */
-function formatPlayingSince(isoDate: string): string {
+/** Format an ISO date string as "Month YYYY" (e.g. "March 2024") using the active i18n locale. */
+function formatPlayingSince(isoDate: string, locale: string): string {
   const d = new Date(isoDate);
-  return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  return d.toLocaleDateString(locale, { month: 'long', year: 'numeric' });
 }
 
 /** Format a number with comma separators (e.g. 12450 → "12,450"). */
@@ -112,7 +112,7 @@ function TrackBar({ track }: TrackBarProps) {
       <View style={styles.trackBarInfo}>
         <View style={styles.trackBarHeader}>
           <Text style={styles.trackBarName}>{track.track}</Text>
-          <Text style={styles.trackBarLevel}>Lvl {track.level}</Text>
+          <Text style={styles.trackBarLevel}>{t('profile.levelAbbr', { level: track.level })}</Text>
         </View>
         <View style={styles.trackBarOuter}>
           <View
@@ -135,7 +135,7 @@ function TrackBar({ track }: TrackBarProps) {
  * ProfileScreen — current user's own profile tab.
  */
 export default function ProfileScreen() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const router = useRouter();
   const currency = useCurrency();
@@ -191,7 +191,7 @@ export default function ProfileScreen() {
           accessibilityLabel="Edit profile"
           style={({ pressed }) => [styles.editProfileBtn, pressed && styles.pressed]}
         >
-          <Text style={styles.editProfileText}>Edit Profile</Text>
+          <Text style={styles.editProfileText}>{t('profile.editProfile')}</Text>
         </Pressable>
       </View>
 
@@ -205,7 +205,7 @@ export default function ProfileScreen() {
         ) : null}
         {profile?.joinedAt ? (
           <Text style={[styles.metaText, { color: themeColors.textMuted }]}>
-            Playing since {formatPlayingSince(profile.joinedAt)}
+            {t('profile.playingSince', { date: formatPlayingSince(profile.joinedAt, i18n.language) })}
           </Text>
         ) : null}
       </View>
@@ -219,7 +219,7 @@ export default function ProfileScreen() {
             </Text>
           </View>
           <View style={styles.legacyChip}>
-            <Text style={styles.legacyLabel}>Legacy Score</Text>
+            <Text style={styles.legacyLabel}>{t('profile.legacyScore')}</Text>
             <Text style={styles.legacyValue}>{formatNumber(profile.legacyScore)}</Text>
           </View>
         </View>
@@ -235,7 +235,7 @@ export default function ProfileScreen() {
       {/* ── Six track progress bars ─────────────────────────────── */}
       {profile && profile.trackLevels.length > 0 && (
         <View style={styles.trackSection}>
-          <Text style={styles.sectionTitle}>Track Levels</Text>
+          <Text style={styles.sectionTitle}>{t('profile.trackLevels')}</Text>
           {profile.trackLevels.map((t: TrackLevel) => (
             <TrackBar key={t.track} track={t} />
           ))}
@@ -251,7 +251,7 @@ export default function ProfileScreen() {
           ]}
           onPress={() => {
             if (profile.guildId) {
-              router.push(`/guilds/${profile.guildId}` as never);
+              router.push(`/guilds/${profile.guildId}` as Parameters<typeof router.push>[0]);
             }
           }}
           accessibilityLabel={profile.guildName ? `Guild: ${profile.guildName}` : 'No guild'}
@@ -260,9 +260,9 @@ export default function ProfileScreen() {
             {profile.guildCrest ?? '🏛️'}
           </Text>
           <View style={styles.guildTextGroup}>
-            <Text style={styles.guildLabel}>Guild</Text>
+            <Text style={styles.guildLabel}>{t('profile.guildLabel')}</Text>
             <Text style={styles.guildName}>
-              {profile.guildName ?? 'No Guild'}
+              {profile.guildName ?? t('profile.noGuild')}
             </Text>
           </View>
           {profile.guildId && <Text style={styles.guildChevron}>›</Text>}
@@ -272,11 +272,11 @@ export default function ProfileScreen() {
       {/* ── Season history shelf ────────────────────────────────── */}
       {profile && (
         <View style={styles.seasonSection}>
-          <Text style={styles.sectionTitle}>Season History</Text>
+          <Text style={styles.sectionTitle}>{t('profile.seasonHistory')}</Text>
           {profile.pastSeasons.length === 0 ? (
             <View style={styles.seasonPlaceholder}>
               <Text style={styles.seasonPlaceholderText}>
-                No past seasons yet. Keep playing!
+                {t('profile.noSeasonsYet')}
               </Text>
             </View>
           ) : (
@@ -309,8 +309,8 @@ export default function ProfileScreen() {
         <View style={styles.walletRow}>
           <Text style={styles.walletIcon}>🪙</Text>
           <View style={styles.walletTextGroup}>
-            <Text style={styles.walletTitle}>My Wallet</Text>
-            <Text style={styles.walletSubtitle}>{currency.softPlural}, {currency.premiumPlural.toLowerCase()} & transactions</Text>
+            <Text style={styles.walletTitle}>{t('profile.myWallet')}</Text>
+            <Text style={styles.walletSubtitle}>{t('profile.walletSubtitle')}</Text>
           </View>
           <CoinBalance style={styles.coinChip} />
           <Text style={styles.walletChevron}>›</Text>
@@ -326,8 +326,8 @@ export default function ProfileScreen() {
         <View style={styles.walletRow}>
           <Text style={styles.walletIcon}>🛒</Text>
           <View style={styles.walletTextGroup}>
-            <Text style={styles.walletTitle}>{currency.softPlural} Store</Text>
-            <Text style={styles.walletSubtitle}>Buy {currency.softPlural.toLowerCase()} and {currency.premiumPlural.toLowerCase()} packs</Text>
+            <Text style={styles.walletTitle}>{t('profile.coinStore')}</Text>
+            <Text style={styles.walletSubtitle}>{t('profile.coinStoreSubtitle')}</Text>
           </View>
           <Text style={styles.walletChevron}>›</Text>
         </View>
@@ -343,8 +343,8 @@ export default function ProfileScreen() {
           <View style={styles.walletRow}>
             <Text style={styles.walletIcon}>🎙️</Text>
             <View style={styles.walletTextGroup}>
-              <Text style={styles.walletTitle}>Creator Dashboard</Text>
-              <Text style={styles.walletSubtitle}>Revenue, members & payouts</Text>
+              <Text style={styles.walletTitle}>{t('profile.creatorDashboard')}</Text>
+              <Text style={styles.walletSubtitle}>{t('profile.creatorDashboardSubtitle')}</Text>
             </View>
             <Text style={styles.walletChevron}>›</Text>
           </View>

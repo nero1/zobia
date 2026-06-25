@@ -291,7 +291,7 @@ export default function AdminUsersScreen() {
         data={users}
         keyExtractor={(u) => u.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); cursorRef.current = null; void loadUsers(true); }} />}
-        onEndReached={() => { if (hasMore) void loadUsers(); }}
+        onEndReached={() => { if (hasMore && !loading && !refreshing) void loadUsers(); }}
         onEndReachedThreshold={0.3}
         ListEmptyComponent={
           loading

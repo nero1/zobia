@@ -80,7 +80,14 @@ export default function PinScreen() {
   const [removePin, setRemovePin] = useState('');
   const [mode, setMode] = useState<'setup' | 'change' | 'remove' | null>(null);
 
+  // Client-side rate limiting: track failed PIN attempts per session
+  const [failedAttempts, setFailedAttempts] = useState(0);
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  const MAX_ATTEMPTS = 5;
+  const LOCKOUT_MS = 60_000; // 1 minute
+
   const inputRef = useRef<TextInput>(null);
+  const advancingRef = useRef(false);
 
   const { data: pinStatus, isLoading } = useQuery({
     queryKey: ['auth', 'pin', 'status'],
@@ -106,14 +113,25 @@ export default function PinScreen() {
   const setupMutation = useMutation({
     mutationFn: setupPin,
     onSuccess: () => {
+      advancingRef.current = false;
+      setFailedAttempts(0);
+      setLockedUntil(null);
       Alert.alert('Success', hasPinSet ? 'PIN changed successfully.' : 'PIN set successfully.', [
         { text: 'OK', onPress: () => router.back() },
       ]);
     },
     onError: (err: Error) => {
+      advancingRef.current = false;
       const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
       const code = axiosErr.response?.data?.error?.code ?? null;
       const message = axiosErr.response?.data?.error?.message ?? axiosErr.message;
+      // Track failed attempts and apply client-side lockout
+      const nextAttempts = failedAttempts + 1;
+      setFailedAttempts(nextAttempts);
+      if (nextAttempts >= MAX_ATTEMPTS) {
+        setLockedUntil(Date.now() + LOCKOUT_MS);
+        setFailedAttempts(0);
+      }
       Alert.alert('Error', translateApiError(t, code, message));
       reset();
     },
@@ -122,14 +140,25 @@ export default function PinScreen() {
   const removeMutation = useMutation({
     mutationFn: removePinApi,
     onSuccess: () => {
+      advancingRef.current = false;
+      setFailedAttempts(0);
+      setLockedUntil(null);
       Alert.alert('Success', 'PIN removed successfully.', [
         { text: 'OK', onPress: () => router.back() },
       ]);
     },
     onError: (err: Error) => {
+      advancingRef.current = false;
       const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
       const code = axiosErr.response?.data?.error?.code ?? null;
       const message = axiosErr.response?.data?.error?.message ?? axiosErr.message;
+      // Track failed attempts and apply client-side lockout
+      const nextAttempts = failedAttempts + 1;
+      setFailedAttempts(nextAttempts);
+      if (nextAttempts >= MAX_ATTEMPTS) {
+        setLockedUntil(Date.now() + LOCKOUT_MS);
+        setFailedAttempts(0);
+      }
       Alert.alert('Error', translateApiError(t, code, message));
       setRemovePin('');
     },
@@ -176,9 +205,19 @@ export default function PinScreen() {
   };
 
   const advance = (value: string) => {
+    // Client-side lockout check
+    if (lockedUntil !== null && Date.now() < lockedUntil) {
+      const secsLeft = Math.ceil((lockedUntil - Date.now()) / 1_000);
+      Alert.alert('Too many attempts', `Please wait ${secsLeft} seconds before trying again.`);
+      return;
+    }
+    if (advancingRef.current) return;
+    advancingRef.current = true;
     if (step === 'enter_current') {
       if (mode === 'remove') {
         removeMutation.mutate({ pin: value });
+        // advancingRef reset via mutation callback
+        return;
       } else {
         setStep('enter_new');
       }
@@ -190,15 +229,21 @@ export default function PinScreen() {
         setNewPin('');
         setConfirmPin('');
         setStep('enter_new');
+        advancingRef.current = false;
         return;
       }
       setupMutation.mutate({
         pin: newPin,
         currentPin: hasPinSet ? currentPin : undefined,
       });
+      // advancingRef reset via mutation callback
+      return;
     } else if (step === 'enter_remove') {
       removeMutation.mutate({ pin: value });
+      // advancingRef reset via mutation callback
+      return;
     }
+    advancingRef.current = false;
   };
 
   const headings: Record<Step, string> = {

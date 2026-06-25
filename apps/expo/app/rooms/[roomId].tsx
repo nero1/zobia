@@ -392,7 +392,7 @@ export default function RoomScreen() {
   const currentUserId = authUser?.id ?? null;
 
   const flatListRef = useRef<FlatList<Message>>(null);
-  const isAtBottomRef = useRef(false);
+  const isAtBottomRef = useRef(true);
   const hasScrolledInitiallyRef = useRef(false);
   const xpFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -515,13 +515,12 @@ export default function RoomScreen() {
                 }
           );
         }
+        if (prevMessageIdsRef.current.size >= 500) {
+          const first = prevMessageIdsRef.current.values().next().value;
+          if (first !== undefined) prevMessageIdsRef.current.delete(first);
+        }
         prevMessageIdsRef.current.add(msg.id);
       }
-    }
-    const MAX_DEDUP_SIZE = 500;
-    if (prevMessageIdsRef.current.size > MAX_DEDUP_SIZE) {
-      const entries = [...prevMessageIdsRef.current];
-      prevMessageIdsRef.current = new Set(entries.slice(-MAX_DEDUP_SIZE));
     }
   }, [messages, room?.minGiftSpectacleCoin]);
 
@@ -538,6 +537,7 @@ export default function RoomScreen() {
   // full) we surface a banner and stop subscribing to realtime.
   useEffect(() => {
     if (!roomId) return;
+    if (!isMember) return;
     let cancelled = false;
     const beat = async () => {
       try {
@@ -548,7 +548,7 @@ export default function RoomScreen() {
     void beat();
     const id = setInterval(() => void beat(), 45_000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [roomId]);
+  }, [roomId, isMember]);
 
   // Persist latest messages for instant first paint on reopen.
   useEffect(() => {
@@ -795,7 +795,7 @@ export default function RoomScreen() {
       await apiClient.post(`/rooms/${roomId}/messages`, {
         content: gif.title || 'GIF',
         message_type: 'gif',
-        idempotency_key: randomUUID(),
+        idempotencyKey: randomUUID(),
         metadata: { gifUrl: gif.url, previewUrl: gif.previewUrl },
       });
       queryClient.invalidateQueries({ queryKey: ['room-messages', roomId] });
@@ -885,7 +885,7 @@ export default function RoomScreen() {
     <Screen hideOfflineBanner disableBottomInset>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={keyboardOffset}
       >
         {/* Drop banner */}
