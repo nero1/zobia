@@ -1,6 +1,7 @@
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors } from '@/lib/theme/colors';
 import { useAuth } from '@/lib/auth/hooks';
@@ -71,6 +72,7 @@ export default function TabLayout() {
   const isDark = scheme === 'dark';
   const { user } = useAuth();
   const isAdmin = user?.isAdmin === true;
+  const { bottom } = useSafeAreaInsets();
 
   const tabBarBg = isDark ? colors.neutral[900] : colors.neutral[0];
   const activeTint = colors.brand.blue;
@@ -90,8 +92,8 @@ export default function TabLayout() {
           backgroundColor: tabBarBg,
           borderTopColor: borderColor,
           borderTopWidth: 1,
-          height: 60,
-          paddingBottom: 8,
+          height: 60 + bottom,
+          paddingBottom: bottom + 8,
           paddingTop: 4,
         },
         tabBarLabelStyle: {

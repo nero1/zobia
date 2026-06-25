@@ -176,14 +176,14 @@ async function fetchStickerPacks(): Promise<StickerPack[]> {
 // Pending optimistic message
 // ---------------------------------------------------------------------------
 
-let pendingIdCounter = 0;
 function makePendingMessage(
   content: string,
   myUserId: string,
   messageType: MessageType = 'text',
+  id?: string,
 ): DM {
   return {
-    id: `pending-${++pendingIdCounter}`,
+    id: id ?? `pending-${Date.now()}`,
     content: messageType === 'text' ? content : null,
     gifUrl: messageType === 'gif' ? content : null,
     stickerEmoji: messageType === 'sticker' ? content : null,
@@ -323,12 +323,13 @@ function GifPickerModal({ visible, onClose, onSelect }: GifPickerProps) {
 
   useEffect(() => {
     if (!visible) return;
-    // Load trending GIFs on open
+    let cancelled = false;
     setLoading(true);
     searchGifs('trending')
-      .then(setResults)
-      .catch(() => setResults([]))
-      .finally(() => setLoading(false));
+      .then((res) => { if (!cancelled) setResults(res); })
+      .catch(() => { if (!cancelled) setResults([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [visible]);
 
   const handleSearch = useCallback((text: string) => {
@@ -525,6 +526,7 @@ export default function DMConversationScreen() {
 
   const flatListRef = useRef<FlatList<DM>>(null);
   const isAtBottomRef = useRef(true);
+  const pendingIdCounterRef = useRef(0);
 
   const [inputText, setInputText] = useState('');
   const [pidginSuggestions, setPidginSuggestions] = useState<string[]>([]);
@@ -637,7 +639,8 @@ export default function DMConversationScreen() {
     mutationFn: ({ content, type }: { content: string; type: MessageType }) =>
       sendDM(conversationId!, content, type),
     onMutate: ({ content, type }) => {
-      const optimistic = makePendingMessage(content, myUserId, type);
+      const localId = `pending-${++pendingIdCounterRef.current}`;
+      const optimistic = makePendingMessage(content, myUserId, type, localId);
       setPendingMessages((prev) => [optimistic, ...prev]);
       return { optimistic };
     },
@@ -687,22 +690,12 @@ export default function DMConversationScreen() {
     sendMutation.mutate({ content: text, type: 'moment' });
   }, [inputText, sendMutation]);
 
-  // Deduplicate pending messages against server messages: if the server already
-  // has a matching message (same sender + content + within 5 s), hide the
-  // optimistic bubble so it doesn't double-render.
-  const serverMessageSet = new Set(
-    messages.map((m) => `${m.senderUserId}|${m.content ?? ''}`)
-  );
-  const filteredPending = pendingMessages.filter((p) => {
-    const key = `${p.senderUserId}|${p.content ?? ''}`;
-    if (!serverMessageSet.has(key)) return true;
-    // Keep pending if the server message is more than 5 s newer (edge case)
-    const serverMatch = messages.find(
-      (m) => m.senderUserId === p.senderUserId && m.content === p.content
-    );
-    if (!serverMatch) return true;
-    return Math.abs(new Date(serverMatch.createdAt).getTime() - new Date(p.createdAt).getTime()) > 5000;
-  });
+  // Deduplicate pending messages against server messages using the message ID.
+  // Pending messages use a local `pending-N` id; once the server confirms the
+  // send they are removed from pendingMessages in onSuccess, so only truly
+  // outstanding optimistic messages appear here.
+  const serverMessageIds = new Set(messages.map((m) => m.id));
+  const filteredPending = pendingMessages.filter((p) => !serverMessageIds.has(p.id));
   const combinedMessages = [...filteredPending, ...messages];
   const insufficientCoins =
     conversation &&
@@ -808,7 +801,11 @@ export default function DMConversationScreen() {
               <Pressable
                 key={s}
                 onPress={() => {
-                  setInputText(s);
+                  setInputText((prev) => {
+                    const words = prev.split(' ');
+                    words[words.length - 1] = s;
+                    return words.join(' ') + ' ';
+                  });
                   setPidginSuggestions([]);
                 }}
                 style={[styles.pidginChip, { backgroundColor: themeColors.surface, borderColor: colors.brand.blue }]}

@@ -1,7 +1,7 @@
 # Zobia Social — Product Requirements Document
 ### A Gamified Monetised Social Platform for the Global Mobile Generation
 
-> **Version 1.78 — Product Requirements Document**
+> **Version 1.79 — Product Requirements Document**
 > Covers: Feature Specifications · Technical Architecture · Economy Design · Moderation · Build Sequence
 > Scope: Nigeria-first, Pan-African then Global · Mobile-first PWA + Android APK · Admin-minimal operation
 
@@ -2171,6 +2171,29 @@ When a logged-in user visits the root URL (`/` or the bare domain e.g. `zobia.ve
 
 ---
 
+## Appendix: Version 1.79 Change Log
+
+### v1.79 — Changelog
+
+- **GameWebView security hardening (BUG-SEC-01 + BUG-WV-01):** The raw JWT is no longer injected into WebView's JavaScript scope via `injectedJavaScriptBeforeContentLoaded`. Games now communicate with the API via a **postMessage-based proxy**: the game posts `{ type: 'API_REQUEST', requestId, method, endpoint, body }` and the React Native host makes the call using the authenticated `apiClient`, then posts back `{ type: 'API_RESPONSE', requestId, data/error }`. The `originWhitelist` is derived from `API_BASE_URL` at runtime instead of being hardcoded.
+- **i18n language preference persistence (BUG-I18N-01):** `resolveLocale()` now checks MMKV (`user_language` key in the `zobia_prefs` store) before falling back to device locale. This is required for Pidgin, which has no standard OS locale code and must be manually selected by the user.
+- **Google Play Billing connection cleanup (BUG-PAY-02):** `disconnectGooglePlayBilling()` now clears all in-memory resolver, session, and recovery maps after `endConnection()`, preventing stale callbacks from firing after reconnect.
+- **AdMob listener leak fixes (BUG-ADS-01 + BUG-ADS-02):** Interstitial ad failure path now unsubscribes the CLOSED listener before resolving. Rewarded ad EARNED_REWARD/CLOSED race condition fixed with a settle-once pattern and a 150 ms CLOSED delay.
+- **PIN security (BUG-SEC-02):** PIN is now SHA-256 hashed (salted with `userId:pin`) via `expo-crypto` on device before being sent to the server.
+- **Safe Area tab bar (BUG-UI-01):** Tab bar height and padding now account for Android gesture navigation bottom inset using `useSafeAreaInsets`.
+- **Offline message queue (BUG-OFFLINE-01):** Send failure in room chat now queues the message to SQLite via `queueMessage()` so it syncs when connectivity resumes.
+- **Home screen fixes:** Toast timer leak fixed with `useRef` cleanup (BUG-MEM-02); MMKV daily-login read guarded against pre-init crash (BUG-CRASH-01); QuestCard and NemesisXPBar progress bars clamped to `flex: 0.005` minimum to prevent flex-zero collapse (BUG-UI-02).
+- **SwipeDrawer navigation (BUG-NAV-01/02/03):** Navigation no longer uses a fragile `setTimeout`; `signOut` has error handling; backdrop is always mounted with `pointerEvents` toggled instead of conditionally rendered (eliminates dual-state divergence).
+- **Profile non-null crash fix (BUG-CRASH-02):** `friendMutation` and `followMutation` in `profile/[userId].tsx` guard against `profile` being undefined instead of using `!` non-null assertions.
+- **Subscription API shape fix (BUG-API-01):** `fetchMe()` in subscription screen now handles `{ user: {} }`, `{ data: {} }`, and flat `{}` response shapes.
+- **Wallet theme hook (BUG-THEME-01):** `wallet.tsx` now uses `useTheme()` instead of `useColorScheme()` to respect app-level theme overrides.
+- **CI auth gate fix (BUG-CI-01):** `continue-on-error: true` removed from EAS credentials step so build failures surface properly.
+- **Duplicate contacts fix (BUG-MINOR-02):** Phone numbers are deduplicated with `new Set()` before cross-referencing.
+- **Idempotency key dedup (BUG-MINOR-01):** Redundant `_${Date.now()}` suffix removed from offline message `idempotencyKey`.
+- **Duplicate capacity handler refactor (BUG-DUP-01):** Room "Increase Capacity" logic extracted into a single `handleIncreaseCapacity` `useCallback`; the duplicated `.then`/`.catch` chain in Room Powers is replaced with a single call.
+- **CountdownTimer null guard (BUG-CHAT-04):** CountdownTimer only renders when `room.dropEndsAt` is set.
+- **i18n string added:** `offline.queued` — "Message saved — will send when you're back online."
+
 ## Appendix: Version 1.78 Change Log
 
 ### v1.78 — Changelog
@@ -2181,6 +2204,6 @@ When a logged-in user visits the root URL (`/` or the bare domain e.g. `zobia.ve
 
 ---
 
-*ZobiaSocial PRD v1.78*
+*ZobiaSocial PRD v1.79*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

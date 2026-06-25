@@ -167,10 +167,10 @@ function isAcknowledged(purchase: AnyPurchase): boolean {
 
 /** Extract the recurring formatted price + offerToken from an Android subscription. */
 function readAndroidSubscription(sub: Subscription): { price?: string; offerToken?: string } {
-  const offers = (sub as { subscriptionOfferDetails?: Array<{
+  const offers = (sub as { subscriptionOfferDetails?: {
     offerToken?: string;
-    pricingPhases?: { pricingPhaseList?: Array<{ formattedPrice?: string }> };
-  }> }).subscriptionOfferDetails;
+    pricingPhases?: { pricingPhaseList?: { formattedPrice?: string }[] };
+  }[] }).subscriptionOfferDetails;
 
   if (Array.isArray(offers) && offers.length > 0) {
     const offer = offers[0];
@@ -467,16 +467,21 @@ export async function purchaseCoins(
   // When the timeout fires the resolver is removed but the purchase continues
   // running in the background. Mark pendingRecovery so the listener can deliver
   // the late result and prevent the user from initiating a duplicate purchase.
-  const timeoutPromise = new Promise<{ success: boolean; coins: number; error: string }>((resolve) =>
-    setTimeout(() => {
+  let coinTimeoutId: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<{ success: boolean; coins: number; error: string }>((resolve) => {
+    coinTimeoutId = setTimeout(() => {
       purchaseResolvers.delete(sessionId);
       activePurchaseSessions.delete(productId);
       pendingRecovery.set(productId, true);
       resolve({ success: false, coins: 0, error: 'Your purchase is still processing — please wait before trying again' });
-    }, 5 * 60 * 1000)
-  );
+    }, 5 * 60 * 1000);
+  });
 
-  return Promise.race([purchasePromise, timeoutPromise]);
+  try {
+    return await Promise.race([purchasePromise, timeoutPromise]);
+  } finally {
+    clearTimeout(coinTimeoutId!);
+  }
 }
 
 /**
@@ -490,6 +495,9 @@ export async function disconnectGooglePlayBilling(): Promise<void> {
   purchaseErrorSub = null;
   await endConnection();
   initialised = false;
+  purchaseResolvers.clear();
+  activePurchaseSessions.clear();
+  pendingRecovery.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -614,14 +622,19 @@ export async function purchaseSubscription(
   // When the timeout fires the resolver is removed but the purchase continues
   // running in the background. Mark pendingRecovery so the listener can deliver
   // the late result and prevent the user from initiating a duplicate purchase.
-  const timeoutPromise = new Promise<{ success: boolean; error: string }>((resolve) =>
-    setTimeout(() => {
+  let subTimeoutId: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<{ success: boolean; error: string }>((resolve) => {
+    subTimeoutId = setTimeout(() => {
       purchaseResolvers.delete(sessionId);
       activePurchaseSessions.delete(productId);
       pendingRecovery.set(productId, true);
       resolve({ success: false, error: 'Your purchase is still processing — please wait before trying again' });
-    }, 5 * 60 * 1000)
-  );
+    }, 5 * 60 * 1000);
+  });
 
-  return Promise.race([purchasePromise, timeoutPromise]);
+  try {
+    return await Promise.race([purchasePromise, timeoutPromise]);
+  } finally {
+    clearTimeout(subTimeoutId!);
+  }
 }

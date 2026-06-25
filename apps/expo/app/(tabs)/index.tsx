@@ -524,8 +524,8 @@ function NemesisXPBar({ myXP, nemesisXP }: { myXP: number; nemesisXP: number }) 
   const myRatio = total === 0 ? 0.5 : myXP / total;
   return (
     <View style={styles.xpBarOuter}>
-      <View style={[styles.xpBarMe, { flex: myRatio }]} />
-      <View style={[styles.xpBarNemesis, { flex: 1 - myRatio }]} />
+      <View style={[styles.xpBarMe, { flex: Math.max(myRatio, 0.005) }]} />
+      <View style={[styles.xpBarNemesis, { flex: Math.max(1 - myRatio, 0.005) }]} />
     </View>
   );
 }
@@ -671,12 +671,12 @@ function QuestCard({ quest }: QuestCardProps) {
             style={[
               styles.questProgressFill,
               {
-                flex: progressPct,
+                flex: Math.max(progressPct, 0.005),
                 backgroundColor: quest.completed ? colors.semantic.success : colors.brand.blue,
               },
             ]}
           />
-          <View style={[styles.questProgressEmpty, { flex: 1 - progressPct }]} />
+          <View style={[styles.questProgressEmpty, { flex: Math.max(1 - progressPct, 0.005) }]} />
         </View>
         <Text style={styles.questProgressLabel}>
           {quest.progress}/{quest.goal}
@@ -828,6 +828,7 @@ export default function HomeScreen() {
   const [showLoginToast, setShowLoginToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const loginToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // -------------------------------------------------------------------------
   // Data queries
@@ -903,16 +904,27 @@ export default function HomeScreen() {
           t('home.dailyLoginXP', 'Daily login: +{{xp}} XP', { xp: result.xpAwarded })
         );
         setShowLoginToast(true);
-        setTimeout(() => setShowLoginToast(false), 3500);
+        if (loginToastTimerRef.current) clearTimeout(loginToastTimerRef.current);
+        loginToastTimerRef.current = setTimeout(() => {
+          setShowLoginToast(false);
+          loginToastTimerRef.current = null;
+        }, 3500);
       }
     },
   });
 
   useEffect(() => {
     const today = new Date().toDateString();
-    if (storage.getString('daily_login_last_date') === today) return;
-    storage.set('daily_login_last_date', today);
+    try {
+      if (storage.getString('daily_login_last_date') === today) return;
+      storage.set('daily_login_last_date', today);
+    } catch {
+      // MMKV not yet initialized; still fire the mutation (server deduplicates)
+    }
     dailyLoginMutation.mutate();
+    return () => {
+      if (loginToastTimerRef.current) clearTimeout(loginToastTimerRef.current);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

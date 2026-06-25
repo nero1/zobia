@@ -107,10 +107,11 @@ export function ContactsImporter({ onDone }: ContactsImporterProps) {
         return;
       }
 
-      // 4. Cross-reference with Zobia (server caps at 500 numbers per request)
+      // 4. Cross-reference with Zobia (server caps at 500 numbers per request; deduplicate first)
+      const uniqueNumbers = [...new Set(phoneNumbers)];
       const response = await apiClient.post<{ contacts: ZobiaContact[] }>(
         '/users/contacts/cross-reference',
-        { phoneNumbers: phoneNumbers.slice(0, 500) }
+        { phoneNumbers: uniqueNumbers.slice(0, 500) }
       );
 
       setZobiaContacts(response.data?.contacts ?? []);

@@ -11,6 +11,7 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import * as Localization from 'expo-localization';
+import { MMKV } from 'react-native-mmkv';
 
 import { setupRTL } from './rtl';
 import en from './locales/en.json';
@@ -28,8 +29,16 @@ export type SupportedLocale = 'en' | 'fr' | 'ar' | 'ha' | 'sw' | 'am' | 'zu' | '
 
 const SUPPORTED_LOCALES: SupportedLocale[] = ['en', 'fr', 'ar', 'ha', 'sw', 'am', 'zu', 'pt', 'pidgin'];
 
-/** Derive the best supported locale from the device's preferred locales. */
+/** Derive the best supported locale: user preference → device locale → English. */
 function resolveLocale(): SupportedLocale {
+  // Check user's saved language preference (needed for locales with no OS equivalent, e.g. Pidgin)
+  try {
+    const prefStore = new MMKV({ id: 'zobia_prefs' });
+    const saved = prefStore.getString('user_language') as SupportedLocale | undefined;
+    if (saved && SUPPORTED_LOCALES.includes(saved)) return saved;
+  } catch {
+    // MMKV unavailable during first launch — fall through to device locale
+  }
   const deviceLocales = Localization.getLocales();
   for (const locale of deviceLocales) {
     const lang = locale.languageCode as SupportedLocale;

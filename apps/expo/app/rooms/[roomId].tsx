@@ -51,6 +51,7 @@ import { translateApiError } from '@/lib/i18n/apiErrors';
 import { useRealtimeChannel } from '@/lib/realtime/useRealtimeChannel';
 import { readCachedMessages, writeCachedMessages } from '@/lib/chat/messageCache';
 import { newestCreatedAt, mergeNewestFirst } from '@/lib/chat/delta';
+import { queueMessage } from '@/lib/offline/sqlite';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -385,7 +386,9 @@ export default function RoomScreen() {
   const currentUserId = authUser?.id ?? null;
 
   const flatListRef = useRef<FlatList<Message>>(null);
-  const isAtBottomRef = useRef(true);
+  const isAtBottomRef = useRef(false);
+  const hasScrolledInitiallyRef = useRef(false);
+  const xpFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [inputText, setInputText] = useState('');
   const [showGifters, setShowGifters] = useState(false);
@@ -538,14 +541,24 @@ export default function RoomScreen() {
     if (roomId && messages.length) writeCachedMessages(`room:${roomId}`, messages);
   }, [messages, roomId]);
 
-  // Scroll to newest message when messages arrive, but only if the user is
-  // already near the bottom of the feed (offset 0 on an inverted FlatList =
-  // visual bottom = newest messages).
+  // On first message load scroll to bottom unconditionally (new session).
+  // Thereafter scroll only when user is already near the bottom.
   useEffect(() => {
-    if (messages.length > 0 && isAtBottomRef.current) {
+    if (!messages.length) return;
+    if (!hasScrolledInitiallyRef.current) {
+      hasScrolledInitiallyRef.current = true;
+      flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+      return;
+    }
+    if (isAtBottomRef.current) {
       flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
     }
   }, [messages.length]);
+
+  // Clean up XP flash timer on unmount.
+  useEffect(() => {
+    return () => { if (xpFlashTimerRef.current) clearTimeout(xpFlashTimerRef.current); };
+  }, []);
 
   // Update navigation header
   useEffect(() => {
@@ -599,12 +612,16 @@ export default function RoomScreen() {
         (prev ?? []).map((m: Message) => (m.id === ctx?.optimisticId ? (serverMessage ?? m) : m))
       );
       setXpFlash(true);
-      setTimeout(() => setXpFlash(false), 1_200);
+      if (xpFlashTimerRef.current) clearTimeout(xpFlashTimerRef.current);
+      xpFlashTimerRef.current = setTimeout(() => setXpFlash(false), 1_200);
     },
-    onError: (_err, _vars, ctx) => {
+    onError: (_err, vars, ctx) => {
       // Roll back on error
       if (ctx?.previous) {
         queryClient.setQueryData(['room-messages', roomId], ctx.previous);
+      }
+      if (roomId) {
+        queueMessage(roomId, vars.content, vars.message_type ?? 'text', 'room').catch(() => {});
       }
     },
     onSettled: () => {
@@ -713,6 +730,51 @@ export default function RoomScreen() {
     }
   }, [highlightUsername, roomId, t]);
 
+  const handleIncreaseCapacity = useCallback(async () => {
+    if (!roomId) return;
+    let cost: number | string = '?';
+    let slots = 25;
+    try {
+      const infoRes = await apiClient.get<{ data?: { costCoinsPerStep?: number; stepSlots?: number; atMax?: boolean } }>(`/rooms/${roomId}/capacity`);
+      const info = infoRes.data?.data;
+      if (info?.atMax) {
+        Alert.alert(t('room.capacityAtMax'), '');
+        return;
+      }
+      cost = info?.costCoinsPerStep ?? '?';
+      slots = info?.stepSlots ?? 25;
+    } catch {
+      // Proceed with unknown cost shown to user
+    }
+    Alert.alert(
+      t('room.capacityConfirmTitle'),
+      t('room.capacityConfirmMessage', { cost, currency: 'Coins', slots }),
+      [
+        { text: t('room.capacityConfirmCancel'), style: 'cancel' },
+        {
+          text: t('room.capacityConfirmOk'),
+          onPress: () => {
+            apiClient
+              .post(`/rooms/${roomId}/capacity`, { steps: 1 })
+              .then((res) => {
+                const cap = res.data?.data?.maxMembers;
+                Alert.alert(
+                  t('room.capacityIncreased'),
+                  cap ? t('room.capacityIncreasedTo', { n: cap }) : t('room.capacityIncreasedGeneric'),
+                );
+                queryClient.invalidateQueries({ queryKey: ['room', roomId] });
+              })
+              .catch((e: AxiosError<{ error?: { code?: string; message?: string } }>) => {
+                const code = e.response?.data?.error?.code ?? null;
+                const message = e.response?.data?.error?.message ?? e.message;
+                Alert.alert('Error', translateApiError(t, code, message));
+              });
+          },
+        },
+      ]
+    );
+  }, [roomId, queryClient, t]);
+
   const handleGifSelect = useCallback(async (gif: GifResult) => {
     if (!roomId) return;
     try {
@@ -813,7 +875,7 @@ export default function RoomScreen() {
         {/* Drop banner */}
         {room?.roomType === 'drop' && (
           <View>
-            <CountdownTimer endsAt={room.dropEndsAt ?? new Date(Date.now() + 3_600_000).toISOString()} />
+            {room.dropEndsAt ? <CountdownTimer endsAt={room.dropEndsAt} /> : null}
             {room.entryFeeCoin !== null && (
               <View style={styles.entryFee}>
                 <Text style={styles.entryFeeText}>
@@ -974,14 +1036,16 @@ export default function RoomScreen() {
           >
             <Text style={styles.iconBtnText}>GIF</Text>
           </Pressable>
-          <Pressable
-            style={styles.iconBtn}
-            onPress={() => router.push(`/economy/gift-send?roomId=${roomId}&recipientId=${room?.creatorId ?? ''}`)}
-            accessibilityLabel="Send gift"
-            accessibilityRole="button"
-          >
-            <Text style={styles.iconBtnText}>🎁</Text>
-          </Pressable>
+          {room?.creatorId ? (
+            <Pressable
+              style={styles.iconBtn}
+              onPress={() => router.push(`/economy/gift-send?roomId=${roomId}&recipientId=${room.creatorId}`)}
+              accessibilityLabel="Send gift"
+              accessibilityRole="button"
+            >
+              <Text style={styles.iconBtnText}>🎁</Text>
+            </Pressable>
+          ) : null}
           {/* Room Powers button — only for room creator */}
           {room?.isCreator && (
             <Pressable
@@ -1010,76 +1074,7 @@ export default function RoomScreen() {
                     },
                     {
                       text: `⬆️ ${t('room.increaseCapacity')}`,
-                      onPress: () => {
-                        apiClient
-                          .get<{ data?: { costCoinsPerStep?: number; stepSlots?: number; atMax?: boolean; currentCap?: number } }>(`/rooms/${roomId}/capacity`)
-                          .then((infoRes) => {
-                            const info = infoRes.data?.data;
-                            if (info?.atMax) {
-                              Alert.alert(t('room.capacityAtMax'), '');
-                              return;
-                            }
-                            const cost = info?.costCoinsPerStep ?? '?';
-                            const slots = info?.stepSlots ?? 25;
-                            const currencyLabel = 'Coins';
-                            Alert.alert(
-                              t('room.capacityConfirmTitle'),
-                              t('room.capacityConfirmMessage', { cost, currency: currencyLabel, slots }),
-                              [
-                                { text: t('room.capacityConfirmCancel'), style: 'cancel' },
-                                {
-                                  text: t('room.capacityConfirmOk'),
-                                  onPress: () => {
-                                    apiClient
-                                      .post(`/rooms/${roomId}/capacity`, { steps: 1 })
-                                      .then((res) => {
-                                        const cap = res.data?.data?.maxMembers;
-                                        Alert.alert(
-                                          t('room.capacityIncreased'),
-                                          cap ? t('room.capacityIncreasedTo', { n: cap }) : t('room.capacityIncreasedGeneric'),
-                                        );
-                                        queryClient.invalidateQueries({ queryKey: ['room', roomId] });
-                                      })
-                                      .catch((e: AxiosError<{ error?: { code?: string; message?: string } }>) => {
-                                        const code = e.response?.data?.error?.code ?? null;
-                                        const message = e.response?.data?.error?.message ?? e.message;
-                                        Alert.alert('Error', translateApiError(t, code, message));
-                                      });
-                                  },
-                                },
-                              ]
-                            );
-                          })
-                          .catch(() => {
-                            Alert.alert(
-                              t('room.capacityConfirmTitle'),
-                              t('room.capacityConfirmMessage', { cost: '?', currency: 'Coins', slots: 25 }),
-                              [
-                                { text: t('room.capacityConfirmCancel'), style: 'cancel' },
-                                {
-                                  text: t('room.capacityConfirmOk'),
-                                  onPress: () => {
-                                    apiClient
-                                      .post(`/rooms/${roomId}/capacity`, { steps: 1 })
-                                      .then((res) => {
-                                        const cap = res.data?.data?.maxMembers;
-                                        Alert.alert(
-                                          t('room.capacityIncreased'),
-                                          cap ? t('room.capacityIncreasedTo', { n: cap }) : t('room.capacityIncreasedGeneric'),
-                                        );
-                                        queryClient.invalidateQueries({ queryKey: ['room', roomId] });
-                                      })
-                                      .catch((e: AxiosError<{ error?: { code?: string; message?: string } }>) => {
-                                        const code = e.response?.data?.error?.code ?? null;
-                                        const message = e.response?.data?.error?.message ?? e.message;
-                                        Alert.alert('Error', translateApiError(t, code, message));
-                                      });
-                                  },
-                                },
-                              ]
-                            );
-                          });
-                      },
+                      onPress: () => { void handleIncreaseCapacity(); },
                     },
                     { text: 'Cancel', style: 'cancel' },
                   ]

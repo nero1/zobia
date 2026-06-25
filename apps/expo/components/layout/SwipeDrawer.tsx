@@ -117,15 +117,16 @@ function DrawerContent({ onClose }: { onClose: () => void }) {
 
   const navigate = (href: string) => {
     onClose();
-    // Small delay so the drawer closes before navigation
-    setTimeout(() => {
-      router.push(href as Parameters<typeof router.push>[0]);
-    }, 50);
+    router.push(href as Parameters<typeof router.push>[0]);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     onClose();
-    setTimeout(() => signOut(), 100);
+    try {
+      await signOut();
+    } catch {
+      // Navigation to login is handled by auth context on any signOut path
+    }
   };
 
   const displayName = user?.username ?? 'User';
@@ -306,15 +307,15 @@ export function SwipeDrawer({ children }: SwipeDrawerProps) {
           {/* Main content */}
           {children}
 
-          {/* Backdrop */}
-          {isOpen && (
+          {/* Backdrop — always mounted to avoid flicker; pointer events disabled when closed */}
+          <Animated.View
+            style={[styles.backdrop, backdropAnimStyle]}
+            pointerEvents={isOpen ? 'auto' : 'none'}
+          >
             <TouchableWithoutFeedback onPress={closeDrawer}>
-              <Animated.View
-                style={[styles.backdrop, backdropAnimStyle]}
-                pointerEvents="auto"
-              />
+              <View style={StyleSheet.absoluteFillObject} />
             </TouchableWithoutFeedback>
-          )}
+          </Animated.View>
 
           {/* Drawer panel */}
           <Animated.View style={[styles.drawer, drawerAnimStyle]}>
