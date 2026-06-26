@@ -100,10 +100,10 @@ export async function processChargeSuccess(
       return;
     }
 
-    // Mark payment as completed
+    // Mark payment as completed — BUG-027 FIX: include updated_at = NOW()
     await tx.query(
       `UPDATE payments
-       SET status = 'completed', completed_at = NOW(), amount_received_kobo = $1
+       SET status = 'completed', completed_at = NOW(), amount_received_kobo = $1, updated_at = NOW()
        WHERE provider_reference = $2`,
       [amount, reference]
     );
@@ -290,11 +290,33 @@ export async function processChargeSuccess(
     let serverCoinsGranted = coinsGranted ?? 0;
     let serverStarsGranted = starsGranted ?? 0;
     if (metadata.packId) {
-      const { rows: packRows } = await tx.query<{ coins_granted: number | null; stars_granted: number | null; price_kobo: number | null }>(
-        `SELECT coins_granted, stars_granted, price_kobo FROM store_items WHERE id = $1 LIMIT 1`,
+      const { rows: packRows } = await tx.query<{ coins_granted: number | null; stars_granted: number | null; price_kobo: number | null; valid_until: string | null }>(
+        `SELECT coins_granted, stars_granted, price_kobo, valid_until FROM store_items WHERE id = $1 LIMIT 1`,
         [metadata.packId]
       );
       if (packRows[0]) {
+        // BUG-042/075: Reject if the item expired before the payment was made.
+        // Use paid_at as the purchase time (not webhook arrival) to honor payments made before expiry.
+        if (packRows[0].valid_until) {
+          const paidAt = new Date(event.data.paid_at);
+          const validUntil = new Date(packRows[0].valid_until);
+          if (paidAt > validUntil) {
+            logger.warn({ reference, packId: metadata.packId, paidAt, validUntil }, "[webhook/paystack] Purchase for expired store item — refunding");
+            await tx.query(
+              `UPDATE payments SET status = 'failed', updated_at = NOW() WHERE provider_reference = $1`,
+              [reference]
+            ).catch(() => {});
+            await tx.query(
+              `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
+               VALUES ('purchase_expired_item', 'warning', $1, $2::jsonb, NOW())`,
+              [
+                `Purchase ${reference} for expired item ${metadata.packId} — requires manual refund review`,
+                JSON.stringify({ reference, packId: metadata.packId, paidAt, validUntil }),
+              ]
+            ).catch(() => {});
+            return;
+          }
+        }
         if (packRows[0].coins_granted != null) serverCoinsGranted = packRows[0].coins_granted;
         if (packRows[0].stars_granted != null) serverStarsGranted = packRows[0].stars_granted;
 
@@ -570,8 +592,13 @@ export async function processSubscriptionEvent(
     // Derive plan tier first so it can be included in the subscription upsert (B-11)
     const planNameLower = (event.data.plan?.name ?? "").toLowerCase();
     const planCodeLower = (event.data.plan?.plan_code ?? "").toLowerCase();
+    // BUG-013: Split plan code by common delimiters so "pro" matches "zobia-pro-monthly"
+    // but NOT "zobia-professional". Word-boundary regex handles plan name.
+    const planCodeSegments = new Set(planCodeLower.split(/[-_.]/));
     const planMatches = (keyword: string): boolean =>
-      new RegExp(`\\b${keyword}\\b`).test(planNameLower) || planCodeLower.includes(keyword);
+      new RegExp(`\\b${keyword}\\b`).test(planNameLower) ||
+      planCodeSegments.has(keyword) ||
+      planCodeLower === keyword;
     const derivedPlan: string | null = planMatches("max")
       ? "max"
       : planMatches("plus")

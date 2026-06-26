@@ -32,7 +32,7 @@ const SendMessageSchema = z.object({
   subject: z.string().min(1).max(200),
   body: z.string().min(1).max(10_000),
   broadcastType: z.enum(["direct", "all", "by_plan", "by_role"]),
-  targetUserIds: z.array(z.string().uuid()).optional(),
+  targetUserIds: z.array(z.string().uuid()).max(1000, "Cannot target more than 1000 users at once").optional(),
   targetPlans: z.array(z.string()).optional(),
   targetRoles: z.array(z.string()).optional(),
 });
@@ -192,9 +192,9 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
             JSON.stringify(telegramRecipients.map((r) => r.telegram_id)),
           ]
         )
-        .catch((err) =>
+        .catch((err) => {
           logger.error({ err: err }, "[admin/messages] Telegram queue enqueue failed:");
-        );
+        });
     }
 
     return NextResponse.json({ messageId, recipientCount: recipients.length });

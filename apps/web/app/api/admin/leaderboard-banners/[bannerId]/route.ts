@@ -22,9 +22,9 @@ import { db, SqlParam } from "@/lib/db";
 const PatchBannerSchema = z.object({
   isActive: z.boolean().optional(),
   sponsorName: z.string().min(1).max(200).optional(),
-  sponsorLogoUrl: z.string().url().nullable().optional(),
+  sponsorLogoUrl: z.string().url().refine(u => !/^javascript:/i.test(u), "javascript: URLs are not allowed").nullable().optional(),
   ctaText: z.string().min(1).max(100).optional(),
-  ctaUrl: z.string().url().optional(),
+  ctaUrl: z.string().url().refine(u => !/^javascript:/i.test(u), "javascript: URLs are not allowed").optional(),
   startsAt: z.string().datetime().optional(),
   endsAt: z.string().datetime().optional(),
 });

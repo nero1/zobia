@@ -56,6 +56,18 @@ export function getCurrentKeyId(): string {
 
 /**
  * Registry mapping key IDs to their encoded secrets.
+ *
+ * BUG-046 — JWT key rotation playbook:
+ *   1. Generate a new secret: `openssl rand -base64 64`
+ *   2. Set the NEW secret as JWT_SECRET (and JWT_REFRESH_SECRET for refresh tokens)
+ *   3. Set JWT_KEY_ID to the new version string (e.g. "v2")
+ *   4. Set JWT_SECRET_v1 = previous JWT_SECRET value (preserve old key for verification)
+ *   5. Set JWT_REFRESH_SECRET_v1 = previous JWT_REFRESH_SECRET value
+ *   6. Deploy — new tokens will be signed with kid=v2; existing kid=v1 tokens
+ *      remain valid until they expire (max 15 min for access, 30 days for refresh)
+ *   7. After all v1 refresh tokens expire (~30 days), unset JWT_SECRET_v1 /
+ *      JWT_REFRESH_SECRET_v1 and update JWT_KEY_ID to remove old keys
+ *
  * Add JWT_SECRET_v2, JWT_SECRET_v3, etc. during key rotation; tokens signed
  * with the old kid remain verifiable for up to the access token TTL (15 min).
  */
@@ -92,6 +104,18 @@ function buildRefreshKeyRegistry(): Map<string, Uint8Array> {
 // Module-level caches — env vars are immutable after process start.
 const keyRegistry: Map<string, Uint8Array> = buildKeyRegistry();
 const refreshKeyRegistry: Map<string, Uint8Array> = buildRefreshKeyRegistry();
+
+// BUG-007: Startup validation — warn if rotating away from v1 without preserving the old key.
+// Without JWT_SECRET_v1 set, any existing sessions signed with kid=v1 will fail verification
+// and every logged-in user will be immediately logged out during the rotation window.
+const currentKeyId = process.env.JWT_KEY_ID ?? "v1";
+if (currentKeyId !== "v1" && !process.env.JWT_SECRET_v1) {
+  console.warn(
+    `[jwt] WARNING: JWT_KEY_ID=${currentKeyId} but JWT_SECRET_v1 is not set. ` +
+    `Existing sessions with kid=v1 will fail verification and all users will be logged out. ` +
+    `Set JWT_SECRET_v1 to the previous JWT_SECRET value before rotating.`
+  );
+}
 
 function getSecretForKid(kid: string | undefined): Uint8Array {
   const secret = kid ? keyRegistry.get(kid) : null;

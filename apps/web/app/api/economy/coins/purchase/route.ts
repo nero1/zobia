@@ -209,7 +209,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       // Provider call failed — mark the record so it is not retried as 'pending'
       if (paymentDbId) {
         await db.query(
-          `UPDATE payments SET status = 'failed' WHERE id = $1`,
+          `UPDATE payments SET status = 'failed', updated_at = NOW() WHERE id = $1`,
           [paymentDbId]
         ).catch(() => {});
       }
@@ -220,7 +220,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const metadataWithUrl = { ...metadata, payment_url: paymentResult.paymentUrl };
     await db.query(
       `UPDATE payments
-       SET provider_reference = $1, metadata = $2
+       SET provider_reference = $1, metadata = $2, updated_at = NOW()
        WHERE id = $3`,
       [paymentResult.providerReference, JSON.stringify(metadataWithUrl), paymentDbId]
     );

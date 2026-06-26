@@ -352,9 +352,9 @@ export const POST = withAuth<QuestParams>(async (req, { params, auth }) => {
 
     // Fire-and-forget post-completion side effects
     if (outcome.newly_completed) {
-      recordWarContribution(auth.user.sub, 'complete_quest', db).catch((err) =>
+      recordWarContribution(auth.user.sub, 'complete_quest', db).catch((err) => {
         logger.error({ err: err }, '[quests:POST] war contribution failed');
-      );
+        });
 
       // Notify client to show floating reward notifications
       if (outcome.xp_awarded > 0 || outcome.coins_awarded > 0) {

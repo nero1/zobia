@@ -24,9 +24,17 @@ const VERSION_SALTS: Record<string, Buffer> = {
   v2: Buffer.from("zobia-field-enc-v2"),
 };
 
+// BUG-052: validate version strings and bound cache size.
+// Valid version format: "v" followed by 1-3 digits (e.g. v1, v2, v10).
+const VERSION_RE = /^v\d{1,3}$/;
+const KEY_CACHE_MAX = 10; // at most 10 key versions in memory at once
 const keyCache = new Map<string, Buffer>();
 
 function getKeyForVersion(version: string): Buffer {
+  // BUG-052: reject malformed version strings before they reach env-var interpolation.
+  if (!VERSION_RE.test(version)) {
+    throw new Error(`Invalid key version string: "${version}"`);
+  }
   if (keyCache.has(version)) return keyCache.get(version)!;
   const envVar = `KYC_ENCRYPTION_KEY_${version.toUpperCase()}`;
   const raw = process.env[envVar];
@@ -42,6 +50,11 @@ function getKeyForVersion(version: string): Buffer {
     key = scryptSync(raw, salt, 32, { N: 16384, r: 8, p: 1 });
   }
 
+  // BUG-052: LRU eviction — evict the oldest entry when the cache is full.
+  if (keyCache.size >= KEY_CACHE_MAX) {
+    const oldestKey = keyCache.keys().next().value;
+    if (oldestKey !== undefined) keyCache.delete(oldestKey);
+  }
   keyCache.set(version, key);
   return key;
 }

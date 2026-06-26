@@ -33,6 +33,7 @@ import { loadManifest } from "@/lib/manifest";
 import { processPendingPayouts, reconcileStuckPayouts } from "@/lib/payments/payouts";
 import { validateCronSecret } from "@/lib/cron/auth";
 import { logger } from "@/lib/logger";
+import { db } from "@/lib/db";
 
 export const POST = async (req: NextRequest) => {
   // ── Auth ──────────────────────────────────────────────────────────────────
@@ -62,10 +63,35 @@ export const POST = async (req: NextRequest) => {
     // Re-queries Paystack for their current status to recover from lost webhooks.
     const reconcileResult = await reconcileStuckPayouts();
 
+    // BUG-061: Monitor DLQ depth and alert when it exceeds a threshold.
+    let dlqDepth = 0;
+    try {
+      const { rows } = await db.query<{ count: string }>(
+        `SELECT COUNT(*) AS count FROM payout_dead_letter_queue`
+      );
+      dlqDepth = parseInt(rows[0]?.count ?? "0", 10);
+      const DLQ_ALERT_THRESHOLD = 10;
+      if (dlqDepth >= DLQ_ALERT_THRESHOLD) {
+        logger.warn({ dlqDepth }, "[cron/payouts] DLQ depth alert: payout_dead_letter_queue has many entries");
+        await db.query(
+          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
+           VALUES ('payout_dlq_depth', 'warning', $1, $2::jsonb, NOW())
+           ON CONFLICT DO NOTHING`,
+          [
+            `Payout DLQ has ${dlqDepth} entries — manual review required`,
+            JSON.stringify({ dlqDepth }),
+          ]
+        ).catch(() => {});
+      }
+    } catch (err) {
+      logger.warn({ err }, "[cron/payouts] Failed to check DLQ depth");
+    }
+
     return NextResponse.json({
       success: true,
       result,
       reconcileResult,
+      dlqDepth,
       durationMs: Date.now() - startedAt,
       timestamp: new Date().toISOString(),
     });

@@ -240,14 +240,29 @@ export const POST = withAuth(
         }
 
         // Sticker pack reward
+        // BUG-062: reward_value may store a pack name instead of a UUID.
+        // Resolve to UUID by looking up by id first, then by name as fallback.
         if (milestone.reward_type === "sticker_pack" && reward.stickerPackId) {
-          await client.query(
-            `INSERT INTO user_sticker_packs (user_id, pack_id, acquired_at)
-             VALUES ($1, $2, NOW())
-             ON CONFLICT (user_id, pack_id) DO NOTHING`,
-            [userId, reward.stickerPackId]
-          );
-          awardsGiven.stickerPackId = reward.stickerPackId;
+          const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+          let resolvedPackId: string | null = UUID_RE.test(reward.stickerPackId)
+            ? reward.stickerPackId
+            : null;
+          if (!resolvedPackId) {
+            const { rows: packRows } = await client.query<{ id: string }>(
+              `SELECT id FROM sticker_packs WHERE name = $1 AND is_active = TRUE LIMIT 1`,
+              [reward.stickerPackId]
+            );
+            resolvedPackId = packRows[0]?.id ?? null;
+          }
+          if (resolvedPackId) {
+            await client.query(
+              `INSERT INTO user_sticker_packs (user_id, pack_id, acquired_at)
+               VALUES ($1, $2, NOW())
+               ON CONFLICT (user_id, pack_id) DO NOTHING`,
+              [userId, resolvedPackId]
+            );
+            awardsGiven.stickerPackId = resolvedPackId;
+          }
         }
 
         // Title reward

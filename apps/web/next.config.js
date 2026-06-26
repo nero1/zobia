@@ -44,6 +44,9 @@ const securityHeaders = [
 ];
 
 const nextConfig = {
+  // BUG-018 FIX: Suppress the X-Powered-By: Next.js response header to avoid
+  // leaking implementation details to potential attackers.
+  poweredByHeader: false,
   // Transpile the shared workspace package so its runtime ESM/TS utilities
   // (slug + referral helpers in @zobia/shared/utils) compile inside the Next
   // build instead of being treated as pre-built node_modules.

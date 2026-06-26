@@ -6,12 +6,21 @@ export const dynamic = 'force-dynamic';
  * JWT token refresh endpoint.
  *
  * POST /api/auth/refresh
- *   1. Reads the refresh token from the HttpOnly `zobia_rt` cookie
+ *   1. Reads the refresh token from the HttpOnly `zobia_rt` cookie (web/PWA)
+ *      or the `X-Refresh-Token` request header (Expo mobile — cannot use cookies)
  *   2. Validates the token signature and expiry with jose
  *   3. Confirms the session still exists in Redis (not revoked)
- *   4. Issues a new access token
- *   5. Updates the access token cookie
+ *   4. Issues a new access token and rotates the refresh token
+ *   5. Updates the access and refresh token cookies (web/PWA)
  *   6. Returns { expiresIn } for client-side scheduling
+ *
+ * BUG-058 — refresh token in response body (mobile only):
+ *   Web/PWA clients receive tokens exclusively via HttpOnly Set-Cookie headers,
+ *   keeping them inaccessible to JavaScript.
+ *   Expo/React-Native clients cannot consume HttpOnly cookies and must receive
+ *   tokens in the JSON body — this is only done when the X-Refresh-Token header
+ *   is present (isMobile = true) and the connection MUST be HTTPS in production.
+ *   Never log, cache, or expose these values to third-party scripts.
  */
 
 import { type NextRequest, NextResponse } from "next/server";

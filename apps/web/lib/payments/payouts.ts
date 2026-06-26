@@ -19,6 +19,40 @@
 import { db } from "@/lib/db";
 import { initiateTransfer, verifyTransfer } from "@/lib/payments/paystack";
 import { logger } from "@/lib/logger";
+import { redis } from "@/lib/redis";
+
+// ---------------------------------------------------------------------------
+// Circuit breaker keys and helpers
+// ---------------------------------------------------------------------------
+
+const CIRCUIT_OPEN_KEY = 'circuit:paystack:open';
+const CIRCUIT_FAIL_KEY = 'circuit:paystack:failures';
+const CIRCUIT_FAIL_THRESHOLD = 3;
+const CIRCUIT_OPEN_TTL_SECONDS = 60;
+const CIRCUIT_FAIL_WINDOW_SECONDS = 120;
+
+async function assertCircuitClosed(): Promise<void> {
+  const isOpen = await redis.get(CIRCUIT_OPEN_KEY);
+  if (isOpen) {
+    throw new Error('Paystack circuit breaker is OPEN — skipping attempt');
+  }
+}
+
+async function recordCircuitSuccess(): Promise<void> {
+  await redis.del(CIRCUIT_FAIL_KEY);
+}
+
+async function recordCircuitFailure(): Promise<void> {
+  const failures = await redis.incr(CIRCUIT_FAIL_KEY);
+  await redis.expire(CIRCUIT_FAIL_KEY, CIRCUIT_FAIL_WINDOW_SECONDS);
+  if (failures >= CIRCUIT_FAIL_THRESHOLD) {
+    await redis.set(CIRCUIT_OPEN_KEY, '1', 'EX', CIRCUIT_OPEN_TTL_SECONDS);
+    logger.warn(
+      { failures },
+      '[payouts:circuit] Paystack circuit breaker OPENED after consecutive failures'
+    );
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -167,20 +201,30 @@ async function attemptTransfer(
     // deduplicate and we never double-pay on a network-blip retry (#6).
     const reference = payout.idempotency_key;
 
+    // BUG-073: Check circuit breaker before any Paystack HTTP call.
+    await assertCircuitClosed();
+
     // On retries, verify whether the previous attempt actually succeeded before
     // re-initiating to avoid double-payment on delayed confirmations.
     if (isRetry && payout.provider_reference) {
       try {
         const prior = await verifyTransfer(payout.provider_reference);
         if (prior.status === "success") {
+          await recordCircuitSuccess();
           await db.query(
             `UPDATE creator_payouts SET status = 'completed', updated_at = NOW() WHERE id = $1`,
             [payout.id]
           );
           return { success: true, dlq: false };
         }
-      } catch {
-        // verifyTransfer failed (not found or network error) — proceed to re-initiate
+      } catch (verifyErr) {
+        // verifyTransfer failed (not found or network error) — record the failure
+        // and proceed to re-initiate only if the circuit is still closed.
+        await recordCircuitFailure();
+        const stillOpen = await redis.get(CIRCUIT_OPEN_KEY);
+        if (stillOpen) {
+          throw new Error('Paystack circuit breaker is OPEN — skipping attempt');
+        }
       }
     }
 
@@ -190,6 +234,9 @@ async function attemptTransfer(
       reference,
       "Creator payout"
     );
+
+    // BUG-073: Successful Paystack call — reset the failure counter.
+    await recordCircuitSuccess();
 
     await db.query(
       `UPDATE creator_payouts
@@ -203,6 +250,12 @@ async function attemptTransfer(
 
     return { success: true, dlq: false };
   } catch (err) {
+    // BUG-073: Record failure for circuit breaker unless it's a circuit-open error itself.
+    const errMsg = err instanceof Error ? err.message : '';
+    if (!errMsg.includes('circuit breaker is OPEN')) {
+      await recordCircuitFailure();
+    }
+
     const newRetryCount = payout.retry_count + 1;
 
     if (newRetryCount >= maxRetries) {
@@ -272,8 +325,14 @@ export async function reconcileStuckPayouts(): Promise<{ reconciled: number; fai
 
   for (const candidate of candidateIds) {
     try {
+      // BUG-073: Check circuit breaker before Paystack HTTP call.
+      await assertCircuitClosed();
+
       // Verify with external provider before touching the DB
       const transfer = await verifyTransfer(candidate.provider_reference);
+
+      // Successful call — reset failure counter.
+      await recordCircuitSuccess();
 
       if (transfer.status === "success") {
         // Wrap in transaction with FOR UPDATE so concurrent webhook handlers
@@ -305,7 +364,10 @@ export async function reconcileStuckPayouts(): Promise<{ reconciled: number; fai
             [candidate.id]
           );
           if (!cur[0].earnings_restored) {
-            const restoreAmount = cur[0].net_kobo ?? cur[0].gross_kobo;
+            if (cur[0].net_kobo == null) {
+              throw new Error(`[payouts] Cannot restore payout ${candidate.id}: net_kobo is null. Manual ops review required.`);
+            }
+            const restoreAmount = cur[0].net_kobo;
             await tx.query(
               `UPDATE creator_payouts SET earnings_restored = true WHERE id = $1`,
               [candidate.id]
@@ -324,6 +386,11 @@ export async function reconcileStuckPayouts(): Promise<{ reconciled: number; fai
       // For other statuses (pending, otp, abandoned) — leave as 'processing'
       // and let the next reconciliation cycle pick them up again.
     } catch (err) {
+      // BUG-073: Record circuit failure unless it's a circuit-open short-circuit.
+      const errMsg = err instanceof Error ? err.message : '';
+      if (!errMsg.includes('circuit breaker is OPEN')) {
+        await recordCircuitFailure();
+      }
       logger.error({ err: err }, `[payouts:reconcile] Failed to reconcile payout ${candidate.id}:`);
     }
   }

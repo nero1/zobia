@@ -258,9 +258,9 @@ export async function processPendingGiftDrops(db: DatabaseAdapter): Promise<{
           'A limited-time exclusive gift is dropping soon. Check it out before it\'s gone!',
           { giftDropId: drop.id, batchIndex }
         )
-          .catch((err: unknown) =>
+          .catch((err: unknown) => {
             logger.error({ err: err }, `[monthlyGiftDrop] Failed to send notifications for drop ${drop.id} batch ${batchIndex}:`);
-          );
+          });
         if (batchRows.length < BATCH_SIZE) break;
         cursorId = batchRows[batchRows.length - 1].id;
         batchIndex++;

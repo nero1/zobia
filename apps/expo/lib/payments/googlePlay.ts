@@ -304,17 +304,50 @@ async function savePendingRecovery(): Promise<void> {
 }
 
 async function loadPendingRecovery(): Promise<void> {
+  let raw: string | null = null;
   try {
-    const raw = await SecureStore.getItemAsync(PENDING_RECOVERY_KEY);
+    raw = await SecureStore.getItemAsync(PENDING_RECOVERY_KEY);
     if (!raw) return;
-    const obj = JSON.parse(raw) as Record<string, { timestamp: number }>;
-    const now = Date.now();
-    Object.entries(obj).forEach(([k, v]) => {
-      if (now - v.timestamp < RECOVERY_EXPIRY_MS) {
-        pendingRecovery.set(k, v);
-      }
-    });
-  } catch {}
+  } catch (err) {
+    console.warn('[googlePlay] loadPendingRecovery: failed to read SecureStore key:', err);
+    return;
+  }
+
+  let obj: unknown;
+  try {
+    obj = JSON.parse(raw);
+  } catch (err) {
+    // BUG-030: Corrupted SecureStore value — clear it so future runs start clean.
+    console.warn('[googlePlay] loadPendingRecovery: JSON.parse failed, clearing corrupted key:', err);
+    await SecureStore.deleteItemAsync(PENDING_RECOVERY_KEY).catch(() => {});
+    return;
+  }
+
+  if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) {
+    console.warn('[googlePlay] loadPendingRecovery: unexpected shape, clearing key');
+    await SecureStore.deleteItemAsync(PENDING_RECOVERY_KEY).catch(() => {});
+    return;
+  }
+
+  const now = Date.now();
+  Object.entries(obj as Record<string, unknown>).forEach(([k, v]) => {
+    // BUG-070: Basic schema validation — only accept entries where k is a string
+    // and v.timestamp is a number. Reject anything that doesn't match the
+    // expected shape to prevent corrupted data from blocking purchases.
+    if (
+      typeof k !== 'string' ||
+      typeof v !== 'object' ||
+      v === null ||
+      typeof (v as Record<string, unknown>).timestamp !== 'number'
+    ) {
+      console.warn(`[googlePlay] loadPendingRecovery: skipping malformed entry for key "${k}"`);
+      return;
+    }
+    const entry = v as { timestamp: number };
+    if (now - entry.timestamp < RECOVERY_EXPIRY_MS) {
+      pendingRecovery.set(k, entry);
+    }
+  });
 }
 
 const VERIFY_FAILED_MESSAGE =

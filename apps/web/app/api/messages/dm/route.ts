@@ -599,9 +599,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     );
 
     // 14. Record guild war contribution — best-effort
-    recordWarContribution(auth.user.sub, 'send_message', db).catch((err) =>
+    recordWarContribution(auth.user.sub, 'send_message', db).catch((err) => {
       logger.error({ err: err }, "[dm:POST] war contribution failed");
-    );
+      });
 
     // 15. Realtime broadcast — push the new message to open clients
     if (message.id) {

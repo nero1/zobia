@@ -276,9 +276,9 @@ export const POST = withAuth(async (
   void triggerActivityQuestProgress(userId, 'send_room_message', db);
 
   // Record guild war contribution (non-blocking)
-  recordWarContribution(userId, 'send_message', db).catch((err) =>
+  recordWarContribution(userId, 'send_message', db).catch((err) => {
     logger.error({ err: err }, '[group:POST] war contribution failed');
-  );
+    });
 
   // Realtime broadcast — push to open clients so group members see new messages
   // instantly (the 3s poll remains the guaranteed-delivery fallback).

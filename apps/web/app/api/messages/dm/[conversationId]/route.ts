@@ -222,9 +222,9 @@ export const GET = withAuth(
            AND is_read = FALSE
            AND is_deleted = FALSE`,
         [conversationId, auth.user.sub]
-      ).catch((err) =>
+      ).catch((err) => {
         logger.error({ err: err }, "[dm/[conversationId]:GET] Mark read failed");
-      );
+        });
 
       // Cursor pagination only applies to the backlog query, not delta polling.
       const lastRow = !deltaMode && rows.length === limit ? rows[rows.length - 1] : null;

@@ -109,6 +109,16 @@ export const RATE_LIMITS = {
   gameScore: { limit: 60, windowMs: 60 * 1000, name: "game:score" } as RateLimitOptions,
   /** Phone-book cross-reference — tight limit to prevent bulk contact enumeration. */
   contactsLookup: { limit: 5, windowMs: 60 * 1000, name: "contacts:lookup", bypassL1: true } as RateLimitOptions,
+  // BUG-060 FIX: separate rate limit presets for auth flows. bypassL1 is set on all
+  // auth endpoints so multi-instance L1 over-counting cannot allow excess attempts.
+  /** OAuth initiation (e.g. /api/auth/google) — low limit; bypassL1 for accuracy. */
+  oauthInit: { limit: 10, windowMs: 15 * 60 * 1000, name: "oauth:init", bypassL1: true } as RateLimitOptions,
+  /** OAuth callback (e.g. /api/auth/google/callback) — slightly higher; bypassL1. */
+  oauthCallback: { limit: 20, windowMs: 15 * 60 * 1000, name: "oauth:callback", bypassL1: true } as RateLimitOptions,
+  /** Email/password login — bypassL1 so brute-force is never under-counted. */
+  login: { limit: 15, windowMs: 15 * 60 * 1000, name: "auth:login", bypassL1: true } as RateLimitOptions,
+  /** New account registration — tight hourly limit; bypassL1. */
+  register: { limit: 5, windowMs: 60 * 60 * 1000, name: "auth:register", bypassL1: true } as RateLimitOptions,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -177,15 +187,17 @@ const RL_MEM_TTL_MS = 2_000;
 
 /**
  * Fraction of the limit below which we can safely skip the Redis round-trip.
- * BUG-16: lowered from 0.7 to 0.4; BUG-RL-01: further lowered to 0.25.
+ * BUG-16: lowered from 0.7 to 0.4; BUG-RL-01: further lowered to 0.25;
+ * BUG-021 FIX: further lowered to 0.1.
  *
  * Multi-instance overage formula: N × L1% × limit
- * At 0.25 with N=3 serverless instances: each instance allows up to 25% of the
- * limit before hitting Redis. Burst headroom = 3 × 0.25 × limit = 75% of limit
- * before Redis cuts in. This is a defense-in-depth trade-off between latency
- * (Redis round-trips) and accuracy. For zero-tolerance endpoints use bypassL1: true.
+ * At 0.1 with N=3 serverless instances: each instance allows up to 10% of the
+ * limit before hitting Redis. Burst headroom = 3 × 0.1 × limit = 30% of limit
+ * before Redis cuts in. This tighter threshold reduces multi-instance over-counting
+ * while still saving Redis round-trips on low-traffic endpoints.
+ * For zero-tolerance endpoints use bypassL1: true.
  */
-const RL_SKIP_THRESHOLD = 0.25;
+const RL_SKIP_THRESHOLD = 0.1;
 
 // ---------------------------------------------------------------------------
 // Core sliding-window implementation
@@ -209,7 +221,10 @@ async function slidingWindowCheck(
   // count is well below the limit, skip the Redis round-trip entirely.
   // BUG-16: skip fast-path when bypassL1 is set (sensitive endpoints like auth/PIN)
   // BUG-013 FIX: also skip when skipThreshold is explicitly 0
-  const effectiveSkipThreshold = options.bypassL1 ? 0 : (options.skipThreshold ?? RL_SKIP_THRESHOLD);
+  // BUG-069 FIX: clamp skipThreshold to [0, 1] so invalid caller-supplied values
+  // (negative or >1) don't cause the L1 fast-path to behave unexpectedly.
+  const rawThreshold = options.skipThreshold ?? RL_SKIP_THRESHOLD;
+  const effectiveSkipThreshold = options.bypassL1 ? 0 : Math.min(Math.max(rawThreshold, 0), 1);
   const memKey = `rl_mem:${key}`;
   const memEntry = memGet<RlMemEntry>(memKey);
   if (effectiveSkipThreshold > 0 && memEntry && (now - memEntry.windowStart) < RL_MEM_TTL_MS) {

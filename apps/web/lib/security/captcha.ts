@@ -75,8 +75,13 @@ const RECAPTCHA_MIN_SCORE = 0.5;
  * Used as a fallback when the manifest/DB is temporarily unavailable so that
  * a transient DB outage doesn't fall back to "none" in production (which would
  * block all users if verifyCaptcha rejects "none" in production).
+ *
+ * BUG-051: Initialized to "recaptcha" (not null) so the very first request
+ * during a cold-start DB outage has a safe default instead of falling back to
+ * "none" (which bypasses CAPTCHA in non-production or blocks all users in
+ * production via the "none" branch in verifyCaptcha).
  */
-let _lastKnownGoodProvider: CaptchaProvider | null = null;
+let _lastKnownGoodProvider: CaptchaProvider = "recaptcha";
 
 /**
  * Determine which CAPTCHA provider to use by reading the x_manifest.
@@ -97,13 +102,18 @@ async function resolveProvider(): Promise<CaptchaProvider> {
       _lastKnownGoodProvider = manifestValue;
       return manifestValue;
     }
+    // BUG-051: Unknown manifest value — log an error and fall back to the last
+    // known good provider rather than silently returning "none" (which would
+    // bypass CAPTCHA enforcement entirely in development or block all users in
+    // production).
+    logger.error(
+      `[captcha] Unknown provider value: "${manifestValue}" — using last known good provider`
+    );
+    return _lastKnownGoodProvider;
   } catch {
     // DB unavailable — use last known good provider to avoid blocking all users
-    if (_lastKnownGoodProvider !== null) {
-      return _lastKnownGoodProvider;
-    }
+    return _lastKnownGoodProvider;
   }
-  return "none";
 }
 
 // ---------------------------------------------------------------------------

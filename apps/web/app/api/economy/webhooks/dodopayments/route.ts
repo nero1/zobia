@@ -21,8 +21,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { verifyWebhookSignature } from "@/lib/payments/dodopayments";
 import { redis } from "@/lib/redis";
-import {
 import { logger } from "@/lib/logger";
+import {
   handleDodoWebhookPayload,
   type DodoPaymentSucceededEvent,
   type DodoPayoutEvent,

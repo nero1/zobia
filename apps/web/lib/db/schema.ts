@@ -392,13 +392,16 @@ export const telegramLoginStates = pgTable("telegram_login_states", {
   status: text("status").notNull().default("pending"),
   token: text("token"),
   userPayload: text("user_payload"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
-});
+}, (t) => ({
+  expiresAtIdx: index("telegram_login_states_expires_at_idx").on(t.expiresAt),
+}));
 
 // ---------------------------------------------------------------------------
 // SECTION 3: Social Graph & Messaging
@@ -718,7 +721,9 @@ export const moments = pgTable("moments", {
     .notNull()
     .default(sql`NOW() + INTERVAL '24 hours'`),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-});
+}, (t) => [
+  check("moments_media_url_required", sql`${t.contentType} = 'text' OR ${t.mediaUrl} IS NOT NULL`),
+]);
 
 export const momentViews = pgTable(
   "moment_views",
@@ -825,7 +830,7 @@ export const guildMembers = pgTable(
     leftAt: timestamp("left_at", { withTimezone: true }),
   },
   (t) => ({
-    unique: uniqueIndex("guild_members_guild_user_idx").on(t.guildId, t.userId),
+    unique: uniqueIndex("guild_members_guild_user_active_idx").on(t.guildId, t.userId).where(sql`left_at IS NULL`),
   })
 );
 
@@ -852,6 +857,7 @@ export const guildWars = pgTable("guild_wars", {
   finalHourStartsAt: timestamp("final_hour_starts_at", {
     withTimezone: true,
   }).notNull(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
@@ -1605,6 +1611,8 @@ export const seasons = pgTable("seasons", {
   isActive: boolean("is_active").default(false),
   /** Timestamp when end-of-season ranking reset was performed (BUG-DB-01). */
   rankingsResetAt: timestamp("rankings_reset_at", { withTimezone: true }),
+  /** Season lifecycle: 'active' | 'ended' | 'distributing' | 'completed' */
+  status: text("status").notNull().default("active"),
   createdBy: uuid("created_by").references(() => users.id, {
     onDelete: "set null",
   }),
@@ -1773,7 +1781,8 @@ export const nemesisAssignments = pgTable(
     nemesisUserId: uuid("nemesis_user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    nemesisId: uuid("nemesis_id").references(() => users.id, {
+    // challengerUserId is the secondary nemesis reference (renamed from nemesisId for clarity)
+    challengerUserId: uuid("nemesis_id").references(() => users.id, {
       onDelete: "set null",
     }),
     track: text("track").notNull().default("main"),
@@ -2083,12 +2092,11 @@ export const gifts = pgTable("gifts", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   roomId: uuid("room_id").references(() => rooms.id, { onDelete: "set null" }),
-  giftItemId: uuid("gift_item_id")
+  // BUG-045: giftItemId is now nullable (legacy backcompat); giftTypeId is required.
+  giftItemId: uuid("gift_item_id").references(() => giftItems.id, { onDelete: "restrict" }),
+  giftTypeId: uuid("gift_type_id")
     .notNull()
-    .references(() => giftItems.id, { onDelete: "restrict" }),
-  giftTypeId: uuid("gift_type_id").references(() => giftTypes.id, {
-    onDelete: "restrict",
-  }),
+    .references(() => giftTypes.id, { onDelete: "restrict" }),
   coinValue: bigint("coin_value", { mode: "bigint" }).notNull(),
   coinCost: bigint("coin_cost", { mode: "bigint" }).notNull(),
   animationUrl: text("animation_url"),
@@ -2105,11 +2113,11 @@ export const storeItems = pgTable("store_items", {
   slug: text("slug").unique(),
   description: text("description"),
   itemType: text("item_type").notNull(),
-  priceKobo: bigint("price_kobo", { mode: "bigint" }),
+  priceKobo: bigint("price_kobo", { mode: "bigint" }).notNull(),
   currency: text("currency").notNull().default("NGN"),
-  coinsCost: bigint("coins_cost", { mode: "number" }),
+  coinsCost: bigint("coins_cost", { mode: "bigint" }),
   starsCost: integer("stars_cost"),
-  coinsGranted: bigint("coins_granted", { mode: "number" }),
+  coinsGranted: bigint("coins_granted", { mode: "bigint" }),
   starsGranted: integer("stars_granted"),
   cosmeticType: text("cosmetic_type"),
   bonusLabel: text("bonus_label"),
@@ -2131,7 +2139,9 @@ export const storeItems = pgTable("store_items", {
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
-});
+}, (t) => [
+  check("store_items_price_kobo_non_negative", sql`${t.priceKobo} >= 0`),
+]);
 
 export const userCosmetics = pgTable(
   "user_cosmetics",
@@ -2235,7 +2245,9 @@ export const reactionSets = pgTable("reaction_sets", {
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
-});
+}, (t) => [
+  check("reaction_sets_coin_price_positive", sql`${t.coinPrice} >= 1`),
+]);
 
 export const reactionSetItems = pgTable("reaction_set_items", {
   id: uuidPk(),
@@ -2537,11 +2549,11 @@ export const referralCommissions = pgTable("referral_commissions", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   triggerEventId: text("trigger_event_id").notNull().unique(),
-  // Migration 009 (lib) / 012 (db): added tier column
-  tier: text("tier").notNull().default("1"),
+  // Migration 009 (lib) / 012 (db): added tier column — integer to match referrals.tier
+  tier: integer("tier").notNull().default(1),
   purchaseAmountKobo: bigint("purchase_amount_kobo", { mode: "bigint" }).notNull(),
   commissionKobo: bigint("commission_kobo", { mode: "bigint" }).notNull(),
-  commissionCoins: bigint("commission_coins", { mode: "number" }).notNull().default(0),
+  commissionCoins: bigint("commission_coins", { mode: "bigint" }).notNull().default(BigInt(0)),
   status: text("status").notNull().default("pending"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
@@ -2627,7 +2639,9 @@ export const creatorBroadcasts = pgTable("creator_broadcasts", {
   recipientCount: integer("recipient_count").notNull().default(0),
   costCoins: integer("cost_coins").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-});
+}, (t) => [
+  check("creator_broadcasts_content_length", sql`char_length(${t.content}) <= 10000`),
+]);
 
 export const creatorSpotlights = pgTable("creator_spotlights", {
   id: uuidPk(),
@@ -3273,7 +3287,11 @@ export const adminAuditLog = pgTable("admin_audit_log", {
   metadata: jsonb("metadata"),
   ipAddress: text("ip_address"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-});
+}, (t) => [
+  index("admin_audit_log_admin_id_idx").on(t.adminId),
+  index("admin_audit_log_created_at_idx").on(t.createdAt),
+  index("admin_audit_log_admin_created_idx").on(t.adminId, t.createdAt),
+]);
 
 export const adminRoles = pgTable(
   "admin_roles",
@@ -3310,8 +3328,9 @@ export const systemAlerts = pgTable("system_alerts", {
 
 export const moderationAiEscalations = pgTable("moderation_ai_escalations", {
   id: uuidPk(),
-  // FK to moderation_reports established at DB level (forward ref in 001)
-  reportId: uuid("report_id").notNull(),
+  reportId: uuid("report_id")
+    .notNull()
+    .references(() => moderationReports.id, { onDelete: "cascade" }),
   adminId: uuid("admin_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
@@ -3762,12 +3781,15 @@ export const failedWebhooks = pgTable("failed_webhooks", {
   payload: jsonb("payload"),
   error: text("error"),
   retryCount: integer("retry_count").default(0).notNull(),
+  maxAttempts: integer("max_attempts").default(5).notNull(),
   nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
   resolvedAt: timestamp("resolved_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
-});
+}, (t) => [
+  check("failed_webhooks_retry_count_max", sql`${t.retryCount} <= ${t.maxAttempts}`),
+]);
 
 // Audit trail for AI / automated moderation actions (admin tools)
 export const automatedActionsLog = pgTable("automated_actions_log", {
@@ -3801,7 +3823,7 @@ export const refunds = pgTable("refunds", {
   amountCoins: bigint("amount_coins", { mode: "bigint" }).notNull(),
   reason: text("reason"),
   referenceId: text("reference_id"),
-  status: text("status").notNull().default("processed"),
+  status: text("status").notNull().default("pending"),
   processedBy: uuid("processed_by").references(() => users.id, {
     onDelete: "set null",
   }),
