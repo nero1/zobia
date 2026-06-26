@@ -31,6 +31,7 @@ import {
   endConnection,
   getProducts,
   getSubscriptions,
+  getAvailablePurchases,
   requestPurchase,
   requestSubscription,
   finishTransaction,
@@ -42,9 +43,30 @@ import {
   type Purchase,
   type PurchaseError,
 } from 'react-native-iap';
+import * as SecureStore from 'expo-secure-store';
 import { apiClient } from '@/lib/api/client';
 import { randomUUID } from 'expo-crypto';
-import { getItem, setItem, STORE_KEYS } from '@/lib/offline/store';
+import { STORE_KEYS } from '@/lib/offline/store';
+
+// BUG-PAY-02 FIX: store subscription tokens in SecureStore (survives reinstall)
+// instead of MMKV (cleared on reinstall).
+const SUB_TOKENS_KEY = 'zobia_active_sub_tokens';
+
+async function getSubTokens(): Promise<Record<string, string>> {
+  try {
+    const raw = await SecureStore.getItemAsync(SUB_TOKENS_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+async function setSubTokens(tokens: Record<string, string>): Promise<void> {
+  try {
+    await SecureStore.setItemAsync(SUB_TOKENS_KEY, JSON.stringify(tokens));
+  } catch {}
+}
 
 const APP_PACKAGE_NAME = 'org.zobia.social';
 
@@ -344,12 +366,12 @@ function setupGlobalPurchaseListeners(): void {
       // H-2 FIX: persist the purchase token for subscriptions so upgrades/
       // downgrades can use subscriptionReplacementInfo with the old token instead
       // of the deprecated replaceSku field (Play Billing v5+).
+      // BUG-PAY-02 FIX: store in SecureStore (survives reinstall) not MMKV.
       if (isSubscription && purchaseToken) {
-        try {
-          const tokens = getItem<Record<string, string>>(STORE_KEYS.ACTIVE_SUB_TOKENS, {});
+        getSubTokens().then((tokens) => {
           tokens[productId] = purchaseToken;
-          setItem(STORE_KEYS.ACTIVE_SUB_TOKENS, tokens);
-        } catch {}
+          return setSubTokens(tokens);
+        }).catch(() => {});
       }
       resolver({
         status: 'success',
@@ -382,28 +404,37 @@ function setupGlobalPurchaseListeners(): void {
 // ---------------------------------------------------------------------------
 
 let initialised = false;
+// BUG-PAY-01 FIX: use a promise guard instead of a boolean set before await,
+// so concurrent callers wait for the in-flight init rather than returning early
+// with a false "already initialised" signal.
+let _initPromise: Promise<void> | null = null;
 
 /**
  * Connect to Google Play Billing. Call once at app startup (Android only).
  */
 export async function initGooglePlayBilling(): Promise<void> {
-  if (Platform.OS !== 'android' || initialised) return;
-  // Set flag before await to prevent a second concurrent call from also
-  // entering initConnection while the first is still in flight (race window fix).
-  initialised = true;
-  try {
-    await initConnection();
-    // Recommended on Android: reconcile any purchases stuck in the pending
-    // state from a previous run. Failure here is non-fatal.
+  if (Platform.OS !== 'android') return;
+  if (initialised) return;
+  if (_initPromise) return _initPromise;
+
+  _initPromise = (async () => {
     try {
-      await flushFailedPurchasesCachedAsPendingAndroid();
-    } catch {}
-    setupGlobalPurchaseListeners();
-  } catch (err) {
-    // Reset so the caller can retry after a failed init attempt.
-    initialised = false;
-    throw err;
-  }
+      await initConnection();
+      // Recommended on Android: reconcile any purchases stuck in the pending
+      // state from a previous run. Failure here is non-fatal.
+      try {
+        await flushFailedPurchasesCachedAsPendingAndroid();
+      } catch {}
+      setupGlobalPurchaseListeners();
+      initialised = true;
+    } catch (err) {
+      throw err;
+    } finally {
+      _initPromise = null;
+    }
+  })();
+
+  return _initPromise;
 }
 
 // ---------------------------------------------------------------------------
@@ -775,11 +806,65 @@ export async function purchaseSubscription(
  * Used by callers of purchaseSubscription() to supply the oldPurchaseToken
  * required by Play Billing v5+ subscription replacement flows (H-2 fix).
  */
-export function getActiveSubscriptionToken(productId: string): string | undefined {
+// BUG-PAY-02 FIX: async version reads from SecureStore instead of MMKV.
+export async function getActiveSubscriptionToken(productId: string): Promise<string | undefined> {
+  const tokens = await getSubTokens();
+  return tokens[productId];
+}
+
+// ---------------------------------------------------------------------------
+// BUG-PAY-03 FIX: Purchase restore mechanism
+// ---------------------------------------------------------------------------
+
+/**
+ * Restore previously-purchased coins/stars/subscriptions by fetching all
+ * available purchases from Google Play and re-verifying them server-side.
+ * Use this for "Restore Purchases" button in the UI.
+ *
+ * @returns Array of restored product IDs that were successfully re-verified.
+ */
+export async function restorePurchases(): Promise<{ restored: string[]; errors: string[] }> {
+  if (Platform.OS !== 'android') return { restored: [], errors: ['Android only'] };
+
+  const restored: string[] = [];
+  const errors: string[] = [];
+
   try {
-    const tokens = getItem<Record<string, string>>(STORE_KEYS.ACTIVE_SUB_TOKENS, {});
-    return tokens[productId];
-  } catch {
-    return undefined;
+    const purchases: Purchase[] = await getAvailablePurchases();
+    if (!purchases || purchases.length === 0) {
+      return { restored: [], errors: [] };
+    }
+
+    await Promise.allSettled(
+      purchases.map(async (purchase) => {
+        const productId = purchase.productId;
+        const purchaseToken = getPurchaseToken(purchase);
+        if (!purchaseToken) return;
+
+        const isSubscription = SUBSCRIPTION_IDS.includes(productId);
+        try {
+          const result = await verifyPurchaseServerSide(
+            purchaseToken,
+            productId,
+            APP_PACKAGE_NAME,
+            isSubscription
+          );
+          if (result !== null) {
+            if (!isAcknowledged(purchase)) {
+              await finishTransaction({ purchase, isConsumable: !isSubscription }).catch(() => {});
+            }
+            restored.push(productId);
+          } else {
+            errors.push(`${productId}: server verification failed`);
+          }
+        } catch (err) {
+          errors.push(`${productId}: ${err instanceof Error ? err.message : 'unknown error'}`);
+        }
+      })
+    );
+  } catch (err) {
+    errors.push(err instanceof Error ? err.message : 'Failed to fetch available purchases');
   }
+
+  return { restored, errors };
 }

@@ -94,13 +94,14 @@ interface Message {
   gifUrl?: string;
 }
 
-type RoomMessageType = 'text' | 'moment';
+type RoomMessageType = 'text' | 'moment' | 'gif';
 
 interface SendMessagePayload {
   roomId: string;
   content: string;
   message_type?: RoomMessageType;
   idempotencyKey?: string;
+  metadata?: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
@@ -195,6 +196,7 @@ async function sendMessage(payload: SendMessagePayload): Promise<Message> {
     content: payload.content,
     message_type: payload.message_type ?? 'text',
     idempotencyKey: payload.idempotencyKey,
+    ...(payload.metadata ? { metadata: payload.metadata } : {}),
   });
   return mapApiMessage(data.message ?? {});
 }
@@ -398,7 +400,9 @@ export default function RoomScreen() {
   const { colors: themeColors, isDark } = useTheme();
   const currency = useCurrency();
   const insets = useSafeAreaInsets();
-  const keyboardOffset = Platform.OS === 'ios' ? insets.top + 44 : 0;
+  // BUG-UI-01 FIX: include Android status bar + header height so the input bar
+  // clears the keyboard on Android too (previously 0 left it hidden behind the keyboard).
+  const keyboardOffset = Platform.OS === 'ios' ? insets.top + 44 : insets.top + 56;
   const { t } = useTranslation();
   const { user: authUser } = useAuth();
   const currentUserId = authUser?.id ?? null;
@@ -815,23 +819,18 @@ export default function RoomScreen() {
     );
   }, [roomId, queryClient, t]);
 
-  const handleGifSelect = useCallback(async (gif: GifResult) => {
+  const handleGifSelect = useCallback((gif: GifResult) => {
     if (!roomId) return;
-    try {
-      await apiClient.post(`/rooms/${roomId}/messages`, {
-        content: gif.title || 'GIF',
-        message_type: 'gif',
-        idempotencyKey: randomUUID(),
-        metadata: { gifUrl: gif.url, previewUrl: gif.previewUrl },
-      });
-      queryClient.invalidateQueries({ queryKey: ['room-messages', roomId] });
-    } catch (e) {
-      const axiosErr = e as AxiosError<{ error?: { code?: string; message?: string } }>;
-      const code = axiosErr.response?.data?.error?.code ?? null;
-      const message = axiosErr.response?.data?.error?.message ?? 'Could not send GIF.';
-      Alert.alert('Error', translateApiError(t, code, message));
-    }
-  }, [roomId, queryClient, t]);
+    // BUG-RACE-07 FIX: route GIF sends through sendMutation so they benefit from
+    // offline queuing, optimistic updates, and retry — same as text messages.
+    sendMutation.mutate({
+      roomId,
+      content: gif.title || 'GIF',
+      message_type: 'gif',
+      idempotencyKey: randomUUID(),
+      metadata: { gifUrl: gif.url, previewUrl: gif.previewUrl },
+    });
+  }, [roomId, sendMutation]);
 
   const handleVIPSubscribeWithMethod = useCallback(async (paymentMethod: 'balance' | 'card') => {
     if (!roomId || subscribingRef.current) return;

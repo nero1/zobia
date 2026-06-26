@@ -36,6 +36,10 @@ export function mergeNewestFirst<T extends { id: string; createdAt: string }>(
       seen.add(m.id);
     }
   }
-  merged.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-  return merged;
+  // BUG-PERF-02 FIX: Schwartzian transform — parse each date once instead of
+  // calling Date.parse() twice per comparison (O(n log n) → O(n log n) but with
+  // much fewer Date.parse calls: n instead of 2·n·log(n)).
+  const withTs = merged.map((m) => ({ m, t: Date.parse(m.createdAt) }));
+  withTs.sort((a, b) => b.t - a.t);
+  return withTs.map(({ m }) => m);
 }

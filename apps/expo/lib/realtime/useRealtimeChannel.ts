@@ -94,14 +94,20 @@ export function useRealtimeChannel(
           markConnected(stateChange.current === 'connected');
         });
 
-        // Reconnect when the app comes to the foreground and the socket is not connected.
-        // This handles the case where Ably enters 'suspended' state during a long background period.
+        // Reconnect when the app comes to the foreground and the socket is in a
+        // recoverable state. 'suspended' and 'disconnected' will self-reconnect
+        // but benefit from an early nudge; 'initialized' needs an explicit connect().
+        // BUG-PERF-06 FIX: do NOT reconnect from 'failed' — that is a terminal
+        // state (bad credentials / repeated auth failure) that requires a full
+        // Ably client re-init (handled by the useEffect dependency on `channel`
+        // changing, or a full unmount/remount). Reconnecting from 'failed'
+        // causes a thundering-herd of auth requests that won't succeed.
+        const RECOVERABLE_STATES = new Set(['initialized', 'suspended', 'disconnected']);
         const appStateSubscription = AppState.addEventListener('change', (nextState) => {
           if (
             nextState === 'active' &&
             ablyClient &&
-            ablyClient.connection.state !== 'connected' &&
-            ablyClient.connection.state !== 'connecting'
+            RECOVERABLE_STATES.has(ablyClient.connection.state)
           ) {
             ablyClient.connect();
           }

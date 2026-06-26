@@ -829,6 +829,12 @@ export default function HomeScreen() {
   const [toastMessage, setToastMessage] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const loginToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // BUG-MEM-02 FIX: track mount state to prevent setState after unmount
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => { isMountedRef.current = false; };
+  }, []);
 
   // -------------------------------------------------------------------------
   // Data queries
@@ -908,14 +914,14 @@ export default function HomeScreen() {
     onSuccess: (result) => {
       const today = new Date().toISOString().slice(0, 10);
       try { storage.set(STORE_KEYS.DAILY_LOGIN_LAST_DATE, today); } catch {}
-      if (result.firstLoginToday) {
+      if (result.firstLoginToday && isMountedRef.current) {
         setToastMessage(
           t('home.dailyLoginXP', 'Daily login: +{{xp}} XP', { xp: result.xpAwarded })
         );
         setShowLoginToast(true);
         if (loginToastTimerRef.current) clearTimeout(loginToastTimerRef.current);
         loginToastTimerRef.current = setTimeout(() => {
-          setShowLoginToast(false);
+          if (isMountedRef.current) setShowLoginToast(false);
           loginToastTimerRef.current = null;
         }, 3500);
       }
@@ -964,16 +970,19 @@ export default function HomeScreen() {
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
+    // BUG-UX-01 FIX: use refetchQueries so the spinner stays until the data
+    // is actually re-fetched. invalidateQueries only marks data stale and
+    // resolves immediately, making the spinner disappear before new data arrives.
     await Promise.allSettled([
-      queryClient.invalidateQueries({ queryKey: ['presence'] }),
-      queryClient.invalidateQueries({ queryKey: ['friends'] }),
-      queryClient.invalidateQueries({ queryKey: ['nemesis'] }),
-      queryClient.invalidateQueries({ queryKey: ['quests', 'daily'] }),
-      queryClient.invalidateQueries({ queryKey: ['leaderboard', 'me'] }),
-      queryClient.invalidateQueries({ queryKey: ['users', 'me'] }),
-      queryClient.invalidateQueries({ queryKey: ['guilds', 'discovery'] }),
-      queryClient.invalidateQueries({ queryKey: ['new-member-quest'] }),
-      queryClient.invalidateQueries({ queryKey: ['creator-spotlight'] }),
+      queryClient.refetchQueries({ queryKey: ['presence'] }),
+      queryClient.refetchQueries({ queryKey: ['friends'] }),
+      queryClient.refetchQueries({ queryKey: ['nemesis'] }),
+      queryClient.refetchQueries({ queryKey: ['quests', 'daily'] }),
+      queryClient.refetchQueries({ queryKey: ['leaderboard', 'me'] }),
+      queryClient.refetchQueries({ queryKey: ['users', 'me'] }),
+      queryClient.refetchQueries({ queryKey: ['guilds', 'discovery'] }),
+      queryClient.refetchQueries({ queryKey: ['new-member-quest'] }),
+      queryClient.refetchQueries({ queryKey: ['creator-spotlight'] }),
     ]);
     setRefreshing(false);
   }, [queryClient]);

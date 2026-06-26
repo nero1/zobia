@@ -89,6 +89,9 @@ export function CoinBalance({ style, variant = 'compact' }: CoinBalanceProps) {
     queryFn: fetchBalance,
     staleTime: 30_000,
     refetchInterval: 60_000, // poll every minute while mounted
+    // BUG-PERF-04 FIX: pause polling while the app is backgrounded to avoid
+    // unnecessary API traffic when the user is not looking at the screen.
+    refetchIntervalInBackground: false,
   });
 
   const handlePress = () => {

@@ -33,12 +33,14 @@ const ENCRYPTION_PREFIX = 'v1:';
 // ---------------------------------------------------------------------------
 
 function toBase64Url(buffer: ArrayBuffer): string {
+  // BUG-PERF-03 FIX: use an array + join instead of += concatenation to avoid
+  // O(n²) string allocation (each concatenation copies all previous characters).
   const bytes = new Uint8Array(buffer);
-  let binary = '';
+  const chars = new Array<string>(bytes.byteLength);
   for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
+    chars[i] = String.fromCharCode(bytes[i]);
   }
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  return btoa(chars.join('')).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
 function fromBase64Url(b64: string): Uint8Array {

@@ -120,6 +120,8 @@ export const apiClient = axios.create({
 
 // Prevent concurrent refresh races
 let refreshPromise: Promise<string | null> | null = null;
+// BUG-RACE-04 FIX: guard so only one 401 triggers notifyUnauthenticated
+let _notifiedUnauthenticated = false;
 
 export async function refreshAccessToken(): Promise<string | null> {
   if (refreshPromise) return refreshPromise;
@@ -229,12 +231,18 @@ apiClient.interceptors.response.use(
       }
 
       // Refresh failed — clear credentials and notify AuthContext
+      // BUG-RACE-04 FIX: only notify once even if multiple 401s arrive concurrently
       await Promise.all([
         SecureStore.deleteItemAsync(JWT_KEY),
         SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY),
         SecureStore.deleteItemAsync('zobia_user'),
       ]);
-      notifyUnauthenticated();
+      if (!_notifiedUnauthenticated) {
+        _notifiedUnauthenticated = true;
+        notifyUnauthenticated();
+        // Reset after a short delay so future logins can trigger it again
+        setTimeout(() => { _notifiedUnauthenticated = false; }, 5000);
+      }
     }
 
     return Promise.reject(error);

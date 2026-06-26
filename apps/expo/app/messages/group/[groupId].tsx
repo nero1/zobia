@@ -21,6 +21,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
@@ -80,26 +81,29 @@ function mapGroupMessage(raw: Record<string, unknown>): GroupMessage {
   };
 }
 
-async function fetchGroupMeta(groupId: string): Promise<GroupMeta> {
-  const { data } = await apiClient.get(`/messages/group/${groupId}`);
+// BUG-MEM-05 FIX: combine meta + messages into a single fetch so we don't hit
+// the same endpoint twice on mount (once for meta, once for messages).
+interface GroupFetchResult {
+  meta: GroupMeta;
+  messages: GroupMessage[];
+}
+
+async function fetchGroupData(groupId: string, after?: string): Promise<GroupFetchResult> {
+  const url = after
+    ? `/messages/group/${groupId}?after=${encodeURIComponent(after)}`
+    : `/messages/group/${groupId}`;
+  const { data } = await apiClient.get(url);
   const g: Record<string, unknown> = data.group ?? data;
   const str = (v: unknown, fallback = ''): string => (typeof v === 'string' ? v : fallback);
   const num = (v: unknown): number => (typeof v === 'number' ? v : 0);
-  return {
+  const meta: GroupMeta = {
     id: str(g.id, groupId),
     name: str(g.name, 'Group'),
     tag: str(g.tag),
     memberCount: num(g.member_count ?? g.memberCount),
   };
-}
-
-async function fetchGroupMessages(groupId: string, after?: string): Promise<GroupMessage[]> {
-  const url = after
-    ? `/messages/group/${groupId}?after=${encodeURIComponent(after)}`
-    : `/messages/group/${groupId}`;
-  const { data } = await apiClient.get(url);
   const rows: Record<string, unknown>[] = data.data ?? data.messages ?? [];
-  return rows.map(mapGroupMessage);
+  return { meta, messages: rows.map(mapGroupMessage) };
 }
 
 async function sendGroupMessage(groupId: string, content: string, idempotencyKey?: string): Promise<GroupMessage> {
@@ -209,11 +213,7 @@ export default function GroupConversationScreen() {
   const [pendingMessages, setPendingMessages] = useState<GroupMessage[]>([]);
   const [spamBlocked, setSpamBlocked] = useState(false);
 
-  const { data: groupMeta } = useQuery({
-    queryKey: ['group-meta', groupId],
-    queryFn: () => fetchGroupMeta(groupId!),
-    enabled: !!groupId,
-  });
+  // BUG-MEM-05 FIX: single query fetches both meta + messages in one request
 
   useEffect(() => {
     if (groupMeta) {
@@ -230,33 +230,41 @@ export default function GroupConversationScreen() {
       if (!raw) return;
       const incoming = mapGroupMessage(raw);
       if (!incoming.id) return;
-      queryClient.setQueryData<GroupMessage[]>(['group-messages', groupId], (prev: GroupMessage[] | undefined) => {
-        const list = prev ?? [];
-        if (list.some((m: GroupMessage) => m.id === incoming.id)) return list;
-        return [incoming, ...list];
+      queryClient.setQueryData<GroupFetchResult>(['group-messages', groupId], (prev) => {
+        const list = prev?.messages ?? [];
+        if (list.some((m: GroupMessage) => m.id === incoming.id)) return prev;
+        return { meta: prev?.meta ?? { id: groupId!, name: 'Group', tag: '', memberCount: 0 }, messages: [incoming, ...list] };
       });
     }, [groupId, queryClient]),
   );
 
-  const { data: messages = [], isLoading } = useQuery({
+  const { data: groupData, isLoading } = useQuery({
     queryKey: ['group-messages', groupId],
     queryFn: async () => {
-      const prev = queryClient.getQueryData<GroupMessage[]>(['group-messages', groupId]) ?? [];
-      const after = newestCreatedAt(prev);
-      const incoming = await fetchGroupMessages(groupId!, after);
-      return after ? mergeNewestFirst(prev, incoming) : incoming;
+      const prev = queryClient.getQueryData<GroupFetchResult>(['group-messages', groupId]);
+      const after = newestCreatedAt(prev?.messages ?? []);
+      const result = await fetchGroupData(groupId!, after);
+      if (after && prev) {
+        return { meta: result.meta, messages: mergeNewestFirst(prev.messages, result.messages) };
+      }
+      return result;
     },
     enabled: !!groupId,
     refetchInterval: realtimeConnected ? 30_000 : 3_000,
     refetchOnWindowFocus: true,
     placeholderData: (prev) => prev,
-    initialData: () => (groupId ? readCachedMessages<GroupMessage>(`group:${groupId}`) ?? undefined : undefined),
+    initialData: () => {
+      const cached = groupId ? readCachedMessages<GroupMessage>(`group:${groupId}`) : null;
+      return cached ? { meta: { id: groupId!, name: 'Group', tag: '', memberCount: 0 }, messages: cached } : undefined;
+    },
     initialDataUpdatedAt: 0,
   });
+  const messages = groupData?.messages ?? [];
+  const groupMeta = groupData?.meta;
 
   // Persist latest group messages for instant first paint on reopen.
   useEffect(() => {
-    if (groupId && messages.length) writeCachedMessages(`group:${groupId}`, messages);
+    if (groupId && messages.length) writeCachedMessages(`group:${groupId}`, messages as GroupMessage[]);
   }, [messages, groupId]);
 
   const sendMutation = useMutation({
@@ -318,7 +326,9 @@ export default function GroupConversationScreen() {
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
+        // BUG-UI-03 FIX: include status bar + header height for Android so the
+        // input bar clears the keyboard (previously 0 hid it behind the keyboard).
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : (StatusBar.currentHeight ?? 0) + 56}
       >
         {/* Message list */}
         {(isLoading || !authUser) ? (

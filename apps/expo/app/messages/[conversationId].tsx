@@ -324,21 +324,20 @@ interface GifPickerProps {
 
 function GifPickerModal({ visible, onClose, onSelect }: GifPickerProps) {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<GifResult[]>([]);
-  const [loading, setLoading] = useState(false);
+  // BUG-PERF-05 FIX: debounced query drives a React Query fetch so results are
+  // cached for 5 minutes. Re-opening the picker reuses the cached response
+  // instead of firing a new network request on every open.
+  const [debouncedQuery, setDebouncedQuery] = useState('trending');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { colors: themeColors } = useTheme();
 
-  useEffect(() => {
-    if (!visible) return;
-    let cancelled = false;
-    setLoading(true);
-    searchGifs('trending')
-      .then((res) => { if (!cancelled) setResults(res); })
-      .catch(() => { if (!cancelled) setResults([]); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [visible]);
+  const { data: results = [], isFetching: loading } = useQuery({
+    queryKey: ['gif-search', debouncedQuery],
+    queryFn: () => searchGifs(debouncedQuery || 'trending'),
+    enabled: visible,
+    staleTime: 5 * 60_000, // cache GIF results for 5 min
+    placeholderData: (prev) => prev,
+  });
 
   useEffect(() => {
     return () => {
@@ -353,11 +352,7 @@ function GifPickerModal({ visible, onClose, onSelect }: GifPickerProps) {
     setQuery(text);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      setLoading(true);
-      searchGifs(text || 'trending')
-        .then(setResults)
-        .catch(() => setResults([]))
-        .finally(() => setLoading(false));
+      setDebouncedQuery(text || 'trending');
     }, 400);
   }, []);
 
@@ -764,7 +759,9 @@ export default function DMConversationScreen() {
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 88}
+        // BUG-UI-02 FIX: include the navigation header height (56dp) in the
+        // Android offset so the input bar is fully visible above the keyboard.
+        keyboardVerticalOffset={Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) + 56 : 88}
       >
         {/* Connection badge */}
         {badgeData?.hasBadge && (

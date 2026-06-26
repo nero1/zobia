@@ -16,10 +16,11 @@
  *  - Danger zone: Logout, Delete Account (with confirmation)
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import QRCode from 'react-native-qrcode-svg';
 import {
   Alert,
+  I18nManager,
   Linking,
   Modal,
   Pressable,
@@ -31,6 +32,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import * as Updates from 'expo-updates';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -187,9 +189,17 @@ function ChatPushToggles() {
     mutationFn: (patch: Record<string, boolean>) => apiClient.patch('/users/me/settings', patch),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['user-settings'] }),
   });
+  // BUG-RACE-06 FIX: debounce rapid toggles so only the final state is sent
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingPatchRef = useRef<Record<string, boolean>>({});
   const toggle = (k: 'dm' | 'group' | 'roomMention', column: string, v: boolean) => {
-    setLocal({ ...value, [k]: v });
-    mut.mutate({ [column]: v });
+    setLocal((prev) => ({ ...(prev ?? value), [k]: v }));
+    pendingPatchRef.current = { ...pendingPatchRef.current, [column]: v };
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      mut.mutate(pendingPatchRef.current);
+      pendingPatchRef.current = {};
+    }, 400);
   };
   return (
     <>
@@ -885,9 +895,18 @@ export default function SettingsScreen() {
             <Pressable
               key={lang.code}
               onPress={() => {
+                const RTL_CODES = new Set(['ar']);
+                const prevIsRTL = I18nManager.isRTL;
+                const nextIsRTL = RTL_CODES.has(lang.code);
                 set('language', lang.code);
                 void i18n.changeLanguage(lang.code);
                 try { getStorage().set(STORE_KEYS.LANGUAGE_PREF, lang.code); } catch {}
+                // BUG-I18N-02 FIX: reload the app when RTL state changes so
+                // React Native's native-side mirroring takes effect.
+                if (prevIsRTL !== nextIsRTL) {
+                  I18nManager.forceRTL(nextIsRTL);
+                  Updates.reloadAsync().catch(() => {});
+                }
               }}
               style={[
                 styles.langPill,

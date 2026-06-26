@@ -61,6 +61,13 @@ export default function LoginScreen() {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [telegramLoading, setTelegramLoading] = useState(false);
 
+  // BUG-MEM-01 FIX: track mounted state to prevent setState after unmount
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
   // Used for Telegram state polling
   const telegramStateRef = useRef<string | null>(null);
   const telegramPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -293,7 +300,9 @@ export default function LoginScreen() {
       clearTimeout(telegramPollRef.current);
       telegramPollRef.current = null;
     }
-    setTelegramLoading(false);
+    // BUG-MEM-01 FIX: only update state if still mounted to avoid the
+    // "Can't perform a React state update on an unmounted component" warning.
+    if (mountedRef.current) setTelegramLoading(false);
   }
 
   // Stop polling on unmount

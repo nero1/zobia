@@ -226,10 +226,11 @@ export default function GiftSendScreen() {
 
       if (code === 'PIN_REQUIRED') {
         // Store params so we can retry after PIN is verified
+        // BUG-PAY-06 FIX: do NOT reset pinAttempts here — resetting would allow
+        // unlimited brute-force attempts by triggering PIN_REQUIRED repeatedly.
         pendingSendParams.current = variables;
         setPinInput('');
         setPinError(null);
-        setPinAttempts(0);
         setPinModalVisible(true);
         return;
       }
