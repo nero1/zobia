@@ -13,6 +13,7 @@
 
 import React, { useState, useCallback } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Pressable,
   RefreshControl,
@@ -22,7 +23,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
@@ -82,10 +83,12 @@ function formatNotification(n: AppNotification & { payload?: Record<string, unkn
 // API
 // ---------------------------------------------------------------------------
 
-async function fetchNotifications(): Promise<AppNotification[]> {
-  const { data } = await apiClient.get('/notifications');
+async function fetchNotifications(cursor?: string): Promise<{ notifications: AppNotification[]; nextCursor: string | null }> {
+  const params: Record<string, string | number> = { limit: 30 };
+  if (cursor) params.cursor = cursor;
+  const { data } = await apiClient.get('/notifications', { params });
   const raw: AppNotification[] = data.notifications ?? [];
-  return raw.map(formatNotification);
+  return { notifications: raw.map(formatNotification), nextCursor: data.nextCursor ?? null };
 }
 
 async function markAllRead(): Promise<void> {
@@ -163,25 +166,39 @@ function formatTime(iso: string): string {
 // Notification routing + read helper
 // ---------------------------------------------------------------------------
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function safeId(id: unknown): string | null {
+  if (typeof id !== 'string' || !UUID_RE.test(id)) return null;
+  return id;
+}
+
 function getNotificationRoute(notif: AppNotification): string | null {
   const p = notif.payload ?? {};
   switch (notif.type) {
     case 'dm':
-    case 'new_message':
-      return p.conversationId ? `/messages/${p.conversationId}` : null;
+    case 'new_message': {
+      const id = safeId(p.conversationId);
+      return id ? `/messages/${id}` : null;
+    }
     case 'guild_war':
     case 'guild_war_final_hour':
-    case 'guild_low_contribution':
-      return p.guildId ? `/guilds/${p.guildId}` : null;
+    case 'guild_low_contribution': {
+      const id = safeId(p.guildId);
+      return id ? `/guilds/${id}` : null;
+    }
     case 'gift':
     case 'gift_received':
-      return '/(tabs)/economy/wallet';
+      return '/(tabs)/wallet';
     case 'friend':
-    case 'friend_request':
-      return p.senderId ? `/profile/${p.senderId}` : null;
+    case 'friend_request': {
+      const id = safeId(p.senderId);
+      return id ? `/profile/${id}` : null;
+    }
     case 'mention':
-    case 'room':
-      return p.roomId ? `/rooms/${p.roomId}` : null;
+    case 'room': {
+      const id = safeId(p.roomId);
+      return id ? `/rooms/${id}` : null;
+    }
     case 'rank_up':
     case 'prestige_complete':
       return '/(tabs)/profile';
@@ -191,12 +208,6 @@ function getNotificationRoute(notif: AppNotification): string | null {
     default:
       return null;
   }
-}
-
-async function markNotifRead(id: string): Promise<void> {
-  try {
-    await apiClient.patch(`/notifications/${id}/read`);
-  } catch {}
 }
 
 // ---------------------------------------------------------------------------
@@ -263,9 +274,46 @@ export default function NotificationsScreen() {
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
 
-  const { data: notifications = [], isLoading, isError, refetch } = useQuery({
+  const {
+    data: notifPages,
+    isLoading,
+    isError,
+    refetch,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
     queryKey: ['notifications'],
-    queryFn: fetchNotifications,
+    queryFn: ({ pageParam }) => fetchNotifications(pageParam as string | undefined),
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    initialPageParam: undefined,
+  });
+
+  const notifications = notifPages?.pages.flatMap((p) => p.notifications) ?? [];
+
+  const markReadMutation = useMutation({
+    mutationFn: (id: string) => apiClient.patch(`/notifications/${id}/read`),
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: ['notifications'] });
+      const prev = queryClient.getQueryData<typeof notifPages>(['notifications']);
+      queryClient.setQueryData<typeof notifPages>(['notifications'], (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page) => ({
+            ...page,
+            notifications: page.notifications.map((n) =>
+              n.id === id ? { ...n, isRead: true } : n
+            ),
+          })),
+        };
+      });
+      return { prev };
+    },
+    onError: (_err, _id, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(['notifications'], ctx.prev);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
   });
 
   const markAllMutation = useMutation({
@@ -303,8 +351,7 @@ export default function NotificationsScreen() {
         <NotifRow
           notif={item}
           onPress={() => {
-            void markNotifRead(item.id);
-            queryClient.invalidateQueries({ queryKey: ['notifications'] });
+            markReadMutation.mutate(item.id);
             const route = getNotificationRoute(item);
             if (route) router.push(route as Parameters<typeof router.push>[0]);
           }}
@@ -313,6 +360,9 @@ export default function NotificationsScreen() {
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />
       }
+      onEndReached={() => { if (hasNextPage && !isFetchingNextPage) void fetchNextPage(); }}
+      onEndReachedThreshold={0.3}
+      ListFooterComponent={isFetchingNextPage ? <ActivityIndicator color={colors.brand.blue} style={{ padding: 16 }} /> : null}
       ListHeaderComponent={() => (
         <View style={[styles.header, { borderBottomColor: themeColors.border }]}>
           <Text style={[styles.headerTitle, { color: themeColors.text }]}>{t('notifications.title')}</Text>

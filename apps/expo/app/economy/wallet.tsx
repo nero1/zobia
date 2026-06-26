@@ -74,12 +74,11 @@ async function fetchBalance(): Promise<WalletBalance> {
 }
 
 async function fetchTransactionPage(type: 'coins' | 'stars', page: number): Promise<TransactionPage> {
-  // BUG-PAY-04 FIX: use the correct endpoint for stars transactions
   const endpoint = type === 'stars'
-    ? `/economy/stars/balance?limit=${TX_PAGE_SIZE}&page=${page}`
-    : `/economy/coins/balance?limit=${TX_PAGE_SIZE}&page=${page}`;
-  const { data } = await apiClient.get<{ transactions?: Transaction[]; starTransactions?: Transaction[] }>(endpoint);
-  const transactions = type === 'coins' ? (data.transactions ?? []) : (data.starTransactions ?? data.transactions ?? []);
+    ? `/economy/stars/transactions?limit=${TX_PAGE_SIZE}&page=${page}`
+    : `/economy/coins/transactions?limit=${TX_PAGE_SIZE}&page=${page}`;
+  const { data } = await apiClient.get<{ transactions?: Transaction[] }>(endpoint);
+  const transactions = data.transactions ?? [];
   const nextPage = transactions.length === TX_PAGE_SIZE ? page + 1 : null;
   return { transactions, nextPage };
 }

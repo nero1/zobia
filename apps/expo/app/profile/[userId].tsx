@@ -91,7 +91,7 @@ async function toggleFriend(userId: string, isFriend: boolean): Promise<void> {
   if (isFriend) {
     await apiClient.delete(`/friends/${userId}`);
   } else {
-    await apiClient.post(`/friends/${userId}`);
+    await apiClient.post('/friends', { targetUserId: userId });
   }
 }
 

@@ -376,7 +376,7 @@ function RootLayoutNav() {
               console.warn('[push] Failed to navigate to notification action:', action, err);
             }
           } else {
-            console.warn('[push] Blocked invalid notification action (not in allowlist):', action);
+            if (__DEV__) console.warn('[push] Blocked invalid notification action (not in allowlist):', action);
           }
         }
       }

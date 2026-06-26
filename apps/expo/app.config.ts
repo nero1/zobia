@@ -4,6 +4,12 @@ import type { ExpoConfig, ConfigContext } from 'expo/config';
 const ADMOB_TEST_ANDROID = 'ca-app-pub-3940256099942544~3347511713';
 const ADMOB_TEST_IOS = 'ca-app-pub-3940256099942544~1458002511';
 
+const easProjectId = process.env.EAS_PROJECT_ID;
+if (!easProjectId && process.env.APP_VARIANT === 'production') {
+  throw new Error('EAS_PROJECT_ID environment variable is required for production builds');
+}
+const projectId = easProjectId ?? 'dev-placeholder';
+
 export default ({ config }: ConfigContext): ExpoConfig & {
   'react-native-google-mobile-ads'?: { android_app_id: string; ios_app_id: string };
 } => ({
@@ -15,9 +21,9 @@ export default ({ config }: ConfigContext): ExpoConfig & {
     // BUG-DATA-01 FIX: add WEB_BASE_URL and REALTIME_PROVIDER to extra block
     WEB_BASE_URL: process.env.WEB_BASE_URL ?? 'https://zobia.vercel.app',
     REALTIME_PROVIDER: process.env.REALTIME_PROVIDER ?? 'ably',
-    // BUG-DATA-03 FIX: add EAS projectId placeholder
+    // BUG-DATA-03 FIX: add EAS projectId (throws in production if missing)
     eas: {
-      projectId: process.env.EAS_PROJECT_ID ?? 'YOUR_EAS_PROJECT_ID',
+      projectId,
     },
   },
   // BUG-DATA-02 FIX: add android SDK versions

@@ -26,16 +26,19 @@ export function writeCachedMessages<T>(key: string, messages: T[]): void {
   try {
     // M-7 FIX: maintain a conversation index for global eviction so storage
     // doesn't grow unbounded when a user has many conversations.
+    // Bug 8 fix: move key to most-recent position (LRU) on every write,
+    // not only on first insert.
     const index = getItem<string[]>(STORE_KEYS.CHAT_CACHE_INDEX, []);
-    if (!index.includes(key)) {
-      index.push(key);
-      // Evict the oldest conversation when we exceed the cap.
-      while (index.length > MAX_CONVERSATIONS) {
-        const oldest = index.shift();
-        if (oldest) removeItem(PREFIX + oldest);
-      }
-      setItem(STORE_KEYS.CHAT_CACHE_INDEX, index);
+    // Remove existing entry first to update LRU position
+    const existingPos = index.indexOf(key);
+    if (existingPos !== -1) index.splice(existingPos, 1);
+    index.push(key);
+    // Evict oldest entries beyond cap
+    while (index.length > MAX_CONVERSATIONS) {
+      const oldest = index.shift();
+      if (oldest) removeItem(PREFIX + oldest);
     }
+    setItem(STORE_KEYS.CHAT_CACHE_INDEX, index);
     const payload: CachedPayload<T> = {
       messages: messages.length > CAP ? messages.slice(0, CAP) : messages,
       cachedAt: Date.now(),

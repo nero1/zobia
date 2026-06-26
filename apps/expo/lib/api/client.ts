@@ -123,6 +123,15 @@ let refreshPromise: Promise<string | null> | null = null;
 // BUG-RACE-04 FIX: guard so only one 401 triggers notifyUnauthenticated
 let _notifiedUnauthenticated = false;
 
+/**
+ * Reset the unauthenticated notification flag so a subsequent session expiry
+ * can trigger the modal again. Call this from auth context when the user
+ * explicitly signs in (Bug 11 fix: replaces the 5-second setTimeout).
+ */
+export function resetUnauthenticatedFlag(): void {
+  _notifiedUnauthenticated = false;
+}
+
 export async function refreshAccessToken(): Promise<string | null> {
   if (refreshPromise) return refreshPromise;
 
@@ -244,8 +253,8 @@ apiClient.interceptors.response.use(
       if (!_notifiedUnauthenticated) {
         _notifiedUnauthenticated = true;
         notifyUnauthenticated();
-        // Reset after a short delay so future logins can trigger it again
-        setTimeout(() => { _notifiedUnauthenticated = false; }, 5000);
+        // Flag is only reset via resetUnauthenticatedFlag() when the user
+        // explicitly signs in — prevents duplicate session-expired modals.
       }
     }
 
