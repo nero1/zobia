@@ -14,6 +14,7 @@
 import React, { useState, useCallback } from 'react';
 import {
   FlatList,
+  Pressable,
   RefreshControl,
   StyleSheet,
   Text,
@@ -23,6 +24,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
@@ -144,7 +146,11 @@ const TYPE_COLOR: Partial<Record<string, string>> = {
 };
 
 function formatTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
+  if (!iso) return '';
+  const ts = new Date(iso).getTime();
+  if (isNaN(ts)) return '';
+  const diff = Date.now() - ts;
+  if (diff < 0) return 'just now';
   const m = Math.floor(diff / 60_000);
   if (m < 1) return 'just now';
   if (m < 60) return `${m}m ago`;
@@ -154,21 +160,64 @@ function formatTime(iso: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Notification routing + read helper
+// ---------------------------------------------------------------------------
+
+function getNotificationRoute(notif: AppNotification): string | null {
+  const p = notif.payload ?? {};
+  switch (notif.type) {
+    case 'dm':
+    case 'new_message':
+      return p.conversationId ? `/messages/${p.conversationId}` : null;
+    case 'guild_war':
+    case 'guild_war_final_hour':
+    case 'guild_low_contribution':
+      return p.guildId ? `/guilds/${p.guildId}` : null;
+    case 'gift':
+    case 'gift_received':
+      return '/(tabs)/economy/wallet';
+    case 'friend':
+    case 'friend_request':
+      return p.senderId ? `/profile/${p.senderId}` : null;
+    case 'mention':
+    case 'room':
+      return p.roomId ? `/rooms/${p.roomId}` : null;
+    case 'rank_up':
+    case 'prestige_complete':
+      return '/(tabs)/profile';
+    case 'streak_risk':
+    case 'reengagement':
+      return '/(tabs)';
+    default:
+      return null;
+  }
+}
+
+async function markNotifRead(id: string): Promise<void> {
+  try {
+    await apiClient.patch(`/notifications/${id}/read`);
+  } catch {}
+}
+
+// ---------------------------------------------------------------------------
 // Notification row
 // ---------------------------------------------------------------------------
 
-function NotifRow({ notif }: { notif: AppNotification }) {
+function NotifRow({ notif, onPress }: { notif: AppNotification; onPress: () => void }) {
   const { colors: themeColors } = useTheme();
   const iconName: IoniconName = TYPE_ICON[notif.type] ?? TYPE_ICON.default;
   const iconColor = TYPE_COLOR[notif.type] ?? colors.brand.blue;
 
   return (
-    <View
-      style={[
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
         styles.row,
         { borderBottomColor: themeColors.border },
         !notif.isRead && styles.rowUnread,
+        pressed && { opacity: 0.7 },
       ]}
+      accessibilityRole="button"
     >
       <View style={[styles.iconContainer, { backgroundColor: `${iconColor}18` }]}>
         <Ionicons name={iconName} size={20} color={iconColor} />
@@ -187,7 +236,7 @@ function NotifRow({ notif }: { notif: AppNotification }) {
           {formatTime(notif.createdAt)}
         </Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -211,6 +260,7 @@ export default function NotificationsScreen() {
   const { colors: themeColors } = useTheme();
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
 
   const { data: notifications = [], isLoading, isError, refetch } = useQuery({
@@ -249,7 +299,17 @@ export default function NotificationsScreen() {
     <FlatList
       data={notifications}
       keyExtractor={(n) => n.id}
-      renderItem={({ item }) => <NotifRow notif={item} />}
+      renderItem={({ item }) => (
+        <NotifRow
+          notif={item}
+          onPress={() => {
+            void markNotifRead(item.id);
+            queryClient.invalidateQueries({ queryKey: ['notifications'] });
+            const route = getNotificationRoute(item);
+            if (route) router.push(route as Parameters<typeof router.push>[0]);
+          }}
+        />
+      )}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />
       }
