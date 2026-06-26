@@ -1,7 +1,7 @@
 # Zobia Social — Product Requirements Document
 ### A Gamified Monetised Social Platform for the Global Mobile Generation
 
-> **Version 1.81 — Product Requirements Document**
+> **Version 1.82 — Product Requirements Document**
 > Covers: Feature Specifications · Technical Architecture · Economy Design · Moderation · Build Sequence
 > Scope: Nigeria-first, Pan-African then Global · Mobile-first PWA + Android APK · Admin-minimal operation
 
@@ -200,6 +200,7 @@ A new user must feel the core loop — the sensation of earning something — wi
 **Step 1 — Identity Creation (target: 60 seconds)**
 - User picks a username (permanent, cultural signal — prompt copy encourages creative self-expression), display name (changeable), and avatar emoji.
 - User selects a home city from a searchable list (city affects city leaderboards, room discovery feed, and Guild seeding).
+- User enters their full date of birth (year, month, and day) for age gate enforcement. The age check is performed client-side using the exact birthday to handle December-31-born edge cases, and server-side as a second gate before the onboarding profile is written.
 - Username availability is checked in real time. Profanity and reserved name filtering applied immediately.
 
 **Step 2 — The Vibe Quiz (target: 45 seconds)**
@@ -226,7 +227,8 @@ The user is shown a panel: "Crews near you are recruiting." Three local guilds a
 ### Age Verification
 
 - Admin sets the minimum age requirement in the platform manifest (x_manifest). Default is 18 years.
-- The onboarding flow collects a date of birth. Users below the configured minimum age are blocked from proceeding and shown a message indicating the platform's age requirement.
+- The onboarding flow collects a full date of birth (year, month, and day). Age is computed using the exact birthday (not year-only), so December-birthday users cannot bypass the gate. Users below the configured minimum age are blocked from proceeding with a clear error message.
+- The server enforces the age gate independently using the same exact-date calculation before committing the profile to the database.
 - The age gate is lightweight (no ID verification at this stage) but is logged and can be escalated by Trust & Safety if signals suggest misrepresentation.
 
 ### CAPTCHA

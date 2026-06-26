@@ -55,6 +55,8 @@ export default function WelcomeDrop() {
     city: string;
     vibeAnswers: string;
     birthYear: string;
+    birthMonth: string;
+    birthDay: string;
   }>();
 
   // -------------------------------------------------------------------------
@@ -70,7 +72,7 @@ export default function WelcomeDrop() {
   /** CTA fade in last */
   const ctaOpacity = useSharedValue(0);
 
-  const { username, emoji, city, vibeAnswers: vibeAnswersParam, birthYear } = params;
+  const { username, emoji, city, vibeAnswers: vibeAnswersParam, birthYear, birthMonth, birthDay } = params;
 
   useEffect(() => {
     // Persist onboarding data to the server.
@@ -89,6 +91,8 @@ export default function WelcomeDrop() {
         avatar_emoji: emoji,
         city: city,
         birth_year: parseInt(birthYear ?? '0', 10),
+        birth_month: birthMonth ? parseInt(birthMonth, 10) : undefined,
+        birth_day: birthDay ? parseInt(birthDay, 10) : undefined,
         vibe_quiz_responses: vibeAnswers,
         referral_code: referralCode ?? undefined,
       })

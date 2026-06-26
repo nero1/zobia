@@ -67,12 +67,19 @@ export default function LoginScreen() {
   // Cancellation flag — set to true when stopTelegramPoll is called so that
   // any in-flight awaits after that point know to exit without touching state.
   const telegramCancelledRef = useRef(false);
+  // BUG-H04 FIX: idempotency guard — prevents double token exchange when both
+  // the Linking event listener and openAuthSessionAsync resolution fire for the
+  // same redirect URL on Android.
+  const exchangingRef = useRef(false);
 
   // -------------------------------------------------------------------------
   // Deep link listener — catches the callback from Google OAuth redirect
   // -------------------------------------------------------------------------
 
   async function handleDeepLink(event: { url: string }) {
+    // BUG-H04 FIX: guard against double invocation
+    if (exchangingRef.current) return;
+
     const url = event.url;
     let isValidCallback = false;
     try {
@@ -84,6 +91,7 @@ export default function LoginScreen() {
     }
     if (!isValidCallback) return;
 
+    exchangingRef.current = true;
     try {
       const parsed = ExpoLinking.parse(url);
       const code = parsed.queryParams?.code as string | undefined;
@@ -101,13 +109,24 @@ export default function LoginScreen() {
 
       if (!code) return;
 
-      // Exchange the one-time code for tokens via HTTPS — tokens are never
-      // exposed in the URL (prevents leakage via browser history / server logs).
-      const exchangeRes = await fetch(`${env.API_BASE_URL}/api/auth/mobile-token`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Origin': env.API_BASE_URL },
-        body: JSON.stringify({ code }),
-      });
+      // BUG-H09 FIX: 15-second timeout on the token exchange so that an
+      // expired or slow code fails fast with a clear message instead of hanging.
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15_000);
+
+      let exchangeRes: Response;
+      try {
+        // Exchange the one-time code for tokens via HTTPS — tokens are never
+        // exposed in the URL (prevents leakage via browser history / server logs).
+        exchangeRes = await fetch(`${env.API_BASE_URL}/api/auth/mobile-token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Origin': env.API_BASE_URL },
+          body: JSON.stringify({ code }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       if (!exchangeRes.ok) {
         throw new Error('Token exchange failed');
@@ -129,8 +148,13 @@ export default function LoginScreen() {
       } else {
         router.replace('/(tabs)');
       }
-    } catch {
-      Alert.alert(t('common.error'), t('auth.callbackError'));
+    } catch (err) {
+      exchangingRef.current = false;
+      if (err instanceof Error && err.name === 'AbortError') {
+        Alert.alert(t('common.error'), t('auth.loginTimeout'));
+      } else {
+        Alert.alert(t('common.error'), t('auth.callbackError'));
+      }
     }
   }
 
@@ -149,6 +173,7 @@ export default function LoginScreen() {
   // -------------------------------------------------------------------------
 
   async function handleGoogleLogin() {
+    exchangingRef.current = false; // reset for a fresh login attempt
     setGoogleLoading(true);
     try {
       const redirectUri = ExpoLinking.createURL('auth/callback');

@@ -3,7 +3,7 @@ import '../global.css';
 export { ErrorBoundary } from 'expo-router';
 
 import { useEffect, useRef, useState } from 'react';
-import { AppState, Platform } from 'react-native';
+import { Alert, AppState, Linking, Platform } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -138,7 +138,16 @@ async function registerForPushNotifications(): Promise<void> {
   }
 
   if (finalStatus !== 'granted') {
-    // User declined — fail silently, do not prompt again until next cold start
+    // BUG-M15 FIX: show an actionable alert so the user can open Settings
+    // directly instead of getting a UX dead-end with no path to enable notifs.
+    Alert.alert(
+      'Notifications disabled',
+      "You won't receive notifications. Enable them in Settings to stay in the loop.",
+      [
+        { text: 'Not now', style: 'cancel' },
+        { text: 'Open Settings', onPress: () => Linking.openSettings() },
+      ]
+    );
     return;
   }
 

@@ -3,7 +3,7 @@
  *
  * Full-height left navigation drawer for the Expo app.
  *
- * - Opens by swiping RIGHT from the LEFT EDGE of the screen (within 24px).
+ * - Opens by swiping RIGHT from the LEFT EDGE of the screen (within 40px).
  * - Closes by swiping LEFT on the open drawer or tapping the backdrop.
  * - Uses react-native-gesture-handler v2 + react-native-reanimated 3.
  * - Shares open/close state via DrawerContext so child screens can trigger it.
@@ -67,7 +67,10 @@ export function useDrawer() {
 // ---------------------------------------------------------------------------
 
 const DRAWER_WIDTH = 280;
-const EDGE_THRESHOLD = 24; // px from left edge that activates the gesture
+// BUG-M18 FIX: raise to 40px to avoid Android system back-gesture zone (≤30dp).
+// On gesture-nav devices the OS reserves the leftmost 30dp for the system back
+// gesture; a 24px threshold competed with it. 40px sits safely outside that zone.
+const EDGE_THRESHOLD = 40;
 const SPRING = { damping: 22, stiffness: 180 };
 
 interface NavItem {

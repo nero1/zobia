@@ -40,6 +40,7 @@
     "loginTimeoutTitle": "Login Timeout",
     "loginTimeoutBody": "Telegram login timed out. Please try again and complete the login in Telegram.",
     "callbackError": "Authentication callback failed. Please try again.",
+    "loginTimeout": "Login timed out — the link may have expired. Please try again.",
     "googleError": "Google Sign-In failed. Please try again.",
     "telegramError": "Telegram login failed. Please try again.",
     "sessionExpiredTitle": "Session Expired",
