@@ -353,12 +353,11 @@ export default function StoreScreen() {
     // On Android, all digital goods must go through Google Play Billing.
     if (Platform.OS === 'android' && packType === 'coin_pack') {
       const pack = data?.coinPacks.find((p) => p.id === packId);
-      const playProduct = pack
-        ? COIN_PRODUCTS.find((cp) =>
-            pack.iapProductId
-              ? cp.id === pack.iapProductId
-              : cp.coins === pack.coinsGranted
-          )
+      // BUG-006 FIX: only match by explicit iapProductId; never fall back to
+      // coin-count matching — two packs can have identical coinsGranted but
+      // different prices, causing the wrong Play SKU to be purchased.
+      const playProduct = pack?.iapProductId
+        ? COIN_PRODUCTS.find((cp) => cp.id === pack.iapProductId)
         : null;
       if (!playProduct) {
         Alert.alert('Unavailable', 'This pack is not available for purchase on Android yet.');
@@ -386,12 +385,8 @@ export default function StoreScreen() {
 
     if (Platform.OS === 'android' && packType === 'star_pack') {
       const pack = data?.starPacks.find((p) => p.id === packId);
-      const playProduct = pack
-        ? STAR_PRODUCTS.find((sp) =>
-            pack.iapProductId
-              ? sp.id === pack.iapProductId
-              : sp.stars === pack.starsGranted
-          )
+      const playProduct = pack?.iapProductId
+        ? STAR_PRODUCTS.find((sp) => sp.id === pack.iapProductId)
         : null;
       if (!playProduct) {
         Alert.alert('Unavailable', 'This pack is not available for purchase on Android yet.');
