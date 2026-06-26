@@ -199,8 +199,11 @@ export async function showRewardedAd(): Promise<RewardedAdResult> {
       }
     );
 
+    // BUG-RACE-05 FIX: clear adLoaded synchronously before show() so a second
+    // concurrent showRewardedAd() call sees adLoaded=false and won't try to
+    // show the same ad instance again.
+    adLoaded = false;
     rewardedAd.show().catch(() => {
-      adLoaded = false;
       rewardedAd = null;
       unsubscribeEarned();
       unsubscribeClose();
@@ -315,9 +318,10 @@ export async function showInterstitialAd(
       }
     );
 
+    // BUG-RACE-05 FIX: clear interstitialLoaded synchronously before show()
+    interstitialLoaded = false;
     interstitialAd.show().catch(() => {
       unsubClosed();
-      interstitialLoaded = false;
       interstitialAd = null;
       resolve(false);
     });

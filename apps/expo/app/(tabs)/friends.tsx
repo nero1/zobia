@@ -4,7 +4,7 @@
  * Friends tab — My Friends, Requests (Received/Sent), and Discover sections.
  */
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -13,11 +13,11 @@ import {
   StyleSheet,
   Text,
   View,
-  useColorScheme,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { colors } from '@/lib/theme/colors';
+import { useTheme } from '@/lib/theme';
 import { apiClient } from '@/lib/api/client';
 
 // ---------------------------------------------------------------------------
@@ -59,8 +59,9 @@ type RequestsSubTab = 'received' | 'sent';
 // ---------------------------------------------------------------------------
 
 export default function FriendsTab() {
-  const scheme = useColorScheme();
-  const isDark = scheme === 'dark';
+  // BUG-UX-10 FIX: use useTheme() instead of useColorScheme() so this screen
+  // respects the user's in-app theme preference (not just the OS-level scheme).
+  const { isDark } = useTheme();
   const { t } = useTranslation();
 
   const bg = isDark ? colors.neutral[950] : colors.neutral[50];
@@ -76,13 +77,31 @@ export default function FriendsTab() {
   const [actioning, setActioning] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  const { data: friends = [], isLoading: friendsLoading, refetch: refetchFriends } = useQuery<Friend[]>({
+  // BUG-UX-15 FIX: use cursor-based pagination so large friends lists don't
+  // require a fixed limit. Fetch 30 at a time; load more on scroll-to-end.
+  const PAGE_SIZE = 30;
+  const {
+    data: friendsData,
+    isLoading: friendsLoading,
+    fetchNextPage: fetchMoreFriends,
+    hasNextPage: hasMoreFriends,
+    isFetchingNextPage: isFetchingMoreFriends,
+    refetch: refetchFriends,
+  } = useInfiniteQuery<{ data: Friend[]; nextCursor: string | null }>({
     queryKey: ['friends'],
-    queryFn: async () => {
-      const { data } = await apiClient.get('/friends');
-      return (data?.data ?? []) as Friend[];
+    queryFn: async ({ pageParam }) => {
+      const cursor = pageParam as string | undefined;
+      const url = `/friends?limit=${PAGE_SIZE}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+      const { data } = await apiClient.get(url);
+      return { data: (data?.data ?? []) as Friend[], nextCursor: data?.nextCursor ?? null };
     },
+    initialPageParam: undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
   });
+  const friends = useMemo(
+    () => friendsData?.pages.flatMap((p) => p.data) ?? [],
+    [friendsData],
+  );
 
   const { data: receivedRequests = [], isLoading: requestsLoading, refetch: refetchReceived } = useQuery<FriendRequest[]>({
     queryKey: ['friend-requests', 'received'],
@@ -176,26 +195,43 @@ export default function FriendsTab() {
   const renderFriends = () => {
     if (friends.length === 0)
       return <Text style={[styles.emptyText, { color: textSecondary }]}>{t('friends.empty.noFriends')}</Text>;
-    return friends.map((f) => (
-      <View key={f.id} style={[styles.row, { borderBottomColor: border }]}>
-        <View style={[styles.avatar, { backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100] }]}>
-          <Text style={styles.avatarEmoji}>{f.avatar_emoji || '😊'}</Text>
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.displayName, { color: textPrimary }]}>{f.display_name ?? f.username}</Text>
-          <Text style={[styles.username, { color: textSecondary }]}>@{f.username}</Text>
-        </View>
-        <Pressable
-          onPress={() => removeFriend(f.id)}
-          disabled={actioning === f.id}
-          style={[styles.actionBtn, { borderColor: border }]}
-        >
-          <Text style={[styles.actionBtnText, { color: textSecondary }]}>
-            {actioning === f.id ? '…' : t('friends.removeFriend')}
-          </Text>
-        </Pressable>
-      </View>
-    ));
+    return (
+      <>
+        {friends.map((f) => (
+          <View key={f.id} style={[styles.row, { borderBottomColor: border }]}>
+            <View style={[styles.avatar, { backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100] }]}>
+              <Text style={styles.avatarEmoji}>{f.avatar_emoji || '😊'}</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.displayName, { color: textPrimary }]}>{f.display_name ?? f.username}</Text>
+              <Text style={[styles.username, { color: textSecondary }]}>@{f.username}</Text>
+            </View>
+            <Pressable
+              onPress={() => removeFriend(f.id)}
+              disabled={actioning === f.id}
+              style={[styles.actionBtn, { borderColor: border }]}
+            >
+              <Text style={[styles.actionBtnText, { color: textSecondary }]}>
+                {actioning === f.id ? '…' : t('friends.removeFriend')}
+              </Text>
+            </Pressable>
+          </View>
+        ))}
+        {/* BUG-UX-15 FIX: load-more button for cursor-based pagination */}
+        {hasMoreFriends && (
+          <Pressable
+            onPress={() => fetchMoreFriends()}
+            disabled={isFetchingMoreFriends}
+            style={[styles.loadMoreBtn, { borderColor: border }]}
+          >
+            {isFetchingMoreFriends
+              ? <ActivityIndicator size="small" color={colors.brand.blue} />
+              : <Text style={[styles.loadMoreText, { color: colors.brand.blue }]}>{t('friends.loadMore', { defaultValue: 'Load more' })}</Text>
+            }
+          </Pressable>
+        )}
+      </>
+    );
   };
 
   const renderReceivedRequests = () => {
@@ -380,5 +416,10 @@ const styles = StyleSheet.create({
   actionBtnText: { fontSize: 12, fontWeight: '500' },
   primaryBtn: { borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, alignItems: 'center' },
   primaryBtnText: { fontSize: 12, fontWeight: '700', color: '#fff' },
+  loadMoreBtn: {
+    borderWidth: 1, borderRadius: 8, marginHorizontal: 16, marginVertical: 12,
+    paddingVertical: 10, alignItems: 'center',
+  },
+  loadMoreText: { fontSize: 13, fontWeight: '600' },
 });
 export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

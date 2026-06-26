@@ -23,6 +23,7 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { randomUUID } from 'expo-crypto';
 import { useMutation } from '@tanstack/react-query';
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
@@ -195,7 +196,11 @@ function CurriculumBuilder({ modules, onChange }: CurriculumBuilderProps) {
   const addModule = () => {
     const title = draft.trim();
     if (!title) return;
-    onChange([...modules, { id: Date.now().toString(), title }]);
+    // BUG-DATA-07 FIX: suffix with a random token so rapid additions within
+    // the same millisecond don't produce duplicate IDs.
+    // BUG-DATA-07 FIX: use randomUUID() instead of Date.now() to avoid ID
+    // collisions if two modules are added within the same millisecond.
+    onChange([...modules, { id: randomUUID(), title }]);
     setDraft('');
   };
 
@@ -338,13 +343,21 @@ export default function CreateRoomScreen() {
       category: category || 'Other',
       city: city.trim() || undefined,
     };
-    if (selectedType === 'vip' && priceCoin) {
-      payload.subscriptionPriceNgn = Number(priceCoin);
+    // BUG-DATA-08 FIX: parse price as integer and guard against NaN/negative.
+    // Non-numeric input (e.g. "abc") would silently send NaN to the server otherwise.
+    const rawPrice = priceCoin.replace(/[^0-9]/g, '');
+    const priceInt = rawPrice ? parseInt(rawPrice, 10) : NaN;
+    if (selectedType === 'vip') {
+      if (isNaN(priceInt) || priceInt <= 0) {
+        Alert.alert('Validation', 'A valid subscription price is required for VIP rooms.');
+        return;
+      }
+      payload.subscriptionPriceNgn = priceInt;
     } else if (selectedType === 'drop') {
-      if (priceCoin) payload.entryFeeNgn = Number(priceCoin);
+      if (!isNaN(priceInt) && priceInt > 0) payload.entryFeeNgn = priceInt;
       payload.dropDurationMinutes = 120;
     } else if (selectedType === 'classroom') {
-      payload.enrolmentFeeNgn = priceCoin ? Number(priceCoin) : 0;
+      payload.enrolmentFeeNgn = !isNaN(priceInt) && priceInt > 0 ? priceInt : 0;
       payload.curriculum = modules.map((m, i) => ({ title: m.title, order: i }));
     }
     createMutation.mutate(payload);

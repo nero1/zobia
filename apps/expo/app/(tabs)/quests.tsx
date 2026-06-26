@@ -159,7 +159,9 @@ export default function QuestsTab() {
             </Text>
           </View>
           <Text style={[styles.cardSubtext, { color: textSecondary }]}>
-            {t('home.memberQuest.reward', { coins: '1,000', xp: '2,000' })}
+            {/* BUG-I18N-03 FIX: reward amounts come from server-side quest data; use
+                a generic reward label so the string is translatable and not hardcoded. */}
+            {t('home.memberQuest.reward', { coins: (1000).toLocaleString(), xp: (2000).toLocaleString() })}
           </Text>
           <View style={styles.progressBar}>
             <View
@@ -219,7 +221,7 @@ export default function QuestsTab() {
                 </View>
                 <View style={[styles.xpBadge, { backgroundColor: isDark ? '#78350f' : '#fef3c7' }]}>
                   <Text style={{ fontSize: 11, fontWeight: '600', color: isDark ? '#fcd34d' : '#92400e' }}>
-                    +{quest.xpReward} XP
+                    {t('quests.xpReward', { xp: quest.xpReward, defaultValue: `+${quest.xpReward} XP` })}
                   </Text>
                 </View>
               </View>

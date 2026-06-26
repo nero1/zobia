@@ -28,11 +28,17 @@ import { resetSendingMessages } from './sqlite';
 // Re-export so callers can still use the named import from syncQueue.
 export { resetSendingMessages };
 
+// BUG-RACE-02 FIX: guard against concurrent sync runs
+let _syncInProgress = false;
+
 /**
  * Sync all pending offline messages to the backend.
- * Safe to call repeatedly; skips if offline.
+ * Safe to call repeatedly; skips if offline or if a sync is already in progress.
  */
 export async function syncPendingMessages(): Promise<void> {
+  // BUG-RACE-02 FIX: skip if already syncing
+  if (_syncInProgress) return;
+
   // Check network state
   const state = await NetInfo.fetch();
   if (!state.isConnected) return;
@@ -40,15 +46,11 @@ export async function syncPendingMessages(): Promise<void> {
   // "unknown/potentially connected" and proceed; only explicit false means offline.
   if (state.isInternetReachable === false) return;
 
+  _syncInProgress = true;
   try {
-    // BUG-023 FIX: reset messages stuck in 'sending' state back to 'pending' on
-    // every reconnect sync pass. When the network drops while a send is in flight,
-    // the message stays in 'sending' and is never retried on reconnect because
-    // getPendingMessages() only returns 'pending' rows.
-    // Duplicate-send safety: all messages carry an idempotencyKey that the backend
-    // deduplicates via ON CONFLICT DO NOTHING, so re-queuing a message that was
-    // already delivered is safe — the second send will be a no-op on the server.
-    await resetSendingMessages();
+    // BUG-RACE-03 FIX: resetSendingMessages() is only called at startup (from
+    // _layout.tsx), NOT inside each sync pass, to prevent race conditions where
+    // a message currently being sent gets reset back to pending mid-flight.
     // Reset failed messages (under retry ceiling) back to pending before this sync pass
     await resetFailedMessages();
 
@@ -99,5 +101,7 @@ export async function syncPendingMessages(): Promise<void> {
     await purgePermanentlyFailedMessages();
   } catch (err) {
     console.error('[offline:sync] Sync failed', err);
+  } finally {
+    _syncInProgress = false;
   }
 }

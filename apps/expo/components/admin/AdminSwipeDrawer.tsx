@@ -43,7 +43,7 @@ import { colors } from '@/lib/theme/colors';
 
 interface AdminDrawerContextValue {
   openDrawer: () => void;
-  closeDrawer: () => void;
+  closeDrawer: (onSettled?: () => void) => void;
   isOpen: boolean;
 }
 
@@ -100,7 +100,7 @@ const ADMIN_NAV_ITEMS: AdminNavItem[] = [
 // Drawer content
 // ---------------------------------------------------------------------------
 
-function AdminDrawerContent({ onClose }: { onClose: () => void }) {
+function AdminDrawerContent({ onClose }: { onClose: (onSettled?: () => void) => void }) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const pathname = usePathname();
@@ -113,11 +113,12 @@ function AdminDrawerContent({ onClose }: { onClose: () => void }) {
   const inactiveText = isDark ? colors.neutral[400] : colors.neutral[600];
   const headerBg = isDark ? colors.neutral[800] : colors.neutral[100];
 
+  // BUG-UX-16 FIX: wait for the close spring animation to settle before
+  // navigating so the drawer is visually gone before the screen transition.
   const navigate = (href: string) => {
-    onClose();
-    setTimeout(() => {
+    onClose(() => {
       router.push(href as Parameters<typeof router.push>[0]);
-    }, 50);
+    });
   };
 
   return (
@@ -205,8 +206,13 @@ export function AdminSwipeDrawer({ children }: AdminSwipeDrawerProps) {
     setIsOpen(true);
   }, [translateX, backdropOpacity, isDrawerOpen]);
 
-  const closeDrawer = useCallback(() => {
-    translateX.value = withSpring(-DRAWER_WIDTH, SPRING);
+  const closeDrawer = useCallback((onSettled?: () => void) => {
+    // BUG-UX-16 FIX: fire onSettled after the spring animation completes so
+    // callers (navigate) don't race a mid-animation screen transition.
+    translateX.value = withSpring(-DRAWER_WIDTH, SPRING, onSettled ? () => {
+      'worklet';
+      runOnJS(onSettled)();
+    } : undefined);
     backdropOpacity.value = withSpring(0, SPRING);
     isDrawerOpen.value = false;
     setIsOpen(false);

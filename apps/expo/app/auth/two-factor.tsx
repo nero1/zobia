@@ -70,7 +70,9 @@ export default function TwoFactorScreen() {
   // Uses apiClient so the auth interceptor and proxy config are applied.
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (!preAuthCode) {
+    // BUG-SEC-03 FIX: validate preAuthCode is a UUID before using it
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!preAuthCode || !UUID_RE.test(preAuthCode)) {
       setError(t('auth.twoFaVerify.invalidToken'));
       setResolvingToken(false);
       return;
@@ -166,16 +168,25 @@ export default function TwoFactorScreen() {
         router.replace('/(tabs)');
       }
     } catch (err) {
-      totpAttemptsRef.current += 1;
-      try { storage.set(STORE_KEYS.TOTP_ATTEMPTS, totpAttemptsRef.current); } catch {}
-      if (totpAttemptsRef.current >= TOTP_MAX_ATTEMPTS) {
-        const lockUntil = Date.now() + 15 * 60 * 1000;
-        try {
-          storage.set(STORE_KEYS.TOTP_LOCKED_UNTIL, lockUntil);
-          storage.delete(STORE_KEYS.TOTP_ATTEMPTS);
-        } catch {}
-        setLockedOut(true);
-        setError(t('auth.twoFaVerify.lockedOut'));
+      // BUG-SEC-02 / BUG-NET-03 FIX: only increment on 401/403 (auth failures),
+      // not on network errors which would unfairly lock out users with bad connectivity.
+      const status = (err as { response?: { status?: number } }).response?.status;
+      const isAuthFailure = status === 401 || status === 403;
+      if (isAuthFailure) {
+        totpAttemptsRef.current += 1;
+        try { storage.set(STORE_KEYS.TOTP_ATTEMPTS, totpAttemptsRef.current); } catch {}
+        if (totpAttemptsRef.current >= TOTP_MAX_ATTEMPTS) {
+          const lockUntil = Date.now() + 15 * 60 * 1000;
+          try {
+            storage.set(STORE_KEYS.TOTP_LOCKED_UNTIL, lockUntil);
+            storage.delete(STORE_KEYS.TOTP_ATTEMPTS);
+          } catch {}
+          setLockedOut(true);
+          setError(t('auth.twoFaVerify.lockedOut'));
+        } else {
+          const apiMsg = (err as { response?: { data?: { error?: string } } }).response?.data?.error;
+          setError(apiMsg ?? t('auth.twoFaVerify.networkError'));
+        }
       } else {
         const apiMsg = (err as { response?: { data?: { error?: string } } }).response?.data?.error;
         setError(apiMsg ?? t('auth.twoFaVerify.networkError'));

@@ -15,12 +15,14 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { Screen } from '@/components/ui/Screen';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
+import { useAuth } from '@/lib/auth/hooks';
+import { koboToNairaStr } from '@/lib/utils/currency';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -102,6 +104,10 @@ function NavCard({ icon, title, subtitle, onPress }: NavCardProps) {
 export default function AdminDashboardTab() {
   const router = useRouter();
   const { colors: themeColors } = useTheme();
+  const { user } = useAuth();
+
+  // BUG-SEC-05 FIX: guard the admin tab against non-admin users
+  if (!user?.isAdmin) return <Redirect href="/(tabs)" />;
 
   const { data: stats, isLoading } = useQuery({
     queryKey: ['admin', 'quick-stats'],
@@ -133,7 +139,7 @@ export default function AdminDashboardTab() {
           />
           <StatCard
             label="Revenue Today"
-            value={`₦${(stats?.revenueToday ?? 0).toLocaleString()}`}
+            value={koboToNairaStr(stats?.revenueToday ?? 0)}
             accent={colors.semantic.success}
           />
           <StatCard

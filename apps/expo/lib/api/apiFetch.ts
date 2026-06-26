@@ -23,9 +23,9 @@ function isRetryableError(err: unknown): boolean {
 }
 
 function isRetryableStatus(status: number, method?: string): boolean {
-  // Only retry idempotent methods — POST/PATCH are unsafe to retry because
-  // the server may have already partially committed (e.g. payment charged).
-  const safe = !method || ['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE'].includes(method.toUpperCase());
+  // Only retry safe idempotent methods — POST/PATCH/PUT are unsafe to retry
+  // because the server may have already partially committed (e.g. payment charged).
+  const safe = !method || ['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase());
   if (!safe) return false;
   return status === 408 || status === 429 || status >= 500;
 }
@@ -82,9 +82,12 @@ export async function apiFetch(
         return response;
       }
 
-      if (attempt < MAX_ATTEMPTS - 1 && isRetryableStatus(response.status, init?.method)) {
+      if (isRetryableStatus(response.status, init?.method)) {
         lastError = new Error(`HTTP ${response.status}`);
-        continue;
+        if (attempt < MAX_ATTEMPTS - 1) continue;
+        // BUG-NET-02 FIX: on the last attempt with a retryable status, break out
+        // and let the throw below propagate instead of returning the error response.
+        break;
       }
       return response;
     } catch (err) {

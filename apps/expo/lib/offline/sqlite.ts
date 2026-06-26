@@ -33,12 +33,14 @@ const ENCRYPTION_PREFIX = 'v1:';
 // ---------------------------------------------------------------------------
 
 function toBase64Url(buffer: ArrayBuffer): string {
+  // BUG-PERF-03 FIX: use an array + join instead of += concatenation to avoid
+  // O(n²) string allocation (each concatenation copies all previous characters).
   const bytes = new Uint8Array(buffer);
-  let binary = '';
+  const chars = new Array<string>(bytes.byteLength);
   for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
+    chars[i] = String.fromCharCode(bytes[i]);
   }
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  return btoa(chars.join('')).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
 function fromBase64Url(b64: string): Uint8Array {
@@ -328,9 +330,12 @@ export async function getPermanentlyFailedMessages(): Promise<{
     retry_count: number;
     created_at: number;
   }>(
+    // BUG-MISC-01 FIX: the second OR clause is redundant since resetFailedMessages()
+    // always promotes failed+retry_count>=3 rows to 'permanent_failure'. Simplified
+    // to a single equality check.
     `SELECT id, conversation_id, content, retry_count, created_at
      FROM offline_messages
-     WHERE sync_status = 'permanent_failure' OR (sync_status = 'failed' AND retry_count >= 3)
+     WHERE sync_status = 'permanent_failure'
      ORDER BY created_at ASC`
   );
 

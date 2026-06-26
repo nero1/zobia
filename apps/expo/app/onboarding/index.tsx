@@ -187,7 +187,8 @@ export default function OnboardingStep1() {
 
   function handleNext() {
     const usernameErr = validateUsername(username);
-    const cityErr = !city.trim() ? 'City is required' : undefined;
+    // BUG-UX-13 FIX: city is optional — do not block progression if empty.
+    const cityErr = undefined;
     const yearErr = validateBirthYear(birthYear);
     const monthErr = validateBirthMonth(birthMonth);
     const dayErr = validateBirthDay(birthDay, birthMonth, birthYear);
@@ -199,7 +200,7 @@ export default function OnboardingStep1() {
     setBirthMonthError(monthErr);
     setBirthDayError(dayErr);
 
-    if (usernameErr || cityErr || yearErr || monthErr || dayErr || ageErr) {
+    if (usernameErr || yearErr || monthErr || dayErr || ageErr) {
       return;
     }
 
@@ -283,10 +284,10 @@ export default function OnboardingStep1() {
         />
       </View>
 
-      {/* City input */}
+      {/* City input — optional (BUG-UX-13 FIX) */}
       <View style={styles.section}>
         <Input
-          label={t('onboarding.cityLabel')}
+          label={t('onboarding.cityLabelOptional', { defaultValue: t('onboarding.cityLabel') + ' (optional)' })}
           placeholder={t('onboarding.cityPlaceholder')}
           value={city}
           onChangeText={(v) => { setCity(v); if (cityError) setCityError(undefined); }}

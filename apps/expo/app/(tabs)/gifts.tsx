@@ -10,7 +10,7 @@
  * @module app/(tabs)/gifts
  */
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -20,7 +20,7 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
@@ -50,6 +50,11 @@ interface GiftRecord {
   sender: GiftUser;
   recipient: GiftUser;
   giftItem: { name: string; emoji: string; tier: number };
+}
+
+interface GiftPage {
+  gifts: GiftRecord[];
+  nextCursor: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -170,18 +175,35 @@ export default function GiftsScreen() {
   const borderColor = isDark ? colors.neutral[800] : colors.neutral[200];
   const textPrimary = isDark ? colors.neutral[50] : colors.neutral[900];
 
-  const { data, isLoading, isRefetching, isError, refetch } = useQuery<{ gifts: GiftRecord[] }>({
+  // BUG-UX-14 FIX: use cursor-based pagination via useInfiniteQuery instead of
+  // a fixed limit=40, so users can load arbitrarily long gift histories.
+  const PAGE_SIZE = 20;
+  const {
+    data,
+    isLoading,
+    isFetchingNextPage,
+    isRefetching,
+    isError,
+    refetch,
+    fetchNextPage,
+    hasNextPage,
+  } = useInfiniteQuery<GiftPage>({
     queryKey: ['gifts', tab],
-    queryFn: async () => {
-      const { data } = await apiClient.get<{ gifts: GiftRecord[] }>(
-        `/economy/gifts?type=${tab}&limit=40`
-      );
-      return data;
+    queryFn: async ({ pageParam }) => {
+      const cursor = pageParam as string | undefined;
+      const url = `/economy/gifts?type=${tab}&limit=${PAGE_SIZE}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+      const { data: res } = await apiClient.get<GiftPage>(url);
+      return { gifts: res.gifts ?? [], nextCursor: res.nextCursor ?? null };
     },
+    initialPageParam: undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     staleTime: 30_000,
   });
 
-  const gifts = data?.gifts ?? [];
+  const gifts = useMemo(
+    () => data?.pages.flatMap((p) => p.gifts) ?? [],
+    [data],
+  );
 
   const handleSend = useCallback(() => {
     // Navigate to gift-send with no pre-filled recipient so user can pick
@@ -242,6 +264,13 @@ export default function GiftsScreen() {
           showsVerticalScrollIndicator={false}
           onRefresh={refetch}
           refreshing={isRefetching}
+          onEndReached={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage(); }}
+          onEndReachedThreshold={0.3}
+          ListFooterComponent={
+            isFetchingNextPage ? (
+              <ActivityIndicator style={{ marginVertical: 16 }} color={colors.brand.blue} />
+            ) : null
+          }
         />
       )}
     </Screen>

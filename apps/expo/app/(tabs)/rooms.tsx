@@ -118,11 +118,15 @@ function usePinnedRooms() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    // BUG-MEM-04 FIX: use AbortController so the request is cancelled on
+    // unmount, preventing setState on an unmounted component.
+    const controller = new AbortController();
     setLoading(true);
-    apiClient.get<{ rooms: RoomCardData[] }>('/rooms/pinned')
-      .then(({ data }) => setPinned(data.rooms ?? []))
+    apiClient.get<{ rooms: RoomCardData[] }>('/rooms/pinned', { signal: controller.signal })
+      .then(({ data }) => { if (!controller.signal.aborted) setPinned(data.rooms ?? []); })
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
   }, []);
 
   return { pinned, loading };
@@ -264,10 +268,19 @@ export default function RoomsScreen() {
   const [typeFilter, setTypeFilter] = useState<FilterChip>('all');
   const [availability, setAvailability] = useState<'all' | 'available' | 'full'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  // BUG-PERF-01 FIX: debounce search so API calls only fire 350ms after the
+  // user stops typing instead of on every keystroke.
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleSearchChange = useCallback((text: string) => {
+    setSearchQuery(text);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => setDebouncedSearch(text), 350);
+  }, []);
   const searchInputRef = useRef<TextInput>(null);
 
   const { rooms, loading, refreshing, error, refresh, loadMore, hasMore } =
-    useRoomsQuery(activeTab, typeFilter, searchQuery, availability, user?.city);
+    useRoomsQuery(activeTab, typeFilter, debouncedSearch, availability, user?.city);
   const { pinned } = usePinnedRooms();
 
   const handleRoomPress = useCallback(
@@ -308,8 +321,9 @@ export default function RoomsScreen() {
     }
     return (
       <View style={styles.centered}>
-        <Text style={styles.emptyText}>No rooms found.</Text>
-        <Text style={styles.emptySubText}>Try a different filter or search.</Text>
+        {/* BUG-I18N-04 FIX: use translation keys for empty state */}
+        <Text style={styles.emptyText}>{t('rooms.emptyState', 'No rooms found.')}</Text>
+        <Text style={styles.emptySubText}>{t('rooms.emptyStateHint', 'Try a different filter or search.')}</Text>
       </View>
     );
   };
@@ -344,7 +358,7 @@ export default function RoomsScreen() {
             placeholder="Search rooms..."
             placeholderTextColor={colors.neutral[400]}
             value={searchQuery}
-            onChangeText={setSearchQuery}
+            onChangeText={handleSearchChange}
             returnKeyType="search"
           />
         </View>

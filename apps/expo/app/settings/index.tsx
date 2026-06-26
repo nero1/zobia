@@ -16,10 +16,11 @@
  *  - Danger zone: Logout, Delete Account (with confirmation)
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import QRCode from 'react-native-qrcode-svg';
 import {
   Alert,
+  I18nManager,
   Linking,
   Modal,
   Pressable,
@@ -31,6 +32,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import * as Updates from 'expo-updates';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -187,9 +189,17 @@ function ChatPushToggles() {
     mutationFn: (patch: Record<string, boolean>) => apiClient.patch('/users/me/settings', patch),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['user-settings'] }),
   });
+  // BUG-RACE-06 FIX: debounce rapid toggles so only the final state is sent
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingPatchRef = useRef<Record<string, boolean>>({});
   const toggle = (k: 'dm' | 'group' | 'roomMention', column: string, v: boolean) => {
-    setLocal({ ...value, [k]: v });
-    mut.mutate({ [column]: v });
+    setLocal((prev) => ({ ...(prev ?? value), [k]: v }));
+    pendingPatchRef.current = { ...pendingPatchRef.current, [column]: v };
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      mut.mutate(pendingPatchRef.current);
+      pendingPatchRef.current = {};
+    }, 400);
   };
   return (
     <>
@@ -688,11 +698,21 @@ export default function SettingsScreen() {
   const patchMutation = useMutation({
     mutationFn: updateSettings,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['user-settings'] }),
-    onError: (err: Error) => {
+    onError: (err: Error, patch: Partial<UserSettings>) => {
       const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
       const code = axiosErr.response?.data?.error?.code ?? null;
       const message = axiosErr.response?.data?.error?.message ?? axiosErr.message;
       Alert.alert(t('common.error'), translateApiError(t, code, message));
+      // BUG-UX-02 FIX: roll back optimistic local state on PATCH failure so the
+      // UI shows the previously-saved value rather than the failed new value.
+      if (patch.language && data?.language) {
+        setSettings((prev) => ({ ...prev, language: data.language }));
+        void i18n.changeLanguage(data.language);
+        try { getStorage().set(STORE_KEYS.LANGUAGE_PREF, data.language); } catch {}
+      } else {
+        // For other fields, revert to server data
+        setSettings({});
+      }
     },
   });
 
@@ -740,7 +760,8 @@ export default function SettingsScreen() {
   };
 
   const handleConfirmDelete = async () => {
-    if (!deletePin.trim()) return;
+    // BUG-UX-03 FIX: validate that the PIN is exactly 4 digits, not just non-empty
+    if (!deletePin.trim() || !/^\d{4}$/.test(deletePin.trim())) return;
     setDeletePending(true);
     try {
       await deleteAccount(deletePin.trim());
@@ -885,9 +906,18 @@ export default function SettingsScreen() {
             <Pressable
               key={lang.code}
               onPress={() => {
+                const RTL_CODES = new Set(['ar']);
+                const prevIsRTL = I18nManager.isRTL;
+                const nextIsRTL = RTL_CODES.has(lang.code);
                 set('language', lang.code);
                 void i18n.changeLanguage(lang.code);
                 try { getStorage().set(STORE_KEYS.LANGUAGE_PREF, lang.code); } catch {}
+                // BUG-I18N-02 FIX: reload the app when RTL state changes so
+                // React Native's native-side mirroring takes effect.
+                if (prevIsRTL !== nextIsRTL) {
+                  I18nManager.forceRTL(nextIsRTL);
+                  Updates.reloadAsync().catch(() => {});
+                }
               }}
               style={[
                 styles.langPill,
@@ -1148,7 +1178,7 @@ export default function SettingsScreen() {
               label={deletePending ? 'Deleting…' : 'Delete My Account'}
               variant="danger"
               onPress={handleConfirmDelete}
-              disabled={deletePending || !deletePin.trim()}
+              disabled={deletePending || !/^\d{4}$/.test(deletePin.trim())}
             />
           </View>
         </View>

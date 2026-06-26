@@ -22,25 +22,43 @@ import * as SecureStore from 'expo-secure-store';
 
 const ENCRYPTION_KEY_NAME = 'zobia_mmkv_key';
 
+let _encKeyPromise: Promise<string> | null = null;
+
 /**
  * Load (or generate and persist) the MMKV encryption key.
  * Returns a hex-encoded 256-bit key string.
+ *
+ * BUG-RACE-01 FIX: uses a module-level promise guard so concurrent callers
+ * (e.g. multiple useEffect fires before the first resolves) share one operation
+ * instead of each generating and overwriting the SecureStore entry.
  */
 async function loadOrCreateEncryptionKey(): Promise<string> {
-  const existing = await SecureStore.getItemAsync(ENCRYPTION_KEY_NAME);
-  if (existing) return existing;
+  if (_encKeyPromise) return _encKeyPromise;
 
-  // Generate a cryptographically random 256-bit key
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  const hex = Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+  _encKeyPromise = (async () => {
+    const existing = await SecureStore.getItemAsync(ENCRYPTION_KEY_NAME);
+    if (existing) return existing;
 
-  await SecureStore.setItemAsync(ENCRYPTION_KEY_NAME, hex, {
-    keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+    // Generate a cryptographically random 256-bit key
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    const hex = Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+
+    await SecureStore.setItemAsync(ENCRYPTION_KEY_NAME, hex, {
+      keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+    });
+    return hex;
+  })();
+
+  // Clear on failure so the next call can retry
+  _encKeyPromise = _encKeyPromise.catch((err) => {
+    _encKeyPromise = null;
+    throw err;
   });
-  return hex;
+
+  return _encKeyPromise;
 }
 
 // ---------------------------------------------------------------------------

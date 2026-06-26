@@ -31,6 +31,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { Screen } from '@/components/ui/Screen';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
@@ -156,12 +157,23 @@ function XPProgressBar({
 
 /** Active war card. */
 function WarCard({ war, onJoin }: { war: ActiveWar; onJoin: () => void }) {
-  const timeLabel = formatTimeRemaining(war.endsAt);
-  const isEnded = timeLabel === 'Ended';
+  const { t } = useTranslation();
+  const diffMs = new Date(war.endsAt).getTime() - Date.now();
+  const isEnded = diffMs <= 0;
+  const timeLabel = isEnded
+    ? t('guild.war.ended', 'Ended')
+    : (() => {
+        const totalMinutes = Math.floor(diffMs / 60_000);
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
+        return hours > 0
+          ? t('guild.war.timeRemaining', { hours, minutes, defaultValue: `${hours}h ${minutes}m remaining` })
+          : t('guild.war.minutesRemaining', { minutes, defaultValue: `${minutes}m remaining` });
+      })();
   return (
     <View style={styles.warCard}>
       <View style={styles.warCardHeader}>
-        <Text style={styles.warCardTitle}>⚔️ Active War</Text>
+        <Text style={styles.warCardTitle}>⚔️ {t('guild.war.activeWar', 'Active War')}</Text>
         <Text style={[styles.warTimeLabel, isEnded && { color: colors.semantic.error }]}>
           {timeLabel}
         </Text>
@@ -170,7 +182,7 @@ function WarCard({ war, onJoin }: { war: ActiveWar; onJoin: () => void }) {
         <Text style={styles.warScore}>{war.ourScore}</Text>
         <View style={styles.warVsBlock}>
           <Text style={styles.warOpponentCrest}>{war.opponentCrest}</Text>
-          <Text style={styles.warVsText}>vs</Text>
+          <Text style={styles.warVsText}>{t('guild.war.vs', 'vs')}</Text>
           <Text style={styles.warOpponentName} numberOfLines={1}>
             {war.opponentName}
           </Text>
@@ -182,9 +194,9 @@ function WarCard({ war, onJoin }: { war: ActiveWar; onJoin: () => void }) {
           style={({ pressed }) => [styles.joinWarBtn, pressed && styles.joinWarBtnPressed]}
           onPress={onJoin}
           accessibilityRole="button"
-          accessibilityLabel="Join the war"
+          accessibilityLabel={t('guild.war.joinWar', 'Join the war')}
         >
-          <Text style={styles.joinWarBtnText}>Join War</Text>
+          <Text style={styles.joinWarBtnText}>{t('guild.war.joinWar', 'Join War')}</Text>
         </Pressable>
       )}
     </View>
@@ -202,29 +214,29 @@ function NoGuildView({
   onDiscover: () => void;
   onCreate: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <View style={styles.noGuildContainer}>
       <Text style={styles.noGuildEmoji}>🛡️</Text>
-      <Text style={styles.noGuildTitle}>Find Your Crew</Text>
+      <Text style={styles.noGuildTitle}>{t('guild.noGuild.title', 'Find Your Crew')}</Text>
       <Text style={styles.noGuildDesc}>
-        Guilds are squads of players who compete in wars, share a treasury, and
-        climb the leaderboard together. Join one or build your own.
+        {t('guild.noGuild.description', 'Guilds are squads of players who compete in wars, share a treasury, and climb the leaderboard together. Join one or build your own.')}
       </Text>
       <Pressable
         style={({ pressed }) => [styles.primaryBtn, pressed && styles.primaryBtnPressed]}
         onPress={onDiscover}
         accessibilityRole="button"
-        accessibilityLabel="Discover guilds"
+        accessibilityLabel={t('guild.noGuild.discoverGuilds', 'Discover guilds')}
       >
-        <Text style={styles.primaryBtnText}>Discover Guilds</Text>
+        <Text style={styles.primaryBtnText}>{t('guild.noGuild.discoverGuilds', 'Discover Guilds')}</Text>
       </Pressable>
       <Pressable
         style={({ pressed }) => [styles.secondaryBtn, pressed && styles.secondaryBtnPressed]}
         onPress={onCreate}
         accessibilityRole="button"
-        accessibilityLabel="Create a guild"
+        accessibilityLabel={t('guild.noGuild.createGuild', 'Create a guild')}
       >
-        <Text style={styles.secondaryBtnText}>Create Guild</Text>
+        <Text style={styles.secondaryBtnText}>{t('guild.noGuild.createGuild', 'Create Guild')}</Text>
       </Pressable>
     </View>
   );
@@ -236,6 +248,7 @@ function NoGuildView({
 
 function MyGuildView({ guild }: { guild: MyGuild }) {
   const router = useRouter();
+  const { t } = useTranslation();
   const tierCfg = TIER_CONFIG[guild.tier];
 
   const handleViewFull = useCallback(() => {
@@ -265,15 +278,15 @@ function MyGuildView({ guild }: { guild: MyGuild }) {
 
       {/* Treasury */}
       <View style={styles.treasuryRow}>
-        <Text style={styles.treasuryLabel}>🏦 Treasury</Text>
+        <Text style={styles.treasuryLabel}>🏦 {t('guild.treasury', 'Treasury')}</Text>
         <Text style={styles.treasuryValue}>
-          🪙 {guild.treasuryCoins.toLocaleString()} coins
+          🪙 {guild.treasuryCoins.toLocaleString()} {t('guild.coins', 'coins')}
         </Text>
       </View>
 
       {/* XP progress */}
       <View style={styles.sectionCard}>
-        <Text style={styles.sectionCardTitle}>Tier Progress</Text>
+        <Text style={styles.sectionCardTitle}>{t('guild.tierProgress', 'Tier Progress')}</Text>
         <XPProgressBar
           currentXP={guild.currentXP}
           tierXPGoal={guild.tierXPGoal}
@@ -292,14 +305,14 @@ function MyGuildView({ guild }: { guild: MyGuild }) {
           <Text style={styles.statValue}>
             {guild.memberCount}/{guild.maxMembers}
           </Text>
-          <Text style={styles.statLabel}>Members</Text>
+          <Text style={styles.statLabel}>{t('guild.members', 'Members')}</Text>
         </View>
         <View style={styles.statDivider} />
         <View style={styles.statCell}>
           <Text style={styles.statValue}>
             {guild.myContributionXP.toLocaleString()}
           </Text>
-          <Text style={styles.statLabel}>My XP</Text>
+          <Text style={styles.statLabel}>{t('guild.myXP', 'My XP')}</Text>
         </View>
       </View>
 
@@ -308,9 +321,9 @@ function MyGuildView({ guild }: { guild: MyGuild }) {
         style={({ pressed }) => [styles.viewFullBtn, pressed && styles.viewFullBtnPressed]}
         onPress={handleViewFull}
         accessibilityRole="button"
-        accessibilityLabel={`View full guild profile for ${guild.name}`}
+        accessibilityLabel={t('guild.viewFullGuild', { name: guild.name, defaultValue: `View full guild profile for ${guild.name}` })}
       >
-        <Text style={styles.viewFullBtnText}>View Full Guild →</Text>
+        <Text style={styles.viewFullBtnText}>{t('guild.viewFullGuild', 'View Full Guild →')}</Text>
       </Pressable>
     </ScrollView>
   );
@@ -325,6 +338,7 @@ function MyGuildView({ guild }: { guild: MyGuild }) {
  */
 export default function GuildScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
 
   const {
     data: guilds,
@@ -351,7 +365,7 @@ export default function GuildScreen() {
     return (
       <Screen>
         <View style={styles.header}>
-          <Text style={styles.title}>Guild</Text>
+          <Text style={styles.title}>{t('guild.title', 'Guild')}</Text>
         </View>
         <GuildTabSkeleton />
       </Screen>
@@ -363,18 +377,18 @@ export default function GuildScreen() {
     return (
       <Screen>
         <View style={styles.header}>
-          <Text style={styles.title}>Guild</Text>
+          <Text style={styles.title}>{t('guild.title', 'Guild')}</Text>
         </View>
         <View style={styles.centered}>
           <Text style={styles.errorText}>
-            Could not load guild data. Check your connection.
+            {t('guild.loadError', 'Could not load guild data. Check your connection.')}
           </Text>
           <Pressable
             style={styles.retryBtn}
             onPress={() => refetch()}
             accessibilityRole="button"
           >
-            <Text style={styles.retryBtnText}>Retry</Text>
+            <Text style={styles.retryBtnText}>{t('common.retry', 'Retry')}</Text>
           </Pressable>
         </View>
       </Screen>
@@ -387,7 +401,7 @@ export default function GuildScreen() {
     <Screen>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>Guild</Text>
+        <Text style={styles.title}>{t('guild.title', 'Guild')}</Text>
         {isLoading && (
           <ActivityIndicator size="small" color={colors.brand.blue} />
         )}

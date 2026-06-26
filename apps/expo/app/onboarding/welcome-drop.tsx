@@ -74,6 +74,10 @@ export default function WelcomeDrop() {
   const [submitError, setSubmitError] = useState(false);
 
   useEffect(() => {
+    // BUG-MEM-03 FIX: use AbortController so the request can be cancelled and
+    // we avoid setState calls on an unmounted component.
+    const controller = new AbortController();
+
     // Persist onboarding data to the server.
     let vibeAnswers: Record<string, unknown> = {};
     if (vibeAnswersParam) {
@@ -107,8 +111,9 @@ export default function WelcomeDrop() {
         birth_day: birthDay ? parseInt(birthDay, 10) : undefined,
         vibe_quiz_responses: vibeAnswers,
         referral_code: referralCode ?? undefined,
-      })
+      }, { signal: controller.signal })
       .then(() => {
+        if (controller.signal.aborted) return;
         // Mark onboarding complete only after server confirms it.
         setItem(STORE_KEYS.ONBOARDING_COMPLETE, true);
         // Clear DOB draft now that the server has recorded it.
@@ -117,11 +122,13 @@ export default function WelcomeDrop() {
         // device is not misattributed to the same referrer.
         clearPendingReferralCode();
       })
-      .catch(() => {
+      .catch((err: unknown) => {
+        if (controller.signal.aborted) return;
         // BUG-024 FIX: surface the API failure so the user knows their profile
         // may not have been saved. They can still proceed — the server will
         // complete onboarding on next login if needed.
-        setSubmitError(true);
+        const isCancel = (err as { name?: string })?.name === 'AbortError' || (err as { code?: string })?.code === 'ERR_CANCELED';
+        if (!isCancel) setSubmitError(true);
       });
 
     // Sequence: avatar → XP badge → CTA
@@ -140,6 +147,8 @@ export default function WelcomeDrop() {
       1000,
       withTiming(1, { duration: 400, easing: Easing.out(Easing.quad) }),
     );
+    // BUG-MEM-03 FIX: cancel the request on unmount
+    return () => controller.abort();
   }, [avatarScale, xpOpacity, xpScale, ctaOpacity, username, emoji, city, vibeAnswersParam]);
 
   const avatarAnimStyle = useAnimatedStyle(() => ({
