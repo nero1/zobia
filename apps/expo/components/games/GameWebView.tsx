@@ -128,7 +128,7 @@ export function GameWebView({ slug, challengeId, onGameOver }: GameWebViewProps)
       ref={webViewRef}
       source={{ uri }}
       onMessage={handleMessage}
-      originWhitelist={[`${gameOrigin}/*`, gameOrigin, 'about:blank']}
+      originWhitelist={[`${gameOrigin}/*`, gameOrigin]}
       javaScriptEnabled
       domStorageEnabled
       startInLoadingState

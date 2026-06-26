@@ -104,6 +104,7 @@ interface TrackBarProps {
 }
 
 function TrackBar({ track }: TrackBarProps) {
+  const { t } = useTranslation();
   const progress = track.maxLevel > 0 ? track.level / track.maxLevel : 0;
 
   return (

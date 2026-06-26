@@ -199,6 +199,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             SecureStore.deleteItemAsync('zobia_user'),
           ]);
         } catch {}
+        // BUG-SEC-01 FIX: mirror the signOut cleanup so cross-account data leakage
+        // and stale billing sessions are prevented on forced logout.
+        try { clearStore(); } catch {}
+        clearOfflineQueue().catch(() => {});
+        if (Platform.OS === 'android') {
+          disconnectGooglePlayBilling().catch(() => {});
+        }
         setSessionExpired(true);
         setToken(null);
         setUser(null);
