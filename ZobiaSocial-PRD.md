@@ -1,7 +1,7 @@
 # Zobia Social — Product Requirements Document
 ### A Gamified Monetised Social Platform for the Global Mobile Generation
 
-> **Version 1.84 — Product Requirements Document**
+> **Version 1.85 — Product Requirements Document**
 > Covers: Feature Specifications · Technical Architecture · Economy Design · Moderation · Build Sequence
 > Scope: Nigeria-first, Pan-African then Global · Mobile-first PWA + Android APK · Admin-minimal operation
 
@@ -2157,7 +2157,7 @@ Security hardening, reliability improvements, UX/i18n consistency, and build con
 - **Ad load listener cross-cleanup (BUG-REL-07):** In `lib/ads/admob.ts`, the LOADED callback now calls `unsubscribeError()` before resolving, and the ERROR callback calls `unsubscribeLoaded()` before rejecting, for both `loadRewardedAd()` and `loadInterstitialAd()`.
 - **SlugRedirect timeout (BUG-REL-08):** `components/deeplink/SlugRedirect.tsx` now uses an `AbortController` with a 15-second timeout. On abort or unrecoverable error, an error state with a "Go Back" button is rendered instead of an infinite spinner.
 - **Cold-start notification routing (BUG-REL-09):** `app/_layout.tsx` now calls `Notifications.getLastNotificationResponseAsync()` on startup. If a notification response is present (app was cold-started from a push tap), it is routed through the same `VALID_PUSH_ROUTES` allowlist handler used for foreground taps.
-- **Android keyboard double-offset fix (BUG-REL-10):** `<KeyboardAvoidingView>` in `app/rooms/[roomId].tsx` now uses `behavior={Platform.OS === 'ios' ? 'padding' : undefined}`. On Android, `softwareKeyboardLayoutMode: "pan"` in `app.json` already handles the shift; the additional `KeyboardAvoidingView` was causing a double-offset.
+- **Android keyboard double-offset fix (BUG-REL-10):** `<KeyboardAvoidingView>` in `app/rooms/[roomId].tsx` and `app/messages/[conversationId].tsx` uses `behavior={Platform.OS === 'ios' ? 'padding' : 'height'}`. `softwareKeyboardLayoutMode: "resize"` in `app.config.ts` (Android) ensures the window shrinks when the soft keyboard appears, keeping inverted FlatList input bars visible on Android API 36 with dynamic-height predictive keyboards.
 - **Dedup set cap check order (BUG-REL-11):** The `seenIds` pruning in the room message dedup loop now occurs *before* `seenIds.add(id)` (check `size >= 500`), preventing the set from momentarily growing to 501 entries.
 - **PIN double-advance race prevention (BUG-REL-12):** `app/settings/pin.tsx` uses an `advancingRef` to ensure `advance()` cannot be called twice within the 150 ms transition window, even when both the hidden `TextInput.onChangeText` and a numpad `Pressable.onPress` fire simultaneously.
 - **War countdown timer stops on end (BUG-REL-13):** The countdown `tick()` function in `app/guilds/wars/[warId].tsx` now calls `clearInterval(id)` when `diff <= 0`, preventing indefinite state updates after the war has ended.
@@ -2407,6 +2407,71 @@ Security hardening, UX improvements, and architectural cleanup across the Expo m
 
 ---
 
-*ZobiaSocial PRD v1.84*
+## Appendix: Version 1.85 Change Log
+
+### v1.85 — Changelog
+
+Comprehensive forensic-audit bug fix pass (55 issues identified; 54 resolved, 1 skipped — see below). Covers the Expo mobile app across security, reliability, performance, correctness, and accessibility dimensions.
+
+#### Critical / High
+
+- **Stars transaction history endpoint (Bug 1):** `app/economy/wallet.tsx` stars tab now calls `/economy/stars/transactions` instead of the balance endpoint, restoring the history list.
+- **Duplicate PIN verification logic (Bug 2):** `app/economy/store.tsx` now has a single `verifyPin()` callback replacing the two previously-divergent PIN code paths (auto-submit on 4 digits, manual submit button).
+- **`endBillingConnection` stale promise (Bug 4):** `lib/payments/googlePlay.ts` clears `_initPromise = null` alongside `initialised = false` so a subsequent `initGooglePlayBilling()` call gets a fresh promise, not a stale resolved one.
+- **`pendingRecovery` lost on restart (Bug 34):** `pendingRecovery` Map is now persisted to SecureStore (key `PENDING_RECOVERY`) with a 72-hour expiry timestamp per entry, and loaded back on `initGooglePlayBilling`. Unacknowledged IAP purchases survive app restarts.
+- **`SlugRedirect` infinite re-resolve loop (Bug 23):** `toInternalPath` prop is stored in a ref and excluded from the `useEffect` dependency array, preventing infinite `/public/resolve` calls when callers pass inline arrow functions.
+- **Gift-send zero stars balance (Bug 27):** Gift-send screen now parallel-fetches both `/economy/coins/balance` and `/economy/stars/balance` so the stars field is populated correctly.
+
+#### Medium
+
+- **EAS Project ID placeholder in production builds (Bug 5):** `app.config.ts` now throws on missing `EAS_PROJECT_ID` when `APP_VARIANT === 'production'`, falling back to `'dev-placeholder'` in non-production builds only.
+- **Non-NGN floating-point currency (Bug 3):** All non-NGN minor-unit → major-unit conversions in `app/economy/store.tsx` now use `new Decimal(kobo).div(100).toFixed(2)`.
+- **Duplicate session-expired modal (Bug 11):** `_notifiedUnauthenticated` flag in `lib/api/client.ts` no longer resets via a 5-second `setTimeout`. A new `resetUnauthenticatedFlag()` export is called from auth context on explicit sign-in, ensuring exactly one session-expiry modal per logout cycle.
+- **`myUserId` empty-string own-message rendering (Bug 9):** `app/messages/[conversationId].tsx` guards against rendering before auth is ready; `myUserIdOrEmpty` is now correctly defaulted.
+- **GameWebView postMessage origin (Bug 22):** Injected JavaScript wraps each postMessage with a `{ __origin, __data }` envelope; the React Native handler validates `__origin` before processing, replacing the page-URL-based check.
+- **GameWebView navigation block (Bug 48):** `onShouldStartLoadWithRequest` now intercepts navigation at the request level instead of the `onNavigationStateChange` + `stopLoading()` approach.
+- **Notification mark-read optimistic update (Bug 24):** `markReadMutation` in `app/notifications/index.tsx` uses `cancelQueries` + `setQueryData` for optimistic update and rolls back on error, instead of fire-and-forget.
+- **Notification route path for gifts (Bug 25):** Gift/gift_received notifications now route to `'/(tabs)/wallet'` (correct) instead of `'/(tabs)/economy/wallet'`.
+- **Notification route UUID sanitisation (Bug 55):** All payload IDs are validated against a UUID regex before route string construction in `getNotificationRoute`.
+- **Notification pagination (Bug 38):** `app/notifications/index.tsx` migrated to `useInfiniteQuery` with cursor pagination; FlatList triggers `fetchNextPage` via `onEndReached`.
+- **Friend toggle API path (Bug 26):** `app/profile/[userId].tsx` now calls `POST /friends` with `{ targetUserId }` body, matching the `ContactsImporter` pattern.
+- **Notification toggle debounce (Bug 28):** `app/settings/index.tsx` debounces notification preference PATCH calls 400 ms via `notifDebounceRef`.
+- **Delete-account PIN error feedback (Bug 29):** Invalid PIN format on account deletion now sets a visible `deletePinError` state instead of silently returning.
+- **DOB keyboard type (Bug 30):** Date-of-birth field uses `keyboardType="numeric"` (was `numbers-and-punctuation`, unreliable on Android).
+- **RTL reload before save confirmation (Bug 53):** `I18nManager.forceRTL()` and `Updates.reloadAsync()` are now called inside `patchMutation.onSuccess`, so the RTL reload only fires when the server confirms the language save.
+- **TOTP MMKV read during render (Bug 32):** Lockout state in `app/auth/two-factor.tsx` is now read in a deferred `useEffect` guarded by `lockoutInitialized`, preventing synchronous MMKV access during the initial render.
+- **Presence heartbeat continues when backgrounded (Bug 35):** Heartbeat interval in `app/rooms/[roomId].tsx` is now managed by `useFocusEffect` so it stops when the screen is out of focus.
+- **Gift balance not re-verified after PIN delay (Bug 40):** Gift-send screen invalidates and re-checks the balance query after the PIN modal resolves before firing `sendMutation`.
+- **Gift PIN flat lockout (Bugs 45, 46):** Gift-send PIN lockout now uses exponential backoff (15 min × 2^n, capped at 24 h) using the previously-unused `STORE_KEYS.GIFT_PIN_LOCKOUT_COUNT`.
+- **Contacts importer re-import duplicates (Bug 49):** `ContactsImporter` tracks a `hasImported` flag and disables the button after first import to prevent duplicate friend requests.
+- **Android keyboard / inverted FlatList (Bug 41):** `app.config.ts` sets `softwareKeyboardLayoutMode: "resize"` for Android, ensuring the viewport shrinks on keyboard open and the message input remains visible on API 36 devices.
+- **Ad reward server-side cap (Bug 52):** `RewardedAdButton` now handles `429` from `/economy/rewards/ad-reward` by syncing the local MMKV cap to `AD_DAILY_CAP`. The server endpoint must independently enforce the cap per user per day (Redis counter with UTC-midnight TTL) — the client-side MMKV cap is a UX hint only.
+
+#### Low / Accessibility
+
+- **MMKV LRU eviction order (Bug 8):** `lib/chat/messageCache.ts` removes the existing index entry before re-inserting to maintain correct LRU order.
+- **Telegram bot name in dev/preview (Bug 13):** `EXPO_PUBLIC_TELEGRAM_BOT_NAME` added to `development` and `preview` EAS profiles.
+- **PIN_MAX_ATTEMPTS constant exported (Bug 15):** `lib/hooks/usePinRateLimit.ts` exports `PIN_MAX_ATTEMPTS = 5`; `store.tsx` no longer defines a local copy.
+- **Pidgin autocomplete endsWith (Bug 19):** `lower.endsWith(key)` clause removed from `getPidginSuggestions`; only prefix-match is used.
+- **Announcement dismiss key collision (Bug 20):** `getSessionKey` now incorporates `modal.id + (modal.version ?? 'v1')`, eliminating collisions from shared content prefixes.
+- **RTL reload guard in dev builds (Bug 14):** `Updates.reloadAsync()` in `lib/i18n/index.ts` is wrapped in `Updates.isAvailable` and falls back to an informational `Alert` in dev.
+- **`__DEV__` guard for push route warnings (Bug 12):** Invalid push route logging is now gated behind `__DEV__` to avoid noise in production.
+- **MMKV storage proxy deprecation (Bug 33):** `storage` direct-proxy export in `lib/offline/store.ts` is annotated `@deprecated`.
+- **O(n) message ID eviction (Bug 10):** `prevMessageIdsRef` in `app/rooms/[roomId].tsx` is now a `Map<string, true>` allowing O(1) oldest-entry eviction via `map.keys().next().value`.
+- **Binary search for delta merge (Bug 43):** `mergeNewestFirst` in `lib/chat/delta.ts` uses binary search insertion instead of O(n log n) full resort.
+- **OfflineBanner cold-start state (Bug 44):** `NetInfo.fetch()` is called at mount to immediately reflect offline state before the async event listener fires.
+- **OfflineBanner null reachability comment (Bug 50):** Strict `=== false` check is documented to clarify that `null` (unknown state) is treated as connected.
+- **SwipeDrawer state desync (Bug 36):** `setIsOpen` in `components/layout/SwipeDrawer.tsx` is now called only in the `withSpring` completion callback when `finished === true`, preventing desync between Reanimated shared value and React state.
+- **TOTP duplicated lockout logic (Bug 51):** `handleFailedAttempt` extracted from two catch blocks in `app/auth/two-factor.tsx`.
+- **`accessibilityHint` on RewardedAdButton (Bug 16 partial):** Main `TouchableOpacity` now has `accessibilityHint`.
+- **FlatList `accessibilityLabel` (Bug 47):** Room messages, DM conversation, and notification list FlatLists now have descriptive `accessibilityLabel` props for TalkBack.
+
+#### Skipped
+
+- **Bug 42 — Pidgin dictionary offensive terms:** Intentionally skipped per product team decision.
+
+---
+
+*ZobiaSocial PRD v1.85*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*
