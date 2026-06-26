@@ -23,7 +23,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
@@ -34,6 +34,8 @@ import { apiClient } from '@/lib/api/client';
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+type NotifPage = { notifications: AppNotification[]; nextCursor: string | null };
 
 interface AppNotification {
   id: string;
@@ -282,27 +284,27 @@ export default function NotificationsScreen() {
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
-  } = useInfiniteQuery({
+  } = useInfiniteQuery<NotifPage, Error, InfiniteData<NotifPage>, string[], string | undefined>({
     queryKey: ['notifications'],
-    queryFn: ({ pageParam }) => fetchNotifications(pageParam as string | undefined),
+    queryFn: ({ pageParam }) => fetchNotifications(pageParam),
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     initialPageParam: undefined,
   });
 
-  const notifications = notifPages?.pages.flatMap((p) => p.notifications) ?? [];
+  const notifications = notifPages?.pages.flatMap((p: NotifPage) => p.notifications) ?? [];
 
   const markReadMutation = useMutation({
     mutationFn: (id: string) => apiClient.patch(`/notifications/${id}/read`),
     onMutate: async (id) => {
       await queryClient.cancelQueries({ queryKey: ['notifications'] });
-      const prev = queryClient.getQueryData<typeof notifPages>(['notifications']);
-      queryClient.setQueryData<typeof notifPages>(['notifications'], (old) => {
+      const prev = queryClient.getQueryData<InfiniteData<NotifPage>>(['notifications']);
+      queryClient.setQueryData<InfiniteData<NotifPage>>(['notifications'], (old: InfiniteData<NotifPage> | undefined) => {
         if (!old) return old;
         return {
           ...old,
-          pages: old.pages.map((page) => ({
+          pages: old.pages.map((page: NotifPage) => ({
             ...page,
-            notifications: page.notifications.map((n) =>
+            notifications: page.notifications.map((n: AppNotification) =>
               n.id === id ? { ...n, isRead: true } : n
             ),
           })),

@@ -474,7 +474,6 @@ export default function StoreScreen() {
       }
       setPinInput('');
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pinPending, boosterPinPending, pinLockedUntil, pinFailedAttempts, pinLockoutCount]);
 
   const submitPin = async () => {
