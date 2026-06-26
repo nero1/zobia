@@ -33,14 +33,21 @@ export default function AdminFinancialScreen() {
   const [payouts, setPayouts] = useState<PayoutRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  // M-8 FIX: track load errors so the screen can show a retry button.
+  const [loadError, setLoadError] = useState(false);
 
   async function loadData() {
-    const [statsRes, payoutsRes] = await Promise.all([
-      apiClient.get('/admin/financial').catch(() => null),
-      apiClient.get('/admin/payouts?status=pending&limit=20').catch(() => null),
-    ]);
-    if (statsRes) setStats(statsRes.data.data?.stats ?? null);
-    if (payoutsRes) setPayouts(payoutsRes.data.data?.payouts ?? []);
+    setLoadError(false);
+    try {
+      const [statsRes, payoutsRes] = await Promise.all([
+        apiClient.get('/admin/financial'),
+        apiClient.get('/admin/payouts?status=pending&limit=20'),
+      ]);
+      setStats(statsRes.data.data?.stats ?? null);
+      setPayouts(payoutsRes.data.data?.payouts ?? []);
+    } catch {
+      setLoadError(true);
+    }
     setLoading(false);
     setRefreshing(false);
   }
@@ -66,6 +73,14 @@ export default function AdminFinancialScreen() {
   }
 
   if (loading) return <View className="flex-1 items-center justify-center"><ActivityIndicator color="#2563EB" /></View>;
+  if (loadError) return (
+    <View className="flex-1 items-center justify-center gap-3">
+      <Text className="text-gray-500 text-sm">Failed to load financial data.</Text>
+      <TouchableOpacity className="bg-blue-600 px-4 py-2 rounded-lg" onPress={() => { setLoading(true); void loadData(); }}>
+        <Text className="text-white font-medium">Retry</Text>
+      </TouchableOpacity>
+    </View>
+  );
 
   return (
     <ScrollView

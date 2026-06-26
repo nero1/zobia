@@ -12,7 +12,7 @@
 import React, { useState, useEffect } from 'react';
 // FIX-15: Use Decimal.js-based formatting for kobo-to-naira conversions
 import { koboToNairaStr } from '@/lib/utils/currency';
-import { storage } from '@/lib/offline/store';
+import { storage, STORE_KEYS } from '@/lib/offline/store';
 import {
   View,
   Text,
@@ -102,9 +102,9 @@ interface BoosterPurchaseResult {
 }
 
 const PIN_MAX_ATTEMPTS = 5;
-const PIN_LOCKOUT_MS = 30_000;
 const PIN_ATTEMPTS_KEY = 'store_pin_failed_attempts';
 const PIN_LOCKED_UNTIL_KEY = 'store_pin_locked_until';
+const PIN_LOCKOUT_COUNT_KEY = STORE_KEYS.PIN_LOCKOUT_COUNT;
 
 // ---------------------------------------------------------------------------
 // API
@@ -133,9 +133,13 @@ async function purchaseBooster({ boosterType }: BoosterPurchaseArgs): Promise<Bo
 // ---------------------------------------------------------------------------
 
 function formatKobo(kobo: number, currencyCode = 'NGN'): string {
+  // L-6 FIX: use Decimal.js-based formatter (koboToNairaStr) for all currencies
+  // to avoid floating-point precision issues from (kobo / 100).toLocaleString().
   if (currencyCode === 'NGN') return koboToNairaStr(kobo);
-  const formatted = (kobo / 100).toLocaleString('en-NG');
-  return `${formatted} ${currencyCode}`;
+  // For non-NGN currencies, format the major unit amount precisely.
+  // koboToNairaStr is NGN-specific so we replicate its precision logic manually.
+  const major = (kobo / 100).toFixed(2).replace(/\.?0+$/, '');
+  return `${Number(major).toLocaleString('en-US')} ${currencyCode}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -238,6 +242,10 @@ export default function StoreScreen() {
   const [pinLockedUntil, setPinLockedUntil] = useState<number | null>(() => {
     try { const v = storage.getNumber(PIN_LOCKED_UNTIL_KEY); return v ?? null; } catch { return null; }
   });
+  // M-9 FIX: track successive lockout windows so we can apply exponential backoff.
+  const [pinLockoutCount, setPinLockoutCount] = useState<number>(() => {
+    try { return storage.getNumber(PIN_LOCKOUT_COUNT_KEY) ?? 0; } catch { return 0; }
+  });
 
   useEffect(() => {
     try { storage.set(PIN_ATTEMPTS_KEY, pinFailedAttempts); } catch {}
@@ -249,6 +257,10 @@ export default function StoreScreen() {
       else storage.set(PIN_LOCKED_UNTIL_KEY, pinLockedUntil);
     } catch {}
   }, [pinLockedUntil]);
+
+  useEffect(() => {
+    try { storage.set(PIN_LOCKOUT_COUNT_KEY, pinLockoutCount); } catch {}
+  }, [pinLockoutCount]);
 
   const { data, isLoading, isError, refetch } = useQuery<StoreData>({
     queryKey: ['economy', 'store'],
@@ -415,6 +427,7 @@ export default function StoreScreen() {
       await apiClient.post('/auth/pin/verify', { pin: pinInput });
       setPinFailedAttempts(0);
       setPinLockedUntil(null);
+      setPinLockoutCount(0);
       setPinModalVisible(false);
       if (boosterPinPending) {
         setPurchasingBoosterId(boosterPinPending.boosterId);
@@ -427,9 +440,14 @@ export default function StoreScreen() {
     } catch {
       const nextAttempts = pinFailedAttempts + 1;
       if (nextAttempts >= PIN_MAX_ATTEMPTS) {
-        setPinLockedUntil(Date.now() + PIN_LOCKOUT_MS);
+        // M-9 FIX: exponential backoff — each successive lockout doubles the
+        // window (30s, 60s, 120s … capped at 30 min).
+        const nextLockoutCount = pinLockoutCount + 1;
+        const lockMs = Math.min(30_000 * Math.pow(2, pinLockoutCount), 30 * 60 * 1000);
+        setPinLockedUntil(Date.now() + lockMs);
         setPinFailedAttempts(0);
-        setPinError(`Too many attempts. Try again in ${PIN_LOCKOUT_MS / 1000}s.`);
+        setPinLockoutCount(nextLockoutCount);
+        setPinError(`Too many attempts. Try again in ${Math.ceil(lockMs / 1000)}s.`);
       } else {
         setPinFailedAttempts(nextAttempts);
         setPinError('Incorrect PIN. Please try again.');

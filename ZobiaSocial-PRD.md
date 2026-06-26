@@ -1,7 +1,7 @@
 # Zobia Social — Product Requirements Document
 ### A Gamified Monetised Social Platform for the Global Mobile Generation
 
-> **Version 1.82 — Product Requirements Document**
+> **Version 1.83 — Product Requirements Document**
 > Covers: Feature Specifications · Technical Architecture · Economy Design · Moderation · Build Sequence
 > Scope: Nigeria-first, Pan-African then Global · Mobile-first PWA + Android APK · Admin-minimal operation
 
@@ -2281,6 +2281,57 @@ When a logged-in user visits the root URL (`/` or the bare domain e.g. `zobia.ve
 
 ---
 
-*ZobiaSocial PRD v1.81*
+## Appendix: Version 1.83 Change Log
+
+### v1.83 — Changelog
+
+Bug fixes and security hardening across the Expo mobile app. All 28 bugs from the forensic audit (custom-bugs-report.md) resolved.
+
+#### Critical Fixes
+
+- **C-1 — `displayName` missing from token refresh user object:** `refreshAccessToken()` in `lib/api/client.ts` now includes `displayName` (coalescing `me.displayName ?? me.display_name`) in the `updatedUser` object written to SecureStore and broadcast via `notifyUserUpdated()`. Previously, any token rotation silently stripped `displayName` from the in-memory user, causing profile display regressions.
+- **C-2 — Undefined `total` in admin payouts screen:** `AdminPayoutsScreen` in `app/admin/payouts.tsx` now declares a `total` state variable (initially 0, updated from `data.total ?? payouts.length` on each page load) so the `ListHeaderComponent` renders the payout count without crashing.
+- **C-3 — MMKV `authToken` always undefined in admin refunds:** Both `loadRefunds()` and `handleIssueRefund()` in `app/admin/refunds.tsx` now use `apiClient.get()` / `apiClient.post()` (which reads the JWT from SecureStore via its request interceptor) instead of `storage.getString('authToken')` (which always returned undefined). All admin API calls are now authenticated.
+- **C-4 — Cold-start notification navigates before nav tree exists:** `getLastNotificationResponseAsync()` result is now stored in a `pendingNotifAction` ref instead of calling `router.push()` immediately. A new effect keyed on `(!isLoading && storeReady && user)` fires the navigation once the nav tree is mounted and the session is confirmed.
+
+#### High-Priority Fixes
+
+- **H-2 — Deprecated Play Billing subscription upgrade API:** `purchaseSubscription()` in `lib/payments/googlePlay.ts` now uses `subscriptionReplacementInfo: { oldPurchaseToken, prorationMode }` (Play Billing v5+) instead of the removed `replaceSku` / `prorationMode` root fields. Purchase tokens for active subscriptions are persisted to MMKV (`STORE_KEYS.ACTIVE_SUB_TOKENS`) on successful verification. A new exported `getActiveSubscriptionToken(productId)` helper allows callers to supply the old token for upgrades.
+- **H-3 — AdMob ad unit IDs missing from production EAS build:** `eas.json` production profile now includes `EXPO_PUBLIC_ADMOB_REWARDED_ANDROID`, `EXPO_PUBLIC_ADMOB_BANNER_ANDROID`, and `EXPO_PUBLIC_ADMOB_INTERSTITIAL_ANDROID` env vars alongside the existing App ID vars.
+- **H-4 — `apiFetch` reads SecureStore on every call instead of in-memory cache:** `apiFetch.ts` now imports and uses `getCachedToken()` (new export from `lib/api/client.ts`) for the Authorization header instead of `SecureStore.getItemAsync()`. A 401 response now triggers a single silent token refresh (via `refreshAccessToken()`) and retries the request, matching the behaviour of the Axios interceptor.
+- **H-5 — Stale `setUser(parsedUser)` overwrites fresh user after token refresh:** After a successful token refresh at app restore, `AuthProvider` now re-reads the user from SecureStore (which `refreshAccessToken()` has already updated with the fresh `/users/me` profile) instead of calling `setUser(parsedUser)` with the pre-refresh stale object.
+
+#### Medium-Priority Fixes
+
+- **M-1 — Ably client leaked when error thrown after connect:** `useRealtimeChannel.ts` now tracks the Ably client reference in an outer `ablyClient` variable. The catch block calls `ablyClient.close()` when the client was created before the error, preventing WebSocket leaks.
+- **M-2 — TOTP attempt count resets on app restart:** `TwoFactorScreen` now reads/writes `STORE_KEYS.TOTP_ATTEMPTS` and `STORE_KEYS.TOTP_LOCKED_UNTIL` to MMKV. Lockout state is restored on mount, and a 15-minute lockout is persisted on 5th failure.
+- **M-3/M-10 — Notification listener fires for logged-out users:** A `userRef` is now maintained alongside `isLoadingRef` in `_layout.tsx`. The notification response listener guards on `!userRef.current` in addition to `isLoadingRef.current`, preventing routing to protected screens when the session has expired.
+- **M-4 — Gift-send PIN lockout resets on app restart:** `gift-send.tsx` now reads/writes `STORE_KEYS.GIFT_PIN_ATTEMPTS` and `STORE_KEYS.GIFT_PIN_LOCKED_UNTIL` to MMKV. 15-minute lockout is enforced and survives restarts.
+- **M-5 — Creator payout PIN lockout resets on app restart:** `creator/dashboard.tsx` now reads/writes `STORE_KEYS.PAYOUT_PIN_ATTEMPTS` and `STORE_KEYS.PAYOUT_PIN_LOCKED_UNTIL` to MMKV. Same 15-minute lockout pattern as M-4.
+- **M-6 — Date of birth transmitted as URL params (PII exposure):** Onboarding step 1 (`app/onboarding/index.tsx`) now writes `{ birthYear, birthMonth, birthDay }` to `STORE_KEYS.ONBOARDING_DRAFT` in MMKV and omits these fields from the route params. `vibe-quiz.tsx` type declaration updated to remove DOB fields. `welcome-drop.tsx` reads DOB from MMKV draft and clears it after successful `/onboarding/complete`.
+- **M-7 — Chat message cache grows unboundedly:** `lib/chat/messageCache.ts` now maintains a `STORE_KEYS.CHAT_CACHE_INDEX` list (max 50 entries). When the cap is exceeded, the oldest conversation's cache entry is evicted via `removeItem()`.
+- **M-8 — Admin financial screen swallows load errors silently:** `app/admin/financial.tsx` now has a `loadError` state. When both API calls fail, an error message with a Retry button is shown instead of an empty screen.
+- **M-9 — Store PIN lockout resets to same window on each lockout:** `app/economy/store.tsx` now tracks `PIN_LOCKOUT_COUNT` in MMKV. Each successive lockout doubles the window (30s → 60s → 120s … capped at 30 min), instead of always 30s. Count resets to 0 on successful PIN verification.
+
+#### Low-Priority Fixes
+
+- **L-1 — Set eviction in room screen evicts only one entry per batch:** The spectacle dedup Set eviction in `app/rooms/[roomId].tsx` now removes all excess entries in a single pass (`toRemove = size - 499`) so a large message batch cannot temporarily inflate the Set beyond the intended cap.
+- **L-2 — `LANGUAGE_PREF` not in STORE_KEYS registry:** `STORE_KEYS.LANGUAGE_PREF` added so future code can reference this key without risk of typos.
+- **L-5 — Birth year validation allows current year:** `validateBirthYear()` in `onboarding/index.tsx` now caps at `currentYear - MINIMUM_AGE` instead of `currentYear`, preventing a user who hasn't turned 18 yet this calendar year from passing the year-only check.
+- **L-6 — Non-NGN currency uses imprecise `toLocaleString`:** `formatKobo()` in `store.tsx` now uses `.toFixed(2)` for the major-unit conversion for non-NGN currencies, eliminating floating-point representation errors.
+- **L-7 — Contacts upload is fire-and-forget with premature `done` status:** `handleFindFriends()` in `onboarding/index.tsx` now awaits the `apiClient.post()` call before setting `contactsStatus('done')`. API errors are still swallowed so the flow is non-blocking, but the status now accurately reflects completion.
+- **L-8 — No warning when EAS `projectId` is absent:** `registerForPushNotifications()` in `_layout.tsx` now logs a `console.warn` when `Constants.expoConfig?.extra?.eas?.projectId` is undefined, making misconfigured staging builds easier to diagnose.
+
+#### Store Keys Added
+
+`STORE_KEYS` in `lib/offline/store.ts` gains: `ONBOARDING_DRAFT`, `TOTP_ATTEMPTS`, `TOTP_LOCKED_UNTIL`, `GIFT_PIN_ATTEMPTS`, `GIFT_PIN_LOCKED_UNTIL`, `PAYOUT_PIN_ATTEMPTS`, `PAYOUT_PIN_LOCKED_UNTIL`, `CHAT_CACHE_INDEX`, `LANGUAGE_PREF`, `ACTIVE_SUB_TOKENS`, `PIN_LOCKOUT_COUNT`.
+
+#### Remaining External Items (not fixable in code)
+
+- **H-1 (Android App Links SHA256):** `apps/web/public/.well-known/assetlinks.json` contains a placeholder `REPLACE_WITH_YOUR_APP_SIGNING_CERT_SHA256`. The correct fingerprint must be obtained from Play Console (Setup → App integrity → App signing → SHA-256 certificate fingerprint) and substituted before App Links verification will work on Android 12+.
+
+---
+
+*ZobiaSocial PRD v1.83*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

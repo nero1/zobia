@@ -31,6 +31,7 @@ import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
 import { translateApiError } from '@/lib/i18n/apiErrors';
 import { koboToNairaStr } from '@/lib/utils/currency';
+import { storage, STORE_KEYS } from '@/lib/offline/store';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -187,9 +188,15 @@ export default function CreatorDashboardScreen() {
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
-  // BUG-033 FIX: track PIN attempts to lock out after 5 failures.
-  const [pinAttempts, setPinAttempts] = useState(0);
+  // M-5 FIX: persist PIN lockout state to MMKV so it survives app restarts.
+  const [pinAttempts, setPinAttempts] = useState(() => {
+    try { return storage.getNumber(STORE_KEYS.PAYOUT_PIN_ATTEMPTS) ?? 0; } catch { return 0; }
+  });
+  const [pinLockedUntil, setPinLockedUntil] = useState<number | null>(() => {
+    try { const v = storage.getNumber(STORE_KEYS.PAYOUT_PIN_LOCKED_UNTIL); return v ?? null; } catch { return null; }
+  });
   const PIN_MAX_ATTEMPTS = 5;
+  const PIN_LOCKOUT_MS = 15 * 60 * 1000;
 
   const { data: pinStatus } = useQuery<{ hasPinSet: boolean }>({
     queryKey: ['auth', 'pin', 'status'],
@@ -250,24 +257,42 @@ export default function CreatorDashboardScreen() {
 
   const submitPayoutPin = async () => {
     if (pinInput.length !== 4) return;
-    // BUG-033 FIX: lockout after PIN_MAX_ATTEMPTS failures.
+    // Check persisted lockout first
+    if (pinLockedUntil !== null && Date.now() < pinLockedUntil) {
+      const secsLeft = Math.ceil((pinLockedUntil - Date.now()) / 1000);
+      setPinError(`Too many attempts. Try again in ${secsLeft}s.`);
+      return;
+    }
     if (pinAttempts >= PIN_MAX_ATTEMPTS) {
+      const lockUntil = Date.now() + PIN_LOCKOUT_MS;
+      setPinLockedUntil(lockUntil);
+      try { storage.set(STORE_KEYS.PAYOUT_PIN_LOCKED_UNTIL, lockUntil); storage.delete(STORE_KEYS.PAYOUT_PIN_ATTEMPTS); } catch {}
+      setPinAttempts(0);
       setPinError(`Too many incorrect attempts. Please try again later.`);
       return;
     }
     try {
       await apiClient.post('/auth/pin/verify', { pin: pinInput });
+      // Success: clear lockout state
       setPinAttempts(0);
+      setPinLockedUntil(null);
+      try { storage.delete(STORE_KEYS.PAYOUT_PIN_ATTEMPTS); storage.delete(STORE_KEYS.PAYOUT_PIN_LOCKED_UNTIL); } catch {}
       setPinModalVisible(false);
       payoutMutation.mutate();
     } catch {
       const newAttempts = pinAttempts + 1;
       setPinAttempts(newAttempts);
+      try { storage.set(STORE_KEYS.PAYOUT_PIN_ATTEMPTS, newAttempts); } catch {}
       setPinInput('');
       if (newAttempts >= PIN_MAX_ATTEMPTS) {
+        const lockUntil = Date.now() + PIN_LOCKOUT_MS;
+        setPinLockedUntil(lockUntil);
+        try { storage.set(STORE_KEYS.PAYOUT_PIN_LOCKED_UNTIL, lockUntil); storage.delete(STORE_KEYS.PAYOUT_PIN_ATTEMPTS); } catch {}
+        setPinAttempts(0);
         setPinError(`Too many incorrect attempts. Please try again later.`);
       } else {
-        setPinError(`Incorrect PIN. ${PIN_MAX_ATTEMPTS - newAttempts} attempt${PIN_MAX_ATTEMPTS - newAttempts === 1 ? '' : 's'} remaining.`);
+        const rem = PIN_MAX_ATTEMPTS - newAttempts;
+        setPinError(`Incorrect PIN. ${rem} attempt${rem === 1 ? '' : 's'} remaining.`);
       }
     }
   };

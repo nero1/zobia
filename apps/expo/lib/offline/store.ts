@@ -141,6 +141,28 @@ export const STORE_KEYS = {
   // Referral code captured from an inbound ?r= deep/universal link, replayed at
   // onboarding for attribution (see lib/deeplinks/referral.ts).
   PENDING_REFERRAL: 'pending_referral',
+  // Temporary DOB draft written during onboarding step 1; read and cleared in
+  // welcome-drop so PII never travels through URL params (M-6 fix).
+  ONBOARDING_DRAFT: 'onboarding_draft',
+  // TOTP rate-limiting across app restarts (M-2 fix).
+  TOTP_ATTEMPTS: 'totp_failed_attempts',
+  TOTP_LOCKED_UNTIL: 'totp_locked_until',
+  // Gift-send PIN rate-limiting across app restarts (M-4 fix).
+  GIFT_PIN_ATTEMPTS: 'gift_pin_failed_attempts',
+  GIFT_PIN_LOCKED_UNTIL: 'gift_pin_locked_until',
+  // Creator payout PIN rate-limiting across app restarts (M-5 fix).
+  PAYOUT_PIN_ATTEMPTS: 'payout_pin_failed_attempts',
+  PAYOUT_PIN_LOCKED_UNTIL: 'payout_pin_locked_until',
+  // Chat message cache conversation index for global eviction (M-7 fix).
+  CHAT_CACHE_INDEX: 'chat_cache_index',
+  // Language preference — kept as a stable STORE_KEYS entry so sign-out can
+  // clear it via clearStore() without leaving stale locale data (L-2 fix).
+  LANGUAGE_PREF: 'language_pref',
+  // Active subscription purchase tokens keyed by product ID for Play Billing
+  // v5+ upgrade/downgrade flow (H-2 fix).
+  ACTIVE_SUB_TOKENS: 'active_sub_tokens',
+  // Counts successive PIN lockout windows for exponential backoff (M-9 fix).
+  PIN_LOCKOUT_COUNT: 'pin_lockout_count',
 } as const;
 
 export type StoreKey = (typeof STORE_KEYS)[keyof typeof STORE_KEYS];

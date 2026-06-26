@@ -94,6 +94,9 @@ export default function AdminPayoutsScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [actingId, setActingId] = useState<string | null>(null);
+  // C-2 FIX: declare total so the ListHeaderComponent can render the count.
+  // Set from API's `total` field when present; falls back to loaded count.
+  const [total, setTotal] = useState(0);
   // BUG-025 FIX: use cursor-based pagination to avoid skip/duplicate on insertion.
   const cursorRef = useRef<string | null>(null);
 
@@ -114,7 +117,11 @@ export default function AdminPayoutsScreen() {
     try {
       const { data } = await apiClient.get(`/admin/payouts?${params}`);
       const fetched: Payout[] = data.payouts ?? [];
-      setPayouts((prev) => (reset ? fetched : [...prev, ...fetched]));
+      setPayouts((prev) => {
+        const next = reset ? fetched : [...prev, ...fetched];
+        setTotal(data.total ?? next.length);
+        return next;
+      });
       cursorRef.current = data.nextCursor ?? null;
       setHasMore(Boolean(data.nextCursor));
     } catch (err) {

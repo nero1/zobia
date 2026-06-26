@@ -33,6 +33,7 @@ import { colors } from '@/lib/theme/colors';
 import { useTheme } from '@/lib/theme';
 import { useCurrency } from '@/lib/hooks/useCurrency';
 import { translateApiError } from '@/lib/i18n/apiErrors';
+import { storage, STORE_KEYS } from '@/lib/offline/store';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -182,11 +183,18 @@ export default function GiftSendScreen() {
 
   // PIN verification state
   const PIN_MAX_ATTEMPTS = 5;
+  const PIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinVerifying, setPinVerifying] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
-  const [pinAttempts, setPinAttempts] = useState(0);
+  // M-4 FIX: persist PIN lockout state to MMKV so it survives app restarts.
+  const [pinAttempts, setPinAttempts] = useState(() => {
+    try { return storage.getNumber(STORE_KEYS.GIFT_PIN_ATTEMPTS) ?? 0; } catch { return 0; }
+  });
+  const [pinLockedUntil, setPinLockedUntil] = useState<number | null>(() => {
+    try { const v = storage.getNumber(STORE_KEYS.GIFT_PIN_LOCKED_UNTIL); return v ?? null; } catch { return null; }
+  });
   const pendingSendParams = useRef<{ giftItemId: string; recipientId: string; roomId?: string; currency?: 'coins' | 'stars' } | null>(null);
 
   const { data: catalogue, isLoading: catalogueLoading } = useQuery<GiftCatalogue>({
@@ -244,10 +252,19 @@ export default function GiftSendScreen() {
 
   const handlePinVerify = async () => {
     if (pinVerifying) return;
+    // Check persisted lockout first
+    if (pinLockedUntil !== null && Date.now() < pinLockedUntil) {
+      const secsLeft = Math.ceil((pinLockedUntil - Date.now()) / 1000);
+      setPinError(`Too many attempts. Try again in ${secsLeft}s.`);
+      return;
+    }
     if (pinAttempts >= PIN_MAX_ATTEMPTS) {
+      const lockUntil = Date.now() + PIN_LOCKOUT_MS;
+      setPinLockedUntil(lockUntil);
+      try { storage.set(STORE_KEYS.GIFT_PIN_LOCKED_UNTIL, lockUntil); storage.delete(STORE_KEYS.GIFT_PIN_ATTEMPTS); } catch {}
+      setPinAttempts(0);
       setPinModalVisible(false);
       setPinInput('');
-      setPinAttempts(0);
       pendingSendParams.current = null;
       Alert.alert('Too many attempts', 'PIN entry locked. Please try again later.');
       return;
@@ -262,22 +279,30 @@ export default function GiftSendScreen() {
     try {
       const { data } = await apiClient.post<{ verified: boolean }>('/auth/pin/verify', { pin });
       if (!data.verified) {
-        const remaining = PIN_MAX_ATTEMPTS - (pinAttempts + 1);
-        setPinAttempts((n) => n + 1);
-        setPinError(remaining > 0 ? `Incorrect PIN. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.` : 'Incorrect PIN.');
+        const nextAttempts = pinAttempts + 1;
+        setPinAttempts(nextAttempts);
+        try { storage.set(STORE_KEYS.GIFT_PIN_ATTEMPTS, nextAttempts); } catch {}
+        const remaining = PIN_MAX_ATTEMPTS - nextAttempts;
         if (remaining <= 0) {
+          const lockUntil = Date.now() + PIN_LOCKOUT_MS;
+          setPinLockedUntil(lockUntil);
+          try { storage.set(STORE_KEYS.GIFT_PIN_LOCKED_UNTIL, lockUntil); storage.delete(STORE_KEYS.GIFT_PIN_ATTEMPTS); } catch {}
+          setPinAttempts(0);
           setPinModalVisible(false);
           setPinInput('');
-          setPinAttempts(0);
           pendingSendParams.current = null;
           Alert.alert('Too many attempts', 'PIN entry locked. Please try again later.');
+        } else {
+          setPinError(`Incorrect PIN. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.`);
         }
         return;
       }
-      // PIN verified — close modal and retry the gift send
+      // PIN verified — clear lockout state and retry the gift send
+      setPinAttempts(0);
+      setPinLockedUntil(null);
+      try { storage.delete(STORE_KEYS.GIFT_PIN_ATTEMPTS); storage.delete(STORE_KEYS.GIFT_PIN_LOCKED_UNTIL); } catch {}
       setPinModalVisible(false);
       setPinInput('');
-      setPinAttempts(0);
       if (pendingSendParams.current) {
         sendMutation.mutate(pendingSendParams.current);
         pendingSendParams.current = null;
