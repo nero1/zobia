@@ -30,6 +30,7 @@ import type { AuthUser } from '@/lib/auth/context';
 // ---------------------------------------------------------------------------
 
 const TOTP_MAX_ATTEMPTS = 5;
+const BASE_LOCKOUT_MS = 15 * 60_000; // 15 minutes
 
 // ---------------------------------------------------------------------------
 // Component
@@ -46,6 +47,10 @@ export default function TwoFactorScreen() {
   const [loading, setLoading] = useState(false);
   const [resolvingToken, setResolvingToken] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [remainingSeconds, setRemainingSeconds] = useState<number>(0);
+  const [lockoutCount, setLockoutCount] = useState<number>(() => {
+    try { return storage.getNumber(STORE_KEYS.TOTP_LOCKOUT_COUNT) ?? 0; } catch { return 0; }
+  });
   const [lockedOut, setLockedOut] = useState(() => {
     // M-2 FIX: restore lockout state from MMKV so it survives app restarts.
     try {
@@ -53,6 +58,24 @@ export default function TwoFactorScreen() {
       return until > Date.now();
     } catch { return false; }
   });
+
+  // Auto-reset countdown when locked out
+  useEffect(() => {
+    if (!lockedOut) { setRemainingSeconds(0); return; }
+    const until = storage.getNumber(STORE_KEYS.TOTP_LOCKED_UNTIL) ?? 0;
+    const updateCountdown = () => {
+      const rem = until - Date.now();
+      if (rem <= 0) {
+        setLockedOut(false);
+        setRemainingSeconds(0);
+      } else {
+        setRemainingSeconds(Math.ceil(rem / 1000));
+      }
+    };
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [lockedOut]);
 
   // The actual pre-auth JWT resolved from the opaque preAuthCode.
   const preAuthTokenRef = useRef<string | null>(null);
@@ -142,11 +165,15 @@ export default function TwoFactorScreen() {
         totpAttemptsRef.current += 1;
         try { storage.set(STORE_KEYS.TOTP_ATTEMPTS, totpAttemptsRef.current); } catch {}
         if (totpAttemptsRef.current >= TOTP_MAX_ATTEMPTS) {
-          const lockUntil = Date.now() + 15 * 60 * 1000; // 15-minute lockout
+          const nextLockCount = lockoutCount + 1;
+          const lockMs = Math.min(BASE_LOCKOUT_MS * Math.pow(2, lockoutCount), 24 * 60 * 60_000);
+          const lockUntil = Date.now() + lockMs;
           try {
             storage.set(STORE_KEYS.TOTP_LOCKED_UNTIL, lockUntil);
+            storage.set(STORE_KEYS.TOTP_LOCKOUT_COUNT, nextLockCount);
             storage.delete(STORE_KEYS.TOTP_ATTEMPTS);
           } catch {}
+          setLockoutCount(nextLockCount);
           setLockedOut(true);
           setError(t('auth.twoFaVerify.lockedOut'));
         } else {
@@ -159,6 +186,13 @@ export default function TwoFactorScreen() {
         setError(t('auth.twoFaVerify.networkError'));
         return;
       }
+
+      // Reset lockout on success
+      try {
+        storage.delete(STORE_KEYS.TOTP_LOCKOUT_COUNT);
+        storage.delete(STORE_KEYS.TOTP_LOCKED_UNTIL);
+        storage.delete(STORE_KEYS.TOTP_ATTEMPTS);
+      } catch {}
 
       await signIn(data.accessToken, data.user, data.refreshToken);
 
@@ -176,11 +210,15 @@ export default function TwoFactorScreen() {
         totpAttemptsRef.current += 1;
         try { storage.set(STORE_KEYS.TOTP_ATTEMPTS, totpAttemptsRef.current); } catch {}
         if (totpAttemptsRef.current >= TOTP_MAX_ATTEMPTS) {
-          const lockUntil = Date.now() + 15 * 60 * 1000;
+          const nextLockCount = lockoutCount + 1;
+          const lockMs = Math.min(BASE_LOCKOUT_MS * Math.pow(2, lockoutCount), 24 * 60 * 60_000);
+          const lockUntil = Date.now() + lockMs;
           try {
             storage.set(STORE_KEYS.TOTP_LOCKED_UNTIL, lockUntil);
+            storage.set(STORE_KEYS.TOTP_LOCKOUT_COUNT, nextLockCount);
             storage.delete(STORE_KEYS.TOTP_ATTEMPTS);
           } catch {}
+          setLockoutCount(nextLockCount);
           setLockedOut(true);
           setError(t('auth.twoFaVerify.lockedOut'));
         } else {
@@ -246,6 +284,11 @@ export default function TwoFactorScreen() {
               onPress={handleVerify}
               style={styles.submitButton}
             />
+            {lockedOut && remainingSeconds > 0 && (
+              <Text style={[styles.countdownText, { color: subtitleColor }]}>
+                {`Try again in ${Math.floor(remainingSeconds / 60)}:${String(remainingSeconds % 60).padStart(2, '0')}`}
+              </Text>
+            )}
           </>
         )}
 
@@ -316,5 +359,10 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     textAlign: 'center',
     marginTop: 8,
+  },
+  countdownText: {
+    fontSize: 14,
+    textAlign: 'center',
+    fontVariant: ['tabular-nums'],
   },
 });

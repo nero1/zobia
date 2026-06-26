@@ -193,6 +193,13 @@ export const STORE_KEYS = {
   STORE_PIN_LOCKED_UNTIL: 'store_pin_locked_until',
   // Last date the daily-login bonus was claimed; compared to local date string.
   DAILY_LOGIN_LAST_DATE: 'daily_login_last_date',
+  // Settings screen PIN rate-limiting across app restarts.
+  SETTINGS_PIN_ATTEMPTS: 'settings_pin_failed_attempts',
+  SETTINGS_PIN_LOCKED_UNTIL: 'settings_pin_locked_until',
+  SETTINGS_PIN_LOCKOUT_COUNT: 'settings_pin_lockout_count',
+  // Successive lockout counts for exponential backoff on TOTP and gift PIN.
+  TOTP_LOCKOUT_COUNT: 'totp_lockout_count',
+  GIFT_PIN_LOCKOUT_COUNT: 'gift_pin_lockout_count',
 } as const;
 
 export type StoreKey = (typeof STORE_KEYS)[keyof typeof STORE_KEYS];

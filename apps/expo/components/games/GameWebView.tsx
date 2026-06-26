@@ -16,9 +16,12 @@
 
 import { useRef } from 'react';
 import { StyleSheet } from 'react-native';
-import { WebView, type WebViewMessageEvent } from 'react-native-webview';
+import { WebView, type WebViewMessageEvent, type WebViewNavigation } from 'react-native-webview';
 import { apiClient } from '@/lib/api/client';
 import { env } from '@/lib/env';
+
+// Rate-limit: at most 30 bridge messages per second to prevent flooding.
+const MSG_RATE_LIMIT = 30;
 
 const ALLOWED_GAME_METHODS = new Set(['get', 'post']);
 
@@ -42,6 +45,10 @@ export function GameWebView({ slug, challengeId, onGameOver }: GameWebViewProps)
   const onGameOverRef = useRef(onGameOver);
   onGameOverRef.current = onGameOver;
 
+  // Rate-limiting refs: count messages per 1-second window.
+  const msgCountRef = useRef(0);
+  const msgWindowStartRef = useRef(Date.now());
+
   const params = new URLSearchParams();
   if (challengeId) params.set('c', challengeId);
   const uri = `${env.API_BASE_URL}/g/${encodeURIComponent(slug)}/embed?${params.toString()}`;
@@ -54,6 +61,18 @@ export function GameWebView({ slug, challengeId, onGameOver }: GameWebViewProps)
 
   const handleMessage = async (e: WebViewMessageEvent) => {
     try {
+      // Origin guard: only process messages from the game origin.
+      if (e.nativeEvent.url && !e.nativeEvent.url.startsWith(gameOrigin)) return;
+
+      // Rate limit: drop messages that exceed MSG_RATE_LIMIT per second.
+      const now = Date.now();
+      if (now - msgWindowStartRef.current > 1000) {
+        msgWindowStartRef.current = now;
+        msgCountRef.current = 0;
+      }
+      msgCountRef.current += 1;
+      if (msgCountRef.current > MSG_RATE_LIMIT) return;
+
       // Cap payload size to prevent memory exhaustion from malformed messages.
       if (e.nativeEvent.data.length > 65_536) return;
 
@@ -128,7 +147,13 @@ export function GameWebView({ slug, challengeId, onGameOver }: GameWebViewProps)
       ref={webViewRef}
       source={{ uri }}
       onMessage={handleMessage}
-      originWhitelist={[`${gameOrigin}/*`, gameOrigin]}
+      onNavigationStateChange={(navState: WebViewNavigation) => {
+        // Block the WebView from navigating away from the game origin.
+        if (navState.url && !navState.url.startsWith(gameOrigin)) {
+          webViewRef.current?.stopLoading();
+        }
+      }}
+      originWhitelist={[gameOrigin]}
       javaScriptEnabled
       domStorageEnabled
       startInLoadingState

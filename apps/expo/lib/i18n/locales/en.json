@@ -1757,5 +1757,16 @@
   "guild.noGuild.createGuild": "Create Guild",
   "guild.coins": "coins",
   "guild.myXP": "My XP",
-  "guild.viewFullGuild": "View Full Guild →"
+  "guild.viewFullGuild": "View Full Guild →",
+  "settings.changeEmail": "Change Email",
+  "settings.changeEmailDescription": "Enter a new email address. We'll send a verification link to confirm the change.",
+  "settings.changeEmailSuccess": "Verification email sent. Please check your inbox.",
+  "settings.newEmail": "New email address",
+  "settings.confirmNewEmail": "Confirm new email address",
+  "settings.sendVerification": "Send Verification Email",
+  "settings.emailReadOnly": "Email cannot be changed for accounts linked to a social provider (Google, Telegram).",
+  "validation.emailMatch": "Email addresses do not match.",
+  "validation.invalidEmail": "Please enter a valid email address.",
+  "auth.twoFaVerify.countdownPrefix": "Try again in",
+  "onboarding.contactsError": "Could not import contacts. You can add friends manually from their profiles."
 }

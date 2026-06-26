@@ -180,14 +180,18 @@ interface PlanCardProps {
   onSubscribe: (plan: PlanConfig) => void;
   subscribing: boolean;
   isAnnual: boolean;
+  pricesLoaded: boolean;
 }
 
-function PlanCard({ plan, isActive, onSubscribe, subscribing, isAnnual }: PlanCardProps) {
+function PlanCard({ plan, isActive, onSubscribe, subscribing, isAnnual, pricesLoaded }: PlanCardProps) {
   const { colors: themeColors } = useTheme();
   const currency = useCurrency();
-  const displayPrice = plan.tier === 'free'
+  // BUG-PAY-03 FIX: show "—" price when Play Store prices have not loaded yet
+  // (prevents showing stale NGN catalogue prices in non-NGN regions).
+  const rawPrice = plan.tier === 'free'
     ? plan.price
     : isAnnual ? plan.annualPrice : plan.price;
+  const displayPrice = (plan.tier !== 'free' && !pricesLoaded) ? '—' : rawPrice;
   const displayNote = plan.tier === 'free'
     ? plan.priceNote
     : isAnnual ? 'per year (2 months free)' : plan.priceNote;
@@ -257,10 +261,10 @@ function PlanCard({ plan, isActive, onSubscribe, subscribing, isAnnual }: PlanCa
           style={[
             styles.subscribeBtn,
             { backgroundColor: plan.accentColor },
-            subscribing && { opacity: 0.7 },
+            (subscribing || !pricesLoaded) && { opacity: 0.7 },
           ]}
           onPress={() => onSubscribe(plan)}
-          disabled={subscribing}
+          disabled={subscribing || !pricesLoaded}
           accessibilityRole="button"
           accessibilityLabel={`Subscribe to ${plan.label}`}
         >
@@ -268,7 +272,9 @@ function PlanCard({ plan, isActive, onSubscribe, subscribing, isAnnual }: PlanCa
             <ActivityIndicator size="small" color={colors.neutral[0]} />
           ) : (
             <Text style={styles.subscribeBtnText}>
-              Subscribe — {isAnnual ? `${plan.annualPrice}/yr` : `${plan.price}/mo`}
+              {pricesLoaded
+                ? `Subscribe — ${isAnnual ? `${plan.annualPrice}/yr` : `${plan.price}/mo`}`
+                : 'Loading price…'}
             </Text>
           )}
         </Pressable>
@@ -309,6 +315,9 @@ export default function SubscriptionScreen() {
   // BUG-PAY-03 FIX: fetch real Play Store prices; fall back to the catalogue defaults.
   const [liveMonthlyPrices, setLiveMonthlyPrices] = useState<Record<string, string>>({});
   const [liveAnnualPrices, setLiveAnnualPrices] = useState<Record<string, string>>({});
+  // pricesLoaded: true once the Play Store price fetch completes (success or failure).
+  // On non-Android or non-NGN stores, prices stay as catalogue defaults until loaded.
+  const [pricesLoaded, setPricesLoaded] = useState(Platform.OS !== 'android');
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;
@@ -320,8 +329,9 @@ export default function SubscriptionScreen() {
         annual.forEach((p) => { annualMap[p.id] = p.annualPrice; });
         setLiveMonthlyPrices(monthlyMap);
         setLiveAnnualPrices(annualMap);
+        setPricesLoaded(true);
       }
-    ).catch(() => {});
+    ).catch(() => { setPricesLoaded(true); });
   }, []);
 
   const { data: me, isLoading, isError } = useQuery({
@@ -392,7 +402,7 @@ export default function SubscriptionScreen() {
         setSubscribingTier(null);
       }
     },
-    [queryClient, isAnnual],
+    [queryClient, isAnnual, currentTier],
   );
 
   const handleCancelInstructions = useCallback(() => {
@@ -471,6 +481,7 @@ export default function SubscriptionScreen() {
           onSubscribe={handleSubscribe}
           subscribing={subscribingTier === plan.tier}
           isAnnual={isAnnual}
+          pricesLoaded={pricesLoaded}
         />
       ))}
 

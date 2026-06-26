@@ -46,6 +46,7 @@ import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
 import { translateApiError } from '@/lib/i18n/apiErrors';
 import { getStorage, STORE_KEYS } from '@/lib/offline/store';
+import { useFeatureFlags } from '@/lib/hooks/useManifest';
 import { env } from '@/lib/env';
 import { cacheDirectory, documentDirectory, writeAsStringAsync, EncodingType } from 'expo-file-system';
 
@@ -247,7 +248,7 @@ function TwoFactorSection() {
 
   // FIX-35: Use React Query to fetch 2FA status (caches result, avoids duplicate fetches)
   const { data: meData, isLoading: loadingStatus } = useQuery({
-    queryKey: ['user-me-totp'],
+    queryKey: ['user-me'],
     queryFn: async () => {
       const res = await apiClient.get<{ user?: { totp_enabled?: boolean } }>('/users/me');
       return res.data;
@@ -600,14 +601,7 @@ export default function SettingsScreen() {
     queryFn: fetchSettings,
   });
 
-  const { data: manifestFeatures } = useQuery({
-    queryKey: ['manifest', 'features'],
-    queryFn: async () => {
-      const { data } = await apiClient.get<{ features: { pidginAutocomplete: boolean } }>('/manifest');
-      return data?.features ?? { pidginAutocomplete: false };
-    },
-    staleTime: 5 * 60_000,
-  });
+  const manifestFeatures = useFeatureFlags();
 
   const { data: featureFlags } = useQuery({
     queryKey: ['feature-flags'],
@@ -623,9 +617,9 @@ export default function SettingsScreen() {
   const [deletePin, setDeletePin] = useState('');
   const [deletePending, setDeletePending] = useState(false);
 
-  // Date of birth — fetched via React Query (shares cache with TwoFactorSection's 'user-me-totp' query)
+  // Date of birth — fetched via React Query (shares cache with TwoFactorSection's 'user-me' query)
   const { data: meData } = useQuery({
-    queryKey: ['user-me-totp'],
+    queryKey: ['user-me'],
     queryFn: async () => {
       const res = await apiClient.get<{ user?: { totp_enabled?: boolean; date_of_birth?: string | null } }>('/users/me');
       return res.data;
@@ -818,21 +812,22 @@ export default function SettingsScreen() {
             }
           }}
         />
-        <TextInput
-          style={[styles.field, fieldStyle, { borderBottomColor: themeColors.border }]}
-          placeholder="Email"
-          placeholderTextColor={themeColors.textMuted}
-          value={merged.email}
-          onChangeText={(v) => setLocalField('email', v)}
-          keyboardType="email-address"
-          autoCapitalize="none"
-          returnKeyType="done"
-          onEndEditing={() => {
-            if (merged.email !== data?.email) {
-              patchMutation.mutate({ email: merged.email });
-            }
-          }}
-        />
+        <View style={[styles.field, fieldStyle, { borderBottomColor: themeColors.border, justifyContent: 'center' }]}>
+          <Text style={{ color: themeColors.textMuted, fontSize: 12, marginBottom: 2 }}>
+            {t('settings.emailReadOnly', 'Email (read-only)')}
+          </Text>
+          <Text style={{ color: themeColors.text, fontSize: 15 }}>{merged.email}</Text>
+        </View>
+        <Pressable
+          style={[styles.settingsRow, { borderBottomColor: themeColors.border }]}
+          onPress={() => router.push('/settings/change-email' as never)}
+          accessibilityRole="button"
+        >
+          <Text style={[styles.settingsRowLabel, { color: themeColors.text }]}>
+            {t('settings.changeEmail', 'Change Email')}
+          </Text>
+          <Text style={[styles.chevron, { color: themeColors.textMuted }]}>›</Text>
+        </Pressable>
         {/* Date of birth */}
         <View style={[styles.dobRow, { borderBottomColor: themeColors.border }]}>
           <Text style={[styles.dobLabel, { color: themeColors.textMuted }]}>
@@ -983,8 +978,11 @@ export default function SettingsScreen() {
             description={description}
             value={merged.notifications[key] ?? true}
             onChange={(v) => {
-              const updated = { ...merged.notifications, [key]: v };
-              set('notifications', updated);
+              setSettings((prev) => ({
+                ...prev,
+                notifications: { ...(prev.notifications ?? {}), [key]: v },
+              }));
+              patchMutation.mutate({ notifications: { [key]: v } } as Partial<UserSettings>);
             }}
           />
         ))}

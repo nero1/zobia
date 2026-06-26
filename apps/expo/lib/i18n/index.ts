@@ -14,6 +14,8 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import * as Localization from 'expo-localization';
+import { I18nManager } from 'react-native';
+import * as Updates from 'expo-updates';
 
 import { setupRTL } from './rtl';
 import en from './locales/en.json';
@@ -73,8 +75,18 @@ i18n
 setupRTL(i18n.language);
 
 // Keep RTL in sync if the language changes at runtime.
+// When the new language requires a different text direction, update I18nManager
+// and reload the JS bundle so the layout engine picks up the new direction.
 i18n.on('languageChanged', (lng) => {
   setupRTL(lng);
+  const isRTL = lng === 'ar';
+  if (I18nManager.isRTL !== isRTL) {
+    I18nManager.forceRTL(isRTL);
+    // Reload the app so React Native rebuilds the native layout tree in the
+    // correct direction. In development expo-updates is a no-op, so this only
+    // fires in production/preview builds.
+    Updates.reloadAsync().catch(() => {});
+  }
 });
 
 /**

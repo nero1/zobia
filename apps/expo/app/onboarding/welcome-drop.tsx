@@ -124,11 +124,25 @@ export default function WelcomeDrop() {
       })
       .catch((err: unknown) => {
         if (controller.signal.aborted) return;
-        // BUG-024 FIX: surface the API failure so the user knows their profile
-        // may not have been saved. They can still proceed — the server will
-        // complete onboarding on next login if needed.
         const isCancel = (err as { name?: string })?.name === 'AbortError' || (err as { code?: string })?.code === 'ERR_CANCELED';
-        if (!isCancel) setSubmitError(true);
+        if (isCancel) return;
+        // BUG-024 FIX: status-aware error handling.
+        // 409 Conflict → onboarding was already completed server-side; treat as
+        //   success and mark complete locally so the user isn't stuck.
+        // Other 4xx → server rejected the data; mark complete and let the user
+        //   proceed (server completes onboarding on next login if needed).
+        // 5xx / network errors → surface an error banner so the user knows.
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        if (status === 409) {
+          setItem(STORE_KEYS.ONBOARDING_COMPLETE, true);
+          removeItem(STORE_KEYS.ONBOARDING_DRAFT);
+          clearPendingReferralCode();
+        } else if (status !== undefined && status >= 400 && status < 500) {
+          setItem(STORE_KEYS.ONBOARDING_COMPLETE, true);
+          removeItem(STORE_KEYS.ONBOARDING_DRAFT);
+        } else {
+          setSubmitError(true);
+        }
       });
 
     // Sequence: avatar → XP badge → CTA

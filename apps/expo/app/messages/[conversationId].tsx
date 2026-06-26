@@ -50,6 +50,7 @@ import { newestCreatedAt, mergeNewestFirst } from '@/lib/chat/delta';
 import { CHAT_THEMES } from '@/lib/theme/chatThemes';
 import { queueMessage } from '@/lib/offline/sqlite';
 import type { ChatTheme } from '@/lib/theme/chatThemes';
+import { isTrustedGifUrl } from '@/lib/utils/mediaUrl';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -688,6 +689,11 @@ export default function DMConversationScreen() {
   }, [inputText, sendMutation, setPidginSuggestions]);
 
   const handleGifSelect = useCallback((gifUrl: string) => {
+    // Security: only allow GIFs from trusted CDN hosts to prevent content injection.
+    if (!isTrustedGifUrl(gifUrl)) {
+      Alert.alert('Invalid GIF', 'This GIF cannot be sent because it comes from an untrusted source.');
+      return;
+    }
     sendMutation.mutate({ content: gifUrl, type: 'gif', idempotencyKey: randomUUID() });
   }, [sendMutation]);
 
