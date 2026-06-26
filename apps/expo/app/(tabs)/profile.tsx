@@ -695,3 +695,4 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

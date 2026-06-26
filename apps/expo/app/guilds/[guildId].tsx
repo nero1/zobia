@@ -566,3 +566,4 @@ const styles = StyleSheet.create({
   skeletonStat: { flex: 1, height: 52, borderRadius: 10, backgroundColor: colors.neutral[200] },
   skeletonRow: { height: 56, borderRadius: 10, backgroundColor: colors.neutral[200] },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

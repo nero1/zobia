@@ -704,3 +704,4 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

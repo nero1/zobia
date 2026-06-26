@@ -269,3 +269,4 @@ const styles = StyleSheet.create({
   xpBadge: { borderRadius: 99, paddingHorizontal: 8, paddingVertical: 3, flexShrink: 0 },
   link: { borderRadius: 12, borderWidth: 1, padding: 14, alignItems: 'center', marginTop: 4 },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

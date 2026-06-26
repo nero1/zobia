@@ -494,3 +494,4 @@ const styles = StyleSheet.create({
   },
   skeletonBubbleRight: { alignSelf: 'flex-end' },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

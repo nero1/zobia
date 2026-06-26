@@ -298,3 +298,4 @@ const styles = StyleSheet.create({
   emptyState: { padding: 40, alignItems: 'center' },
   emptyText: { fontSize: 14, textAlign: 'center' },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

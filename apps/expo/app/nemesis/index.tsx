@@ -428,3 +428,4 @@ const styles = StyleSheet.create({
   skeletonBar: { height: 10, borderRadius: 5, backgroundColor: colors.neutral[200] },
   skeletonRow: { height: 52, borderRadius: 10, backgroundColor: colors.neutral[200] },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

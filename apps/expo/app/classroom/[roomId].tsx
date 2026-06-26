@@ -392,3 +392,4 @@ export default function ClassroomScreen() {
     </View>
   );
 }
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

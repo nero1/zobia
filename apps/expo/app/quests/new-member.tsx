@@ -468,3 +468,4 @@ const styles = StyleSheet.create({
 
   bottomPad: { height: 40 },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

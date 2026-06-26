@@ -80,3 +80,4 @@ const styles = StyleSheet.create({
   name: { flex: 1, fontWeight: '500' },
   scoreText: { color: '#10b981', fontWeight: '700' },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

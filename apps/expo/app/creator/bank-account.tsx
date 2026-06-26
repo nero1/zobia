@@ -737,3 +737,4 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

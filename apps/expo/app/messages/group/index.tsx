@@ -425,3 +425,4 @@ const styles = StyleSheet.create({
   fabPressed: { backgroundColor: colors.brand.blueDark },
   fabIcon: { fontSize: 28, color: colors.neutral[0], fontWeight: '400', lineHeight: 32 },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

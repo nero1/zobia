@@ -27,6 +27,7 @@ import { useAuth } from '@/lib/auth/hooks';
 import { initOfflineDB } from '@/lib/offline/sqlite';
 import { syncPendingMessages, resetSendingMessages } from '@/lib/offline/syncQueue';
 import { initStore } from '@/lib/offline/store';
+import { applyStoredLanguagePref } from '@/lib/i18n';
 import { initializeAds } from '@/lib/ads/admob';
 import { initGooglePlayBilling, endBillingConnection } from '@/lib/payments/googlePlay';
 import { useReferralCaptureFromLink } from '@/lib/deeplinks/referral';
@@ -232,6 +233,9 @@ function RootLayoutNav() {
       );
       try {
         await initStore();
+        // L-2: apply user's saved language pref from the encrypted store now
+        // that initStore() has completed and getStorage() is safe to call.
+        applyStoredLanguagePref();
       } catch (err) {
         console.warn('[offline] MMKV store init failed', err);
       } finally {

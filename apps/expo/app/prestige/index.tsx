@@ -172,3 +172,4 @@ export default function PrestigeScreen() {
     </ScrollView>
   );
 }
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

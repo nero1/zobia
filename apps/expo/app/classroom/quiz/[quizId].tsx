@@ -202,3 +202,4 @@ export default function QuizScreen() {
     </View>
   );
 }
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

@@ -168,3 +168,4 @@ export default function StickerStoreScreen() {
     </>
   );
 }
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

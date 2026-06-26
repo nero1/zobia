@@ -830,3 +830,4 @@ const styles = StyleSheet.create({
     color: colors.neutral[0],
   },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

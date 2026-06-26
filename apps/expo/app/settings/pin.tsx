@@ -435,3 +435,4 @@ const styles = StyleSheet.create({
   removeLink: { marginTop: 32 },
   removeLinkText: { fontSize: 14, color: colors.semantic.error, fontWeight: '600' },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

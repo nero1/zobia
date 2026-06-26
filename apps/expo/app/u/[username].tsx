@@ -22,3 +22,4 @@ export default function PublicProfileLink() {
     />
   );
 }
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

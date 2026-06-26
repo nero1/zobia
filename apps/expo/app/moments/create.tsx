@@ -265,3 +265,4 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

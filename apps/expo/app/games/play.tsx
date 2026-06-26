@@ -72,3 +72,4 @@ const styles = StyleSheet.create({
   btn: { paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12 },
   btnText: { color: '#fff', fontWeight: '700' },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';
