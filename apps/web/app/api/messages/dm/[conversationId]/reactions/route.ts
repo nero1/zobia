@@ -198,9 +198,9 @@ export const POST = withAuth(
       })();
 
       // Record guild war contribution (fire-and-forget)
-      recordWarContribution(auth.user.sub, 'react_to_message', db).catch((err) =>
+      recordWarContribution(auth.user.sub, 'react_to_message', db).catch((err) => {
         logger.error({ err: err }, '[reactions:POST] war contribution failed');
-      );
+        });
 
       return NextResponse.json({ reaction }, { status: 201 });
     } catch (err) {

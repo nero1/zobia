@@ -396,7 +396,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         }
       }
 
-      // 8. Update leaderboard_snapshots (upsert for main + city scopes)
+      // 8. Update leaderboard_snapshots (upsert for main + city scopes, plus track-specific)
       await client.query(
         `INSERT INTO leaderboard_snapshots (user_id, track, scope, city, xp_value, updated_at)
          VALUES ($1, 'main', 'global', NULL, $2, NOW())
@@ -415,6 +415,27 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
            DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()`,
           [body.userId, user.city, newXpTotal]
         ).catch(() => {});
+      }
+
+      // BUG-056: Also upsert track-specific leaderboard rows so per-track
+      // leaderboards reflect the awarded XP in real time.
+      if (track && TRACK_COLUMN[track] && newTrackXp !== null) {
+        await client.query(
+          `INSERT INTO leaderboard_snapshots (user_id, track, scope, city, xp_value, updated_at)
+           VALUES ($1, $2, 'global', NULL, $3, NOW())
+           ON CONFLICT (user_id, track, scope, city, season_id)
+           DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()`,
+          [body.userId, track, newTrackXp]
+        ).catch(() => {});
+        if (user.city) {
+          await client.query(
+            `INSERT INTO leaderboard_snapshots (user_id, track, scope, city, xp_value, updated_at)
+             VALUES ($1, $2, 'city', $3, $4, NOW())
+             ON CONFLICT (user_id, track, scope, city, season_id)
+             DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()`,
+            [body.userId, track, user.city, newTrackXp]
+          ).catch(() => {});
+        }
       }
 
       return {

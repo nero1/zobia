@@ -392,9 +392,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
             JSON.stringify(telegramFollowers.map((f) => f.telegram_id)),
           ]
         )
-        .catch((err) =>
+        .catch((err) => {
           logger.error({ err: err }, "[broadcasts] Telegram queue enqueue failed:");
-        );
+          });
     }
 
     return NextResponse.json(

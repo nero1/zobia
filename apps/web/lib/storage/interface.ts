@@ -36,6 +36,12 @@ export interface UploadOptions {
   isPublic?: boolean;
   /** Additional provider-specific metadata key/value pairs. */
   metadata?: Record<string, string>;
+  /**
+   * Maximum allowed upload size in bytes. Upload throws if the buffer exceeds
+   * this limit. Defaults to 50 MiB when not specified.
+   * @default 52428800 (50 MiB)
+   */
+  maxSizeBytes?: number;
 }
 
 /** Options accepted by the delete method. */

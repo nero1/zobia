@@ -82,7 +82,11 @@ interface ManifestCache {
 }
 
 let manifestCache: ManifestCache | null = null;
-const MANIFEST_CACHE_TTL_MS = 60_000;
+// BUG-050 FIX: reduced TTL from 60 000 ms to 10 000 ms so that admin changes to
+// moderation thresholds and prompt overrides propagate within ~10 seconds rather
+// than up to a minute. The DB query is lightweight (3-row SELECT on an indexed
+// key column) so the increased refresh rate is not a meaningful load concern.
+const MANIFEST_CACHE_TTL_MS = 10_000;
 
 async function getManifestConfig(): Promise<ManifestCache> {
   if (manifestCache && Date.now() - manifestCache.cachedAt < MANIFEST_CACHE_TTL_MS) {

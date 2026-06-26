@@ -269,6 +269,13 @@ export async function getBalance(
  *
  * READ-ONLY — does not lock. Use before debitCoins in UX flows.
  *
+ * ADVISORY ONLY — does not lock the user row. Never use as the sole gate on a
+ * financial debit. The balance can change between this check and the actual
+ * debit, creating a race condition.
+ *
+ * Always use debitCoins() (which uses SELECT FOR UPDATE internally) to actually
+ * debit. For an atomic check-and-debit in a single operation, use checkAndDebit().
+ *
  * @param userId - The user's UUID
  * @param amount - Coin amount to check affordability for
  * @param txClient - Optional transaction client
@@ -281,6 +288,37 @@ export async function canAfford(
 ): Promise<boolean> {
   const balance = await getBalance(userId, txClient);
   return new Decimal(balance).gte(new Decimal(amount));
+}
+
+/**
+ * Atomically check the user's balance and debit coins in a single operation.
+ *
+ * This is the correct way to enforce affordability before debiting. Unlike
+ * calling canAfford() then debitCoins() separately, this function cannot race:
+ * debitCoins() internally acquires SELECT FOR UPDATE on the user row, so the
+ * balance cannot change between the check and the debit.
+ *
+ * @param userId      - The user's UUID
+ * @param amount      - Positive integer number of coins to debit
+ * @param type        - Ledger transaction type
+ * @param referenceId - Optional external reference
+ * @param description - Human-readable description
+ * @param metadata    - Arbitrary structured data
+ * @param txClient    - If provided, runs inside the given transaction
+ * @returns The ledger entry that was created
+ * @throws `INSUFFICIENT_BALANCE` if the user cannot afford the amount
+ */
+export async function checkAndDebit(
+  userId: string,
+  amount: number,
+  type: CoinTransactionType,
+  referenceId: string | null = null,
+  description: string | null = null,
+  metadata: Record<string, unknown> | null = null,
+  txClient?: TransactionClient
+): Promise<CoinLedgerEntry> {
+  // debitCoins already does SELECT FOR UPDATE + balance check atomically
+  return debitCoins(userId, amount, type, referenceId, description, metadata, txClient);
 }
 
 /**
@@ -320,7 +358,8 @@ export async function transferCoins(
   const fee = gross.times(feePercent).dividedBy(100).floor();
   const net = gross.minus(fee);
 
-  const transferRef = idempotencyRef;
+  const debitRef = `${idempotencyRef}:debit`;
+  const creditRef = `${idempotencyRef}:credit`;
 
   const run = async (tx: TransactionClient) => {
     // Lock both rows in deterministic ascending UUID order to prevent deadlocks (BUG-20)
@@ -341,7 +380,7 @@ export async function transferCoins(
       fromUserId,
       gross.toNumber(),
       senderTransactionType,
-      transferRef,
+      debitRef,
       `Transfer to user ${toUserId} (${feePercent}% fee)`,
       { toUserId, feePercent, feeCoins: fee.toNumber() },
       tx
@@ -351,7 +390,7 @@ export async function transferCoins(
       toUserId,
       net.toNumber(),
       recipientTransactionType,
-      transferRef,
+      creditRef,
       `Transfer from user ${fromUserId}`,
       { fromUserId, feePercent, feeCoins: fee.toNumber() },
       tx

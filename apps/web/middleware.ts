@@ -54,6 +54,14 @@ function buildCsp(nonce: string): string {
   // (Supabase, Ably, Pusher) plus Sentry browser-side error ingestion.
   // Prefer the specific Supabase project URL when set to avoid a wildcard.
   const supabaseOrigin = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(/\/$/, "");
+  const r2DevHost = process.env.NEXT_PUBLIC_R2_DEV_HOST ?? "";
+  const r2StorageHost = process.env.NEXT_PUBLIC_R2_STORAGE_HOST ?? "";
+  const r2Sources = [
+    "https://*.r2.cloudflarestorage.com",
+    "https://*.r2.dev",
+    r2DevHost && r2DevHost.startsWith("https://") ? r2DevHost : "",
+    r2StorageHost && r2StorageHost.startsWith("https://") ? r2StorageHost : "",
+  ].filter(Boolean).join(" ");
   const supabaseWss = supabaseOrigin
     ? supabaseOrigin.replace(/^https?:/, "wss:")
     : "";
@@ -85,7 +93,7 @@ function buildCsp(nonce: string): string {
     "font-src 'self' https://fonts.gstatic.com",
     // CSP-01: explicit allowlist instead of bare https: (which allows any HTTPS host)
     // BUG-008 FIX: added https://t.me and https://telegram.org for Telegram profile avatars
-    "img-src 'self' data: blob: https://lh3.googleusercontent.com https://*.supabase.co https://*.r2.cloudflarestorage.com https://media.giphy.com https://media.tenor.com https://c.tenor.com https://storage.googleapis.com https://img.youtube.com https://t.me https://telegram.org",
+    `img-src 'self' data: blob: https://lh3.googleusercontent.com https://*.supabase.co ${r2Sources} https://media.giphy.com https://media.tenor.com https://c.tenor.com https://storage.googleapis.com https://img.youtube.com https://t.me https://telegram.org`,
     `connect-src ${connectSrc}`,
     "frame-src 'self' https://www.google.com https://challenges.cloudflare.com",
     "object-src 'none'",
@@ -181,7 +189,11 @@ interface TokenPayload {
 const ONBOARDING_ALLOWED_PREFIXES = [
   "/onboarding",
   "/auth",
-  "/api",
+  "/api/auth",
+  "/api/config",
+  "/api/manifest",
+  "/api/public",
+  "/api/health",
   "/_next",
   "/pwa-start",
   "/terms",
@@ -230,11 +242,22 @@ function isCsrfSafe(request: NextRequest): boolean {
   const method = request.method.toUpperCase();
   if (CSRF_SAFE_METHODS.has(method)) return true;
 
+  const { pathname } = request.nextUrl;
+
+  // BUG-053: Bearer token auth is CSRF-proof since a cross-origin attacker
+  // cannot set an Authorization header via a form or img tag — only JS from the
+  // same origin can do that, and same-origin JS is not a CSRF threat.
+  // Expo native apps send Bearer tokens instead of cookies and may not send
+  // an Origin header, so we must allow them through before the origin check.
+  const authHeader = request.headers.get("authorization") ?? "";
+  if (authHeader.startsWith("Bearer ") && !pathname.startsWith("/api/cron/")) {
+    return true;
+  }
+
   const origin = request.headers.get("origin");
   if (!origin) {
     // No Origin header — only allow specific CRON paths with the CRON secret header
-    const isCronPath = request.nextUrl.pathname.startsWith("/api/cron/");
-    const authHeader = request.headers.get("authorization") ?? "";
+    const isCronPath = pathname.startsWith("/api/cron/");
     const cronSecret = process.env.CRON_SECRET;
     const hasCronSecret = !!cronSecret &&
       timingSafeStringEqual(authHeader, `Bearer ${cronSecret}`);
@@ -316,6 +339,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
       })
     );
     // additional hardening headers
+    res.headers.set("X-Frame-Options", "SAMEORIGIN");
     res.headers.set("Cross-Origin-Opener-Policy", "same-origin");
     res.headers.set("Cross-Origin-Resource-Policy", "same-origin");
     res.headers.set("Cross-Origin-Embedder-Policy", "credentialless");

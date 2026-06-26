@@ -147,9 +147,9 @@ async function awardJoinXP(roomId: string, userId: string): Promise<number> {
  */
 async function firePostJoinSideEffects(roomId: string, userId: string): Promise<void> {
   const joinXp = await awardJoinXP(roomId, userId);
-  recordWarContribution(userId, "join_room", db).catch((err) =>
+  recordWarContribution(userId, "join_room", db).catch((err) => {
     logger.error({ err: err }, "[rooms:join] war contribution failed");
-  );
+    });
   if (joinXp > 0) {
     publishRealtimeEvent(`user:${userId}`, "reward_earned", {
       type: "xp",

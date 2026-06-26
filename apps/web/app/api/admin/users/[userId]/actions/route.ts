@@ -261,9 +261,17 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
       return { target, appliedAt };
     });
 
-    // Invalidate all sessions for suspended/banned/2fa-forced users immediately
+    // Invalidate all sessions for suspended/banned/2fa-forced/demoted users immediately
     // (outside transaction – Redis is not transactional with DB)
-    if (body.action === "suspend" || body.action === "ban" || body.action === "force_2fa" || body.action === "reset_password") {
+    // BUG-028: include downgrade_moderator so demoted users' JWTs (which still carry
+    // is_moderator=true) cannot be replayed until their next login issues a fresh token.
+    if (
+      body.action === "suspend" ||
+      body.action === "ban" ||
+      body.action === "force_2fa" ||
+      body.action === "reset_password" ||
+      body.action === "downgrade_moderator"
+    ) {
       await invalidateAllSessions(userId).catch((err) => {
         logger.error({ err: err }, "[admin:actions] Failed to invalidate sessions");
       });

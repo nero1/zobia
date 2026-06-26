@@ -6,13 +6,15 @@ export const dynamic = 'force-dynamic';
  * GET  /api/admin/footer-scripts  — List all footer scripts ordered by position.
  * POST /api/admin/footer-scripts  — Create a new footer script.
  *
- * Admin only.
+ * Admin only. SECURITY: this endpoint is restricted to admin-authenticated
+ * users and all write operations are audit-logged to system_alerts.
  *
  * SECURITY WARNING: Footer script content is intentionally raw <script> HTML
  * injected into the page via dangerouslySetInnerHTML. This endpoint is
  * protected by withAdminAuth (admin-level trust required). Footer scripts
  * intentionally bypass XSS protection — only trusted admins should have access.
  * Any compromise of admin credentials would allow arbitrary script injection.
+ * All mutations are audit-logged so any unauthorized use can be detected.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -94,7 +96,7 @@ export const GET = withAdminAuth(async (_req: NextRequest) => {
  *
  * @returns Created footer script record
  */
-export const POST = withAdminAuth(async (req: NextRequest) => {
+export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
   try {
     let body: unknown;
     try {
@@ -116,6 +118,17 @@ export const POST = withAdminAuth(async (req: NextRequest) => {
        RETURNING id, name, content, is_active, position, created_at, updated_at`,
       [name, content, isActive, position]
     );
+
+    // BUG-020: Audit-log all footer script writes — raw script injection is
+    // high-risk and must be attributable to a specific admin user.
+    await db.query(
+      `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
+       VALUES ('footer_script_created', 'info', $1, $2::jsonb, NOW())`,
+      [
+        `Footer script "${name}" created by admin ${auth.user.sub}`,
+        JSON.stringify({ scriptId: rows[0].id, name, adminId: auth.user.sub }),
+      ]
+    ).catch(() => {});
 
     return NextResponse.json(
       {

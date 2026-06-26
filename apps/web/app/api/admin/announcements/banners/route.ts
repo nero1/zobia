@@ -27,7 +27,7 @@ const CreateBannerSchema = z.object({
   title: z.string().min(1).max(200),
   content: z.string().min(1).max(5_000),
   contentType: z.enum(["html", "markdown", "plain"]).default("plain"),
-  linkUrl: z.string().url().optional().nullable(),
+  linkUrl: z.string().url().refine(u => !/^javascript:/i.test(u), "javascript: URLs are not allowed").optional().nullable(),
   startsAt: z.string().datetime().optional().nullable(),
   endsAt: z.string().datetime().optional().nullable(),
   targetPlans: z.array(z.string()).default([]),

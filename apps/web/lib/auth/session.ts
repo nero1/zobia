@@ -35,7 +35,10 @@ import { randomUUID, createHash } from "crypto";
 export interface SessionRecord {
   uid: string;
   sid: string;
-  email: string | null;
+  // BUG-010 FIX: email is intentionally NOT stored in the session record.
+  // Storing email in Redis causes stale values when a user changes their email —
+  // all existing sessions would serve the old address until they expire.
+  // Email is fetched from the DB on the token-refresh path when needed for the JWT.
   username: string;
   is_admin: boolean;
   adminSession?: boolean;
@@ -156,7 +159,8 @@ export async function createSession(
   const record: SessionRecord = {
     uid: user.id,
     sid,
-    email: user.email,
+    // BUG-010 FIX: email is not stored in the Redis session record to prevent
+    // sessions from serving stale email addresses after a user changes their email.
     username: user.username,
     is_admin: user.is_admin,
     adminSession: options.adminSession,
@@ -356,11 +360,20 @@ export async function refreshAccessToken(
     : "default";
   const { accessTtl, refreshTtl } = manifest.sessionTtls[ttlRole];
 
+  // BUG-010 FIX: fetch current email from DB (not from the session record) so
+  // that access tokens issued during a refresh always carry the up-to-date email
+  // address — even if the user changed it after the session was created.
+  const { rows: emailRows } = await db.query<{ email: string | null }>(
+    `SELECT email FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+    [session.uid]
+  );
+  const currentEmail = emailRows[0]?.email ?? null;
+
   // ZB-24: Rotate refresh token — issue a new one and update the session record
   const [accessToken, newRefreshToken] = await Promise.all([
     signAccessToken({
       sub: session.uid,
-      ...(session.email ? { email: session.email } : {}),
+      ...(currentEmail ? { email: currentEmail } : {}),
       username: session.username,
       is_admin: session.is_admin,
       sid: session.sid,

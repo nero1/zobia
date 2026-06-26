@@ -17,9 +17,14 @@ import { env } from "@/lib/env";
 // Optional SDK module types (narrow interface, not the full package types)
 // ---------------------------------------------------------------------------
 
+interface SentryScopeLike {
+  setExtras(extras: Record<string, unknown>): void;
+}
+
 interface SentryLike {
   captureException(err: unknown, ctx?: { extra?: Record<string, unknown> }): void;
   captureMessage(msg: string, level?: string): void;
+  withScope(callback: (scope: SentryScopeLike) => void): void;
 }
 
 interface NewRelicLike {
@@ -97,7 +102,11 @@ export function trackEvent(
   if (env.MONITORING_PROVIDER === "sentry" && env.SENTRY_DSN) {
     const sentry = getSentry();
     if (sentry) {
-      sentry.captureMessage(name, "info");
+      // BUG-014: pass attributes to Sentry so event context is not dropped
+      sentry.withScope((scope) => {
+        scope.setExtras(attributes ?? {});
+        sentry.captureMessage(name, "info");
+      });
       return;
     }
   }
@@ -112,7 +121,14 @@ export function trackEvent(
     }
   }
 
+  // BUG-047: emit structured log so events are never silently dropped.
+  // In development/test: human-readable console.info.
+  // In production: structured JSON line so events appear in serverless log aggregators.
+  const logLine = JSON.stringify({ event: name, ...attributes });
   if (process.env.NODE_ENV !== "production") {
-    console.info("[monitoring/event]", name, attributes);
+    console.info("[monitoring/event]", logLine);
+  } else {
+    // Emit structured log in production so events appear in serverless logs
+    console.log(JSON.stringify({ level: "info", type: "monitoring_event", event: name, attributes }));
   }
 }

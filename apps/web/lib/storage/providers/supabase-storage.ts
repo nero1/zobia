@@ -87,7 +87,15 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     const {
       contentType = "application/octet-stream",
       cacheControl = "3600",
+      maxSizeBytes = 50 * 1024 * 1024,
     } = options;
+
+    // BUG-016: Enforce upload size limit before sending to Supabase Storage.
+    if (buffer.byteLength > maxSizeBytes) {
+      throw new Error(
+        `Upload size exceeded: file is ${buffer.byteLength} bytes but limit is ${maxSizeBytes} bytes`
+      );
+    }
 
     const url = `${getStorageBaseUrl()}/object/${this.bucket}/${key}`;
 

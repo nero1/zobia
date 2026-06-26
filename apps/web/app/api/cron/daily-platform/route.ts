@@ -691,6 +691,19 @@ export const GET = async (req: NextRequest) => {
     logger.warn({ err }, '[daily-platform] Failed to prune expired sessions');
   }
 
+  // BUG-068: Purge stale data export requests to prevent unbounded table growth.
+  // Completed/failed requests are retained for 30 days; stuck processing requests
+  // older than 7 days are expired (the export job likely crashed).
+  try {
+    await db.query(
+      `DELETE FROM data_export_requests
+       WHERE (status IN ('completed', 'failed') AND created_at < NOW() - INTERVAL '30 days')
+          OR (status IN ('pending', 'processing') AND created_at < NOW() - INTERVAL '7 days')`
+    );
+  } catch (err) {
+    logger.warn({ err }, '[daily-platform] Failed to prune stale data export requests');
+  }
+
   return NextResponse.json({
     success: errors.length === 0,
     results,

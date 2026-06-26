@@ -92,7 +92,15 @@ export class R2StorageAdapter implements StorageAdapter {
       contentType = "application/octet-stream",
       cacheControl = "public, max-age=31536000, immutable",
       metadata,
+      maxSizeBytes = 50 * 1024 * 1024,
     } = options;
+
+    // BUG-016: Enforce upload size limit before sending to R2.
+    if (buffer.byteLength > maxSizeBytes) {
+      throw new Error(
+        `Upload size exceeded: file is ${buffer.byteLength} bytes but limit is ${maxSizeBytes} bytes`
+      );
+    }
 
     await getClient().send(
       new PutObjectCommand({

@@ -20,8 +20,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyWebhookSignature } from "@/lib/payments/paystack";
 import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
-import {
 import { logger } from "@/lib/logger";
+import {
   handlePaystackWebhookPayload,
   type PaystackChargeEvent,
   type PaystackTransferEvent,
@@ -94,11 +94,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
     // Non-recoverable error — log for ops review but return 200 to stop Paystack retry loops
     logger.error({ err: err }, "[webhook/paystack] Non-recoverable processing error:");
-    db.query(
-      `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-       VALUES ('webhook_processing_error', 'critical', $1, $2::jsonb, NOW())`,
-      [(err as Error).message, JSON.stringify({ webhook: "paystack", error: (err as Error).message })]
-    ).catch(() => {});
+    try {
+      if (db && typeof (db as { query?: unknown }).query === 'function') {
+        await (db as { query: (sql: string, params: unknown[]) => Promise<unknown> }).query(
+          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
+           VALUES ('webhook_processing_error', 'critical', $1, $2::jsonb, NOW())`,
+          [(err as Error).message, JSON.stringify({ webhook: "paystack", error: (err as Error).message })]
+        );
+      }
+    } catch { /* ignore */ }
     return NextResponse.json({ received: true });
   }
 

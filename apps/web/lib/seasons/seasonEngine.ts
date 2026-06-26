@@ -147,8 +147,10 @@ export async function resetSeasonRankings(
 
     // Mark season as inactive first so the subsequent users.season_xp sync can
     // correctly identify any remaining active seasons for concurrent participants.
+    // BUG-023: Also set status = 'ended' so distributeSeasonRewards can use an
+    // atomic UPDATE ... WHERE status = 'ended' RETURNING id as its idempotency guard.
     await client.query(
-      `UPDATE seasons SET is_active = FALSE, rankings_reset_at = NOW(), updated_at = NOW() WHERE id = $1`,
+      `UPDATE seasons SET is_active = FALSE, status = 'ended', rankings_reset_at = NOW(), updated_at = NOW() WHERE id = $1`,
       [seasonId]
     );
 
@@ -226,12 +228,36 @@ export async function distributeSeasonRewards(
   seasonId: string,
   db: DatabaseAdapter
 ): Promise<void> {
-  const seasonResult = await db.query<{ reward_pool_coins: number }>(
-    `SELECT reward_pool_coins FROM seasons WHERE id = $1`,
+  // BUG-023: Atomic status claim to prevent concurrent CRON instances from
+  // double-distributing rewards. The UPDATE only succeeds (returns a row) when
+  // status = 'ended' — the first caller transitions to 'distributing' and proceeds;
+  // all subsequent concurrent callers get 0 rows and exit early.
+  const claimResult = await db.query<{ id: string; reward_pool_coins: number }>(
+    `UPDATE seasons
+     SET status = 'distributing', updated_at = NOW()
+     WHERE id = $1 AND status = 'ended'
+     RETURNING id, reward_pool_coins`,
     [seasonId]
   );
-  const season = seasonResult.rows[0];
-  if (!season) throw new Error(`[seasonEngine] Season not found: ${seasonId}`);
+
+  if (claimResult.rows.length === 0) {
+    // Either the season doesn't exist, wasn't in 'ended' state, or another CRON
+    // instance already claimed distribution. Check which case we're in:
+    const checkResult = await db.query<{ id: string; status: string }>(
+      `SELECT id, status FROM seasons WHERE id = $1`,
+      [seasonId]
+    );
+    if (!checkResult.rows[0]) {
+      throw new Error(`[seasonEngine] Season not found: ${seasonId}`);
+    }
+    logger.warn(
+      { seasonId, status: checkResult.rows[0].status },
+      '[seasonEngine] distributeSeasonRewards skipped — season not in ended state (already distributing or completed, or another instance claimed it)'
+    );
+    return;
+  }
+
+  const season = claimResult.rows[0];
 
   const pool = season.reward_pool_coins;
 
@@ -333,6 +359,13 @@ export async function distributeSeasonRewards(
        WHERE season_id = $1
          AND is_limited_edition = TRUE
          AND is_retired = FALSE`,
+      [seasonId]
+    );
+
+    // BUG-023: Mark distribution as completed so the status reflects the final
+    // state and any future health-check queries can confirm completion.
+    await client.query(
+      `UPDATE seasons SET status = 'completed', updated_at = NOW() WHERE id = $1`,
       [seasonId]
     );
   });

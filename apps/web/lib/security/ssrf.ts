@@ -154,6 +154,28 @@ async function resolveAndValidateHostname(hostname: string): Promise<ResolvedHos
 // Allowlisted hostnames (for admin-configurable URLs like manifest assets)
 // ---------------------------------------------------------------------------
 
+// BUG-012 FIX: Parse NEXT_PUBLIC_SUPABASE_URL to derive a project-specific
+// Supabase hostname at startup. This avoids adding a broad *.supabase.co
+// wildcard when an explicit project URL is configured.
+function buildSupabaseAllowlistEntries(): string[] {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  const entries: string[] = [
+    "supabase.co",    // default wildcard — covers *.supabase.co via endsWith check
+    "supabase.in",    // alternative Supabase TLD — covers *.supabase.in
+  ];
+  if (supabaseUrl) {
+    try {
+      const { hostname } = new URL(supabaseUrl);
+      if (hostname && !entries.includes(hostname)) {
+        entries.unshift(hostname); // prefer explicit project host over wildcards
+      }
+    } catch {
+      // Malformed URL — fall back to the wildcard entries above
+    }
+  }
+  return entries;
+}
+
 /** Allowlisted external hostnames. Extend as needed for integrations. */
 const HOSTNAME_ALLOWLIST: string[] = [
   "api.mailgun.net",                    // Mailgun transactional email
@@ -173,6 +195,9 @@ const HOSTNAME_ALLOWLIST: string[] = [
   // safeFetch() instead of bare fetch() for server-side token verification.
   "www.google.com",                     // Google reCAPTCHA v3 siteverify
   "challenges.cloudflare.com",          // Cloudflare Turnstile siteverify
+  // BUG-012 FIX: Supabase REST/Auth/Realtime endpoints — project-specific host
+  // is derived from NEXT_PUBLIC_SUPABASE_URL and preferred over the wildcards.
+  ...buildSupabaseAllowlistEntries(),
 ];
 
 // ---------------------------------------------------------------------------

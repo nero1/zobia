@@ -453,9 +453,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // 5. Record guild war contribution (fire-and-forget)
-    recordWarContribution(senderId, 'send_gift', db).catch((err) =>
+    recordWarContribution(senderId, 'send_gift', db).catch((err) => {
       logger.error({ err: err }, '[gifts:POST] war contribution failed');
-    );
+      });
 
     return NextResponse.json({
       success: true,

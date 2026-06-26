@@ -21,9 +21,9 @@ import { db } from "@/lib/db";
 
 const CreateBannerSchema = z.object({
   sponsorName: z.string().min(1).max(200),
-  sponsorLogoUrl: z.string().url().optional().nullable(),
+  sponsorLogoUrl: z.string().url().refine(u => !/^javascript:/i.test(u), "javascript: URLs are not allowed").optional().nullable(),
   ctaText: z.string().min(1).max(100),
-  ctaUrl: z.string().url(),
+  ctaUrl: z.string().url().refine(u => !/^javascript:/i.test(u), "javascript: URLs are not allowed"),
   startsAt: z.string().datetime(),
   endsAt: z.string().datetime(),
 });

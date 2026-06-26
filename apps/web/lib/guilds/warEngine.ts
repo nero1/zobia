@@ -168,16 +168,12 @@ export async function findWarOpponent(
   const minXP = Math.floor(selfXP * (1 - OPPONENT_XP_TOLERANCE));
   const maxXP = Math.ceil(selfXP * (1 + OPPONENT_XP_TOLERANCE));
 
-  // Step 2: Collect all guild IDs currently locked in an active war.
-  const { rows: busyRows } = await db.query<{ guild_id: string }>(
-    `SELECT DISTINCT unnest(ARRAY[challenger_guild_id, defender_guild_id]) AS guild_id
-     FROM guild_wars
-     WHERE status IN ('active', 'final_hour')`
-  );
-  // Exclude both busy guilds and the declaring guild itself (exclusion applied
-  // SQL-side via g.id != ALL($4::uuid[]) to avoid TOCTOU between the busy
-  // check and the candidate fetch).
-  const excludedIds: string[] = [...busyRows.map((r) => r.guild_id), guildId];
+  // BUG-026 FIX: Removed the separate 2-step busy-guild fetch. The old pattern
+  // queried busy guilds first, then used the result in a second query — leaving a
+  // TOCTOU window where a guild could become busy between the two queries and still
+  // be returned as a candidate. The fix merges both into a single atomic query using
+  // a NOT EXISTS subquery so "is this guild already at war?" is evaluated at the same
+  // snapshot as the candidate selection.
 
   const manifestCooldown = await getManifestValue('war_event_cooldown_hours').catch(() => null);
   const parsedCooldown = manifestCooldown !== null ? parseInt(manifestCooldown, 10) : NaN;
@@ -186,29 +182,36 @@ export async function findWarOpponent(
       ? parsedCooldown
       : WAR_COOLDOWN_HOURS;
 
-  // Step 3: Find candidates within ±15% XP band, preferring same city first.
+  // Find candidates within ±15% XP band using a single atomic query.
+  // The NOT EXISTS subquery atomically excludes guilds already in an active war,
+  // eliminating the TOCTOU race between the old 2-step fetch-then-filter approach.
+  // Prefer same city first, then fall back to any eligible guild.
   for (const cityFilter of [true, false]) {
-    const cityClause = cityFilter && self.city ? `AND g.city = $5` : '';
-    const params: (number | string | string[])[] = [
+    const cityClause = cityFilter && self.city ? `AND g.city = $4` : '';
+    const params: (number | string)[] = [
       minXP,
       maxXP,
       effectiveCooldownHours,
-      excludedIds,
       ...(cityFilter && self.city ? [self.city] : []),
     ];
 
-    const selfXPParam = cityFilter && self.city ? 6 : 5;
+    const selfXPParam = cityFilter && self.city ? 5 : 4;
     const { rows } = await db.query<{ id: string }>(
       `SELECT g.id FROM guilds g
        WHERE g.is_active = TRUE
+         AND g.id != $${selfXPParam + 1}
          AND g.guild_xp BETWEEN $1 AND $2
          AND (g.last_war_ended_at IS NULL
               OR g.last_war_ended_at < NOW() - ($3 * INTERVAL '1 hour'))
-         AND g.id != ALL($4::uuid[])
+         AND NOT EXISTS (
+           SELECT 1 FROM guild_wars gw
+           WHERE (gw.challenger_guild_id = g.id OR gw.defender_guild_id = g.id)
+             AND gw.status IN ('active', 'final_hour')
+         )
          ${cityClause}
        ORDER BY ABS(g.guild_xp - $${selfXPParam}) ASC
        LIMIT 5`,
-      [...params, selfXP]
+      [...params, selfXP, guildId]
     );
 
     // BUG-011 FIX: pick a random candidate from the pool instead of always
@@ -360,15 +363,33 @@ export async function resolveWar(
     userId: string; amount: number; track: "competitor"; source: string; ref: string;
   }> = [];
 
-  // ZB-07: The FOR UPDATE lock and all mutations run inside a single transaction
-  // so concurrent calls cannot both see the war as unresolved.
+  // BUG-071 + ZB-07: Use an atomic UPDATE with RETURNING as the idempotency guard.
+  // Only the instance that successfully sets resolved_at (WHERE resolved_at IS NULL)
+  // will get rows back; all concurrent callers receive 0 rows and exit early.
+  // This eliminates the TOCTOU window between the old SELECT-then-check pattern.
   await db.transaction(async (client) => {
-    const warResult = await client.query<GuildWarRow>(
-      `SELECT * FROM guild_wars WHERE id = $1 FOR UPDATE`,
+    const claimResult = await client.query<GuildWarRow>(
+      `UPDATE guild_wars
+       SET resolved_at = NOW(), updated_at = NOW()
+       WHERE id = $1 AND resolved_at IS NULL
+       RETURNING *`,
       [warId]
     );
-    const war = warResult.rows[0];
-    if (!war) throw new Error(`[warEngine] War not found: ${warId}`);
+
+    // Another instance already claimed resolution — exit without double-distributing rewards.
+    if (claimResult.rows.length === 0) {
+      // Check if the war exists at all (vs. already resolved)
+      const { rows: existRows } = await client.query<{ id: string; status: string }>(
+        `SELECT id, status FROM guild_wars WHERE id = $1`,
+        [warId]
+      );
+      if (!existRows[0]) throw new Error(`[warEngine] War not found: ${warId}`);
+      // Already resolved by another concurrent instance — return early (idempotent)
+      logger.warn({ warId }, '[resolveWar] War already claimed for resolution by another instance — skipping');
+      return;
+    }
+
+    const war = claimResult.rows[0];
     if (war.status === "completed" || war.status === "cancelled") {
       throw new Error(`[warEngine] War ${warId} is already resolved`);
     }

@@ -60,6 +60,14 @@ export interface RedisClient {
   exists(...keys: string[]): Promise<number>;
   expire(key: string, seconds: number): Promise<number>;
   ttl(key: string): Promise<number>;
+  /**
+   * @deprecated BUG-031: NEVER use `keys()` in production code.
+   * `KEYS pattern` is an O(N) blocking command that scans the entire keyspace and
+   * will freeze a busy Redis server for seconds, causing cascading timeouts across
+   * ALL connections. Use `SCAN` (redis.scan / HSCAN / ZSCAN) instead for safe
+   * incremental iteration. This method is retained only for local debug tooling
+   * and must not appear in any hot path or scheduled job.
+   */
   keys(pattern: string): Promise<string[]>;
   hset(key: string, field: string, value: string): Promise<number>;
   hget(key: string, field: string): Promise<string | null>;
@@ -107,11 +115,36 @@ function createStubPipeline(): RedisPipeline {
   return stub;
 }
 
+// BUG-049: Build-phase stub documentation and NX-safe sentinel.
+//
+// All Redis commands in this stub return null to keep the build from hanging.
+// However, callers that use `redis.set(key, value, "EX", n, "NX")` for dedup
+// or distributed locking interpret null as "NX condition not met / key already
+// exists", which would silently skip their operation during a build-phase
+// code-path (e.g. webhook dedup in economy/webhooks). We special-case the
+// `set` command to detect an NX call and return "BUILD_PHASE_STUB" so callers
+// that treat null as "already seen" don't silently no-op.
+//
+// Callers that need to guard against build-phase execution should check
+// `process.env.NEXT_PHASE === "phase-production-build"` before calling Redis.
 const buildStub: RedisClient = new Proxy({} as RedisClient, {
   get(_t, prop) {
     if (prop === "ping") return async () => "PONG";
     if (prop === "quit") return async () => "OK";
     if (prop === "pipeline") return () => createStubPipeline();
+    if (prop === "set") {
+      // Return a sentinel for NX calls so callers don't misinterpret null as
+      // "key already exists". Non-NX set calls still return null (no-op).
+      return async (...args: unknown[]) => {
+        const hasNx = args.includes("NX");
+        if (hasNx) {
+          // During build phase, treat every NX set as if it succeeded ("OK")
+          // so dedup/lock logic is not incorrectly bypassed.
+          return "OK" as const;
+        }
+        return null;
+      };
+    }
     return async () => null;
   },
 });

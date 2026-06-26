@@ -20,7 +20,13 @@ const SANITIZE_OPTIONS: sanitizeHtmlLib.IOptions = {
     'a': ['href', 'title', 'target', 'rel'],
     'td': ['colspan', 'rowspan'],
     'th': ['colspan', 'rowspan'],
-    '*': ['class'],
+    // BUG-011 FIX: removed global '*': ['class'] which allowed class on every
+    // element, including potentially dangerous ones. Restrict class only to the
+    // presentational/semantic elements where it is legitimately needed for
+    // syntax highlighting and prose styling. data-* attributes are not permitted.
+    'code': ['class'],
+    'pre': ['class'],
+    'span': ['class'],
   },
   allowedSchemes: ['https', 'mailto'],
   allowedSchemesByTag: {},
