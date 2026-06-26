@@ -26,6 +26,7 @@ import { colors } from '@/lib/theme/colors';
 
 interface AnnouncementModalData {
   id: string;
+  version?: number | string | null;
   title: string;
   content: string;
   contentType: string;
@@ -48,8 +49,12 @@ function stripHtml(html: string): string {
     .trim();
 }
 
-function getSessionKey(id: string): string {
-  return `announcement_modal_dismissed_${id}`;
+// BUG-UX-17 FIX: include the modal version in the dismiss key so an updated
+// modal (same ID, bumped version) re-shows to users who dismissed the previous
+// version.
+function getSessionKey(modal: AnnouncementModalData): string {
+  const v = modal.version ?? modal.content.slice(0, 32).replace(/\W/g, '_');
+  return `announcement_modal_dismissed_${modal.id}_v${v}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -79,8 +84,8 @@ export function AnnouncementModal() {
         const modal = data?.data?.modal;
         if (!modal || cancelled) return;
 
-        // Check if already dismissed this session
-        const key = getSessionKey(modal.id);
+        // Check if already dismissed this version (BUG-UX-17 FIX)
+        const key = getSessionKey(modal);
         if (storage.getBoolean(key)) return;
 
         setAnnouncement(modal);
@@ -97,7 +102,7 @@ export function AnnouncementModal() {
 
   function handleDismiss() {
     if (announcement) {
-      storage.set(getSessionKey(announcement.id), true);
+      storage.set(getSessionKey(announcement), true);
     }
     setVisible(false);
   }

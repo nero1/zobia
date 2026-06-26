@@ -164,10 +164,14 @@ export async function refreshAccessToken(): Promise<string | null> {
       // The original request can proceed immediately with the new token.
       ;(async () => {
         try {
+          // BUG-DATA-09 FIX: AbortSignal.timeout() is not available on all
+          // Android versions — use a manual AbortController + setTimeout instead.
+          const meController = new AbortController();
+          const meTimeout = setTimeout(() => meController.abort(), 5_000);
           const meRes = await fetch(`${env.API_BASE_URL}/api/users/me`, {
             headers: { Authorization: `Bearer ${newToken}`, Origin: env.API_BASE_URL },
-            signal: AbortSignal.timeout(5_000),
-          });
+            signal: meController.signal,
+          }).finally(() => clearTimeout(meTimeout));
           if (meRes.ok) {
             const me = (await meRes.json()) as Record<string, unknown>;
             const updatedUser = {

@@ -250,7 +250,10 @@ export default function GroupConversationScreen() {
       return result;
     },
     enabled: !!groupId,
-    refetchInterval: realtimeConnected ? 30_000 : 3_000,
+    // BUG-UX-09 FIX: add ±30% jitter when polling without realtime.
+    refetchInterval: realtimeConnected
+      ? 30_000
+      : 3_000 + Math.floor(Math.random() * 1_800),
     refetchOnWindowFocus: true,
     placeholderData: (prev) => prev,
     initialData: () => {

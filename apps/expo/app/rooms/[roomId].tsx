@@ -497,7 +497,11 @@ export default function RoomScreen() {
       return after ? mergeNewestFirst(prev, incoming) : incoming;
     },
     enabled: !!roomId,
-    refetchInterval: realtimeConnected ? 30_000 : 2_000,
+    // BUG-UX-09 FIX: add ±30% jitter when polling without realtime to spread
+    // reconnecting clients and avoid thundering-herd bursts on the API.
+    refetchInterval: realtimeConnected
+      ? 30_000
+      : 2_000 + Math.floor(Math.random() * 1_200),
     refetchOnWindowFocus: true,
     placeholderData: (prev) => prev,
     // Instant first paint from the persisted cache; refetch immediately (stale).
@@ -747,15 +751,33 @@ export default function RoomScreen() {
     if (!username || !roomId) return;
     setHighlightPending(true);
     try {
-      // Resolve username → userId
+      // Resolve username → userId. Search returns fuzzy results, so we require
+      // the returned username to match exactly (case-insensitive) to prevent
+      // accidentally highlighting the wrong user (BUG-UX-08 FIX).
       const { data: searchData } = await apiClient.get(
-        `/users/search?q=${encodeURIComponent(username)}&limit=1`
+        `/users/search?q=${encodeURIComponent(username)}&limit=5`
       );
-      const target = searchData?.users?.[0];
+      const target = (searchData?.users ?? []).find(
+        (u: { username?: string }) =>
+          u.username?.toLowerCase() === username.toLowerCase()
+      );
       if (!target?.id) {
         Alert.alert('Not found', `No user found with username "${username}".`);
         return;
       }
+      // BUG-UX-08 FIX: require explicit user confirmation before applying the
+      // highlight power so the operator can verify they have the right person.
+      const displayName: string = target.displayName ?? target.username ?? username;
+      await new Promise<void>((resolve, reject) => {
+        Alert.alert(
+          'Confirm Highlight',
+          `Highlight @${target.username} (${displayName}) in this room for 1 hour?`,
+          [
+            { text: 'Cancel', style: 'cancel', onPress: () => reject(new Error('cancelled')) },
+            { text: 'Highlight', onPress: () => resolve() },
+          ]
+        );
+      });
       await apiClient.post(`/rooms/${roomId}/powers`, {
         power: 'member_highlight',
         targetUserId: target.id,
@@ -763,8 +785,9 @@ export default function RoomScreen() {
       });
       setHighlightMode(false);
       setHighlightUsername('');
-      Alert.alert('Highlighted!', `@${username} is now highlighted in this room for 1 hour.`);
+      Alert.alert('Highlighted!', `@${target.username} is now highlighted in this room for 1 hour.`);
     } catch (e) {
+      if ((e as Error).message === 'cancelled') return;
       const axiosErr = e as AxiosError<{ error?: { code?: string; message?: string } }>;
       const code = axiosErr.response?.data?.error?.code ?? null;
       const message = axiosErr.response?.data?.error?.message ?? (e as Error).message ?? 'Could not highlight member.';

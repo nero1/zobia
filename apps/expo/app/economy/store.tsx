@@ -802,6 +802,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.neutral[700],
   },
+  packDesc: {
+    fontSize: 11,
+    color: colors.neutral[500],
+    lineHeight: 15,
+  },
   packPrice: {
     fontSize: 18,
     fontWeight: '700',

@@ -631,7 +631,10 @@ export default function DMConversationScreen() {
       return after ? mergeNewestFirst(prev, incoming) : incoming;
     },
     enabled: !!conversationId,
-    refetchInterval: realtimeConnected ? 30_000 : 3_000,
+    // BUG-UX-09 FIX: add ±30% jitter when polling without realtime.
+    refetchInterval: realtimeConnected
+      ? 30_000
+      : 3_000 + Math.floor(Math.random() * 1_800),
     refetchOnWindowFocus: true,
     placeholderData: (prev) => prev,
     initialData: () => (conversationId ? readCachedMessages<DM>(`dm:${conversationId}`) ?? undefined : undefined),
@@ -678,8 +681,11 @@ export default function DMConversationScreen() {
     const text = inputText.trim();
     if (!text) return;
     setInputText('');
+    // BUG-UX-07 FIX: clear pidgin suggestions on send so stale suggestions
+    // from the previous message don't linger on screen.
+    setPidginSuggestions([]);
     sendMutation.mutate({ content: text, type: 'text', idempotencyKey: randomUUID() });
-  }, [inputText, sendMutation]);
+  }, [inputText, sendMutation, setPidginSuggestions]);
 
   const handleGifSelect = useCallback((gifUrl: string) => {
     sendMutation.mutate({ content: gifUrl, type: 'gif', idempotencyKey: randomUUID() });

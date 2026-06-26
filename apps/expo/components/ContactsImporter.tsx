@@ -45,6 +45,45 @@ export interface ContactsImporterProps {
 }
 
 // ---------------------------------------------------------------------------
+// E.164 normalisation (BUG-DATA-06 FIX)
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalise a raw phone number string to E.164 format.
+ *
+ * Rules applied in order:
+ *  1. Strip all non-digit chars except leading '+'.
+ *  2. If the number starts with '+' it is already in international format —
+ *     return as-is (e.g. "+2348012345678").
+ *  3. If the number starts with "00" treat it as the international dialling
+ *     prefix and replace with '+' (e.g. "002348012345678" → "+2348012345678").
+ *  4. If the number starts with "0" and has 10–11 digits it is a Nigerian
+ *     local number; strip the leading 0 and prepend +234.
+ *  5. Otherwise return null — unrecognised format, skip this number.
+ *
+ * The +234 default is correct for Zobia's primary market (Nigeria). Other
+ * markets can be added by extending this function.
+ */
+function toE164(raw: string): string | null {
+  // Strip everything except digits and a leading +
+  const stripped = raw.replace(/[^\d+]/g, '');
+  if (!stripped) return null;
+
+  if (stripped.startsWith('+')) return stripped;
+  if (stripped.startsWith('00')) return '+' + stripped.slice(2);
+
+  // Nigerian local format: 0XXXXXXXXXX (11 digits total)
+  if (stripped.startsWith('0') && stripped.length >= 10 && stripped.length <= 11) {
+    return '+234' + stripped.slice(1);
+  }
+
+  // Already looks like an international number without '+' (e.g. "2348012345678")
+  if (stripped.length >= 10) return '+' + stripped;
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -107,16 +146,18 @@ export function ContactsImporter({ onDone }: ContactsImporterProps) {
         fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Name],
       });
 
-      // 3. Extract and normalise phone numbers
+      // 3. Extract and normalise phone numbers to E.164 format.
+      // BUG-DATA-06 FIX: strip formatting chars AND normalise to E.164 so
+      // numbers from all locales (e.g. "08012345678" Nigerian local format)
+      // match what the server stores. Applies +234 default country code for
+      // numbers starting with 0, which is the common Nigerian prefix.
       const phoneNumbers: string[] = [];
       for (const contact of data) {
         if (contact.phoneNumbers) {
           for (const phone of contact.phoneNumbers) {
             if (phone.number) {
-              // Normalise: strip whitespace, dashes, and parentheses so numbers
-              // can be matched against the format stored on the server.
-              const normalised = phone.number.replace(/[\s\-()]/g, '');
-              phoneNumbers.push(normalised);
+              const normalised = toE164(phone.number);
+              if (normalised) phoneNumbers.push(normalised);
             }
           }
         }

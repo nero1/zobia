@@ -330,9 +330,12 @@ export async function getPermanentlyFailedMessages(): Promise<{
     retry_count: number;
     created_at: number;
   }>(
+    // BUG-MISC-01 FIX: the second OR clause is redundant since resetFailedMessages()
+    // always promotes failed+retry_count>=3 rows to 'permanent_failure'. Simplified
+    // to a single equality check.
     `SELECT id, conversation_id, content, retry_count, created_at
      FROM offline_messages
-     WHERE sync_status = 'permanent_failure' OR (sync_status = 'failed' AND retry_count >= 3)
+     WHERE sync_status = 'permanent_failure'
      ORDER BY created_at ASC`
   );
 
