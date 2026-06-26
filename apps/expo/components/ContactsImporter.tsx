@@ -20,6 +20,8 @@ import {
 } from 'react-native';
 import * as Contacts from 'expo-contacts';
 import { apiClient } from '@/lib/api/client';
+import { useTheme } from '@/lib/theme';
+import { colors } from '@/lib/theme/colors';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -56,10 +58,23 @@ export interface ContactsImporterProps {
  * 5. Lets the user follow/add matched friends before continuing.
  */
 export function ContactsImporter({ onDone }: ContactsImporterProps) {
+  const { isDark } = useTheme();
   const [status, setStatus] = useState<'idle' | 'loading' | 'results' | 'error'>('idle');
   const [zobiaContacts, setZobiaContacts] = useState<ZobiaContact[]>([]);
   const [invited, setInvited] = useState<Set<string>>(new Set());
+  const [addingIds, setAddingIds] = useState<Set<string>>(new Set());
+  const [addErrors, setAddErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+
+  // Theme-derived colors
+  const bg = isDark ? colors.neutral[950] : colors.neutral[50];
+  const textPrimary = isDark ? colors.neutral[50] : colors.neutral[900];
+  const textSecondary = isDark ? colors.neutral[400] : colors.neutral[500];
+  const border = isDark ? colors.neutral[800] : colors.neutral[200];
+  const addBtnBg = isDark ? colors.neutral[100] : colors.neutral[900];
+  const addBtnText = isDark ? colors.neutral[900] : colors.neutral[0];
+  const addedBtnBg = isDark ? colors.neutral[800] : colors.neutral[200];
+  const addedBtnText = isDark ? colors.neutral[500] : colors.neutral[500];
 
   // ---------------------------------------------------------------------------
   // Handlers
@@ -67,10 +82,16 @@ export function ContactsImporter({ onDone }: ContactsImporterProps) {
 
   /**
    * Request permissions, load device contacts, and cross-reference with Zobia.
+   * Resets all state so re-running import is idempotent.
    */
   const importContacts = useCallback(async () => {
+    // BUG-LOGIC-05 FIX: reset all state before each import run
     setStatus('loading');
     setError(null);
+    setZobiaContacts([]);
+    setInvited(new Set());
+    setAddingIds(new Set());
+    setAddErrors({});
 
     try {
       // 1. Request OS permission
@@ -125,14 +146,23 @@ export function ContactsImporter({ onDone }: ContactsImporterProps) {
 
   /**
    * Send a friend/follow request for a matched Zobia contact.
-   * Silently ignores errors — this is a best-effort convenience action.
+   * Shows per-contact loading state and surfaces errors inline.
    */
   const handleInvite = useCallback(async (contact: ZobiaContact) => {
+    setAddingIds(prev => new Set([...prev, contact.userId]));
+    setAddErrors(prev => { const next = { ...prev }; delete next[contact.userId]; return next; });
     try {
       await apiClient.post('/friends', { targetUserId: contact.userId });
       setInvited(prev => new Set([...prev, contact.userId]));
     } catch {
-      // Not critical — user can always add friends from the profile page later
+      // BUG-UX-04 FIX: surface the error inline per-contact instead of silently ignoring
+      setAddErrors(prev => ({ ...prev, [contact.userId]: 'Failed to add. Tap to retry.' }));
+    } finally {
+      setAddingIds(prev => {
+        const next = new Set(prev);
+        next.delete(contact.userId);
+        return next;
+      });
     }
   }, []);
 
@@ -146,16 +176,16 @@ export function ContactsImporter({ onDone }: ContactsImporterProps) {
 
   if (status === 'idle') {
     return (
-      <View style={styles.container}>
-        <Text style={styles.title}>Find friends on Zobia</Text>
-        <Text style={styles.subtitle}>
+      <View style={[styles.container, { backgroundColor: bg }]}>
+        <Text style={[styles.title, { color: textPrimary }]}>Find friends on Zobia</Text>
+        <Text style={[styles.subtitle, { color: textSecondary }]}>
           See which of your contacts are already here. Only contacts already on Zobia will be shown.
         </Text>
-        <TouchableOpacity style={styles.primaryButton} onPress={importContacts}>
-          <Text style={styles.primaryButtonText}>Import Contacts</Text>
+        <TouchableOpacity style={[styles.primaryButton, { backgroundColor: addBtnBg }]} onPress={importContacts}>
+          <Text style={[styles.primaryButtonText, { color: addBtnText }]}>Import Contacts</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.skipButton} onPress={() => onDone?.(0)}>
-          <Text style={styles.skipButtonText}>Skip for now</Text>
+          <Text style={[styles.skipButtonText, { color: textSecondary }]}>Skip for now</Text>
         </TouchableOpacity>
       </View>
     );
@@ -163,19 +193,22 @@ export function ContactsImporter({ onDone }: ContactsImporterProps) {
 
   if (status === 'loading') {
     return (
-      <View style={styles.container}>
-        <ActivityIndicator size="large" color="#000" />
-        <Text style={styles.loadingText}>Finding friends...</Text>
+      <View style={[styles.container, { backgroundColor: bg }]}>
+        <ActivityIndicator size="large" color={colors.brand.blue} />
+        <Text style={[styles.loadingText, { color: textSecondary }]}>Finding friends...</Text>
       </View>
     );
   }
 
   if (status === 'error') {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: bg }]}>
         <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.primaryButton} onPress={() => onDone?.(0)}>
-          <Text style={styles.primaryButtonText}>Continue</Text>
+        <TouchableOpacity style={[styles.primaryButton, { backgroundColor: addBtnBg }]} onPress={() => onDone?.(0)}>
+          <Text style={[styles.primaryButtonText, { color: addBtnText }]}>Continue</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.skipButton} onPress={importContacts}>
+          <Text style={[styles.skipButtonText, { color: textSecondary }]}>Try again</Text>
         </TouchableOpacity>
       </View>
     );
@@ -183,54 +216,65 @@ export function ContactsImporter({ onDone }: ContactsImporterProps) {
 
   // status === 'results'
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>
+    <View style={[styles.container, { backgroundColor: bg }]}>
+      <Text style={[styles.title, { color: textPrimary }]}>
         {zobiaContacts.length === 0
           ? 'No contacts on Zobia yet'
           : `${zobiaContacts.length} friend${zobiaContacts.length === 1 ? '' : 's'} on Zobia`}
       </Text>
 
       {zobiaContacts.length === 0 ? (
-        <Text style={styles.subtitle}>
+        <Text style={[styles.subtitle, { color: textSecondary }]}>
           None of your contacts are on Zobia yet. Invite them!
         </Text>
       ) : (
         <FlatList
           data={zobiaContacts}
           keyExtractor={item => item.userId}
-          renderItem={({ item }) => (
-            <View style={styles.contactRow}>
-              <Text style={styles.avatar}>{item.avatarEmoji}</Text>
-              <View style={styles.contactInfo}>
-                <Text style={styles.displayName}>{item.displayName}</Text>
-                <Text style={styles.username}>@{item.username}</Text>
-              </View>
-              <TouchableOpacity
-                style={invited.has(item.userId) ? styles.addedButton : styles.addButton}
-                onPress={() => handleInvite(item)}
-                disabled={invited.has(item.userId)}
-                accessibilityLabel={
-                  invited.has(item.userId)
-                    ? `Already added ${item.displayName}`
-                    : `Add ${item.displayName} as a friend`
-                }
-              >
-                <Text
-                  style={
-                    invited.has(item.userId) ? styles.addedButtonText : styles.addButtonText
+          renderItem={({ item }) => {
+            const isAdded = invited.has(item.userId);
+            const isAdding = addingIds.has(item.userId);
+            const addError = addErrors[item.userId];
+            return (
+              <View style={[styles.contactRow, { borderBottomColor: border }]}>
+                <Text style={styles.avatar}>{item.avatarEmoji}</Text>
+                <View style={styles.contactInfo}>
+                  <Text style={[styles.displayName, { color: textPrimary }]}>{item.displayName}</Text>
+                  <Text style={[styles.username, { color: textSecondary }]}>@{item.username}</Text>
+                  {addError ? (
+                    <Text style={styles.addErrorText}>{addError}</Text>
+                  ) : null}
+                </View>
+                {/* BUG-UX-03 FIX: show per-contact loading indicator */}
+                <TouchableOpacity
+                  style={[
+                    isAdded ? [styles.addedButton, { backgroundColor: addedBtnBg }] : [styles.addButton, { backgroundColor: addBtnBg }],
+                  ]}
+                  onPress={() => !isAdded && handleInvite(item)}
+                  disabled={isAdded || isAdding}
+                  accessibilityLabel={
+                    isAdded
+                      ? `Already added ${item.displayName}`
+                      : `Add ${item.displayName} as a friend`
                   }
                 >
-                  {invited.has(item.userId) ? 'Added' : 'Add'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
+                  {isAdding ? (
+                    <ActivityIndicator size="small" color={addBtnText} />
+                  ) : (
+                    <Text style={[isAdded ? styles.addedButtonText : styles.addButtonText, { color: isAdded ? addedBtnText : addBtnText }]}>
+                      {isAdded ? 'Added' : addError ? 'Retry' : 'Add'}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            );
+          }}
           style={styles.list}
         />
       )}
 
-      <TouchableOpacity style={styles.primaryButton} onPress={handleDone}>
-        <Text style={styles.primaryButtonText}>
+      <TouchableOpacity style={[styles.primaryButton, { backgroundColor: addBtnBg }]} onPress={handleDone}>
+        <Text style={[styles.primaryButtonText, { color: addBtnText }]}>
           {invited.size > 0 ? `Continue (${invited.size} added)` : 'Continue'}
         </Text>
       </TouchableOpacity>
@@ -256,19 +300,22 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 15,
-    color: '#555',
     textAlign: 'center',
     marginBottom: 24,
   },
   loadingText: {
     textAlign: 'center',
     marginTop: 12,
-    color: '#666',
   },
   errorText: {
-    color: '#c00',
+    color: colors.semantic.error,
     textAlign: 'center',
     marginBottom: 24,
+  },
+  addErrorText: {
+    color: colors.semantic.error,
+    fontSize: 11,
+    marginTop: 2,
   },
   list: {
     maxHeight: 320,
@@ -279,7 +326,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
   },
   avatar: {
     fontSize: 28,
@@ -294,39 +340,36 @@ const styles = StyleSheet.create({
   },
   username: {
     fontSize: 13,
-    color: '#888',
   },
   addButton: {
-    backgroundColor: '#000',
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
+    minWidth: 56,
+    alignItems: 'center',
   },
   addButtonText: {
-    color: '#fff',
     fontWeight: '600',
     fontSize: 13,
   },
   addedButton: {
-    backgroundColor: '#eee',
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
+    minWidth: 56,
+    alignItems: 'center',
   },
   addedButtonText: {
-    color: '#888',
     fontWeight: '600',
     fontSize: 13,
   },
   primaryButton: {
-    backgroundColor: '#000',
     padding: 16,
     borderRadius: 12,
     alignItems: 'center',
     marginTop: 16,
   },
   primaryButtonText: {
-    color: '#fff',
     fontSize: 16,
     fontWeight: '700',
   },
@@ -335,7 +378,6 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   skipButtonText: {
-    color: '#888',
     fontSize: 14,
   },
 });

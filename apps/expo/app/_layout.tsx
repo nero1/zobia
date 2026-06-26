@@ -190,7 +190,13 @@ function RootLayoutNav() {
   const { isDark } = useTheme();
   const { user, isLoading } = useAuth();
   const router = useRouter();
+  // Keep a stable ref to the latest router instance so the notification listener
+  // does not need to be re-registered every time router changes identity (BUG-NAV-01).
+  const routerRef = useRef(router);
+  useEffect(() => { routerRef.current = router; });
   const [storeReady, setStoreReady] = useState(false);
+  const isLoadingRef = useRef(isLoading);
+  useEffect(() => { isLoadingRef.current = isLoading; });
   const notificationListener = useRef<Notifications.Subscription | null>(null);
   const responseListener = useRef<Notifications.Subscription | null>(null);
 
@@ -305,6 +311,10 @@ function RootLayoutNav() {
     // Handle taps on notifications (app in background or killed)
     responseListener.current = Notifications.addNotificationResponseReceivedListener(
       (response) => {
+        // Defer navigation until auth state has resolved to prevent navigating
+        // to a protected route before the token/user is available (BUG-NAV-02).
+        if (isLoadingRef.current) return;
+
         const data = response.notification.request.content.data as Record<string, unknown>;
         const action = data?.action as string | undefined;
 
@@ -314,7 +324,9 @@ function RootLayoutNav() {
         if (action) {
           if (VALID_PUSH_ROUTES.some((re) => re.test(action))) {
             try {
-              router.push(action as Parameters<typeof router.push>[0]);
+              // Use routerRef so this callback always has the latest router
+              // without causing the effect to re-run on router changes (BUG-NAV-01).
+              routerRef.current.push(action as Parameters<typeof router.push>[0]);
             } catch (err) {
               console.warn('[push] Failed to navigate to notification action:', action, err);
             }
@@ -329,7 +341,7 @@ function RootLayoutNav() {
       notificationListener.current?.remove();
       responseListener.current?.remove();
     };
-  }, [router]);
+  }, []); // Empty deps: register once; routerRef/isLoadingRef always hold latest values
 
   // Don't render the nav tree until auth state is resolved and store is ready.
   if (isLoading || !storeReady) return null;

@@ -250,7 +250,12 @@ export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 60 * 1000,
-      retry: 2,
+      retry: (failureCount, error) => {
+        // Never retry 4xx client errors — they won't succeed on retry
+        const status = (error as { response?: { status?: number } })?.response?.status;
+        if (status !== undefined && status >= 400 && status < 500) return false;
+        return failureCount < 2;
+      },
       refetchOnWindowFocus: false,
     },
     mutations: {

@@ -62,8 +62,10 @@ export default function ChangePasswordScreen() {
         [{ text: t('common.ok', 'OK'), onPress: () => router.back() }]
       );
     },
-    onError: (err: AxiosError<{ message?: string }>) => {
-      setFieldError(translateApiError(err));
+    onError: (err: AxiosError<{ error?: { code?: string; message?: string }; message?: string }>) => {
+      const code = err.response?.data?.error?.code ?? null;
+      const message = err.response?.data?.error?.message ?? err.response?.data?.message ?? t('errors.default', 'Something went wrong. Please try again.');
+      setFieldError(translateApiError(t, code, message));
     },
   });
 

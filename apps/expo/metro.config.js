@@ -21,6 +21,7 @@ config.resolver.nodeModulesPaths = [
 
 // The shared workspace package is consumed via its package.json `exports` map
 // (`@zobia/shared/utils`). Ensure Metro honours subpath exports.
+// TODO: rename to enablePackageExports once Metro stabilises the API.
 config.resolver.unstable_enablePackageExports = true;
 
 module.exports = withNativeWind(config, {

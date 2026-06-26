@@ -26,7 +26,7 @@ export function SessionExpiredModal() {
 
   function handleSignIn() {
     clearSessionExpired();
-    router.push('/auth/login');
+    router.replace('/auth/login');
   }
 
   return (

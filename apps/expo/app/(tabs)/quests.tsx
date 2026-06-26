@@ -14,11 +14,11 @@ import {
   StyleSheet,
   Text,
   View,
-  useColorScheme,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { colors } from '@/lib/theme/colors';
+import { useTheme } from '@/lib/theme';
 import { apiClient } from '@/lib/api/client';
 import { useTranslation } from 'react-i18next';
 import { useFloatingNotification } from '@/hooks/useFloatingNotification';
@@ -78,8 +78,7 @@ async function fetchMemberQuest(): Promise<MemberQuestData | null> {
 }
 
 export default function QuestsTab() {
-  const scheme = useColorScheme();
-  const isDark = scheme === 'dark';
+  const { isDark } = useTheme();
   const router = useRouter();
   const { t } = useTranslation();
   const { questUpdateKey } = useFloatingNotification();

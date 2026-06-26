@@ -525,12 +525,11 @@ export default function DMConversationScreen() {
   const { colors: themeColors, isDark } = useTheme();
   const { i18n } = useTranslation();
   const { user: authUser } = useAuth();
-  const myUserId = authUser?.id ?? 'me';
+  const myUserId = authUser?.id ?? '';
   const currency = useCurrency();
 
   const flatListRef = useRef<FlatList<DM>>(null);
   const isAtBottomRef = useRef(true);
-  const pendingIdCounterRef = useRef(0);
 
   const [inputText, setInputText] = useState('');
   const [pidginSuggestions, setPidginSuggestions] = useState<string[]>([]);
@@ -643,7 +642,7 @@ export default function DMConversationScreen() {
     mutationFn: ({ content, type, idempotencyKey }: { content: string; type: MessageType; idempotencyKey: string }) =>
       sendDM(conversationId!, content, type, idempotencyKey),
     onMutate: ({ content, type }) => {
-      const localId = `pending-${++pendingIdCounterRef.current}`;
+      const localId = `pending-${randomUUID()}`;
       const optimistic = makePendingMessage(content, myUserId, type, localId);
       setPendingMessages((prev) => [optimistic, ...prev]);
       return { optimistic };
@@ -776,7 +775,7 @@ export default function DMConversationScreen() {
         )}
 
         {/* Message list */}
-        {isLoading ? (
+        {(isLoading || !authUser) ? (
           <ConvSkeleton />
         ) : (
           <FlatList

@@ -296,10 +296,16 @@ export async function deleteMessage(localId: string): Promise<void> {
 
 /**
  * Reset failed messages that have not yet hit the retry ceiling back to pending.
- * Messages with retry_count >= 3 are left as 'failed' for manual review.
+ * Messages with retry_count >= 3 are promoted to 'permanent_failure' so
+ * getPermanentlyFailedMessages() can find them without a dual-condition query.
  */
 export async function resetFailedMessages(): Promise<void> {
-  await getDB().runAsync(
+  const db = getDB();
+  await db.runAsync(
+    `UPDATE offline_messages SET sync_status = 'permanent_failure'
+     WHERE sync_status = 'failed' AND retry_count >= 3`
+  );
+  await db.runAsync(
     `UPDATE offline_messages SET sync_status = 'pending'
      WHERE sync_status = 'failed' AND retry_count < 3`
   );

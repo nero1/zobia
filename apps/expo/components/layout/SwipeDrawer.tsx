@@ -134,7 +134,7 @@ function DrawerContent({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const displayName = user?.username ?? 'User';
+  const displayName = user?.displayName || user?.username || 'User';
   const username = user?.username ?? '';
 
   return (
@@ -170,6 +170,7 @@ function DrawerContent({ onClose }: { onClose: () => void }) {
         style={{ flex: 1 }}
         contentContainerStyle={[styles.navList, { paddingBottom: insets.bottom + 16 }]}
         showsVerticalScrollIndicator={false}
+        accessibilityRole="menu"
       >
         {/* Admin link */}
         {isAdmin && (

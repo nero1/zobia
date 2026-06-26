@@ -644,7 +644,9 @@ export async function getSubscriptionProducts(annual = false): Promise<Subscript
  * @param productId - Subscription product ID (e.g. 'sub_plus_monthly')
  */
 export async function purchaseSubscription(
-  productId: string
+  productId: string,
+  /** Product ID of the subscription being replaced (for plan upgrades/downgrades). */
+  oldProductId?: string
 ): Promise<{
   success: boolean;
   plan?: string;
@@ -712,6 +714,16 @@ export async function purchaseSubscription(
 
     requestSubscription({
       subscriptionOffers: [{ sku: productId, offerToken: resolvedOfferToken }],
+      // BUG-PAY-02 FIX: pass replacement info for upgrades/downgrades so Play
+      // Billing can prorate correctly instead of creating a parallel subscription.
+      ...(oldProductId
+        ? {
+            replaceSku: oldProductId,
+            // CHARGE_ON_NEXT_BILLING_CYCLE (2) lets the current plan run until
+            // the next renewal date before switching — avoids immediate charges.
+            prorationMode: 2,
+          }
+        : {}),
     }).catch((err: unknown) => {
       // Errors usually arrive via purchaseErrorListener; this is a safety net.
       if (!purchaseResolvers.has(sessionId)) return;

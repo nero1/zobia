@@ -26,6 +26,7 @@ import {
   Easing,
 } from 'react-native';
 import { colors } from '@/lib/theme/colors';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -64,6 +65,7 @@ export const GiftSpectacle = memo(function GiftSpectacle({
   onDismiss,
   displayDurationMs = 3000,
 }: GiftSpectacleProps) {
+  const currency = useCurrency();
   const scaleAnim = useRef(new Animated.Value(0.5)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
   const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -187,7 +189,7 @@ export const GiftSpectacle = memo(function GiftSpectacle({
         <View style={styles.coinRow}>
           <Text style={styles.coinIcon}>🪙</Text>
           <Text style={styles.coinValue}>
-            {data.coinValue.toLocaleString()} coins
+            {data.coinValue.toLocaleString()} {currency.softPlural.toLowerCase()}
           </Text>
         </View>
 

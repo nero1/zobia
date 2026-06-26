@@ -24,7 +24,10 @@ import {
   StyleSheet,
   type ViewStyle,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { colors } from '@/lib/theme/colors';
+import { useTheme } from '@/lib/theme';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -57,6 +60,8 @@ export interface MessageBubbleProps {
   giftName?: string;
   /** Gift emoji for gift messages. */
   giftEmoji?: string;
+  /** GIF URL for gif-type messages. */
+  gifUrl?: string | null;
   /** Called when the user long-presses the bubble (to open reaction picker). */
   onLongPress?: (messageId: string) => void;
   /** Called when the user taps an existing reaction to toggle it. */
@@ -139,10 +144,13 @@ export const MessageBubble = memo(function MessageBubble({
   giftCoinValue,
   giftName,
   giftEmoji,
+  gifUrl,
   onLongPress,
   onReactionPress,
   style,
 }: MessageBubbleProps) {
+  const { isDark } = useTheme();
+  const currency = useCurrency();
   const handleLongPress = useCallback(() => {
     onLongPress?.(id);
   }, [id, onLongPress]);
@@ -172,7 +180,7 @@ export const MessageBubble = memo(function MessageBubble({
               <View style={styles.coinRow}>
                 <Text style={styles.coinIcon}>🪙</Text>
                 <Text style={styles.coinValue}>
-                  {giftCoinValue.toLocaleString()} coins
+                  {giftCoinValue.toLocaleString()} {currency.softPlural.toLowerCase()}
                 </Text>
               </View>
             )}
@@ -180,6 +188,50 @@ export const MessageBubble = memo(function MessageBubble({
           <Text style={styles.timestamp}>{formatTime(createdAt)}</Text>
         </View>
       </View>
+    );
+  }
+
+  // GIF messages — render the image inline
+  if (messageType === 'gif') {
+    return (
+      <Pressable
+        onLongPress={handleLongPress}
+        style={[styles.row, isOwnMessage ? styles.rowOwn : styles.rowOther, style]}
+      >
+        {!isOwnMessage && (
+          <View style={styles.avatar}>
+            <Text style={styles.avatarEmoji}>{senderAvatarEmoji}</Text>
+          </View>
+        )}
+        <View style={[styles.bubbleWrapper, isOwnMessage && styles.bubbleWrapperOwn]}>
+          {!isOwnMessage && (
+            <Text style={styles.senderName}>{senderDisplayName}</Text>
+          )}
+          {gifUrl ? (
+            <Image
+              source={{ uri: gifUrl }}
+              style={styles.gifImage}
+              contentFit="cover"
+              transition={200}
+              accessibilityLabel="GIF"
+            />
+          ) : (
+            <View style={[styles.bubble, isOwnMessage ? styles.bubbleOwn : styles.bubbleOther]}>
+              <Text style={[styles.messageText, isOwnMessage ? styles.messageTextOwn : styles.messageTextOther]}>
+                {content ?? '[GIF]'}
+              </Text>
+            </View>
+          )}
+          <Text style={[styles.timestamp, isOwnMessage ? styles.timestampOwn : styles.timestampOther]}>
+            {formatTime(createdAt)}
+          </Text>
+          <ReactionStrip
+            messageId={id}
+            reactions={reactions}
+            onReactionPress={onReactionPress}
+          />
+        </View>
+      </Pressable>
     );
   }
 
@@ -221,13 +273,17 @@ export const MessageBubble = memo(function MessageBubble({
         <View
           style={[
             styles.bubble,
-            isOwnMessage ? styles.bubbleOwn : styles.bubbleOther,
+            isOwnMessage
+              ? styles.bubbleOwn
+              : [styles.bubbleOther, { backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100] }],
           ]}
         >
           <Text
             style={[
               styles.messageText,
-              isOwnMessage ? styles.messageTextOwn : styles.messageTextOther,
+              isOwnMessage
+                ? styles.messageTextOwn
+                : [styles.messageTextOther, { color: isDark ? colors.neutral[50] : colors.neutral[900] }],
             ]}
           >
             {content}
@@ -402,6 +458,12 @@ const styles = StyleSheet.create({
     color: colors.neutral[500],
     textAlign: 'center',
     fontStyle: 'italic',
+  },
+
+  gifImage: {
+    width: 220,
+    height: 160,
+    borderRadius: 12,
   },
 
   // Gift message
