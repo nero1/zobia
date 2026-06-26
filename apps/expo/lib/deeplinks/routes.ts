@@ -48,10 +48,12 @@ export const ROUTES = {
   GUILD: '/(tabs)/guild',
   PROFILE: '/(tabs)/profile',
 
-  // Internal dynamic screens (UUID-addressed)
-  ROOM: (id: string) => `/rooms/${id}`,
-  GUILD_DETAIL: (id: string) => `/guilds/${id}`,
-  MESSAGE_THREAD: (threadId: string) => `/messages/${threadId}`,
+  // Internal dynamic screens (UUID-addressed).
+  // BUG-DATA-05 FIX: encode path segments so any non-UUID identifier (e.g.
+  // slugs with slashes or special chars) doesn't corrupt the URL structure.
+  ROOM: (id: string) => `/rooms/${encodeURIComponent(id)}`,
+  GUILD_DETAIL: (id: string) => `/guilds/${encodeURIComponent(id)}`,
+  MESSAGE_THREAD: (threadId: string) => `/messages/${encodeURIComponent(threadId)}`,
 } as const;
 
 // ---------------------------------------------------------------------------

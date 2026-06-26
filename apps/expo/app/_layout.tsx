@@ -68,19 +68,21 @@ function debouncedSync() {
   }, 2000);
 }
 
+// BUG-DATA-04 FIX: /i flag so routes with uppercase hex characters (e.g. UUIDs
+// from some backends) are not silently blocked by the lowercase-only pattern.
 /** Allowlist of valid in-app routes that a push notification may navigate to. */
 const VALID_PUSH_ROUTES: RegExp[] = [
-  /^\/rooms\/[a-f0-9-]+$/,
-  /^\/messages\/[0-9a-f-]{36}$/,
-  /^\/messages\/group\/[a-f0-9-]+$/,
-  /^\/profile\/[0-9a-f-]{36}$/,
-  /^\/events\/[a-f0-9-]+$/,
-  /^\/quests$/,
-  /^\/leaderboards$/,
-  /^\/seasons$/,
-  /^\/guilds\/[a-f0-9-]+$/,
-  /^\/guilds\/[a-f0-9-]+\/chat$/,
-  /^\/notifications$/,
+  /^\/rooms\/[a-f0-9-]+$/i,
+  /^\/messages\/[0-9a-f-]{36}$/i,
+  /^\/messages\/group\/[a-f0-9-]+$/i,
+  /^\/profile\/[0-9a-f-]{36}$/i,
+  /^\/events\/[a-f0-9-]+$/i,
+  /^\/quests$/i,
+  /^\/leaderboards$/i,
+  /^\/seasons$/i,
+  /^\/guilds\/[a-f0-9-]+$/i,
+  /^\/guilds\/[a-f0-9-]+\/chat$/i,
+  /^\/notifications$/i,
 ];
 
 Notifications.setNotificationHandler({
@@ -265,14 +267,21 @@ function RootLayoutNav() {
   }, []);
 
   // BUG-CRIT-02: Hide splash screen once auth state resolves and store is ready.
+  // BUG-UX-11 FIX: wrap in try-catch so a hideAsync failure (e.g. already
+  // hidden, or native module not ready) never throws and leaves the app stuck.
   useEffect(() => {
     if (!isLoading && storeReady) {
-      SplashScreen.hideAsync();
+      SplashScreen.hideAsync().catch((err) => {
+        console.warn('[splash] hideAsync failed', err);
+      });
     }
   }, [isLoading, storeReady]);
 
   // C-4 FIX: fire any cold-start notification navigation once the nav tree is
   // mounted and the user session is confirmed (auth done + user present).
+  // BUG-UX-12 FIX: use routerRef.current (stable ref) instead of router
+  // directly to avoid re-running this effect on every render where the
+  // expo-router object reference changes.
   useEffect(() => {
     if (isLoading || !storeReady || !user) return;
     const action = pendingNotifAction.current;
@@ -283,14 +292,18 @@ function RootLayoutNav() {
     } catch (err) {
       console.warn('[push] Cold-start notification navigation failed:', action, err);
     }
-  }, [isLoading, storeReady, user, router]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading, storeReady, user]); // router excluded: routerRef.current always holds latest (BUG-UX-12)
 
   // BUG-CRIT-01: Auth gate — redirect unauthenticated users to the login screen.
+  // BUG-UX-12 FIX: use routerRef.current to avoid re-running on every router
+  // reference change.
   useEffect(() => {
     if (!isLoading && storeReady && !user) {
-      router.replace('/auth/login');
+      routerRef.current.replace('/auth/login');
     }
-  }, [isLoading, storeReady, user, router]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading, storeReady, user]); // router excluded: routerRef.current always holds latest (BUG-UX-12)
 
   // Register push token once the user's identity is established.
   // Scoped to user?.id so token refresh (which mutates other user fields)

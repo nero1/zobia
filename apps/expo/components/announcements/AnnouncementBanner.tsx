@@ -4,7 +4,7 @@
  * Fetches the active banner announcement for the authenticated user from
  * /api/admin/announcements/banners and renders it as a fixed banner above
  * the tab content. Severity drives background colour. Dismissal is stored
- * in MMKV for the session.
+ * persistently in MMKV (survives app restarts — not session-scoped).
  */
 
 import React, { useEffect, useState } from 'react';
@@ -24,6 +24,7 @@ import { colors } from '@/lib/theme/colors';
 
 interface BannerData {
   id: string;
+  version?: number | string | null;
   content: string;
   contentType: string;
 }
@@ -45,8 +46,12 @@ function stripHtml(html: string): string {
     .trim();
 }
 
-function getBannerDismissKey(id: string): string {
-  return `announcement_banner_dismissed_${id}`;
+// BUG-UX-17 FIX: include the banner version in the dismiss key so that an
+// updated banner (same ID, bumped version) re-shows to users who dismissed
+// the previous version. Falls back to a short content hash when no version.
+function getBannerDismissKey(b: BannerData): string {
+  const v = b.version ?? b.content.slice(0, 32).replace(/\W/g, '_');
+  return `announcement_banner_dismissed_${b.id}_v${v}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -76,8 +81,8 @@ export function AnnouncementBanner() {
         const b = data?.data?.banner;
         if (!b || cancelled) return;
 
-        // Check if dismissed this session
-        if (storage.getBoolean(getBannerDismissKey(b.id))) return;
+        // Check if dismissed this version
+        if (storage.getBoolean(getBannerDismissKey(b))) return;
 
         setBanner(b);
       } catch {
@@ -92,7 +97,7 @@ export function AnnouncementBanner() {
 
   function handleDismiss() {
     if (banner) {
-      storage.set(getBannerDismissKey(banner.id), true);
+      storage.set(getBannerDismissKey(banner), true);
     }
     setDismissed(true);
   }
