@@ -762,6 +762,7 @@
     "error": "ችግር ተፈጥሯል",
     "retry": "ደግመው ሞክሩ",
     "cancel": "ሰርዝ",
+    "confirm": "አረጋግጥ",
     "save": "አስቀምጥ",
     "next": "ቀጥል",
     "back": "ተመለስ",
@@ -824,7 +825,8 @@
     "step3Subtitle": "ወደ ዞቢያ ሶሻል እንኳን ደህና መጡ",
     "xpEarned": "+500 XP",
     "xpDescription": "ምዝገባን ለማጠናቀቅ",
-    "getStarted": "ማሰስ ጀምሩ"
+    "getStarted": "ማሰስ ጀምሩ",
+    "completeError": "መገለጫዎን ሲያጠናቅቁ ስህተት ተከስቷል። እባክዎ ደግሞ ሞክሩ።"
   },
   "home": {
     "title": "ዞቢያ ሶሻል",
@@ -985,7 +987,9 @@
     "boosterComingSoonBody": "የማሳደጊያ ግዥዎች በሚቀጥለው ዝማኔ ይገኛሉ።",
     "buy": "ይግዙ",
     "enterPin": "PIN አስገባ",
-    "enterPinBody": "ይህን ግዢ ለማፅደቅ 4-አሃዝ PIN አስገባ"
+    "enterPinBody": "ይህን ግዢ ለማፅደቅ 4-አሃዝ PIN አስገባ",
+    "confirmTitle": "ግዢ አረጋግጥ",
+    "confirmBody": "ይህን ግዢ ለመቀጠል እርግጠኛ ነዎት?"
   },
   "seasons": {
     "title": "ወቅት",

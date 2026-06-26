@@ -762,6 +762,7 @@
     "error": "Algo deu errado",
     "retry": "Tentar novamente",
     "cancel": "Cancelar",
+    "confirm": "Confirmar",
     "save": "Salvar",
     "next": "Próximo",
     "back": "Voltar",
@@ -824,7 +825,8 @@
     "step3Subtitle": "Bem-vindo ao Zobia Social",
     "xpEarned": "+500 XP",
     "xpDescription": "Por completar a integração",
-    "getStarted": "Começar a explorar"
+    "getStarted": "Começar a explorar",
+    "completeError": "Ocorreu um erro ao finalizar seu perfil. Por favor, tente novamente."
   },
   "home": {
     "title": "Zobia Social",
@@ -985,7 +987,9 @@
     "boosterComingSoonBody": "As compras de reforço estão disponíveis na próxima atualização.",
     "buy": "Comprar",
     "enterPin": "Inserir PIN",
-    "enterPinBody": "Insira o PIN de 4 dígitos para autorizar esta compra"
+    "enterPinBody": "Insira o PIN de 4 dígitos para autorizar esta compra",
+    "confirmTitle": "Confirmar Compra",
+    "confirmBody": "Tem certeza de que deseja prosseguir com esta compra?"
   },
   "legal": {
     "agreePrefix": "Ao continuar, você concorda com nossos",

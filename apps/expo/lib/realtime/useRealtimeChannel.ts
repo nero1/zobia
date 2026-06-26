@@ -18,8 +18,9 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import { env } from '@/lib/env';
-import { apiClient } from '@/lib/api/client';
+import { apiClient, refreshAccessToken } from '@/lib/api/client';
 
 export function useRealtimeChannel(
   channel: string | null,
@@ -69,6 +70,20 @@ export function useRealtimeChannel(
               );
               callback(null, data);
             } catch (err) {
+              // On 401, silently refresh the JWT and retry once before failing.
+              const status = (err as { response?: { status?: number } })?.response?.status;
+              if (status === 401) {
+                try {
+                  await refreshAccessToken();
+                  const { data } = await apiClient.get(
+                    `/realtime/ably-token?channel=${encodeURIComponent(channel)}`,
+                  );
+                  callback(null, data);
+                  return;
+                } catch {
+                  // refresh also failed — fall through to error path
+                }
+              }
               callback(err, null);
             }
           },
@@ -77,6 +92,19 @@ export function useRealtimeChannel(
         ablyClient = client;
         client.connection.on((stateChange: { current: string }) => {
           markConnected(stateChange.current === 'connected');
+        });
+
+        // Reconnect when the app comes to the foreground and the socket is not connected.
+        // This handles the case where Ably enters 'suspended' state during a long background period.
+        const appStateSubscription = AppState.addEventListener('change', (nextState) => {
+          if (
+            nextState === 'active' &&
+            ablyClient &&
+            ablyClient.connection.state !== 'connected' &&
+            ablyClient.connection.state !== 'connecting'
+          ) {
+            ablyClient.connect();
+          }
         });
 
         const ch = client.channels.get(channel);
@@ -93,11 +121,13 @@ export function useRealtimeChannel(
         });
 
         if (cancelled) {
+          appStateSubscription.remove();
           ch.unsubscribe();
           client.close();
           return;
         }
         cleanup = () => {
+          appStateSubscription.remove();
           ch.unsubscribe();
           client.close();
         };

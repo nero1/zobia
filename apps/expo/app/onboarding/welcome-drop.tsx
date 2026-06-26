@@ -9,7 +9,7 @@
  * No purple, no gradients.
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
@@ -71,10 +71,18 @@ export default function WelcomeDrop() {
   const ctaOpacity = useSharedValue(0);
 
   const { username, emoji, city, vibeAnswers: vibeAnswersParam } = params;
+  const [submitError, setSubmitError] = useState(false);
 
   useEffect(() => {
     // Persist onboarding data to the server.
-    const vibeAnswers = vibeAnswersParam ? JSON.parse(vibeAnswersParam) : {};
+    let vibeAnswers: Record<string, unknown> = {};
+    if (vibeAnswersParam) {
+      try {
+        vibeAnswers = JSON.parse(vibeAnswersParam);
+      } catch {
+        vibeAnswers = {};
+      }
+    }
     // M-6 FIX: read DOB from MMKV draft (written in index.tsx) so PII never
     // travels through URL params.
     const draftDob = getItem<{ birthYear?: string; birthMonth?: string; birthDay?: string }>(
@@ -110,7 +118,10 @@ export default function WelcomeDrop() {
         clearPendingReferralCode();
       })
       .catch(() => {
-        // Non-blocking: the user is already marked complete locally.
+        // BUG-024 FIX: surface the API failure so the user knows their profile
+        // may not have been saved. They can still proceed — the server will
+        // complete onboarding on next login if needed.
+        setSubmitError(true);
       });
 
     // Sequence: avatar → XP badge → CTA
@@ -198,6 +209,12 @@ export default function WelcomeDrop() {
           </Text>
         </Animated.View>
 
+        {submitError && (
+          <View style={styles.errorBanner}>
+            <Text style={styles.errorText}>{t('onboarding.completeError')}</Text>
+          </View>
+        )}
+
         {/* CTA */}
         <Animated.View style={[styles.ctaContainer, ctaAnimStyle]}>
           <Button
@@ -275,5 +292,17 @@ const styles = StyleSheet.create({
   },
   cta: {
     width: '100%',
+  },
+  errorBanner: {
+    width: '100%',
+    backgroundColor: '#FEE2E2',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  errorText: {
+    color: '#B91C1C',
+    fontSize: 13,
+    textAlign: 'center',
   },
 });

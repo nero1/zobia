@@ -28,8 +28,8 @@ import { useTheme } from '@/lib/theme';
 import { translateApiError } from '@/lib/i18n/apiErrors';
 import { storage } from '@/lib/offline/store';
 
-const PIN_PIN_MAX_ATTEMPTS = 5;
-const PIN_PIN_LOCKOUT_MS = 60_000; // 1 minute
+const PIN_MAX_ATTEMPTS = 5;
+const PIN_LOCKOUT_MS = 60_000; // 1 minute
 const PIN_ATTEMPTS_KEY = 'settings_pin_failed_attempts';
 const PIN_LOCKED_UNTIL_KEY = 'settings_pin_locked_until';
 

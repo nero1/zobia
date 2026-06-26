@@ -238,7 +238,7 @@ export async function getPendingMessages(): Promise<{
     `SELECT id, conversation_id, conversation_type, content, message_type, idempotency_key, created_at
      FROM offline_messages
      WHERE sync_status = 'pending'
-     ORDER BY created_at ASC`
+     ORDER BY created_at ASC LIMIT 100`
   );
 
   return Promise.all(rows.map(async (r) => ({
@@ -373,4 +373,27 @@ export async function getPendingMessageCount(): Promise<number> {
     `SELECT COUNT(*) AS cnt FROM offline_messages WHERE sync_status = 'pending'`
   );
   return result?.cnt ?? 0;
+}
+
+/**
+ * Delete permanently-failed messages older than the given TTL (default 7 days).
+ * Called at the end of each sync pass to prevent unbounded SQLite growth.
+ */
+export async function purgePermanentlyFailedMessages(
+  olderThanMs = 7 * 24 * 60 * 60 * 1000
+): Promise<void> {
+  const cutoff = Date.now() - olderThanMs;
+  await getDB().runAsync(
+    `DELETE FROM offline_messages WHERE sync_status = 'permanent_failure' AND created_at < ?`,
+    [cutoff]
+  );
+}
+
+/**
+ * Delete ALL messages from the offline queue.
+ * Called on sign-out so pending messages from one account are not retried
+ * under a different account's JWT after re-login.
+ */
+export async function clearOfflineQueue(): Promise<void> {
+  await getDB().runAsync('DELETE FROM offline_messages');
 }

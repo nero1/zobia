@@ -5,6 +5,7 @@
     "error": "Something went wrong",
     "retry": "Retry",
     "cancel": "Cancel",
+    "confirm": "Confirm",
     "save": "Save",
     "next": "Next",
     "back": "Back",
@@ -81,7 +82,8 @@
     "step3Subtitle": "Welcome to Zobia Social",
     "xpEarned": "+500 XP",
     "xpDescription": "For completing onboarding",
-    "getStarted": "Start exploring"
+    "getStarted": "Start exploring",
+    "completeError": "Something went wrong completing your profile. Please try again."
   },
   "home": {
     "title": "Zobia Social",
@@ -300,7 +302,9 @@
     "boosterComingSoonBody": "Booster purchases are available in the next update.",
     "buy": "Buy",
     "enterPin": "Enter PIN",
-    "enterPinBody": "Enter your 4-digit PIN to authorise this purchase"
+    "enterPinBody": "Enter your 4-digit PIN to authorise this purchase",
+    "confirmTitle": "Confirm Purchase",
+    "confirmBody": "Are you sure you want to proceed with this purchase?"
   },
   "seasons": {
     "title": "Season",

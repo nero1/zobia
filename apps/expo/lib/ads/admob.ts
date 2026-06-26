@@ -10,6 +10,8 @@
 
 import { Platform } from 'react-native';
 import mobileAds, {
+  AdsConsent,
+  AdsConsentStatus,
   RewardedAd,
   RewardedAdEventType,
   AdEventType,
@@ -43,6 +45,24 @@ export async function initializeAds(): Promise<void> {
   if (adsInitialized) return;
   adsInitialized = true;
   try {
+    // BUG-020 FIX: request UMP consent before initializing the SDK. The SDK
+    // should only serve personalized ads when the user has consented; for all
+    // other statuses (NOT_REQUIRED, UNKNOWN, OBTAINED without purpose 1) we
+    // configure the SDK to serve non-personalized ads only.
+    try {
+      const consentInfo = await AdsConsent.requestInfoUpdate();
+      if (
+        consentInfo.isConsentFormAvailable &&
+        consentInfo.status === AdsConsentStatus.REQUIRED
+      ) {
+        await AdsConsent.showForm();
+      }
+    } catch (consentErr) {
+      // Consent failure must not block ad initialization — degrade to
+      // non-personalized ads which are safe in all regions.
+      console.warn('[ads] UMP consent flow failed; using non-personalized ads', consentErr);
+    }
+
     await mobileAds().initialize();
   } catch (err) {
     // Don't let an ads failure block app startup.

@@ -267,7 +267,7 @@ export default function MessagesScreen() {
   } = useQuery({
     queryKey: ['dm-list'],
     queryFn: fetchDMList,
-    staleTime: 30_000,
+    staleTime: 5_000,
     placeholderData: (prev) => prev,
   });
 
@@ -280,7 +280,7 @@ export default function MessagesScreen() {
   } = useQuery({
     queryKey: ['group-chats'],
     queryFn: fetchGroupChats,
-    staleTime: 30_000,
+    staleTime: 5_000,
     placeholderData: (prev) => prev,
   });
 

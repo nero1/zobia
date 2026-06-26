@@ -26,6 +26,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
@@ -338,6 +339,15 @@ function GifPickerModal({ visible, onClose, onSelect }: GifPickerProps) {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [visible]);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+    };
+  }, []);
 
   const handleSearch = useCallback((text: string) => {
     setQuery(text);
@@ -753,8 +763,8 @@ export default function DMConversationScreen() {
     <Screen hideOfflineBanner disableBottomInset>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 88}
       >
         {/* Connection badge */}
         {badgeData?.hasBadge && (
@@ -828,7 +838,7 @@ export default function DMConversationScreen() {
                 key={s}
                 onPress={() => {
                   setInputText((prev) => {
-                    const words = prev.split(' ');
+                    const words = prev.trimEnd().split(' ');
                     words[words.length - 1] = s;
                     return words.join(' ') + ' ';
                   });
@@ -890,8 +900,6 @@ export default function DMConversationScreen() {
             onChangeText={handleInputChange}
             multiline
             maxLength={500}
-            returnKeyType="send"
-            onSubmitEditing={handleSend}
             editable={!insufficientCoins}
           />
           {/* Gift button */}

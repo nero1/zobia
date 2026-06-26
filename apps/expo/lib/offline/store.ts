@@ -77,7 +77,14 @@ export async function initStore(): Promise<void> {
 // Convenience proxy that throws if initStore was not called
 export const storage = new Proxy({} as MMKV, {
   get(_target, prop) {
-    return getStorage()[prop as keyof MMKV];
+    const store = _storage;
+    if (!store) {
+      throw new Error(
+        `[store] Accessed storage.${String(prop)} before initStore() resolved. ` +
+        'Await initStore() in your App root before rendering any screen that reads MMKV.'
+      );
+    }
+    return store[prop as keyof MMKV];
   },
 });
 
@@ -163,6 +170,11 @@ export const STORE_KEYS = {
   ACTIVE_SUB_TOKENS: 'active_sub_tokens',
   // Counts successive PIN lockout windows for exponential backoff (M-9 fix).
   PIN_LOCKOUT_COUNT: 'pin_lockout_count',
+  // Store purchase PIN rate-limiting across app restarts (BUG-012 fix).
+  STORE_PIN_FAILED_ATTEMPTS: 'store_pin_failed_attempts',
+  STORE_PIN_LOCKED_UNTIL: 'store_pin_locked_until',
+  // Last date the daily-login bonus was claimed; compared to local date string.
+  DAILY_LOGIN_LAST_DATE: 'daily_login_last_date',
 } as const;
 
 export type StoreKey = (typeof STORE_KEYS)[keyof typeof STORE_KEYS];

@@ -24,6 +24,7 @@ import * as SecureStore from 'expo-secure-store';
 import { apiClient, JWT_KEY, REFRESH_TOKEN_KEY, onUnauthenticated, onUserUpdated, refreshAccessToken, setCachedToken } from '@/lib/api/client';
 import { env } from '@/lib/env';
 import { clearStore } from '@/lib/offline/store';
+import { clearOfflineQueue } from '@/lib/offline/sqlite';
 import { disconnectGooglePlayBilling } from '@/lib/payments/googlePlay';
 import type { RankName } from '@zobia/types';
 
@@ -211,7 +212,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const unsubscribe = onUserUpdated((userJson) => {
       try {
-        setUser(JSON.parse(userJson) as AuthUser);
+        const parsed = JSON.parse(userJson);
+        // Validate the minimum required shape before replacing state so a
+        // malformed payload from a stale/mismatched API version can't wipe the user.
+        if (
+          parsed &&
+          typeof parsed === 'object' &&
+          typeof parsed.id === 'string' &&
+          typeof parsed.username === 'string'
+        ) {
+          setUser(parsed as AuthUser);
+        }
       } catch {}
     });
     return unsubscribe;
@@ -281,6 +292,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // BUG-010 FIX: clear MMKV store on sign-out to prevent cross-account data
     // leakage (cached feed, draft messages, preferences) on shared devices.
     try { clearStore(); } catch { /* store may not be initialised yet */ }
+    // Clear SQLite offline queue so pending messages from this account are not
+    // re-sent under a different account's JWT after re-login (BUG-038 fix).
+    clearOfflineQueue().catch(() => {});
     // BUG-014 FIX: disconnect Google Play Billing so IAP session resolver maps
     // (purchaseResolvers, activePurchaseSessions, pendingRecovery) are cleared
     // and wrong-user purchase callbacks cannot fire after account switch.

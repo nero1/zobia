@@ -155,7 +155,16 @@ Android Studio requirement. It is triggered by `.github/workflows/build-android.
    with `System.exit(1)` (it will not even reach the bundle step). The values above are
    Google's official **test** IDs — replace them with your live AdMob IDs before release.
 
-5. **`mobileAds().initialize()` must run at startup.** The native app ID in the manifest is
+5. **`google-services.json` is required for native Google Sign-In on Android.**
+   Place a valid `google-services.json` (downloaded from the Firebase Console or Google Cloud
+   Console under the **Android** OAuth client) at `apps/expo/google-services.json`. EAS Build
+   picks it up automatically. Without it, the native GoogleSignIn module fails to initialize
+   and all Google OAuth attempts silently return an error. The file is `.gitignore`d and must
+   be set as an EAS secret (or supplied at build time via the EAS credentials UI) for CI builds.
+   For local development, download it from the Firebase Console → your Android app → "Download
+   google-services.json".
+
+6. **`mobileAds().initialize()` must run at startup.** The native app ID in the manifest is
    only half of the wiring — the SDK must also be initialised once in JS or ads silently
    never serve (no crash, just no-fill). This repo calls `initializeAds()`
    (`apps/expo/lib/ads/admob.ts`) from the root layout's startup effect

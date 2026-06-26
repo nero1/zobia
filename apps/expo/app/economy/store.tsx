@@ -102,8 +102,6 @@ interface BoosterPurchaseResult {
 }
 
 const PIN_MAX_ATTEMPTS = 5;
-const PIN_ATTEMPTS_KEY = 'store_pin_failed_attempts';
-const PIN_LOCKED_UNTIL_KEY = 'store_pin_locked_until';
 const PIN_LOCKOUT_COUNT_KEY = STORE_KEYS.PIN_LOCKOUT_COUNT;
 
 // ---------------------------------------------------------------------------
@@ -237,10 +235,10 @@ export default function StoreScreen() {
 
   // BUG-SEC-01 FIX: read PIN rate-limit state from MMKV so lockouts survive app restarts.
   const [pinFailedAttempts, setPinFailedAttempts] = useState<number>(() => {
-    try { return storage.getNumber(PIN_ATTEMPTS_KEY) ?? 0; } catch { return 0; }
+    try { return storage.getNumber(STORE_KEYS.STORE_PIN_FAILED_ATTEMPTS) ?? 0; } catch { return 0; }
   });
   const [pinLockedUntil, setPinLockedUntil] = useState<number | null>(() => {
-    try { const v = storage.getNumber(PIN_LOCKED_UNTIL_KEY); return v ?? null; } catch { return null; }
+    try { const v = storage.getNumber(STORE_KEYS.STORE_PIN_LOCKED_UNTIL); return v ?? null; } catch { return null; }
   });
   // M-9 FIX: track successive lockout windows so we can apply exponential backoff.
   const [pinLockoutCount, setPinLockoutCount] = useState<number>(() => {
@@ -248,13 +246,13 @@ export default function StoreScreen() {
   });
 
   useEffect(() => {
-    try { storage.set(PIN_ATTEMPTS_KEY, pinFailedAttempts); } catch {}
+    try { storage.set(STORE_KEYS.STORE_PIN_FAILED_ATTEMPTS, pinFailedAttempts); } catch {}
   }, [pinFailedAttempts]);
 
   useEffect(() => {
     try {
-      if (pinLockedUntil === null) storage.delete(PIN_LOCKED_UNTIL_KEY);
-      else storage.set(PIN_LOCKED_UNTIL_KEY, pinLockedUntil);
+      if (pinLockedUntil === null) storage.delete(STORE_KEYS.STORE_PIN_LOCKED_UNTIL);
+      else storage.set(STORE_KEYS.STORE_PIN_LOCKED_UNTIL, pinLockedUntil);
     } catch {}
   }, [pinLockedUntil]);
 
@@ -339,6 +337,19 @@ export default function StoreScreen() {
   };
 
   const handleBuy = (packId: string, packType: 'coin_pack' | 'star_pack') => {
+    // BUG-019 FIX: show confirmation alert before initiating any purchase so
+    // the user cannot accidentally trigger a charge with a single tap.
+    Alert.alert(
+      t('store.confirmTitle'),
+      t('store.confirmBody'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('common.confirm'), style: 'default', onPress: () => _doBuy(packId, packType) },
+      ]
+    );
+  };
+
+  const _doBuy = (packId: string, packType: 'coin_pack' | 'star_pack') => {
     // On Android, all digital goods must go through Google Play Billing.
     if (Platform.OS === 'android' && packType === 'coin_pack') {
       const pack = data?.coinPacks.find((p) => p.id === packId);

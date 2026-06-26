@@ -39,7 +39,7 @@
         "android.permission.ACCESS_NETWORK_STATE",
         "android.permission.READ_CONTACTS"
       ],
-      "softwareKeyboardLayoutMode": "adjustNothing",
+      "softwareKeyboardLayoutMode": "adjustResize",
       "allowBackup": false,
       "intentFilters": [
         {
@@ -88,7 +88,7 @@
         "expo-updates",
         {
           "projectId": "ad68e531-aa48-4873-8d41-3bca8f18b9a4",
-          "runtimeVersion": { "policy": "sdkVersion" }
+          "runtimeVersion": { "policy": "fingerprint" }
         }
       ],
       "react-native-google-mobile-ads",

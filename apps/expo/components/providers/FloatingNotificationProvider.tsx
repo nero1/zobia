@@ -191,7 +191,7 @@ export function FloatingNotificationProvider({ children }: Props) {
         }
         if ((payload.coinAmount ?? 0) > 0) {
           const tid = setTimeout(() => {
-            realtimeTimerIds.current = realtimeTimerIds.current.filter(t => t !== tid);
+            realtimeTimerIds.current = realtimeTimerIds.current.filter(id => id !== tid);
             addNotification({
               label: t('floatingNotif.creditsEarned', { amount: payload.coinAmount, currency: 'Credits' }),
               ...CREDIT_COLORS,
@@ -211,7 +211,7 @@ export function FloatingNotificationProvider({ children }: Props) {
         });
         if ((payload.xpAmount ?? 0) > 0) {
           const tid = setTimeout(() => {
-            realtimeTimerIds.current = realtimeTimerIds.current.filter(t => t !== tid);
+            realtimeTimerIds.current = realtimeTimerIds.current.filter(id => id !== tid);
             addNotification({
               label: t('floatingNotif.xpEarned', { amount: payload.xpAmount }),
               ...XP_COLORS,
@@ -291,7 +291,7 @@ export function FloatingNotificationProvider({ children }: Props) {
       ...QUEST_COLORS,
     });
     const tid1 = setTimeout(() => {
-      realtimeTimerIds.current = realtimeTimerIds.current.filter(t => t !== tid1);
+      realtimeTimerIds.current = realtimeTimerIds.current.filter(id => id !== tid1);
       if (xpReward > 0) {
         addNotification({
           label: t('floatingNotif.xpEarned', { amount: xpReward }),
@@ -301,7 +301,7 @@ export function FloatingNotificationProvider({ children }: Props) {
     }, 400);
     realtimeTimerIds.current.push(tid1);
     const tid2 = setTimeout(() => {
-      realtimeTimerIds.current = realtimeTimerIds.current.filter(t => t !== tid2);
+      realtimeTimerIds.current = realtimeTimerIds.current.filter(id => id !== tid2);
       if (coinReward > 0) {
         addNotification({
           label: t('floatingNotif.creditsEarned', { amount: coinReward, currency: coinName }),

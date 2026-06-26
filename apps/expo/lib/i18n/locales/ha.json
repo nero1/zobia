@@ -762,6 +762,7 @@
     "error": "Wani abu ya faru",
     "retry": "Sake Gwadawa",
     "cancel": "Soke",
+    "confirm": "Tabbatar",
     "save": "Adana",
     "next": "Na Gaba",
     "back": "Koma Baya",
@@ -824,7 +825,8 @@
     "step3Subtitle": "Barka da zuwa Zobia Social",
     "xpEarned": "+500 XP",
     "xpDescription": "Don kammala shigarwa",
-    "getStarted": "Fara bincike"
+    "getStarted": "Fara bincike",
+    "completeError": "Kuskure ya faru wajen kammala bayananku. Da fatan za a sake gwadawa."
   },
   "home": {
     "title": "Zobia Social",
@@ -985,7 +987,9 @@
     "boosterComingSoonBody": "Sayan ƙarfafawa yana samuwa a cikin sabuntawar mai zuwa.",
     "buy": "Saya",
     "enterPin": "Shigar PIN",
-    "enterPinBody": "Shigar PIN na lambobi 4 don tabbatar da wannan siyan"
+    "enterPinBody": "Shigar PIN na lambobi 4 don tabbatar da wannan siyan",
+    "confirmTitle": "Tabbatar Siyan",
+    "confirmBody": "Shin kun tabbata kuna son ci gaba da wannan siyan?"
   },
   "seasons": {
     "title": "Kakar",

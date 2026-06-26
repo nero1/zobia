@@ -776,7 +776,11 @@ export default function SettingsScreen() {
           onChangeText={(v) => setLocalField('displayName', v)}
           maxLength={40}
           returnKeyType="done"
-          onEndEditing={() => patchMutation.mutate({ displayName: merged.displayName })}
+          onEndEditing={() => {
+            if (merged.displayName !== data?.displayName) {
+              patchMutation.mutate({ displayName: merged.displayName });
+            }
+          }}
         />
         <TextInput
           style={[styles.field, styles.fieldMulti, fieldStyle, { borderBottomColor: themeColors.border }]}
@@ -787,7 +791,11 @@ export default function SettingsScreen() {
           maxLength={150}
           multiline
           numberOfLines={3}
-          onEndEditing={() => patchMutation.mutate({ bio: merged.bio })}
+          onEndEditing={() => {
+            if (merged.bio !== data?.bio) {
+              patchMutation.mutate({ bio: merged.bio });
+            }
+          }}
         />
         <TextInput
           style={[styles.field, fieldStyle, { borderBottomColor: themeColors.border }]}
@@ -798,7 +806,11 @@ export default function SettingsScreen() {
           keyboardType="email-address"
           autoCapitalize="none"
           returnKeyType="done"
-          onEndEditing={() => patchMutation.mutate({ email: merged.email })}
+          onEndEditing={() => {
+            if (merged.email !== data?.email) {
+              patchMutation.mutate({ email: merged.email });
+            }
+          }}
         />
         {/* Date of birth */}
         <View style={[styles.dobRow, { borderBottomColor: themeColors.border }]}>

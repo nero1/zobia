@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity,
-  ActivityIndicator, RefreshControl, Alert,
+  ActivityIndicator, RefreshControl,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
@@ -45,16 +45,17 @@ export default function AdminOverviewScreen() {
   const currency = useCurrency();
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   async function loadStats() {
+    setError(false);
     try {
       const { data } = await apiClient.get('/admin/overview');
       setStats(data.data?.stats ?? null);
     } catch (err) {
-      // BUG-018 FIX: surface load failures so admins aren't silently shown zeros.
       console.error('[admin] Failed to load overview stats:', err);
-      Alert.alert(t('common.error'), t('admin.statsLoadError', 'Failed to load dashboard stats. Pull down to retry.'));
+      setError(true);
     }
     setLoading(false);
     setRefreshing(false);
@@ -65,6 +66,18 @@ export default function AdminOverviewScreen() {
   if (loading) return (
     <View className="flex-1 items-center justify-center">
       <ActivityIndicator size="large" color="#2563EB" />
+    </View>
+  );
+
+  if (error) return (
+    <View className="flex-1 items-center justify-center p-8 gap-4">
+      <Text className="text-gray-700 text-center text-base">{t('admin.statsLoadError', 'Failed to load dashboard stats.')}</Text>
+      <TouchableOpacity
+        className="bg-blue-600 px-6 py-3 rounded-xl"
+        onPress={() => { setLoading(true); void loadStats(); }}
+      >
+        <Text className="text-white font-semibold">{t('common.retry')}</Text>
+      </TouchableOpacity>
     </View>
   );
 
