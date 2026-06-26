@@ -22,7 +22,6 @@ import {
   Alert,
   Animated,
   FlatList,
-  Image,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -34,6 +33,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useLocalSearchParams, useNavigation, router } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -54,6 +54,7 @@ import { useRealtimeChannel } from '@/lib/realtime/useRealtimeChannel';
 import { readCachedMessages, writeCachedMessages } from '@/lib/chat/messageCache';
 import { newestCreatedAt, mergeNewestFirst } from '@/lib/chat/delta';
 import { queueMessage } from '@/lib/offline/sqlite';
+import { isTrustedGifUrl } from '@/lib/utils/mediaUrl';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -844,6 +845,11 @@ export default function RoomScreen() {
 
   const handleGifSelect = useCallback((gif: GifResult) => {
     if (!roomId) return;
+    // Security: only allow GIFs from trusted CDN hosts to prevent content injection.
+    if (!isTrustedGifUrl(gif.url)) {
+      Alert.alert('Invalid GIF', 'This GIF cannot be sent because it comes from an untrusted source.');
+      return;
+    }
     // BUG-RACE-07 FIX: route GIF sends through sendMutation so they benefit from
     // offline queuing, optimistic updates, and retry — same as text messages.
     sendMutation.mutate({

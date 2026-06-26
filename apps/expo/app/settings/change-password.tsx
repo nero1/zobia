@@ -107,7 +107,7 @@ export default function ChangePasswordScreen() {
       </View>
 
       <View style={styles.container}>
-        <Text style={[styles.label, { color: themeColors.textSecondary }]}>
+        <Text style={[styles.label, { color: themeColors.textMuted }]}>
           {t('settings.currentPassword')}
         </Text>
         <TextInput
@@ -118,11 +118,11 @@ export default function ChangePasswordScreen() {
           autoCapitalize="none"
           autoCorrect={false}
           returnKeyType="next"
-          placeholderTextColor={themeColors.textSecondary}
+          placeholderTextColor={themeColors.textMuted}
           placeholder={t('settings.currentPassword')}
         />
 
-        <Text style={[styles.label, { color: themeColors.textSecondary }]}>
+        <Text style={[styles.label, { color: themeColors.textMuted }]}>
           {t('settings.newPassword')}
         </Text>
         <TextInput
@@ -133,11 +133,11 @@ export default function ChangePasswordScreen() {
           autoCapitalize="none"
           autoCorrect={false}
           returnKeyType="next"
-          placeholderTextColor={themeColors.textSecondary}
+          placeholderTextColor={themeColors.textMuted}
           placeholder={t('settings.newPassword')}
         />
 
-        <Text style={[styles.label, { color: themeColors.textSecondary }]}>
+        <Text style={[styles.label, { color: themeColors.textMuted }]}>
           {t('settings.confirmNewPassword')}
         </Text>
         <TextInput
@@ -149,7 +149,7 @@ export default function ChangePasswordScreen() {
           autoCorrect={false}
           returnKeyType="done"
           onSubmitEditing={handleSubmit}
-          placeholderTextColor={themeColors.textSecondary}
+          placeholderTextColor={themeColors.textMuted}
           placeholder={t('settings.confirmNewPassword')}
         />
 
@@ -161,7 +161,7 @@ export default function ChangePasswordScreen() {
           <ActivityIndicator color={colors.brand.blue} style={styles.loader} />
         ) : (
           <Button
-            title={t('settings.changePasswordButton')}
+            label={t('settings.changePasswordButton')}
             onPress={handleSubmit}
             style={styles.button}
           />

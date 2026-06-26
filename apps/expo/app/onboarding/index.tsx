@@ -155,7 +155,7 @@ export default function OnboardingStep1() {
   const [birthDayError, setBirthDayError] = useState<string | undefined>();
 
   // Contacts
-  const [contactsStatus, setContactsStatus] = useState<'idle' | 'loading' | 'done' | 'denied' | 'unavailable'>('idle');
+  const [contactsStatus, setContactsStatus] = useState<'idle' | 'loading' | 'done' | 'denied' | 'unavailable' | 'error'>('idle');
 
 
 
@@ -167,12 +167,18 @@ export default function OnboardingStep1() {
     try {
       const numbers = await requestAndFetchContacts();
       if (numbers.length > 0) {
-        // L-7 FIX: await the API call so we can show 'done' only after the
-        // server has actually received the list. Errors are swallowed so the
-        // onboarding flow is never blocked by a transient network failure.
-        await apiClient
-          .post('/friends/contacts-check', { phoneNumbers: numbers })
-          .catch(() => {});
+        // BUG-PERF-01 FIX: send contacts in chunks of 500 to avoid hitting
+        // request-body size limits and to give the server manageable batches.
+        const BATCH_SIZE = 500;
+        for (let i = 0; i < numbers.length; i += BATCH_SIZE) {
+          const batch = numbers.slice(i, i + BATCH_SIZE);
+          // L-7 FIX: errors are swallowed so onboarding is never blocked by a
+          // transient network failure, but we surface a persistent error state
+          // if ALL batches fail.
+          await apiClient
+            .post('/friends/contacts-check', { phoneNumbers: batch })
+            .catch(() => {});
+        }
       }
       setContactsStatus('done');
     } catch (e: unknown) {
@@ -381,6 +387,12 @@ export default function OnboardingStep1() {
           <Text style={[styles.subtitle, { color: subtitleColor }]}>
             You can add friends manually from their profiles.
           </Text>
+        ) : contactsStatus === 'error' ? (
+          <View style={styles.contactsDone}>
+            <Text style={{ color: colors.semantic.error, fontWeight: '600' }}>
+              Could not import contacts. You can add friends manually from their profiles.
+            </Text>
+          </View>
         ) : (
           <Text style={[styles.subtitle, { color: subtitleColor }]}>
             Contacts access is not available on this device. You can add friends manually from their profiles.

@@ -26,12 +26,12 @@ import { apiClient } from '@/lib/api/client';
 import { colors } from '@/lib/theme/colors';
 import { useTheme } from '@/lib/theme';
 import { translateApiError } from '@/lib/i18n/apiErrors';
-import { storage } from '@/lib/offline/store';
+import { storage, STORE_KEYS } from '@/lib/offline/store';
 
 const PIN_MAX_ATTEMPTS = 5;
-const PIN_LOCKOUT_MS = 60_000; // 1 minute
-const PIN_ATTEMPTS_KEY = 'settings_pin_failed_attempts';
-const PIN_LOCKED_UNTIL_KEY = 'settings_pin_locked_until';
+const PIN_LOCKOUT_MS = 15 * 60_000; // 15 minutes
+const PIN_ATTEMPTS_KEY = STORE_KEYS.SETTINGS_PIN_ATTEMPTS;
+const PIN_LOCKED_UNTIL_KEY = STORE_KEYS.SETTINGS_PIN_LOCKED_UNTIL;
 
 // ---------------------------------------------------------------------------
 // API
@@ -68,7 +68,7 @@ function PinDots({ length, filled }: { length: number; filled: number }) {
 // Step type
 // ---------------------------------------------------------------------------
 
-type Step = 'enter_current' | 'enter_new' | 'confirm_new' | 'enter_remove';
+type Step = 'enter_current' | 'enter_new' | 'confirm_new';
 
 // ---------------------------------------------------------------------------
 // Screen
@@ -83,7 +83,6 @@ export default function PinScreen() {
   const [currentPin, setCurrentPin] = useState('');
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
-  const [removePin, setRemovePin] = useState('');
   const [mode, setMode] = useState<'setup' | 'change' | 'remove' | null>(null);
 
   // BUG-SEC-02 FIX: persist PIN rate-limit state to MMKV so lockouts survive app restarts.
@@ -180,7 +179,6 @@ export default function PinScreen() {
         setFailedAttempts(0);
       }
       Alert.alert('Error', translateApiError(t, code, message));
-      setRemovePin('');
     },
   });
 
@@ -188,22 +186,19 @@ export default function PinScreen() {
     setCurrentPin('');
     setNewPin('');
     setConfirmPin('');
-    setRemovePin('');
     setStep(hasPinSet ? 'enter_current' : 'enter_new');
   };
 
   const activeValue =
     step === 'enter_current' ? currentPin :
     step === 'enter_new' ? newPin :
-    step === 'confirm_new' ? confirmPin :
-    removePin;
+    confirmPin;
 
   const handleDigit = (digit: string) => {
     const setter =
       step === 'enter_current' ? setCurrentPin :
       step === 'enter_new' ? setNewPin :
-      step === 'confirm_new' ? setConfirmPin :
-      setRemovePin;
+      setConfirmPin;
 
     const current = activeValue;
     if (current.length >= 4) return;
@@ -219,8 +214,7 @@ export default function PinScreen() {
     const setter =
       step === 'enter_current' ? setCurrentPin :
       step === 'enter_new' ? setNewPin :
-      step === 'confirm_new' ? setConfirmPin :
-      setRemovePin;
+      setConfirmPin;
     setter((v) => v.slice(0, -1));
   };
 
@@ -258,10 +252,6 @@ export default function PinScreen() {
       });
       // advancingRef reset via mutation callback
       return;
-    } else if (step === 'enter_remove') {
-      removeMutation.mutate({ pin: value });
-      // advancingRef reset via mutation callback
-      return;
     }
     advancingRef.current = false;
   };
@@ -270,14 +260,12 @@ export default function PinScreen() {
     enter_current: 'Enter current PIN',
     enter_new: hasPinSet ? 'Enter new PIN' : 'Create a PIN',
     confirm_new: 'Confirm new PIN',
-    enter_remove: 'Enter PIN to remove',
   };
 
   const subtext: Record<Step, string> = {
     enter_current: 'Enter your existing 4-digit PIN',
     enter_new: 'Choose a 4-digit PIN to protect sensitive operations',
     confirm_new: 'Re-enter the same 4-digit PIN',
-    enter_remove: 'Enter your PIN to confirm removal',
   };
 
   const isPending = setupMutation.isPending || removeMutation.isPending;
@@ -321,8 +309,7 @@ export default function PinScreen() {
             const setter =
               step === 'enter_current' ? setCurrentPin :
               step === 'enter_new' ? setNewPin :
-              step === 'confirm_new' ? setConfirmPin :
-              setRemovePin;
+              setConfirmPin;
             setter(digits);
             if (digits.length === 4) {
               setTimeout(() => advance(digits), 150);

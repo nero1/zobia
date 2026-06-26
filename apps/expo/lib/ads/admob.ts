@@ -28,6 +28,17 @@ import mobileAds, {
 let adsInitialized = false;
 
 /**
+ * BUG-ADS-01 FIX: track whether the user has consented to personalised ads.
+ * Defaults to false (non-personalised) until UMP confirms opt-in.
+ */
+let _personalizedAdsEnabled = false;
+
+/** Returns true if the user has consented to personalised ads via UMP. */
+export function isPersonalizedAdsEnabled(): boolean {
+  return _personalizedAdsEnabled;
+}
+
+/**
  * Initialize the Google Mobile Ads SDK. MUST be called once at app startup
  * (before any ad is loaded) or ads silently never serve — `RewardedAd.load()`
  * and `<BannerAd />` will just error/no-fill.
@@ -57,9 +68,17 @@ export async function initializeAds(): Promise<void> {
       ) {
         await AdsConsent.showForm();
       }
+      // BUG-ADS-01 FIX: determine personalisation eligibility after consent.
+      // Only enable personalised ads when consent status is NOT_REQUIRED (e.g.
+      // outside EEA/UK) or when the user has explicitly granted consent (OBTAINED).
+      const finalInfo = await AdsConsent.requestInfoUpdate();
+      _personalizedAdsEnabled =
+        finalInfo.status === AdsConsentStatus.NOT_REQUIRED ||
+        finalInfo.status === AdsConsentStatus.OBTAINED;
     } catch (consentErr) {
       // Consent failure must not block ad initialization — degrade to
       // non-personalized ads which are safe in all regions.
+      _personalizedAdsEnabled = false;
       console.warn('[ads] UMP consent flow failed; using non-personalized ads', consentErr);
     }
 
@@ -103,7 +122,7 @@ export async function loadRewardedAd(): Promise<void> {
 
   return new Promise((resolve, reject) => {
     rewardedAd = RewardedAd.createForAdRequest(REWARDED_AD_UNIT_ID, {
-      requestNonPersonalizedAdsOnly: true,
+      requestNonPersonalizedAdsOnly: !_personalizedAdsEnabled,
     });
 
     const unsubscribeLoaded = rewardedAd.addAdEventListener(
@@ -255,7 +274,7 @@ export async function loadInterstitialAd(): Promise<void> {
   interstitialLoading = true;
   return new Promise((resolve, reject) => {
     interstitialAd = InterstitialAd.createForAdRequest(INTERSTITIAL_AD_UNIT_ID, {
-      requestNonPersonalizedAdsOnly: true,
+      requestNonPersonalizedAdsOnly: !_personalizedAdsEnabled,
     });
 
     const unsubLoaded = interstitialAd.addAdEventListener(

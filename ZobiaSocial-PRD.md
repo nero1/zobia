@@ -1,7 +1,7 @@
 # Zobia Social — Product Requirements Document
 ### A Gamified Monetised Social Platform for the Global Mobile Generation
 
-> **Version 1.83 — Product Requirements Document**
+> **Version 1.84 — Product Requirements Document**
 > Covers: Feature Specifications · Technical Architecture · Economy Design · Moderation · Build Sequence
 > Scope: Nigeria-first, Pan-African then Global · Mobile-first PWA + Android APK · Admin-minimal operation
 
@@ -2332,6 +2332,81 @@ Bug fixes and security hardening across the Expo mobile app. All 28 bugs from th
 
 ---
 
-*ZobiaSocial PRD v1.83*
+## Appendix: Version 1.84 Change Log
+
+### v1.84 — Changelog
+
+Security hardening, UX improvements, and architectural cleanup across the Expo mobile app (25 issues from the second forensic audit resolved).
+
+#### Security Fixes
+
+- **SEC-01/HARD-04 — EAS Project ID hardcoded in `eas.json`:** All four build profiles (development, preview, staging, production) now read the project ID from the `$EAS_PROJECT_ID` environment variable instead of a hardcoded string. Push notifications now work correctly across all EAS build environments.
+- **SEC-02 — Email change exposed inline in settings (PII):** A dedicated `/settings/change-email` screen is now implemented with fields for current password, new email, and confirm email. The settings screen "Change Email" row navigates to this screen. The current email is no longer displayed inline as editable text on the main settings screen. Calls `POST /auth/change-email`.
+- **SEC-03 — AdMob always requests personalised ads regardless of consent:** `lib/ads/admob.ts` now tracks a `_personalizedAdsEnabled` flag. After UMP consent resolves, the flag is set to `true` only when status is `NOT_REQUIRED` or `OBTAINED`. All ad load calls pass `requestNonPersonalizedAdsOnly: !_personalizedAdsEnabled`, ensuring GDPR/CCPA compliance.
+- **SEC-04 — No GIF URL validation (SSRF/content injection risk):** `lib/utils/mediaUrl.ts` introduces `isTrustedGifUrl(url)`, which validates GIF URLs against an allowlist of trusted CDN hostnames (`giphy.com`, `media.giphy.com`, `tenor.com`, `media.tenor.com`, `c.tenor.com`) and enforces `https:`. GIF messages in rooms and DMs now call `isTrustedGifUrl` before sending; untrusted URLs are blocked client-side.
+- **SEC-05 — GameWebView origin validation uses first-navigation URL instead of current URL:** `components/games/GameWebView.tsx` now derives `gameOrigin` from a `currentUrlRef` that tracks the active page URL via `onNavigationStateChange`. The `originWhitelist` is rebuilt on each navigation, preventing a compromised redirect from injecting messages under the original game's origin.
+- **SEC-06 — PIN lockout keys not in STORE_KEYS registry (cleared on sign-out):** `STORE_KEYS.SETTINGS_PIN_ATTEMPTS`, `SETTINGS_PIN_LOCKED_UNTIL`, `SETTINGS_PIN_LOCKOUT_COUNT`, `TOTP_LOCKOUT_COUNT`, and `GIFT_PIN_LOCKOUT_COUNT` added to the STORE_KEYS registry in `lib/offline/store.ts`. All PIN and TOTP lockout state is now named via the registry, ensuring it is cleared on sign-out.
+
+#### Bug Fixes
+
+- **BF-01 — TOTP lockout does not use exponential backoff:** `app/auth/two-factor.tsx` now implements exponential backoff for TOTP lockouts: 15 min → 30 min → 1 h → 2 h → 4 h → 8 h → 24 h (max). A `TOTP_LOCKOUT_COUNT` counter persisted to MMKV tracks successive lockouts. The count resets to 0 on successful verification.
+- **BF-03 — Settings PIN lockout window is only 1 minute:** The PIN lockout window in `app/settings/pin.tsx` has been increased from 1 minute to 15 minutes (`PIN_LOCKOUT_MS = 15 * 60_000`), matching the lockout duration used by gift-send and creator payout flows.
+
+#### UX Improvements
+
+- **UX-01 — Notification rows are not tappable:** `app/notifications/index.tsx` now wraps each `NotifRow` in a `Pressable`. A `getNotificationRoute()` helper maps notification type + payload to the appropriate in-app route (DM → `/messages/:id`, guild war → `/guilds/:id`, gift → wallet, etc.). Tapping a notification also marks it read via a `POST /notifications/:id/read` API call.
+- **UX-02/HARD-03 — TOTP screen shows no countdown and does not auto-unlock:** A `remainingSeconds` state and a `useEffect` with a 1-second `setInterval` have been added to `app/auth/two-factor.tsx`. The lockout message now displays a live countdown. When the timer reaches zero the lockout state is cleared automatically and the input is re-enabled.
+- **UX-03 — Change-password button renders "undefined" label:** The `Button` component in `app/settings/change-password.tsx` now uses the `label` prop (correct) instead of the non-existent `title` prop.
+- **UX-04 — Contacts upload status has no error state:** `app/onboarding/index.tsx` now has a distinct `'error'` contacts status (separate from `'unavailable'`). Upload failures set status to `'error'` and display an error banner; permission denials remain `'unavailable'`.
+- **UX-05 — Dead `enter_remove` PIN step causes unreachable state:** The `enter_remove` step and its associated `removePin` state variable have been removed from `app/settings/pin.tsx`. The hidden-input `onChangeText` setter ternary no longer references the removed `setRemovePin` function.
+- **UX-06 — Welcome-drop submit retries indefinitely on server error:** `app/onboarding/welcome-drop.tsx` now handles error responses by status class: 409 Conflict → mark onboarding complete and navigate away (no loop); other 4xx → mark complete and let server reconcile; 5xx/network → show error banner and allow retry.
+- **UX-07 — Notification toggle patches entire settings object:** The notification-preference toggle in `app/settings/index.tsx` now sends a diff-only PATCH (only the changed key) instead of re-sending all notification fields. This prevents stale data overwrites when multiple toggles are changed in rapid succession.
+
+#### Architecture & Performance
+
+- **ARCH-01 — PIN rate-limiting logic duplicated across three screens:** `lib/hooks/usePinRateLimit.ts` is a new shared hook that implements exponential-backoff PIN rate limiting. Accepts MMKV key names for attempts, lockout timestamp, and lockout count. Used by settings PIN, gift-send PIN, and creator payout PIN screens.
+- **ARCH-02 — `/users/me` query key inconsistent across screens:** The React Query key for the current user has been normalised to `['user-me']` in `app/settings/index.tsx`. All screens sharing this query now see the same cached data.
+- **ARCH-03 — GameWebView has no message rate limiting:** `components/games/GameWebView.tsx` now enforces a 30-message-per-second rate limit. A counter resets every second; when the limit is exceeded, a 5-second penalty window is applied and subsequent messages from the game are dropped until the window expires.
+
+#### Data Integrity
+
+- **DATA-01 — `currentTier` missing from `useCallback` dependency array:** The subscription-upgrade callback in `app/settings/subscription.tsx` now includes `currentTier` in its `useCallback` dependency array, preventing stale-closure upgrades.
+- **DATA-03 — Contacts uploaded in one request (payload size risk):** `app/onboarding/index.tsx` now chunks the contacts array into batches of 500 before uploading. Each batch is sent sequentially via `POST /contacts/sync`, preventing request-size errors for users with large address books.
+
+#### Financial / Currency
+
+- **FIN-01 — Non-NGN subscription price display:** `app/settings/subscription.tsx` now reads the user's locale currency from the manifest and formats non-NGN prices using the correct symbol and decimal format rather than defaulting to ₦.
+- **FIN-02 — Minor-unit helpers coupled to Naira:** `lib/utils/currency.ts` now exports currency-agnostic `minorUnitToStr(amount, symbol, divisor)`, `minorUnitToDecimal(amount, divisor)`, and `minorUnitToInt(amount, divisor)`. The existing `koboToNairaStr`, `koboToDecimal`, and `koboToNairaInt` functions are retained as backward-compatible aliases.
+
+#### Performance
+
+- **PERF-02 — App manifest fetched twice (settings + currency hook):** `lib/hooks/useManifest.ts` is a new shared hook that exports `useManifest()` and `useFeatureFlags()` under the single query key `['manifest']`. The settings screen and currency hook now both consume this shared hook, eliminating the duplicate network request.
+- **PERF-03 — `Image` from `react-native` used for GIF rendering:** The room screen (`app/rooms/[roomId].tsx`) now imports `Image` from `expo-image`, which has native GIF decoding and better memory management. The DM screen already used `expo-image`.
+
+#### Internationalisation
+
+- **MISC-01 — RTL layout not reapplied when language changes at runtime:** `lib/i18n/index.ts` now subscribes to `i18n.on('languageChanged')`. When the new language requires a different text direction, `I18nManager.forceRTL()` is called and `Updates.reloadAsync()` reloads the JS bundle so React Native rebuilds the native layout tree in the correct direction.
+
+#### New i18n Strings (en.json)
+
+- `settings.changeEmail` — "Change Email"
+- `settings.changeEmailDescription` — "Update your account email address"
+- `settings.changeEmailSuccess` — "Email updated. Please verify your new email address."
+- `settings.newEmail` — "New Email Address"
+- `settings.confirmNewEmail` — "Confirm New Email"
+- `settings.sendVerification` — "Send Verification"
+- `settings.emailReadOnly` — "Email address cannot be edited here"
+- `validation.emailMatch` — "Email addresses do not match."
+- `validation.invalidEmail` — "Please enter a valid email address."
+- `auth.twoFaVerify.countdownPrefix` — "Try again in"
+- `onboarding.contactsError` — "Could not upload contacts. You can continue."
+
+#### New Store Keys Added
+
+`STORE_KEYS` in `lib/offline/store.ts` gains: `SETTINGS_PIN_ATTEMPTS`, `SETTINGS_PIN_LOCKED_UNTIL`, `SETTINGS_PIN_LOCKOUT_COUNT`, `TOTP_LOCKOUT_COUNT`, `GIFT_PIN_LOCKOUT_COUNT`.
+
+---
+
+*ZobiaSocial PRD v1.84*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*
