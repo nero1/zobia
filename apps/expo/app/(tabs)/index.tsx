@@ -1671,3 +1671,4 @@ const styles = StyleSheet.create({
   spotlightUsername: { fontSize: 12 },
   spotlightBlurb: { fontSize: 12, marginTop: 2, lineHeight: 16 },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

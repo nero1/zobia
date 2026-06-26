@@ -291,3 +291,4 @@ const styles = StyleSheet.create({
   navSubtitle: { fontSize: 12, marginTop: 1 },
   chevron: { fontSize: 22, fontWeight: '300' },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

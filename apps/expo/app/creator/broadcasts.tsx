@@ -484,3 +484,4 @@ const styles = StyleSheet.create({
   },
   charCount: { fontSize: 12, textAlign: 'right' },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

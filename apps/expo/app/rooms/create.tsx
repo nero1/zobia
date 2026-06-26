@@ -606,3 +606,4 @@ const styles = StyleSheet.create({
 
   submitBtn: { marginTop: 16, marginBottom: 32 },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

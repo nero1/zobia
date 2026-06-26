@@ -43,7 +43,7 @@ import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
 import { translateApiError } from '@/lib/i18n/apiErrors';
-import { prefsStore } from '@/lib/i18n';
+import { getStorage, STORE_KEYS } from '@/lib/offline/store';
 import { env } from '@/lib/env';
 import { cacheDirectory, documentDirectory, writeAsStringAsync, EncodingType } from 'expo-file-system';
 
@@ -875,7 +875,7 @@ export default function SettingsScreen() {
               onPress={() => {
                 set('language', lang.code);
                 void i18n.changeLanguage(lang.code);
-                try { prefsStore.set('user_language', lang.code); } catch {}
+                try { getStorage().set(STORE_KEYS.LANGUAGE_PREF, lang.code); } catch {}
               }}
               style={[
                 styles.langPill,
@@ -1360,3 +1360,4 @@ const styles = StyleSheet.create({
     minHeight: 56,
   },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

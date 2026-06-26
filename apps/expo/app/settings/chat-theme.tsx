@@ -278,3 +278,4 @@ const styles = StyleSheet.create({
   },
   upgradeBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

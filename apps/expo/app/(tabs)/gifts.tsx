@@ -365,3 +365,4 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

@@ -107,3 +107,4 @@ const styles = StyleSheet.create({
   emoji: { fontSize: 56 },
   title: { fontSize: 20, fontWeight: '700', textAlign: 'center' },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

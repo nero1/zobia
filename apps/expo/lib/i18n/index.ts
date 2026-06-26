@@ -4,14 +4,16 @@
  * Import this module once (side-effect) in the root layout:
  *   import '@/lib/i18n';
  *
- * Uses i18next + react-i18next with a local English resource bundle.
- * Falls back to English when the device locale is not supported.
+ * Two-phase language resolution (L-2 fix):
+ *  Phase 1 (module init, synchronous): use device locale only, so this module
+ *    never touches MMKV before initStore() has run.
+ *  Phase 2 (after initStore() completes): call applyStoredLanguagePref() from
+ *    _layout.tsx to overlay the user's saved preference from the encrypted store.
  */
 
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import * as Localization from 'expo-localization';
-import { MMKV } from 'react-native-mmkv';
 
 import { setupRTL } from './rtl';
 import en from './locales/en.json';
@@ -29,42 +31,15 @@ export type SupportedLocale = 'en' | 'fr' | 'ar' | 'ha' | 'sw' | 'am' | 'zu' | '
 
 const SUPPORTED_LOCALES: SupportedLocale[] = ['en', 'fr', 'ar', 'ha', 'sw', 'am', 'zu', 'pt', 'pidgin'];
 
-// BUG-M19 FIX: lazy-initialise prefsStore so a native-bridge race on first
-// launch (MMKV not yet bridged when this module is evaluated) doesn't throw
-// an uncaught native exception before any error boundary is mounted.
-let _prefsStore: MMKV | null = null;
-function getPrefsStore(): MMKV | null {
-  if (_prefsStore) return _prefsStore;
-  try {
-    _prefsStore = new MMKV({ id: 'zobia_prefs' });
-  } catch {
-    // Native module not ready; callers fall back gracefully
-  }
-  return _prefsStore;
-}
-
-/** Shared MMKV instance for non-sensitive user preferences (language, UI prefs). */
-export const prefsStore = {
-  getString: (key: string) => getPrefsStore()?.getString(key),
-  set: (key: string, value: string) => getPrefsStore()?.set(key, value),
-  delete: (key: string) => getPrefsStore()?.delete(key),
-};
-
-/** Derive the best supported locale: user preference → device locale → English. */
-function resolveLocale(): SupportedLocale {
-  // Check user's saved language preference (needed for locales with no OS equivalent, e.g. Pidgin)
-  try {
-    const saved = prefsStore.getString('user_language') as SupportedLocale | undefined;
-    if (saved && SUPPORTED_LOCALES.includes(saved)) return saved;
-  } catch {
-    // MMKV unavailable during first launch — fall through to device locale
-  }
+/**
+ * Phase 1: derive best locale from device settings only.
+ * Must not touch MMKV — initStore() has not run yet at module evaluation time.
+ */
+function resolveDeviceLocale(): SupportedLocale {
   const deviceLocales = Localization.getLocales();
   for (const locale of deviceLocales) {
     const lang = locale.languageCode as SupportedLocale;
-    if (SUPPORTED_LOCALES.includes(lang)) {
-      return lang;
-    }
+    if (SUPPORTED_LOCALES.includes(lang)) return lang;
   }
   return 'en';
 }
@@ -83,7 +58,7 @@ i18n
       pt: { translation: pt },
       pidgin: { translation: pidgin },
     },
-    lng: resolveLocale(),
+    lng: resolveDeviceLocale(),
     fallbackLng: 'en',
     interpolation: {
       escapeValue: false,
@@ -101,5 +76,27 @@ setupRTL(i18n.language);
 i18n.on('languageChanged', (lng) => {
   setupRTL(lng);
 });
+
+/**
+ * Phase 2: read the user's saved language preference from the encrypted MMKV
+ * store and switch i18n to it if it differs from the device-locale default.
+ *
+ * Must be called AFTER initStore() has completed (e.g. in the useEffect inside
+ * RootLayoutNav that awaits initStore()).  Safe to call multiple times.
+ */
+export function applyStoredLanguagePref(): void {
+  try {
+    // Lazy import so the store module is not evaluated at i18n module init time.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { getStorage, STORE_KEYS } = require('@/lib/offline/store') as typeof import('@/lib/offline/store');
+    const storage = getStorage();
+    const saved = storage.getString(STORE_KEYS.LANGUAGE_PREF) as SupportedLocale | undefined;
+    if (saved && SUPPORTED_LOCALES.includes(saved) && saved !== i18n.language) {
+      void i18n.changeLanguage(saved);
+    }
+  } catch {
+    // initStore() not complete or key absent; keep current language.
+  }
+}
 
 export default i18n;

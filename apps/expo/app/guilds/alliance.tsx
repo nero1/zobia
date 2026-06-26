@@ -145,3 +145,4 @@ export default function AllianceScreen() {
     </ScrollView>
   );
 }
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

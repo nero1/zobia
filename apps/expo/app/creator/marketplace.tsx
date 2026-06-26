@@ -120,3 +120,4 @@ export default function CreatorMarketplaceScreen() {
     />
   );
 }
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

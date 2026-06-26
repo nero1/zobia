@@ -449,3 +449,4 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

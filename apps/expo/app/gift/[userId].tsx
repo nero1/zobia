@@ -22,3 +22,4 @@ export default function GiftDeepLinkScreen() {
 
   return null;
 }
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

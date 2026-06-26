@@ -408,3 +408,4 @@ const styles = StyleSheet.create({
   modalActions: { flexDirection: 'row', gap: 10, marginTop: 8 },
   modalBtn: { flex: 1 },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

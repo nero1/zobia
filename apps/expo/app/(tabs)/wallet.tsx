@@ -242,3 +242,4 @@ const styles = StyleSheet.create({
   ctaButton: { borderRadius: 16, padding: 14, alignItems: 'center', marginTop: 4 },
   ctaText: { color: '#fff', fontSize: 15, fontWeight: '700' },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

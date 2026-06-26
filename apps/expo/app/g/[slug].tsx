@@ -84,3 +84,4 @@ const styles = StyleSheet.create({
   title: { fontSize: 22, fontWeight: '700', textAlign: 'center' },
   body: { fontSize: 15, textAlign: 'center', marginBottom: 12 },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

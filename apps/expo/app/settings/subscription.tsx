@@ -635,3 +635,4 @@ const styles = StyleSheet.create({
   skeletonContainer: { padding: 16, gap: 12 },
   skeletonCard: { height: 200, borderRadius: 14, backgroundColor: colors.neutral[200] },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

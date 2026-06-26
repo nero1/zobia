@@ -15,3 +15,4 @@ export default function GuildsIndexScreen() {
   }, [router]);
   return null;
 }
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

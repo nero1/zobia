@@ -678,3 +678,4 @@ const styles = StyleSheet.create({
   upgradeBtnText: { color: colors.neutral[0], fontSize: 13, fontWeight: '700' },
   featureItem: { fontSize: 13, lineHeight: 20 },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

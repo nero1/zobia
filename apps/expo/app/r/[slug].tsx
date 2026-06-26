@@ -22,3 +22,4 @@ export default function PublicRoomLink() {
     />
   );
 }
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

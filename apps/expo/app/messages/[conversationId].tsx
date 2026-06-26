@@ -1214,3 +1214,4 @@ const styles = StyleSheet.create({
   },
   momentDialogBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';

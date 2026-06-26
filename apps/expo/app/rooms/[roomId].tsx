@@ -1509,3 +1509,4 @@ const styles = StyleSheet.create({
     fontSize: 32,
   },
 });
+export { ErrorBoundary } from '@/components/ui/ScreenErrorBoundary';
