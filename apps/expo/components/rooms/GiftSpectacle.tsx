@@ -67,6 +67,11 @@ export const GiftSpectacle = memo(function GiftSpectacle({
   const scaleAnim = useRef(new Animated.Value(0.5)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
   const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // BUG-M20 FIX: track running animations so we can stop them before resetting
+  // values. Without this, a rapid second gift mid-fade-out snaps the opacity to 0
+  // and the running fade-out callback fires after the new animation has started.
+  const animInRef = useRef<Animated.CompositeAnimation | null>(null);
+  const animOutRef = useRef<Animated.CompositeAnimation | null>(null);
   // Keep onDismiss in a ref so the auto-dismiss timer always calls the latest
   // callback even if the prop identity changes between mount and fire time.
   const onDismissRef = useRef(onDismiss);
@@ -79,12 +84,15 @@ export const GiftSpectacle = memo(function GiftSpectacle({
     }
 
     // Animate out
-    Animated.timing(opacityAnim, {
+    const anim = Animated.timing(opacityAnim, {
       toValue: 0,
       duration: 250,
       useNativeDriver: true,
       easing: Easing.in(Easing.ease),
-    }).start(() => {
+    });
+    animOutRef.current = anim;
+    anim.start(() => {
+      animOutRef.current = null;
       onDismissRef.current();
     });
   };
@@ -95,12 +103,19 @@ export const GiftSpectacle = memo(function GiftSpectacle({
   useEffect(() => {
     if (!data) return;
 
+    // BUG-M20 FIX: stop any in-progress animations before resetting values so
+    // a new gift arriving mid-fade-out doesn't cause a visual flash/snap.
+    animInRef.current?.stop();
+    animOutRef.current?.stop();
+    animInRef.current = null;
+    animOutRef.current = null;
+
     // Reset
     scaleAnim.setValue(0.5);
     opacityAnim.setValue(0);
 
     // Animate in
-    Animated.parallel([
+    const anim = Animated.parallel([
       Animated.spring(scaleAnim, {
         toValue: 1,
         useNativeDriver: true,
@@ -113,7 +128,9 @@ export const GiftSpectacle = memo(function GiftSpectacle({
         useNativeDriver: true,
         easing: Easing.out(Easing.ease),
       }),
-    ]).start();
+    ]);
+    animInRef.current = anim;
+    anim.start(() => { animInRef.current = null; });
 
     // Auto-dismiss timer — calls through ref so it always uses the latest handler
     dismissTimerRef.current = setTimeout(() => {

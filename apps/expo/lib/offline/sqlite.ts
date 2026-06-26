@@ -144,23 +144,30 @@ export async function initOfflineDB(): Promise<void> {
       ON offline_messages(sync_status, created_at);
   `);
 
-  // Migration: add new columns to existing installations that lack them.
-  // Each statement is an ALTER TABLE ADD COLUMN which SQLite rejects with
-  // "duplicate column name" if the column already exists — that error is
-  // expected on repeat app launches and is safe to ignore. Any other error
-  // (table missing, syntax error, disk full) is re-thrown so it surfaces.
-  const migrations = [
-    `ALTER TABLE offline_messages ADD COLUMN conversation_type TEXT NOT NULL DEFAULT 'dm'`,
-    `ALTER TABLE offline_messages ADD COLUMN idempotency_key TEXT`,
-    `ALTER TABLE offline_messages ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0`,
-  ];
-  for (const sql of migrations) {
-    try {
-      await db.execAsync(sql);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!msg.toLowerCase().includes('duplicate column')) throw err;
+  // BUG-M14 FIX: use PRAGMA user_version to track which migrations have run,
+  // so we never run ALTER TABLE statements on every cold start. Version 1 marks
+  // the schema that includes conversation_type, idempotency_key, and retry_count
+  // (already present in the CREATE TABLE above for fresh installs).
+  const [versionRow] = await db.getAllAsync<{ user_version: number }>('PRAGMA user_version');
+  const schemaVersion = versionRow?.user_version ?? 0;
+
+  if (schemaVersion < 1) {
+    // Existing installs built before this schema version may be missing these
+    // columns; add them idempotently. Errors other than "duplicate column" are re-thrown.
+    const v1migrations = [
+      `ALTER TABLE offline_messages ADD COLUMN conversation_type TEXT NOT NULL DEFAULT 'dm'`,
+      `ALTER TABLE offline_messages ADD COLUMN idempotency_key TEXT`,
+      `ALTER TABLE offline_messages ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0`,
+    ];
+    for (const sql of v1migrations) {
+      try {
+        await db.execAsync(sql);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!msg.toLowerCase().includes('duplicate column')) throw err;
+      }
     }
+    await db.execAsync('PRAGMA user_version = 1');
   }
 }
 

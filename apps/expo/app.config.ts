@@ -14,7 +14,7 @@ export default ({ config }: ConfigContext): ExpoConfig & {
     API_BASE_URL: process.env.API_BASE_URL ?? 'https://zobia.vercel.app',
   },
   'react-native-google-mobile-ads': {
-    android_app_id: process.env.ADMOB_APP_ID_ANDROID || ADMOB_TEST_ANDROID,
-    ios_app_id: process.env.ADMOB_APP_ID_IOS || ADMOB_TEST_IOS,
+    android_app_id: process.env.ADMOB_APP_ID_ANDROID ?? ADMOB_TEST_ANDROID,
+    ios_app_id: process.env.ADMOB_APP_ID_IOS ?? ADMOB_TEST_IOS,
   },
 });

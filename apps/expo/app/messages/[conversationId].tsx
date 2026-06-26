@@ -171,7 +171,7 @@ async function sendDM(
 
 async function searchGifs(query: string): Promise<GifResult[]> {
   const { data } = await apiClient.get('/messages/gif', { params: { q: query, limit: 15 } });
-  return data.results ?? [];
+  return data.data ?? data.results ?? [];
 }
 
 async function fetchStickerPacks(): Promise<StickerPack[]> {
@@ -754,7 +754,7 @@ export default function DMConversationScreen() {
     <Screen hideOfflineBanner disableBottomInset>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
       >
         {/* Connection badge */}

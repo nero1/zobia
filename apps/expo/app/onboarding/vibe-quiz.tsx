@@ -100,6 +100,8 @@ export default function VibeQuiz() {
     emoji: string;
     city: string;
     birthYear: string;
+    birthMonth: string;
+    birthDay: string;
   }>();
 
   const questions = useQuizQuestions();

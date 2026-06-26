@@ -29,11 +29,26 @@ export type SupportedLocale = 'en' | 'fr' | 'ar' | 'ha' | 'sw' | 'am' | 'zu' | '
 
 const SUPPORTED_LOCALES: SupportedLocale[] = ['en', 'fr', 'ar', 'ha', 'sw', 'am', 'zu', 'pt', 'pidgin'];
 
-/**
- * Shared MMKV instance for non-sensitive user preferences (language, UI prefs).
- * Intentionally unencrypted — this data is not sensitive.
- */
-export const prefsStore = new MMKV({ id: 'zobia_prefs' });
+// BUG-M19 FIX: lazy-initialise prefsStore so a native-bridge race on first
+// launch (MMKV not yet bridged when this module is evaluated) doesn't throw
+// an uncaught native exception before any error boundary is mounted.
+let _prefsStore: MMKV | null = null;
+function getPrefsStore(): MMKV | null {
+  if (_prefsStore) return _prefsStore;
+  try {
+    _prefsStore = new MMKV({ id: 'zobia_prefs' });
+  } catch {
+    // Native module not ready; callers fall back gracefully
+  }
+  return _prefsStore;
+}
+
+/** Shared MMKV instance for non-sensitive user preferences (language, UI prefs). */
+export const prefsStore = {
+  getString: (key: string) => getPrefsStore()?.getString(key),
+  set: (key: string, value: string) => getPrefsStore()?.set(key, value),
+  delete: (key: string) => getPrefsStore()?.delete(key),
+};
 
 /** Derive the best supported locale: user preference → device locale → English. */
 function resolveLocale(): SupportedLocale {

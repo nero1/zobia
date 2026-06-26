@@ -39,7 +39,8 @@
         "android.permission.ACCESS_NETWORK_STATE",
         "android.permission.READ_CONTACTS"
       ],
-      "softwareKeyboardLayoutMode": "pan",
+      "softwareKeyboardLayoutMode": "adjustNothing",
+      "allowBackup": false,
       "intentFilters": [
         {
           "action": "VIEW",
@@ -86,10 +87,11 @@
       [
         "expo-updates",
         {
-          "username": "zobia",
+          "projectId": "ad68e531-aa48-4873-8d41-3bca8f18b9a4",
           "runtimeVersion": { "policy": "sdkVersion" }
         }
       ],
+      "react-native-google-mobile-ads",
       "./plugins/withIapPlayFlavor"
     ],
     "experiments": {

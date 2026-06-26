@@ -85,17 +85,43 @@ function validateUsername(value: string): string | undefined {
 }
 
 function validateBirthYear(value: string): string | undefined {
-  // BUG-057 FIX: compute current year inside the function so apps that stay
-  // running across New Year always use the correct year (BUG-057).
   const currentYear = new Date().getFullYear();
   if (!value.trim()) return 'Year of birth is required';
   const yr = parseInt(value.trim(), 10);
   if (isNaN(yr) || yr < 1900 || yr > currentYear) return `Enter a valid year between 1900 and ${currentYear}`;
-  // BUG-056 FIX: check against Jan 1 of this year to ensure the user turns 18
-  // during the current year, not just that the year difference >= 18.
-  // Full birthday isn't collected at onboarding; this is the strictest check
-  // we can make with year-only data without being overly restrictive.
-  if (currentYear - yr < MINIMUM_AGE) return `You must be at least ${MINIMUM_AGE} years old to join`;
+  return undefined;
+}
+
+function validateBirthMonth(value: string): string | undefined {
+  if (!value.trim()) return 'Month of birth is required';
+  const m = parseInt(value.trim(), 10);
+  if (isNaN(m) || m < 1 || m > 12) return 'Enter a valid month (1–12)';
+  return undefined;
+}
+
+function validateBirthDay(value: string, month: string, year: string): string | undefined {
+  if (!value.trim()) return 'Day of birth is required';
+  const d = parseInt(value.trim(), 10);
+  const m = parseInt(month.trim(), 10);
+  const y = parseInt(year.trim(), 10);
+  if (isNaN(d) || d < 1) return 'Enter a valid day';
+  const daysInMonth = isNaN(m) || isNaN(y) ? 31 : new Date(y, m, 0).getDate();
+  if (d > daysInMonth) return `Day must be between 1 and ${daysInMonth} for this month`;
+  return undefined;
+}
+
+// BUG-M17 FIX: proper full-date age check instead of year-only comparison.
+// A December-31 user born in the threshold year would pass a year-only check
+// but may not have turned MINIMUM_AGE yet this calendar year.
+function validateAge(year: string, month: string, day: string): string | undefined {
+  const yr = parseInt(year.trim(), 10);
+  const mo = parseInt(month.trim(), 10);
+  const dy = parseInt(day.trim(), 10);
+  if (isNaN(yr) || isNaN(mo) || isNaN(dy)) return undefined; // field errors handled elsewhere
+  const today = new Date();
+  const birthdayThisYear = new Date(today.getFullYear(), mo - 1, dy);
+  const age = today.getFullYear() - yr - (today < birthdayThisYear ? 1 : 0);
+  if (age < MINIMUM_AGE) return `You must be at least ${MINIMUM_AGE} years old to join`;
   return undefined;
 }
 
@@ -118,6 +144,10 @@ export default function OnboardingStep1() {
   const [cityError, setCityError] = useState<string | undefined>();
   const [birthYear, setBirthYear] = useState('');
   const [birthYearError, setBirthYearError] = useState<string | undefined>();
+  const [birthMonth, setBirthMonth] = useState('');
+  const [birthMonthError, setBirthMonthError] = useState<string | undefined>();
+  const [birthDay, setBirthDay] = useState('');
+  const [birthDayError, setBirthDayError] = useState<string | undefined>();
 
   // Contacts
   const [contactsStatus, setContactsStatus] = useState<'idle' | 'loading' | 'done' | 'denied' | 'unavailable'>('idle');
@@ -152,12 +182,17 @@ export default function OnboardingStep1() {
     const usernameErr = validateUsername(username);
     const cityErr = !city.trim() ? 'City is required' : undefined;
     const yearErr = validateBirthYear(birthYear);
+    const monthErr = validateBirthMonth(birthMonth);
+    const dayErr = validateBirthDay(birthDay, birthMonth, birthYear);
+    const ageErr = !yearErr && !monthErr && !dayErr ? validateAge(birthYear, birthMonth, birthDay) : undefined;
 
     setUsernameError(usernameErr);
     setCityError(cityErr);
-    setBirthYearError(yearErr);
+    setBirthYearError(yearErr ?? ageErr);
+    setBirthMonthError(monthErr);
+    setBirthDayError(dayErr);
 
-    if (usernameErr || cityErr || yearErr) {
+    if (usernameErr || cityErr || yearErr || monthErr || dayErr || ageErr) {
       return;
     }
 
@@ -168,6 +203,8 @@ export default function OnboardingStep1() {
         emoji: selectedEmoji,
         city: city.trim(),
         birthYear: birthYear.trim(),
+        birthMonth: birthMonth.trim(),
+        birthDay: birthDay.trim(),
       },
     });
   }
@@ -245,24 +282,61 @@ export default function OnboardingStep1() {
         />
       </View>
 
-      {/* Year of birth — age gate only; full date of birth can be set in settings */}
+      {/* Date of birth — full date required for accurate age gate (BUG-M17 fix) */}
       <View style={styles.section}>
-        <Input
-          label="Year of Birth"
-          placeholder={`e.g. ${new Date().getFullYear() - 20}`}
-          value={birthYear}
-          onChangeText={(v) => {
-            setBirthYear(v);
-            if (birthYearError) setBirthYearError(undefined);
-          }}
-          error={birthYearError}
-          keyboardType="number-pad"
-          maxLength={4}
-          autoCorrect={false}
-          accessibilityLabel="Year of birth (4-digit year)"
-        />
+        <Text style={[styles.sectionLabel, { color: textColor }]}>Date of Birth</Text>
+        <View style={styles.dobRow}>
+          <View style={styles.dobField}>
+            <Input
+              label="Year"
+              placeholder={`${new Date().getFullYear() - 20}`}
+              value={birthYear}
+              onChangeText={(v) => {
+                setBirthYear(v);
+                if (birthYearError) setBirthYearError(undefined);
+              }}
+              error={birthYearError}
+              keyboardType="number-pad"
+              maxLength={4}
+              autoCorrect={false}
+              accessibilityLabel="Year of birth (4-digit year)"
+            />
+          </View>
+          <View style={styles.dobField}>
+            <Input
+              label="Month"
+              placeholder="MM"
+              value={birthMonth}
+              onChangeText={(v) => {
+                setBirthMonth(v);
+                if (birthMonthError) setBirthMonthError(undefined);
+              }}
+              error={birthMonthError}
+              keyboardType="number-pad"
+              maxLength={2}
+              autoCorrect={false}
+              accessibilityLabel="Month of birth (1–12)"
+            />
+          </View>
+          <View style={styles.dobField}>
+            <Input
+              label="Day"
+              placeholder="DD"
+              value={birthDay}
+              onChangeText={(v) => {
+                setBirthDay(v);
+                if (birthDayError) setBirthDayError(undefined);
+              }}
+              error={birthDayError}
+              keyboardType="number-pad"
+              maxLength={2}
+              autoCorrect={false}
+              accessibilityLabel="Day of birth"
+            />
+          </View>
+        </View>
         <Text style={[styles.hint, { color: subtitleColor }]}>
-          You must be at least {MINIMUM_AGE} years old. You can add your full date of birth in settings after joining.
+          You must be at least {MINIMUM_AGE} years old to join.
         </Text>
       </View>
 
@@ -377,5 +451,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     marginTop: 4,
+  },
+  dobRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  dobField: {
+    flex: 1,
   },
 });

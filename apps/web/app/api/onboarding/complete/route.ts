@@ -64,13 +64,16 @@ const onboardingSchema = z.object({
     .record(z.string(), z.unknown())
     .optional()
     .nullable(),
-  // Onboarding collects only birth year; stored as YYYY-01-01 in the DB.
-  // Users may update to their full date of birth later in profile settings.
+  // Birth year is required; month and day are optional (collected since BUG-M17 fix).
+  // When all three are provided the date_of_birth is stored as the exact date;
+  // otherwise falls back to YYYY-01-01. Users can update from profile settings.
   birth_year: z.coerce
     .number()
     .int()
     .min(1900, "birth_year must be 1900 or later")
     .max(new Date().getFullYear(), "birth_year cannot be in the future"),
+  birth_month: z.coerce.number().int().min(1).max(12).optional(),
+  birth_day: z.coerce.number().int().min(1).max(31).optional(),
   referral_code: z.string().max(20).optional().nullable(),
   captcha_token: z.string().optional(),
 });
@@ -80,14 +83,18 @@ const onboardingSchema = z.object({
 // ---------------------------------------------------------------------------
 
 /**
- * Calculate age in full years from a birth year integer.
- * Conservative: assumes the birthday hasn't occurred yet this year.
- *
- * @param birthYear - Four-digit birth year
- * @returns Minimum age in years
+ * Calculate age in full years. Uses exact date when month and day are provided;
+ * falls back to a conservative year-only check otherwise (birthday assumed
+ * not yet occurred this year).
  */
-function calculateAge(birthYear: number): number {
-  return new Date().getFullYear() - birthYear;
+function calculateAge(birthYear: number, birthMonth?: number, birthDay?: number): number {
+  const today = new Date();
+  if (birthMonth != null && birthDay != null) {
+    const birthdayThisYear = new Date(today.getFullYear(), birthMonth - 1, birthDay);
+    return today.getFullYear() - birthYear - (today < birthdayThisYear ? 1 : 0);
+  }
+  // Conservative year-only: assume birthday hasn't passed yet this year
+  return today.getFullYear() - birthYear - 1;
 }
 
 /**
@@ -140,8 +147,7 @@ export const POST = withAuth(async (req, { params, auth }) => {
       throw badRequest("CAPTCHA token is required.", "CAPTCHA_REQUIRED");
     }
 
-    // Check age requirement (conservative: uses birth year only)
-    const age = calculateAge(body.birth_year);
+    const age = calculateAge(body.birth_year, body.birth_month, body.birth_day);
     if (age < minimumAge) {
       throw badRequest(
         `You must be at least ${minimumAge} years old to use Zobia Social`,
@@ -149,9 +155,11 @@ export const POST = withAuth(async (req, { params, auth }) => {
       );
     }
 
-    // Build ISO date from birth year for DB storage (YYYY-01-01).
-    // Users can update to their full date of birth from profile settings.
-    const dateOfBirth = `${body.birth_year}-01-01`;
+    // Build ISO date for DB storage. Use the exact date when all three parts are
+    // provided; otherwise store as YYYY-01-01 (year-only placeholder).
+    const mm = body.birth_month != null ? String(body.birth_month).padStart(2, '0') : '01';
+    const dd = body.birth_day != null ? String(body.birth_day).padStart(2, '0') : '01';
+    const dateOfBirth = `${body.birth_year}-${mm}-${dd}`;
 
     // Holds the referrer's user ID after the transaction commits (if a referral was used)
     let referrerId: string | null = null;

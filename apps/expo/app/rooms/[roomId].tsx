@@ -200,8 +200,8 @@ interface GifResult {
 }
 
 async function searchGifs(query: string): Promise<GifResult[]> {
-  const { data } = await apiClient.get(`/messages/gif?query=${encodeURIComponent(query)}`);
-  return data.results ?? data.gifs ?? [];
+  const { data } = await apiClient.get('/messages/gif', { params: { q: query, limit: 20 } });
+  return data.data ?? data.results ?? data.gifs ?? [];
 }
 
 // ---------------------------------------------------------------------------
@@ -602,7 +602,7 @@ export default function RoomScreen() {
       await queryClient.cancelQueries({ queryKey: ['room-messages', roomId] });
       const previous = queryClient.getQueryData<Message[]>(['room-messages', roomId]) ?? [];
       const optimistic: Message = {
-        id: `pending-${Date.now()}`,
+        id: `pending-${crypto.randomUUID()}`,
         content,
         messageType: (message_type ?? 'text') as Message['messageType'],
         senderUserId: currentUserId ?? 'me',

@@ -28,7 +28,7 @@ const EnvSchema = z.object({
   WEB_BASE_URL: z.string().url().default('https://zobia.vercel.app'),
 
   /** EAS / Expo project environment: development | preview | production */
-  APP_ENV: z.enum(['development', 'preview', 'production']).default('development'),
+  APP_ENV: z.enum(['development', 'staging', 'preview', 'production']).default('development'),
 
   /** Google OAuth client ID (Android). */
   GOOGLE_CLIENT_ID: z.string().optional(),

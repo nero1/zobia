@@ -58,6 +58,9 @@ export default function GuildChatScreen() {
   const flatListRef = useRef<FlatList>(null);
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
+  // BUG-H07/L22 FIX: scroll-to-bottom only after the user sends a message,
+  // never when older messages are prepended (which would yank the view away).
+  const shouldScrollAfterSendRef = useRef(false);
 
   // Fetch paginated chat history (oldest-first for display)
   const {
@@ -75,6 +78,8 @@ export default function GuildChatScreen() {
       const res = await apiClient.get(url);
       return res.data;
     },
+    // BUG-L24: nextCursor points to OLDER messages (backward in time).
+    // fetchNextPage() loads older history; the FlatList renders oldest→newest top→bottom.
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     initialPageParam: undefined,
   });
@@ -95,10 +100,10 @@ export default function GuildChatScreen() {
       return res.data;
     },
     onSuccess: () => {
-      // Optimistically append and invalidate
+      // Invalidate to fetch the new message; scroll after re-render
       queryClient.invalidateQueries({ queryKey: ['guild-chat', guildId] });
       setInputText('');
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+      shouldScrollAfterSendRef.current = true;
     },
   });
 
@@ -164,7 +169,7 @@ export default function GuildChatScreen() {
     <Screen>
       <KeyboardAvoidingView
         style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
         {/* Load older messages button */}
@@ -189,9 +194,12 @@ export default function GuildChatScreen() {
           keyExtractor={(item) => item.id}
           renderItem={renderMessage}
           contentContainerStyle={styles.messageList}
-          onContentSizeChange={() =>
-            flatListRef.current?.scrollToEnd({ animated: false })
-          }
+          onContentSizeChange={() => {
+            if (shouldScrollAfterSendRef.current) {
+              shouldScrollAfterSendRef.current = false;
+              flatListRef.current?.scrollToEnd({ animated: true });
+            }
+          }}
           ListEmptyComponent={
             <View style={styles.centered}>
               <Text style={[styles.emptyText, { color: themeColors.textMuted }]}>
