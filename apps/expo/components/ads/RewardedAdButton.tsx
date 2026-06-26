@@ -77,6 +77,9 @@ export function RewardedAdButton({ onRewarded, disabled }: RewardedAdButtonProps
         // Credit coins server-side — retry up to 3 times so a transient network
         // hiccup doesn't silently drop the user's earned reward (BUG-PAY-01 FIX).
         const MAX_RETRIES = 3;
+        // Bug 52 note: the server must independently enforce the daily cap
+        // (e.g., via a per-user Redis counter with a UTC-midnight TTL) so the
+        // MMKV cap below is only a UX hint, not the authoritative enforcement.
         let coinsAwarded = 10;
         let credited = false;
         for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -86,6 +89,14 @@ export function RewardedAdButton({ onRewarded, disabled }: RewardedAdButtonProps
             credited = true;
             break;
           } catch (retryErr) {
+            const status = (retryErr as { response?: { status?: number } })?.response?.status;
+            if (status === 429) {
+              // Server-side cap reached — sync local cap to prevent another attempt.
+              storage.set(AD_WATCHED_KEY, AD_DAILY_CAP);
+              setAdsWatched(AD_DAILY_CAP);
+              Alert.alert("Daily limit reached", "You've watched the maximum ads for today. Come back tomorrow!");
+              return;
+            }
             if (attempt < MAX_RETRIES - 1) {
               await new Promise((res) => setTimeout(res, 1000 * Math.pow(2, attempt)));
             }
@@ -123,6 +134,7 @@ export function RewardedAdButton({ onRewarded, disabled }: RewardedAdButtonProps
       }`}
       onPress={handleWatchAd}
       disabled={isDisabled}
+      accessibilityHint={adsWatched >= AD_DAILY_CAP ? undefined : `Watch a short ad to earn ${currency.softPlural}`}
     >
       {loading ? (
         <ActivityIndicator size="small" color="white" />

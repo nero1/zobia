@@ -10,8 +10,8 @@
  * app can call signIn() and complete the session without needing cookies.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 
@@ -48,21 +48,39 @@ export default function TwoFactorScreen() {
   const [resolvingToken, setResolvingToken] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [remainingSeconds, setRemainingSeconds] = useState<number>(0);
-  const [lockoutCount, setLockoutCount] = useState<number>(() => {
-    try { return storage.getNumber(STORE_KEYS.TOTP_LOCKOUT_COUNT) ?? 0; } catch { return 0; }
-  });
-  const [lockedOut, setLockedOut] = useState(() => {
-    // M-2 FIX: restore lockout state from MMKV so it survives app restarts.
+  const [lockoutCount, setLockoutCount] = useState<number>(0);
+  // BUG-32 FIX: don't read MMKV synchronously in useState initializers —
+  // the store may not be ready. Reads are deferred to a post-mount useEffect.
+  const [lockedOut, setLockedOut] = useState(false);
+  const [lockedUntil, setLockedUntil] = useState(0);
+  const [lockoutInitialized, setLockoutInitialized] = useState(false);
+
+  // The actual pre-auth JWT resolved from the opaque preAuthCode.
+  const preAuthTokenRef = useRef<string | null>(null);
+  const totpAttemptsRef = useRef<number>(0);
+
+  // BUG-32 FIX: read MMKV after mount so storeReady is guaranteed.
+  useEffect(() => {
     try {
-      const until = storage.getNumber(STORE_KEYS.TOTP_LOCKED_UNTIL) ?? 0;
-      return until > Date.now();
-    } catch { return false; }
-  });
+      const count = storage.getNumber(STORE_KEYS.TOTP_LOCKOUT_COUNT) ?? 0;
+      setLockoutCount(count);
+      totpAttemptsRef.current = storage.getNumber(STORE_KEYS.TOTP_ATTEMPTS) ?? 0;
+      const lockUntil = storage.getNumber(STORE_KEYS.TOTP_LOCKED_UNTIL) ?? 0;
+      if (lockUntil > Date.now()) {
+        setLockedOut(true);
+        setLockedUntil(lockUntil);
+      }
+    } catch {
+      // store not ready — defaults to no lockout
+    } finally {
+      setLockoutInitialized(true);
+    }
+  }, []);
 
   // Auto-reset countdown when locked out
   useEffect(() => {
     if (!lockedOut) { setRemainingSeconds(0); return; }
-    const until = storage.getNumber(STORE_KEYS.TOTP_LOCKED_UNTIL) ?? 0;
+    const until = lockedUntil;
     const updateCountdown = () => {
       const rem = until - Date.now();
       if (rem <= 0) {
@@ -75,18 +93,7 @@ export default function TwoFactorScreen() {
     updateCountdown();
     const interval = setInterval(updateCountdown, 1000);
     return () => clearInterval(interval);
-  }, [lockedOut]);
-
-  // The actual pre-auth JWT resolved from the opaque preAuthCode.
-  const preAuthTokenRef = useRef<string | null>(null);
-  // M-2 FIX: persist attempt count to MMKV so lockout survives app restarts.
-  // Initialized synchronously so the stored count is available before the first
-  // render, preventing a free brute-force attempt on fast users.
-  const totpAttemptsRef = useRef<number>(
-    (() => {
-      try { return storage.getNumber(STORE_KEYS.TOTP_ATTEMPTS) ?? 0; } catch { return 0; }
-    })()
-  );
+  }, [lockedOut, lockedUntil]);
 
   // -------------------------------------------------------------------------
   // Step 1: Exchange the opaque deep-link code for the real pre-auth JWT.
@@ -129,6 +136,28 @@ export default function TwoFactorScreen() {
   }, [preAuthCode, t]);
 
   // -------------------------------------------------------------------------
+  // BUG-51 FIX: extracted lockout increment logic shared by both failure paths.
+  // -------------------------------------------------------------------------
+  const handleFailedAttempt = useCallback(() => {
+    const count = (totpAttemptsRef.current ?? 0) + 1;
+    totpAttemptsRef.current = count;
+    try { storage.set(STORE_KEYS.TOTP_ATTEMPTS, count); } catch {}
+    if (count >= TOTP_MAX_ATTEMPTS) {
+      const nextLockCount = lockoutCount + 1;
+      const durationMs = Math.min(BASE_LOCKOUT_MS * Math.pow(2, lockoutCount), 24 * 60 * 60_000);
+      const lockUntil = Date.now() + durationMs;
+      try {
+        storage.set(STORE_KEYS.TOTP_LOCKED_UNTIL, lockUntil);
+        storage.set(STORE_KEYS.TOTP_LOCKOUT_COUNT, nextLockCount);
+        storage.delete(STORE_KEYS.TOTP_ATTEMPTS);
+      } catch {}
+      setLockoutCount(nextLockCount);
+      setLockedUntil(lockUntil);
+      setLockedOut(true);
+    }
+  }, [lockoutCount]);
+
+  // -------------------------------------------------------------------------
   // Step 2: User enters 6-digit TOTP code and submits.
   // Rate-limited to TOTP_MAX_ATTEMPTS failures before lockout.
   // -------------------------------------------------------------------------
@@ -162,19 +191,8 @@ export default function TwoFactorScreen() {
       );
 
       if (!data.success) {
-        totpAttemptsRef.current += 1;
-        try { storage.set(STORE_KEYS.TOTP_ATTEMPTS, totpAttemptsRef.current); } catch {}
+        handleFailedAttempt();
         if (totpAttemptsRef.current >= TOTP_MAX_ATTEMPTS) {
-          const nextLockCount = lockoutCount + 1;
-          const lockMs = Math.min(BASE_LOCKOUT_MS * Math.pow(2, lockoutCount), 24 * 60 * 60_000);
-          const lockUntil = Date.now() + lockMs;
-          try {
-            storage.set(STORE_KEYS.TOTP_LOCKED_UNTIL, lockUntil);
-            storage.set(STORE_KEYS.TOTP_LOCKOUT_COUNT, nextLockCount);
-            storage.delete(STORE_KEYS.TOTP_ATTEMPTS);
-          } catch {}
-          setLockoutCount(nextLockCount);
-          setLockedOut(true);
           setError(t('auth.twoFaVerify.lockedOut'));
         } else {
           setError(data.error ?? t('auth.twoFaVerify.error'));
@@ -207,19 +225,9 @@ export default function TwoFactorScreen() {
       const status = (err as { response?: { status?: number } }).response?.status;
       const isAuthFailure = status === 401 || status === 403;
       if (isAuthFailure) {
-        totpAttemptsRef.current += 1;
-        try { storage.set(STORE_KEYS.TOTP_ATTEMPTS, totpAttemptsRef.current); } catch {}
+        // BUG-51 FIX: use shared handleFailedAttempt() instead of duplicated logic.
+        handleFailedAttempt();
         if (totpAttemptsRef.current >= TOTP_MAX_ATTEMPTS) {
-          const nextLockCount = lockoutCount + 1;
-          const lockMs = Math.min(BASE_LOCKOUT_MS * Math.pow(2, lockoutCount), 24 * 60 * 60_000);
-          const lockUntil = Date.now() + lockMs;
-          try {
-            storage.set(STORE_KEYS.TOTP_LOCKED_UNTIL, lockUntil);
-            storage.set(STORE_KEYS.TOTP_LOCKOUT_COUNT, nextLockCount);
-            storage.delete(STORE_KEYS.TOTP_ATTEMPTS);
-          } catch {}
-          setLockoutCount(nextLockCount);
-          setLockedOut(true);
           setError(t('auth.twoFaVerify.lockedOut'));
         } else {
           const apiMsg = (err as { response?: { data?: { error?: string } } }).response?.data?.error;
@@ -240,6 +248,17 @@ export default function TwoFactorScreen() {
 
   const textColor = isDark ? colors.neutral[100] : colors.neutral[900];
   const subtitleColor = isDark ? colors.neutral[400] : colors.neutral[500];
+
+  // BUG-32 FIX: don't render until lockout state has been read from MMKV.
+  if (!lockoutInitialized) {
+    return (
+      <Screen contentStyle={styles.content}>
+        <View style={[styles.hero, { marginBottom: 0 }]}>
+          <ActivityIndicator color={colors.brand.blue} />
+        </View>
+      </Screen>
+    );
+  }
 
   return (
     <Screen contentStyle={styles.content}>

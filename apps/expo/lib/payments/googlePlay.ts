@@ -289,9 +289,33 @@ const activePurchaseSessions = new Map<string, string>();
  * Tracks productIds where the client-side timeout fired but the underlying
  * Google Play purchase may still complete asynchronously. Prevents users from
  * initiating a duplicate purchase while the original is still being recovered.
- * Cleared when the listener delivers the late result.
+ * Persisted to SecureStore so recovery survives app restarts (Bug 34 fix).
  */
-const pendingRecovery = new Map<string, boolean>();
+const pendingRecovery = new Map<string, { timestamp: number }>();
+const PENDING_RECOVERY_KEY = 'zobia_play_pending_recovery';
+const RECOVERY_EXPIRY_MS = 72 * 60 * 60 * 1000; // 72 hours
+
+async function savePendingRecovery(): Promise<void> {
+  try {
+    const obj: Record<string, { timestamp: number }> = {};
+    pendingRecovery.forEach((v, k) => { obj[k] = v; });
+    await SecureStore.setItemAsync(PENDING_RECOVERY_KEY, JSON.stringify(obj));
+  } catch {}
+}
+
+async function loadPendingRecovery(): Promise<void> {
+  try {
+    const raw = await SecureStore.getItemAsync(PENDING_RECOVERY_KEY);
+    if (!raw) return;
+    const obj = JSON.parse(raw) as Record<string, { timestamp: number }>;
+    const now = Date.now();
+    Object.entries(obj).forEach(([k, v]) => {
+      if (now - v.timestamp < RECOVERY_EXPIRY_MS) {
+        pendingRecovery.set(k, v);
+      }
+    });
+  } catch {}
+}
 
 const VERIFY_FAILED_MESSAGE =
   'Server verification failed — please contact support if coins are missing';
@@ -324,6 +348,7 @@ function setupGlobalPurchaseListeners(): void {
       // is finished.
       if (pendingRecovery.get(productId)) {
         pendingRecovery.delete(productId);
+        void savePendingRecovery();
       }
       if (purchaseToken && !isAcknowledged(purchase)) {
         const result = await verifyPurchaseServerSide(
@@ -426,6 +451,7 @@ export async function initGooglePlayBilling(): Promise<void> {
         await flushFailedPurchasesCachedAsPendingAndroid();
       } catch {}
       setupGlobalPurchaseListeners();
+      await loadPendingRecovery();
       initialised = true;
     } catch (err) {
       throw err;
@@ -535,7 +561,8 @@ export async function purchaseCoins(
     coinTimeoutId = setTimeout(() => {
       purchaseResolvers.delete(sessionId);
       activePurchaseSessions.delete(productId);
-      pendingRecovery.set(productId, true);
+      pendingRecovery.set(productId, { timestamp: Date.now() });
+      void savePendingRecovery();
       resolve({ success: false, coins: 0, error: 'Your purchase is still processing — please wait before trying again' });
     }, 5 * 60 * 1000);
   });
@@ -602,7 +629,8 @@ export async function purchaseStars(
     starTimeoutId = setTimeout(() => {
       purchaseResolvers.delete(sessionId);
       activePurchaseSessions.delete(productId);
-      pendingRecovery.set(productId, true);
+      pendingRecovery.set(productId, { timestamp: Date.now() });
+      void savePendingRecovery();
       resolve({ success: false, stars: 0, error: 'Your purchase is still processing — please wait before trying again' });
     }, 5 * 60 * 1000);
   });
@@ -629,6 +657,7 @@ export async function endBillingConnection(): Promise<void> {
     await endConnection();
   } catch {}
   initialised = false;
+  _initPromise = null; // prevent stale promise from being reused on re-init
 }
 
 /**
@@ -641,6 +670,7 @@ export async function disconnectGooglePlayBilling(): Promise<void> {
   purchaseResolvers.clear();
   activePurchaseSessions.clear();
   pendingRecovery.clear();
+  await SecureStore.deleteItemAsync(PENDING_RECOVERY_KEY).catch(() => {});
   subscriptionOfferTokens.clear();
 }
 
@@ -787,7 +817,8 @@ export async function purchaseSubscription(
     subTimeoutId = setTimeout(() => {
       purchaseResolvers.delete(sessionId);
       activePurchaseSessions.delete(productId);
-      pendingRecovery.set(productId, true);
+      pendingRecovery.set(productId, { timestamp: Date.now() });
+      void savePendingRecovery();
       resolve({ success: false, error: 'Your purchase is still processing — please wait before trying again' });
     }, 5 * 60 * 1000);
   });

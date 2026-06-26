@@ -12,7 +12,7 @@
  * a stale or private link never dead-ends silently.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { apiClient } from '@/lib/api/client';
@@ -38,6 +38,11 @@ export function SlugRedirect({
   const { colors: themeColors } = useTheme();
   const [notFound, setNotFound] = useState(false);
 
+  // Bug 23 fix: capture toInternalPath in a ref so it doesn't cause the effect
+  // to re-run on every render (which would create an infinite re-resolve loop).
+  const toInternalPathRef = useRef(toInternalPath);
+  useEffect(() => { toInternalPathRef.current = toInternalPath; });
+
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
@@ -51,7 +56,7 @@ export function SlugRedirect({
         );
         if (cancelled) return;
         if (data?.found && data.id) {
-          router.replace(toInternalPath(data.id) as never);
+          router.replace(toInternalPathRef.current(data.id) as never);
         } else {
           setNotFound(true);
         }
@@ -66,7 +71,8 @@ export function SlugRedirect({
       clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [type, identifier, toInternalPath]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [type, identifier]); // toInternalPath excluded: toInternalPathRef.current always holds latest
 
   return (
     <View style={[styles.container, { backgroundColor: themeColors.background }]}>

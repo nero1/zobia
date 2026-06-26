@@ -250,17 +250,19 @@ export function SwipeDrawer({ children }: SwipeDrawerProps) {
   const canHandle = useSharedValue(false);
 
   const openDrawer = useCallback(() => {
-    translateX.value = withSpring(0, SPRING);
-    backdropOpacity.value = withSpring(1, SPRING);
     isDrawerOpen.value = true;
-    setIsOpen(true);
+    backdropOpacity.value = withSpring(1, SPRING);
+    translateX.value = withSpring(0, SPRING, (finished) => {
+      if (finished) runOnJS(setIsOpen)(true);
+    });
   }, [translateX, backdropOpacity, isDrawerOpen]);
 
   const closeDrawer = useCallback(() => {
-    translateX.value = withSpring(-DRAWER_WIDTH, SPRING);
-    backdropOpacity.value = withSpring(0, SPRING);
     isDrawerOpen.value = false;
-    setIsOpen(false);
+    backdropOpacity.value = withSpring(0, SPRING);
+    translateX.value = withSpring(-DRAWER_WIDTH, SPRING, (finished) => {
+      if (finished) runOnJS(setIsOpen)(false);
+    });
   }, [translateX, backdropOpacity, isDrawerOpen]);
 
   const pan = Gesture.Pan()

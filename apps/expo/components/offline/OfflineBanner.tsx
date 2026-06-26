@@ -45,11 +45,21 @@ export function OfflineBanner({ message }: OfflineBannerProps) {
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
+    // BUG-44 FIX: check current connectivity immediately on mount so the banner
+    // reflects the real state rather than always assuming "online" at startup.
+    NetInfo.fetch().then((state) => {
+      // BUG-50: isInternetReachable is null during the initial connectivity probe —
+      // we treat null as "connected" (optimistic) to avoid false-positive offline
+      // banners on cold start. The sync queue uses a stricter policy. This is intentional.
+      setOffline(state.isInternetReachable === false);
+    }).catch(() => {});
+
     const unsubscribe = NetInfo.addEventListener((state) => {
-      const isOffline =
-        state.isConnected === false || state.isInternetReachable === false;
-      setOffline(isOffline);
-      if (isOffline) setDismissed(false); // a fresh outage re-shows the banner
+      // isInternetReachable is null during initial connectivity probe — we treat null
+      // as "connected" (optimistic) to avoid false-positive offline banners on cold
+      // start. The sync queue uses a stricter policy. This is intentional.
+      setOffline(state.isInternetReachable === false);
+      if (state.isInternetReachable === false) setDismissed(false); // a fresh outage re-shows the banner
     });
     return unsubscribe;
   }, []);

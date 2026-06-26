@@ -15,7 +15,8 @@ interface PinRateLimitResult {
   resetAttempts: () => void;
 }
 
-const MAX_ATTEMPTS = 5;
+export const PIN_MAX_ATTEMPTS = 5;
+const MAX_ATTEMPTS = PIN_MAX_ATTEMPTS;
 const BASE_LOCKOUT_MS = 15 * 60_000; // 15 min
 const MAX_LOCKOUT_MS = 24 * 60 * 60_000; // 24 hours
 

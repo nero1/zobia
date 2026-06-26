@@ -9,9 +9,10 @@
  * @module app/economy/store
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 // FIX-15: Use Decimal.js-based formatting for kobo-to-naira conversions
 import { koboToNairaStr } from '@/lib/utils/currency';
+import Decimal from 'decimal.js';
 import { storage, STORE_KEYS } from '@/lib/offline/store';
 import {
   View,
@@ -37,6 +38,7 @@ import { useTranslation } from 'react-i18next';
 import { useCurrency } from '@/lib/hooks/useCurrency';
 import { translateApiError } from '@/lib/i18n/apiErrors';
 import { purchaseCoins, purchaseStars, COIN_PRODUCTS, STAR_PRODUCTS, initGooglePlayBilling } from '@/lib/payments/googlePlay';
+import { PIN_MAX_ATTEMPTS } from '@/lib/hooks/usePinRateLimit';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -101,7 +103,6 @@ interface BoosterPurchaseResult {
   message?: string;
 }
 
-const PIN_MAX_ATTEMPTS = 5;
 const PIN_LOCKOUT_COUNT_KEY = STORE_KEYS.PIN_LOCKOUT_COUNT;
 
 // ---------------------------------------------------------------------------
@@ -134,9 +135,8 @@ function formatKobo(kobo: number, currencyCode = 'NGN'): string {
   // L-6 FIX: use Decimal.js-based formatter (koboToNairaStr) for all currencies
   // to avoid floating-point precision issues from (kobo / 100).toLocaleString().
   if (currencyCode === 'NGN') return koboToNairaStr(kobo);
-  // For non-NGN currencies, format the major unit amount precisely.
-  // koboToNairaStr is NGN-specific so we replicate its precision logic manually.
-  const major = (kobo / 100).toFixed(2).replace(/\.?0+$/, '');
+  // For non-NGN currencies, use Decimal.js to avoid floating-point precision issues.
+  const major = new Decimal(kobo).div(100).toFixed(2).replace(/\.?0+$/, '');
   return `${Number(major).toLocaleString('en-US')} ${currencyCode}`;
 }
 
@@ -427,15 +427,16 @@ export default function StoreScreen() {
     }
   };
 
-  const submitPin = async () => {
-    if (pinInput.length !== 4 || (!pinPending && !boosterPinPending)) return;
+  // Single shared PIN verification logic (Bug 2 fix: deduplicates submitPin and auto-submit).
+  const verifyPin = useCallback(async (pin: string): Promise<void> => {
+    if (!pinPending && !boosterPinPending) return;
     if (pinLockedUntil !== null && Date.now() < pinLockedUntil) {
       const secsLeft = Math.ceil((pinLockedUntil - Date.now()) / 1000);
       setPinError(`Too many attempts. Try again in ${secsLeft}s.`);
       return;
     }
     try {
-      await apiClient.post('/auth/pin/verify', { pin: pinInput });
+      await apiClient.post('/auth/pin/verify', { pin });
       setPinFailedAttempts(0);
       setPinLockedUntil(null);
       setPinLockoutCount(0);
@@ -449,15 +450,15 @@ export default function StoreScreen() {
         setPinPending(null);
       }
     } catch (err) {
-      // BUG-UX-04 FIX: only increment attempts on 401/403 (wrong PIN), not on
-      // network errors — a user with bad connectivity should not get locked out.
+      // Only increment attempts on auth failures (401/403/422 = wrong PIN),
+      // not on network errors — a user with bad connectivity should not get locked out.
       const status = (err as { response?: { status?: number } })?.response?.status;
       const isAuthFailure = status === 401 || status === 403 || status === 422;
       if (isAuthFailure) {
         const nextAttempts = pinFailedAttempts + 1;
         if (nextAttempts >= PIN_MAX_ATTEMPTS) {
-          // M-9 FIX: exponential backoff — each successive lockout doubles the
-          // window (30s, 60s, 120s … capped at 30 min).
+          // Exponential backoff — each successive lockout doubles the window
+          // (30s, 60s, 120s … capped at 30 min).
           const nextLockoutCount = pinLockoutCount + 1;
           const lockMs = Math.min(30_000 * Math.pow(2, pinLockoutCount), 30 * 60 * 1000);
           setPinLockedUntil(Date.now() + lockMs);
@@ -473,6 +474,11 @@ export default function StoreScreen() {
       }
       setPinInput('');
     }
+  }, [pinPending, boosterPinPending, pinLockedUntil, pinFailedAttempts, pinLockoutCount]);
+
+  const submitPin = async () => {
+    if (pinInput.length !== 4) return;
+    await verifyPin(pinInput);
   };
 
   if (isLoading) {
@@ -614,46 +620,9 @@ export default function StoreScreen() {
                 const cleaned = v.replace(/\D/g, '').slice(0, 4);
                 setPinInput(cleaned);
                 setPinError('');
-                // BUG-UX-05 FIX: auto-submit when the 4th digit is entered
+                // Auto-submit when the 4th digit is entered
                 if (cleaned.length === 4 && (pinPending || boosterPinPending)) {
-                  void (async () => {
-                    if (pinLockedUntil !== null && Date.now() < pinLockedUntil) return;
-                    try {
-                      await apiClient.post('/auth/pin/verify', { pin: cleaned });
-                      setPinFailedAttempts(0);
-                      setPinLockedUntil(null);
-                      setPinLockoutCount(0);
-                      setPinModalVisible(false);
-                      if (boosterPinPending) {
-                        setPurchasingBoosterId(boosterPinPending.boosterId);
-                        boosterMutation.mutate({ boosterType: boosterPinPending.boosterType });
-                        setBoosterPinPending(null);
-                      } else if (pinPending) {
-                        purchaseMutation.mutate(pinPending);
-                        setPinPending(null);
-                      }
-                    } catch (autoErr) {
-                      const status = (autoErr as { response?: { status?: number } })?.response?.status;
-                      const isAuthFailure = status === 401 || status === 403 || status === 422;
-                      if (isAuthFailure) {
-                        const nextAttempts = pinFailedAttempts + 1;
-                        if (nextAttempts >= PIN_MAX_ATTEMPTS) {
-                          const nextLockoutCount = pinLockoutCount + 1;
-                          const lockMs = Math.min(30_000 * Math.pow(2, pinLockoutCount), 30 * 60 * 1000);
-                          setPinLockedUntil(Date.now() + lockMs);
-                          setPinFailedAttempts(0);
-                          setPinLockoutCount(nextLockoutCount);
-                          setPinError(`Too many attempts. Try again in ${Math.ceil(lockMs / 1000)}s.`);
-                        } else {
-                          setPinFailedAttempts(nextAttempts);
-                          setPinError('Incorrect PIN. Please try again.');
-                        }
-                      } else {
-                        setPinError('Network error. Please try again.');
-                      }
-                      setPinInput('');
-                    }
-                  })();
+                  void verifyPin(cleaned);
                 }
               }}
               keyboardType="number-pad"

@@ -55,7 +55,7 @@ export function getPidginSuggestions(input: string, locale: string): string[] {
   const suggestions: string[] = [];
 
   for (const [key, values] of Object.entries(PIDGIN_SUGGESTIONS)) {
-    if (key.startsWith(lower) || lower.endsWith(key)) {
+    if (key.startsWith(lower)) {
       suggestions.push(...values);
     }
     if (suggestions.length >= 3) break;

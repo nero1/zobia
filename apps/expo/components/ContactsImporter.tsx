@@ -104,6 +104,8 @@ export function ContactsImporter({ onDone }: ContactsImporterProps) {
   const [addingIds, setAddingIds] = useState<Set<string>>(new Set());
   const [addErrors, setAddErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  // Bug 49: track whether a successful import has completed to disable re-import
+  const [hasImported, setHasImported] = useState(false);
 
   // Theme-derived colors
   const bg = isDark ? colors.neutral[950] : colors.neutral[50];
@@ -124,11 +126,12 @@ export function ContactsImporter({ onDone }: ContactsImporterProps) {
    * Resets all state so re-running import is idempotent.
    */
   const importContacts = useCallback(async () => {
-    // BUG-LOGIC-05 FIX: reset all state before each import run
+    // BUG-LOGIC-05 FIX: reset all state before each import run.
+    // Bug 49 FIX: do NOT reset `invited` — preserving it across retries prevents
+    // duplicate friend requests when the user re-imports in the same session.
     setStatus('loading');
     setError(null);
     setZobiaContacts([]);
-    setInvited(new Set());
     setAddingIds(new Set());
     setAddErrors({});
 
@@ -177,6 +180,7 @@ export function ContactsImporter({ onDone }: ContactsImporterProps) {
       );
 
       setZobiaContacts(response.data?.contacts ?? []);
+      setHasImported(true);
       setStatus('results');
     } catch (err) {
       console.error('[ContactsImporter]', err);
@@ -222,7 +226,11 @@ export function ContactsImporter({ onDone }: ContactsImporterProps) {
         <Text style={[styles.subtitle, { color: textSecondary }]}>
           See which of your contacts are already here. Only contacts already on Zobia will be shown.
         </Text>
-        <TouchableOpacity style={[styles.primaryButton, { backgroundColor: addBtnBg }]} onPress={importContacts}>
+        <TouchableOpacity
+          style={[styles.primaryButton, { backgroundColor: addBtnBg, opacity: hasImported ? 0.5 : 1 }]}
+          onPress={importContacts}
+          disabled={hasImported}
+        >
           <Text style={[styles.primaryButtonText, { color: addBtnText }]}>Import Contacts</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.skipButton} onPress={() => onDone?.(0)}>

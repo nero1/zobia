@@ -15,7 +15,8 @@
         "env": {
           "APP_ENV": "development",
           "API_BASE_URL": "https://zobia.vercel.app",
-          "EAS_PROJECT_ID": "$EAS_PROJECT_ID"
+          "EAS_PROJECT_ID": "$EAS_PROJECT_ID",
+          "EXPO_PUBLIC_TELEGRAM_BOT_NAME": "ZobiaStagingBot"
         }
       }
     },
@@ -29,7 +30,8 @@
         "env": {
           "APP_ENV": "preview",
           "API_BASE_URL": "https://zobia.vercel.app",
-          "EAS_PROJECT_ID": "$EAS_PROJECT_ID"
+          "EAS_PROJECT_ID": "$EAS_PROJECT_ID",
+          "EXPO_PUBLIC_TELEGRAM_BOT_NAME": "ZobiaStagingBot"
         }
       }
     },

@@ -531,7 +531,8 @@ export default function DMConversationScreen() {
   const { colors: themeColors, isDark } = useTheme();
   const { i18n } = useTranslation();
   const { user: authUser } = useAuth();
-  const myUserId = authUser?.id ?? '';
+  // myUserId is used in hook closures below; may be undefined until auth resolves.
+  const myUserIdOrEmpty = authUser?.id ?? '';
   const currency = useCurrency();
 
   const flatListRef = useRef<FlatList<DM>>(null);
@@ -613,14 +614,14 @@ export default function DMConversationScreen() {
       if (event !== 'new_message') return;
       const raw = (data as { message?: Record<string, unknown> })?.message;
       if (!raw) return;
-      const incoming = mapApiDM(raw, myUserId);
+      const incoming = mapApiDM(raw, myUserIdOrEmpty);
       if (!incoming.id) return;
       queryClient.setQueryData<DM[]>(['dm-messages', conversationId], (prev: DM[] | undefined) => {
         const list = prev ?? [];
         if (list.some((m: DM) => m.id === incoming.id)) return list;
         return [incoming, ...list];
       });
-    }, [conversationId, queryClient]),
+    }, [conversationId, queryClient, myUserIdOrEmpty]),
   );
 
   const { data: messages = [], isLoading } = useQuery({
@@ -628,7 +629,7 @@ export default function DMConversationScreen() {
     queryFn: async () => {
       const prev = queryClient.getQueryData<DM[]>(['dm-messages', conversationId]) ?? [];
       const after = newestCreatedAt(prev);
-      const incoming = await fetchMessages(conversationId!, after, myUserId);
+      const incoming = await fetchMessages(conversationId!, after, myUserIdOrEmpty);
       return after ? mergeNewestFirst(prev, incoming) : incoming;
     },
     enabled: !!conversationId,
@@ -652,7 +653,7 @@ export default function DMConversationScreen() {
       sendDM(conversationId!, content, type, idempotencyKey),
     onMutate: ({ content, type }) => {
       const localId = `pending-${randomUUID()}`;
-      const optimistic = makePendingMessage(content, myUserId, type, localId);
+      const optimistic = makePendingMessage(content, myUserIdOrEmpty, type, localId);
       setPendingMessages((prev) => [optimistic, ...prev]);
       return { optimistic };
     },
@@ -757,15 +758,24 @@ export default function DMConversationScreen() {
     ({ item }: { item: DM }) => (
       <DMBubble
         dm={item}
-        isOwn={item.senderUserId === myUserId}
+        isOwn={item.senderUserId === myUserIdOrEmpty}
         onLongPress={handleLongPress}
         bubbleOwnColor={chatTheme.bubbleOwn}
         bubbleOtherColor={chatTheme.bubbleOther}
       />
     ),
-    [handleLongPress, chatTheme, myUserId],
+    [handleLongPress, chatTheme, myUserIdOrEmpty],
   );
 
+  if (!authUser) {
+    return (
+      <Screen hideOfflineBanner disableBottomInset>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator />
+        </View>
+      </Screen>
+    );
+  }
   return (
     <Screen hideOfflineBanner disableBottomInset>
       <KeyboardAvoidingView
@@ -794,7 +804,7 @@ export default function DMConversationScreen() {
         )}
 
         {/* Message list */}
-        {(isLoading || !authUser) ? (
+        {isLoading ? (
           <ConvSkeleton />
         ) : (
           <FlatList
@@ -807,6 +817,7 @@ export default function DMConversationScreen() {
             contentContainerStyle={styles.messageList}
             showsVerticalScrollIndicator={false}
             scrollEventThrottle={100}
+            accessibilityLabel="Conversation messages"
             onScroll={({ nativeEvent }) => {
               isAtBottomRef.current = nativeEvent.contentOffset.y <= 100;
             }}

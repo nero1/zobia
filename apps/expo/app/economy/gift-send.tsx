@@ -183,7 +183,6 @@ export default function GiftSendScreen() {
 
   // PIN verification state
   const PIN_MAX_ATTEMPTS = 5;
-  const PIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinVerifying, setPinVerifying] = useState(false);
@@ -194,6 +193,10 @@ export default function GiftSendScreen() {
   });
   const [pinLockedUntil, setPinLockedUntil] = useState<number | null>(() => {
     try { const v = storage.getNumber(STORE_KEYS.GIFT_PIN_LOCKED_UNTIL); return v ?? null; } catch { return null; }
+  });
+  // Bug 45/46: track lockout count for exponential backoff
+  const [pinLockoutCount, setPinLockoutCount] = useState(() => {
+    try { return storage.getNumber(STORE_KEYS.GIFT_PIN_LOCKOUT_COUNT) ?? 0; } catch { return 0; }
   });
   const pendingSendParams = useRef<{ giftItemId: string; recipientId: string; roomId?: string; currency?: 'coins' | 'stars' } | null>(null);
 
@@ -206,8 +209,11 @@ export default function GiftSendScreen() {
   const { data: wallet } = useQuery<WalletBalance>({
     queryKey: ['wallet', 'balance'],
     queryFn: async () => {
-      const { data } = await apiClient.get<WalletBalance>('/economy/coins/balance');
-      return data;
+      const [coinsRes, starsRes] = await Promise.all([
+        apiClient.get<{ coins: number }>('/economy/coins/balance'),
+        apiClient.get<{ stars: number }>('/economy/stars/balance').catch(() => ({ data: { stars: 0 } })),
+      ]);
+      return { coins: coinsRes.data.coins ?? 0, stars: starsRes.data.stars ?? 0 };
     },
     staleTime: 30_000,
   });
@@ -260,9 +266,16 @@ export default function GiftSendScreen() {
       return;
     }
     if (pinAttempts >= PIN_MAX_ATTEMPTS) {
-      const lockUntil = Date.now() + PIN_LOCKOUT_MS;
+      const lockCount = pinLockoutCount + 1;
+      const durationMs = Math.min(15 * 60 * 1000 * Math.pow(2, lockCount - 1), 24 * 60 * 60 * 1000);
+      const lockUntil = Date.now() + durationMs;
       setPinLockedUntil(lockUntil);
-      try { storage.set(STORE_KEYS.GIFT_PIN_LOCKED_UNTIL, lockUntil); storage.delete(STORE_KEYS.GIFT_PIN_ATTEMPTS); } catch {}
+      setPinLockoutCount(lockCount);
+      try {
+        storage.set(STORE_KEYS.GIFT_PIN_LOCKED_UNTIL, lockUntil);
+        storage.set(STORE_KEYS.GIFT_PIN_LOCKOUT_COUNT, lockCount);
+        storage.delete(STORE_KEYS.GIFT_PIN_ATTEMPTS);
+      } catch {}
       setPinAttempts(0);
       setPinModalVisible(false);
       setPinInput('');
@@ -285,9 +298,16 @@ export default function GiftSendScreen() {
         try { storage.set(STORE_KEYS.GIFT_PIN_ATTEMPTS, nextAttempts); } catch {}
         const remaining = PIN_MAX_ATTEMPTS - nextAttempts;
         if (remaining <= 0) {
-          const lockUntil = Date.now() + PIN_LOCKOUT_MS;
+          const lockCount = pinLockoutCount + 1;
+          const durationMs = Math.min(15 * 60 * 1000 * Math.pow(2, lockCount - 1), 24 * 60 * 60 * 1000);
+          const lockUntil = Date.now() + durationMs;
           setPinLockedUntil(lockUntil);
-          try { storage.set(STORE_KEYS.GIFT_PIN_LOCKED_UNTIL, lockUntil); storage.delete(STORE_KEYS.GIFT_PIN_ATTEMPTS); } catch {}
+          setPinLockoutCount(lockCount);
+          try {
+            storage.set(STORE_KEYS.GIFT_PIN_LOCKED_UNTIL, lockUntil);
+            storage.set(STORE_KEYS.GIFT_PIN_LOCKOUT_COUNT, lockCount);
+            storage.delete(STORE_KEYS.GIFT_PIN_ATTEMPTS);
+          } catch {}
           setPinAttempts(0);
           setPinModalVisible(false);
           setPinInput('');
@@ -302,10 +322,26 @@ export default function GiftSendScreen() {
       setPinAttempts(0);
       setPinLockedUntil(null);
       try { storage.delete(STORE_KEYS.GIFT_PIN_ATTEMPTS); storage.delete(STORE_KEYS.GIFT_PIN_LOCKED_UNTIL); } catch {}
+      try { storage.delete(STORE_KEYS.GIFT_PIN_LOCKOUT_COUNT); } catch {}
       setPinModalVisible(false);
       setPinInput('');
       if (pendingSendParams.current) {
-        sendMutation.mutate(pendingSendParams.current);
+        // Refresh balance after PIN delay before sending (Bug 40)
+        await queryClient.invalidateQueries({ queryKey: ['wallet', 'balance'] });
+        const freshWallet = queryClient.getQueryData<WalletBalance>(['wallet', 'balance']);
+        const params = pendingSendParams.current;
+        if (freshWallet && selectedGift) {
+          const requiredBalance = params.currency === 'stars'
+            ? (selectedGift.starCost ?? 0)
+            : (selectedGift.coinCost ?? 0);
+          const available = params.currency === 'stars' ? freshWallet.stars : freshWallet.coins;
+          if (available < requiredBalance) {
+            Alert.alert('Insufficient Balance', 'Your balance changed since you selected this gift. Please try again.');
+            pendingSendParams.current = null;
+            return;
+          }
+        }
+        sendMutation.mutate(params);
         pendingSendParams.current = null;
       }
     } catch {
@@ -416,6 +452,7 @@ export default function GiftSendScreen() {
                 setActiveTier(tier.tier);
                 setSelectedGift(null);
               }}
+              accessibilityHint="Shows gifts in this price tier"
               style={[
                 styles.tierTab,
                 {

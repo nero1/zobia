@@ -52,9 +52,10 @@ function stripHtml(html: string): string {
 // BUG-UX-17 FIX: include the modal version in the dismiss key so an updated
 // modal (same ID, bumped version) re-shows to users who dismissed the previous
 // version.
+// Bug 20 fix: use modal.id as the primary key; content-slice fallback removed
+// to prevent key collisions across modals with identical content.
 function getSessionKey(modal: AnnouncementModalData): string {
-  const v = modal.version ?? modal.content.slice(0, 32).replace(/\W/g, '_');
-  return `announcement_modal_dismissed_${modal.id}_v${v}`;
+  return `announcement_dismissed_${modal.id}_${modal.version ?? 'v1'}`;
 }
 
 // ---------------------------------------------------------------------------

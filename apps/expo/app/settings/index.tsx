@@ -16,7 +16,7 @@
  *  - Danger zone: Logout, Delete Account (with confirmation)
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import QRCode from 'react-native-qrcode-svg';
 import {
   Alert,
@@ -710,6 +710,19 @@ export default function SettingsScreen() {
     },
   });
 
+  // BUG-28 FIX: debounce rapid notification toggle calls so only the final state
+  // is sent, matching the ChatPushToggles debounce pattern (400ms).
+  const notifDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debouncedNotifPatch = useCallback((key: string, value: boolean) => {
+    if (notifDebounceRef.current) clearTimeout(notifDebounceRef.current);
+    notifDebounceRef.current = setTimeout(() => {
+      patchMutation.mutate({ notifications: { [key]: value } } as Partial<UserSettings>);
+    }, 400);
+  }, [patchMutation]);
+
+  // BUG-29 FIX: deletePinError state for showing validation errors in the delete modal.
+  const [deletePinError, setDeletePinError] = useState('');
+
   const set = (key: keyof UserSettings, value: UserSettings[keyof UserSettings]) => {
     const patch = { [key]: value } as Partial<UserSettings>;
     setSettings((prev) => ({ ...prev, ...patch }));
@@ -754,8 +767,12 @@ export default function SettingsScreen() {
   };
 
   const handleConfirmDelete = async () => {
-    // BUG-UX-03 FIX: validate that the PIN is exactly 4 digits, not just non-empty
-    if (!deletePin.trim() || !/^\d{4}$/.test(deletePin.trim())) return;
+    // BUG-29 FIX: show a user-visible error instead of silently returning.
+    if (!deletePin || !/^\d{4}$/.test(deletePin.trim())) {
+      setDeletePinError('Please enter your 4-digit PIN');
+      return;
+    }
+    setDeletePinError('');
     setDeletePending(true);
     try {
       await deleteAccount(deletePin.trim());
@@ -844,7 +861,7 @@ export default function SettingsScreen() {
               placeholderTextColor={themeColors.textMuted}
               value={dateOfBirth}
               onChangeText={(v) => { setDateOfBirth(v); if (dobError) setDobError(null); }}
-              keyboardType="numbers-and-punctuation"
+              keyboardType="numeric"
               maxLength={10}
               returnKeyType="done"
               accessibilityLabel="Date of birth in YYYY-MM-DD format"
@@ -901,18 +918,31 @@ export default function SettingsScreen() {
             <Pressable
               key={lang.code}
               onPress={() => {
-                const RTL_CODES = new Set(['ar']);
-                const prevIsRTL = I18nManager.isRTL;
-                const nextIsRTL = RTL_CODES.has(lang.code);
-                set('language', lang.code);
+                // BUG-53 FIX: apply RTL changes and trigger reload only after the
+                // PATCH is confirmed, so a failed save doesn't change the layout.
+                setSettings((prev) => ({ ...prev, language: lang.code }));
                 void i18n.changeLanguage(lang.code);
-                try { getStorage().set(STORE_KEYS.LANGUAGE_PREF, lang.code); } catch {}
-                // BUG-I18N-02 FIX: reload the app when RTL state changes so
-                // React Native's native-side mirroring takes effect.
-                if (prevIsRTL !== nextIsRTL) {
-                  I18nManager.forceRTL(nextIsRTL);
-                  Updates.reloadAsync().catch(() => {});
-                }
+                patchMutation.mutate(
+                  { language: lang.code },
+                  {
+                    onSuccess: async () => {
+                      try { getStorage().set(STORE_KEYS.LANGUAGE_PREF, lang.code); } catch {}
+                      const wasRTL = I18nManager.isRTL;
+                      const willBeRTL = lang.code === 'ar';
+                      if (wasRTL !== willBeRTL) {
+                        I18nManager.forceRTL(willBeRTL);
+                        if (Updates.isAvailable) {
+                          await Updates.reloadAsync();
+                        } else if (__DEV__) {
+                          Alert.alert(
+                            'RTL Change Pending',
+                            'Restart the dev server to apply the RTL layout change.',
+                          );
+                        }
+                      }
+                    },
+                  }
+                );
               }}
               style={[
                 styles.langPill,
@@ -982,7 +1012,8 @@ export default function SettingsScreen() {
                 ...prev,
                 notifications: { ...(prev.notifications ?? {}), [key]: v },
               }));
-              patchMutation.mutate({ notifications: { [key]: v } } as Partial<UserSettings>);
+              // BUG-28 FIX: debounce rapid toggles to avoid request flooding.
+              debouncedNotifPatch(key, v);
             }}
           />
         ))}
@@ -1159,24 +1190,29 @@ export default function SettingsScreen() {
                 {
                   backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100],
                   color: themeColors.text,
-                  borderColor: themeColors.border,
+                  borderColor: deletePinError ? colors.semantic.error : themeColors.border,
                 },
               ]}
               placeholder="PIN"
               placeholderTextColor={themeColors.textMuted}
               value={deletePin}
-              onChangeText={setDeletePin}
+              onChangeText={(v) => { setDeletePin(v); if (deletePinError) setDeletePinError(''); }}
               keyboardType="number-pad"
               maxLength={4}
               secureTextEntry
               returnKeyType="done"
               autoFocus
             />
+            {!!deletePinError && (
+              <Text style={{ color: colors.semantic.error, fontSize: 13, marginTop: -8 }} accessibilityRole="alert">
+                {deletePinError}
+              </Text>
+            )}
             <Button
               label={deletePending ? 'Deleting…' : 'Delete My Account'}
               variant="danger"
               onPress={handleConfirmDelete}
-              disabled={deletePending || !/^\d{4}$/.test(deletePin.trim())}
+              disabled={deletePending}
             />
           </View>
         </View>

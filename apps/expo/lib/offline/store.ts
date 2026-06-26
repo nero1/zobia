@@ -92,7 +92,12 @@ export async function initStore(): Promise<void> {
   });
 }
 
-// Convenience proxy that throws if initStore was not called
+/**
+ * Convenience proxy that throws if initStore was not called.
+ *
+ * @deprecated Prefer {@link getStorage} or the typed helpers ({@link getItem},
+ * {@link setItem}, etc.). Direct proxy access will be removed in a future version.
+ */
 export const storage = new Proxy({} as MMKV, {
   get(_target, prop) {
     const store = _storage;

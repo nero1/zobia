@@ -61,8 +61,13 @@ export function GameWebView({ slug, challengeId, onGameOver }: GameWebViewProps)
 
   const handleMessage = async (e: WebViewMessageEvent) => {
     try {
-      // Origin guard: only process messages from the game origin.
-      if (e.nativeEvent.url && !e.nativeEvent.url.startsWith(gameOrigin)) return;
+      // Origin guard: parse the wrapped message envelope injected by
+      // injectedJavaScriptBeforeContentLoaded and check __origin against the
+      // known game origin. e.nativeEvent.url reflects the *page* URL, not the
+      // postMessage sender, so we rely on the injected wrapper instead.
+      const parsed = JSON.parse(e.nativeEvent.data) as { __origin?: string; __data?: string };
+      if (!parsed.__origin || !parsed.__origin.startsWith(gameOrigin)) return;
+      const rawData = parsed.__data ?? '';
 
       // Rate limit: drop messages that exceed MSG_RATE_LIMIT per second.
       const now = Date.now();
@@ -74,9 +79,9 @@ export function GameWebView({ slug, challengeId, onGameOver }: GameWebViewProps)
       if (msgCountRef.current > MSG_RATE_LIMIT) return;
 
       // Cap payload size to prevent memory exhaustion from malformed messages.
-      if (e.nativeEvent.data.length > 65_536) return;
+      if (rawData.length > 65_536) return;
 
-      const msg = JSON.parse(e.nativeEvent.data) as {
+      const msg = JSON.parse(rawData) as {
         type: string;
         requestId?: string;
         method?: string;
@@ -146,6 +151,15 @@ export function GameWebView({ slug, challengeId, onGameOver }: GameWebViewProps)
     <WebView
       ref={webViewRef}
       source={{ uri }}
+      injectedJavaScriptBeforeContentLoaded={`
+        (function() {
+          var _origPost = window.ReactNativeWebView.postMessage;
+          window.ReactNativeWebView.postMessage = function(data) {
+            _origPost(JSON.stringify({ __origin: window.location.origin, __data: data }));
+          };
+        })();
+        true;
+      `}
       onMessage={handleMessage}
       onNavigationStateChange={(navState: WebViewNavigation) => {
         // Block the WebView from navigating away from the game origin.
