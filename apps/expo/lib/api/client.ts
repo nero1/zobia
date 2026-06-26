@@ -36,6 +36,9 @@ let _cachedToken: string | null = null;
 /** Update the in-memory JWT cache (call from AuthContext on sign-in/out/restore). */
 export function setCachedToken(t: string | null): void { _cachedToken = t; }
 
+/** Read the in-memory JWT cache without touching SecureStore. */
+export function getCachedToken(): string | null { return _cachedToken; }
+
 // ---------------------------------------------------------------------------
 // Auth event emitter
 // ---------------------------------------------------------------------------
@@ -168,6 +171,7 @@ export async function refreshAccessToken(): Promise<string | null> {
           const updatedUser = {
             id: (me.id ?? me.user_id ?? '') as string,
             username: (me.username ?? '') as string,
+            displayName: (me.displayName ?? me.display_name ?? '') as string,
             avatarEmoji: (me.avatarEmoji ?? me.avatar_emoji ?? '') as string,
             city: (me.city ?? '') as string,
             xp: Number(me.xp ?? me.xp_total ?? 0),

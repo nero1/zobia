@@ -28,7 +28,7 @@ import { Button } from '@/components/ui/Button';
 import { Avatar } from '@/components/ui/Avatar';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
-import { STORE_KEYS, setItem } from '@/lib/offline/store';
+import { STORE_KEYS, setItem, getItem, removeItem } from '@/lib/offline/store';
 import { apiClient } from '@/lib/api/client';
 import {
   getPendingReferralCode,
@@ -54,9 +54,7 @@ export default function WelcomeDrop() {
     emoji: string;
     city: string;
     vibeAnswers: string;
-    birthYear: string;
-    birthMonth: string;
-    birthDay: string;
+    // birthYear/Month/Day are NOT in params — M-6 fix reads them from MMKV draft
   }>();
 
   // -------------------------------------------------------------------------
@@ -72,11 +70,17 @@ export default function WelcomeDrop() {
   /** CTA fade in last */
   const ctaOpacity = useSharedValue(0);
 
-  const { username, emoji, city, vibeAnswers: vibeAnswersParam, birthYear, birthMonth, birthDay } = params;
+  const { username, emoji, city, vibeAnswers: vibeAnswersParam } = params;
 
   useEffect(() => {
     // Persist onboarding data to the server.
     const vibeAnswers = vibeAnswersParam ? JSON.parse(vibeAnswersParam) : {};
+    // M-6 FIX: read DOB from MMKV draft (written in index.tsx) so PII never
+    // travels through URL params.
+    const draftDob = getItem<{ birthYear?: string; birthMonth?: string; birthDay?: string }>(
+      STORE_KEYS.ONBOARDING_DRAFT, {}
+    );
+    const { birthYear, birthMonth, birthDay } = draftDob;
     // Replay any referral code captured from a ?r= deep/universal link.
     let referralCode: string | null = null;
     try {
@@ -90,7 +94,7 @@ export default function WelcomeDrop() {
         display_name: username,
         avatar_emoji: emoji,
         city: city,
-        birth_year: parseInt(birthYear ?? '0', 10),
+        birth_year: birthYear ? parseInt(birthYear, 10) : undefined,
         birth_month: birthMonth ? parseInt(birthMonth, 10) : undefined,
         birth_day: birthDay ? parseInt(birthDay, 10) : undefined,
         vibe_quiz_responses: vibeAnswers,
@@ -99,6 +103,8 @@ export default function WelcomeDrop() {
       .then(() => {
         // Mark onboarding complete only after server confirms it.
         setItem(STORE_KEYS.ONBOARDING_COMPLETE, true);
+        // Clear DOB draft now that the server has recorded it.
+        removeItem(STORE_KEYS.ONBOARDING_DRAFT);
         // Attribution recorded — clear so a later organic signup on this
         // device is not misattributed to the same referrer.
         clearPendingReferralCode();
@@ -123,7 +129,7 @@ export default function WelcomeDrop() {
       1000,
       withTiming(1, { duration: 400, easing: Easing.out(Easing.quad) }),
     );
-  }, [avatarScale, xpOpacity, xpScale, ctaOpacity, username, emoji, city, vibeAnswersParam, birthYear]);
+  }, [avatarScale, xpOpacity, xpScale, ctaOpacity, username, emoji, city, vibeAnswersParam]);
 
   const avatarAnimStyle = useAnimatedStyle(() => ({
     transform: [{ scale: avatarScale.value }],

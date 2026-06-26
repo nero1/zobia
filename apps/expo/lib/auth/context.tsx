@@ -165,7 +165,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (newAccessToken) {
             setCachedToken(newAccessToken);
             setToken(newAccessToken);
-            setUser(parsedUser);
+            // H-5 FIX: refreshAccessToken() already calls notifyUserUpdated() with
+            // a fresh user fetched from /users/me. Reading from SecureStore here
+            // gives us the just-written fresh user rather than re-applying stale
+            // parsedUser and overwriting what notifyUserUpdated already set.
+            const freshUserJson = await SecureStore.getItemAsync('zobia_user').catch(() => null);
+            const freshUser = freshUserJson ? (JSON.parse(freshUserJson) as AuthUser | null) : null;
+            setUser(freshUser ?? parsedUser);
           }
         } else {
           setCachedToken(storedToken);

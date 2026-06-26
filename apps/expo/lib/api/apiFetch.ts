@@ -9,9 +9,8 @@
  * affected every fetch call in the process including third-party SDKs.
  */
 
-import * as SecureStore from 'expo-secure-store';
 import { env } from '@/lib/env';
-import { JWT_KEY } from '@/lib/api/client';
+import { getCachedToken, refreshAccessToken, setCachedToken } from '@/lib/api/client';
 
 /** Total number of attempts for transient network failures (1 initial + 3 retries). */
 const MAX_ATTEMPTS = 4;
@@ -51,12 +50,13 @@ export async function apiFetch(
     headers.set('Origin', env.API_BASE_URL);
   }
   if (!headers.has('Authorization')) {
-    const token = await SecureStore.getItemAsync(JWT_KEY).catch(() => null);
+    const token = getCachedToken();
     if (token) headers.set('Authorization', `Bearer ${token}`);
   }
 
   const requestInit = { ...init, headers };
   let lastError: unknown;
+  let didRefresh = false;
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     if (attempt > 0) {
@@ -67,6 +67,21 @@ export async function apiFetch(
     }
     try {
       const response = await fetch(input, requestInit);
+
+      // H-4 FIX: on 401, attempt a silent token refresh once then retry the request.
+      if (response.status === 401 && !didRefresh) {
+        didRefresh = true;
+        const newToken = await refreshAccessToken();
+        if (newToken) {
+          setCachedToken(newToken);
+          requestInit.headers = new Headers(requestInit.headers as HeadersInit);
+          (requestInit.headers as Headers).set('Authorization', `Bearer ${newToken}`);
+          continue;
+        }
+        // Refresh failed — return the 401 as-is so callers can handle it.
+        return response;
+      }
+
       if (attempt < MAX_ATTEMPTS - 1 && isRetryableStatus(response.status, init?.method)) {
         lastError = new Error(`HTTP ${response.status}`);
         continue;

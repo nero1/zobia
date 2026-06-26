@@ -44,6 +44,7 @@ import {
 } from 'react-native-iap';
 import { apiClient } from '@/lib/api/client';
 import { randomUUID } from 'expo-crypto';
+import { getItem, setItem, STORE_KEYS } from '@/lib/offline/store';
 
 const APP_PACKAGE_NAME = 'org.zobia.social';
 
@@ -339,6 +340,16 @@ function setupGlobalPurchaseListeners(): void {
         await finishTransaction({ purchase, isConsumable: !isSubscription });
       } catch (finishErr) {
         console.warn('[googlePlay] finishTransaction failed:', finishErr);
+      }
+      // H-2 FIX: persist the purchase token for subscriptions so upgrades/
+      // downgrades can use subscriptionReplacementInfo with the old token instead
+      // of the deprecated replaceSku field (Play Billing v5+).
+      if (isSubscription && purchaseToken) {
+        try {
+          const tokens = getItem<Record<string, string>>(STORE_KEYS.ACTIVE_SUB_TOKENS, {});
+          tokens[productId] = purchaseToken;
+          setItem(STORE_KEYS.ACTIVE_SUB_TOKENS, tokens);
+        } catch {}
       }
       resolver({
         status: 'success',
@@ -646,7 +657,9 @@ export async function getSubscriptionProducts(annual = false): Promise<Subscript
 export async function purchaseSubscription(
   productId: string,
   /** Product ID of the subscription being replaced (for plan upgrades/downgrades). */
-  oldProductId?: string
+  oldProductId?: string,
+  /** Purchase token of the old subscription (required for Play Billing v5+ upgrades). */
+  oldPurchaseToken?: string
 ): Promise<{
   success: boolean;
   plan?: string;
@@ -714,14 +727,16 @@ export async function purchaseSubscription(
 
     requestSubscription({
       subscriptionOffers: [{ sku: productId, offerToken: resolvedOfferToken }],
-      // BUG-PAY-02 FIX: pass replacement info for upgrades/downgrades so Play
-      // Billing can prorate correctly instead of creating a parallel subscription.
-      ...(oldProductId
+      // H-2 FIX: Play Billing v5+ (react-native-iap ≥ 12) uses
+      // subscriptionReplacementInfo with oldPurchaseToken instead of the
+      // deprecated replaceSku / prorationMode pair.
+      // CHARGE_ON_NEXT_BILLING_CYCLE (2) lets the current plan finish before switching.
+      ...(oldProductId && oldPurchaseToken
         ? {
-            replaceSku: oldProductId,
-            // CHARGE_ON_NEXT_BILLING_CYCLE (2) lets the current plan run until
-            // the next renewal date before switching — avoids immediate charges.
-            prorationMode: 2,
+            subscriptionReplacementInfo: {
+              oldPurchaseToken,
+              prorationMode: 2,
+            },
           }
         : {}),
     }).catch((err: unknown) => {
@@ -750,5 +765,21 @@ export async function purchaseSubscription(
     return await Promise.race([purchasePromise, timeoutPromise]);
   } finally {
     clearTimeout(subTimeoutId!);
+  }
+}
+
+/**
+ * Return the stored purchase token for the given subscription product ID, or
+ * undefined if no token has been persisted yet (first-time purchase).
+ *
+ * Used by callers of purchaseSubscription() to supply the oldPurchaseToken
+ * required by Play Billing v5+ subscription replacement flows (H-2 fix).
+ */
+export function getActiveSubscriptionToken(productId: string): string | undefined {
+  try {
+    const tokens = getItem<Record<string, string>>(STORE_KEYS.ACTIVE_SUB_TOKENS, {});
+    return tokens[productId];
+  } catch {
+    return undefined;
   }
 }

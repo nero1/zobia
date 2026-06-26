@@ -155,6 +155,10 @@ async function registerForPushNotifications(): Promise<void> {
   // with the EAS build infrastructure. Without projectId, this call is
   // deprecated since Expo SDK 47 and will fail in production EAS builds.
   const projectId = Constants.expoConfig?.extra?.eas?.projectId as string | undefined;
+  // L-8 FIX: warn early so developers notice missing EAS config in staging builds.
+  if (!projectId) {
+    console.warn('[push] EAS projectId not found in expoConfig.extra.eas — push tokens may fail in production builds');
+  }
   const tokenData = await Notifications.getExpoPushTokenAsync(
     projectId ? { projectId } : undefined
   );
@@ -197,6 +201,12 @@ function RootLayoutNav() {
   const [storeReady, setStoreReady] = useState(false);
   const isLoadingRef = useRef(isLoading);
   useEffect(() => { isLoadingRef.current = isLoading; });
+  // M-10 FIX: ref so the notification listener can guard against routing before
+  // the user session is restored (not just before auth loading finishes).
+  const userRef = useRef(user);
+  useEffect(() => { userRef.current = user; }, [user]);
+  // C-4 FIX: hold a cold-start notification action until the nav tree is ready.
+  const pendingNotifAction = useRef<string | null>(null);
   const notificationListener = useRef<Notifications.Subscription | null>(null);
   const responseListener = useRef<Notifications.Subscription | null>(null);
 
@@ -227,12 +237,16 @@ function RootLayoutNav() {
       } finally {
         if (active) setStoreReady(true);
       }
+      // C-4 FIX: capture the cold-start notification action now but do NOT
+      // navigate immediately — the nav tree hasn't rendered yet. The effect
+      // below (keyed on isLoading + storeReady + user) will fire the navigation
+      // once auth is resolved and the tree is mounted.
       const lastResponse = await Notifications.getLastNotificationResponseAsync();
       if (lastResponse) {
         const data = lastResponse.notification.request.content.data as Record<string, unknown>;
         const action = data?.action as string | undefined;
         if (action && VALID_PUSH_ROUTES.some((re) => re.test(action))) {
-          try { router.push(action as Parameters<typeof router.push>[0]); } catch {}
+          pendingNotifAction.current = action;
         }
       }
     })();
@@ -252,6 +266,20 @@ function RootLayoutNav() {
       SplashScreen.hideAsync();
     }
   }, [isLoading, storeReady]);
+
+  // C-4 FIX: fire any cold-start notification navigation once the nav tree is
+  // mounted and the user session is confirmed (auth done + user present).
+  useEffect(() => {
+    if (isLoading || !storeReady || !user) return;
+    const action = pendingNotifAction.current;
+    if (!action) return;
+    pendingNotifAction.current = null;
+    try {
+      routerRef.current.push(action as Parameters<typeof router.push>[0]);
+    } catch (err) {
+      console.warn('[push] Cold-start notification navigation failed:', action, err);
+    }
+  }, [isLoading, storeReady, user, router]);
 
   // BUG-CRIT-01: Auth gate — redirect unauthenticated users to the login screen.
   useEffect(() => {
@@ -311,9 +339,9 @@ function RootLayoutNav() {
     // Handle taps on notifications (app in background or killed)
     responseListener.current = Notifications.addNotificationResponseReceivedListener(
       (response) => {
-        // Defer navigation until auth state has resolved to prevent navigating
-        // to a protected route before the token/user is available (BUG-NAV-02).
-        if (isLoadingRef.current) return;
+        // M-10 FIX: guard on both loading state and user presence so taps on
+        // notifications can never route to protected screens when logged out.
+        if (isLoadingRef.current || !userRef.current) return;
 
         const data = response.notification.request.content.data as Record<string, unknown>;
         const action = data?.action as string | undefined;

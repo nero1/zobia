@@ -21,11 +21,9 @@ import {
   StyleSheet,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { storage } from '@/lib/offline/store';
 import { useCurrency } from '@/lib/hooks/useCurrency';
 import { translateApiError } from '@/lib/i18n/apiErrors';
-
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? '';
+import { apiClient } from '@/lib/api/client';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -86,18 +84,16 @@ export default function AdminRefundsScreen() {
   const LIMIT = 30;
 
   async function loadRefunds(newOffset: number, replace: boolean, currentStatus: StatusFilter) {
-    const token = storage.getString('authToken');
-    const res = await fetch(
-      `${API_BASE}/api/admin/refunds?status=${currentStatus}&limit=${LIMIT}&offset=${newOffset}`,
-      { headers: token ? { Authorization: `Bearer ${token}` } : {} }
-    ).catch(() => null);
-
-    if (res?.ok) {
-      const data = await res.json();
+    try {
+      const { data } = await apiClient.get(
+        `/admin/refunds?status=${currentStatus}&limit=${LIMIT}&offset=${newOffset}`
+      );
       const fetched: Refund[] = data.data?.refunds ?? [];
       setRefunds((prev) => (replace ? fetched : [...prev, ...fetched]));
       setTotal(data.data?.total ?? 0);
       setOffset(newOffset + fetched.length);
+    } catch {
+      // Non-fatal — leave existing list in place
     }
     setLoading(false);
     setRefreshing(false);
@@ -143,23 +139,13 @@ export default function AdminRefundsScreen() {
     }
 
     setIssuing(true);
-    const token = storage.getString('authToken');
-    const res = await fetch(`${API_BASE}/api/admin/refunds`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({
+    try {
+      const { data } = await apiClient.post('/admin/refunds', {
         userId: issueUserId.trim(),
         amountCoins: amountNum,
         reason: issueReason.trim(),
         referenceId: issueRef.trim(),
-      }),
-    }).catch(() => null);
-
-    if (res?.ok) {
-      const data = await res.json();
+      });
       Alert.alert(
         'Refund Issued',
         `${data.data?.amountRefunded ?? amountNum} ${currency.softPlural.toLowerCase()} refunded to @${data.data?.username ?? issueUserId}.`
@@ -169,12 +155,13 @@ export default function AdminRefundsScreen() {
       setIssueAmount('');
       setIssueReason('');
       setIssueRef('');
-      // Reload list
       setOffset(0);
       void loadRefunds(0, true, statusFilter);
-    } else {
-      const err = await res?.json().catch(() => null);
-      Alert.alert('Error', translateApiError(t, err?.error?.code, err?.error?.message ?? 'Failed to issue refund.'));
+    } catch (err: unknown) {
+      const apiErr = err as { response?: { data?: { error?: { code?: string; message?: string } } } };
+      const code = apiErr?.response?.data?.error?.code;
+      const msg = apiErr?.response?.data?.error?.message;
+      Alert.alert('Error', translateApiError(t, code, msg ?? 'Failed to issue refund.'));
     }
     setIssuing(false);
   }

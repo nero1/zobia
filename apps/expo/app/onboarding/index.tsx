@@ -28,6 +28,7 @@ import { Input } from '@/components/ui/Input';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
+import { setItem, STORE_KEYS } from '@/lib/offline/store';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -86,9 +87,13 @@ function validateUsername(value: string): string | undefined {
 
 function validateBirthYear(value: string): string | undefined {
   const currentYear = new Date().getFullYear();
+  // L-5 FIX: cap at (currentYear - MINIMUM_AGE) so a user who hasn't turned
+  // 18 yet this calendar year cannot bypass the age check with a birth year
+  // that, combined with a later month/day, would make them under 18.
+  const maxBirthYear = currentYear - MINIMUM_AGE;
   if (!value.trim()) return 'Year of birth is required';
   const yr = parseInt(value.trim(), 10);
-  if (isNaN(yr) || yr < 1900 || yr > currentYear) return `Enter a valid year between 1900 and ${currentYear}`;
+  if (isNaN(yr) || yr < 1900 || yr > maxBirthYear) return `Enter a valid year between 1900 and ${maxBirthYear}`;
   return undefined;
 }
 
@@ -162,8 +167,10 @@ export default function OnboardingStep1() {
     try {
       const numbers = await requestAndFetchContacts();
       if (numbers.length > 0) {
-        // Fire-and-forget — we just want to notify the server
-        apiClient
+        // L-7 FIX: await the API call so we can show 'done' only after the
+        // server has actually received the list. Errors are swallowed so the
+        // onboarding flow is never blocked by a transient network failure.
+        await apiClient
           .post('/friends/contacts-check', { phoneNumbers: numbers })
           .catch(() => {});
       }
@@ -196,15 +203,21 @@ export default function OnboardingStep1() {
       return;
     }
 
+    // M-6 FIX: write DOB to MMKV draft so PII never travels through URL params
+    // (which can appear in analytics, crash reports, and navigation logs).
+    setItem(STORE_KEYS.ONBOARDING_DRAFT, {
+      birthYear: birthYear.trim(),
+      birthMonth: birthMonth.trim(),
+      birthDay: birthDay.trim(),
+    });
+
     router.push({
       pathname: '/onboarding/vibe-quiz',
       params: {
         username: username.trim(),
         emoji: selectedEmoji,
         city: city.trim(),
-        birthYear: birthYear.trim(),
-        birthMonth: birthMonth.trim(),
-        birthDay: birthDay.trim(),
+        // birthYear/Month/Day intentionally omitted — read from MMKV in welcome-drop
       },
     });
   }

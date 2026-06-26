@@ -22,6 +22,7 @@ import { useAuth } from '@/lib/auth/hooks';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
+import { storage, STORE_KEYS } from '@/lib/offline/store';
 import type { AuthUser } from '@/lib/auth/context';
 
 // ---------------------------------------------------------------------------
@@ -45,12 +46,23 @@ export default function TwoFactorScreen() {
   const [loading, setLoading] = useState(false);
   const [resolvingToken, setResolvingToken] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [lockedOut, setLockedOut] = useState(false);
+  const [lockedOut, setLockedOut] = useState(() => {
+    // M-2 FIX: restore lockout state from MMKV so it survives app restarts.
+    try {
+      const until = storage.getNumber(STORE_KEYS.TOTP_LOCKED_UNTIL) ?? 0;
+      return until > Date.now();
+    } catch { return false; }
+  });
 
   // The actual pre-auth JWT resolved from the opaque preAuthCode.
   const preAuthTokenRef = useRef<string | null>(null);
-  // Track failed attempts without triggering re-renders.
+  // M-2 FIX: persist attempt count to MMKV so lockout survives app restarts.
+  // useRef starts at 0 and is hydrated from MMKV on mount (synchronous read,
+  // only matters for event handlers so the timing is fine).
   const totpAttemptsRef = useRef(0);
+  useEffect(() => {
+    try { totpAttemptsRef.current = storage.getNumber(STORE_KEYS.TOTP_ATTEMPTS) ?? 0; } catch {}
+  }, []);
 
   // -------------------------------------------------------------------------
   // Step 1: Exchange the opaque deep-link code for the real pre-auth JWT.
@@ -125,7 +137,13 @@ export default function TwoFactorScreen() {
 
       if (!data.success) {
         totpAttemptsRef.current += 1;
+        try { storage.set(STORE_KEYS.TOTP_ATTEMPTS, totpAttemptsRef.current); } catch {}
         if (totpAttemptsRef.current >= TOTP_MAX_ATTEMPTS) {
+          const lockUntil = Date.now() + 15 * 60 * 1000; // 15-minute lockout
+          try {
+            storage.set(STORE_KEYS.TOTP_LOCKED_UNTIL, lockUntil);
+            storage.delete(STORE_KEYS.TOTP_ATTEMPTS);
+          } catch {}
           setLockedOut(true);
           setError(t('auth.twoFaVerify.lockedOut'));
         } else {
@@ -148,7 +166,13 @@ export default function TwoFactorScreen() {
       }
     } catch (err) {
       totpAttemptsRef.current += 1;
+      try { storage.set(STORE_KEYS.TOTP_ATTEMPTS, totpAttemptsRef.current); } catch {}
       if (totpAttemptsRef.current >= TOTP_MAX_ATTEMPTS) {
+        const lockUntil = Date.now() + 15 * 60 * 1000;
+        try {
+          storage.set(STORE_KEYS.TOTP_LOCKED_UNTIL, lockUntil);
+          storage.delete(STORE_KEYS.TOTP_ATTEMPTS);
+        } catch {}
         setLockedOut(true);
         setError(t('auth.twoFaVerify.lockedOut'));
       } else {

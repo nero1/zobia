@@ -522,9 +522,15 @@ export default function RoomScreen() {
                 }
           );
         }
+        // L-1 FIX: evict all excess entries in one pass rather than one-by-one
+        // so a large batch can't grow the Set past the intended cap.
         if (prevMessageIdsRef.current.size >= 500) {
-          const first = prevMessageIdsRef.current.values().next().value;
-          if (first !== undefined) prevMessageIdsRef.current.delete(first);
+          const toRemove = prevMessageIdsRef.current.size - 499;
+          const it = prevMessageIdsRef.current.values();
+          for (let i = 0; i < toRemove; i++) {
+            const next = it.next();
+            if (!next.done) prevMessageIdsRef.current.delete(next.value);
+          }
         }
         prevMessageIdsRef.current.add(msg.id);
       }

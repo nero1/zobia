@@ -95,13 +95,12 @@ export default function VibeQuiz() {
   const { t } = useTranslation();
   const { isDark } = useTheme();
   const router = useRouter();
+  // M-6: birthYear/Month/Day are no longer in params — they are persisted to
+  // MMKV in index.tsx and read directly in welcome-drop.tsx.
   const params = useLocalSearchParams<{
     username: string;
     emoji: string;
     city: string;
-    birthYear: string;
-    birthMonth: string;
-    birthDay: string;
   }>();
 
   const questions = useQuizQuestions();

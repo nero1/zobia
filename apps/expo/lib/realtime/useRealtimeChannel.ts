@@ -48,6 +48,10 @@ export function useRealtimeChannel(
     };
 
     (async () => {
+      // M-1 FIX: track client reference outside the try block so it can be
+      // closed in the catch path if an error is thrown after connection opens.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let ablyClient: any = null;
       try {
         // Metro resolves this at runtime; require() avoids the ES2015 dynamic-import
         // constraint of the Expo tsconfig (module defaults to ES2015 here).
@@ -70,6 +74,7 @@ export function useRealtimeChannel(
           },
         });
 
+        ablyClient = client;
         client.connection.on((stateChange: { current: string }) => {
           markConnected(stateChange.current === 'connected');
         });
@@ -97,6 +102,11 @@ export function useRealtimeChannel(
           client.close();
         };
       } catch (err) {
+        // M-1 FIX: if client was created before the error was thrown, close it
+        // so the underlying WebSocket is not leaked.
+        if (ablyClient) {
+          try { ablyClient.close(); } catch {}
+        }
         // SDK missing / failed to init — stay on the poll fallback.
         console.warn('[realtime] Ably init failed; using poll fallback', err);
       }
