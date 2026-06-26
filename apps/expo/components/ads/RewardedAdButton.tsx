@@ -123,6 +123,7 @@ export function RewardedAdButton({ onRewarded, disabled }: RewardedAdButtonProps
       }`}
       onPress={handleWatchAd}
       disabled={isDisabled}
+      accessibilityHint={adsWatched >= AD_DAILY_CAP ? undefined : `Watch a short ad to earn ${currency.softPlural}`}
     >
       {loading ? (
         <ActivityIndicator size="small" color="white" />

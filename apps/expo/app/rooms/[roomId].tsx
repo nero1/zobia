@@ -16,6 +16,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
 import { randomUUID } from 'expo-crypto';
 import {
   ActivityIndicator,
@@ -559,23 +560,22 @@ export default function RoomScreen() {
     refetchInterval: 30_000,
   });
 
-  // Live presence heartbeat + soft-cap admission. Beats on mount and every 45s;
-  // Redis frees the slot automatically on close/idle. When not admitted (room
-  // full) we surface a banner and stop subscribing to realtime.
-  useEffect(() => {
-    if (!roomId) return;
-    if (!isMember) return;
-    let cancelled = false;
-    const beat = async () => {
-      try {
-        const { data } = await apiClient.post(`/rooms/${roomId}/presence`);
-        if (!cancelled) setRoomFull(!data?.admitted);
-      } catch { /* fails open server-side */ }
-    };
-    void beat();
-    const id = setInterval(() => void beat(), 45_000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [roomId, isMember]);
+  // BUG-35 FIX: use useFocusEffect so the heartbeat stops when the screen is
+  // backgrounded/unfocused and restarts when the user returns to this screen.
+  useFocusEffect(
+    useCallback(() => {
+      if (!roomId || !isMember) return;
+      const sendPresence = async () => {
+        try {
+          const { data } = await apiClient.post(`/rooms/${roomId}/presence`);
+          setRoomFull(!data?.admitted);
+        } catch { /* fails open server-side */ }
+      };
+      void sendPresence();
+      const interval = setInterval(() => void sendPresence(), 45_000);
+      return () => clearInterval(interval);
+    }, [roomId, isMember])
+  );
 
   // Persist latest messages for instant first paint on reopen.
   useEffect(() => {

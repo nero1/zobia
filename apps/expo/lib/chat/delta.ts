@@ -25,21 +25,33 @@ export function newestCreatedAt(list: { createdAt?: string }[]): string | undefi
 
 /** Merge incoming messages into prev (dedupe by id), sorted newest-first. */
 export function mergeNewestFirst<T extends { id: string; createdAt: string }>(
-  prev: T[],
+  existing: T[],
   incoming: T[],
 ): T[] {
-  const seen = new Set(prev.map((m) => m.id));
-  const merged = prev.slice();
-  for (const m of incoming) {
-    if (m && m.id && !seen.has(m.id)) {
-      merged.push(m);
-      seen.add(m.id);
-    }
+  if (!incoming.length) return existing;
+  if (!existing.length) {
+    return [...incoming].sort((a, b) =>
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
   }
-  // BUG-PERF-02 FIX: Schwartzian transform — parse each date once instead of
-  // calling Date.parse() twice per comparison (O(n log n) → O(n log n) but with
-  // much fewer Date.parse calls: n instead of 2·n·log(n)).
-  const withTs = merged.map((m) => ({ m, t: Date.parse(m.createdAt) }));
-  withTs.sort((a, b) => b.t - a.t);
-  return withTs.map(({ m }) => m);
+  // existing is already sorted newest-first (descending); binary-insert each
+  // incoming message to avoid a full re-sort on every delta fetch.
+  const result = [...existing];
+  for (const msg of incoming) {
+    if (!msg || !msg.id) continue;
+    const msgTime = new Date(msg.createdAt).getTime();
+    // Binary search for insertion point (descending order: larger time = earlier index)
+    let lo = 0;
+    let hi = result.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (new Date(result[mid]!.createdAt).getTime() > msgTime) lo = mid + 1;
+      else hi = mid;
+    }
+    // Check for duplicate id at and around insertion point
+    if (lo < result.length && result[lo]!.id === msg.id) continue;
+    if (lo > 0 && result[lo - 1]!.id === msg.id) continue;
+    result.splice(lo, 0, msg);
+  }
+  return result;
 }
