@@ -5,6 +5,7 @@
     "error": "Something don go wrong",
     "retry": "Try Again",
     "cancel": "Cancel",
+    "confirm": "Confirm",
     "save": "Save",
     "next": "Next",
     "back": "Back",
@@ -80,7 +81,8 @@
     "step3Subtitle": "Welcome to Zobia Social",
     "xpEarned": "+500 XP",
     "xpDescription": "For completing onboarding",
-    "getStarted": "Start exploring"
+    "getStarted": "Start exploring",
+    "completeError": "E get error when dem dey finish your profile. Abeg try again."
   },
   "home": {
     "title": "Zobia Social",
@@ -293,7 +295,9 @@
     "boosterComingSoonBody": "Booster go dey available for next update.",
     "buy": "Buy",
     "enterPin": "Enter PIN",
-    "enterPinBody": "Enter your 4-digit PIN to authorise this purchase"
+    "enterPinBody": "Enter your 4-digit PIN to authorise this purchase",
+    "confirmTitle": "Confirm Buy",
+    "confirmBody": "You sure say you want continue dis buy?"
   },
   "seasons": {
     "title": "Season",

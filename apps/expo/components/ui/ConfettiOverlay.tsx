@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { Animated, StyleSheet, View, Dimensions } from 'react-native';
-
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+import { Animated, StyleSheet, View, useWindowDimensions } from 'react-native';
 
 const COLORS = ['#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ef4444', '#f97316', '#ec4899', '#06b6d4'];
 
@@ -21,16 +19,18 @@ interface Props {
 }
 
 export function ConfettiOverlay({ onDone }: Props) {
-  // BUG-MED-09: Stabilise onDone via a ref so the animation effect never
-  // needs to list it as a dependency — avoids restarting the animation every
-  // time the parent re-renders.
+  // Use live window dimensions so the overlay works correctly after orientation
+  // changes and on first render when Dimensions.get('window') may not yet reflect
+  // the real screen size (BUG-017 fix).
+  const { width, height } = useWindowDimensions();
+
   const onDoneRef = useRef(onDone);
   useEffect(() => { onDoneRef.current = onDone; }, [onDone]);
   const stableOnDone = useCallback(() => onDoneRef.current(), []);
 
   const particles = useRef<Particle[]>(
     Array.from({ length: 40 }, (_, i) => ({
-      x: Math.random() * SCREEN_WIDTH,
+      x: Math.random() * width,
       startY: -20,
       color: COLORS[i % COLORS.length],
       size: 7 + Math.random() * 7,
@@ -51,7 +51,7 @@ export function ConfettiOverlay({ onDone }: Props) {
         Animated.sequence([
           Animated.delay(delay),
           Animated.timing(p.translateY, {
-            toValue: SCREEN_HEIGHT + 100,
+            toValue: height + 100,
             duration,
             useNativeDriver: true,
           }),
@@ -87,7 +87,7 @@ export function ConfettiOverlay({ onDone }: Props) {
     master.start(() => stableOnDone());
 
     return () => master.stop();
-  }, [stableOnDone, particles]);
+  }, [stableOnDone, particles, height]);
 
   return (
     <View style={styles.container} pointerEvents="none">

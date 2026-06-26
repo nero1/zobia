@@ -239,14 +239,19 @@ function XPBadge({ visible }: { visible: boolean }) {
 // Countdown timer (Drop rooms)
 // ---------------------------------------------------------------------------
 
-function CountdownTimer({ endsAt }: { endsAt: string }) {
+function CountdownTimer({ endsAt, onExpired }: { endsAt: string; onExpired?: () => void }) {
   const [remaining, setRemaining] = useState('');
+  const expiredFiredRef = useRef(false);
 
   useEffect(() => {
     const update = () => {
       const diff = new Date(endsAt).getTime() - Date.now();
       if (diff <= 0) {
         setRemaining('Ended');
+        if (!expiredFiredRef.current) {
+          expiredFiredRef.current = true;
+          onExpired?.();
+        }
         return;
       }
       const h = Math.floor(diff / 3_600_000);
@@ -257,7 +262,7 @@ function CountdownTimer({ endsAt }: { endsAt: string }) {
     update();
     const id = setInterval(update, 1_000);
     return () => clearInterval(id);
-  }, [endsAt]);
+  }, [endsAt, onExpired]);
 
   return (
     <View style={styles.dropBanner}>
@@ -913,7 +918,12 @@ export default function RoomScreen() {
         {/* Drop banner */}
         {room?.roomType === 'drop' && (
           <View>
-            {room.dropEndsAt ? <CountdownTimer endsAt={room.dropEndsAt} /> : null}
+            {room.dropEndsAt ? (
+              <CountdownTimer
+                endsAt={room.dropEndsAt}
+                onExpired={() => queryClient.invalidateQueries({ queryKey: ['room', roomId] })}
+              />
+            ) : null}
             {room.entryFeeCoin !== null && (
               <View style={styles.entryFee}>
                 <Text style={styles.entryFeeText}>

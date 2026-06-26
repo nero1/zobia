@@ -83,9 +83,17 @@ export default function LoginScreen() {
     const url = event.url;
     let isValidCallback = false;
     try {
-      const parsedUrl = new URL(url);
-      const expectedOrigin = new URL(env.API_BASE_URL).origin;
-      isValidCallback = parsedUrl.origin === expectedOrigin && parsedUrl.pathname.startsWith('/api/auth/callback');
+      const parsed = new URL(url);
+      // Custom scheme deep links (zobia://...) return 'null' for .origin in RN's JS engine,
+      // so we must check the protocol instead of comparing origins.
+      const isCustomScheme =
+        parsed.protocol === 'zobia:' || parsed.protocol === 'exp+zobia-social:';
+      const isUniversalLink =
+        parsed.origin === new URL(env.API_BASE_URL).origin;
+      const hasAuthPath =
+        parsed.pathname === '/auth/callback' ||
+        parsed.pathname.startsWith('/api/auth/callback');
+      isValidCallback = (isCustomScheme || isUniversalLink) && hasAuthPath;
     } catch {
       // malformed URL
     }

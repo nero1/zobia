@@ -36,7 +36,8 @@ export function RewardedAdButton({ onRewarded, disabled }: RewardedAdButtonProps
     try {
       // BUG-044 FIX: use ISO date (YYYY-MM-DD) instead of toDateString()
       // which is locale/timezone-dependent and differs across devices.
-      const today = new Date().toISOString().slice(0, 10);
+      const now = new Date();
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       const lastReset = storage.getString(AD_DATE_KEY);
       if (lastReset !== today) {
         storage.set(AD_DATE_KEY, today);

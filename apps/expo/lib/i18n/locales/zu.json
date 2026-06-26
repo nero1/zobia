@@ -762,6 +762,7 @@
     "error": "Kukhona okungahambanga kahle",
     "retry": "Zama futhi",
     "cancel": "Khansela",
+    "confirm": "Qinisekisa",
     "save": "Gcina",
     "next": "Okulandelayo",
     "back": "Buyela",
@@ -824,7 +825,8 @@
     "step3Subtitle": "Wamukelekile ku-Zobia Social",
     "xpEarned": "+500 XP",
     "xpDescription": "Ngokulungisa ukufakela",
-    "getStarted": "Qala ukuhlola"
+    "getStarted": "Qala ukuhlola",
+    "completeError": "Kuye kwaba nokuphutha ekuphothuleni iphrofayili yakho. Sicela uzame futhi."
   },
   "home": {
     "title": "Zobia Social",
@@ -985,7 +987,9 @@
     "boosterComingSoonBody": "Ukuthenga okuqinisayo kutholakala esibuyekezo esilandelayo.",
     "buy": "Thenga",
     "enterPin": "Faka i-PIN",
-    "enterPinBody": "Faka i-PIN yezinhlamvu ezi-4 ukugunyaza lo thenge"
+    "enterPinBody": "Faka i-PIN yezinhlamvu ezi-4 ukugunyaza lo thenge",
+    "confirmTitle": "Qinisekisa Ukuthenga",
+    "confirmBody": "Uqinisekile ukuthi ufuna ukuqhubeka nalokhu ukuthenga?"
   },
   "legal": {
     "agreePrefix": "Ngokuqhubeka, uyavuma",

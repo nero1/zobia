@@ -22,6 +22,7 @@ import {
   markMessagePermanentlyFailed,
   markMessageSending,
   resetFailedMessages,
+  purgePermanentlyFailedMessages,
 } from './sqlite';
 import { resetSendingMessages } from './sqlite';
 // Re-export so callers can still use the named import from syncQueue.
@@ -34,9 +35,10 @@ export { resetSendingMessages };
 export async function syncPendingMessages(): Promise<void> {
   // Check network state
   const state = await NetInfo.fetch();
-  if (!state.isConnected || !state.isInternetReachable) {
-    return;
-  }
+  if (!state.isConnected) return;
+  // isInternetReachable can be null during initial NetInfo fetch — treat null as
+  // "unknown/potentially connected" and proceed; only explicit false means offline.
+  if (state.isInternetReachable === false) return;
 
   try {
     // BUG-023 FIX: reset messages stuck in 'sending' state back to 'pending' on
@@ -93,6 +95,8 @@ export async function syncPendingMessages(): Promise<void> {
         })
       );
     }
+    // Purge old permanently-failed messages to prevent unbounded DB growth (BUG-008).
+    await purgePermanentlyFailedMessages();
   } catch (err) {
     console.error('[offline:sync] Sync failed', err);
   }

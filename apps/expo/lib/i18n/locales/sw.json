@@ -762,6 +762,7 @@
     "error": "Kitu kimekwenda vibaya",
     "retry": "Jaribu tena",
     "cancel": "Ghairi",
+    "confirm": "Thibitisha",
     "save": "Hifadhi",
     "next": "Ifuatayo",
     "back": "Rudi",
@@ -824,7 +825,8 @@
     "step3Subtitle": "Karibu Zobia Social",
     "xpEarned": "+500 XP",
     "xpDescription": "Kwa kukamilisha mwongozo",
-    "getStarted": "Anza kuchunguza"
+    "getStarted": "Anza kuchunguza",
+    "completeError": "Hitilafu ilitokea kukamilisha wasifu wako. Tafadhali jaribu tena."
   },
   "home": {
     "title": "Zobia Social",
@@ -985,7 +987,9 @@
     "boosterComingSoonBody": "Manunuzi ya kuimarisha yanapatikana katika sasisho lijalo.",
     "buy": "Nunua",
     "enterPin": "Weka PIN",
-    "enterPinBody": "Weka PIN ya tarakimu 4 kuidhinisha ununuzi huu"
+    "enterPinBody": "Weka PIN ya tarakimu 4 kuidhinisha ununuzi huu",
+    "confirmTitle": "Thibitisha Ununuzi",
+    "confirmBody": "Je, una uhakika unataka kuendelea na ununuzi huu?"
   },
   "seasons": {
     "title": "Msimu",

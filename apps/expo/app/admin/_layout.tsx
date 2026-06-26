@@ -1,11 +1,12 @@
 import React from 'react';
 import { TouchableOpacity, StyleSheet } from 'react-native';
-import { Stack } from 'expo-router';
+import { Stack, Redirect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 import { AdminSwipeDrawer, useAdminDrawer } from '@/components/admin/AdminSwipeDrawer';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
+import { useAuth } from '@/lib/auth/hooks';
 
 // ---------------------------------------------------------------------------
 // Header hamburger — consumes AdminDrawerContext
@@ -85,6 +86,14 @@ function AdminStack() {
 // ---------------------------------------------------------------------------
 
 export default function AdminLayout() {
+  const { user } = useAuth();
+
+  // BUG-032 FIX: redirect non-admins before rendering any admin screen so they
+  // see a clear "not found" rather than a series of 403 errors with empty UIs.
+  if (!user?.isAdmin) {
+    return <Redirect href="/(tabs)" />;
+  }
+
   return (
     <AdminSwipeDrawer>
       <AdminStack />

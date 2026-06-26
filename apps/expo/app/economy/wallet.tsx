@@ -20,7 +20,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import Decimal from 'decimal.js';
 import { Screen } from '@/components/ui/Screen';
@@ -44,28 +44,42 @@ interface Transaction {
   createdAt: string;
 }
 
-interface WalletData {
+interface WalletBalance {
   coins: number;
   stars: number;
-  transactions: Transaction[];
-  starTransactions: Transaction[];
   plan?: string;
+}
+
+interface TransactionPage {
+  transactions: Transaction[];
+  nextPage: number | null;
 }
 
 // ---------------------------------------------------------------------------
 // API
 // ---------------------------------------------------------------------------
 
-async function fetchWallet(): Promise<WalletData> {
+const TX_PAGE_SIZE = 20;
+
+async function fetchBalance(): Promise<WalletBalance> {
   const [{ data: balData }, planRes] = await Promise.all([
-    apiClient.get<WalletData>('/economy/coins/balance?limit=30'),
+    apiClient.get<{ coins: number; stars: number }>('/economy/coins/balance'),
     apiClient.get<{ data?: { plan?: string; subscription?: { plan?: string } } | null }>('/economy/subscriptions').catch(() => ({ data: null })),
   ]);
   const plan =
     (planRes.data as { data?: { plan?: string; subscription?: { plan?: string } } | null } | null)?.data?.plan ??
     (planRes.data as { data?: { plan?: string; subscription?: { plan?: string } } | null } | null)?.data?.subscription?.plan ??
     undefined;
-  return { ...balData, plan };
+  return { coins: balData.coins, stars: balData.stars, plan };
+}
+
+async function fetchTransactionPage(type: 'coins' | 'stars', page: number): Promise<TransactionPage> {
+  const { data } = await apiClient.get<{ transactions?: Transaction[]; starTransactions?: Transaction[] }>(
+    `/economy/coins/balance?limit=${TX_PAGE_SIZE}&page=${page}`
+  );
+  const transactions = type === 'coins' ? (data.transactions ?? []) : (data.starTransactions ?? []);
+  const nextPage = transactions.length === TX_PAGE_SIZE ? page + 1 : null;
+  return { transactions, nextPage };
 }
 
 // ---------------------------------------------------------------------------
@@ -146,15 +160,40 @@ export default function WalletScreen() {
   const currency = useCurrency();
   const [txTab, setTxTab] = React.useState<'coins' | 'stars'>('coins');
 
-  const { data, isLoading, isError, refetch, isFetching } = useQuery<WalletData>({
+  const { data: balanceData, isLoading: balLoading, isError: balError, refetch: refetchBalance, isFetching: balFetching } = useQuery<WalletBalance>({
     queryKey: ['wallet', 'balance'],
-    queryFn: fetchWallet,
+    queryFn: fetchBalance,
     staleTime: 30_000,
   });
 
-  const txList = txTab === 'coins' ? (data?.transactions ?? []) : (data?.starTransactions ?? []);
-  const planLabel = data?.plan
-    ? data.plan.charAt(0).toUpperCase() + data.plan.slice(1)
+  const {
+    data: txPages,
+    isLoading: txLoading,
+    isError: txError,
+    refetch: refetchTx,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+  } = useInfiniteQuery<TransactionPage>({
+    queryKey: ['wallet', 'transactions', txTab],
+    queryFn: ({ pageParam }) => fetchTransactionPage(txTab, (pageParam as number) ?? 1),
+    getNextPageParam: (lastPage) => lastPage.nextPage ?? undefined,
+    initialPageParam: 1,
+    staleTime: 30_000,
+  });
+
+  const txList = txPages?.pages.flatMap((p) => p.transactions) ?? [];
+  const isLoading = balLoading || txLoading;
+  const isError = balError || txError;
+  const isFetching = balFetching;
+
+  function handleRefresh() {
+    void refetchBalance();
+    void refetchTx();
+  }
+
+  const planLabel = balanceData?.plan
+    ? balanceData.plan.charAt(0).toUpperCase() + balanceData.plan.slice(1)
     : 'Free';
 
   return (
@@ -163,8 +202,11 @@ export default function WalletScreen() {
         data={txList}
         keyExtractor={(item) => item.id}
         refreshControl={
-          <RefreshControl refreshing={isFetching} onRefresh={() => void refetch()} />
+          <RefreshControl refreshing={isFetching} onRefresh={handleRefresh} />
         }
+        onEndReached={() => { if (hasNextPage && !isFetchingNextPage) void fetchNextPage(); }}
+        onEndReachedThreshold={0.3}
+        ListFooterComponent={isFetchingNextPage ? <ActivityIndicator color={colors.brand.blue} style={{ padding: 16 }} /> : null}
         ListHeaderComponent={
           <View>
             {/* Header */}
@@ -187,7 +229,7 @@ export default function WalletScreen() {
             ) : isError ? (
               <View style={styles.errorContainer}>
                 <Text style={styles.errorText}>{t('wallet.loadError')}</Text>
-                <Button label={t('action.retry')} size="sm" variant="ghost" onPress={() => void refetch()} />
+                <Button label={t('common.retry')} size="sm" variant="ghost" onPress={handleRefresh} />
               </View>
             ) : (
               <>
@@ -197,11 +239,11 @@ export default function WalletScreen() {
                   <View style={styles.balanceRow}>
                     <Text style={styles.balanceCoinIcon}>🪙</Text>
                     <Text style={styles.balanceAmount}>
-                      {formatCoins(data?.coins ?? 0)}
+                      {formatCoins(balanceData?.coins ?? 0)}
                     </Text>
                   </View>
                   <Text style={styles.balanceExact}>
-                    {(data?.coins ?? 0).toLocaleString()} {currency.softPlural.toLowerCase()}
+                    {(balanceData?.coins ?? 0).toLocaleString()} {currency.softPlural.toLowerCase()}
                   </Text>
                 </View>
 
@@ -211,7 +253,7 @@ export default function WalletScreen() {
                     <Text style={styles.starIcon}>⭐</Text>
                     <View>
                       <Text style={styles.starAmount}>
-                        {data?.stars ?? 0} {currency.premiumPlural}
+                        {balanceData?.stars ?? 0} {currency.premiumPlural}
                       </Text>
                       <Text style={styles.starSubtext}>{t('wallet.premiumCurrency')}</Text>
                     </View>

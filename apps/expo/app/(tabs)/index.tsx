@@ -38,7 +38,7 @@ import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/hooks';
 import { useCurrency } from '@/lib/hooks/useCurrency';
 import { useFloatingNotification } from '@/hooks/useFloatingNotification';
-import { storage } from '@/lib/offline/store';
+import { storage, STORE_KEYS } from '@/lib/offline/store';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -907,7 +907,7 @@ export default function HomeScreen() {
     mutationFn: postDailyLogin,
     onSuccess: (result) => {
       const today = new Date().toISOString().slice(0, 10);
-      try { storage.set('daily_login_last_date', today); } catch {}
+      try { storage.set(STORE_KEYS.DAILY_LOGIN_LAST_DATE, today); } catch {}
       if (result.firstLoginToday) {
         setToastMessage(
           t('home.dailyLoginXP', 'Daily login: +{{xp}} XP', { xp: result.xpAwarded })
@@ -930,7 +930,7 @@ export default function HomeScreen() {
     // which is locale/timezone-dependent and differs across devices.
     const today = new Date().toISOString().slice(0, 10);
     try {
-      if (storage.getString('daily_login_last_date') === today) return;
+      if (storage.getString(STORE_KEYS.DAILY_LOGIN_LAST_DATE) === today) return;
     } catch {
       // MMKV not yet initialized; still fire the mutation (server deduplicates)
     }

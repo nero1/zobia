@@ -57,12 +57,13 @@ export default function TwoFactorScreen() {
   // The actual pre-auth JWT resolved from the opaque preAuthCode.
   const preAuthTokenRef = useRef<string | null>(null);
   // M-2 FIX: persist attempt count to MMKV so lockout survives app restarts.
-  // useRef starts at 0 and is hydrated from MMKV on mount (synchronous read,
-  // only matters for event handlers so the timing is fine).
-  const totpAttemptsRef = useRef(0);
-  useEffect(() => {
-    try { totpAttemptsRef.current = storage.getNumber(STORE_KEYS.TOTP_ATTEMPTS) ?? 0; } catch {}
-  }, []);
+  // Initialized synchronously so the stored count is available before the first
+  // render, preventing a free brute-force attempt on fast users.
+  const totpAttemptsRef = useRef<number>(
+    (() => {
+      try { return storage.getNumber(STORE_KEYS.TOTP_ATTEMPTS) ?? 0; } catch { return 0; }
+    })()
+  );
 
   // -------------------------------------------------------------------------
   // Step 1: Exchange the opaque deep-link code for the real pre-auth JWT.

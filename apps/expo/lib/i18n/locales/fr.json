@@ -5,6 +5,7 @@
     "error": "Une erreur s'est produite",
     "retry": "Réessayer",
     "cancel": "Annuler",
+    "confirm": "Confirmer",
     "save": "Enregistrer",
     "next": "Suivant",
     "back": "Retour",
@@ -83,7 +84,8 @@
     "step3Subtitle": "Bienvenue sur Zobia Social",
     "xpEarned": "+500 XP",
     "xpDescription": "Pour avoir terminé l'initiation",
-    "getStarted": "Commencer à explorer"
+    "getStarted": "Commencer à explorer",
+    "completeError": "Une erreur s'est produite lors de la finalisation de votre profil. Veuillez réessayer."
   },
   "home": {
     "title": "Zobia Social",
@@ -439,7 +441,9 @@
     "boosterComingSoonBody": "Les achats de booster sont disponibles dans la prochaine mise à jour.",
     "buy": "Acheter",
     "enterPin": "Entrez votre PIN",
-    "enterPinBody": "Entrez votre PIN à 4 chiffres pour autoriser cet achat"
+    "enterPinBody": "Entrez votre PIN à 4 chiffres pour autoriser cet achat",
+    "confirmTitle": "Confirmer l'achat",
+    "confirmBody": "Êtes-vous sûr de vouloir procéder à cet achat ?"
   },
   "seasons": {
     "title": "Saison",

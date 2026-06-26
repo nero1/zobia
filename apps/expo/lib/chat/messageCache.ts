@@ -2,7 +2,7 @@ import { getItem, setItem, removeItem, STORE_KEYS } from '@/lib/offline/store';
 
 const PREFIX = 'chatcache_';
 const CAP = 50;
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 // M-7 FIX: cap the total number of cached conversations to bound MMKV growth.
 const MAX_CONVERSATIONS = 50;
 
