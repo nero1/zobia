@@ -347,6 +347,7 @@ export default function NotificationsScreen() {
     <FlatList
       data={notifications}
       keyExtractor={(n) => n.id}
+      accessibilityLabel="Notification list"
       renderItem={({ item }) => (
         <NotifRow
           notif={item}

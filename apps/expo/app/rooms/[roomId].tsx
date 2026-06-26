@@ -487,7 +487,9 @@ export default function RoomScreen() {
   // Poll messages: fast (2s) when realtime is down, slow reconcile (30s) when
   // connected. AppState wiring (lib/api/client.ts) pauses this while backgrounded
   // and refetches on foreground. Detect new high-value gift messages for spectacle.
-  const prevMessageIdsRef = useRef<Set<string>>(new Set());
+  // Bug 10 fix: Map preserves insertion order and supports O(1) first-key
+  // deletion, avoiding the array conversion required by Set eviction.
+  const prevMessageIdsRef = useRef<Map<string, true>>(new Map());
   const { data: messages = [], isLoading: messagesLoading } = useQuery({
     queryKey: ['room-messages', roomId],
     queryFn: async () => {
@@ -537,17 +539,13 @@ export default function RoomScreen() {
                 }
           );
         }
-        // L-1 FIX: evict all excess entries in one pass rather than one-by-one
-        // so a large batch can't grow the Set past the intended cap.
+        // Evict the oldest entry first so the map never exceeds the cap.
+        // Map.keys().next().value is O(1) — no array conversion needed.
         if (prevMessageIdsRef.current.size >= 500) {
-          const toRemove = prevMessageIdsRef.current.size - 499;
-          const it = prevMessageIdsRef.current.values();
-          for (let i = 0; i < toRemove; i++) {
-            const next = it.next();
-            if (!next.done) prevMessageIdsRef.current.delete(next.value);
-          }
+          const oldest = prevMessageIdsRef.current.keys().next().value;
+          if (oldest !== undefined) prevMessageIdsRef.current.delete(oldest);
         }
-        prevMessageIdsRef.current.add(msg.id);
+        prevMessageIdsRef.current.set(msg.id, true);
       }
     }
   }, [messages, room?.minGiftSpectacleCoin]);
@@ -997,6 +995,7 @@ export default function RoomScreen() {
             contentContainerStyle={styles.messageList}
             showsVerticalScrollIndicator={false}
             scrollEventThrottle={100}
+            accessibilityLabel="Room messages"
             onScroll={({ nativeEvent }) => {
               // In an inverted FlatList offset 0 is the visual bottom (newest).
               isAtBottomRef.current = nativeEvent.contentOffset.y <= 100;

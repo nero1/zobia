@@ -32,6 +32,10 @@ export default ({ config }: ConfigContext): ExpoConfig & {
     targetSdkVersion: 36,
     compileSdkVersion: 36,
     minSdkVersion: 24,
+    // Bug 41 fix: adjustResize ensures the viewport shrinks when the soft
+    // keyboard appears, so inverted FlatList input bars stay visible on
+    // Android API 36 with dynamic-height predictive keyboards.
+    softwareKeyboardLayoutMode: 'resize',
   },
   'react-native-google-mobile-ads': {
     android_app_id: process.env.ADMOB_APP_ID_ANDROID ?? ADMOB_TEST_ANDROID,

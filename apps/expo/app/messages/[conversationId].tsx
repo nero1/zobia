@@ -817,6 +817,7 @@ export default function DMConversationScreen() {
             contentContainerStyle={styles.messageList}
             showsVerticalScrollIndicator={false}
             scrollEventThrottle={100}
+            accessibilityLabel="Conversation messages"
             onScroll={({ nativeEvent }) => {
               isAtBottomRef.current = nativeEvent.contentOffset.y <= 100;
             }}
