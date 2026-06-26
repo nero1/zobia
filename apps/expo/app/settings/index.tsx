@@ -45,7 +45,7 @@ import { apiClient } from '@/lib/api/client';
 import { translateApiError } from '@/lib/i18n/apiErrors';
 import { prefsStore } from '@/lib/i18n';
 import { env } from '@/lib/env';
-import { cacheDirectory, writeAsStringAsync, EncodingType } from 'expo-file-system';
+import { cacheDirectory, documentDirectory, writeAsStringAsync, EncodingType } from 'expo-file-system';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -531,7 +531,12 @@ function PrivacyDataSection() {
       const json = JSON.stringify(res.data, null, 2);
       // BUG-UX-05 FIX: write export to a temp file and share it as a proper
       // .json attachment instead of pasting raw JSON as a text message.
-      const path = (cacheDirectory ?? '') + 'zobia-export.json';
+      const baseDir = cacheDirectory ?? documentDirectory;
+      if (!baseDir) {
+        Alert.alert('Error', 'Export not available — storage not ready. Please try again.');
+        return;
+      }
+      const path = baseDir + 'zobia-export.json';
       await writeAsStringAsync(path, json, { encoding: EncodingType.UTF8 });
       await Share.share({ url: path, title: 'Zobia Data Export' });
     } catch {
@@ -586,7 +591,7 @@ export default function SettingsScreen() {
   });
 
   const { data: manifestFeatures } = useQuery({
-    queryKey: ['manifest-features'],
+    queryKey: ['manifest', 'features'],
     queryFn: async () => {
       const { data } = await apiClient.get<{ features: { pidginAutocomplete: boolean } }>('/manifest');
       return data?.features ?? { pidginAutocomplete: false };

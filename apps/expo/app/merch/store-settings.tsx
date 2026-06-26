@@ -79,7 +79,7 @@ export default function StoreSettingsScreen() {
   });
 
   const { data: manifest } = useQuery({
-    queryKey: ['manifest-features'],
+    queryKey: ['manifest', 'features'],
     queryFn: fetchManifestFeatures,
     staleTime: 5 * 60_000,
   });

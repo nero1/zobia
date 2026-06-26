@@ -23,6 +23,7 @@ import { Screen } from '@/components/ui/Screen';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/hooks';
 import { useTheme } from '@/lib/theme';
+import { useTranslation } from 'react-i18next';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -54,6 +55,7 @@ export default function GuildChatScreen() {
   const { guildId } = useLocalSearchParams<{ guildId: string }>();
   const { user } = useAuth();
   const { colors: themeColors } = useTheme();
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const flatListRef = useRef<FlatList>(null);
   const [inputText, setInputText] = useState('');
@@ -169,7 +171,7 @@ export default function GuildChatScreen() {
     <Screen>
       <KeyboardAvoidingView
         style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
         {/* Load older messages button */}
@@ -183,7 +185,7 @@ export default function GuildChatScreen() {
             disabled={isFetchingNextPage}
           >
             <Text style={[styles.loadOlderText, { color: themeColors.primary }]}>
-              {isFetchingNextPage ? 'Loading...' : 'Load older messages'}
+              {isFetchingNextPage ? t('guild.chat.loading') : t('guild.chat.loadOlder')}
             </Text>
           </Pressable>
         )}
@@ -203,7 +205,7 @@ export default function GuildChatScreen() {
           ListEmptyComponent={
             <View style={styles.centered}>
               <Text style={[styles.emptyText, { color: themeColors.textMuted }]}>
-                No messages yet. Say hi to your guild! 👋
+                {t('guild.chat.empty')}
               </Text>
             </View>
           }
@@ -215,7 +217,7 @@ export default function GuildChatScreen() {
             style={[styles.input, { backgroundColor: themeColors.surface, color: themeColors.text }]}
             value={inputText}
             onChangeText={setInputText}
-            placeholder="Message your guild..."
+            placeholder={t('guild.chat.placeholder')}
             placeholderTextColor={themeColors.textMuted}
             multiline
             maxLength={1000}

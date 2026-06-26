@@ -229,14 +229,32 @@ export default function GuildDetailScreen() {
 
   const joinMutation = useMutation({
     mutationFn: () => joinGuild(guildId!),
+    // BUG-PERF-04 FIX: optimistically flip isMember / memberCount to avoid a
+    // full refetch that causes a visible loading flicker on every join/leave.
+    onMutate: () => {
+      queryClient.setQueryData<Guild>(['guild', guildId], (prev) =>
+        prev ? { ...prev, isMember: true, memberCount: prev.memberCount + 1 } : prev
+      );
+    },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['guild', guildId] }),
-    onError: () => Alert.alert('Error', 'Could not join guild.'),
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ['guild', guildId] });
+      Alert.alert('Error', 'Could not join guild.');
+    },
   });
 
   const leaveMutation = useMutation({
     mutationFn: () => leaveGuild(guildId!),
+    onMutate: () => {
+      queryClient.setQueryData<Guild>(['guild', guildId], (prev) =>
+        prev ? { ...prev, isMember: false, memberCount: Math.max(0, prev.memberCount - 1) } : prev
+      );
+    },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['guild', guildId] }),
-    onError: () => Alert.alert('Error', 'Could not leave guild.'),
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ['guild', guildId] });
+      Alert.alert('Error', 'Could not leave guild.');
+    },
   });
 
   const handleJoinLeave = useCallback(() => {

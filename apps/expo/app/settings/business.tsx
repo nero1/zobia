@@ -156,7 +156,7 @@ function SectionHeader({ title }: { title: string }) {
 
 function fmtKobo(kobo: number): string {
   if (kobo === 0) return '₦0';
-  return `₦${(kobo / 100).toLocaleString('en-NG', { maximumFractionDigits: 0 })}`;
+  return `₦${(kobo / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 }
 
 // ---------------------------------------------------------------------------

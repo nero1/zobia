@@ -196,7 +196,13 @@
     "myXP": "My XP",
     "viewFullGuild": "View Full Guild →",
     "loadError": "Could not load guild data. Check your connection.",
-    "warEnded": "Ended"
+    "warEnded": "Ended",
+    "chat": {
+      "placeholder": "Message your guild...",
+      "loadOlder": "Load older messages",
+      "loading": "Loading...",
+      "empty": "No messages yet. Say hi to your guild! 👋"
+    }
   },
   "profile": {
     "title": "Profile",
@@ -1231,6 +1237,7 @@
   "groups.create.createButton": "Create Group",
   "groups.create.errorName": "Group name is required.",
   "groups.create.errorMembers": "Add at least one member.",
+  "groups.create.errorFailed": "Failed to create group. Please try again.",
   "groups.conversation.noMessages": "No messages yet. Start the conversation!",
   "groups.conversation.typeMessage": "Type a message…",
   "groups.conversation.send": "Send",

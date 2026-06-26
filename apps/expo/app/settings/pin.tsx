@@ -26,6 +26,12 @@ import { apiClient } from '@/lib/api/client';
 import { colors } from '@/lib/theme/colors';
 import { useTheme } from '@/lib/theme';
 import { translateApiError } from '@/lib/i18n/apiErrors';
+import { storage } from '@/lib/offline/store';
+
+const PIN_PIN_MAX_ATTEMPTS = 5;
+const PIN_PIN_LOCKOUT_MS = 60_000; // 1 minute
+const PIN_ATTEMPTS_KEY = 'settings_pin_failed_attempts';
+const PIN_LOCKED_UNTIL_KEY = 'settings_pin_locked_until';
 
 // ---------------------------------------------------------------------------
 // API
@@ -80,11 +86,25 @@ export default function PinScreen() {
   const [removePin, setRemovePin] = useState('');
   const [mode, setMode] = useState<'setup' | 'change' | 'remove' | null>(null);
 
-  // Client-side rate limiting: track failed PIN attempts per session
-  const [failedAttempts, setFailedAttempts] = useState(0);
-  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
-  const MAX_ATTEMPTS = 5;
-  const LOCKOUT_MS = 60_000; // 1 minute
+  // BUG-SEC-02 FIX: persist PIN rate-limit state to MMKV so lockouts survive app restarts.
+
+  const [failedAttempts, setFailedAttempts] = useState<number>(() => {
+    try { return storage.getNumber(PIN_ATTEMPTS_KEY) ?? 0; } catch { return 0; }
+  });
+  const [lockedUntil, setLockedUntil] = useState<number | null>(() => {
+    try { const v = storage.getNumber(PIN_LOCKED_UNTIL_KEY); return v ?? null; } catch { return null; }
+  });
+
+  useEffect(() => {
+    try { storage.set(PIN_ATTEMPTS_KEY, failedAttempts); } catch {}
+  }, [failedAttempts]);
+
+  useEffect(() => {
+    try {
+      if (lockedUntil === null) storage.delete(PIN_LOCKED_UNTIL_KEY);
+      else storage.set(PIN_LOCKED_UNTIL_KEY, lockedUntil);
+    } catch {}
+  }, [lockedUntil]);
 
   const inputRef = useRef<TextInput>(null);
   const advancingRef = useRef(false);
@@ -128,8 +148,8 @@ export default function PinScreen() {
       // Track failed attempts and apply client-side lockout
       const nextAttempts = failedAttempts + 1;
       setFailedAttempts(nextAttempts);
-      if (nextAttempts >= MAX_ATTEMPTS) {
-        setLockedUntil(Date.now() + LOCKOUT_MS);
+      if (nextAttempts >= PIN_MAX_ATTEMPTS) {
+        setLockedUntil(Date.now() + PIN_LOCKOUT_MS);
         setFailedAttempts(0);
       }
       Alert.alert('Error', translateApiError(t, code, message));
@@ -155,8 +175,8 @@ export default function PinScreen() {
       // Track failed attempts and apply client-side lockout
       const nextAttempts = failedAttempts + 1;
       setFailedAttempts(nextAttempts);
-      if (nextAttempts >= MAX_ATTEMPTS) {
-        setLockedUntil(Date.now() + LOCKOUT_MS);
+      if (nextAttempts >= PIN_MAX_ATTEMPTS) {
+        setLockedUntil(Date.now() + PIN_LOCKOUT_MS);
         setFailedAttempts(0);
       }
       Alert.alert('Error', translateApiError(t, code, message));

@@ -133,7 +133,7 @@ interface LevelBarProps {
 function LevelBar({ track }: LevelBarProps) {
   const { colors: themeColors } = useTheme();
   const { t } = useTranslation();
-  const progress = track.level / track.maxLevel;
+  const progress = track.maxLevel > 0 ? Math.min(1, Math.max(0, track.level / track.maxLevel)) : 0;
 
   return (
     <View style={styles.levelBarRow}>
@@ -226,7 +226,7 @@ export default function PublicProfileScreen() {
   }
 
   const rankColor = rankColors[profile.rankTier as RankTier] ?? colors.brand.blue;
-  const joinYear = new Date(profile.joinedAt).toLocaleDateString('en-NG', { month: 'long', year: 'numeric' });
+  const joinYear = new Date(profile.joinedAt).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 
   return (
     <Screen scrollable contentStyle={styles.content}>

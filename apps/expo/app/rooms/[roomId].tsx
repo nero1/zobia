@@ -91,6 +91,7 @@ interface Message {
   giftCoinValue?: number;
   giftName?: string;
   giftEmoji?: string;
+  gifUrl?: string;
 }
 
 type RoomMessageType = 'text' | 'moment';
@@ -150,6 +151,12 @@ function mapApiMessage(m: Record<string, unknown>): Message {
     giftCoinValue: num(m.giftAmount ?? m.giftCoinValue),
     giftName: typeof m.giftName === 'string' ? m.giftName : undefined,
     giftEmoji: typeof m.giftEmoji === 'string' ? m.giftEmoji : undefined,
+    gifUrl: (() => {
+      const type = str(m.message_type ?? m.messageType, 'text');
+      if (type !== 'gif') return undefined;
+      const meta = m.metadata && typeof m.metadata === 'object' ? m.metadata as Record<string, unknown> : {};
+      return str(meta.gifUrl ?? meta.gif_url ?? m.gifUrl ?? m.gif_url ?? m.media_url ?? m.content) || undefined;
+    })(),
   };
 }
 
@@ -621,10 +628,18 @@ export default function RoomScreen() {
       return { previous, optimisticId: optimistic.id };
     },
     onSuccess: (serverMessage, _, ctx) => {
-      // Replace the optimistic message with the server-confirmed one
-      queryClient.setQueryData<Message[]>(['room-messages', roomId], (prev: Message[] | undefined) =>
-        (prev ?? []).map((m: Message) => (m.id === ctx?.optimisticId ? (serverMessage ?? m) : m))
-      );
+      // BUG-LOGIC-02 FIX: replace the optimistic message then deduplicate, so if
+      // realtime pushed the server message before this callback fired we don't
+      // end up with two copies of the same confirmed message.
+      queryClient.setQueryData<Message[]>(['room-messages', roomId], (prev: Message[] | undefined) => {
+        const replaced = (prev ?? []).map((m: Message) => (m.id === ctx?.optimisticId ? (serverMessage ?? m) : m));
+        const seen = new Set<string>();
+        return replaced.filter((m: Message) => {
+          if (!m.id || seen.has(m.id)) return false;
+          seen.add(m.id);
+          return true;
+        });
+      });
       setXpFlash(true);
       if (xpFlashTimerRef.current) clearTimeout(xpFlashTimerRef.current);
       xpFlashTimerRef.current = setTimeout(() => setXpFlash(false), 1_200);
@@ -866,6 +881,7 @@ export default function RoomScreen() {
             giftCoinValue={item.giftCoinValue}
             giftName={item.giftName}
             giftEmoji={item.giftEmoji}
+            gifUrl={item.gifUrl}
             onLongPress={handleLongPress}
             onReactionPress={handleReactionPress}
           />
@@ -885,7 +901,7 @@ export default function RoomScreen() {
     <Screen hideOfflineBanner disableBottomInset>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={keyboardOffset}
       >
         {/* Drop banner */}

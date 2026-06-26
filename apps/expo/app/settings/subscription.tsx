@@ -12,7 +12,7 @@
  *  - Link to cancellation instructions
  */
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -33,6 +33,7 @@ import { useCurrency } from '@/lib/hooks/useCurrency';
 import {
   initGooglePlayBilling,
   purchaseSubscription,
+  getSubscriptionProducts,
 } from '@/lib/payments/googlePlay';
 
 // ---------------------------------------------------------------------------
@@ -305,6 +306,23 @@ export default function SubscriptionScreen() {
   const queryClient = useQueryClient();
   const [subscribingTier, setSubscribingTier] = useState<PlanTier | null>(null);
   const [isAnnual, setIsAnnual] = useState(false);
+  // BUG-PAY-03 FIX: fetch real Play Store prices; fall back to the catalogue defaults.
+  const [liveMonthlyPrices, setLiveMonthlyPrices] = useState<Record<string, string>>({});
+  const [liveAnnualPrices, setLiveAnnualPrices] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    Promise.all([getSubscriptionProducts(false), getSubscriptionProducts(true)]).then(
+      ([monthly, annual]) => {
+        const monthlyMap: Record<string, string> = {};
+        monthly.forEach((p) => { monthlyMap[p.id] = p.monthlyPrice; });
+        const annualMap: Record<string, string> = {};
+        annual.forEach((p) => { annualMap[p.id] = p.annualPrice; });
+        setLiveMonthlyPrices(monthlyMap);
+        setLiveAnnualPrices(annualMap);
+      }
+    ).catch(() => {});
+  }, []);
 
   const { data: me, isLoading, isError } = useQuery({
     queryKey: ['user-me'],
@@ -314,6 +332,18 @@ export default function SubscriptionScreen() {
 
   const currentTier: PlanTier = me?.planTier ?? 'free';
   const currentPlan = PLANS.find((p) => p.tier === currentTier) ?? PLANS[0];
+
+  // Merge live Play Store prices into the static PLANS catalogue
+  const plansWithLivePrices: PlanConfig[] = PLANS.map((p) => {
+    if (!p.productId) return p;
+    const liveMonthly = p.productId ? liveMonthlyPrices[p.productId] : undefined;
+    const liveAnnual = p.annualProductId ? liveAnnualPrices[p.annualProductId] : undefined;
+    return {
+      ...p,
+      price: liveMonthly ?? p.price,
+      annualPrice: liveAnnual ?? p.annualPrice,
+    };
+  });
 
   const handleSubscribe = useCallback(
     async (plan: PlanConfig) => {
@@ -333,7 +363,14 @@ export default function SubscriptionScreen() {
       try {
         await initGooglePlayBilling();
 
-        const result = await purchaseSubscription(productId);
+        // BUG-PAY-02 FIX: pass the current plan's product ID for upgrades so
+        // Play Billing can prorate the transition correctly.
+        const oldProductId =
+          currentTier !== 'free'
+            ? (PLANS.find((p) => p.tier === currentTier)?.[isAnnual ? 'annualProductId' : 'productId'] ?? undefined)
+            : undefined;
+
+        const result = await purchaseSubscription(productId, oldProductId ?? undefined);
 
         if (result.success) {
           Alert.alert(
@@ -426,7 +463,7 @@ export default function SubscriptionScreen() {
         </View>
       </View>
 
-      {PLANS.map((plan) => (
+      {plansWithLivePrices.map((plan) => (
         <PlanCard
           key={plan.tier}
           plan={plan}

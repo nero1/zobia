@@ -108,14 +108,12 @@ async function sendGroupMessage(groupId: string, content: string, idempotencyKey
 }
 
 // ---------------------------------------------------------------------------
-// Pending message counter
+// Pending message factory
 // ---------------------------------------------------------------------------
-
-let pendingCounter = 0;
 
 function makePendingMessage(content: string, userId: string): GroupMessage {
   return {
-    id: `pending-${++pendingCounter}`,
+    id: `pending-${randomUUID()}`,
     content,
     senderUserId: userId,
     senderDisplayName: 'You',
@@ -202,7 +200,7 @@ export default function GroupConversationScreen() {
   const queryClient = useQueryClient();
   const { colors: themeColors, isDark } = useTheme();
   const { user: authUser } = useAuth();
-  const myUserId = authUser?.id ?? 'me';
+  const myUserId = authUser?.id ?? '';
 
   const flatListRef = useRef<FlatList<GroupMessage>>(null);
   const isAtBottomRef = useRef(true);
@@ -323,7 +321,7 @@ export default function GroupConversationScreen() {
         keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
       >
         {/* Message list */}
-        {isLoading ? (
+        {(isLoading || !authUser) ? (
           <ConvSkeleton />
         ) : (
           <FlatList

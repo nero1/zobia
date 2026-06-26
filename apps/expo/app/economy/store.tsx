@@ -9,9 +9,10 @@
  * @module app/economy/store
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 // FIX-15: Use Decimal.js-based formatting for kobo-to-naira conversions
 import { koboToNairaStr } from '@/lib/utils/currency';
+import { storage } from '@/lib/offline/store';
 import {
   View,
   Text,
@@ -99,6 +100,11 @@ interface BoosterPurchaseResult {
   success: boolean;
   message?: string;
 }
+
+const PIN_MAX_ATTEMPTS = 5;
+const PIN_LOCKOUT_MS = 30_000;
+const PIN_ATTEMPTS_KEY = 'store_pin_failed_attempts';
+const PIN_LOCKED_UNTIL_KEY = 'store_pin_locked_until';
 
 // ---------------------------------------------------------------------------
 // API
@@ -224,10 +230,25 @@ export default function StoreScreen() {
   const [pinPending, setPinPending] = useState<PurchaseArgs | null>(null);
   const [boosterPinPending, setBoosterPinPending] = useState<{ boosterId: string; boosterType: string } | null>(null);
   const [pinError, setPinError] = useState('');
-  const [pinFailedAttempts, setPinFailedAttempts] = useState(0);
-  const [pinLockedUntil, setPinLockedUntil] = useState<number | null>(null);
-  const PIN_MAX_ATTEMPTS = 5;
-  const PIN_LOCKOUT_MS = 30_000;
+
+  // BUG-SEC-01 FIX: read PIN rate-limit state from MMKV so lockouts survive app restarts.
+  const [pinFailedAttempts, setPinFailedAttempts] = useState<number>(() => {
+    try { return storage.getNumber(PIN_ATTEMPTS_KEY) ?? 0; } catch { return 0; }
+  });
+  const [pinLockedUntil, setPinLockedUntil] = useState<number | null>(() => {
+    try { const v = storage.getNumber(PIN_LOCKED_UNTIL_KEY); return v ?? null; } catch { return null; }
+  });
+
+  useEffect(() => {
+    try { storage.set(PIN_ATTEMPTS_KEY, pinFailedAttempts); } catch {}
+  }, [pinFailedAttempts]);
+
+  useEffect(() => {
+    try {
+      if (pinLockedUntil === null) storage.delete(PIN_LOCKED_UNTIL_KEY);
+      else storage.set(PIN_LOCKED_UNTIL_KEY, pinLockedUntil);
+    } catch {}
+  }, [pinLockedUntil]);
 
   const { data, isLoading, isError, refetch } = useQuery<StoreData>({
     queryKey: ['economy', 'store'],

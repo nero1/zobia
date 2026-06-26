@@ -73,9 +73,27 @@ export function RewardedAdButton({ onRewarded, disabled }: RewardedAdButtonProps
       const result = await showRewardedAd();
 
       if (result.rewarded) {
-        // Credit coins server-side
-        const response = await apiClient.post<{ data?: { coinsAwarded?: number } }>('/economy/rewards/ad-reward');
-        const coinsAwarded = response.data?.data?.coinsAwarded ?? 10;
+        // Credit coins server-side — retry up to 3 times so a transient network
+        // hiccup doesn't silently drop the user's earned reward (BUG-PAY-01 FIX).
+        const MAX_RETRIES = 3;
+        let coinsAwarded = 10;
+        let credited = false;
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+          try {
+            const response = await apiClient.post<{ data?: { coinsAwarded?: number } }>('/economy/rewards/ad-reward');
+            coinsAwarded = response.data?.data?.coinsAwarded ?? 10;
+            credited = true;
+            break;
+          } catch (retryErr) {
+            if (attempt < MAX_RETRIES - 1) {
+              await new Promise((res) => setTimeout(res, 1000 * Math.pow(2, attempt)));
+            }
+          }
+        }
+        if (!credited) {
+          Alert.alert("Reward Error", "We couldn't credit your reward. Please contact support.");
+          return;
+        }
         const newWatched = adsWatched + 1;
         storage.set(AD_WATCHED_KEY, newWatched);
         setAdsWatched(newWatched);

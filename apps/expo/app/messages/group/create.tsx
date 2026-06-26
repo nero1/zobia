@@ -22,10 +22,13 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import type { AxiosError } from 'axios';
 import { Screen } from '@/components/ui/Screen';
 import { useTheme } from '@/lib/theme';
 import { colors } from '@/lib/theme/colors';
 import { apiClient } from '@/lib/api/client';
+import { useTranslation } from 'react-i18next';
+import { translateApiError } from '@/lib/i18n/apiErrors';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -128,7 +131,9 @@ function MemberRow({ friend, selected, onToggle }: MemberRowProps) {
 
 export default function CreateGroupScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
   const { colors: themeColors, isDark } = useTheme();
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const [groupName, setGroupName] = useState('');
   const [selectedTag, setSelectedTag] = useState<GroupTag>('Crew');
@@ -163,7 +168,14 @@ export default function CreateGroupScreen() {
   const createMutation = useMutation({
     mutationFn: createGroup,
     onSuccess: (result) => {
+      setCreateError(null);
       router.replace(`/messages/group/${result.group.id}` as never);
+    },
+    // BUG-LOGIC-04 FIX: parse API error code instead of showing a generic message.
+    onError: (err: AxiosError<{ error?: { code?: string; message?: string }; message?: string }>) => {
+      const code = err.response?.data?.error?.code ?? null;
+      const fallback = err.response?.data?.error?.message ?? err.response?.data?.message ?? t('groups.create.errorFailed', 'Failed to create group. Please try again.');
+      setCreateError(translateApiError(t, code, fallback));
     },
   });
 
@@ -181,7 +193,7 @@ export default function CreateGroupScreen() {
   return (
     <Screen scrollable contentStyle={styles.content}>
       {/* Group name */}
-      <Text style={[styles.sectionLabel, { color: themeColors.textMuted }]}>GROUP NAME</Text>
+      <Text style={[styles.sectionLabel, { color: themeColors.textMuted }]}>{t('groups.create.groupName', 'GROUP NAME').toUpperCase()}</Text>
       <TextInput
         style={[
           styles.nameInput,
@@ -191,17 +203,17 @@ export default function CreateGroupScreen() {
             borderColor: themeColors.border,
           },
         ]}
-        placeholder="Enter group name…"
+        placeholder={t('groups.create.groupNamePlaceholder', 'Enter a name for this group')}
         placeholderTextColor={themeColors.textMuted}
         value={groupName}
         onChangeText={setGroupName}
         maxLength={60}
         returnKeyType="done"
-        accessibilityLabel="Group name"
+        accessibilityLabel={t('groups.create.groupName', 'Group name')}
       />
 
       {/* Tag picker */}
-      <Text style={[styles.sectionLabel, { color: themeColors.textMuted }]}>GROUP TYPE</Text>
+      <Text style={[styles.sectionLabel, { color: themeColors.textMuted }]}>{t('groups.create.groupType', 'GROUP TYPE').toUpperCase()}</Text>
       <View style={styles.tagRow}>
         {TAG_OPTIONS.map((opt) => (
           <Pressable
@@ -233,7 +245,7 @@ export default function CreateGroupScreen() {
 
       {/* Member search */}
       <Text style={[styles.sectionLabel, { color: themeColors.textMuted }]}>
-        ADD MEMBERS ({selectedMembers.size} selected)
+        {t('groups.create.addMembers', 'ADD MEMBERS').toUpperCase()}{selectedMembers.size > 0 ? ` ${t('groups.create.selected', { count: selectedMembers.size, defaultValue: `(${selectedMembers.size} selected)` })}` : ''}
       </Text>
       <TextInput
         style={[
@@ -244,12 +256,12 @@ export default function CreateGroupScreen() {
             borderColor: themeColors.border,
           },
         ]}
-        placeholder="Search friends…"
+        placeholder={t('groups.create.searchFriends', 'Search friends…')}
         placeholderTextColor={themeColors.textMuted}
         value={search}
         onChangeText={setSearch}
         returnKeyType="search"
-        accessibilityLabel="Search friends"
+        accessibilityLabel={t('groups.create.searchFriends', 'Search friends')}
       />
 
       {/* Friend list */}
@@ -277,8 +289,8 @@ export default function CreateGroupScreen() {
       )}
 
       {/* Error */}
-      {createMutation.isError && (
-        <Text style={styles.errorText}>Failed to create group. Please try again.</Text>
+      {createError && (
+        <Text style={styles.errorText}>{createError}</Text>
       )}
 
       {/* Submit */}
@@ -290,12 +302,12 @@ export default function CreateGroupScreen() {
         onPress={handleSubmit}
         disabled={!canSubmit}
         accessibilityRole="button"
-        accessibilityLabel="Create group"
+        accessibilityLabel={t('groups.create.createButton', 'Create group')}
       >
         {createMutation.isPending ? (
           <ActivityIndicator color={colors.neutral[0]} />
         ) : (
-          <Text style={styles.submitBtnText}>Create Group</Text>
+          <Text style={styles.submitBtnText}>{t('groups.create.createButton', 'Create Group')}</Text>
         )}
       </Pressable>
     </Screen>

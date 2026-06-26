@@ -66,6 +66,7 @@ function isTokenExpiredOrExpiring(token: string): boolean {
 export interface AuthUser {
   id: string;
   username: string;
+  displayName: string;
   avatarEmoji: string;
   city: string;
   xp: number;
