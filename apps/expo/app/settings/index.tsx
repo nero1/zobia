@@ -698,11 +698,21 @@ export default function SettingsScreen() {
   const patchMutation = useMutation({
     mutationFn: updateSettings,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['user-settings'] }),
-    onError: (err: Error) => {
+    onError: (err: Error, patch: Partial<UserSettings>) => {
       const axiosErr = err as AxiosError<{ error?: { code?: string; message?: string } }>;
       const code = axiosErr.response?.data?.error?.code ?? null;
       const message = axiosErr.response?.data?.error?.message ?? axiosErr.message;
       Alert.alert(t('common.error'), translateApiError(t, code, message));
+      // BUG-UX-02 FIX: roll back optimistic local state on PATCH failure so the
+      // UI shows the previously-saved value rather than the failed new value.
+      if (patch.language && data?.language) {
+        setSettings((prev) => ({ ...prev, language: data.language }));
+        void i18n.changeLanguage(data.language);
+        try { getStorage().set(STORE_KEYS.LANGUAGE_PREF, data.language); } catch {}
+      } else {
+        // For other fields, revert to server data
+        setSettings({});
+      }
     },
   });
 
@@ -750,7 +760,8 @@ export default function SettingsScreen() {
   };
 
   const handleConfirmDelete = async () => {
-    if (!deletePin.trim()) return;
+    // BUG-UX-03 FIX: validate that the PIN is exactly 4 digits, not just non-empty
+    if (!deletePin.trim() || !/^\d{4}$/.test(deletePin.trim())) return;
     setDeletePending(true);
     try {
       await deleteAccount(deletePin.trim());
@@ -1167,7 +1178,7 @@ export default function SettingsScreen() {
               label={deletePending ? 'Deleting…' : 'Delete My Account'}
               variant="danger"
               onPress={handleConfirmDelete}
-              disabled={deletePending || !deletePin.trim()}
+              disabled={deletePending || !/^\d{4}$/.test(deletePin.trim())}
             />
           </View>
         </View>

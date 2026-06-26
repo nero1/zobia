@@ -162,6 +162,7 @@ interface PackCardProps {
 function PackCard({
   id,
   name,
+  description,
   priceKobo,
   currency,
   grantedAmount,
@@ -199,6 +200,10 @@ function PackCard({
       </View>
 
       <Text style={styles.packName}>{name}</Text>
+      {/* BUG-UX-06 FIX: render description when provided */}
+      {description ? (
+        <Text style={[styles.packDesc, { color: themeColors.textMuted }]}>{description}</Text>
+      ) : null}
       <Text style={styles.packPrice}>{formatKobo(priceKobo, currency)}</Text>
 
       <Button
@@ -443,20 +448,28 @@ export default function StoreScreen() {
         purchaseMutation.mutate(pinPending);
         setPinPending(null);
       }
-    } catch {
-      const nextAttempts = pinFailedAttempts + 1;
-      if (nextAttempts >= PIN_MAX_ATTEMPTS) {
-        // M-9 FIX: exponential backoff — each successive lockout doubles the
-        // window (30s, 60s, 120s … capped at 30 min).
-        const nextLockoutCount = pinLockoutCount + 1;
-        const lockMs = Math.min(30_000 * Math.pow(2, pinLockoutCount), 30 * 60 * 1000);
-        setPinLockedUntil(Date.now() + lockMs);
-        setPinFailedAttempts(0);
-        setPinLockoutCount(nextLockoutCount);
-        setPinError(`Too many attempts. Try again in ${Math.ceil(lockMs / 1000)}s.`);
+    } catch (err) {
+      // BUG-UX-04 FIX: only increment attempts on 401/403 (wrong PIN), not on
+      // network errors — a user with bad connectivity should not get locked out.
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      const isAuthFailure = status === 401 || status === 403 || status === 422;
+      if (isAuthFailure) {
+        const nextAttempts = pinFailedAttempts + 1;
+        if (nextAttempts >= PIN_MAX_ATTEMPTS) {
+          // M-9 FIX: exponential backoff — each successive lockout doubles the
+          // window (30s, 60s, 120s … capped at 30 min).
+          const nextLockoutCount = pinLockoutCount + 1;
+          const lockMs = Math.min(30_000 * Math.pow(2, pinLockoutCount), 30 * 60 * 1000);
+          setPinLockedUntil(Date.now() + lockMs);
+          setPinFailedAttempts(0);
+          setPinLockoutCount(nextLockoutCount);
+          setPinError(`Too many attempts. Try again in ${Math.ceil(lockMs / 1000)}s.`);
+        } else {
+          setPinFailedAttempts(nextAttempts);
+          setPinError('Incorrect PIN. Please try again.');
+        }
       } else {
-        setPinFailedAttempts(nextAttempts);
-        setPinError('Incorrect PIN. Please try again.');
+        setPinError('Network error. Please try again.');
       }
       setPinInput('');
     }
@@ -597,7 +610,52 @@ export default function StoreScreen() {
             <TextInput
               style={[styles.pinInput, { color: themeColors.text, borderColor: colors.neutral[300] }]}
               value={pinInput}
-              onChangeText={(v) => { setPinInput(v.replace(/\D/g, '').slice(0, 4)); setPinError(''); }}
+              onChangeText={(v) => {
+                const cleaned = v.replace(/\D/g, '').slice(0, 4);
+                setPinInput(cleaned);
+                setPinError('');
+                // BUG-UX-05 FIX: auto-submit when the 4th digit is entered
+                if (cleaned.length === 4 && (pinPending || boosterPinPending)) {
+                  void (async () => {
+                    if (pinLockedUntil !== null && Date.now() < pinLockedUntil) return;
+                    try {
+                      await apiClient.post('/auth/pin/verify', { pin: cleaned });
+                      setPinFailedAttempts(0);
+                      setPinLockedUntil(null);
+                      setPinLockoutCount(0);
+                      setPinModalVisible(false);
+                      if (boosterPinPending) {
+                        setPurchasingBoosterId(boosterPinPending.boosterId);
+                        boosterMutation.mutate({ boosterType: boosterPinPending.boosterType });
+                        setBoosterPinPending(null);
+                      } else if (pinPending) {
+                        purchaseMutation.mutate(pinPending);
+                        setPinPending(null);
+                      }
+                    } catch (autoErr) {
+                      const status = (autoErr as { response?: { status?: number } })?.response?.status;
+                      const isAuthFailure = status === 401 || status === 403 || status === 422;
+                      if (isAuthFailure) {
+                        const nextAttempts = pinFailedAttempts + 1;
+                        if (nextAttempts >= PIN_MAX_ATTEMPTS) {
+                          const nextLockoutCount = pinLockoutCount + 1;
+                          const lockMs = Math.min(30_000 * Math.pow(2, pinLockoutCount), 30 * 60 * 1000);
+                          setPinLockedUntil(Date.now() + lockMs);
+                          setPinFailedAttempts(0);
+                          setPinLockoutCount(nextLockoutCount);
+                          setPinError(`Too many attempts. Try again in ${Math.ceil(lockMs / 1000)}s.`);
+                        } else {
+                          setPinFailedAttempts(nextAttempts);
+                          setPinError('Incorrect PIN. Please try again.');
+                        }
+                      } else {
+                        setPinError('Network error. Please try again.');
+                      }
+                      setPinInput('');
+                    }
+                  })();
+                }
+              }}
               keyboardType="number-pad"
               secureTextEntry
               maxLength={4}
