@@ -1,3 +1,8 @@
+// MUST be first: installs the global `crypto` polyfill (Hermes ships none) before
+// any module that derives an encryption key at startup runs. Without this the
+// MMKV store init throws and the app hangs on a white screen after the splash.
+import '@/lib/polyfills';
+
 import '../global.css';
 
 export { ErrorBoundary } from 'expo-router';
@@ -226,13 +231,22 @@ function RootLayoutNav() {
   // so a crash in initStore still unblocks the app (degraded, no persistence).
   useEffect(() => {
     let active = true;
+
+    // BUG-WHITESCREEN FIX: a watchdog so a hung bootstrap step (e.g. a native
+    // module that never resolves) can never trap the app on a blank screen.
+    // After this deadline we render regardless; the app degrades gracefully
+    // rather than hanging on white forever.
+    const watchdog = setTimeout(() => {
+      if (active) {
+        console.warn('[bootstrap] storeReady watchdog fired — rendering anyway');
+        setStoreReady(true);
+      }
+    }, 8000);
+
+    // Critical render path: only the MMKV store gates the first render. Init it
+    // first and flip storeReady the moment it settles (success OR failure) so a
+    // storage problem degrades gracefully instead of hanging on a white screen.
     (async () => {
-      await initOfflineDB().catch((err) =>
-        console.warn('[offline] SQLite init failed', err)
-      );
-      await resetSendingMessages().catch((err) =>
-        console.warn('[offline] resetSendingMessages failed', err)
-      );
       try {
         await initStore();
         // L-2: apply user's saved language pref from the encrypted store now
@@ -241,21 +255,44 @@ function RootLayoutNav() {
       } catch (err) {
         console.warn('[offline] MMKV store init failed', err);
       } finally {
-        if (active) setStoreReady(true);
+        if (active) {
+          clearTimeout(watchdog);
+          setStoreReady(true);
+        }
       }
+
       // C-4 FIX: capture the cold-start notification action now but do NOT
       // navigate immediately — the nav tree hasn't rendered yet. The effect
       // below (keyed on isLoading + storeReady + user) will fire the navigation
-      // once auth is resolved and the tree is mounted.
-      const lastResponse = await Notifications.getLastNotificationResponseAsync();
-      if (lastResponse) {
-        const data = lastResponse.notification.request.content.data as Record<string, unknown>;
-        const action = data?.action as string | undefined;
-        if (action && VALID_PUSH_ROUTES.some((re) => re.test(action))) {
-          pendingNotifAction.current = action;
+      // once auth is resolved and the tree is mounted. Guarded so a failure here
+      // never bubbles up and blocks the storeReady flip above.
+      try {
+        const lastResponse = await Notifications.getLastNotificationResponseAsync();
+        if (lastResponse) {
+          const data = lastResponse.notification.request.content.data as Record<string, unknown>;
+          const action = data?.action as string | undefined;
+          if (action && VALID_PUSH_ROUTES.some((re) => re.test(action))) {
+            pendingNotifAction.current = action;
+          }
         }
+      } catch (err) {
+        console.warn('[push] getLastNotificationResponseAsync failed', err);
       }
     })();
+
+    // Non-critical, fully in the background: the offline SQLite message queue.
+    // It must NEVER gate the first render — its key derivation uses crypto.subtle
+    // which can be slow or unavailable on some devices, and the UI does not
+    // depend on it being ready.
+    (async () => {
+      try {
+        await initOfflineDB();
+        await resetSendingMessages();
+      } catch (err) {
+        console.warn('[offline] SQLite offline-queue init failed', err);
+      }
+    })();
+
     // Ads and billing do not depend on MMKV — start them in parallel.
     initializeAds();
     if (Platform.OS === 'android') {
@@ -263,7 +300,10 @@ function RootLayoutNav() {
         console.warn('[billing] Google Play Billing init failed', err)
       );
     }
-    return () => { active = false; };
+    return () => {
+      active = false;
+      clearTimeout(watchdog);
+    };
   }, []);
 
   // BUG-CRIT-02: Hide splash screen once auth state resolves and store is ready.

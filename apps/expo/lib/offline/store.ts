@@ -85,11 +85,21 @@ export function getStorage(): MMKV {
  */
 export async function initStore(): Promise<void> {
   if (_storage) return;
-  const encryptionKey = await loadOrCreateEncryptionKey();
-  _storage = new MMKV({
-    id: 'zobia-offline-store',
-    encryptionKey,
-  });
+  try {
+    const encryptionKey = await loadOrCreateEncryptionKey();
+    _storage = new MMKV({
+      id: 'zobia-offline-store',
+      encryptionKey,
+    });
+  } catch (err) {
+    // Never leave the store uninitialised. A null `_storage` makes every
+    // getStorage() caller throw, which can blank the entire app. If key
+    // derivation fails (e.g. SecureStore/crypto unavailable on this device),
+    // fall back to an unencrypted instance so the app stays functional — the
+    // app starts unauthenticated anyway, so no sensitive data is yet at rest.
+    console.warn('[store] Encrypted MMKV init failed; falling back to unencrypted store', err);
+    _storage = new MMKV({ id: 'zobia-offline-store' });
+  }
 }
 
 /**
