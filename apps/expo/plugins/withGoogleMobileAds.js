@@ -7,14 +7,28 @@ const withGoogleMobileAds = (config, props) => {
   const { android_app_id, ios_app_id } = options;
 
   config = withAndroidManifest(config, (mod) => {
-    const mainApp = mod.modResults.manifest.application[0];
+    const manifest = mod.modResults.manifest;
+    // Declare the `tools` namespace so we can use tools:replace below.
+    manifest.$ = manifest.$ || {};
+    manifest.$['xmlns:tools'] = 'http://schemas.android.com/tools';
+
+    const mainApp = manifest.application[0];
     if (!mainApp['meta-data']) mainApp['meta-data'] = [];
     mainApp['meta-data'] = mainApp['meta-data'].filter(
       (m) => m.$?.['android:name'] !== ADMOB_META_KEY
     );
     if (android_app_id) {
       mainApp['meta-data'].push({
-        $: { 'android:name': ADMOB_META_KEY, 'android:value': android_app_id },
+        // react-native-google-mobile-ads' own AndroidManifest also declares
+        // this meta-data (its value comes from the app.json config block).
+        // tools:replace lets our env-aware value win the manifest merge so the
+        // build doesn't fail when the two differ — e.g. the real AdMob app id
+        // (from env) in production vs the app.json test id.
+        $: {
+          'android:name': ADMOB_META_KEY,
+          'android:value': android_app_id,
+          'tools:replace': 'android:value',
+        },
       });
     }
     return mod;
