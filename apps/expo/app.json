@@ -92,8 +92,7 @@
         }
       ],
       "./plugins/withGoogleMobileAds",
-      "./plugins/withIapPlayFlavor",
-      "./plugins/withAndroidEdgeToEdge"
+      "./plugins/withIapPlayFlavor"
     ],
     "experiments": {
       "typedRoutes": true
