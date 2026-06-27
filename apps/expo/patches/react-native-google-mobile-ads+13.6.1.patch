@@ -1,0 +1,34 @@
+diff --git a/node_modules/react-native-google-mobile-ads/android/app-json.gradle b/node_modules/react-native-google-mobile-ads/android/app-json.gradle
+index 0000000..1111111 100644
+--- a/node_modules/react-native-google-mobile-ads/android/app-json.gradle
++++ b/node_modules/react-native-google-mobile-ads/android/app-json.gradle
+@@ -87,7 +87,7 @@ if (configFile != null && configFile.exists()) {
+     }
+   } else {
+-    rootProject.ext.googleAdsJson = false
++    rootProject.ext.googleMobileAdsJson = false
+     rootProject.logger.info ":${project.name} ${fileName} found with no ${jsonRoot} config, skipping"
+     android {
+       defaultConfig {
+diff --git a/node_modules/react-native-google-mobile-ads/android/build.gradle b/node_modules/react-native-google-mobile-ads/android/build.gradle
+index 0000000..1111111 100644
+--- a/node_modules/react-native-google-mobile-ads/android/build.gradle
++++ b/node_modules/react-native-google-mobile-ads/android/build.gradle
+@@ -55,7 +55,7 @@ if (isNewArchitectureEnabled()) {
+       android : [
+         minSdk    : jsonMinSdk,
+         targetSdk : jsonTargetSdk,
+-        compileSdk: jsonCompileSdk,
++        compileSdk: rootProject.ext.has("compileSdkVersion") ? rootProject.ext.get("compileSdkVersion") : jsonCompileSdk,
+         // optional as gradle.buildTools comes with one by default
+         // overriding here though to match the version RN uses
+         buildTools: jsonBuildTools
+@@ -79,7 +79,7 @@ apply from: file("./app-json.gradle")
+ def appJSONGoogleMobileAdsOptimizeInitializationBool = true
+ def appJSONGoogleMobileAdsOptimizeAdLoadingBool = true
+
+-if (rootProject.ext.googleMobileAdsJson) {
++if (rootProject.ext.has('googleMobileAdsJson') && rootProject.ext.googleMobileAdsJson) {
+   appJSONGoogleMobileAdsAppIDString = rootProject.ext.googleMobileAdsJson.getStringValue("android_app_id", "")
+   appJSONGoogleMobileAdsDelayAppMeasurementInitBool = rootProject.ext.googleMobileAdsJson.isFlagEnabled("delay_app_measurement_init", false)
+   appJSONGoogleMobileAdsOptimizeInitializationBool = rootProject.ext.googleMobileAdsJson.isFlagEnabled("optimize_initialization", true)
