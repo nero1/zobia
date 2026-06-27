@@ -9,7 +9,7 @@
       "distribution": "internal",
       "channel": "development",
       "node": "20.19.4",
-      "prebuildCommand": "echo $GOOGLE_SERVICES_JSON | base64 --decode > google-services.json",
+      "prebuildCommand": "node -e \"require('fs').writeFileSync('google-services.json', process.env.GOOGLE_SERVICES_JSON)\"",
       "android": {
         "buildType": "apk",
         "gradleCommand": ":app:assembleDebug",
@@ -24,7 +24,7 @@
       "distribution": "internal",
       "channel": "preview",
       "node": "20.19.4",
-      "prebuildCommand": "echo $GOOGLE_SERVICES_JSON | base64 --decode > google-services.json",
+      "prebuildCommand": "node -e \"require('fs').writeFileSync('google-services.json', process.env.GOOGLE_SERVICES_JSON)\"",
       "android": {
         "buildType": "apk",
         "gradleCommand": ":app:assembleRelease",
@@ -39,7 +39,7 @@
       "distribution": "internal",
       "channel": "staging",
       "node": "20.19.4",
-      "prebuildCommand": "echo $GOOGLE_SERVICES_JSON | base64 --decode > google-services.json",
+      "prebuildCommand": "node -e \"require('fs').writeFileSync('google-services.json', process.env.GOOGLE_SERVICES_JSON)\"",
       "android": {
         "buildType": "apk",
         "gradleCommand": ":app:assembleRelease",
@@ -53,7 +53,7 @@
       "distribution": "store",
       "channel": "production",
       "node": "20.19.4",
-      "prebuildCommand": "echo $GOOGLE_SERVICES_JSON | base64 --decode > google-services.json",
+      "prebuildCommand": "node -e \"require('fs').writeFileSync('google-services.json', process.env.GOOGLE_SERVICES_JSON)\"",
       "android": {
         "buildType": "app-bundle",
         "gradleCommand": ":app:bundleRelease",
