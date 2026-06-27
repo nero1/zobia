@@ -53,6 +53,7 @@ jobs:
         working-directory: apps/expo
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
         run: |
           PROFILE="${{ github.event.inputs.profile || 'preview' }}"
           eas build --platform android --profile $PROFILE --non-interactive
