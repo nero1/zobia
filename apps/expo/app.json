@@ -91,7 +91,7 @@
           "runtimeVersion": { "policy": "fingerprint" }
         }
       ],
-      "react-native-google-mobile-ads",
+      "./plugins/withGoogleMobileAds",
       "./plugins/withIapPlayFlavor"
     ],
     "experiments": {
