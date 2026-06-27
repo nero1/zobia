@@ -23,6 +23,7 @@ import Constants from 'expo-constants';
 import NetInfo from '@react-native-community/netinfo';
 
 import { AuthProvider } from '@/lib/auth/context';
+import { RootErrorBoundary } from '@/components/RootErrorBoundary';
 import { ThemeProvider, useTheme } from '@/lib/theme';
 import { FloatingNotificationProvider } from '@/components/providers/FloatingNotificationProvider';
 import { queryClient, apiClient } from '@/lib/api/client';
@@ -294,7 +295,9 @@ function RootLayoutNav() {
     })();
 
     // Ads and billing do not depend on MMKV — start them in parallel.
-    initializeAds();
+    // Guard the floating promise so an ads-init rejection can never surface as
+    // an unhandled rejection during startup.
+    initializeAds().catch((err) => console.warn('[ads] init failed', err));
     if (Platform.OS === 'android') {
       initGooglePlayBilling().catch((err) =>
         console.warn('[billing] Google Play Billing init failed', err)
@@ -463,18 +466,20 @@ function RootLayoutNav() {
  */
 export default function RootLayout() {
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <QueryClientProvider client={queryClient}>
-          <ThemeProvider>
-            <AuthProvider>
-              <FloatingNotificationProvider>
-                <RootLayoutNav />
-              </FloatingNotificationProvider>
-            </AuthProvider>
-          </ThemeProvider>
-        </QueryClientProvider>
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
+    <RootErrorBoundary>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <SafeAreaProvider>
+          <QueryClientProvider client={queryClient}>
+            <ThemeProvider>
+              <AuthProvider>
+                <FloatingNotificationProvider>
+                  <RootLayoutNav />
+                </FloatingNotificationProvider>
+              </AuthProvider>
+            </ThemeProvider>
+          </QueryClientProvider>
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    </RootErrorBoundary>
   );
 }
