@@ -136,6 +136,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // silent refresh before setting authenticated state.
   // BUG-EXPO-01/02: use silentRefresh() so network errors never log out offline users.
   useEffect(() => {
+    // WHITE-SCREEN WATCHDOG: `isLoading` gates the first render in
+    // app/_layout.tsx (`if (isLoading || !storeReady) return null`). If any
+    // awaited call below were to hang (e.g. a SecureStore read that never
+    // settles on a wedged keystore), isLoading would stay true forever and the
+    // app would be trapped on a blank screen. This deadline guarantees the gate
+    // always releases — worst case the user lands on the login screen.
+    const watchdog = setTimeout(() => {
+      setIsLoading(false);
+    }, 12_000);
     (async () => {
       try {
         const [storedToken, storedUser] = await Promise.all([
@@ -182,9 +191,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch {
         // Storage read failures are non-fatal — user just needs to log in.
       } finally {
+        clearTimeout(watchdog);
         setIsLoading(false);
       }
     })();
+    return () => clearTimeout(watchdog);
   }, []);
 
   // Subscribe to unauthenticated events (triggered when token refresh fails).

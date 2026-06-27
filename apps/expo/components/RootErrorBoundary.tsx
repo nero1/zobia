@@ -20,7 +20,16 @@
  */
 
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { env } from '@/lib/env';
+
+/**
+ * Show full error detail on every non-production build (development / preview /
+ * staging) so an installed test APK — which has no Metro/CLI logs and, in
+ * release mode, no red box — still surfaces the real cause instead of a generic
+ * message. Production keeps the friendly, detail-free screen.
+ */
+const SHOW_ERROR_DETAIL = __DEV__ || env.APP_ENV !== 'production';
 
 interface Props {
   children: React.ReactNode;
@@ -28,27 +37,30 @@ interface Props {
 
 interface State {
   error: Error | null;
+  componentStack: string | null;
 }
 
 export class RootErrorBoundary extends React.Component<Props, State> {
-  state: State = { error: null };
+  state: State = { error: null, componentStack: null };
 
-  static getDerivedStateFromError(error: Error): State {
+  static getDerivedStateFromError(error: Error): Partial<State> {
     return { error };
   }
 
   componentDidCatch(error: Error, info: { componentStack: string }): void {
     // Surface the real error to the console/EAS logs so the underlying cause is
-    // diagnosable instead of being swallowed by a blank screen.
+    // diagnosable instead of being swallowed by a blank screen. (console.error
+    // is also captured by lib/debug/logStore for the on-screen overlay.)
     console.error('[RootErrorBoundary] Uncaught error in root tree:', error, info.componentStack);
+    this.setState({ componentStack: info.componentStack });
   }
 
   handleReset = (): void => {
-    this.setState({ error: null });
+    this.setState({ error: null, componentStack: null });
   };
 
   render(): React.ReactNode {
-    const { error } = this.state;
+    const { error, componentStack } = this.state;
     if (!error) return this.props.children;
 
     return (
@@ -58,10 +70,22 @@ export class RootErrorBoundary extends React.Component<Props, State> {
           The app hit an unexpected error while starting up. You can try again —
           if it keeps happening, please reinstall or contact support.
         </Text>
-        {__DEV__ && (
-          <Text style={styles.detail} selectable>
-            {error.message}
-          </Text>
+        {SHOW_ERROR_DETAIL && (
+          <ScrollView style={styles.detailScroll} contentContainerStyle={styles.detailContent}>
+            <Text style={styles.detailMessage} selectable>
+              {error.name}: {error.message}
+            </Text>
+            {error.stack ? (
+              <Text style={styles.detail} selectable>
+                {error.stack}
+              </Text>
+            ) : null}
+            {componentStack ? (
+              <Text style={styles.detail} selectable>
+                {componentStack}
+              </Text>
+            ) : null}
+          </ScrollView>
         )}
         <Pressable
           style={styles.button}
@@ -97,10 +121,23 @@ const styles = StyleSheet.create({
     color: '#4B5563',
     textAlign: 'center',
   },
+  detailScroll: {
+    alignSelf: 'stretch',
+    maxHeight: 260,
+    marginTop: 4,
+  },
+  detailContent: {
+    paddingVertical: 4,
+  },
+  detailMessage: {
+    fontSize: 13,
+    color: '#B91C1C',
+    fontWeight: '600',
+    marginBottom: 6,
+  },
   detail: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#9CA3AF',
-    textAlign: 'center',
     marginTop: 4,
   },
   button: {

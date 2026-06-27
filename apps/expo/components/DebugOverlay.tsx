@@ -1,0 +1,240 @@
+/**
+ * DebugOverlay
+ *
+ * An on-device error/log surface for non-production builds. Renders nothing in
+ * production and nothing while the log buffer is empty; otherwise it shows a
+ * small floating badge with the captured error count. Tapping it expands a
+ * scrollable, copyable panel listing the most recent errors, warnings and
+ * fatal exceptions captured by lib/debug/logStore.
+ *
+ * WHY THIS EXISTS
+ * ---------------------------------------------------------------------------
+ * EAS release builds (preview/staging) run with `__DEV__ === false`, which
+ * disables React Native's red-box. Combined with testing an installed APK (no
+ * Metro/CLI logs), an uncaught error becomes an undebuggable white screen. This
+ * overlay makes the underlying error visible right on the device.
+ *
+ * It is deliberately self-contained: no theme, auth, i18n or query providers —
+ * so it can render even when those providers are exactly what failed. It is
+ * mounted as the LAST child of the root tree so it paints above everything.
+ */
+
+import { useEffect, useMemo, useState } from 'react';
+import {
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+
+import { env } from '@/lib/env';
+import {
+  clearEntries,
+  subscribe,
+  type LogEntry,
+} from '@/lib/debug/logStore';
+
+/**
+ * Whether the overlay is allowed to show. On in every non-production build
+ * (development / preview / staging) and in any dev bundle. Off in production so
+ * end users never see it.
+ */
+export const DEBUG_OVERLAY_ENABLED = __DEV__ || env.APP_ENV !== 'production';
+
+export function DebugOverlay(): React.ReactElement | null {
+  const [entries, setEntries] = useState<LogEntry[]>([]);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    if (!DEBUG_OVERLAY_ENABLED) return;
+    return subscribe(setEntries);
+  }, []);
+
+  // Only error/fatal entries drive the badge count; warnings are visible in the
+  // expanded panel but should not nag with a red badge on their own.
+  const errorCount = useMemo(
+    () => entries.filter((e) => e.level === 'error' || e.level === 'fatal').length,
+    [entries],
+  );
+
+  if (!DEBUG_OVERLAY_ENABLED) return null;
+  if (entries.length === 0) return null;
+
+  if (!expanded) {
+    return (
+      <Pressable
+        style={[styles.badge, errorCount === 0 && styles.badgeWarn]}
+        onPress={() => setExpanded(true)}
+        accessibilityRole="button"
+        accessibilityLabel={`Show debug logs (${entries.length} entries)`}
+      >
+        <Text style={styles.badgeText}>
+          {errorCount > 0 ? `⚠︎ ${errorCount} error${errorCount === 1 ? '' : 's'}` : `${entries.length} logs`}
+        </Text>
+      </Pressable>
+    );
+  }
+
+  return (
+    <View style={styles.panel} pointerEvents="box-none">
+      <View style={styles.panelInner}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Debug logs ({entries.length})</Text>
+          <View style={styles.headerButtons}>
+            <Pressable
+              style={styles.headerBtn}
+              onPress={clearEntries}
+              accessibilityRole="button"
+              accessibilityLabel="Clear logs"
+            >
+              <Text style={styles.headerBtnText}>Clear</Text>
+            </Pressable>
+            <Pressable
+              style={styles.headerBtn}
+              onPress={() => setExpanded(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Close debug logs"
+            >
+              <Text style={styles.headerBtnText}>Close</Text>
+            </Pressable>
+          </View>
+        </View>
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+          {/* Newest first so the most recent failure is on top. */}
+          {entries
+            .slice()
+            .reverse()
+            .map((entry) => (
+              <View key={entry.id} style={styles.entry}>
+                <Text style={[styles.entryLevel, levelStyle(entry.level)]} selectable>
+                  {entry.level.toUpperCase()} · {formatTime(entry.time)}
+                </Text>
+                <Text style={styles.entryMessage} selectable>
+                  {entry.message}
+                </Text>
+                {entry.stack ? (
+                  <Text style={styles.entryStack} selectable>
+                    {entry.stack}
+                  </Text>
+                ) : null}
+              </View>
+            ))}
+        </ScrollView>
+      </View>
+    </View>
+  );
+}
+
+function formatTime(ms: number): string {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+function levelStyle(level: LogEntry['level']) {
+  switch (level) {
+    case 'fatal':
+      return { color: '#fca5a5' };
+    case 'error':
+      return { color: '#f87171' };
+    default:
+      return { color: '#fbbf24' };
+  }
+}
+
+const styles = StyleSheet.create({
+  badge: {
+    position: 'absolute',
+    bottom: Platform.OS === 'ios' ? 90 : 70,
+    right: 12,
+    backgroundColor: 'rgba(220, 38, 38, 0.92)',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    zIndex: 99999,
+    elevation: 24,
+  },
+  badgeWarn: {
+    backgroundColor: 'rgba(202, 138, 4, 0.92)',
+  },
+  badgeText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  panel: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'flex-end',
+    zIndex: 99999,
+    elevation: 24,
+  },
+  panelInner: {
+    maxHeight: '70%',
+    backgroundColor: 'rgba(17, 24, 39, 0.98)',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 24,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  headerTitle: {
+    color: '#f9fafb',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  headerBtn: {
+    backgroundColor: '#374151',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  headerBtnText: {
+    color: '#f9fafb',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  scroll: {
+    flexGrow: 0,
+  },
+  scrollContent: {
+    paddingBottom: 8,
+  },
+  entry: {
+    marginBottom: 10,
+    paddingBottom: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#374151',
+  },
+  entryLevel: {
+    fontSize: 11,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  entryMessage: {
+    color: '#e5e7eb',
+    fontSize: 12,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  entryStack: {
+    color: '#9ca3af',
+    fontSize: 10,
+    marginTop: 4,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+});

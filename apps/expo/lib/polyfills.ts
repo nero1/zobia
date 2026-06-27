@@ -23,6 +23,12 @@
  */
 
 import * as ExpoCrypto from 'expo-crypto';
+import { installGlobalErrorHandlers } from '@/lib/debug/logStore';
+
+// Install the global error/console capture hooks before anything else runs so
+// that even a crash during early bootstrap is recorded for the on-screen
+// <DebugOverlay /> (release builds disable RN's red box — see lib/debug/logStore).
+installGlobalErrorHandlers();
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const g = globalThis as any;
@@ -50,6 +56,65 @@ if (typeof g.crypto.getRandomValues !== 'function') {
 // expo-crypto ships a spec-compatible, synchronous randomUUID().
 if (typeof g.crypto.randomUUID !== 'function') {
   g.crypto.randomUUID = () => ExpoCrypto.randomUUID();
+}
+
+// ---------------------------------------------------------------------------
+// base64 (btoa / atob)
+// ---------------------------------------------------------------------------
+// Hermes does not guarantee `btoa`/`atob`, yet they are called on startup-
+// adjacent paths:
+//   - lib/auth/context.tsx → atob() to decode the JWT payload when restoring a
+//     persisted session (runs while the splash is up; a throw here leaves the
+//     app stuck on white before login ever renders).
+//   - lib/offline/sqlite.ts → btoa()/atob() for the encrypted offline queue.
+// We install a spec-compatible pure-JS implementation only if the runtime does
+// not already provide one (so a future Hermes that ships them wins).
+const BASE64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+if (typeof g.btoa !== 'function') {
+  g.btoa = (input: string): string => {
+    let output = '';
+    let i = 0;
+    while (i < input.length) {
+      const c1 = input.charCodeAt(i++);
+      const c2 = input.charCodeAt(i++);
+      const c3 = input.charCodeAt(i++);
+      const e1 = c1 >> 2;
+      const e2 = ((c1 & 3) << 4) | (c2 >> 4);
+      let e3 = ((c2 & 15) << 2) | (c3 >> 6);
+      let e4 = c3 & 63;
+      if (isNaN(c2)) {
+        e3 = 64;
+        e4 = 64;
+      } else if (isNaN(c3)) {
+        e4 = 64;
+      }
+      output +=
+        BASE64_CHARS.charAt(e1) +
+        BASE64_CHARS.charAt(e2) +
+        (e3 === 64 ? '=' : BASE64_CHARS.charAt(e3)) +
+        (e4 === 64 ? '=' : BASE64_CHARS.charAt(e4));
+    }
+    return output;
+  };
+}
+
+if (typeof g.atob !== 'function') {
+  g.atob = (input: string): string => {
+    const str = String(input).replace(/[=]+$/, '');
+    let output = '';
+    let bc = 0;
+    let bs = 0;
+    for (let i = 0; i < str.length; i++) {
+      const idx = BASE64_CHARS.indexOf(str.charAt(i));
+      if (idx === -1) continue;
+      bs = bc % 4 ? bs * 64 + idx : idx;
+      if (bc++ % 4) {
+        output += String.fromCharCode(255 & (bs >> ((-2 * bc) & 6)));
+      }
+    }
+    return output;
+  };
 }
 
 export {};
