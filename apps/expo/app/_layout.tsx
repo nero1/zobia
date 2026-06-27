@@ -24,6 +24,7 @@ import NetInfo from '@react-native-community/netinfo';
 
 import { AuthProvider } from '@/lib/auth/context';
 import { RootErrorBoundary } from '@/components/RootErrorBoundary';
+import { DebugOverlay } from '@/components/DebugOverlay';
 import { ThemeProvider, useTheme } from '@/lib/theme';
 import { FloatingNotificationProvider } from '@/components/providers/FloatingNotificationProvider';
 import { queryClient, apiClient } from '@/lib/api/client';
@@ -466,20 +467,26 @@ function RootLayoutNav() {
  */
 export default function RootLayout() {
   return (
-    <RootErrorBoundary>
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <SafeAreaProvider>
-          <QueryClientProvider client={queryClient}>
-            <ThemeProvider>
-              <AuthProvider>
-                <FloatingNotificationProvider>
-                  <RootLayoutNav />
-                </FloatingNotificationProvider>
-              </AuthProvider>
-            </ThemeProvider>
-          </QueryClientProvider>
-        </SafeAreaProvider>
-      </GestureHandlerRootView>
-    </RootErrorBoundary>
+    <>
+      <RootErrorBoundary>
+        <GestureHandlerRootView style={{ flex: 1 }}>
+          <SafeAreaProvider>
+            <QueryClientProvider client={queryClient}>
+              <ThemeProvider>
+                <AuthProvider>
+                  <FloatingNotificationProvider>
+                    <RootLayoutNav />
+                  </FloatingNotificationProvider>
+                </AuthProvider>
+              </ThemeProvider>
+            </QueryClientProvider>
+          </SafeAreaProvider>
+        </GestureHandlerRootView>
+      </RootErrorBoundary>
+      {/* Rendered OUTSIDE the error boundary and all providers so it can still
+          surface captured errors even when a provider render throws and the
+          boundary swaps in its fallback. No-ops in production. */}
+      <DebugOverlay />
+    </>
   );
 }
