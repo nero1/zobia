@@ -8,12 +8,12 @@ import '../global.css';
 export { ErrorBoundary } from 'expo-router';
 
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, Linking, Platform, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Dimensions, Linking, Platform, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import { QueryClientProvider } from '@tanstack/react-query';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
@@ -51,6 +51,38 @@ try {
 } catch {
   /* splash module not ready — the native splash will auto-hide on its own */
 }
+
+// BUG-WHITESCREEN (no chip, no alert) ROOT CAUSE FIX
+// ---------------------------------------------------------------------------
+// SafeAreaProvider (react-native-safe-area-context 4.10.x) renders NOTHING —
+// literally `{insets != null ? children : null}` — until the NATIVE side
+// delivers the first inset measurement via its async `onInsetsChange` callback.
+// On some Android configurations (notably edge-to-edge enforcement when
+// targeting SDK 35, which this app does via expo-build-properties) that callback
+// can be delayed indefinitely or never fire, so the provider stays on `null`
+// and the app is stuck on a blank white screen forever.
+//
+// Because SafeAreaProvider is the OUTERMOST wrapper, this also swallows the
+// <DebugOverlay /> chip and the RootErrorBoundary — both are its children — so
+// the failure is completely invisible: white screen, no chip, no red box, and
+// no native alert (nothing actually throws; the tree just never renders).
+//
+// Passing `initialMetrics` makes `insets` non-null on the very FIRST render, so
+// children always render immediately; the real insets still update later when
+// `onInsetsChange` fires. `initialWindowMetrics` is read synchronously from the
+// native module at startup, but can itself be null, so we fall back to a
+// zero-inset, full-window frame derived from Dimensions. This GUARANTEES the
+// tree renders on frame one regardless of native-callback timing.
+const FALLBACK_METRICS = {
+  insets: { top: 0, left: 0, right: 0, bottom: 0 },
+  frame: {
+    x: 0,
+    y: 0,
+    width: Dimensions.get('window').width,
+    height: Dimensions.get('window').height,
+  },
+} satisfies NonNullable<typeof initialWindowMetrics>;
+const SAFE_AREA_INITIAL_METRICS = initialWindowMetrics ?? FALLBACK_METRICS;
 
 // ---------------------------------------------------------------------------
 // Push notification configuration
@@ -495,7 +527,12 @@ export default function RootLayout() {
     // the sibling DebugOverlay can consume useSafeAreaInsets(). Placing it here
     // (outside the error boundary) means even if a provider crashes, the overlay
     // still has correct inset values for positioning.
-    <SafeAreaProvider>
+    //
+    // `initialMetrics` is REQUIRED here: without it the provider renders null
+    // until the native async inset callback fires, which can hang forever on
+    // Android edge-to-edge (SDK 35) and strand the whole tree — including the
+    // DebugOverlay chip — on a blank white screen. See SAFE_AREA_INITIAL_METRICS.
+    <SafeAreaProvider initialMetrics={SAFE_AREA_INITIAL_METRICS}>
       <RootErrorBoundary>
         <GestureHandlerRootView style={{ flex: 1 }}>
           <QueryClientProvider client={queryClient}>
