@@ -4,6 +4,46 @@ This note explains the changes made to (a) move the Android build to API level 3
 the *supported* way, and (b) make startup errors actually visible on the device
 so the post-splash white screen can be diagnosed without a CLI/Metro.
 
+## RESOLUTION (the actual root cause) — expo-updates was gating the JS bundle
+
+After every JS-level guard was in place (polyfills, bootstrap watchdog, root
+error boundary, native-alert fallback, and the `SafeAreaProvider initialMetrics`
+fix in PR #403), a `preview`-profile APK — which **force-enables** the debug
+chip via `EXPO_PUBLIC_DEBUG_OVERLAY=1` — *still* booted to a permanent white
+screen with **no chip and no native alert**. The debug chip is rendered as the
+very first thing React paints, so its absence proves **React never mounted at
+all** — i.e. the JS bundle was never executed. That rules out every JS-level
+cause and points below JS, to the native bundle-loading layer (exactly what the
+"How to use this…" section below predicted).
+
+In a release build, **`expo-updates` owns JS bundle loading**: React Native's
+`getJSBundleFile()` returns the bundle resolved by the updates controller. If
+the controller is enabled but cannot resolve a launchable update (e.g. a
+runtime-version mismatch between the embedded manifest and what the controller
+expects), it returns no bundle and the app hangs on a blank screen — splash →
+white → no JS → no chip → no alert.
+
+The `expo-updates` config was also **malformed**: `runtimeVersion` and
+`projectId` were passed as *plugin props*, which the `expo-updates` config plugin
+does not read (they belong at the top level / `extra.eas.projectId`). So the
+top-level `runtimeVersion` was effectively unset.
+
+**Fix:** disable OTA so React Native loads the embedded `index.android.bundle`
+directly, bypassing the updates controller entirely:
+
+- `apps/expo/app.json` → top-level `"updates": { "enabled": false }` and a fixed
+  top-level `"runtimeVersion": "1.0.0"`.
+- Replaced the malformed `["expo-updates", { … }]` plugin entry with the plain
+  `"expo-updates"` string so the plugin still writes `ENABLED=false` into the
+  native config.
+
+OTA was not a used feature — `expo-updates` is only referenced via
+`Updates.reloadAsync()`, guarded by `Updates.isAvailable`, to apply an RTL
+(Arabic) layout flip. With OTA disabled, `isAvailable` is `false`, so those calls
+no-op; the only behavioural change is that switching to/from Arabic needs a
+manual app restart. OTA can be re-enabled later (top-level `runtimeVersion` +
+`updates.url`) once the app is stable.
+
 ## Root findings
 
 1. **The Android SDK keys in `app.json` / `app.config.js` never took effect.**

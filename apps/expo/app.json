@@ -7,6 +7,10 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "scheme": "zobia",
+    "runtimeVersion": "1.0.0",
+    "updates": {
+      "enabled": false
+    },
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -92,13 +96,7 @@
           }
         }
       ],
-      [
-        "expo-updates",
-        {
-          "projectId": "748c9e59-266a-4251-8a0a-84f19696458b",
-          "runtimeVersion": { "policy": "fingerprint" }
-        }
-      ],
+      "expo-updates",
       [
         "./plugins/withGoogleMobileAds",
         {
