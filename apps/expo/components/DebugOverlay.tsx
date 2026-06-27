@@ -38,11 +38,28 @@ import {
 } from '@/lib/debug/logStore';
 
 /**
- * Whether the overlay is allowed to show. On in every non-production build
- * (development / preview / staging) and in any dev bundle. Off in production so
- * end users never see it.
+ * Explicit, build-time kill-switch for the on-device diagnostics. Metro inlines
+ * any `EXPO_PUBLIC_*` var, so setting `EXPO_PUBLIC_DEBUG_OVERLAY=1` in an EAS
+ * build profile (see eas.json) force-enables the overlay, the native-alert
+ * fallback (lib/debug/logStore) and the error-boundary detail — even in a
+ * release/production bundle. This is the escape hatch for the exact situation
+ * the user hit: an installed APK that white-screens with NO chip because the
+ * build profile resolved APP_ENV to 'production', which silently suppressed
+ * every on-screen diagnostic. Set it to '0' to force everything off.
  */
-export const DEBUG_OVERLAY_ENABLED = __DEV__ || env.APP_ENV !== 'production';
+const DEBUG_FLAG = process.env.EXPO_PUBLIC_DEBUG_OVERLAY;
+export const DEBUG_OVERLAY_FORCED_ON = DEBUG_FLAG === '1' || DEBUG_FLAG === 'true';
+export const DEBUG_OVERLAY_FORCED_OFF = DEBUG_FLAG === '0' || DEBUG_FLAG === 'false';
+
+/**
+ * Whether the overlay is allowed to show. Forced on/off by
+ * `EXPO_PUBLIC_DEBUG_OVERLAY` when set; otherwise on in every non-production
+ * build (development / preview / staging) and in any dev bundle, off in
+ * production so end users never see it.
+ */
+export const DEBUG_OVERLAY_ENABLED =
+  !DEBUG_OVERLAY_FORCED_OFF &&
+  (DEBUG_OVERLAY_FORCED_ON || __DEV__ || env.APP_ENV !== 'production');
 
 export function DebugOverlay(): React.ReactElement | null {
   const insets = useSafeAreaInsets();

@@ -122,6 +122,12 @@ function nativeAlertsAllowed(): boolean {
   const isDev = Boolean((globalThis as any).__DEV__);
   // In development the red box already shows the error — no alert needed.
   if (isDev) return false;
+  // Explicit build-time override (EXPO_PUBLIC_DEBUG_OVERLAY) wins over APP_ENV so
+  // a release/production bundle built for debugging still surfaces a startup
+  // crash via a native Alert. Metro inlines EXPO_PUBLIC_* at build time.
+  const flag = process.env.EXPO_PUBLIC_DEBUG_OVERLAY;
+  if (flag === '1' || flag === 'true') return true;
+  if (flag === '0' || flag === 'false') return false;
   try {
     // Lazy require so this module stays dependency-free at import time (it is
     // imported first, from polyfills.ts). env does not import logStore, so there

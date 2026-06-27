@@ -29,7 +29,13 @@ import { env } from '@/lib/env';
  * release mode, no red box — still surfaces the real cause instead of a generic
  * message. Production keeps the friendly, detail-free screen.
  */
-const SHOW_ERROR_DETAIL = __DEV__ || env.APP_ENV !== 'production';
+const DEBUG_FLAG = process.env.EXPO_PUBLIC_DEBUG_OVERLAY;
+const SHOW_ERROR_DETAIL =
+  DEBUG_FLAG === '1' || DEBUG_FLAG === 'true'
+    ? true
+    : DEBUG_FLAG === '0' || DEBUG_FLAG === 'false'
+      ? false
+      : __DEV__ || env.APP_ENV !== 'production';
 
 interface Props {
   children: React.ReactNode;
