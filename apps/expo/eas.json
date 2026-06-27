@@ -15,7 +15,6 @@
         "env": {
           "APP_ENV": "development",
           "API_BASE_URL": "https://zobia.vercel.app",
-          "EAS_PROJECT_ID": "$EAS_PROJECT_ID",
           "EXPO_PUBLIC_TELEGRAM_BOT_NAME": "ZobiaStagingBot"
         }
       }
@@ -30,7 +29,6 @@
         "env": {
           "APP_ENV": "preview",
           "API_BASE_URL": "https://zobia.vercel.app",
-          "EAS_PROJECT_ID": "$EAS_PROJECT_ID",
           "EXPO_PUBLIC_TELEGRAM_BOT_NAME": "ZobiaStagingBot"
         }
       }
@@ -44,8 +42,7 @@
         "gradleCommand": ":app:assembleRelease",
         "env": {
           "APP_ENV": "staging",
-          "API_BASE_URL": "https://zobia.vercel.app",
-          "EAS_PROJECT_ID": "$EAS_PROJECT_ID"
+          "API_BASE_URL": "https://zobia.vercel.app"
         }
       }
     },
@@ -63,8 +60,7 @@
           "ADMOB_APP_ID_IOS": "$ADMOB_APP_ID_IOS",
           "EXPO_PUBLIC_ADMOB_REWARDED_ANDROID": "$EXPO_PUBLIC_ADMOB_REWARDED_ANDROID",
           "EXPO_PUBLIC_ADMOB_BANNER_ANDROID": "$EXPO_PUBLIC_ADMOB_BANNER_ANDROID",
-          "EXPO_PUBLIC_ADMOB_INTERSTITIAL_ANDROID": "$EXPO_PUBLIC_ADMOB_INTERSTITIAL_ANDROID",
-          "EAS_PROJECT_ID": "$EAS_PROJECT_ID"
+          "EXPO_PUBLIC_ADMOB_INTERSTITIAL_ANDROID": "$EXPO_PUBLIC_ADMOB_INTERSTITIAL_ANDROID"
         }
       }
     }
