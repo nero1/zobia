@@ -87,7 +87,7 @@
       [
         "expo-updates",
         {
-          "projectId": "ad68e531-aa48-4873-8d41-3bca8f18b9a4",
+          "projectId": "748c9e59-266a-4251-8a0a-84f19696458b",
           "runtimeVersion": { "policy": "fingerprint" }
         }
       ],
@@ -105,7 +105,7 @@
       "WEB_BASE_URL": "https://zobia.vercel.app",
       "telegramBotName": "Zobia_bot_bot",
       "eas": {
-        "projectId": "ad68e531-aa48-4873-8d41-3bca8f18b9a4"
+        "projectId": "748c9e59-266a-4251-8a0a-84f19696458b"
       }
     }
   },
