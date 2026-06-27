@@ -41,4 +41,15 @@ if (typeof g.crypto.getRandomValues !== 'function') {
   };
 }
 
+// `crypto.randomUUID()` is also absent on Hermes, yet it is called on
+// user-facing interaction paths — e.g. generating idempotency keys / optimistic
+// message IDs when posting in a room (app/rooms/[roomId].tsx), sending a guild
+// message (app/guilds/[guildId]/chat.tsx) and enqueuing offline messages
+// (lib/offline/sqlite.ts). Without this, those actions throw
+// "crypto.randomUUID is not a function" the moment the user tries to send.
+// expo-crypto ships a spec-compatible, synchronous randomUUID().
+if (typeof g.crypto.randomUUID !== 'function') {
+  g.crypto.randomUUID = () => ExpoCrypto.randomUUID();
+}
+
 export {};
