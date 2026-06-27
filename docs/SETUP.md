@@ -155,14 +155,18 @@ Android Studio requirement. It is triggered by `.github/workflows/build-android.
    with `System.exit(1)` (it will not even reach the bundle step). The values above are
    Google's official **test** IDs — replace them with your live AdMob IDs before release.
 
-5. **`google-services.json` is required for native Google Sign-In on Android.**
-   Place a valid `google-services.json` (downloaded from the Firebase Console or Google Cloud
-   Console under the **Android** OAuth client) at `apps/expo/google-services.json`. EAS Build
-   picks it up automatically. Without it, the native GoogleSignIn module fails to initialize
-   and all Google OAuth attempts silently return an error. The file is `.gitignore`d and must
-   be set as an EAS secret (or supplied at build time via the EAS credentials UI) for CI builds.
-   For local development, download it from the Firebase Console → your Android app → "Download
-   google-services.json".
+5. **`google-services.json` is required by `expo-notifications` (FCM) and `react-native-google-mobile-ads`.**
+   A placeholder file is committed at `apps/expo/google-services.json` with dummy values so
+   development and preview builds succeed without a Firebase project. The placeholder is
+   sufficient to build and run the app — the UI works fully, AdMob test ads work, and local
+   notifications work. The only thing that won't work with the placeholder is **remote push
+   notifications** (FCM delivery). FCM / Firebase Cloud Messaging is **completely free** on
+   Firebase's Spark plan — no credit card required.
+
+   When you are ready to enable real push notifications:
+   1. Create a free project at [console.firebase.google.com](https://console.firebase.google.com).
+   2. Add an Android app with package name `org.zobia.social`.
+   3. Download the real `google-services.json` and replace `apps/expo/google-services.json`.
 
 6. **`mobileAds().initialize()` must run at startup.** The native app ID in the manifest is
    only half of the wiring — the SDK must also be initialised once in JS or ads silently
@@ -991,12 +995,25 @@ To ensure the Creator Fund pool is correctly seeded on the 1st of each month, ad
 ### Prerequisites
 
 - Expo account at [expo.dev](https://expo.dev) — create a project named `zobia-social`
-- EAS CLI installed globally: `npm install -g eas-cli`
 - Android `compileSdkVersion` and `targetSdkVersion` both set to **36** in `apps/expo/app.json` (Google Play requires `targetSdkVersion ≥ 36`; `compileSdkVersion` must be ≥ `targetSdkVersion`)
 
 ### Build steps
 
+There are two ways to trigger a build — no local CLI required:
+
+**Option A: expo.dev dashboard (no CLI)**
+1. Go to [expo.dev](https://expo.dev) → your project → **Builds** → **New build**.
+2. Select platform: **Android**, profile: **preview** (APK) or **production** (AAB).
+3. The build is queued on Expo's servers. Download the APK from the same Builds page when done.
+
+**Option B: GitHub Actions (no CLI)**
+1. Add `EXPO_TOKEN` to your GitHub repository secrets (GitHub → Settings → Secrets and variables → Actions). Get the token from expo.dev → Account → Access tokens.
+2. Push to `main` (or use **Actions → Build Android APK → Run workflow** to trigger manually on any branch).
+3. Download the APK from expo.dev → your project → Builds when the workflow completes.
+
+**Option C: local CLI**
 ```bash
+npm install -g eas-cli
 cd apps/expo
 eas login
 eas build --platform android --profile preview
@@ -1035,7 +1052,9 @@ EAS manages the keystore automatically by default. For self-managed signing, see
 
 1. Go to your GitHub repository → **Settings → Secrets and variables → Actions**.
 2. Add a secret named `EXPO_TOKEN` — get it from `expo.dev → Account → Access tokens`.
-3. Push to `main` to trigger `.github/workflows/build-android.yml` automatically.
+3. Push to `main` to trigger `.github/workflows/build-android.yml` automatically, or use **Actions → Build Android APK → Run workflow** to build any branch on demand.
+
+That is the only secret required. `google-services.json` is committed as a placeholder (sufficient for dev/preview builds). The EAS project ID is hardcoded in `app.json` — no `EAS_PROJECT_ID` secret needed.
 
 ### Downloading the APK
 
@@ -1328,21 +1347,7 @@ When a user logs into the Expo app on a physical device, the app automatically:
 
 The `deviceId` enables deduplication when a user reinstalls the app: only the most recently registered token per `(user_id, device_id)` pair receives notifications, preventing duplicate delivery after reinstalls.
 
-**EAS Project ID (required since Expo SDK 47):** `Notifications.getExpoPushTokenAsync()` now requires the EAS `projectId` to be passed explicitly. The app reads this from `Constants.expoConfig?.extra?.eas?.projectId`. Ensure your `apps/expo/app.json` (or `app.config.js`) includes the EAS project ID in the `extra.eas` block:
-
-```json
-{
-  "expo": {
-    "extra": {
-      "eas": {
-        "projectId": "your-eas-project-id-here"
-      }
-    }
-  }
-}
-```
-
-Find your project ID at [expo.dev](https://expo.dev) → your project → Project ID. Without this, push tokens may be silently invalid on SDK 47+.
+**EAS Project ID (required since Expo SDK 47):** `Notifications.getExpoPushTokenAsync()` requires the EAS `projectId` to be passed explicitly. The app reads this from `Constants.expoConfig?.extra?.eas?.projectId`. This is already hardcoded in `apps/expo/app.json` under `extra.eas.projectId` — no environment variable or secret is needed. `apps/expo/app.config.js` does not override it; the value flows through from `app.json` unchanged.
 
 To test push notifications locally:
 ```bash
