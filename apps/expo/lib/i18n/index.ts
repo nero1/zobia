@@ -38,41 +38,57 @@ const SUPPORTED_LOCALES: SupportedLocale[] = ['en', 'fr', 'ar', 'ha', 'sw', 'am'
  * Must not touch MMKV — initStore() has not run yet at module evaluation time.
  */
 function resolveDeviceLocale(): SupportedLocale {
-  const deviceLocales = Localization.getLocales();
-  for (const locale of deviceLocales) {
-    const lang = locale.languageCode as SupportedLocale;
-    if (SUPPORTED_LOCALES.includes(lang)) return lang;
+  // WHITE-SCREEN GUARD: this runs at MODULE EVALUATION time (i18n is imported at
+  // the top of app/_layout.tsx). expo-localization is a native module; if it is
+  // not yet ready / throws on this device, an unguarded throw here aborts the
+  // entire bundle's evaluation and strands the app on a blank screen before
+  // React can mount. Default to English instead of crashing.
+  try {
+    const deviceLocales = Localization.getLocales();
+    for (const locale of deviceLocales) {
+      const lang = locale.languageCode as SupportedLocale;
+      if (SUPPORTED_LOCALES.includes(lang)) return lang;
+    }
+  } catch (err) {
+    console.warn('[i18n] Localization.getLocales() failed; defaulting to en', err);
   }
   return 'en';
 }
 
-i18n
-  .use(initReactI18next)
-  .init({
-    resources: {
-      en: { translation: en },
-      fr: { translation: fr },
-      ar: { translation: ar },
-      ha: { translation: ha },
-      sw: { translation: sw },
-      am: { translation: am },
-      zu: { translation: zu },
-      pt: { translation: pt },
-      pidgin: { translation: pidgin },
-    },
-    lng: resolveDeviceLocale(),
-    fallbackLng: 'en',
-    interpolation: {
-      escapeValue: false,
-    },
-    react: {
-      useSuspense: false,
-    },
-    compatibilityJSON: 'v4',
-  });
+// WHITE-SCREEN GUARD: wrap the whole init so a failure in i18next/RTL setup at
+// module-evaluation time degrades to "untranslated keys" rather than a blank
+// screen. The app must always boot.
+try {
+  i18n
+    .use(initReactI18next)
+    .init({
+      resources: {
+        en: { translation: en },
+        fr: { translation: fr },
+        ar: { translation: ar },
+        ha: { translation: ha },
+        sw: { translation: sw },
+        am: { translation: am },
+        zu: { translation: zu },
+        pt: { translation: pt },
+        pidgin: { translation: pidgin },
+      },
+      lng: resolveDeviceLocale(),
+      fallbackLng: 'en',
+      interpolation: {
+        escapeValue: false,
+      },
+      react: {
+        useSuspense: false,
+      },
+      compatibilityJSON: 'v4',
+    });
 
-// Apply RTL layout for Arabic immediately after init, before first render.
-setupRTL(i18n.language);
+  // Apply RTL layout for Arabic immediately after init, before first render.
+  setupRTL(i18n.language);
+} catch (err) {
+  console.warn('[i18n] initialisation failed; continuing with fallback', err);
+}
 
 // Keep RTL in sync if the language changes at runtime.
 // When the new language requires a different text direction, update I18nManager

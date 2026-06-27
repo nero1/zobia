@@ -102,6 +102,58 @@ export function record(level: LogLevel, message: string, stack?: string): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Native alert fallback for invisible (pre-React) crashes
+// ---------------------------------------------------------------------------
+//
+// The on-screen <DebugOverlay /> can only surface an error once React has
+// mounted the root tree. But the worst white-screen failures happen DURING
+// MODULE EVALUATION — before any component (including the overlay and the root
+// error boundary) renders — so they are completely invisible: the app shows the
+// splash, then a permanent white screen, with no chip and no red box (release
+// builds disable it). A native Alert is rendered by the platform, not by our
+// React tree, so it still appears even when React never mounted. This is the
+// only way such a crash becomes readable on a device with no Metro/CLI logs.
+
+let _nativeAlertShown = false;
+
+function nativeAlertsAllowed(): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const isDev = Boolean((globalThis as any).__DEV__);
+  // In development the red box already shows the error — no alert needed.
+  if (isDev) return false;
+  try {
+    // Lazy require so this module stays dependency-free at import time (it is
+    // imported first, from polyfills.ts). env does not import logStore, so there
+    // is no circular dependency.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { env } = require('@/lib/env') as typeof import('@/lib/env');
+    return env.APP_ENV !== 'production';
+  } catch {
+    // If env itself failed to evaluate (it may BE the early crash), still show
+    // the alert on any non-dev build — visibility beats a silent white screen.
+    return true;
+  }
+}
+
+/** Surface a single blocking native alert for an otherwise-invisible fatal crash. */
+function maybeShowNativeAlert(title: string, body: string): void {
+  if (_nativeAlertShown) return;
+  if (!nativeAlertsAllowed()) return;
+  _nativeAlertShown = true;
+  // Defer so we are not re-entering native UI from inside the crashing tick.
+  setTimeout(() => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { Alert } = require('react-native') as typeof import('react-native');
+      Alert.alert(title, body.length > 1500 ? `${body.slice(0, 1500)}…` : body);
+    } catch {
+      // Native module not ready (e.g. a true native crash) — nothing more we
+      // can do from JS; the captured entry is still in the ring buffer.
+    }
+  }, 0);
+}
+
 /** Best-effort stringify of an arbitrary console/handler argument. */
 function stringifyArg(arg: unknown): string {
   if (arg instanceof Error) {
@@ -165,6 +217,15 @@ export function installGlobalErrorHandlers(): void {
         `${isFatal ? '[FATAL] ' : ''}${err.name}: ${err.message}`,
         err.stack,
       );
+      // A fatal uncaught error is exactly the case where the app strands on a
+      // white screen with no on-screen overlay (it can crash before React even
+      // mounts). Surface it via a native Alert so it is finally readable.
+      if (isFatal) {
+        maybeShowNativeAlert(
+          'Startup error',
+          `${err.name}: ${err.message}\n\n${(err.stack ?? '').slice(0, 1200)}`,
+        );
+      }
       if (typeof previous === 'function') {
         try {
           previous(error, isFatal);

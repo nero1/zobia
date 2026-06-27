@@ -60,9 +60,26 @@ export function DebugOverlay(): React.ReactElement | null {
   );
 
   if (!DEBUG_OVERLAY_ENABLED) return null;
-  if (entries.length === 0) return null;
 
   if (!expanded) {
+    // Always render at least a minimal handle (even with zero captured
+    // entries). Its mere presence confirms that React mounted the root tree —
+    // so if the screen is blank AND this dot is absent, the failure happened
+    // before React rendered (a module-evaluation or native crash; see the
+    // native Alert fallback in lib/debug/logStore.ts). Tapping it opens the
+    // panel so warnings/errors can be read on-device with no Metro/CLI.
+    if (entries.length === 0) {
+      return (
+        <Pressable
+          style={styles.dot}
+          onPress={() => setExpanded(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Open debug logs (no entries yet)"
+        >
+          <Text style={styles.dotText}>›_</Text>
+        </Pressable>
+      );
+    }
     return (
       <Pressable
         style={[styles.badge, errorCount === 0 && styles.badgeWarn]}
@@ -102,6 +119,13 @@ export function DebugOverlay(): React.ReactElement | null {
           </View>
         </View>
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+          {entries.length === 0 ? (
+            <Text style={styles.emptyText} selectable>
+              No errors or warnings captured yet. If the app is stuck on a blank
+              screen, the failure happened before React rendered (a startup /
+              native crash) — a native alert will pop up with the cause.
+            </Text>
+          ) : null}
           {/* Newest first so the most recent failure is on top. */}
           {entries
             .slice()
@@ -158,6 +182,30 @@ const styles = StyleSheet.create({
   },
   badgeWarn: {
     backgroundColor: 'rgba(202, 138, 4, 0.92)',
+  },
+  dot: {
+    position: 'absolute',
+    bottom: Platform.OS === 'ios' ? 90 : 70,
+    right: 12,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(31, 41, 55, 0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 99999,
+    elevation: 24,
+  },
+  dotText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  emptyText: {
+    color: '#9ca3af',
+    fontSize: 12,
+    lineHeight: 18,
+    paddingVertical: 8,
   },
   badgeText: {
     color: '#ffffff',
