@@ -42,7 +42,15 @@ import '@/lib/i18n';
 
 // BUG-CRIT-02: Prevent the native splash from auto-hiding so we can control
 // it ourselves — hide only after auth state is resolved and MMKV is ready.
-SplashScreen.preventAutoHideAsync();
+// Guard the module-scope call: a synchronous throw here (native module not
+// ready) would abort bundle evaluation and strand the app on a white screen
+// before React mounts. preventAutoHideAsync returns a promise, so also swallow
+// any rejection.
+try {
+  void SplashScreen.preventAutoHideAsync().catch(() => {});
+} catch {
+  /* splash module not ready — the native splash will auto-hide on its own */
+}
 
 // ---------------------------------------------------------------------------
 // Push notification configuration
@@ -92,13 +100,19 @@ const VALID_PUSH_ROUTES: RegExp[] = [
   /^\/notifications$/i,
 ];
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
-});
+// Guard the module-scope native call so a throw can't abort bundle evaluation
+// (which would blank the app before React mounts).
+try {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+    }),
+  });
+} catch (err) {
+  console.warn('[push] setNotificationHandler failed', err);
+}
 
 // ---------------------------------------------------------------------------
 // Push token registration
