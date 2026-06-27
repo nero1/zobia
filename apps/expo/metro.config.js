@@ -11,7 +11,7 @@ const config = getDefaultConfig(projectRoot);
 
 // Watch the workspace root so Metro picks up changes in `shared/` (imported via
 // the `@zobia/shared/*` alias, e.g. @zobia/shared/utils for slug + referral helpers).
-config.watchFolders = [workspaceRoot];
+config.watchFolders = [...(config.watchFolders ?? []), workspaceRoot];
 
 // Resolve modules from both the app's and the workspace root's node_modules.
 config.resolver.nodeModulesPaths = [
