@@ -8,7 +8,7 @@ import '../global.css';
 export { ErrorBoundary } from 'expo-router';
 
 import { useEffect, useRef, useState } from 'react';
-import { Alert, AppState, Linking, Platform } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Linking, Platform, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -447,7 +447,17 @@ function RootLayoutNav() {
   }, []); // Empty deps: register once; routerRef/isLoadingRef always hold latest values
 
   // Don't render the nav tree until auth state is resolved and store is ready.
-  if (isLoading || !storeReady) return null;
+  // Return a visible placeholder instead of null so the user never stares at a
+  // blank white screen if the native splash auto-hid early (e.g. because the
+  // Android API 36 edge-to-edge enforcement caused a window resize that
+  // dismisses the splash before preventAutoHideAsync took effect).
+  if (isLoading || !storeReady) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#ffffff', alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator size="large" color="#2563EB" />
+      </View>
+    );
+  }
 
   return (
     <>
@@ -481,26 +491,29 @@ function RootLayoutNav() {
  */
 export default function RootLayout() {
   return (
-    <>
+    // SafeAreaProvider is the outermost wrapper so both the main app tree and
+    // the sibling DebugOverlay can consume useSafeAreaInsets(). Placing it here
+    // (outside the error boundary) means even if a provider crashes, the overlay
+    // still has correct inset values for positioning.
+    <SafeAreaProvider>
       <RootErrorBoundary>
         <GestureHandlerRootView style={{ flex: 1 }}>
-          <SafeAreaProvider>
-            <QueryClientProvider client={queryClient}>
-              <ThemeProvider>
-                <AuthProvider>
-                  <FloatingNotificationProvider>
-                    <RootLayoutNav />
-                  </FloatingNotificationProvider>
-                </AuthProvider>
-              </ThemeProvider>
-            </QueryClientProvider>
-          </SafeAreaProvider>
+          <QueryClientProvider client={queryClient}>
+            <ThemeProvider>
+              <AuthProvider>
+                <FloatingNotificationProvider>
+                  <RootLayoutNav />
+                </FloatingNotificationProvider>
+              </AuthProvider>
+            </ThemeProvider>
+          </QueryClientProvider>
         </GestureHandlerRootView>
       </RootErrorBoundary>
-      {/* Rendered OUTSIDE the error boundary and all providers so it can still
-          surface captured errors even when a provider render throws and the
-          boundary swaps in its fallback. No-ops in production. */}
+      {/* Rendered OUTSIDE the error boundary so it can still surface captured
+          errors even when a provider render throws and the boundary swaps in
+          its fallback. Shares the SafeAreaProvider above for correct insets.
+          No-ops in production. */}
       <DebugOverlay />
-    </>
+    </SafeAreaProvider>
   );
 }
