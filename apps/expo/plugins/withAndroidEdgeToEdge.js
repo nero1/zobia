@@ -1,18 +1,27 @@
 const { withAndroidStyles } = require('@expo/config-plugins');
 
 /**
- * Opts Android API 35+ builds out of the forced edge-to-edge window enforcement
- * (android:windowOptOutEdgeToEdgeEnforcement). Without this, Android 16 (API 36)
- * forces every app into full-screen edge-to-edge mode regardless of whether the
- * app handles window insets. Apps that are not adapted for this (or whose
- * frameworks — React Native, splash screen library — do not yet handle it
- * correctly) end up with a permanently blank white screen after launch because
- * the root view is sized or positioned incorrectly by the platform.
+ * DISABLED — do not re-register this plugin in app.json.
  *
- * The attribute is silently ignored on API < 35, so it is safe to include in the
- * base res/values/styles.xml without a version qualifier.
+ * This plugin attempted to inject `android:windowOptOutEdgeToEdgeEnforcement=true`
+ * into AppTheme to opt Android 16 (API 36) builds out of forced edge-to-edge.
  *
- * Reference: https://developer.android.com/about/versions/16/behavior-changes-16#edge-to-edge
+ * Two reasons it cannot be used:
+ *
+ * 1. BUILD FAILURE: AAPT2 rejects the attribute with
+ *    "style attribute 'android:attr/windowOptOutEdgeToEdgeEnforcement' not found"
+ *    because the EAS build image's android.jar does not include it (the attribute
+ *    was finalised very late in the Android 16 SDK release cycle).
+ *
+ * 2. NO EFFECT: Per Android 16 docs, `windowOptOutEdgeToEdgeEnforcement` is only
+ *    available to apps targeting API < 36. This app targets targetSdkVersion 36,
+ *    so the opt-out is ignored by the OS even if the build succeeds.
+ *
+ * The correct long-term fix for Android 16 edge-to-edge is to fully embrace it:
+ * - Keep react-native-safe-area-context wrapping all screens (already done).
+ * - Use useSafeAreaInsets() for any UI that must avoid system bars.
+ * - Once EAS provides a stable Expo SDK 52+ image, migrate to the
+ *   expo-edge-to-edge package which handles this correctly.
  */
 const withAndroidEdgeToEdge = (config) => {
   return withAndroidStyles(config, (mod) => {
@@ -27,7 +36,6 @@ const withAndroidEdgeToEdge = (config) => {
     for (const style of styles.resources.style) {
       if (!style.$ || !style.$.name) continue;
       const name = style.$.name;
-      // Target the generated AppTheme and any common variants Expo might produce.
       if (
         name === 'AppTheme' ||
         name === 'AppTheme.NoActionBar' ||

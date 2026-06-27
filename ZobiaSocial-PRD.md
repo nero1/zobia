@@ -1328,16 +1328,16 @@ non-negotiable rules are:
    `mobileAds().initialize()` runs once at startup via `initializeAds()`.
 5. **Target Android API level 36.** Builds run via `.github/workflows/build-android.yml`
    and require the `EXPO_TOKEN` secret (no token ⇒ the APK step is skipped).
-6. **Android API 36 edge-to-edge enforcement requires the `withAndroidEdgeToEdge` plugin.**
-   Android 16 (API 36) forces every app into full-screen edge-to-edge mode regardless of
-   whether the app handles window insets. Apps not adapted for this will show a permanent
-   white screen after launch because the root view is sized or positioned incorrectly by
-   the platform. The `plugins/withAndroidEdgeToEdge.js` config-plugin (registered in
-   `app.json` → `plugins`) injects `android:windowOptOutEdgeToEdgeEnforcement="true"` into
-   `AppTheme` (and common variants) at EAS prebuild time. **Never remove this plugin** — its
-   absence causes a white-screen regression on any device running Android 16+ (API 36+). The
-   attribute is silently ignored on API < 35, so it is safe in the base `res/values/styles.xml`
-   without a version qualifier. Reference: https://developer.android.com/about/versions/16/behavior-changes-16#edge-to-edge
+6. **Android 16 (API 36) forces full-screen edge-to-edge — handle insets, do not try to opt out.**
+   Android 16 forces every app into edge-to-edge display regardless of target SDK. The XML opt-out
+   attribute `android:windowOptOutEdgeToEdgeEnforcement` cannot be used: (a) it is not present in
+   the EAS build image's `android.jar`, causing an AAPT2 build failure; and (b) Android 16 ignores
+   the attribute for apps targeting API 36 anyway. The correct approach is to embrace edge-to-edge
+   and handle system-bar insets using `react-native-safe-area-context` throughout the app (wrap all
+   screens in `SafeAreaView` or call `useSafeAreaInsets()`). The `plugins/withAndroidEdgeToEdge.js`
+   file exists in the repo but is **not registered** in `app.json` and must remain disabled. When
+   Expo SDK 52+ support is available on EAS, migrate to the `expo-edge-to-edge` package which
+   handles Android 16 edge-to-edge correctly via the platform's supported APIs.
 
 ### 22.1 — Database Provider Architecture
 
@@ -2490,7 +2490,7 @@ Comprehensive forensic-audit bug fix pass (55 issues identified; 54 resolved, 1 
 
 Resolved a permanent blank white screen that appeared after the splash screen on Android 16 (One UI 8.5) devices when running non-production EAS builds (preview / staging). Three independent root causes were identified and fixed:
 
-- **Android API 36 forced edge-to-edge enforcement (primary cause):** Android 16 forces every app into full-screen edge-to-edge window mode regardless of whether the app handles insets. Apps not adapted for this end up with the root view sized or positioned incorrectly, rendering a blank white screen. Fixed by adding `apps/expo/plugins/withAndroidEdgeToEdge.js` — a config plugin that injects `android:windowOptOutEdgeToEdgeEnforcement="true"` into `AppTheme` (and common theme variants) in `res/values/styles.xml` at EAS prebuild time. The plugin is registered in `app.json` → `plugins`. The attribute is silently ignored on API < 35.
+- **Android API 36 forced edge-to-edge enforcement (primary cause):** Android 16 forces every app into full-screen edge-to-edge window mode regardless of whether the app handles insets. Apps not adapted for this end up with the root view sized or positioned incorrectly, rendering a blank white screen. The XML opt-out attribute `android:windowOptOutEdgeToEdgeEnforcement` was initially added via a config plugin but was subsequently removed because (a) the EAS build image's AAPT2 cannot find the attribute in its `android.jar`, causing a build failure, and (b) Android 16 ignores the opt-out for apps targeting API 36 regardless. The correct approach is to embrace edge-to-edge and rely on `react-native-safe-area-context` for proper inset handling. The `apps/expo/plugins/withAndroidEdgeToEdge.js` file is retained in the repo for reference but is not registered in `app.json`.
 
 - **`return null` loading state exposed white background:** While `isLoading` (auth) or `!storeReady` (MMKV) was true, `RootLayoutNav` returned `null`, leaving the GestureHandlerRootView empty after the splash screen hid (which the edge-to-edge enforcement caused to happen earlier than expected). Fixed by replacing `null` with an `ActivityIndicator` spinner on a white background, matching the splash colour so the transition is seamless.
 
