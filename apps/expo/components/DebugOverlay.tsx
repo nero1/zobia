@@ -28,6 +28,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { env } from '@/lib/env';
 import {
@@ -44,6 +45,7 @@ import {
 export const DEBUG_OVERLAY_ENABLED = __DEV__ || env.APP_ENV !== 'production';
 
 export function DebugOverlay(): React.ReactElement | null {
+  const insets = useSafeAreaInsets();
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [expanded, setExpanded] = useState(false);
 
@@ -61,6 +63,12 @@ export function DebugOverlay(): React.ReactElement | null {
 
   if (!DEBUG_OVERLAY_ENABLED) return null;
 
+  // Anchor to the TOP of the screen so the badge is always visible regardless
+  // of navigation-bar height (Android gesture nav, 3-button nav, API 36
+  // edge-to-edge, etc.). A bottom-anchored badge can be hidden behind the
+  // navigation bar on various device configurations.
+  const topOffset = (insets.top > 0 ? insets.top : (Platform.OS === 'ios' ? 44 : 28)) + 4;
+
   if (!expanded) {
     // Always render at least a minimal handle (even with zero captured
     // entries). Its mere presence confirms that React mounted the root tree —
@@ -71,7 +79,7 @@ export function DebugOverlay(): React.ReactElement | null {
     if (entries.length === 0) {
       return (
         <Pressable
-          style={styles.dot}
+          style={[styles.dot, { top: topOffset }]}
           onPress={() => setExpanded(true)}
           accessibilityRole="button"
           accessibilityLabel="Open debug logs (no entries yet)"
@@ -82,7 +90,7 @@ export function DebugOverlay(): React.ReactElement | null {
     }
     return (
       <Pressable
-        style={[styles.badge, errorCount === 0 && styles.badgeWarn]}
+        style={[styles.badge, errorCount === 0 && styles.badgeWarn, { top: topOffset }]}
         onPress={() => setExpanded(true)}
         accessibilityRole="button"
         accessibilityLabel={`Show debug logs (${entries.length} entries)`}
@@ -96,7 +104,7 @@ export function DebugOverlay(): React.ReactElement | null {
 
   return (
     <View style={styles.panel} pointerEvents="box-none">
-      <View style={styles.panelInner}>
+      <View style={[styles.panelInner, { paddingBottom: Math.max(insets.bottom, 16) }]}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Debug logs ({entries.length})</Text>
           <View style={styles.headerButtons}>
@@ -171,7 +179,6 @@ function levelStyle(level: LogEntry['level']) {
 const styles = StyleSheet.create({
   badge: {
     position: 'absolute',
-    bottom: Platform.OS === 'ios' ? 90 : 70,
     right: 12,
     backgroundColor: 'rgba(220, 38, 38, 0.92)',
     paddingVertical: 6,
@@ -185,7 +192,6 @@ const styles = StyleSheet.create({
   },
   dot: {
     position: 'absolute',
-    bottom: Platform.OS === 'ios' ? 90 : 70,
     right: 12,
     width: 34,
     height: 34,
@@ -229,7 +235,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 16,
     paddingHorizontal: 12,
     paddingTop: 10,
-    paddingBottom: 24,
   },
   header: {
     flexDirection: 'row',
