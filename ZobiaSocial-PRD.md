@@ -2503,6 +2503,28 @@ Resolved a permanent blank white screen that appeared after the splash screen on
 
 ---
 
-*ZobiaSocial PRD v1.86*
+## Appendix: Version 1.87 Change Log
+
+### v1.87 — Changelog
+
+#### Android APK Build Fix — Duplicate i18n Keys
+
+Resolved an Android release build failure caused by duplicate property keys in `apps/expo/lib/i18n/locales/en.json`. The Kotlin/JS bundler treats duplicate object keys as an error during release compilation.
+
+**Root cause:** `en.json` contained two separate blocks defining the same friend-request translation keys, introduced when a more complete second block was added without removing the original. The duplicated keys were:
+
+- `friends.requests.received`
+- `friends.requests.sent`
+- `friends.requests.withdraw`
+- `friends.empty.noReceivedRequests`
+- `friends.empty.noSentRequests`
+
+**Fix:** The first (older, less complete) block was removed. The retained second block includes the additional `friends.requests.withdrawing` key and uses the more descriptive string values (`"No received friend requests."`, `"No sent friend requests."`).
+
+No runtime behaviour change — the final resolved strings are identical to what the app displayed before in any locale that was already using the second block's values.
+
+---
+
+*ZobiaSocial PRD v1.87*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*
