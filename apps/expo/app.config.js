@@ -6,10 +6,11 @@ const easProjectId = process.env.EAS_PROJECT_ID;
 if (!easProjectId && process.env.APP_VARIANT === 'production') {
   throw new Error('EAS_PROJECT_ID environment variable is required for production builds');
 }
-const projectId = easProjectId ?? 'dev-placeholder';
 
 /** @param {{ config: import('expo/config').ExpoConfig }} context */
-module.exports = ({ config }) => ({
+module.exports = ({ config }) => {
+  const projectId = easProjectId ?? config?.extra?.eas?.projectId ?? 'dev-placeholder';
+  return {
   ...config,
   extra: {
     ...((config.extra) ?? {}),
@@ -32,4 +33,5 @@ module.exports = ({ config }) => ({
     android_app_id: process.env.ADMOB_APP_ID_ANDROID ?? ADMOB_TEST_ANDROID,
     ios_app_id: process.env.ADMOB_APP_ID_IOS ?? ADMOB_TEST_IOS,
   },
-});
+  };
+};
