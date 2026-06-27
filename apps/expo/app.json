@@ -31,9 +31,6 @@
       },
       "googleServicesFile": "./google-services.json",
       "package": "org.zobia.social",
-      "compileSdkVersion": 36,
-      "targetSdkVersion": 36,
-      "minSdkVersion": 24,
       "permissions": [
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.ACCESS_NETWORK_STATE",
@@ -84,6 +81,17 @@
       "expo-router",
       "expo-secure-store",
       "expo-localization",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 35,
+            "minSdkVersion": 24,
+            "buildToolsVersion": "35.0.0"
+          }
+        }
+      ],
       [
         "expo-updates",
         {

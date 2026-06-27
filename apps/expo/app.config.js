@@ -14,9 +14,10 @@ module.exports = ({ config }) => ({
   },
   android: {
     ...((config.android) ?? {}),
-    targetSdkVersion: 36,
-    compileSdkVersion: 36,
-    minSdkVersion: 24,
+    // NOTE: Android SDK levels (compile/target/min) are NOT valid Expo config
+    // keys — Expo silently ignores them here. They are set the only supported
+    // way, via the `expo-build-properties` config plugin in app.json (currently
+    // pinned to API 35). Do not re-add them here; it only creates confusion.
     softwareKeyboardLayoutMode: 'resize',
   },
   'react-native-google-mobile-ads': {

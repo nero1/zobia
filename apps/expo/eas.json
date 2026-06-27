@@ -15,7 +15,8 @@
         "env": {
           "APP_ENV": "development",
           "API_BASE_URL": "https://zobia.vercel.app",
-          "EXPO_PUBLIC_TELEGRAM_BOT_NAME": "ZobiaStagingBot"
+          "EXPO_PUBLIC_TELEGRAM_BOT_NAME": "ZobiaStagingBot",
+          "EXPO_PUBLIC_DEBUG_OVERLAY": "1"
         }
       }
     },
@@ -29,7 +30,8 @@
         "env": {
           "APP_ENV": "preview",
           "API_BASE_URL": "https://zobia.vercel.app",
-          "EXPO_PUBLIC_TELEGRAM_BOT_NAME": "ZobiaStagingBot"
+          "EXPO_PUBLIC_TELEGRAM_BOT_NAME": "ZobiaStagingBot",
+          "EXPO_PUBLIC_DEBUG_OVERLAY": "1"
         }
       }
     },
@@ -42,7 +44,8 @@
         "gradleCommand": ":app:assembleRelease",
         "env": {
           "APP_ENV": "staging",
-          "API_BASE_URL": "https://zobia.vercel.app"
+          "API_BASE_URL": "https://zobia.vercel.app",
+          "EXPO_PUBLIC_DEBUG_OVERLAY": "1"
         }
       }
     },
