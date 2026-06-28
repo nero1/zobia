@@ -126,7 +126,7 @@ export default function QuestsTab() {
     void refetchMember();
   };
 
-  const completedCount = dailyQuests.filter((q) => q.completed).length;
+  const completedCount = dailyQuests.filter((q: DailyQuest) => q.completed).length;
   const totalCount = dailyQuests.length;
 
   if (loading) {
@@ -155,7 +155,7 @@ export default function QuestsTab() {
             <Text style={styles.cardIcon}>🎯</Text>
             <Text style={[styles.cardTitle, { color: textPrimary }]}>{t('newMemberQuest.title')}</Text>
             <Text style={[styles.badge, { backgroundColor: colors.brand.blue + '22', color: colors.brand.blue }]}>
-              {memberQuest.steps.filter((s) => s.completed).length}/{memberQuest.steps.length}
+              {memberQuest.steps.filter((s: MemberQuestStep) => s.completed).length}/{memberQuest.steps.length}
             </Text>
           </View>
           <Text style={[styles.cardSubtext, { color: textSecondary }]}>
@@ -168,7 +168,7 @@ export default function QuestsTab() {
               style={[
                 styles.progressFill,
                 {
-                  width: `${Math.round((memberQuest.steps.filter((s) => s.completed).length / Math.max(1, memberQuest.steps.length)) * 100)}%` as unknown as number,
+                  width: `${Math.round((memberQuest.steps.filter((s: MemberQuestStep) => s.completed).length / Math.max(1, memberQuest.steps.length)) * 100)}%` as unknown as number,
                   backgroundColor: colors.brand.blue,
                 },
               ]}
@@ -190,7 +190,7 @@ export default function QuestsTab() {
         {dailyQuests.length === 0 ? (
           <Text style={[styles.emptyText, { color: textSecondary }]}>{t('quests.noQuestsToday')}</Text>
         ) : (
-          dailyQuests.map((quest) => {
+          dailyQuests.map((quest: DailyQuest) => {
             const pct = quest.goal > 0 ? Math.min(100, Math.round((quest.progress / quest.goal) * 100)) : 0;
             return (
               <View

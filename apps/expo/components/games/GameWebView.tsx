@@ -14,9 +14,13 @@
  * window.ReactNativeWebView.postMessage.
  */
 
-import { useRef } from 'react';
+import { useRef, type ComponentType, type Ref } from 'react';
 import { StyleSheet } from 'react-native';
-import { WebView, type WebViewMessageEvent, type WebViewNavigation } from 'react-native-webview';
+import { WebView as WebViewClass, type WebViewMessageEvent, type WebViewNavigation, type WebViewProps } from 'react-native-webview';
+
+// Workaround for TS2786: WebViewClass.render() returns JSX.Element which is not assignable
+// to React.ReactNode under @types/react 18.2.x strict JSX rules.
+const WebView = WebViewClass as unknown as ComponentType<WebViewProps & { ref?: Ref<WebViewClass> }>;
 import { apiClient } from '@/lib/api/client';
 import { env } from '@/lib/env';
 
@@ -41,7 +45,7 @@ interface GameWebViewProps {
 }
 
 export function GameWebView({ slug, challengeId, onGameOver }: GameWebViewProps) {
-  const webViewRef = useRef<WebView>(null);
+  const webViewRef = useRef<WebViewClass>(null);
   const onGameOverRef = useRef(onGameOver);
   onGameOverRef.current = onGameOver;
 

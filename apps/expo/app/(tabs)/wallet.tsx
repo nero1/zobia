@@ -166,7 +166,7 @@ export default function WalletTab() {
       {(walletData?.pendingPayouts.length ?? 0) > 0 && (
         <View style={[styles.card, { backgroundColor: cardBg, borderColor: border }]}>
           <Text style={[styles.sectionLabel, { color: textSecondary }]}>Pending Payouts</Text>
-          {walletData!.pendingPayouts.map((p) => (
+          {walletData!.pendingPayouts.map((p: PendingPayout) => (
             <View key={p.id} style={[styles.payoutRow, { borderTopColor: border }]}>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.payoutMethod, { color: textPrimary }]}>

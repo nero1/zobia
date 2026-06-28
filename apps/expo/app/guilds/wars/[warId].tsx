@@ -147,7 +147,7 @@ export default function LiveWarScreen() {
     queryKey: ['war', warId],
     queryFn: () => fetchWar(warId!),
     enabled: !!warId,
-    refetchInterval: war?.status === 'ended' ? false : 10_000,
+    refetchInterval: (query) => query.state.data?.status === 'ended' ? false : 10_000,
   });
 
   const { display: countdown, isFinalHour } = useCountdown(war?.endsAt ?? new Date(Date.now() + 3_600_000).toISOString());

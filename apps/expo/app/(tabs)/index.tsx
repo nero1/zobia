@@ -932,6 +932,7 @@ export default function HomeScreen() {
   });
 
   useEffect(() => {
+    if (!user?.id) return; // Only fire once authenticated
     // BUG-040 FIX: use ISO date (YYYY-MM-DD) instead of toDateString()
     // which is locale/timezone-dependent and differs across devices.
     const today = new Date().toISOString().slice(0, 10);
@@ -944,8 +945,7 @@ export default function HomeScreen() {
     return () => {
       if (loginToastTimerRef.current) clearTimeout(loginToastTimerRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [user?.id]);
 
   // Refresh quest list whenever a quest_complete / deck_complete realtime event arrives
   useEffect(() => {

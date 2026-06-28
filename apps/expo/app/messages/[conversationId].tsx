@@ -471,7 +471,7 @@ function StickerPickerModal({ visible, onClose, onSelect }: StickerPickerProps) 
               style={[styles.packTabs, { borderBottomColor: themeColors.border }]}
               contentContainerStyle={styles.packTabsContent}
             >
-              {packs.map((pack, idx) => (
+              {packs.map((pack: StickerPack, idx: number) => (
                 <Pressable
                   key={pack.id}
                   onPress={() => setActivePackIdx(idx)}
@@ -624,7 +624,7 @@ export default function DMConversationScreen() {
     }, [conversationId, queryClient, myUserIdOrEmpty]),
   );
 
-  const { data: messages = [], isLoading } = useQuery({
+  const { data: messages = [], isLoading } = useQuery<DM[]>({
     queryKey: ['dm-messages', conversationId],
     queryFn: async () => {
       const prev = queryClient.getQueryData<DM[]>(['dm-messages', conversationId]) ?? [];
@@ -662,7 +662,7 @@ export default function DMConversationScreen() {
       // Merge confirmed server message into cache rather than refetching immediately,
       // avoiding a race where the query refetches before the server write is visible.
       queryClient.setQueryData<DM[]>(['dm-messages', conversationId], (prev = []) => {
-        if (!serverDm?.id || prev.some((m) => m.id === serverDm.id)) return prev;
+        if (!serverDm?.id || prev.some((m: DM) => m.id === serverDm.id)) return prev;
         return [serverDm, ...prev];
       });
     },
@@ -737,7 +737,7 @@ export default function DMConversationScreen() {
   // send they are removed from pendingMessages in onSuccess, so only truly
   // outstanding optimistic messages appear here.
   const combinedMessages = useMemo(() => {
-    const serverMessageIds = new Set(messages.map((m) => m.id));
+    const serverMessageIds = new Set(messages.map((m: DM) => m.id));
     const filteredPending = pendingMessages.filter((p) => !serverMessageIds.has(p.id));
     return [...filteredPending, ...messages];
   }, [messages, pendingMessages]);

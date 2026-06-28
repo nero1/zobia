@@ -214,13 +214,6 @@ export default function GroupConversationScreen() {
   const [spamBlocked, setSpamBlocked] = useState(false);
 
   // BUG-MEM-05 FIX: single query fetches both meta + messages in one request
-
-  useEffect(() => {
-    if (groupMeta) {
-      navigation.setOptions({ title: groupMeta.name });
-    }
-  }, [groupMeta, navigation]);
-
   // Realtime push — merge new group messages into the cache instantly.
   const realtimeConnected = useRealtimeChannel(
     groupId ? `group:${groupId}:messages` : null,
@@ -230,7 +223,7 @@ export default function GroupConversationScreen() {
       if (!raw) return;
       const incoming = mapGroupMessage(raw);
       if (!incoming.id) return;
-      queryClient.setQueryData<GroupFetchResult>(['group-messages', groupId], (prev) => {
+      queryClient.setQueryData<GroupFetchResult>(['group-messages', groupId], (prev: GroupFetchResult | undefined) => {
         const list = prev?.messages ?? [];
         if (list.some((m: GroupMessage) => m.id === incoming.id)) return prev;
         return { meta: prev?.meta ?? { id: groupId!, name: 'Group', tag: '', memberCount: 0 }, messages: [incoming, ...list] };
@@ -264,6 +257,12 @@ export default function GroupConversationScreen() {
   });
   const messages = groupData?.messages ?? [];
   const groupMeta = groupData?.meta;
+
+  useEffect(() => {
+    if (groupMeta) {
+      navigation.setOptions({ title: groupMeta.name });
+    }
+  }, [groupMeta, navigation]);
 
   // Persist latest group messages for instant first paint on reopen.
   useEffect(() => {
@@ -305,7 +304,7 @@ export default function GroupConversationScreen() {
   // They never collide, so ID-based dedup is exact: when onSuccess fires it
   // removes the pending entry, and during the brief overlap between a polling
   // refetch and mutation settling both will show — which is fine.
-  const serverIds = new Set(messages.map((m) => m.id));
+  const serverIds = new Set(messages.map((m: GroupMessage) => m.id));
   const filteredPending = pendingMessages.filter((p) => !serverIds.has(p.id));
   const combinedMessages = [...filteredPending, ...messages];
 

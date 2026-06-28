@@ -237,7 +237,7 @@ export default function FriendsTab() {
   const renderReceivedRequests = () => {
     if (receivedRequests.length === 0)
       return <Text style={[styles.emptyText, { color: textSecondary }]}>{t('friends.empty.noReceivedRequests')}</Text>;
-    return receivedRequests.map((r) => (
+    return receivedRequests.map((r: FriendRequest) => (
       <View key={r.id} style={[styles.row, { borderBottomColor: border }]}>
         <View style={[styles.avatar, { backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100] }]}>
           <Text style={styles.avatarEmoji}>{r.avatar_emoji || '😊'}</Text>
@@ -269,7 +269,7 @@ export default function FriendsTab() {
   const renderSentRequests = () => {
     if (sentRequests.length === 0)
       return <Text style={[styles.emptyText, { color: textSecondary }]}>{t('friends.empty.noSentRequests')}</Text>;
-    return sentRequests.map((r) => (
+    return sentRequests.map((r: FriendRequest) => (
       <View key={r.id} style={[styles.row, { borderBottomColor: border }]}>
         <View style={[styles.avatar, { backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100] }]}>
           <Text style={styles.avatarEmoji}>{r.avatar_emoji || '😊'}</Text>
@@ -294,7 +294,7 @@ export default function FriendsTab() {
   const renderDiscover = () => {
     if (suggestions.length === 0)
       return <Text style={[styles.emptyText, { color: textSecondary }]}>{t('friends.empty.noSuggestions')}</Text>;
-    return suggestions.map((s) => (
+    return suggestions.map((s: Suggestion) => (
       <View key={s.id} style={[styles.row, { borderBottomColor: border }]}>
         <View style={[styles.avatar, { backgroundColor: isDark ? colors.neutral[800] : colors.neutral[100] }]}>
           <Text style={styles.avatarEmoji}>{s.avatarEmoji || '😊'}</Text>

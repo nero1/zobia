@@ -388,7 +388,7 @@ export default function LoginScreen() {
 
   useEffect(() => {
     return () => stopTelegramPoll();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // -------------------------------------------------------------------------
   // Render
@@ -454,8 +454,8 @@ export default function LoginScreen() {
           {t('auth.noAccount')}{' '}
         </Text>
         <TouchableOpacity
-          onPress={() => Linking.openURL(`${env.API_BASE_URL}/auth/register`)}
-          accessibilityRole="link"
+          onPress={handleGoogleLogin}
+          accessibilityRole="button"
         >
           <Text style={[styles.signUpLink, { color: colors.brand.blue }]}>
             {t('auth.signUp')}

@@ -134,7 +134,7 @@ function AdminDrawerContent({ onClose }: { onClose: (onSettled?: () => void) => 
           </View>
         </View>
         <Pressable
-          onPress={onClose}
+          onPress={() => onClose()}
           style={styles.closeBtn}
           accessibilityLabel="Close admin menu"
           hitSlop={8}
@@ -265,7 +265,7 @@ export function AdminSwipeDrawer({ children }: AdminSwipeDrawerProps) {
           {children}
 
           {isOpen && (
-            <TouchableWithoutFeedback onPress={closeDrawer}>
+            <TouchableWithoutFeedback onPress={() => closeDrawer()}>
               <Animated.View
                 style={[styles.backdrop, backdropAnimStyle]}
                 pointerEvents="auto"

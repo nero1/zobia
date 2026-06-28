@@ -7,11 +7,16 @@
  * <AdSlot> gating so placements behave consistently across platforms.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ComponentType } from 'react';
 import { View } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
-import { BannerAd, BannerAdSize, BANNER_AD_UNIT_ID } from '@/lib/ads/admob';
+import { BannerAd as BannerAdClass, BannerAdSize, BANNER_AD_UNIT_ID } from '@/lib/ads/admob';
+import type { BannerAdProps } from 'react-native-google-mobile-ads';
+
+// Workaround for TS2786: BannerAdClass.render() returns JSX.Element which is not assignable
+// to React.ReactNode under @types/react 18.2.x strict JSX rules.
+const BannerAd = BannerAdClass as unknown as ComponentType<BannerAdProps>;
 
 export function AdBanner({ placement }: { placement: string }) {
   const [failed, setFailed] = useState(false);
