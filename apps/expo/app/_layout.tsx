@@ -45,7 +45,6 @@ import { applyStoredLanguagePref } from '@/lib/i18n';
 import { initializeAds } from '@/lib/ads/admob';
 import { initGooglePlayBilling, endBillingConnection } from '@/lib/payments/googlePlay';
 import { useReferralCaptureFromLink } from '@/lib/deeplinks/referral';
-import '@/lib/i18n';
 
 // BUG-CRIT-02: Prevent the native splash from auto-hiding so we can control
 // it ourselves — hide only after auth state is resolved and MMKV is ready.
