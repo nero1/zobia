@@ -1,4 +1,19 @@
 const path = require('path');
+
+// Monorepo fix: nativewind is hoisted to the workspace root but react-native is
+// not (kept in apps/expo/node_modules to avoid version conflicts with apps/web).
+// nativewind's nested react-native-css-interop does require('react-native/package.json')
+// at load time to determine feature flags. Without this, it fails in CI because
+// Node.js can only see the root node_modules from root-level packages.
+// Prepending apps/expo/node_modules to NODE_PATH lets every root-level package
+// find react-native without changing the lockfile or hoisting strategy.
+process.env.NODE_PATH = [
+  path.resolve(__dirname, 'node_modules'),
+  ...(process.env.NODE_PATH ? process.env.NODE_PATH.split(':') : []),
+].join(':');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+require('module').Module._initPaths();
+
 const { getDefaultConfig } = require('expo/metro-config');
 const { withNativeWind } = require('nativewind/metro');
 
