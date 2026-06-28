@@ -12,7 +12,9 @@
     "./schemas/coins": "./schemas/api/coins.ts",
     "./schemas/user": "./schemas/api/user.ts",
     "./schemas/notifications": "./schemas/api/notifications.ts",
-    "./schemas/economy": "./schemas/api/economy.ts"
+    "./schemas/economy": "./schemas/api/economy.ts",
+    "./i18n": "./i18n/locales.ts",
+    "./i18n/locales/*": "./i18n/locales/*.json"
   },
   "peerDependencies": {
     "zod": ">=3.0.0"
