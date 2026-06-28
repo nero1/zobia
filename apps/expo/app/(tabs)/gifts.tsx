@@ -211,9 +211,9 @@ export default function GiftsScreen() {
   }, [router]);
 
   return (
-    <Screen scrollable={false} disableBottomInset>
+    <Screen scrollable={false} edges={['left', 'right']}>
       {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 8, borderBottomColor: borderColor, backgroundColor: tabBg }]}>
+      <View style={[styles.header, { paddingTop: 8, borderBottomColor: borderColor, backgroundColor: tabBg }]}>
         <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8}>
           <Ionicons name="chevron-back" size={22} color={colors.brand.blue} />
         </Pressable>

@@ -363,7 +363,7 @@ export default function GuildScreen() {
   // Render loading state
   if (isLoading && !guilds) {
     return (
-      <Screen>
+      <Screen edges={['left', 'right', 'bottom']}>
         <View style={styles.header}>
           <Text style={styles.title}>{t('guild.title', 'Guild')}</Text>
         </View>
@@ -375,7 +375,7 @@ export default function GuildScreen() {
   // Render error with no cached data
   if (isError && !guilds) {
     return (
-      <Screen>
+      <Screen edges={['left', 'right', 'bottom']}>
         <View style={styles.header}>
           <Text style={styles.title}>{t('guild.title', 'Guild')}</Text>
         </View>
@@ -398,7 +398,7 @@ export default function GuildScreen() {
   const myGuild = guilds && guilds.length > 0 ? guilds[0] : null;
 
   return (
-    <Screen>
+    <Screen edges={['left', 'right', 'bottom']}>
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>{t('guild.title', 'Guild')}</Text>

@@ -329,7 +329,7 @@ export default function RoomsScreen() {
   };
 
   return (
-    <Screen>
+    <Screen edges={['left', 'right', 'bottom']}>
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>Rooms</Text>

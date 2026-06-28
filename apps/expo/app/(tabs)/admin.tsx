@@ -117,7 +117,7 @@ export default function AdminDashboardTab() {
   });
 
   return (
-    <Screen scrollable>
+    <Screen scrollable edges={['left', 'right', 'bottom']}>
       <View style={styles.header}>
         <Text style={[styles.title, { color: themeColors.text }]}>Admin</Text>
         <Text style={[styles.subtitle, { color: themeColors.textMuted }]}>
