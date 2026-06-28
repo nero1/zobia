@@ -50,10 +50,12 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     createdAt: r.created_at,
   }));
 
+  const nextCursor = hasNextPage ? friends[friends.length - 1]?.friendshipId ?? null : null;
   return NextResponse.json({
     friends,
     data: friends,
-    pagination: { hasNextPage, nextCursor: hasNextPage ? friends[friends.length - 1]?.friendshipId ?? null : null },
+    nextCursor,
+    pagination: { hasNextPage, nextCursor },
   });
 });
 

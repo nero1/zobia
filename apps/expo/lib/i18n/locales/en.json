@@ -101,7 +101,10 @@
     "leaderboard": "Leaderboard",
     "guildDiscovery": "Discover Guilds",
     "questsError": "Failed to load quests",
-    "nemesisError": "Failed to load nemesis"
+    "nemesisError": "Failed to load nemesis",
+    "memberQuest": {
+      "reward": "Complete all steps to earn {{coins}} credits + {{xp}} XP"
+    }
   },
   "rooms": {
     "title": "Rooms",
@@ -1424,8 +1427,10 @@
     "quests": "Quests"
   },
   "quests": {
+    "title": "Daily Quests",
     "viewAll": "View all quests →",
-    "noQuestsToday": "No quests today. Check back soon!"
+    "noQuestsToday": "No quests today. Check back soon!",
+    "xpReward": "+{{xp}} XP"
   },
   "offline.queued": "Message saved — will send when you're back online.",
   "offline.syncFailed": "Message failed to send. Will retry.",

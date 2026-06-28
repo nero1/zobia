@@ -168,7 +168,7 @@ export default function QuestsTab() {
               style={[
                 styles.progressFill,
                 {
-                  width: `${Math.round((memberQuest.steps.filter((s: MemberQuestStep) => s.completed).length / Math.max(1, memberQuest.steps.length)) * 100)}%` as unknown as number,
+                  width: `${Math.round((memberQuest.steps.filter((s: MemberQuestStep) => s.completed).length / Math.max(1, memberQuest.steps.length)) * 100)}%`,
                   backgroundColor: colors.brand.blue,
                 },
               ]}
@@ -215,7 +215,7 @@ export default function QuestsTab() {
                   ) : null}
                   {!quest.completed && quest.goal > 1 && (
                     <View style={styles.miniProgress}>
-                      <View style={[styles.miniProgressFill, { width: `${pct}%` as unknown as number }]} />
+                      <View style={[styles.miniProgressFill, { width: `${pct}%` }]} />
                     </View>
                   )}
                 </View>
