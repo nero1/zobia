@@ -19,10 +19,16 @@ config.resolver.nodeModulesPaths = [
   path.resolve(workspaceRoot, 'node_modules'),
 ];
 
-// The shared workspace package is consumed via its package.json `exports` map
-// (`@zobia/shared/utils`). Ensure Metro honours subpath exports.
-// TODO: rename to enablePackageExports once Metro stabilises the API.
-config.resolver.unstable_enablePackageExports = true;
+// The Expo app consumes the shared workspace package via plain directory
+// subpaths only: `@zobia/shared/types` and `@zobia/shared/utils`, which map to
+// shared/types/index.ts and shared/utils/index.ts. Those resolve fine under
+// Metro's standard resolution, so we deliberately DO NOT enable
+// `unstable_enablePackageExports`. On Expo SDK 51 that flag is opt-in and
+// "unstable": turning it on globally changes resolution for every package and
+// is a known cause of broken release bundles with native libs (a mis-resolved
+// module throws at init → AppRegistry n=0 → white screen). The remapped
+// exports (e.g. `@zobia/shared/schemas/auth` → schemas/api/auth.ts) are used
+// only by the web app, which has its own bundler — so nothing here needs them.
 
 // Apply NativeWind BEFORE attaching our resolveRequest hook so that if
 // withNativeWind sets its own resolveRequest (for CSS module handling) we can
@@ -64,6 +70,25 @@ const finalConfig = withNativeWind(config, {
 // (AppRegistry never registered) or "useMemo of null".
 const REACT_PATH = path.dirname(require.resolve('react/package.json'));
 const REACT_NATIVE_PATH = path.dirname(require.resolve('react-native/package.json'));
+
+// FAIL-LOUD GUARD: react-native@0.74.5's renderer is built against React
+// 18.2.x internals. If a future `npm install` ever hoists a different React
+// (e.g. 18.3.1 from the web app) into the path this bundle resolves, the
+// renderer reads mismatched React internals and the bundle throws during the
+// earliest init — RN registers n=0 callable JS modules and
+// AppRegistry.runApplication() fails with a silent white screen (no redbox).
+// That failure mode is nearly impossible to diagnose from a release APK, so we
+// convert it into an obvious build-time error here.
+const RESOLVED_REACT_VERSION = require(path.join(REACT_PATH, 'package.json')).version;
+if (!/^18\.2\./.test(RESOLVED_REACT_VERSION)) {
+  throw new Error(
+    `[metro.config.js] This Expo bundle resolved react@${RESOLVED_REACT_VERSION}, ` +
+    `but react-native@0.74.5 requires react@18.2.x. A mismatched React causes a ` +
+    `top-level init crash (AppRegistry n=0 / white screen). Keep apps/expo on ` +
+    `react 18.2.0 and ensure the root package.json does NOT override "react".`
+  );
+}
+
 const _prevResolveRequest = finalConfig.resolver?.resolveRequest;
 
 finalConfig.resolver.resolveRequest = (context, moduleName, platform) => {

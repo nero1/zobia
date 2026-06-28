@@ -1314,8 +1314,15 @@ non-negotiable rules are:
 
 1. **Single npm lockfile, installed from the repo root.** npm-workspaces only — never
    `npm install` inside `apps/expo`/`apps/web`; never commit a nested `package-lock.json`.
-2. **Do not unify the React versions.** The split is intentional; unifying either fails
-   `npm install` (RN peer) or causes a dual-React `Invalid hook call` crash.
+2. **Do not unify the React versions — and never pin React via root `overrides`.** The split
+   is intentional; unifying either fails `npm install` (RN peer) or causes a dual-React
+   `Invalid hook call` crash. Each workspace declares its own React (web `^18.3.1`, expo
+   `18.2.0`) and npm nests them correctly. Do **not** add `react`/`react-dom` to the root
+   `package.json` `overrides`: npm overrides are global and force a single React into **both**
+   subtrees. Forcing `18.3.1` into the Expo bundle makes RN 0.74's renderer hit mismatched
+   React internals and crash at the earliest init — `AppRegistry` registers n=0 callable
+   modules (silent white screen, no chip, no red box). As a safety net, `metro.config.js`
+   now throws at build time if it ever resolves `react != 18.2.x`. *(Root cause 7, fixed v1.90.)*
 3. **Keep the explicit `expoRouterBabelPlugin` in `apps/expo/babel.config.js`.** Because
    `expo-router` stays nested under `apps/expo` (it binds `react@18.2.0`), the root-hoisted
    `babel-preset-expo` can't auto-detect it, so the router transform must be applied
@@ -2776,6 +2783,103 @@ React Native's internal registry in the same bundle.
 
 ---
 
-*ZobiaSocial PRD v1.89*
+---
+
+## Appendix: Version 1.90 Change Log
+
+### v1.90 — Changelog
+
+#### AppRegistry n=0 White-Screen Fix (Root Cause Chain Continued)
+
+After the v1.89 fixes, a fresh device logcat still showed the same launch crash:
+
+```
+Invariant Violation: Failed to call into JavaScript module method AppRegistry.runApplication().
+Module has not been registered as callable. Bridgeless Mode: false.
+Registered callable JavaScript modules (n = 0):
+```
+
+The native side is fully healthy in the trace — Hermes and every `.so` load,
+ExpoModulesCore initialises, view managers register — and only then does the JS
+bundle fail. `n = 0` means the bundle threw at the very top, before React Native
+finished registering its bridge modules. This is the same family of failure as
+v1.88/v1.89, with a previously-missed cause.
+
+---
+
+##### Root cause 7 — React pinned to 18.3.1 via root `overrides` forced into the Expo bundle (fixed)
+
+The root `package.json` declared a global override:
+
+```json
+"overrides": { "react": "18.3.1", "react-dom": "18.3.1", "scheduler": "0.23.2" }
+```
+
+npm `overrides` are **global to the workspace** — they ignore the per-package
+`react: 18.2.0` that `apps/expo` declares for React Native 0.74.5. A plain
+`npm install` therefore resolves React `18.3.1` into the Expo subtree, and the
+`metro.config.js` dedup hook (correctly pinning to "a single React") then pins
+every import to that wrong `18.3.1` copy. RN 0.74's renderer reads mismatched
+React internals at init and throws before `AppRegistry` is registered → n=0,
+silent white screen, no debug chip.
+
+The override had also **drifted out of sync with the lockfile** (the committed
+`package-lock.json` only pinned `scheduler`), so the bug was latent: builds using
+the existing lockfile happened to get `18.2.0`, while any environment that
+re-ran `npm install` got the broken `18.3.1` layout. This non-determinism is why
+the crash appeared to come and go across rebuilds.
+
+**Fix (`package.json` root):** Removed `react` and `react-dom` from `overrides`,
+leaving only `scheduler` (compatible with both React copies). `package.json` now
+matches the lockfile, which already nests the two versions correctly (web
+`18.3.1`, expo `18.2.0`). The web app is **not** downgraded. This is the same
+lesson as v1.89's root cause 6 (a stray root `react-native`), applied to React
+itself: the canonical Expo React lives only in `apps/expo/node_modules`.
+
+**Fix (`metro.config.js`) — fail-loud guard:** Added a build-time assertion that
+throws if the resolved React is not `18.2.x`, converting a silent white-screen
+APK into an obvious build failure:
+
+```js
+const RESOLVED_REACT_VERSION = require(path.join(REACT_PATH, 'package.json')).version;
+if (!/^18\.2\./.test(RESOLVED_REACT_VERSION)) {
+  throw new Error('[metro.config.js] resolved react@' + RESOLVED_REACT_VERSION +
+    ' but react-native@0.74.5 requires react@18.2.x — would cause AppRegistry n=0.');
+}
+```
+
+---
+
+##### Root cause 8 — `unstable_enablePackageExports` footgun removed (hardening)
+
+`metro.config.js` set `config.resolver.unstable_enablePackageExports = true` to
+support `@zobia/shared` subpath imports. On Expo SDK 51 this flag is opt-in and
+"unstable": it globally changes module resolution for **every** package and is a
+known cause of broken release bundles when native libraries ship malformed
+`exports` maps (a mis-resolved module throws at init → n=0). The Expo app only
+imports `@zobia/shared/types` and `@zobia/shared/utils`, both plain directory +
+`index.ts` subpaths that resolve under Metro's **standard** resolution. The
+remapped exports (e.g. `@zobia/shared/schemas/auth` → `schemas/api/auth.ts`) are
+used only by the web app, which has its own bundler.
+
+**Fix (`metro.config.js`):** Removed the `unstable_enablePackageExports` flag,
+returning to the SDK 51 default. Shared imports still resolve; the global
+resolution footgun is gone.
+
+---
+
+#### Diagnostics Guidance (v1.90)
+
+Non-production EAS builds were being used to chase this crash, and a release APK
+swallows the real JS error as a blank screen. To break the guess cycle, build the
+**`development`** EAS profile (`developmentClient: true`, non-minified bundle with
+a red box) — `eas build --profile development --platform android` — so any
+remaining top-level init error surfaces an actual stack trace instead of a white
+screen. The new `metro.config.js` guard also surfaces the React-version variant of
+this failure at build time.
+
+---
+
+*ZobiaSocial PRD v1.90*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*
