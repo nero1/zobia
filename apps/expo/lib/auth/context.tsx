@@ -21,8 +21,7 @@ import React, {
 } from 'react';
 import { AppState, Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
-import { apiClient, JWT_KEY, REFRESH_TOKEN_KEY, onUnauthenticated, onUserUpdated, refreshAccessToken, setCachedToken } from '@/lib/api/client';
-import { env } from '@/lib/env';
+import { apiClient, JWT_KEY, REFRESH_TOKEN_KEY, onUnauthenticated, onUserUpdated, refreshAccessToken, setCachedToken, resetUnauthenticatedFlag } from '@/lib/api/client';
 import { clearStore } from '@/lib/offline/store';
 import { clearOfflineQueue } from '@/lib/offline/sqlite';
 import { disconnectGooglePlayBilling } from '@/lib/payments/googlePlay';
@@ -131,6 +130,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [sessionExpired, setSessionExpired] = useState(false);
 
+  // Track whether the user has ever been shown authenticated content in THIS
+  // app session. The "session expired" modal should only appear when the user
+  // was actively using the app and then got signed out mid-session. During the
+  // initial startup phase (restoring credentials from SecureStore), a 401 from
+  // the first tab API call should silently redirect to the login screen rather
+  // than showing the modal — which would confuse users on first install or after
+  // a server-side session eviction with a still-valid JWT.
+  const hasBeenAuthenticatedRef = useRef(false);
+
   // Restore persisted session on app start.
   // If the stored access token is expired or expiring within 60 s, attempt a
   // silent refresh before setting authenticated state.
@@ -182,11 +190,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const freshUserJson = await SecureStore.getItemAsync('zobia_user').catch(() => null);
             const freshUser = freshUserJson ? (JSON.parse(freshUserJson) as AuthUser | null) : null;
             setUser(freshUser ?? parsedUser);
+            hasBeenAuthenticatedRef.current = true;
           }
         } else {
           setCachedToken(storedToken);
           setToken(storedToken);
           setUser(parsedUser);
+          // Mark as authenticated so the session-expired modal is shown if a
+          // subsequent 401 (server-side session eviction) kicks the user out.
+          hasBeenAuthenticatedRef.current = true;
         }
       } catch {
         // Storage read failures are non-fatal — user just needs to log in.
@@ -217,7 +229,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (Platform.OS === 'android') {
           disconnectGooglePlayBilling().catch(() => {});
         }
-        setSessionExpired(true);
+        // Only surface the "session expired" modal if the user was actively
+        // authenticated and seen the app in this session. During startup
+        // (credentials restored from SecureStore but first API call returns 401
+        // because the server-side session was evicted), hasBeenAuthenticatedRef
+        // may be true (we set it when restoring), so the modal shows as expected.
+        // For a completely fresh install with no stored tokens, this path isn't
+        // reached (refreshAccessToken returns null without calling notifyUnauthenticated).
+        setSessionExpired(hasBeenAuthenticatedRef.current);
+        hasBeenAuthenticatedRef.current = false;
         setToken(null);
         setUser(null);
       })();
@@ -288,6 +308,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     await Promise.all(writes);
     setCachedToken(jwt);
+    // Reset the interceptor's notification guard so a future session expiry
+    // will trigger the modal again (Bug 11 fix).
+    resetUnauthenticatedFlag();
+    hasBeenAuthenticatedRef.current = true;
     setSessionExpired(false);
     setToken(jwt);
     setUser(authUser);

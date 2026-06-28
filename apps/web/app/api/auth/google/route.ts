@@ -23,7 +23,9 @@ import { env } from "@/lib/env";
 
 // Only these schemes/hosts may be stored as the post-OAuth deep-link redirect target.
 // Prevents token exfiltration to attacker-controlled URLs (ZB-01).
-const ALLOWED_REDIRECT_SCHEMES = ["zobia:", "exp:"];
+// "exp+zobia:" and "exp+zobia-social:" are Expo Go development variants of the
+// custom scheme — allowed in all environments so dev builds can complete OAuth.
+const ALLOWED_REDIRECT_SCHEMES = ["zobia:", "exp+zobia:", "exp+zobia-social:"];
 
 function isRedirectAllowed(redirect: string): boolean {
   try {
@@ -115,21 +117,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       cookies.push(`zobia_web_redirect=${encodeURIComponent(webRedirect)}; ${cookieFlags}`);
     }
 
-    // Mobile flow: return JSON so the Expo app can open the URL itself.
-    // Web flow: redirect directly to Google — this is more robust than returning
-    // JSON because the CSRF cookie is set in the same response that initiates
-    // the redirect chain. The browser's native navigation handling commits the
-    // cookie before following the redirect to Google, so the callback request
-    // always includes it. This prevents the "session_expired" bug that occurred
-    // when a ServiceWorker intercepted the old JSON fetch and dropped Set-Cookie.
-    if (mobileRedirect) {
-      const response = NextResponse.json({ url }, { status: 200 });
-      for (const cookie of cookies) {
-        response.headers.append("Set-Cookie", cookie);
-      }
-      return response;
-    }
-
+    // Both mobile and web: always redirect to Google so the browser (Custom Tab
+    // on Android, or the regular browser on web) stores the CSRF and mobile-
+    // redirect cookies natively. Returning JSON to the Expo app and then opening
+    // the URL in a Custom Tab caused the cookies to be set only on the Axios
+    // client (which has no cookie jar) — not in Chrome Custom Tab — so the
+    // zobia_csrf_state cookie was absent from the callback request and the CSRF
+    // check failed with "session_expired". The fix: let the Custom Tab navigate
+    // to this endpoint itself; the browser commits the Set-Cookie headers before
+    // following the redirect to Google, so the callback always receives them.
     const response = NextResponse.redirect(url, { status: 302 });
     for (const cookie of cookies) {
       response.headers.append("Set-Cookie", cookie);

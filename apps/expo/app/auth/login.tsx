@@ -2,13 +2,22 @@
  * Zobia Social — Login screen.
  *
  * Implements:
- *  - Google OAuth via expo-auth-session (browser-based PKCE flow)
+ *  - Google OAuth via expo-web-browser (Chrome Custom Tab, PKCE-safe flow)
  *  - Telegram Login via deep link to the Zobia Telegram bot
  *
  * Auth flow for Google:
- *  1. Opens an in-app browser to the backend /api/auth/google?platform=mobile endpoint.
+ *  1. Opens the backend /api/auth/google?platform=mobile&redirect=<deep-link>
+ *     DIRECTLY inside a Chrome Custom Tab. The browser handles Set-Cookie
+ *     from that response (CSRF + mobile-redirect cookies) so they are
+ *     automatically included in the subsequent /api/auth/google/callback request.
  *  2. Backend handles OAuth with Google, then redirects to zobia://auth/callback?code=EXCHANGE_CODE
- *  3. App POSTs the code to /api/auth/mobile-token which returns tokens (never in URL).
+ *  3. Custom Tab detects the custom-scheme URL → openAuthSessionAsync resolves with the URL.
+ *  4. App POSTs the code to /api/auth/mobile-token which returns tokens (never in URL).
+ *
+ * Previous approach (broken): fetching the init URL via Axios and then opening
+ * the returned Google URL in the Custom Tab caused the CSRF cookie to be set
+ * only on the Axios client (no cookie jar) — not in the browser — so the
+ * CSRF check failed with "session_expired" and the user was bounced to the web.
  *
  * Auth flow for Telegram:
  *  1. Opens Telegram bot deep link with a random state token.
@@ -17,7 +26,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Linking, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { Ionicons } from '@expo/vector-icons';
@@ -42,11 +51,89 @@ WebBrowser.maybeCompleteAuthSession();
 // Constants
 // ---------------------------------------------------------------------------
 
-// BUG-024 FIX: read Telegram bot name from EAS app config so it can be changed
-// without a code change or app store submission. Falls back to the original
-// hardcoded value if the config entry is absent (e.g. in local development).
 const TELEGRAM_BOT: string =
   (Constants.expoConfig?.extra?.telegramBotName as string | undefined) ?? 'Zobia_bot_bot';
+
+// ---------------------------------------------------------------------------
+// Google icon (inline SVG path data rendered as a native View)
+// ---------------------------------------------------------------------------
+
+function GoogleLogo() {
+  return (
+    <View style={googleLogoStyles.container}>
+      {/* Multi-path Google "G" using coloured rectangles to approximate the logo */}
+      <View style={googleLogoStyles.outer}>
+        <View style={[googleLogoStyles.arc, googleLogoStyles.blue]} />
+        <View style={[googleLogoStyles.arc, googleLogoStyles.green]} />
+        <View style={[googleLogoStyles.arc, googleLogoStyles.yellow]} />
+        <View style={[googleLogoStyles.arc, googleLogoStyles.red]} />
+        <View style={googleLogoStyles.inner} />
+        <View style={googleLogoStyles.tab} />
+      </View>
+    </View>
+  );
+}
+
+const LOGO_SIZE = 20;
+
+const googleLogoStyles = StyleSheet.create({
+  container: {
+    width: LOGO_SIZE,
+    height: LOGO_SIZE,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  outer: {
+    width: LOGO_SIZE,
+    height: LOGO_SIZE,
+    borderRadius: LOGO_SIZE / 2,
+    overflow: 'hidden',
+    position: 'relative',
+    backgroundColor: '#EA4335',
+  },
+  arc: {
+    position: 'absolute',
+    width: LOGO_SIZE / 2,
+    height: LOGO_SIZE,
+  },
+  blue: {
+    backgroundColor: '#4285F4',
+    right: 0,
+    top: 0,
+  },
+  green: {
+    backgroundColor: '#34A853',
+    right: 0,
+    bottom: 0,
+  },
+  yellow: {
+    backgroundColor: '#FBBC05',
+    left: 0,
+    bottom: 0,
+  },
+  red: {
+    backgroundColor: '#EA4335',
+    left: 0,
+    top: 0,
+  },
+  inner: {
+    position: 'absolute',
+    width: LOGO_SIZE * 0.55,
+    height: LOGO_SIZE * 0.55,
+    borderRadius: (LOGO_SIZE * 0.55) / 2,
+    backgroundColor: '#ffffff',
+    top: LOGO_SIZE * 0.225,
+    left: LOGO_SIZE * 0.225,
+  },
+  tab: {
+    position: 'absolute',
+    width: LOGO_SIZE * 0.45,
+    height: LOGO_SIZE * 0.25,
+    backgroundColor: '#4285F4',
+    right: 0,
+    top: LOGO_SIZE * 0.375,
+  },
+});
 
 // ---------------------------------------------------------------------------
 // Component
@@ -68,15 +155,17 @@ export default function LoginScreen() {
     return () => { mountedRef.current = false; };
   }, []);
 
+  // Warm up Chrome Custom Tab on Android so the first press feels instant.
+  useEffect(() => {
+    void WebBrowser.warmUpAsync();
+    return () => { void WebBrowser.coolDownAsync(); };
+  }, []);
+
   // Used for Telegram state polling
   const telegramStateRef = useRef<string | null>(null);
   const telegramPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Cancellation flag — set to true when stopTelegramPoll is called so that
-  // any in-flight awaits after that point know to exit without touching state.
   const telegramCancelledRef = useRef(false);
-  // BUG-H04 FIX: idempotency guard — prevents double token exchange when both
-  // the Linking event listener and openAuthSessionAsync resolution fire for the
-  // same redirect URL on Android.
+  // BUG-H04 FIX: idempotency guard — prevents double token exchange
   const exchangingRef = useRef(false);
 
   // -------------------------------------------------------------------------
@@ -91,10 +180,10 @@ export default function LoginScreen() {
     let isValidCallback = false;
     try {
       const parsed = new URL(url);
-      // Custom scheme deep links (zobia://...) return 'null' for .origin in RN's JS engine,
-      // so we must check the protocol instead of comparing origins.
       const isCustomScheme =
-        parsed.protocol === 'zobia:' || parsed.protocol === 'exp+zobia-social:';
+        parsed.protocol === 'zobia:' ||
+        parsed.protocol === 'exp+zobia:' ||
+        parsed.protocol === 'exp+zobia-social:';
       const isUniversalLink =
         parsed.origin === new URL(env.API_BASE_URL).origin;
       const hasAuthPath =
@@ -112,11 +201,7 @@ export default function LoginScreen() {
       const code = parsed.queryParams?.code as string | undefined;
       const preAuthCode = parsed.queryParams?.pre_auth_code as string | undefined;
 
-      // 2FA required: server issued an opaque pre-auth code instead of an
-      // exchange code. Route to the 2FA verification screen.
       if (preAuthCode) {
-        // BUG-MISC-03 FIX: reset exchangingRef so the user can retry if they
-        // cancel 2FA and return to the login screen.
         exchangingRef.current = false;
         router.replace({
           pathname: '/auth/two-factor',
@@ -126,21 +211,15 @@ export default function LoginScreen() {
       }
 
       if (!code) {
-        // BUG-MISC-03 FIX: reset exchangingRef on missing code so future
-        // deep links are not blocked.
         exchangingRef.current = false;
         return;
       }
 
-      // BUG-H09 FIX: 15-second timeout on the token exchange so that an
-      // expired or slow code fails fast with a clear message instead of hanging.
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15_000);
 
       let exchangeRes: Response;
       try {
-        // Exchange the one-time code for tokens via HTTPS — tokens are never
-        // exposed in the URL (prevents leakage via browser history / server logs).
         exchangeRes = await fetch(`${env.API_BASE_URL}/api/auth/mobile-token`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Origin': env.API_BASE_URL },
@@ -181,8 +260,6 @@ export default function LoginScreen() {
     }
   }
 
-  // Keep a ref to the latest handleDeepLink so the stable addEventListener
-  // subscription always calls the current closure without re-subscribing.
   const handleDeepLinkRef = useRef(handleDeepLink);
   useEffect(() => { handleDeepLinkRef.current = handleDeepLink; });
 
@@ -196,19 +273,25 @@ export default function LoginScreen() {
   // -------------------------------------------------------------------------
 
   async function handleGoogleLogin() {
-    exchangingRef.current = false; // reset for a fresh login attempt
+    exchangingRef.current = false;
     setGoogleLoading(true);
     try {
       const redirectUri = ExpoLinking.createURL('auth/callback');
 
-      // Step 1: fetch the Google OAuth URL from the backend via apiClient so
-      // the Origin header and any future auth middleware are applied correctly.
-      const { data: { url: googleAuthUrl } } = await apiClient.get<{ url: string }>(
-        `/auth/google?platform=mobile&redirect=${encodeURIComponent(redirectUri)}`
-      );
+      // Open the Google OAuth init endpoint DIRECTLY in the Chrome Custom Tab.
+      // The Custom Tab (browser) stores the Set-Cookie headers (CSRF state +
+      // mobile-redirect) so they are sent automatically to the callback URL.
+      // Using apiClient.get() first (the old approach) silently discarded those
+      // cookies because Axios has no persistent cookie jar on Android, causing
+      // the CSRF check to fail and users to be bounced to the web login page.
+      const googleInitUrl =
+        `${env.API_BASE_URL}/api/auth/google?platform=mobile&redirect=${encodeURIComponent(redirectUri)}`;
 
-      // Step 2: open the actual Google consent screen and wait for the deep-link callback.
-      const result = await WebBrowser.openAuthSessionAsync(googleAuthUrl, redirectUri);
+      const result = await WebBrowser.openAuthSessionAsync(
+        googleInitUrl,
+        redirectUri,
+        { showInRecents: false },
+      );
 
       if (result.type === 'success' && result.url) {
         await handleDeepLink({ url: result.url });
@@ -228,14 +311,12 @@ export default function LoginScreen() {
   async function handleTelegramLogin() {
     setTelegramLoading(true);
     try {
-      // Generate a cryptographically secure random state token (N-03)
       const randomBytes = await Crypto.getRandomBytesAsync(16);
       const shortState = Array.from(randomBytes)
         .map((b) => b.toString(16).padStart(2, "0"))
         .join("");
       telegramStateRef.current = shortState;
 
-      // Open Telegram bot with the state token (32-char hex from 16 secure random bytes)
       const telegramUrl = `https://t.me/${TELEGRAM_BOT}?start=login_${shortState}`;
       const canOpen = await Linking.canOpenURL(telegramUrl);
 
@@ -246,8 +327,6 @@ export default function LoginScreen() {
       }
 
       await Linking.openURL(telegramUrl);
-
-      // Poll the backend for the Telegram login result
       startTelegramPoll(shortState);
     } catch {
       Alert.alert(t('common.error'), t('auth.telegramError'));
@@ -256,14 +335,11 @@ export default function LoginScreen() {
   }
 
   function startTelegramPoll(state: string) {
-    const MAX_ATTEMPTS = 12; // ~2 minutes total with exponential backoff (2,2,4,8,16,16,...)
-    // Reset the cancellation flag for this new poll session.
+    const MAX_ATTEMPTS = 12;
     telegramCancelledRef.current = false;
 
     function scheduleNext(attempt: number) {
       if (telegramCancelledRef.current) return;
-      // Exponential backoff: 2s, 2s, 2s, 4s, 8s, 16s, capped at 16s
-      // (attempts 0-2 all get 2s because max(0, attempt-2) bottoms out at 0)
       const delayMs = Math.min(2000 * Math.pow(2, Math.max(0, attempt - 2)), 16_000);
       telegramPollRef.current = setTimeout(async () => {
         if (telegramCancelledRef.current) return;
@@ -288,7 +364,6 @@ export default function LoginScreen() {
             return;
           }
         } catch {
-          // Network error — retry with backoff, but still honour MAX_ATTEMPTS
           if (attempt >= MAX_ATTEMPTS) {
             stopTelegramPoll();
             Alert.alert(t('auth.loginTimeoutTitle'), t('auth.loginTimeoutBody'));
@@ -308,12 +383,9 @@ export default function LoginScreen() {
       clearTimeout(telegramPollRef.current);
       telegramPollRef.current = null;
     }
-    // BUG-MEM-01 FIX: only update state if still mounted to avoid the
-    // "Can't perform a React state update on an unmounted component" warning.
     if (mountedRef.current) setTelegramLoading(false);
   }
 
-  // Stop polling on unmount
   useEffect(() => {
     return () => stopTelegramPoll();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -324,11 +396,11 @@ export default function LoginScreen() {
 
   const textColor = isDark ? colors.neutral[100] : colors.neutral[900];
   const subtitleColor = isDark ? colors.neutral[400] : colors.neutral[500];
+  const cardBg = isDark ? colors.neutral[900] : colors.neutral[0];
+  const cardBorder = isDark ? colors.neutral[800] : colors.neutral[200];
 
   return (
     <Screen contentStyle={styles.content}>
-      {/* Session-expired notice is handled globally by SessionExpiredModal in _layout.tsx */}
-
       {/* Logo / wordmark area */}
       <View style={styles.hero}>
         <Text style={[styles.logo, { color: colors.brand.blue }]}>Z</Text>
@@ -340,17 +412,28 @@ export default function LoginScreen() {
 
       {/* Auth buttons */}
       <View style={styles.buttons}>
-        <Button
-          label={googleLoading ? t('auth.googleOpening') : t('auth.loginWithGoogle')}
-          variant="secondary"
-          size="lg"
-          loading={googleLoading}
+        {/* Google sign-in button styled to match the standard Google button spec */}
+        <TouchableOpacity
+          activeOpacity={0.8}
           onPress={handleGoogleLogin}
-          leftIcon={
-            <Ionicons name="logo-google" size={20} color={colors.brand.blue} />
-          }
-          style={styles.authButton}
-        />
+          disabled={googleLoading}
+          accessibilityRole="button"
+          accessibilityLabel={t('auth.loginWithGoogle')}
+          style={[
+            styles.googleButton,
+            { backgroundColor: cardBg, borderColor: cardBorder },
+            googleLoading && styles.buttonDisabled,
+          ]}
+        >
+          {googleLoading ? (
+            <Ionicons name="sync" size={20} color={subtitleColor} style={styles.spinning} />
+          ) : (
+            <GoogleLogo />
+          )}
+          <Text style={[styles.googleButtonText, { color: textColor }]}>
+            {googleLoading ? t('auth.googleOpening') : t('auth.loginWithGoogle')}
+          </Text>
+        </TouchableOpacity>
 
         <Button
           label={telegramLoading ? t('auth.telegramWaiting') : t('auth.loginWithTelegram')}
@@ -363,6 +446,21 @@ export default function LoginScreen() {
           }
           style={[styles.authButton, { backgroundColor: colors.brand.blue }]}
         />
+      </View>
+
+      {/* Sign up prompt */}
+      <View style={styles.signUpRow}>
+        <Text style={[styles.signUpText, { color: subtitleColor }]}>
+          {t('auth.noAccount')}{' '}
+        </Text>
+        <TouchableOpacity
+          onPress={() => Linking.openURL(`${env.API_BASE_URL}/auth/register`)}
+          accessibilityRole="link"
+        >
+          <Text style={[styles.signUpLink, { color: colors.brand.blue }]}>
+            {t('auth.signUp')}
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* Legal footnote */}
@@ -429,26 +527,50 @@ const styles = StyleSheet.create({
   authButton: {
     width: '100%',
   },
+  googleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 56,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    gap: 10,
+    paddingHorizontal: 24,
+  },
+  googleButtonText: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  buttonDisabled: {
+    opacity: 0.5,
+  },
+  spinning: {
+    // Spinning is only approximate in RN; activityIndicator is the proper solution
+    // but the GoogleLogo placeholder looks better at rest
+  },
+  signUpRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  signUpText: {
+    fontSize: 14,
+  },
+  signUpLink: {
+    fontSize: 14,
+    fontWeight: '600',
+    textDecorationLine: 'underline',
+  },
   legal: {
     fontSize: 12,
     textAlign: 'center',
-    marginTop: 20,
+    marginTop: 12,
     lineHeight: 18,
   },
   legalLink: {
     fontSize: 12,
     fontWeight: '600',
     textDecorationLine: 'underline',
-  },
-  expiredBanner: {
-    borderRadius: 8,
-    marginBottom: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  expiredText: {
-    fontSize: 13,
-    textAlign: 'center',
-    fontWeight: '500',
   },
 });

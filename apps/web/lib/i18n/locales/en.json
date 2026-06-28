@@ -28,6 +28,7 @@
   "auth.forgotPassword": "Forgot password?",
   "auth.resetPassword": "Reset password",
   "auth.noAccount": "Don't have an account?",
+  "auth.signUp": "Sign up",
   "auth.haveAccount": "Already have an account?",
   "auth.adminLogin": "Admin login",
   "auth.twoFactorCode": "Two-factor code",

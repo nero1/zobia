@@ -508,7 +508,13 @@ function RootLayoutNav() {
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
-        <Stack.Screen name="auth/login" options={{ presentation: 'modal', headerShown: false }} />
+        {/* Full-screen card (not modal) so the login screen always takes the full
+            viewport and router.replace() navigates reliably on Android. A modal
+            presentation was causing the session-expired redirect to appear as a
+            bottom-sheet while the RN Modal overlay was still visible on top,
+            giving the impression that "nothing happened" after tapping Sign In. */}
+        <Stack.Screen name="auth/login" options={{ headerShown: false }} />
+        <Stack.Screen name="auth/two-factor" options={{ headerShown: false }} />
       </Stack>
     </>
   );
