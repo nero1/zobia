@@ -2880,6 +2880,88 @@ this failure at build time.
 
 ---
 
-*ZobiaSocial PRD v1.90*
+---
+
+## Appendix: Version 1.91 Change Log
+
+### v1.91 — Changelog
+
+#### AppRegistry n=0 White-Screen Fix (the actual root cause: duplicate `react-native`)
+
+After v1.90 (which removed the React `overrides` landmine and added a build-time
+React-version guard), a fresh device build **still** crashed identically:
+
+```
+Invariant Violation: Failed to call into JavaScript module method AppRegistry.runApplication().
+Module has not been registered as callable. Bridgeless Mode: false.
+Registered callable JavaScript modules (n = 0):
+```
+
+The v1.90 guard passing proves React resolved correctly to 18.2.0 — so React
+duplication was **not** the live cause. The decisive detail is `n = 0`: not even
+React Native's own core modules (`AppRegistry`, `RCTDeviceEventEmitter`,
+`JSTimers`) registered. That is the fingerprint of **two copies of
+`react-native` in one bundle** → two `BatchedBridge` instances → the native side
+calls into bridge A while the JS registers `AppRegistry` on bridge B, so native
+sees zero callable modules and the launch aborts.
+
+---
+
+##### Root cause 9 — Stale lockfile shipped a duplicate `react-native`, and the Metro hook only pinned the bare specifier (fixed)
+
+Two compounding problems:
+
+1. **Stale `package-lock.json`.** v1.89 removed `react-native` from the root
+   `package.json`, but the lockfile was never regenerated. The committed lockfile
+   therefore still carried a phantom root `node_modules/react-native@0.74.0`
+   **and** resolved `apps/expo/node_modules/react-native` to `0.74.0` even though
+   `apps/expo/package.json` declares `0.74.5`. `npm ci` (used by EAS) installs
+   exactly what the lockfile says, so every build got two react-native copies.
+
+2. **Bare-specifier-only Metro dedup.** The `resolveRequest` hook in
+   `metro.config.js` pinned only the exact strings `'react'` and `'react-native'`.
+   React Native's own internals and hoisted RN libraries import deep subpaths
+   such as `react-native/Libraries/BatchedBridge/BatchedBridge` and
+   `react-native/Libraries/ReactNative/AppRegistry`. Those bypassed the bare
+   intercept and resolved from whichever `node_modules` came first in
+   `nodeModulesPaths` — pulling the second (root) copy into the bundle.
+
+**Fix (`metro.config.js`):** The `resolveRequest` hook now pins `react`,
+`react-native`, **and all of their subpaths** to the single canonical copy in
+`apps/expo`. It rewrites each `react/*` and `react-native/*` request to an
+absolute path inside the canonical package and delegates to Metro's default
+resolver, so platform extensions (`.android.js` / `.native.js`), Haste, and
+asset handling still apply correctly:
+
+```js
+const pinToCanonical = (context, moduleName, platform, pkg, baseDir) => {
+  const subpath = moduleName === pkg ? '' : moduleName.slice(pkg.length);
+  return context.resolveRequest(context, baseDir + subpath, platform);
+};
+// react + react/<subpath>
+if (moduleName === 'react' || moduleName.startsWith('react/')) {
+  return pinToCanonical(context, moduleName, platform, 'react', REACT_PATH);
+}
+// react-native + react-native/<subpath>  (react-native-* and @react-native/* are left alone)
+if (moduleName === 'react-native' || moduleName.startsWith('react-native/')) {
+  return pinToCanonical(context, moduleName, platform, 'react-native', REACT_NATIVE_PATH);
+}
+```
+
+**Fix (`package-lock.json`):** Regenerated the lockfile (`npm install
+--package-lock-only`) so it matches `package.json`. `apps/expo` now correctly
+resolves `react-native@0.74.5` (was `0.74.0`). A transitive `react-native@0.74.0`
+remains in the root tree (pulled by RN CLI tooling), but the subpath dedup above
+guarantees it can never enter the Expo bundle.
+
+**Rule for future work:** A monorepo React/React Native dedup hook MUST cover
+subpaths (`pkg` and `pkg/*`), not just the bare specifier — deep imports are the
+exact path a second copy uses to slip in. And after any change to a dependency in
+`package.json`, **regenerate the lockfile** so `npm ci`/EAS installs what you
+actually declared.
+
+---
+
+*ZobiaSocial PRD v1.91*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*
