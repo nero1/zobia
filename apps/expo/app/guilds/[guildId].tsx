@@ -232,7 +232,7 @@ export default function GuildDetailScreen() {
     // BUG-PERF-04 FIX: optimistically flip isMember / memberCount to avoid a
     // full refetch that causes a visible loading flicker on every join/leave.
     onMutate: () => {
-      queryClient.setQueryData<Guild>(['guild', guildId], (prev) =>
+      queryClient.setQueryData<Guild>(['guild', guildId], (prev: Guild | undefined) =>
         prev ? { ...prev, isMember: true, memberCount: prev.memberCount + 1 } : prev
       );
     },
@@ -246,7 +246,7 @@ export default function GuildDetailScreen() {
   const leaveMutation = useMutation({
     mutationFn: () => leaveGuild(guildId!),
     onMutate: () => {
-      queryClient.setQueryData<Guild>(['guild', guildId], (prev) =>
+      queryClient.setQueryData<Guild>(['guild', guildId], (prev: Guild | undefined) =>
         prev ? { ...prev, isMember: false, memberCount: Math.max(0, prev.memberCount - 1) } : prev
       );
     },

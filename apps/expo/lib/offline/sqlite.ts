@@ -4,38 +4,44 @@
  * SQLite-backed offline message queue for Android.
  * Queues outgoing messages when the device is offline and syncs when reconnected.
  *
- * BUG-PRIV-01 FIX: message content is now encrypted at rest using AES-256-GCM
+ * BUG-PRIV-01 FIX: message content is encrypted at rest using AES-256-GCM
  * before being written to SQLite. The encryption key is generated once per device
  * and stored in expo-secure-store (backed by Android Keystore / iOS Secure Enclave).
  *
- * Encryption format: `${base64url(iv)}.${base64url(ciphertext)}`
+ * Encryption format: `v1:${base64url(iv)}.${base64url(ciphertext)}`
  * The prefix `v1:` distinguishes encrypted from legacy plaintext rows so that
  * existing installations can be migrated without data loss.
+ *
+ * HERMES COMPAT: uses @noble/ciphers for AES-256-GCM instead of crypto.subtle
+ * (which is absent in Hermes / React Native). crypto.subtle.importKey was the
+ * root cause of "[offline] SQLite offline-queue init failed TypeError: Cannot
+ * read property 'importKey' of undefined".
  */
 
 import * as SQLite from 'expo-sqlite';
 import * as SecureStore from 'expo-secure-store';
+import { gcm } from '@noble/ciphers/aes.js';
 
 // ---------------------------------------------------------------------------
 // Database setup
 // ---------------------------------------------------------------------------
 
 let db: SQLite.SQLiteDatabase | null = null;
-let encryptionKey: CryptoKey | null = null;
-let _encKeyPromise: Promise<CryptoKey> | null = null;
+/** Raw 32-byte AES-256 key (Uint8Array). Avoids crypto.subtle entirely. */
+let encryptionKey: Uint8Array | null = null;
+let _encKeyPromise: Promise<Uint8Array> | null = null;
 
 const DB_NAME = 'zobia_offline.db';
 const SECURE_KEY_NAME = 'offline_db_aes_key_v1';
 const ENCRYPTION_PREFIX = 'v1:';
 
 // ---------------------------------------------------------------------------
-// Encryption helpers
+// Base64url helpers (Hermes-safe)
 // ---------------------------------------------------------------------------
 
-function toBase64Url(buffer: ArrayBuffer): string {
+function toBase64Url(bytes: Uint8Array): string {
   // BUG-PERF-03 FIX: use an array + join instead of += concatenation to avoid
   // O(n²) string allocation (each concatenation copies all previous characters).
-  const bytes = new Uint8Array(buffer);
   const chars = new Array<string>(bytes.byteLength);
   for (let i = 0; i < bytes.byteLength; i++) {
     chars[i] = String.fromCharCode(bytes[i]);
@@ -55,7 +61,11 @@ function fromBase64Url(b64: string): Uint8Array {
   return bytes;
 }
 
-async function getOrCreateEncryptionKey(): Promise<CryptoKey> {
+// ---------------------------------------------------------------------------
+// Key management (no crypto.subtle — raw Uint8Array stored in SecureStore)
+// ---------------------------------------------------------------------------
+
+async function getOrCreateEncryptionKey(): Promise<Uint8Array> {
   if (encryptionKey) return encryptionKey;
   if (_encKeyPromise) return _encKeyPromise;
 
@@ -63,22 +73,16 @@ async function getOrCreateEncryptionKey(): Promise<CryptoKey> {
     let rawKeyBase64 = await SecureStore.getItemAsync(SECURE_KEY_NAME);
 
     if (!rawKeyBase64) {
-      // Generate a new 256-bit AES key
-      const rawBytes = crypto.getRandomValues(new Uint8Array(32));
-      rawKeyBase64 = toBase64Url(rawBytes.buffer);
+      // Generate a new 256-bit AES key using the polyfilled getRandomValues.
+      const rawBytes = new Uint8Array(32);
+      crypto.getRandomValues(rawBytes);
+      rawKeyBase64 = toBase64Url(rawBytes);
       await SecureStore.setItemAsync(SECURE_KEY_NAME, rawKeyBase64, {
         keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
       });
     }
 
-    const keyBytes = fromBase64Url(rawKeyBase64);
-    encryptionKey = await crypto.subtle.importKey(
-      'raw',
-      keyBytes,
-      { name: 'AES-GCM' },
-      false,
-      ['encrypt', 'decrypt']
-    );
+    encryptionKey = fromBase64Url(rawKeyBase64);
     return encryptionKey;
   })();
 
@@ -91,12 +95,18 @@ async function getOrCreateEncryptionKey(): Promise<CryptoKey> {
   return _encKeyPromise;
 }
 
+// ---------------------------------------------------------------------------
+// AES-256-GCM helpers (via @noble/ciphers — pure JS, no crypto.subtle)
+// ---------------------------------------------------------------------------
+
 async function encryptContent(plaintext: string): Promise<string> {
   const key = await getOrCreateEncryptionKey();
-  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const iv = new Uint8Array(12);
+  crypto.getRandomValues(iv);
   const encoded = new TextEncoder().encode(plaintext);
-  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
-  return ENCRYPTION_PREFIX + toBase64Url(iv.buffer) + '.' + toBase64Url(ciphertext);
+  // gcm() returns a cipher whose encrypt() appends the 16-byte GCM auth tag.
+  const ciphertext = gcm(key, iv).encrypt(encoded);
+  return ENCRYPTION_PREFIX + toBase64Url(iv) + '.' + toBase64Url(ciphertext);
 }
 
 async function decryptContent(stored: string): Promise<string> {
@@ -110,7 +120,8 @@ async function decryptContent(stored: string): Promise<string> {
   if (dotIdx === -1) throw new Error('Malformed encrypted content');
   const iv = fromBase64Url(payload.slice(0, dotIdx));
   const ciphertext = fromBase64Url(payload.slice(dotIdx + 1));
-  const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+  // gcm().decrypt() verifies the GCM auth tag and throws on tampered data.
+  const decrypted = gcm(key, iv).decrypt(ciphertext);
   return new TextDecoder().decode(decrypted);
 }
 
@@ -171,6 +182,11 @@ export async function initOfflineDB(): Promise<void> {
     }
     await db.execAsync('PRAGMA user_version = 1');
   }
+}
+
+/** Returns true once initOfflineDB() has completed successfully. */
+export function isOfflineDBReady(): boolean {
+  return db !== null;
 }
 
 function getDB(): SQLite.SQLiteDatabase {

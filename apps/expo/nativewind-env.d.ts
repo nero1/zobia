@@ -19,6 +19,7 @@ declare module 'react-native' {
   }
   interface ScrollViewProps {
     className?: string;
+    contentContainerClassName?: string;
   }
   interface TouchableOpacityProps {
     className?: string;
@@ -28,6 +29,7 @@ declare module 'react-native' {
   }
   interface FlatListProps<ItemT> {
     className?: string;
+    contentContainerClassName?: string;
   }
 }
 

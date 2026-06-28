@@ -388,7 +388,6 @@ function RootLayoutNav() {
     } catch (err) {
       console.warn('[push] Cold-start notification navigation failed:', action, err);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoading, storeReady, user]); // router excluded: routerRef.current always holds latest (BUG-UX-12)
 
   // BUG-CRIT-01: Auth gate — redirect unauthenticated users to the login screen.
@@ -398,8 +397,33 @@ function RootLayoutNav() {
     if (!isLoading && storeReady && !user) {
       routerRef.current.replace('/auth/login');
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoading, storeReady, user]); // router excluded: routerRef.current always holds latest (BUG-UX-12)
+
+  // Request notification permission early (before login) so Android installs
+  // show the POST_NOTIFICATIONS dialog on first launch rather than silently
+  // leaving notifications disabled. The push token is registered later
+  // (after login) by registerForPushNotifications() below.
+  useEffect(() => {
+    if (!storeReady || !Device.isDevice) return;
+    (async () => {
+      try {
+        if (Platform.OS === 'android') {
+          await Notifications.setNotificationChannelAsync('default', {
+            name: 'Default',
+            importance: Notifications.AndroidImportance.MAX,
+            vibrationPattern: [0, 250, 250, 250],
+            lightColor: '#1A73E8',
+          });
+        }
+        const { status } = await Notifications.getPermissionsAsync();
+        if (status === 'undetermined') {
+          await Notifications.requestPermissionsAsync();
+        }
+      } catch (err) {
+        console.warn('[push] Pre-login permission request failed', err);
+      }
+    })();
+  }, [storeReady]);
 
   // Register push token once the user's identity is established.
   // Scoped to user?.id so token refresh (which mutates other user fields)

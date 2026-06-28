@@ -79,7 +79,7 @@ try {
       react: {
         useSuspense: false,
       },
-      compatibilityJSON: 'v4',
+      compatibilityJSON: 'v3',
     });
 
   // Apply RTL layout for Arabic immediately after init, before first render.

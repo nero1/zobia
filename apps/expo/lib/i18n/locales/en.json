@@ -88,7 +88,8 @@
   },
   "home": {
     "title": "Zobia Social",
-    "subtitle": "Your feed is loading…"
+    "subtitle": "Your feed is loading…",
+    "dailyLoginXP": "Daily login: +{{xp}} XP"
   },
   "rooms": {
     "title": "Rooms",

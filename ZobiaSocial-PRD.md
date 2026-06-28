@@ -1,7 +1,7 @@
 # Zobia Social — Product Requirements Document
 ### A Gamified Monetised Social Platform for the Global Mobile Generation
 
-> **Version 1.93 — Product Requirements Document**
+> **Version 1.94 — Product Requirements Document**
 > Covers: Feature Specifications · Technical Architecture · Economy Design · Moderation · Build Sequence
 > Scope: Nigeria-first, Pan-African then Global · Mobile-first PWA + Android APK · Admin-minimal operation
 
@@ -3045,7 +3045,7 @@ The Google sign-in button now uses a styled native `TouchableOpacity` with an in
 
 #### Android App — "Don't have an account? Sign up" (Issue #5)
 
-Added a "Don't have an account? Sign up." row below the auth buttons on the login screen. Tapping "Sign up" opens the web registration page (`/auth/register`) via `Linking.openURL`. New i18n key `auth.signUp` added to both the Expo and web English locale files.
+Added a "Don't have an account? Sign up." row below the auth buttons on the login screen. Tapping "Sign up" triggers the native Google OAuth flow (same as "Continue with Google") — no web browser redirect. Google OAuth handles account creation on first sign-in: if no matching account exists the backend creates one automatically. The old behaviour (opening `/auth/register` in an external browser) has been removed. The `auth.signUp` i18n key remains for the link label.
 
 #### Debug Overlay — Export Button (Issue #3)
 
@@ -3061,6 +3061,52 @@ New key `"auth.signUp": "Sign up"` added to both `apps/expo/lib/i18n/locales/en.
 
 ---
 
-*ZobiaSocial PRD v1.93*
+## Appendix: Version 1.94 Change Log
+
+### v1.94 — Changelog
+
+#### Android — Notification Permission Requested at Install (Issue #1 — Permissions)
+
+Previously, the `POST_NOTIFICATIONS` permission dialog (required on Android 13+ / API 33+) was only triggered after the user completed Google OAuth and a user session was established. On a fresh install, the dialog never appeared, leaving notifications disabled.
+
+**Fix:** A new `useEffect` in `_layout.tsx` fires as soon as `storeReady` is true (immediately after MMKV initialises). It calls `Notifications.getPermissionsAsync()` and, if the status is `undetermined`, calls `Notifications.requestPermissionsAsync()`. This shows the system dialog on first launch, before login. The full push-token registration (`registerForPushNotifications()`) still fires after login as before, since the Expo push token requires an authenticated user to associate with.
+
+#### Android — SQLite Offline Queue: `crypto.subtle` Removed (Issues #4b, #4c)
+
+**Root cause:** `lib/offline/sqlite.ts` used `crypto.subtle.importKey`, `crypto.subtle.encrypt`, and `crypto.subtle.decrypt` for AES-256-GCM at-rest encryption. `crypto.subtle` is part of the Web Crypto API and is **not available in Hermes** (the React Native JS engine). Only `crypto.getRandomValues` and `crypto.randomUUID` are polyfilled via `expo-crypto`. The missing API caused:
+- `[offline] SQLite offline-queue init failed TypeError: Cannot read property 'importKey' of undefined`
+- `[offline:sync] Sync failed Error: Offline DB not initialised — call initOfflineDB() first`
+
+**Fix:**
+- Added `@noble/ciphers: "^2.2.0"` to `apps/expo/package.json`.
+- `lib/offline/sqlite.ts` fully rewritten: all `crypto.subtle` calls replaced with `gcm()` from `@noble/ciphers/aes` (pure JavaScript, no native dependencies). The encryption key is stored as a raw base64 `Uint8Array` in SecureStore instead of a `CryptoKey`. The wire format (`v1:${base64url(iv)}.${base64url(ciphertext)}`) is unchanged — existing encrypted rows migrate automatically.
+- Added `isOfflineDBReady()` export from `sqlite.ts`.
+- `lib/offline/syncQueue.ts` now calls `isOfflineDBReady()` at the start of `syncPendingMessages()` and returns early if the DB is not yet initialised, eliminating the race condition with the NetInfo reconnection event.
+
+#### Android — Google OAuth Returns 302 Redirect Instead of JSON (Issue #2)
+
+The deployed Vercel backend was an older version returning `{"url":"..."}` JSON for `GET /api/auth/google`. The repo code already contained the correct fix (a `302` redirect directly to Google). This release includes that server-side fix so the Custom Tab follows the redirect instead of displaying raw JSON.
+
+#### Android — Sign-Up Triggers Native Google OAuth (Issue #3)
+
+Tapping "Sign up" on the Android login screen previously called `Linking.openURL(API_BASE_URL + '/auth/register')`, opening the web app in an external browser. The fix changes `onPress` to call `handleGoogleLogin()` so the sign-up flow uses the native Chrome Custom Tab OAuth flow — matching how most modern apps handle first-time account creation via Google. The backend creates the account automatically when it sees a new Google subject ID.
+
+#### Android — i18next Intl.PluralRules Warning (Issue #4d)
+
+`compatibilityJSON: 'v4'` in `lib/i18n/index.ts` requires `Intl.PluralRules`, which is absent in Hermes on some Android versions. Changed to `compatibilityJSON: 'v3'`, which uses i18next's built-in plural resolver (no `Intl` API required). All existing translation strings already use the v3 plural suffix convention.
+
+#### Android — Daily Login XP 401 (Issue #4a)
+
+The daily-login `useEffect` in `app/(tabs)/index.tsx` was firing with empty `[]` dependencies, meaning it executed on the very first mount of the home tab — which can happen for one frame before the auth gate redirect fires (the auth gate is in a `useEffect`, not synchronous). This sent a `POST /api/gamification/daily-login` with no auth token, resulting in a 401.
+
+**Fix:** `user?.id` added as the sole dependency; a guard `if (!user?.id) return;` is added at the top of the effect. The mutation only fires once a valid authenticated user is confirmed.
+
+#### i18n — New `home.dailyLoginXP` String
+
+Added `"home.dailyLoginXP": "Daily login: +{{xp}} XP"` to both `apps/expo/lib/i18n/locales/en.json` and `apps/web/lib/i18n/locales/en.json`. This string is displayed in the home screen toast when the daily XP reward is first awarded.
+
+---
+
+*ZobiaSocial PRD v1.94*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

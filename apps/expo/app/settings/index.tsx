@@ -931,7 +931,7 @@ export default function SettingsScreen() {
                       const willBeRTL = lang.code === 'ar';
                       if (wasRTL !== willBeRTL) {
                         I18nManager.forceRTL(willBeRTL);
-                        if (Updates.isAvailable) {
+                        if (Updates.isEnabled) {
                           await Updates.reloadAsync();
                         } else if (__DEV__) {
                           Alert.alert(

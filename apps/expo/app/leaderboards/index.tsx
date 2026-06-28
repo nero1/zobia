@@ -187,7 +187,7 @@ function RankChangeRipple({
     });
 
     return () => loop.stop();
-  }, [changed, direction]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [changed, direction]);
 
   const targetColor =
     direction === 'up'

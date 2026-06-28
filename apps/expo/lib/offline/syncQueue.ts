@@ -16,6 +16,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { type AxiosError } from 'axios';
 import { apiClient } from '@/lib/api/client';
 import {
+  isOfflineDBReady,
   getPendingMessages,
   markMessageSent,
   markMessageFailed,
@@ -23,8 +24,8 @@ import {
   markMessageSending,
   resetFailedMessages,
   purgePermanentlyFailedMessages,
+  resetSendingMessages,
 } from './sqlite';
-import { resetSendingMessages } from './sqlite';
 // Re-export so callers can still use the named import from syncQueue.
 export { resetSendingMessages };
 
@@ -38,6 +39,8 @@ let _syncInProgress = false;
 export async function syncPendingMessages(): Promise<void> {
   // BUG-RACE-02 FIX: skip if already syncing
   if (_syncInProgress) return;
+  // Skip sync if the DB hasn't finished initialising yet
+  if (!isOfflineDBReady()) return;
 
   // Check network state
   const state = await NetInfo.fetch();

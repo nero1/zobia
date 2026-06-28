@@ -618,7 +618,7 @@ Deletion is batched by joining the `messages` table against the sender's **curre
 **Android (MMKV + Expo SQLite)**
 - MMKV provides ultra-fast synchronous key-value storage for session tokens, user preferences, and feature flags.
 - Expo SQLite stores structured offline data: recent message threads, the quest deck, and cached profile data.
-- **Offline queue encryption:** message content is encrypted at rest with AES-256-GCM before being written to SQLite (`lib/offline/sqlite.ts`). A 256-bit key is generated once per device using `crypto.getRandomValues` and stored in expo-secure-store with `WHEN_UNLOCKED_THIS_DEVICE_ONLY` (Android Keystore / iOS Secure Enclave). Stored rows use the format `v1:<base64url(iv)>.<base64url(ciphertext)>`; rows without the `v1:` prefix are treated as legacy plaintext for backward-compat migration.
+- **Offline queue encryption:** message content is encrypted at rest with AES-256-GCM before being written to SQLite (`lib/offline/sqlite.ts`). A 256-bit key is generated once per device using `crypto.getRandomValues` and stored in expo-secure-store with `WHEN_UNLOCKED_THIS_DEVICE_ONLY` (Android Keystore / iOS Secure Enclave). Stored rows use the format `v1:<base64url(iv)>.<base64url(ciphertext)>`; rows without the `v1:` prefix are treated as legacy plaintext for backward-compat migration. Encryption uses `@noble/ciphers/aes` (`gcm()`) — a pure-JavaScript implementation that works on Hermes without `crypto.subtle` (which is absent in the React Native JS engine).
 - Same sync-on-reconnect pattern: NetInfo `addEventListener` fires the sync when connectivity is restored.
 - The same small, grey, **closeable** offline banner appears at the top of each screen (`components/offline/OfflineBanner.tsx`, mounted via the shared `Screen` wrapper) and is i18n-driven (`common.offline`).
 - Offline messages have a 72-hour TTL in SQLite. Messages older than 72 hours that never synced are dropped with a "message not sent" notice displayed to the user.
@@ -1006,9 +1006,11 @@ Notification priority levels:
 
 ### Client-Side Setup (Expo)
 
-On first authenticated load, the Expo app:
+On first launch (before login), the Expo app:
 1. Checks if running on a physical device (`expo-device`).
-2. Requests permission via `expo-notifications.requestPermissionsAsync()`.
+2. If the permission status is `undetermined`, calls `expo-notifications.requestPermissionsAsync()` immediately after the MMKV store initialises — so the system dialog appears on install, not after login.
+
+After login, the app additionally:
 3. Calls `expo-notifications.getExpoPushTokenAsync()` to retrieve the unique device token.
 4. Registers the token with `POST /api/users/push-token` (stored in `user_push_tokens` table).
 

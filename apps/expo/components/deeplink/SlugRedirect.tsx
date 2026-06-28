@@ -71,7 +71,6 @@ export function SlugRedirect({
       clearTimeout(timeoutId);
       controller.abort();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [type, identifier]); // toInternalPath excluded: toInternalPathRef.current always holds latest
 
   return (

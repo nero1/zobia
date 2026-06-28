@@ -161,6 +161,7 @@
   "home.activityCount": "{{count}} user earned XP in the last hour",
   "home.activityCount_other": "{{count}} users earned XP in the last hour",
   "home.pageTitle": "Home",
+  "home.dailyLoginXP": "Daily login: +{{xp}} XP",
   "rooms.createRoom": "+ Create Room",
   "rooms.tab.trending": "Trending",
   "rooms.tab.nearby": "Near Me",
