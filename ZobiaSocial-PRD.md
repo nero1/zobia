@@ -1,7 +1,7 @@
 # Zobia Social — Product Requirements Document
 ### A Gamified Monetised Social Platform for the Global Mobile Generation
 
-> **Version 1.86 — Product Requirements Document**
+> **Version 1.93 — Product Requirements Document**
 > Covers: Feature Specifications · Technical Architecture · Economy Design · Moderation · Build Sequence
 > Scope: Nigeria-first, Pan-African then Global · Mobile-first PWA + Android APK · Admin-minimal operation
 
@@ -1383,12 +1383,20 @@ Authentication is handled by the platform's own JWT system, not Supabase Auth. T
 - Admin can toggle each on or off independently per deployment.
 - The same auth options are available identically on web, PWA, and Android app.
 
-**Auth flow:**
-1. User initiates OAuth with Google or Telegram.
-2. The backend validates the OAuth callback, creates or retrieves the user record in the configured database, issues a platform JWT and refresh token.
-3. The JWT is stored securely: in an HttpOnly cookie on web; in Expo SecureStore on Android.
-4. All subsequent API calls present the JWT. The backend validates it against the Redis session store on every privileged request.
-5. Refresh tokens are stored in Redis with a sliding window. Session invalidation propagates immediately via Redis key deletion.
+**Auth flow (web / PWA):**
+1. User clicks "Continue with Google" → browser navigates to `/api/auth/google` which sets CSRF cookie and redirects to Google.
+2. User signs in with Google → Google redirects to `/api/auth/google/callback` with CSRF cookie intact (same browser session).
+3. Callback validates CSRF, upserts user, issues platform JWT and refresh token as HttpOnly cookies, redirects to `/home` or `/onboarding`.
+
+**Auth flow (Android app):**
+1. User taps "Continue with Google" → Expo app opens `/api/auth/google?platform=mobile&redirect=zobia://auth/callback` **directly** inside a Chrome Custom Tab via `expo-web-browser`. The Custom Tab (browser engine) stores the CSRF and mobile-redirect cookies set by this response — this is critical; fetching the URL via Axios first and then opening the returned Google URL in the Custom Tab causes cookie loss because Axios has no persistent cookie jar.
+2. Custom Tab follows the 302 redirect to Google. User selects their account.
+3. Google redirects to `/api/auth/google/callback` — the Custom Tab includes the CSRF cookie automatically (same browser session).
+4. Callback validates CSRF, creates a one-time exchange code stored in Redis (90s TTL), redirects to `zobia://auth/callback?code=<exchangeCode>`.
+5. Custom Tab detects the `zobia://` custom scheme → `openAuthSessionAsync` resolves with the URL.
+6. App POSTs `{ code }` to `/api/auth/mobile-token` over HTTPS → receives `accessToken`, `refreshToken`, and user payload. Tokens stored in Expo SecureStore.
+7. All subsequent API calls present the JWT as a `Bearer` token. The backend validates it against the Redis session store.
+8. Refresh tokens are stored in Redis with a sliding window. Session invalidation propagates immediately via Redis key deletion.
 
 **Password and recovery:**
 - After onboarding, users are periodically (not aggressively) encouraged to set an email address and password for account recovery.
@@ -3005,6 +3013,54 @@ never reached the build. Section 22.0.1 rule 4 was corrected (it had stated the 
 
 ---
 
-*ZobiaSocial PRD v1.92*
+## Appendix: Version 1.93 Change Log
+
+### v1.93 — Changelog
+
+#### Android App — Google OAuth Cookie Fix (Issue #2)
+
+**Root cause:** The Expo app was fetching `/api/auth/google?platform=mobile&redirect=...` via Axios and then opening the returned Google URL in a Chrome Custom Tab. Axios has no persistent cookie jar on Android, so the `zobia_csrf_state` and `zobia_mobile_redirect` cookies set in that response were never stored in the browser's cookie store. When Google redirected back to `/api/auth/google/callback`, the Custom Tab sent no cookies, causing the CSRF check to fail with a `session_expired` error. The user was bounced to the web error page and ended up logging into the web version instead of the app.
+
+**Fix:**
+- The Expo login screen now opens `/api/auth/google?platform=mobile&redirect=<deep-link>` **directly** inside `WebBrowser.openAuthSessionAsync`. The Custom Tab (Chrome) navigates to this URL itself, receives and stores the Set-Cookie headers natively, and carries them to the callback — exactly as a normal browser would.
+- The server's `GET /api/auth/google` route now always responds with a `302` redirect to Google (removing the JSON response special-case for mobile). Both web and mobile flows use the same redirect pattern; the `mobileRedirect` cookie distinguishes them in the callback.
+- `ALLOWED_REDIRECT_SCHEMES` updated to include `exp+zobia:` and `exp+zobia-social:` so Expo Go development builds can also complete the OAuth flow.
+- `WebBrowser.warmUpAsync()` called on login screen mount for faster Chrome Custom Tab startup on Android.
+
+#### Android App — Session Expired on Startup (Issue #1) and Sign-In Button Navigation
+
+**Problem 1 — Session expired modal on fresh open:** When a server-side session was evicted (e.g. after a server restart or explicit invalidation), the stored JWT was still valid as a signed token. The app restored the user from SecureStore, the home tabs mounted and made their first API call, which returned 401. The `notifyUnauthenticated()` path set `sessionExpired: true`, causing the "Session Expired" modal to appear immediately — even on a fresh install with no prior session.
+
+**Fix:** `AuthProvider` now tracks `hasBeenAuthenticatedRef`. The `sessionExpired` modal is only set to `true` in the `onUnauthenticated` handler when the user was previously authenticated in this session. For truly fresh installs (no stored tokens), `notifyUnauthenticated()` is never called during startup, so the modal never fires.
+
+**Problem 2 — "Sign In" button in modal does nothing:** The `auth/login` screen had `presentation: 'modal'`, causing it to slide up from the bottom as a sheet. When the `SessionExpiredModal` (a React Native `Modal` overlay) was dismissed, the login sheet was behind it but not obviously visible. Additionally, `handleSignIn()` called `router.replace('/auth/login')` while already on that screen, which is a no-op.
+
+**Fix:**
+- `auth/login` screen presentation changed from `'modal'` to a standard full-screen card.
+- `SessionExpiredModal.handleSignIn()` now only calls `clearSessionExpired()` — the auth gate in `_layout.tsx` already navigates to `/auth/login` when `user` becomes `null`.
+
+#### Android App — Google Button UI (Issue #4)
+
+The Google sign-in button now uses a styled native `TouchableOpacity` with an inline Google "G" logo (multi-colour ring) matching the standard Google sign-in button specification, instead of a plain `Ionicons logo-google` icon that rendered as a simple text-style glyph on some Android devices.
+
+#### Android App — "Don't have an account? Sign up" (Issue #5)
+
+Added a "Don't have an account? Sign up." row below the auth buttons on the login screen. Tapping "Sign up" opens the web registration page (`/auth/register`) via `Linking.openURL`. New i18n key `auth.signUp` added to both the Expo and web English locale files.
+
+#### Debug Overlay — Export Button (Issue #3)
+
+Added an "⬆ Export" button to the debug overlay panel (alongside Clear and Close). Tapping it invokes `Share.share()` with all captured log entries formatted as timestamped text, allowing developers to copy or share the full log without needing a Metro/CLI connection.
+
+#### Pre-existing Bug Fix — Missing `displayName` in Mobile Auth Token
+
+`/api/auth/google/callback` was not including `displayName` in the `authUser` payload stored in the Redis mobile exchange code. The `AuthUser` interface requires `displayName: string`. Fixed: `displayName: user.display_name ?? user.username ?? ""` is now included in the payload.
+
+#### `auth.signUp` i18n key added
+
+New key `"auth.signUp": "Sign up"` added to both `apps/expo/lib/i18n/locales/en.json` and `apps/web/lib/i18n/locales/en.json`. New key `"debug.exportLogs": "Export logs"` added to the Expo locale file.
+
+---
+
+*ZobiaSocial PRD v1.93*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

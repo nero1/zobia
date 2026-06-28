@@ -566,6 +566,7 @@
   "auth.forgotPassword": "Forgot Password?",
   "auth.resetPassword": "Reset Password",
   "auth.noAccount": "Don't have an account?",
+  "auth.signUp": "Sign up",
   "auth.haveAccount": "Already have an account?",
   "auth.adminLogin": "Admin Login",
   "auth.twoFactorCode": "Two-Factor Code",
@@ -1763,5 +1764,6 @@
   "validation.emailMatch": "Email addresses do not match.",
   "validation.invalidEmail": "Please enter a valid email address.",
   "auth.twoFaVerify.countdownPrefix": "Try again in",
-  "onboarding.contactsError": "Could not import contacts. You can add friends manually from their profiles."
+  "onboarding.contactsError": "Could not import contacts. You can add friends manually from their profiles.",
+  "debug.exportLogs": "Export logs"
 }

@@ -51,7 +51,8 @@ const CallbackQuerySchema = z.object({
 });
 
 // Only these schemes/hosts may be used as post-OAuth deep-link redirect targets (ZB-01).
-const ALLOWED_REDIRECT_SCHEMES = ["zobia:", "exp:"];
+// "exp+zobia:" and "exp+zobia-social:" are Expo Go development scheme variants.
+const ALLOWED_REDIRECT_SCHEMES = ["zobia:", "exp+zobia:", "exp+zobia-social:"];
 
 function isRedirectAllowed(redirect: string): boolean {
   try {
@@ -450,6 +451,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       const authUser = {
         id: user.id,
         username: user.username ?? "",
+        displayName: user.display_name ?? user.username ?? "",
         avatarEmoji: user.avatar_emoji ?? "😎",
         city: user.city ?? "",
         xp: user.xp_total ?? 0,

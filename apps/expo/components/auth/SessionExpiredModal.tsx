@@ -14,19 +14,21 @@
 
 import React from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/lib/auth/hooks';
 import { colors } from '@/lib/theme/colors';
 
 export function SessionExpiredModal() {
   const { t } = useTranslation();
-  const router = useRouter();
   const { sessionExpired, clearSessionExpired } = useAuth();
 
   function handleSignIn() {
+    // Only clear the flag here — do NOT call router.replace('/auth/login').
+    // The auth gate in _layout.tsx already called router.replace('/auth/login')
+    // when user became null (triggered by notifyUnauthenticated). Calling
+    // replace again from here while already on the login screen is a no-op on
+    // some navigators and caused the "nothing happens" bug on Android.
     clearSessionExpired();
-    router.replace('/auth/login');
   }
 
   return (

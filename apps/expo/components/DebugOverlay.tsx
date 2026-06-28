@@ -24,6 +24,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   View,
@@ -119,12 +120,34 @@ export function DebugOverlay(): React.ReactElement | null {
     );
   }
 
+  async function handleExport() {
+    const lines = entries
+      .slice()
+      .reverse()
+      .map((e) => `[${formatTime(e.time)}] ${e.level.toUpperCase()}: ${e.message}${e.stack ? `\n${e.stack}` : ''}`)
+      .join('\n\n');
+    const text = `Zobia Debug Log — ${new Date().toISOString()}\n${'='.repeat(40)}\n\n${lines}`;
+    try {
+      await Share.share({ message: text, title: 'Zobia Debug Logs' });
+    } catch {
+      // Share cancelled — no-op
+    }
+  }
+
   return (
     <View style={styles.panel} pointerEvents="box-none">
       <View style={[styles.panelInner, { paddingBottom: Math.max(insets.bottom, 16) }]}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Debug logs ({entries.length})</Text>
           <View style={styles.headerButtons}>
+            <Pressable
+              style={styles.headerBtn}
+              onPress={handleExport}
+              accessibilityRole="button"
+              accessibilityLabel="Export logs"
+            >
+              <Text style={styles.headerBtnText}>⬆ Export</Text>
+            </Pressable>
             <Pressable
               style={styles.headerBtn}
               onPress={clearEntries}
