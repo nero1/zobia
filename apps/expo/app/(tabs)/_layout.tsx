@@ -88,6 +88,7 @@ export default function TabLayout() {
     <View style={{ flex: 1 }}>
       <AppHeader />
       <AnnouncementBanner />
+      <View style={{ flex: 1 }}>
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -145,6 +146,7 @@ export default function TabLayout() {
       <Tabs.Screen name="guild" options={{ href: null }} />
       <Tabs.Screen name="gifts" options={{ href: null }} />
     </Tabs>
+      </View>
     </View>
     </SwipeDrawer>
   );
