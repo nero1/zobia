@@ -44,6 +44,16 @@ const finalConfig = withNativeWind(config, {
 // uninitialized when first accessed, causing the startup crash:
 //   "TypeError: Cannot read property 'useMemo' of null"
 //
+// WHY WE ALSO COVER react/jsx-runtime AND react/jsx-dev-runtime:
+// React 18 uses the automatic JSX transform: files with JSX import from
+// 'react/jsx-runtime' (prod) or 'react/jsx-dev-runtime' (dev) rather than
+// calling React.createElement directly. These are separate module strings that
+// bypass the 'react' intercept. If Metro resolves them from a DIFFERENT react
+// copy than the one pinned by the 'react' intercept, you get two React internal
+// registries in the same bundle — hooks cross the registry boundary and the
+// app crashes. Pinning both variants here ensures they come from the same
+// physical package.
+//
 // WHY AFTER withNativeWind:
 // withNativeWind may install its own resolveRequest hook for CSS module
 // handling. Setting our hook last lets us compose with theirs: we intercept
@@ -59,6 +69,14 @@ const _prevResolveRequest = finalConfig.resolver?.resolveRequest;
 finalConfig.resolver.resolveRequest = (context, moduleName, platform) => {
   if (moduleName === 'react') {
     return { filePath: path.join(REACT_PATH, 'index.js'), type: 'sourceFile' };
+  }
+  // Pin JSX runtime to the same React package to prevent a dual-instance split
+  // when some files use the new automatic JSX transform (react/jsx-runtime).
+  if (moduleName === 'react/jsx-runtime') {
+    return { filePath: path.join(REACT_PATH, 'jsx-runtime.js'), type: 'sourceFile' };
+  }
+  if (moduleName === 'react/jsx-dev-runtime') {
+    return { filePath: path.join(REACT_PATH, 'jsx-dev-runtime.js'), type: 'sourceFile' };
   }
   if (moduleName === 'react-native') {
     return { filePath: path.join(REACT_NATIVE_PATH, 'index.js'), type: 'sourceFile' };

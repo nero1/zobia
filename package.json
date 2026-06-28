@@ -37,7 +37,5 @@
   "dependencies": {
     "patch-package": "^8.0.1"
   },
-  "devDependencies": {
-    "react-native": "0.74.0"
-  }
+  "devDependencies": {}
 }

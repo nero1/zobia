@@ -1264,7 +1264,7 @@ The platform Vitality Calendar incorporates Nigerian, Pan-African, and global cu
 ### Guiding Constraints
 
 - **Zero-cost MVP deployment** on Vercel Hobby Plan (web/admin panel) and Expo EAS Build free tier (APK).
-- **Mobile-first native Android APK** built with Expo (React Native). The app must feel fully native — native scroll behavior, native gestures, native transitions. No WebView wrappers. Target Android API Level 36 (Android 16) or higher.
+- **Mobile-first native Android APK** built with Expo (React Native). The app must feel fully native — native scroll behavior, native gestures, native transitions. No WebView wrappers. Target Android API Level 35 (Android 15). *(Correction v1.89: previously stated "API Level 36".)*
 - **Separate web/PWA** built with Next.js, sharing the same backend API and database as the Expo app but as a distinct frontend codebase.
 - **Admin panel** is a Next.js web app deployed on Vercel. Admins use browsers; the admin panel is never included in the APK. The Android app mirrors all admin panel functionality available on web wherever feasible.
 - **Database-provider-agnostic**: the platform supports multiple PostgreSQL providers. Switching providers requires only an env var change, not code changes.
@@ -1277,7 +1277,7 @@ The platform Vitality Calendar incorporates Nigerian, Pan-African, and global cu
 
 | Layer | Technology |
 |---|---|
-| Mobile App (Android APK) | Expo (React Native) — compiles to a real native Android APK via Expo EAS Build (cloud build, no local Android Studio required). UI components render as native Android views, not WebViews. Target Android API Level 36 (Android 16) minimum. |
+| Mobile App (Android APK) | Expo (React Native) — compiles to a real native Android APK via Expo EAS Build (cloud build, no local Android Studio required). UI components render as native Android views, not WebViews. Target Android API Level 35 (Android 15). *(Correction v1.89: previously stated "API Level 36".)* |
 | Mobile Navigation & Gestures | Expo Router (file-based routing, close to Next.js App Router patterns) + React Navigation + React Native Reanimated + React Native Gesture Handler |
 | Web / PWA | Next.js (App Router) — separate frontend codebase, shares backend API and database |
 | Admin Panel | Next.js (App Router) — browser-only, deployed on Vercel, not included in APK. Feature-mirrored on Android app where feasible. |
@@ -1326,18 +1326,16 @@ non-negotiable rules are:
    block is merged at build time by `app.config.js`; it must **not** appear as a static key
    in `app.json`. Production App IDs are set via EAS build environment variables.
    `mobileAds().initialize()` runs once at startup via `initializeAds()`.
-5. **Target Android API level 36.** Builds run via `.github/workflows/build-android.yml`
-   and require the `EXPO_TOKEN` secret (no token ⇒ the APK step is skipped).
-6. **Android 16 (API 36) forces full-screen edge-to-edge — handle insets, do not try to opt out.**
-   Android 16 forces every app into edge-to-edge display regardless of target SDK. The XML opt-out
-   attribute `android:windowOptOutEdgeToEdgeEnforcement` cannot be used: (a) it is not present in
-   the EAS build image's `android.jar`, causing an AAPT2 build failure; and (b) Android 16 ignores
-   the attribute for apps targeting API 36 anyway. The correct approach is to embrace edge-to-edge
+5. **Target Android API level 35.** *(Correction v1.89: previously stated "API 36". The actual `expo-build-properties` config sets `targetSdkVersion: 35`.)* Builds run via `.github/workflows/build-android.yml` and require the `EXPO_TOKEN` secret (no token ⇒ the APK step is skipped).
+6. **Android 15 (API 35) forces full-screen edge-to-edge — handle insets, do not try to opt out.**
+   Android 15 (API 35) forces every app targeting API 35+ into edge-to-edge display. The XML opt-out
+   attribute `android:windowOptOutEdgeToEdgeEnforcement` cannot be used: it is not present in
+   the EAS build image's `android.jar`, causing an AAPT2 build failure. The correct approach is to embrace edge-to-edge
    and handle system-bar insets using `react-native-safe-area-context` throughout the app (wrap all
    screens in `SafeAreaView` or call `useSafeAreaInsets()`). The `plugins/withAndroidEdgeToEdge.js`
    file exists in the repo but is **not registered** in `app.json` and must remain disabled. When
    Expo SDK 52+ support is available on EAS, migrate to the `expo-edge-to-edge` package which
-   handles Android 16 edge-to-edge correctly via the platform's supported APIs.
+   handles edge-to-edge correctly via the platform's supported APIs.
 
 ### 22.1 — Database Provider Architecture
 
@@ -2167,7 +2165,7 @@ Security hardening, reliability improvements, UX/i18n consistency, and build con
 - **Ad load listener cross-cleanup (BUG-REL-07):** In `lib/ads/admob.ts`, the LOADED callback now calls `unsubscribeError()` before resolving, and the ERROR callback calls `unsubscribeLoaded()` before rejecting, for both `loadRewardedAd()` and `loadInterstitialAd()`.
 - **SlugRedirect timeout (BUG-REL-08):** `components/deeplink/SlugRedirect.tsx` now uses an `AbortController` with a 15-second timeout. On abort or unrecoverable error, an error state with a "Go Back" button is rendered instead of an infinite spinner.
 - **Cold-start notification routing (BUG-REL-09):** `app/_layout.tsx` now calls `Notifications.getLastNotificationResponseAsync()` on startup. If a notification response is present (app was cold-started from a push tap), it is routed through the same `VALID_PUSH_ROUTES` allowlist handler used for foreground taps.
-- **Android keyboard double-offset fix (BUG-REL-10):** `<KeyboardAvoidingView>` in `app/rooms/[roomId].tsx` and `app/messages/[conversationId].tsx` uses `behavior={Platform.OS === 'ios' ? 'padding' : 'height'}`. `softwareKeyboardLayoutMode: "adjustResize"` in `app.json` (Android) ensures the window shrinks when the soft keyboard appears, keeping inverted FlatList input bars visible on Android API 36 with dynamic-height predictive keyboards.
+- **Android keyboard double-offset fix (BUG-REL-10):** `<KeyboardAvoidingView>` in `app/rooms/[roomId].tsx` and `app/messages/[conversationId].tsx` uses `behavior={Platform.OS === 'ios' ? 'padding' : 'height'}`. `softwareKeyboardLayoutMode: "adjustResize"` in `app.json` (Android) ensures the window shrinks when the soft keyboard appears, keeping inverted FlatList input bars visible on Android API 35 with dynamic-height predictive keyboards.
 - **Dedup set cap check order (BUG-REL-11):** The `seenIds` pruning in the room message dedup loop now occurs *before* `seenIds.add(id)` (check `size >= 500`), preventing the set from momentarily growing to 501 entries.
 - **PIN double-advance race prevention (BUG-REL-12):** `app/settings/pin.tsx` uses an `advancingRef` to ensure `advance()` cannot be called twice within the 150 ms transition window, even when both the hidden `TextInput.onChangeText` and a numpad `Pressable.onPress` fire simultaneously.
 - **War countdown timer stops on end (BUG-REL-13):** The countdown `tick()` function in `app/guilds/wars/[warId].tsx` now calls `clearInterval(id)` when `diff <= 0`, preventing indefinite state updates after the war has ended.
@@ -2454,7 +2452,7 @@ Comprehensive forensic-audit bug fix pass (55 issues identified; 54 resolved, 1 
 - **Gift balance not re-verified after PIN delay (Bug 40):** Gift-send screen invalidates and re-checks the balance query after the PIN modal resolves before firing `sendMutation`.
 - **Gift PIN flat lockout (Bugs 45, 46):** Gift-send PIN lockout now uses exponential backoff (15 min × 2^n, capped at 24 h) using the previously-unused `STORE_KEYS.GIFT_PIN_LOCKOUT_COUNT`.
 - **Contacts importer re-import duplicates (Bug 49):** `ContactsImporter` tracks a `hasImported` flag and disables the button after first import to prevent duplicate friend requests.
-- **Android keyboard / inverted FlatList (Bug 41):** `app.json` sets `softwareKeyboardLayoutMode: "adjustResize"` for Android, ensuring the viewport shrinks on keyboard open and the message input remains visible on API 36 devices.
+- **Android keyboard / inverted FlatList (Bug 41):** `app.json` sets `softwareKeyboardLayoutMode: "adjustResize"` for Android, ensuring the viewport shrinks on keyboard open and the message input remains visible on API 35 devices.
 - **Ad reward server-side cap (Bug 52):** `RewardedAdButton` now handles `429` from `/economy/rewards/ad-reward` by syncing the local MMKV cap to `AD_DAILY_CAP`. The server endpoint must independently enforce the cap per user per day (Redis counter with UTC-midnight TTL) — the client-side MMKV cap is a UX hint only.
 
 #### Low / Accessibility
@@ -2464,7 +2462,7 @@ Comprehensive forensic-audit bug fix pass (55 issues identified; 54 resolved, 1 
 - **PIN_MAX_ATTEMPTS constant exported (Bug 15):** `lib/hooks/usePinRateLimit.ts` exports `PIN_MAX_ATTEMPTS = 5`; `store.tsx` no longer defines a local copy.
 - **Pidgin autocomplete endsWith (Bug 19):** `lower.endsWith(key)` clause removed from `getPidginSuggestions`; only prefix-match is used.
 - **Announcement dismiss key collision (Bug 20):** `getSessionKey` now incorporates `modal.id + (modal.version ?? 'v1')`, eliminating collisions from shared content prefixes.
-- **RTL reload guard in dev builds (Bug 14):** `Updates.reloadAsync()` in `lib/i18n/index.ts` is wrapped in `Updates.isAvailable` and falls back to an informational `Alert` in dev.
+- **RTL reload guard in dev builds (Bug 14):** `Updates.reloadAsync()` in `lib/i18n/index.ts` is wrapped in `Updates.isEnabled` (the correct expo-updates SDK ~0.25.0 / SDK 51 API; `isAvailable` does not exist in this version) and falls back to an informational `Alert` in dev.
 - **`__DEV__` guard for push route warnings (Bug 12):** Invalid push route logging is now gated behind `__DEV__` to avoid noise in production.
 - **MMKV storage proxy deprecation (Bug 33):** `storage` direct-proxy export in `lib/offline/store.ts` is annotated `@deprecated`.
 - **O(n) message ID eviction (Bug 10):** `prevMessageIdsRef` in `app/rooms/[roomId].tsx` is now a `Map<string, true>` allowing O(1) oldest-entry eviction via `map.keys().next().value`.
@@ -2486,15 +2484,17 @@ Comprehensive forensic-audit bug fix pass (55 issues identified; 54 resolved, 1 
 
 ### v1.86 — Changelog
 
-#### Android 16 (API 36) White-Screen Fix
+#### Android 15 (API 35) White-Screen Fix
 
-Resolved a permanent blank white screen that appeared after the splash screen on Android 16 (One UI 8.5) devices when running non-production EAS builds (preview / staging). Three independent root causes were identified and fixed:
+> **Correction (v1.89):** This section previously said "Android 16 (API 36)". The actual `expo-build-properties` config in `app.json` sets `targetSdkVersion: 35` (Android 15), NOT 36. The SDK-level references below have been corrected.
 
-- **Android API 36 forced edge-to-edge enforcement (primary cause):** Android 16 forces every app into full-screen edge-to-edge window mode regardless of whether the app handles insets. Apps not adapted for this end up with the root view sized or positioned incorrectly, rendering a blank white screen. The XML opt-out attribute `android:windowOptOutEdgeToEdgeEnforcement` was initially added via a config plugin but was subsequently removed because (a) the EAS build image's AAPT2 cannot find the attribute in its `android.jar`, causing a build failure, and (b) Android 16 ignores the opt-out for apps targeting API 36 regardless. The correct approach is to embrace edge-to-edge and rely on `react-native-safe-area-context` for proper inset handling. The `apps/expo/plugins/withAndroidEdgeToEdge.js` file is retained in the repo for reference but is not registered in `app.json`.
+Resolved a permanent blank white screen that appeared after the splash screen on Android 15 (API 35) devices when running non-production EAS builds (preview / staging). Three independent root causes were identified and fixed:
+
+- **Android SDK 35 forced edge-to-edge enforcement (primary cause):** Android 15 (API 35) and later force every app into full-screen edge-to-edge window mode regardless of whether the app handles insets. Apps not adapted for this end up with the root view sized or positioned incorrectly, rendering a blank white screen. The XML opt-out attribute `android:windowOptOutEdgeToEdgeEnforcement` was initially added via a config plugin but was subsequently removed because the EAS build image's AAPT2 cannot find the attribute in its `android.jar`, causing a build failure. The correct approach is to embrace edge-to-edge and rely on `react-native-safe-area-context` for proper inset handling. The `apps/expo/plugins/withAndroidEdgeToEdge.js` file is retained in the repo for reference but is not registered in `app.json`.
 
 - **`return null` loading state exposed white background:** While `isLoading` (auth) or `!storeReady` (MMKV) was true, `RootLayoutNav` returned `null`, leaving the GestureHandlerRootView empty after the splash screen hid (which the edge-to-edge enforcement caused to happen earlier than expected). Fixed by replacing `null` with an `ActivityIndicator` spinner on a white background, matching the splash colour so the transition is seamless.
 
-- **`DebugOverlay` hidden behind Android navigation bar:** The floating debug badge was anchored to `bottom: 70/90`, which placed it behind the system navigation bar on various Android navigation modes (gesture nav, 3-button, API 36 edge-to-edge). Fixed by moving the badge to `top: topOffset` (using safe area insets via `useSafeAreaInsets`), where it is always visible. `SafeAreaProvider` was hoisted above `RootErrorBoundary` in `_layout.tsx` so `DebugOverlay` (a sibling of `RootErrorBoundary`) inherits insets context without needing its own provider.
+- **`DebugOverlay` hidden behind Android navigation bar:** The floating debug badge was anchored to `bottom: 70/90`, which placed it behind the system navigation bar on various Android navigation modes (gesture nav, 3-button, API 35 edge-to-edge). Fixed by moving the badge to `top: topOffset` (using safe area insets via `useSafeAreaInsets`), where it is always visible. `SafeAreaProvider` was hoisted above `RootErrorBoundary` in `_layout.tsx` so `DebugOverlay` (a sibling of `RootErrorBoundary`) inherits insets context without needing its own provider.
 
 #### Documentation Corrections (v1.86)
 
@@ -2624,7 +2624,20 @@ backwards through the layers:
 3. **Check import order** in the entry layout: polyfills → React → React Native → NativeWind
    → everything else.
 4. **Check metro.config.js**: does `nodeModulesPaths` list multiple node_modules roots? If
-   so, add a `resolveRequest` hook to deduplicate `'react'` and `'react-native'`.
+   so, add a `resolveRequest` hook to deduplicate `'react'` and `'react-native'`. Crucially,
+   also cover `react/jsx-runtime` and `react/jsx-dev-runtime` — React 18's automatic JSX
+   transform imports these as separate module strings, bypassing a `'react'`-only intercept
+   and allowing a second React instance to be loaded just for JSX rendering.
+5. **Check for a stray `react-native` in the root `devDependencies`.** If the root
+   `package.json` lists a different `react-native` version than `apps/expo/package.json`,
+   npm installs two copies. Subpath imports such as `react-native/Libraries/AppRegistry`
+   bypass the `resolveRequest` hook and load from whichever copy `nodeModulesPaths` resolves
+   first — potentially the wrong one. Remove the root-level entry and rely on the version
+   declared inside `apps/expo/package.json` only.
+6. **Check babel.config.js**: does the expo-router Babel plugin load silently as `undefined`?
+   If `expoRouterBabelPlugin` is not found and Babel ignores the `undefined` entry,
+   `EXPO_ROUTER_APP_ROOT` is never inlined and `require.context(undefined, ...)` fails at
+   runtime — `AppRegistry` never registers, n=0.
 
 ---
 
@@ -2642,6 +2655,127 @@ plugin. Always configure SDK levels via:
 
 ---
 
-*ZobiaSocial PRD v1.88*
+---
+
+## Appendix: Version 1.89 Change Log
+
+### v1.89 — Changelog
+
+#### AppRegistry n=0 White-Screen Fix (Root Cause Chain Continued)
+
+After the fixes in v1.88, the app still crashed on launch with:
+
+```
+Invariant Violation: Failed to call into JavaScript module method AppRegistry.runApplication().
+Module has not been registered as callable. Bridgeless Mode: false.
+Registered callable JavaScript modules (n = 0):
+```
+
+This error means `AppRegistry.registerComponent` was never called — the JS bundle evaluated
+but expo-router never registered the root component. Three new root causes were identified:
+
+---
+
+##### Root cause 4 — `react/jsx-runtime` and `react/jsx-dev-runtime` bypass Metro deduplication (fixed)
+
+The `resolveRequest` hook in `metro.config.js` intercepted `'react'` and `'react-native'`
+but not the JSX runtime paths. React 18 uses the automatic JSX transform: every file with
+JSX compiles to imports of `'react/jsx-runtime'` (prod) or `'react/jsx-dev-runtime'` (dev)
+rather than calling `React.createElement` directly. These are separate module strings that
+bypassed the `'react'` intercept entirely. If Metro resolved them from a different physical
+React copy than the one pinned by the hook, two React internal registries existed in the same
+bundle — hooks crossed the registry boundary and `AppRegistry` registration failed silently.
+
+**Fix (`metro.config.js`):** Extended the `resolveRequest` hook to also cover
+`react/jsx-runtime` and `react/jsx-dev-runtime`, pointing both to the same `REACT_PATH`
+that already governs `'react'` itself.
+
+```js
+if (moduleName === 'react/jsx-runtime') {
+  return { filePath: path.join(REACT_PATH, 'jsx-runtime.js'), type: 'sourceFile' };
+}
+if (moduleName === 'react/jsx-dev-runtime') {
+  return { filePath: path.join(REACT_PATH, 'jsx-dev-runtime.js'), type: 'sourceFile' };
+}
+```
+
+---
+
+##### Root cause 5 — Unguarded expo-router Babel plugin import in `babel.config.js` (fixed)
+
+`babel.config.js` imported the expo-router Babel plugin via:
+
+```js
+require('babel-preset-expo/build/expo-router-plugin').expoRouterBabelPlugin,
+```
+
+If `expoRouterBabelPlugin` is `undefined` (e.g. after a `babel-preset-expo` upgrade renames
+the export), Babel silently skips the `undefined` entry. `process.env.EXPO_ROUTER_APP_ROOT`
+is never inlined in `expo-router/_ctx.*.js`, so Metro's `require.context` transform rejects
+the non-string argument, expo-router cannot build the route tree, and `AppRegistry.registerComponent`
+is never called — n=0 crash, even though the build succeeds.
+
+**Fix (`babel.config.js`):** Wrapped the plugin import in an IIFE that validates the export
+is a function. If it is not found, it tries the `expo-router/babel` fallback (SDK 52+).
+If neither path works, it throws a descriptive error **at build time** so the APK is never
+shipped with a broken bundle:
+
+```js
+(() => {
+  const mod = require('babel-preset-expo/build/expo-router-plugin');
+  if (typeof mod.expoRouterBabelPlugin === 'function') return mod.expoRouterBabelPlugin;
+  // fallback for SDK 52+
+  const p = require('expo-router/babel');
+  if (typeof p === 'function') return p;
+  if (typeof p?.default === 'function') return p.default;
+  throw new Error('[babel.config.js] expo-router Babel plugin not found — EXPO_ROUTER_APP_ROOT will not be inlined, causing n=0 at runtime.');
+})()
+```
+
+---
+
+##### Root cause 6 — Stray `react-native@0.74.0` in root `devDependencies` (fixed)
+
+The root `package.json` declared `"react-native": "0.74.0"` in `devDependencies`, while
+`apps/expo/package.json` uses `react-native@0.74.5`. npm installed both, placing
+`react-native@0.74.0` at the workspace root and `react-native@0.74.5` inside
+`apps/expo/node_modules`. Metro's `nodeModulesPaths` lists both roots, so subpath imports
+such as `react-native/Libraries/AppRegistry` could resolve from the wrong version (0.74.0)
+while the main `react-native` import resolved from 0.74.5 — two distinct copies of
+React Native's internal registry in the same bundle.
+
+**Fix (`package.json` root):** Removed `"react-native": "0.74.0"` from root
+`devDependencies`. The single canonical copy is now `react-native@0.74.5` inside
+`apps/expo/node_modules`, consistent with what the `resolveRequest` hook already pins.
+
+---
+
+#### Additional Bug Fixes (v1.89)
+
+- **`Updates.isAvailable` wrong API (`lib/i18n/index.ts`):** expo-updates SDK ~0.25.0 (Expo SDK 51)
+  does not expose an `isAvailable` property — the correct API is `Updates.isEnabled`. The
+  `languageChanged` handler was guarded by `Updates.isAvailable` which was always `undefined`
+  (falsy), so the RTL layout reload after switching to Arabic was silently never triggered.
+  Fixed: changed to `Updates.isEnabled` and made the `expo-updates` import lazy (moved to a
+  `require()` inside the handler) so the module is not evaluated at i18n module init time.
+
+- **Duplicate `import '@/lib/i18n'` removed (`app/_layout.tsx`):** Line 44 imported
+  `applyStoredLanguagePref` from `@/lib/i18n`, which evaluates the module. Line 48 had a
+  redundant side-effect `import '@/lib/i18n'` — a no-op since the module was already cached,
+  but a source of confusion and a maintenance hazard. The duplicate was removed.
+
+---
+
+#### Documentation Corrections (v1.89)
+
+- **Android API level corrected throughout:** Multiple sections previously stated
+  "Android 16 (API 36)" or "Target Android API Level 36". The actual `expo-build-properties`
+  config in `app.json` uses `targetSdkVersion: 35` (Android 15). All references corrected.
+- **`Updates.isAvailable` → `Updates.isEnabled`:** v1.85 changelog entry for Bug 14 corrected
+  to reflect the proper expo-updates SDK 51 API.
+
+---
+
+*ZobiaSocial PRD v1.89*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*
