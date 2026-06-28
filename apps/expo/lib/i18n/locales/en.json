@@ -89,7 +89,19 @@
   "home": {
     "title": "Zobia Social",
     "subtitle": "Your feed is loading…",
-    "dailyLoginXP": "Daily login: +{{xp}} XP"
+    "dailyLoginXP": "Daily login: +{{xp}} XP",
+    "greeting": "Welcome back, {{name}}",
+    "nemesis": "Your Nemesis",
+    "nemesisAhead": "{{name}} is {{xp}} XP ahead of you",
+    "nemesisBehind": "You are {{xp}} XP ahead of {{name}}",
+    "sprintActive": "Sprint active",
+    "challenge": "Challenge",
+    "onlineFriends": "Online Friends",
+    "dailyQuests": "Daily Quests",
+    "leaderboard": "Leaderboard",
+    "guildDiscovery": "Discover Guilds",
+    "questsError": "Failed to load quests",
+    "nemesisError": "Failed to load nemesis"
   },
   "rooms": {
     "title": "Rooms",
