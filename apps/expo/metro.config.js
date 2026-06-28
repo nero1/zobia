@@ -19,6 +19,19 @@ config.resolver.nodeModulesPaths = [
   path.resolve(workspaceRoot, 'node_modules'),
 ];
 
+// The shared workspace package is consumed via its package.json `exports` map
+// (`@zobia/shared/utils`). Ensure Metro honours subpath exports.
+// TODO: rename to enablePackageExports once Metro stabilises the API.
+config.resolver.unstable_enablePackageExports = true;
+
+// Apply NativeWind BEFORE attaching our resolveRequest hook so that if
+// withNativeWind sets its own resolveRequest (for CSS module handling) we can
+// compose with it rather than silently overwriting it.
+const finalConfig = withNativeWind(config, {
+  input: './global.css',
+  inlineRem: 16,
+});
+
 // Force a single React instance across the entire monorepo bundle.
 //
 // WHY THIS IS NEEDED:
@@ -31,29 +44,29 @@ config.resolver.nodeModulesPaths = [
 // uninitialized when first accessed, causing the startup crash:
 //   "TypeError: Cannot read property 'useMemo' of null"
 //
-// resolveRequest is the strongest guarantee: it intercepts EVERY module
-// resolution call (including those from within node_modules) and pins 'react'
-// and 'react-native' to exactly one physical path. extraNodeModules only
-// handles top-level resolution and can still be bypassed by nested requires.
+// WHY AFTER withNativeWind:
+// withNativeWind may install its own resolveRequest hook for CSS module
+// handling. Setting our hook last lets us compose with theirs: we intercept
+// only 'react' and 'react-native' and delegate everything else to the hook
+// withNativeWind installed (or to Metro's default resolver if withNativeWind
+// didn't add one). If we set our hook first and withNativeWind overwrites it,
+// React deduplication silently disappears and the bundle crashes with n=0
+// (AppRegistry never registered) or "useMemo of null".
 const REACT_PATH = path.dirname(require.resolve('react/package.json'));
 const REACT_NATIVE_PATH = path.dirname(require.resolve('react-native/package.json'));
+const _prevResolveRequest = finalConfig.resolver?.resolveRequest;
 
-config.resolver.resolveRequest = (context, moduleName, platform) => {
+finalConfig.resolver.resolveRequest = (context, moduleName, platform) => {
   if (moduleName === 'react') {
     return { filePath: path.join(REACT_PATH, 'index.js'), type: 'sourceFile' };
   }
   if (moduleName === 'react-native') {
     return { filePath: path.join(REACT_NATIVE_PATH, 'index.js'), type: 'sourceFile' };
   }
+  if (_prevResolveRequest) {
+    return _prevResolveRequest(context, moduleName, platform);
+  }
   return context.resolveRequest(context, moduleName, platform);
 };
 
-// The shared workspace package is consumed via its package.json `exports` map
-// (`@zobia/shared/utils`). Ensure Metro honours subpath exports.
-// TODO: rename to enablePackageExports once Metro stabilises the API.
-config.resolver.unstable_enablePackageExports = true;
-
-module.exports = withNativeWind(config, {
-  input: './global.css',
-  inlineRem: 16,
-});
+module.exports = finalConfig;
