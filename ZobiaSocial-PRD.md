@@ -1327,12 +1327,22 @@ non-negotiable rules are:
    `expo-router` stays nested under `apps/expo` (it binds `react@18.2.0`), the root-hoisted
    `babel-preset-expo` can't auto-detect it, so the router transform must be applied
    explicitly or the release bundle fails on `EXPO_ROUTER_APP_ROOT` / `require.context`.
-4. **AdMob App IDs are configured via `app.config.js`** (a dynamic Expo config that reads
-   `ADMOB_APP_ID_ANDROID` and `ADMOB_APP_ID_IOS` environment variables, falling back to
-   Google's public test IDs for non-production builds). The `react-native-google-mobile-ads`
-   block is merged at build time by `app.config.js`; it must **not** appear as a static key
-   in `app.json`. Production App IDs are set via EAS build environment variables.
-   `mobileAds().initialize()` runs once at startup via `initializeAds()`.
+4. **The root-level `react-native-google-mobile-ads` key in `app.json` is REQUIRED — do not
+   remove it.** *(Correction v1.92: this rule previously said the opposite, which broke the
+   native build.)* `react-native-google-mobile-ads`'s `android/build.gradle` (line ~82) reads
+   this key **directly from `app.json` via a Gradle `JsonSlurper`** — a different consumer
+   than the Expo config schema. Because the key is a sibling of the `expo` object, Expo prints
+   a **harmless** warning at config time: *"Root-level expo object found. Ignoring extra key
+   in Expo config: react-native-google-mobile-ads"*. That warning is expected; do **not**
+   "fix" it by deleting the key, or the build fails with `Cannot get property
+   'googleMobileAdsJson'` (plus a cascading `compileSdkVersion is not specified` on the same
+   project). The AndroidManifest `com.google.android.gms.ads.APPLICATION_ID` meta-data is
+   injected separately by the custom `./plugins/withGoogleMobileAds` plugin, which reads the
+   App IDs from the **explicit props** passed in the `plugins` array (not from this key and
+   not from `app.config.js`). `mobileAds().initialize()` runs once at startup via
+   `initializeAds()`. **Known gap:** the plugin props are hard-coded test IDs, so production
+   currently ships Google's test AdMob App ID; the `ADMOB_APP_ID_*` EAS env vars are not yet
+   wired into the plugin props (tracked separately).
 5. **Target Android API level 35.** *(Correction v1.89: previously stated "API 36". The actual `expo-build-properties` config sets `targetSdkVersion: 35`.)* Builds run via `.github/workflows/build-android.yml` and require the `EXPO_TOKEN` secret (no token ⇒ the APK step is skipped).
 6. **Android 15 (API 35) forces full-screen edge-to-edge — handle insets, do not try to opt out.**
    Android 15 (API 35) forces every app targeting API 35+ into edge-to-edge display. The XML opt-out
@@ -2962,6 +2972,39 @@ actually declared.
 
 ---
 
-*ZobiaSocial PRD v1.91*
+---
+
+## Appendix: Version 1.92 Change Log
+
+### v1.92 — Changelog
+
+#### EAS Gradle build fix — restore the `react-native-google-mobile-ads` key in `app.json`
+
+A cleanup that removed the root-level `react-native-google-mobile-ads` key from `app.json`
+(to silence the Expo warning *"Ignoring extra key in Expo config:
+react-native-google-mobile-ads"*) broke the native build:
+
+```
+* Where: node_modules/react-native-google-mobile-ads/android/build.gradle line: 82
+> Cannot get property 'googleMobileAdsJson' on extra properties extension as it does not exist
+...
+> compileSdkVersion is not specified. Please add it to build.gradle   (cascading failure)
+```
+
+**Root cause:** there are two independent consumers of that key. (1) The Expo config schema
+ignores it because it sits beside the `expo` object — hence the warning. (2) The
+`react-native-google-mobile-ads` Gradle script reads it **directly from `app.json` via a
+`JsonSlurper`**, and requires it to exist. The warning is a false positive; the key is
+load-bearing for the native build.
+
+**Fix:** restored the root-level `react-native-google-mobile-ads` key in `app.json`. The
+redundant (and genuinely ignored) duplicate block in `app.config.js` stays removed — the
+Gradle slurper reads `app.json`, never the evaluated `app.config.js` output, so that block
+never reached the build. Section 22.0.1 rule 4 was corrected (it had stated the key must
+*not* be in `app.json`, which is what triggered the bad cleanup).
+
+---
+
+*ZobiaSocial PRD v1.92*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*
