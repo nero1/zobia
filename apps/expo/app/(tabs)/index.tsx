@@ -1063,7 +1063,7 @@ export default function HomeScreen() {
   // -------------------------------------------------------------------------
 
   return (
-    <Screen>
+    <Screen edges={['left', 'right', 'bottom']}>
       <ScrollView
         style={styles.fill}
         showsVerticalScrollIndicator={false}

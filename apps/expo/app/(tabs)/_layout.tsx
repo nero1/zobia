@@ -7,6 +7,7 @@ import { colors } from '@/lib/theme/colors';
 import { useAuth } from '@/lib/auth/hooks';
 import { AnnouncementBanner } from '@/components/announcements/AnnouncementBanner';
 import { SwipeDrawer } from '@/components/layout/SwipeDrawer';
+import { AppHeader } from '@/components/layout/AppHeader';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -85,6 +86,7 @@ export default function TabLayout() {
   return (
     <SwipeDrawer>
     <View style={{ flex: 1 }}>
+      <AppHeader />
       <AnnouncementBanner />
     <Tabs
       screenOptions={{

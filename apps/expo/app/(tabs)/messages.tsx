@@ -314,7 +314,7 @@ export default function MessagesScreen() {
   const isRefreshing = dmRefreshing || groupsRefreshing;
 
   return (
-    <Screen>
+    <Screen edges={['left', 'right', 'bottom']}>
       {/* Header */}
       <View style={styles.header}>
         <Text style={[styles.title, { color: themeColors.text }]}>{t('messages.title')}</Text>

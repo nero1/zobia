@@ -154,7 +154,7 @@ export default function ProfileScreen() {
     : colors.neutral[200];
 
   return (
-    <Screen scrollable>
+    <Screen scrollable edges={['left', 'right', 'bottom']}>
       {/* ── Top action bar ──────────────────────────────────────── */}
       <View style={styles.topBar}>
         <Text style={[styles.topBarTitle, { color: themeColors.text }]}>{t('profile.title', 'Profile')}</Text>
