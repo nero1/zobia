@@ -31,13 +31,21 @@ config.resolver.nodeModulesPaths = [
 // uninitialized when first accessed, causing the startup crash:
 //   "TypeError: Cannot read property 'useMemo' of null"
 //
-// require.resolve() from this file's location (apps/expo/) follows Node's
-// standard resolution and finds whichever copy npm actually installed first,
-// then extraNodeModules pins ALL require('react') calls in the bundle to that
-// single physical path so duplicates can never sneak in via nodeModulesPaths.
-config.resolver.extraNodeModules = {
-  react: path.dirname(require.resolve('react/package.json')),
-  'react-native': path.dirname(require.resolve('react-native/package.json')),
+// resolveRequest is the strongest guarantee: it intercepts EVERY module
+// resolution call (including those from within node_modules) and pins 'react'
+// and 'react-native' to exactly one physical path. extraNodeModules only
+// handles top-level resolution and can still be bypassed by nested requires.
+const REACT_PATH = path.dirname(require.resolve('react/package.json'));
+const REACT_NATIVE_PATH = path.dirname(require.resolve('react-native/package.json'));
+
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (moduleName === 'react') {
+    return { filePath: path.join(REACT_PATH, 'index.js'), type: 'sourceFile' };
+  }
+  if (moduleName === 'react-native') {
+    return { filePath: path.join(REACT_NATIVE_PATH, 'index.js'), type: 'sourceFile' };
+  }
+  return context.resolveRequest(context, moduleName, platform);
 };
 
 // The shared workspace package is consumed via its package.json `exports` map

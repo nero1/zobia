@@ -3,12 +3,19 @@
 // MMKV store init throws and the app hangs on a white screen after the splash.
 import '@/lib/polyfills';
 
+// React MUST be imported before NativeWind (global.css) and expo-router.
+// In Hermes/CommonJS, import statements compile to require() calls in source
+// order. NativeWind's Metro transform and expo-router both access React
+// internals (e.g. useMemo) during their own module evaluation. If React's
+// require() hasn't run yet when they execute, the module cache returns null
+// for 'react' and the startup crash is:
+//   TypeError: Cannot read property 'useMemo' of null
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, AppState, Dimensions, Linking, Platform, View } from 'react-native';
+
 import '../global.css';
 
 export { ErrorBoundary } from 'expo-router';
-
-import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, Dimensions, Linking, Platform, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';

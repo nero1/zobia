@@ -2525,6 +2525,123 @@ No runtime behaviour change — the final resolved strings are identical to what
 
 ---
 
-*ZobiaSocial PRD v1.87*
+## Appendix: Version 1.88 Change Log
+
+### v1.88 — Changelog
+
+#### Android APK White-Screen (Root Cause Chain) — Full Resolution
+
+This version closes the multi-root-cause chain that produced a permanent white screen after
+the splash, with no debug chip and no native alert, on Android API 35 release/preview builds.
+
+---
+
+##### Root cause 1 — `SafeAreaProvider` null-child guard (fixed in v1.85 / PR #403)
+
+`react-native-safe-area-context` 4.10.x renders `{insets != null ? children : null}`. On
+Android SDK 35 with edge-to-edge enforcement the native inset callback can be delayed or
+never fire, so the provider stays on `null` and the entire tree (including `DebugOverlay`
+and `RootErrorBoundary`) is never rendered — white screen, no chip, no red box.
+
+**Fix:** pass `initialMetrics={initialWindowMetrics ?? FALLBACK_METRICS}` to
+`SafeAreaProvider` so `insets` is non-null on the very first render.
+
+---
+
+##### Root cause 2 — `expo-updates` native controller gating the JS bundle (fixed PR #404)
+
+`expo-updates` owns `getJSBundleFile()` in release builds. If the controller cannot resolve
+a launchable bundle (runtime-version mismatch, malformed config) it returns nothing — JS
+never runs, splash fades, permanent white screen, no chip, no alert.
+
+The config was also malformed: `runtimeVersion` and `projectId` were passed as _plugin
+props_ (`["expo-updates", { "projectId": "...", "runtimeVersion": ... }]`). The
+`expo-updates` config plugin ignores plugin props for these fields; they must be top-level
+Expo config keys. So the effective `runtimeVersion` was unset, causing the controller to
+fail every bundle resolution.
+
+**Fix:**
+- Top-level `"updates": { "enabled": false }` and `"runtimeVersion": "1.0.0"` in
+  `app.json` so the updates controller is bypassed and React Native loads the embedded
+  bundle directly.
+- Replace `["expo-updates", { … }]` with the plain string `"expo-updates"` in the plugins
+  list.
+
+**RULE FOR FUTURE WORK:** `expo-updates` top-level config keys (`runtimeVersion`, `updates`,
+`projectId`) belong at the `expo.*` level in `app.json`, NOT inside plugin props. Plugin
+props for `expo-updates` are only for native-only settings like `launchWaitMs`.
+
+---
+
+##### Root cause 3 — React import order causes null crash in Hermes (fixed PR #406)
+
+After the two fixes above, logcat still showed a crash at 12ms after "Running main":
+
+```
+TypeError: Cannot read property 'useMemo' of null
+```
+
+**Root cause:** In Hermes, ES `import` statements compile to CommonJS `require()` calls
+executed in _source-file order_. `app/_layout.tsx` had NativeWind (`global.css`) at
+position 2 and `expo-router` at position 3, both **before** `import … from 'react'` at
+position 4. NativeWind and expo-router access React internals (e.g. `useMemo`) during their
+own module evaluation. Because React hadn't been required yet at that point, the CommonJS
+module cache still held `null` for `'react'` — crash.
+
+**Fix 1 — import order in `app/_layout.tsx`:**
+```ts
+import '@/lib/polyfills';                    // 1. polyfills (always first)
+import { useEffect, ... } from 'react';      // 2. React (MUST be before NativeWind)
+import { ..., Dimensions, ... } from 'react-native'; // 3. React Native
+import '../global.css';                      // 4. NativeWind (now gets initialised React)
+export { ErrorBoundary } from 'expo-router'; // 5. expo-router (same)
+```
+
+**Fix 2 — `resolveRequest` in `metro.config.js`:**
+Replace `extraNodeModules` with a `resolveRequest` hook that intercepts _every_ resolution
+call (including nested requires inside node_modules) and pins `'react'` and `'react-native'`
+to a single physical path. `extraNodeModules` only covers top-level resolution and can be
+bypassed by nested requires from within packages.
+
+**RULE FOR FUTURE WORK:**
+- In any Expo/React Native entry file, `import 'react'` and `import 'react-native'` MUST
+  appear before any library that wraps React (NativeWind CSS imports, expo-router,
+  react-navigation, etc.).
+- Use `resolveRequest` in `metro.config.js` to deduplicate React in monorepos; do NOT rely
+  on `extraNodeModules` alone.
+
+---
+
+##### How to diagnose a white-screen-no-chip failure
+
+The absence of the `EXPO_PUBLIC_DEBUG_OVERLAY=1` chip proves React never mounted. Work
+backwards through the layers:
+
+1. **Check logcat** for `AndroidRuntime` / `FATAL EXCEPTION` / `Running main`. A JS crash
+   at < 100ms after "Running main" is a module-evaluation error (import order, dual React).
+2. **Check expo-updates**: is it enabled? Does the manifest runtime version match the
+   controller's expectation? Disable OTA (`"updates": { "enabled": false }`) to rule it out.
+3. **Check import order** in the entry layout: polyfills → React → React Native → NativeWind
+   → everything else.
+4. **Check metro.config.js**: does `nodeModulesPaths` list multiple node_modules roots? If
+   so, add a `resolveRequest` hook to deduplicate `'react'` and `'react-native'`.
+
+---
+
+##### Android SDK version config rule (from v1.86)
+
+`android.compileSdkVersion`, `android.targetSdkVersion`, and `android.minSdkVersion` are
+**NOT** valid top-level Expo Android config keys — Expo silently ignores them. The only
+supported way to set Android SDK levels in an Expo prebuild project is the
+[`expo-build-properties`](https://docs.expo.dev/versions/latest/sdk/build-properties/)
+plugin. Always configure SDK levels via:
+
+```json
+["expo-build-properties", { "android": { "compileSdkVersion": 35, "targetSdkVersion": 35, "minSdkVersion": 24 } }]
+```
+
+---
+
+*ZobiaSocial PRD v1.88*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

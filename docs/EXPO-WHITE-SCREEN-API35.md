@@ -4,7 +4,41 @@ This note explains the changes made to (a) move the Android build to API level 3
 the *supported* way, and (b) make startup errors actually visible on the device
 so the post-splash white screen can be diagnosed without a CLI/Metro.
 
-## RESOLUTION (the actual root cause) — expo-updates was gating the JS bundle
+## RESOLUTION 2 (final root cause) — React import order causes null crash in Hermes
+
+After expo-updates was disabled (RESOLUTION 1 below), a second white-screen crash appeared
+in logcat at 12ms after "Running main":
+
+```
+TypeError: Cannot read property 'useMemo' of null
+```
+
+**Root cause:** In Hermes, ES `import` statements compile to `require()` calls executed in
+_source file order_. `apps/expo/app/_layout.tsx` had:
+
+```ts
+import '@/lib/polyfills';   // position 1
+import '../global.css';     // position 2 — NativeWind; accesses React.useMemo during init
+export { ErrorBoundary } from 'expo-router';  // position 3 — expo-router; same
+import { useEffect, ... } from 'react';       // position 4 — TOO LATE
+```
+
+NativeWind's Metro transform and expo-router both access React internals during their own
+module evaluation. Because React's `require()` was at position 4, the CommonJS module
+cache still held `null` for `'react'` when positions 2 and 3 ran — producing the crash.
+
+**Fix (applied in `_layout.tsx`):** Move `import ... from 'react'` and
+`import ... from 'react-native'` to position 2, immediately after polyfills and before
+`global.css` or any expo-router re-export.
+
+**Fix (applied in `metro.config.js`):** Replace `extraNodeModules` with a `resolveRequest`
+hook that intercepts every resolution call (including nested requires inside node_modules)
+and pins `'react'` and `'react-native'` to a single physical path.
+`extraNodeModules` only handled top-level resolution and could be bypassed.
+
+---
+
+## RESOLUTION 1 (the actual root cause) — expo-updates was gating the JS bundle
 
 After every JS-level guard was in place (polyfills, bootstrap watchdog, root
 error boundary, native-alert fallback, and the `SafeAreaProvider initialMetrics`
