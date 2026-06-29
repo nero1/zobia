@@ -67,12 +67,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       throw badRequest("code is required", "MISSING_CODE");
     }
 
-    // Atomically GET-and-DEL to make the code single-use (no getdel in interface)
-    const raw = await redis.eval(
-      `local v = redis.call('GET', KEYS[1]); if v then redis.call('DEL', KEYS[1]) end; return v`,
-      1,
-      `mobile_exchange:${code}`
-    ) as string | null;
+    // Atomically consume the one-time code. Use the RedisClient getdel adapter
+    // instead of Lua eval so this works on both ioredis and Upstash REST.
+    const raw = await redis.getdel(`mobile_exchange:${code}`);
     if (!raw) {
       throw badRequest("Invalid or expired exchange code", "INVALID_EXCHANGE_CODE");
     }
