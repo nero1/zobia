@@ -80,7 +80,7 @@ export function useRealtimeChannel(
         });
 
         const RECOVERABLE_STATES = new Set(['initialized', 'suspended', 'disconnected']);
-        let appStateHandle: { remove: () => void } | null = null;
+        let removeAppStateListener: (() => void) | null = null;
 
         App.addListener('appStateChange', ({ isActive }) => {
           if (
@@ -90,7 +90,7 @@ export function useRealtimeChannel(
           ) {
             ablyClient.connect();
           }
-        }).then((h) => { appStateHandle = h; });
+        }).then((h) => { removeAppStateListener = () => void h.remove(); });
 
         const ch = client.channels.get(channel);
         ch.subscribe((msg: { name: string; data: unknown }) => {
@@ -102,13 +102,13 @@ export function useRealtimeChannel(
         });
 
         if (cancelled) {
-          appStateHandle?.remove();
+          removeAppStateListener?.();
           ch.unsubscribe();
           client.close();
           return;
         }
         cleanup = () => {
-          appStateHandle?.remove();
+          removeAppStateListener?.();
           ch.unsubscribe();
           client.close();
         };
