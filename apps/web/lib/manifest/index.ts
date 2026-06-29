@@ -328,7 +328,20 @@ function parseInt10(value: string | undefined, fallback: number): number {
   return isNaN(n) ? fallback : n;
 }
 
-/** Strip surrounding JSON double-quotes from a string value if present (legacy data migration). */
+/**
+ * Strip surrounding JSON double-quotes from a string value if present.
+ *
+ * The x_manifest seed (and some legacy admin writes) stored enum/string values
+ * JSON-encoded — e.g. captcha_provider was seeded as the literal `"none"`
+ * (quotes included) rather than the bare `none`. Application code compares
+ * these against bare strings (`value === "turnstile"`), so a quoted value never
+ * matches and silently falls through to a fallback. This normalises both legacy
+ * quoted rows and plain rows to the bare string the rest of the code expects.
+ *
+ * Overloaded so callers passing a guaranteed string get a string back.
+ */
+function unquote(value: string): string;
+function unquote(value: string | undefined): string | undefined;
 function unquote(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
   if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
@@ -339,20 +352,20 @@ function unquote(value: string | undefined): string | undefined {
 
 /** Build the full manifest from a key→value map of x_manifest rows. */
 function buildManifest(kv: Record<string, string>): ZobiaManifest {
-  // Resolve captchaProvider
-  const rawCaptcha = kv["captcha_provider"];
+  // Resolve captchaProvider (unquote: seed/legacy rows store enum values JSON-quoted)
+  const rawCaptcha = unquote(kv["captcha_provider"]);
   const captchaProvider: ZobiaManifest["captchaProvider"] =
     rawCaptcha === "recaptcha" || rawCaptcha === "turnstile" || rawCaptcha === "none"
       ? rawCaptcha
       : "none";
 
   // Resolve gifProvider
-  const rawGif = kv["gif_provider"];
+  const rawGif = unquote(kv["gif_provider"]);
   const gifProvider: ZobiaManifest["gifProvider"] =
     rawGif === "tenor" ? "tenor" : "giphy";
 
   // Resolve payment primaryProvider
-  const rawProvider = kv["payment_primary_provider"];
+  const rawProvider = unquote(kv["payment_primary_provider"]);
   const primaryProvider: ZobiaManifest["payment"]["primaryProvider"] =
     rawProvider === "dodopayments" || rawProvider === "none"
       ? rawProvider
@@ -451,7 +464,7 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       costCoinsPerStep: parseInt10(kv["room_capacity_upgrade_cost"],     DEFAULT_MANIFEST.roomCapacityUpgrade.costCoinsPerStep),
       hardMax:          parseInt10(kv["room_capacity_hard_max"],         DEFAULT_MANIFEST.roomCapacityUpgrade.hardMax),
     },
-    deepLinkBaseUrl: kv["deep_link_base_url"] ?? DEFAULT_MANIFEST.deepLinkBaseUrl,
+    deepLinkBaseUrl: unquote(kv["deep_link_base_url"]) ?? DEFAULT_MANIFEST.deepLinkBaseUrl,
     payment: {
       primaryProvider,
       paystackEnabled:     parseBool(kv["payment_paystack_enabled"],     DEFAULT_MANIFEST.payment.paystackEnabled),
@@ -617,7 +630,8 @@ export async function getManifestValue(key: string): Promise<string | null> {
     const cachedKv = await redis.get(CACHE_KV_KEY);
     if (cachedKv) {
       const kv = JSON.parse(cachedKv) as Record<string, string>;
-      return kv[key] ?? null;
+      const cachedVal = kv[key];
+      return cachedVal === undefined ? null : unquote(cachedVal);
     }
   } catch {
     // Redis unavailable – fall through to DB
@@ -629,7 +643,11 @@ export async function getManifestValue(key: string): Promise<string | null> {
       "SELECT value FROM x_manifest WHERE key = $1 LIMIT 1",
       [key]
     );
-    return rows[0]?.value ?? null;
+    const raw = rows[0]?.value;
+    // Normalise JSON-quoted enum/string values (e.g. seed stores `"none"`) to
+    // the bare string callers compare against. Boolean/integer rows are stored
+    // unquoted, so unquote() is a no-op for them.
+    return raw === undefined ? null : unquote(raw);
   } catch (err) {
     logger.error({ err, key }, "[manifest] Failed to read key from DB");
     return null;
