@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && cap copy android",
+    "build": "tsc -b && vite build && cap sync android",
     "preview": "vite preview",
     "sync": "cap sync android",
     "open": "cap open android",

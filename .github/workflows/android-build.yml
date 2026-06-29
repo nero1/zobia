@@ -32,12 +32,12 @@ jobs:
       - name: Install dependencies (root workspace)
         run: npm ci
 
-      # `npm run build` runs `vite build && cap copy android`. The `cap copy` step
-      # generates capacitor.config.json and capacitor.plugins.json into the android
-      # assets dir and copies the web bundle into assets/public. Without those files
-      # the native bridge registers NO plugins at runtime (Browser.open / appUrlOpen /
-      # Network all reject with "plugin is not implemented on android"), which is what
-      # caused the "Authentication failed" error.
+      # `npm run build` runs `vite build && cap sync android`. The `cap sync` step
+      # (copy + update) is required to generate capacitor.plugins.json — the native
+      # plugin registration manifest. `cap copy` alone does NOT write it, so the
+      # bridge registers NO plugins at runtime (Browser.open / appUrlOpen / Network
+      # all reject with "plugin is not implemented on android"), which is what caused
+      # the "Authentication failed" error.
       - name: Build Vite app + sync Capacitor assets
         working-directory: apps/android
         run: npm run build
