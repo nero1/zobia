@@ -6,6 +6,7 @@ on:
       - android
       - claude/android-app-rewrite-strategy-ddzvem
       - claude/zobia-android-monorepo-k04rcv
+      - claude/android-build-classnotfound-ag1r3x
   workflow_dispatch:
 
 jobs:
