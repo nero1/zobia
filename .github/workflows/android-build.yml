@@ -31,7 +31,13 @@ jobs:
       - name: Install dependencies (root workspace)
         run: npm ci
 
-      - name: Build Vite app
+      # `npm run build` runs `vite build && cap copy android`. The `cap copy` step
+      # generates capacitor.config.json and capacitor.plugins.json into the android
+      # assets dir and copies the web bundle into assets/public. Without those files
+      # the native bridge registers NO plugins at runtime (Browser.open / appUrlOpen /
+      # Network all reject with "plugin is not implemented on android"), which is what
+      # caused the "Authentication failed" error.
+      - name: Build Vite app + sync Capacitor assets
         working-directory: apps/android
         run: npm run build
         env:
@@ -41,14 +47,6 @@ jobs:
           # Force-enable the on-device debug overlay even in production-flavoured
           # debug APKs so errors are visible on mobile (no console/CLI available).
           VITE_DEBUG_OVERLAY: '1'
-
-      # Use `cap copy` (not a plain `cp`) so Capacitor generates capacitor.config.json
-      # and capacitor.plugins.json into the assets dir. Without those files the native
-      # bridge registers NO plugins at runtime (Browser.open / appUrlOpen / SplashScreen
-      # all silently fail), which is what caused the "Authentication failed" error.
-      - name: Sync web assets + Capacitor config into android project
-        working-directory: apps/android
-        run: npx cap copy android
 
       - name: Set Gradle permissions
         working-directory: apps/android/android
