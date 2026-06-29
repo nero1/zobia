@@ -15,15 +15,15 @@ import LanguageDetector from 'i18next-browser-languagedetector';
 import { Preferences } from '@capacitor/preferences';
 
 // Import locale JSONs from shared package (via @zobia/shared Vite alias)
-import en from '@zobia/shared/i18n/locales/en.json';
-import fr from '@zobia/shared/i18n/locales/fr.json';
-import ar from '@zobia/shared/i18n/locales/ar.json';
-import ha from '@zobia/shared/i18n/locales/ha.json';
-import sw from '@zobia/shared/i18n/locales/sw.json';
-import am from '@zobia/shared/i18n/locales/am.json';
-import zu from '@zobia/shared/i18n/locales/zu.json';
-import pt from '@zobia/shared/i18n/locales/pt.json';
-import pidgin from '@zobia/shared/i18n/locales/pidgin.json';
+import en from '@zobia/shared/i18n/locales/en';
+import fr from '@zobia/shared/i18n/locales/fr';
+import ar from '@zobia/shared/i18n/locales/ar';
+import ha from '@zobia/shared/i18n/locales/ha';
+import sw from '@zobia/shared/i18n/locales/sw';
+import am from '@zobia/shared/i18n/locales/am';
+import zu from '@zobia/shared/i18n/locales/zu';
+import pt from '@zobia/shared/i18n/locales/pt';
+import pidgin from '@zobia/shared/i18n/locales/pidgin';
 
 export type SupportedLocale = 'en' | 'fr' | 'ar' | 'ha' | 'sw' | 'am' | 'zu' | 'pt' | 'pidgin';
 const SUPPORTED_LOCALES: SupportedLocale[] = ['en', 'fr', 'ar', 'ha', 'sw', 'am', 'zu', 'pt', 'pidgin'];
