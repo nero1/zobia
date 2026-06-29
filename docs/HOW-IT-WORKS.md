@@ -1046,6 +1046,38 @@ The root route (`src/routes/__root.tsx`) renders `AppShell`:
 
 Route-to-title mapping is derived from `location.pathname` inside `AppShell` — no per-route metadata object required.
 
+### Authentication
+
+The Android app supports three login methods, all funnelling into the same `useAuth().setAuth(token, user)` call which persists the JWT to Capacitor Preferences and updates in-memory React state.
+
+**Email / password login** — handled by `src/routes/auth/login.tsx`. `LoginRequestSchema` (Zod) validates before the API call. The response may include a `requires2FA: true` flag (see Two-Factor below).
+
+**Google OAuth** — the login screen opens `GET /api/auth/google?mobile=true` in a Capacitor in-app browser (`@capacitor/browser`). The API redirects the browser to Google, handles the OAuth callback server-side, then issues a deep link back to the app:
+
+```
+zobia://auth/callback?token=<jwt>&user=<json>
+```
+
+`AppShell` in `__root.tsx` listens for `appUrlOpen` events via `App.addListener`. On receiving `zobia://auth/callback`, it parses the token and user, validates the user shape with `AuthUserSchema`, calls `setAuth`, and navigates to `/home`.
+
+**Telegram Login** — same pattern as Google. Opens `GET /api/auth/telegram?mobile=true`; the API performs HMAC-SHA256 verification of Telegram's Login Widget data, then deep-links back via:
+
+```
+zobia://auth/telegram-callback?token=<jwt>&user=<json>
+```
+
+`AppShell` handles both `/callback` and `/telegram-callback` under the same `auth` hostname.
+
+**Two-Factor Authentication (2FA)** — when an email/password login returns `{ requires2FA: true, preAuthToken: string }`:
+
+1. The login page stores the `preAuthToken` in a module-level in-memory variable (`src/lib/auth/preAuth.ts`) and navigates to `/auth/two-factor`.
+2. The 2FA screen (`src/routes/auth/two-factor.tsx`) presents a numeric 6-digit TOTP input.
+3. On submit it calls `POST /api/auth/2fa/verify` with `{ preAuthToken, code }`.
+4. On success the API returns the full JWT; the app clears the in-memory token, calls `setAuth`, and navigates to `/home`.
+5. If no `preAuthToken` is in memory (e.g. the user navigated here directly), the screen immediately redirects back to `/auth/login`.
+
+`/auth/two-factor` is added to the `PUBLIC_ROUTES` list in `__root.tsx` so `AuthGuard` does not redirect it, and the route is registered in `routeTree.gen.ts` alongside `/auth/login` and `/auth/register`.
+
 ### Offline Support
 
 TanStack Query v5 is configured with `experimental_createPersister` from `@tanstack/query-persist-client-core` backed by `idb-keyval` (IndexedDB). All successful query results with `staleTime: 24 * 60 * 60 * 1000` are persisted across app restarts with a 7-day `gcTime`.

@@ -22,6 +22,7 @@ import { Route as MessagesConversationIdRouteImport } from './routes/messages/$c
 import { Route as GamesSlugRouteImport } from './routes/games/$slug'
 import { Route as AuthRegisterRouteImport } from './routes/auth/register'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
+import { Route as AuthTwoFactorRouteImport } from './routes/auth/two-factor'
 
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
@@ -88,6 +89,11 @@ const AuthLoginRoute = AuthLoginRouteImport.update({
   path: '/auth/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthTwoFactorRoute = AuthTwoFactorRouteImport.update({
+  id: '/auth/two-factor',
+  path: '/auth/two-factor',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -96,6 +102,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
+  '/auth/two-factor': typeof AuthTwoFactorRoute
   '/games/$slug': typeof GamesSlugRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
   '/profile/$username': typeof ProfileUsernameRoute
@@ -111,6 +118,7 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
+  '/auth/two-factor': typeof AuthTwoFactorRoute
   '/games/$slug': typeof GamesSlugRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
   '/profile/$username': typeof ProfileUsernameRoute
@@ -127,6 +135,7 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
+  '/auth/two-factor': typeof AuthTwoFactorRoute
   '/games/$slug': typeof GamesSlugRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
   '/profile/$username': typeof ProfileUsernameRoute
@@ -144,6 +153,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/auth/login'
     | '/auth/register'
+    | '/auth/two-factor'
     | '/games/$slug'
     | '/messages/$conversationId'
     | '/profile/$username'
@@ -159,6 +169,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/auth/login'
     | '/auth/register'
+    | '/auth/two-factor'
     | '/games/$slug'
     | '/messages/$conversationId'
     | '/profile/$username'
@@ -174,6 +185,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/auth/login'
     | '/auth/register'
+    | '/auth/two-factor'
     | '/games/$slug'
     | '/messages/$conversationId'
     | '/profile/$username'
@@ -190,6 +202,7 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   AuthLoginRoute: typeof AuthLoginRoute
   AuthRegisterRoute: typeof AuthRegisterRoute
+  AuthTwoFactorRoute: typeof AuthTwoFactorRoute
   GamesSlugRoute: typeof GamesSlugRoute
   MessagesConversationIdRoute: typeof MessagesConversationIdRoute
   ProfileUsernameRoute: typeof ProfileUsernameRoute
@@ -292,6 +305,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/auth/two-factor': {
+      id: '/auth/two-factor'
+      path: '/auth/two-factor'
+      fullPath: '/auth/two-factor'
+      preLoaderRoute: typeof AuthTwoFactorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -302,6 +322,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   AuthLoginRoute: AuthLoginRoute,
   AuthRegisterRoute: AuthRegisterRoute,
+  AuthTwoFactorRoute: AuthTwoFactorRoute,
   GamesSlugRoute: GamesSlugRoute,
   MessagesConversationIdRoute: MessagesConversationIdRoute,
   ProfileUsernameRoute: ProfileUsernameRoute,

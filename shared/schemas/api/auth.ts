@@ -57,9 +57,11 @@ export const AuthUserSchema = z.object({
 export type AuthUser = z.infer<typeof AuthUserSchema>;
 
 export const AuthResponseSchema = z.object({
-  user: AuthUserSchema,
+  user: AuthUserSchema.optional(),
   accessToken: z.string().optional(),
   expiresIn: z.number().int().positive().optional(),
+  requires2FA: z.boolean().optional(),
+  preAuthToken: z.string().optional(),
 });
 
 export type AuthResponse = z.infer<typeof AuthResponseSchema>;
