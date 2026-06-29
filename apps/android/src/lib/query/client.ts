@@ -24,7 +24,8 @@ export const queryClient = new QueryClient({
         return failureCount < 2;
       },
       refetchOnWindowFocus: false,
-      persister: experimental_createQueryPersister({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      persister: (experimental_createQueryPersister({
         storage: {
           getItem: async (key: string) => {
             const val = await get(key);
@@ -38,7 +39,7 @@ export const queryClient = new QueryClient({
           },
         },
         maxAge: STALE_TIME,
-      }).persisterFn,
+      }).persisterFn as any),
     },
     mutations: {
       retry: 0,
