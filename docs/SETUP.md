@@ -85,120 +85,52 @@ curl https://your-domain.com/api/health
 
 ---
 
-## Mobile (Expo) Android APK Build
+## Android App
 
-> **Read this before touching the Expo app or the Android build.** This monorepo
-> hits several non-obvious traps that have historically broken the EAS APK build
-> at the very last step (the Metro JS bundle), *after* ~4 minutes of native
-> compilation. Each is cheap to avoid and expensive to debug from scratch.
+The Android app (`apps/android/`) is built with **Capacitor + Vite + React** — no Expo, no React Native, no local Android Studio required. All building happens in GitHub Actions.
 
-The Android APK is built in the cloud with **Expo EAS Build** — there is no local
-Android Studio requirement. It is triggered by `.github/workflows/build-android.yml`
-(which runs `eas build --platform android --profile preview`) and requires the
-`EXPO_TOKEN` repository secret. Without `EXPO_TOKEN` the workflow skips the build
-(this is the only reason older runs "passed"). Target is **Android API level 36**.
+### Tech stack
 
-### ⚠️ The five rules that keep the Android build green
+- **Capacitor 6** — native Android bridge (WebView-based)
+- **Vite 5** — web bundler, `vite build` produces `dist/` which Gradle copies into the APK
+- **React 18 + TanStack Router** — file-based routing under `src/routes/`
+- **TanStack Query** — data fetching with IndexedDB offline persistence
+- **Tailwind CSS** — shared design tokens from `shared/tailwind-tokens.js`
+- **i18next** — 9 locale files from `shared/i18n/locales/`
+- **Ably** — optional realtime WebSocket (falls back to adaptive poll when disabled)
+- Target: **Android API 36**, `minSdk 26`
 
-1. **One lockfile, installed from the root.** This is an npm-workspaces monorepo.
-   Run `npm install` **only from the repo root**. Never run it inside `apps/expo`
-   or `apps/web` — that produces a nested `package-lock.json` and a divergent
-   `node_modules`, which is exactly what fragments dependency resolution on EAS.
-   There must be exactly one `package-lock.json`, at the repo root.
+### Building an APK
 
-2. **Do NOT unify the React version.** The two apps run different React majors **on
-   purpose**:
-   - `apps/web` (Next.js 15) → `react@18.3.1`
-   - `apps/expo` (React Native 0.74) → `react@18.2.0` (RN 0.74 has a *strict*
-     `react@18.2.0` peer; 18.3.1 makes `npm install` fail with `ERESOLVE`).
+**No local tools needed.** The build runs entirely in the cloud:
 
-   Because of this split, **`expo-router` cannot hoist to the root `node_modules`** —
-   it stays nested under `apps/expo/node_modules` so it binds the app's `react@18.2.0`.
-   Do not "fix" the warning by aligning versions; that either breaks the install
-   (RN peer) or causes a dual-React runtime crash (`Invalid hook call`).
+1. Add two GitHub Actions secrets (Settings → Secrets and variables → Actions → New repository secret):
+   - `VITE_API_BASE_URL` — your production API URL (e.g. `https://zobia.vercel.app`)
+   - `VITE_WEB_BASE_URL` — same value as above
 
-3. **Keep the explicit expo-router Babel plugin in `apps/expo/babel.config.js`.**
-   `babel-preset-expo` only applies its expo-router transform if it can
-   `require.resolve('expo-router')` relative to **its own** location. `babel-preset-expo`
-   hoists to the repo root, but (per rule 2) `expo-router` is nested under `apps/expo`,
-   so that detection silently fails, the transform is skipped, and
-   `process.env.EXPO_ROUTER_APP_ROOT` is left un-inlined. The release bundle then dies with:
+2. Push any commit to the `android` branch, **or** go to:
+   Actions → "Android APK Build" → "Run workflow"
 
-   ```
-   SyntaxError: expo-router/_ctx.android.js: Invalid call ... process.env.EXPO_ROUTER_APP_ROOT
-   First argument of `require.context` should be a string
-   ```
+3. Wait ~8–10 minutes for the workflow to complete.
 
-   `apps/expo/babel.config.js` works around this by applying
-   `babel-preset-expo/build/expo-router-plugin`'s `expoRouterBabelPlugin` explicitly
-   (resolved from `apps/expo`, so it loads the correct nested copy). **Do not remove it**
-   unless the React split above is also removed.
+4. Go to the completed workflow run → scroll to **Artifacts** → download `zobia-debug-<run>-<sha>`.
 
-4. **AdMob app ID lives in `app.json`, as a root-level key — and the warning is expected.**
-   `react-native-google-mobile-ads` reads the app ID at build time from its **own** Gradle
-   script (`android/app-json.gradle`), not from an Expo config plugin. It must therefore sit
-   as a **sibling of the `expo` object** in `apps/expo/app.json`:
+5. Transfer the APK to your Android device (email, Google Drive, USB, etc.).
 
-   ```jsonc
-   {
-     "expo": { ... },
-     "react-native-google-mobile-ads": {
-       "android_app_id": "ca-app-pub-XXXXXXXX~XXXXXXXX",
-       "ios_app_id": "ca-app-pub-XXXXXXXX~XXXXXXXX"
-     }
-   }
-   ```
+6. On Android: **Settings → Install unknown apps** → enable for your browser or Files app → tap the APK to install.
 
-   Expo CLI prints `Ignoring extra key in Expo config: "react-native-google-mobile-ads"` —
-   this is **harmless and expected**; Expo's config normaliser ignores the key but Gradle
-   still reads the raw file. If `android_app_id` is *missing*, the Gradle build hard-fails
-   with `System.exit(1)` (it will not even reach the bundle step). The values above are
-   Google's official **test** IDs — replace them with your live AdMob IDs before release.
-
-5. **`google-services.json` is required by `expo-notifications` (FCM) and `react-native-google-mobile-ads`.**
-   A placeholder file is committed at `apps/expo/google-services.json` with dummy values so
-   development and preview builds succeed without a Firebase project. The placeholder is
-   sufficient to build and run the app — the UI works fully, AdMob test ads work, and local
-   notifications work. The only thing that won't work with the placeholder is **remote push
-   notifications** (FCM delivery). FCM / Firebase Cloud Messaging is **completely free** on
-   Firebase's Spark plan — no credit card required.
-
-   When you are ready to enable real push notifications:
-   1. Create a free project at [console.firebase.google.com](https://console.firebase.google.com).
-   2. Add an Android app with package name `org.zobia.social`.
-   3. Download the real `google-services.json` and replace `apps/expo/google-services.json`.
-
-6. **`mobileAds().initialize()` must run at startup.** The native app ID in the manifest is
-   only half of the wiring — the SDK must also be initialised once in JS or ads silently
-   never serve (no crash, just no-fill). This repo calls `initializeAds()`
-   (`apps/expo/lib/ads/admob.ts`) from the root layout's startup effect
-   (`apps/expo/app/_layout.tsx`). Per-surface ad unit IDs come from
-   `EXPO_PUBLIC_ADMOB_*` env vars and fall back to `TestIds` in dev.
-
-### Triggering a build
-
-- `.github/workflows/build-android.yml` auto-runs on pushes to `main` (and the
-  configured build branch) that touch `apps/expo/**`. Feature branches are **not**
-  auto-built — use **Actions → Build Android APK → Run workflow** (`workflow_dispatch`)
-  to build any branch manually, or merge to `main`.
-- To validate the JS bundle locally **without** a native build (catches rules 1–3 in
-  seconds rather than via a full cloud build):
-
-  ```bash
-  cd apps/expo
-  NODE_ENV=production npx expo export --platform android --output-dir /tmp/expo-export
-  # Success looks like: "Android Bundled … node_modules/expo-router/entry.js (NNNN modules)"
-  ```
-
-### Building without a full set of env vars (CI / local type-check)
-
-The build validates all required env vars at startup via `lib/env.ts`. In CI environments where secrets aren't available (e.g. for a type-check or lint-only run), set `SKIP_ENV_VALIDATION=1`:
+### Local development (optional — requires Node 20)
 
 ```bash
-SKIP_ENV_VALIDATION=1 npm run build
-```
+# Install from repo root (never inside apps/android)
+npm install
 
-This skips the Zod validation step and exports an empty `env` object. API routes will still fail at runtime if accessed without valid env vars — `SKIP_ENV_VALIDATION` is only intended for the build/type-check phase.
+# Run Vite dev server — open http://localhost:5173 in a browser
+npm run dev:android
+
+# Build the web bundle only (no APK)
+npm run build:android
+```
 
 ### Running on free tiers (Vercel Hobby + free Redis)
 

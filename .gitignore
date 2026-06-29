@@ -3,8 +3,8 @@
 
 # Expo
 .expo/
-android/
-ios/
+apps/expo/android/
+apps/expo/ios/
 *.apk
 *.aab
 *.ipa
