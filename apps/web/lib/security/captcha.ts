@@ -72,16 +72,11 @@ const RECAPTCHA_MIN_SCORE = 0.5;
 
 /**
  * Last known good provider from a successful manifest read.
- * Used as a fallback when the manifest/DB is temporarily unavailable so that
- * a transient DB outage doesn't fall back to "none" in production (which would
- * block all users if verifyCaptcha rejects "none" in production).
- *
- * BUG-051: Initialized to "recaptcha" (not null) so the very first request
- * during a cold-start DB outage has a safe default instead of falling back to
- * "none" (which bypasses CAPTCHA in non-production or blocks all users in
- * production via the "none" branch in verifyCaptcha).
+ * Used as a fallback when the manifest/DB is temporarily unavailable. The
+ * application default is intentionally "none" so fresh deployments and cold
+ * starts do not require CAPTCHA before the x_manifest row is available.
  */
-let _lastKnownGoodProvider: CaptchaProvider = "recaptcha";
+let _lastKnownGoodProvider: CaptchaProvider = "none";
 
 /**
  * Determine which CAPTCHA provider to use by reading the x_manifest.
@@ -102,16 +97,14 @@ async function resolveProvider(): Promise<CaptchaProvider> {
       _lastKnownGoodProvider = manifestValue;
       return manifestValue;
     }
-    // BUG-051: Unknown manifest value — log an error and fall back to the last
-    // known good provider rather than silently returning "none" (which would
-    // bypass CAPTCHA enforcement entirely in development or block all users in
-    // production).
+    // Unknown manifest value — log an error and fall back to the last known
+    // good provider rather than guessing a different CAPTCHA provider.
     logger.error(
       `[captcha] Unknown provider value: "${manifestValue}" — using last known good provider`
     );
     return _lastKnownGoodProvider;
   } catch {
-    // DB unavailable — use last known good provider to avoid blocking all users
+    // DB unavailable — use last known/default provider.
     return _lastKnownGoodProvider;
   }
 }
@@ -256,10 +249,8 @@ export async function verifyCaptcha(
     case "turnstile":
       return verifyTurnstile(token, userIp);
     case "none":
-      if (process.env.NODE_ENV === "production") {
-        logger.warn("[captcha] No CAPTCHA provider configured in production — blocking request");
-        return false;
-      }
+      // CAPTCHA is explicitly disabled by x_manifest/defaults. Treat verification
+      // as a no-op so callers that received an old/stale token do not fail.
       return true;
     default: {
       const _exhaustive: never = provider;
