@@ -95,7 +95,10 @@ function buildCsp(nonce: string): string {
     // BUG-008 FIX: added https://t.me and https://telegram.org for Telegram profile avatars
     `img-src 'self' data: blob: https://lh3.googleusercontent.com https://*.supabase.co ${r2Sources} https://media.giphy.com https://media.tenor.com https://c.tenor.com https://storage.googleapis.com https://img.youtube.com https://t.me https://telegram.org`,
     `connect-src ${connectSrc}`,
-    "frame-src 'self' https://www.google.com https://challenges.cloudflare.com",
+    // https://oauth.telegram.org — the Telegram Login Widget renders its button
+    // inside an iframe from this origin (used by /auth/telegram-mobile). Without
+    // it the widget is silently CSP-blocked and no login button appears.
+    "frame-src 'self' https://www.google.com https://challenges.cloudflare.com https://oauth.telegram.org",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
