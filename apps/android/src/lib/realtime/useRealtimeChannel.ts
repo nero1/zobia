@@ -43,8 +43,7 @@ export function useRealtimeChannel(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let ablyClient: any = null;
       try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
-        const Ably = require('ably') as any;
+        const Ably = await import('ably');
         const client = new Ably.Realtime({
           authCallback: async (
             _tokenParams: unknown,
@@ -80,9 +79,7 @@ export function useRealtimeChannel(
         });
 
         const RECOVERABLE_STATES = new Set(['initialized', 'suspended', 'disconnected']);
-        let removeAppStateListener: (() => void) | null = null;
-
-        App.addListener('appStateChange', ({ isActive }) => {
+        const appStateHandle = await App.addListener('appStateChange', ({ isActive }) => {
           if (
             isActive &&
             ablyClient &&
@@ -90,7 +87,7 @@ export function useRealtimeChannel(
           ) {
             ablyClient.connect();
           }
-        }).then((h) => { removeAppStateListener = () => void h.remove(); });
+        });
 
         const ch = client.channels.get(channel);
         ch.subscribe((msg: { name: string; data: unknown }) => {
@@ -102,13 +99,13 @@ export function useRealtimeChannel(
         });
 
         if (cancelled) {
-          removeAppStateListener?.();
+          void appStateHandle.remove();
           ch.unsubscribe();
           client.close();
           return;
         }
         cleanup = () => {
-          removeAppStateListener?.();
+          void appStateHandle.remove();
           ch.unsubscribe();
           client.close();
         };
