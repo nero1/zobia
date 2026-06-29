@@ -236,6 +236,15 @@ function isAppRoute(_pathname: string): boolean {
 
 const CSRF_SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
+// Capacitor native WebView origins. The Android app (capacitor.config.ts uses
+// androidScheme: 'https') serves its bundle from https://localhost; iOS uses
+// capacitor://localhost. These must be allowed for both CORS and the CSRF
+// origin check so the native app can call the API cross-origin — notably
+// POST /api/auth/mobile-token to exchange the OAuth code for tokens. Without
+// this the WebView fetch fails the preflight ("TypeError: Failed to fetch")
+// or is rejected with 403 CSRF_ORIGIN_MISMATCH.
+const CAPACITOR_ORIGINS = ["https://localhost", "capacitor://localhost"];
+
 /**
  * Validates the Origin header for state-mutating API requests.
  * Rejects cross-origin mutations unless they come from the configured app URL
@@ -274,7 +283,8 @@ function isCsrfSafe(request: NextRequest): boolean {
   const expoOrigin = process.env.EXPO_ORIGIN ?? "";
   return origin === requestOrigin ||
     (appUrl !== "" && origin === appUrl) ||
-    (expoOrigin !== "" && origin === expoOrigin);
+    (expoOrigin !== "" && origin === expoOrigin) ||
+    CAPACITOR_ORIGINS.includes(origin);
 }
 
 // ---------------------------------------------------------------------------
@@ -308,7 +318,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
   const expoOrigin = process.env.EXPO_ORIGIN ?? "";
   const requestOrigin = request.headers.get("origin") ?? "";
-  const allowedOrigins = [appUrl, expoOrigin].filter(Boolean);
+  const allowedOrigins = [appUrl, expoOrigin, ...CAPACITOR_ORIGINS].filter(Boolean);
   // Only set CORS header for origins in the allowlist; do not fall back to
   // string "null" which would let null-origin requests (e.g. sandboxed iframes)
   // pass credential checks in some browsers.
