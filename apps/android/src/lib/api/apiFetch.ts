@@ -40,9 +40,6 @@ export async function apiFetch(
   }
 
   const headers = new Headers((init?.headers ?? {}) as HeadersInit);
-  if (!headers.has('Origin')) {
-    headers.set('Origin', env.VITE_API_BASE_URL);
-  }
   if (!headers.has('Authorization')) {
     const token = getCachedToken();
     if (token) headers.set('Authorization', `Bearer ${token}`);

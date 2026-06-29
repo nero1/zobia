@@ -49,7 +49,6 @@ function AppShell() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Origin: env.VITE_API_BASE_URL,
           },
           body: JSON.stringify(body),
         });
