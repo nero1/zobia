@@ -41,6 +41,7 @@ dependencies {
     implementation 'androidx.core:core-splashscreen:1.0.1'
     implementation project(':capacitor-android')
     implementation project(':capacitor-app')
+    implementation project(':capacitor-browser')
     implementation project(':capacitor-haptics')
     implementation project(':capacitor-network')
     implementation project(':capacitor-preferences')
