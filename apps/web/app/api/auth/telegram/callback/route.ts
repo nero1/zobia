@@ -10,13 +10,22 @@ export const dynamic = 'force-dynamic';
  *   2. Rejects payloads older than 10 minutes (replay protection)
  *   3. Creates or retrieves the platform user record from the database
  *   4. Issues a platform JWT
- *   5. Sets HttpOnly cookies with access + refresh tokens
- *   6. Redirects to /home or /onboarding
+ *   5a. Web:    Sets HttpOnly cookies and redirects to /home or /onboarding
+ *   5b. Mobile: Creates one-time exchange code, redirects to deep link
+ *
+ * Mobile flow:
+ *   Pass ?mobile_redirect=zobia://auth/callback (or in the data-auth-url from
+ *   the telegram-mobile widget page).  After successful auth the handler creates
+ *   an exchange code in Redis (90 s TTL, single-use) and redirects to
+ *   mobile_redirect?code=EXCHANGE_CODE.  The Capacitor app exchanges the code
+ *   at POST /api/auth/mobile-token to receive tokens without exposing them
+ *   in a URL.
  *
  * Reference: https://core.telegram.org/widgets/login#checking-authorization
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import {
   verifyTelegramLogin,
   parseTelegramParams,
@@ -29,6 +38,29 @@ import { handleApiError, badRequest, unauthorized } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getManifestValue } from "@/lib/manifest";
 import { env } from "@/lib/env";
+
+// ---------------------------------------------------------------------------
+// Allowed mobile redirect schemes (mirrors Google callback — ZB-01)
+// ---------------------------------------------------------------------------
+
+const ALLOWED_REDIRECT_SCHEMES = ["zobia:", "exp+zobia:", "exp+zobia-social:"];
+
+function isRedirectAllowed(redirect: string): boolean {
+  try {
+    const url = new URL(redirect);
+    if (ALLOWED_REDIRECT_SCHEMES.includes(url.protocol)) return true;
+    if (url.protocol === "https:" || url.protocol === "http:") {
+      const appOrigin = env.NEXT_PUBLIC_APP_URL;
+      if (appOrigin) {
+        const appHost = new URL(appOrigin).hostname;
+        if (url.hostname === appHost) return true;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -44,6 +76,13 @@ interface UserRow {
   is_suspended: boolean;
   totp_enabled: boolean;
   onboarding_completed: boolean;
+  display_name: string | null;
+  avatar_emoji: string | null;
+  city: string | null;
+  xp_total: number;
+  rank_name: string | null;
+  plan: string | null;
+  is_creator: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -67,7 +106,8 @@ async function upsertTelegramUser(profile: {
   // Check if user already exists with this Telegram ID
   const existing = await db.query<UserRow>(
     `SELECT id, email, username, is_admin, is_moderator, is_banned, is_suspended,
-            totp_enabled, onboarding_completed
+            totp_enabled, onboarding_completed, display_name, avatar_emoji, city,
+            xp_total, rank_name, plan, is_creator
      FROM users
      WHERE telegram_id = $1 AND deleted_at IS NULL
      LIMIT 1`,
@@ -90,10 +130,12 @@ async function upsertTelegramUser(profile: {
   const inserted = await db.query<UserRow>(
     `INSERT INTO users (
        telegram_id, display_name, avatar_url, onboarding_completed,
-       is_admin, created_at, updated_at
+       is_admin, is_creator, created_at, updated_at
      )
-     VALUES ($1, $2, $3, false, false, NOW(), NOW())
-     RETURNING id, email, username, is_admin, is_moderator, totp_enabled, onboarding_completed`,
+     VALUES ($1, $2, $3, false, false, false, NOW(), NOW())
+     RETURNING id, email, username, is_admin, is_moderator, is_banned, is_suspended,
+               totp_enabled, onboarding_completed, display_name, avatar_emoji, city,
+               xp_total, rank_name, plan, is_creator`,
     [profile.telegramId, displayName, profile.photoUrl ?? null]
   );
 
@@ -112,7 +154,8 @@ async function upsertTelegramUser(profile: {
  * Handle the Telegram Login Widget callback.
  *
  * Validates the Telegram hash signature, upserts the user,
- * issues a platform JWT, sets HttpOnly cookies, and redirects.
+ * issues a platform JWT, and either sets HttpOnly cookies (web) or
+ * creates an exchange code and redirects to the mobile deep link.
  */
 export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
@@ -121,7 +164,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     const { searchParams } = new URL(req.url);
 
-    // Parse Telegram login params from query string
+    // Read optional mobile redirect — passed as a query param from the
+    // telegram-mobile widget page (e.g. data-auth-url includes it).
+    const mobileRedirectParam = searchParams.get("mobile_redirect");
+    const mobileRedirect = mobileRedirectParam && isRedirectAllowed(mobileRedirectParam)
+      ? mobileRedirectParam
+      : null;
+
+    // Parse Telegram login params from query string (ignores mobile_redirect)
     const telegramData = parseTelegramParams(searchParams);
     if (!telegramData) {
       throw badRequest(
@@ -156,18 +206,42 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const mustSetUp2Fa = twoFaRequiredForMods && user.is_moderator && !user.totp_enabled;
 
     if (mustSetUp2Fa) {
-      const response = NextResponse.redirect(new URL("/auth/require-2fa", reqOrigin), { status: 302 });
-      return response;
+      if (mobileRedirect) {
+        // Redirect back to login with error; 2FA setup not supported on mobile yet
+        const deepLink = new URL(mobileRedirect);
+        deepLink.searchParams.set("error", "2fa_required");
+        return NextResponse.redirect(deepLink.toString(), { status: 302 });
+      }
+      return NextResponse.redirect(new URL("/auth/require-2fa", reqOrigin), { status: 302 });
     }
 
     if (needsTwoFaVerify) {
       const preAuthToken = await signAccessToken(
-        { sub: user.id, email: user.email ?? "", username: user.username ?? "", is_admin: user.is_admin, sid: "pre_auth", type: "pre_auth" } as Parameters<typeof signAccessToken>[0],
+        {
+          sub: user.id,
+          email: user.email ?? "",
+          username: user.username ?? "",
+          is_admin: user.is_admin,
+          sid: "pre_auth",
+          type: "pre_auth",
+        } as Parameters<typeof signAccessToken>[0],
         5 * 60
       );
       await redis.setex(`pre_auth:${user.id}`, 5 * 60, preAuthToken);
+
+      if (mobileRedirect) {
+        const preAuthCode = crypto.randomBytes(32).toString("hex");
+        await redis.setex(`mobile_pre_auth:${preAuthCode}`, 300, preAuthToken);
+        const deepLink = new URL(mobileRedirect);
+        deepLink.searchParams.set("pre_auth_code", preAuthCode);
+        deepLink.searchParams.set("requires_2fa", "true");
+        return NextResponse.redirect(deepLink.toString(), { status: 302 });
+      }
+
       const dest = new URL("/auth/2fa", reqOrigin);
-      dest.searchParams.set("token", preAuthToken);
+      const webPreAuthCode = crypto.randomBytes(32).toString("hex");
+      await redis.setex(`web_pre_auth:${webPreAuthCode}`, 300, preAuthToken);
+      dest.searchParams.set("code", webPreAuthCode);
       return NextResponse.redirect(dest, { status: 302 });
     }
 
@@ -182,10 +256,47 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       { ip }
     );
 
-    // Build cookie headers
+    // -----------------------------------------------------------------
+    // Mobile flow: exchange code deep-link (same pattern as Google)
+    // -----------------------------------------------------------------
+    if (mobileRedirect) {
+      const exchangeCode = crypto.randomBytes(32).toString("hex");
+      const authUser = {
+        id: user.id,
+        username: user.username ?? profile.username ?? "",
+        displayName: user.display_name ?? user.username ?? profile.firstName,
+        avatarEmoji: user.avatar_emoji ?? "😎",
+        city: user.city ?? "",
+        xp: user.xp_total ?? 0,
+        rankTier: user.rank_name ?? "Beginner",
+        plan: (user.plan ?? "free") as "free" | "plus" | "pro" | "max",
+        isAdmin: user.is_admin,
+        isModerator: user.is_moderator,
+        isCreator: user.is_creator,
+        onboardingCompleted: user.onboarding_completed,
+      };
+      await redis.setex(
+        `mobile_exchange:${exchangeCode}`,
+        90,
+        JSON.stringify({
+          accessToken: authTokens.accessToken,
+          refreshToken: authTokens.refreshToken,
+          userId: user.id,
+          onboardingCompleted: user.onboarding_completed,
+          authUser,
+        })
+      );
+
+      const deepLink = new URL(mobileRedirect);
+      deepLink.searchParams.set("code", exchangeCode);
+      return NextResponse.redirect(deepLink.toString(), { status: 302 });
+    }
+
+    // -----------------------------------------------------------------
+    // Web flow: set HttpOnly cookies and redirect to home / onboarding
+    // -----------------------------------------------------------------
     const { accessCookie, refreshCookie } = buildCookieHeaders(authTokens);
 
-    // Redirect to appropriate post-auth destination
     const destination = user.onboarding_completed
       ? new URL("/home", reqOrigin)
       : new URL("/onboarding", reqOrigin);
