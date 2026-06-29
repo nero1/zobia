@@ -37,7 +37,7 @@ function RegisterPage() {
     setLoading(true);
     try {
       const { data } = await apiClient.post<AuthResponse>('/auth/register', { username, email, password });
-      if (data.accessToken) {
+      if (data.accessToken && data.user) {
         await setAuth(data.accessToken, data.user);
         navigate({ to: '/home', replace: true });
       } else {
