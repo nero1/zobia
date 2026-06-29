@@ -74,7 +74,15 @@ function AppShell() {
         }
 
         if (data.accessToken && data.user) {
-          const userParsed = AuthUserSchema.safeParse(data.user);
+          const rawUser = data.user as Record<string, unknown>;
+          const normalizedUser = {
+            ...rawUser,
+            email: (rawUser.email ?? null) as string | null,
+            is_admin: Boolean(rawUser.is_admin ?? rawUser.isAdmin ?? false),
+            is_creator: Boolean(rawUser.is_creator ?? rawUser.isCreator ?? false),
+            avatar_url: (rawUser.avatar_url ?? null) as string | null,
+          };
+          const userParsed = AuthUserSchema.safeParse(normalizedUser);
           if (userParsed.success) {
             await setAuth(data.accessToken, userParsed.data, data.refreshToken);
             navigate({ to: '/home', replace: true });

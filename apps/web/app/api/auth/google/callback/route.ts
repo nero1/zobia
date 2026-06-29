@@ -91,6 +91,7 @@ interface UserRow {
   onboarding_completed: boolean;
   display_name: string | null;
   avatar_emoji: string | null;
+  avatar_url: string | null;
   city: string | null;
   xp_total: number;
   rank_name: string | null;
@@ -157,7 +158,7 @@ async function upsertGoogleUser(profile: {
   const existing = await db.query<UserRow>(
     `SELECT id, email, username, google_id, is_email_verified, is_admin, is_moderator, is_creator,
             is_banned, is_suspended, deleted_at,
-            totp_enabled, onboarding_completed, display_name, avatar_emoji, city, xp_total, rank_name, plan
+            totp_enabled, onboarding_completed, display_name, avatar_emoji, avatar_url, city, xp_total, rank_name, plan
      FROM users
      WHERE google_id = $1
      LIMIT 1`,
@@ -182,7 +183,7 @@ async function upsertGoogleUser(profile: {
   const emailMatch = await db.query<UserRow>(
     `SELECT id, email, username, google_id, is_email_verified, is_admin, is_moderator, is_creator,
             is_banned, is_suspended, deleted_at,
-            totp_enabled, onboarding_completed, display_name, avatar_emoji, city, xp_total, rank_name, plan
+            totp_enabled, onboarding_completed, display_name, avatar_emoji, avatar_url, city, xp_total, rank_name, plan
      FROM users
      WHERE email = $1 AND deleted_at IS NULL
      LIMIT 1`,
@@ -236,7 +237,7 @@ async function upsertGoogleUser(profile: {
          RETURNING id, email, username, google_id, is_email_verified, is_admin, is_moderator, is_creator,
                    is_banned, is_suspended, deleted_at,
                    totp_enabled, onboarding_completed,
-                   display_name, avatar_emoji, city, xp_total, rank_name, plan`,
+                   display_name, avatar_emoji, avatar_url, city, xp_total, rank_name, plan`,
         [profile.googleId, profile.email, candidateUsername, profile.name, profile.picture]
       );
       if (inserted.rows[0]) return inserted.rows[0];
@@ -252,7 +253,7 @@ async function upsertGoogleUser(profile: {
           const raceMatch = await db.query<UserRow>(
             `SELECT id, email, username, google_id, is_email_verified, is_admin, is_moderator, is_creator,
                     is_banned, is_suspended, deleted_at,
-                    totp_enabled, onboarding_completed, display_name, avatar_emoji, city, xp_total, rank_name, plan
+                    totp_enabled, onboarding_completed, display_name, avatar_emoji, avatar_url, city, xp_total, rank_name, plan
              FROM users WHERE email = $1 AND deleted_at IS NULL LIMIT 1`,
             [profile.email]
           );
@@ -450,16 +451,20 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       // BUG-EXPO-03: include all AuthUser fields so the mobile app has full user state
       const authUser = {
         id: user.id,
+        email: user.email,
         username: user.username ?? "",
         displayName: user.display_name ?? user.username ?? "",
         avatarEmoji: user.avatar_emoji ?? "😎",
+        avatar_url: user.avatar_url ?? null,
         city: user.city ?? "",
         xp: user.xp_total ?? 0,
         rankTier: user.rank_name ?? "Beginner",
         plan: (user.plan ?? "free") as "free" | "plus" | "pro" | "max",
         isAdmin: user.is_admin,
+        is_admin: user.is_admin,
         isModerator: user.is_moderator,
         isCreator: user.is_creator,
+        is_creator: user.is_creator,
         onboardingCompleted: user.onboarding_completed,
       };
       await redis.setex(
