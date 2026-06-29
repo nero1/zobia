@@ -3,6 +3,7 @@ name: Android APK Build
 on:
   push:
     branches:
+      - main
       - android
       - claude/android-app-rewrite-strategy-ddzvem
       - claude/zobia-android-monorepo-k04rcv
