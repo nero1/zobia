@@ -79,7 +79,6 @@ export const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
     Accept: 'application/json',
-    Origin: env.VITE_API_BASE_URL,
   },
 });
 
@@ -105,7 +104,6 @@ export async function refreshAccessToken(): Promise<string | null> {
           headers: {
             'X-Refresh-Token': refreshToken,
             'Content-Type': 'application/json',
-            Origin: env.VITE_API_BASE_URL,
           },
           timeout: 10_000,
         }
@@ -130,24 +128,20 @@ export async function refreshAccessToken(): Promise<string | null> {
           const meController = new AbortController();
           const meTimeout = setTimeout(() => meController.abort(), 5_000);
           const meRes = await fetch(`${env.VITE_API_BASE_URL}/api/users/me`, {
-            headers: { Authorization: `Bearer ${newToken}`, Origin: env.VITE_API_BASE_URL },
+            headers: { Authorization: `Bearer ${newToken}` },
             signal: meController.signal,
           }).finally(() => clearTimeout(meTimeout));
           if (meRes.ok) {
-            const me = (await meRes.json()) as Record<string, unknown>;
+            const meBody = (await meRes.json()) as Record<string, unknown>;
+            const me = (meBody.user ?? meBody.data ?? meBody) as Record<string, unknown>;
             const updatedUser = {
               id: (me.id ?? me.user_id ?? '') as string,
+              email: (me.email ?? null) as string | null,
               username: (me.username ?? '') as string,
-              displayName: (me.displayName ?? me.display_name ?? '') as string,
-              avatarEmoji: (me.avatarEmoji ?? me.avatar_emoji ?? '') as string,
-              city: (me.city ?? '') as string,
-              xp: Number(me.xp ?? me.xp_total ?? 0),
-              rankTier: (me.rankTier ?? me.rank_name ?? 'Beginner') as string,
               plan: (me.plan ?? 'free') as string,
-              isAdmin: Boolean(me.isAdmin ?? me.is_admin ?? false),
-              isModerator: Boolean(me.isModerator ?? me.is_moderator ?? false),
-              isCreator: Boolean(me.isCreator ?? me.is_creator ?? false),
-              onboardingCompleted: Boolean(me.onboardingCompleted ?? me.onboarding_completed ?? false),
+              is_admin: Boolean(me.is_admin ?? me.isAdmin ?? false),
+              is_creator: Boolean(me.is_creator ?? me.isCreator ?? false),
+              avatar_url: (me.avatar_url ?? null) as string | null,
             };
             const userJson = JSON.stringify(updatedUser);
             await Preferences.set({ key: 'zobia_user', value: userJson });
@@ -184,9 +178,21 @@ apiClient.interceptors.request.use(
   (error: AxiosError) => Promise.reject(error),
 );
 
-// Response interceptor — handle 401 with silent refresh, then sign out.
+// Response interceptor — unwrap the backend's standard { success, data, error } envelope
+// and handle 401 with silent refresh, then sign out.
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const body = response.data as unknown;
+    if (
+      body &&
+      typeof body === 'object' &&
+      'success' in body &&
+      'data' in body
+    ) {
+      response.data = (body as { data: unknown }).data;
+    }
+    return response;
+  },
   async (error: AxiosError) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retried?: boolean };
 
