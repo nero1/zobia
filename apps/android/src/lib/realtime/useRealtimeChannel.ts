@@ -44,15 +44,20 @@ export function useRealtimeChannel(
       let ablyClient: any = null;
       try {
         const Ably = await import('ably');
+        type AblyCallback = (
+          err: Ably.ErrorInfo | string | null,
+          tokenRequest: Ably.TokenDetails | Ably.TokenRequest | string | null,
+        ) => void;
         const client = new Ably.Realtime({
           authCallback: async (
-            _tokenParams: unknown,
-            callback: (err: unknown, tokenRequest: unknown) => void,
+            _tokenParams: Ably.TokenParams,
+            callback: AblyCallback,
           ) => {
             try {
               const { data } = await apiClient.get(
                 `/realtime/ably-token?channel=${encodeURIComponent(channel)}`,
               );
+              // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
               callback(null, data);
             } catch (err) {
               const status = (err as { response?: { status?: number } })?.response?.status;
@@ -62,13 +67,14 @@ export function useRealtimeChannel(
                   const { data } = await apiClient.get(
                     `/realtime/ably-token?channel=${encodeURIComponent(channel)}`,
                   );
+                  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
                   callback(null, data);
                   return;
                 } catch {
                   // refresh also failed
                 }
               }
-              callback(err, null);
+              callback(err as Ably.ErrorInfo | string, null);
             }
           },
         });
@@ -90,12 +96,12 @@ export function useRealtimeChannel(
         });
 
         const ch = client.channels.get(channel);
-        ch.subscribe((msg: { name: string; data: unknown }) => {
+        ch.subscribe((msg: Ably.InboundMessage) => {
           let payload: unknown = msg.data;
           if (typeof payload === 'string') {
             try { payload = JSON.parse(payload); } catch { /* leave as string */ }
           }
-          onEventRef.current(msg.name, payload);
+          onEventRef.current(msg.name ?? '', payload);
         });
 
         if (cancelled) {
