@@ -38,11 +38,17 @@ jobs:
           VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
           VITE_WEB_BASE_URL: ${{ secrets.VITE_WEB_BASE_URL }}
           VITE_APP_ENV: production
+          # Force-enable the on-device debug overlay even in production-flavoured
+          # debug APKs so errors are visible on mobile (no console/CLI available).
+          VITE_DEBUG_OVERLAY: '1'
 
-      - name: Copy dist to android assets
-        run: |
-          mkdir -p apps/android/android/app/src/main/assets/public
-          cp -r apps/android/dist/. apps/android/android/app/src/main/assets/public/
+      # Use `cap copy` (not a plain `cp`) so Capacitor generates capacitor.config.json
+      # and capacitor.plugins.json into the assets dir. Without those files the native
+      # bridge registers NO plugins at runtime (Browser.open / appUrlOpen / SplashScreen
+      # all silently fail), which is what caused the "Authentication failed" error.
+      - name: Sync web assets + Capacitor config into android project
+        working-directory: apps/android
+        run: npx cap copy android
 
       - name: Set Gradle permissions
         working-directory: apps/android/android
