@@ -1,7 +1,7 @@
 # Zobia Social — Product Requirements Document
 ### A Gamified Monetised Social Platform for the Global Mobile Generation
 
-> **Version 1.94 — Product Requirements Document**
+> **Version 2.00 — Product Requirements Document**
 > Covers: Feature Specifications · Technical Architecture · Economy Design · Moderation · Build Sequence
 > Scope: Nigeria-first, Pan-African then Global · Mobile-first PWA + Android APK · Admin-minimal operation
 
@@ -193,7 +193,7 @@ A new user must feel the core loop — the sensation of earning something — wi
 - Users may optionally set a 4-digit PIN to protect login and sensitive operations (payments, payout requests). PIN is not mandatory.
 - 2FA defaults to authenticator app (Google Authenticator, Authy, or equivalent). No SMS 2FA.
 - The 2FA login flow uses a short-lived `pre_auth` JWT type. After verifying email + password the server issues a `pre_auth` token scoped only to the `/api/auth/2fa/verify` endpoint. All other API routes and app pages reject `pre_auth` tokens, redirecting the browser to `/auth/2fa`. A full-access access token is issued only after successful TOTP verification. TOTP codes are replay-protected with a Redis atomic SET NX keyed by `totp:used:<userId>:<code>` (90-second TTL matching the TOTP window).
-- On Android, the JWT is stored in Expo SecureStore. On web, in an HttpOnly cookie.
+- On Android, the JWT is stored in Capacitor Preferences (backed by Android SharedPreferences with encryption). On web, in an HttpOnly cookie.
 
 ### The Onboarding Flow
 
@@ -877,7 +877,7 @@ Referral links use numeric IDs and not usernames (for privacy). URL format: `?r=
 
 ### Public URL Structure — SEO-Friendly Slugs
 
-Public, shareable, crawlable surfaces use short, human-readable, SEO-friendly paths. The same scheme is used by the web app, the PWA and the Expo app (as universal links):
+Public, shareable, crawlable surfaces use short, human-readable, SEO-friendly paths. The same scheme is used by the web app, the PWA and the Android app (as universal links):
 
 | Surface | URL | Notes |
 |---|---|---|
@@ -891,9 +891,9 @@ Public, shareable, crawlable surfaces use short, human-readable, SEO-friendly pa
 
 **Backward compatibility (no broken links).** Legacy `/r/<uuid>` links and retired slugs (after a rename, tracked in the `slug_redirects` table) **301-redirect** to the current canonical slug URL rather than 404ing. The sitemap, OpenGraph `canonical`, and `robots.txt` all use the slug path.
 
-**Cross-platform deep linking.** The Expo app registers universal-link screens (`/u/[username]`, `/r/[slug]`, `/c/[slug]`, `/g/[slug]`) that resolve the slug/username to the internal UUID via `GET /api/public/resolve` and forward to the in-app screen. Android App Links (`/.well-known/assetlinks.json`) and iOS Universal Links (`/.well-known/apple-app-site-association`) are configured for the active web domain.
+**Cross-platform deep linking.** The Android app registers universal-link routes (`/u/[username]`, `/r/[slug]`, `/c/[slug]`, `/g/[slug]`) that resolve the slug/username to the internal UUID via `GET /api/public/resolve` and forward to the in-app screen. Android App Links (`/.well-known/assetlinks.json`) are configured for the active web domain via the `zobia://` custom scheme intent-filter in the AndroidManifest.
 
-**Domain.** The canonical domain is configured via `NEXT_PUBLIC_APP_URL` (web) and `WEB_BASE_URL` (Expo). It currently points at the Vercel deployment (`zobia.vercel.app`) during development and switches to `zobia.org` once the custom domain is connected — a single env/config change, no code edits.
+**Domain.** The canonical domain is configured via `NEXT_PUBLIC_APP_URL` (web) and `VITE_WEB_BASE_URL` (Android). It currently points at the Vercel deployment (`zobia.vercel.app`) during development and switches to `zobia.org` once the custom domain is connected — a single env/config change, no code edits.
 
 **Commission-based referrals:** For creator affiliate scenarios, admin can configure a lifetime 5% cash commission on referred users' credit purchases, paid in Credits or cash depending on the admin's payout configuration.
 
@@ -965,7 +965,7 @@ When a user receives any positive currency award, a floating pill animation rise
 - Per-currency confetti thresholds (configurable via Admin → Config)
 - Admin demo page (Admin → Notifications Demo) with buttons to preview every notification type and simulate quest completion
 
-**Platform coverage:** Web app, PWA, and Expo mobile app (iOS/Android). Implemented via `FloatingNotificationProvider` context.
+**Platform coverage:** Web app, PWA, and Android app. Implemented via `FloatingNotificationProvider` context.
 
 ---
 
@@ -1201,7 +1201,7 @@ A full-screen or centred modal that appears when a user logs in, used for sitewi
   - **Random:** A random active, audience-matched modal is selected on each login.
   - Admin selects the display mode (serial or random) globally in the announcement settings.
 - **Dismiss:** Modal has a visible "×" close button. Closing the modal does not prevent it from showing again on the next login (it is a per-login, not a per-lifetime, display).
-- **Platforms:** Appears in the web app, Android mobile app, and PWA. Rendering adapts appropriately per platform (React Native Modal component on Android; CSS modal on web/PWA).
+- **Platforms:** Appears in the web app, Android mobile app, and PWA. Rendering adapts per platform (Capacitor WebView modal on Android; CSS modal on web/PWA).
 
 **Announcement Top Banner**
 
@@ -1263,13 +1263,13 @@ The platform Vitality Calendar incorporates Nigerian, Pan-African, and global cu
 
 ### Guiding Constraints
 
-- **Zero-cost MVP deployment** on Vercel Hobby Plan (web/admin panel) and Expo EAS Build free tier (APK).
-- **Mobile-first native Android APK** built with Expo (React Native). The app must feel fully native — native scroll behavior, native gestures, native transitions. No WebView wrappers. Target Android API Level 35 (Android 15). *(Correction v1.89: previously stated "API Level 36".)*
-- **Separate web/PWA** built with Next.js, sharing the same backend API and database as the Expo app but as a distinct frontend codebase.
-- **Admin panel** is a Next.js web app deployed on Vercel. Admins use browsers; the admin panel is never included in the APK. The Android app mirrors all admin panel functionality available on web wherever feasible.
+- **Zero-cost MVP deployment** on Vercel Hobby Plan (web/admin panel) and GitHub Actions (APK, free for public repos).
+- **Mobile-first Android APK** built with Capacitor 6 + Vite 5 + React 18. The app runs inside a full-screen WebView served by the Vite bundle — enabling direct sharing of Tailwind tokens, TanStack Query, and TanStack Router with the web codebase. Target Android API Level 36 (Android 16): `compileSdk 36`, `targetSdk 36`, `minSdk 26`.
+- **Separate web/PWA** built with Next.js, sharing the same backend API and database as the Android app but as a distinct frontend codebase.
+- **Admin panel** is a Next.js web app deployed on Vercel. Admins use browsers; the admin panel is never included in the APK. The Android app mirrors key admin panel metrics in a read-only view.
 - **Database-provider-agnostic**: the platform supports multiple PostgreSQL providers. Switching providers requires only an env var change, not code changes.
 - **Auth-system-agnostic**: in non-Supabase mode, Supabase Auth and all Supabase dependencies are completely absent. Auth is handled by the platform's own JWT system backed by the configured database.
-- **Offline-friendly**: the app loads without breaking when there is no internet. Elements requiring internet have graceful fallbacks. Local storage and cache maintain reasonable data freshness and integrity.
+- **Offline-friendly**: TanStack Query v5 with `experimental_createPersister` (IndexedDB via `idb-keyval`) persists query results across sessions. The app loads previously cached data immediately on restart with no network. Elements requiring live data have graceful fallbacks.
 - **Low-bandwidth optimised**: primary users are in bandwidth-constrained settings (2G/3G). All payloads are compressed. Images are compressed on upload.
 - **Modular architecture**: features are independently deployable and toggleable. No monolithic coupling between modules.
 
@@ -1277,16 +1277,18 @@ The platform Vitality Calendar incorporates Nigerian, Pan-African, and global cu
 
 | Layer | Technology |
 |---|---|
-| Mobile App (Android APK) | Expo (React Native) — compiles to a real native Android APK via Expo EAS Build (cloud build, no local Android Studio required). UI components render as native Android views, not WebViews. Target Android API Level 35 (Android 15). *(Correction v1.89: previously stated "API Level 36".)* |
-| Mobile Navigation & Gestures | Expo Router (file-based routing, close to Next.js App Router patterns) + React Navigation + React Native Reanimated + React Native Gesture Handler |
+| Mobile App (Android APK) | Capacitor 6 + Vite 5 + React 18 — the Vite bundle runs inside Capacitor's full-screen WebView. Gradle/AGP compiles the native shell. Target `compileSdk 36`, `targetSdk 36`, `minSdk 26` (Android 8.0+). |
+| Mobile Routing | TanStack Router v1 (file-based, `src/routes/`) — same routing paradigm as the web codebase. `TanStackRouterVite` plugin auto-generates `routeTree.gen.ts` at build time. |
+| Mobile Data Fetching | TanStack Query v5 with `experimental_createPersister` + `idb-keyval` (IndexedDB) — 24h staleTime, 7d gcTime. Queries pause/resume via `@capacitor/network` events. |
+| Mobile Native Bridge | Capacitor 6 — `@capacitor/preferences` (token storage), `@capacitor/network` (connectivity), `@capacitor/app` (foreground/background), `@capacitor/splash-screen`, `@capacitor/push-notifications`. |
 | Web / PWA | Next.js (App Router) — separate frontend codebase, shares backend API and database |
-| Admin Panel | Next.js (App Router) — browser-only, deployed on Vercel, not included in APK. Feature-mirrored on Android app where feasible. |
-| Backend (API) | Next.js API Routes + Edge Functions where appropriate, deployed on Vercel. Serves the Expo app, the web/PWA, and the admin panel. |
+| Admin Panel | Next.js (App Router) — browser-only, deployed on Vercel, not included in APK. Key metrics mirrored in the Android app (read-only). |
+| Backend (API) | Next.js API Routes + Edge Functions where appropriate, deployed on Vercel. Serves the Android app, the web/PWA, and the admin panel. |
 | Database (see Section 22.1) | PostgreSQL — provider is selected via env var. Supported: Supabase, Railway PostgreSQL (with PgBouncer), DigitalOcean Managed PostgreSQL (with PgBouncer). Adding a new provider requires only a new adapter module. |
 | Row Level Security | Applied at the database level (PostgreSQL RLS policies). Works across all supported providers. |
 | Connection Pooling | PgBouncer — built into Railway and DigitalOcean managed offerings; Supabase uses its built-in connection pooler. All modes use pooled connections. |
 | Auth (see Section 22.2) | Platform-managed JWT auth (not Supabase Auth). Google OAuth + Telegram Login. Same auth available on web, PWA, and Android app. In non-Supabase mode, zero Supabase dependencies. |
-| Realtime | Provider-dependent: **Supabase Realtime only when `DATABASE_PROVIDER=supabase`**. When using any other database provider (Railway, DigitalOcean, etc.), Supabase Realtime is completely absent. Non-Supabase modes use **Server-Sent Events (SSE)** with periodic DB polling as the equivalent construct — the backend exposes a `/api/sse/rooms/[roomId]` endpoint that polls the database every 1–3 seconds and pushes updates to connected clients via the EventSource API. The web app uses the browser `EventSource` API; the Expo app uses a simple polling loop via `setInterval` on React Query's `refetchInterval`. This approach requires zero additional infrastructure and works on Vercel serverless functions up to the 30-second response streaming limit. |
+| Realtime | Ably (primary) via `authCallback` pattern — scoped token endpoint `GET /api/realtime/ably-token?channel=<name>` verifies JWT and confirms channel access. Adaptive baseline poll (`useAdaptiveChatPoll`) runs in parallel as a safety net. |
 | Cache / Sessions | Redis (ioredis native or Upstash — configured via env var) + JWT |
 | Object Storage (see Section 22.3) | Provider-dependent: Supabase Storage in Supabase mode; S3-compatible storage in non-Supabase mode. Default S3-compatible recommendation: Cloudflare R2. Selected via env var. |
 | Email | Mailgun |
@@ -1294,65 +1296,44 @@ The platform Vitality Calendar incorporates Nigerian, Pan-African, and global cu
 | AI (Fallback) | Google Gemini |
 | Payments (Nigeria Web/PWA) | Paystack (primary) + DodoPayments (available as toggle) |
 | Payments (International Web/PWA) | DodoPayments |
-| Payments (Android In-App) | Google Play Billing only (via react-native-iap). No Paystack or DodoPayments SDK in the Android app for in-app purchases. |
-| Advertising (Mobile) | AdMob via `react-native-google-mobile-ads` |
+| Payments (Android In-App) | Google Play Billing via `@capacitor-community/in-app-purchases` or WebView-based Paystack/DodoPayments checkout flow. |
+| Advertising (Mobile) | AdMob via Capacitor plugin (`@capacitor-community/admob`). |
 | CAPTCHA | Google reCAPTCHA (default) / Cloudflare Turnstile (toggle). Admin can switch which is active. |
-| Deep Links | Expo Linking + Android App Links + iOS Universal Links. SEO-friendly public paths (`/u/<username>`, `/r/<slug>`, `/c/<slug>`, `/g/<slug>`) resolve via `GET /api/public/resolve` to internal UUIDs. Deep links supported for: user profiles, Rooms, courses, games, Guilds, referral links (`?r=` on any page), shared content, and notification tap targets. |
+| Deep Links | `@capacitor/app` `appUrlOpen` listener + TanStack Router navigation. `zobia://` custom scheme in AndroidManifest. SEO-friendly public paths (`/u/<username>`, `/r/<slug>`, `/c/<slug>`, `/g/<slug>`) resolve via `GET /api/public/resolve` to internal UUIDs. |
 | PWA | Configurable per platform by admin: enable for web only, mobile/Android only, iOS only, or any combination. |
 | CRON | Vercel Hobby Plan (once daily, default) + cron-jobs.org (external, for higher frequency) |
-| APK Build & Distribution | Expo EAS Build (cloud build, free tier for MVP). Keystore managed via EAS or GitHub secrets for self-managed signing. |
+| APK Build & Distribution | GitHub Actions (`.github/workflows/android-build.yml`) — Node 20.19.4 + Java 17 + `./gradlew assembleDebug`. Artifact uploaded with 30-day retention. Required secrets: `VITE_API_BASE_URL`, `VITE_WEB_BASE_URL`. |
 | Hosting (Web/API/Admin) | Vercel (Hobby Plan for MVP, upgrade as needed) |
 
-### 22.0.1 — Mobile (Expo) Build Constraints (must-read before building the APK)
+### 22.0.1 — Android App (Capacitor) Build Constraints (must-read before building the APK)
 
-The monorepo deliberately runs **two different React majors** — `apps/web` (Next.js 15)
-on `react@18.3.1` and `apps/expo` (React Native 0.74) on `react@18.2.0`, because RN 0.74
-has a strict `react@18.2.0` peer. This split has non-obvious consequences that have
-repeatedly broken the EAS Android build at the final Metro-bundle step. The full
-runbook lives in **`docs/SETUP.md` → "Mobile (Expo) Android APK Build"**; the
-non-negotiable rules are:
+The Android app lives at `apps/android/` and is built with **Capacitor 6 + Vite 5 + React 18**.
+The full runbook lives in **`docs/SETUP.md` → "Android App"**. Non-negotiable rules:
 
-1. **Single npm lockfile, installed from the repo root.** npm-workspaces only — never
-   `npm install` inside `apps/expo`/`apps/web`; never commit a nested `package-lock.json`.
-2. **Do not unify the React versions — and never pin React via root `overrides`.** The split
-   is intentional; unifying either fails `npm install` (RN peer) or causes a dual-React
-   `Invalid hook call` crash. Each workspace declares its own React (web `^18.3.1`, expo
-   `18.2.0`) and npm nests them correctly. Do **not** add `react`/`react-dom` to the root
-   `package.json` `overrides`: npm overrides are global and force a single React into **both**
-   subtrees. Forcing `18.3.1` into the Expo bundle makes RN 0.74's renderer hit mismatched
-   React internals and crash at the earliest init — `AppRegistry` registers n=0 callable
-   modules (silent white screen, no chip, no red box). As a safety net, `metro.config.js`
-   now throws at build time if it ever resolves `react != 18.2.x`. *(Root cause 7, fixed v1.90.)*
-3. **Keep the explicit `expoRouterBabelPlugin` in `apps/expo/babel.config.js`.** Because
-   `expo-router` stays nested under `apps/expo` (it binds `react@18.2.0`), the root-hoisted
-   `babel-preset-expo` can't auto-detect it, so the router transform must be applied
-   explicitly or the release bundle fails on `EXPO_ROUTER_APP_ROOT` / `require.context`.
-4. **The root-level `react-native-google-mobile-ads` key in `app.json` is REQUIRED — do not
-   remove it.** *(Correction v1.92: this rule previously said the opposite, which broke the
-   native build.)* `react-native-google-mobile-ads`'s `android/build.gradle` (line ~82) reads
-   this key **directly from `app.json` via a Gradle `JsonSlurper`** — a different consumer
-   than the Expo config schema. Because the key is a sibling of the `expo` object, Expo prints
-   a **harmless** warning at config time: *"Root-level expo object found. Ignoring extra key
-   in Expo config: react-native-google-mobile-ads"*. That warning is expected; do **not**
-   "fix" it by deleting the key, or the build fails with `Cannot get property
-   'googleMobileAdsJson'` (plus a cascading `compileSdkVersion is not specified` on the same
-   project). The AndroidManifest `com.google.android.gms.ads.APPLICATION_ID` meta-data is
-   injected separately by the custom `./plugins/withGoogleMobileAds` plugin, which reads the
-   App IDs from the **explicit props** passed in the `plugins` array (not from this key and
-   not from `app.config.js`). `mobileAds().initialize()` runs once at startup via
-   `initializeAds()`. **Known gap:** the plugin props are hard-coded test IDs, so production
-   currently ships Google's test AdMob App ID; the `ADMOB_APP_ID_*` EAS env vars are not yet
-   wired into the plugin props (tracked separately).
-5. **Target Android API level 35.** *(Correction v1.89: previously stated "API 36". The actual `expo-build-properties` config sets `targetSdkVersion: 35`.)* Builds run via `.github/workflows/build-android.yml` and require the `EXPO_TOKEN` secret (no token ⇒ the APK step is skipped).
-6. **Android 15 (API 35) forces full-screen edge-to-edge — handle insets, do not try to opt out.**
-   Android 15 (API 35) forces every app targeting API 35+ into edge-to-edge display. The XML opt-out
-   attribute `android:windowOptOutEdgeToEdgeEnforcement` cannot be used: it is not present in
-   the EAS build image's `android.jar`, causing an AAPT2 build failure. The correct approach is to embrace edge-to-edge
-   and handle system-bar insets using `react-native-safe-area-context` throughout the app (wrap all
-   screens in `SafeAreaView` or call `useSafeAreaInsets()`). The `plugins/withAndroidEdgeToEdge.js`
-   file exists in the repo but is **not registered** in `app.json` and must remain disabled. When
-   Expo SDK 52+ support is available on EAS, migrate to the `expo-edge-to-edge` package which
-   handles edge-to-edge correctly via the platform's supported APIs.
+1. **Single npm lockfile, installed from the repo root.** npm workspaces only — never
+   run `npm install` inside `apps/android/`; never commit a nested `package-lock.json`
+   inside `apps/android/`. All dependencies are managed from the root `package.json`.
+2. **Node 20.19.4.** `apps/android/.nvmrc` pins this. The GitHub Actions workflow uses
+   `actions/setup-node@v4` with `node-version: '20.19.4'`. The `engines` field in
+   `apps/android/package.json` declares `"node": ">=20.0.0"`.
+3. **Target Android API 36.** `apps/android/android/app/build.gradle` must keep
+   `compileSdk 36`, `targetSdk 36`, `minSdk 26`. Do not downgrade these values.
+4. **No Capacitor CLI invocations in CI.** The Gradle project under
+   `apps/android/android/` is committed directly to the repo. CI runs only
+   `npm ci` (root), `vite build` (in `apps/android/`), file copy, and `gradlew assembleDebug`.
+   There is no `npx cap sync` or `npx cap add android` step in CI.
+5. **Dist copy before Gradle.** The Vite build output (`apps/android/dist/`) must be
+   copied into `apps/android/android/app/src/main/assets/public/` before Gradle runs.
+   The GitHub Actions workflow does this with a `cp -r` step. Forgetting this step
+   produces an APK that opens to a blank WebView.
+6. **All user-facing strings via i18next `t('key')`.** No hardcoded English strings in
+   React components. English strings live in `shared/i18n/locales/en.json`. The Android
+   app loads locale files from `shared/i18n/locales/` via relative imports in
+   `src/lib/i18n/index.ts`.
+7. **Ably subscribe-once discipline.** `useRealtimeChannel` subscribes to exactly one
+   channel per hook instance and unsubscribes strictly on unmount. Never subscribe in
+   a loop or inside a render function. The `onEventRef` pattern ensures the callback
+   reference is always current without causing re-subscriptions.
 
 ### 22.1 — Database Provider Architecture
 
@@ -1389,12 +1370,12 @@ Authentication is handled by the platform's own JWT system, not Supabase Auth. T
 3. Callback validates CSRF, upserts user, issues platform JWT and refresh token as HttpOnly cookies, redirects to `/home` or `/onboarding`.
 
 **Auth flow (Android app):**
-1. User taps "Continue with Google" → Expo app opens `/api/auth/google?platform=mobile&redirect=zobia://auth/callback` **directly** inside a Chrome Custom Tab via `expo-web-browser`. The Custom Tab (browser engine) stores the CSRF and mobile-redirect cookies set by this response — this is critical; fetching the URL via Axios first and then opening the returned Google URL in the Custom Tab causes cookie loss because Axios has no persistent cookie jar.
+1. User taps "Continue with Google" → the Android app opens `/api/auth/google?platform=mobile&redirect=zobia://auth/callback` in a Chrome Custom Tab (via Capacitor Browser plugin or `window.open`). The Custom Tab stores CSRF and mobile-redirect cookies.
 2. Custom Tab follows the 302 redirect to Google. User selects their account.
 3. Google redirects to `/api/auth/google/callback` — the Custom Tab includes the CSRF cookie automatically (same browser session).
 4. Callback validates CSRF, creates a one-time exchange code stored in Redis (90s TTL), redirects to `zobia://auth/callback?code=<exchangeCode>`.
-5. Custom Tab detects the `zobia://` custom scheme → `openAuthSessionAsync` resolves with the URL.
-6. App POSTs `{ code }` to `/api/auth/mobile-token` over HTTPS → receives `accessToken`, `refreshToken`, and user payload. Tokens stored in Expo SecureStore.
+5. The `zobia://` scheme is registered in AndroidManifest — the OS routes the redirect back to the Capacitor app via `@capacitor/app`'s `appUrlOpen` event.
+6. App POSTs `{ code }` to `/api/auth/mobile-token` over HTTPS → receives `accessToken`, `refreshToken`, and user payload. Tokens stored in `@capacitor/preferences`.
 7. All subsequent API calls present the JWT as a `Bearer` token. The backend validates it against the Redis session store.
 8. Refresh tokens are stored in Redis with a sliding window. Session invalidation propagates immediately via Redis key deletion.
 

@@ -1018,6 +1018,68 @@ Notification tap handling routes users to the deep-link `action` field attached 
 
 ---
 
+## Android App
+
+The Android app lives at `apps/android/` and is built with **Capacitor 6** (WebView bridge), **Vite 5** (bundler), **React 18**, **TanStack Router v1** (file-based routing), **TanStack Query v5** (data fetching), and **Tailwind CSS**. It shares the same backend API and authentication system as the web app and the Expo app.
+
+### Architecture
+
+The build pipeline is: Vite bundles the React app into `apps/android/dist/`, Capacitor copies that bundle into `apps/android/android/app/src/main/assets/public/`, and Gradle wraps it in a native Android shell. The result is a standard `.apk` whose only native surface is a full-screen WebView.
+
+Key architectural decisions:
+
+- **Capacitor replaces React Native.** There are no native UI components — the entire UI is the Vite-built React app running in a WebView. This allows sharing Tailwind classes, TanStack Router, and TanStack Query directly with the web codebase without a React Native bridge layer.
+- **TanStack Router v1 with file-based routing.** Route files live in `apps/android/src/routes/`. The `TanStackRouterVite` Vite plugin auto-generates `src/routeTree.gen.ts` at build time. Public routes (`/auth/login`, `/auth/register`) bypass `AuthGuard`; all other routes require a valid token.
+- **Capacitor Preferences replaces SecureStore/MMKV.** JWT and refresh tokens are stored via `@capacitor/preferences` (backed by Android SharedPreferences with encryption). The API client (`src/lib/api/client.ts`) reads and writes tokens through the same async `get/set/remove` pattern.
+- **Capacitor Network and App replace NetInfo and AppState.** `@capacitor/network` powers `useNetworkStatus` for the offline banner and query pause logic. `@capacitor/app` provides `appStateChange` events to pause Ably subscriptions and query polling when the app is backgrounded.
+- **i18next-browser-languagedetector replaces expo-localization.** Language detection reads the browser `Accept-Language` header (surfaced by Capacitor's WebView). The chosen language is persisted in `@capacitor/preferences`. All locale JSON files are sourced from `shared/i18n/locales/` — the same canonical files used by the web app.
+
+### Routing and Navigation
+
+The root route (`src/routes/__root.tsx`) renders `AppShell`:
+
+1. `AuthGuard` — redirects unauthenticated users to `/auth/login`.
+2. `TopBar` — 56px fixed header with page title and optional back button.
+3. `OfflineBanner` — fixed red strip below the TopBar, visible only when offline.
+4. `<Outlet>` — the active route's content, wrapped with `page-slide-in` CSS animation.
+5. `BottomNav` — 5-tab navigation (Home, Games, Messages, Rooms, Profile).
+
+Route-to-title mapping is derived from `location.pathname` inside `AppShell` — no per-route metadata object required.
+
+### Offline Support
+
+TanStack Query v5 is configured with `experimental_createPersister` from `@tanstack/query-persist-client-core` backed by `idb-keyval` (IndexedDB). All successful query results with `staleTime: 24 * 60 * 60 * 1000` are persisted across app restarts with a 7-day `gcTime`.
+
+When offline:
+- The offline banner (`src/components/ui/OfflineBanner.tsx`) appears immediately via `useNetworkStatus`.
+- Queries fall back to the IndexedDB-persisted cache automatically — no separate cache-read logic needed.
+- TanStack Query's `onlineManager` is wired to `@capacitor/network` events so queries pause and resume with real connectivity changes.
+
+### Realtime
+
+`src/lib/realtime/useRealtimeChannel.ts` is adapted from `apps/expo/lib/realtime/useRealtimeChannel.ts`. Key differences:
+
+- `App.addListener('appStateChange', ...)` replaces React Native's `AppState.addEventListener`.
+- The listener handle is stored and cleaned up via `handle.remove()` on unmount.
+- All other logic is identical: Ably `authCallback` pattern, `RECOVERABLE_STATES`, `onEventRef` stable-ref pattern, and strict single-subscribe-per-channel discipline.
+
+Adaptive polling (`src/lib/hooks/useAdaptiveChatPoll.ts`) is a verbatim copy of `apps/web/lib/hooks/useAdaptiveChatPoll.ts`. When the Ably socket is connected, the baseline poll runs every 30 seconds. When disconnected, it starts at 3 seconds and backs off geometrically to 15 seconds. When the app is backgrounded, polling pauses entirely.
+
+### APK Build Process
+
+See `docs/SETUP.md` → "Android App" for full instructions. In brief:
+
+1. Push to the `android` branch (or trigger the workflow manually at `.github/workflows/android-build.yml`).
+2. The GitHub Actions workflow runs `npm ci` (root workspace), `vite build` (with `VITE_API_BASE_URL` and `VITE_WEB_BASE_URL` secrets), copies the dist bundle into `android/app/src/main/assets/public/`, and runs `./gradlew assembleDebug --no-daemon`.
+3. The resulting `app-debug.apk` is uploaded as a workflow artifact (30-day retention).
+4. Download the artifact from the GitHub Actions run and sideload it on an Android device.
+
+Required repository secrets: `VITE_API_BASE_URL`, `VITE_WEB_BASE_URL`.
+
+Build targets: `compileSdk 36`, `targetSdk 36`, `minSdk 26` (Android 8.0+). Gradle 8.7, AGP 8.3.2, Java 17.
+
+---
+
 ## Community Notes
 
 Community Notes is an admin-toggleable crowdsourced fact-checking feature (PRD §19, Layer 2 moderation).
