@@ -36,7 +36,8 @@ function LoginPage() {
         url: `${env.VITE_API_BASE_URL}/api/auth/google?redirect=${encodeURIComponent(CALLBACK_DEEP_LINK)}`,
         presentationStyle: 'popover',
       });
-    } catch {
+    } catch (err) {
+      console.error('[auth] Browser.open (Google) failed:', err);
       setError(t('auth.error.oauthFailed'));
     } finally {
       setGoogleLoading(false);
@@ -55,7 +56,8 @@ function LoginPage() {
         url: `${env.VITE_API_BASE_URL}/auth/telegram-mobile?redirect=${encodeURIComponent(CALLBACK_DEEP_LINK)}`,
         presentationStyle: 'popover',
       });
-    } catch {
+    } catch (err) {
+      console.error('[auth] Browser.open (Telegram) failed:', err);
       setError(t('auth.error.oauthFailed'));
     } finally {
       setTelegramLoading(false);

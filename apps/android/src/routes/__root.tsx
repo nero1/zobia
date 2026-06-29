@@ -54,7 +54,10 @@ function AppShell() {
           body: JSON.stringify(body),
         });
 
-        if (!res.ok) return;
+        if (!res.ok) {
+          console.error('[auth] mobile-token exchange failed:', res.status, await res.text().catch(() => ''));
+          return;
+        }
 
         const data = await res.json() as {
           accessToken?: string;
@@ -75,10 +78,14 @@ function AppShell() {
           if (userParsed.success) {
             await setAuth(data.accessToken, userParsed.data, data.refreshToken);
             navigate({ to: '/home', replace: true });
+          } else {
+            console.error('[auth] user schema parse failed:', userParsed.error);
           }
+        } else {
+          console.error('[auth] mobile-token response missing accessToken or user:', data);
         }
-      } catch {
-        // malformed deep link or network error — ignore
+      } catch (err) {
+        console.error('[auth] appUrlOpen handler error:', err);
       }
     });
 
