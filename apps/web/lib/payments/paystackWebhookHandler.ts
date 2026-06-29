@@ -298,7 +298,7 @@ export async function processChargeSuccess(
         // BUG-042/075: Reject if the item expired before the payment was made.
         // Use paid_at as the purchase time (not webhook arrival) to honor payments made before expiry.
         if (packRows[0].valid_until) {
-          const paidAt = new Date(event.data.paid_at);
+          const paidAt = new Date(data.paid_at);
           const validUntil = new Date(packRows[0].valid_until);
           if (paidAt > validUntil) {
             logger.warn({ reference, packId: metadata.packId, paidAt, validUntil }, "[webhook/paystack] Purchase for expired store item — refunding");

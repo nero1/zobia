@@ -91,7 +91,7 @@ async function applyUpdate(
 // ---------------------------------------------------------------------------
 
 export const PUT = withAdminAuth(
-  async (req: NextRequest, { params, auth }: { auth: { user: { sub: string } }; params: Promise<{ id: string }> }) => {
+  async (req: NextRequest, { params, auth }: { auth: { user: { sub: string } }; params: { id: string } }) => {
     try {
       await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
       const { id } = await params;
@@ -115,7 +115,7 @@ export const PUT = withAdminAuth(
 // ---------------------------------------------------------------------------
 
 export const PATCH = withAdminAuth(
-  async (req: NextRequest, { params, auth }: { auth: { user: { sub: string } }; params: Promise<{ id: string }> }) => {
+  async (req: NextRequest, { params, auth }: { auth: { user: { sub: string } }; params: { id: string } }) => {
     try {
       await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
       const { id } = await params;
@@ -139,7 +139,7 @@ export const PATCH = withAdminAuth(
 // ---------------------------------------------------------------------------
 
 export const DELETE = withAdminAuth(
-  async (req: NextRequest, { params, auth }: { auth: { user: { sub: string } }; params: Promise<{ id: string }> }) => {
+  async (req: NextRequest, { params, auth }: { auth: { user: { sub: string } }; params: { id: string } }) => {
     try {
       await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
       const { id } = await params;
