@@ -8,7 +8,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/auth/store';
-import { LOCALE_LABELS, SUPPORTED_LOCALES, type SupportedLocale } from '../../../shared/i18n/locales';
+import { LOCALE_LABELS, SUPPORTED_LOCALES, type SupportedLocale } from '@zobia/shared/i18n';
 import i18n from '@/lib/i18n';
 
 const APP_VERSION = '1.0.0';

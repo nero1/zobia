@@ -19,7 +19,25 @@
     "noUncheckedSideEffectImports": true,
     "paths": {
       "@/*": ["./src/*"],
-      "@zobia/shared": ["../../shared"]
+      "@zobia/shared": ["../../shared"],
+      "@zobia/shared/schemas/auth": ["../../shared/schemas/api/auth.ts"],
+      "@zobia/shared/schemas/coins": ["../../shared/schemas/api/coins.ts"],
+      "@zobia/shared/schemas/user": ["../../shared/schemas/api/user.ts"],
+      "@zobia/shared/schemas/notifications": ["../../shared/schemas/api/notifications.ts"],
+      "@zobia/shared/schemas/economy": ["../../shared/schemas/api/economy.ts"],
+      "@zobia/shared/schemas": ["../../shared/schemas/index.ts"],
+      "@zobia/shared/types": ["../../shared/types/index.ts"],
+      "@zobia/shared/utils": ["../../shared/utils/index.ts"],
+      "@zobia/shared/i18n/locales/en": ["../../shared/i18n/locales/en.json"],
+      "@zobia/shared/i18n/locales/fr": ["../../shared/i18n/locales/fr.json"],
+      "@zobia/shared/i18n/locales/ar": ["../../shared/i18n/locales/ar.json"],
+      "@zobia/shared/i18n/locales/ha": ["../../shared/i18n/locales/ha.json"],
+      "@zobia/shared/i18n/locales/sw": ["../../shared/i18n/locales/sw.json"],
+      "@zobia/shared/i18n/locales/am": ["../../shared/i18n/locales/am.json"],
+      "@zobia/shared/i18n/locales/zu": ["../../shared/i18n/locales/zu.json"],
+      "@zobia/shared/i18n/locales/pt": ["../../shared/i18n/locales/pt.json"],
+      "@zobia/shared/i18n/locales/pidgin": ["../../shared/i18n/locales/pidgin.json"],
+      "@zobia/shared/i18n": ["../../shared/i18n/locales.ts"]
     }
   },
   "include": ["src"]

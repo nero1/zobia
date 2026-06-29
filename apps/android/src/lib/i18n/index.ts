@@ -14,16 +14,16 @@ import { initReactI18next } from 'react-i18next';
 import LanguageDetector from 'i18next-browser-languagedetector';
 import { Preferences } from '@capacitor/preferences';
 
-// Import locale JSONs from shared package
-import en from '../../../shared/i18n/locales/en.json';
-import fr from '../../../shared/i18n/locales/fr.json';
-import ar from '../../../shared/i18n/locales/ar.json';
-import ha from '../../../shared/i18n/locales/ha.json';
-import sw from '../../../shared/i18n/locales/sw.json';
-import am from '../../../shared/i18n/locales/am.json';
-import zu from '../../../shared/i18n/locales/zu.json';
-import pt from '../../../shared/i18n/locales/pt.json';
-import pidgin from '../../../shared/i18n/locales/pidgin.json';
+// Import locale JSONs from shared package (via @zobia/shared Vite alias)
+import en from '@zobia/shared/i18n/locales/en.json';
+import fr from '@zobia/shared/i18n/locales/fr.json';
+import ar from '@zobia/shared/i18n/locales/ar.json';
+import ha from '@zobia/shared/i18n/locales/ha.json';
+import sw from '@zobia/shared/i18n/locales/sw.json';
+import am from '@zobia/shared/i18n/locales/am.json';
+import zu from '@zobia/shared/i18n/locales/zu.json';
+import pt from '@zobia/shared/i18n/locales/pt.json';
+import pidgin from '@zobia/shared/i18n/locales/pidgin.json';
 
 export type SupportedLocale = 'en' | 'fr' | 'ar' | 'ha' | 'sw' | 'am' | 'zu' | 'pt' | 'pidgin';
 const SUPPORTED_LOCALES: SupportedLocale[] = ['en', 'fr', 'ar', 'ha', 'sw', 'am', 'zu', 'pt', 'pidgin'];

@@ -7,7 +7,7 @@
  */
 
 import { QueryClient } from '@tanstack/react-query';
-import { experimental_createPersister } from '@tanstack/query-persist-client-core';
+import { experimental_createQueryPersister } from '@tanstack/query-persist-client-core';
 import { get, set, del } from 'idb-keyval';
 
 const STALE_TIME = 24 * 60 * 60 * 1000;  // 24 hours
@@ -24,7 +24,7 @@ export const queryClient = new QueryClient({
         return failureCount < 2;
       },
       refetchOnWindowFocus: false,
-      persister: experimental_createPersister({
+      persister: experimental_createQueryPersister({
         storage: {
           getItem: async (key: string) => {
             const val = await get(key);
