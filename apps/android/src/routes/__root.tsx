@@ -17,7 +17,7 @@ import { AuthUserSchema } from '@zobia/shared/schemas/auth';
 
 // Tab roots that don't show a back button
 const TAB_ROOTS = ['/home', '/games', '/rooms', '/notifications', '/settings'];
-const PUBLIC_ROUTES = ['/auth/login', '/auth/register'];
+const PUBLIC_ROUTES = ['/auth/login', '/auth/register', '/auth/two-factor'];
 
 function AppShell() {
   const { t } = useTranslation();
@@ -30,7 +30,7 @@ function AppShell() {
     const listenerPromise = CapApp.addListener('appUrlOpen', ({ url }) => {
       try {
         const parsed = new URL(url);
-        if (parsed.hostname === 'auth' && parsed.pathname === '/callback') {
+        if (parsed.hostname === 'auth' && (parsed.pathname === '/callback' || parsed.pathname === '/telegram-callback')) {
           const token = parsed.searchParams.get('token');
           const userJson = parsed.searchParams.get('user');
           if (token && userJson) {
@@ -67,6 +67,7 @@ function AppShell() {
     if (pathname === '/settings') return t('settings.title');
     if (pathname === '/auth/login') return t('auth.login');
     if (pathname === '/auth/register') return t('auth.register');
+    if (pathname === '/auth/two-factor') return t('auth.2fa.title');
     return 'Zobia';
   };
 

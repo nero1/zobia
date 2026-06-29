@@ -13,6 +13,7 @@ import { LoginRequestSchema } from '@zobia/shared/schemas/auth';
 import { useAuth } from '@/lib/auth/store';
 import { apiClient } from '@/lib/api/client';
 import { env } from '@/lib/env';
+import { setPreAuthToken } from '@/lib/auth/preAuth';
 import type { AuthResponse } from '@zobia/shared/schemas/auth';
 
 function LoginPage() {
@@ -25,6 +26,7 @@ function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [telegramLoading, setTelegramLoading] = useState(false);
 
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
@@ -35,6 +37,18 @@ function LoginPage() {
       });
     } finally {
       setGoogleLoading(false);
+    }
+  };
+
+  const handleTelegramLogin = async () => {
+    setTelegramLoading(true);
+    try {
+      await Browser.open({
+        url: `${env.VITE_API_BASE_URL}/api/auth/telegram?mobile=true`,
+        presentationStyle: 'popover',
+      });
+    } finally {
+      setTelegramLoading(false);
     }
   };
 
@@ -51,7 +65,10 @@ function LoginPage() {
     setLoading(true);
     try {
       const { data } = await apiClient.post<AuthResponse>('/auth/login', { email, password });
-      if (data.accessToken) {
+      if (data.requires2FA && data.preAuthToken) {
+        setPreAuthToken(data.preAuthToken);
+        navigate({ to: '/auth/two-factor', replace: true });
+      } else if (data.accessToken && data.user) {
         await setAuth(data.accessToken, data.user);
         navigate({ to: '/home', replace: true });
       } else {
@@ -142,7 +159,19 @@ function LoginPage() {
               <path d="M3.964 10.71A5.41 5.41 0 013.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/>
               <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.958L3.964 6.29C4.672 4.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
             </svg>
-            {googleLoading ? t('action.loading') : t('auth.continueWithGoogle')}
+            {googleLoading ? t('action.loading') : t('auth.google_login')}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleTelegramLogin}
+            disabled={telegramLoading}
+            className="mt-3 w-full flex items-center justify-center gap-3 py-3 border border-neutral-300 rounded-lg bg-white text-neutral-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.833.941z" fill="#2CA5E0"/>
+            </svg>
+            {telegramLoading ? t('action.loading') : t('auth.telegram_login')}
           </button>
         </div>
 
