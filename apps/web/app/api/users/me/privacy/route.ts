@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/middleware';
 import { badRequest, forbidden, handleApiError } from '@/lib/api/errors';
-import { db } from '@/lib/db';
+import { db, type SqlParam } from '@/lib/db';
 import { getManifestValue } from '@/lib/manifest';
 
 const VALID_SECTIONS = ['avatar', 'bio', 'rank', 'xp', 'guild', 'seasons', 'badges'];
@@ -69,7 +69,7 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
       getAllowedPlans('privacy_hideable_sections', VALID_SECTIONS),
     ]);
 
-    const updates: Record<string, unknown> = {};
+    const updates: Record<string, SqlParam> = {};
 
     if (body.profile_private !== undefined) {
       if (!userEligible(user.plan, user.prestige_count, lockAllowed)) {

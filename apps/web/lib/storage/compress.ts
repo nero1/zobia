@@ -13,6 +13,8 @@
  *   - Room assets: max 800×600px, quality 80
  */
 
+import { logger } from '@/lib/logger';
+
 export type CompressionProfile = 'avatar' | 'message' | 'room' | 'sticker';
 
 export interface CompressionOptions {

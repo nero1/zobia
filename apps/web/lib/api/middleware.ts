@@ -155,7 +155,11 @@ async function runGeoAnomalyCheck(
  */
 export function withAuth<TParams = Record<string, string>>(
   handler: AuthHandler<TParams>
-): (req: NextRequest, ctx: { params: Promise<TParams> }) => Promise<NextResponse> {
+// `Awaited<TParams>` collapses the Promise so that handlers which annotate
+// their ctx as `params: Promise<{…}>` (the Next.js route shape) do not produce
+// a doubly-wrapped `Promise<Promise<{…}>>` export that fails Next's route type
+// check. Handlers using the resolved `params: {…}` shape are unaffected.
+): (req: NextRequest, ctx: { params: Promise<Awaited<TParams>> }) => Promise<NextResponse> {
   return async (req, ctx) => {
     const requestId = randomUUID();
     const route = new URL(req.url).pathname;
@@ -330,7 +334,8 @@ export function withAuth<TParams = Record<string, string>>(
  */
 export function withAdminAuth<TParams = Record<string, string>>(
   handler: AdminHandler<TParams>
-): (req: NextRequest, ctx: { params: Promise<TParams> }) => Promise<NextResponse> {
+// See withAuth above: Awaited<TParams> prevents a doubly-wrapped Promise export.
+): (req: NextRequest, ctx: { params: Promise<Awaited<TParams>> }) => Promise<NextResponse> {
   return async (req, ctx) => {
     const requestId = randomUUID();
     const route = new URL(req.url).pathname;
