@@ -720,7 +720,7 @@ export interface Subscription {
 
 export interface Manifest {
   minimumAge: number;
-  captchaProvider: 'recaptcha' | 'turnstile';
+  captchaProvider: 'recaptcha' | 'turnstile' | 'none';
   authGoogleEnabled: boolean;
   authTelegramEnabled: boolean;
   featureNemesis: boolean;

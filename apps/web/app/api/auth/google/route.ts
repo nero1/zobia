@@ -83,13 +83,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // CAPTCHA verification — token passed as query param ?captcha_token=...
     const captchaToken = req.nextUrl.searchParams.get("captcha_token");
     const captchaProvider = await getCaptchaProvider();
-    if (captchaToken) {
-      const captchaOk = await verifyCaptcha(captchaToken, ip ?? undefined);
-      if (!captchaOk) {
-        throw badRequest("CAPTCHA verification failed. Please try again.", "CAPTCHA_FAILED");
+    if (captchaProvider !== "none") {
+      if (captchaToken) {
+        const captchaOk = await verifyCaptcha(captchaToken, ip ?? undefined);
+        if (!captchaOk) {
+          throw badRequest("CAPTCHA verification failed. Please try again.", "CAPTCHA_FAILED");
+        }
+      } else if (process.env.NODE_ENV === "production") {
+        throw badRequest("CAPTCHA token is required.", "CAPTCHA_REQUIRED");
       }
-    } else if (captchaProvider !== "none" && process.env.NODE_ENV === "production") {
-      throw badRequest("CAPTCHA token is required.", "CAPTCHA_REQUIRED");
     }
 
     // Generate and store CSRF state token

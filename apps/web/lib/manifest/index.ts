@@ -214,7 +214,7 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     googleEnabled: true,
     telegramEnabled: true,
   },
-  captchaProvider: "turnstile",
+  captchaProvider: "none",
   gifProvider: "giphy",
   pwa: {
     webEnabled: true,
