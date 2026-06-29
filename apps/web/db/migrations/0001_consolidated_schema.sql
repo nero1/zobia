@@ -2598,7 +2598,7 @@ CREATE POLICY referral_commissions_owner ON referral_commissions FOR SELECT USIN
 -- x_manifest (final merged set — canonical keys only)
 INSERT INTO x_manifest (key, value, description) VALUES
   ('minimum_age',                          '18',                       'Minimum age for registration'),
-  ('captcha_provider',                     '"none"',                   'CAPTCHA provider: recaptcha | turnstile | none'),
+  ('captcha_provider',                     'none',                   'CAPTCHA provider: recaptcha | turnstile | none'),
   ('auth_google_enabled',                  'true',                     'Enable Google OAuth'),
   ('auth_telegram_enabled',                'true',                     'Enable Telegram Login'),
   ('feature_nemesis_system',               'true',                     'Enable Nemesis system'),
@@ -2624,10 +2624,10 @@ INSERT INTO x_manifest (key, value, description) VALUES
   ('pwa_web_enabled',                     'true',                     'Enable PWA on web'),
   ('pwa_android_enabled',                 'false',                    'Enable PWA on Android'),
   ('pwa_ios_enabled',                     'false',                    'Enable PWA on iOS'),
-  ('payment_provider_nigeria',            '"paystack"',               'Payment provider Nigeria'),
-  ('payment_provider_international',      '"dodopayments"',           'Payment provider international'),
-  ('payout_provider_nigeria',             '"paystack"',               'Payout provider Nigeria'),
-  ('payout_provider_international',       '"dodopayments"',           'Payout provider international'),
+  ('payment_provider_nigeria',            'paystack',               'Payment provider Nigeria'),
+  ('payment_provider_international',      'dodopayments',           'Payment provider international'),
+  ('payout_provider_nigeria',             'paystack',               'Payout provider Nigeria'),
+  ('payout_provider_international',       'dodopayments',           'Payout provider international'),
   ('coin_to_cash_rate',                   '1',                        'Kobo per coin (1 coin = 1 kobo = ₦0.01)'),
   ('payout_threshold_kobo',               '100000',                   'Minimum payout in kobo (₦1,000)'),
   ('payout_large_approval_kobo',          '5000000',                  'Manual approval threshold kobo (₦50,000)'),
@@ -2642,19 +2642,19 @@ INSERT INTO x_manifest (key, value, description) VALUES
   ('dm_reply_limit_plus',                 '50',                       'Max DM replies/day Plus plan'),
   ('email_all_enabled',                   'true',                     'Enable all email notifications'),
   ('email_non_critical_enabled',          'true',                     'Enable non-critical emails'),
-  ('announcement_modal_display_mode',     '"serial"',                 'Modal display: serial or random'),
-  ('announcement_banner_mode',            '"serial"',                 'Banner display: serial or random'),
-  ('deep_link_base_url',                  '"https://zobia.social"',   'Base URL for deep links'),
-  ('admob_app_id',                        '""',                       'AdMob App ID'),
-  ('admob_banner_unit_id',               '""',                       'AdMob Banner Ad Unit ID'),
-  ('admob_interstitial_unit_id',         '""',                       'AdMob Interstitial Ad Unit ID'),
-  ('admob_rewarded_unit_id',             '""',                       'AdMob Rewarded Ad Unit ID'),
-  ('gif_provider',                        '"giphy"',                  'GIF provider: giphy or tenor'),
+  ('announcement_modal_display_mode',     'serial',                 'Modal display: serial or random'),
+  ('announcement_banner_mode',            'serial',                 'Banner display: serial or random'),
+  ('deep_link_base_url',                  'https://zobia.social',   'Base URL for deep links'),
+  ('admob_app_id',                        '',                       'AdMob App ID'),
+  ('admob_banner_unit_id',               '',                       'AdMob Banner Ad Unit ID'),
+  ('admob_interstitial_unit_id',         '',                       'AdMob Interstitial Ad Unit ID'),
+  ('admob_rewarded_unit_id',             '',                       'AdMob Rewarded Ad Unit ID'),
+  ('gif_provider',                        'giphy',                  'GIF provider: giphy or tenor'),
   ('cron_external_enabled',              'false',                    'Use cron-jobs.org for high-frequency crons'),
   ('ai_moderation_enabled',              'true',                     'Enable AI moderation'),
   ('ai_moderation_auto_action_threshold','0.9',                      'AI auto-action confidence threshold'),
   ('ai_moderation_community_threshold',  '0.7',                      'AI community review threshold'),
-  ('ai_moderation_system_prompt',        '""',                       'Override AI moderation system prompt'),
+  ('ai_moderation_system_prompt',        '',                       'Override AI moderation system prompt'),
   ('payouts_enabled',                    'true',                     'Master payout toggle'),
   ('nigeria_cash_payout_enabled',        'true',                     'Nigeria bank transfer payouts'),
   ('nigeria_coins_payout_enabled',       'true',                     'Nigeria coin-based payouts'),
@@ -2670,7 +2670,7 @@ INSERT INTO x_manifest (key, value, description) VALUES
   ('referral_tier1_xp_bonus',            '500',                      'Tier 1 referral XP bonus'),
   ('referral_tier2_coin_bonus',          '50',                       'Tier 2 referral coin bonus'),
   ('referral_tier2_xp_bonus',            '250',                      'Tier 2 referral XP bonus'),
-  ('referral_qualifying_action',         '"coin_purchase"',          'Action that qualifies a referral'),
+  ('referral_qualifying_action',         'coin_purchase',          'Action that qualifies a referral'),
 
   -- 2FA (migration 007)
   ('auth_2fa_enabled',           'true',  'Allow users to configure two-factor authentication'),
@@ -2691,10 +2691,10 @@ INSERT INTO x_manifest (key, value, description) VALUES
    'Profile sections that users can hide (admin-controlled list). JSON array.'),
 
   -- Currency display names (migration 009)
-  ('currency_soft_name_singular',    '"Credit"',  'Singular display name for the earned soft currency (e.g. Credit)'),
-  ('currency_soft_name_plural',      '"Credits"', 'Plural display name for the earned soft currency (e.g. Credits)'),
-  ('currency_premium_name_singular', '"Star"',    'Singular display name for the purchased premium currency (e.g. Star)'),
-  ('currency_premium_name_plural',   '"Stars"',   'Plural display name for the purchased premium currency (e.g. Stars)')
+  ('currency_soft_name_singular',    'Credit',  'Singular display name for the earned soft currency (e.g. Credit)'),
+  ('currency_soft_name_plural',      'Credits', 'Plural display name for the earned soft currency (e.g. Credits)'),
+  ('currency_premium_name_singular', 'Star',    'Singular display name for the purchased premium currency (e.g. Star)'),
+  ('currency_premium_name_plural',   'Stars',   'Plural display name for the purchased premium currency (e.g. Stars)')
 ON CONFLICT (key) DO NOTHING;
 
 -- subscription_plans
