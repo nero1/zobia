@@ -4,12 +4,16 @@
  * Root layout: AuthGuard + AppShell (TopBar + Outlet + BottomNav).
  */
 
-import { createRootRoute, Outlet, useRouterState } from '@tanstack/react-router';
+import { useEffect } from 'react';
+import { createRootRoute, Outlet, useRouterState, useNavigate } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
+import { App as CapApp } from '@capacitor/app';
 import { TopBar } from '@/components/layout/TopBar';
 import { BottomNav } from '@/components/layout/BottomNav';
 import { OfflineBanner } from '@/components/ui/OfflineBanner';
 import { AuthGuard } from '@/components/auth/AuthGuard';
+import { useAuth } from '@/lib/auth/store';
+import { AuthUserSchema } from '@zobia/shared/schemas/auth';
 
 // Tab roots that don't show a back button
 const TAB_ROOTS = ['/home', '/games', '/rooms', '/notifications', '/settings'];
@@ -19,6 +23,34 @@ function AppShell() {
   const { t } = useTranslation();
   const routerState = useRouterState();
   const pathname = routerState.location.pathname;
+  const navigate = useNavigate();
+  const { setAuth } = useAuth();
+
+  useEffect(() => {
+    const listenerPromise = CapApp.addListener('appUrlOpen', ({ url }) => {
+      try {
+        const parsed = new URL(url);
+        if (parsed.hostname === 'auth' && parsed.pathname === '/callback') {
+          const token = parsed.searchParams.get('token');
+          const userJson = parsed.searchParams.get('user');
+          if (token && userJson) {
+            const userParsed = AuthUserSchema.safeParse(JSON.parse(userJson));
+            if (userParsed.success) {
+              setAuth(token, userParsed.data).then(() => {
+                navigate({ to: '/home', replace: true });
+              });
+            }
+          }
+        }
+      } catch {
+        // malformed deep link — ignore
+      }
+    });
+
+    return () => {
+      listenerPromise.then((h) => h.remove());
+    };
+  }, [setAuth, navigate]);
 
   const isPublicRoute = PUBLIC_ROUTES.some((r) => pathname.startsWith(r));
   const isTabRoot = TAB_ROOTS.some((r) => pathname === r);

@@ -43,7 +43,8 @@ export function useRealtimeChannel(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let ablyClient: any = null;
       try {
-        const Ably = await import('ably');
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const Ably = await import('ably') as any;
         const client = new Ably.Realtime({
           authCallback: async (
             _tokenParams: unknown,
