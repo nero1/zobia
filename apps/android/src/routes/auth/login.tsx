@@ -1,40 +1,43 @@
 /**
  * apps/android/src/routes/auth/login.tsx
  *
- * Login screen. Validates with LoginRequestSchema from @zobia/shared/schemas/auth.
- * Stores token + user in auth store on success.
+ * Login screen — OAuth only (mirrors web canonical).
+ * Google: opens API OAuth init directly in Custom Tab so browser commits
+ *   the CSRF cookie before the Google redirect (same pattern as Expo).
+ * Telegram: opens the hosted Telegram-mobile widget page; after the user
+ *   authorises, the server redirects to zobia://auth/callback?code=...
+ *   which the appUrlOpen listener in __root.tsx picks up.
  */
 
 import { useState } from 'react';
-import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
+import { createFileRoute, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { Browser } from '@capacitor/browser';
-import { LoginRequestSchema } from '@zobia/shared/schemas/auth';
-import { useAuth } from '@/lib/auth/store';
-import { apiClient } from '@/lib/api/client';
 import { env } from '@/lib/env';
-import { setPreAuthToken } from '@/lib/auth/preAuth';
-import type { AuthResponse } from '@zobia/shared/schemas/auth';
+
+const CALLBACK_DEEP_LINK = 'zobia://auth/callback';
 
 function LoginPage() {
   const { t } = useTranslation();
-  const { setAuth } = useAuth();
-  const navigate = useNavigate();
 
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [telegramLoading, setTelegramLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
+    setError(null);
     try {
+      // Open the Google OAuth init endpoint directly in the Custom Tab.
+      // The browser stores the Set-Cookie headers (CSRF + mobile-redirect) so
+      // they are present when the /api/auth/google/callback request comes back.
+      // Passing the redirect URL tells the callback where to send the exchange code.
       await Browser.open({
-        url: `${env.VITE_API_BASE_URL}/api/auth/google?mobile=true`,
+        url: `${env.VITE_API_BASE_URL}/api/auth/google?redirect=${encodeURIComponent(CALLBACK_DEEP_LINK)}`,
         presentationStyle: 'popover',
       });
+    } catch {
+      setError(t('auth.error.oauthFailed'));
     } finally {
       setGoogleLoading(false);
     }
@@ -42,44 +45,20 @@ function LoginPage() {
 
   const handleTelegramLogin = async () => {
     setTelegramLoading(true);
+    setError(null);
     try {
+      // Open the hosted Telegram widget page.  After the user signs in via the
+      // Telegram Login Widget the server exchanges the data, creates an exchange
+      // code, and redirects to zobia://auth/callback?code=... which is caught
+      // by the appUrlOpen listener in __root.tsx.
       await Browser.open({
-        url: `${env.VITE_API_BASE_URL}/api/auth/telegram?mobile=true`,
+        url: `${env.VITE_API_BASE_URL}/auth/telegram-mobile?redirect=${encodeURIComponent(CALLBACK_DEEP_LINK)}`,
         presentationStyle: 'popover',
       });
+    } catch {
+      setError(t('auth.error.oauthFailed'));
     } finally {
       setTelegramLoading(false);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-
-    const validation = LoginRequestSchema.safeParse({ email, password });
-    if (!validation.success) {
-      setError(validation.error.errors[0]?.message ?? t('error.generic'));
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const { data } = await apiClient.post<AuthResponse>('/auth/login', { email, password });
-      if (data.requires2FA && data.preAuthToken) {
-        setPreAuthToken(data.preAuthToken);
-        navigate({ to: '/auth/two-factor', replace: true });
-      } else if (data.accessToken && data.user) {
-        await setAuth(data.accessToken, data.user);
-        navigate({ to: '/home', replace: true });
-      } else {
-        setError(t('auth.error.unexpected'));
-      }
-    } catch (err) {
-      const msg = (err as { response?: { data?: { error?: { message?: string } } } })
-        ?.response?.data?.error?.message;
-      setError(msg ?? t('auth.error.unexpected'));
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -91,93 +70,58 @@ function LoginPage() {
           <p className="text-neutral-500 mt-1">{t('auth.signInTagline')}</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {error && (
-            <div className="bg-danger-50 text-danger-700 px-4 py-3 rounded-lg text-sm">
-              {error}
-            </div>
-          )}
-
-          <div>
-            <label className="block text-sm font-medium text-neutral-700 mb-1">
-              {t('auth.email')}
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder={t('android.auth.emailPlaceholder')}
-              className="w-full px-4 py-3 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-neutral-900"
-              autoComplete="email"
-              data-selectable
-            />
+        {error && (
+          <div className="bg-danger-50 text-danger-700 px-4 py-3 rounded-lg text-sm mb-4">
+            {error}
           </div>
+        )}
 
-          <div>
-            <label className="block text-sm font-medium text-neutral-700 mb-1">
-              {t('auth.password')}
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder={t('android.auth.passwordPlaceholder')}
-              className="w-full px-4 py-3 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-neutral-900"
-              autoComplete="current-password"
-              data-selectable
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 bg-primary-600 text-white font-semibold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? t('action.loading') : t('android.auth.loginButton')}
-          </button>
-        </form>
-
-        <div className="mt-6">
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-neutral-200" />
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="bg-white px-3 text-neutral-400">{t('auth.orContinueWith')}</span>
-            </div>
-          </div>
-
+        <div className="space-y-3">
           <button
             type="button"
             onClick={handleGoogleLogin}
-            disabled={googleLoading}
-            className="mt-4 w-full flex items-center justify-center gap-3 py-3 border border-neutral-300 rounded-lg bg-white text-neutral-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={googleLoading || telegramLoading}
+            className="w-full flex items-center justify-center gap-3 py-3 border border-neutral-300 rounded-lg bg-white text-neutral-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <path d="M17.64 9.205c0-.639-.057-1.252-.164-1.841H9v3.481h4.844a4.14 4.14 0 01-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>
-              <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z" fill="#34A853"/>
-              <path d="M3.964 10.71A5.41 5.41 0 013.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/>
-              <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.958L3.964 6.29C4.672 4.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
-            </svg>
-            {googleLoading ? t('action.loading') : t('auth.google_login')}
+            {googleLoading ? (
+              <span className="h-5 w-5 animate-spin rounded-full border-2 border-neutral-300 border-t-primary-600" />
+            ) : (
+              <GoogleIcon />
+            )}
+            {googleLoading ? t('action.loading') : t('auth.continueWithGoogle')}
           </button>
 
           <button
             type="button"
             onClick={handleTelegramLogin}
-            disabled={telegramLoading}
-            className="mt-3 w-full flex items-center justify-center gap-3 py-3 border border-neutral-300 rounded-lg bg-white text-neutral-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={googleLoading || telegramLoading}
+            className="w-full flex items-center justify-center gap-3 py-3 border border-neutral-300 rounded-lg bg-white text-neutral-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.833.941z" fill="#2CA5E0"/>
-            </svg>
+            {telegramLoading ? (
+              <span className="h-5 w-5 animate-spin rounded-full border-2 border-neutral-300 border-t-primary-600" />
+            ) : (
+              <TelegramIcon />
+            )}
             {telegramLoading ? t('action.loading') : t('auth.telegram_login')}
           </button>
         </div>
 
-        <p className="text-center text-sm text-neutral-500 mt-6">
+        <p className="text-center text-xs text-neutral-400 mt-6">
+          By continuing you agree to our{' '}
+          <a href={`${env.VITE_API_BASE_URL}/terms`} className="text-primary-600 underline">
+            Terms of Service
+          </a>{' '}
+          and{' '}
+          <a href={`${env.VITE_API_BASE_URL}/privacy`} className="text-primary-600 underline">
+            Privacy Policy
+          </a>
+          .
+        </p>
+
+        <p className="text-center text-sm text-neutral-500 mt-4">
+          {t('auth.noAccount')}{' '}
           <Link to="/auth/register" className="text-primary-600 font-medium">
-            {t('android.auth.noAccount')}
+            {t('auth.signUp')}
           </Link>
         </p>
       </div>
@@ -188,3 +132,22 @@ function LoginPage() {
 export const Route = createFileRoute('/auth/login')({
   component: LoginPage,
 });
+
+function GoogleIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
+      <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+      <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
+      <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
+    </svg>
+  );
+}
+
+function TelegramIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.833.941z" fill="#2CA5E0" />
+    </svg>
+  );
+}

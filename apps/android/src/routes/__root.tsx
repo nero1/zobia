@@ -14,6 +14,8 @@ import { OfflineBanner } from '@/components/ui/OfflineBanner';
 import { AuthGuard } from '@/components/auth/AuthGuard';
 import { useAuth } from '@/lib/auth/store';
 import { AuthUserSchema } from '@zobia/shared/schemas/auth';
+import { setPreAuthToken } from '@/lib/auth/preAuth';
+import { env } from '@/lib/env';
 
 // Tab roots that don't show a back button
 const TAB_ROOTS = ['/home', '/games', '/rooms', '/notifications', '/settings'];
@@ -27,23 +29,56 @@ function AppShell() {
   const { setAuth } = useAuth();
 
   useEffect(() => {
-    const listenerPromise = CapApp.addListener('appUrlOpen', ({ url }) => {
+    const listenerPromise = CapApp.addListener('appUrlOpen', async ({ url }) => {
       try {
         const parsed = new URL(url);
-        if (parsed.hostname === 'auth' && (parsed.pathname === '/callback' || parsed.pathname === '/telegram-callback')) {
-          const token = parsed.searchParams.get('token');
-          const userJson = parsed.searchParams.get('user');
-          if (token && userJson) {
-            const userParsed = AuthUserSchema.safeParse(JSON.parse(userJson));
-            if (userParsed.success) {
-              setAuth(token, userParsed.data).then(() => {
-                navigate({ to: '/home', replace: true });
-              });
-            }
+        // Handle OAuth callback deep links: zobia://auth/callback?code=... or zobia://auth/callback?pre_auth_code=...
+        const isOAuthCallback =
+          parsed.hostname === 'auth' &&
+          (parsed.pathname === '/callback' || parsed.pathname === '/telegram-callback');
+        if (!isOAuthCallback) return;
+
+        const code = parsed.searchParams.get('code');
+        const preAuthCode = parsed.searchParams.get('pre_auth_code');
+
+        if (!code && !preAuthCode) return;
+
+        // Exchange the one-time code for tokens via the secure backend endpoint
+        const body = code ? { code } : { pre_auth_code: preAuthCode };
+        const res = await fetch(`${env.VITE_API_BASE_URL}/api/auth/mobile-token`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Origin: env.VITE_API_BASE_URL,
+          },
+          body: JSON.stringify(body),
+        });
+
+        if (!res.ok) return;
+
+        const data = await res.json() as {
+          accessToken?: string;
+          refreshToken?: string;
+          preAuthToken?: string;
+          user?: unknown;
+        };
+
+        if (preAuthCode && data.preAuthToken) {
+          // 2FA flow: store pre-auth token and go to 2FA screen
+          setPreAuthToken(data.preAuthToken);
+          navigate({ to: '/auth/two-factor', replace: true });
+          return;
+        }
+
+        if (data.accessToken && data.user) {
+          const userParsed = AuthUserSchema.safeParse(data.user);
+          if (userParsed.success) {
+            await setAuth(data.accessToken, userParsed.data, data.refreshToken);
+            navigate({ to: '/home', replace: true });
           }
         }
       } catch {
-        // malformed deep link — ignore
+        // malformed deep link or network error — ignore
       }
     });
 

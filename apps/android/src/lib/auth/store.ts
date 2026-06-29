@@ -8,7 +8,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode, createElement } from 'react';
 import { Preferences } from '@capacitor/preferences';
 import { AuthUserSchema, type AuthUser } from '@zobia/shared/schemas/auth';
-import { setCachedToken, resetUnauthenticatedFlag, JWT_KEY } from '@/lib/api/client';
+import { setCachedToken, resetUnauthenticatedFlag, JWT_KEY, REFRESH_TOKEN_KEY } from '@/lib/api/client';
 
 const USER_KEY = 'zobia_user';
 
@@ -19,7 +19,7 @@ interface AuthState {
 }
 
 interface AuthContextValue extends AuthState {
-  setAuth: (token: string, user: AuthUser) => Promise<void>;
+  setAuth: (token: string, user: AuthUser, refreshToken?: string) => Promise<void>;
   clearAuth: () => Promise<void>;
 }
 
@@ -58,11 +58,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  const setAuth = async (token: string, user: AuthUser) => {
-    await Promise.all([
+  const setAuth = async (token: string, user: AuthUser, refreshToken?: string) => {
+    const prefs: Array<Promise<void>> = [
       Preferences.set({ key: JWT_KEY, value: token }),
       Preferences.set({ key: USER_KEY, value: JSON.stringify(user) }),
-    ]);
+    ];
+    if (refreshToken) {
+      prefs.push(Preferences.set({ key: REFRESH_TOKEN_KEY, value: refreshToken }));
+    }
+    await Promise.all(prefs);
     setCachedToken(token);
     resetUnauthenticatedFlag();
     setState((prev) => ({ ...prev, token, user }));
@@ -71,6 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const clearAuth = async () => {
     await Promise.all([
       Preferences.remove({ key: JWT_KEY }),
+      Preferences.remove({ key: REFRESH_TOKEN_KEY }),
       Preferences.remove({ key: USER_KEY }),
     ]);
     setCachedToken(null);
