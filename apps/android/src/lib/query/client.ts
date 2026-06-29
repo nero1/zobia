@@ -38,7 +38,7 @@ export const queryClient = new QueryClient({
           },
         },
         maxAge: STALE_TIME,
-      }),
+      }).persisterFn,
     },
     mutations: {
       retry: 0,

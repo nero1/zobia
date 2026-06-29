@@ -16,7 +16,7 @@ import axios, {
 import { Preferences } from '@capacitor/preferences';
 import { App } from '@capacitor/app';
 import { Network } from '@capacitor/network';
-import { QueryClient, focusManager, onlineManager } from '@tanstack/react-query';
+import { focusManager, onlineManager } from '@tanstack/react-query';
 import { env } from '@/lib/env';
 
 // ---------------------------------------------------------------------------
