@@ -16,8 +16,12 @@ async function fetchGame(slug: string) {
 }
 
 async function fetchLeaderboard(slug: string) {
-  const { data } = await apiClient.get<GameLeaderboardRow[]>(`/games/${slug}/leaderboard?limit=10`);
-  return data ?? [];
+  // The API responds with { rows, page, pageSize }, not a bare array — treating
+  // the response itself as the list left leaderboard.length undefined (never rendered).
+  const { data } = await apiClient.get<{ rows: GameLeaderboardRow[]; page: number; pageSize: number }>(
+    `/games/${slug}/leaderboard`
+  );
+  return data?.rows ?? [];
 }
 
 function GameDetailPage() {

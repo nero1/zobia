@@ -8,6 +8,7 @@ import { useEffect } from 'react';
 import { createRootRoute, Outlet, useRouterState, useNavigate } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { App as CapApp } from '@capacitor/app';
+import { Browser } from '@capacitor/browser';
 import { TopBar } from '@/components/layout/TopBar';
 import { BottomNav } from '@/components/layout/BottomNav';
 import { OfflineBanner } from '@/components/ui/OfflineBanner';
@@ -18,7 +19,7 @@ import { setPreAuthToken } from '@/lib/auth/preAuth';
 import { env } from '@/lib/env';
 
 // Tab roots that don't show a back button
-const TAB_ROOTS = ['/home', '/games', '/rooms', '/notifications', '/settings'];
+const TAB_ROOTS = ['/home', '/games', '/rooms', '/messages', '/notifications', '/settings'];
 const PUBLIC_ROUTES = ['/auth/login', '/auth/register', '/auth/two-factor'];
 
 function AppShell() {
@@ -42,6 +43,11 @@ function AppShell() {
         const preAuthCode = parsed.searchParams.get('pre_auth_code');
 
         if (!code && !preAuthCode) return;
+
+        // Dismiss the OAuth Custom Tab now that we have the exchange code — otherwise
+        // it can linger on top of the app, making a successful login look like it
+        // "returned to the login page".
+        await Browser.close().catch(() => {});
 
         // Exchange the one-time code for tokens via the secure backend endpoint
         const body = code ? { code } : { pre_auth_code: preAuthCode };
