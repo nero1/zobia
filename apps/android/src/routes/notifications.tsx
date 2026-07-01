@@ -20,8 +20,9 @@ interface Notification {
 }
 
 async function fetchNotifications() {
-  const { data } = await apiClient.get<{ items: Notification[] }>('/notifications?limit=30');
-  return data?.items ?? [];
+  // The API responds with { notifications, unreadCount }, not { items }.
+  const { data } = await apiClient.get<{ notifications: Notification[]; unreadCount: number }>('/notifications');
+  return data?.notifications ?? [];
 }
 
 function NotificationsPage() {

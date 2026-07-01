@@ -1,7 +1,7 @@
 /**
  * apps/android/src/routes/messages/index.tsx
  *
- * Conversation list (inbox). GET /api/inbox.
+ * Conversation list. GET /api/messages/dm.
  */
 
 import { useQuery } from '@tanstack/react-query';
@@ -18,16 +18,46 @@ interface Conversation {
     avatarEmoji: string;
   };
   lastMessage?: {
-    content?: string;
+    content: string;
     createdAt: string;
-    senderId: string;
   };
   unreadCount: number;
 }
 
+// Raw row shape returned by GET /api/messages/dm (snake_case, flat).
+interface ConversationRow {
+  conversation_id: string;
+  other_user_id: string;
+  other_username: string;
+  other_display_name: string | null;
+  other_avatar_emoji: string | null;
+  last_message_content: string | null;
+  last_message_at: string;
+  unread_count: number;
+}
+
+function mapConversation(row: ConversationRow): Conversation {
+  return {
+    id: row.conversation_id,
+    otherUser: {
+      id: row.other_user_id,
+      username: row.other_username,
+      displayName: row.other_display_name ?? row.other_username,
+      avatarEmoji: row.other_avatar_emoji ?? '👤',
+    },
+    lastMessage: row.last_message_content
+      ? { content: row.last_message_content, createdAt: row.last_message_at }
+      : undefined,
+    unreadCount: row.unread_count,
+  };
+}
+
 async function fetchInbox() {
-  const { data } = await apiClient.get<Conversation[]>('/inbox');
-  return data ?? [];
+  // The API responds with { items, nextCursor, hasMore, total }, not a bare array —
+  // treating the response itself as the list caused `conversations.map` to crash.
+  const { data } = await apiClient.get<{ items: ConversationRow[] }>('/messages/dm');
+  const rows = data?.items ?? [];
+  return rows.map(mapConversation);
 }
 
 function MessagesPage() {

@@ -8,6 +8,7 @@
 import { useEffect } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useAuth } from '@/lib/auth/store';
+import { getCachedToken } from '@/lib/api/client';
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -18,7 +19,11 @@ export function AuthGuard({ children }: AuthGuardProps) {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (isLoaded && !token) {
+    // getCachedToken() is set synchronously the instant login succeeds, before the
+    // React state update from setAuth() commits. Falling back to it here avoids a
+    // race right after OAuth where this effect can fire (and redirect to login)
+    // during the one render that still sees the pre-login `token` from context.
+    if (isLoaded && !token && !getCachedToken()) {
       navigate({ to: '/auth/login', replace: true });
     }
   }, [isLoaded, token, navigate]);

@@ -5,22 +5,14 @@
  */
 
 import { useNavigate, useRouterState } from '@tanstack/react-router';
-
-const bottomTabItems = [
-  { href: '/home', label: 'Home', shortLabel: 'Home' },
-  { href: '/quests', label: 'Quests', shortLabel: 'Quests' },
-  { href: '/games', label: 'Games', shortLabel: 'Games' },
-  { href: '/friends', label: 'Friends', shortLabel: 'Friends' },
-  { href: '/wallet', label: 'Wallet', shortLabel: 'Wallet' },
-  { href: '/profile', label: 'Profile', shortLabel: 'Profile' },
-] as const;
+import { useAuth } from '@/lib/auth/store';
 
 const TAB_ICONS: Record<string, { active: string; inactive: string }> = {
   Home: { active: '🏠', inactive: '🏡' },
-  Quests: { active: '🎯', inactive: '🎯' },
   Games: { active: '🎮', inactive: '🕹️' },
-  Friends: { active: '👥', inactive: '👥' },
-  Wallet: { active: '🪙', inactive: '🪙' },
+  Rooms: { active: '🚪', inactive: '🚪' },
+  Messages: { active: '💬', inactive: '💬' },
+  Notifications: { active: '🔔', inactive: '🔔' },
   Profile: { active: '👤', inactive: '👤' },
 };
 
@@ -36,6 +28,19 @@ function TabIcon({ label, isActive }: { label: string; isActive: boolean }) {
 export function BottomNav() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const navigate = useNavigate();
+  const { user } = useAuth();
+
+  // Every href here must match a route that actually exists in routeTree.gen.ts —
+  // tabs previously pointed at /quests, /friends and /wallet, none of which are
+  // registered routes, so tapping them landed on the router's Not Found page.
+  const bottomTabItems = [
+    { href: '/home', label: 'Home', shortLabel: 'Home' },
+    { href: '/games', label: 'Games', shortLabel: 'Games' },
+    { href: '/rooms', label: 'Rooms', shortLabel: 'Rooms' },
+    { href: '/messages', label: 'Messages', shortLabel: 'Messages' },
+    { href: '/notifications', label: 'Notifications', shortLabel: 'Alerts' },
+    { href: user?.username ? `/profile/${user.username}` : '/settings', label: 'Profile', shortLabel: 'Profile' },
+  ] as const;
 
   return (
     <nav
@@ -45,10 +50,13 @@ export function BottomNav() {
     >
       <div className="grid grid-cols-6">
         {bottomTabItems.map((item) => {
-          const isActive = pathname.startsWith(item.href);
+          const isActive =
+            item.label === 'Profile'
+              ? pathname.startsWith('/profile') || pathname === '/settings'
+              : pathname.startsWith(item.href);
           return (
             <button
-              key={item.href}
+              key={item.label}
               type="button"
               onClick={() => navigate({ to: item.href as never })}
               className={`flex flex-col items-center justify-center gap-0.5 py-2.5 text-xs font-medium transition-colors ${isActive ? 'text-primary-600' : 'text-neutral-500 hover:text-neutral-700'}`}

@@ -13,11 +13,31 @@ import { apiClient } from '@/lib/api/client';
 import { useRealtimeChannel } from '@/lib/realtime/useRealtimeChannel';
 import { useAdaptiveChatPoll } from '@/lib/hooks/useAdaptiveChatPoll';
 import { useAuth } from '@/lib/auth/store';
-import type { Message } from '@zobia/shared/types';
+
+interface Message {
+  id: string;
+  senderId: string;
+  content: string;
+}
+
+// Raw row shape returned by GET/POST /api/messages/dm/:id (snake_case).
+interface DmMessageRow {
+  id: string;
+  sender_id: string;
+  content: string | null;
+}
+
+function mapMessage(row: DmMessageRow): Message {
+  return { id: row.id, senderId: row.sender_id, content: row.content ?? '' };
+}
 
 async function fetchMessages(conversationId: string) {
-  const { data } = await apiClient.get<Message[]>(`/messages/dm/${conversationId}?limit=50`);
-  return data ?? [];
+  // The API responds with { items, nextCursor, hasMore, total }, not a bare array —
+  // treating the response itself as the list caused `messages.map` to crash.
+  // Rows come back newest-first; reverse for chronological (oldest-first) display.
+  const { data } = await apiClient.get<{ items: DmMessageRow[] }>(`/messages/dm/${conversationId}?limit=50`);
+  const rows = data?.items ?? [];
+  return rows.map(mapMessage).reverse();
 }
 
 function DmChatPage() {
@@ -38,8 +58,11 @@ function DmChatPage() {
 
   const connected = useRealtimeChannel(
     `dm:conversation:${conversationId}`,
-    useCallback((_, data) => {
-      const msg = data as Message;
+    useCallback((event, data) => {
+      if (event !== 'new_message') return;
+      const raw = (data as { message?: DmMessageRow })?.message;
+      if (!raw) return;
+      const msg = mapMessage(raw);
       qc.setQueryData<Message[]>(queryKey, (prev = []) => {
         if (prev.some((m) => m.id === msg.id)) return prev;
         return [...prev, msg];
@@ -68,20 +91,14 @@ function DmChatPage() {
 
   const sendMutation = useMutation({
     mutationFn: async (content: string) => {
-      const { data } = await apiClient.post<Message>(`/messages/dm/${conversationId}`, { content });
-      return data;
+      const { data } = await apiClient.post<{ message: DmMessageRow }>(`/messages/dm/${conversationId}`, { content });
+      return mapMessage(data.message);
     },
     onMutate: async (content) => {
       const optimistic: Message = {
         id: `optimistic-${Date.now()}`,
         senderId: user?.id ?? '',
         content,
-        messageType: 'text',
-        isDeleted: false,
-        coinCost: 0,
-        replyCountFromRecipient: 0,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
       };
       qc.setQueryData<Message[]>(queryKey, (prev = []) => [...prev, optimistic]);
       return { optimistic };
