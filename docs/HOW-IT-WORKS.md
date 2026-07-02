@@ -1266,7 +1266,10 @@ restoring removed content, locking/unlocking a question) remain admin-only.
 | POST | `/api/answers/questions/[id]/vote` , `.../answers/[answerId]/vote` | Upvote/downvote (toggle) |
 | POST/DELETE | `/api/answers/questions/[id]/favorite` | Favorite / unfavorite |
 | POST | `/api/answers/questions/[id]/best-answer` | Mark an answer as best |
+| GET | `/api/answers/categories` | List forum categories (for the ask-question picker) |
 | GET | `/api/admin/forum/stats`, `/queue`, `/posts` | Admin/moderator dashboard, moderation queue, post management |
+
+**SEO (v1.97):** `/a/<slug>` (`app/a/[slug]/page.tsx`) is a public, unauthenticated, SSR preview of a question — title/description/OpenGraph/Twitter metadata, `QAPage` JSON-LD, canonical tag, listed in `app/sitemap.ts`. It resolves via `lib/public/resolveForumQuestion.ts` (slug → legacy UUID → `slug_redirects`, same 3-case pattern as rooms) and renders `components/public/PublicForumQuestionView.tsx`. This is separate from the authenticated `/answers/[id]` page (voting/answering); the public page's CTA sends unauthenticated visitors to `/auth/login`.
 
 ---
 

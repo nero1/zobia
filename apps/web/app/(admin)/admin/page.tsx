@@ -125,8 +125,8 @@ export default function AdminDashboardPage() {
           err.code = body.error?.code ?? null;
           throw err;
         }
-        const data = (await res.json()) as { data: OverviewStats };
-        setStats(data.data);
+        const data = (await res.json()) as OverviewStats;
+        setStats(data);
       } catch (e) {
         const err = e as Error & { code?: string | null };
         setError(e instanceof Error ? translateApiError(tRef.current, err.code, err.message || "Error loading dashboard") : "Error loading dashboard");

@@ -25,6 +25,7 @@ const listQuerySchema = z.object({
 const createQuestionSchema = z.object({
   title: z.string().trim().min(10, "Title must be at least 10 characters").max(200),
   body: z.string().trim().min(20, "Question body must be at least 20 characters").max(5000),
+  categoryId: z.string().uuid().optional().nullable(),
 });
 
 export const GET = withAuth(async (req: NextRequest, { auth }) => {
@@ -42,7 +43,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.forumWrite);
     const body = await validateBody(req, createQuestionSchema);
-    const result = await createQuestion({ userId: auth.user.sub, title: body.title, body: body.body });
+    const result = await createQuestion({ userId: auth.user.sub, title: body.title, body: body.body, categoryId: body.categoryId });
     return NextResponse.json({ success: true, data: result, error: null }, { status: 201 });
   } catch (err) {
     return handleApiError(err);

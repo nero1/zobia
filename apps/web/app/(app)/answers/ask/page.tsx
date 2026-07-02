@@ -7,7 +7,7 @@
  * form/error-handling conventions.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
@@ -17,6 +17,13 @@ import { useForumConfig } from "@/lib/hooks/useForumConfig";
 const MAX_TITLE = 200;
 const MAX_BODY = 5000;
 
+interface CategoryOption {
+  id: string;
+  slug: string;
+  name: string;
+  iconEmoji: string;
+}
+
 export default function AskQuestionPage() {
   const router = useRouter();
   const { t } = useTranslation();
@@ -24,9 +31,18 @@ export default function AskQuestionPage() {
 
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [levelTooLow, setLevelTooLow] = useState<{ minLevel: number; currentLevel: number } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/answers/categories", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : { data: [] }))
+      .then((json) => setCategories(json.data ?? []))
+      .catch(() => setCategories([]));
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -38,7 +54,7 @@ export default function AskQuestionPage() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: title.trim(), body: body.trim() }),
+        body: JSON.stringify({ title: title.trim(), body: body.trim(), categoryId: categoryId || undefined }),
       });
       if (res.status === 401) { router.push("/auth/login"); return; }
       if (!res.ok) {
@@ -106,6 +122,28 @@ export default function AskQuestionPage() {
             </div>
           </div>
         </div>
+
+        {categories.length > 0 && (
+          <div className="rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+            <div className="border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
+              <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t("answers.ask.categoryLabel", "Category")}</h2>
+            </div>
+            <div className="p-5">
+              <select
+                value={categoryId}
+                onChange={(e) => setCategoryId(e.target.value)}
+                className="w-full rounded-xl border border-neutral-300 bg-neutral-50 px-4 py-3 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+              >
+                <option value="">{t("answers.ask.categoryNone", "No category (General)")}</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.iconEmoji} {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
 
         <div className="rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
           <div className="border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">

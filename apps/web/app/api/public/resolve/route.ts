@@ -19,6 +19,7 @@ import { db } from "@/lib/db";
 import { handleApiError } from "@/lib/api/errors";
 import { resolvePublicRoom } from "@/lib/public/resolveRoom";
 import { resolvePublicGame } from "@/lib/public/resolveGame";
+import { resolvePublicForumQuestion } from "@/lib/public/resolveForumQuestion";
 
 const ROOM_TYPES = ["free_open", "vip", "drop", "tipping", "limited"];
 const COURSE_TYPES = ["classroom"];
@@ -67,6 +68,18 @@ export async function GET(req: NextRequest) {
           id: resolved.game.id,
           slug: resolved.game.slug,
           canonicalSlug: resolved.canonicalRedirectSlug ?? resolved.game.slug,
+        }, { headers: CACHE_HEADERS });
+      }
+
+      case "forum_question": {
+        const resolved = await resolvePublicForumQuestion(identifier);
+        if (!resolved) return NextResponse.json({ found: false }, { headers: CACHE_HEADERS_SHORT });
+        return NextResponse.json({
+          found: true,
+          type,
+          id: resolved.question.id,
+          slug: resolved.question.slug,
+          canonicalSlug: resolved.canonicalRedirectSlug ?? resolved.question.slug,
         }, { headers: CACHE_HEADERS });
       }
 

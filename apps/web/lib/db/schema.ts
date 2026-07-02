@@ -3728,12 +3728,27 @@ export const communityNoteVotes = pgTable(
 // Zobia Answers — Mini Forum (Q&A)
 // ---------------------------------------------------------------------------
 
+export const forumCategories = pgTable("forum_categories", {
+  id: uuidPk(),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  iconEmoji: text("icon_emoji").notNull().default("💬"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
 export const forumQuestions = pgTable("forum_questions", {
   id: uuidPk(),
   authorId: uuid("author_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
+  categoryId: uuid("category_id").references(() => forumCategories.id, {
+    onDelete: "set null",
+  }),
   title: text("title").notNull(),
+  slug: text("slug"),
   body: text("body").notNull(),
   status: text("status").notNull().default("visible"),
   voteScore: integer("vote_score").notNull().default(0),
@@ -4307,6 +4322,8 @@ export type CommunityNote = typeof communityNotes.$inferSelect;
 export type NewCommunityNote = typeof communityNotes.$inferInsert;
 export type CommunityNoteVote = typeof communityNoteVotes.$inferSelect;
 export type NewCommunityNoteVote = typeof communityNoteVotes.$inferInsert;
+export type ForumCategory = typeof forumCategories.$inferSelect;
+export type NewForumCategory = typeof forumCategories.$inferInsert;
 export type ForumQuestion = typeof forumQuestions.$inferSelect;
 export type NewForumQuestion = typeof forumQuestions.$inferInsert;
 export type ForumAnswer = typeof forumAnswers.$inferSelect;
@@ -4510,6 +4527,7 @@ export const schema = {
   sponsoredLeaderboardBanners,
   communityNotes,
   communityNoteVotes,
+  forumCategories,
   forumQuestions,
   forumAnswers,
   forumVotes,

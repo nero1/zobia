@@ -66,7 +66,7 @@ export function generateMetadata(config: SEOConfig): Metadata {
  * Helps search engines understand page content (Schema.org).
  */
 export function generateStructuredData(
-  type: 'Person' | 'Thing' | 'LocalBusiness' | 'BreadcrumbList',
+  type: 'Person' | 'Thing' | 'LocalBusiness' | 'BreadcrumbList' | 'QAPage',
   data: Record<string, any>
 ): string {
   const baseUrl = env.NEXT_PUBLIC_APP_URL || 'https://zobia.vercel.app';
@@ -114,6 +114,55 @@ export function generateBreadcrumbSchema(items: Array<{ name: string; url: strin
 
   return generateStructuredData('BreadcrumbList', {
     itemListElement,
+  });
+}
+
+/**
+ * Generate QAPage schema (schema.org) for a forum question detail page —
+ * https://schema.org/QAPage. `acceptedAnswer` is the marked-best answer (if
+ * any); the rest are listed as `suggestedAnswer`, matching how Stack
+ * Overflow / Reddit question pages are marked up for rich Q&A search results.
+ */
+export function generateQAPageSchema(question: {
+  title: string;
+  body: string;
+  url: string;
+  createdAt: string;
+  authorName?: string;
+  answerCount: number;
+  voteScore: number;
+  answers: Array<{
+    body: string;
+    createdAt: string;
+    authorName?: string;
+    voteScore: number;
+    isBest: boolean;
+  }>;
+}): string {
+  const toAnswerSchema = (a: (typeof question.answers)[number]) => ({
+    '@type': 'Answer',
+    text: a.body,
+    dateCreated: a.createdAt,
+    upvoteCount: Math.max(a.voteScore, 0),
+    author: a.authorName ? { '@type': 'Person', name: a.authorName } : undefined,
+  });
+
+  const best = question.answers.find((a) => a.isBest);
+  const suggested = question.answers.filter((a) => a !== best);
+
+  return generateStructuredData('QAPage', {
+    mainEntity: {
+      '@type': 'Question',
+      name: question.title,
+      text: question.body,
+      url: question.url,
+      answerCount: question.answerCount,
+      upvoteCount: Math.max(question.voteScore, 0),
+      dateCreated: question.createdAt,
+      author: question.authorName ? { '@type': 'Person', name: question.authorName } : undefined,
+      acceptedAnswer: best ? toAnswerSchema(best) : undefined,
+      suggestedAnswer: suggested.length > 0 ? suggested.map(toAnswerSchema) : undefined,
+    },
   });
 }
 

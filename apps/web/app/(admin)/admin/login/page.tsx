@@ -17,8 +17,8 @@
 
 "use client";
 
-import { useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState, type FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 
@@ -28,8 +28,11 @@ type Step = "credentials" | "totp";
  * Admin login page component.
  * 2FA is mandatory — the TOTP step is always shown after valid credentials.
  */
-export default function AdminLoginPage() {
+function AdminLoginContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const reason = searchParams.get("reason");
+  const redirectParam = searchParams.get("redirect");
 
   const [step, setStep] = useState<Step>("credentials");
   const [email, setEmail] = useState("");
@@ -98,7 +101,8 @@ export default function AdminLoginPage() {
       }
 
       if (data.success) {
-        router.push("/admin");
+        const target = redirectParam && redirectParam.startsWith("/admin") ? redirectParam : "/admin";
+        router.push(target);
         router.refresh();
       }
     } catch {
@@ -127,6 +131,13 @@ export default function AdminLoginPage() {
               : "Two-factor authentication required"}
           </p>
         </div>
+
+        {/* Session expired banner */}
+        {reason === "session_expired" && (
+          <div role="alert" className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+            Your admin session has expired. Please sign in again.
+          </div>
+        )}
 
         {/* Card */}
         <div className="rounded-2xl border border-neutral-200 bg-white px-8 py-8 shadow-lg dark:border-neutral-800 dark:bg-neutral-900">
@@ -227,5 +238,13 @@ export default function AdminLoginPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function AdminLoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <AdminLoginContent />
+    </Suspense>
   );
 }

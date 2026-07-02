@@ -34,6 +34,7 @@ export interface ForumAuthor {
 
 export interface ForumQuestionSummary {
   id: string;
+  slug: string | null;
   title: string;
   body: string;
   author: ForumAuthor;
@@ -50,6 +51,7 @@ export interface ForumQuestionSummary {
 
 interface QuestionRow {
   id: string;
+  slug: string | null;
   title: string;
   body: string;
   author_id: string;
@@ -70,6 +72,7 @@ interface QuestionRow {
 function toQuestionSummary(row: QuestionRow): ForumQuestionSummary {
   return {
     id: row.id,
+    slug: row.slug,
     title: row.title,
     body: row.body,
     author: {
@@ -150,7 +153,7 @@ export async function listQuestions(
   )`;
 
   const { rows } = await db.query<QuestionRow & { trending_score?: number }>(
-    `SELECT q.id, q.title, q.body, ${AUTHOR_COLUMNS},
+    `SELECT q.id, q.slug, q.title, q.body, ${AUTHOR_COLUMNS},
             q.vote_score, q.answer_count, q.favorite_count, q.is_locked, q.best_answer_id,
             q.created_at, q.last_activity_at,
             v.value AS my_vote,
@@ -186,9 +189,14 @@ export interface ForumQuestionDetail extends ForumQuestionSummary {
   isAuthor: boolean;
 }
 
-export async function getQuestionDetail(callerId: string, questionId: string): Promise<ForumQuestionDetail | null> {
+/**
+ * Looks up a question by its UUID or its slug (SEO-friendly URLs resolve to
+ * either — see lib/public/resolveForumQuestion.ts for the crawlable-page
+ * variant that also handles legacy/retired slugs via slug_redirects).
+ */
+export async function getQuestionDetail(callerId: string, identifier: string): Promise<ForumQuestionDetail | null> {
   const { rows } = await db.query<QuestionRow>(
-    `SELECT q.id, q.title, q.body, ${AUTHOR_COLUMNS},
+    `SELECT q.id, q.slug, q.title, q.body, ${AUTHOR_COLUMNS},
             q.vote_score, q.answer_count, q.favorite_count, q.is_locked, q.best_answer_id,
             q.created_at, q.last_activity_at,
             v.value AS my_vote,
@@ -197,9 +205,9 @@ export async function getQuestionDetail(callerId: string, questionId: string): P
      JOIN users u ON u.id = q.author_id
      LEFT JOIN forum_votes v ON v.target_type = 'question' AND v.target_id = q.id AND v.user_id = $2
      LEFT JOIN forum_favorites fav ON fav.question_id = q.id AND fav.user_id = $2
-     WHERE q.id = $1 AND q.status = 'visible' AND q.deleted_at IS NULL
+     WHERE (q.id::text = $1 OR q.slug = $1) AND q.status = 'visible' AND q.deleted_at IS NULL
      LIMIT 1`,
-    [questionId, callerId]
+    [identifier, callerId]
   );
   const row = rows[0];
   if (!row) return null;
