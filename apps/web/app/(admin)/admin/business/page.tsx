@@ -9,6 +9,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -139,6 +140,10 @@ export default function AdminBusinessPage() {
         <div>
           <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-50">Business Accounts</h1>
           <p className="mt-0.5 text-sm text-neutral-500">{total} accounts total</p>
+        </div>
+        <div className="flex gap-4 text-sm font-medium">
+          <Link href="/admin/business/pages" className="text-neutral-600 hover:underline dark:text-neutral-400">Business Pages →</Link>
+          <Link href="/admin/sponsored-quests" className="text-neutral-600 hover:underline dark:text-neutral-400">Ads Moderation (Sponsored Quests) →</Link>
         </div>
       </div>
 

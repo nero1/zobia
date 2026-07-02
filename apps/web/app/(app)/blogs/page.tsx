@@ -25,13 +25,14 @@ interface BlogSummary {
   owner_username: string | null;
 }
 
-type Tab = "popular" | "trending" | "new" | "random";
+type Tab = "popular" | "trending" | "new" | "random" | "subscribed";
 
 const TABS: { key: Tab; icon: string; labelKey: string; fallback: string }[] = [
   { key: "popular", icon: "🔥", labelKey: "blogs.tab.popular", fallback: "Popular" },
   { key: "trending", icon: "📈", labelKey: "blogs.tab.trending", fallback: "Trending" },
   { key: "new", icon: "✨", labelKey: "blogs.tab.new", fallback: "New" },
   { key: "random", icon: "🔀", labelKey: "blogs.tab.random", fallback: "Random" },
+  { key: "subscribed", icon: "🔔", labelKey: "blogs.tab.subscribed", fallback: "Subscribed" },
 ];
 
 function formatCount(n: number): string {
@@ -168,7 +169,13 @@ export default function BlogsDiscoveryPage() {
       ) : blogs.length === 0 ? (
         <div className="text-center py-16 text-muted-foreground">
           <div className="text-4xl mb-3">📝</div>
-          <p>{search.trim() ? t("blogs.empty.search", "No blogs found for \"{{query}}\".", { query: search.trim() }) : t("blogs.empty", "No blogs yet — be the first to start one.")}</p>
+          <p>
+            {search.trim()
+              ? t("blogs.empty.search", "No blogs found for \"{{query}}\".", { query: search.trim() })
+              : tab === "subscribed"
+              ? t("blogs.subscribed.empty", "You haven't subscribed to any blogs yet.")
+              : t("blogs.empty", "No blogs yet — be the first to start one.")}
+          </p>
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">

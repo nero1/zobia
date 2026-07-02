@@ -36,6 +36,10 @@ interface SponsoredQuest {
   created_at: string;
   application_count: number;
   approved_count: number;
+  moderation_status: "pending" | "approved" | "rejected";
+  moderation_reason: string | null;
+  business_account_id: string | null;
+  submitted_by_username: string | null;
 }
 
 interface FormData {
@@ -98,6 +102,9 @@ export default function AdminSponsoredQuestsPage() {
   const [deleteTarget, setDeleteTarget] = useState<SponsoredQuest | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [toggling, setToggling] = useState<string | null>(null);
+  const [moderating, setModerating] = useState<string | null>(null);
+  const [rejectTarget, setRejectTarget] = useState<SponsoredQuest | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
 
   const fetchQuests = useCallback(async () => {
     try {
@@ -196,6 +203,27 @@ export default function AdminSponsoredQuestsPage() {
       setError(err instanceof Error ? err.message : "Failed to delete");
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function handleModerate(q: SponsoredQuest, action: "approve" | "reject", reason?: string) {
+    setModerating(q.id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/sponsored-quests/${q.id}/moderate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, reason }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error?.message ?? "Failed to moderate");
+      setSuccess(action === "approve" ? "Quest approved and is now live" : "Quest rejected");
+      setRejectTarget(null);
+      await fetchQuests();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to moderate");
+    } finally {
+      setModerating(null);
     }
   }
 
@@ -456,9 +484,21 @@ export default function AdminSponsoredQuestsPage() {
                     <span className="px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-700 font-medium">
                       Min: {q.min_creator_tier}
                     </span>
+                    {q.business_account_id && (
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                        q.moderation_status === "pending" ? "bg-amber-100 text-amber-700"
+                        : q.moderation_status === "rejected" ? "bg-red-100 text-red-700"
+                        : "bg-blue-100 text-blue-700"
+                      }`}>
+                        Business submission{q.submitted_by_username ? ` · @${q.submitted_by_username}` : ""} · {q.moderation_status}
+                      </span>
+                    )}
                   </div>
                   <h3 className="font-semibold text-neutral-900 dark:text-white">{q.title}</h3>
                   <p className="text-sm text-neutral-500 mt-1 line-clamp-2">{q.description}</p>
+                  {q.moderation_status === "rejected" && q.moderation_reason && (
+                    <p className="text-xs text-red-600 mt-1">Rejection reason: {q.moderation_reason}</p>
+                  )}
                 </div>
                 <div className="ml-4 text-right flex-shrink-0">
                   <div className="text-lg font-bold text-neutral-900 dark:text-white">
@@ -476,6 +516,24 @@ export default function AdminSponsoredQuestsPage() {
                 <span>Created: {formatDate(q.created_at)}</span>
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
+                {q.moderation_status === "pending" && (
+                  <>
+                    <button
+                      disabled={moderating === q.id}
+                      onClick={() => void handleModerate(q, "approve")}
+                      className="px-3 py-1 rounded-lg bg-green-600 text-white text-xs font-semibold hover:bg-green-700 disabled:opacity-50"
+                    >
+                      {moderating === q.id ? "…" : "Approve"}
+                    </button>
+                    <button
+                      disabled={moderating === q.id}
+                      onClick={() => { setRejectTarget(q); setRejectReason(""); }}
+                      className="px-3 py-1 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700 disabled:opacity-50"
+                    >
+                      Reject
+                    </button>
+                  </>
+                )}
                 <button
                   onClick={() => openEdit(q)}
                   className="px-3 py-1 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold hover:bg-blue-100"
@@ -576,6 +634,33 @@ export default function AdminSponsoredQuestsPage() {
               <button type="submit" disabled={saving} className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">{saving ? "Saving…" : "Save Changes"}</button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Reject reason modal (business-submitted quests only) */}
+      {rejectTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 dark:bg-neutral-900">
+            <h3 className="mb-1 font-semibold text-neutral-900 dark:text-white">Reject Sponsored Quest</h3>
+            <p className="mb-4 text-xs text-neutral-500">Optionally provide a reason shown to the business owner.</p>
+            <textarea
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="Reason for rejection (optional)"
+              rows={3}
+              className="w-full rounded-xl border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+            />
+            <div className="mt-4 flex gap-2">
+              <button onClick={() => setRejectTarget(null)} className="flex-1 rounded-lg border border-neutral-200 py-2 text-sm font-medium dark:border-neutral-700">Cancel</button>
+              <button
+                disabled={moderating === rejectTarget.id}
+                onClick={() => void handleModerate(rejectTarget, "reject", rejectReason.trim() || undefined)}
+                className="flex-1 rounded-lg bg-red-600 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {moderating === rejectTarget.id ? "…" : "Reject"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

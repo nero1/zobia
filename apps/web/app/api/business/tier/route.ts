@@ -5,16 +5,25 @@ export const dynamic = 'force-dynamic';
  *
  * PATCH /api/business/tier
  *
- * Upgrade the authenticated user's business account tier.
- * Body: { tier: "growth" | "enterprise", paymentProvider?: "paystack" | "dodopayments" }
+ * Upgrade or downgrade the authenticated user's business account tier.
+ * Body: { tier: "starter" | "growth" | "enterprise", paymentProvider?: "paystack" | "dodopayments" }
  *
- * Flow (PRD §17):
+ * Upgrade flow (PRD §17):
  *   1. Validate the requested tier is higher than the current tier.
  *   2. Determine tier price from x_manifest (admin-configurable).
  *   3. Initiate payment with Paystack (Nigeria) or DodoPayments (international).
  *   4. Store pending_tier + pending_payment_ref on the business account record.
  *   5. Return { paymentUrl } — client redirects user to checkout.
  *   6. On charge.success webhook (paystack/dodopayments), the tier is activated.
+ *
+ * Downgrade flow (self-service, no payment): the account keeps its current
+ * tier — and everything that comes with it (page slots, live sponsored
+ * quests) — for a uniform 30-day grace period (admin-configurable via
+ * x_manifest `business_downgrade_grace_days`). The daily-economy CRON sweep
+ * (lib/business/downgradeSweep.ts) applies the new tier once the grace
+ * period elapses: extra pages beyond the new tier's slot limit are
+ * deactivated and any running sponsored quests are stopped.
+ * Requesting the current tier again cancels a pending downgrade.
  *
  * Tier prices (admin-configurable in x_manifest, defaults from PRD §17):
  *   starter  → free (creation only; no upgrade needed)
@@ -32,6 +41,8 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { loadManifest } from "@/lib/manifest";
 import { initializePayment as paystackInit } from "@/lib/payments/paystack";
 import { createPaymentSession as dodoCreateSession } from "@/lib/payments/dodopayments";
+import { getBusinessDowngradeGraceDays } from "@/lib/business/limits";
+import { requireFeatureEnabled } from "@/lib/manifest";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -61,7 +72,7 @@ const PENDING_PAYMENT_TTL_MINUTES = 30;
 // ---------------------------------------------------------------------------
 
 const upgradeTierSchema = z.object({
-  tier: z.enum(["growth", "enterprise"]),
+  tier: z.enum(["starter", "growth", "enterprise"]),
   paymentProvider: z.enum(["paystack", "dodopayments"]).optional(),
 });
 
@@ -71,6 +82,7 @@ const upgradeTierSchema = z.object({
 
 export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
+    await requireFeatureEnabled("businessAccounts");
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 
     const userId = auth.user.sub;
@@ -87,15 +99,58 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
     const userEmail = userRows[0].email ?? `${userId}@zobia.placeholder`;
 
     // Fetch current business account
-    const { rows } = await db.query<{ id: string; tier: string; pending_tier: string | null; pending_payment_ref: string | null }>(
-      `SELECT id, tier, pending_tier, pending_payment_ref FROM business_accounts WHERE user_id = $1 LIMIT 1`,
+    const { rows } = await db.query<{
+      id: string;
+      tier: string;
+      pending_tier: string | null;
+      pending_payment_ref: string | null;
+      downgrade_to_tier: string | null;
+    }>(
+      `SELECT id, tier, pending_tier, pending_payment_ref, downgrade_to_tier FROM business_accounts WHERE user_id = $1 LIMIT 1`,
       [userId]
     );
     if (!rows[0]) throw notFound("No business account found");
 
     const currentTier = rows[0].tier.toLowerCase();
-    if ((TIER_ORDER[currentTier] ?? 0) >= (TIER_ORDER[newTier] ?? 0)) {
-      throw badRequest(`Cannot downgrade or re-purchase from ${currentTier} to ${newTier}`);
+
+    // Requesting the current tier again cancels a pending downgrade (no-op otherwise).
+    if (newTier === currentTier) {
+      if (!rows[0].downgrade_to_tier) {
+        throw badRequest(`Your business account is already on the ${currentTier} tier.`);
+      }
+      await db.query(
+        `UPDATE business_accounts SET downgrade_to_tier = NULL, downgrade_effective_at = NULL, updated_at = NOW() WHERE id = $1`,
+        [rows[0].id]
+      );
+      return NextResponse.json({
+        success: true,
+        data: { tier: currentTier, downgradeCancelled: true },
+        error: null,
+      });
+    }
+
+    // Downgrade — self-service, no payment. Keeps the current tier (and its
+    // page slots / live sponsored quests) until the grace period elapses.
+    if ((TIER_ORDER[newTier] ?? 0) < (TIER_ORDER[currentTier] ?? 0)) {
+      const graceDays = await getBusinessDowngradeGraceDays();
+      const { rows: updated } = await db.query<{ downgrade_effective_at: string }>(
+        `UPDATE business_accounts
+         SET downgrade_to_tier = $1, downgrade_effective_at = NOW() + ($2 || ' days')::interval,
+             pending_tier = NULL, pending_payment_ref = NULL, updated_at = NOW()
+         WHERE id = $3
+         RETURNING downgrade_effective_at`,
+        [newTier, String(graceDays), rows[0].id]
+      );
+      return NextResponse.json({
+        success: true,
+        data: {
+          tier: currentTier,
+          downgradeToTier: newTier,
+          downgradeEffectiveAt: updated[0].downgrade_effective_at,
+          message: `Your account stays on the ${currentTier} tier — with all its pages and live sponsored quests — until ${new Date(updated[0].downgrade_effective_at).toLocaleDateString()}. After that, extra pages beyond the ${newTier} tier's limit are deactivated and running sponsored quests are stopped.`,
+        },
+        error: null,
+      });
     }
 
     // BIZ-TIER-RACE: reject a new upgrade request while a non-expired pending
@@ -143,10 +198,12 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
     // Generate idempotency reference
     const reference = `biz-tier-${rows[0].id}-${newTier}-${randomUUID().slice(0, 8)}`;
 
-    // Mark the tier change as pending before initiating payment
+    // Mark the tier change as pending before initiating payment. An upgrade
+    // supersedes any scheduled downgrade.
     await db.query(
       `UPDATE business_accounts
-       SET pending_tier = $1, pending_payment_ref = $2, updated_at = NOW()
+       SET pending_tier = $1, pending_payment_ref = $2,
+           downgrade_to_tier = NULL, downgrade_effective_at = NULL, updated_at = NOW()
        WHERE id = $3`,
       [newTier, reference, rows[0].id]
     );

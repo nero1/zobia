@@ -17,7 +17,7 @@ import { listBlogs } from "@/lib/blogs/repo";
 import { createBlog } from "@/lib/blogs/service";
 
 const listQuerySchema = z.object({
-  tab: z.enum(["popular", "trending", "new", "random"]).default("popular"),
+  tab: z.enum(["popular", "trending", "new", "random", "subscribed"]).default("popular"),
   cursor: z.string().optional(),
   limit: z.string().optional().transform((v) => (v ? Math.min(parseInt(v, 10), 50) : 20)),
   q: z.string().optional(),
@@ -33,7 +33,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
     const query = validateSearchParams(req.nextUrl.searchParams, listQuerySchema);
-    const result = await listBlogs(query.tab, query.cursor ?? null, query.limit, query.q);
+    const result = await listBlogs(query.tab, query.cursor ?? null, query.limit, query.q, auth.user.sub);
     return NextResponse.json({ success: true, data: result, error: null });
   } catch (err) {
     return handleApiError(err);

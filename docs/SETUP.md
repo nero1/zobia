@@ -288,6 +288,15 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    > consolidated `0001` file directly with `psql` instead, also run
    > `psql "$DIRECT_URL" < db/migrations/0002_blogs.sql`.
 
+   > **Business Accounts expansion (PRD §17, v2.02):** Business Pages,
+   > business-submitted Sponsored Quests, and the self-service downgrade
+   > grace period ship in `db/migrations/0003_business_expansion.sql`
+   > (picked up automatically by `npm run migrate`, or
+   > `psql "$DIRECT_URL" < db/migrations/0003_business_expansion.sql`). This
+   > migration also adds the `sponsored_quests.deleted_at` column that the
+   > pre-existing admin Sponsored Quest delete endpoint already expected but
+   > that was missing from `0001_consolidated_schema.sql`.
+
 ### Option B: Railway PostgreSQL
 
 1. Go to [railway.app](https://railway.app) and create a new project.
@@ -320,6 +329,8 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 6. Add a corresponding ESLint rule if the provider has a client SDK that must not leak into business logic.
 
 ---
+
+**Business Accounts (v2.02) manifest keys** (admin-editable at `/admin/config` under "Business Accounts"): `business_starter_price_kobo` (500000), `business_growth_price_kobo` (1500000), `business_enterprise_price_kobo` (5000000), `business_page_limit_starter` (2), `business_page_limit_growth` (10), `business_page_limit_enterprise` (50), `sponsored_quest_moderation_mode` (`manual`|`ai`), `sponsored_quest_ai_auto_approve_threshold` (0.85), `business_downgrade_grace_days` (30, uniform across tiers).
 
 ## Realtime Setup
 

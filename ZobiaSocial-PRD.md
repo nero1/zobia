@@ -990,6 +990,7 @@ Public, shareable, crawlable surfaces use short, human-readable, SEO-friendly pa
 | Game (upcoming) | `zobia.org/g/tapontap` | Backed by the `games` table |
 | Forum question (Answers) | `zobia.org/a/what-made-you-join-zobia` | Public preview; interactive experience is at `/answers/<uuid>` (§31.0) |
 | Blog | `zobia.org/b/munas-world` | Backed by the `blogs` table (§32); `/b/<slug>/<postSlug>` for articles/pages |
+| Business Page | `zobia.org/p/cadbury` | Backed by the `business_pages` table (§17) |
 
 **Identifier model — UUID is internal, slug is public.** Every Room/game keeps its immutable `uuid` primary key as the internal reference (foreign keys, realtime channels, API calls, internal app navigation `/rooms/<uuid>` all continue to use it). The **slug** is a mutable, human-facing **alias** that resolves to the UUID. Slugs are unique among live records via a partial index; duplicates of the same name get a numeric suffix (`dorcas-cuisine`, `dorcas-cuisine2`, `dorcas-cuisine3`), oldest record keeping the bare slug. Slugs are generated server-side from the display name (`slugify` in `@zobia/shared/utils` + DB dedupe in `apps/web/lib/slug.ts`).
 
@@ -1092,10 +1093,81 @@ Credit packs (Section 11), Star packs (where admin enables direct Star purchase)
 **Pillar 4: Creator Platform Fees**
 20% platform fee on all creator earnings — subscriptions, gifts, quest payments, ClassRoom enrolments, Merch Store sales. As the creator economy grows, this becomes an increasingly significant self-sustaining revenue stream.
 
-**Pillar 5: Business Accounts**
-- **Business Starter:** Admin-configurable price (default ₦5,000/month). Verified business badge, broadcast capability, basic analytics.
-- **Business Growth:** Admin-configurable price (default ₦15,000/month). All Starter features, Quest Marketplace access, Room promotion credits.
-- **Business Enterprise:** Admin-configurable price (default ₦50,000+/month). All Growth features, custom Room theming, API access, dedicated account management.
+**Pillar 5: Business Accounts (v2.02)**
+
+Any user may create a Business Account — a paid, tiered upgrade layered on
+top of their personal account (reusing the platform's existing payment,
+verification, and moderation infrastructure rather than a parallel system).
+A non-business-account user who opens the sidebar's **Business** link sees
+an explainer of the feature, the three tiers with their pricing and feature
+comparison, and a **Create Business Account** call to action — no sales
+pitch is required elsewhere.
+
+- **Business Starter:** Admin-configurable price (default ₦5,000/month).
+  Verified business badge (on approval), broadcast capability, basic
+  analytics (account-wide totals only), **up to 2 Business Pages**.
+- **Business Growth:** Admin-configurable price (default ₦15,000/month).
+  All Starter features, **Quest Marketplace access — self-service Sponsored
+  Quests**, Room promotion credits, per-page analytics breakdown, **up to
+  10 Business Pages**.
+- **Business Enterprise:** Admin-configurable price (default
+  ₦50,000+/month). All Growth features, custom Room theming, API access,
+  dedicated account management, 90-day daily analytics drill-down + CSV
+  export, **up to 50 Business Pages**. Branded Room sponsorship and
+  Sponsored Leaderboard Banner placements (below) remain arranged directly
+  with the platform team rather than self-service.
+
+**Business Pages.** A Business Account can run one or more Business Pages —
+its public-facing brand identity/profile, each with its own name, bio,
+avatar/cover image, a lightweight post feed ("post stuff"), and view/post
+stats. Pages are reachable at the public, SEO-friendly URL
+`zobia.org/p/<slug>` (crawlable SSR, same slug/redirect convention as
+`/b/<slug>` for Blogs — see §32.0). The number of pages a tier may create is
+admin-configurable (`business_page_limit_<tier>` in `x_manifest`, defaults
+2 / 10 / 50 above); deleting a page frees its slot. The account owner
+manages all of their pages from a dedicated Business Pages dashboard
+(`/business/pages`). **Adverts run by a Business Account (Sponsored Quests
+today; Branded Rooms/Leaderboard Banners in future) are attributed to, and
+publicly shown as coming from, the Business Page the owner selects at
+creation time** — brand identity (name, logo) is copied from the page.
+
+**Stats depth by tier** (mirrors the Blogs stats-tier convention, §32.1):
+Starter = account-wide totals only; Growth = totals + a per-page breakdown;
+Enterprise = the above plus a 90-day daily drill-down and CSV export
+(`GET /api/business/pages/stats/export`). Depth and breadth of both page
+stats (views, post views) and advert stats (impressions, clicks) increase
+identically with tier.
+
+**Advertising Panel** (`/business/ads`). Business Accounts link here from
+their dashboard for a single hub over the platform's existing ads system
+(Pillar 3). Growth+ tiers can self-serve-submit **Sponsored Quests**
+(reusing the Creator Economy's Sponsored Quest Marketplace, §14) attributed
+to one of their Business Pages — every submission **requires approval**
+before it goes live. Admin chooses, per `x_manifest`
+(`sponsored_quest_moderation_mode`), whether approval is **manual** (an
+admin queue, same approve/reject pattern as business verification) or
+**AI-moderated** (the platform's existing DeepSeek/Gemini moderation
+pipeline reviews the brief and auto-approves above a confidence threshold,
+`sponsored_quest_ai_auto_approve_threshold`, otherwise falling back to the
+manual queue). Branded Room sponsorships and Sponsored Leaderboard Banners
+remain admin-arranged (contact-sales) rather than self-service.
+
+**Admin moderation.** Two dedicated panels, mirroring the platform's
+existing verification-queue pattern: `/admin/business` (account
+verification/suspend/restore — pre-existing) and `/admin/business/pages`
+(pause/suspend/ban/restore/delete an individual Business Page). The
+Sponsored Quest admin panel (`/admin/sponsored-quests`) gains an approval
+queue for business-submitted (as opposed to admin-published) quests.
+
+**Downgrades & grace period.** A tier downgrade is self-service (no
+payment) and takes effect only after a **uniform 30-day grace period**
+(admin-configurable, `business_downgrade_grace_days`) across all tiers —
+the account keeps its current tier, page slots, and any live sponsored
+quests until the grace period elapses. A downgrade can be cancelled at any
+time before it takes effect. Once the grace period elapses: pages beyond
+the new tier's slot limit are deactivated (oldest pages kept first), and
+all currently-running sponsored quests are stopped. Reactivating a
+deactivated page or resuming quests requires upgrading again.
 
 ---
 
@@ -2373,7 +2445,12 @@ principle as § 31 Answers).
 
 - **Discovery** (`/blogs`, web/PWA and the Capacitor Android app) mirrors
   the Games/Rooms discovery pages: Popular / Trending / New / Random tabs,
-  search, cursor-based pagination.
+  search, cursor-based pagination. **Subscribed** (web/PWA tab; a simple
+  toggle on Android, same convention as the rest of the tab bar being
+  web/PWA-only there) lists blogs the signed-in user is subscribed to
+  (§32.2), sorted by most recently updated first — "updated" meaning the
+  blog's most recent published article, falling back to the blog's creation
+  date for blogs with no articles yet.
 - Every user may create **one blog** (`POST /api/blogs`). The creator
   dashboard (`/blogs/dashboard`) manages articles and pages (draft/
   published), categories, comment moderation queue, stats, and blog

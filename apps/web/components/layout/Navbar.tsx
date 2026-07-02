@@ -58,6 +58,7 @@ const primaryNavItems = [
   { href: "/quests",       label: "Quests",       icon: "🎯" },
   { href: "/games",        label: "Games",        icon: "🎮" },
   { href: "/blogs",        label: "Blogs",        icon: "📝" },
+  { href: "/business",     label: "Business",     icon: "🏢" },
   { href: "/rooms",        label: "Rooms",        icon: "🚪" },
   { href: "/messages",     label: "Messages",     icon: "💬" },
   { href: "/friends",      label: "Friends",      icon: "👥" },

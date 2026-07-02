@@ -24,7 +24,7 @@ export interface BlogSummaryRow {
   owner_username: string | null;
 }
 
-export type BlogTab = "popular" | "trending" | "new" | "random";
+export type BlogTab = "popular" | "trending" | "new" | "random" | "subscribed";
 
 const BLOG_SELECT = `
   SELECT b.id, b.owner_id, b.slug, b.title, b.tagline, b.avatar_url, b.cover_image_url,
@@ -41,12 +41,78 @@ export interface ListBlogsResult {
   hasMore: boolean;
 }
 
-export async function listBlogs(
-  tab: BlogTab,
+/**
+ * "Subscribed" tab — blogs the given user is subscribed to, sorted by most
+ * recently updated first. "Updated" means the most recent *published*
+ * article (blogs.updated_at is not bumped when a draft is later published —
+ * see lib/blogs/service.ts updatePost — so a MAX(published_at) drill-down
+ * is used instead), falling back to the blog's creation date for blogs with
+ * no published articles yet. Cursor-paginated on the compound
+ * (sortKey, id) tuple since the sort key isn't the id itself.
+ */
+async function listSubscribedBlogs(
+  userId: string,
   cursor: string | null,
   limit: number,
   search?: string
 ): Promise<ListBlogsResult> {
+  const params: SqlParam[] = [userId];
+  let where = "";
+  if (search?.trim()) {
+    params.push(`%${search.trim()}%`);
+    where += ` AND b.title ILIKE $${params.length}`;
+  }
+
+  let cursorClause = "";
+  if (cursor) {
+    const [cursorSortKey, cursorId] = cursor.split("_");
+    if (cursorSortKey && cursorId) {
+      params.push(cursorSortKey, cursorId);
+      cursorClause = ` AND (COALESCE(lp.last_post_at, b.created_at), b.id) < ($${params.length - 1}::timestamptz, $${params.length}::uuid)`;
+    }
+  }
+
+  params.push(limit + 1);
+  const { rows } = await db.query<BlogSummaryRow & { sort_key: string }>(
+    `SELECT b.id, b.owner_id, b.slug, b.title, b.tagline, b.avatar_url, b.cover_image_url,
+            b.status, b.subscriber_count, b.show_subscriber_count, b.post_count, b.created_at,
+            u.username AS owner_username,
+            COALESCE(lp.last_post_at, b.created_at) AS sort_key
+     FROM blogs b
+     JOIN users u ON u.id = b.owner_id
+     JOIN blog_subscriptions sub ON sub.blog_id = b.id AND sub.user_id = $1
+     LEFT JOIN LATERAL (
+       SELECT MAX(p.published_at) AS last_post_at FROM blog_posts p
+       WHERE p.blog_id = b.id AND p.status = 'published' AND p.deleted_at IS NULL
+     ) lp ON true
+     WHERE b.status = 'active' AND b.deleted_at IS NULL${where}${cursorClause}
+     ORDER BY COALESCE(lp.last_post_at, b.created_at) DESC, b.id DESC
+     LIMIT $${params.length}`,
+    params
+  );
+
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+  const last = page[page.length - 1];
+  return {
+    blogs: page,
+    nextCursor: hasMore && last ? `${new Date(last.sort_key).toISOString()}_${last.id}` : null,
+    hasMore,
+  };
+}
+
+export async function listBlogs(
+  tab: BlogTab,
+  cursor: string | null,
+  limit: number,
+  search?: string,
+  userId?: string
+): Promise<ListBlogsResult> {
+  if (tab === "subscribed") {
+    if (!userId) return { blogs: [], nextCursor: null, hasMore: false };
+    return listSubscribedBlogs(userId, cursor, limit, search);
+  }
+
   const params: SqlParam[] = [];
   let where = "";
   if (search?.trim()) {

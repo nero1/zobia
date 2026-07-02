@@ -79,13 +79,16 @@ interface BusinessAccountRow {
   verification_reviewed_at: string | null;
   verification_reject_reason: string | null;
   subscription_id: string | null;
+  downgrade_to_tier: string | null;
+  downgrade_effective_at: string | null;
   created_at: string;
   updated_at: string;
 }
 
 const BUSINESS_SELECT_COLUMNS = `id, user_id, business_name, business_type, tier, verified, status,
               verification_status, verification_requested_at, verification_reviewed_at,
-              verification_reject_reason, subscription_id, created_at, updated_at`;
+              verification_reject_reason, subscription_id, downgrade_to_tier, downgrade_effective_at,
+              created_at, updated_at`;
 
 // ---------------------------------------------------------------------------
 // GET /api/business
