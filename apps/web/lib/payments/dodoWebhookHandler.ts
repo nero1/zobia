@@ -29,12 +29,14 @@ export interface DodoPaymentSucceededEvent {
       packId?: string;
       coinsGranted?: number;
       starsGranted?: number;
-      itemType: "coin_pack" | "star_pack" | "subscription" | "room_subscription" | "business_upgrade";
+      itemType: "coin_pack" | "star_pack" | "subscription" | "room_subscription" | "business_upgrade" | "business_signup";
       // BUG-DODO-01: itemSlug used for server-authoritative grant amount resolution
       itemSlug?: string;
       packName?: string;
       businessAccountId?: string;
       newTier?: string;
+      businessName?: string;
+      businessType?: string | null;
       idempotencyKey: string;
       planId?: string;
       planName?: string;
@@ -131,6 +133,54 @@ export async function processPaymentSucceeded(
          VALUES ('dodopayments', 'payment.succeeded', $1::jsonb, $2, NOW())`,
         [JSON.stringify({ paymentId, metadata }), 'coin_pack_zero_grant']
       ).catch(() => {});
+      return;
+    }
+
+    // Business Starter signup — create the business_accounts row now that
+    // payment has cleared (PRD §17: Starter is a paid tier, not free).
+    if (itemType === "business_signup") {
+      const { businessName, businessType } = metadata;
+      if (!businessName) {
+        logger.error({ providerReference, metadata }, "[webhook/dodopayments] business_signup missing businessName in metadata");
+        return;
+      }
+
+      // Idempotent: business_accounts.user_id is UNIQUE, so a replayed webhook
+      // (or a race with a second signup attempt) simply no-ops here.
+      const { rows: createdRows } = await tx.query<{ id: string }>(
+        `INSERT INTO business_accounts
+           (user_id, business_name, business_type, tier, verified, status, created_at, updated_at)
+         VALUES ($1, $2, $3, 'starter', FALSE, 'active', NOW(), NOW())
+         ON CONFLICT (user_id) DO NOTHING
+         RETURNING id`,
+        [userId, businessName, businessType ?? null]
+      );
+
+      if (!createdRows[0]) {
+        // The idempotency guard above (top of this function) only short-circuits
+        // replays of THIS SAME reference — reaching here means a business
+        // account already existed under a DIFFERENT completed payment, i.e.
+        // the user was charged twice for signup (e.g. two checkout sessions
+        // opened before the first webhook landed). Flag for manual refund.
+        logger.error({ providerReference, userId }, "[webhook/dodopayments] business_signup — account already exists under a different payment (possible duplicate charge)");
+        await tx.query(
+          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
+           VALUES ('business_signup_duplicate_charge', 'warning', $1, $2::jsonb, NOW())`,
+          [
+            `Business signup payment ${providerReference} completed for user ${userId} who already has a business account — possible duplicate charge, requires manual refund review`,
+            JSON.stringify({ userId, reference: providerReference }),
+          ]
+        );
+        return;
+      }
+
+      await tx.query(
+        `INSERT INTO notifications
+           (user_id, type, title, body, metadata, is_read, created_at)
+         VALUES ($1, 'business_tier_activated', 'Business Account Created',
+                 'Your Business Starter account is now active.', $2::jsonb, false, NOW())`,
+        [userId, JSON.stringify({ businessAccountId: createdRows[0].id, tier: "starter", reference: providerReference })]
+      );
       return;
     }
 

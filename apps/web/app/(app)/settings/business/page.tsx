@@ -315,11 +315,17 @@ export default function BusinessSettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ business_name: businessName.trim(), business_type: businessType }),
       });
-      const json = await res.json() as { success: boolean; data?: { business: BusinessAccount }; error?: { message?: string; code?: string } };
+      const json = await res.json() as { success: boolean; data?: { business: BusinessAccount; paymentUrl?: string }; error?: { message?: string; code?: string } };
       if (!res.ok) {
         const err = new Error(json.error?.message ?? "Failed to save") as Error & { code?: string | null };
         err.code = json.error?.code ?? null;
         throw err;
+      }
+      // Creating a new Business Starter account is a paid tier (PRD §17) —
+      // redirect to checkout instead of assuming the account already exists.
+      if (!business && json.data?.paymentUrl) {
+        window.location.href = json.data.paymentUrl;
+        return;
       }
       if (json.data?.business) {
         setBusiness(json.data.business);
@@ -409,6 +415,13 @@ export default function BusinessSettingsPage() {
           }`}
         >
           {toast.msg}
+        </div>
+      )}
+
+      {/* Suspended notice */}
+      {business && business.status === "suspended" && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+          Your business account is suspended. Contact support for more information.
         </div>
       )}
 
@@ -504,9 +517,14 @@ export default function BusinessSettingsPage() {
       {/* Create / Edit form */}
       {(!business || editing) && (
         <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
-          <h2 className="mb-5 text-base font-semibold text-neutral-900 dark:text-neutral-100">
+          <h2 className="mb-1 text-base font-semibold text-neutral-900 dark:text-neutral-100">
             {business ? "Edit Business Info" : "Create Business Account"}
           </h2>
+          {!business && (
+            <p className="mb-4 text-sm text-neutral-500 dark:text-neutral-400">
+              Business Starter is ₦5,000/month — you&apos;ll be redirected to checkout to complete payment.
+            </p>
+          )}
 
           {error && (
             <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
@@ -561,7 +579,7 @@ export default function BusinessSettingsPage() {
                 disabled={submitting || !businessName.trim()}
                 className="flex-1 rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
               >
-                {submitting ? "Saving…" : business ? "Save Changes" : "Create Business Account"}
+                {submitting ? "Saving…" : business ? "Save Changes" : "Continue to Payment"}
               </button>
             </div>
           </form>

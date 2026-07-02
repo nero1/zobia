@@ -1319,9 +1319,23 @@ The `next.config.js` also reads `NEXT_PUBLIC_PWA_WEB_ENABLED=false` at build tim
 
 ---
 
-## Business Account Tier Upgrades (PRD §17)
+## Business Account Signup & Tier Upgrades (PRD §17)
 
-Business accounts start at the free `starter` tier. To upgrade to `growth` (₦15,000/month) or `enterprise` (₦50,000+/month):
+### Signup (Business Starter)
+
+Business Starter is a **paid** tier (admin-configurable, default ₦5,000/month) — it is not free. Creating a business account is a payment-gated flow, mirroring the subscription purchase flow (`POST /api/economy/subscriptions`) rather than the tier-upgrade flow below:
+
+1. Client calls `POST /api/business` with `{ business_name, business_type }`. No `business_accounts` row exists yet at this point.
+2. Server resolves the Starter price from `x_manifest` key `business_starter_price_kobo` (falls back to the PRD default of ₦5,000).
+3. Server calls Paystack (`initializePayment`) or DodoPayments (`createPaymentSession`) with `itemType: "business_signup"` metadata (`userId`, `businessName`, `businessType`) and returns `{ paymentUrl }` (HTTP 202 — nothing has been created yet).
+4. Server inserts a `pending` record in the `payments` table (`payment_type = 'business_upgrade'`, `idempotency_key = reference`) so the webhook handler can find it.
+5. Client redirects the user to the checkout page.
+6. On `charge.success` / `payment.succeeded`, the webhook handler's `business_signup` branch **creates** the `business_accounts` row (`tier = 'starter'`, `status = 'active'`) using an `INSERT ... ON CONFLICT (user_id) DO NOTHING`, which makes account creation idempotent against replayed webhook deliveries — the `user_id` column is `UNIQUE`, so a duplicate delivery (or a race with a second signup attempt) simply no-ops instead of erroring or creating a second row.
+7. The user is notified in-app once the account is created. `GET /api/business` will 404 until the webhook has processed — the settings page shows the "Create Business Account" form until then.
+
+### Tier Upgrades
+
+Once a business account exists at `starter`, it can be upgraded to `growth` (₦15,000/month) or `enterprise` (₦50,000+/month):
 
 1. Client calls `PATCH /api/business/tier` with `{ tier, paymentProvider }`.
 2. Server looks up the tier price from `x_manifest` (admin-configurable; falls back to PRD defaults).
@@ -1338,7 +1352,16 @@ Business accounts start at the free `starter` tier. To upgrade to `growth` (₦1
    - Records `tier_updated_at`.
    - Sends an in-app notification to the business account owner confirming the tier activation — only when the activation update above actually matched a row.
 
-Tier prices are admin-configurable via `x_manifest` keys `business_growth_price_kobo` and `business_enterprise_price_kobo`.
+Tier prices are admin-configurable via `x_manifest` keys `business_starter_price_kobo`, `business_growth_price_kobo`, and `business_enterprise_price_kobo`.
+
+### Verification Requests
+
+Independent of tier, a business account can request the "Verified" badge (PRD §17):
+
+1. Client calls `POST /api/business/verify`. Server rejects with `409 CONFLICT` if `verification_status` is already `pending` or `verified`.
+2. Server sets `verification_status = 'pending'`, `verification_requested_at = NOW()`, and raises a low-severity `system_alerts` entry so admins see it in the moderation queue.
+3. Admin reviews the request at Admin → Business Accounts and calls `PATCH /api/admin/business` with `{ id, action: "verify" | "reject", reason? }`, which sets `verification_status` to `verified` or `rejected` and notifies the user.
+4. `GET /api/business` returns `verification_status` (and the related `verification_requested_at` / `verification_reviewed_at` / `verification_reject_reason` columns) so the settings page reflects the live status on every page load — a prior version of this endpoint omitted these columns from its `SELECT`, which made the UI fall back to `unverified` on every refresh even after an admin had approved the request, and then throw `409 CONFLICT` if the user clicked "Request Verification" again.
 
 ---
 
