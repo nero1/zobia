@@ -825,7 +825,12 @@ export default function AdminConfigPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ value: stringValue }),
       });
-      if (!res.ok) throw new Error("Failed to save");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const err = new Error(body.error?.message ?? "Failed to save") as Error & { code?: string | null };
+        err.code = body.error?.code ?? null;
+        throw err;
+      }
 
       // Update local state
       setGrouped((prev) => {

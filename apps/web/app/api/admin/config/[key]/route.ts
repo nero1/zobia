@@ -33,6 +33,7 @@ import {
   type AdminContext,
 } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -73,6 +74,7 @@ function sanitizeManifestValue(key: string, value: string): string {
     lower.includes("_enabled") ||
     lower.startsWith("is_") ||
     lower.includes("require_") ||
+    lower.includes("required_") ||
     lower.includes("allow_")
   ) {
     if (value !== "true" && value !== "false") {
@@ -139,25 +141,31 @@ export const PUT = withAdminAuth(
       const previousValue = existing.rows[0]?.value ?? null;
       const sanitizedValue = sanitizeManifestValue(key, body.value);
 
+      // Upsert the manifest value. This is the write that must succeed for the
+      // save to count — kept in its own transaction so a failure in the
+      // best-effort audit-log insert below can never poison/roll it back.
       await db.transaction(async (client) => {
-        // Upsert the manifest value (insert for new session_ttl keys, update for existing)
         await client.query(
           `INSERT INTO x_manifest (key, value, updated_at)
            VALUES ($1, $2, NOW())
            ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
           [key, sanitizedValue]
         );
+      });
 
-        // Log the change to audit table (best-effort; table may not exist in all environments)
-        await client.query(
+      // Log the change to the audit table on a separate connection/transaction
+      // (best-effort; table may not exist in all environments). A failure here
+      // must never undo the manifest write above.
+      try {
+        await db.query(
           `INSERT INTO admin_audit_log
              (admin_id, action, resource, resource_id, before_val, after_val, created_at)
            VALUES ($1, 'update_manifest', 'x_manifest', $2, $3::jsonb, $4::jsonb, NOW())`,
           [auth.user.sub, key, JSON.stringify(previousValue), JSON.stringify(sanitizedValue)]
-        ).catch(() => {
-          // Silently ignore if admin_audit_log table doesn't exist yet
-        });
-      });
+        );
+      } catch (auditErr) {
+        logger.error({ err: auditErr, key }, "[admin:config] Failed to write admin_audit_log entry (non-fatal)");
+      }
 
       // Invalidate Redis manifest cache so new value takes effect immediately
       await invalidateManifestCache();
