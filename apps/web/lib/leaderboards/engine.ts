@@ -46,6 +46,12 @@ export interface LeaderboardEntry {
   is_hall_of_fame?: boolean;
   /** Custom crest URL or emoji set by Hall of Fame users (PRD §9). */
   custom_crest?: string | null;
+  /**
+   * Subscription plan. Always selected from the DB but only surfaced by the
+   * API route to Moderator/Admin requesters — regular users must not be able
+   * to see another user's plan. See app/api/leaderboards/route.ts.
+   */
+  plan?: string;
 }
 
 export interface LeaderboardCursor {
@@ -302,7 +308,8 @@ export async function getLeaderboard(
        u.avatar_emoji,
        u.rank_name,
        COALESCE(ls.xp_value, 0) AS xp_value,
-       u.city
+       u.city,
+       u.plan
      FROM leaderboard_snapshots ls
      JOIN users u ON u.id = ls.user_id
      ${where}
@@ -323,6 +330,7 @@ export async function getLeaderboard(
     rank_name: r.rank_name,
     xp_value: Number(r.xp_value),
     city: r.city,
+    plan: r.plan,
   }));
 
   // PRD §9: Hall of Fame users (Prestige 10) have permanent top-100 visibility on
@@ -340,6 +348,7 @@ export async function getLeaderboard(
         xp_value: string;
         city: string | null;
         custom_crest: string | null;
+        plan: string;
       }
       const presentIds = new Set(entries.map((e) => e.user_id));
       const { rows: hofRows } = await db.query<HofRow>(
@@ -351,7 +360,8 @@ export async function getLeaderboard(
            u.rank_name,
            COALESCE(ls.xp_value, u.legacy_score, 0)::text AS xp_value,
            u.city,
-           u.custom_crest
+           u.custom_crest,
+           u.plan
          FROM hall_of_fame hof
          JOIN users u ON u.id = hof.user_id AND u.deleted_at IS NULL
          LEFT JOIN leaderboard_snapshots ls ON ls.user_id = hof.user_id
@@ -423,6 +433,7 @@ export async function getLeaderboard(
             city: hof.city,
             is_hall_of_fame: true,
             custom_crest: hof.custom_crest ?? null,
+            plan: hof.plan,
           });
         }
         hofCount += missingHof.length; // HoF count is separate from ranked total so pagination is consistent

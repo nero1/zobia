@@ -2845,6 +2845,8 @@ export const games = pgTable(
     playCount: bigint("play_count", { mode: "bigint" }).notNull().default(BigInt(0)),
     avgRating: numeric("avg_rating", { precision: 3, scale: 2 }).notNull().default("0"),
     ratingCount: integer("rating_count").notNull().default(0),
+    // Denormalised count of game_favorites rows for this game (migration 0036).
+    favoriteCount: integer("favorite_count").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -2927,6 +2929,27 @@ export const gameBestScores = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Game favorites ("❤️ Faves" heart toggle on the games discovery page).
+// Mirrors the room_pins pattern — unlimited, not plan-gated.
+// ---------------------------------------------------------------------------
+export const gameFavorites = pgTable(
+  "game_favorites",
+  {
+    id: uuidPk(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    gameId: uuid("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    unique: uniqueIndex("game_favorites_user_game_idx").on(t.userId, t.gameId),
+  })
+);
+
+// ---------------------------------------------------------------------------
 // Challenges (async score-based). Optional credit wager escrowed on accept.
 // ---------------------------------------------------------------------------
 export const gameChallenges = pgTable("game_challenges", {
@@ -2951,6 +2974,10 @@ export const gameChallenges = pgTable("game_challenges", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
+  // Soft-hide a completed challenge from the default inbox view (either
+  // participant may archive their own completed history; the wager/prize
+  // ledger rows are untouched). Added in migration 0036.
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
 });
 
 export const gameChallengeRounds = pgTable(
@@ -4094,6 +4121,8 @@ export type GamePlay = typeof gamePlays.$inferSelect;
 export type NewGamePlay = typeof gamePlays.$inferInsert;
 export type GameBestScore = typeof gameBestScores.$inferSelect;
 export type NewGameBestScore = typeof gameBestScores.$inferInsert;
+export type GameFavorite = typeof gameFavorites.$inferSelect;
+export type NewGameFavorite = typeof gameFavorites.$inferInsert;
 export type GameChallenge = typeof gameChallenges.$inferSelect;
 export type NewGameChallenge = typeof gameChallenges.$inferInsert;
 export type GameChallengeRound = typeof gameChallengeRounds.$inferSelect;

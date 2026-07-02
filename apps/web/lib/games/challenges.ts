@@ -178,6 +178,42 @@ export async function cancelChallenge(challengeId: string, userId: string): Prom
   await notify(opponentIdForNotify, "game_challenge_cancelled", cancelPayload).catch(() => {});
 }
 
+/**
+ * Delete a pending challenge that the opponent has not yet responded to.
+ * Only the challenger can delete it, and only while it's still 'pending' —
+ * nothing is escrowed at that point, so there's nothing to refund. Once the
+ * opponent accepts (status becomes 'active') this is no longer allowed; use
+ * cancelChallenge instead, which handles the escrow/forfeit logic.
+ */
+export async function deletePendingChallenge(challengeId: string, userId: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    const c = await lockChallenge(tx, challengeId);
+    if (c.challenger_id !== userId) throw forbidden("Only the challenger can delete this challenge.");
+    if (c.status !== "pending") {
+      throw conflict("Only a challenge the opponent hasn't responded to yet can be deleted.");
+    }
+    await tx.query(`DELETE FROM game_challenges WHERE id = $1`, [c.id]);
+  });
+}
+
+/**
+ * Archive a completed challenge — hides it from the default inbox view
+ * without touching the wager/prize ledger rows (unlike delete, which is only
+ * ever allowed pre-acceptance). Either participant can archive their own view.
+ */
+export async function archiveChallenge(challengeId: string, userId: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    const c = await lockChallenge(tx, challengeId);
+    if (c.challenger_id !== userId && c.opponent_id !== userId) {
+      throw forbidden("You are not part of this challenge.");
+    }
+    if (c.status !== "completed") {
+      throw conflict("Only a completed challenge can be archived.");
+    }
+    await tx.query(`UPDATE game_challenges SET archived_at = NOW() WHERE id = $1`, [c.id]);
+  });
+}
+
 // ─── Play a round ────────────────────────────────────────────────────────────
 
 /**
@@ -547,6 +583,7 @@ export interface ChallengeListItem {
   createdAt: string;
   expiresAt: string;
   completedAt: string | null;
+  archivedAt: string | null;
 }
 
 export interface ChallengesPage {
@@ -569,7 +606,8 @@ export interface ChallengesPage {
 export async function listUserChallenges(
   userId: string,
   cursor?: string | null,
-  limit = 20
+  limit = 20,
+  includeArchived = false
 ): Promise<ChallengesPage> {
   const pageSize = Math.min(Math.max(1, limit), 100);
   const params: (string | number)[] = [userId];
@@ -585,6 +623,10 @@ export async function listUserChallenges(
                         OR (c.created_at = $${params.length - 1}::timestamptz AND c.id < $${params.length}::uuid))`;
     }
   }
+  // Archived challenges (soft-hidden completed challenges) are excluded from
+  // the default inbox view. Not exposed as a UI toggle today — the caller
+  // would need to explicitly request them.
+  const archivedClause = includeArchived ? "" : "AND c.archived_at IS NULL";
   params.push(pageSize + 1); // fetch one extra to detect hasMore
 
   const { rows } = await db.query<Record<string, unknown>>(
@@ -593,12 +635,13 @@ export async function listUserChallenges(
             c.opponent_id, ou.username AS opponent_username,
             c.status, c.rounds, c.wager_credits, c.winner_id,
             c.prize_credits, c.prize_xp, c.prize_stars,
-            c.created_at, c.expires_at, c.completed_at
+            c.created_at, c.expires_at, c.completed_at, c.archived_at
      FROM game_challenges c
      JOIN games g ON g.id = c.game_id
      JOIN users cu ON cu.id = c.challenger_id
      JOIN users ou ON ou.id = c.opponent_id
      WHERE (c.challenger_id = $1 OR c.opponent_id = $1)
+       ${archivedClause}
        ${cursorClause}
      ORDER BY c.created_at DESC, c.id DESC
      LIMIT $${params.length}`,
@@ -625,7 +668,7 @@ export async function getChallengeDetail(
             c.opponent_id, ou.username AS opponent_username,
             c.status, c.rounds, c.wager_credits, c.winner_id,
             c.prize_credits, c.prize_xp, c.prize_stars,
-            c.created_at, c.expires_at, c.completed_at
+            c.created_at, c.expires_at, c.completed_at, c.archived_at
      FROM game_challenges c
      JOIN games g ON g.id = c.game_id
      JOIN users cu ON cu.id = c.challenger_id
@@ -666,6 +709,7 @@ function mapChallengeRow(c: Record<string, unknown>): ChallengeListItem {
     createdAt: c.created_at as string,
     expiresAt: c.expires_at as string,
     completedAt: (c.completed_at as string | null) ?? null,
+    archivedAt: (c.archived_at as string | null) ?? null,
   };
 }
 

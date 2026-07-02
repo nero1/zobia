@@ -6,7 +6,7 @@
  * Authenticated user's own profile page (PRD §15).
  *
  * Fetches the current user's data from GET /api/users/me and renders the
- * full profile: rank ring, XP bar, all six track level bars, prestige badge,
+ * full profile: rank ring, XP bar, all seven track level bars, prestige badge,
  * guild, season history shelf, legacy score, creator card, and edit controls.
  *
  * All data is real — no hardcoded placeholders.
@@ -64,6 +64,7 @@ interface MeData {
   xp_generosity: number;
   xp_knowledge: number;
   xp_explorer: number;
+  xp_gaming: number;
   // Track levels
   level_social: number;
   level_creator: number;
@@ -71,6 +72,7 @@ interface MeData {
   level_generosity: number;
   level_knowledge: number;
   level_explorer: number;
+  level_gaming: number;
   // Guild
   guild_id: string | null;
   guild_name: string | null;
@@ -93,6 +95,7 @@ const TRACK_META: Array<{ key: keyof MeData; levelKey: keyof MeData; label: stri
   { key: "xp_creator",     levelKey: "level_creator",     label: "Creator",    emoji: "🎨" },
   { key: "xp_competitor",  levelKey: "level_competitor",  label: "Competitor", emoji: "⚔️" },
   { key: "xp_generosity",  levelKey: "level_generosity",  label: "Generosity", emoji: "🎁" },
+  { key: "xp_gaming",      levelKey: "level_gaming",      label: "Gaming",     emoji: "🎮" },
   { key: "xp_knowledge",   levelKey: "level_knowledge",   label: "Knowledge",  emoji: "📚" },
   { key: "xp_explorer",    levelKey: "level_explorer",    label: "Explorer",   emoji: "🧭" },
 ];

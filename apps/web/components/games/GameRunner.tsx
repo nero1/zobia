@@ -14,6 +14,9 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { useTranslation } from "react-i18next";
 import { getEngine } from "@/components/games/engineRegistry";
 import type { GameDifficulty } from "@/components/games/types";
 
@@ -85,6 +88,8 @@ export default function GameRunner({
   embed,
   onExit,
 }: GameRunnerProps) {
+  const router = useRouter();
+  const { t } = useTranslation();
   const [phase, setPhase] = useState<Phase>("pregame");
   const [difficulty, setDifficulty] = useState<GameDifficulty>(() => getStoredDifficulty(slug));
   const [soundEnabled, setSoundEnabled] = useState<boolean>(() => getStoredSound());
@@ -352,6 +357,7 @@ export default function GameRunner({
       {/* ── Result ── */}
       {phase === "result" && result && (
         <div className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-card p-6 text-center w-full max-w-sm mx-auto">
+          <div className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{t("games.gameOver", "Game Over")}</div>
           <div className="text-3xl font-black text-foreground">Score: {result.score}</div>
           {result.isNewBest && (
             <div className="text-sm font-semibold text-amber-400">🏆 New personal best!</div>
@@ -407,25 +413,31 @@ export default function GameRunner({
             </div>
           )}
 
-          <div className="flex gap-2 w-full mt-1">
+          <div className="flex flex-wrap gap-2 w-full mt-1">
             {!challengeId && (
               <button
                 type="button"
                 onClick={() => { setPhase("pregame"); setRating({ submitted: false, selected: 0, saved: 0 }); setRatingHover(0); }}
-                className="flex-1 rounded-xl bg-primary px-4 py-3 text-sm font-bold text-primary-foreground hover:opacity-90"
+                className="flex-1 min-w-[45%] rounded-xl bg-primary px-4 py-3 text-sm font-bold text-primary-foreground hover:opacity-90"
               >
-                Play again
+                {t("games.playAgain", "Play Again")}
               </button>
             )}
-            {onExit && (
-              <button
-                type="button"
-                onClick={onExit}
-                className="flex-1 rounded-xl border border-border px-4 py-3 text-sm font-semibold text-foreground hover:bg-accent"
+            {!challengeId && !embed && (
+              <Link
+                href="/games"
+                className="flex-1 min-w-[45%] rounded-xl border border-border px-4 py-3 text-sm font-semibold text-foreground hover:bg-accent text-center"
               >
-                Done
-              </button>
+                {t("games.moreGames", "More Games")}
+              </Link>
             )}
+            <button
+              type="button"
+              onClick={() => (onExit ? onExit() : router.push(`/g/${slug}`))}
+              className="flex-1 min-w-[45%] rounded-xl border border-border px-4 py-3 text-sm font-semibold text-foreground hover:bg-accent"
+            >
+              {t("games.quit", "Quit")}
+            </button>
           </div>
         </div>
       )}

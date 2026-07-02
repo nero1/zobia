@@ -30,9 +30,12 @@ export interface GameConfigRow {
   play_count: number;
   avg_rating: number;
   rating_count: number;
+  favorite_count: number;
   is_active: boolean;
   is_public: boolean;
   created_at: string;
+  /** Only present when the query joins game_favorites for a specific viewer. */
+  is_favorited?: boolean;
 }
 
 const SUMMARY_COLUMNS = `
@@ -40,7 +43,18 @@ const SUMMARY_COLUMNS = `
   cover_image_url, category, engine_key,
   reward_credits_per_win, reward_xp_per_win, reward_stars_per_win,
   play_cost_credits, play_cost_stars, max_score, min_play_seconds,
-  play_count, avg_rating, rating_count, is_active, is_public, created_at
+  play_count, avg_rating, rating_count, favorite_count, is_active, is_public, created_at
+`;
+
+// Table-qualified variant for queries that alias `games` as `g` and join
+// other tables that also have an `id` column (e.g. game_favorites) — avoids
+// "column reference is ambiguous" errors.
+const SUMMARY_COLUMNS_G = `
+  g.id, g.slug, g.name, g.tagline, g.description, g.long_description, g.cover_emoji,
+  g.cover_image_url, g.category, g.engine_key,
+  g.reward_credits_per_win, g.reward_xp_per_win, g.reward_stars_per_win,
+  g.play_cost_credits, g.play_cost_stars, g.max_score, g.min_play_seconds,
+  g.play_count, g.avg_rating, g.rating_count, g.favorite_count, g.is_active, g.is_public, g.created_at
 `;
 
 function toSummary(row: GameConfigRow): GameSummary {
@@ -63,26 +77,36 @@ function toSummary(row: GameConfigRow): GameSummary {
     playCount: Number(row.play_count),
     avgRating: Number(row.avg_rating ?? 0),
     ratingCount: Number(row.rating_count ?? 0),
+    favoriteCount: Number(row.favorite_count ?? 0),
+    ...(row.is_favorited !== undefined ? { isFavorited: row.is_favorited } : {}),
     isActive: row.is_active,
     createdAt: row.created_at,
   };
 }
 
 /** All active, public games for the directory, ordered by category + sort. */
-export async function getActiveGames(): Promise<GameSummary[]> {
+export async function getActiveGames(userId?: string): Promise<GameSummary[]> {
+  const favSelect = userId ? `, (gf.id IS NOT NULL) AS is_favorited` : "";
+  const favJoin = userId ? `LEFT JOIN game_favorites gf ON gf.game_id = g.id AND gf.user_id = $1` : "";
   const { rows } = await db.query<GameConfigRow>(
-    `SELECT ${SUMMARY_COLUMNS}
-     FROM games
-     WHERE deleted_at IS NULL AND is_active = TRUE AND is_public = TRUE
-     ORDER BY category NULLS LAST, sort_order ASC, name ASC`
+    `SELECT ${SUMMARY_COLUMNS_G}${favSelect}
+     FROM games g
+     ${favJoin}
+     WHERE g.deleted_at IS NULL AND g.is_active = TRUE AND g.is_public = TRUE
+     ORDER BY g.category NULLS LAST, g.sort_order ASC, g.name ASC`,
+    userId ? [userId] : []
   );
   return rows.map(toSummary);
 }
 
 export interface GameListOptions {
-  tab?: "new" | "popular" | "trending";
+  tab?: "new" | "popular" | "trending" | "random";
   category?: string;
   free?: boolean;
+  /** Case-insensitive substring match against name/tagline (discovery search bar). */
+  q?: string;
+  /** When set, joins game_favorites so each result carries `isFavorited`. */
+  userId?: string;
   /**
    * Opaque pagination cursor returned by the previous page.
    * "new" tab: ISO timestamp string.
@@ -106,7 +130,7 @@ export interface GameListResult {
  * New = most recently created.
  */
 export async function listGames(opts: GameListOptions = {}): Promise<GameListResult> {
-  const { tab = "popular", category, free, cursor, limit: rawLimit = 24 } = opts;
+  const { tab = "popular", category, free, q, userId, cursor, limit: rawLimit = 24 } = opts;
   const limit = Math.min(rawLimit, 50);
   const params: (string | number | boolean | null)[] = [];
   const where: string[] = [
@@ -126,11 +150,29 @@ export async function listGames(opts: GameListOptions = {}): Promise<GameListRes
     where.push(`(g.play_cost_credits > 0 OR g.play_cost_stars > 0)`);
   }
 
+  if (q && q.trim()) {
+    params.push(`%${q.trim()}%`);
+    where.push(`(g.name ILIKE $${params.length} OR g.tagline ILIKE $${params.length})`);
+  }
+
+  let favSelect = "";
+  let favJoin = "";
+  if (userId) {
+    params.push(userId);
+    favSelect = `, (gf.id IS NOT NULL) AS is_favorited`;
+    favJoin = `LEFT JOIN game_favorites gf ON gf.game_id = g.id AND gf.user_id = $${params.length}`;
+  }
+
   let orderBy: string;
   let trendingJoin = "";
-  let extraSelect = "";
+  let extraSelect = favSelect;
 
-  if (tab === "new") {
+  if (tab === "random") {
+    // Random tab: no meaningful cursor over ORDER BY random() — each fetch
+    // (including "Load more") returns a fresh shuffled batch instead of a
+    // stable page, same tradeoff as any "shuffle" feature at this scale.
+    orderBy = "random()";
+  } else if (tab === "new") {
     if (cursor) {
       params.push(cursor);
       where.push(`g.created_at < $${params.length}`);
@@ -145,7 +187,7 @@ export async function listGames(opts: GameListOptions = {}): Promise<GameListRes
         GROUP BY game_id
       ) tp ON tp.game_id = g.id
     `;
-    extraSelect = ", COALESCE(tp.recent_plays, 0) AS recent_plays";
+    extraSelect += ", COALESCE(tp.recent_plays, 0) AS recent_plays";
     if (cursor) {
       try {
         const { recent_plays: cp, id: cid } = JSON.parse(
@@ -180,9 +222,10 @@ export async function listGames(opts: GameListOptions = {}): Promise<GameListRes
   const rows_param = `$${params.length}`;
 
   const { rows } = await db.query<GameConfigRow & { recent_plays?: number }>(
-    `SELECT ${SUMMARY_COLUMNS}${extraSelect}
+    `SELECT ${SUMMARY_COLUMNS_G}${extraSelect}
      FROM games g
      ${trendingJoin}
+     ${favJoin}
      WHERE ${where.join(" AND ")}
      ORDER BY ${orderBy}
      LIMIT ${rows_param}`,
@@ -193,7 +236,9 @@ export async function listGames(opts: GameListOptions = {}): Promise<GameListRes
   const items = hasMore ? rows.slice(0, limit) : rows;
 
   let nextCursor: string | null = null;
-  if (hasMore && items.length > 0) {
+  // Random has no stable cursor — "Load more" just re-shuffles (hasMore stays
+  // false so the page renders a "Shuffle again" affordance instead).
+  if (hasMore && items.length > 0 && tab !== "random") {
     const last = items[items.length - 1];
     if (tab === "new") {
       nextCursor = last.created_at;
@@ -212,7 +257,7 @@ export async function listGames(opts: GameListOptions = {}): Promise<GameListRes
   return {
     games: items.map(toSummary),
     nextCursor,
-    hasMore,
+    hasMore: tab === "random" ? false : hasMore,
   };
 }
 
@@ -286,4 +331,122 @@ export async function upsertGameRating(
     avgRating: Number(rows[0]?.avg_rating ?? 0),
     ratingCount: Number(rows[0]?.rating_count ?? 0),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Favorites ("❤️ Faves") — mirrors lib pattern used by room_pins/rooms/pinned.
+// ---------------------------------------------------------------------------
+
+/** The user's favorited games, most-recently-favorited first (cursor on favorited_at). */
+export async function listFavoriteGames(
+  userId: string,
+  cursor?: string,
+  limit = 24
+): Promise<GameListResult> {
+  const pageSize = Math.min(limit, 50);
+  const params: (string | number)[] = [userId];
+  let cursorClause = "";
+  if (cursor) {
+    params.push(cursor);
+    cursorClause = `AND gf.created_at < $${params.length}`;
+  }
+  params.push(pageSize + 1);
+
+  const { rows } = await db.query<GameConfigRow & { favorited_at: string }>(
+    `SELECT ${SUMMARY_COLUMNS_G}, TRUE AS is_favorited, gf.created_at AS favorited_at
+     FROM game_favorites gf
+     JOIN games g ON g.id = gf.game_id AND g.deleted_at IS NULL AND g.is_active = TRUE AND g.is_public = TRUE
+     WHERE gf.user_id = $1 ${cursorClause}
+     ORDER BY gf.created_at DESC
+     LIMIT $${params.length}`,
+    params
+  );
+
+  const hasMore = rows.length > pageSize;
+  const items = hasMore ? rows.slice(0, pageSize) : rows;
+  const nextCursor = hasMore && items.length > 0 ? items[items.length - 1].favorited_at : null;
+
+  return { games: items.map(toSummary), nextCursor, hasMore };
+}
+
+/** Toggle a game as favorited for a user. Returns the new favorited state + count. */
+export async function setGameFavorite(
+  userId: string,
+  gameId: string,
+  favorited: boolean
+): Promise<{ favorited: boolean; favoriteCount: number }> {
+  await db.transaction(async (tx) => {
+    if (favorited) {
+      const { rows } = await tx.query<{ id: string }>(
+        `INSERT INTO game_favorites (user_id, game_id) VALUES ($1, $2)
+         ON CONFLICT (user_id, game_id) DO NOTHING
+         RETURNING id`,
+        [userId, gameId]
+      );
+      if (rows.length > 0) {
+        await tx.query(`UPDATE games SET favorite_count = favorite_count + 1 WHERE id = $1`, [gameId]);
+      }
+    } else {
+      const { rows } = await tx.query<{ id: string }>(
+        `DELETE FROM game_favorites WHERE user_id = $1 AND game_id = $2 RETURNING id`,
+        [userId, gameId]
+      );
+      if (rows.length > 0) {
+        await tx.query(
+          `UPDATE games SET favorite_count = GREATEST(favorite_count - 1, 0) WHERE id = $1`,
+          [gameId]
+        );
+      }
+    }
+  });
+
+  const { rows } = await db.query<{ favorite_count: number }>(
+    `SELECT favorite_count FROM games WHERE id = $1`,
+    [gameId]
+  );
+  return { favorited, favoriteCount: Number(rows[0]?.favorite_count ?? 0) };
+}
+
+// ---------------------------------------------------------------------------
+// Recently Played — reuses game_plays (no new table; PRD "Recently Played"
+// tab is a thin recency view over sessions that already exist).
+// ---------------------------------------------------------------------------
+
+/** Distinct games the user has played, most-recently-played first. */
+export async function listRecentlyPlayedGames(
+  userId: string,
+  cursor?: string,
+  limit = 24
+): Promise<GameListResult> {
+  const pageSize = Math.min(limit, 50);
+  const params: (string | number)[] = [userId];
+  let cursorClause = "";
+  if (cursor) {
+    params.push(cursor);
+    cursorClause = `AND lp.last_played_at < $${params.length}`;
+  }
+  params.push(pageSize + 1);
+
+  const { rows } = await db.query<GameConfigRow & { last_played_at: string }>(
+    `WITH last_plays AS (
+       SELECT game_id, MAX(started_at) AS last_played_at
+       FROM game_plays
+       WHERE user_id = $1
+       GROUP BY game_id
+     )
+     SELECT ${SUMMARY_COLUMNS_G}, (gf.id IS NOT NULL) AS is_favorited, lp.last_played_at
+     FROM last_plays lp
+     JOIN games g ON g.id = lp.game_id AND g.deleted_at IS NULL AND g.is_active = TRUE AND g.is_public = TRUE
+     LEFT JOIN game_favorites gf ON gf.game_id = g.id AND gf.user_id = $1
+     WHERE TRUE ${cursorClause}
+     ORDER BY lp.last_played_at DESC
+     LIMIT $${params.length}`,
+    params
+  );
+
+  const hasMore = rows.length > pageSize;
+  const items = hasMore ? rows.slice(0, pageSize) : rows;
+  const nextCursor = hasMore && items.length > 0 ? items[items.length - 1].last_played_at : null;
+
+  return { games: items.map(toSummary), nextCursor, hasMore };
 }

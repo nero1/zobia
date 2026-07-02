@@ -8,6 +8,24 @@
     --safe-area-inset-right: env(safe-area-inset-right);
     --safe-area-inset-bottom: env(safe-area-inset-bottom);
     --safe-area-inset-left: env(safe-area-inset-left);
+
+    /* Shadcn-style semantic tokens consumed by shared/tailwind-tokens.js
+       (bg-primary, bg-card, text-foreground, border-border, bg-accent,
+       text-muted-foreground) — same values as apps/web's light theme so
+       screens shared/ported from web render identically here. The app is
+       light-only today (no dark-mode toggle), so no .dark block yet. */
+    --background: 0 0% 98%;
+    --foreground: 0 0% 9%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 9%;
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --accent: 0 0% 96%;
+    --accent-foreground: 0 0% 9%;
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 45%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
   }
 
   html {

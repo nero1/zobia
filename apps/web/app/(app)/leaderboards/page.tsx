@@ -8,9 +8,10 @@
  * Paginated results.
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 
@@ -19,8 +20,10 @@ import { translateApiError } from "@/lib/i18n/apiErrors";
 // ---------------------------------------------------------------------------
 
 type Scope = "global" | "city" | "guild" | "season";
-type Track = "main" | "social" | "creator" | "competitor" | "generosity" | "knowledge" | "explorer";
+type Track = "main" | "social" | "creator" | "competitor" | "generosity" | "gaming" | "knowledge" | "explorer";
 type Plan = "free" | "basic" | "pro" | "vip";
+
+const VALID_TRACKS: Track[] = ["main", "social", "creator", "competitor", "generosity", "gaming", "knowledge", "explorer"];
 
 interface LeaderboardEntry {
   rank: number;
@@ -30,7 +33,8 @@ interface LeaderboardEntry {
   avatarEmoji: string;
   city: string;
   xp: number;
-  plan: Plan;
+  /** Only present for viewers with Moderator/Admin access — see PLAN_COL_ROLES. */
+  plan: Plan | null;
   isCurrentUser: boolean;
   /** Positive = moved up in rank (improved), negative = dropped. */
   rankChange?: number;
@@ -60,22 +64,13 @@ interface SponsoredBanner {
 // Constants
 // ---------------------------------------------------------------------------
 
-const SCOPE_LABELS: Record<Scope, string> = {
-  global: "Global",
-  city: "City",
-  guild: "Guild",
-  season: "Season",
-};
-
-const TRACK_LABELS: Record<Track, string> = {
-  main: "Main",
-  social: "Social",
-  creator: "Creator",
-  competitor: "Competitor",
-  generosity: "Generosity",
-  knowledge: "Knowledge",
-  explorer: "Explorer",
-};
+// i18n keys already exist for all of these (leaderboards.scope.* /
+// leaderboards.track.*) — see shared/i18n/locales/en.json.
+const SCOPE_ORDER: Scope[] = ["global", "city", "guild", "season"];
+// Gaming sits right after Generosity per the games discovery page's track
+// ordering (profile TRACK_META and lib/xp/trackMilestones.ts follow the same
+// order).
+const TRACK_ORDER: Track[] = ["main", "social", "creator", "competitor", "generosity", "gaming", "knowledge", "explorer"];
 
 const PLAN_BADGE: Record<Plan, string> = {
   free: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400",
@@ -122,7 +117,7 @@ function rankMedal(rank: number): string {
 // Skeleton
 // ---------------------------------------------------------------------------
 
-function LeaderboardSkeleton() {
+function LeaderboardSkeleton({ showPlan }: { showPlan: boolean }) {
   return (
     <>
       {Array.from({ length: 10 }).map((_, i) => (
@@ -136,7 +131,7 @@ function LeaderboardSkeleton() {
           </td>
           <td className="px-4 py-3"><div className="h-4 w-20 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" /></td>
           <td className="px-4 py-3"><div className="h-4 w-16 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" /></td>
-          <td className="px-4 py-3"><div className="h-4 w-12 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" /></td>
+          {showPlan && <td className="px-4 py-3"><div className="h-4 w-12 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" /></td>}
         </tr>
       ))}
     </>
@@ -151,10 +146,13 @@ function EntryRow({
   entry,
   highlight,
   ripple,
+  showPlan,
 }: {
   entry: LeaderboardEntry;
   highlight?: boolean;
   ripple?: "up" | "down" | null;
+  /** Plan column is only rendered for Moderator/Admin viewers (see page-level gating). */
+  showPlan: boolean;
 }) {
   const rankChange = getRankChange(entry);
   const hasRankUp = rankChange > 0;
@@ -204,11 +202,15 @@ function EntryRow({
       <td className="px-4 py-3 text-sm font-semibold tabular-nums text-neutral-800 dark:text-neutral-200">
         {entry.xp.toLocaleString()}
       </td>
-      <td className="px-4 py-3">
-        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold capitalize ${PLAN_BADGE[entry.plan]}`}>
-          {entry.plan}
-        </span>
-      </td>
+      {showPlan && (
+        <td className="px-4 py-3">
+          {entry.plan && (
+            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold capitalize ${PLAN_BADGE[entry.plan]}`}>
+              {entry.plan}
+            </span>
+          )}
+        </td>
+      )}
     </tr>
   );
 }
@@ -220,21 +222,36 @@ function EntryRow({
 /**
  * Leaderboards page with scope and track filtering.
  */
-export default function LeaderboardsPage() {
-  const { t: translate } = useTranslation();
-  const translateRef = useRef(translate);
+function LeaderboardsContent() {
+  const { t } = useTranslation();
+  const translateRef = useRef(t);
   useEffect(() => {
-    translateRef.current = translate;
-  }, [translate]);
+    translateRef.current = t;
+  }, [t]);
+  const searchParams = useSearchParams();
+  const initialTrack = (() => {
+    const p = searchParams.get("track");
+    return p && (VALID_TRACKS as string[]).includes(p) ? (p as Track) : "main";
+  })();
   const [scope, setScope] = useState<Scope>("global");
-  const [track, setTrack] = useState<Track>("main");
+  const [track, setTrack] = useState<Track>(initialTrack);
   const [data, setData] = useState<LeaderboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [banner, setBanner] = useState<SponsoredBanner | null>(null);
   const [rankRipple, setRankRipple] = useState<"up" | "down" | null>(null);
+  // The Plan column leaks another user's subscription tier — restrict it to
+  // Moderator/Admin viewers, same as the /admin nav link gating in Navbar.tsx.
+  const [canSeePlan, setCanSeePlan] = useState(false);
   const perPage = 20;
+
+  useEffect(() => {
+    fetch("/api/auth/me", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => setCanSeePlan(Boolean(b?.user?.is_admin || b?.user?.is_moderator)))
+      .catch(() => {});
+  }, []);
 
   const fetchData = useCallback(async (s: Scope, t: Track, p: number) => {
     setLoading(true);
@@ -261,7 +278,8 @@ export default function LeaderboardsPage() {
         avatarEmoji: ((e.avatar_emoji ?? e.avatarEmoji) as string) ?? "😊",
         city: (e.city as string) ?? "",
         xp: ((e.xp_value ?? e.xp) as number) ?? 0,
-        plan: ((e.plan as Plan) ?? "free"),
+        // API only includes `plan` for Moderator/Admin requesters; absent for everyone else.
+        plan: (e.plan as Plan | undefined) ?? null,
         isCurrentUser: false,
         rankChange: (e.rankChange as number) ?? (e.rank_change as number) ?? 0,
       }));
@@ -321,30 +339,30 @@ export default function LeaderboardsPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-4 p-4 sm:p-6">
       <RankAnimationStyles />
-      <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">Leaderboards</h1>
+      <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">{t("leaderboards.title", "Leaderboards")}</h1>
 
       {/* Scope tabs */}
       <div className="flex flex-wrap gap-1 rounded-xl border border-neutral-200 bg-neutral-100 p-1 dark:border-neutral-800 dark:bg-neutral-800/50">
-        {(Object.keys(SCOPE_LABELS) as Scope[]).map((s) => (
+        {SCOPE_ORDER.map((s) => (
           <button
             key={s}
             onClick={() => setScope(s)}
             className={`flex-1 rounded-lg py-2 text-sm font-semibold transition-colors ${scope === s ? "bg-white text-neutral-900 shadow-card dark:bg-neutral-900 dark:text-neutral-50" : "text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"}`}
           >
-            {SCOPE_LABELS[s]}
+            {t(`leaderboards.scope.${s}`)}
           </button>
         ))}
       </div>
 
       {/* Track filter */}
       <div className="flex flex-wrap gap-1.5">
-        {(Object.keys(TRACK_LABELS) as Track[]).map((t) => (
+        {TRACK_ORDER.map((tr) => (
           <button
-            key={t}
-            onClick={() => setTrack(t)}
-            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${track === t ? "bg-blue-600 text-white" : "bg-neutral-100 text-neutral-700 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300"}`}
+            key={tr}
+            onClick={() => setTrack(tr)}
+            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${track === tr ? "bg-blue-600 text-white" : "bg-neutral-100 text-neutral-700 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300"}`}
           >
-            {TRACK_LABELS[t]}
+            {t(`leaderboards.track.${tr}`)}
           </button>
         ))}
       </div>
@@ -393,21 +411,27 @@ export default function LeaderboardsPage() {
         <table className="min-w-full text-sm">
           <thead>
             <tr className="border-b border-neutral-200 text-xs uppercase tracking-wider text-neutral-500 dark:border-neutral-800">
-              {["Rank", "Player", "City", "XP", "Plan"].map((h) => (
+              {[
+                t("leaderboards.col.rank", "Rank"),
+                t("leaderboards.col.player", "Player"),
+                t("leaderboards.col.city", "City"),
+                t("leaderboards.col.xp", "XP"),
+                ...(canSeePlan ? [t("leaderboards.col.plan", "Plan")] : []),
+              ].map((h) => (
                 <th key={h} className="px-4 py-3 text-left font-semibold">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
             {loading ? (
-              <LeaderboardSkeleton />
+              <LeaderboardSkeleton showPlan={canSeePlan} />
             ) : !data || data.entries.length === 0 ? (
               <tr>
-                <td colSpan={5} className="py-12 text-center text-neutral-500">No entries yet</td>
+                <td colSpan={canSeePlan ? 5 : 4} className="py-12 text-center text-neutral-500">{t("leaderboards.empty", "No entries yet")}</td>
               </tr>
             ) : (
               data.entries.map((e) => (
-                <EntryRow key={e.userId} entry={e} highlight={e.isCurrentUser} ripple={e.isCurrentUser ? rankRipple : null} />
+                <EntryRow key={e.userId} entry={e} highlight={e.isCurrentUser} ripple={e.isCurrentUser ? rankRipple : null} showPlan={canSeePlan} />
               ))
             )}
           </tbody>
@@ -444,11 +468,19 @@ export default function LeaderboardsPage() {
           <p className="mb-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400">Your Position</p>
           <table className="w-full">
             <tbody>
-              <EntryRow entry={currentUser} highlight ripple={rankRipple} />
+              <EntryRow entry={currentUser} highlight ripple={rankRipple} showPlan={canSeePlan} />
             </tbody>
           </table>
         </div>
       )}
     </div>
+  );
+}
+
+export default function LeaderboardsPage() {
+  return (
+    <Suspense>
+      <LeaderboardsContent />
+    </Suspense>
   );
 }

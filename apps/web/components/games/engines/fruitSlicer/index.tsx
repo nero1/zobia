@@ -12,6 +12,11 @@ import { useGameSound } from "@/components/games/useGameSound";
 const FRUITS = ["🍎", "🍊", "🍋", "🍇", "🍓", "🍌", "🍉", "🍑"];
 const FALL_SPEED: Record<string, number> = { easy: 1.5, medium: 2.5, hard: 4.0 };
 const SPAWN_MS: Record<string, number> = { easy: 1600, medium: 1100, hard: 750 };
+// Difficulty ramp: fruits speed up the longer a round runs, so a high score
+// can't be farmed forever at a fixed pace. Interval between speed-ups is
+// shorter on harder difficulties (easy every 60s, medium 45s, hard 30s).
+const RAMP_INTERVAL_MS: Record<string, number> = { easy: 60_000, medium: 45_000, hard: 30_000 };
+const RAMP_MAX_STEPS = 8; // caps the ramp so late-game isn't literally unplayable
 const AREA_W = 320;
 const AREA_H = 480;
 
@@ -54,9 +59,25 @@ export default function FruitSlicer({
   const isDragging = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const fallSpeed = FALL_SPEED[difficulty] ?? 2.5;
-  const spawnMs = SPAWN_MS[difficulty] ?? 1100;
+  const baseFallSpeed = FALL_SPEED[difficulty] ?? 2.5;
+  const baseSpawnMs = SPAWN_MS[difficulty] ?? 1100;
   const useBombs = difficulty === "hard";
+
+  // Ramp step increases periodically (see RAMP_INTERVAL_MS) — each step makes
+  // fruit fall ~15% faster and spawn ~10% more often, capped at RAMP_MAX_STEPS.
+  const [rampStep, setRampStep] = useState(0);
+  const fallSpeed = baseFallSpeed * Math.pow(1.15, rampStep);
+  const spawnMs = Math.max(300, baseSpawnMs * Math.pow(0.9, rampStep));
+
+  useEffect(() => {
+    if (over) return;
+    const rampMs = RAMP_INTERVAL_MS[difficulty] ?? 45_000;
+    const id = setInterval(() => {
+      if (pausedRef.current || overRef.current) return;
+      setRampStep((s) => Math.min(s + 1, RAMP_MAX_STEPS));
+    }, rampMs);
+    return () => clearInterval(id);
+  }, [over, difficulty]);
 
   const endGame = useCallback(() => {
     if (overRef.current) return;

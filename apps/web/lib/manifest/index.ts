@@ -85,7 +85,7 @@ export interface ZobiaManifest {
   // Games feature runtime config (admin-editable at /admin/config)
   games: {
     wagerRakePct: number;             // platform rake on a challenge wager pot (default 5)
-    challengeExpiryHours: number;     // hours a challenge stays open (default 48)
+    challengeExpiryHours: number;     // hours a challenge stays open (default 720 = 30 days)
     defaultRewardCredits: number;     // fallback win credits when a game sets 0
     defaultRewardXp: number;          // fallback win gaming-XP when a game sets 0
     maxWagerCredits: number;          // server-side ceiling on challenge wager amount (default 10000)
@@ -229,7 +229,9 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
   },
   games: {
     wagerRakePct: 5,
-    challengeExpiryHours: 48,
+    // 30 days (PRD §30.3) — a pending/active challenge that sees no response
+    // this long is swept and refunded by the /api/cron/games expiry job.
+    challengeExpiryHours: 24 * 30,
     defaultRewardCredits: 50,
     defaultRewardXp: 40,
     maxWagerCredits: 10_000,

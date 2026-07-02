@@ -669,7 +669,10 @@ are required.
   tables, seeds the 26 launch games, and seeds the manifest keys.
   `apps/web/db/migrations/0029_games_catalog_expansion.sql` adds 30 more games across 4
   new categories (Trivia, Strategy, Sports, Music), bringing the total to **57 games across
-  13 categories**. Both migrations are idempotent (`ON CONFLICT DO NOTHING`).
+  13 categories**. `apps/web/db/migrations/0036_games_gaming_track.sql` adds the
+  `game_favorites` table (❤️ Faves), `games.favorite_count`, and `game_challenges.archived_at`
+  (Archive on a completed challenge). All three migrations are idempotent
+  (`ON CONFLICT DO NOTHING` / `IF NOT EXISTS`).
 - **Master toggle:** `feature_games` (Admin → Feature Flags), default on. Per-game
   activation, cover-page editing, rewards, free/paid play cost and stats live at
   `/admin/games`. Runtime config (`game_wager_rake_pct`, `game_challenge_expiry_hours`,
