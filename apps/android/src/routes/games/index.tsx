@@ -67,6 +67,11 @@ function GamesPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
+      <div className="mb-3 flex justify-end">
+        <Link to="/games/saved" className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700">
+          {t('games.savedGames.title', 'Saved Games')}
+        </Link>
+      </div>
       <input
         type="search"
         value={search}

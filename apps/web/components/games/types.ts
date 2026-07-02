@@ -25,4 +25,17 @@ export interface GameEngineProps {
   paused?: boolean;
   /** Whether sound effects are enabled. */
   soundEnabled?: boolean;
+  /**
+   * Save Slots (opt-in): engines that can pause/resume implement both of
+   * these. `initialState`, when present, is whatever was last passed to
+   * `onStateChange` for a previous play of this game — restore from it
+   * instead of starting fresh. `onStateChange` should be called whenever
+   * the engine's state changes meaningfully (at minimum, whenever GameRunner
+   * pauses the engine) with a JSON-serializable snapshot sufficient to
+   * resume. Engines that don't implement this simply ignore both props —
+   * GameRunner only shows "Save & Quit" for engines registered in
+   * SAVE_SUPPORTED_ENGINES (components/games/GameRunner.tsx).
+   */
+  initialState?: unknown;
+  onStateChange?: (state: unknown) => void;
 }

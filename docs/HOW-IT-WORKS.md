@@ -1737,6 +1737,100 @@ pair (one row = has played) before accepting a rating.
   `game_max_play_session_age_seconds` (default 3600 — `/score` submissions older than this
   are rejected, preventing replay of stale sessions).
 
+### Save Slots
+
+Users can pause an in-progress game and resume it later — a plan-gated pool of "save
+slots" shared across all games (not per-game): **Free 0 / Plus 1 / Pro 3 / Max 5**,
+admin-configurable at `/admin/config` (`save_slots_<plan>`, `lib/plans/saveSlots.ts`).
+Only one in-flight save per specific game is kept — saving again for the same game
+overwrites the existing save rather than consuming a second slot.
+
+- **Schema:** `game_saves (id, user_id, game_id, label, state jsonb, score, created_at,
+  updated_at)` — migration `0042`. `state` is an opaque JSON blob the engine serialized;
+  the server never inspects its shape.
+- **Engine contract:** `GameEngineProps` gains optional `initialState` / `onStateChange`
+  (`apps/web/components/games/types.ts`). An engine opts in by reading `initialState` on
+  mount to restore, and calling `onStateChange(snapshot)` whenever it's meaningful to
+  resume from (at minimum, when `GameRunner` pauses it — see the reference
+  implementation in `components/games/engines/g2048`, which snapshots `{ grid, score }`
+  on every pause). `GameRunner` only shows the "💾 Save & Quit" pause-overlay button and
+  the pregame "▶ Resume Saved Game" button for engines listed in
+  `SAVE_SUPPORTED_ENGINES` (`components/games/GameRunner.tsx`) — adding save support to
+  another engine is: implement the two props, add one line to that set. No other
+  GameRunner change is required.
+- **API:** `lib/games/saves.ts` backs `GET/POST /api/games/saves`,
+  `GET/DELETE /api/games/saves/[saveId]`, and `POST /api/games/saves/reconcile`. The slot
+  limit is enforced at write time in `upsertSave()` (a `SELECT ... FOR UPDATE` count
+  inside a transaction, since the limit is admin-configurable and can't be a DB CHECK
+  constraint) — creating a new save beyond the limit returns `409 SAVE_SLOTS_FULL`, and
+  the client falls back to `GET /api/games/saves` to offer "overwrite one of these
+  instead."
+- **Finishing a resumed game:** `handleGameOver` in `GameRunner` deletes the consumed
+  save once the score is successfully submitted — a completed game is no longer
+  "in progress," so its slot is freed automatically without the user having to remember
+  to delete it.
+- **Management UI:** `/games/saved` (web/PWA, linked from the Games page header) and
+  `apps/android/src/routes/games/saved.tsx` (Capacitor). The Android app doesn't host any
+  gameplay engine in-app yet (its `/games/$slug` screen is a cover page only — the "Play"
+  button isn't wired up), so its "Resume" action opens the web play page
+  (`/g/<slug>/play`) in the in-app browser via `Browser.open()` (the same pattern already
+  used for OAuth) instead of trying to resume a nonexistent local engine.
+- **Downgrade/expiry overage:** see "Subscription Grace Period" below — Save Slots
+  (`saved_games`) is a grace-gated feature, so its data survives a lapsed subscription
+  until the grace period ends. If a user's slot limit drops below their current save
+  count (whether from a lapsed-and-grace-expired subscription or an active plan
+  downgrade), `/games/saved` shows an overage banner offering two paths, both requiring
+  an explicit "Proceed?" confirmation: pick specific saves to delete, or confirm
+  "delete the oldest automatically." `POST /api/games/saves/reconcile` powers both —
+  `{ deleteIds: [...] }` for the explicit pick, `{}` for oldest-first. The same
+  oldest-first trim runs non-interactively from the CRON sweep when the grace period
+  elapses with nobody present to choose.
+
+---
+
+## Subscription Grace Period (PRD §3)
+
+When a personal plan (Plus/Pro/Max) or Business tier (Starter/Growth/Enterprise)
+subscription lapses (doesn't renew), the account is downgraded immediately, but
+admin-selected data isn't deleted right away — it survives a **grace period** first.
+
+- **Config:** `lib/plans/gracePeriod.ts` reads two `x_manifest` key families (migration
+  `0042`, editable at `/admin/config` → "Grace Periods & Save Slots"):
+  `grace_period_days_<plan>` (default 7/14/30 for Plus/Pro/Max, mirrored per Business
+  tier as `grace_period_days_business_<tier>`) and `grace_period_features_<plan>` — a
+  JSON array of feature keys from the extensible registry
+  `lib/plans/graceFeatures.ts` (currently `saved_games`; `galleries` is reserved for the
+  future Image Galleries feature). The admin config page renders one checkbox per
+  registry entry automatically — adding a new grace-gated feature is a one-array-entry
+  code change plus wiring its purge logic behind `isFeaturePreservedDuringGrace()`
+  (see `lib/games/saves.ts` for the reference implementation), no new admin UI or
+  migration needed.
+- **Schema:** `subscriptions.grace_period_ends_at` and
+  `business_accounts.grace_period_ends_at` (migration `0042`). `subscriptions.status`
+  gains two values alongside the existing `active`/`cancelled`: `grace` (lapsed, within
+  the grace window) and `lapsed` (grace window elapsed, purge already ran).
+- **Sweep:** `lib/plans/subscriptionSweep.ts`, called as the last step of the
+  `daily-economy` CRON. Two passes:
+  1. **Lapse sweep** — `active` subscriptions past `ends_at` move to `grace`
+     (`grace_period_ends_at = NOW() + <plan's days>`), and `users.plan` is immediately
+     reset to `free` (perks are lost right away — only the grace-gated *data* survives).
+     Any grace-gated feature **not** on the plan's preserved list is purged immediately
+     rather than waiting out a grace period nobody configured for it.
+  2. **Grace-expiry sweep** — `grace` subscriptions past `grace_period_ends_at` move to
+     `lapsed`, and any preserved-but-now-expired grace-gated data is purged (Save Slots:
+     trimmed to the Free plan's limit, which is 0 by default — i.e. all saves are
+     removed).
+  Business accounts mirror the same two passes, keyed off
+  `business_accounts.subscription_id` joined to `subscriptions` — this only fires once a
+  business tier is actually linked to a recurring `subscriptions` row (the current
+  Business Starter signup flow, `paystackWebhookHandler.ts`, doesn't set
+  `subscription_id` yet, so the business half of the sweep has nothing to act on until
+  that linkage is wired up — a pre-existing gap in Business Account billing, not
+  something this sweep invents a workaround for).
+- **Minimal Redis usage:** grace config reads go through the existing two-tier manifest
+  cache (15s in-process + 60s Redis, `lib/manifest`) — no new Redis keys, no per-request
+  Redis round-trip.
+
 ---
 
 ## CRON Architecture
@@ -1758,7 +1852,7 @@ The original monolithic `daily/route.ts` (2700+ lines) ran all background jobs i
 00:00 UTC  daily-users     — user-state jobs (inactivity, guild discovery, comeback coins)
 01:00 UTC  daily-notify    — outbound notifications (push, email, Telegram, council invites)
 02:00 UTC  daily-guilds    — guild lifecycle (tiers, patron badge, contribution, quests)
-03:00 UTC  daily-economy   — money (creator fund, plan bonuses, ad revenue, payouts, referrals)
+03:00 UTC  daily-economy   — money (creator fund, plan bonuses, ad revenue, payouts, referrals, subscription grace-period sweep)
 04:00 UTC  daily-social    — social graph (nemesis, leaderboards, stickers, trust scores)
 05:00 UTC  daily-platform  — platform events + SYS maintenance (season, flash XP, alliance wars, DLQ)
 ```
@@ -1817,6 +1911,27 @@ await Promise.allSettled(
 When Google OAuth fails (CSRF expiry, rate limit, banned/suspended account, stale token), the callback redirects to `/auth/error?code=<errorCode>` instead of showing raw JSON. The page renders a user-friendly message with a "Back to sign in" button. The `/auth/error` route is public (no auth required). All OAuth cookies (`zobia_csrf_state`, `zobia_mobile_redirect`, `zobia_web_redirect`) are cleared on every error path.
 
 Supported error codes: `session_expired`, `rate_limited`, `invalid_request`, `email_not_verified`, `unexpected`.
+
+---
+
+## Settings — Password Section & PIN Gate
+
+- **Optional/removable password:** `PUT /api/users/me/password` only requires
+  `currentPassword` when the account already has `password_hash` set — accounts with no
+  password (Google/Telegram-only signups) can leave it blank. Sending a blank/omitted
+  `newPassword` **disables** password login entirely, but only when the account has a
+  Google or Telegram login linked (`google_id`/`telegram_id`) — otherwise the request is
+  rejected with 400 so a user can never lock themselves out of their own account.
+  `GET /api/users/me` returns `has_password` / `has_oauth_login` so `/settings` can show
+  the right copy (e.g. "Current password (leave blank — not set)") without guessing.
+- **PIN gate:** if the user has a PIN set (`hasPIN` on `GET /api/users/me`), `/settings`
+  requires PIN verification before rendering any content — same
+  `POST /api/auth/pin/verify` → `pin_ok:<userId>:<sessionId>` Redis guard (5-minute TTL)
+  used to gate gifts/payouts/transfers (`lib/auth/pinGuard.ts`). The verified state is
+  cached client-side in `sessionStorage` for 5 minutes (matching the server TTL) so
+  navigating within Settings doesn't re-prompt on every render.
+- Android's `/settings` screen doesn't have password/PIN UI at all yet (only language,
+  wallet/stats links, and logout) — a pre-existing gap, not part of this fix.
 
 ---
 

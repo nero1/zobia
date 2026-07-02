@@ -24,6 +24,7 @@ import { Route as RoomsRoomIdRouteImport } from './routes/rooms/$roomId'
 import { Route as ProfileUsernameRouteImport } from './routes/profile/$username'
 import { Route as MomentsCreateRouteImport } from './routes/moments/create'
 import { Route as MessagesConversationIdRouteImport } from './routes/messages/$conversationId'
+import { Route as GamesSavedRouteImport } from './routes/games/saved'
 import { Route as GamesSlugRouteImport } from './routes/games/$slug'
 import { Route as AuthTwoFactorRouteImport } from './routes/auth/two-factor'
 import { Route as AuthRegisterRouteImport } from './routes/auth/register'
@@ -106,6 +107,11 @@ const MessagesConversationIdRoute = MessagesConversationIdRouteImport.update({
   path: '/messages/$conversationId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const GamesSavedRoute = GamesSavedRouteImport.update({
+  id: '/games/saved',
+  path: '/games/saved',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const GamesSlugRoute = GamesSlugRouteImport.update({
   id: '/games/$slug',
   path: '/games/$slug',
@@ -150,6 +156,7 @@ export interface FileRoutesByFullPath {
   '/auth/register': typeof AuthRegisterRoute
   '/auth/two-factor': typeof AuthTwoFactorRoute
   '/games/$slug': typeof GamesSlugRoute
+  '/games/saved': typeof GamesSavedRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
   '/moments/create': typeof MomentsCreateRoute
   '/profile/$username': typeof ProfileUsernameRoute
@@ -173,6 +180,7 @@ export interface FileRoutesByTo {
   '/auth/register': typeof AuthRegisterRoute
   '/auth/two-factor': typeof AuthTwoFactorRoute
   '/games/$slug': typeof GamesSlugRoute
+  '/games/saved': typeof GamesSavedRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
   '/moments/create': typeof MomentsCreateRoute
   '/profile/$username': typeof ProfileUsernameRoute
@@ -197,6 +205,7 @@ export interface FileRoutesById {
   '/auth/register': typeof AuthRegisterRoute
   '/auth/two-factor': typeof AuthTwoFactorRoute
   '/games/$slug': typeof GamesSlugRoute
+  '/games/saved': typeof GamesSavedRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
   '/moments/create': typeof MomentsCreateRoute
   '/profile/$username': typeof ProfileUsernameRoute
@@ -222,6 +231,7 @@ export interface FileRouteTypes {
     | '/auth/register'
     | '/auth/two-factor'
     | '/games/$slug'
+    | '/games/saved'
     | '/messages/$conversationId'
     | '/moments/create'
     | '/profile/$username'
@@ -245,6 +255,7 @@ export interface FileRouteTypes {
     | '/auth/register'
     | '/auth/two-factor'
     | '/games/$slug'
+    | '/games/saved'
     | '/messages/$conversationId'
     | '/moments/create'
     | '/profile/$username'
@@ -268,6 +279,7 @@ export interface FileRouteTypes {
     | '/auth/register'
     | '/auth/two-factor'
     | '/games/$slug'
+    | '/games/saved'
     | '/messages/$conversationId'
     | '/moments/create'
     | '/profile/$username'
@@ -292,6 +304,7 @@ export interface RootRouteChildren {
   AuthRegisterRoute: typeof AuthRegisterRoute
   AuthTwoFactorRoute: typeof AuthTwoFactorRoute
   GamesSlugRoute: typeof GamesSlugRoute
+  GamesSavedRoute: typeof GamesSavedRoute
   MessagesConversationIdRoute: typeof MessagesConversationIdRoute
   MomentsCreateRoute: typeof MomentsCreateRoute
   ProfileUsernameRoute: typeof ProfileUsernameRoute
@@ -410,6 +423,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MessagesConversationIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/games/saved': {
+      id: '/games/saved'
+      path: '/games/saved'
+      fullPath: '/games/saved'
+      preLoaderRoute: typeof GamesSavedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/games/$slug': {
       id: '/games/$slug'
       path: '/games/$slug'
@@ -468,6 +488,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRegisterRoute: AuthRegisterRoute,
   AuthTwoFactorRoute: AuthTwoFactorRoute,
   GamesSlugRoute: GamesSlugRoute,
+  GamesSavedRoute: GamesSavedRoute,
   MessagesConversationIdRoute: MessagesConversationIdRoute,
   MomentsCreateRoute: MomentsCreateRoute,
   ProfileUsernameRoute: ProfileUsernameRoute,

@@ -277,6 +277,9 @@ export default function GamesDiscoveryPage() {
       <div className="mb-5 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-foreground">{t("games.title", "Games")}</h1>
         <div className="flex gap-2 text-xs">
+          <Link href="/games/saved" className="rounded-lg border border-border bg-card px-3 py-1.5 font-medium text-foreground hover:bg-accent">
+            {t("games.savedGames.title", "Saved Games")}
+          </Link>
           <Link href="/games/challenges" className="rounded-lg border border-border bg-card px-3 py-1.5 font-medium text-foreground hover:bg-accent">
             {t("games.challenges", "Challenges")}
           </Link>

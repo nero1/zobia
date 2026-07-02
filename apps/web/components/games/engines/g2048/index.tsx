@@ -61,18 +61,35 @@ const TILE_COLORS: Record<number, { bg: string; text: string }> = {
   2048: { bg: "#a855f7", text: "#fff" },
 };
 
-export default function Game2048({ onReady, onGameOver, onScore, paused, soundEnabled = true }: GameEngineProps) {
+interface SavedState {
+  grid: Grid;
+  score: number;
+}
+
+function isSavedState(v: unknown): v is SavedState {
+  return !!v && typeof v === "object" && Array.isArray((v as SavedState).grid);
+}
+
+export default function Game2048({ onReady, onGameOver, onScore, paused, soundEnabled = true, initialState, onStateChange }: GameEngineProps) {
+  const restored = isSavedState(initialState) ? initialState : null;
   const [grid, setGrid] = useState<Grid>(() => {
+    if (restored) return restored.grid;
     const g = emptyGrid();
     addRandom(g); addRandom(g);
     return g;
   });
-  const [score, setScore] = useState(0);
+  const [score, setScore] = useState(restored?.score ?? 0);
   const over = useRef(false);
   const pausedRef = useRef(paused);
   const play = useGameSound(soundEnabled ?? true);
 
   useEffect(() => { pausedRef.current = paused; }, [paused]);
+
+  // Report a resumable snapshot whenever the engine pauses (GameRunner's
+  // "Save & Quit" reads whatever was last reported here).
+  useEffect(() => {
+    if (paused) onStateChange?.({ grid, score } satisfies SavedState);
+  }, [paused, grid, score, onStateChange]);
 
   const canMove = useCallback((g: Grid): boolean => {
     for (let r = 0; r < N; r++)
