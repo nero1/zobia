@@ -4,7 +4,7 @@
  * Settings screen: language, logout, app version.
  */
 
-import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { createFileRoute, useNavigate, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/auth/store';
@@ -43,6 +43,18 @@ function SettingsPage() {
           </div>
         </div>
       )}
+
+      {/* Wallet & Stats */}
+      <div className="bg-white px-6 py-2 mb-3">
+        <Link to="/wallet" className="flex items-center justify-between py-2.5 border-b border-neutral-100">
+          <span className="text-sm text-neutral-700">🪙 {t('wallet.title')}</span>
+          <span className="text-neutral-400">→</span>
+        </Link>
+        <Link to="/stats" className="flex items-center justify-between py-2.5">
+          <span className="text-sm text-neutral-700">📊 {t('profile.actions.stats')}</span>
+          <span className="text-neutral-400">→</span>
+        </Link>
+      </div>
 
       {/* Language */}
       <div className="bg-white px-6 py-4 mb-3">

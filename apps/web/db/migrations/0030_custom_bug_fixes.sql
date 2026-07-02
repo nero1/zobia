@@ -133,11 +133,7 @@ CREATE TABLE IF NOT EXISTS user_daily_logins (
 CREATE UNIQUE INDEX IF NOT EXISTS uidx_user_daily_logins_user_date
   ON user_daily_logins (user_id, login_date);
 
--- Backfill: seed from distinct session dates in the last 90 days
--- (best-effort; sessions table is the source of truth for past logins)
-INSERT INTO user_daily_logins (user_id, login_date)
-SELECT DISTINCT user_id, created_at::date AS login_date
-FROM sessions
-WHERE created_at >= NOW() - INTERVAL '90 days'
-  AND deleted_at IS NULL
-ON CONFLICT (user_id, login_date) DO NOTHING;
+-- No backfill: the DB `sessions` table this used to seed from was already
+-- dropped by migration 0020 (BUG-SC-01 — sessions live in Redis and that
+-- table was never populated in production), so there is nothing to backfill
+-- from. user_daily_logins simply starts empty and fills in going forward.

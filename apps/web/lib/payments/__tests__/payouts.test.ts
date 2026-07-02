@@ -31,6 +31,20 @@ jest.mock('@/lib/payments/paystack', () => ({
   verifyTransfer: jest.fn(),
 }));
 
+// Payout processing runs a Redis-backed circuit breaker (assertCircuitClosed /
+// recordCircuitFailure / recordCircuitSuccess) around each transfer attempt —
+// mock it the same way @/lib/db is mocked above so tests don't need a live
+// REDIS_PROVIDER.
+jest.mock('@/lib/redis', () => ({
+  redis: {
+    get: jest.fn().mockResolvedValue(null),
+    set: jest.fn().mockResolvedValue('OK'),
+    del: jest.fn().mockResolvedValue(1),
+    incr: jest.fn().mockResolvedValue(1),
+    expire: jest.fn().mockResolvedValue(1),
+  },
+}));
+
 // ---------------------------------------------------------------------------
 // Imports (must come after mocks)
 // ---------------------------------------------------------------------------

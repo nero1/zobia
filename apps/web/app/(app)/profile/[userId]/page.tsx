@@ -48,6 +48,7 @@ interface CreatorRoom {
   id: string;
   name: string;
   coverEmoji: string;
+  memberCount?: number;
 }
 
 interface UserProfile {
@@ -68,9 +69,11 @@ interface UserProfile {
   isCreator: boolean;
   creatorBio: string | null;
   creatorCategory: string | null;
-  creatorRoom: CreatorRoom | null;
+  creatorRooms: CreatorRoom[];
+  creatorRoomCount: number;
   subscriberCount: number | null;
   totalEarningsKobo: number | null;
+  canViewStats: boolean;
   guildId: string | null;
   guildName: string | null;
   guildEmblem: string | null;
@@ -336,28 +339,40 @@ export default function ProfilePage() {
         </div>
 
         {/* Action buttons */}
-        {!profile.isOwnProfile && (
+        {(!profile.isOwnProfile || profile.canViewStats) && (
           <div className="mt-4 flex flex-wrap gap-2">
-            <button
-              onClick={handleFriend}
-              disabled={friendBusy}
-              className={`rounded-xl px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-60 ${isFriend ? "border border-neutral-300 text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300" : "bg-blue-600 text-white hover:bg-blue-700"}`}
-            >
-              {friendBusy ? "…" : isFriend ? "Unfriend" : "Add Friend"}
-            </button>
-            <button
-              onClick={handleFollow}
-              disabled={followBusy}
-              className={`rounded-xl px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-60 ${isFollowing ? "border border-neutral-300 text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300" : "border border-blue-600 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30"}`}
-            >
-              {followBusy ? "…" : isFollowing ? "Unfollow" : "Follow"}
-            </button>
-            <Link
-              href={`/gifts?recipientId=${encodeURIComponent(userId)}&username=${encodeURIComponent(profile.username)}`}
-              className="rounded-xl border border-amber-300 px-4 py-2 text-sm font-semibold text-amber-600 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950/30"
-            >
-              🎁 Gift
-            </Link>
+            {!profile.isOwnProfile && (
+              <>
+                <button
+                  onClick={handleFriend}
+                  disabled={friendBusy}
+                  className={`rounded-xl px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-60 ${isFriend ? "border border-neutral-300 text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300" : "bg-blue-600 text-white hover:bg-blue-700"}`}
+                >
+                  {friendBusy ? "…" : isFriend ? "Unfriend" : "Add Friend"}
+                </button>
+                <button
+                  onClick={handleFollow}
+                  disabled={followBusy}
+                  className={`rounded-xl px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-60 ${isFollowing ? "border border-neutral-300 text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300" : "border border-blue-600 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30"}`}
+                >
+                  {followBusy ? "…" : isFollowing ? "Unfollow" : "Follow"}
+                </button>
+                <Link
+                  href={`/gifts?recipientId=${encodeURIComponent(userId)}&username=${encodeURIComponent(profile.username)}`}
+                  className="rounded-xl border border-amber-300 px-4 py-2 text-sm font-semibold text-amber-600 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950/30"
+                >
+                  🎁 Gift
+                </Link>
+              </>
+            )}
+            {profile.canViewStats && (
+              <Link
+                href={`/profile/${userId}/stats`}
+                className="rounded-xl border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              >
+                📊 Stats
+              </Link>
+            )}
           </div>
         )}
       </div>
@@ -386,16 +401,32 @@ export default function ProfilePage() {
           {profile.creatorBio && (
             <p className="mb-3 text-sm text-neutral-600 dark:text-neutral-400">{profile.creatorBio}</p>
           )}
+          {profile.creatorRooms.length > 0 && (
+            <div className="mb-3 space-y-1.5">
+              {profile.creatorRooms.map((room) => (
+                <Link
+                  key={room.id}
+                  href={`/rooms/${room.id}`}
+                  className="flex items-center gap-2 rounded-xl border border-neutral-200 px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                >
+                  <span>{room.coverEmoji}</span>
+                  <span className="min-w-0 flex-1 truncate">{room.name}</span>
+                  {room.memberCount !== undefined && (
+                    <span className="shrink-0 text-xs text-neutral-500">👥 {room.memberCount.toLocaleString()}</span>
+                  )}
+                </Link>
+              ))}
+              {profile.creatorRoomCount > profile.creatorRooms.length && (
+                <Link
+                  href={`/rooms?creator_id=${userId}`}
+                  className="block text-center text-xs font-semibold text-blue-600 hover:underline dark:text-blue-400"
+                >
+                  See all {profile.creatorRoomCount} rooms by {profile.displayName} →
+                </Link>
+              )}
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-3">
-            {profile.creatorRoom && (
-              <Link
-                href={`/rooms/${profile.creatorRoom.id}`}
-                className="flex items-center gap-2 rounded-xl border border-neutral-200 px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
-              >
-                <span>{profile.creatorRoom.coverEmoji}</span>
-                <span>{profile.creatorRoom.name}</span>
-              </Link>
-            )}
             {profile.subscriberCount !== null && (
               <span className="text-sm text-neutral-500">
                 👥 <span className="font-semibold text-neutral-700 dark:text-neutral-300">{profile.subscriberCount.toLocaleString()}</span> members

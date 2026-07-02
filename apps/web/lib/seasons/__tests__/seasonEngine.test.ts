@@ -385,8 +385,11 @@ describe('distributeSeasonRewards', () => {
 
     const mockDb = buildMockDb({
       query: jest.fn().mockImplementation(async (sql: string) => {
-        if (sql.includes('SELECT reward_pool_coins FROM seasons')) {
-          return { rows: [{ reward_pool_coins: POOL }], rowCount: 1 };
+        // Reward distribution is claimed atomically via
+        // `UPDATE seasons ... RETURNING id, reward_pool_coins` (BUG-023 fix)
+        // rather than a separate SELECT, so that's what must be mocked here.
+        if (sql.includes('UPDATE seasons') && sql.includes('RETURNING')) {
+          return { rows: [{ id: 'season-1', reward_pool_coins: POOL }], rowCount: 1 };
         }
         if (sql.includes('SELECT user_id, final_rank')) {
           return { rows: topUsers, rowCount: topUsers.length };
@@ -438,8 +441,11 @@ describe('distributeSeasonRewards', () => {
 
     const mockDb = buildMockDb({
       query: jest.fn().mockImplementation(async (sql: string) => {
-        if (sql.includes('SELECT reward_pool_coins FROM seasons')) {
-          return { rows: [{ reward_pool_coins: POOL }], rowCount: 1 };
+        // Reward distribution is claimed atomically via
+        // `UPDATE seasons ... RETURNING id, reward_pool_coins` (BUG-023 fix)
+        // rather than a separate SELECT, so that's what must be mocked here.
+        if (sql.includes('UPDATE seasons') && sql.includes('RETURNING')) {
+          return { rows: [{ id: 'season-1', reward_pool_coins: POOL }], rowCount: 1 };
         }
         if (sql.includes('SELECT user_id, final_rank')) {
           return { rows: topUsers, rowCount: topUsers.length };
@@ -480,8 +486,11 @@ describe('distributeSeasonRewards', () => {
 
     const mockDb = buildMockDb({
       query: jest.fn().mockImplementation(async (sql: string) => {
-        if (sql.includes('SELECT reward_pool_coins')) {
-          return { rows: [{ reward_pool_coins: POOL }], rowCount: 1 };
+        // Reward distribution is claimed atomically via
+        // `UPDATE seasons ... RETURNING id, reward_pool_coins` (BUG-023 fix)
+        // rather than a separate SELECT, so that's what must be mocked here.
+        if (sql.includes('UPDATE seasons') && sql.includes('RETURNING')) {
+          return { rows: [{ id: 'season-1', reward_pool_coins: POOL }], rowCount: 1 };
         }
         if (sql.includes('SELECT user_id, final_rank')) {
           return { rows: topUsers, rowCount: topUsers.length };
@@ -528,8 +537,11 @@ describe('distributeSeasonRewards', () => {
 
     const mockDb = buildMockDb({
       query: jest.fn().mockImplementation(async (sql: string) => {
-        if (sql.includes('SELECT reward_pool_coins')) {
-          return { rows: [{ reward_pool_coins: POOL }], rowCount: 1 };
+        // Reward distribution is claimed atomically via
+        // `UPDATE seasons ... RETURNING id, reward_pool_coins` (BUG-023 fix)
+        // rather than a separate SELECT, so that's what must be mocked here.
+        if (sql.includes('UPDATE seasons') && sql.includes('RETURNING')) {
+          return { rows: [{ id: 'season-1', reward_pool_coins: POOL }], rowCount: 1 };
         }
         if (sql.includes('SELECT user_id, final_rank')) {
           return { rows: topUsers, rowCount: topUsers.length };

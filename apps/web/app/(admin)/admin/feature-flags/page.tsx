@@ -126,6 +126,11 @@ const LABEL_MAP: Record<string, FlagMeta> = {
     description:
       "Allow users to set a 4-digit PIN as a secondary authentication method.",
   },
+  feature_profile_stats: {
+    label: "Profile Stats Page",
+    description:
+      "Enable the User Profile Stats page. Configure which plans get the Basic vs Full view at Admin > Profile Stats.",
+  },
 };
 
 // ---------------------------------------------------------------------------

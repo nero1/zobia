@@ -55,6 +55,8 @@ interface UserFullProfile {
   rank_level: number;
   rank_sublevel: number;
   prestige_count: number;
+  /** Cheap count used by the Wallet page's rank/badges summary widget — full badge details live on the Stats page. */
+  badge_count: number;
 
   // Track XP
   xp_social: number;
@@ -160,6 +162,7 @@ const SELECT_COLUMNS = `
      WHERE ba.user_id = users.id AND ba.status = 'active'
      LIMIT 1) AS business_plan_ends_at,
   xp_total, legacy_score, rank_name, rank_level, rank_sublevel, prestige_count,
+  (SELECT COUNT(*) FROM user_badges WHERE user_badges.user_id = users.id) AS badge_count,
   xp_social, xp_creator, xp_competitor, xp_generosity, xp_knowledge, xp_explorer, xp_gaming,
   level_social, level_creator, level_competitor, level_generosity, level_knowledge, level_explorer, level_gaming,
   login_streak, longest_streak, last_login_at, last_active_at,

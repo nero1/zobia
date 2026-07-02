@@ -18,6 +18,15 @@ jest.mock('@/lib/db', () => ({
   },
 }));
 
+// findWarOpponent reads the war cooldown override via getManifestValue,
+// which (on a cache miss) falls back to a raw `db.query` call of its own —
+// mocking it directly keeps the mocked db.query call sequence limited to
+// the calls warEngine.ts itself makes, rather than needing every test to
+// also account for the manifest lookup's internal query.
+jest.mock('@/lib/manifest', () => ({
+  getManifestValue: jest.fn().mockResolvedValue(null),
+}));
+
 // ---------------------------------------------------------------------------
 // Imports
 // ---------------------------------------------------------------------------
@@ -164,10 +173,12 @@ describe('findWarOpponent', () => {
         if (sql.includes('SELECT id, guild_xp, city FROM guilds')) {
           return { rows: [{ id: 'guild-a', guild_xp: 10000, city: 'Lagos' }], rowCount: 1 };
         }
-        if (sql.includes('guild_wars')) {
+        // Candidate query (BUG-026 fix merged the busy-guild check into this
+        // single query via a NOT EXISTS ... guild_wars subquery — so it must
+        // be matched before any broader 'guild_wars' substring check).
+        if (sql.includes('SELECT g.id FROM guilds g')) {
           return { rows: [], rowCount: 0 };
         }
-        // No candidates
         return { rows: [], rowCount: 0 };
       }),
     });
@@ -178,15 +189,11 @@ describe('findWarOpponent', () => {
 
   it('returns an opponent guild within ±15% XP range', async () => {
     const selfXP = 10000;
-    const opponentXP = 10500; // within ±15% of 10000
 
     const mockDb = buildMockDb({
       query: jest.fn().mockImplementation(async (sql: string) => {
         if (sql.includes('SELECT id, guild_xp, city FROM guilds')) {
           return { rows: [{ id: 'guild-a', guild_xp: selfXP, city: null }], rowCount: 1 };
-        }
-        if (sql.includes('guild_wars')) {
-          return { rows: [], rowCount: 0 }; // no active wars
         }
         if (sql.includes('SELECT g.id FROM guilds g')) {
           return { rows: [{ id: 'guild-b' }], rowCount: 1 };
@@ -200,20 +207,18 @@ describe('findWarOpponent', () => {
   });
 
   it('does not return the declaring guild as its own opponent', async () => {
-    // Exclusion of busy guilds (including self) happens SQL-side via
-    // `g.id != ALL($4::uuid[])`, not via post-filtering in JS. So we assert
-    // that the declaring guild's id is included in the exclusion param, and
-    // simulate the SQL-side filtering by returning no candidates.
+    // Self-exclusion happens SQL-side via `g.id != $N` (N = the last
+    // parameter, right after selfXP) rather than post-filtering in JS —
+    // assert the declaring guild's id is threaded through as that param.
+    let candidateSql: string | undefined;
     let candidateParams: unknown[] | undefined;
     const mockDb = buildMockDb({
       query: jest.fn().mockImplementation(async (sql: string, params?: unknown[]) => {
         if (sql.includes('SELECT id, guild_xp, city FROM guilds')) {
           return { rows: [{ id: 'guild-a', guild_xp: 5000, city: null }], rowCount: 1 };
         }
-        if (sql.includes('guild_wars')) {
-          return { rows: [], rowCount: 0 };
-        }
         if (sql.includes('SELECT g.id FROM guilds g')) {
+          candidateSql = sql;
           candidateParams = params;
           return { rows: [], rowCount: 0 };
         }
@@ -223,27 +228,23 @@ describe('findWarOpponent', () => {
 
     const result = await findWarOpponent('guild-a', mockDb);
     expect(result).toBeNull();
-    expect(candidateParams?.[3]).toContain('guild-a');
+    expect(candidateSql).toContain('g.id !=');
+    // No city on self, so params = [minXP, maxXP, cooldownHours, selfXP, guildId]
+    expect(candidateParams?.[candidateParams!.length - 1]).toBe('guild-a');
   });
 
   it('does not return a guild that is currently at war', async () => {
-    // Same as above — the busy-guild exclusion (guilds with an active war)
-    // is applied SQL-side, so assert it's present in the exclusion param.
-    let candidateParams: unknown[] | undefined;
+    // The busy-guild exclusion (guilds with an active/final-hour war) is a
+    // NOT EXISTS subquery baked into the candidate SQL itself, not a
+    // separate query or JS-side filter — assert the subquery is present.
+    let candidateSql: string | undefined;
     const mockDb = buildMockDb({
-      query: jest.fn().mockImplementation(async (sql: string, params?: unknown[]) => {
+      query: jest.fn().mockImplementation(async (sql: string) => {
         if (sql.includes('SELECT id, guild_xp, city FROM guilds')) {
           return { rows: [{ id: 'guild-a', guild_xp: 5000, city: null }], rowCount: 1 };
         }
-        if (sql.includes('guild_wars')) {
-          // guild-b is already in an active war
-          return {
-            rows: [{ guild_id: 'guild-b' }, { guild_id: 'guild-c' }],
-            rowCount: 2,
-          };
-        }
         if (sql.includes('SELECT g.id FROM guilds g')) {
-          candidateParams = params;
+          candidateSql = sql;
           return { rows: [], rowCount: 0 };
         }
         return { rows: [], rowCount: 0 };
@@ -252,7 +253,8 @@ describe('findWarOpponent', () => {
 
     const result = await findWarOpponent('guild-a', mockDb);
     expect(result).toBeNull();
-    expect(candidateParams?.[3]).toContain('guild-b');
+    expect(candidateSql).toContain('NOT EXISTS');
+    expect(candidateSql).toMatch(/guild_wars[\s\S]*status IN \('active', 'final_hour'\)/);
   });
 });
 
@@ -345,10 +347,12 @@ describe('resolveWar', () => {
       query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
     };
 
-    // War row and winning-guild member rows are both read via client.query()
+    // The war row is claimed via an atomic `UPDATE ... RETURNING *`
+    // (BUG-071/ZB-07 idempotency fix) rather than a separate SELECT, and
+    // winning-guild member rows are read via client.query() too — both
     // inside the transaction.
     (mockTx.query as jest.Mock).mockImplementation(async (sql: string) => {
-      if (sql.includes('SELECT * FROM guild_wars')) {
+      if (sql.includes('UPDATE guild_wars') && sql.includes('RETURNING')) {
         return { rows: [warRow], rowCount: 1 };
       }
       if (sql.includes('FROM guild_members gm')) {
@@ -384,7 +388,7 @@ describe('resolveWar', () => {
 
     const mockTx: TransactionClient = {
       query: jest.fn().mockImplementation(async (sql: string) => {
-        if (sql.includes('SELECT * FROM guild_wars')) {
+        if (sql.includes('UPDATE guild_wars') && sql.includes('RETURNING')) {
           return { rows: [warRow], rowCount: 1 };
         }
         return { rows: [], rowCount: 0 };
@@ -418,7 +422,7 @@ describe('resolveWar', () => {
 
     const mockTx: TransactionClient = {
       query: jest.fn().mockImplementation(async (sql: string) => {
-        if (sql.includes('SELECT * FROM guild_wars')) {
+        if (sql.includes('UPDATE guild_wars') && sql.includes('RETURNING')) {
           return { rows: [warRow], rowCount: 1 };
         }
         return { rows: [], rowCount: 0 };
