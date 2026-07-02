@@ -263,7 +263,13 @@ The messaging layer is fast, lightweight, and culturally expressive. It rewards 
 
 **Gift Messages** — a special message type where a coin-purchased gift animation plays for the recipient (and room-wide in Rooms) before collapsing into a standard message with gift value displayed.
 
-**Zobia Moments** — ephemeral messages visible for 24 hours, after which they disappear. Conversational ephemeral content — distinct from Stories (which are profile-level).
+**Zobia Moments** — ephemeral posts (text, and optionally an image) visible for 24 hours, after which they disappear. Moments live on a public, cross-user `/moments` feed (all users' active Moments, newest first — not follow-gated) so any user can discover and react to any other user's Moment, not just their own.
+
+- **Creation:** Moments can be shared from the dedicated `/moments/create` screen, or from inside a Room via the ⚡ "Moment" toggle on the message composer — sending a Room moment posts an ephemeral 24h bubble in that Room *and* creates the same entry on the public `/moments` feed, so it isn't Room-local.
+- **Eligibility:** posting a Moment requires the account to have reached a minimum level (default: Level 2 / Rookie), admin-configurable.
+- **Pricing:** admin-configurable per Moment — a Credits cost and/or a Stars cost (default: 100 Credits or 1 Star; either currency is accepted when both are priced). Set both to 0 to make Moments free. A user who can't afford either currency sees an explicit "You do not have enough Credits and/or Stars to create a moment" notice before the Moment is charged or posted.
+- **Reactions:** viewers react with a fixed emoji set (❤️ 🔥 😂 😮 👏 💯 🎉 👀); reaction counts persist across page refreshes.
+- **Scale:** the feed is cursor-paginated (newest-first keyset on `created_at`) to stay fast at thousands of Moments/day.
 
 > ### ⚠️ FUTURE VERSION FEATURES — NOT IN CURRENT SCOPE
 >

@@ -46,6 +46,11 @@ type PublicManifest = {
     premiumNameSingular: string;
     premiumNamePlural: string;
   };
+  moments: {
+    costCredits: number;
+    costStars: number;
+    minLevel: number;
+  };
 };
 
 // ---------------------------------------------------------------------------
@@ -95,6 +100,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         softNamePlural: manifest.currency.softNamePlural,
         premiumNameSingular: manifest.currency.premiumNameSingular,
         premiumNamePlural: manifest.currency.premiumNamePlural,
+      },
+      moments: {
+        costCredits: manifest.moments.costCredits,
+        costStars: manifest.moments.costStars,
+        minLevel: manifest.moments.minLevel,
       },
     };
 

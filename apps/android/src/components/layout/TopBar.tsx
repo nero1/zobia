@@ -21,6 +21,7 @@ const primaryNavItems = [
   { href: '/games', label: 'Games', icon: '🎮' },
   { href: '/rooms', label: 'Rooms', icon: '🚪' },
   { href: '/messages', label: 'Messages', icon: '💬' },
+  { href: '/moments', label: 'Moments', icon: '🎬' },
   { href: '/notifications', label: 'Notifications', icon: '🔔' },
 ] as const;
 

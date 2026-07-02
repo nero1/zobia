@@ -37,6 +37,7 @@ import { publishRealtimeEvent } from "@/lib/realtime";
 import { notifyRoomMentions, parseMentions } from "@/lib/notifications/chatPush";
 import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
 import { logger } from "@/lib/logger";
+import { createMoment } from "@/lib/moments/service";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -69,6 +70,8 @@ const sendMessageSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
   replyToMessageId: z.string().uuid().optional(),
   idempotencyKey: z.string().max(128).optional(),
+  /** Currency to pay with when messageType is "moment" and Moments cost Credits/Stars. */
+  currency: z.enum(["credits", "stars"]).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -633,6 +636,24 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // Determine if message needs approval (approval-required rooms, non-admin)
     const requiresApproval = Boolean(modRules.requireApproval) && !isAdmin;
 
+    // "Moment" room messages also create a real entry on the /moments feed so
+    // other users can discover and react to it there (previously this toggle
+    // only tagged the room bubble as ephemeral and had no other effect).
+    // Runs BEFORE the room message insert so level-gate/funds failures abort
+    // the send entirely instead of posting a message the charge never backed.
+    let momentResult: Awaited<ReturnType<typeof createMoment>> | null = null;
+    let metadataToStore = safeMetadata as Record<string, unknown> | null;
+    if (body.messageType === "moment" && !requiresApproval) {
+      momentResult = await createMoment({
+        userId,
+        content,
+        contentType: "text",
+        currency: body.currency ?? null,
+        source: "room",
+      });
+      metadataToStore = { ...(metadataToStore ?? {}), momentId: momentResult.id };
+    }
+
     // Persist message and update room counter atomically
     const { rows: msgRows } = await db.transaction(async (tx) => {
       const { rows } = await tx.query(
@@ -646,7 +667,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           userId,
           content,
           body.messageType,
-          safeMetadata ? JSON.stringify(safeMetadata) : null,
+          metadataToStore ? JSON.stringify(metadataToStore) : null,
           body.replyToMessageId ?? null,
           requiresApproval,
           body.idempotencyKey ?? null,
@@ -728,7 +749,22 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       })();
     }
 
-    return NextResponse.json({ message: clientMessage }, { status: 201 });
+    return NextResponse.json(
+      {
+        message: clientMessage,
+        ...(momentResult
+          ? {
+              moment: {
+                id: momentResult.id,
+                costCredits: momentResult.costCredits,
+                costStars: momentResult.costStars,
+                currencyCharged: momentResult.currencyCharged,
+              },
+            }
+          : {}),
+      },
+      { status: 201 }
+    );
   } catch (err) {
     return handleApiError(err);
   }

@@ -31,7 +31,8 @@ export type StarTransactionType =
   | "ad_reward"
   | "cosmetic_purchase"
   | "game_reward"
-  | "game_play_cost";
+  | "game_play_cost"
+  | "moment_created";
 
 // ---------------------------------------------------------------------------
 // Internal helpers

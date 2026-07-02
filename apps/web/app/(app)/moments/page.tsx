@@ -88,6 +88,7 @@ function MomentCard({
   moment: Moment;
   onReact: (momentId: string, emoji: string) => void;
 }) {
+  const { t } = useTranslation();
   const [showReactions, setShowReactions] = useState(false);
 
   return (
@@ -112,15 +113,18 @@ function MomentCard({
       <div className="px-4 pb-3">
         <p className="text-sm text-neutral-800 dark:text-neutral-200 whitespace-pre-line">{moment.content}</p>
 
-        {/* Optional image */}
+        {/* Optional image — capped at 300x300, lazy-loaded */}
         {moment.imageUrl && (
-          <div className="mt-3 overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-800">
+          <div className="mt-3 h-[300px] w-[300px] max-w-full overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-800">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={moment.imageUrl}
               alt={moment.caption ?? "Moment image"}
-              className="w-full object-cover"
+              width={300}
+              height={300}
+              className="h-full w-full object-cover"
               loading="lazy"
+              decoding="async"
             />
           </div>
         )}
@@ -159,7 +163,7 @@ function MomentCard({
             className="flex items-center gap-1.5 rounded-full border border-neutral-200 px-3 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
           >
             <span>😊</span>
-            <span>React</span>
+            <span>{t("moments.react")}</span>
           </button>
           {/* Quick reaction picker */}
           {showReactions && (
@@ -177,7 +181,7 @@ function MomentCard({
           )}
         </div>
         <span className="text-xs text-neutral-400">
-          {moment.reactionsCount.toLocaleString()} {moment.reactionsCount === 1 ? "reaction" : "reactions"}
+          {moment.reactionsCount.toLocaleString()} {moment.reactionsCount === 1 ? t("moments.reaction") : t("moments.reactions")}
         </span>
       </div>
     </div>
@@ -188,8 +192,27 @@ function MomentCard({
 // Main page
 // ---------------------------------------------------------------------------
 
+/** Maps a raw API row (snake_case) to the client Moment shape. */
+function mapMomentRow(r: Record<string, unknown>): Moment {
+  return {
+    id: r.id as string,
+    authorId: (r.user_id ?? r.authorId) as string,
+    authorUsername: (r.username ?? r.authorUsername) as string,
+    authorAvatarEmoji: (r.avatar_emoji ?? r.authorAvatarEmoji) as string,
+    content: r.content as string,
+    imageUrl: (r.media_url ?? r.imageUrl ?? null) as string | null,
+    caption: (r.caption ?? null) as string | null,
+    reactionsCount: (r.reactions_count ?? r.reactionsCount ?? 0) as number,
+    reactions: (r.reactions as ReactionSummary[] | undefined) ?? undefined,
+    createdAt: (r.created_at ?? r.createdAt) as string,
+  };
+}
+
 /**
  * Moments feed — fetches and displays real moments from the API.
+ * Cursor-paginated ("Load more") so the feed stays fast even at thousands
+ * of moments/day, matching the hand-rolled cursor convention used by the
+ * DM/room message feeds elsewhere in the app.
  */
 export default function MomentsPage() {
   const { t } = useTranslation();
@@ -199,36 +222,52 @@ export default function MomentsPage() {
   }, [t]);
   const [moments, setMoments] = useState<Moment[] | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  const fetchPage = useCallback(async (cursorParam: string | null) => {
+    const url = cursorParam ? `/api/moments?cursor=${encodeURIComponent(cursorParam)}` : "/api/moments";
+    const res = await fetch(url, { credentials: "include" });
+    if (res.status === 401) { window.location.href = "/auth/login"; return null; }
+    if (!res.ok) throw new Error("Failed to load moments");
+    // API returns { success, data: { moments: [...snake_case rows], nextCursor }, error }
+    const json = await res.json() as {
+      data?: { moments?: Array<Record<string, unknown>>; nextCursor?: string | null };
+    };
+    return {
+      rows: (json.data?.moments ?? []).map(mapMomentRow),
+      nextCursor: json.data?.nextCursor ?? null,
+    };
+  }, []);
 
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/moments", { credentials: "include" });
-        if (res.status === 401) { window.location.href = "/auth/login"; return; }
-        if (!res.ok) throw new Error("Failed to load moments");
-        // API returns { success, data: { moments: [...snake_case rows] }, error }
-        const json = await res.json() as {
-          data?: { moments?: Array<Record<string, unknown>> };
-          moments?: Array<Record<string, unknown>>;
-        };
-        const rows = json.data?.moments ?? json.moments ?? [];
-        setMoments(rows.map((r) => ({
-          id: r.id as string,
-          authorId: (r.user_id ?? r.authorId) as string,
-          authorUsername: (r.username ?? r.authorUsername) as string,
-          authorAvatarEmoji: (r.avatar_emoji ?? r.authorAvatarEmoji) as string,
-          content: r.content as string,
-          imageUrl: (r.media_url ?? r.imageUrl ?? null) as string | null,
-          caption: (r.caption ?? null) as string | null,
-          reactionsCount: (r.reactions_count ?? r.reactionsCount ?? 0) as number,
-          createdAt: (r.created_at ?? r.createdAt) as string,
-        })));
+        const page = await fetchPage(null);
+        if (!page) return;
+        setMoments(page.rows);
+        setCursor(page.nextCursor);
       } catch (e) {
         setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
         setMoments([]);
       }
     })();
-  }, []);
+  }, [fetchPage]);
+
+  const handleLoadMore = useCallback(async () => {
+    if (!cursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const page = await fetchPage(cursor);
+      if (!page) return;
+      setMoments((prev) => [...(prev ?? []), ...page.rows]);
+      setCursor(page.nextCursor);
+    } catch {
+      // Non-fatal — user can retry via the button
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [cursor, loadingMore, fetchPage]);
 
   const handleReact = useCallback(async (momentId: string, emoji: string) => {
     try {
@@ -262,8 +301,8 @@ export default function MomentsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">Moments</h1>
-          <p className="mt-0.5 text-sm text-neutral-500">Short clips and photos from the community</p>
+          <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">{t("moments.title")}</h1>
+          <p className="mt-0.5 text-sm text-neutral-500">{t("moments.subtitle")}</p>
         </div>
         <Link
           href="/moments/create"
@@ -272,7 +311,7 @@ export default function MomentsPage() {
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
           </svg>
-          Share a Moment
+          {t("moments.share")}
         </Link>
       </div>
 
@@ -295,13 +334,13 @@ export default function MomentsPage() {
           <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-200 text-3xl dark:bg-neutral-800">
             🎬
           </div>
-          <h3 className="font-semibold text-neutral-900 dark:text-neutral-100">No moments yet</h3>
-          <p className="mt-1 text-sm text-neutral-500">Be the first to share a moment with the community!</p>
+          <h3 className="font-semibold text-neutral-900 dark:text-neutral-100">{t("moments.empty")}</h3>
+          <p className="mt-1 text-sm text-neutral-500">{t("moments.emptyHint")}</p>
           <Link
             href="/moments/create"
             className="mt-4 rounded-xl bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
           >
-            Share a Moment
+            {t("moments.share")}
           </Link>
         </div>
       ) : (
@@ -309,6 +348,17 @@ export default function MomentsPage() {
           {moments.map((moment) => (
             <MomentCard key={moment.id} moment={moment} onReact={handleReact} />
           ))}
+          {cursor && (
+            <div className="flex justify-center pt-2">
+              <button
+                onClick={handleLoadMore}
+                disabled={loadingMore}
+                className="rounded-xl border border-neutral-300 px-5 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              >
+                {loadingMore ? t("moments.loadingMore") : t("moments.loadMore")}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

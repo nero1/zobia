@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 /**
  * app/api/moments/route.ts
  *
- * GET  /api/moments  — Followed users' non-expired moments feed
+ * GET  /api/moments  — Public feed of all non-expired moments (cursor-paginated)
  * POST /api/moments  — Create a new moment (expires in 24h, max 5 active)
  */
 
@@ -13,6 +13,7 @@ import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { createMoment } from "@/lib/moments/service";
 
 // ---------------------------------------------------------------------------
 // Media URL allowlist
@@ -95,8 +96,15 @@ const createMomentSchema = z.object({
     .refine(isAllowedMediaUrl, { message: "Media URL must be from allowed domain" })
     .optional(),
   caption: z.string().max(200).optional(),
+  /** Currency to pay with when Moments cost Credits and/or Stars. Ignored when the feature is free. */
+  currency: z.enum(["credits", "stars"]).optional(),
 });
 
+/**
+ * Public feed — every non-expired moment from every user, newest first.
+ * Cursor-paginated (created_at keyset) so the feed scales to thousands of
+ * moments/day without a full table scan; see idx_moments_active_feed.
+ */
 export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
@@ -107,18 +115,28 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       `SELECT m.id, m.user_id,
               u.username, u.avatar_emoji, u.avatar_url,
               m.content, m.content_type, m.media_url, m.caption,
-              m.view_count, m.expires_at, m.created_at,
+              m.view_count, m.reactions_count, m.expires_at, m.created_at,
               (EXISTS (
                 SELECT 1 FROM moment_views mv
                 WHERE mv.moment_id = m.id AND mv.viewer_id = $1
-              )) AS has_viewed
+              )) AS has_viewed,
+              COALESCE(
+                (SELECT jsonb_agg(jsonb_build_object(
+                    'emoji', r.emoji,
+                    'count', r.cnt,
+                    'userReacted', r.user_reacted
+                  ) ORDER BY r.cnt DESC)
+                 FROM (
+                   SELECT mr.emoji, COUNT(*) AS cnt, BOOL_OR(mr.user_id = $1) AS user_reacted
+                   FROM moment_reactions mr
+                   WHERE mr.moment_id = m.id
+                   GROUP BY mr.emoji
+                 ) r),
+                '[]'::jsonb
+              ) AS reactions
        FROM moments m
        JOIN users u ON u.id = m.user_id
        WHERE m.expires_at > NOW()
-         AND (
-           m.user_id = $1
-           OR m.user_id IN (SELECT following_id FROM follows WHERE follower_id = $1)
-         )
          ${cursor ? "AND m.created_at < $3" : ""}
        ORDER BY m.created_at DESC
        LIMIT $2`,
@@ -142,22 +160,18 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       throw badRequest("media_url is required for image/video moments");
     }
 
-    const { rows: countRows } = await db.query<{ cnt: string }>(
-      `SELECT COUNT(*)::text AS cnt FROM moments WHERE user_id = $1 AND expires_at > NOW()`,
-      [userId]
-    );
-    if (parseInt(countRows[0]?.cnt ?? "0") >= 5) {
-      throw badRequest("You can have at most 5 active moments at a time");
-    }
+    const result = await createMoment({
+      userId,
+      content: body.content,
+      contentType: body.content_type,
+      mediaUrl: body.media_url ?? null,
+      thumbnailUrl: body.thumbnail_url ?? null,
+      caption: body.caption ?? null,
+      currency: body.currency ?? null,
+      source: "feed",
+    });
 
-    const { rows } = await db.query<{ id: string; expires_at: string }>(
-      `INSERT INTO moments (user_id, content, content_type, media_url, thumbnail_url, caption)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, expires_at`,
-      [userId, body.content, body.content_type, body.media_url ?? null, body.thumbnail_url ?? null, body.caption ?? null]
-    );
-
-    return NextResponse.json({ success: true, data: rows[0], error: null }, { status: 201 });
+    return NextResponse.json({ success: true, data: result, error: null }, { status: 201 });
   } catch (err) {
     return handleApiError(err);
   }
