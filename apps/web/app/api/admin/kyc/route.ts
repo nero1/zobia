@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
  * Review queue for identity KYC submissions. Admin or moderator (KYC review
  * is a day-to-day moderation task, same override as /api/admin/forum/**).
  *
- * Query params: status, tier, accountType, cursor (submitted_at ISO), limit
+ * Query params: status, tier, accountType, userId, cursor (submitted_at ISO), limit
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -39,6 +39,7 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) =
     const status = sp.get("status") ?? undefined;
     const tier = sp.get("tier") ? Number(sp.get("tier")) : undefined;
     const accountType = sp.get("accountType") ?? undefined;
+    const userId = sp.get("userId") ?? undefined;
     const cursor = sp.get("cursor") ?? undefined;
     const limit = Math.min(Number(sp.get("limit") ?? 30), 100);
 
@@ -46,9 +47,12 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) =
     const params: (string | number)[] = [];
 
     if (status) { params.push(status); where.push(`k.status = $${params.length}`); }
-    else { where.push(`k.status IN ('pending', 'ai_review', 'manual_review')`); }
+    // Deep-linking into a specific user's submissions (e.g. from /admin/users)
+    // should show their full history, not just the in-progress queue.
+    else if (!userId) { where.push(`k.status IN ('pending', 'ai_review', 'manual_review')`); }
     if (tier) { params.push(tier); where.push(`k.tier = $${params.length}`); }
     if (accountType) { params.push(accountType); where.push(`k.account_type = $${params.length}`); }
+    if (userId) { params.push(userId); where.push(`k.user_id = $${params.length}`); }
     if (cursor) { params.push(cursor); where.push(`k.submitted_at < $${params.length}`); }
 
     params.push(limit + 1);

@@ -9,6 +9,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import Link from "next/link";
 import type { Metadata } from "next";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
@@ -20,7 +21,7 @@ import { translateApiError } from "@/lib/i18n/apiErrors";
 type Plan = "free" | "plus" | "pro" | "max";
 type UserStatus = "active" | "suspended" | "banned";
 type SuspendDuration = "1h" | "24h" | "7d" | "30d";
-type ActionType = "suspend" | "ban" | "restore" | "make_mod" | "revoke_mod" | "reset_password" | "force_2fa" | "verify_account";
+type ActionType = "suspend" | "ban" | "restore" | "upgrade_moderator" | "downgrade_moderator" | "reset_password" | "force_2fa" | "verify_account";
 
 interface AdminUser {
   id: string;
@@ -42,7 +43,8 @@ interface AdminUser {
 
 interface UsersResponse {
   users: AdminUser[];
-  total: number;
+  hasMore: boolean;
+  nextCursor: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -251,15 +253,38 @@ function DetailPanel({ user, onClose, onAction }: DetailPanelProps) {
           />
           <ActionButton
             label={user.isModerator ? "Revoke Mod" : "Make Mod"}
-            onClick={() => handleAction(user.isModerator ? "revoke_mod" : "make_mod")}
-            loading={loading === "make_mod" || loading === "revoke_mod"}
+            onClick={() => handleAction(user.isModerator ? "downgrade_moderator" : "upgrade_moderator")}
+            loading={loading === "upgrade_moderator" || loading === "downgrade_moderator"}
             className="bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-300"
           />
+        </div>
+
+        {/* Navigation — public profile + identity verification (KYC) queue */}
+        <div className="grid grid-cols-2 gap-2">
+          <Link
+            href={`/profile/${user.id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center rounded-lg bg-neutral-100 px-3 py-2 text-xs font-semibold text-neutral-700 transition-colors hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
+          >
+            View Profile ↗
+          </Link>
+          <Link
+            href={`/admin/kyc?userId=${user.id}`}
+            className="flex items-center justify-center rounded-lg bg-teal-100 px-3 py-2 text-xs font-semibold text-teal-700 transition-colors hover:bg-teal-200 dark:bg-teal-900 dark:text-teal-300 dark:hover:bg-teal-800"
+          >
+            View KYC Submissions →
+          </Link>
         </div>
 
         {/* Account security actions — PRD §20 */}
         <div className="space-y-2 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
           <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Account Security</p>
+          <p className="text-[11px] text-neutral-400">
+            &quot;Mark Email Verified&quot; only flags the login email as confirmed — it is
+            unrelated to identity KYC. Use &quot;View KYC Submissions&quot; above for identity
+            verification.
+          </p>
           <div className="grid grid-cols-1 gap-2">
             <ActionButton
               label="Reset Password"
@@ -274,7 +299,7 @@ function DetailPanel({ user, onClose, onAction }: DetailPanelProps) {
               className="bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900 dark:text-indigo-300"
             />
             <ActionButton
-              label="Verify Account"
+              label="Mark Email Verified"
               onClick={() => handleAction("verify_account")}
               loading={loading === "verify_account"}
               className="bg-teal-100 text-teal-700 hover:bg-teal-200 dark:bg-teal-900 dark:text-teal-300"
@@ -325,12 +350,19 @@ export default function AdminUsersPage() {
     tRef.current = t;
   }, [t]);
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [users, setUsers] = useState<AdminUser[]>([]);
-  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<AdminUser | null>(null);
-  const [page, setPage] = useState(1);
+  // Keyset (cursor) pagination — the API deliberately avoids COUNT(*) / OFFSET
+  // (would full-scan the users table). cursorHistory[i] is the cursor used to
+  // fetch page i, so "Prev" can re-fetch a known page instead of walking back
+  // with OFFSET (which keyset pagination doesn't support).
+  const [cursorHistory, setCursorHistory] = useState<(string | undefined)[]>([undefined]);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
 
   const showToast = useCallback((msg: string, type: "success" | "error" = "success") => {
@@ -338,11 +370,24 @@ export default function AdminUsersPage() {
     setTimeout(() => setToast(null), 3500);
   }, []);
 
-  async function search(pageNum = 1) {
+  // Debounce the search box — scalable server-side search (indexed username
+  // prefix / email LIKE / exact UUID lookup, same as before) fires ~350ms
+  // after the user stops typing instead of a request per keystroke, and a
+  // live client-side autocomplete dropdown was intentionally skipped: it
+  // would need its own lightweight endpoint/cache to stay cheap at scale,
+  // and the debounced full-results table already gives near-instant feedback.
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedQuery(query), 350);
+    return () => clearTimeout(id);
+  }, [query]);
+
+  const search = useCallback(async (cursor: string | undefined, targetIndex: number) => {
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({ q: query, page: String(pageNum), limit: "20" });
+      const params = new URLSearchParams({ limit: "20" });
+      if (debouncedQuery) params.set("q", debouncedQuery);
+      if (cursor) params.set("cursor", cursor);
       const res = await fetch(`/api/admin/users?${params}`, { credentials: "include" });
       if (res.status === 401 || res.status === 403) {
         window.location.href = "/admin/login";
@@ -351,13 +396,33 @@ export default function AdminUsersPage() {
       if (!res.ok) throw new Error("Failed to load users");
       const data = (await res.json()) as UsersResponse;
       setUsers(data.users);
-      setTotal(data.total);
-      setPage(pageNum);
+      setHasMore(data.hasMore);
+      setNextCursor(data.nextCursor);
+      setPageIndex(targetIndex);
     } catch (e) {
       setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
     } finally {
       setLoading(false);
     }
+  }, [debouncedQuery]);
+
+  // Re-run search whenever the debounced query changes, resetting pagination.
+  useEffect(() => {
+    setCursorHistory([undefined]);
+    void search(undefined, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQuery]);
+
+  function goNext() {
+    if (!nextCursor) return;
+    setCursorHistory((h) => [...h, nextCursor]);
+    void search(nextCursor, pageIndex + 1);
+  }
+
+  function goPrev() {
+    if (pageIndex === 0) return;
+    const newIndex = pageIndex - 1;
+    void search(cursorHistory[newIndex], newIndex);
   }
 
   async function handleAction(
@@ -376,8 +441,8 @@ export default function AdminUsersPage() {
       return;
     }
     showToast("Action applied successfully");
-    // Refresh the user in list
-    await search(page);
+    // Refresh the current page in place
+    await search(cursorHistory[pageIndex], pageIndex);
     setSelected(null);
   }
 
@@ -396,9 +461,9 @@ export default function AdminUsersPage() {
         </div>
       )}
 
-      {/* Search bar */}
+      {/* Search bar — auto-searches ~350ms after typing stops; Search/Enter forces it immediately */}
       <form
-        onSubmit={(e) => { e.preventDefault(); search(1); }}
+        onSubmit={(e) => { e.preventDefault(); setDebouncedQuery(query); }}
         className="mb-6 flex gap-3"
       >
         <input
@@ -485,22 +550,22 @@ export default function AdminUsersPage() {
         </table>
       </div>
 
-      {/* Pagination */}
-      {total > 20 && (
+      {/* Pagination — keyset (cursor) based; no total count to avoid an O(N) COUNT(*) scan */}
+      {(pageIndex > 0 || hasMore) && (
         <div className="mt-4 flex items-center justify-between text-sm text-neutral-500">
-          <span>{total} total users</span>
+          <span>{users.length} users on this page</span>
           <div className="flex gap-2">
             <button
-              disabled={page === 1}
-              onClick={() => search(page - 1)}
+              disabled={pageIndex === 0 || loading}
+              onClick={goPrev}
               className="rounded-lg border border-neutral-200 px-3 py-1.5 disabled:opacity-40 hover:bg-neutral-50 dark:border-neutral-700"
             >
               ← Prev
             </button>
-            <span className="flex items-center px-2">Page {page}</span>
+            <span className="flex items-center px-2">Page {pageIndex + 1}</span>
             <button
-              disabled={page * 20 >= total}
-              onClick={() => search(page + 1)}
+              disabled={!hasMore || loading}
+              onClick={goNext}
               className="rounded-lg border border-neutral-200 px-3 py-1.5 disabled:opacity-40 hover:bg-neutral-50 dark:border-neutral-700"
             >
               Next →

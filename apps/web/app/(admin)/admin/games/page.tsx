@@ -227,7 +227,8 @@ export default function AdminGamesPage() {
 
       {/* List view (table) */}
       {viewMode === "list" && (
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[640px] text-sm">
           <thead>
             <tr className="border-b text-left text-neutral-500">
               <th className="py-2">Game</th>
@@ -266,6 +267,7 @@ export default function AdminGamesPage() {
             )}
           </tbody>
         </table>
+        </div>
       )}
 
       {/* Card view */}

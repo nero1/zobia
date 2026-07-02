@@ -9,9 +9,14 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import type { Room } from '@zobia/shared/types';
+import { RoomPulseBar } from '@/components/ui/RoomPulseBar';
 
-/** Rooms carry `isFavorited` from GET /api/rooms (see lib/rooms/serialize.ts, web side). */
-type RoomWithFavorite = Room & { isFavorited?: boolean };
+/**
+ * Rooms carry `isFavorited` and `recentMessageCount` from GET /api/rooms
+ * (see lib/rooms/serialize.ts, web side) — not yet declared on the shared
+ * Room type, mirrored locally the same way the web room list does.
+ */
+type RoomWithFavorite = Room & { isFavorited?: boolean; recentMessageCount?: number };
 
 async function fetchRooms() {
   const { data } = await apiClient.get<{ items: RoomWithFavorite[] }>('/rooms?limit=30');
@@ -107,6 +112,15 @@ function RoomsPage() {
               <span>👥 {room.memberCount.toLocaleString()} {t('rooms.members', { count: room.memberCount })}</span>
               {room.isActive && <span className="text-success-600 font-medium">● LIVE</span>}
             </div>
+
+            {/* Activity pulse bar — PRD §2.2 "Room pulse bars", mirrors web RoomCard */}
+            {room.recentMessageCount !== undefined && (
+              <RoomPulseBar
+                activeCount={room.recentMessageCount}
+                maxCapacity={room.maxMembers ?? 10_000}
+                className="mt-2"
+              />
+            )}
           </Link>
           <button
             type="button"

@@ -415,8 +415,8 @@ export default function AdminFooterScriptsPage() {
       )}
 
       {/* Table */}
-      <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
-        <table className="min-w-full divide-y divide-neutral-200 dark:divide-neutral-800">
+      <div className="overflow-x-auto rounded-xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
+        <table className="min-w-[640px] w-full divide-y divide-neutral-200 dark:divide-neutral-800">
           <thead>
             <tr className="bg-neutral-50 dark:bg-neutral-800/50">
               <th className="py-3 pl-4 pr-3 text-left text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">

@@ -9,7 +9,8 @@
  * admin-configurable cost, Tier 1 review mode, and price/revenue thresholds.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -98,7 +99,13 @@ export default function AdminKycPage() {
           ))}
         </div>
       </div>
-      {tab === "queue" ? <QueueTab /> : <SettingsTab />}
+      {tab === "queue" ? (
+        <Suspense fallback={<div className="py-16 text-center text-sm text-neutral-400">Loading…</div>}>
+          <QueueTab />
+        </Suspense>
+      ) : (
+        <SettingsTab />
+      )}
     </div>
   );
 }
@@ -108,6 +115,9 @@ export default function AdminKycPage() {
 // ---------------------------------------------------------------------------
 
 function QueueTab() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const userIdFilter = searchParams.get("userId");
   const [items, setItems] = useState<QueueItem[]>([]);
   const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTERS)[number]>("all");
   const [loading, setLoading] = useState(true);
@@ -119,6 +129,7 @@ function QueueTab() {
     try {
       const params = new URLSearchParams();
       if (statusFilter !== "all") params.set("status", statusFilter);
+      if (userIdFilter) params.set("userId", userIdFilter);
       const res = await fetch(`/api/admin/kyc?${params.toString()}`, { credentials: "include" });
       const body = await res.json();
       if (res.ok) {
@@ -128,7 +139,7 @@ function QueueTab() {
     } catch { /* ignore */ } finally {
       setLoading(false);
     }
-  }, [statusFilter]);
+  }, [statusFilter, userIdFilter]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -150,18 +161,31 @@ function QueueTab() {
             </button>
           ))}
         </div>
+        {userIdFilter && (
+          <span className="flex items-center gap-2 rounded-full bg-blue-100 px-3 py-1.5 text-xs font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+            Filtered to one user
+            <button
+              type="button"
+              onClick={() => router.push("/admin/kyc")}
+              className="rounded-full p-0.5 hover:bg-blue-200 dark:hover:bg-blue-800"
+              aria-label="Clear user filter"
+            >
+              ✕
+            </button>
+          </span>
+        )}
         {pendingCount > 0 && (
           <span className="text-xs font-medium text-amber-500">{pendingCount} awaiting review</span>
         )}
       </div>
 
-      <div className="mt-4 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
+      <div className="mt-4 overflow-x-auto rounded-xl border border-neutral-200 bg-white shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
         {loading ? (
           <div className="py-16 text-center text-sm text-neutral-400">Loading…</div>
         ) : items.length === 0 ? (
           <div className="py-16 text-center text-sm text-neutral-400">No submissions found</div>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[720px] text-sm">
             <thead className="border-b border-neutral-200 text-left text-xs uppercase text-neutral-400 dark:border-neutral-800">
               <tr>
                 <th className="px-4 py-2">User</th>

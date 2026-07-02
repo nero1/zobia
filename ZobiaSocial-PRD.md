@@ -4033,6 +4033,80 @@ any fresh database. Added slugs (`welcome-to-zobia`, `lagos-vibes`,
 
 ---
 
-*ZobiaSocial PRD v2.02*
+## Appendix: Version 2.04 Change Log
+
+### v2.04 — Changelog
+
+#### Presence heartbeat was never sent (root cause of stale "Last Active" / empty Online Friends)
+
+`POST /api/presence` (which sets `users.last_active_at` and a 5-minute Redis
+TTL key — see §2.2) has existed since presence was built, but no client
+anywhere ever called it. The only place `last_active_at` was ever written
+was at login (`app/api/login/daily/route.ts`). In practice this meant a
+user's presence went stale within an hour of signing in regardless of how
+active they actually were, which broke two features that read
+`last_active_at`: the admin Users page's "Last Active" column
+(`/admin/users`) and the Home page's Online Friends row
+(`GET /api/friends/online`, §4 Relationship Types → Privacy Controls).
+Fixed by adding an app-wide presence heartbeat: `PresenceHeartbeatProvider`
+(web, mounted in `app/(app)/layout.tsx`) and `usePresenceHeartbeat` (the
+Capacitor Android app, mounted in `routes/__root.tsx`) call `POST
+/api/presence` on mount and every 3 minutes while the app is foregrounded/
+visible — no new endpoint, no new Redis calls, just correctly invoking the
+one that already existed. **This is unrelated to CRON** — the fix only
+requires a normal deploy, not a CRON run.
+
+To be clear, "Online Friends only shows friends who opted in" is **not** a
+bug — see §4's Privacy Controls: "Show online status" is an opt-in toggle
+(Pro/Max, or Prestige 1+), off by default, and friends who haven't enabled
+it never appear regardless of their actual activity. The Home page now
+shows a one-line hint under "Online Friends" (`home.friends.privacyHint`)
+explaining this so it isn't mistaken for a bug.
+
+#### Capacitor Android app was missing the Presence Layer entirely
+
+The Android app (`apps/android`) is a separate React/TanStack Router app
+(not a WebView wrapper of the Next.js site), and it had none of §2.2's
+Presence Layer: no online rings, no Room pulse bars, no Online Friends row,
+and no room-presence heartbeat (so Android users never counted toward a
+room's live/soft-capacity admission). Added, mirroring the web
+implementations 1:1: `components/ui/OnlineRing.tsx`,
+`components/ui/RoomPulseBar.tsx` + `LiveRoomPulseBar.tsx`, an Online
+Friends row on `routes/home.tsx`, a pulse bar on each room card
+(`routes/rooms/index.tsx`) and inside the room screen
+(`routes/rooms/$roomId.tsx`), and a room-presence heartbeat (`POST
+/api/rooms/:roomId/presence` every 45s, matching the web room screen).
+
+#### Admin panel: mobile table overflow, Users page rework, KYC deep-link
+
+- **Admin tables unusable on mobile (all `/admin/*` pages):** every admin
+  table page already wrapped its `<table>` in `overflow-x-auto`, but
+  `AdminLayoutShell`'s content column was a flex child without `min-w-0` —
+  a classic flexbox trap where the child's implicit `min-width: auto` lets
+  wide content force the *whole page* wider instead of scrolling inside its
+  own wrapper. Fixed once in `AdminLayoutShell.tsx`, which fixes every
+  admin table page at once. Also wrapped the five tables that were missing
+  `overflow-x-auto` entirely (`/admin/gift-drop`, `/admin/footer-scripts`,
+  `/admin/kyc`, `/admin/games`, `/admin/ads`).
+- **`/admin/users` reworked:** the search box now auto-searches ~350ms
+  after typing stops (debounced server-side search — a live autocomplete
+  dropdown was intentionally skipped as unnecessary overhead for a
+  moderation tool); the Make Mod / Revoke Mod button sent
+  `make_mod`/`revoke_mod` while the API only accepted
+  `upgrade_moderator`/`downgrade_moderator`, so it always failed — action
+  names now match; pagination was broken (the API moved to keyset/cursor
+  pagination for `/admin/users` and stopped returning `total`, but the page
+  still sent `page=N` and read `data.total`) — rewritten to cursor-based
+  Prev/Next; added "View Profile" and "View KYC Submissions" links on the
+  user detail panel. "Verify Account" was renamed "Mark Email Verified" and
+  a caption clarifies it only flags the login email, since it is unrelated
+  to identity KYC — the identity verification queue is now one click away
+  via "View KYC Submissions" → `/admin/kyc?userId=<id>` (new `userId` query
+  param on both the page and `GET /api/admin/kyc`, showing that user's full
+  submission history instead of only the in-progress queue).
+
+---
+
+*ZobiaSocial PRD v2.04*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

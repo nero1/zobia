@@ -17,6 +17,7 @@ import { useAuth } from '@/lib/auth/store';
 import { AuthUserSchema } from '@zobia/shared/schemas/auth';
 import { setPreAuthToken } from '@/lib/auth/preAuth';
 import { env } from '@/lib/env';
+import { usePresenceHeartbeat } from '@/lib/hooks/usePresenceHeartbeat';
 
 // Tab roots that don't show a back button
 const TAB_ROOTS = ['/home', '/games', '/rooms', '/messages', '/notifications', '/settings'];
@@ -28,6 +29,9 @@ function AppShell() {
   const pathname = routerState.location.pathname;
   const navigate = useNavigate();
   const { setAuth } = useAuth();
+
+  // Keeps last_active_at / online status warm app-wide — see usePresenceHeartbeat.ts.
+  usePresenceHeartbeat();
 
   useEffect(() => {
     const listenerPromise = CapApp.addListener('appUrlOpen', async ({ url }) => {
