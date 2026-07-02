@@ -22,6 +22,7 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { debitCoins } from "@/lib/economy/coins";
+import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -153,25 +154,16 @@ export const POST = withAuth(
           [recipientUserId, seasonId]
         );
 
-        // 5. Award Generosity Track XP to sender
-        await tx.query(
-          `UPDATE users
-           SET xp_total = xp_total + $1,
-               xp_generosity = COALESCE(xp_generosity, 0) + $1,
-               updated_at = NOW()
-           WHERE id = $2`,
-          [GENEROSITY_XP_FOR_PASS_GIFT, senderId]
-        ).catch(() => {});
-
-        await tx.query(
-          `INSERT INTO xp_ledger
-             (user_id, action, xp_amount, multiplier, xp_net, metadata, created_at)
-           VALUES ($1, 'season_pass_gift', $2, 1.0, $2, $3, NOW())`,
-          [
-            senderId,
-            GENEROSITY_XP_FOR_PASS_GIFT,
-            JSON.stringify({ recipientUserId, seasonId }),
-          ]
+        // 5. Award Generosity Track XP to sender via the canonical safeAwardXP
+        // path (writes xp_ledger with the required base_amount + updates the
+        // user's track XP and leaderboard snapshots in one place).
+        await safeAwardXP(
+          senderId,
+          GENEROSITY_XP_FOR_PASS_GIFT,
+          "generosity",
+          "season_pass_gift",
+          `season_pass_gift:${seasonId}:${senderId}:${recipientUserId}`,
+          tx
         ).catch(() => {});
 
         // 6. Notify recipient

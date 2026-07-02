@@ -29,6 +29,7 @@ import { db } from "@/lib/db";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -137,26 +138,22 @@ export const POST = withAdminAuth<ActionParams>(async (req: NextRequest, { param
       if (action.target_user_id && typeof xpAmount === "number" && xpAmount > 0) {
         await db.query(
           `UPDATE users
-           SET xp_total    = xp_total + $1,
-               legacy_score = legacy_score + $1,
+           SET legacy_score = legacy_score + $1,
                updated_at   = NOW()
            WHERE id = $2`,
           [xpAmount, action.target_user_id]
         );
 
-        // Append a compensatory entry to the xp_ledger for auditing
-        await db.query(
-          `INSERT INTO xp_ledger
-             (user_id, action, xp_amount, multiplier, xp_net, metadata, created_at)
-           VALUES ($1, 'reversal_xp_restored', $2, 1, $2, $3, NOW())`,
-          [
-            action.target_user_id,
-            xpAmount,
-            JSON.stringify({
-              reversed_action_id: actionId,
-              original_action_type: "xp_stripped",
-            }),
-          ]
+        // Restore xp_total via the canonical safeAwardXP path, which also
+        // writes the compensatory xp_ledger entry (with the required NOT
+        // NULL base_amount) and dedupes on reference_id.
+        await safeAwardXP(
+          action.target_user_id,
+          xpAmount,
+          "main",
+          "reversal_xp_restored",
+          `reversal:${actionId}`,
+          db
         );
       }
     }

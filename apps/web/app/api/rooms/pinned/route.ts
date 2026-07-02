@@ -19,10 +19,11 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
-import { withAuth, validateBody } from "@/lib/api/middleware";
+import { db, type SqlParam } from "@/lib/db";
+import { withAuth, validateBody, validateSearchParams } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
 import type { Plan } from "@zobia/types";
+import { toRoomCardPayload, type RoomCardSourceRow } from "@/lib/rooms/serialize";
 
 // ---------------------------------------------------------------------------
 // Pin limits
@@ -65,59 +66,61 @@ const pinSchema = z.object({
 // GET /api/rooms/pinned
 // ---------------------------------------------------------------------------
 
-export const GET = withAuth(async (_req: NextRequest, { auth }) => {
-  try {
-    interface PinnedRoomRow {
-      pin_id: string;
-      pinned_at: string;
-      room_id: string;
-      name: string;
-      description: string | null;
-      room_type: string;
-      member_count: number;
-      creator_id: string;
-      creator_name: string;
-      creator_avatar: string;
-    }
+const listPinnedQuerySchema = z.object({
+  cursor: z.string().optional(),
+  limit: z
+    .string()
+    .optional()
+    .transform((v) => (v ? Math.min(parseInt(v, 10), 50) : 20)),
+});
 
-    const { rows } = await db.query<PinnedRoomRow>(
+export const GET = withAuth(async (req: NextRequest, { auth }) => {
+  try {
+    const query = validateSearchParams(req.nextUrl.searchParams, listPinnedQuerySchema);
+
+    const queryParams: SqlParam[] = [auth.user.sub];
+    let cursorClause = "";
+    if (query.cursor) {
+      queryParams.push(query.cursor);
+      cursorClause = `AND rp.created_at < $${queryParams.length}`;
+    }
+    queryParams.push(query.limit);
+    const limitParam = queryParams.length;
+
+    // Faves tab / pinned-rooms strip: this is the room-favoriting mechanism
+    // (PRD §3 "Room Pins" — tiered by plan). Rows come back in the same shape
+    // as GET /api/rooms so the same RoomCard renders it directly.
+    const { rows } = await db.query<RoomCardSourceRow & { pinned_at: string }>(
       `SELECT
-         rp.id          AS pin_id,
-         rp.created_at  AS pinned_at,
-         r.id           AS room_id,
-         r.name,
-         r.description,
-         r.type AS room_type,
-         r.member_count,
-         u.id           AS creator_id,
-         u.display_name AS creator_name,
-         u.avatar_emoji AS creator_avatar
+         r.id, r.name, r.description, r.type, r.category, r.city,
+         r.cover_emoji, r.cover_image_url, r.slug,
+         r.creator_id, u.username AS creator_username, u.display_name AS creator_display_name,
+         u.avatar_emoji AS creator_avatar_emoji, u.creator_tier,
+         r.member_count, r.max_members, r.is_active, r.is_featured, r.is_sponsored,
+         r.subscription_price_ngn, r.entry_fee_ngn, r.drop_starts_at, r.drop_ends_at,
+         r.enrolment_fee_ngn, r.total_messages, COALESCE(r.health_score, 100) AS health_score,
+         r.created_at, r.updated_at,
+         rp.created_at AS pinned_at
        FROM room_pins rp
        JOIN rooms r ON r.id = rp.room_id
        JOIN users u ON u.id = r.creator_id
-       WHERE rp.user_id = $1
-       ORDER BY rp.created_at DESC`,
-      [auth.user.sub]
+       WHERE rp.user_id = $1 ${cursorClause}
+       ORDER BY rp.created_at DESC
+       LIMIT $${limitParam}`,
+      queryParams
+    );
+
+    const nextCursor =
+      rows.length === query.limit ? rows[rows.length - 1]?.pinned_at ?? null : null;
+
+    const rooms = rows.map((row) =>
+      toRoomCardPayload(row, { isJoined: false, isFavorited: true })
     );
 
     return NextResponse.json({
       success: true,
-      data: rows.map((row) => ({
-        pinId: row.pin_id,
-        pinnedAt: row.pinned_at,
-        room: {
-          id: row.room_id,
-          name: row.name,
-          description: row.description,
-          roomType: row.room_type,
-          memberCount: row.member_count,
-          creator: {
-            id: row.creator_id,
-            displayName: row.creator_name,
-            avatarEmoji: row.creator_avatar,
-          },
-        },
-      })),
+      rooms,
+      data: { rooms, nextCursor, hasMore: nextCursor !== null },
       error: null,
     });
   } catch (err) {

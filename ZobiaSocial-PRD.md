@@ -515,6 +515,7 @@ A Room is a public or semi-public group conversation space — the social and co
 - Available to Platinum-tier Guilds and above. Private to Guild members only.
 - Used for war planning, coordination, and social bonding.
 - Guild Rooms earn XP for all members who participate in daily Guild Room activity.
+- Every Room type — including Free/Open, VIP, Drop, Tipping, and ClassRoom — requires a creator-eligible account to create; a user who isn't eligible for a given type never sees that type's create button (eligibility is resolved server-side, not just hidden client-side). **Admins bypass every creator-eligibility and Guild-tier gate** and can create/open any Room type, attaching a Guild Room to any guild regardless of tier or membership.
 
 ### Room Capacity & Soft Presence Caps (v1.7)
 
@@ -529,6 +530,8 @@ Live delivery uses a configurable realtime provider (Ably by default) on web, PW
 ### Room Discovery
 
 The discovery feed surfaces Rooms based on: city proximity, category affinity (from past Room activity and quiz responses), friends-in-room signal, trending score (activity in last 2 hours weighted heavily), and Creator Tier (Verified and Elite creators get discovery boosts). Rooms can be promoted using Credits for native paid discovery. Live availability (a "Full" badge and an availability filter) is also surfaced per the capacity model above.
+
+Discovery tabs: **Trending**, **Near Me**, **Friends In**, **Recently Visited** (rooms the user has opened, most-recent-first), and **Faves** (rooms the user has favorited via the heart icon on any room card — this is the same bookmark mechanic as Room Pins above; favoriting/unfavoriting is subject to the plan's Room Pin limit). The feed supports both a **list view** (default — the scalable choice once a platform has tens of thousands of Rooms) and a **grid view**, matching the pattern already used on the Games discovery page.
 
 ### Room Moderation
 

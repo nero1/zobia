@@ -34,6 +34,7 @@ import { meetsMinimumTrust } from "@/lib/trust/trustScore";
 import { sendPushNotificationBatch } from "@/lib/notifications/push";
 import { getTrackXPThreshold } from "@/lib/xp/engine";
 import { generateUniqueSlug } from "@/lib/slug";
+import { toRoomCardPayload } from "@/lib/rooms/serialize";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -107,6 +108,12 @@ const createRoomSchema = z.object({
   classStartDate: z.string().optional(),
   /** Classroom end date (ISO 8601 date). */
   classEndDate: z.string().optional(),
+  /**
+   * Guild to attach a Guild Room to. Only honoured for admins (who can create
+   * a Guild Room for any guild); non-admins are always attached to a guild
+   * they own/administer, resolved server-side.
+   */
+  guildId: z.string().uuid().optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -125,11 +132,14 @@ interface RoomRow {
   cover_image_url: string | null;
   creator_id: string;
   creator_username: string;
+  creator_display_name: string | null;
   creator_avatar_emoji: string;
   creator_tier: string | null;
   member_count: number;
   max_members: number;
   is_active: boolean;
+  is_featured: boolean;
+  is_sponsored: boolean;
   subscription_price_ngn: number | null;
   entry_fee_ngn: number | null;
   drop_starts_at: string | null;
@@ -282,7 +292,14 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       ? `(${vibeCategoryBoost}${buildTrendingOrderClause().trim().replace(" DESC", "")}) DESC`
       : `CASE WHEN COALESCE(r.health_score, 100) < 40 THEN 1 ELSE 0 END ASC, r.updated_at DESC`;
 
-    const { rows } = await db.query<RoomRow>(
+    // Caller-scoped joins so each card can show join state + favorite state
+    // without a second round-trip per room.
+    const callerParam = paramIndex++;
+    queryParams.push(auth.user.sub);
+
+    const { rows } = await db.query<
+      RoomRow & { is_joined: boolean; is_favorited: boolean; is_promoted: boolean }
+    >(
       `SELECT
          r.id,
          r.name,
@@ -292,13 +309,17 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
          r.city,
          r.cover_emoji,
          r.cover_image_url,
+         r.slug,
          r.creator_id,
          u.username         AS creator_username,
+         u.display_name     AS creator_display_name,
          u.avatar_emoji     AS creator_avatar_emoji,
          u.creator_tier,
          r.member_count,
          r.max_members,
          r.is_active,
+         r.is_featured,
+         r.is_sponsored,
          r.subscription_price_ngn,
          r.entry_fee_ngn,
          r.drop_starts_at,
@@ -320,11 +341,15 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
          COALESCE(r.health_score, 100) AS health_score,
          -- Paid promotion boost: rooms with an active promotion appear higher
          (rp.id IS NOT NULL AND rp.ends_at > NOW()) AS is_promoted,
+         (caller_member.user_id IS NOT NULL) AS is_joined,
+         (caller_pin.id IS NOT NULL)         AS is_favorited,
          r.created_at,
          r.updated_at
        FROM rooms r
        JOIN users u ON u.id = r.creator_id
        LEFT JOIN room_promotions rp ON rp.room_id = r.id AND rp.is_active = TRUE AND rp.ends_at > NOW()
+       LEFT JOIN room_members caller_member ON caller_member.room_id = r.id AND caller_member.user_id = $${callerParam}
+       LEFT JOIN room_pins caller_pin ON caller_pin.room_id = r.id AND caller_pin.user_id = $${callerParam}
        WHERE ${conditions.join(" AND ")}
        ORDER BY
          -- Promoted rooms (via room_promotions or spotlight power) surface first
@@ -347,18 +372,30 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       rows.map(async (r) => {
         const cap = resolveRoomCap(r.type, r.max_members, manifest);
         const presentCount = await getRoomPresenceCount(r.id);
-        return { ...r, present_count: presentCount, capacity: cap, is_full: presentCount >= cap };
+        const isFull = presentCount >= cap;
+        return {
+          ...toRoomCardPayload(r, {
+            isFull,
+            presentCount,
+            capacity: cap,
+            isPromoted: r.is_promoted,
+            isJoined: r.is_joined,
+            isFavorited: r.is_favorited,
+          }),
+          _isFull: isFull,
+        };
       }),
     );
 
     if (params.availability === "available") {
-      items = items.filter((r) => !r.is_full);
+      items = items.filter((r) => !r._isFull);
     } else if (params.availability === "full") {
-      items = items.filter((r) => r.is_full);
+      items = items.filter((r) => r._isFull);
     }
+    const cleanItems = items.map(({ _isFull, ...rest }) => rest);
 
     return NextResponse.json(
-      { items, nextCursor, hasMore: nextCursor !== null },
+      { items: cleanItems, nextCursor, hasMore: nextCursor !== null },
       { status: 200 }
     );
   } catch (err) {
@@ -388,21 +425,27 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const body = await validateBody(req, createRoomSchema);
 
-    // Verify creator eligibility
+    // Verify creator eligibility. is_admin is re-checked against the database
+    // (never trusted from the JWT alone) since it grants a bypass of every
+    // eligibility gate below — admins can create any room type per the PRD's
+    // "admin can take all actions" rule.
     const { rows: userRows } = await db.query<{
       creator_role: boolean;
       creator_tier: string | null;
       xp_creator: number;
+      is_admin: boolean;
     }>(
-      `SELECT creator_role, creator_tier, COALESCE(xp_creator, 0) AS xp_creator
+      `SELECT creator_role, creator_tier, COALESCE(xp_creator, 0) AS xp_creator, is_admin
        FROM users WHERE id = $1 AND deleted_at IS NULL`,
       [auth.user.sub]
     );
 
     const user = userRows[0];
     if (!user) throw forbidden("User not found");
+    const isAdmin = user.is_admin;
 
     const isEligible =
+      isAdmin ||
       user.creator_role ||
       (user.creator_tier !== null &&
         CREATOR_TIERS_ALLOWED.includes(user.creator_tier as (typeof CREATOR_TIERS_ALLOWED)[number]));
@@ -420,6 +463,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       minNgn: 200,
       maxNgn: 10_000,
     };
+
+    // Resolved outside the switch so the INSERT below can attach the room to
+    // its guild (rooms.guild_id + the guild_rooms join row). Only populated
+    // for type === "guild".
+    let resolvedGuildId: string | null = null;
 
     switch (body.type) {
       case "vip":
@@ -450,7 +498,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           throw badRequest("enrolmentFeeNgn is required for Classroom rooms (use 0 for free)");
         }
         // Trust Score gate: paid ClassRooms require 30-day account age + trust score ≥ 40 (PRD §19)
-        if (body.enrolmentFeeNgn > 0) {
+        if (body.enrolmentFeeNgn > 0 && !isAdmin) {
           const eligible = await meetsMinimumTrust(auth.user.sub, "classroom_creation", db);
           if (!eligible) {
             throw forbidden(
@@ -462,9 +510,24 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         break;
 
       case "guild": {
-        // Guild rooms require the guild to be Platinum-tier or above
-        const { rows: guildTierRows } = await db.query<{ tier: string }>(
-          `SELECT g.tier FROM guilds g
+        const platinumAndAbove = ["platinum_1", "platinum_2", "platinum_3", "legend"];
+
+        if (isAdmin && body.guildId) {
+          // Admins may attach a Guild Room to any guild regardless of tier.
+          const { rows: guildRows } = await db.query<{ id: string }>(
+            `SELECT id FROM guilds WHERE id = $1 LIMIT 1`,
+            [body.guildId]
+          );
+          if (!guildRows[0]) throw badRequest("Guild not found");
+          resolvedGuildId = guildRows[0].id;
+          break;
+        }
+
+        // Guild rooms require the guild to be Platinum-tier or above, and the
+        // caller to own/administer it — unless the caller is an admin, who
+        // only needs *some* owned/administered guild (tier check skipped).
+        const { rows: guildTierRows } = await db.query<{ id: string; tier: string }>(
+          `SELECT g.id, g.tier FROM guilds g
            JOIN guild_members gm ON gm.guild_id = g.id
            WHERE gm.user_id = $1 AND gm.role IN ('owner', 'admin')
            ORDER BY
@@ -479,10 +542,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           [auth.user.sub]
         );
         const guildTier = guildTierRows[0]?.tier ?? null;
-        const platinumAndAbove = ["platinum_1", "platinum_2", "platinum_3", "legend"];
-        if (!guildTier || !platinumAndAbove.includes(guildTier)) {
+        if (!guildTierRows[0] || (!isAdmin && !platinumAndAbove.includes(guildTier ?? ""))) {
           throw forbidden("Guild Rooms are only available to Platinum-tier Guilds and above.");
         }
+        resolvedGuildId = guildTierRows[0].id;
         break;
       }
 
@@ -512,6 +575,20 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       dropEndsAt = endsAt.toISOString();
     }
 
+    // Guild rooms are private to guild members; every other type is public
+    // discovery content. The `rooms_public_requires_slug` CHECK constraint
+    // enforces that public rooms always carry a slug, so the slug must be
+    // generated *before* the row is inserted (a slug can't be back-filled
+    // after the fact — the constraint is checked on the INSERT statement
+    // itself, not deferred to COMMIT). This mirrors the pattern already used
+    // for games (see app/api/admin/games/route.ts): generate the slug from
+    // the name using a throwaway fallback id for the rare all-emoji/empty-name
+    // case, then insert it directly.
+    const isPublic = body.type !== "guild";
+    const slug = isPublic
+      ? await generateUniqueSlug("room", body.name, crypto.randomUUID())
+      : null;
+
     const room = await db.transaction(async (tx) => {
       const { rows: roomRows } = await tx.query<RoomRow>(
         `INSERT INTO rooms (
@@ -520,7 +597,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
            max_members, subscription_price_ngn, entry_fee_ngn,
            drop_starts_at, drop_ends_at, enrolment_fee_ngn,
            curriculum, class_start_date, class_end_date,
-           duration_minutes,
+           duration_minutes, slug, is_public, guild_id,
            member_count, total_messages, is_active
          )
          VALUES (
@@ -529,7 +606,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
            $9, $10, $11,
            $12, $13, $14,
            $15, $16, $17,
-           $18,
+           $18, $19, $20, $21,
            1, 0, TRUE
          )
          RETURNING *`,
@@ -552,20 +629,14 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           body.classStartDate ?? null,
           body.classEndDate ?? null,
           body.durationMinutes ?? null,
+          slug,
+          isPublic,
+          resolvedGuildId,
         ]
       );
 
       const room = roomRows[0];
       if (!room) throw new Error("Room creation failed");
-
-      // Generate the public SEO slug now that we have the row id (used as a
-      // stable fallback when the name has no slug-able characters). Unique
-      // within the live-rooms namespace; duplicates get a numeric suffix
-      // ("dorcas-cuisine", "dorcas-cuisine2", ...). The UUID id remains the
-      // immutable internal reference.
-      const slug = await generateUniqueSlug("room", body.name, room.id, tx);
-      await tx.query(`UPDATE rooms SET slug = $1 WHERE id = $2`, [slug, room.id]);
-      room.slug = slug;
 
       // Auto-join creator as creator member
       await tx.query(
@@ -573,6 +644,18 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
          VALUES ($1, $2, 'creator', NOW())`,
         [room.id, auth.user.sub]
       );
+
+      // Guild Rooms are looked up by the guild_rooms join table (GET
+      // /api/rooms/[roomId]) *and* by rooms.guild_id directly (POST
+      // /api/rooms/[roomId]/join) — both must be populated or the room is
+      // unreachable even by its own creator.
+      if (resolvedGuildId) {
+        await tx.query(
+          `INSERT INTO guild_rooms (guild_id, room_id) VALUES ($1, $2)
+           ON CONFLICT (guild_id, room_id) DO NOTHING`,
+          [resolvedGuildId, room.id]
+        );
+      }
 
       return room;
     });

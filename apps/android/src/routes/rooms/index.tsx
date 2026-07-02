@@ -4,14 +4,17 @@
  * Room list. GET /api/rooms.
  */
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import type { Room } from '@zobia/shared/types';
 
+/** Rooms carry `isFavorited` from GET /api/rooms (see lib/rooms/serialize.ts, web side). */
+type RoomWithFavorite = Room & { isFavorited?: boolean };
+
 async function fetchRooms() {
-  const { data } = await apiClient.get<{ items: Room[] }>('/rooms?limit=30');
+  const { data } = await apiClient.get<{ items: RoomWithFavorite[] }>('/rooms?limit=30');
   return data?.items ?? [];
 }
 
@@ -26,10 +29,30 @@ const ROOM_TYPE_LABELS: Record<string, string> = {
 
 function RoomsPage() {
   const { t } = useTranslation();
+  const qc = useQueryClient();
   const { data: rooms, status, refetch } = useQuery({
     queryKey: ['rooms'],
     queryFn: fetchRooms,
     staleTime: 30_000,
+  });
+
+  // Favorite (heart) toggle — reuses the existing room-pin endpoint
+  // (/api/rooms/pinned, PRD §3 "Room Pins") that backs the web Faves tab.
+  const toggleFavorite = useMutation({
+    mutationFn: ({ roomId, next }: { roomId: string; next: boolean }) =>
+      next
+        ? apiClient.post('/rooms/pinned', { roomId })
+        : apiClient.delete('/rooms/pinned', { data: { roomId } }),
+    onMutate: ({ roomId, next }) => {
+      qc.setQueryData<RoomWithFavorite[]>(['rooms'], (prev = []) =>
+        prev.map((r) => (r.id === roomId ? { ...r, isFavorited: next } : r))
+      );
+    },
+    onError: (_err, { roomId, next }) => {
+      qc.setQueryData<RoomWithFavorite[]>(['rooms'], (prev = []) =>
+        prev.map((r) => (r.id === roomId ? { ...r, isFavorited: !next } : r))
+      );
+    },
   });
 
   return (
@@ -65,30 +88,35 @@ function RoomsPage() {
       )}
 
       {rooms?.map((room) => (
-        <Link
-          key={room.id}
-          to="/rooms/$roomId"
-          params={{ roomId: room.id }}
-          className="block bg-white rounded-xl p-4 shadow-card active:scale-98 transition-transform"
-        >
-          <div className="flex items-start justify-between mb-1">
-            <h3 className="font-semibold text-neutral-900 text-sm flex-1 pr-2">{room.name}</h3>
-            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-              room.roomType === 'vip' ? 'bg-gold-100 text-gold-700' :
-              room.roomType === 'drop' ? 'bg-primary-100 text-primary-700' :
-              'bg-neutral-100 text-neutral-600'
-            }`}>
-              {ROOM_TYPE_LABELS[room.roomType] ?? room.roomType}
-            </span>
-          </div>
-          {room.description && (
-            <p className="text-neutral-500 text-xs mb-2 line-clamp-2">{room.description}</p>
-          )}
-          <div className="flex items-center gap-3 text-xs text-neutral-400">
-            <span>👥 {room.memberCount.toLocaleString()} {t('rooms.members', { count: room.memberCount })}</span>
-            {room.isActive && <span className="text-success-600 font-medium">● LIVE</span>}
-          </div>
-        </Link>
+        <div key={room.id} className="relative bg-white rounded-xl shadow-card active:scale-98 transition-transform">
+          <Link to="/rooms/$roomId" params={{ roomId: room.id }} className="block p-4">
+            <div className="flex items-start justify-between mb-1 pr-8">
+              <h3 className="font-semibold text-neutral-900 text-sm flex-1 pr-2">{room.name}</h3>
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                room.roomType === 'vip' ? 'bg-gold-100 text-gold-700' :
+                room.roomType === 'drop' ? 'bg-primary-100 text-primary-700' :
+                'bg-neutral-100 text-neutral-600'
+              }`}>
+                {ROOM_TYPE_LABELS[room.roomType] ?? room.roomType}
+              </span>
+            </div>
+            {room.description && (
+              <p className="text-neutral-500 text-xs mb-2 line-clamp-2">{room.description}</p>
+            )}
+            <div className="flex items-center gap-3 text-xs text-neutral-400">
+              <span>👥 {room.memberCount.toLocaleString()} {t('rooms.members', { count: room.memberCount })}</span>
+              {room.isActive && <span className="text-success-600 font-medium">● LIVE</span>}
+            </div>
+          </Link>
+          <button
+            type="button"
+            onClick={() => toggleFavorite.mutate({ roomId: room.id, next: !room.isFavorited })}
+            aria-label={room.isFavorited ? t('room.removeFavorite') : t('room.addFavorite')}
+            className="absolute right-3 top-3 text-lg"
+          >
+            {room.isFavorited ? '❤️' : '🤍'}
+          </button>
+        </div>
       ))}
     </div>
   );
