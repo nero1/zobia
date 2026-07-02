@@ -12,10 +12,20 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as WalletRouteImport } from './routes/wallet'
 import { Route as StatsRouteImport } from './routes/stats'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as ReferralsRouteImport } from './routes/referrals'
+import { Route as QuestsRouteImport } from './routes/quests'
 import { Route as NotificationsRouteImport } from './routes/notifications'
+import { Route as LeaderboardsRouteImport } from './routes/leaderboards'
+import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as HomeRouteImport } from './routes/home'
+import { Route as GiftsRouteImport } from './routes/gifts'
+import { Route as FriendsRouteImport } from './routes/friends'
+import { Route as EventsRouteImport } from './routes/events'
+import { Route as ElderRouteImport } from './routes/elder'
+import { Route as ClassroomRouteImport } from './routes/classroom'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as RoomsIndexRouteImport } from './routes/rooms/index'
+import { Route as ProfileIndexRouteImport } from './routes/profile/index'
 import { Route as MomentsIndexRouteImport } from './routes/moments/index'
 import { Route as MessagesIndexRouteImport } from './routes/messages/index'
 import { Route as GamesIndexRouteImport } from './routes/games/index'
@@ -56,14 +66,59 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ReferralsRoute = ReferralsRouteImport.update({
+  id: '/referrals',
+  path: '/referrals',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const QuestsRoute = QuestsRouteImport.update({
+  id: '/quests',
+  path: '/quests',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const NotificationsRoute = NotificationsRouteImport.update({
   id: '/notifications',
   path: '/notifications',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LeaderboardsRoute = LeaderboardsRouteImport.update({
+  id: '/leaderboards',
+  path: '/leaderboards',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InboxRoute = InboxRouteImport.update({
+  id: '/inbox',
+  path: '/inbox',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const HomeRoute = HomeRouteImport.update({
   id: '/home',
   path: '/home',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GiftsRoute = GiftsRouteImport.update({
+  id: '/gifts',
+  path: '/gifts',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FriendsRoute = FriendsRouteImport.update({
+  id: '/friends',
+  path: '/friends',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EventsRoute = EventsRouteImport.update({
+  id: '/events',
+  path: '/events',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ElderRoute = ElderRouteImport.update({
+  id: '/elder',
+  path: '/elder',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClassroomRoute = ClassroomRouteImport.update({
+  id: '/classroom',
+  path: '/classroom',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -74,6 +129,11 @@ const IndexRoute = IndexRouteImport.update({
 const RoomsIndexRoute = RoomsIndexRouteImport.update({
   id: '/rooms/',
   path: '/rooms/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProfileIndexRoute = ProfileIndexRouteImport.update({
+  id: '/profile/',
+  path: '/profile/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MomentsIndexRoute = MomentsIndexRouteImport.update({
@@ -199,8 +259,17 @@ const BlogsSlugPostSlugRoute = BlogsSlugPostSlugRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/classroom': typeof ClassroomRoute
+  '/elder': typeof ElderRoute
+  '/events': typeof EventsRoute
+  '/friends': typeof FriendsRoute
+  '/gifts': typeof GiftsRoute
   '/home': typeof HomeRoute
+  '/inbox': typeof InboxRoute
+  '/leaderboards': typeof LeaderboardsRoute
   '/notifications': typeof NotificationsRoute
+  '/quests': typeof QuestsRoute
+  '/referrals': typeof ReferralsRoute
   '/settings': typeof SettingsRoute
   '/stats': typeof StatsRoute
   '/wallet': typeof WalletRoute
@@ -223,6 +292,7 @@ export interface FileRoutesByFullPath {
   '/games/': typeof GamesIndexRoute
   '/messages/': typeof MessagesIndexRoute
   '/moments/': typeof MomentsIndexRoute
+  '/profile/': typeof ProfileIndexRoute
   '/rooms/': typeof RoomsIndexRoute
   '/blogs/$slug/$postSlug': typeof BlogsSlugPostSlugRoute
   '/business/pages/$pageId': typeof BusinessPagesPageIdRoute
@@ -232,8 +302,17 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/classroom': typeof ClassroomRoute
+  '/elder': typeof ElderRoute
+  '/events': typeof EventsRoute
+  '/friends': typeof FriendsRoute
+  '/gifts': typeof GiftsRoute
   '/home': typeof HomeRoute
+  '/inbox': typeof InboxRoute
+  '/leaderboards': typeof LeaderboardsRoute
   '/notifications': typeof NotificationsRoute
+  '/quests': typeof QuestsRoute
+  '/referrals': typeof ReferralsRoute
   '/settings': typeof SettingsRoute
   '/stats': typeof StatsRoute
   '/wallet': typeof WalletRoute
@@ -256,6 +335,7 @@ export interface FileRoutesByTo {
   '/games': typeof GamesIndexRoute
   '/messages': typeof MessagesIndexRoute
   '/moments': typeof MomentsIndexRoute
+  '/profile': typeof ProfileIndexRoute
   '/rooms': typeof RoomsIndexRoute
   '/blogs/$slug/$postSlug': typeof BlogsSlugPostSlugRoute
   '/business/pages/$pageId': typeof BusinessPagesPageIdRoute
@@ -266,8 +346,17 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/classroom': typeof ClassroomRoute
+  '/elder': typeof ElderRoute
+  '/events': typeof EventsRoute
+  '/friends': typeof FriendsRoute
+  '/gifts': typeof GiftsRoute
   '/home': typeof HomeRoute
+  '/inbox': typeof InboxRoute
+  '/leaderboards': typeof LeaderboardsRoute
   '/notifications': typeof NotificationsRoute
+  '/quests': typeof QuestsRoute
+  '/referrals': typeof ReferralsRoute
   '/settings': typeof SettingsRoute
   '/stats': typeof StatsRoute
   '/wallet': typeof WalletRoute
@@ -290,6 +379,7 @@ export interface FileRoutesById {
   '/games/': typeof GamesIndexRoute
   '/messages/': typeof MessagesIndexRoute
   '/moments/': typeof MomentsIndexRoute
+  '/profile/': typeof ProfileIndexRoute
   '/rooms/': typeof RoomsIndexRoute
   '/blogs/$slug/$postSlug': typeof BlogsSlugPostSlugRoute
   '/business/pages/$pageId': typeof BusinessPagesPageIdRoute
@@ -301,8 +391,17 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/classroom'
+    | '/elder'
+    | '/events'
+    | '/friends'
+    | '/gifts'
     | '/home'
+    | '/inbox'
+    | '/leaderboards'
     | '/notifications'
+    | '/quests'
+    | '/referrals'
     | '/settings'
     | '/stats'
     | '/wallet'
@@ -325,6 +424,7 @@ export interface FileRouteTypes {
     | '/games/'
     | '/messages/'
     | '/moments/'
+    | '/profile/'
     | '/rooms/'
     | '/blogs/$slug/$postSlug'
     | '/business/pages/$pageId'
@@ -334,8 +434,17 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/classroom'
+    | '/elder'
+    | '/events'
+    | '/friends'
+    | '/gifts'
     | '/home'
+    | '/inbox'
+    | '/leaderboards'
     | '/notifications'
+    | '/quests'
+    | '/referrals'
     | '/settings'
     | '/stats'
     | '/wallet'
@@ -358,6 +467,7 @@ export interface FileRouteTypes {
     | '/games'
     | '/messages'
     | '/moments'
+    | '/profile'
     | '/rooms'
     | '/blogs/$slug/$postSlug'
     | '/business/pages/$pageId'
@@ -367,8 +477,17 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/classroom'
+    | '/elder'
+    | '/events'
+    | '/friends'
+    | '/gifts'
     | '/home'
+    | '/inbox'
+    | '/leaderboards'
     | '/notifications'
+    | '/quests'
+    | '/referrals'
     | '/settings'
     | '/stats'
     | '/wallet'
@@ -391,6 +510,7 @@ export interface FileRouteTypes {
     | '/games/'
     | '/messages/'
     | '/moments/'
+    | '/profile/'
     | '/rooms/'
     | '/blogs/$slug/$postSlug'
     | '/business/pages/$pageId'
@@ -401,8 +521,17 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ClassroomRoute: typeof ClassroomRoute
+  ElderRoute: typeof ElderRoute
+  EventsRoute: typeof EventsRoute
+  FriendsRoute: typeof FriendsRoute
+  GiftsRoute: typeof GiftsRoute
   HomeRoute: typeof HomeRoute
+  InboxRoute: typeof InboxRoute
+  LeaderboardsRoute: typeof LeaderboardsRoute
   NotificationsRoute: typeof NotificationsRoute
+  QuestsRoute: typeof QuestsRoute
+  ReferralsRoute: typeof ReferralsRoute
   SettingsRoute: typeof SettingsRoute
   StatsRoute: typeof StatsRoute
   WalletRoute: typeof WalletRoute
@@ -425,6 +554,7 @@ export interface RootRouteChildren {
   GamesIndexRoute: typeof GamesIndexRoute
   MessagesIndexRoute: typeof MessagesIndexRoute
   MomentsIndexRoute: typeof MomentsIndexRoute
+  ProfileIndexRoute: typeof ProfileIndexRoute
   RoomsIndexRoute: typeof RoomsIndexRoute
   BlogsSlugPostSlugRoute: typeof BlogsSlugPostSlugRoute
   BusinessPagesPageIdRoute: typeof BusinessPagesPageIdRoute
@@ -456,6 +586,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/referrals': {
+      id: '/referrals'
+      path: '/referrals'
+      fullPath: '/referrals'
+      preLoaderRoute: typeof ReferralsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/quests': {
+      id: '/quests'
+      path: '/quests'
+      fullPath: '/quests'
+      preLoaderRoute: typeof QuestsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/notifications': {
       id: '/notifications'
       path: '/notifications'
@@ -463,11 +607,60 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof NotificationsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/leaderboards': {
+      id: '/leaderboards'
+      path: '/leaderboards'
+      fullPath: '/leaderboards'
+      preLoaderRoute: typeof LeaderboardsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/inbox': {
+      id: '/inbox'
+      path: '/inbox'
+      fullPath: '/inbox'
+      preLoaderRoute: typeof InboxRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/home': {
       id: '/home'
       path: '/home'
       fullPath: '/home'
       preLoaderRoute: typeof HomeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/gifts': {
+      id: '/gifts'
+      path: '/gifts'
+      fullPath: '/gifts'
+      preLoaderRoute: typeof GiftsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/friends': {
+      id: '/friends'
+      path: '/friends'
+      fullPath: '/friends'
+      preLoaderRoute: typeof FriendsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/events': {
+      id: '/events'
+      path: '/events'
+      fullPath: '/events'
+      preLoaderRoute: typeof EventsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/elder': {
+      id: '/elder'
+      path: '/elder'
+      fullPath: '/elder'
+      preLoaderRoute: typeof ElderRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/classroom': {
+      id: '/classroom'
+      path: '/classroom'
+      fullPath: '/classroom'
+      preLoaderRoute: typeof ClassroomRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -482,6 +675,13 @@ declare module '@tanstack/react-router' {
       path: '/rooms'
       fullPath: '/rooms/'
       preLoaderRoute: typeof RoomsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/profile/': {
+      id: '/profile/'
+      path: '/profile'
+      fullPath: '/profile/'
+      preLoaderRoute: typeof ProfileIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/moments/': {
@@ -657,8 +857,17 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ClassroomRoute: ClassroomRoute,
+  ElderRoute: ElderRoute,
+  EventsRoute: EventsRoute,
+  FriendsRoute: FriendsRoute,
+  GiftsRoute: GiftsRoute,
   HomeRoute: HomeRoute,
+  InboxRoute: InboxRoute,
+  LeaderboardsRoute: LeaderboardsRoute,
   NotificationsRoute: NotificationsRoute,
+  QuestsRoute: QuestsRoute,
+  ReferralsRoute: ReferralsRoute,
   SettingsRoute: SettingsRoute,
   StatsRoute: StatsRoute,
   WalletRoute: WalletRoute,
@@ -681,6 +890,7 @@ const rootRouteChildren: RootRouteChildren = {
   GamesIndexRoute: GamesIndexRoute,
   MessagesIndexRoute: MessagesIndexRoute,
   MomentsIndexRoute: MomentsIndexRoute,
+  ProfileIndexRoute: ProfileIndexRoute,
   RoomsIndexRoute: RoomsIndexRoute,
   BlogsSlugPostSlugRoute: BlogsSlugPostSlugRoute,
   BusinessPagesPageIdRoute: BusinessPagesPageIdRoute,

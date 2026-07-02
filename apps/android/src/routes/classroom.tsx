@@ -8,9 +8,8 @@
  * i18n note: the web page has ZERO classroom.* keys in shared/i18n/locales/
  * en.json — every string on that page is hardcoded English (its useTranslation
  * calls are only used to translate API error codes via translateApiError, not
- * to render copy). This file introduces a new `classroom.*` namespace via
- * t(key, fallback) so nothing is hardcoded here; see the PR/report for the
- * full new-key list to add centrally.
+ * to render copy). This introduced a new `classroom.*` namespace, now added
+ * to en.json.
  */
 
 import { useState } from 'react';
@@ -113,7 +112,7 @@ function AddModuleForm({ roomId, onSuccess, onCancel }: { roomId: string; onSucc
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) {
-      setError(t('classroom.module.titleRequired', 'Title is required'));
+      setError(t('classroom.module.titleRequired'));
       return;
     }
     setSaving(true);
@@ -135,35 +134,35 @@ function AddModuleForm({ roomId, onSuccess, onCancel }: { roomId: string; onSucc
 
   return (
     <form onSubmit={(e) => void handleSubmit(e)} className="space-y-3 rounded-xl border border-primary-200 bg-primary-50 p-4">
-      <h4 className="text-sm font-semibold text-primary-900">{t('classroom.module.formTitle', 'Add Module')}</h4>
+      <h4 className="text-sm font-semibold text-primary-900">{t('classroom.module.formTitle')}</h4>
       {error && <p className="text-xs text-danger-600">{error}</p>}
       <div>
         <label className="mb-1 block text-xs font-medium text-neutral-600">
-          {t('classroom.module.titleLabel', 'Title')} <span className="text-danger-500">*</span>
+          {t('classroom.module.titleLabel')} <span className="text-danger-500">*</span>
         </label>
         <input
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder={t('classroom.module.titlePlaceholder', 'e.g. Introduction to JavaScript')}
+          placeholder={t('classroom.module.titlePlaceholder')}
           maxLength={200}
           className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm"
           required
         />
       </div>
       <div>
-        <label className="mb-1 block text-xs font-medium text-neutral-600">{t('classroom.module.descriptionLabel', 'Description (optional)')}</label>
+        <label className="mb-1 block text-xs font-medium text-neutral-600">{t('classroom.module.descriptionLabel')}</label>
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder={t('classroom.module.descriptionPlaceholder', 'Briefly describe this module…')}
+          placeholder={t('classroom.module.descriptionPlaceholder')}
           maxLength={1000}
           rows={2}
           className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm"
         />
       </div>
       <div>
-        <label className="mb-1 block text-xs font-medium text-neutral-600">{t('classroom.module.resourcesLabel', 'Resources (optional, one URL per line)')}</label>
+        <label className="mb-1 block text-xs font-medium text-neutral-600">{t('classroom.module.resourcesLabel')}</label>
         <textarea
           value={resources}
           onChange={(e) => setResources(e.target.value)}
@@ -174,10 +173,10 @@ function AddModuleForm({ roomId, onSuccess, onCancel }: { roomId: string; onSucc
       </div>
       <div className="flex gap-2">
         <button type="submit" disabled={saving} className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
-          {saving ? t('classroom.module.saving', 'Saving…') : t('classroom.module.save', 'Add Module')}
+          {saving ? t('classroom.module.saving') : t('classroom.module.save')}
         </button>
         <button type="button" onClick={onCancel} className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-600">
-          {t('classroom.module.cancel', 'Cancel')}
+          {t('classroom.module.cancel')}
         </button>
       </div>
     </form>
@@ -192,11 +191,11 @@ function ModuleList({ roomId, modules, onModulesChange, onShowToast }: { roomId:
   const { t } = useTranslation();
 
   async function handleDelete(index: number) {
-    if (!confirm(t('classroom.module.deleteConfirm', 'Delete this module?'))) return;
+    if (!confirm(t('classroom.module.deleteConfirm'))) return;
     try {
       const { data } = await apiClient.delete<{ modules: CurriculumModule[] }>(`/classroom/${roomId}/modules`, { data: { index } });
       onModulesChange(data?.modules ?? []);
-      onShowToast(t('classroom.toast.moduleDeleted', 'Module deleted'));
+      onShowToast(t('classroom.toast.moduleDeleted'));
     } catch {
       onShowToast(t('error.generic'));
     }
@@ -212,11 +211,11 @@ function ModuleList({ roomId, modules, onModulesChange, onShowToast }: { roomId:
             <p className="text-sm font-semibold text-neutral-900">{m.title}</p>
             {m.description && <p className="mt-0.5 text-xs text-neutral-500 line-clamp-2">{m.description}</p>}
             {m.resources && m.resources.length > 0 && (
-              <p className="mt-0.5 text-xs text-primary-500">{t('classroom.card.resourceCount', { count: m.resources.length, defaultValue: '{{count}} resource(s)' })}</p>
+              <p className="mt-0.5 text-xs text-primary-500">{t('classroom.card.resourceCount', { count: m.resources.length })}</p>
             )}
           </div>
           <button onClick={() => void handleDelete(i)} className="shrink-0 rounded px-2 py-1 text-xs text-danger-500">
-            {t('classroom.module.delete', 'Delete')}
+            {t('classroom.module.delete')}
           </button>
         </div>
       ))}
@@ -244,7 +243,7 @@ function BrowseCard({ room, onEnroll, enrolling, currentUserId, onShowToast }: {
   function handleAddSuccess(updated: CurriculumModule[]) {
     qc.setQueryData(['classroom', room.id, 'modules'], updated);
     setShowAddForm(false);
-    onShowToast(t('classroom.toast.moduleAdded', 'Module added!'));
+    onShowToast(t('classroom.toast.moduleAdded'));
   }
 
   return (
@@ -256,25 +255,25 @@ function BrowseCard({ room, onEnroll, enrolling, currentUserId, onShowToast }: {
           )}
           <h3 className="mt-2 text-base font-semibold text-neutral-900">{room.title}</h3>
           {room.curriculumTitle && (
-            <p className="mt-0.5 text-xs text-neutral-500">{t('classroom.card.curriculum', { title: room.curriculumTitle, defaultValue: 'Curriculum: {{title}}' })}</p>
+            <p className="mt-0.5 text-xs text-neutral-500">{t('classroom.card.curriculum', { title: room.curriculumTitle })}</p>
           )}
           {room.description && <p className="mt-1 text-sm text-neutral-600 line-clamp-2">{room.description}</p>}
           <div className="mt-3 flex flex-wrap gap-2 text-xs text-neutral-500">
-            <span>{t('classroom.card.by', { name: room.creatorName, defaultValue: 'By {{name}}' })}</span>
+            <span>{t('classroom.card.by', { name: room.creatorName })}</span>
             <span>·</span>
-            <span>{t('classroom.card.members', { count: room.memberCount, defaultValue: '{{count}} members' })}</span>
+            <span>{t('classroom.card.members', { count: room.memberCount })}</span>
           </div>
           <button onClick={() => setShowModules((v) => !v)} className="mt-2 text-xs font-medium text-primary-600">
             {loadingModules
-              ? t('common.loading', 'Loading…')
+              ? t('common.loading')
               : showModules
-                ? t('classroom.card.hideModules', 'Hide modules ▲')
-                : t('classroom.card.viewModules', 'View modules ▼')}
+                ? t('classroom.card.hideModules')
+                : t('classroom.card.viewModules')}
           </button>
         </div>
         <div className="shrink-0 text-right">
           <p className="text-sm font-bold text-neutral-900">
-            {room.enrolmentFee > 0 ? `${room.enrolmentFee.toLocaleString()} 🪙` : t('classroom.card.free', 'Free')}
+            {room.enrolmentFee > 0 ? `${room.enrolmentFee.toLocaleString()} 🪙` : t('classroom.card.free')}
           </p>
           <button
             onClick={() => onEnroll(room.id)}
@@ -282,10 +281,10 @@ function BrowseCard({ room, onEnroll, enrolling, currentUserId, onShowToast }: {
             className={`mt-2 rounded-xl px-4 py-2 text-sm font-semibold disabled:opacity-60 ${room.isEnrolled ? 'border border-neutral-300 text-neutral-500' : 'bg-primary-600 text-white'}`}
           >
             {room.isEnrolled
-              ? t('classroom.card.enrolled', 'Enrolled')
+              ? t('classroom.card.enrolled')
               : enrolling === room.id
-                ? t('classroom.card.enrolling', 'Enrolling…')
-                : t('classroom.card.enroll', 'Enroll')}
+                ? t('classroom.card.enrolling')
+                : t('classroom.card.enroll')}
           </button>
         </div>
       </div>
@@ -294,7 +293,7 @@ function BrowseCard({ room, onEnroll, enrolling, currentUserId, onShowToast }: {
         <div className="mt-4 space-y-3">
           {modules && modules.length > 0 ? (
             <div>
-              <p className="mb-2 text-xs font-semibold text-neutral-500">{t('classroom.card.modulesCount', { count: modules.length, defaultValue: 'Modules ({{count}})' })}</p>
+              <p className="mb-2 text-xs font-semibold text-neutral-500">{t('classroom.card.modulesCount', { count: modules.length })}</p>
               <ModuleList
                 roomId={room.id}
                 modules={modules}
@@ -303,12 +302,12 @@ function BrowseCard({ room, onEnroll, enrolling, currentUserId, onShowToast }: {
               />
             </div>
           ) : !loadingModules ? (
-            <p className="text-xs text-neutral-400">{t('classroom.card.noModules', 'No modules yet.')}</p>
+            <p className="text-xs text-neutral-400">{t('classroom.card.noModules')}</p>
           ) : null}
 
           {isCreator && !showAddForm && (
             <button onClick={() => setShowAddForm(true)} className="rounded-lg border border-primary-300 px-3 py-1.5 text-xs font-semibold text-primary-600">
-              {t('classroom.card.addModule', '+ Add Module')}
+              {t('classroom.card.addModule')}
             </button>
           )}
 
@@ -341,7 +340,7 @@ function EnrolledCard({ room }: { room: EnrolledClassRoom }) {
         </div>
         {room.quizScore != null && (
           <div className="shrink-0 text-right">
-            <p className="text-xs font-semibold text-neutral-500">{t('classroom.card.quizScore', 'Quiz Score')}</p>
+            <p className="text-xs font-semibold text-neutral-500">{t('classroom.card.quizScore')}</p>
             <p className="text-lg font-bold text-neutral-900">{room.quizScore}%</p>
           </div>
         )}
@@ -349,7 +348,7 @@ function EnrolledCard({ room }: { room: EnrolledClassRoom }) {
 
       <div className="mt-4">
         <div className="mb-1 flex items-center justify-between text-xs text-neutral-500">
-          <span>{t('classroom.card.lessonsProgress', { completed: room.completedLessons, total: room.lessonCount, defaultValue: '{{completed}} / {{total}} lessons' })}</span>
+          <span>{t('classroom.card.lessonsProgress', { completed: room.completedLessons, total: room.lessonCount })}</span>
           <span>{pct}%</span>
         </div>
         <div className="h-2 overflow-hidden rounded-full bg-neutral-200">
@@ -361,7 +360,6 @@ function EnrolledCard({ room }: { room: EnrolledClassRoom }) {
         <p className="mt-2 text-xs text-neutral-400">
           {t('classroom.card.lastActivity', {
             date: new Date(room.lastActivityAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
-            defaultValue: 'Last activity: {{date}}',
           })}
         </p>
       )}
@@ -398,9 +396,9 @@ function ClassroomPage() {
       qc.setQueryData<ClassRoom[]>(['classroom', 'browse'], (prev = []) =>
         prev.map((r) => (r.id === roomId ? { ...r, isEnrolled: true } : r))
       );
-      showToast(t('classroom.toast.enrolled', 'Enrolled successfully!'));
+      showToast(t('classroom.toast.enrolled'));
     },
-    onError: () => showToast(t('classroom.error.enrollFailed', 'Enrollment failed')),
+    onError: () => showToast(t('classroom.error.enrollFailed')),
     onSettled: () => setEnrolling(null),
   });
 
@@ -410,7 +408,7 @@ function ClassroomPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
-      <h1 className="text-xl font-bold text-neutral-900 mb-3">{t('classroom.title', 'Classroom')}</h1>
+      <h1 className="text-xl font-bold text-neutral-900 mb-3">{t('classroom.title')}</h1>
 
       {toast && (
         <div className="fixed bottom-6 right-6 z-50 rounded-xl bg-success-600 px-4 py-3 text-sm font-medium text-white shadow-modal">
@@ -423,30 +421,30 @@ function ClassroomPage() {
           onClick={() => setTab('browse')}
           className={`flex-1 rounded-lg py-2 text-sm font-semibold ${tab === 'browse' ? 'bg-white text-neutral-900 shadow-card' : 'text-neutral-500'}`}
         >
-          {t('classroom.tabs.browse', 'Browse')}
+          {t('classroom.tabs.browse')}
         </button>
         <button
           onClick={() => setTab('mine')}
           className={`flex-1 rounded-lg py-2 text-sm font-semibold ${tab === 'mine' ? 'bg-white text-neutral-900 shadow-card' : 'text-neutral-500'}`}
         >
-          {t('classroom.tabs.mine', 'My ClassRooms')}{enrolled.length > 0 ? ` (${enrolled.length})` : ''}
+          {t('classroom.tabs.mine')}{enrolled.length > 0 ? ` (${enrolled.length})` : ''}
         </button>
       </div>
 
       {browseStatus === 'error' && (
         <div className="rounded-xl border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-700 mb-3">
-          {t('classroom.error.loadFailed', 'Failed to load classrooms')}
+          {t('classroom.error.loadFailed')}
         </div>
       )}
 
       {loading ? (
-        <div className="py-8 text-center text-sm text-neutral-400">{t('common.loading', 'Loading…')}</div>
+        <div className="py-8 text-center text-sm text-neutral-400">{t('common.loading')}</div>
       ) : tab === 'browse' ? (
         rooms.length === 0 ? (
           <div className="flex flex-col items-center py-16 text-center">
             <span className="text-5xl">🏫</span>
-            <h2 className="mt-4 text-lg font-semibold text-neutral-900">{t('classroom.empty.browse.title', 'No classrooms open')}</h2>
-            <p className="mt-1 text-sm text-neutral-500">{t('classroom.empty.browse.subtitle', 'Check back soon for open ClassRooms!')}</p>
+            <h2 className="mt-4 text-lg font-semibold text-neutral-900">{t('classroom.empty.browse.title')}</h2>
+            <p className="mt-1 text-sm text-neutral-500">{t('classroom.empty.browse.subtitle')}</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -465,8 +463,8 @@ function ClassroomPage() {
       ) : enrolled.length === 0 ? (
         <div className="flex flex-col items-center py-16 text-center">
           <span className="text-5xl">📚</span>
-          <h2 className="mt-4 text-lg font-semibold text-neutral-900">{t('classroom.empty.mine.title', 'No enrolled classrooms')}</h2>
-          <p className="mt-1 text-sm text-neutral-500">{t('classroom.empty.mine.subtitle', 'Browse and enroll in a ClassRoom to get started!')}</p>
+          <h2 className="mt-4 text-lg font-semibold text-neutral-900">{t('classroom.empty.mine.title')}</h2>
+          <p className="mt-1 text-sm text-neutral-500">{t('classroom.empty.mine.subtitle')}</p>
         </div>
       ) : (
         <div className="space-y-3">

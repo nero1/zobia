@@ -9,10 +9,10 @@ import { useAuth } from '@/lib/auth/store';
 
 const TAB_ICONS: Record<string, { active: string; inactive: string }> = {
   Home: { active: '🏠', inactive: '🏡' },
+  Quests: { active: '🎯', inactive: '🎯' },
   Games: { active: '🎮', inactive: '🕹️' },
-  Rooms: { active: '🚪', inactive: '🚪' },
-  Messages: { active: '💬', inactive: '💬' },
-  Notifications: { active: '🔔', inactive: '🔔' },
+  Friends: { active: '👥', inactive: '👥' },
+  Wallet: { active: '🪙', inactive: '🪙' },
   Profile: { active: '👤', inactive: '👤' },
 };
 
@@ -30,15 +30,12 @@ export function BottomNav() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  // Every href here must match a route that actually exists in routeTree.gen.ts —
-  // tabs previously pointed at /quests, /friends and /wallet, none of which are
-  // registered routes, so tapping them landed on the router's Not Found page.
   const bottomTabItems = [
     { href: '/home', label: 'Home', shortLabel: 'Home' },
+    { href: '/quests', label: 'Quests', shortLabel: 'Quests' },
     { href: '/games', label: 'Games', shortLabel: 'Games' },
-    { href: '/rooms', label: 'Rooms', shortLabel: 'Rooms' },
-    { href: '/messages', label: 'Messages', shortLabel: 'Messages' },
-    { href: '/notifications', label: 'Notifications', shortLabel: 'Alerts' },
+    { href: '/friends', label: 'Friends', shortLabel: 'Friends' },
+    { href: '/wallet', label: 'Wallet', shortLabel: 'Wallet' },
     { href: user?.username ? `/profile/${user.username}` : '/settings', label: 'Profile', shortLabel: 'Profile' },
   ] as const;
 

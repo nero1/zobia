@@ -140,7 +140,7 @@ function FriendsTab() {
     },
   });
 
-  if (status === 'pending') return <div className="py-8 text-center text-sm text-neutral-400">{t('common.loading', 'Loading…')}</div>;
+  if (status === 'pending') return <div className="py-8 text-center text-sm text-neutral-400">{t('common.loading')}</div>;
 
   if (!friends || friends.length === 0) {
     return (
@@ -186,7 +186,7 @@ function ReceivedRequestsList() {
     },
   });
 
-  if (status === 'pending') return <div className="py-8 text-center text-sm text-neutral-400">{t('common.loading', 'Loading…')}</div>;
+  if (status === 'pending') return <div className="py-8 text-center text-sm text-neutral-400">{t('common.loading')}</div>;
   if (!requests || requests.length === 0) {
     return <div className="py-10 text-center px-4"><p className="text-neutral-500">{t('friends.empty.noReceivedRequests')}</p></div>;
   }
@@ -230,7 +230,7 @@ function SentRequestsList() {
     },
   });
 
-  if (status === 'pending') return <div className="py-8 text-center text-sm text-neutral-400">{t('common.loading', 'Loading…')}</div>;
+  if (status === 'pending') return <div className="py-8 text-center text-sm text-neutral-400">{t('common.loading')}</div>;
   if (!requests || requests.length === 0) {
     return <div className="py-10 text-center px-4"><p className="text-neutral-500">{t('friends.empty.noSentRequests')}</p></div>;
   }
@@ -296,7 +296,7 @@ function DiscoverTab() {
     onSuccess: (_res, userId) => setSent((prev) => new Set(prev).add(userId)),
   });
 
-  if (status === 'pending') return <div className="py-8 text-center text-sm text-neutral-400">{t('common.loading', 'Loading…')}</div>;
+  if (status === 'pending') return <div className="py-8 text-center text-sm text-neutral-400">{t('common.loading')}</div>;
   if (!suggestions || suggestions.length === 0) {
     return <div className="py-12 text-center px-4"><p className="text-neutral-500">{t('friends.empty.noSuggestions')}</p></div>;
   }

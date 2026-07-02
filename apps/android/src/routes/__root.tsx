@@ -21,7 +21,7 @@ import { usePresenceHeartbeat } from '@/lib/hooks/usePresenceHeartbeat';
 import { initPushNotifications } from '@/lib/push';
 
 // Tab roots that don't show a back button
-const TAB_ROOTS = ['/home', '/games', '/rooms', '/messages', '/notifications', '/settings'];
+const TAB_ROOTS = ['/home', '/games', '/rooms', '/messages', '/notifications', '/settings', '/quests', '/friends', '/wallet'];
 const PUBLIC_ROUTES = ['/auth/login', '/auth/register', '/auth/two-factor'];
 
 function AppShell() {
@@ -136,6 +136,16 @@ function AppShell() {
     if (pathname === '/notifications') return t('notifications.title');
     if (pathname.startsWith('/profile')) return t('profile.title');
     if (pathname === '/settings') return t('settings.title');
+    if (pathname.startsWith('/quests')) return t('quests.title');
+    if (pathname.startsWith('/friends')) return t('friends.title');
+    if (pathname.startsWith('/gifts')) return t('gifts.title');
+    if (pathname.startsWith('/wallet')) return t('wallet.title');
+    if (pathname.startsWith('/events')) return t('events.title');
+    if (pathname.startsWith('/inbox')) return t('inbox.title');
+    if (pathname.startsWith('/elder')) return t('elder.title');
+    if (pathname.startsWith('/referrals')) return t('referrals.title');
+    if (pathname.startsWith('/classroom')) return t('classroom.title');
+    if (pathname.startsWith('/leaderboards')) return t('leaderboards.title');
     if (pathname === '/auth/login') return t('auth.login');
     if (pathname === '/auth/register') return t('auth.register');
     if (pathname === '/auth/two-factor') return t('auth.2fa.title');

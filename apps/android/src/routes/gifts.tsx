@@ -226,7 +226,7 @@ function SendGiftPanel({ onClose, onSent }: { onClose: () => void; onSent: () =>
   if (showPin) {
     return (
       <div className="flex flex-col gap-4 px-4 py-4">
-        <h3 className="text-base font-bold text-neutral-900">{t('android.pin.title', 'Enter your PIN')}</h3>
+        <h3 className="text-base font-bold text-neutral-900">{t('android.pin.title')}</h3>
         <input
           type="password"
           inputMode="numeric"

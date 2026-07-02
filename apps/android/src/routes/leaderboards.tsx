@@ -176,7 +176,7 @@ function LeaderboardsPage() {
 
       <div className="bg-white rounded-xl shadow-card mb-3">
         {status === 'pending' && (
-          <div className="py-8 text-center text-sm text-neutral-400">{t('common.loading', 'Loading…')}</div>
+          <div className="py-8 text-center text-sm text-neutral-400">{t('common.loading')}</div>
         )}
 
         {status === 'error' && (

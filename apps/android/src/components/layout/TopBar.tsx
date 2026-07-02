@@ -16,29 +16,42 @@ interface TopBarProps {
   showBack?: boolean;
 }
 
+// Mirrors apps/web/components/layout/Navbar.tsx's primaryNavItems, minus
+// /seasons (no Android route yet — a later batch adds it). Every href here
+// must correspond to an actual route file under apps/android/src/routes.
 const primaryNavItems = [
   { href: '/home', label: 'Home', icon: '🏠' },
-  { href: '/games', label: 'Games', icon: '🎮' },
-  { href: '/rooms', label: 'Rooms', icon: '🚪' },
-  { href: '/messages', label: 'Messages', icon: '💬' },
   { href: '/moments', label: 'Moments', icon: '🎬' },
   { href: '/answers', label: 'Answers', icon: '❓' },
+  { href: '/quests', label: 'Quests', icon: '🎯' },
+  { href: '/games', label: 'Games', icon: '🎮' },
   { href: '/blogs', label: 'Blogs', icon: '📝' },
   { href: '/business', label: 'Business', icon: '🏢' },
   { href: '/ads', label: 'Ads', icon: '📢' },
+  { href: '/rooms', label: 'Rooms', icon: '🚪' },
+  { href: '/messages', label: 'Messages', icon: '💬' },
+  { href: '/friends', label: 'Friends', icon: '👥' },
+  { href: '/gifts', label: 'Gifts', icon: '🎁' },
+  { href: '/wallet', label: 'Wallet', icon: '🪙' },
   { href: '/notifications', label: 'Notifications', icon: '🔔' },
+  { href: '/events', label: 'Events', icon: '📅' },
+  { href: '/inbox', label: 'Inbox', icon: '📬' },
+  { href: '/elder', label: 'Elder', icon: '🎓' },
+  { href: '/referrals', label: 'Referrals', icon: '🔗' },
+  { href: '/classroom', label: 'Classroom', icon: '🏫' },
+  { href: '/leaderboards', label: 'Leaderboards', icon: '🏆' },
 ] as const;
 
 const secondaryNavItems = [
+  { href: '/profile', label: 'Profile', icon: '👤' },
   { href: '/settings', label: 'Settings', icon: '⚙️' },
 ] as const;
 
 export function TopBar({ title, rightActions, showBack }: TopBarProps) {
   const { t } = useTranslation();
   const router = useRouter();
-  const { user, clearAuth } = useAuth();
+  const { clearAuth } = useAuth();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const profileHref = user?.username ? `/profile/${user.username}` : '/settings';
 
   const closeDrawer = () => setDrawerOpen(false);
 
@@ -151,14 +164,6 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
           <div className="my-3 border-t border-neutral-200" />
 
           <nav className="space-y-0.5" aria-label="Secondary">
-            <Link
-              to={profileHref}
-              onClick={closeDrawer}
-              className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-neutral-600 transition-colors hover:bg-neutral-100 hover:text-neutral-900"
-            >
-              <span className="w-5 text-center text-base leading-none" aria-hidden="true">👤</span>
-              Profile
-            </Link>
             {secondaryNavItems.map((item) => (
               <Link
                 key={item.href}

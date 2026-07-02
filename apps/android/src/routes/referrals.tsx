@@ -205,7 +205,7 @@ function ReferralsPage() {
       <h1 className="text-xl font-bold text-neutral-900 mb-4">{t('referrals.title')}</h1>
 
       {status === 'pending' && (
-        <div className="py-8 text-center text-sm text-neutral-400">{t('common.loading', 'Loading…')}</div>
+        <div className="py-8 text-center text-sm text-neutral-400">{t('common.loading')}</div>
       )}
 
       {status === 'error' && (

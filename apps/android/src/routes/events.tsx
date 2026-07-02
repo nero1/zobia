@@ -39,11 +39,6 @@ interface GiftDrop {
   itemId?: string;
 }
 
-interface EventsData {
-  events: PlatformEvent[];
-  giftDrop: GiftDrop | null;
-}
-
 function mapEventRow(r: Record<string, unknown>): PlatformEvent {
   return {
     id: r.id as string,
@@ -105,12 +100,12 @@ function useCountdown(endsAt: string | null): string {
   return display;
 }
 
-function eventTypeLabel(t: (k: string, d?: string) => string, type: EventType): string {
+function eventTypeLabel(t: (k: string) => string, type: EventType): string {
   const map: Record<string, string> = {
-    flash_xp: t('events.type.flashXp', 'Flash XP'),
-    guild_war: t('events.type.guildWar', 'Guild War'),
-    cultural: t('events.type.cultural', 'Cultural'),
-    mystery_drop: t('events.type.mysteryDrop', 'Mystery Drop'),
+    flash_xp: t('events.type.flashXp'),
+    guild_war: t('events.type.guildWar'),
+    cultural: t('events.type.cultural'),
+    mystery_drop: t('events.type.mysteryDrop'),
   };
   return map[type] ?? type.replace(/_/g, ' ');
 }
@@ -167,7 +162,7 @@ function GiftDropCard({ drop }: { drop: GiftDrop }) {
         ) : (
           <button
             disabled
-            title={t('events.giftDrop.androidUnavailable', 'Not yet available for purchase on Android — open the app on web to claim this drop.')}
+            title={t('events.giftDrop.androidUnavailable')}
             className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
           >
             {t('events.giftDrop.buyNow')}
@@ -175,7 +170,7 @@ function GiftDropCard({ drop }: { drop: GiftDrop }) {
         )}
       </div>
       <p className="mt-2 text-xs text-neutral-400">
-        {t('events.giftDrop.androidUnavailable', 'Not yet available for purchase on Android — open the app on web to claim this drop.')}
+        {t('events.giftDrop.androidUnavailable')}
       </p>
     </div>
   );
