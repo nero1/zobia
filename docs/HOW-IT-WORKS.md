@@ -1458,12 +1458,44 @@ and relays score/reward events over the React Native bridge.
 - A **solo win** = a new personal best with score > 0. On a win the player is granted the
   game's per-win **credits / XP / stars** (manifest fallbacks when 0), via the coin/star
   ledgers and `safeAwardXP(userId, xp, "gaming", …)` — all idempotent on the play id.
-- The **Gaming track** (`xp_gaming` / `level_gaming` on `users`) mirrors the six existing
-  tracks. Level-ups fire milestone titles/badges through `checkAndAwardTrackMilestones`.
-  **Games-played milestones** (`game_play_milestones`, admin-configurable) reward
-  cumulative play and are claimed idempotently via `game_milestone_claims`.
+- The **Gaming track** (`xp_gaming` / `level_gaming` on `users`) is the 7th track (§7 of
+  the PRD, added right after Generosity in every track list — leaderboards tab order,
+  profile `TRACK_META`, etc.). Level-ups fire milestone titles/badges through
+  `checkAndAwardTrackMilestones`. **Games-played milestones** (`game_play_milestones`,
+  admin-configurable) reward cumulative play and are claimed idempotently via
+  `game_milestone_claims`.
 - Admin can make a game **free or paid**: `play_cost_credits` / `play_cost_stars` are
   debited in `POST /start` (challenge rounds are exempt).
+- **Difficulty ramp:** some engines (currently Fruit Slicer) speed up over the course of
+  a round instead of holding a fixed pace forever — `RAMP_INTERVAL_MS` per difficulty
+  (60s/45s/30s for easy/medium/hard) bumps a `rampStep` that scales fall speed
+  (`×1.15^step`) and shrinks the spawn interval (`×0.9^step`), capped at 8 steps so late
+  game is faster but not literally unplayable. This stops a fixed pace from being
+  farmable for an unbounded high score.
+
+### Discovery — search, favorites & tabs
+
+- `/api/games` now takes a `q` param (`ILIKE` on `name`/`tagline`) consumed by the
+  discovery page's 250ms-debounced search bar — kept cheap by the debounce plus the
+  existing `LIMIT`/cursor pagination; a `pg_trgm` GIN index on `games.name` is the next
+  scaling step if the catalogue grows well past its current size.
+- **Favorites ("❤️ Faves")**: `game_favorites (user_id, game_id)` — unique per pair, not
+  plan-gated (unlike Room Pins). Toggled via `POST`/`DELETE /api/games/favorites`
+  `{ gameId }`; `games.favorite_count` is a denormalised counter (mirrors
+  `play_count`/`rating_count`) so the `❤️ <count>` meta shown on cards is a column read,
+  not a `COUNT(*)` per row. The Android games screen gets the same heart toggle via the
+  same endpoint (`useMutation` + optimistic `setQueryData`, matching the pattern already
+  used by the rooms/notifications screens there).
+- **Recently Played**: `GET /api/games/recent` groups the existing `game_plays` rows by
+  `MAX(started_at)` per game — no new table, since every `/start` call already writes a
+  play row with a timestamp.
+- **Random**: `tab=random` orders by `random()` with no cursor (there's no meaningful
+  stable page over a random order); the UI shows a "Shuffle again" button instead of
+  "Load more" for this tab.
+- The discovery page's **Leaderboards** link now goes straight to
+  `/leaderboards?track=gaming` instead of the per-game score board, so it lands on the
+  Gaming tab directly; the per-game high-score board is still reachable at
+  `/games/leaderboards`.
 
 ### Challenges & wagers
 
@@ -1474,6 +1506,11 @@ on accept (`game_wager`); the winner takes the pot minus `game_wager_rake_pct`
 (`game_payout`); decline/cancel/expiry refunds both (`game_refund`). The hourly
 `/api/cron/games` sweep expires stale challenges and refunds escrow.
 
+**Expiry window:** `game_challenge_expiry_hours` defaults to **720 (30 days)** — a
+pending or active challenge with no response from the other side that long is expired
+(and any escrow refunded) by the sweep above. The challenges page shows a live countdown
+(`⏳ Expires in …`) on every pending/active challenge so this isn't a surprise.
+
 **Challenge cancellation by challenger:** if cancelled before any rounds are played, both
 stakes are fully refunded. If one or more rounds have been completed, the challenger forfeits
 a fraction of their stake proportional to the opponent's round-win share (e.g. if the
@@ -1481,12 +1518,43 @@ opponent won 2 of 3 decisive rounds, the challenger forfeits ⅔ of their stake 
 opponent). The exact refund/forfeit amounts are included in the `game_challenge_cancelled`
 notification metadata (`challRefund`, `oppRefund`, `challForfeitCoins`).
 
+**Delete vs. cancel vs. archive:** `DELETE /api/games/challenges/<id>` removes a
+**pending** challenge outright — only the challenger can do this, and only before the
+opponent has responded, since nothing is escrowed yet. Once accepted (`active`), the
+challenger must use `POST .../cancel` instead, which runs the forfeit logic above.
+`PATCH /api/games/challenges/<id> { action: "archive" }` hides a **completed** challenge
+from either participant's inbox (sets `archived_at`) without touching the
+prize/wager ledger rows — completed challenges are the audit trail and are never deleted.
+
+**Opponent search:** the challenge-creation form finds the opponent via the same
+debounced `GET /api/users/search?q=` endpoint the gifts page uses (300ms debounce, min 2
+chars, prefix-match on `username` + substring-match on `display_name`, capped at 20
+results) instead of requiring their exact username — this was the actual cause of
+`POST /api/games/challenges` occasionally 404ing ("Opponent not found") on a mistyped
+username, not a routing bug. **Scalability note:** the `username ILIKE 'q%'` half of that
+query is index-friendly (`idx_users_username`) as long as the DB collation lets Postgres
+use it for prefix matches (verify with `EXPLAIN` — a plain btree index needs a "C"
+collation or a `text_pattern_ops` index to serve `LIKE 'prefix%'`, otherwise it falls
+back to a sequential scan); the `display_name ILIKE '%q%'` half is a substring match that
+can't use a plain index at all — fine at current scale behind the 2-char minimum, `LIMIT
+20`, and rate limiting, but if the user table grows into the millions, add a `pg_trgm`
+GIN index on `display_name` (and consider `text_pattern_ops` on `username`) before this
+becomes a hot path.
+
 ### Leaderboards & ads
 
 - **Per-game high scores** live in `game_best_scores` and are read with a plain
   `ORDER BY` wrapped in a 60s Redis cache (`lib/games/leaderboard.ts`) — minimal Redis.
 - The **gaming-track ranking** reuses `leaderboard_snapshots` via `track=gaming` (added to
-  the leaderboards cron and the leaderboards API/UI track lists).
+  the leaderboards cron and the leaderboards API/UI track lists) — it's the tab right
+  after Generosity on `/leaderboards`, and `?track=gaming` on that URL opens it directly.
+- **Plan column is Mod/Admin-only** (applies to every track, not just Gaming): `GET
+  /api/leaderboards` re-checks the requester's `is_admin`/`is_moderator` fresh from
+  `users` on every call and only includes the `plan` field per entry when true — regular
+  users never receive another user's plan in the response, not just have it hidden in
+  the UI. `GET /api/auth/me` now also returns `is_moderator` (looked up fresh; unlike
+  `is_admin` it isn't carried on the access token) so the client knows whether to render
+  the column at all.
 - **Ads** render through a provider-pluggable slot — web `components/ads/AdSlot.tsx`
   (AdSense when `NEXT_PUBLIC_ADSENSE_CLIENT` is set, else a labelled placeholder) and Expo
   `components/ads/AdBanner.tsx` (AdMob) — gated by the `admob_ads` feature flag.

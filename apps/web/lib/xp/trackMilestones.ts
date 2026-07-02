@@ -3,7 +3,7 @@
  *
  * Track Milestone Unlock Engine
  *
- * Each of the six progression tracks has milestone levels that grant real
+ * Each of the seven progression tracks has milestone levels that grant real
  * capability changes (titles, feature unlocks, bonuses). This module defines
  * every milestone, checks whether a user has newly reached them after an XP
  * award, and persists the grants to the database.
@@ -35,7 +35,7 @@ export interface TrackMilestone {
 // ─── Milestone definitions ────────────────────────────────────────────────────
 
 /**
- * All track milestones across the six progression tracks.
+ * All track milestones across the seven progression tracks.
  * Ordered by track then level ascending.
  */
 export const TRACK_MILESTONES: TrackMilestone[] = [

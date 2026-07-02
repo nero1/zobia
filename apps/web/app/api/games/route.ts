@@ -29,18 +29,19 @@ export const GET = withAuth(async (req: NextRequest, { auth }: { auth: { user: {
     await assertGamesEnabled();
 
     const sp = req.nextUrl.searchParams;
-    const tab = (sp.get("tab") ?? "popular") as "new" | "popular" | "trending";
+    const tab = (sp.get("tab") ?? "popular") as "new" | "popular" | "trending" | "random";
     const category = sp.get("category") ?? undefined;
     const freeParam = sp.get("free");
     const free = freeParam === "true" ? true : freeParam === "false" ? false : undefined;
+    const q = sp.get("q") ?? undefined;
     const cursor = sp.get("cursor") ?? undefined;
     const limit = Math.min(Number(sp.get("limit") ?? 24), 50);
 
-    const isFiltered = !!(tab !== "popular" || category || freeParam || cursor);
+    const isFiltered = !!(tab !== "popular" || category || freeParam || q || cursor);
 
     if (!isFiltered) {
       // Initial load: return full game list + byCategory grouping (backwards-compat)
-      const games = await getActiveGames();
+      const games = await getActiveGames(auth.user.sub);
       const byCategory = GAME_CATEGORIES.map((cat) => ({
         category: cat,
         games: games.filter((g) => g.category === cat),
@@ -58,7 +59,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }: { auth: { user: {
       });
     }
 
-    const result = await listGames({ tab, category, free, cursor, limit });
+    const result = await listGames({ tab, category, free, q, userId: auth.user.sub, cursor, limit });
     return NextResponse.json({
       success: true,
       data: { games: result.games, nextCursor: result.nextCursor, hasMore: result.hasMore, categories: null },

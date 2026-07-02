@@ -300,7 +300,7 @@ The messaging layer is fast, lightweight, and culturally expressive. It rewards 
 
 ### What XP Is
 
-XP (Experience Points) is the universal score reflecting a user's total activity and engagement across Zobia. It feeds the main rank progression and the six parallel progression tracks. XP is not a currency — it cannot be spent. It only accumulates as a record of presence.
+XP (Experience Points) is the universal score reflecting a user's total activity and engagement across Zobia. It feeds the main rank progression and the seven parallel progression tracks. XP is not a currency — it cannot be spent. It only accumulates as a record of presence.
 
 ### XP Sources
 
@@ -371,9 +371,11 @@ Within each rank are sub-levels (I, II, III) providing shorter-term milestones. 
 
 ## 7. Progression Architecture
 
-### The Six Parallel Tracks
+### The Seven Parallel Tracks
 
-Zobia uses a six-track parallel progression system. Each track measures a fundamentally different type of engagement. No track gates another — they are independent. A user can be a Level 50 Social user and a Level 5 Explorer simultaneously. The profile displays all tracks, creating a multi-dimensional identity that can never be "complete."
+Zobia uses a seven-track parallel progression system. Each track measures a fundamentally different type of engagement. No track gates another — they are independent. A user can be a Level 50 Social user and a Level 5 Explorer simultaneously. The profile displays all tracks, creating a multi-dimensional identity that can never be "complete."
+
+> Gaming (Track 7, added v1.72) is defined in full in §30.2 — this section keeps the original six for historical context plus a summary entry below so the track list stays complete in one place.
 
 **Track 1: Social Track**
 Measures conversational depth, friend network size, message volume, reaction generation. Key milestones: Level 5 (Talker — custom conversation badges), Level 25 (Connector — group chats up to 500), Level 50 (The Connector — title on profile, Elder role eligibility).
@@ -392,6 +394,9 @@ Measures ClassRoom completions, in-app quizzes, ClassRoom hosting performance. K
 
 **Track 6: Explorer Track**
 Measures Rooms discovered, cities represented in friend network, unique Room categories visited. Key milestones: Level 10 (Wanderer — can pin up to 5 Rooms), Level 25 (Nomad — first-access notifications for new city-based rooms), Level 50 (The Explorer — Rooms Visited counter on profile).
+
+**Track 7: Gaming Track** (added v1.72 — full spec in §30.2)
+Measures games played and won on the Games hub. A "win" is a new personal best with a positive score; every game route awards `xp_gaming` on each finalized play. Key milestones: Level 5 (Rookie Gamer), Level 20 (Pro Gamer — trophy shelf on profile), Level 50 (Game Legend — Games Legend Wall feature). Tracked via `xp_gaming`/`level_gaming` on `users`, ranked on the Gaming tab of the main Leaderboards page (positioned after Generosity) and on per-game high-score boards under Games → Leaderboards.
 
 ### Daily Quest System
 
@@ -433,7 +438,7 @@ A Season is an 8-week competitive cycle — a fresh chapter for the platform. It
 **Season Reset:**
 - Competitive rankings reset to zero.
 - Seasonal cosmetics become "Retired" — still visible on profiles but no longer earnable.
-- All six track levels are preserved (never reset).
+- All seven track levels are preserved (never reset).
 - Prestige, Legacy Score, Credits, inventory, friends, creator history all carry forward.
 
 ### Season Pass
@@ -462,7 +467,7 @@ Prestige is never forced. The platform asks: "You have mastered Zobia. Do you wa
 
 **Resets:** Main rank level, main rank XP counter.
 
-**Never resets:** All six track levels and XP, Guild tier and war history, Season records and badges, Credits, inventory, friends, Legacy Score, creator subscriptions and revenue history, earned titles, badges, or cosmetics.
+**Never resets:** All seven track levels and XP, Guild tier and war history, Season records and badges, Credits, inventory, friends, Legacy Score, creator subscriptions and revenue history, earned titles, badges, or cosmetics.
 
 ### Prestige Rewards
 
@@ -1926,9 +1931,11 @@ wager rake).
 - A **solo "win"** = a new personal best with a positive score (rewards genuine
   improvement, resists farming). Rewards are granted idempotently via the coin/star
   ledgers and `safeAwardXP` on the new **`gaming`** track.
-- A new **Gaming progression track** (`xp_gaming` / `level_gaming`) mirrors the six
-  existing tracks, with milestone titles/badges (L5 Rookie Gamer, L20 Pro Gamer,
-  L50 Game Legend) via the existing `track_milestone_unlocks` engine.
+- A new **Gaming progression track** (`xp_gaming` / `level_gaming`) is the 7th of the
+  Seven Parallel Tracks (§7), with milestone titles/badges (L5 Rookie Gamer, L20 Pro
+  Gamer, L50 Game Legend) via the existing `track_milestone_unlocks` engine. It appears
+  everywhere the other six tracks do: profile track badges, and its own tab (positioned
+  right after Generosity) on the main Leaderboards page (`/leaderboards?track=gaming`).
 - **Games-played milestones** (admin-configurable thresholds → credits/XP/stars)
   reward cumulative play.
 
@@ -1939,15 +1946,40 @@ wager rake).
 - Optional **credit wager**: both stakes are escrowed on accept; the winner takes the
   pot **minus a configurable platform rake** (`game_wager_rake_pct`, default 5%).
   Decline / cancel / expiry refunds both. All movements are idempotent.
+- **Lifecycle**: a challenge stays open for `game_challenge_expiry_hours`
+  (**default 720 = 30 days**) — the challenges list shows a live countdown on every
+  pending/active challenge. If the opponent never responds within that window it's
+  swept to `expired` (refunding any escrow) by the `/api/cron/games` job. The
+  challenger can **delete** a pending challenge any time before the opponent accepts
+  (nothing is escrowed yet, so there's nothing to refund); once accepted, use Cancel
+  instead. Completed challenges are never deleted (they're the wager/prize audit
+  trail) but either participant can **archive** one to hide it from their inbox.
 
 ### 30.4 Game UX & Discovery
 
-- **Discovery page** (`/games`): New / Popular / Trending tabs, category filter chips,
-  Free/Paid filter, card and list view toggle, cursor-based pagination (Load More).
+- **Discovery page** (`/games`): Popular / Trending / New / ❤️ Faves / 🔀 Random /
+  🕐 Recently Played tabs, a search bar (name/tagline, 250ms-debounced), category
+  filter chips, Free/Paid filter, card and list view toggle, cursor-based pagination
+  (Load More; Random re-shuffles instead of paging).
+  - **Favorites** ("❤️ Faves"): heart icon on every game card/row, backed by
+    `game_favorites` (mirrors the Room Pins pattern, unlimited — not plan-gated).
+    Favorited games show a `❤️ <count>` alongside their rating/play-count meta.
+  - **Recently Played**: a thin recency view over the existing `game_plays` table
+    (no separate visits table needed — every play session already has a
+    timestamp), most-recently-played game first.
+  - The **Leaderboards** link on this page goes straight to the Gaming tab
+    (`/leaderboards?track=gaming`); the separate per-game high-score board lives at
+    `/games/leaderboards` (§30.5).
 - **Difficulty settings**: Easy / Medium / Hard per play session, persisted to localStorage
-  per game, passed to every engine via `GameEngineProps.difficulty`.
+  per game, passed to every engine via `GameEngineProps.difficulty`. Difficulty can also
+  **ramp up over the course of a round** — e.g. Fruit Slicer speeds fruit fall/spawn up a
+  notch every 60s (Easy) / 45s (Medium) / 30s (Hard), capped after 8 steps, so a fixed
+  score ceiling can't be farmed indefinitely.
 - **In-game controls** (via GameRunner): pause/resume button, sound toggle, live score HUD,
-  "How to Play" modal (populated from game's `long_description`), "More games" link.
+  "How to Play" modal (populated from game's `long_description`), a **"Game Over" end
+  screen** (final score, new-best banner, reward summary, star rating) with **Play
+  Again**, **More Games** (→ `/games`) and **Quit** (→ back to the game's own cover
+  page, or the host app for challenge rounds/embeds) actions.
 - **Sound effects**: All games use Web Audio API synthetic tones via `useGameSound` hook —
   no external files, subdued and comforting, with on/off toggle in GameRunner.
 - **Star ratings**: 1-5 star ratings stored per (user, game) in `game_ratings` table.
@@ -1967,12 +1999,20 @@ wager rake).
 
 ### 30.5 Leaderboards & ads
 
-- **Per-game high-score** leaderboards (Postgres `game_best_scores` + 60s Redis cache).
-- **Gaming-track ranking** via the existing leaderboard snapshots (`track=gaming`).
+- **Per-game high-score** leaderboards (Postgres `game_best_scores` + 60s Redis cache),
+  at `/games/leaderboards`.
+- **Gaming-track ranking** via the existing leaderboard snapshots (`track=gaming`), on
+  its own tab (after Generosity) on the main `/leaderboards` page.
+- **Plan column visibility (all leaderboard tracks, not just Gaming):** the Plan
+  column on `/leaderboards` shows another user's subscription tier, so it's only
+  rendered for **Moderator/Admin** viewers — `is_admin`/`is_moderator` is re-checked
+  fresh from `users` on every request (never trusted from a client claim), and the
+  API omits the `plan` field entirely from the response for everyone else rather than
+  just hiding it client-side.
 - **Ads** are admin-togglable via `game_ads_enabled` and `game_ads_directory_enabled`
   manifest flags (no fixed ad slots hardcoded in game pages).
 
-### 30.5 Admin controls
+### 30.6 Admin controls
 
 - **Master toggle** `feature_games` (Feature Flags) turns the whole feature on/off.
 - **`/admin/games`**: per-game activate/deactivate, edit cover page (name, slug, short
@@ -1980,9 +2020,9 @@ wager rake).
   score cap, min play time, sort order; view per-game stats (plays, players, wins,
   challenges, wager volume); manage games-played milestones.
 - Runtime config keys at `/admin/config`: `game_wager_rake_pct`,
-  `game_challenge_expiry_hours`, `game_default_reward_credits/xp`.
+  `game_challenge_expiry_hours` (default 720 = 30 days), `game_default_reward_credits/xp`.
 
-### 30.6 Adding a new game (dev)
+### 30.7 Adding a new game (dev)
 
 The infrastructure is generic — adding a game is a plug-in:
 1. Add an entry to `shared/utils/games.ts` (`GAME_REGISTRY`).

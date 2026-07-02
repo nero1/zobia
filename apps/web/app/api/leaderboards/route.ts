@@ -129,10 +129,23 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       country,
     });
 
+    // The Plan column exposes another user's subscription tier — only
+    // Moderator/Admin requesters get it back. Re-checked fresh from the DB
+    // (never trusted from the JWT claim), same pattern as withAdminAuth.
+    const { rows: roleRows } = await db.query<{ is_admin: boolean; is_moderator: boolean }>(
+      `SELECT is_admin, is_moderator FROM users WHERE id = $1`,
+      [auth.user.sub]
+    );
+    const canSeePlan = Boolean(roleRows[0]?.is_admin || roleRows[0]?.is_moderator);
+    const entries = canSeePlan
+      ? leaderboardPage.entries
+      : leaderboardPage.entries.map(({ plan: _plan, ...rest }) => rest);
+
     return NextResponse.json({
       success: true,
       data: {
         ...leaderboardPage,
+        entries,
         userRank,
         scope,
         track,

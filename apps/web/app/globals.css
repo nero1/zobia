@@ -5,6 +5,40 @@
 @layer base {
   :root {
     --font-inter: 'Inter', ui-sans-serif, system-ui, sans-serif;
+
+    /* Shadcn-style semantic tokens consumed by shared/tailwind-tokens.js
+       (bg-primary, bg-card, text-foreground, border-border, bg-accent,
+       text-muted-foreground). Values are HSL triples (no hsl() wrapper) so
+       Tailwind can compose them with opacity modifiers. Light theme. */
+    --background: 0 0% 98%;
+    --foreground: 0 0% 9%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 9%;
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --accent: 0 0% 96%;
+    --accent-foreground: 0 0% 9%;
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 45%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+  }
+
+  .dark {
+    /* Dark theme — matches the neutral-950/900/800 scale already used across
+       the app's hardcoded dark: classes. */
+    --background: 0 0% 4%;
+    --foreground: 0 0% 98%;
+    --card: 0 0% 9%;
+    --card-foreground: 0 0% 98%;
+    --border: 0 0% 15%;
+    --input: 0 0% 15%;
+    --accent: 0 0% 15%;
+    --accent-foreground: 0 0% 98%;
+    --muted: 0 0% 9%;
+    --muted-foreground: 0 0% 64%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
   }
 
   * {

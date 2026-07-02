@@ -1092,6 +1092,9 @@ export interface GameSummary {
   playCount: number;
   avgRating: number;
   ratingCount: number;
+  favoriteCount: number;
+  /** True when the requesting user has favorited this game. Omitted on public/unauthenticated reads. */
+  isFavorited?: boolean;
   isActive: boolean;
   createdAt: string;
 }

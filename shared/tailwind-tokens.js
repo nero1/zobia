@@ -13,6 +13,34 @@ module.exports = {
       800: "#1e40af",
       900: "#1e3a8a",
       950: "#172554",
+      // Theme-aware DEFAULT/foreground pair (CSS vars set in globals.css for
+      // :root/.dark). Coexists with the numeric shade scale above — e.g.
+      // `bg-primary` resolves via the var, `bg-primary-600` via the shade.
+      DEFAULT: "hsl(var(--primary))",
+      foreground: "hsl(var(--primary-foreground))",
+    },
+    // Shadcn-style semantic tokens, theme-aware via CSS vars (see globals.css
+    // :root / .dark blocks in apps/web and apps/android). These back the
+    // `bg-card`, `text-foreground`, `border-border`, `bg-accent`,
+    // `text-muted-foreground` classes used throughout the games UI and
+    // elsewhere; without them Tailwind silently drops the unknown utility
+    // (transparent bg / inherited text), which is why buttons on a couple of
+    // pages were rendering invisibly against the dark background.
+    background: "hsl(var(--background))",
+    foreground: "hsl(var(--foreground))",
+    card: {
+      DEFAULT: "hsl(var(--card))",
+      foreground: "hsl(var(--card-foreground))",
+    },
+    border: "hsl(var(--border))",
+    input: "hsl(var(--input))",
+    accent: {
+      DEFAULT: "hsl(var(--accent))",
+      foreground: "hsl(var(--accent-foreground))",
+    },
+    muted: {
+      DEFAULT: "hsl(var(--muted))",
+      foreground: "hsl(var(--muted-foreground))",
     },
     success: {
       50: "#f0fdf4",
