@@ -126,13 +126,17 @@ async function getApprovedTierCount(userId: string, tier: number): Promise<boole
 async function chargeCredits(userId: string, submissionId: string, costCredits: number): Promise<void> {
   if (costCredits <= 0) return;
   try {
-    await checkAndDebit(
+    const entry = await checkAndDebit(
       userId,
       costCredits,
       "kyc_verification_fee",
       submissionId,
       "KYC verification fee",
       { submissionId }
+    );
+    await db.query(
+      `UPDATE kyc_submissions SET credit_ledger_reference_id = $1, updated_at = NOW() WHERE id = $2`,
+      [entry.id, submissionId]
     );
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "INSUFFICIENT_BALANCE") {
@@ -169,6 +173,23 @@ async function notifyUser(userId: string, type: string, title: string, body: str
   await insertNotification(db, userId, type, title, body, metadata).catch(() => {});
 }
 
+/**
+ * Runs an INSERT INTO kyc_submissions and converts a unique-violation on
+ * kyc_submissions_one_active_per_tier_idx (23505) into the same
+ * KYC_ALREADY_PENDING conflict assertNoActiveSubmission's pre-check returns,
+ * instead of letting a raw 500 bubble up on a double-submit race.
+ */
+async function runInsertOrActiveConflict<T>(tier: number, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if ((err as { code?: string })?.code === "23505") {
+      throw conflict("You already have a Tier " + tier + " verification in progress.", "KYC_ALREADY_PENDING");
+    }
+    throw err;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Tier 1 — Nigeria (BVN via Paystack)
 // ---------------------------------------------------------------------------
@@ -188,20 +209,22 @@ export async function submitTier1Nigeria(userId: string, input: SubmitTier1Niger
   const accountType = await getAccountType(userId);
   const submissionId = randomUUID();
 
-  await db.transaction(async (tx) => {
-    await tx.query(
-      `INSERT INTO kyc_submissions
-         (id, user_id, tier, status, account_type, citizenship_country, review_mode,
-          bvn_last4, id_type, submitted_full_name, credits_charged, submitted_at)
-       VALUES ($1, $2, 1, 'pending', $3, 'NG', $4, $5, $6, $7, $8, NOW())`,
-      [
-        submissionId, userId, accountType, manifest.kyc.tier1ReviewMode,
-        input.bvn.slice(-4), "bvn_slip", `${input.firstName} ${input.lastName}`.trim(),
-        manifest.kyc.costCredits,
-      ]
-    );
-    await attachDocuments(tx, submissionId, userId, input.documentIds);
-  });
+  await runInsertOrActiveConflict(1, () =>
+    db.transaction(async (tx) => {
+      await tx.query(
+        `INSERT INTO kyc_submissions
+           (id, user_id, tier, status, account_type, citizenship_country, review_mode,
+            bvn_last4, id_type, submitted_full_name, credits_charged, submitted_at)
+         VALUES ($1, $2, 1, 'pending', $3, 'NG', $4, $5, $6, $7, $8, NOW())`,
+        [
+          submissionId, userId, accountType, manifest.kyc.tier1ReviewMode,
+          input.bvn.slice(-4), "bvn_slip", `${input.firstName} ${input.lastName}`.trim(),
+          manifest.kyc.costCredits,
+        ]
+      );
+      await attachDocuments(tx, submissionId, userId, input.documentIds);
+    })
+  );
 
   try {
     await chargeCredits(userId, submissionId, manifest.kyc.costCredits);
@@ -228,7 +251,7 @@ export async function submitTier1Nigeria(userId: string, input: SubmitTier1Niger
   } catch (err) {
     logger.error({ err: err instanceof Error ? err.message : String(err), submissionId }, "[kyc] Paystack BVN validation request failed");
     await db.query(
-      `UPDATE kyc_submissions SET status = 'manual_review', ai_notes = 'Paystack BVN request failed — routed to manual review.', updated_at = NOW() WHERE id = $1`,
+      `UPDATE kyc_submissions SET status = 'manual_review', paystack_verification_status = 'failed', ai_notes = 'Paystack BVN request failed — routed to manual review.', updated_at = NOW() WHERE id = $1`,
       [submissionId]
     );
   }
@@ -278,7 +301,10 @@ export async function handleBvnIdentificationResult(params: {
 export async function submitTier1International(userId: string, input: SubmitTier1InternationalInput): Promise<{ submissionId: string }> {
   const manifest = await loadManifest();
   if (!manifest.features.kyc) throw badRequest("KYC verification is currently unavailable.", "KYC_DISABLED");
-  if (input.citizenshipCountry.toUpperCase() === "NG") {
+  // Defense-in-depth: the route boundary (app/api/kyc/tier1/route.ts) already
+  // validates and uppercases citizenshipCountry via a Zod refine+transform,
+  // but callers of this service function aren't guaranteed to go through it.
+  if (input.citizenshipCountry === "NG") {
     throw badRequest("Nigerian citizens must use the BVN verification flow.", "USE_NIGERIA_FLOW");
   }
   await assertNoActiveSubmission(userId, 1);
@@ -288,21 +314,23 @@ export async function submitTier1International(userId: string, input: SubmitTier
   const submissionId = randomUUID();
   const initialStatus = manifest.kyc.tier1ReviewMode === "ai" ? "ai_review" : "manual_review";
 
-  await db.transaction(async (tx) => {
-    await tx.query(
-      `INSERT INTO kyc_submissions
-         (id, user_id, tier, status, account_type, citizenship_country, review_mode,
-          id_type, id_number_encrypted, submitted_full_name, credits_charged, submitted_at)
-       VALUES ($1, $2, 1, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
-      [
-        submissionId, userId, initialStatus, accountType,
-        input.citizenshipCountry.toUpperCase(), manifest.kyc.tier1ReviewMode,
-        input.idType, encryptField(input.idNumber), input.submittedFullName,
-        manifest.kyc.costCredits,
-      ]
-    );
-    await attachDocuments(tx, submissionId, userId, input.documentIds);
-  });
+  await runInsertOrActiveConflict(1, () =>
+    db.transaction(async (tx) => {
+      await tx.query(
+        `INSERT INTO kyc_submissions
+           (id, user_id, tier, status, account_type, citizenship_country, review_mode,
+            id_type, id_number_encrypted, submitted_full_name, credits_charged, submitted_at)
+         VALUES ($1, $2, 1, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
+        [
+          submissionId, userId, initialStatus, accountType,
+          input.citizenshipCountry, manifest.kyc.tier1ReviewMode,
+          input.idType, encryptField(input.idNumber), input.submittedFullName,
+          manifest.kyc.costCredits,
+        ]
+      );
+      await attachDocuments(tx, submissionId, userId, input.documentIds);
+    })
+  );
 
   try {
     await chargeCredits(userId, submissionId, manifest.kyc.costCredits);
@@ -446,15 +474,17 @@ export async function submitTier2(userId: string, input: SubmitTier2Input): Prom
   const accountType = await getAccountType(userId);
   const submissionId = randomUUID();
 
-  await db.transaction(async (tx) => {
-    await tx.query(
-      `INSERT INTO kyc_submissions
-         (id, user_id, tier, status, account_type, review_mode, video_url, liveness_status, submitted_at)
-       VALUES ($1, $2, 2, 'manual_review', $3, 'manual', $4, 'pending', NOW())`,
-      [submissionId, userId, accountType, input.videoUrl]
-    );
-    await attachDocuments(tx, submissionId, userId, input.documentIds);
-  });
+  await runInsertOrActiveConflict(2, () =>
+    db.transaction(async (tx) => {
+      await tx.query(
+        `INSERT INTO kyc_submissions
+           (id, user_id, tier, status, account_type, review_mode, video_url, liveness_status, submitted_at)
+         VALUES ($1, $2, 2, 'manual_review', $3, 'manual', $4, 'pending', NOW())`,
+        [submissionId, userId, accountType, input.videoUrl]
+      );
+      await attachDocuments(tx, submissionId, userId, input.documentIds);
+    })
+  );
 
   // Tier 2 has no credit fee of its own — the Tier 1 fee already covered the
   // account's verification; Tier 2/3 are escalations of an already-paid identity.
@@ -502,11 +532,13 @@ export async function submitTier3(userId: string, input: SubmitTier3Input): Prom
   const accountType = await getAccountType(userId);
   const submissionId = randomUUID();
 
-  await db.query(
-    `INSERT INTO kyc_submissions
-       (id, user_id, tier, status, account_type, review_mode, reuse_previous_address, updated_address, submitted_at)
-     VALUES ($1, $2, 3, 'manual_review', $3, 'manual', $4, $5::jsonb, NOW())`,
-    [submissionId, userId, accountType, input.reusePreviousAddress, JSON.stringify(input.updatedAddress ?? null)]
+  await runInsertOrActiveConflict(3, () =>
+    db.query(
+      `INSERT INTO kyc_submissions
+         (id, user_id, tier, status, account_type, review_mode, reuse_previous_address, updated_address, submitted_at)
+       VALUES ($1, $2, 3, 'manual_review', $3, 'manual', $4, $5::jsonb, NOW())`,
+      [submissionId, userId, accountType, input.reusePreviousAddress, JSON.stringify(input.updatedAddress ?? null)]
+    )
   );
 
   await notifyUser(
@@ -516,6 +548,35 @@ export async function submitTier3(userId: string, input: SubmitTier3Input): Prom
   );
   await alertAdmins("kyc_submission", "New Tier 3 (physical) KYC request — needs scheduling", { submissionId, userId });
   return { submissionId };
+}
+
+/**
+ * Admin/mod schedules (or reschedules/clears) the in-person physical check
+ * for a Tier 3 submission. Only valid while the submission is still
+ * in-flight — once approved/rejected/cancelled the record is historical.
+ */
+export async function scheduleTier3PhysicalCheck(
+  submissionId: string,
+  scheduledAt: string | null,
+  notes: string | null
+): Promise<void> {
+  const { rows } = await db.query<{ tier: number; status: string }>(
+    `SELECT tier, status FROM kyc_submissions WHERE id = $1`,
+    [submissionId]
+  );
+  const submission = rows[0];
+  if (!submission) throw notFound("KYC submission not found");
+  if (submission.tier !== 3) throw badRequest("Physical-check scheduling only applies to Tier 3 submissions.", "NOT_TIER3");
+  if (!["pending", "ai_review", "manual_review"].includes(submission.status)) {
+    throw badRequest("This submission has already been finalized.", "KYC_NOT_SCHEDULABLE");
+  }
+
+  await db.query(
+    `UPDATE kyc_submissions
+     SET physical_verification_scheduled_at = $1, physical_verification_notes = $2, updated_at = NOW()
+     WHERE id = $3`,
+    [scheduledAt, notes, submissionId]
+  );
 }
 
 // ---------------------------------------------------------------------------

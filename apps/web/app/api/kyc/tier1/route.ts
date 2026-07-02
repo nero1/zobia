@@ -31,7 +31,9 @@ const nigeriaSchema = z.object({
 });
 
 const internationalSchema = z.object({
-  citizenshipCountry: z.string().length(2).refine((c) => c.toUpperCase() !== "NG", "Nigerian citizens must use the BVN flow"),
+  citizenshipCountry: z.string().length(2)
+    .refine((c) => c.toUpperCase() !== "NG", "Nigerian citizens must use the BVN flow")
+    .transform((c) => c.toUpperCase()),
   idType: z.enum(["passport", "drivers_license", "voters_card", "national_id"]),
   idNumber: z.string().min(3).max(64),
   submittedFullName: z.string().min(1).max(200),
@@ -57,7 +59,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     }
 
     const { submissionId } = await submitTier1International(userId, {
-      citizenshipCountry: body.citizenshipCountry.toUpperCase(),
+      citizenshipCountry: body.citizenshipCountry,
       idType: body.idType,
       idNumber: body.idNumber,
       submittedFullName: body.submittedFullName,

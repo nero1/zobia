@@ -1097,7 +1097,13 @@ and stats pipeline.
   default KYC Tier 1 — §19.x). This is intentionally stricter than the
   Growth+ tier gate on Sponsored Quests, because ads carry real spend and
   platform-wide impressions. Admins are exempt and can author ads directly
-  (`owner_type = 'admin'`) without a Business Account.
+  (`owner_type = 'admin'`) without a Business Account. Tier 3 (bank-grade,
+  the highest identity tier, required for the largest selling/spend limits)
+  is a manual in-person check — an admin/mod schedules the physical
+  verification against `kyc_submissions.physical_verification_scheduled_at`
+  / `physical_verification_notes` from the KYC review queue
+  (`/admin/kyc`, `PATCH /api/admin/kyc/[id]/schedule`) before approving or
+  rejecting the submission.
 - **Ad formats & sizes:** square 300×250, mobile banner 320×50, full-screen
   interstitial, rewarded video, and native (in-stream/in-line). Ads may be
   in-house HTML/text creatives, native user/business ads, or (admin-only)
@@ -1980,6 +1986,13 @@ The MVP Build Sequence follows a phased approach. Each phase ends with a stable,
 - Human moderator role system (admin can upgrade users to Moderator).
 - AI moderation escalation pipeline (DeepSeek primary, Gemini fallback). Escalation used sparingly.
 - Trust Score system (private, silently gates high-sensitivity features).
+- Identity KYC (Tiers 1-3) for the blue verified checkmark and higher selling/ad
+  limits: Tier 1 (BVN via Paystack for Nigerians, govt ID + proof of address
+  elsewhere, AI or manual review), Tier 2 (video statement + ID + AI liveness
+  heuristic, always manually reviewed), Tier 3 (bank-grade physical/in-person
+  check, admin-scheduled from the review queue). All KYC PII (BVN digits,
+  encrypted ID numbers, uploaded documents) is protected by row-level security
+  and hard-deleted immediately on account deletion.
 - Suspension and ban enforcement (DMs, Room posting, coin receipt, payout hold).
 - AdMob integration (banner, interstitial, rewarded video ads, Capacitor Android only) — configuration from x_manifest.
 - Rewarded ad flow: free-tier users watch ad, earn Credits, daily cap enforced.
@@ -2692,7 +2705,7 @@ Every feature decision on Zobia is tested against this checklist. If any answer 
 
 ### v1.74 — Changelog
 
-- **SQL migration fix (0025):** Dollar-quoted policy blocks in `CREATE POLICY` statements inside `DO $...$` blocks no longer double-escape single quotes — all four affected RLS policies (messages, kyc_submissions, creator_kyc, failed_xp_awards) corrected.
+- **SQL migration fix (0025):** Dollar-quoted policy blocks in `CREATE POLICY` statements inside `DO $...$` blocks no longer double-escape single quotes — all four affected RLS policies (messages, kyc_submissions, creator_kyc, failed_xp_awards) corrected. *(Note, added in v2.02: this entry predates the v2.00 migration-file consolidation — the numbered file `0025` no longer exists, and the identity-KYC tables it references (`kyc_submissions`/`kyc_documents`) were not even part of the schema at the time this fix landed (they were added later, in `0005_kyc_verification.sql`, post-consolidation). `kyc_submissions`/`kyc_documents` in fact had zero RLS until `0007_kyc_rls.sql` — see the v2.02 changelog below for the actual fix.)*
 - **Quest deck shuffle (CSPRNG):** Replaced `ORDER BY MD5(JWT_SECRET || id)` with application-layer Fisher-Yates shuffle using `crypto.randomBytes` rejection-sampling, eliminating the MD5 bias and removing the JWT secret from DB queries entirely.
 - **Cache headers:** Added correct `Cache-Control` headers to six previously uncached API routes: `/api/games/[slug]/leaderboard`, `/api/config/games`, `/api/config/rewards-ui`, `/api/announcements/banner`, `/api/announcements/modal`, `/api/leaderboards/banner`.
 - **Rate-limit cookie clearing:** All rate-limit error paths now clear all session and OAuth cookies before returning the error, preventing stale cookie loops.
@@ -3969,6 +3982,57 @@ any fresh database. Added slugs (`welcome-to-zobia`, `lagos-vibes`,
 
 ---
 
-*ZobiaSocial PRD v2.01*
+## Appendix: Version 2.02 Change Log
+
+### v2.02 — Changelog
+
+#### Identity KYC audit fixes (Tiers 1-3)
+
+- **RLS on `kyc_submissions`/`kyc_documents` (new migration `0007_kyc_rls.sql`):**
+  these tables (added in `0005_kyc_verification.sql`) never had row-level
+  security, unlike the pre-existing `creator_kyc` table which carries PII of
+  the same sensitivity (BVN digits, encrypted ID numbers, full legal names,
+  document storage keys). Added `kyc_submissions_self_or_admin` /
+  `kyc_documents_self_or_admin` policies, exact mirrors of the existing
+  `creator_kyc_self_or_admin` policy shape. This also corrects the changelog
+  entry above (v1.74, "SQL migration fix 0025") which is stale — see its
+  inline note.
+- **KYC PII purge on account deletion:** `DELETE /api/users/me` now
+  hard-deletes `kyc_submissions` and `kyc_documents` (and best-effort purges
+  the underlying storage objects) alongside the pre-existing
+  `creator_bank_accounts`/`creator_wallet_addresses`/`creator_kyc` cleanup —
+  previously KYC PII silently survived account deletion.
+- **Ledger reference persistence:** `kyc_submissions.credit_ledger_reference_id`
+  is now written when the verification fee is charged (was defined in the
+  schema but never populated).
+- **Paystack failure clarity:** a failed Paystack BVN validation request now
+  sets `paystack_verification_status = 'failed'` (previously left `NULL`/
+  stuck at `'pending'`), so admins can distinguish "never contacted
+  Paystack" from "genuinely pending" in the review queue.
+- **Double-submit race fix:** a unique-violation on
+  `kyc_submissions_one_active_per_tier_idx` from concurrent submissions is
+  now converted to the same `KYC_ALREADY_PENDING` conflict the pre-check
+  already returns, instead of a raw 500.
+- **Tier 3 physical-verification scheduling:** `physical_verification_scheduled_at`
+  / `physical_verification_notes` (defined in the schema since `0005`, never
+  used) are now set via a new `PATCH /api/admin/kyc/[id]/schedule` route and
+  a scheduling form in the `/admin/kyc` detail drawer.
+- **Rate-limit consistency:** `GET /api/admin/kyc` now uses `RATE_LIMITS.admin`
+  (was `apiRead`), matching every other admin KYC route.
+- **i18n:** ~65 new English `kyc.*` keys registered in
+  `shared/i18n/locales/en.json` — the user-facing `/kyc` flow previously
+  rendered entirely via inline `t(key, "default")` fallback strings with no
+  keys actually registered. Also fixed a bug where `TierCard`'s status label
+  was rendered through a dummy translator that always short-circuited to the
+  English default, bypassing i18n entirely even when a key was registered.
+- **Android (Capacitor):** the `/ads` hub's inert "Identity verification
+  (KYC) is completed on web or PWA" text is replaced with a working button
+  that opens the web `/kyc` flow in the in-app browser (`Browser.open`,
+  same pattern as the Business Account checkout flow) — previously there
+  was no way to reach KYC from the Android app at all.
+
+---
+
+*ZobiaSocial PRD v2.02*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*
