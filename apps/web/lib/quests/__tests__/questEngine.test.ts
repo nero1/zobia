@@ -29,6 +29,27 @@ jest.mock('@/lib/economy/coins', () => ({
   creditCoins: jest.fn().mockResolvedValue(undefined),
 }));
 
+// generateDailyDeck acquires (and releases) a per-user+date Redis lock
+// (BUG-006 fix) around the deck insert — mock it the same way @/lib/db is
+// mocked above so tests don't need a live REDIS_PROVIDER. `get`/`del` are
+// used to release the lock only if this call still owns it, so `get` must
+// echo back whatever value `set` "stored" for that lock-release check to
+// behave correctly.
+const mockRedisStore = new Map<string, string>();
+jest.mock('@/lib/redis', () => ({
+  redis: {
+    set: jest.fn((key: string, value: string) => {
+      mockRedisStore.set(key, value);
+      return Promise.resolve('OK');
+    }),
+    get: jest.fn((key: string) => Promise.resolve(mockRedisStore.get(key) ?? null)),
+    del: jest.fn((key: string) => {
+      mockRedisStore.delete(key);
+      return Promise.resolve(1);
+    }),
+  },
+}));
+
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
@@ -100,15 +121,28 @@ describe('generateDailyDeck', () => {
 
   it('returns deck with progress merged in', async () => {
     const templates = [makeTemplate('q1'), makeTemplate('q2'), makeTemplate('q3')];
-    const progresses = [{ quest_id: 'q1', progress_count: 3, completed: false, completed_at: null }];
+    // Final query joins quest_templates with user_quest_progress — merge the
+    // template rows with per-quest progress the same way that JOIN would.
+    const progressByQuestId: Record<string, { progress_count: number; completed: boolean; completed_at: string | null }> = {
+      q1: { progress_count: 3, completed: false, completed_at: null },
+    };
+    const joinedRows = templates.map((t) => ({
+      ...t,
+      quest_id: t.id,
+      ...(progressByQuestId[t.id] ?? { progress_count: 0, completed: false, completed_at: null }),
+    }));
 
     let callCount = 0;
     const db = buildMockDb({
       query: jest.fn(async () => {
         callCount++;
-        if (callCount === 1) return { rows: templates, rowCount: 3 };
-        if (callCount === 2) return { rows: [], rowCount: 0 }; // INSERT user_quest_decks
-        return { rows: progresses, rowCount: 1 };
+        // Call sequence inside generateDailyDeck: (1) check for an existing
+        // deck (BUG-009 fix), (2) fetch eligible templates, (3) INSERT the
+        // shuffled deck, (4) re-query the assigned deck joined with progress.
+        if (callCount === 1) return { rows: [], rowCount: 0 }; // no existing deck
+        if (callCount === 2) return { rows: templates, rowCount: templates.length };
+        if (callCount === 3) return { rows: [], rowCount: 0 }; // INSERT user_quest_decks
+        return { rows: joinedRows, rowCount: joinedRows.length };
       }) as unknown as DatabaseAdapter['query'],
     });
 
@@ -129,7 +163,9 @@ describe('generateDailyDeck', () => {
     await generateDailyDeck('user-1', 'pro', db);
 
     const querySpy = db.query as jest.Mock;
-    const [sql] = querySpy.mock.calls[0];
+    // Call 0 is the "existing deck" check (BUG-009 fix); the template
+    // fetch with the hierarchical plan_required filter is call 1.
+    const [sql] = querySpy.mock.calls[1];
 
     // After the fix, SQL must use hierarchical plan_required logic
     expect(sql).toMatch(/plan_required = 'pro' AND \$2 IN/);
