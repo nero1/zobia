@@ -58,6 +58,7 @@ export interface ZobiaManifest {
     physicalGoodsEnabled: boolean;
     physicalGoodsManualFulfillment: boolean;
     physicalGoodsPartnerFulfillment: boolean;
+    moments: boolean;
     vipRoomPricing?: { minNgn: number; maxNgn: number };
   };
   warEventCooldownHours: number;
@@ -97,6 +98,15 @@ export interface ZobiaManifest {
     softNamePlural: string;     // e.g. "Credits"
     premiumNameSingular: string; // e.g. "Star"
     premiumNamePlural: string;   // e.g. "Stars"
+  };
+  // Zobia Moments — pricing & eligibility (admin-editable at /admin/config)
+  moments: {
+    /** Credits charged per Moment. 0 = free via Credits (default 100). */
+    costCredits: number;
+    /** Stars charged per Moment. 0 = free via Stars (default 1). */
+    costStars: number;
+    /** Minimum account level (main rank number, 1 = Beginner) required to post a Moment. */
+    minLevel: number;
   };
   // Platform config
   minimumAge: number;
@@ -202,12 +212,18 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     physicalGoodsEnabled: false,
     physicalGoodsManualFulfillment: true,
     physicalGoodsPartnerFulfillment: false,
+    moments: true,
   },
   currency: {
     softNameSingular: "Credit",
     softNamePlural: "Credits",
     premiumNameSingular: "Star",
     premiumNamePlural: "Stars",
+  },
+  moments: {
+    costCredits: 100,
+    costStars: 1,
+    minLevel: 2,
   },
   warEventCooldownHours: 72,
   auth: {
@@ -402,6 +418,7 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       physicalGoodsEnabled:       parseBool(kv["physical_goods_enabled"],                       DEFAULT_MANIFEST.features.physicalGoodsEnabled),
       physicalGoodsManualFulfillment:  parseBool(kv["physical_goods_fulfillment_manual"]  ?? "true",  DEFAULT_MANIFEST.features.physicalGoodsManualFulfillment),
       physicalGoodsPartnerFulfillment: parseBool(kv["physical_goods_fulfillment_partner"],            DEFAULT_MANIFEST.features.physicalGoodsPartnerFulfillment),
+      moments:                    parseBool(kv["feature_moments"]                   ?? "true",  DEFAULT_MANIFEST.features.moments),
       // BUG-MANIFEST-01: populate vipRoomPricing from x_manifest keys
       vipRoomPricing: kv["vip_room_pricing_min_ngn"] && kv["vip_room_pricing_max_ngn"]
         ? {
@@ -415,6 +432,11 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       softNamePlural:      unquote(kv["currency_soft_name_plural"])      ?? DEFAULT_MANIFEST.currency.softNamePlural,
       premiumNameSingular: unquote(kv["currency_premium_name_singular"]) ?? DEFAULT_MANIFEST.currency.premiumNameSingular,
       premiumNamePlural:   unquote(kv["currency_premium_name_plural"])   ?? DEFAULT_MANIFEST.currency.premiumNamePlural,
+    },
+    moments: {
+      costCredits: parseInt10(kv["moments_cost_credits"], DEFAULT_MANIFEST.moments.costCredits),
+      costStars:   parseInt10(kv["moments_cost_stars"],   DEFAULT_MANIFEST.moments.costStars),
+      minLevel:    parseInt10(kv["moments_min_level"],    DEFAULT_MANIFEST.moments.minLevel),
     },
     warEventCooldownHours: parseInt10(kv["war_event_cooldown_hours"], DEFAULT_MANIFEST.warEventCooldownHours),
     auth: {

@@ -477,7 +477,8 @@ export type CoinTransactionType =
   | 'game_wager'
   | 'game_payout'
   | 'game_refund'
-  | 'game_play_cost';
+  | 'game_play_cost'
+  | 'moment_created';
 
 export interface CoinLedgerEntry {
   id: string;

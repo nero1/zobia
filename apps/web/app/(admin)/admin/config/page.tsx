@@ -340,6 +340,32 @@ const CONFIG_META: Record<string, ConfigMeta> = {
     ],
   },
 
+  // Moments
+  feature_moments: {
+    label: "Enable Moments",
+    description: "Master toggle for Zobia Moments (the /moments feed and the in-Room ⚡ toggle). When off, all Moments endpoints return 503.",
+    type: "boolean",
+    group: "Moments",
+  },
+  moments_min_level: {
+    label: "Minimum Level to Post",
+    description: "Minimum account level (main rank number, 1 = Beginner, 2 = Rookie, …) required to share a Moment. Default: 2.",
+    type: "number",
+    group: "Moments",
+  },
+  moments_cost_credits: {
+    label: "Cost in Credits",
+    description: "Credits charged to post a Moment. Set to 0 to disable paying with Credits. Default: 100.",
+    type: "number",
+    group: "Moments",
+  },
+  moments_cost_stars: {
+    label: "Cost in Stars",
+    description: "Stars charged to post a Moment. Set to 0 to disable paying with Stars. Setting both costs to 0 makes Moments free. Default: 1.",
+    type: "number",
+    group: "Moments",
+  },
+
   // Physical Goods
   physical_goods_enabled: {
     label: "Allow Physical Product Sales",
@@ -410,6 +436,7 @@ const GROUP_ORDER = [
   "AI Moderation",
   "Guild Wars",
   "Messaging",
+  "Moments",
   "Physical Goods",
   "Miscellaneous",
 ];

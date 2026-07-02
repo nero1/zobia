@@ -54,16 +54,22 @@ Multi-member messaging via `POST /api/messages/group/[groupId]`, stored in the `
 
 ### Moments
 
-Moments are short-lived posts (photos, GIFs, text snippets, or in-room ⚡ clips) that expire after 24 hours. The feature is accessible via the `/moments` feed page and `/moments/create`.
+Moments are short-lived posts (text, optionally one image) that expire 24 hours after creation. The feature is accessible via the `/moments` feed page, `/moments/create`, and the in-Room ⚡ "Moment" toggle on the message composer — all three write to the *same* `moments` table, via the shared `createMoment()` pipeline in `apps/web/lib/moments/service.ts`.
 
 **How they work:**
-- Users create moments via `POST /api/moments` (web) or the in-room ⚡ button (both platforms).
-- The feed is served by `GET /api/moments` — sorted by recency, filtered to non-expired content.
+- **Feed page** (`POST /api/moments`, web + Android Capacitor app) and the **Room ⚡ toggle** (`POST /api/rooms/:roomId/messages` with `messageType: "moment"`) both call `createMoment()`, so a Moment sent from inside a Room shows up on the public `/moments` feed for every user, not just Room members.
+- The feed is served by `GET /api/moments` — a **public, cross-user** feed (every non-expired Moment from every user, newest first), cursor-paginated (`?cursor=<created_at>&limit=<n>`, capped at 50/page) via the `idx_moments_active_feed` index so it stays fast at thousands of Moments/day. It is not filtered to the caller's follows.
+- **Eligibility & pricing** (all admin-configurable via `/admin/config`, backed by `x_manifest` and cached in `ZobiaManifest.moments`):
+  - `moments_min_level` (default `2`) — minimum main-rank level required to post.
+  - `moments_cost_credits` (default `100`) and `moments_cost_stars` (default `1`) — either currency is accepted when both are priced > 0; set a cost to `0` to disable that currency, set both to `0` to make Moments free.
+  - `feature_moments` — master on/off toggle (`requireFeatureEnabled("moments")`).
+  - A user without enough of either currency gets a structured `INSUFFICIENT_MOMENT_FUNDS` (402) error before anything is charged or posted; the client renders this as a popup ("You do not have enough Credits and/or Stars to create a moment…") rather than a silent failure.
+  - Charging (`debitCoins`/`debitStars`) and the `moments` row insert happen inside one DB transaction, so a failed insert never leaves a user charged for a Moment that was never created.
 - The daily CRON expires moments by comparing `expires_at` against `NOW()`. No data is deleted — rows remain in the DB with `expires_at` in the past.
-- Reactions (`❤️`, `🔥`, `😂`, `😮`, `😢`) are stored in `moment_reactions` and served via `GET /api/moments/[id]/reactions`.
-- Moments are available in the Sidebar and Navbar navigation (`/moments`).
+- Reactions (`❤️`, `🔥`, `😂`, `😮`, `👏`, `💯`, `🎉`, `👀`) are stored in `moment_reactions`, written via `POST /api/moments/[id]/reactions`, and now also returned inline (per-emoji counts + `userReacted`) from `GET /api/moments` so reactions persist across a page refresh instead of resetting to 0.
+- Moments are available in the Sidebar/Navbar navigation on web (`/moments`) and in the drawer navigation + `⚡` Room composer button on the Capacitor Android app.
 
-**Offline support (Expo):** Moments are not queued for offline send — they require an active connection to upload media. The room ⚡ button is disabled while offline.
+**Offline support:** Moments are not queued for offline send on any platform — they require an active connection to upload media. The room ⚡ button is disabled while offline.
 
 ---
 

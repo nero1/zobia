@@ -14,15 +14,17 @@ import { Route as NotificationsRouteImport } from './routes/notifications'
 import { Route as HomeRouteImport } from './routes/home'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as RoomsIndexRouteImport } from './routes/rooms/index'
+import { Route as MomentsIndexRouteImport } from './routes/moments/index'
 import { Route as MessagesIndexRouteImport } from './routes/messages/index'
 import { Route as GamesIndexRouteImport } from './routes/games/index'
 import { Route as RoomsRoomIdRouteImport } from './routes/rooms/$roomId'
 import { Route as ProfileUsernameRouteImport } from './routes/profile/$username'
+import { Route as MomentsCreateRouteImport } from './routes/moments/create'
 import { Route as MessagesConversationIdRouteImport } from './routes/messages/$conversationId'
 import { Route as GamesSlugRouteImport } from './routes/games/$slug'
+import { Route as AuthTwoFactorRouteImport } from './routes/auth/two-factor'
 import { Route as AuthRegisterRouteImport } from './routes/auth/register'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
-import { Route as AuthTwoFactorRouteImport } from './routes/auth/two-factor'
 
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
@@ -49,6 +51,11 @@ const RoomsIndexRoute = RoomsIndexRouteImport.update({
   path: '/rooms/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MomentsIndexRoute = MomentsIndexRouteImport.update({
+  id: '/moments/',
+  path: '/moments/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const MessagesIndexRoute = MessagesIndexRouteImport.update({
   id: '/messages/',
   path: '/messages/',
@@ -69,6 +76,11 @@ const ProfileUsernameRoute = ProfileUsernameRouteImport.update({
   path: '/profile/$username',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MomentsCreateRoute = MomentsCreateRouteImport.update({
+  id: '/moments/create',
+  path: '/moments/create',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const MessagesConversationIdRoute = MessagesConversationIdRouteImport.update({
   id: '/messages/$conversationId',
   path: '/messages/$conversationId',
@@ -79,6 +91,11 @@ const GamesSlugRoute = GamesSlugRouteImport.update({
   path: '/games/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthTwoFactorRoute = AuthTwoFactorRouteImport.update({
+  id: '/auth/two-factor',
+  path: '/auth/two-factor',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthRegisterRoute = AuthRegisterRouteImport.update({
   id: '/auth/register',
   path: '/auth/register',
@@ -87,11 +104,6 @@ const AuthRegisterRoute = AuthRegisterRouteImport.update({
 const AuthLoginRoute = AuthLoginRouteImport.update({
   id: '/auth/login',
   path: '/auth/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthTwoFactorRoute = AuthTwoFactorRouteImport.update({
-  id: '/auth/two-factor',
-  path: '/auth/two-factor',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -105,10 +117,12 @@ export interface FileRoutesByFullPath {
   '/auth/two-factor': typeof AuthTwoFactorRoute
   '/games/$slug': typeof GamesSlugRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
+  '/moments/create': typeof MomentsCreateRoute
   '/profile/$username': typeof ProfileUsernameRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
   '/games/': typeof GamesIndexRoute
   '/messages/': typeof MessagesIndexRoute
+  '/moments/': typeof MomentsIndexRoute
   '/rooms/': typeof RoomsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -121,10 +135,12 @@ export interface FileRoutesByTo {
   '/auth/two-factor': typeof AuthTwoFactorRoute
   '/games/$slug': typeof GamesSlugRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
+  '/moments/create': typeof MomentsCreateRoute
   '/profile/$username': typeof ProfileUsernameRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
   '/games': typeof GamesIndexRoute
   '/messages': typeof MessagesIndexRoute
+  '/moments': typeof MomentsIndexRoute
   '/rooms': typeof RoomsIndexRoute
 }
 export interface FileRoutesById {
@@ -138,10 +154,12 @@ export interface FileRoutesById {
   '/auth/two-factor': typeof AuthTwoFactorRoute
   '/games/$slug': typeof GamesSlugRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
+  '/moments/create': typeof MomentsCreateRoute
   '/profile/$username': typeof ProfileUsernameRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
   '/games/': typeof GamesIndexRoute
   '/messages/': typeof MessagesIndexRoute
+  '/moments/': typeof MomentsIndexRoute
   '/rooms/': typeof RoomsIndexRoute
 }
 export interface FileRouteTypes {
@@ -156,10 +174,12 @@ export interface FileRouteTypes {
     | '/auth/two-factor'
     | '/games/$slug'
     | '/messages/$conversationId'
+    | '/moments/create'
     | '/profile/$username'
     | '/rooms/$roomId'
     | '/games/'
     | '/messages/'
+    | '/moments/'
     | '/rooms/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -172,10 +192,12 @@ export interface FileRouteTypes {
     | '/auth/two-factor'
     | '/games/$slug'
     | '/messages/$conversationId'
+    | '/moments/create'
     | '/profile/$username'
     | '/rooms/$roomId'
     | '/games'
     | '/messages'
+    | '/moments'
     | '/rooms'
   id:
     | '__root__'
@@ -188,10 +210,12 @@ export interface FileRouteTypes {
     | '/auth/two-factor'
     | '/games/$slug'
     | '/messages/$conversationId'
+    | '/moments/create'
     | '/profile/$username'
     | '/rooms/$roomId'
     | '/games/'
     | '/messages/'
+    | '/moments/'
     | '/rooms/'
   fileRoutesById: FileRoutesById
 }
@@ -205,10 +229,12 @@ export interface RootRouteChildren {
   AuthTwoFactorRoute: typeof AuthTwoFactorRoute
   GamesSlugRoute: typeof GamesSlugRoute
   MessagesConversationIdRoute: typeof MessagesConversationIdRoute
+  MomentsCreateRoute: typeof MomentsCreateRoute
   ProfileUsernameRoute: typeof ProfileUsernameRoute
   RoomsRoomIdRoute: typeof RoomsRoomIdRoute
   GamesIndexRoute: typeof GamesIndexRoute
   MessagesIndexRoute: typeof MessagesIndexRoute
+  MomentsIndexRoute: typeof MomentsIndexRoute
   RoomsIndexRoute: typeof RoomsIndexRoute
 }
 
@@ -249,6 +275,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RoomsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/moments/': {
+      id: '/moments/'
+      path: '/moments'
+      fullPath: '/moments/'
+      preLoaderRoute: typeof MomentsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/messages/': {
       id: '/messages/'
       path: '/messages'
@@ -277,6 +310,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProfileUsernameRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/moments/create': {
+      id: '/moments/create'
+      path: '/moments/create'
+      fullPath: '/moments/create'
+      preLoaderRoute: typeof MomentsCreateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/messages/$conversationId': {
       id: '/messages/$conversationId'
       path: '/messages/$conversationId'
@@ -289,6 +329,13 @@ declare module '@tanstack/react-router' {
       path: '/games/$slug'
       fullPath: '/games/$slug'
       preLoaderRoute: typeof GamesSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth/two-factor': {
+      id: '/auth/two-factor'
+      path: '/auth/two-factor'
+      fullPath: '/auth/two-factor'
+      preLoaderRoute: typeof AuthTwoFactorRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth/register': {
@@ -305,13 +352,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/auth/two-factor': {
-      id: '/auth/two-factor'
-      path: '/auth/two-factor'
-      fullPath: '/auth/two-factor'
-      preLoaderRoute: typeof AuthTwoFactorRouteImport
-      parentRoute: typeof rootRouteImport
-    }
   }
 }
 
@@ -325,10 +365,12 @@ const rootRouteChildren: RootRouteChildren = {
   AuthTwoFactorRoute: AuthTwoFactorRoute,
   GamesSlugRoute: GamesSlugRoute,
   MessagesConversationIdRoute: MessagesConversationIdRoute,
+  MomentsCreateRoute: MomentsCreateRoute,
   ProfileUsernameRoute: ProfileUsernameRoute,
   RoomsRoomIdRoute: RoomsRoomIdRoute,
   GamesIndexRoute: GamesIndexRoute,
   MessagesIndexRoute: MessagesIndexRoute,
+  MomentsIndexRoute: MomentsIndexRoute,
   RoomsIndexRoute: RoomsIndexRoute,
 }
 export const routeTree = rootRouteImport

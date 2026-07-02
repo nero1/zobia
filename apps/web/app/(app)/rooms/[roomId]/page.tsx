@@ -24,6 +24,7 @@ import { useRealtimeChannel } from "@/lib/realtime/useRealtimeChannel";
 import { useAdaptiveChatPoll } from "@/lib/hooks/useAdaptiveChatPoll";
 import { authFetch } from "@/lib/api/authFetch";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { useMomentsConfig } from "@/lib/hooks/useMomentsConfig";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { readCachedMessages, writeCachedMessages } from "@/lib/chat/messageCache";
 
@@ -740,6 +741,10 @@ interface RoomInputBarProps {
   lastOwnMessageId: string | null;
   isMoment: boolean;
   onMomentToggle: () => void;
+  momentCurrency: "credits" | "stars";
+  onMomentCurrencyChange: (currency: "credits" | "stars") => void;
+  momentError: { message: string; costCredits?: number; costStars?: number } | null;
+  onDismissMomentError: () => void;
   onSend: (e: React.FormEvent) => void;
   onMessageSent: (msg: Message) => void;
 }
@@ -754,10 +759,16 @@ function RoomInputBar({
   lastOwnMessageId,
   isMoment,
   onMomentToggle,
+  momentCurrency,
+  onMomentCurrencyChange,
+  momentError,
+  onDismissMomentError,
   onSend,
   onMessageSent,
 }: RoomInputBarProps) {
   const { t } = useTranslation();
+  const currency = useCurrency();
+  const momentsConfig = useMomentsConfig();
   const [showGif, setShowGif] = useState(false);
   const [showSticker, setShowSticker] = useState(false);
   const [showPowers, setShowPowers] = useState(false);
@@ -826,10 +837,53 @@ function RoomInputBar({
 
       {/* Moment mode indicator */}
       {isMoment && (
-        <div className="flex items-center gap-1.5 border-b border-purple-200 bg-purple-50 px-3 py-1.5 dark:border-purple-900 dark:bg-purple-950/40">
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-purple-200 bg-purple-50 px-3 py-1.5 dark:border-purple-900 dark:bg-purple-950/40">
           <span className="text-sm">⚡</span>
           <span className="text-xs font-semibold text-purple-700 dark:text-purple-300">Moment · disappears in 24h</span>
+          {!momentsConfig.isFree && (
+            <span className="text-xs text-purple-600 dark:text-purple-400">
+              · Costs {momentCurrency === "credits" ? momentsConfig.costCredits : momentsConfig.costStars}{" "}
+              {momentCurrency === "credits" ? currency.softPlural : currency.premiumPlural}
+            </span>
+          )}
+          {momentsConfig.costCredits > 0 && momentsConfig.costStars > 0 && (
+            <div className="ml-1 flex overflow-hidden rounded-lg border border-purple-300 text-xs dark:border-purple-700">
+              <button
+                type="button"
+                onClick={() => onMomentCurrencyChange("credits")}
+                className={`px-2 py-0.5 font-semibold transition-colors ${momentCurrency === "credits" ? "bg-purple-600 text-white" : "bg-white text-purple-700 dark:bg-neutral-900 dark:text-purple-300"}`}
+              >
+                {currency.softPlural}
+              </button>
+              <button
+                type="button"
+                onClick={() => onMomentCurrencyChange("stars")}
+                className={`px-2 py-0.5 font-semibold transition-colors ${momentCurrency === "stars" ? "bg-purple-600 text-white" : "bg-white text-purple-700 dark:bg-neutral-900 dark:text-purple-300"}`}
+              >
+                {currency.premiumPlural}
+              </button>
+            </div>
+          )}
           <button type="button" onClick={onMomentToggle} className="ml-auto text-xs text-purple-500 hover:text-purple-700 dark:hover:text-purple-300">Cancel</button>
+        </div>
+      )}
+
+      {/* Moment error — insufficient funds or level too low */}
+      {momentError && (
+        <div className="flex items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2.5 dark:border-amber-800 dark:bg-amber-950/40">
+          <p className="text-xs text-amber-800 dark:text-amber-300">{momentError.message}</p>
+          <div className="flex shrink-0 gap-2">
+            {typeof momentError.costCredits === "number" && (
+              <Link
+                href="/wallet?buy=true"
+                onClick={onDismissMomentError}
+                className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600"
+              >
+                Buy {currency.softPlural}
+              </Link>
+            )}
+            <button onClick={onDismissMomentError} className="text-xs text-amber-600 hover:text-amber-800 dark:text-amber-400">✕</button>
+          </div>
         </div>
       )}
 
@@ -1169,6 +1223,8 @@ export default function RoomPage() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [isMoment, setIsMoment] = useState(false);
+  const [momentCurrency, setMomentCurrency] = useState<"credits" | "stars">("credits");
+  const [momentError, setMomentError] = useState<{ message: string; costCredits?: number; costStars?: number } | null>(null);
   const [subscribing, setSubscribing] = useState(false);
   const [paying, setPaying] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -1454,13 +1510,19 @@ export default function RoomPage() {
     e.preventDefault();
     if (!input.trim() || sending) return;
     setSending(true);
+    setMomentError(null);
     const momentFlag = isMoment;
     const content = input.trim();
-    setInput("");
-    if (momentFlag) setIsMoment(false);
     try {
       const body: Record<string, unknown> = { content };
-      if (momentFlag) body.message_type = "moment";
+      // BUG FIX: the request schema expects camelCase `messageType`, not
+      // `message_type` — the old snake_case key was silently stripped by
+      // zod's .parse(), so every "moment" send was stored as a plain text
+      // message and never appeared on /moments.
+      if (momentFlag) {
+        body.messageType = "moment";
+        body.currency = momentCurrency;
+      }
       // authFetch raises the app-wide "signed out" notice if the session has
       // expired while this room stayed open — so attempting to send surfaces it.
       const res = await authFetch(`/api/rooms/${roomId}/messages`, {
@@ -1468,7 +1530,27 @@ export default function RoomPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error("Failed to send");
+      if (!res.ok) {
+        const d = (await res.json().catch(() => ({}))) as {
+          error?: { code?: string; message?: string; params?: { costCredits?: number; costStars?: number; minLevel?: number; currentLevel?: number } };
+        };
+        const code = d.error?.code;
+        if (code === "INSUFFICIENT_MOMENT_FUNDS") {
+          setMomentError({
+            message: d.error?.message ?? "You don't have enough Credits or Stars to share a Moment.",
+            costCredits: d.error?.params?.costCredits,
+            costStars: d.error?.params?.costStars,
+          });
+          return;
+        }
+        if (code === "MOMENTS_LEVEL_TOO_LOW") {
+          setMomentError({ message: d.error?.message ?? "You need a higher level to share Moments." });
+          return;
+        }
+        throw new Error(d.error?.message ?? "Failed to send");
+      }
+      setInput("");
+      if (momentFlag) setIsMoment(false);
       const data = (await res.json()) as { message?: Message };
       if (data.message) handleIncomingMessage(data.message);
       // Snap the baseline poll back to the fast cadence so a reply to the
@@ -1698,7 +1780,11 @@ export default function RoomPage() {
                 messages.filter((m) => m.userId === currentUserId).at(-1)?.id ?? null
               }
               isMoment={isMoment}
-              onMomentToggle={() => setIsMoment((v) => !v)}
+              onMomentToggle={() => { setIsMoment((v) => !v); setMomentError(null); }}
+              momentCurrency={momentCurrency}
+              onMomentCurrencyChange={setMomentCurrency}
+              momentError={momentError}
+              onDismissMomentError={() => setMomentError(null)}
               onSend={handleSend}
               onMessageSent={(msg) =>
                 setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]))
