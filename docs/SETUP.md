@@ -1308,6 +1308,21 @@ When enabled, users can add contextual notes to flagged content and vote notes a
 
 ---
 
+## Zobia Answers Feature (Mini Forum / Q&A)
+
+Zobia Answers is an admin-toggleable Reddit-style Q&A feature (PRD §31). No new CRON job is required — all rewards and moderation run synchronously on the write path.
+
+- **Toggle:** In the admin panel under Feature Flags (or `/admin/config` → "Zobia Answers"), set `feature_forum` to on/off. Default: enabled.
+- **User UI:** Available at `/answers` in the web app and PWA, and `apps/android/src/routes/answers/**` in the Capacitor Android app (reached via the drawer menu).
+- **Admin/moderator panel:** `/admin/forum` (dashboard), `/admin/forum/queue` (moderation queue — accessible to `is_moderator` users, not just `is_admin`), `/admin/forum/posts` (post management), `/admin/forum/settings` (level gates, reward amounts, daily reward cap).
+- **Config keys** (editable at `/admin/config` → "Zobia Answers" group, or `/admin/forum/settings`): `feature_forum`, `forum_min_level_to_post`, `forum_min_level_to_comment`, `forum_comment_bypass_cost_credits`, `forum_reward_xp_per_question`, `forum_reward_credits_per_question`, `forum_reward_xp_per_answer`, `forum_reward_credits_per_answer`, `forum_reward_xp_per_upvote`, `forum_reward_credits_per_upvote`, `forum_reward_xp_best_answer`, `forum_reward_credits_best_answer`, `forum_daily_reward_cap_credits`, `forum_auto_moderation_enabled`.
+- **API:** see `docs/HOW-IT-WORKS.md` → "Zobia Answers (Mini Forum / Q&A)" for the full route table.
+- **Expo:** not ported — the Expo app is being discontinued in favor of the Capacitor Android app.
+
+When enabled, users above the configured level can post questions; anyone above the (lower) comment-level threshold can answer for free, and users below it can pay Credits to comment immediately instead of leveling up. Trending is computed live from a recency-windowed vote/answer-activity query — no cached "trending" cron refresh is needed.
+
+---
+
 ## Gift Spectacle Threshold (Creator Setting)
 
 Room creators can configure the minimum gift value (in coins) required to trigger the full room-wide spectacle animation (PRD §12).

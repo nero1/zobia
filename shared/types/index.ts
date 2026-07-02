@@ -478,7 +478,12 @@ export type CoinTransactionType =
   | 'game_payout'
   | 'game_refund'
   | 'game_play_cost'
-  | 'moment_created';
+  | 'moment_created'
+  | 'forum_question_reward'
+  | 'forum_answer_reward'
+  | 'forum_upvote_reward'
+  | 'forum_best_answer_reward'
+  | 'forum_comment_bypass';
 
 export interface CoinLedgerEntry {
   id: string;

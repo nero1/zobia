@@ -118,6 +118,7 @@ function AppShell() {
     if (pathname.startsWith('/rooms')) return t('rooms.title');
     if (pathname.startsWith('/messages')) return t('messages.title');
     if (pathname.startsWith('/moments')) return t('moments.title');
+    if (pathname.startsWith('/answers')) return t('answers.title');
     if (pathname === '/notifications') return t('notifications.title');
     if (pathname.startsWith('/profile')) return t('profile.title');
     if (pathname === '/settings') return t('settings.title');

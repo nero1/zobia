@@ -148,6 +148,7 @@ export async function createSession(
       email: user.email ?? "",
       username: user.username,
       is_admin: user.is_admin,
+      is_moderator: user.is_moderator,
       sid,
       ...(typeof user.onboarding_completed === "boolean"
         ? { onboarding_completed: user.onboarding_completed }
@@ -376,6 +377,7 @@ export async function refreshAccessToken(
       ...(currentEmail ? { email: currentEmail } : {}),
       username: session.username,
       is_admin: session.is_admin,
+      is_moderator: session.is_moderator,
       sid: session.sid,
     }, accessTtl),
     signRefreshToken(session.uid, session.sid, refreshTtl),

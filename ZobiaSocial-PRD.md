@@ -2064,6 +2064,129 @@ references. Documented as a known limitation, acceptable for friendly arcade pla
 
 ---
 
+## 31. Zobia Answers — Mini Forum (Q&A) (v1.96)
+
+A Reddit-style community Q&A: users ask questions, others answer with
+Reddit-style nested (indented) replies, everyone can upvote/downvote, and
+questions can be favorited. Built to reuse the platform's existing economy,
+progression, moderation and admin infrastructure rather than introducing a
+parallel system.
+
+### 31.1 Overview
+
+- **Main page** (`/answers`, web/PWA; `/answers` in the Capacitor Android
+  app) has four tabs: **Popular** (highest vote score), **Trending**
+  (recency-windowed vote+answer activity in the last 48h), **New** (most
+  recent), and **Favorites** (the caller's favorited questions). Cursor-based
+  pagination ("Load More" on web, infinite-scroll on Android) — no full
+  table scans as content grows.
+- **Question detail** (`/answers/:id`) shows the question, an upvote/
+  downvote column, a favorite toggle, and threaded answers rendered with
+  Reddit-style left-border indentation per nesting level (visually capped
+  at depth 6; the data model supports nesting to depth 10). Deep branches
+  show **"View N more replies →"**, lazily loading the rest of that
+  specific subtree via a bounded recursive query — the initial page load
+  only eagerly fetches the first 3 replies per top-level answer.
+- **Voting**: one vote per user per question/answer (toggle off by voting
+  the same direction again; switch by voting the other direction), enforced
+  by a unique `(target_type, target_id, user_id)` constraint. Self-voting is
+  blocked. Vote/favorite state for the caller is joined into the list/detail
+  SQL query directly (no per-item Redis lookups) — a scalability discipline
+  used platform-wide for feed-style data (rooms, games).
+- **Best answer**: the question's author (or a moderator/admin) can mark one
+  answer as best, shown with a ✓ badge.
+
+### 31.2 Who can post, who can comment
+
+- **Posting a question** requires a minimum account level, admin-configurable
+  at `/admin/config` → "Zobia Answers" (and mirrored at `/admin/forum/settings`)
+  — `forum_min_level_to_post` (default: Level 2).
+- **Commenting (answering)** has a separate, lower minimum level —
+  `forum_min_level_to_comment` (default: Level 1, i.e. effectively open).
+  A user below that level can still comment immediately by spending an
+  admin-configured number of Credits instead of leveling up
+  (`forum_comment_bypass_cost_credits`, default: 1 Credit).
+
+### 31.3 Rewards
+
+Admin-configurable at `/admin/config` and `/admin/forum/settings` (both
+surfaces edit the same `x_manifest` rows):
+
+| Action | Default XP | Default Credits |
+|---|---|---|
+| Post a question | 10 | 0 |
+| Post an answer | 5 | 0 |
+| Receive a net new upvote | 1 | 0 |
+| Have an answer marked best | 25 | 10 |
+
+Credit rewards default to 0 for questions/answers/upvotes (XP-only) to limit
+vote-farming abuse via alt accounts; admins can turn credit rewards on.
+A **daily reward cap** (`forum_daily_reward_cap_credits`, default 50)
+bounds total forum-sourced Credit rewards a single user can earn per
+rolling 24h — an anti-farming ceiling independent of the per-action amounts.
+XP is awarded on the existing **Knowledge** progression track.
+
+### 31.4 Moderation & spam filtering
+
+Reuses the platform's existing rules-based content filter
+(`lib/moderation/contentFilter.ts`) rather than a parallel system: new
+questions/answers are checked for **duplicate-post spam** (same author,
+same normalized text, within 60s) and **profanity** (auto-replaced, not
+blocking) before being stored. A **Report** button on every question/answer
+feeds into the same `moderation_reports` pipeline and AI classifier
+(DeepSeek primary, Gemini fallback) used by the rest of the platform — no
+separate report queue or AI integration was built.
+
+### 31.5 Admin & moderator control panel
+
+- **`/admin/forum`**: dashboard (pending reports, today's question/answer
+  counts, top posters this week).
+- **`/admin/forum/queue`**: moderation queue (Pending / Resolved / Escalated
+  tabs) for reports targeting forum content, with one-click Dismiss / Warn /
+  Remove Content / Suspend / Ban actions.
+- **`/admin/forum/posts`**: paginated question/answer management table —
+  remove, restore, lock/unlock a question's answers.
+- **`/admin/forum/settings`**: the same level-gate/reward/moderation config
+  as `/admin/config` → "Zobia Answers", exposed in a focused, dedicated view.
+- **Moderator access is scoped**: `is_moderator` users (not just `is_admin`)
+  can reach `/admin/forum/*` — the queue and posts pages — but not the rest
+  of the admin panel. `ban_user` and reversing a removal (`restore`),
+  locking/unlocking a question remain admin-only actions within
+  `/admin/forum/*`, mirroring the existing admin/moderator split used for
+  room moderation. All actions are logged to the shared `admin_actions`/
+  `moderation_actions` audit trail and to a forum-specific
+  `forum_moderation_log`.
+
+### 31.6 Cross-platform
+
+- **Web/PWA**: `apps/web/app/(app)/answers/**`. Reads flow through
+  TanStack Query, which is already persisted to `localStorage`
+  (`lib/offline/queryPersist.ts`) — Zobia Answers gets offline read caching
+  for free, no new offline mechanism was built. Posting requires a live
+  server-side level/credit check, so writes are not queued for offline
+  replay.
+- **Capacitor Android**: `apps/android/src/routes/answers/**`, hand-ported
+  (per this app's existing convention — components aren't shared across
+  apps, only `@zobia/shared` types) to closely mirror the web/PWA UI,
+  reached via the drawer menu (not a 7th bottom-nav tab). Uses the same
+  `idb-keyval`-backed query persister already wired into the app for
+  offline read caching.
+- **Expo app**: intentionally not touched — the Expo app is being
+  discontinued in favor of the Capacitor Android app.
+
+### 31.7 Data model
+
+New tables: `forum_questions`, `forum_answers` (self-referencing
+`parent_answer_id` for nesting, denormalized `depth`), `forum_votes`
+(polymorphic `target_type`/`target_id`, unique per user), `forum_favorites`,
+`forum_moderation_log`. The existing `reports`/`moderation_reports` tables
+gained two new nullable FK columns (`reported_forum_question_id`,
+`reported_forum_answer_id`), following the same discrete-FK convention
+already used for `reported_message_id`/`reported_room_id`/`reported_guild_id`
+— no new moderation infrastructure was needed.
+
+---
+
 ## Appendix A: The Anti-Dead-App Checklist
 
 Every feature decision on Zobia is tested against this checklist. If any answer is "no," the feature needs revision.
@@ -3181,6 +3304,32 @@ On `/gifts`, "Browse gift catalog" was a bare underlined text link next to the p
 
 ---
 
-*ZobiaSocial PRD v1.95*
+## Appendix: Version 1.96 Change Log
+
+### v1.96 — Changelog
+
+#### New Feature: Zobia Answers — Mini Forum (Q&A)
+
+Added a Reddit-style community Q&A feature (§31): users ask questions
+(gated by an admin-configurable minimum level, default Level 2), others
+answer with nested/indented replies (a separate, lower comment-level gate
+that can be bypassed by spending Credits), everyone can upvote/downvote and
+favorite. Ships on web/PWA (`/answers`) and the Capacitor Android app
+(`apps/android/src/routes/answers/**`), reusing the platform's existing
+economy (`lib/economy/coins.ts`, `safeAwardXP`), content-moderation
+(`lib/moderation/contentFilter.ts`), reporting (`moderation_reports`,
+AI classifier), and admin-panel patterns rather than introducing parallel
+infrastructure. New admin/moderator control panel at `/admin/forum/*`
+(dashboard, moderation queue, post management, settings) — moderators get
+scoped access to this section only, not the full admin panel. New DB tables:
+`forum_questions`, `forum_answers`, `forum_votes`, `forum_favorites`,
+`forum_moderation_log`; two new nullable columns on `reports`/
+`moderation_reports` for forum-target reports. New manifest config block
+(`ZobiaManifest.forum`) covering level gates, comment-bypass cost, and
+per-action XP/Credit rewards with a daily reward cap to bound farming.
+
+---
+
+*ZobiaSocial PRD v1.96*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

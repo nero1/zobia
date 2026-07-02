@@ -51,6 +51,11 @@ type PublicManifest = {
     costStars: number;
     minLevel: number;
   };
+  forum: {
+    minLevelToPost: number;
+    minLevelToComment: number;
+    commentBypassCostCredits: number;
+  };
 };
 
 // ---------------------------------------------------------------------------
@@ -105,6 +110,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         costCredits: manifest.moments.costCredits,
         costStars: manifest.moments.costStars,
         minLevel: manifest.moments.minLevel,
+      },
+      forum: {
+        minLevelToPost: manifest.forum.minLevelToPost,
+        minLevelToComment: manifest.forum.minLevelToComment,
+        commentBypassCostCredits: manifest.forum.commentBypassCostCredits,
       },
     };
 

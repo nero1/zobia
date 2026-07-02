@@ -366,6 +366,92 @@ const CONFIG_META: Record<string, ConfigMeta> = {
     group: "Moments",
   },
 
+  // Zobia Answers (Mini Forum / Q&A) — mirrored at /admin/forum/settings
+  feature_forum: {
+    label: "Enable Zobia Answers",
+    description: "Master toggle for the mini forum (Q&A). When off, all /answers endpoints return 503.",
+    type: "boolean",
+    group: "Zobia Answers",
+  },
+  forum_min_level_to_post: {
+    label: "Minimum Level to Post",
+    description: "Minimum account level required to post a question. Default: 2.",
+    type: "number",
+    group: "Zobia Answers",
+  },
+  forum_min_level_to_comment: {
+    label: "Minimum Level to Comment (Free)",
+    description: "Minimum account level required to answer/comment without paying. Below this level, users can still comment by spending credits. Default: 1.",
+    type: "number",
+    group: "Zobia Answers",
+  },
+  forum_comment_bypass_cost_credits: {
+    label: "Comment Bypass Cost (Credits)",
+    description: "Credits charged to comment when below the comment level gate. Default: 1.",
+    type: "number",
+    group: "Zobia Answers",
+  },
+  forum_reward_xp_per_question: {
+    label: "XP per Question",
+    description: "XP awarded for posting a question. Default: 10.",
+    type: "number",
+    group: "Zobia Answers",
+  },
+  forum_reward_credits_per_question: {
+    label: "Credits per Question",
+    description: "Credits awarded for posting a question. Default: 0.",
+    type: "number",
+    group: "Zobia Answers",
+  },
+  forum_reward_xp_per_answer: {
+    label: "XP per Answer",
+    description: "XP awarded for posting an answer. Default: 5.",
+    type: "number",
+    group: "Zobia Answers",
+  },
+  forum_reward_credits_per_answer: {
+    label: "Credits per Answer",
+    description: "Credits awarded for posting an answer. Default: 0.",
+    type: "number",
+    group: "Zobia Answers",
+  },
+  forum_reward_xp_per_upvote: {
+    label: "XP per Upvote Received",
+    description: "XP awarded to a content author each time their question/answer receives a net new upvote. Default: 1.",
+    type: "number",
+    group: "Zobia Answers",
+  },
+  forum_reward_credits_per_upvote: {
+    label: "Credits per Upvote Received",
+    description: "Credits awarded to a content author each time their question/answer receives a net new upvote. Default: 0.",
+    type: "number",
+    group: "Zobia Answers",
+  },
+  forum_reward_xp_best_answer: {
+    label: "XP for Best Answer",
+    description: "XP awarded to an answer's author when the question author marks it best. Default: 25.",
+    type: "number",
+    group: "Zobia Answers",
+  },
+  forum_reward_credits_best_answer: {
+    label: "Credits for Best Answer",
+    description: "Credits awarded to an answer's author when the question author marks it best. Default: 10.",
+    type: "number",
+    group: "Zobia Answers",
+  },
+  forum_daily_reward_cap_credits: {
+    label: "Daily Reward Cap (Credits)",
+    description: "Maximum total forum-sourced credit rewards a single user can earn per rolling 24h — an anti-farming ceiling. Default: 50.",
+    type: "number",
+    group: "Zobia Answers",
+  },
+  forum_auto_moderation_enabled: {
+    label: "Auto-Moderation",
+    description: "Run profanity and duplicate-post filters on new questions and answers automatically.",
+    type: "boolean",
+    group: "Zobia Answers",
+  },
+
   // Physical Goods
   physical_goods_enabled: {
     label: "Allow Physical Product Sales",
@@ -437,6 +523,7 @@ const GROUP_ORDER = [
   "Guild Wars",
   "Messaging",
   "Moments",
+  "Zobia Answers",
   "Physical Goods",
   "Miscellaneous",
 ];

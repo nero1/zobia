@@ -59,6 +59,7 @@ export interface ZobiaManifest {
     physicalGoodsManualFulfillment: boolean;
     physicalGoodsPartnerFulfillment: boolean;
     moments: boolean;
+    forum: boolean;
     vipRoomPricing?: { minNgn: number; maxNgn: number };
   };
   warEventCooldownHours: number;
@@ -107,6 +108,35 @@ export interface ZobiaManifest {
     costStars: number;
     /** Minimum account level (main rank number, 1 = Beginner) required to post a Moment. */
     minLevel: number;
+  };
+  // Zobia Answers — mini forum / Q&A (admin-editable at /admin/config and /admin/forum/settings)
+  forum: {
+    /** Minimum account level required to post a question. */
+    minLevelToPost: number;
+    /** Minimum account level required to answer/comment for free. */
+    minLevelToComment: number;
+    /** Credits charged to comment when below minLevelToComment (bypass). */
+    commentBypassCostCredits: number;
+    /** XP awarded for posting a question. */
+    rewardXpPerQuestion: number;
+    /** Credits awarded for posting a question. */
+    rewardCreditsPerQuestion: number;
+    /** XP awarded for posting an answer. */
+    rewardXpPerAnswer: number;
+    /** Credits awarded for posting an answer. */
+    rewardCreditsPerAnswer: number;
+    /** XP awarded to a content author per upvote received. */
+    rewardXpPerUpvoteReceived: number;
+    /** Credits awarded to a content author per upvote received. */
+    rewardCreditsPerUpvoteReceived: number;
+    /** XP awarded when an answer is marked best. */
+    rewardXpBestAnswer: number;
+    /** Credits awarded when an answer is marked best. */
+    rewardCreditsBestAnswer: number;
+    /** Ceiling on total forum-sourced credit rewards a user can earn per rolling 24h. */
+    dailyRewardCapCredits: number;
+    /** Run profanity/duplicate auto-moderation on new questions and answers. */
+    autoModerationEnabled: boolean;
   };
   // Platform config
   minimumAge: number;
@@ -213,6 +243,7 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     physicalGoodsManualFulfillment: true,
     physicalGoodsPartnerFulfillment: false,
     moments: true,
+    forum: true,
   },
   currency: {
     softNameSingular: "Credit",
@@ -224,6 +255,21 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     costCredits: 100,
     costStars: 1,
     minLevel: 2,
+  },
+  forum: {
+    minLevelToPost: 2,
+    minLevelToComment: 1,
+    commentBypassCostCredits: 1,
+    rewardXpPerQuestion: 10,
+    rewardCreditsPerQuestion: 0,
+    rewardXpPerAnswer: 5,
+    rewardCreditsPerAnswer: 0,
+    rewardXpPerUpvoteReceived: 1,
+    rewardCreditsPerUpvoteReceived: 0,
+    rewardXpBestAnswer: 25,
+    rewardCreditsBestAnswer: 10,
+    dailyRewardCapCredits: 50,
+    autoModerationEnabled: true,
   },
   warEventCooldownHours: 72,
   auth: {
@@ -419,6 +465,7 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       physicalGoodsManualFulfillment:  parseBool(kv["physical_goods_fulfillment_manual"]  ?? "true",  DEFAULT_MANIFEST.features.physicalGoodsManualFulfillment),
       physicalGoodsPartnerFulfillment: parseBool(kv["physical_goods_fulfillment_partner"],            DEFAULT_MANIFEST.features.physicalGoodsPartnerFulfillment),
       moments:                    parseBool(kv["feature_moments"]                   ?? "true",  DEFAULT_MANIFEST.features.moments),
+      forum:                      parseBool(kv["feature_forum"]                     ?? "true",  DEFAULT_MANIFEST.features.forum),
       // BUG-MANIFEST-01: populate vipRoomPricing from x_manifest keys
       vipRoomPricing: kv["vip_room_pricing_min_ngn"] && kv["vip_room_pricing_max_ngn"]
         ? {
@@ -437,6 +484,21 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       costCredits: parseInt10(kv["moments_cost_credits"], DEFAULT_MANIFEST.moments.costCredits),
       costStars:   parseInt10(kv["moments_cost_stars"],   DEFAULT_MANIFEST.moments.costStars),
       minLevel:    parseInt10(kv["moments_min_level"],    DEFAULT_MANIFEST.moments.minLevel),
+    },
+    forum: {
+      minLevelToPost:                 parseInt10(kv["forum_min_level_to_post"],              DEFAULT_MANIFEST.forum.minLevelToPost),
+      minLevelToComment:              parseInt10(kv["forum_min_level_to_comment"],            DEFAULT_MANIFEST.forum.minLevelToComment),
+      commentBypassCostCredits:       parseInt10(kv["forum_comment_bypass_cost_credits"],     DEFAULT_MANIFEST.forum.commentBypassCostCredits),
+      rewardXpPerQuestion:            parseInt10(kv["forum_reward_xp_per_question"],          DEFAULT_MANIFEST.forum.rewardXpPerQuestion),
+      rewardCreditsPerQuestion:       parseInt10(kv["forum_reward_credits_per_question"],     DEFAULT_MANIFEST.forum.rewardCreditsPerQuestion),
+      rewardXpPerAnswer:              parseInt10(kv["forum_reward_xp_per_answer"],            DEFAULT_MANIFEST.forum.rewardXpPerAnswer),
+      rewardCreditsPerAnswer:         parseInt10(kv["forum_reward_credits_per_answer"],       DEFAULT_MANIFEST.forum.rewardCreditsPerAnswer),
+      rewardXpPerUpvoteReceived:      parseInt10(kv["forum_reward_xp_per_upvote"],            DEFAULT_MANIFEST.forum.rewardXpPerUpvoteReceived),
+      rewardCreditsPerUpvoteReceived: parseInt10(kv["forum_reward_credits_per_upvote"],       DEFAULT_MANIFEST.forum.rewardCreditsPerUpvoteReceived),
+      rewardXpBestAnswer:             parseInt10(kv["forum_reward_xp_best_answer"],           DEFAULT_MANIFEST.forum.rewardXpBestAnswer),
+      rewardCreditsBestAnswer:        parseInt10(kv["forum_reward_credits_best_answer"],      DEFAULT_MANIFEST.forum.rewardCreditsBestAnswer),
+      dailyRewardCapCredits:          parseInt10(kv["forum_daily_reward_cap_credits"],        DEFAULT_MANIFEST.forum.dailyRewardCapCredits),
+      autoModerationEnabled:          parseBool(kv["forum_auto_moderation_enabled"] ?? "true", DEFAULT_MANIFEST.forum.autoModerationEnabled),
     },
     warEventCooldownHours: parseInt10(kv["war_event_cooldown_hours"], DEFAULT_MANIFEST.warEventCooldownHours),
     auth: {
