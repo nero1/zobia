@@ -23,7 +23,7 @@ import { translateApiError } from "@/lib/i18n/apiErrors";
 
 interface CommunityNote {
   id: string;
-  targetType: "message" | "room" | "profile" | "guild";
+  targetType: "message" | "room" | "user" | "guild";
   targetId: string;
   targetSnippet: string | null;
   authorId: string;
@@ -32,13 +32,51 @@ interface CommunityNote {
   content: string;
   helpfulVotes: number;
   unhelpfulVotes: number;
-  status: "pending" | "visible" | "removed";
+  // FIX: community_notes.status is actually needs_review/shown/hidden
+  // (see community_note_votes auto-promote/hide logic) — this page used to
+  // request/render a pending/visible/removed vocabulary that doesn't exist
+  // in the schema, so status filtering silently matched nothing.
+  status: "needs_review" | "shown" | "hidden";
   userVote: "helpful" | "unhelpful" | null;
   createdAt: string;
 }
 
+// Raw row shape returned by GET /api/community-notes (snake_case).
+interface CommunityNoteRow {
+  id: string;
+  target_type: CommunityNote["targetType"];
+  target_id: string;
+  author_id: string;
+  author_username: string;
+  author_avatar_emoji: string;
+  content: string;
+  helpful_votes: number;
+  unhelpful_votes: number;
+  status: string;
+  created_at: string;
+  user_helpful: boolean | null;
+}
+
+function mapNote(row: CommunityNoteRow): CommunityNote {
+  return {
+    id: row.id,
+    targetType: row.target_type,
+    targetId: row.target_id,
+    targetSnippet: null, // FIX: target-snippet resolution isn't implemented server-side yet
+    authorId: row.author_id,
+    authorUsername: row.author_username,
+    authorAvatarEmoji: row.author_avatar_emoji,
+    content: row.content,
+    helpfulVotes: row.helpful_votes,
+    unhelpfulVotes: row.unhelpful_votes,
+    status: (row.status as CommunityNote["status"]) ?? "needs_review",
+    userVote: row.user_helpful === null ? null : row.user_helpful ? "helpful" : "unhelpful",
+    createdAt: row.created_at,
+  };
+}
+
 interface NotesResponse {
-  items: CommunityNote[];
+  items: CommunityNoteRow[];
   nextCursor: string | null;
   hasMore: boolean;
 }
@@ -62,12 +100,12 @@ function statusBadge(status: CommunityNote["status"]): {
   bg: string;
 } {
   switch (status) {
-    case "visible":
-      return { label: "Visible", color: "#166534", bg: "#dcfce7" };
-    case "removed":
-      return { label: "Removed", color: "#991b1b", bg: "#fee2e2" };
+    case "shown":
+      return { label: "Shown", color: "#166534", bg: "#dcfce7" };
+    case "hidden":
+      return { label: "Hidden", color: "#991b1b", bg: "#fee2e2" };
     default:
-      return { label: "Pending", color: "#92400e", bg: "#fef3c7" };
+      return { label: "Needs Review", color: "#92400e", bg: "#fef3c7" };
   }
 }
 
@@ -229,7 +267,7 @@ function NoteCard({ note, onVote, voting }: NoteCardProps) {
       <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{note.content}</p>
 
       {/* Vote buttons */}
-      {note.status !== "removed" && (
+      {note.status !== "hidden" && (
         <div className="flex items-center gap-2 pt-1">
           <button
             onClick={() => onVote(note.id, "helpful")}
@@ -269,7 +307,7 @@ function NoteCard({ note, onVote, voting }: NoteCardProps) {
 // Main page
 // ---------------------------------------------------------------------------
 
-type FilterStatus = "all" | "pending" | "visible" | "removed";
+type FilterStatus = "all" | "needs_review" | "shown" | "hidden";
 
 export default function CommunityNotesPage() {
   const { t } = useTranslation();
@@ -306,11 +344,12 @@ export default function CommunityNotesPage() {
       if (filter !== "all") params.set("status", filter);
       if (beforeCursor) params.set("cursor", beforeCursor);
 
-      const res = await fetch(`/api/community-notes?${params}`);
+      const res = await fetch(`/api/community-notes?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to load community notes");
       const data: NotesResponse = await res.json();
+      const mapped = data.items.map(mapNote);
 
-      setNotes((prev) => (replace ? data.items : [...prev, ...data.items]));
+      setNotes((prev) => (replace ? mapped : [...prev, ...mapped]));
       setCursor(data.nextCursor);
       setHasMore(data.hasMore);
     },
@@ -340,13 +379,18 @@ export default function CommunityNotesPage() {
   const handleVote = useCallback(async (noteId: string, vote: "helpful" | "unhelpful") => {
     setVoting(noteId);
     try {
+      // FIX: the vote route's schema is { helpful: boolean }, not { vote: "helpful"|"unhelpful" }
+      // — sending `vote` always 400'd. Response is also the standard {success,data,error}
+      // envelope, not a bare object.
       const res = await fetch(`/api/community-notes/${noteId}/vote`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vote }),
+        body: JSON.stringify({ helpful: vote === "helpful" }),
       });
       if (!res.ok) throw new Error("Vote failed");
-      const data = await res.json();
+      const json = (await res.json()) as { data: { helpfulVotes: number; unhelpfulVotes: number; helpful: boolean; status: string } };
+      const data = json.data;
       setNotes((prev) =>
         prev.map((n) =>
           n.id === noteId
@@ -354,7 +398,8 @@ export default function CommunityNotesPage() {
                 ...n,
                 helpfulVotes: data.helpfulVotes ?? n.helpfulVotes,
                 unhelpfulVotes: data.unhelpfulVotes ?? n.unhelpfulVotes,
-                userVote: data.userVote ?? vote,
+                status: (data.status as CommunityNote["status"]) ?? n.status,
+                userVote: data.helpful ? "helpful" : "unhelpful",
               }
             : n
         )
@@ -366,9 +411,17 @@ export default function CommunityNotesPage() {
     }
   }, []);
 
+  // KNOWN GAP (not fixed in this pass — a real feature, not a rename/reshape):
+  // POST /api/community-notes requires { targetType, targetId, content } —
+  // every note must be attached to a specific message/room/user/guild. This
+  // modal only collects free-form `content` with no target picker, so
+  // submission here always 400s ("targetType" required). Building a target
+  // picker (or making target optional server-side) is out of scope for a
+  // contract-mismatch fix; left as a follow-up.
   const handleSubmitNote = async (content: string) => {
     const res = await fetch("/api/community-notes", {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content }),
     });
@@ -383,9 +436,9 @@ export default function CommunityNotesPage() {
 
   const FILTERS: { label: string; value: FilterStatus }[] = [
     { label: "All Notes", value: "all" },
-    { label: "Pending", value: "pending" },
-    { label: "Visible", value: "visible" },
-    { label: "Removed", value: "removed" },
+    { label: "Needs Review", value: "needs_review" },
+    { label: "Shown", value: "shown" },
+    { label: "Hidden", value: "hidden" },
   ];
 
   if (featureEnabled === false) {

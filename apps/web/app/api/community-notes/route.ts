@@ -6,8 +6,15 @@ export const dynamic = 'force-dynamic';
  * Community notes — crowdsourced context on flagged content.
  *
  * GET /api/community-notes?targetType=&targetId=
- *   Fetch notes for a target. Returns notes with status='shown' plus any
+ *   Fetch notes for one target. Returns notes with status='shown' plus any
  *   notes authored by the caller.
+ *
+ * GET /api/community-notes?status=&cursor=&limit=
+ *   FIX: the platform-wide Community Notes feed (web app/(app)/community-notes
+ *   and its Android mirror) has always called this endpoint with no
+ *   targetType/targetId — every request 400'd. When both are omitted this
+ *   now returns a global, cursor-paginated feed ordered by created_at DESC,
+ *   optionally filtered by status (needs_review | shown | hidden).
  *
  * POST /api/community-notes
  *   Submit a new community note. Inserted with status 'needs_review'.
@@ -59,13 +66,21 @@ interface CommunityNoteRow {
   target_type: string;
   target_id: string;
   author_id: string;
+  author_username: string;
+  author_avatar_emoji: string;
   content: string;
   helpful_votes: number;
   unhelpful_votes: number;
   status: string;
   created_at: string;
   updated_at: string;
+  user_helpful: boolean | null;
 }
+
+const AUTHOR_JOIN_SELECT = `cn.id, cn.target_type, cn.target_id, cn.author_id,
+       u.username AS author_username, u.avatar_emoji AS author_avatar_emoji,
+       cn.content, cn.helpful_votes, cn.unhelpful_votes, cn.status,
+       cn.created_at, cn.updated_at`;
 
 // ---------------------------------------------------------------------------
 // GET /api/community-notes
@@ -76,51 +91,73 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const { searchParams } = new URL(req.url);
     const targetType = searchParams.get("targetType");
     const targetId = searchParams.get("targetId");
-
-    if (!targetType || !targetId) {
-      throw badRequest("targetType and targetId are required");
-    }
-
-    const validTargetTypes = ["message", "room", "user", "guild"];
-    if (!validTargetTypes.includes(targetType)) {
-      throw badRequest("Invalid targetType");
-    }
-
     const userId = await tryGetUserId(req);
 
-    let rows: CommunityNoteRow[];
+    // Per-target lookup (message/room/user/guild flagged-content notes).
+    if (targetType || targetId) {
+      if (!targetType || !targetId) {
+        throw badRequest("targetType and targetId are required together");
+      }
+      const validTargetTypes = ["message", "room", "user", "guild"];
+      if (!validTargetTypes.includes(targetType)) {
+        throw badRequest("Invalid targetType");
+      }
 
-    if (userId) {
-      const result = await db.query<CommunityNoteRow>(
-        `SELECT id, target_type, target_id, author_id, content,
-                helpful_votes, unhelpful_votes, status, created_at, updated_at
-         FROM community_notes
-         WHERE target_type = $1
-           AND target_id = $2
-           AND (status = 'shown' OR author_id = $3)
-         ORDER BY helpful_votes DESC, created_at DESC`,
+      const { rows } = await db.query<CommunityNoteRow>(
+        `SELECT ${AUTHOR_JOIN_SELECT},
+                (SELECT helpful FROM community_note_votes cnv WHERE cnv.note_id = cn.id AND cnv.user_id = $3) AS user_helpful
+         FROM community_notes cn
+         JOIN users u ON u.id = cn.author_id
+         WHERE cn.target_type = $1
+           AND cn.target_id = $2
+           AND (cn.status = 'shown' OR cn.author_id = $3)
+         ORDER BY cn.helpful_votes DESC, cn.created_at DESC`,
         [targetType, targetId, userId]
       );
-      rows = result.rows;
-    } else {
-      const result = await db.query<CommunityNoteRow>(
-        `SELECT id, target_type, target_id, author_id, content,
-                helpful_votes, unhelpful_votes, status, created_at, updated_at
-         FROM community_notes
-         WHERE target_type = $1
-           AND target_id = $2
-           AND status = 'shown'
-         ORDER BY helpful_votes DESC, created_at DESC`,
-        [targetType, targetId]
-      );
-      rows = result.rows;
+
+      return NextResponse.json({ items: rows, nextCursor: null, hasMore: false });
     }
 
-    return NextResponse.json({
-      success: true,
-      data: { notes: rows },
-      error: null,
-    });
+    // Global feed — no target filter.
+    const status = searchParams.get("status");
+    const validStatuses = ["needs_review", "shown", "hidden"];
+    const cursor = searchParams.get("cursor");
+    const limit = Math.min(parseInt(searchParams.get("limit") ?? "20", 10) || 20, 50);
+
+    const conditions: string[] = [];
+    const params: (string | number | null)[] = [];
+    let i = 1;
+    if (status && validStatuses.includes(status)) {
+      conditions.push(`cn.status = $${i++}`);
+      params.push(status);
+    }
+    if (cursor) {
+      const cursorMs = parseInt(cursor, 10);
+      if (!Number.isFinite(cursorMs) || cursorMs <= 0) throw badRequest("Invalid cursor");
+      conditions.push(`cn.created_at < $${i++}`);
+      params.push(new Date(cursorMs).toISOString());
+    }
+    const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    params.push(userId);
+    const userIdParamIdx = i++;
+    params.push(limit);
+    const limitParamIdx = i;
+
+    const { rows } = await db.query<CommunityNoteRow>(
+      `SELECT ${AUTHOR_JOIN_SELECT},
+              (SELECT helpful FROM community_note_votes cnv WHERE cnv.note_id = cn.id AND cnv.user_id = $${userIdParamIdx}) AS user_helpful
+       FROM community_notes cn
+       JOIN users u ON u.id = cn.author_id
+       ${whereClause}
+       ORDER BY cn.created_at DESC
+       LIMIT $${limitParamIdx}`,
+      params
+    );
+
+    const last = rows[rows.length - 1];
+    const nextCursor = last && rows.length === limit ? String(new Date(last.created_at).getTime()) : null;
+
+    return NextResponse.json({ items: rows, nextCursor, hasMore: nextCursor !== null });
   } catch (err) {
     return handleApiError(err);
   }
@@ -138,7 +175,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const body = await validateBody(req, createNoteSchema);
 
-    const { rows } = await db.query<CommunityNoteRow>(
+    const { rows } = await db.query<Omit<CommunityNoteRow, "author_username" | "author_avatar_emoji" | "user_helpful">>(
       `INSERT INTO community_notes
          (target_type, target_id, author_id, content,
           helpful_votes, unhelpful_votes, status, created_at, updated_at)
@@ -148,8 +185,20 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       [body.targetType, body.targetId, userId, body.content]
     );
 
+    const { rows: authorRows } = await db.query<{ username: string; avatar_emoji: string }>(
+      `SELECT username, avatar_emoji FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+      [userId]
+    );
+
+    const note: CommunityNoteRow = {
+      ...rows[0],
+      author_username: authorRows[0]?.username ?? "",
+      author_avatar_emoji: authorRows[0]?.avatar_emoji ?? "😊",
+      user_helpful: null,
+    };
+
     return NextResponse.json(
-      { success: true, data: { note: rows[0] }, error: null },
+      { success: true, data: { note }, error: null },
       { status: 201 }
     );
   } catch (err) {

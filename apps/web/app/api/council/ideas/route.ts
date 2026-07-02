@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
  * app/api/council/ideas/route.ts
  *
  * GET /api/council/ideas
- *   List all ideas sorted by votes. No auth required.
+ *   List all ideas sorted by votes, with the caller's own vote state.
  *
  * POST /api/council/ideas
  *   Submit a new idea. Council members only.
@@ -34,23 +34,36 @@ const submitIdeaSchema = z.object({
 interface CouncilIdeaRow {
   id: string;
   author_id: string;
+  author_username: string;
   title: string;
   description: string;
   votes: number;
   status: string;
   created_at: string;
+  has_voted: boolean;
 }
 
 // ---------------------------------------------------------------------------
 // GET /api/council/ideas
 // ---------------------------------------------------------------------------
 
-export async function GET(_req: NextRequest): Promise<NextResponse> {
+/**
+ * FIX: previously omitted the author's username (web/Android both render
+ * "@authorUsername") and whether the caller already voted (both clients
+ * disable the vote button using this — every idea rendered as un-voted,
+ * so a user could re-attempt a vote and get a confusing 409).
+ */
+export const GET = withAuth(async (req: NextRequest, { auth }) => {
   try {
+    const userId = auth.user.sub;
     const { rows } = await db.query<CouncilIdeaRow>(
-      `SELECT id, author_id, title, description, votes, status, created_at
-       FROM platform_council_ideas
-       ORDER BY votes DESC, created_at DESC`
+      `SELECT pci.id, pci.author_id, u.username AS author_username,
+              pci.title, pci.description, pci.votes, pci.status, pci.created_at,
+              (pci.metadata->'voter_ids' ? $1) AS has_voted
+       FROM platform_council_ideas pci
+       JOIN users u ON u.id = pci.author_id
+       ORDER BY pci.votes DESC, pci.created_at DESC`,
+      [userId]
     );
 
     return NextResponse.json({
@@ -61,7 +74,7 @@ export async function GET(_req: NextRequest): Promise<NextResponse> {
   } catch (err) {
     return handleApiError(err);
   }
-}
+});
 
 // ---------------------------------------------------------------------------
 // POST /api/council/ideas
@@ -84,7 +97,12 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const body = await validateBody(req, submitIdeaSchema);
 
-    const { rows } = await db.query<CouncilIdeaRow>(
+    const { rows: usernameRows } = await db.query<{ username: string }>(
+      `SELECT username FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+      [userId]
+    );
+
+    const { rows } = await db.query<Omit<CouncilIdeaRow, "author_username" | "has_voted">>(
       `INSERT INTO platform_council_ideas
          (author_id, title, description, votes, status, created_at)
        VALUES ($1, $2, $3, 0, 'open', NOW())
@@ -92,8 +110,14 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       [userId, body.title, body.description]
     );
 
+    const idea: CouncilIdeaRow = {
+      ...rows[0],
+      author_username: usernameRows[0]?.username ?? "",
+      has_voted: false,
+    };
+
     return NextResponse.json(
-      { success: true, data: { idea: rows[0] }, error: null },
+      { success: true, data: { idea }, error: null },
       { status: 201 }
     );
   } catch (err) {

@@ -22,6 +22,7 @@ import { translateApiError } from "@/lib/i18n/apiErrors";
 
 interface NemesisParty {
   userId: string;
+  username: string;
   displayName: string;
   avatarEmoji: string;
   xp: number;

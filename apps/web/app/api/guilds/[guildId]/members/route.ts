@@ -151,18 +151,20 @@ export const PUT = withAuth(
 // ---------------------------------------------------------------------------
 
 /**
- * Remove a member from the guild. Captain only.
+ * Remove a member from the guild. Either the guild captain removing someone
+ * else (kick), or a member removing themselves (leave). The captain cannot
+ * remove themselves — they must transfer ownership first.
  * Body: { userId }
  */
 export const DELETE = withAuth(
   async (
     req: NextRequest,
-    
+
     { params, auth }: { params: { guildId: string }; auth: { user: { sub: string } } }
   ) => {
     try {
       const { guildId } = params;
-      const captainId = auth.user.sub;
+      const callerId = auth.user.sub;
       const body = await validateBody(req, removeMemberSchema);
 
       const captainCheck = await db.query<{ captain_id: string }>(
@@ -170,11 +172,14 @@ export const DELETE = withAuth(
         [guildId]
       );
       if (!captainCheck.rows[0]) throw notFound("Guild not found");
-      if (captainCheck.rows[0].captain_id !== captainId) {
-        throw forbidden("Only the guild captain can remove members");
-      }
-      if (body.userId === captainId) {
-        throw badRequest("Captain cannot remove themselves; transfer ownership first");
+      const isCaptain = captainCheck.rows[0].captain_id === callerId;
+
+      if (isCaptain) {
+        if (body.userId === callerId) {
+          throw badRequest("Captain cannot remove themselves; transfer ownership first");
+        }
+      } else if (body.userId !== callerId) {
+        throw forbidden("Only the guild captain can remove other members");
       }
 
       await db.transaction(async (client) => {

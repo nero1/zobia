@@ -23,10 +23,11 @@ interface CouncilMemberRow {
   user_id: string;
   username: string;
   display_name: string | null;
-  avatar_url: string | null;
+  avatar_emoji: string;
   cycle_month: string;
   legacy_score: number;
   joined_at: string;
+  rank: number;
 }
 
 interface CouncilIdeaRow {
@@ -53,10 +54,11 @@ export async function GET(_req: NextRequest): Promise<NextResponse> {
            pcm.user_id,
            u.username,
            u.display_name,
-           u.avatar_url,
+           u.avatar_emoji,
            pcm.cycle_month,
            pcm.legacy_score,
-           pcm.joined_at
+           pcm.joined_at,
+           ROW_NUMBER() OVER (ORDER BY pcm.legacy_score DESC)::int AS rank
          FROM platform_council_members pcm
          JOIN users u ON u.id = pcm.user_id
          WHERE pcm.left_at IS NULL
