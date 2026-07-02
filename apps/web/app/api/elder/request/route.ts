@@ -16,13 +16,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound, conflict } from "@/lib/api/errors";
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/** Users below this XP can request an elder. */
-const MENTEE_MAX_XP = 6_000;
+import { MENTEE_MAX_XP } from "@/lib/elder/constants";
 
 // ---------------------------------------------------------------------------
 // Schema

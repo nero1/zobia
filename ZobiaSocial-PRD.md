@@ -4297,6 +4297,42 @@ patterns established here (TanStack Router file routes under `routes/`,
 `apiClient` + React Query, Tailwind classes matching existing screens,
 i18n keys from `shared/i18n/locales/en.json`).
 
+#### v2.06 — Android user-page parity, Batch 1 (Core social/engagement)
+
+Ported the first batch of the pages listed above to the Capacitor app:
+Quests (`routes/quests.tsx`), Friends (`routes/friends.tsx`), Gifts
+(`routes/gifts.tsx`), Events (`routes/events.tsx`), Inbox
+(`routes/inbox.tsx`), Elder (`routes/elder.tsx`), Referrals
+(`routes/referrals.tsx`), Classroom (`routes/classroom.tsx`),
+Leaderboards (`routes/leaderboards.tsx`), and an own-profile redirect
+(`routes/profile/index.tsx`, resolves the logged-in user to
+`/profile/$username`). `BottomNav.tsx`'s six-tab bar now matches web's
+`bottomTabItems` exactly (Home, Quests, Games, Friends, Wallet,
+Profile); `TopBar.tsx`'s drawer now lists every top-level route that
+exists on Android (20 items, everything except Seasons, which has no
+Android route yet). Added the `classroom.*` i18n namespace (the web
+Classroom page had none — it was all hardcoded English) plus a handful
+of `events.*` and `android.pin.title` keys.
+
+Also fixed, since it blocked Classroom on every platform: `GET
+/api/classroom/enrolled` was called by the web Classroom page (and now
+Android's) but the route never existed server-side, so "My ClassRooms"
+silently rendered empty everywhere. Added
+`app/api/classroom/enrolled/route.ts`, joining `classroom_enrolments`
+with `rooms` and the best `classroom_quiz_attempts` score per room.
+`completedLessons` is reported as `0` — there is no per-lesson
+completion tracking table in the schema yet, only per-quiz attempts;
+adding real lesson-progress tracking is a separate follow-up.
+
+Known gaps carried forward: Gift Drop purchase (Events page) has no
+Google Play Billing product yet (`lib/payments/googlePlay.ts` only
+defines coins/stars/business-tier products), so the buy button is
+disabled on Android with an "open on web" message rather than faking an
+IAP flow. Remaining pages (Guilds, Guild Discovery, Council, Community
+Notes, Nemesis, Economy, Prestige, Seasons, Creator, Merch, single
+Gift, Stickers, KYC) and the Admin panel are still not ported — see
+follow-up batches.
+
 ---
 
 *ZobiaSocial PRD v2.05*
