@@ -60,6 +60,7 @@ export interface ZobiaManifest {
     physicalGoodsPartnerFulfillment: boolean;
     moments: boolean;
     forum: boolean;
+    blogs: boolean;
     vipRoomPricing?: { minNgn: number; maxNgn: number };
   };
   warEventCooldownHours: number;
@@ -244,6 +245,7 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     physicalGoodsPartnerFulfillment: false,
     moments: true,
     forum: true,
+    blogs: true,
   },
   currency: {
     softNameSingular: "Credit",
@@ -466,6 +468,7 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       physicalGoodsPartnerFulfillment: parseBool(kv["physical_goods_fulfillment_partner"],            DEFAULT_MANIFEST.features.physicalGoodsPartnerFulfillment),
       moments:                    parseBool(kv["feature_moments"]                   ?? "true",  DEFAULT_MANIFEST.features.moments),
       forum:                      parseBool(kv["feature_forum"]                     ?? "true",  DEFAULT_MANIFEST.features.forum),
+      blogs:                      parseBool(kv["feature_blogs"]                     ?? "true",  DEFAULT_MANIFEST.features.blogs),
       // BUG-MANIFEST-01: populate vipRoomPricing from x_manifest keys
       vipRoomPricing: kv["vip_room_pricing_min_ngn"] && kv["vip_room_pricing_max_ngn"]
         ? {

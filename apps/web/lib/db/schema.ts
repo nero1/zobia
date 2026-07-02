@@ -3880,6 +3880,158 @@ export const forumModerationLog = pgTable("forum_moderation_log", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
+// ---------------------------------------------------------------------------
+// Blogs — mini blog/CMS system (articles + static pages)
+// ---------------------------------------------------------------------------
+
+export const blogs = pgTable("blogs", {
+  id: uuidPk(),
+  ownerId: uuid("owner_id")
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: "cascade" }),
+  slug: text("slug").notNull().unique(),
+  title: text("title").notNull(),
+  tagline: text("tagline"),
+  description: text("description"),
+  avatarUrl: text("avatar_url"),
+  coverImageUrl: text("cover_image_url"),
+  themeStoreItemId: uuid("theme_store_item_id").references(() => storeItems.id, { onDelete: "set null" }),
+  commentsEnabled: boolean("comments_enabled").notNull().default(true),
+  commentsModerationEnabled: boolean("comments_moderation_enabled").notNull().default(false),
+  hideAuthorInfo: boolean("hide_author_info").notNull().default(false),
+  showSubscriberCount: boolean("show_subscriber_count").notNull().default(true),
+  status: text("status").notNull().default("active"),
+  statusReason: text("status_reason"),
+  subscriberCount: integer("subscriber_count").notNull().default(0),
+  postCount: integer("post_count").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+});
+
+export const blogCategories = pgTable(
+  "blog_categories",
+  {
+    id: uuidPk(),
+    blogId: uuid("blog_id").notNull().references(() => blogs.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    unique: uniqueIndex("blog_categories_blog_slug_idx").on(t.blogId, t.slug),
+  })
+);
+
+export const blogPosts = pgTable("blog_posts", {
+  id: uuidPk(),
+  blogId: uuid("blog_id").notNull().references(() => blogs.id, { onDelete: "cascade" }),
+  authorId: uuid("author_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  categoryId: uuid("category_id").references(() => blogCategories.id, { onDelete: "set null" }),
+  type: text("type").notNull().default("article"),
+  title: text("title").notNull(),
+  slug: text("slug").notNull(),
+  excerpt: text("excerpt"),
+  bodyMarkdown: text("body_markdown").notNull(),
+  bodyHtml: text("body_html").notNull(),
+  featuredImageUrl: text("featured_image_url"),
+  status: text("status").notNull().default("draft"),
+  isPaywalled: boolean("is_paywalled").notNull().default(false),
+  paywallCreditsCost: integer("paywall_credits_cost").notNull().default(0),
+  wordCount: integer("word_count").notNull().default(0),
+  viewCount: integer("view_count").notNull().default(0),
+  likeCount: integer("like_count").notNull().default(0),
+  commentCount: integer("comment_count").notNull().default(0),
+  sortOrder: integer("sort_order").notNull().default(0),
+  publishedAt: timestamp("published_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+});
+
+export const blogPostLikes = pgTable(
+  "blog_post_likes",
+  {
+    id: uuidPk(),
+    postId: uuid("post_id").notNull().references(() => blogPosts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    unique: uniqueIndex("blog_post_likes_post_user_idx").on(t.postId, t.userId),
+  })
+);
+
+export const blogPostComments = pgTable("blog_post_comments", {
+  id: uuidPk(),
+  postId: uuid("post_id").notNull().references(() => blogPosts.id, { onDelete: "cascade" }),
+  authorId: uuid("author_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  parentCommentId: uuid("parent_comment_id"),
+  body: text("body").notNull(),
+  status: text("status").notNull().default("visible"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+});
+
+export const blogSubscriptions = pgTable(
+  "blog_subscriptions",
+  {
+    id: uuidPk(),
+    blogId: uuid("blog_id").notNull().references(() => blogs.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    unique: uniqueIndex("blog_subscriptions_blog_user_idx").on(t.blogId, t.userId),
+  })
+);
+
+export const blogPostUnlocks = pgTable(
+  "blog_post_unlocks",
+  {
+    id: uuidPk(),
+    postId: uuid("post_id").notNull().references(() => blogPosts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    creditsSpent: integer("credits_spent").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    unique: uniqueIndex("blog_post_unlocks_post_user_idx").on(t.postId, t.userId),
+  })
+);
+
+export const blogPostDailyStats = pgTable(
+  "blog_post_daily_stats",
+  {
+    id: uuidPk(),
+    postId: uuid("post_id").notNull().references(() => blogPosts.id, { onDelete: "cascade" }),
+    date: date("date").notNull(),
+    views: integer("views").notNull().default(0),
+    likes: integer("likes").notNull().default(0),
+    comments: integer("comments").notNull().default(0),
+    unlockCount: integer("unlock_count").notNull().default(0),
+    unlockCredits: integer("unlock_credits").notNull().default(0),
+  },
+  (t) => ({
+    unique: uniqueIndex("blog_post_daily_stats_post_date_idx").on(t.postId, t.date),
+  })
+);
+
+export const blogModerationLog = pgTable("blog_moderation_log", {
+  id: uuidPk(),
+  moderatorId: uuid("moderator_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  blogId: uuid("blog_id").references(() => blogs.id, { onDelete: "cascade" }),
+  postId: uuid("post_id").references(() => blogPosts.id, { onDelete: "cascade" }),
+  targetUserId: uuid("target_user_id").references(() => users.id, { onDelete: "set null" }),
+  action: text("action").notNull(),
+  reason: text("reason"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const platformCouncilMembers = pgTable(
   "platform_council_members",
   {
@@ -4373,6 +4525,22 @@ export type ForumFavorite = typeof forumFavorites.$inferSelect;
 export type NewForumFavorite = typeof forumFavorites.$inferInsert;
 export type ForumModerationLogEntry = typeof forumModerationLog.$inferSelect;
 export type NewForumModerationLogEntry = typeof forumModerationLog.$inferInsert;
+
+// Blogs
+export type Blog = typeof blogs.$inferSelect;
+export type NewBlog = typeof blogs.$inferInsert;
+export type BlogCategory = typeof blogCategories.$inferSelect;
+export type NewBlogCategory = typeof blogCategories.$inferInsert;
+export type BlogPost = typeof blogPosts.$inferSelect;
+export type NewBlogPost = typeof blogPosts.$inferInsert;
+export type BlogPostLike = typeof blogPostLikes.$inferSelect;
+export type BlogPostComment = typeof blogPostComments.$inferSelect;
+export type NewBlogPostComment = typeof blogPostComments.$inferInsert;
+export type BlogSubscription = typeof blogSubscriptions.$inferSelect;
+export type BlogPostUnlock = typeof blogPostUnlocks.$inferSelect;
+export type BlogPostDailyStats = typeof blogPostDailyStats.$inferSelect;
+export type BlogModerationLogEntry = typeof blogModerationLog.$inferSelect;
+
 export type PlatformCouncilMember = typeof platformCouncilMembers.$inferSelect;
 export type NewPlatformCouncilMember = typeof platformCouncilMembers.$inferInsert;
 export type PlatformCouncilIdea = typeof platformCouncilIdeas.$inferSelect;
@@ -4572,6 +4740,18 @@ export const schema = {
   forumVotes,
   forumFavorites,
   forumModerationLog,
+
+  // Blogs
+  blogs,
+  blogCategories,
+  blogPosts,
+  blogPostLikes,
+  blogPostComments,
+  blogSubscriptions,
+  blogPostUnlocks,
+  blogPostDailyStats,
+  blogModerationLog,
+
   platformCouncilMembers,
   platformCouncilIdeas,
   councilInvitations,

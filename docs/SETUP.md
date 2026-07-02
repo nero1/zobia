@@ -281,6 +281,13 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 
 7. Optional demo data (sample users/rooms/moments for local dev): `npm run migrate -- --seed`, or directly: `psql "$DIRECT_URL" < apps/web/db/seed.sql`
 
+   > **Blogs feature (PRD §32):** its tables, `x_manifest` defaults, and the
+   > three purchasable blog themes ship in
+   > `db/migrations/0002_blogs.sql`. `npm run migrate` picks it up
+   > automatically (it's just the next lexicographic file); if you ran the
+   > consolidated `0001` file directly with `psql` instead, also run
+   > `psql "$DIRECT_URL" < db/migrations/0002_blogs.sql`.
+
 ### Option B: Railway PostgreSQL
 
 1. Go to [railway.app](https://railway.app) and create a new project.

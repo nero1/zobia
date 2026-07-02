@@ -123,6 +123,10 @@ export const RATE_LIMITS = {
   forumWrite: { limit: 10, windowMs: 60 * 1000, name: "forum:write" } as RateLimitOptions,
   /** Voting or favoriting a forum question/answer. Cheap, L1-skip eligible. */
   forumVote: { limit: 60, windowMs: 60 * 1000, name: "forum:vote" } as RateLimitOptions,
+  /** Publishing/editing a blog post, or posting a comment. */
+  blogWrite: { limit: 15, windowMs: 60 * 1000, name: "blog:write" } as RateLimitOptions,
+  /** Liking, subscribing, or recording a view on a blog/post. Cheap, L1-skip eligible. */
+  blogVote: { limit: 60, windowMs: 60 * 1000, name: "blog:vote" } as RateLimitOptions,
 } as const;
 
 // ---------------------------------------------------------------------------

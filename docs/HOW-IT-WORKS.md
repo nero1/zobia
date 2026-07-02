@@ -240,6 +240,55 @@ Tier boundaries are re-evaluated by the daily CRON (step 28). Creator Fund distr
 
 **Room capacity gates by Creator Track level:** Creators below Level 5 can create rooms with up to 50 members. Reaching Level 5 raises the cap to 100 (Room Opener milestone). Reaching Level 20 removes the cap entirely (rooms can grow to the platform maximum).
 
+### Blogs (PRD §32)
+
+A mini blog/CMS system reusing the platform's existing economy, XP, plans,
+moderation and admin infrastructure (same pattern as Answers, §31). Every
+user may create one blog (`blogs` table, one row per owner) with a public,
+SEO-crawlable home page at `/b/<slug>` and articles/pages at
+`/b/<slug>/<postSlug>` — see `app/b/[slug]/page.tsx`,
+`app/b/[slug]/[postSlug]/page.tsx`, `lib/public/resolveBlog.ts`,
+`lib/public/resolveBlogPost.ts`. `/blogs` (discovery, mirrors Games) and
+`/blogs/dashboard` (posts, categories, comment moderation, stats,
+settings) are the authenticated web/PWA and Capacitor Android routes;
+business logic lives in `lib/blogs/repo.ts` + `lib/blogs/service.ts` +
+`lib/blogs/limits.ts`.
+
+- **Articles vs. pages:** articles are dated posts listed reverse-chron on
+  the blog home page with an author info box (owner can hide it); pages
+  are static, undated, and only appear in the blog's page menu.
+- **Word/post limits by plan:** Free 1,000 words/30 posts, Plus/Pro/Max
+  5,000 words, with 100/200/500 max posts respectively —
+  `lib/blogs/limits.ts`, admin-overridable via `x_manifest`
+  (`blog_max_words_<plan>`, `blog_max_posts_<plan>`).
+- **Comments:** default on; owner can disable entirely or require
+  moderation (`pending` → `visible`/`removed`), moderated from
+  `/blogs/dashboard/comments`.
+- **Paywalled articles:** the author sets a per-article Credit cost to
+  unlock; the public page renders a truncated preview server-side (good
+  for SEO) with a "Pay N credits to read the rest" notice. Unlocking
+  (`POST /api/blogs/<slug>/posts/<postSlug>/unlock`) debits the reader's
+  Credits once (idempotent) and credits the author via the existing
+  `creator_earnings` table (`source_type = 'blog_paywall'`), converting
+  Credits to kobo with the platform's existing `coin_to_cash_rate` and
+  applying provider-fee/VAT/plan-revenue-share rates from
+  `lib/blogs/limits.ts` (all admin-configurable in `x_manifest`; default
+  revenue share by plan: Free 40%, Plus 50%, Pro 60%, Max 70%).
+- **Themes:** three purchasable themes reuse the existing cosmetics store
+  (`store_items.cosmetic_type = 'blog_theme'`,
+  `GET/POST /api/economy/cosmetics(+/equip)`) — no new purchase flow.
+- **Stats:** basic totals for Free; a per-post breakdown for Plus; a
+  90-day daily drill-down + CSV export for Pro/Max
+  (`GET /api/blogs/<slug>/stats(+/export)`), backed by the lightweight
+  `blog_post_daily_stats` rollup table.
+- **Admin:** `feature_blogs` master toggle; `/admin/blogs` lists every
+  blog with pause/suspend/ban/deactivate/restore/delete actions (each
+  logged to `blog_moderation_log`) and an admin-only ownership-transfer
+  action (`POST /api/admin/blogs/<id>/transfer`).
+- **Views:** recorded at most once per browser per post — deduped
+  client-side via `localStorage` (`zobia_blog_viewed`), not a per-view DB
+  row, matching the platform's offline-first, low-Redis-call discipline.
+
 ### Social Graph
 
 - **Friends**: Bilateral friendship requests. Stored in `friendships`. Friend list visible on profile.

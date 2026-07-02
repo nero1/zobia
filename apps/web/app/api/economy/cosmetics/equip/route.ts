@@ -96,6 +96,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
             `UPDATE users SET active_cosmetic_title = $1, updated_at = NOW() WHERE id = $2`,
             [item.name, userId]
           );
+        } else if (item.cosmetic_type === "blog_theme") {
+          await tx.query(
+            `UPDATE blogs SET theme_store_item_id = $1, updated_at = NOW() WHERE owner_id = $2`,
+            [body.itemId, userId]
+          );
         }
       } else {
         // Unequip — clear the quick-read column
@@ -107,6 +112,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         } else if (item.cosmetic_type === "title") {
           await tx.query(
             `UPDATE users SET active_cosmetic_title = NULL, updated_at = NOW() WHERE id = $1`,
+            [userId]
+          );
+        } else if (item.cosmetic_type === "blog_theme") {
+          await tx.query(
+            `UPDATE blogs SET theme_store_item_id = NULL, updated_at = NOW() WHERE owner_id = $1`,
             [userId]
           );
         }
