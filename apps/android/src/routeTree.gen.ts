@@ -17,6 +17,7 @@ import { Route as RoomsIndexRouteImport } from './routes/rooms/index'
 import { Route as MomentsIndexRouteImport } from './routes/moments/index'
 import { Route as MessagesIndexRouteImport } from './routes/messages/index'
 import { Route as GamesIndexRouteImport } from './routes/games/index'
+import { Route as AnswersIndexRouteImport } from './routes/answers/index'
 import { Route as RoomsRoomIdRouteImport } from './routes/rooms/$roomId'
 import { Route as ProfileUsernameRouteImport } from './routes/profile/$username'
 import { Route as MomentsCreateRouteImport } from './routes/moments/create'
@@ -25,6 +26,8 @@ import { Route as GamesSlugRouteImport } from './routes/games/$slug'
 import { Route as AuthTwoFactorRouteImport } from './routes/auth/two-factor'
 import { Route as AuthRegisterRouteImport } from './routes/auth/register'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
+import { Route as AnswersAskRouteImport } from './routes/answers/ask'
+import { Route as AnswersQuestionIdRouteImport } from './routes/answers/$questionId'
 
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
@@ -64,6 +67,11 @@ const MessagesIndexRoute = MessagesIndexRouteImport.update({
 const GamesIndexRoute = GamesIndexRouteImport.update({
   id: '/games/',
   path: '/games/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AnswersIndexRoute = AnswersIndexRouteImport.update({
+  id: '/answers/',
+  path: '/answers/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RoomsRoomIdRoute = RoomsRoomIdRouteImport.update({
@@ -106,12 +114,24 @@ const AuthLoginRoute = AuthLoginRouteImport.update({
   path: '/auth/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AnswersAskRoute = AnswersAskRouteImport.update({
+  id: '/answers/ask',
+  path: '/answers/ask',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AnswersQuestionIdRoute = AnswersQuestionIdRouteImport.update({
+  id: '/answers/$questionId',
+  path: '/answers/$questionId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/home': typeof HomeRoute
   '/notifications': typeof NotificationsRoute
   '/settings': typeof SettingsRoute
+  '/answers/$questionId': typeof AnswersQuestionIdRoute
+  '/answers/ask': typeof AnswersAskRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/auth/two-factor': typeof AuthTwoFactorRoute
@@ -120,6 +140,7 @@ export interface FileRoutesByFullPath {
   '/moments/create': typeof MomentsCreateRoute
   '/profile/$username': typeof ProfileUsernameRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
+  '/answers/': typeof AnswersIndexRoute
   '/games/': typeof GamesIndexRoute
   '/messages/': typeof MessagesIndexRoute
   '/moments/': typeof MomentsIndexRoute
@@ -130,6 +151,8 @@ export interface FileRoutesByTo {
   '/home': typeof HomeRoute
   '/notifications': typeof NotificationsRoute
   '/settings': typeof SettingsRoute
+  '/answers/$questionId': typeof AnswersQuestionIdRoute
+  '/answers/ask': typeof AnswersAskRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/auth/two-factor': typeof AuthTwoFactorRoute
@@ -138,6 +161,7 @@ export interface FileRoutesByTo {
   '/moments/create': typeof MomentsCreateRoute
   '/profile/$username': typeof ProfileUsernameRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
+  '/answers': typeof AnswersIndexRoute
   '/games': typeof GamesIndexRoute
   '/messages': typeof MessagesIndexRoute
   '/moments': typeof MomentsIndexRoute
@@ -149,6 +173,8 @@ export interface FileRoutesById {
   '/home': typeof HomeRoute
   '/notifications': typeof NotificationsRoute
   '/settings': typeof SettingsRoute
+  '/answers/$questionId': typeof AnswersQuestionIdRoute
+  '/answers/ask': typeof AnswersAskRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/auth/two-factor': typeof AuthTwoFactorRoute
@@ -157,6 +183,7 @@ export interface FileRoutesById {
   '/moments/create': typeof MomentsCreateRoute
   '/profile/$username': typeof ProfileUsernameRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
+  '/answers/': typeof AnswersIndexRoute
   '/games/': typeof GamesIndexRoute
   '/messages/': typeof MessagesIndexRoute
   '/moments/': typeof MomentsIndexRoute
@@ -169,6 +196,8 @@ export interface FileRouteTypes {
     | '/home'
     | '/notifications'
     | '/settings'
+    | '/answers/$questionId'
+    | '/answers/ask'
     | '/auth/login'
     | '/auth/register'
     | '/auth/two-factor'
@@ -177,6 +206,7 @@ export interface FileRouteTypes {
     | '/moments/create'
     | '/profile/$username'
     | '/rooms/$roomId'
+    | '/answers/'
     | '/games/'
     | '/messages/'
     | '/moments/'
@@ -187,6 +217,8 @@ export interface FileRouteTypes {
     | '/home'
     | '/notifications'
     | '/settings'
+    | '/answers/$questionId'
+    | '/answers/ask'
     | '/auth/login'
     | '/auth/register'
     | '/auth/two-factor'
@@ -195,6 +227,7 @@ export interface FileRouteTypes {
     | '/moments/create'
     | '/profile/$username'
     | '/rooms/$roomId'
+    | '/answers'
     | '/games'
     | '/messages'
     | '/moments'
@@ -205,6 +238,8 @@ export interface FileRouteTypes {
     | '/home'
     | '/notifications'
     | '/settings'
+    | '/answers/$questionId'
+    | '/answers/ask'
     | '/auth/login'
     | '/auth/register'
     | '/auth/two-factor'
@@ -213,6 +248,7 @@ export interface FileRouteTypes {
     | '/moments/create'
     | '/profile/$username'
     | '/rooms/$roomId'
+    | '/answers/'
     | '/games/'
     | '/messages/'
     | '/moments/'
@@ -224,6 +260,8 @@ export interface RootRouteChildren {
   HomeRoute: typeof HomeRoute
   NotificationsRoute: typeof NotificationsRoute
   SettingsRoute: typeof SettingsRoute
+  AnswersQuestionIdRoute: typeof AnswersQuestionIdRoute
+  AnswersAskRoute: typeof AnswersAskRoute
   AuthLoginRoute: typeof AuthLoginRoute
   AuthRegisterRoute: typeof AuthRegisterRoute
   AuthTwoFactorRoute: typeof AuthTwoFactorRoute
@@ -232,6 +270,7 @@ export interface RootRouteChildren {
   MomentsCreateRoute: typeof MomentsCreateRoute
   ProfileUsernameRoute: typeof ProfileUsernameRoute
   RoomsRoomIdRoute: typeof RoomsRoomIdRoute
+  AnswersIndexRoute: typeof AnswersIndexRoute
   GamesIndexRoute: typeof GamesIndexRoute
   MessagesIndexRoute: typeof MessagesIndexRoute
   MomentsIndexRoute: typeof MomentsIndexRoute
@@ -296,6 +335,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GamesIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/answers/': {
+      id: '/answers/'
+      path: '/answers'
+      fullPath: '/answers/'
+      preLoaderRoute: typeof AnswersIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/rooms/$roomId': {
       id: '/rooms/$roomId'
       path: '/rooms/$roomId'
@@ -352,6 +398,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/answers/ask': {
+      id: '/answers/ask'
+      path: '/answers/ask'
+      fullPath: '/answers/ask'
+      preLoaderRoute: typeof AnswersAskRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/answers/$questionId': {
+      id: '/answers/$questionId'
+      path: '/answers/$questionId'
+      fullPath: '/answers/$questionId'
+      preLoaderRoute: typeof AnswersQuestionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -360,6 +420,8 @@ const rootRouteChildren: RootRouteChildren = {
   HomeRoute: HomeRoute,
   NotificationsRoute: NotificationsRoute,
   SettingsRoute: SettingsRoute,
+  AnswersQuestionIdRoute: AnswersQuestionIdRoute,
+  AnswersAskRoute: AnswersAskRoute,
   AuthLoginRoute: AuthLoginRoute,
   AuthRegisterRoute: AuthRegisterRoute,
   AuthTwoFactorRoute: AuthTwoFactorRoute,
@@ -368,6 +430,7 @@ const rootRouteChildren: RootRouteChildren = {
   MomentsCreateRoute: MomentsCreateRoute,
   ProfileUsernameRoute: ProfileUsernameRoute,
   RoomsRoomIdRoute: RoomsRoomIdRoute,
+  AnswersIndexRoute: AnswersIndexRoute,
   GamesIndexRoute: GamesIndexRoute,
   MessagesIndexRoute: MessagesIndexRoute,
   MomentsIndexRoute: MomentsIndexRoute,

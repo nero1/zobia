@@ -139,6 +139,11 @@ export interface AccessTokenPayload extends JWTPayload {
   email?: string;    // omitted when user email is null
   username: string;
   is_admin: boolean;
+  /** True when the user holds the moderator role. Only used for the cheap
+   *  edge middleware pre-filter on /admin/forum/* (scoped moderator
+   *  access) — authorization decisions always re-verify against the
+   *  DATABASE, this claim is never trusted alone. */
+  is_moderator?: boolean;
   /** Session ID (matches Redis key for invalidation). */
   sid: string;
   /** Token type — 'pre_auth' tokens are only valid for the 2FA verify endpoint. */

@@ -147,12 +147,25 @@ export function filterProfanity(text: string): { filtered: string; found: boolea
  * @param messageContext - Whether this is a 'room' or 'dm' message (DM-DEDUP-01)
  * @returns true if this looks like a duplicate
  */
+/**
+ * Author-column override per content table. Message tables use `sender_id`;
+ * non-message content (e.g. forum posts) uses `author_id`. Defaults to
+ * `sender_id` when a table isn't listed here.
+ */
+const CONTENT_TABLE_AUTHOR_COLUMN: Record<string, string> = {
+  forum_questions: "author_id",
+  forum_answers: "author_id",
+};
+
+/** Whether a content table has an `is_deleted` column to filter on (message tables do; forum tables use `status`/`deleted_at` instead). */
+const CONTENT_TABLE_HAS_IS_DELETED = new Set(["messages", "room_messages"]);
+
 export async function detectDuplicateMessage(
   userId: string,
   content: string,
   windowMs: number = 60_000,
   db: DatabaseAdapter,
-  messageContext: "room" | "dm" = "room"
+  messageContext: "room" | "dm" | "forum_question" | "forum_answer" = "room"
 ): Promise<boolean> {
   const normalise = (s: string) =>
     s.normalize("NFKD").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
@@ -160,18 +173,28 @@ export async function detectDuplicateMessage(
   const normContent = normalise(content);
   const windowSeconds = Math.ceil(windowMs / 1000);
 
-  const ALLOWED_CONTENT_TABLES = new Set(['messages', 'room_messages']);
-  const table = messageContext === "dm" ? "messages" : "room_messages";
+  const ALLOWED_CONTENT_TABLES = new Set(['messages', 'room_messages', 'forum_questions', 'forum_answers']);
+  const table =
+    messageContext === "dm" ? "messages"
+    : messageContext === "forum_question" ? "forum_questions"
+    : messageContext === "forum_answer" ? "forum_answers"
+    : "room_messages";
   if (!ALLOWED_CONTENT_TABLES.has(table)) {
     throw new Error(`contentFilter: unknown table '${table}'`);
   }
 
+  const authorColumn = CONTENT_TABLE_AUTHOR_COLUMN[table] ?? "sender_id";
+  const bodyColumn = table === "forum_questions" ? "body" : table === "forum_answers" ? "body" : "content";
+  const deletedClause = CONTENT_TABLE_HAS_IS_DELETED.has(table)
+    ? "AND is_deleted = FALSE"
+    : "AND status = 'visible'";
+
   const { rows } = await db.query<{ content: string }>(
-    `SELECT content
+    `SELECT ${bodyColumn} AS content
      FROM ${table}
-     WHERE sender_id = $1
+     WHERE ${authorColumn} = $1
        AND created_at >= NOW() - ($2 * INTERVAL '1 second')
-       AND is_deleted = FALSE
+       ${deletedClause}
      LIMIT 20`,
     [userId, windowSeconds]
   );

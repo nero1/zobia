@@ -119,6 +119,10 @@ export const RATE_LIMITS = {
   login: { limit: 15, windowMs: 15 * 60 * 1000, name: "auth:login", bypassL1: true } as RateLimitOptions,
   /** New account registration — tight hourly limit; bypassL1. */
   register: { limit: 5, windowMs: 60 * 60 * 1000, name: "auth:register", bypassL1: true } as RateLimitOptions,
+  /** Posting a forum question or answer. */
+  forumWrite: { limit: 10, windowMs: 60 * 1000, name: "forum:write" } as RateLimitOptions,
+  /** Voting or favoriting a forum question/answer. Cheap, L1-skip eligible. */
+  forumVote: { limit: 60, windowMs: 60 * 1000, name: "forum:vote" } as RateLimitOptions,
 } as const;
 
 // ---------------------------------------------------------------------------

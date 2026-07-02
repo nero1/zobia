@@ -109,6 +109,15 @@ export const XP_VALUES = {
   complete_classroom_quiz: 20,
   complete_classroom_module: 50,
   host_classroom_session: 75,
+
+  // Zobia Answers (mini forum / Q&A) — actual awarded amounts are
+  // manifest-driven (lib/manifest ZobiaManifest.forum), same as `moments`;
+  // these entries document the defaults for consistency with the rest of
+  // this file.
+  forum_question_posted: 10,
+  forum_answer_posted: 5,
+  forum_upvote_received: 1,
+  forum_best_answer_awarded: 25,
 };
 
 // ─── Room message XP daily cap ───────────────────────────────────────────────

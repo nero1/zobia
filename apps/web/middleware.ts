@@ -176,6 +176,15 @@ const PUBLIC_PREFIXES = [
 /** Routes that require admin JWT claim. */
 const ADMIN_PREFIXES = ["/admin"];
 
+/**
+ * Scoped exception within /admin/*: moderators (is_moderator=true) may pass
+ * the edge pre-filter for these prefixes even without is_admin. Every other
+ * /admin/* page still requires is_admin. Per-page/action authorization is
+ * still re-verified against the DATABASE by the API layer
+ * (withModeratorOrAdminAuth) — this is only the cheap edge pre-filter.
+ */
+const FORUM_MOD_PREFIXES = ["/admin/forum"];
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -183,6 +192,7 @@ const ADMIN_PREFIXES = ["/admin"];
 interface TokenPayload {
   sub?: string;
   is_admin?: boolean;
+  is_moderator?: boolean;
   sid?: string;
   type?: string;
   onboarding_completed?: boolean;
@@ -441,8 +451,11 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
       return response;
     }
 
-    if (!payload.is_admin) {
-      // Valid token but not admin – redirect to app
+    const isForumModRoute = FORUM_MOD_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+    const isAllowedModerator = isForumModRoute && !!payload.is_moderator;
+
+    if (!payload.is_admin && !isAllowedModerator) {
+      // Valid token but not admin (and not a moderator on a scoped /admin/forum/* route) – redirect to app
       return NextResponse.redirect(new URL(HOME_URL, request.url));
     }
 

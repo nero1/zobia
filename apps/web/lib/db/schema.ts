@@ -3517,6 +3517,8 @@ export const reports = pgTable("reports", {
   reportedGuildId: uuid("reported_guild_id").references(() => guilds.id, {
     onDelete: "set null",
   }),
+  reportedForumQuestionId: uuid("reported_forum_question_id"),
+  reportedForumAnswerId: uuid("reported_forum_answer_id"),
   reportType: text("report_type").notNull(),
   description: text("description"),
   aiCategory: text("ai_category"),
@@ -3548,6 +3550,8 @@ export const moderationReports = pgTable("moderation_reports", {
   reportedGuildId: uuid("reported_guild_id").references(() => guilds.id, {
     onDelete: "set null",
   }),
+  reportedForumQuestionId: uuid("reported_forum_question_id"),
+  reportedForumAnswerId: uuid("reported_forum_answer_id"),
   reportType: text("report_type").notNull().default("other"),
   description: text("description"),
   status: text("status").notNull().default("pending"),
@@ -3719,6 +3723,108 @@ export const communityNoteVotes = pgTable(
     ),
   })
 );
+
+// ---------------------------------------------------------------------------
+// Zobia Answers — Mini Forum (Q&A)
+// ---------------------------------------------------------------------------
+
+export const forumQuestions = pgTable("forum_questions", {
+  id: uuidPk(),
+  authorId: uuid("author_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  status: text("status").notNull().default("visible"),
+  voteScore: integer("vote_score").notNull().default(0),
+  answerCount: integer("answer_count").notNull().default(0),
+  favoriteCount: integer("favorite_count").notNull().default(0),
+  isLocked: boolean("is_locked").notNull().default(false),
+  bestAnswerId: uuid("best_answer_id"),
+  lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+});
+
+export const forumAnswers = pgTable("forum_answers", {
+  id: uuidPk(),
+  questionId: uuid("question_id")
+    .notNull()
+    .references(() => forumQuestions.id, { onDelete: "cascade" }),
+  authorId: uuid("author_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  parentAnswerId: uuid("parent_answer_id"),
+  depth: integer("depth").notNull().default(0),
+  body: text("body").notNull(),
+  voteScore: integer("vote_score").notNull().default(0),
+  status: text("status").notNull().default("visible"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+});
+
+export const forumVotes = pgTable(
+  "forum_votes",
+  {
+    id: uuidPk(),
+    targetType: text("target_type").notNull(),
+    targetId: uuid("target_id").notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    value: integer("value").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => ({
+    unique: uniqueIndex("forum_votes_target_user_idx").on(
+      t.targetType,
+      t.targetId,
+      t.userId
+    ),
+  })
+);
+
+export const forumFavorites = pgTable(
+  "forum_favorites",
+  {
+    id: uuidPk(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    questionId: uuid("question_id")
+      .notNull()
+      .references(() => forumQuestions.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => ({
+    unique: uniqueIndex("forum_favorites_user_question_idx").on(
+      t.userId,
+      t.questionId
+    ),
+  })
+);
+
+export const forumModerationLog = pgTable("forum_moderation_log", {
+  id: uuidPk(),
+  moderatorId: uuid("moderator_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  questionId: uuid("question_id").references(() => forumQuestions.id, {
+    onDelete: "cascade",
+  }),
+  answerId: uuid("answer_id").references(() => forumAnswers.id, {
+    onDelete: "cascade",
+  }),
+  targetUserId: uuid("target_user_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  action: text("action").notNull(),
+  reason: text("reason"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
 
 export const platformCouncilMembers = pgTable(
   "platform_council_members",
@@ -4201,6 +4307,16 @@ export type CommunityNote = typeof communityNotes.$inferSelect;
 export type NewCommunityNote = typeof communityNotes.$inferInsert;
 export type CommunityNoteVote = typeof communityNoteVotes.$inferSelect;
 export type NewCommunityNoteVote = typeof communityNoteVotes.$inferInsert;
+export type ForumQuestion = typeof forumQuestions.$inferSelect;
+export type NewForumQuestion = typeof forumQuestions.$inferInsert;
+export type ForumAnswer = typeof forumAnswers.$inferSelect;
+export type NewForumAnswer = typeof forumAnswers.$inferInsert;
+export type ForumVote = typeof forumVotes.$inferSelect;
+export type NewForumVote = typeof forumVotes.$inferInsert;
+export type ForumFavorite = typeof forumFavorites.$inferSelect;
+export type NewForumFavorite = typeof forumFavorites.$inferInsert;
+export type ForumModerationLogEntry = typeof forumModerationLog.$inferSelect;
+export type NewForumModerationLogEntry = typeof forumModerationLog.$inferInsert;
 export type PlatformCouncilMember = typeof platformCouncilMembers.$inferSelect;
 export type NewPlatformCouncilMember = typeof platformCouncilMembers.$inferInsert;
 export type PlatformCouncilIdea = typeof platformCouncilIdeas.$inferSelect;
@@ -4394,6 +4510,11 @@ export const schema = {
   sponsoredLeaderboardBanners,
   communityNotes,
   communityNoteVotes,
+  forumQuestions,
+  forumAnswers,
+  forumVotes,
+  forumFavorites,
+  forumModerationLog,
   platformCouncilMembers,
   platformCouncilIdeas,
   councilInvitations,

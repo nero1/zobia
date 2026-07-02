@@ -80,6 +80,14 @@ export interface AdminContext extends AuthContext {
   isAdmin: true;
 }
 
+/** Context object injected into moderator-or-admin handlers (e.g. /api/admin/forum/**). */
+export interface ModeratorContext extends AuthContext {
+  /** Confirmed is_admin from the database. */
+  isAdmin: boolean;
+  /** Confirmed is_moderator from the database. Always true when isAdmin is false. */
+  isModerator: boolean;
+}
+
 /**
  * Authenticated route handler type.
  * Receives the standard Next.js args plus an injected AuthContext.
@@ -95,6 +103,14 @@ export type AuthHandler<TParams = Record<string, string>> = (
 export type AdminHandler<TParams = Record<string, string>> = (
   req: NextRequest,
   ctx: { params: TParams; auth: AdminContext }
+) => Promise<NextResponse | ApiError>;
+
+/**
+ * Moderator-or-admin route handler type.
+ */
+export type ModeratorHandler<TParams = Record<string, string>> = (
+  req: NextRequest,
+  ctx: { params: TParams; auth: ModeratorContext }
 ) => Promise<NextResponse | ApiError>;
 
 // ---------------------------------------------------------------------------
@@ -409,6 +425,125 @@ export function withAdminAuth<TParams = Record<string, string>>(
         result = await handler(req, {
           params: await ctx.params,
           auth: { user: payload, isAdmin: true, withRLS: withRLSAdmin },
+        });
+      } catch (handlerErr) {
+        logger.error({ requestId, userId: payload.sub, durationMs: Date.now() - start }, "request handler threw");
+        throw handlerErr;
+      }
+      const durationMs = Date.now() - start;
+      if (result instanceof ApiError) {
+        const res = handleApiError(result);
+        res.headers.set("X-Request-Id", requestId);
+        logger.info({ requestId, userId: payload.sub, durationMs, status: res.status }, "request completed");
+        return res;
+      }
+
+      const response = result as NextResponse;
+      response.headers.set("X-Request-Id", requestId);
+      logger.info({ requestId, userId: payload.sub, durationMs, status: response.status }, "request completed");
+      return response;
+    } catch (err) {
+      const res = handleApiError(err);
+      res.headers.set("X-Request-Id", requestId);
+      return res;
+    }
+    });
+  };
+}
+
+// ---------------------------------------------------------------------------
+// withModeratorOrAdminAuth HOC
+// ---------------------------------------------------------------------------
+
+/**
+ * Higher-order component that validates the JWT AND performs a live database
+ * check to confirm is_admin OR is_moderator = true.
+ *
+ * Scoped for /api/admin/forum/** only — every other /api/admin/** route
+ * keeps using withAdminAuth (admin-only) unchanged. Mirrors withAdminAuth's
+ * "never trust the JWT claim alone" convention: the DATABASE is always the
+ * source of truth for authorization, even though the edge middleware
+ * pre-filter already checked the (lower-trust) JWT claim.
+ *
+ * @param handler - Moderator-or-admin route handler
+ * @returns Next.js compatible route handler
+ */
+export function withModeratorOrAdminAuth<TParams = Record<string, string>>(
+  handler: ModeratorHandler<TParams>
+): (req: NextRequest, ctx: { params: Promise<Awaited<TParams>> }) => Promise<NextResponse> {
+  return async (req, ctx) => {
+    const requestId = randomUUID();
+    const route = new URL(req.url).pathname;
+
+    return requestContext.run({ requestId, userId: null, route }, async () => {
+    try {
+      const token = extractToken(req);
+      if (!token) throw unauthorized("No authentication token provided");
+
+      let payload: AccessTokenPayload;
+      try {
+        payload = await verifyAccessToken(token);
+      } catch {
+        throw unauthorized("Invalid or expired access token");
+      }
+
+      const store = requestContext.getStore();
+      if (store) store.userId = payload.sub;
+
+      // Bypass the L1 in-process cache so a de-provisioned mod/admin cannot
+      // continue to act within the staleness window (same as withAdminAuth).
+      const session = await getSessionFresh(payload.sid);
+      if (!session) {
+        const cleared = NextResponse.json(
+          { error: "Unauthorised", code: "SESSION_REVOKED" },
+          { status: 401 }
+        );
+        cleared.cookies.set(ACCESS_TOKEN_COOKIE, "", { maxAge: 0, path: "/" });
+        cleared.cookies.set(REFRESH_TOKEN_COOKIE, "", { maxAge: 0, path: "/" });
+        cleared.headers.set("X-Request-Id", requestId);
+        return cleared;
+      }
+
+      // ALWAYS check is_admin/is_moderator from the database – never trust JWT claim alone
+      const { rows } = await db.query<{ is_admin: boolean; is_moderator: boolean; is_banned: boolean; is_suspended: boolean }>(
+        `SELECT is_admin, COALESCE(is_moderator, false) AS is_moderator,
+                COALESCE(is_banned, false) AS is_banned,
+                COALESCE(is_suspended, false) AS is_suspended
+         FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+        [payload.sub]
+      );
+
+      const isAdmin = !!rows[0]?.is_admin;
+      const isModerator = !!rows[0]?.is_moderator;
+      if (!isAdmin && !isModerator) {
+        throw forbidden("Moderator or administrator access required");
+      }
+
+      if (rows[0].is_banned || rows[0].is_suspended) {
+        throw forbidden("Account is suspended or banned");
+      }
+
+      const currentIp = getClientIp(req);
+      const geoCheckPassed = await runGeoAnomalyCheck(session, currentIp);
+      if (!geoCheckPassed) {
+        await invalidateSession(payload.sid, payload.sub).catch(() => {});
+        throw unauthorized(
+          "Session invalidated due to suspicious IP activity. Please log in again."
+        );
+      }
+
+      const withRLSMod = <T>(fn: (client: TransactionClient) => Promise<T>): Promise<T> =>
+        db.transaction(async (client) => {
+          await client.query(`SELECT set_config('app.current_user_id', $1, TRUE)`, [payload.sub]);
+          return fn(client);
+        });
+
+      const start = Date.now();
+      let result: NextResponse | ApiError;
+      try {
+        result = await handler(req, {
+          params: await ctx.params,
+          auth: { user: payload, isAdmin, isModerator, withRLS: withRLSMod },
         });
       } catch (handlerErr) {
         logger.error({ requestId, userId: payload.sub, durationMs: Date.now() - start }, "request handler threw");

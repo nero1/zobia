@@ -1090,7 +1090,7 @@ Key architectural decisions:
 - **Capacitor Network and App replace NetInfo and AppState.** `@capacitor/network` powers `useNetworkStatus` for the offline banner and query pause logic. `@capacitor/app` provides `appStateChange` events to pause Ably subscriptions and query polling when the app is backgrounded.
 - **i18next-browser-languagedetector replaces expo-localization.** Language detection reads the browser `Accept-Language` header (surfaced by Capacitor's WebView). The chosen language is persisted in `@capacitor/preferences`. All locale JSON files are sourced from `shared/i18n/locales/` — the same canonical files used by the web app.
 
-**Screen coverage.** `apps/android/src/routes/` currently ports: home, quests, games, rooms (list + detail), messages (list + conversation), profile, settings, notifications, and auth. Friends (`/friends`) and the Gifts Hub (`/gifts`) — both covered in this doc for web/PWA — are not yet ported to the Capacitor app; there is no `apps/android/src/routes/friends.tsx` or `gifts.tsx` today. When they are built, they should mirror the web/PWA tab layout and API calls described above (same `/api/friends*` and `/api/economy/gifts*` endpoints, TanStack Query instead of raw `fetch` + `useState`, per the pattern in `src/routes/messages/index.tsx`).
+**Screen coverage.** `apps/android/src/routes/` currently ports: home, quests, games, rooms (list + detail), messages (list + conversation), moments (feed + create), Zobia Answers (list, ask, question detail — `answers/`), profile, settings, notifications, and auth. Friends (`/friends`) and the Gifts Hub (`/gifts`) — both covered in this doc for web/PWA — are not yet ported to the Capacitor app; there is no `apps/android/src/routes/friends.tsx` or `gifts.tsx` today. When they are built, they should mirror the web/PWA tab layout and API calls described above (same `/api/friends*` and `/api/economy/gifts*` endpoints, TanStack Query instead of raw `fetch` + `useState`, per the pattern in `src/routes/messages/index.tsx`).
 
 ### Routing and Navigation
 
@@ -1194,6 +1194,79 @@ When disabled, the web page at `/community-notes` shows a "Feature Unavailable" 
 | GET | `/api/community-notes` | List notes, filterable by status |
 | POST | `/api/community-notes` | Submit a new note |
 | POST | `/api/community-notes/[noteId]/vote` | Vote helpful or unhelpful |
+
+---
+
+## Zobia Answers (Mini Forum / Q&A)
+
+Reddit-style community Q&A (PRD §31). Questions require a minimum account
+level to post (`forum_min_level_to_post`, default Level 2); answering has a
+separate, lower level gate (`forum_min_level_to_comment`, default Level 1)
+that can be bypassed by spending Credits (`forum_comment_bypass_cost_credits`).
+
+### How It Works
+
+1. `lib/forum/service.ts` mirrors `lib/moments/service.ts`'s pipeline: feature
+   flag → eligibility (rank + manifest config) → level gate → auto-moderation
+   → atomic insert. Rewards (XP via `safeAwardXPFireAndForget`, Credits via
+   `creditCoins`) are awarded **after** the write transaction commits, not
+   inside it — a reward-award failure never blocks or rolls back the post.
+2. Answers self-reference (`parent_answer_id`) for Reddit-style nesting, with
+   a denormalized `depth` column capped at 10 server-side. The question page
+   eagerly loads only 3 replies per top-level answer; deeper/further replies
+   are lazy-loaded via `GET /api/answers/questions/[id]/answers/[answerId]/thread`
+   (a small recursive CTE bounded by the depth cap) when the user clicks
+   "View N more replies."
+3. Voting toggles: voting the same direction again removes the vote; voting
+   the other direction flips it. One row per `(target_type, target_id, user_id)`
+   in `forum_votes`, enforced by a unique index — no JSONB voter-array hacks.
+4. **Redis avoidance:** list/detail queries `LEFT JOIN forum_votes`/
+   `forum_favorites` on the caller's ID directly in SQL, exactly like
+   `rooms.is_favorited` — zero per-item Redis reads for vote/favorite state,
+   consistent with this codebase's Redis-cost discipline (see
+   "Redis Cost Controls" above).
+5. Moderation reuses `lib/moderation/contentFilter.ts` (duplicate-post
+   detection + profanity filter) rather than a parallel system — see
+   `lib/forum/moderation.ts`. Reports flow through the existing
+   `moderation_reports` table and AI classifier; two nullable columns
+   (`reported_forum_question_id`, `reported_forum_answer_id`) were added to
+   both `reports` and `moderation_reports`.
+
+### Feature Flag
+
+Controlled by `feature_forum` in x_manifest / `/admin/config` (or
+`/admin/forum/settings`, which edits the same rows). Default: enabled. When
+disabled, `/api/answers/**` routes return 503.
+
+### Moderator Access Is Scoped
+
+Unlike the rest of `/admin/*` (admin-only), `/admin/forum/*` accepts either
+`is_admin` **or** `is_moderator`. This required adding `is_moderator` to the
+signed JWT access-token payload (previously only carried in the Redis
+session record, not the token itself — see `lib/auth/session.ts`) so the
+edge middleware pre-filter (`FORUM_MOD_PREFIXES` in `middleware.ts`) can
+check it without a DB round trip. The API layer still always re-verifies
+`is_admin`/`is_moderator` fresh from the database
+(`withModeratorOrAdminAuth` in `lib/api/middleware.ts`) before authorizing
+any action — the JWT claim is only ever used for the low-cost page-level
+gate, matching this codebase's existing `withAdminAuth` convention. Within
+`/admin/forum/*`, a small set of actions (permanently banning a user,
+restoring removed content, locking/unlocking a question) remain admin-only.
+
+### API Routes
+
+| Method | Route | Purpose |
+|---|---|---|
+| GET/POST | `/api/answers/questions` | List (tab-filtered, cursor-paginated) / ask a question |
+| GET | `/api/answers/questions/[id]` | Question detail |
+| DELETE | `/api/answers/questions/[id]` | Soft delete (author or moderator/admin) |
+| GET/POST | `/api/answers/questions/[id]/answers` | List top-level answers / post an answer or reply |
+| DELETE | `/api/answers/questions/[id]/answers/[answerId]` | Soft delete an answer |
+| GET | `/api/answers/questions/[id]/answers/[answerId]/thread` | Lazy-load a reply subtree |
+| POST | `/api/answers/questions/[id]/vote` , `.../answers/[answerId]/vote` | Upvote/downvote (toggle) |
+| POST/DELETE | `/api/answers/questions/[id]/favorite` | Favorite / unfavorite |
+| POST | `/api/answers/questions/[id]/best-answer` | Mark an answer as best |
+| GET | `/api/admin/forum/stats`, `/queue`, `/posts` | Admin/moderator dashboard, moderation queue, post management |
 
 ---
 
