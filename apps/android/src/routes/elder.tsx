@@ -27,6 +27,15 @@ interface Mentee {
   status: 'active' | 'pending' | 'inactive';
 }
 
+interface AvailableElder {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarEmoji?: string;
+  rankName: string;
+  menteeCount: number;
+}
+
 interface ElderData {
   isElder: boolean;
   isEligible: boolean;
@@ -39,6 +48,7 @@ interface ElderData {
   hasMentor?: boolean;
   canRequestMentor?: boolean;
   rankName?: string;
+  availableElders?: AvailableElder[];
 }
 
 async function fetchElder(): Promise<ElderData> {
@@ -50,8 +60,8 @@ async function removeMentee(userId: string) {
   await apiClient.delete(`/elder/mentees/${userId}`);
 }
 
-async function requestMentor() {
-  await apiClient.post('/elder/request');
+async function requestMentor(elderId: string) {
+  await apiClient.post('/elder/request', { elderId });
 }
 
 function ElderDashboard({ data, onRemove, removing }: { data: ElderData; onRemove: (id: string) => void; removing: string | null }) {
@@ -154,7 +164,19 @@ function EligibilityView({ data }: { data: ElderData }) {
   );
 }
 
-function NonEligibleView({ data, onRequest, requesting, requested }: { data: ElderData; onRequest: () => void; requesting: boolean; requested: boolean }) {
+function NonEligibleView({
+  data,
+  onRequest,
+  requesting,
+  requested,
+  requestError,
+}: {
+  data: ElderData;
+  onRequest: (elderId: string) => void;
+  requesting: string | null;
+  requested: boolean;
+  requestError: string | null;
+}) {
   const { t } = useTranslation();
   return (
     <div className="space-y-4">
@@ -177,20 +199,38 @@ function NonEligibleView({ data, onRequest, requesting, requested }: { data: Eld
         </ul>
       </div>
 
-      {(data.canRequestMentor || data.hasMentor === false) && (
+      {data.canRequestMentor && (
         <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
           <h3 className="mb-2 text-sm font-semibold text-blue-700">{t('elder.nonEligible.wantMentor')}</h3>
           <p className="mb-4 text-xs text-blue-600">{t('elder.nonEligible.wantMentorBody')}</p>
+          {requestError && <p className="mb-3 text-xs font-medium text-danger-600">{requestError}</p>}
           {requested ? (
             <p className="text-sm font-semibold text-teal-600">{t('elder.nonEligible.requestSent')}</p>
+          ) : data.availableElders && data.availableElders.length > 0 ? (
+            <div className="space-y-2">
+              {data.availableElders.map((elder) => (
+                <div key={elder.id} className="flex items-center justify-between gap-3 rounded-lg border border-blue-100 bg-white px-3 py-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="text-lg leading-none" aria-hidden="true">{elder.avatarEmoji ?? '🎓'}</span>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-neutral-900">{elder.displayName}</p>
+                      <p className="truncate text-xs text-neutral-500">
+                        {elder.rankName} · {elder.menteeCount}/{data.maxMentees ?? 5} {t('elder.dashboard.menteesLabel')}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => onRequest(elder.id)}
+                    disabled={requesting !== null}
+                    className="shrink-0 rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                  >
+                    {requesting === elder.id ? t('elder.nonEligible.requesting') : t('elder.nonEligible.requestButton')}
+                  </button>
+                </div>
+              ))}
+            </div>
           ) : (
-            <button
-              onClick={onRequest}
-              disabled={requesting}
-              className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
-            >
-              {requesting ? t('elder.nonEligible.requesting') : t('elder.nonEligible.requestButton')}
-            </button>
+            <p className="text-xs text-neutral-500">{t('elder.nonEligible.noneAvailable')}</p>
           )}
         </div>
       )}
@@ -217,9 +257,14 @@ function ElderPage() {
     },
   });
 
+  const [requestError, setRequestError] = useState<string | null>(null);
   const requestMutation = useMutation({
     mutationFn: requestMentor,
-    onSuccess: () => setRequested(true),
+    onSuccess: () => {
+      setRequested(true);
+      setRequestError(null);
+    },
+    onError: () => setRequestError(t('elder.nonEligible.requestFailed')),
   });
 
   if (status === 'pending') {
@@ -254,9 +299,10 @@ function ElderPage() {
       ) : (
         <NonEligibleView
           data={data}
-          onRequest={() => requestMutation.mutate()}
-          requesting={requestMutation.isPending}
+          onRequest={(elderId) => requestMutation.mutate(elderId)}
+          requesting={requestMutation.isPending ? (requestMutation.variables ?? null) : null}
           requested={requested}
+          requestError={requestError}
         />
       )}
     </div>

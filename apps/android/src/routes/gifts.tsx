@@ -182,10 +182,10 @@ function SendGiftPanel({ onClose, onSent }: { onClose: () => void; onSent: () =>
       await apiClient.post('/economy/gifts/send', { giftItemId, recipientId });
     },
     onSuccess: () => setSent(true),
-    onError: (err: unknown) => {
+    onError: (err: unknown, variables) => {
       const e = err as { response?: { status?: number; data?: { code?: string; error?: string } } };
       if (e.response?.status === 403 && e.response.data?.code === 'PIN_REQUIRED') {
-        pendingSend.current = { giftItemId: selectedGift!.id, recipientId: recipient!.id };
+        pendingSend.current = variables;
         setPin('');
         setPinError(null);
         setShowPin(true);
@@ -276,7 +276,11 @@ function SendGiftPanel({ onClose, onSent }: { onClose: () => void; onSent: () =>
               <div className="w-7 h-7 rounded-full bg-primary-100 flex items-center justify-center text-sm">{recipient.avatarEmoji || '🙂'}</div>
               <span className="text-sm font-medium text-neutral-900">@{recipient.username}</span>
             </div>
-            <button onClick={() => { setRecipient(null); setSearch(''); setSelectedGift(null); }} className="text-xs text-neutral-500">
+            <button
+              onClick={() => { setRecipient(null); setSearch(''); setSelectedGift(null); }}
+              disabled={sendMutation.isPending}
+              className="text-xs text-neutral-500 disabled:opacity-50"
+            >
               {t('gifts.send.change')}
             </button>
           </div>
@@ -320,7 +324,8 @@ function SendGiftPanel({ onClose, onSent }: { onClose: () => void; onSent: () =>
               <button
                 key={tr.tier}
                 onClick={() => { setActiveTier(tr.tier); setSelectedGift(null); }}
-                className={`shrink-0 rounded-full border-2 px-3 py-1 text-xs font-semibold ${
+                disabled={sendMutation.isPending}
+                className={`shrink-0 rounded-full border-2 px-3 py-1 text-xs font-semibold disabled:opacity-50 ${
                   activeTier === tr.tier ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-neutral-200 bg-white text-neutral-600'
                 }`}
               >
@@ -337,7 +342,7 @@ function SendGiftPanel({ onClose, onSent }: { onClose: () => void; onSent: () =>
                 <button
                   key={gift.id}
                   onClick={() => canAfford && setSelectedGift(isSelected ? null : gift)}
-                  disabled={!canAfford}
+                  disabled={!canAfford || sendMutation.isPending}
                   className={`flex flex-col items-center gap-1 rounded-xl border-2 p-2.5 text-center ${
                     isSelected
                       ? 'border-primary-500 bg-primary-50'

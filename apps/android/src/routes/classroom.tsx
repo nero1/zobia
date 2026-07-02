@@ -233,7 +233,7 @@ function BrowseCard({ room, onEnroll, enrolling, currentUserId, onShowToast }: {
   const [showAddForm, setShowAddForm] = useState(false);
   const isCreator = currentUserId != null && currentUserId === room.creatorId;
 
-  const { data: modules, isLoading: loadingModules } = useQuery({
+  const { data: modules, isLoading: loadingModules, isError: modulesError } = useQuery({
     queryKey: ['classroom', room.id, 'modules'],
     queryFn: () => fetchModules(room.id),
     enabled: showModules,
@@ -301,6 +301,8 @@ function BrowseCard({ room, onEnroll, enrolling, currentUserId, onShowToast }: {
                 onShowToast={onShowToast}
               />
             </div>
+          ) : modulesError ? (
+            <p className="text-xs text-danger-500">{t('classroom.error.loadFailed')}</p>
           ) : !loadingModules ? (
             <p className="text-xs text-neutral-400">{t('classroom.card.noModules')}</p>
           ) : null}

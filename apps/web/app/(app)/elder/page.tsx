@@ -30,6 +30,15 @@ interface Mentee {
   status: "active" | "pending" | "inactive";
 }
 
+interface AvailableElder {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarEmoji?: string;
+  rankName: string;
+  menteeCount: number;
+}
+
 interface ElderData {
   isElder: boolean;
   isEligible: boolean;
@@ -42,6 +51,7 @@ interface ElderData {
   hasMentor?: boolean;
   canRequestMentor?: boolean;
   rankName?: string;
+  availableElders?: AvailableElder[];
 }
 
 // ---------------------------------------------------------------------------
@@ -194,8 +204,8 @@ function EligibilityView({ data }: { data: ElderData }) {
 
 interface NonEligibleViewProps {
   data: ElderData;
-  onRequestMentor: () => Promise<void>;
-  requesting: boolean;
+  onRequestMentor: (elderId: string) => Promise<void>;
+  requesting: string | null;
   requested: boolean;
 }
 
@@ -226,7 +236,7 @@ function NonEligibleView({ data, onRequestMentor, requesting, requested }: NonEl
         </ul>
       </div>
 
-      {(data.canRequestMentor || data.hasMentor === false) && (
+      {data.canRequestMentor && (
         <div className="rounded-xl border border-blue-200 bg-blue-50 p-5 dark:border-blue-800 dark:bg-blue-950/30">
           <h3 className="mb-2 text-sm font-semibold text-blue-700 dark:text-blue-300">Want a Mentor?</h3>
           <p className="mb-4 text-xs text-blue-600 dark:text-blue-400">
@@ -234,16 +244,40 @@ function NonEligibleView({ data, onRequestMentor, requesting, requested }: NonEl
           </p>
           {requested ? (
             <p className="text-sm font-semibold text-teal-600 dark:text-teal-400">
-              Request sent! An Elder will be assigned to you soon.
+              Request sent! Your chosen Elder can accept it from their dashboard.
             </p>
+          ) : data.availableElders && data.availableElders.length > 0 ? (
+            <ul className="space-y-2">
+              {data.availableElders.map((elder) => (
+                <li
+                  key={elder.id}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-blue-100 bg-white px-3 py-2 dark:border-blue-900 dark:bg-neutral-900"
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="text-lg leading-none" aria-hidden="true">{elder.avatarEmoji ?? "🎓"}</span>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-50">
+                        {elder.displayName}
+                      </p>
+                      <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">
+                        {elder.rankName} · {elder.menteeCount}/{data.maxMentees ?? 5} mentees
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => onRequestMentor(elder.id)}
+                    disabled={requesting !== null}
+                    className="shrink-0 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                  >
+                    {requesting === elder.id ? "Sending…" : "Request"}
+                  </button>
+                </li>
+              ))}
+            </ul>
           ) : (
-            <button
-              onClick={onRequestMentor}
-              disabled={requesting}
-              className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-            >
-              {requesting ? "Sending…" : "Request a Mentor"}
-            </button>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              No Elders are available to mentor right now — check back soon.
+            </p>
           )}
         </div>
       )}
@@ -260,7 +294,7 @@ export default function ElderPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
-  const [requesting, setRequesting] = useState(false);
+  const [requesting, setRequesting] = useState<string | null>(null);
   const [requested, setRequested] = useState(false);
 
   const { t } = useTranslation();
@@ -312,15 +346,20 @@ export default function ElderPage() {
     }
   }
 
-  async function handleRequestMentor() {
-    setRequesting(true);
+  async function handleRequestMentor(elderId: string) {
+    setRequesting(elderId);
     try {
-      await fetch("/api/elder/request", { method: "POST", credentials: "include" });
-      setRequested(true);
+      const res = await fetch("/api/elder/request", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ elderId }),
+      });
+      if (res.ok) setRequested(true);
     } catch {
       // Ignore
     } finally {
-      setRequesting(false);
+      setRequesting(null);
     }
   }
 

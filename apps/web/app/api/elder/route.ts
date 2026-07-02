@@ -22,19 +22,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, forbidden, notFound, conflict } from "@/lib/api/errors";
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/** Minimum prestige count to be eligible as an elder (PRD §7). */
-const ELDER_MIN_PRESTIGE = 3;
-
-/** Elder must have been active within this many days. */
-const ELDER_ACTIVITY_DAYS = 30;
-
-/** Maximum concurrent mentees per elder. */
-const MAX_MENTEES = 5;
+import { ELDER_MIN_PRESTIGE, ELDER_ACTIVITY_DAYS, MAX_MENTEES, MENTEE_MAX_XP } from "@/lib/elder/constants";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -87,8 +75,9 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       prestige_count: number;
       rank_name: string;
       last_active_at: string | null;
+      xp_total: number;
     }>(
-      `SELECT prestige_count, rank_name, last_active_at
+      `SELECT prestige_count, rank_name, last_active_at, xp_total
        FROM users WHERE id = $1 AND deleted_at IS NULL`,
       [userId]
     );
@@ -98,9 +87,14 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const recentlyActive =
       user.last_active_at !== null &&
       new Date(user.last_active_at) > new Date(Date.now() - ELDER_ACTIVITY_DAYS * 86400_000);
-    const eligible = user.prestige_count >= ELDER_MIN_PRESTIGE && recentlyActive;
+    const prestigeMet = user.prestige_count >= ELDER_MIN_PRESTIGE;
+    // isElder: fully meets the automatic Elder bar (PRD §7 — no separate
+    // "application" step). isEligible: prestige threshold met but not yet
+    // recently active enough — surfaced so the user knows they're close.
+    const isElder = prestigeMet && recentlyActive;
+    const isEligible = prestigeMet && !recentlyActive;
 
-    // Current mentees
+    // Current mentees (only meaningful if isElder)
     const menteeResult = await db.query<MenteeRow>(
       `SELECT em.id, em.mentee_id, em.elder_id, em.started_at,
               u.username, u.display_name, u.avatar_emoji, u.rank_name, u.xp_total
@@ -111,7 +105,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       [userId]
     );
 
-    // Pending requests
+    // Pending requests to accept (only meaningful if isElder)
     const pendingResult = await db.query<PendingRequestRow>(
       `SELECT er.id, er.mentee_id, er.elder_id, er.message, er.created_at,
               u.username AS mentee_username,
@@ -125,17 +119,93 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       [userId]
     );
 
+    // Mentorship XP earned as an elder (10% bonus on mentees' quest XP)
+    const mentorshipXpResult = await db.query<{ total: string | null }>(
+      `SELECT SUM(amount) AS total FROM xp_ledger WHERE user_id = $1 AND source = 'mentorship_bonus'`,
+      [userId]
+    );
+    const mentorshipXpEarned = Number(mentorshipXpResult.rows[0]?.total ?? 0);
+
+    // Mentee-side state: do they already have a mentor, and can they request one?
+    const activeMentorshipResult = await db.query<{ id: string }>(
+      `SELECT id FROM elder_mentorships WHERE mentee_id = $1 AND ended_at IS NULL LIMIT 1`,
+      [userId]
+    );
+    const hasMentor = activeMentorshipResult.rows.length > 0;
+
+    const pendingSentResult = await db.query<{ id: string }>(
+      `SELECT id FROM elder_requests WHERE mentee_id = $1 AND status = 'pending' LIMIT 1`,
+      [userId]
+    );
+    const hasPendingRequest = pendingSentResult.rows.length > 0;
+    const canRequestMentor = user.xp_total < MENTEE_MAX_XP && !hasMentor && !hasPendingRequest;
+
+    // Directory of elders a non-elder can request as a mentor (only fetched
+    // when it can actually be used — avoids the extra query for elders).
+    let availableElders: {
+      id: string;
+      username: string;
+      displayName: string;
+      avatarEmoji: string;
+      rankName: string;
+      menteeCount: number;
+    }[] = [];
+    if (canRequestMentor) {
+      const eldersResult = await db.query<{
+        id: string;
+        username: string;
+        display_name: string;
+        avatar_emoji: string;
+        rank_name: string;
+        mentee_count: string;
+      }>(
+        `SELECT u.id, u.username, u.display_name, u.avatar_emoji, u.rank_name,
+                COUNT(em.id) FILTER (WHERE em.ended_at IS NULL) AS mentee_count
+         FROM users u
+         LEFT JOIN elder_mentorships em ON em.elder_id = u.id AND em.ended_at IS NULL
+         WHERE u.id != $1
+           AND u.deleted_at IS NULL
+           AND u.prestige_count >= $2
+           AND u.last_active_at > NOW() - ($3 || ' days')::interval
+         GROUP BY u.id
+         HAVING COUNT(em.id) FILTER (WHERE em.ended_at IS NULL) < $4
+         ORDER BY COUNT(em.id) FILTER (WHERE em.ended_at IS NULL) ASC, u.xp_total DESC
+         LIMIT 20`,
+        [userId, ELDER_MIN_PRESTIGE, ELDER_ACTIVITY_DAYS, MAX_MENTEES]
+      );
+      availableElders = eldersResult.rows.map((row) => ({
+        id: row.id,
+        username: row.username,
+        displayName: row.display_name,
+        avatarEmoji: row.avatar_emoji,
+        rankName: row.rank_name,
+        menteeCount: Number(row.mentee_count),
+      }));
+    }
+
     return NextResponse.json({
       success: true,
       data: {
-        eligible,
+        isElder,
+        isEligible,
+        eligibilityReason: !prestigeMet
+          ? "NOT_ENOUGH_PRESTIGE"
+          : !recentlyActive
+            ? "INACTIVE"
+            : undefined,
+        prestigeLevel: user.prestige_count,
         prestigeCount: user.prestige_count,
         rankName: user.rank_name,
+        lastActiveAt: user.last_active_at,
         minPrestigeRequired: ELDER_MIN_PRESTIGE,
         maxMentees: MAX_MENTEES,
         currentMenteeCount: menteeResult.rows.length,
         mentees: menteeResult.rows,
         pendingRequests: pendingResult.rows,
+        mentorshipXpEarned,
+        hasMentor,
+        canRequestMentor,
+        availableElders,
       },
       error: null,
     });
