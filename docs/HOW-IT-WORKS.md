@@ -260,7 +260,7 @@ Count badges on the Received and Sent sub-tabs show pending counts at a glance. 
 
 ### Profile Privacy
 
-Users can control the visibility of their profile through four privacy settings. The first three are gated to specific plans/ranks; the fourth is available to all users:
+Users can control the visibility of their profile through five privacy settings. The first, second, third and fifth are gated to specific plans/ranks; the fourth is available to all users:
 
 | Setting | Default gate | What it does |
 |---|---|---|
@@ -268,12 +268,14 @@ Users can control the visibility of their profile through four privacy settings.
 | **Hide profile sections** | Plus / Pro / Max / Prestige 1+ | Removes individual sections (avatar, bio, rank, xp, guild, seasons, badges) from the non-owner view |
 | **Disable friend requests** | Plus / Pro / Max / Prestige 1+ | Prevents the "Add Friend" button appearing on the user's profile |
 | **Sitemap opt-out** | All users (no plan gate) | Excludes the user's profile URL from the public `/sitemap.xml` so search engines do not index it |
+| **Show online status** | Pro / Max / Prestige 1+ | Opts the user into appearing in friends' Home page "Online Friends" row. **Off by default** — see "Online Friends & Presence Filtering" below. |
 
-Settings are stored as four columns on the `users` table:
+Settings are stored as five columns on the `users` table:
 - `profile_private` — BOOLEAN
 - `profile_hidden_sections` — JSONB array of section keys
 - `disable_friend_requests` — BOOLEAN
 - `sitemap_opt_out` — BOOLEAN (default `false`; toggled via `PATCH /api/users/me/privacy`)
+- `show_online_status` — BOOLEAN (default `false`; migration `0038_online_status_privacy.sql`)
 
 **Enforcement** happens in `GET /api/users/[userId]/profile`:
 1. If the profile owner is banned → 403 `ACCOUNT_RESTRICTED`.
@@ -291,8 +293,18 @@ Settings are stored as four columns on the `users` table:
 | `privacy_can_hide_sections` | `["plus","pro","max","prestige_1"]` |
 | `privacy_can_disable_friend_requests` | `["plus","pro","max","prestige_1"]` |
 | `privacy_hideable_sections` | `["avatar","bio","rank","xp","guild","seasons","badges"]` |
+| `privacy_can_show_online_status` | `["pro","max","prestige_1"]` |
 
 Changes take effect within 60 seconds (Redis cache TTL).
+
+### Online Friends & Presence Filtering
+
+The Home page "Online Friends" row previously listed **every** accepted friendship regardless of whether the friend was actually online — it called the same `GET /api/friends` endpoint used by the full Friends list page, which has no presence filter at all. Fixed by adding a dedicated `GET /api/friends/online` endpoint that only returns friends who:
+
+1. Have opted in via `show_online_status = TRUE` (see Profile Privacy above — off by default, Pro/Max gated), **and**
+2. Have `last_active_at` within the last hour ("recently active"; within 5 minutes is flagged `isOnline: true` and rendered as the "online" presence ring, matching the 5-minute TTL used by the Redis presence heartbeat key).
+
+This is a pure SQL filter on `users.last_active_at` (already kept warm by `POST /api/presence` on every heartbeat) — it adds **zero** additional Redis calls. The Home page passes the already-known `isOnline` flag into `<OnlineRing knownStatus=... />`, which skips its usual per-avatar `GET /api/presence/[userId]` fetch (an avoidable Redis `GET` per rendered friend) when a known status is supplied.
 
 ### Profile Components (PRD §15)
 
@@ -517,6 +529,19 @@ Two tables record XP; they must be kept in sync at all times:
 
 **Never** sum `xp_ledger.amount` to compute a user's XP — read `users.xp_total` instead. Summing the ledger is expensive (full table scan) and will diverge if any direct `users.xp_total` update is missed.
 
+### Daily Quest & New Member Quest Engine
+
+Location: `lib/quests/questEngine.ts` (daily quest deck) and `lib/quests/newMemberQuestEngine.ts` (New Member Quest steps).
+
+**Daily quest deck (PRD §7):**
+1. `GET /api/quests/daily` calls `generateDailyDeck(userId, plan, db)`, which persists the user's plan-sized deck (3/4/5/6 quests for free/plus/pro/max) into `user_quest_decks` for the day (CSPRNG shuffle, Redis lock to avoid duplicate decks from concurrent tab opens). **This persistence step is load-bearing** — action routes advance progress via `triggerActivityQuestProgress(userId, actionType, db)`, which only matches quests present in `user_quest_decks` for today. A previous version of `GET /api/quests/daily` queried `quest_templates` directly without writing to `user_quest_decks`, so every progress-tracking call silently no-opped with a "not in user's deck" error — daily quests always showed 0/x. Any future quest-listing endpoint must go through `generateDailyDeck`, not a parallel query.
+2. `triggerActivityQuestProgress(userId, actionType, db, increment?)` is called fire-and-forget from action routes whenever a quest-relevant action happens. `actionType` **must match** `quest_templates.action_type` exactly — the canonical values seeded in `0001_consolidated_schema.sql` are `messages`, `room_join`, `gift`, `login_streak`, `guild_quest`, `xp_meta`. Wired call sites: room/DM/group message send (`messages`), room join (`room_join`), gift send — both `/api/economy/gifts/send` and the DM gift path (`gift`), guild quest contribution (`guild_quest`), daily login claim (`login_streak`), and generically inside `safeAwardXP` for the `xp_meta` "earn N XP today" meta-quest (increment = XP amount awarded; skipped when no ambient DB transaction is in flight, and excluded for `quest_complete`/`deck_completion`/`deck_bonus`/`mentorship_bonus` sources to avoid a quest's own payout re-triggering itself).
+3. `updateQuestProgress` also awards a **10% Elder mentorship bonus** to the user's active `elder_mentorships` mentor on quest completion (PRD §7) — this now lives in the shared engine (previously only implemented in an endpoint no client ever called, so mentorship bonuses were never actually paid out).
+4. `POST /api/quests/daily/[questId]/progress` (available for direct client-driven progress claims) delegates to `updateQuestProgress` / `checkDeckCompletion` rather than maintaining a second, divergent implementation.
+5. `resetDailyQuests` (CRON, daily) expires stale `user_quest_progress` rows and prunes old rows/decks — the only quest step that is CRON-driven; everything else is real-time.
+
+**New Member Quest (PRD §4):** a 6-step onboarding mission (`send_message`, `join_room`, `gift_someone`, `add_friend`, `friend_request` [send 3], `daily_login`) created by `POST /api/onboarding/complete`. Steps are advanced via `advanceNewMemberQuestStep(db, userId, stepId)` / `advanceNewMemberQuestFriendRequestStep(db, userId)`, called from the same action routes that drive daily quests (message send, room join, gift send, friend accept, friend request, daily login). Previously these steps were only ever written by an internal `/api/xp/award` endpoint that nothing in the app actually called over HTTP, so steps never got marked complete on the Home page banner regardless of what the user did.
+
 ### Coin Ledger
 
 `coin_ledger` is **append-only** — rows are never updated or deleted. This preserves a complete audit trail of every coin credit and debit.
@@ -667,7 +692,11 @@ Deletion is batched by joining the `messages` table against the sender's **curre
 
 **Session limit:** Users are limited to **10 concurrent sessions** (`MAX_SESSIONS=10`). When a new login would exceed this limit, the oldest session(s) by creation time are evicted: their `session:{sid}` Redis keys are deleted first, then removed from the `user_sessions:{uid}` sorted set. This order prevents a race where an evicted session could briefly appear valid.
 
-**Session-expired notice for open pages:** When a long-lived page (most commonly an open chat room) outlives its session, its background polls and the next user action receive a `401`. A client `authFetch` wrapper (`lib/api/authFetch.ts`) and the axios interceptor first attempt one silent refresh; if that fails the session is truly gone, and they raise an app-wide event (`lib/auth/sessionExpiredBus.ts`) that mounts a blocking "you've been signed out — sign in again" modal (`components/auth/SessionExpiredModal.tsx`, mounted in `app/(app)/layout.tsx`). The Expo app surfaces the same notice via `components/auth/SessionExpiredModal.tsx` driven by the auth context's `sessionExpired` flag. This closes the gap where a room left open after auto-logout used to keep showing stale content with silently-failing polls.
+**Session-expired notice for open pages:** When a long-lived page (most commonly an open chat room) outlives its session, its background polls and the next user action receive a `401`. A client `authFetch` wrapper (`lib/api/authFetch.ts`) and the axios interceptor first attempt one silent refresh; if that fails the session is truly gone, and they raise an app-wide event (`lib/auth/sessionExpiredBus.ts`) that mounts a blocking "you've been signed out — sign in again" modal (`components/auth/SessionExpiredModal.tsx`, mounted in `app/layout.tsx` — the **root** layout, not just `app/(app)/layout.tsx`, so it also covers standalone routes outside the authenticated app shell such as `/g/<slug>/play` and `/g/<slug>/embed`). The Expo app surfaces the same notice via `components/auth/SessionExpiredModal.tsx` driven by the auth context's `sessionExpired` flag. This closes the gap where a room left open after auto-logout used to keep showing stale content with silently-failing polls.
+
+**Pitfall — local `fetch` shadows:** `components/games/GameRunner.tsx` previously defined its own local `authFetch` helper (a plain `fetch` with `credentials: "include"`) instead of importing the shared one, so a session expiring mid-game (failing to start a game or submit a score) surfaced only a generic inline error — the session-expired modal never fired. Any new authenticated client component must call the shared `authFetch`/`apiClient`, never hand-roll a same-named local wrapper; a local function named `authFetch` that isn't the shared import is a code-review red flag.
+
+**Scroll-to-error:** A related, separate UX bug — a failed form submit or button click sometimes rendered its error message off-screen (above or below the fold) with no indication anything happened. `lib/hooks/useScrollToError.ts` is a small reusable hook (`const ref = useScrollToError(error)` → attach `ref` to the error container) that scrolls the element into view the moment the error transitions from falsy to truthy. It's wired into the shared `<Input>` component (per-field errors) and a new shared `<ErrorAlert>` component (`components/ui/ErrorAlert.tsx`, for page/form-level banners), and applied to the Home page, login page, and register page banners. New forms should use `<ErrorAlert error={...} />` or the hook directly rather than a bare `{error && <div>...}` block.
 
 **Expo mobile auth hardening:** On an irrecoverable 401, the Expo auth context clears all three SecureStore keys (`zobia_jwt`, `zobia_rt`, `zobia_user`) before transitioning to the signed-out state, so stale credentials cannot cause a re-authentication loop on the next app restart. After a successful silent token refresh, the Axios interceptor fetches `/api/users/me` and fires an `onUserUpdated` event; the auth context subscribes to this event and updates the in-memory user object with fresh XP, rank, and city — fields that are not embedded in the JWT payload and would otherwise go stale until re-login.
 

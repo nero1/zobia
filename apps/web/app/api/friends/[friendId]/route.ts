@@ -9,6 +9,7 @@ import { withAuth } from '@/lib/api/middleware';
 import { badRequest, forbidden, notFound, handleApiError } from '@/lib/api/errors';
 import { db } from '@/lib/db';
 import { XP_VALUES } from '@/lib/xp/engine';
+import { advanceNewMemberQuestStep } from '@/lib/quests/newMemberQuestEngine';
 
 /** PUT /api/friends/[friendId] — accept, reject, or block */
 export const PUT = withAuth(async (
@@ -80,6 +81,10 @@ export const PUT = withAuth(async (
            VALUES ($1, $2, 'social', 'add_new_friend', $2, NOW())`,
           [friendship.requester_id, requesterXP],
         ).catch(() => {});
+
+        // Both parties now have a new friend — advance the add_friend New Member Quest step
+        void advanceNewMemberQuestStep(db, userId, 'add_friend');
+        void advanceNewMemberQuestStep(db, friendship.requester_id, 'add_friend');
       }
     }
 

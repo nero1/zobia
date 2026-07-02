@@ -142,6 +142,30 @@ export async function safeAwardXP(
           });
         }
       }
+
+      // Daily Quest System 'xp_meta' meta-quest ("Earn N XP today") — dynamic
+      // import avoids a circular dependency (questEngine imports safeAwardXP).
+      // Excludes quest/deck reward sources so a quest's own payout doesn't
+      // recursively feed the meta-quest that likely just completed it.
+      // Only fires when no caller transaction is in flight (`!dbClient`) —
+      // the XP row is durably committed at this point, and
+      // triggerActivityQuestProgress opens its own transaction internally,
+      // which a TransactionClient (unlike the full DatabaseAdapter) cannot do.
+      const XP_META_EXCLUDED_SOURCES = new Set([
+        "quest_complete",
+        "deck_completion",
+        "deck_bonus",
+        "mentorship_bonus",
+      ]);
+      if (amount > 0 && !dbClient && !XP_META_EXCLUDED_SOURCES.has(source)) {
+        import("@/lib/quests/questEngine")
+          .then(({ triggerActivityQuestProgress }) =>
+            triggerActivityQuestProgress(userId, "xp_meta", globalDb, amount)
+          )
+          .catch((err) => {
+            logger.warn({ err, userId, source }, "[safeAwardXP] xp_meta quest trigger failed (non-fatal)");
+          });
+      }
     }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);

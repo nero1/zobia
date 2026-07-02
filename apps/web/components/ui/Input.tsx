@@ -9,6 +9,7 @@
 
 import { forwardRef, type InputHTMLAttributes, useId } from "react";
 import { clsx } from "clsx";
+import { useScrollToError } from "@/lib/hooks/useScrollToError";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -71,9 +72,12 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
     const helperId = `${id}-helper`;
     const hasError = Boolean(error);
     const isDisabled = disabled || isLoading;
+    // Scrolls this field into view the moment its error first appears, so a
+    // validation failure below the fold isn't silently missed by the user.
+    const wrapperRef = useScrollToError<HTMLDivElement>(error);
 
     return (
-      <div className="w-full">
+      <div className="w-full" ref={wrapperRef}>
         {/* Label */}
         {label && (
           <label

@@ -27,6 +27,8 @@ import { redis } from "@/lib/redis";
 import { withAuth, type AuthContext } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { creditCoins } from "@/lib/economy/coins";
+import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
+import { advanceNewMemberQuestStep } from "@/lib/quests/newMemberQuestEngine";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -194,6 +196,11 @@ export const POST = withAuth(async (req: NextRequest, { auth }: { params: Record
 
       return { newStreak, xpAwarded, isPersonalBest };
     });
+
+    // Trigger the login_streak daily quest ("Log in for 7 consecutive days") and
+    // the daily_login New Member Quest step (fire-and-forget, non-fatal)
+    void triggerActivityQuestProgress(userId, "login_streak", db);
+    void advanceNewMemberQuestStep(db, userId, "daily_login");
 
     // Process any unclaimed comeback bonus coins (90-day re-engagement)
     let comebackBonusClaimed = 0;

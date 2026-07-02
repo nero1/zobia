@@ -5,23 +5,24 @@ export const dynamic = 'force-dynamic';
  *
  * New Member Quest endpoints.
  *
- * The New Member Quest is a 5-step guided mission awarded to every user on
+ * The New Member Quest is a 6-step guided mission awarded to every user on
  * onboarding completion. It guides users through core social features and
- * pays out 1,000 Coins + 2,000 XP when all 5 steps are done.
+ * pays out 1,000 Coins + 2,000 XP when all 6 steps are done.
  *
  * Steps:
- *  1. send_message  — Send a message
- *  2. join_room     — Join a Room
- *  3. gift_someone  — Gift someone
- *  4. add_friend    — Add a friend
- *  5. daily_login   — Complete a daily login
+ *  1. send_message    — Send a message
+ *  2. join_room       — Join a Room
+ *  3. gift_someone    — Gift someone
+ *  4. add_friend      — Add a friend
+ *  5. friend_request  — Send 3 friend requests
+ *  6. daily_login     — Complete a daily login
  *
  * GET  /api/quests/new-member
  *   Returns the user's New Member Quest progress.
- *   { step: 1-5, steps: [{id, label, completed}], allComplete: boolean }
+ *   { step: 1-6, steps: [{id, label, completed}], allComplete: boolean }
  *
  * POST /api/quests/new-member/complete
- *   Called when all 5 steps are done.
+ *   Called when all 6 steps are done.
  *   Awards 1,000 Coins + 2,000 XP atomically.
  *   Marks quest as complete (idempotent — returns 409 if already claimed).
  */
@@ -164,7 +165,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
 /**
  * Claim the New Member Quest reward.
  *
- * Verifies all 5 steps are complete, then atomically:
+ * Verifies all 6 steps are complete, then atomically:
  *  - Credits 1,000 Coins
  *  - Awards 2,000 XP (via xp_ledger insert + users.xp_total update)
  *  - Marks the quest as complete and reward_claimed

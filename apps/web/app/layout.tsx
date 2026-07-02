@@ -23,6 +23,7 @@ import { I18nProvider } from "@/components/providers/I18nProvider";
 import { FloatingNotificationProvider } from "@/components/providers/FloatingNotificationProvider";
 import { ReferralCapture } from "@/components/referral/ReferralCapture";
 import { SkipToMain } from "@/components/shared/SkipToMain";
+import { SessionExpiredModal } from "@/components/auth/SessionExpiredModal";
 import { loadManifest } from "@/lib/manifest";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -177,6 +178,12 @@ export default async function RootLayout({ children }: RootLayoutProps) {
               <FloatingNotificationProvider>
                 {/* Captures ?r=<code> from any page for referral attribution */}
                 <ReferralCapture />
+                {/* App-wide "you've been signed out" notice — mounted at the root
+                    (not just the (app) layout) so it also covers standalone routes
+                    like /g/<slug>/play and /g/<slug>/embed, where a mid-session
+                    401 (e.g. failing to start/score a game) previously went
+                    unnoticed. Self-guards against showing on /auth/* routes. */}
+                <SessionExpiredModal />
                 <main id="main-content">
                   {children}
                 </main>

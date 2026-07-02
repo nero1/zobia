@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import Script from "next/script";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { useScrollToError } from "@/lib/hooks/useScrollToError";
 
 // ---------------------------------------------------------------------------
 // Telegram Login Widget types
@@ -55,6 +56,11 @@ function LoginContent() {
   const [isLoading, setIsLoading] = useState<"google" | "telegram" | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
   const [captchaManifest, setCaptchaManifest] = useState<CaptchaManifest | null>(null);
+  // Scrolls the error banners into view the moment one appears (session
+  // expired notice, OAuth failure, or a locally-thrown auth error).
+  const errorBannerRef = useScrollToError<HTMLDivElement>(
+    authError ?? error ?? (reason === "session_expired" ? "session_expired" : null)
+  );
 
   const botUsername = process.env["NEXT_PUBLIC_TELEGRAM_BOT_USERNAME"] ?? "";
   const telegramContainerRef = useRef<HTMLDivElement>(null);
@@ -185,30 +191,32 @@ function LoginContent() {
           </p>
         </div>
 
-        {/* Session expired banner */}
-        {reason === "session_expired" && (
-          <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
-            Your session has expired. Please sign in to continue.
-          </div>
-        )}
+        <div ref={errorBannerRef}>
+          {/* Session expired banner */}
+          {reason === "session_expired" && (
+            <div role="alert" className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+              Your session has expired. Please sign in to continue.
+            </div>
+          )}
 
-        {/* Auth error banner */}
-        {authError && (
-          <div className="mb-6 rounded-lg border border-danger-200 bg-danger-50 px-4 py-3 text-center text-sm text-danger-700 dark:border-danger-800 dark:bg-danger-950 dark:text-danger-300">
-            {authError}
-          </div>
-        )}
+          {/* Auth error banner */}
+          {authError && (
+            <div role="alert" className="mb-6 rounded-lg border border-danger-200 bg-danger-50 px-4 py-3 text-center text-sm text-danger-700 dark:border-danger-800 dark:bg-danger-950 dark:text-danger-300">
+              {authError}
+            </div>
+          )}
 
-        {/* Error banner */}
-        {error && (
-          <div className="mb-6 rounded-lg border border-danger-200 bg-danger-50 px-4 py-3 text-center text-sm text-danger-700 dark:border-danger-800 dark:bg-danger-950 dark:text-danger-300">
-            {error === "oauth_failed" && t("auth.error.oauthFailed")}
-            {error === "account_suspended" && t("auth.error.accountSuspended")}
-            {error === "session_expired" && t("auth.error.sessionExpired")}
-            {!["oauth_failed", "account_suspended", "session_expired"].includes(error) &&
-              t("auth.error.unexpected")}
-          </div>
-        )}
+          {/* Error banner */}
+          {error && (
+            <div role="alert" className="mb-6 rounded-lg border border-danger-200 bg-danger-50 px-4 py-3 text-center text-sm text-danger-700 dark:border-danger-800 dark:bg-danger-950 dark:text-danger-300">
+              {error === "oauth_failed" && t("auth.error.oauthFailed")}
+              {error === "account_suspended" && t("auth.error.accountSuspended")}
+              {error === "session_expired" && t("auth.error.sessionExpired")}
+              {!["oauth_failed", "account_suspended", "session_expired"].includes(error) &&
+                t("auth.error.unexpected")}
+            </div>
+          )}
+        </div>
 
         {/* Auth card */}
         <div className="rounded-2xl border border-neutral-200 bg-white px-8 py-10 shadow-elevated dark:border-neutral-800 dark:bg-neutral-900">

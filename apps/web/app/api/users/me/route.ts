@@ -35,6 +35,10 @@ interface UserFullProfile {
   country: string | null;
   locale: string | null;
   plan: string;
+  /** ISO timestamp the user's active personal subscription (subscriptions.ends_at) expires, or null if on free / no active subscription. */
+  plan_ends_at: string | null;
+  /** ISO timestamp the user's active business plan subscription expires, or null. */
+  business_plan_ends_at: string | null;
   is_admin: boolean;
   is_creator: boolean;
   is_verified: boolean;
@@ -148,6 +152,13 @@ const SELECT_COLUMNS = `
   id, email, username, display_name, bio, avatar_url, avatar_emoji,
   city, country, locale, plan, is_admin, is_creator, is_verified,
   onboarding_completed, coin_balance, star_balance,
+  (SELECT s.ends_at FROM subscriptions s
+     WHERE s.user_id = users.id AND s.status = 'active'
+     ORDER BY s.created_at DESC LIMIT 1) AS plan_ends_at,
+  (SELECT s2.ends_at FROM business_accounts ba
+     JOIN subscriptions s2 ON s2.id = ba.subscription_id
+     WHERE ba.user_id = users.id AND ba.status = 'active'
+     LIMIT 1) AS business_plan_ends_at,
   xp_total, legacy_score, rank_name, rank_level, rank_sublevel, prestige_count,
   xp_social, xp_creator, xp_competitor, xp_generosity, xp_knowledge, xp_explorer, xp_gaming,
   level_social, level_creator, level_competitor, level_generosity, level_knowledge, level_explorer, level_gaming,

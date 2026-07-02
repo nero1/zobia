@@ -33,6 +33,7 @@ import { canonicalDmPair } from "@/lib/messaging/canonicalDmPair";
 import { recordWarContribution } from "@/lib/guilds/recordWarContribution";
 import { updateConversationScore } from "@/lib/messaging/conversationScore";
 import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
+import { advanceNewMemberQuestStep } from "@/lib/quests/newMemberQuestEngine";
 import { debitCoins, creditCoins } from "@/lib/economy/coins";
 import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 import { publishRealtimeEvent } from "@/lib/realtime";
@@ -246,6 +247,9 @@ async function handleDMGift(
     safeAwardXP(senderId, giftSenderFinalXp, 'generosity', 'gift_sent', `dm_gift_sent:${giftId}`).catch(() => {});
     safeAwardXP(recipientId, giftRecipFinalXp, 'social', 'gift_received', `dm_gift_received:${giftId}`).catch(() => {});
   }
+
+  void triggerActivityQuestProgress(senderId, "gift", db);
+  void advanceNewMemberQuestStep(db, senderId, "gift_someone");
 
   recordWarContribution(senderId, "send_gift", db).catch(() => {});
 
@@ -589,7 +593,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Trigger matching daily quest progress for sending a DM
-    void triggerActivityQuestProgress(auth.user.sub, "send_text_message", db);
+    void triggerActivityQuestProgress(auth.user.sub, "messages", db);
+    void advanceNewMemberQuestStep(db, auth.user.sub, "send_message");
 
     // 12. Daily counter already incremented atomically in step 5 (BUG-10)
 

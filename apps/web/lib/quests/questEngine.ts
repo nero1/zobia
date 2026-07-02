@@ -22,6 +22,7 @@ import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 import { publishRealtimeEvent } from "@/lib/realtime";
 import { logger } from "@/lib/logger";
 import { redis } from "@/lib/redis";
+import { db as globalDb } from "@/lib/db";
 
 // Maps a ProgressionTrack name to the corresponding users table column
 const TRACK_COLUMN: Record<string, string> = {
@@ -278,6 +279,8 @@ export async function updateQuestProgress(
   // if the transaction rolls back, there is no XP to award and no DLQ entry
   // should be written.
   let pendingXP: { amount: number; track: import("@/lib/xp/safeAwardXP").XPTrack; ref: string } | null = null;
+  // PRD §7 (Elder System): Elder earns 10% of a Mentee's quest XP as a Mentorship Bonus.
+  let pendingElderBonus: { elderId: string; amount: number; ref: string; menteeId: string } | null = null;
 
   const result = await db.transaction(async (client) => {
     const questResult = await client.query<QuestTemplate>(
@@ -365,6 +368,23 @@ export async function updateQuestProgress(
       if (coinsAwarded > 0) {
         await creditCoins(userId, coinsAwarded, "quest_reward", questCompletionRef, "Daily quest reward", {}, client);
       }
+
+      // PRD §7: Elder mentorship bonus — 10% of quest XP to the user's active Elder mentor.
+      const elderResult = await client.query<{ elder_id: string }>(
+        `SELECT elder_id FROM elder_mentorships
+         WHERE mentee_id = $1 AND COALESCE(status, 'active') = 'active'
+         LIMIT 1`,
+        [userId]
+      );
+      const elderBonus = Math.floor(xpAwarded * 0.1);
+      if (elderResult.rows[0] && elderBonus > 0) {
+        pendingElderBonus = {
+          elderId: elderResult.rows[0].elder_id,
+          amount: elderBonus,
+          ref: `mentorship_bonus:${questCompletionRef}`,
+          menteeId: userId,
+        };
+      }
     }
 
     return {
@@ -383,6 +403,24 @@ export async function updateQuestProgress(
   const capturedXP = pendingXP as { amount: number; track: import("@/lib/xp/safeAwardXP").XPTrack; ref: string } | null;
   if (capturedXP) {
     await safeAwardXP(userId, capturedXP.amount, capturedXP.track, "quest_complete", capturedXP.ref);
+  }
+
+  const capturedElderBonus = pendingElderBonus as { elderId: string; amount: number; ref: string; menteeId: string } | null;
+  if (capturedElderBonus) {
+    await safeAwardXP(capturedElderBonus.elderId, capturedElderBonus.amount, "main", "mentorship_bonus", capturedElderBonus.ref);
+    try {
+      const { insertNotification } = await import("@/lib/notifications/insert");
+      await insertNotification(
+        globalDb,
+        capturedElderBonus.elderId,
+        "mentorship_bonus",
+        "Mentorship bonus earned!",
+        `Your mentee earned ${capturedElderBonus.amount} XP for you by completing a quest.`,
+        { menteeId: capturedElderBonus.menteeId, bonusXP: capturedElderBonus.amount }
+      );
+    } catch (err) {
+      logger.error({ err, elderId: capturedElderBonus.elderId }, "[questEngine] Failed to notify elder of mentorship bonus (non-fatal)");
+    }
   }
 
   return result;
@@ -478,13 +516,17 @@ export async function checkDeckCompletion(
  * `reward_earned` events.  Errors are swallowed — call fire-and-forget.
  *
  * @param userId     - UUID of the user performing the action
- * @param actionType - quest_templates.action_type to match (e.g. 'join_new_room')
+ * @param actionType - quest_templates.action_type to match (e.g. 'room_join')
  * @param dbAdapter  - Active database adapter
+ * @param increment  - How much to increment matching quests by (default 1).
+ *                     Used by meta-quests like 'xp_meta' where the increment
+ *                     equals the XP amount earned rather than a flat unit.
  */
 export async function triggerActivityQuestProgress(
   userId: string,
   actionType: string,
-  dbAdapter: DatabaseAdapter
+  dbAdapter: DatabaseAdapter,
+  increment: number = 1
 ): Promise<void> {
   const today = new Date().toISOString().slice(0, 10);
   try {
@@ -507,7 +549,7 @@ export async function triggerActivityQuestProgress(
 
     for (const quest of matchingQuests) {
       try {
-        const result = await updateQuestProgress(userId, quest.id, 1, dbAdapter);
+        const result = await updateQuestProgress(userId, quest.id, increment, dbAdapter);
         if (result.newly_completed) {
           anyNewlyCompleted = true;
           publishRealtimeEvent(`user:${userId}`, "reward_earned", {

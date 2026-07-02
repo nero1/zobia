@@ -32,6 +32,7 @@ import { XP_VALUES } from "@/lib/xp/engine";
 import { recordWarContribution } from "@/lib/guilds/recordWarContribution";
 import { publishRealtimeEvent } from "@/lib/realtime";
 import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
+import { advanceNewMemberQuestStep } from "@/lib/quests/newMemberQuestEngine";
 import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
@@ -156,7 +157,8 @@ async function firePostJoinSideEffects(roomId: string, userId: string): Promise<
       amount: joinXp,
     }).catch(() => {});
   }
-  triggerActivityQuestProgress(userId, "join_new_room", db).catch(() => {});
+  triggerActivityQuestProgress(userId, "room_join", db).catch(() => {});
+  void advanceNewMemberQuestStep(db, userId, "join_room");
 }
 
 // ---------------------------------------------------------------------------

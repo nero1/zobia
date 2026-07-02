@@ -51,11 +51,12 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
 
     const user = userRow.rows[0] ?? { plan: "free", prestige_count: 0 };
 
-    const [lockAllowed, hideAllowed, noFrAllowed, hideableSections] = await Promise.all([
+    const [lockAllowed, hideAllowed, noFrAllowed, hideableSections, onlineStatusAllowed] = await Promise.all([
       getJsonManifestList('privacy_can_lock_profile', ['pro', 'max', 'prestige_1']),
       getJsonManifestList('privacy_can_hide_sections', ['plus', 'pro', 'max', 'prestige_1']),
       getJsonManifestList('privacy_can_disable_friend_requests', ['plus', 'pro', 'max', 'prestige_1']),
       getJsonManifestList('privacy_hideable_sections', ['avatar', 'bio', 'rank', 'xp', 'guild', 'seasons', 'badges']),
+      getJsonManifestList('privacy_can_show_online_status', ['pro', 'max', 'prestige_1']),
     ]);
 
     return NextResponse.json(
@@ -67,6 +68,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
           canLockProfile: userEligibleForFeature(user.plan, user.prestige_count, lockAllowed),
           canHideSections: userEligibleForFeature(user.plan, user.prestige_count, hideAllowed),
           canDisableFriendRequests: userEligibleForFeature(user.plan, user.prestige_count, noFrAllowed),
+          canShowOnlineStatus: userEligibleForFeature(user.plan, user.prestige_count, onlineStatusAllowed),
           hideableSections,
         },
       },

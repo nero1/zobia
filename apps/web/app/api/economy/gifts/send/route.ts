@@ -29,6 +29,8 @@ import { requirePinVerified } from "@/lib/auth/pinGuard";
 import { loadManifest } from "@/lib/manifest";
 import { calculateFinalXP, PLAN_XP_MULTIPLIERS_BP } from "@/lib/xp/engine";
 import { safeAwardXP } from "@/lib/xp/safeAwardXP";
+import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
+import { advanceNewMemberQuestStep } from "@/lib/quests/newMemberQuestEngine";
 import { logger } from "@/lib/logger";
 import type { Plan } from "@zobia/types";
 
@@ -456,6 +458,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     recordWarContribution(senderId, 'send_gift', db).catch((err) => {
       logger.error({ err: err }, '[gifts:POST] war contribution failed');
       });
+
+    // Trigger matching daily quest progress + New Member Quest step (fire-and-forget)
+    void triggerActivityQuestProgress(senderId, 'gift', db);
+    void advanceNewMemberQuestStep(db, senderId, 'gift_someone');
 
     return NextResponse.json({
       success: true,
