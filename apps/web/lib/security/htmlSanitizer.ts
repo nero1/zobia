@@ -45,6 +45,24 @@ export function sanitizeHtml(dirty: string): string {
   return sanitizeHtmlLib(dirty, SANITIZE_OPTIONS);
 }
 
+// Blog posts additionally allow images and blockquotes (long-form article
+// content) beyond the base announcement allow-list above.
+const BLOG_SANITIZE_OPTIONS: sanitizeHtmlLib.IOptions = {
+  ...SANITIZE_OPTIONS,
+  allowedTags: [...(Array.isArray(SANITIZE_OPTIONS.allowedTags) ? SANITIZE_OPTIONS.allowedTags : []), 'blockquote', 'img'],
+  allowedAttributes: {
+    ...SANITIZE_OPTIONS.allowedAttributes,
+    img: ['src', 'alt', 'title'],
+  },
+  allowedSchemesByTag: { img: ['https'] },
+};
+
+/** Markdown → sanitized HTML for blog article/page bodies. */
+export function sanitizeBlogPostHtml(markdown: string): string {
+  const html = marked.parse(markdown, { async: false }) as string;
+  return sanitizeHtmlLib(html, BLOG_SANITIZE_OPTIONS);
+}
+
 export function sanitizeAnnouncementContent(content: string, contentType: string): string {
   if (contentType === 'html') {
     return sanitizeHtml(content);

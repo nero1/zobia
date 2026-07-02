@@ -38,6 +38,9 @@
 27. [Expansion Roadmap](#27-expansion-roadmap)
 28. [Testing Strategy](#28-testing-strategy)
 29. [Documentation Requirements](#29-documentation-requirements)
+30. [Games & Gaming Track](#30-games--gaming-track-v172)
+31. [Answers — Mini Forum (Q&A)](#31-answers--mini-forum-qa-v196)
+32. [Blogs](#32-blogs-v201)
 
 ---
 
@@ -986,6 +989,7 @@ Public, shareable, crawlable surfaces use short, human-readable, SEO-friendly pa
 | Course / classroom | `zobia.org/c/youtube-monetization-for-beginners` | Classroom-type Rooms |
 | Game (upcoming) | `zobia.org/g/tapontap` | Backed by the `games` table |
 | Forum question (Answers) | `zobia.org/a/what-made-you-join-zobia` | Public preview; interactive experience is at `/answers/<uuid>` (§31.0) |
+| Blog | `zobia.org/b/munas-world` | Backed by the `blogs` table (§32); `/b/<slug>/<postSlug>` for articles/pages |
 
 **Identifier model — UUID is internal, slug is public.** Every Room/game keeps its immutable `uuid` primary key as the internal reference (foreign keys, realtime channels, API calls, internal app navigation `/rooms/<uuid>` all continue to use it). The **slug** is a mutable, human-facing **alias** that resolves to the UUID. Slugs are unique among live records via a partial index; duplicates of the same name get a numeric suffix (`dorcas-cuisine`, `dorcas-cuisine2`, `dorcas-cuisine3`), oldest record keeping the bare slug. Slugs are generated server-side from the display name (`slugify` in `@zobia/shared/utils` + DB dedupe in `apps/web/lib/slug.ts`).
 
@@ -2329,6 +2333,161 @@ moderation infrastructure was needed.
 
 ---
 
+## 32. Blogs (v2.01)
+
+A mini blog/CMS system: any user can run one blog with SEO-friendly public
+articles and static pages, categories, comments, subscribers, pay-gated
+articles, and a rudimentary purchasable theme system — reusing the
+platform's existing economy, XP, plans, moderation and admin
+infrastructure rather than introducing a parallel system (same design
+principle as § 31 Answers).
+
+### 32.0 Public URLs & SEO
+
+- **Blog home**: `zobia.org/b/<slug>` — SSR, crawlable, lists articles in
+  reverse-chronological order with a mini sidebar (categories, popular
+  posts) and a top/hamburger menu of the blog's static pages. `/b` and
+  `/b/` (no slug) redirect to the authenticated discovery page `/blogs`.
+- **Article/page**: `zobia.org/b/<slug>/<postSlug>`. Pages are static, have
+  no visible date, and don't show the author info box or appear in
+  reverse-chron listings — they only appear in the blog's page menu.
+  Articles are dated posts with an author info box (the blog owner can hide
+  it) and are listed on the blog home page.
+- Pay-gated ("paywalled") articles render a truncated preview
+  server-side — good for SEO, crawlers see real content plus the paywall
+  notice — with the full body swapped in client-side once a signed-in
+  reader has unlocked it (or is the author/a moderator).
+- Slugs follow the platform-wide `generateUniqueSlug`/numeric-suffix
+  convention (§ "Public URL Structure"); post slugs are unique *within*
+  a blog (two different blogs may each have an "about" page). Legacy
+  `/b/<uuid>` links and retired blog slugs 301-redirect via
+  `slug_redirects` (`entity_type = 'blog'`), same mechanism as
+  rooms/games/forum questions.
+- `?r=<code>` referral links work on `/b/<slug>` and `/b/<slug>/<postSlug>`
+  automatically — no blog-specific capture logic needed (§ "Referral
+  System — Two-Tier").
+- Live blogs are listed in `app/sitemap.ts` (capped at 2000) and `/b/` is
+  public in `middleware.ts` (`PUBLIC_PREFIXES`).
+
+### 32.1 Discovery, creation & the creator dashboard
+
+- **Discovery** (`/blogs`, web/PWA and the Capacitor Android app) mirrors
+  the Games/Rooms discovery pages: Popular / Trending / New / Random tabs,
+  search, cursor-based pagination.
+- Every user may create **one blog** (`POST /api/blogs`). The creator
+  dashboard (`/blogs/dashboard`) manages articles and pages (draft/
+  published), categories, comment moderation queue, stats, and blog
+  settings (comments on/off + moderation, author-info-box visibility,
+  subscriber-count visibility, theme).
+- **Word limits**: Free-plan articles up to 1,000 words; Plus/Pro/Max up to
+  5,000 words. Pages share the same per-plan limit. Admin-configurable
+  per plan (`blog_max_words_<plan>` in `x_manifest`).
+- **Article/page limits** (combined): Free 30, Plus 100, Pro 200, Max 500.
+  Admin-configurable per plan (`blog_max_posts_<plan>`).
+- **Stats depth by plan**: Free = totals only ("very basic stats"); Plus =
+  totals + a per-post breakdown ("basic stats, more detail"); Pro/Max =
+  the above plus a 90-day daily drill-down and CSV export
+  (`GET /api/blogs/<slug>/stats/export`). Post view/like/comment counts and
+  earnings are visible to the post's creator, blog moderators, and admins
+  only.
+
+### 32.2 Categories, comments & subscriptions
+
+- Blog owners define their own categories (`blog_categories`); each
+  article optionally belongs to one. Categories and their post counts are
+  shown in the blog's sidebar.
+- **Comments** default on; the owner can turn them off entirely, or turn on
+  moderation so new comments start `pending` and only appear once the
+  owner (or a platform moderator/admin) approves them from the dashboard's
+  comment queue.
+- **Subscriptions**: visitors can subscribe to a blog to be notified (via
+  the existing notifications pipeline) when the owner publishes a new
+  article. The owner can show or hide the subscriber count publicly.
+- **Likes**: readers can like articles; a net-new like awards the author
+  1 XP on the Creator track (best-effort, fire-and-forget — never blocks
+  the like itself).
+
+### 32.3 Pay-gated ("paywalled") articles
+
+- When publishing an article, the author chooses whether it's free or
+  pay-gated, and — if gated — how many Credits unlock it. The public page
+  shows a truncated preview with the notice *"Pay N credits to read the
+  rest of the article."*
+- Unlocking debits the reader's Credit balance once (idempotent — a
+  second "unlock" call is a no-op) and credits the article's author with a
+  cash-equivalent creator earning (`creator_earnings.source_type =
+  'blog_paywall'`), computed as:
+
+  ```
+  gross_kobo   = credits_spent × coin_to_cash_rate        (existing platform-wide Credit→kobo rate, § 14 RIZE Coin conversion; default 100 kobo = 1 Credit)
+  after_fees   = gross_kobo × (1 − paystack_fee_pct) × (1 − vat_pct)
+  creator_net  = after_fees × plan_rev_share_pct
+  ```
+
+  Provider-fee/VAT rates and the plan revenue-share table are
+  admin-configurable in `x_manifest` (`blog_paystack_fee_pct`,
+  `blog_google_play_fee_pct`, `blog_vat_pct`, `blog_rev_share_pct_<plan>`);
+  the Credit→kobo conversion reuses the platform's existing
+  `coin_to_cash_rate` rather than introducing a second rate. Referral
+  commission is **not** re-charged at unlock time — it was already paid
+  out to the referrer when the reader originally purchased the Credits
+  being spent.
+- Default revenue share by the blog owner's platform plan: Free 40%, Plus
+  50%, Pro 60%, Max 70% — matching the tiered-value structure used
+  elsewhere in the Creator Economy (§ 14).
+- Unlocking an article also awards the author 5 XP on the Creator track.
+
+### 32.4 Blog themes
+
+- A rudimentary theme system: three professional themes ("Editorial",
+  "Noir", "Botanical") are purchasable Credit items in the existing
+  cosmetics store (`store_items.item_type = 'cosmetic'`,
+  `cosmetic_type = 'blog_theme'`) — no new purchase flow was built; blog
+  themes reuse `GET/POST /api/economy/cosmetics` and
+  `POST /api/economy/cosmetics/equip` exactly as profile frames and titles
+  do. Equipping a `blog_theme` cosmetic sets `blogs.theme_store_item_id`
+  for the owner's blog.
+- Admins can add further themes to the catalogue at any time via the
+  existing store-items admin tooling — no blog-specific admin UI is
+  required for the catalogue itself.
+
+### 32.5 Admin controls
+
+- **Feature toggle**: `feature_blogs` in `x_manifest`, following the
+  platform-wide `feature_*` convention — turns the entire feature on/off.
+- **Monitoring** (`/admin/blogs`): a searchable/filterable table of every
+  blog with owner, status, post/subscriber counts, and one-click
+  moderation actions — **pause**, **suspend**, **ban**, **deactivate**,
+  **restore**, and **delete** — each recorded in `blog_moderation_log`
+  with the acting moderator/admin, reason, and timestamp. A suspended/
+  banned/deactivated blog and its public pages stop resolving publicly
+  (404) until restored.
+- **Ownership transfer** (admin-only): `POST
+  /api/admin/blogs/<id>/transfer` reassigns a blog (and all of its posts)
+  to a different user — e.g. for account-recovery or dispute resolution.
+  A target user who already owns a blog cannot receive a second one (one
+  blog per user is enforced platform-wide).
+
+### 32.6 Data model
+
+New tables: `blogs` (one row per owner — slug, status, comment/author-box/
+subscriber-count settings, theme), `blog_categories`, `blog_posts`
+(articles + pages, `type` discriminator, draft/published status, word
+count, paywall fields), `blog_post_likes`, `blog_post_comments`
+(self-referencing `parent_comment_id`, `visible`/`pending`/`removed`
+status), `blog_subscriptions`, `blog_post_unlocks` (one row per
+reader-unlock, idempotency guard), `blog_post_daily_stats` (lightweight
+per-post/per-day rollup powering the Pro/Max drill-down and CSV export —
+incremented alongside the existing view/like/comment/unlock writes, no
+extra Redis calls), and `blog_moderation_log`. Revenue reuses the
+existing `creator_earnings` table (`source_type = 'blog_paywall'`); themes
+reuse the existing `store_items`/`user_cosmetics` tables. Post view counts
+are incremented at most once per browser per post — deduped client-side
+via `localStorage`, matching the platform's offline-first, low-Redis-call
+discipline (§ 22 "Scalability").
+
+---
+
 ## Appendix A: The Anti-Dead-App Checklist
 
 Every feature decision on Zobia is tested against this checklist. If any answer is "no," the feature needs revision.
@@ -3657,6 +3816,6 @@ any fresh database. Added slugs (`welcome-to-zobia`, `lagos-vibes`,
 
 ---
 
-*ZobiaSocial PRD v2.00*
+*ZobiaSocial PRD v2.01*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

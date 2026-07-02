@@ -23,6 +23,7 @@ const primaryNavItems = [
   { href: '/messages', label: 'Messages', icon: '💬' },
   { href: '/moments', label: 'Moments', icon: '🎬' },
   { href: '/answers', label: 'Answers', icon: '❓' },
+  { href: '/blogs', label: 'Blogs', icon: '📝' },
   { href: '/notifications', label: 'Notifications', icon: '🔔' },
 ] as const;
 

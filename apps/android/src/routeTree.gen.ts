@@ -19,6 +19,7 @@ import { Route as RoomsIndexRouteImport } from './routes/rooms/index'
 import { Route as MomentsIndexRouteImport } from './routes/moments/index'
 import { Route as MessagesIndexRouteImport } from './routes/messages/index'
 import { Route as GamesIndexRouteImport } from './routes/games/index'
+import { Route as BlogsIndexRouteImport } from './routes/blogs/index'
 import { Route as AnswersIndexRouteImport } from './routes/answers/index'
 import { Route as RoomsRoomIdRouteImport } from './routes/rooms/$roomId'
 import { Route as ProfileUsernameRouteImport } from './routes/profile/$username'
@@ -26,11 +27,14 @@ import { Route as MomentsCreateRouteImport } from './routes/moments/create'
 import { Route as MessagesConversationIdRouteImport } from './routes/messages/$conversationId'
 import { Route as GamesSavedRouteImport } from './routes/games/saved'
 import { Route as GamesSlugRouteImport } from './routes/games/$slug'
+import { Route as BlogsNewRouteImport } from './routes/blogs/new'
 import { Route as AuthTwoFactorRouteImport } from './routes/auth/two-factor'
 import { Route as AuthRegisterRouteImport } from './routes/auth/register'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
 import { Route as AnswersAskRouteImport } from './routes/answers/ask'
 import { Route as AnswersQuestionIdRouteImport } from './routes/answers/$questionId'
+import { Route as BlogsSlugIndexRouteImport } from './routes/blogs/$slug/index'
+import { Route as BlogsSlugPostSlugRouteImport } from './routes/blogs/$slug/$postSlug'
 
 const WalletRoute = WalletRouteImport.update({
   id: '/wallet',
@@ -82,6 +86,11 @@ const GamesIndexRoute = GamesIndexRouteImport.update({
   path: '/games/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BlogsIndexRoute = BlogsIndexRouteImport.update({
+  id: '/blogs/',
+  path: '/blogs/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AnswersIndexRoute = AnswersIndexRouteImport.update({
   id: '/answers/',
   path: '/answers/',
@@ -117,6 +126,11 @@ const GamesSlugRoute = GamesSlugRouteImport.update({
   path: '/games/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BlogsNewRoute = BlogsNewRouteImport.update({
+  id: '/blogs/new',
+  path: '/blogs/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthTwoFactorRoute = AuthTwoFactorRouteImport.update({
   id: '/auth/two-factor',
   path: '/auth/two-factor',
@@ -142,6 +156,16 @@ const AnswersQuestionIdRoute = AnswersQuestionIdRouteImport.update({
   path: '/answers/$questionId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BlogsSlugIndexRoute = BlogsSlugIndexRouteImport.update({
+  id: '/blogs/$slug/',
+  path: '/blogs/$slug/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BlogsSlugPostSlugRoute = BlogsSlugPostSlugRouteImport.update({
+  id: '/blogs/$slug/$postSlug',
+  path: '/blogs/$slug/$postSlug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -155,6 +179,7 @@ export interface FileRoutesByFullPath {
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/auth/two-factor': typeof AuthTwoFactorRoute
+  '/blogs/new': typeof BlogsNewRoute
   '/games/$slug': typeof GamesSlugRoute
   '/games/saved': typeof GamesSavedRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
@@ -162,10 +187,13 @@ export interface FileRoutesByFullPath {
   '/profile/$username': typeof ProfileUsernameRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
   '/answers/': typeof AnswersIndexRoute
+  '/blogs/': typeof BlogsIndexRoute
   '/games/': typeof GamesIndexRoute
   '/messages/': typeof MessagesIndexRoute
   '/moments/': typeof MomentsIndexRoute
   '/rooms/': typeof RoomsIndexRoute
+  '/blogs/$slug/$postSlug': typeof BlogsSlugPostSlugRoute
+  '/blogs/$slug/': typeof BlogsSlugIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -179,6 +207,7 @@ export interface FileRoutesByTo {
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/auth/two-factor': typeof AuthTwoFactorRoute
+  '/blogs/new': typeof BlogsNewRoute
   '/games/$slug': typeof GamesSlugRoute
   '/games/saved': typeof GamesSavedRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
@@ -186,10 +215,13 @@ export interface FileRoutesByTo {
   '/profile/$username': typeof ProfileUsernameRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
   '/answers': typeof AnswersIndexRoute
+  '/blogs': typeof BlogsIndexRoute
   '/games': typeof GamesIndexRoute
   '/messages': typeof MessagesIndexRoute
   '/moments': typeof MomentsIndexRoute
   '/rooms': typeof RoomsIndexRoute
+  '/blogs/$slug/$postSlug': typeof BlogsSlugPostSlugRoute
+  '/blogs/$slug': typeof BlogsSlugIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -204,6 +236,7 @@ export interface FileRoutesById {
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/auth/two-factor': typeof AuthTwoFactorRoute
+  '/blogs/new': typeof BlogsNewRoute
   '/games/$slug': typeof GamesSlugRoute
   '/games/saved': typeof GamesSavedRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
@@ -211,10 +244,13 @@ export interface FileRoutesById {
   '/profile/$username': typeof ProfileUsernameRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
   '/answers/': typeof AnswersIndexRoute
+  '/blogs/': typeof BlogsIndexRoute
   '/games/': typeof GamesIndexRoute
   '/messages/': typeof MessagesIndexRoute
   '/moments/': typeof MomentsIndexRoute
   '/rooms/': typeof RoomsIndexRoute
+  '/blogs/$slug/$postSlug': typeof BlogsSlugPostSlugRoute
+  '/blogs/$slug/': typeof BlogsSlugIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -230,6 +266,7 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/register'
     | '/auth/two-factor'
+    | '/blogs/new'
     | '/games/$slug'
     | '/games/saved'
     | '/messages/$conversationId'
@@ -237,10 +274,13 @@ export interface FileRouteTypes {
     | '/profile/$username'
     | '/rooms/$roomId'
     | '/answers/'
+    | '/blogs/'
     | '/games/'
     | '/messages/'
     | '/moments/'
     | '/rooms/'
+    | '/blogs/$slug/$postSlug'
+    | '/blogs/$slug/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -254,6 +294,7 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/register'
     | '/auth/two-factor'
+    | '/blogs/new'
     | '/games/$slug'
     | '/games/saved'
     | '/messages/$conversationId'
@@ -261,10 +302,13 @@ export interface FileRouteTypes {
     | '/profile/$username'
     | '/rooms/$roomId'
     | '/answers'
+    | '/blogs'
     | '/games'
     | '/messages'
     | '/moments'
     | '/rooms'
+    | '/blogs/$slug/$postSlug'
+    | '/blogs/$slug'
   id:
     | '__root__'
     | '/'
@@ -278,6 +322,7 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/register'
     | '/auth/two-factor'
+    | '/blogs/new'
     | '/games/$slug'
     | '/games/saved'
     | '/messages/$conversationId'
@@ -285,10 +330,13 @@ export interface FileRouteTypes {
     | '/profile/$username'
     | '/rooms/$roomId'
     | '/answers/'
+    | '/blogs/'
     | '/games/'
     | '/messages/'
     | '/moments/'
     | '/rooms/'
+    | '/blogs/$slug/$postSlug'
+    | '/blogs/$slug/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -303,6 +351,7 @@ export interface RootRouteChildren {
   AuthLoginRoute: typeof AuthLoginRoute
   AuthRegisterRoute: typeof AuthRegisterRoute
   AuthTwoFactorRoute: typeof AuthTwoFactorRoute
+  BlogsNewRoute: typeof BlogsNewRoute
   GamesSlugRoute: typeof GamesSlugRoute
   GamesSavedRoute: typeof GamesSavedRoute
   MessagesConversationIdRoute: typeof MessagesConversationIdRoute
@@ -310,10 +359,13 @@ export interface RootRouteChildren {
   ProfileUsernameRoute: typeof ProfileUsernameRoute
   RoomsRoomIdRoute: typeof RoomsRoomIdRoute
   AnswersIndexRoute: typeof AnswersIndexRoute
+  BlogsIndexRoute: typeof BlogsIndexRoute
   GamesIndexRoute: typeof GamesIndexRoute
   MessagesIndexRoute: typeof MessagesIndexRoute
   MomentsIndexRoute: typeof MomentsIndexRoute
   RoomsIndexRoute: typeof RoomsIndexRoute
+  BlogsSlugPostSlugRoute: typeof BlogsSlugPostSlugRoute
+  BlogsSlugIndexRoute: typeof BlogsSlugIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -388,6 +440,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GamesIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/blogs/': {
+      id: '/blogs/'
+      path: '/blogs'
+      fullPath: '/blogs/'
+      preLoaderRoute: typeof BlogsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/answers/': {
       id: '/answers/'
       path: '/answers'
@@ -437,6 +496,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GamesSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/blogs/new': {
+      id: '/blogs/new'
+      path: '/blogs/new'
+      fullPath: '/blogs/new'
+      preLoaderRoute: typeof BlogsNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/auth/two-factor': {
       id: '/auth/two-factor'
       path: '/auth/two-factor'
@@ -472,6 +538,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AnswersQuestionIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/blogs/$slug/': {
+      id: '/blogs/$slug/'
+      path: '/blogs/$slug'
+      fullPath: '/blogs/$slug/'
+      preLoaderRoute: typeof BlogsSlugIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/blogs/$slug/$postSlug': {
+      id: '/blogs/$slug/$postSlug'
+      path: '/blogs/$slug/$postSlug'
+      fullPath: '/blogs/$slug/$postSlug'
+      preLoaderRoute: typeof BlogsSlugPostSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -487,6 +567,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthLoginRoute: AuthLoginRoute,
   AuthRegisterRoute: AuthRegisterRoute,
   AuthTwoFactorRoute: AuthTwoFactorRoute,
+  BlogsNewRoute: BlogsNewRoute,
   GamesSlugRoute: GamesSlugRoute,
   GamesSavedRoute: GamesSavedRoute,
   MessagesConversationIdRoute: MessagesConversationIdRoute,
@@ -494,10 +575,13 @@ const rootRouteChildren: RootRouteChildren = {
   ProfileUsernameRoute: ProfileUsernameRoute,
   RoomsRoomIdRoute: RoomsRoomIdRoute,
   AnswersIndexRoute: AnswersIndexRoute,
+  BlogsIndexRoute: BlogsIndexRoute,
   GamesIndexRoute: GamesIndexRoute,
   MessagesIndexRoute: MessagesIndexRoute,
   MomentsIndexRoute: MomentsIndexRoute,
   RoomsIndexRoute: RoomsIndexRoute,
+  BlogsSlugPostSlugRoute: BlogsSlugPostSlugRoute,
+  BlogsSlugIndexRoute: BlogsSlugIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

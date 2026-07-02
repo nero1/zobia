@@ -26,7 +26,7 @@ interface Queryable {
 }
 
 /** Identifier types that own a slug namespace. */
-export type SlugEntity = "room" | "game" | "forum_question";
+export type SlugEntity = "room" | "game" | "forum_question" | "blog";
 
 /**
  * The column + table each entity uses. Slugs are unique *within* an entity
@@ -36,6 +36,7 @@ const SLUG_SOURCES: Record<SlugEntity, { table: string }> = {
   room: { table: "rooms" },
   game: { table: "games" },
   forum_question: { table: "forum_questions" },
+  blog: { table: "blogs" },
 };
 
 /**
@@ -97,6 +98,39 @@ function clampSuffixed(base: string, index: number): string {
   const trimmedBase =
     base.length > maxBase ? base.slice(0, maxBase).replace(/-+$/g, "") : base;
   return withSuffix(trimmedBase, index);
+}
+
+/**
+ * Generate a slug for a blog post/page that is unique *within a single blog*
+ * (blog_posts.slug is only unique per blog_id, not globally — two different
+ * blogs may both have an "about" page). Mirrors generateUniqueSlug's probing
+ * loop and suffix scheme but scopes the collision check to `blogId`.
+ */
+export async function generateUniqueBlogPostSlug(
+  blogId: string,
+  title: string,
+  fallbackId: string,
+  client: Queryable = db,
+  excludeId?: string
+): Promise<string> {
+  let base = slugify(title);
+  if (!base) {
+    base = `post-${fallbackId.replace(/-/g, "").slice(0, 8)}`;
+  }
+
+  for (let i = 1; i <= 1000; i++) {
+    const candidate = clampSuffixed(base, i);
+    const { rows } = await client.query<{ id: string }>(
+      `SELECT id FROM blog_posts
+       WHERE blog_id = $1 AND slug = $2 AND deleted_at IS NULL
+         ${excludeId ? "AND id <> $3" : ""}
+       LIMIT 1`,
+      excludeId ? [blogId, candidate, excludeId] : [blogId, candidate]
+    );
+    if (rows.length === 0) return candidate;
+  }
+
+  return clampSuffixed(`${base}-${fallbackId.replace(/-/g, "").slice(0, 8)}`, 1);
 }
 
 /**

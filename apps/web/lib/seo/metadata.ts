@@ -66,7 +66,7 @@ export function generateMetadata(config: SEOConfig): Metadata {
  * Helps search engines understand page content (Schema.org).
  */
 export function generateStructuredData(
-  type: 'Person' | 'Thing' | 'LocalBusiness' | 'BreadcrumbList' | 'QAPage',
+  type: 'Person' | 'Thing' | 'LocalBusiness' | 'BreadcrumbList' | 'QAPage' | 'BlogPosting',
   data: Record<string, any>
 ): string {
   const baseUrl = env.NEXT_PUBLIC_APP_URL || 'https://zobia.vercel.app';
@@ -163,6 +163,28 @@ export function generateQAPageSchema(question: {
       acceptedAnswer: best ? toAnswerSchema(best) : undefined,
       suggestedAnswer: suggested.length > 0 ? suggested.map(toAnswerSchema) : undefined,
     },
+  });
+}
+
+/**
+ * Generate BlogPosting schema (schema.org) for a blog article page —
+ * https://schema.org/BlogPosting.
+ */
+export function generateArticleSchema(article: {
+  title: string;
+  description: string;
+  url: string;
+  image?: string;
+  datePublished: string;
+  authorName?: string;
+}): string {
+  return generateStructuredData('BlogPosting', {
+    headline: article.title,
+    description: article.description,
+    url: article.url,
+    image: article.image,
+    datePublished: article.datePublished,
+    author: article.authorName ? { '@type': 'Person', name: article.authorName } : undefined,
   });
 }
 

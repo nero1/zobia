@@ -44,6 +44,7 @@ const primaryNavItems = [
   { href: "/answers", label: "Answers" },
   { href: "/quests", label: "Quests" },
   { href: "/games", label: "Games" },
+  { href: "/blogs", label: "Blogs" },
   { href: "/rooms", label: "Rooms" },
   { href: "/messages", label: "Messages" },
   { href: "/friends", label: "Friends" },

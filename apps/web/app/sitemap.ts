@@ -175,5 +175,28 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // Forum questions unavailable — skip silently
   }
 
+  // Public blogs. Served at /b/<slug>. The table may not exist on older DBs
+  // (pre-0002-blogs migration) — the catch keeps the sitemap working regardless.
+  try {
+    const { rows: blogRows } = await db.query<{ slug: string; updated_at: string }>(
+      `SELECT slug, updated_at
+       FROM blogs
+       WHERE deleted_at IS NULL AND status = 'active'
+       ORDER BY updated_at DESC NULLS LAST
+       LIMIT 2000`
+    );
+
+    for (const b of blogRows) {
+      entries.push({
+        url: `${BASE_URL}/b/${encodeURIComponent(b.slug)}`,
+        lastModified: new Date(b.updated_at),
+        changeFrequency: "daily",
+        priority: 0.5,
+      });
+    }
+  } catch {
+    // Blogs table absent or unavailable — skip silently
+  }
+
   return entries;
 }
