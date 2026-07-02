@@ -88,7 +88,7 @@ const PLACEMENTS = [
   { key: 'rewarded_global', label: 'Rewarded video', size: 'rewarded' },
 ] as const;
 
-function AdCampaignsTab({ pages }: { pages: BusinessPageOption[] | undefined }) {
+function AdCampaignsTab() {
   const qc = useQueryClient();
   const { data: eligibility } = useQuery({ queryKey: ['ads', 'eligibility'], queryFn: fetchEligibility });
   const { data: campaigns, status } = useQuery({ queryKey: ['ads', 'campaigns'], queryFn: fetchCampaigns, enabled: !!eligibility?.eligible });
@@ -330,7 +330,7 @@ function BusinessAdsPage() {
         </button>
       </div>
 
-      {tab === 'campaigns' ? <AdCampaignsTab pages={pages} /> : <SponsoredQuestsTab account={account} pages={pages} />}
+      {tab === 'campaigns' ? <AdCampaignsTab /> : <SponsoredQuestsTab account={account} pages={pages} />}
     </div>
   );
 }

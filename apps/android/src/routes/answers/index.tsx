@@ -54,8 +54,11 @@ function timeAgo(iso: string): string {
 async function fetchQuestionsPage({ pageParam, tab }: { pageParam?: string; tab: Tab }) {
   const params = new URLSearchParams({ tab, limit: '20' });
   if (pageParam) params.set('cursor', pageParam);
-  const { data } = await apiClient.get<{ data: { questions: QuestionSummary[]; nextCursor: string | null } }>(`/answers/questions?${params}`);
-  return { items: data?.data?.questions ?? [], nextCursor: data?.data?.nextCursor ?? null };
+  // apiClient's response interceptor already unwraps { success, data, error }
+  // down to `data`, so `data` here IS { questions, nextCursor } already —
+  // the extra `.data` access always resolved to undefined (empty list, no error).
+  const { data } = await apiClient.get<{ questions: QuestionSummary[]; nextCursor: string | null }>(`/answers/questions?${params}`);
+  return { items: data?.questions ?? [], nextCursor: data?.nextCursor ?? null };
 }
 
 function QuestionCard({ q, onVote, onFavorite }: { q: QuestionSummary; onVote: (id: string, value: 1 | -1) => void; onFavorite: (id: string, next: boolean) => void }) {
@@ -107,12 +110,14 @@ function AnswersPage() {
   });
 
   const vote = useMutation({
+    // Same double-unwrap issue as fetchQuestionsPage — `res.data` is already
+    // { voteScore, myVote }, not { data: { voteScore, myVote } }.
     mutationFn: ({ id, value }: { id: string; value: 1 | -1 }) =>
-      apiClient.post<{ data: { voteScore: number; myVote: -1 | 0 | 1 } }>(`/answers/questions/${id}/vote`, { value }),
+      apiClient.post<{ voteScore: number; myVote: -1 | 0 | 1 }>(`/answers/questions/${id}/vote`, { value }),
     onSuccess: (res, { id }) => {
       qc.setQueryData<typeof data>(queryKey, (prev) => {
         if (!prev) return prev;
-        return { ...prev, pages: prev.pages.map((p) => ({ ...p, items: p.items.map((q) => (q.id === id ? { ...q, voteScore: res.data?.data?.voteScore ?? q.voteScore, myVote: res.data?.data?.myVote ?? q.myVote } : q)) })) };
+        return { ...prev, pages: prev.pages.map((p) => ({ ...p, items: p.items.map((q) => (q.id === id ? { ...q, voteScore: res.data?.voteScore ?? q.voteScore, myVote: res.data?.myVote ?? q.myVote } : q)) })) };
       });
     },
   });

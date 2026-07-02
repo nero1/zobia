@@ -63,14 +63,17 @@ function PostViewPage() {
   const qc = useQueryClient();
   const [commentText, setCommentText] = useState('');
 
+  // apiClient's response interceptor already unwraps the { success, data, error }
+  // envelope down to `data`, so `.data` below IS the PostDetailResponse/comments
+  // object already — the extra `.data` access was always undefined and threw.
   const postQuery = useQuery({
     queryKey: ['blogs', 'post', slug, postSlug],
-    queryFn: async () => (await apiClient.get<{ data: PostDetailResponse }>(`/blogs/${slug}/posts/${postSlug}`)).data.data,
+    queryFn: async () => (await apiClient.get<PostDetailResponse>(`/blogs/${slug}/posts/${postSlug}`)).data,
   });
 
   const commentsQuery = useQuery({
     queryKey: ['blogs', 'comments', slug, postSlug],
-    queryFn: async () => (await apiClient.get<{ data: { comments: CommentRow[] } }>(`/blogs/${slug}/posts/${postSlug}/comments`)).data.data.comments,
+    queryFn: async () => (await apiClient.get<{ comments: CommentRow[] }>(`/blogs/${slug}/posts/${postSlug}/comments`)).data?.comments ?? [],
     enabled: postQuery.data?.post.type === 'article',
   });
 

@@ -2,7 +2,8 @@
  * apps/android/src/routes/home.tsx
  *
  * Social feed — infinite scroll with cursor pagination.
- * Query key: ['home', 'feed']. Endpoint: GET /api/home/feed.
+ * Query key: ['home', 'feed']. Endpoint: GET /api/moments (see fetchFeed
+ * below — GET /api/home/feed was never a real backend route).
  */
 
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
@@ -10,7 +11,6 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { useRef, useCallback } from 'react';
 import { apiClient } from '@/lib/api/client';
-import type { PaginatedResponse } from '@zobia/shared/types';
 import { OnlineRing } from '@/components/ui/OnlineRing';
 
 interface OnlineFriend {
@@ -21,8 +21,13 @@ interface OnlineFriend {
 }
 
 async function fetchOnlineFriends() {
-  const { data } = await apiClient.get<{ data?: OnlineFriend[]; friends?: OnlineFriend[] }>('/friends/online');
-  return data?.data ?? data?.friends ?? [];
+  // GET /api/friends/online replies with { success, data: friends[], friends }
+  // (friends duplicated at both the top level and inside `data` for older
+  // callers). apiClient's response interceptor already unwraps `data`, so the
+  // value here IS the friends array already — treating it as an object with
+  // nested .data/.friends properties always resolved to [] and hid this row.
+  const { data } = await apiClient.get<OnlineFriend[]>('/friends/online');
+  return data ?? [];
 }
 
 /**
@@ -70,17 +75,46 @@ interface FeedPost {
   id: string;
   userId: string;
   username: string;
-  displayName: string;
   avatarEmoji: string;
   content: string;
   createdAt: string;
 }
 
+// Raw row shape returned by GET /api/moments (snake_case, flat) — see
+// routes/moments/index.tsx's identical MomentRow/mapMoment.
+interface MomentRow {
+  id: string;
+  user_id: string;
+  username: string;
+  avatar_emoji: string;
+  content: string;
+  created_at: string;
+}
+
+function mapMomentToPost(row: MomentRow): FeedPost {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    username: row.username,
+    avatarEmoji: row.avatar_emoji || '👤',
+    content: row.content,
+    createdAt: row.created_at,
+  };
+}
+
+// GET /api/home/feed doesn't exist on the backend — this route always 404'd,
+// so the Home page's feed section was permanently stuck in an error state.
+// The Moments feed (GET /api/moments) is this app's actual public post feed
+// (see routes/moments/index.tsx), so reuse it here instead of inventing a
+// backend endpoint that was never built.
 async function fetchFeed({ pageParam }: { pageParam?: string }) {
   const params = new URLSearchParams({ limit: '20' });
   if (pageParam) params.set('cursor', pageParam);
-  const { data } = await apiClient.get<PaginatedResponse<FeedPost>>(`/home/feed?${params}`);
-  return data;
+  const { data } = await apiClient.get<{ moments: MomentRow[]; nextCursor: string | null }>(`/moments?${params}`);
+  return {
+    items: (data?.moments ?? []).map(mapMomentToPost),
+    nextCursor: data?.nextCursor ?? null,
+  };
 }
 
 function SkeletonCard() {
@@ -112,8 +146,9 @@ function PostCard({ post }: { post: FeedPost }) {
           {post.avatarEmoji || '👤'}
         </div>
         <div>
-          <p className="font-semibold text-neutral-900 text-sm">{post.displayName}</p>
-          <p className="text-neutral-400 text-xs">@{post.username} · {timeAgo}</p>
+          {/* /api/moments doesn't return a display name, only username — see fetchFeed above */}
+          <p className="font-semibold text-neutral-900 text-sm">@{post.username}</p>
+          <p className="text-neutral-400 text-xs">{timeAgo}</p>
         </div>
       </div>
       <p className="text-neutral-800 text-sm leading-relaxed">{post.content}</p>

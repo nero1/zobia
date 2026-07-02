@@ -3,3 +3,12 @@ build/
 local.properties
 *.keystore
 !debug.keystore
+
+# Web bundle + Capacitor runtime config copied in by `cap sync` (from
+# apps/android/dist) — build output, regenerated on every build, never
+# hand-edited. Everything else cap sync writes (capacitor.settings.gradle,
+# app/capacitor.build.gradle, capacitor-cordova-android-plugins/, res/xml/config.xml)
+# IS committed — see docs/SETUP.md "Android native project structure".
+app/src/main/assets/public/
+app/src/main/assets/capacitor.config.json
+app/src/main/assets/capacitor.plugins.json

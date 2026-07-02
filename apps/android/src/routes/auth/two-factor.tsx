@@ -27,7 +27,11 @@ function TwoFactorPage() {
 
     setLoading(true);
     try {
-      const { data } = await apiClient.post<AuthResponse>('/auth/2fa/verify', {
+      // Without ?platform=mobile the API takes the web branch (sets HttpOnly
+      // cookies, body has no accessToken/user) — this app can't use cookies,
+      // so every code, even a correct one, looked like "invalid code" because
+      // data.accessToken/data.user were always undefined below.
+      const { data } = await apiClient.post<AuthResponse>('/auth/2fa/verify?platform=mobile', {
         preAuthToken,
         code,
       });

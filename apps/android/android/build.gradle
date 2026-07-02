@@ -9,6 +9,13 @@ buildscript {
     }
 }
 
+// Single source of truth for SDK levels / library versions consumed by
+// app/build.gradle and by every native Capacitor/Cordova plugin submodule's
+// own build.gradle (they read rootProject.ext.compileSdkVersion etc. and
+// silently fall back to stale defaults, e.g. compileSdk 34, if this isn't
+// applied at the root — see docs/SETUP.md "Android native project structure").
+apply from: "variables.gradle"
+
 allprojects {
     repositories {
         google()

@@ -30,10 +30,13 @@ function AskQuestionPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const createQuestion = useMutation({
-    mutationFn: () => apiClient.post<{ data: { id: string } }>('/answers/questions', { title: title.trim(), body: body.trim() }),
+    // apiClient's response interceptor already unwraps { success, data, error }
+    // down to `data`, so `res.data` IS { id, ... } already — `res.data.data.id`
+    // was always undefined, so posting a question never navigated to it.
+    mutationFn: () => apiClient.post<{ id: string }>('/answers/questions', { title: title.trim(), body: body.trim() }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['answers', 'questions'] });
-      const id = res.data?.data?.id;
+      const id = res.data?.id;
       if (id) navigate({ to: '/answers/$questionId', params: { questionId: id } });
       else navigate({ to: '/answers' });
     },

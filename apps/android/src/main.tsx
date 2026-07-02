@@ -22,6 +22,7 @@ import { queryClient } from '@/lib/query/client';
 import { AuthProvider } from '@/lib/auth/store';
 import { installGlobalErrorHandlers } from '@/lib/debug/logStore';
 import { DebugOverlay } from '@/components/debug/DebugOverlay';
+import { initGooglePlayBilling } from '@/lib/payments/googlePlay';
 
 // Install before anything else so startup errors are captured.
 installGlobalErrorHandlers();
@@ -41,6 +42,11 @@ function App() {
   React.useEffect(() => {
     // Hide splash screen once React has mounted
     SplashScreen.hide().catch(() => {});
+    // Connect to Google Play Billing early so product prices/offers are ready
+    // by the time the user reaches a purchase screen. Never blocks rendering
+    // (e.g. Play Store unavailable on some emulators/test devices) — errors
+    // are logged, not thrown.
+    initGooglePlayBilling().catch((err) => console.error('[googlePlay] init failed:', err));
   }, []);
 
   return (

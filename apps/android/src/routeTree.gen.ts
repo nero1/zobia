@@ -19,12 +19,10 @@ import { Route as RoomsIndexRouteImport } from './routes/rooms/index'
 import { Route as MomentsIndexRouteImport } from './routes/moments/index'
 import { Route as MessagesIndexRouteImport } from './routes/messages/index'
 import { Route as GamesIndexRouteImport } from './routes/games/index'
-import { Route as BlogsIndexRouteImport } from './routes/blogs/index'
 import { Route as BusinessIndexRouteImport } from './routes/business/index'
+import { Route as BlogsIndexRouteImport } from './routes/blogs/index'
 import { Route as AnswersIndexRouteImport } from './routes/answers/index'
-import { Route as BusinessAdsIndexRouteImport } from './routes/business/ads/index'
-import { Route as BusinessPagesIndexRouteImport } from './routes/business/pages/index'
-import { Route as BusinessPagesPageIdRouteImport } from './routes/business/pages/$pageId'
+import { Route as AdsIndexRouteImport } from './routes/ads/index'
 import { Route as RoomsRoomIdRouteImport } from './routes/rooms/$roomId'
 import { Route as ProfileUsernameRouteImport } from './routes/profile/$username'
 import { Route as MomentsCreateRouteImport } from './routes/moments/create'
@@ -37,7 +35,10 @@ import { Route as AuthRegisterRouteImport } from './routes/auth/register'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
 import { Route as AnswersAskRouteImport } from './routes/answers/ask'
 import { Route as AnswersQuestionIdRouteImport } from './routes/answers/$questionId'
+import { Route as BusinessPagesIndexRouteImport } from './routes/business/pages/index'
+import { Route as BusinessAdsIndexRouteImport } from './routes/business/ads/index'
 import { Route as BlogsSlugIndexRouteImport } from './routes/blogs/$slug/index'
+import { Route as BusinessPagesPageIdRouteImport } from './routes/business/pages/$pageId'
 import { Route as BlogsSlugPostSlugRouteImport } from './routes/blogs/$slug/$postSlug'
 
 const WalletRoute = WalletRouteImport.update({
@@ -90,34 +91,24 @@ const GamesIndexRoute = GamesIndexRouteImport.update({
   path: '/games/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const BlogsIndexRoute = BlogsIndexRouteImport.update({
-  id: '/blogs/',
-  path: '/blogs/',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const BusinessIndexRoute = BusinessIndexRouteImport.update({
   id: '/business/',
   path: '/business/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const BusinessAdsIndexRoute = BusinessAdsIndexRouteImport.update({
-  id: '/business/ads/',
-  path: '/business/ads/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const BusinessPagesIndexRoute = BusinessPagesIndexRouteImport.update({
-  id: '/business/pages/',
-  path: '/business/pages/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const BusinessPagesPageIdRoute = BusinessPagesPageIdRouteImport.update({
-  id: '/business/pages/$pageId',
-  path: '/business/pages/$pageId',
+const BlogsIndexRoute = BlogsIndexRouteImport.update({
+  id: '/blogs/',
+  path: '/blogs/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AnswersIndexRoute = AnswersIndexRouteImport.update({
   id: '/answers/',
   path: '/answers/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdsIndexRoute = AdsIndexRouteImport.update({
+  id: '/ads/',
+  path: '/ads/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RoomsRoomIdRoute = RoomsRoomIdRouteImport.update({
@@ -180,9 +171,24 @@ const AnswersQuestionIdRoute = AnswersQuestionIdRouteImport.update({
   path: '/answers/$questionId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BusinessPagesIndexRoute = BusinessPagesIndexRouteImport.update({
+  id: '/business/pages/',
+  path: '/business/pages/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BusinessAdsIndexRoute = BusinessAdsIndexRouteImport.update({
+  id: '/business/ads/',
+  path: '/business/ads/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const BlogsSlugIndexRoute = BlogsSlugIndexRouteImport.update({
   id: '/blogs/$slug/',
   path: '/blogs/$slug/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BusinessPagesPageIdRoute = BusinessPagesPageIdRouteImport.update({
+  id: '/business/pages/$pageId',
+  path: '/business/pages/$pageId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BlogsSlugPostSlugRoute = BlogsSlugPostSlugRouteImport.update({
@@ -210,7 +216,7 @@ export interface FileRoutesByFullPath {
   '/moments/create': typeof MomentsCreateRoute
   '/profile/$username': typeof ProfileUsernameRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
-  '/business/pages/$pageId': typeof BusinessPagesPageIdRoute
+  '/ads/': typeof AdsIndexRoute
   '/answers/': typeof AnswersIndexRoute
   '/blogs/': typeof BlogsIndexRoute
   '/business/': typeof BusinessIndexRoute
@@ -218,10 +224,11 @@ export interface FileRoutesByFullPath {
   '/messages/': typeof MessagesIndexRoute
   '/moments/': typeof MomentsIndexRoute
   '/rooms/': typeof RoomsIndexRoute
+  '/blogs/$slug/$postSlug': typeof BlogsSlugPostSlugRoute
+  '/business/pages/$pageId': typeof BusinessPagesPageIdRoute
+  '/blogs/$slug/': typeof BlogsSlugIndexRoute
   '/business/ads/': typeof BusinessAdsIndexRoute
   '/business/pages/': typeof BusinessPagesIndexRoute
-  '/blogs/$slug/$postSlug': typeof BlogsSlugPostSlugRoute
-  '/blogs/$slug/': typeof BlogsSlugIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -242,7 +249,7 @@ export interface FileRoutesByTo {
   '/moments/create': typeof MomentsCreateRoute
   '/profile/$username': typeof ProfileUsernameRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
-  '/business/pages/$pageId': typeof BusinessPagesPageIdRoute
+  '/ads': typeof AdsIndexRoute
   '/answers': typeof AnswersIndexRoute
   '/blogs': typeof BlogsIndexRoute
   '/business': typeof BusinessIndexRoute
@@ -250,10 +257,11 @@ export interface FileRoutesByTo {
   '/messages': typeof MessagesIndexRoute
   '/moments': typeof MomentsIndexRoute
   '/rooms': typeof RoomsIndexRoute
+  '/blogs/$slug/$postSlug': typeof BlogsSlugPostSlugRoute
+  '/business/pages/$pageId': typeof BusinessPagesPageIdRoute
+  '/blogs/$slug': typeof BlogsSlugIndexRoute
   '/business/ads': typeof BusinessAdsIndexRoute
   '/business/pages': typeof BusinessPagesIndexRoute
-  '/blogs/$slug/$postSlug': typeof BlogsSlugPostSlugRoute
-  '/blogs/$slug': typeof BlogsSlugIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -275,7 +283,7 @@ export interface FileRoutesById {
   '/moments/create': typeof MomentsCreateRoute
   '/profile/$username': typeof ProfileUsernameRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
-  '/business/pages/$pageId': typeof BusinessPagesPageIdRoute
+  '/ads/': typeof AdsIndexRoute
   '/answers/': typeof AnswersIndexRoute
   '/blogs/': typeof BlogsIndexRoute
   '/business/': typeof BusinessIndexRoute
@@ -283,10 +291,11 @@ export interface FileRoutesById {
   '/messages/': typeof MessagesIndexRoute
   '/moments/': typeof MomentsIndexRoute
   '/rooms/': typeof RoomsIndexRoute
+  '/blogs/$slug/$postSlug': typeof BlogsSlugPostSlugRoute
+  '/business/pages/$pageId': typeof BusinessPagesPageIdRoute
+  '/blogs/$slug/': typeof BlogsSlugIndexRoute
   '/business/ads/': typeof BusinessAdsIndexRoute
   '/business/pages/': typeof BusinessPagesIndexRoute
-  '/blogs/$slug/$postSlug': typeof BlogsSlugPostSlugRoute
-  '/blogs/$slug/': typeof BlogsSlugIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -309,7 +318,7 @@ export interface FileRouteTypes {
     | '/moments/create'
     | '/profile/$username'
     | '/rooms/$roomId'
-    | '/business/pages/$pageId'
+    | '/ads/'
     | '/answers/'
     | '/blogs/'
     | '/business/'
@@ -317,10 +326,11 @@ export interface FileRouteTypes {
     | '/messages/'
     | '/moments/'
     | '/rooms/'
+    | '/blogs/$slug/$postSlug'
+    | '/business/pages/$pageId'
+    | '/blogs/$slug/'
     | '/business/ads/'
     | '/business/pages/'
-    | '/blogs/$slug/$postSlug'
-    | '/blogs/$slug/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -341,7 +351,7 @@ export interface FileRouteTypes {
     | '/moments/create'
     | '/profile/$username'
     | '/rooms/$roomId'
-    | '/business/pages/$pageId'
+    | '/ads'
     | '/answers'
     | '/blogs'
     | '/business'
@@ -349,10 +359,11 @@ export interface FileRouteTypes {
     | '/messages'
     | '/moments'
     | '/rooms'
+    | '/blogs/$slug/$postSlug'
+    | '/business/pages/$pageId'
+    | '/blogs/$slug'
     | '/business/ads'
     | '/business/pages'
-    | '/blogs/$slug/$postSlug'
-    | '/blogs/$slug'
   id:
     | '__root__'
     | '/'
@@ -373,7 +384,7 @@ export interface FileRouteTypes {
     | '/moments/create'
     | '/profile/$username'
     | '/rooms/$roomId'
-    | '/business/pages/$pageId'
+    | '/ads/'
     | '/answers/'
     | '/blogs/'
     | '/business/'
@@ -381,10 +392,11 @@ export interface FileRouteTypes {
     | '/messages/'
     | '/moments/'
     | '/rooms/'
+    | '/blogs/$slug/$postSlug'
+    | '/business/pages/$pageId'
+    | '/blogs/$slug/'
     | '/business/ads/'
     | '/business/pages/'
-    | '/blogs/$slug/$postSlug'
-    | '/blogs/$slug/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -406,7 +418,7 @@ export interface RootRouteChildren {
   MomentsCreateRoute: typeof MomentsCreateRoute
   ProfileUsernameRoute: typeof ProfileUsernameRoute
   RoomsRoomIdRoute: typeof RoomsRoomIdRoute
-  BusinessPagesPageIdRoute: typeof BusinessPagesPageIdRoute
+  AdsIndexRoute: typeof AdsIndexRoute
   AnswersIndexRoute: typeof AnswersIndexRoute
   BlogsIndexRoute: typeof BlogsIndexRoute
   BusinessIndexRoute: typeof BusinessIndexRoute
@@ -414,10 +426,11 @@ export interface RootRouteChildren {
   MessagesIndexRoute: typeof MessagesIndexRoute
   MomentsIndexRoute: typeof MomentsIndexRoute
   RoomsIndexRoute: typeof RoomsIndexRoute
+  BlogsSlugPostSlugRoute: typeof BlogsSlugPostSlugRoute
+  BusinessPagesPageIdRoute: typeof BusinessPagesPageIdRoute
+  BlogsSlugIndexRoute: typeof BlogsSlugIndexRoute
   BusinessAdsIndexRoute: typeof BusinessAdsIndexRoute
   BusinessPagesIndexRoute: typeof BusinessPagesIndexRoute
-  BlogsSlugPostSlugRoute: typeof BlogsSlugPostSlugRoute
-  BlogsSlugIndexRoute: typeof BlogsSlugIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -492,13 +505,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GamesIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/blogs/': {
-      id: '/blogs/'
-      path: '/blogs'
-      fullPath: '/blogs/'
-      preLoaderRoute: typeof BlogsIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/business/': {
       id: '/business/'
       path: '/business'
@@ -506,25 +512,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BusinessIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/business/ads/': {
-      id: '/business/ads/'
-      path: '/business/ads'
-      fullPath: '/business/ads/'
-      preLoaderRoute: typeof BusinessAdsIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/business/pages/': {
-      id: '/business/pages/'
-      path: '/business/pages'
-      fullPath: '/business/pages/'
-      preLoaderRoute: typeof BusinessPagesIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/business/pages/$pageId': {
-      id: '/business/pages/$pageId'
-      path: '/business/pages/$pageId'
-      fullPath: '/business/pages/$pageId'
-      preLoaderRoute: typeof BusinessPagesPageIdRouteImport
+    '/blogs/': {
+      id: '/blogs/'
+      path: '/blogs'
+      fullPath: '/blogs/'
+      preLoaderRoute: typeof BlogsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/answers/': {
@@ -532,6 +524,13 @@ declare module '@tanstack/react-router' {
       path: '/answers'
       fullPath: '/answers/'
       preLoaderRoute: typeof AnswersIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/ads/': {
+      id: '/ads/'
+      path: '/ads'
+      fullPath: '/ads/'
+      preLoaderRoute: typeof AdsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/rooms/$roomId': {
@@ -618,11 +617,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AnswersQuestionIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/business/pages/': {
+      id: '/business/pages/'
+      path: '/business/pages'
+      fullPath: '/business/pages/'
+      preLoaderRoute: typeof BusinessPagesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/business/ads/': {
+      id: '/business/ads/'
+      path: '/business/ads'
+      fullPath: '/business/ads/'
+      preLoaderRoute: typeof BusinessAdsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/blogs/$slug/': {
       id: '/blogs/$slug/'
       path: '/blogs/$slug'
       fullPath: '/blogs/$slug/'
       preLoaderRoute: typeof BlogsSlugIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/business/pages/$pageId': {
+      id: '/business/pages/$pageId'
+      path: '/business/pages/$pageId'
+      fullPath: '/business/pages/$pageId'
+      preLoaderRoute: typeof BusinessPagesPageIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/blogs/$slug/$postSlug': {
@@ -654,7 +674,7 @@ const rootRouteChildren: RootRouteChildren = {
   MomentsCreateRoute: MomentsCreateRoute,
   ProfileUsernameRoute: ProfileUsernameRoute,
   RoomsRoomIdRoute: RoomsRoomIdRoute,
-  BusinessPagesPageIdRoute: BusinessPagesPageIdRoute,
+  AdsIndexRoute: AdsIndexRoute,
   AnswersIndexRoute: AnswersIndexRoute,
   BlogsIndexRoute: BlogsIndexRoute,
   BusinessIndexRoute: BusinessIndexRoute,
@@ -662,10 +682,11 @@ const rootRouteChildren: RootRouteChildren = {
   MessagesIndexRoute: MessagesIndexRoute,
   MomentsIndexRoute: MomentsIndexRoute,
   RoomsIndexRoute: RoomsIndexRoute,
+  BlogsSlugPostSlugRoute: BlogsSlugPostSlugRoute,
+  BusinessPagesPageIdRoute: BusinessPagesPageIdRoute,
+  BlogsSlugIndexRoute: BlogsSlugIndexRoute,
   BusinessAdsIndexRoute: BusinessAdsIndexRoute,
   BusinessPagesIndexRoute: BusinessPagesIndexRoute,
-  BlogsSlugPostSlugRoute: BlogsSlugPostSlugRoute,
-  BlogsSlugIndexRoute: BlogsSlugIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

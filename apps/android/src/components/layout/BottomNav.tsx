@@ -43,8 +43,14 @@ export function BottomNav() {
   ] as const;
 
   return (
+    // Not `fixed` — a normal flex child of the __root AppShell column (see
+    // TopBar for the same pattern/rationale). A `fixed bottom-0` nav's real
+    // rendered height (content + this env(safe-area-inset-bottom) padding)
+    // doesn't match a hardcoded `mb-*` offset on the scrollable `main` above
+    // it, so the last bit of page content could sit behind the nav on
+    // devices with a bottom gesture-nav inset. In-flow layout needs no offset.
     <nav
-      className="fixed bottom-0 inset-x-0 z-40 border-t border-neutral-200 bg-white"
+      className="relative z-40 flex-none border-t border-neutral-200 bg-white"
       aria-label="Mobile navigation"
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
     >

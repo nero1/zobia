@@ -5,7 +5,7 @@
  */
 
 import { useEffect } from 'react';
-import { createRootRoute, Outlet, useRouterState, useNavigate } from '@tanstack/react-router';
+import { createRootRoute, Outlet, useRouterState, useNavigate, useRouter } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { App as CapApp } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
@@ -18,6 +18,7 @@ import { AuthUserSchema } from '@zobia/shared/schemas/auth';
 import { setPreAuthToken } from '@/lib/auth/preAuth';
 import { env } from '@/lib/env';
 import { usePresenceHeartbeat } from '@/lib/hooks/usePresenceHeartbeat';
+import { initPushNotifications } from '@/lib/push';
 
 // Tab roots that don't show a back button
 const TAB_ROOTS = ['/home', '/games', '/rooms', '/messages', '/notifications', '/settings'];
@@ -28,10 +29,19 @@ function AppShell() {
   const routerState = useRouterState();
   const pathname = routerState.location.pathname;
   const navigate = useNavigate();
-  const { setAuth } = useAuth();
+  const router = useRouter();
+  const { setAuth, token } = useAuth();
 
   // Keeps last_active_at / online status warm app-wide — see usePresenceHeartbeat.ts.
   usePresenceHeartbeat();
+
+  // Register for push notifications once the user's identity is established
+  // (matches apps/expo/app/_layout.tsx's convention — the token registration
+  // call is authenticated, so it's pointless before login).
+  useEffect(() => {
+    if (!token) return;
+    initPushNotifications(router).catch((err) => console.error('[push] init failed:', err));
+  }, [token, router]);
 
   useEffect(() => {
     const listenerPromise = CapApp.addListener('appUrlOpen', async ({ url }) => {
@@ -147,7 +157,7 @@ function AppShell() {
       <div className="h-full flex flex-col">
         <TopBar title={getTitle()} showBack={showBack} />
         <OfflineBanner />
-        <main className="flex-1 overflow-y-auto mt-14 mb-14">
+        <main className="flex-1 overflow-y-auto">
           <div className="page-slide-in h-full">
             <Outlet />
           </div>

@@ -15,7 +15,9 @@ import { useAdaptiveChatPoll } from '@/lib/hooks/useAdaptiveChatPoll';
 import { useAuth } from '@/lib/auth/store';
 import { useCurrency } from '@/lib/hooks/useCurrency';
 import { useMomentsConfig } from '@/lib/hooks/useMomentsConfig';
+import { useAdsConfig } from '@/lib/hooks/useAdsConfig';
 import { LiveRoomPulseBar } from '@/components/ui/LiveRoomPulseBar';
+import InStreamAd from '@/components/ads/InStreamAd';
 
 interface Message {
   id: string;
@@ -50,6 +52,11 @@ interface ApiErrorBody {
   error?: { code?: string; message?: string };
 }
 
+async function fetchRoomType(roomId: string): Promise<string | null> {
+  const { data } = await apiClient.get<{ room: { type: string } }>(`/rooms/${roomId}`);
+  return data?.room?.type ?? null;
+}
+
 async function fetchRoomMessages(roomId: string) {
   // The API responds with { items, nextCursor, hasMore }, not a bare array —
   // treating the response itself as the list caused `messages.map` to crash.
@@ -66,6 +73,15 @@ function RoomChatPage() {
   const qc = useQueryClient();
   const currency = useCurrency();
   const momentsConfig = useMomentsConfig();
+  const adsConfig = useAdsConfig();
+  const { data: roomType } = useQuery({
+    queryKey: ['rooms', roomId, 'type'],
+    queryFn: () => fetchRoomType(roomId),
+    staleTime: 5 * 60_000,
+  });
+  // In-stream native ads (PRD §17 Pillar 3): free_open Rooms only, every N messages.
+  const showInstreamAds = adsConfig.instreamAdsEnabled && roomType === 'free_open';
+  const instreamInterval = Math.max(1, adsConfig.roomInstreamInterval || 10);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [text, setText] = useState('');
   const [isMoment, setIsMoment] = useState(false);
@@ -184,34 +200,37 @@ function RoomChatPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2">
-        {messages?.map((msg) => {
+        {messages?.map((msg, idx) => {
           const isMine = msg.senderId === user?.id;
           return (
-            <div key={msg.id} className={`flex items-end gap-2 ${isMine ? 'flex-row-reverse' : ''}`}>
-              {!isMine && (
-                <div className="w-7 h-7 rounded-full bg-primary-100 flex items-center justify-center text-xs flex-shrink-0">
-                  {msg.sender?.avatarEmoji ?? '👤'}
-                </div>
-              )}
-              <div>
-                {!isMine && msg.sender && (
-                  <p className="text-xs text-neutral-400 mb-0.5 ml-1">@{msg.sender.username}</p>
+            <div key={msg.id}>
+              <div className={`flex items-end gap-2 ${isMine ? 'flex-row-reverse' : ''}`}>
+                {!isMine && (
+                  <div className="w-7 h-7 rounded-full bg-primary-100 flex items-center justify-center text-xs flex-shrink-0">
+                    {msg.sender?.avatarEmoji ?? '👤'}
+                  </div>
                 )}
-                <div
-                  className={`max-w-[75vw] px-4 py-2 rounded-2xl text-sm ${
-                    msg.messageType === 'moment'
-                      ? 'border-2 border-purple-400 bg-purple-50 text-purple-900'
-                      : isMine
-                        ? 'bg-primary-600 text-white rounded-br-sm'
-                        : 'bg-white text-neutral-900 shadow-card rounded-bl-sm'
-                  } ${msg.id.startsWith('optimistic-') ? 'opacity-70' : ''}`}
-                >
-                  {msg.messageType === 'moment' && (
-                    <p className="mb-0.5 text-[10px] font-semibold text-purple-600">⚡ {t('room.moment24h', { defaultValue: 'Moment · 24h' })}</p>
+                <div>
+                  {!isMine && msg.sender && (
+                    <p className="text-xs text-neutral-400 mb-0.5 ml-1">@{msg.sender.username}</p>
                   )}
-                  {msg.content}
+                  <div
+                    className={`max-w-[75vw] px-4 py-2 rounded-2xl text-sm ${
+                      msg.messageType === 'moment'
+                        ? 'border-2 border-purple-400 bg-purple-50 text-purple-900'
+                        : isMine
+                          ? 'bg-primary-600 text-white rounded-br-sm'
+                          : 'bg-white text-neutral-900 shadow-card rounded-bl-sm'
+                    } ${msg.id.startsWith('optimistic-') ? 'opacity-70' : ''}`}
+                  >
+                    {msg.messageType === 'moment' && (
+                      <p className="mb-0.5 text-[10px] font-semibold text-purple-600">⚡ {t('room.moment24h', { defaultValue: 'Moment · 24h' })}</p>
+                    )}
+                    {msg.content}
+                  </div>
                 </div>
               </div>
+              {showInstreamAds && idx > 0 && (idx + 1) % instreamInterval === 0 && <InStreamAd />}
             </div>
           );
         })}

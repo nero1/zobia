@@ -5,6 +5,11 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- com.android.vending.BILLING (Google Play Billing) is NOT declared here —
+         it's bundled in node_modules/capacitor-plugin-cdv-purchase/android's own
+         AndroidManifest.xml and merged in automatically by the Android Gradle
+         Plugin's manifest merger. See apps/android/src/lib/payments/googlePlay.ts
+         and PRD §18. -->
 
     <application
         android:allowBackup="true"
@@ -13,6 +18,14 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
+
+        <!-- AdMob requires this even in test mode, or AdMob.initialize() crashes
+             with IllegalStateException. This is Google's public sample App ID
+             (safe to ship, not a secret) — swap for the real App ID from
+             docs/SETUP.md "AdMob (Capacitor Android)" before going live. -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-3940256099942544~3347511713" />
 
         <activity
             android:name=".MainActivity"
