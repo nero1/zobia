@@ -20,6 +20,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { RANK_COLORS } from "@/lib/xp/rankColors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -100,19 +101,6 @@ interface StatsResponse {
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-const RANK_COLORS: Record<string, string> = {
-  Beginner: "#6b7280",
-  Rookie: "#10b981",
-  Hustler: "#3b82f6",
-  Baller: "#8b5cf6",
-  Boss: "#f59e0b",
-  Legend: "#ef4444",
-  Titan: "#ec4899",
-  Goat: "#06b6d4",
-  Icon: "#f97316",
-  "Zobia Icon": "#eab308",
-};
 
 const TRACK_LABELS: Record<string, string> = {
   main: "Overall",
@@ -227,10 +215,10 @@ export default function ProfileStatsPage() {
       <div className="flex flex-col items-center justify-center py-24 text-center">
         <span className="mb-3 text-5xl">{icon}</span>
         <p className="text-base font-semibold text-neutral-700 dark:text-neutral-300">
-          {errorCode === "FORBIDDEN" ? "This stats page is private" : "Stats not available"}
+          {errorCode === "FORBIDDEN" ? t("profile.stats.private") : t("profile.stats.notFound")}
         </p>
-        <p className="mt-1 max-w-xs text-sm text-neutral-500">{error ?? "This user's stats aren't available right now."}</p>
-        <Link href={`/profile/${userId}`} className="mt-4 text-sm text-blue-600 hover:underline">← Back to profile</Link>
+        <p className="mt-1 max-w-xs text-sm text-neutral-500">{error ?? t("profile.stats.notAvailable")}</p>
+        <Link href={`/profile/${userId}`} className="mt-4 text-sm text-blue-600 hover:underline">{t("profile.stats.backToProfile")}</Link>
       </div>
     );
   }
@@ -306,7 +294,7 @@ export default function ProfileStatsPage() {
 
       {/* Progression Tracks */}
       <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-        <h2 className="mb-4 text-sm font-semibold text-neutral-700 dark:text-neutral-300">Progression Tracks</h2>
+        <h2 className="mb-4 text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t("profile.progressionTracks")}</h2>
         <div className="space-y-3">
           {stats.tracks.map((tr) => <TrackBar key={tr.track} track={tr} />)}
         </div>
@@ -314,10 +302,10 @@ export default function ProfileStatsPage() {
 
       {/* Social counts */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <CountTile label="Friends" value={stats.social.friendsCount} emoji="🤝" />
-        <CountTile label="Followers" value={stats.social.followersCount} emoji="👥" />
-        <CountTile label="Following" value={stats.social.followingCount} emoji="➡️" />
-        <CountTile label="Referrals" value={stats.social.referralsCount} emoji="🔗" />
+        <CountTile label={t("profile.stats.friends")} value={stats.social.friendsCount} emoji="🤝" />
+        <CountTile label={t("profile.followers")} value={stats.social.followersCount} emoji="👥" />
+        <CountTile label={t("profile.following")} value={stats.social.followingCount} emoji="➡️" />
+        <CountTile label={t("profile.stats.referrals")} value={stats.social.referralsCount} emoji="🔗" />
       </div>
 
       {/* Guild */}
@@ -337,9 +325,9 @@ export default function ProfileStatsPage() {
 
       {/* Badges / Achievements */}
       <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-        <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">🏆 Badges &amp; Achievements ({stats.badges.length})</h2>
+        <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">🏆 {t("profile.stats.badgesAchievements")} ({stats.badges.length})</h2>
         {stats.badges.length === 0 ? (
-          <p className="text-sm text-neutral-500">No badges earned yet.</p>
+          <p className="text-sm text-neutral-500">{t("profile.stats.noBadges")}</p>
         ) : (
           <div className="flex flex-wrap gap-2">
             {stats.badges.map((b) => (
@@ -359,9 +347,9 @@ export default function ProfileStatsPage() {
       {profile.isCreator && stats.createdRooms.length > 0 && (
         <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">🎨 Created Rooms ({stats.createdRooms.length})</h2>
+            <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">🎨 {t("profile.stats.createdRooms")} ({stats.createdRooms.length})</h2>
             <Link href={`/rooms?creator_id=${userId}`} className="text-xs text-blue-600 hover:underline dark:text-blue-400">
-              View all →
+              {t("profile.stats.viewAllRooms")} →
             </Link>
           </div>
           <div className="space-y-2">
@@ -383,16 +371,16 @@ export default function ProfileStatsPage() {
       {/* Leaderboard positions — full tier only shows the detailed grid */}
       {stats.tier === "full" && (
         <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-          <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">🏅 Leaderboard Positions</h2>
+          <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">🏅 {t("profile.stats.leaderboardPositions")}</h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs uppercase tracking-wider text-neutral-500">
-                  <th className="pb-2 pr-3">Track</th>
-                  <th className="pb-2 pr-3">Global</th>
-                  <th className="pb-2 pr-3">City</th>
-                  <th className="pb-2 pr-3">Guild</th>
-                  <th className="pb-2">Season</th>
+                  <th className="pb-2 pr-3">{t("profile.stats.trackColumn")}</th>
+                  <th className="pb-2 pr-3">{t("profile.stats.globalColumn")}</th>
+                  <th className="pb-2 pr-3">{t("profile.stats.cityColumn")}</th>
+                  <th className="pb-2 pr-3">{t("profile.stats.guildColumn")}</th>
+                  <th className="pb-2">{t("profile.stats.seasonColumn")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
@@ -414,7 +402,7 @@ export default function ProfileStatsPage() {
       {/* Season history — full tier only */}
       {stats.tier === "full" && stats.seasonHistory.length > 0 && (
         <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-          <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">Season History</h2>
+          <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t("profile.seasonHistory")}</h2>
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
             {stats.seasonHistory.map((s) => (
               <div key={s.id} className="rounded-lg border border-neutral-100 bg-neutral-50 p-2 text-center dark:border-neutral-800 dark:bg-neutral-800">

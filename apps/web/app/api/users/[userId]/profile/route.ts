@@ -21,6 +21,7 @@ import { db } from "@/lib/db";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { isAdminOrModerator } from "@/lib/auth/roles";
 import { getRankForXP } from "@/lib/xp/engine";
 
 // ---------------------------------------------------------------------------
@@ -265,14 +266,7 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
 
     // Stats page visibility (PRD §15): only the profile owner or a
     // moderator/admin viewer may open this user's Stats page.
-    let canViewStats = isOwnProfile;
-    if (!isOwnProfile) {
-      const { rows: callerRoleRows } = await db.query<{ is_admin: boolean; is_moderator: boolean }>(
-        `SELECT is_admin, is_moderator FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [callerId]
-      ).catch(() => ({ rows: [] as Array<{ is_admin: boolean; is_moderator: boolean }> }));
-      canViewStats = Boolean(callerRoleRows[0]?.is_admin || callerRoleRows[0]?.is_moderator);
-    }
+    const canViewStats = isOwnProfile || (await isAdminOrModerator(callerId));
 
     // 5. Creator card — top rooms + subscriber count (PRD §15)
     let creatorRoom: { id: string; name: string; coverEmoji: string } | null = null;
@@ -282,17 +276,17 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
     let totalEarningsKobo: number | null = null;
 
     if (user.is_creator) {
-      const [roomRes, roomCountRes, earningsRes] = await Promise.all([
-        db.query<{ id: string; name: string; cover_emoji: string; member_count: number }>(
-          `SELECT id, name, cover_emoji, member_count FROM rooms
+      const [roomRes, earningsRes] = await Promise.all([
+        // total_count comes from the same query/row-set as the top-3 rooms
+        // (COUNT(*) OVER()) rather than a second, independently-failing
+        // query — so the "see all N rooms" link can never disagree with
+        // the rooms actually returned.
+        db.query<{ id: string; name: string; cover_emoji: string; member_count: number; total_count: string }>(
+          `SELECT id, name, cover_emoji, member_count, COUNT(*) OVER() AS total_count FROM rooms
            WHERE creator_id = $1 AND is_active = TRUE
            ORDER BY member_count DESC LIMIT 3`,
           [userId]
-        ).catch(() => ({ rows: [] as Array<{ id: string; name: string; cover_emoji: string; member_count: number }> })),
-        db.query<{ count: string }>(
-          `SELECT COUNT(*) AS count FROM rooms WHERE creator_id = $1 AND is_active = TRUE`,
-          [userId]
-        ).catch(() => ({ rows: [{ count: "0" }] })),
+        ).catch(() => ({ rows: [] as Array<{ id: string; name: string; cover_emoji: string; member_count: number; total_count: string }> })),
         db.query<{ subscriber_count: string; total_earnings_kobo: string }>(
           `SELECT
              COUNT(DISTINCT rm.user_id)::TEXT AS subscriber_count,
@@ -309,7 +303,7 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
         ? { id: roomRes.rows[0].id, name: roomRes.rows[0].name, coverEmoji: roomRes.rows[0].cover_emoji }
         : null;
       creatorRooms = roomRes.rows.map((r) => ({ id: r.id, name: r.name, coverEmoji: r.cover_emoji, memberCount: r.member_count }));
-      creatorRoomCount = parseInt(roomCountRes.rows[0]?.count ?? "0", 10);
+      creatorRoomCount = parseInt(roomRes.rows[0]?.total_count ?? "0", 10);
       subscriberCount = earningsRes.rows[0] ? parseInt(earningsRes.rows[0].subscriber_count, 10) : 0;
       // Only expose total earnings to the profile owner (privacy gate)
       totalEarningsKobo = isOwnProfile && earningsRes.rows[0]

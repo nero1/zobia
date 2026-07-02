@@ -17,6 +17,7 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { useCurrency, type CurrencyNames } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { RANK_COLORS } from "@/lib/xp/rankColors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -80,19 +81,6 @@ interface RankSummary {
 
 /** Number of transactions fetched per page (initial load + each "Load more"). */
 const TX_PAGE_SIZE = 10;
-
-const RANK_COLORS: Record<string, string> = {
-  Beginner: "#6b7280",
-  Rookie: "#10b981",
-  Hustler: "#3b82f6",
-  Baller: "#8b5cf6",
-  Boss: "#f59e0b",
-  Legend: "#ef4444",
-  Titan: "#ec4899",
-  Goat: "#06b6d4",
-  Icon: "#f97316",
-  "Zobia Icon": "#eab308",
-};
 
 // ---------------------------------------------------------------------------
 // Skeleton

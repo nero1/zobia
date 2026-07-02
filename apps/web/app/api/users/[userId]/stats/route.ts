@@ -26,6 +26,7 @@ import { handleApiError, badRequest, notFound, forbidden } from "@/lib/api/error
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { isFeatureEnabled } from "@/lib/manifest";
 import { getAllowedPlans, isPlanEligible } from "@/lib/plans/eligibility";
+import { isAdminOrModerator } from "@/lib/auth/roles";
 import { getRankForXP } from "@/lib/xp/engine";
 import { getUserRank, type LeaderboardTrack } from "@/lib/leaderboards/engine";
 
@@ -86,13 +87,8 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
     const isOwnStats = callerId === userId;
 
     // Only the owner or a moderator/admin may view a user's stats.
-    if (!isOwnStats) {
-      const { rows: roleRows } = await db.query<{ is_admin: boolean; is_moderator: boolean }>(
-        `SELECT is_admin, is_moderator FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [callerId]
-      );
-      const canModerate = Boolean(roleRows[0]?.is_admin || roleRows[0]?.is_moderator);
-      if (!canModerate) throw forbidden("You do not have permission to view this user's stats.");
+    if (!isOwnStats && !(await isAdminOrModerator(callerId))) {
+      throw forbidden("You do not have permission to view this user's stats.");
     }
 
     const { rows: userRows } = await db.query<{
