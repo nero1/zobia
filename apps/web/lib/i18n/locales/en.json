@@ -198,6 +198,7 @@
   "home.quests.empty": "No quests today. Check back soon!",
   "home.friends.title": "Online Friends",
   "home.friends.empty": "No friends online right now.",
+  "home.friends.privacyHint": "Only shows friends who've turned on \"Show online status\" in Settings → Privacy (Pro/Max or Prestige 1+).",
   "home.planExpiry.personalEndsIn": "Your plan ends in {{count}} day time.",
   "home.planExpiry.personalEndsIn_other": "Your plan ends in {{count}} days time.",
   "home.planExpiry.businessEndsIn": "Your business plan ends in {{count}} day time.",

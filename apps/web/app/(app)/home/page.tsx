@@ -297,11 +297,13 @@ interface FriendsRowProps {
 }
 
 function FriendsRow({ friends }: FriendsRowProps) {
+  const { t } = useTranslation();
   return (
     <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-      <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">Online Friends</h2>
+      <h2 className="mb-0.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t("home.friends.title")}</h2>
+      <p className="mb-3 text-[11px] text-neutral-400">{t("home.friends.privacyHint")}</p>
       {friends.length === 0 ? (
-        <p className="text-xs text-neutral-400">No friends online right now.</p>
+        <p className="text-xs text-neutral-400">{t("home.friends.empty")}</p>
       ) : (
         <div className="flex flex-wrap gap-4">
           {friends.map((f) => (

@@ -54,7 +54,8 @@ function OverviewTab() {
         {data.topCampaigns.length === 0 ? (
           <p className="text-sm text-neutral-400">No spend yet.</p>
         ) : (
-          <table className="w-full text-left text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[480px] text-left text-sm">
             <tbody>
               {data.topCampaigns.map((c) => (
                 <tr key={c.id} className="border-t border-neutral-100 dark:border-neutral-800">
@@ -65,6 +66,7 @@ function OverviewTab() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>

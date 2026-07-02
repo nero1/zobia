@@ -15,6 +15,7 @@ import { useAdaptiveChatPoll } from '@/lib/hooks/useAdaptiveChatPoll';
 import { useAuth } from '@/lib/auth/store';
 import { useCurrency } from '@/lib/hooks/useCurrency';
 import { useMomentsConfig } from '@/lib/hooks/useMomentsConfig';
+import { LiveRoomPulseBar } from '@/components/ui/LiveRoomPulseBar';
 
 interface Message {
   id: string;
@@ -109,6 +110,18 @@ function RoomChatPage() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Live-presence heartbeat — same soft-cap admission endpoint the web room
+  // screen calls every ~45s (see app/api/rooms/[roomId]/presence/route.ts).
+  // Powers the pulse bar's "active now" count and frees the slot automatically
+  // via Redis TTL when the user leaves/backgrounds the app.
+  useEffect(() => {
+    let cancelled = false;
+    const beat = () => { if (!cancelled) apiClient.post(`/rooms/${roomId}/presence`).catch(() => {}); };
+    beat();
+    const id = setInterval(beat, 45_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [roomId]);
+
   const sendMutation = useMutation({
     mutationFn: async (content: string) => {
       const body: Record<string, string> = { content };
@@ -165,6 +178,11 @@ function RoomChatPage() {
 
   return (
     <div className="h-full flex flex-col bg-neutral-50">
+      {/* Live activity pulse bar — PRD §2.2, mirrors web room screen */}
+      <div className="border-b border-neutral-200 bg-white px-4 py-2">
+        <LiveRoomPulseBar roomId={roomId} />
+      </div>
+
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2">
         {messages?.map((msg) => {
           const isMine = msg.senderId === user?.id;

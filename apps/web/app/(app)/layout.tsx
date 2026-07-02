@@ -21,6 +21,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { AppContentShell } from "@/components/layout/AppContentShell";
 import { OfflineBanner } from "@/components/offline/OfflineBanner";
 import { OfflineSyncProvider } from "@/components/offline/OfflineSyncProvider";
+import { PresenceHeartbeatProvider } from "@/components/presence/PresenceHeartbeatProvider";
 import { AnnouncementBanner, type BannerData } from "@/components/announcements/AnnouncementBanner";
 import { AnnouncementModal, type AnnouncementData } from "@/components/announcements/AnnouncementModal";
 import { PWAInstallPrompt } from "@/components/shared/PWAInstallPrompt";
@@ -104,6 +105,8 @@ export default async function AppLayout({ children }: AppLayoutProps) {
       {/* Offline indicator and queue sync */}
       <OfflineBanner />
       <OfflineSyncProvider />
+      {/* Presence heartbeat — keeps last_active_at / online status warm app-wide */}
+      <PresenceHeartbeatProvider />
       {/* Session-expired notice is mounted globally in the root layout (app/layout.tsx)
           so it also covers standalone routes like /g/<slug>/play. */}
       {/* Announcement banner (admin-managed, fixed top) */}

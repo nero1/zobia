@@ -271,8 +271,8 @@ export default function AdminGiftDropPage() {
           </p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-800">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-xl border border-neutral-200 dark:border-neutral-800">
+          <table className="w-full min-w-[640px] text-sm">
             <thead>
               <tr className="border-b border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900">
                 {["Gift Item", "Available From", "Available Until", "Announced At", "Status"].map(

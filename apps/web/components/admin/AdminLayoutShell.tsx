@@ -267,7 +267,14 @@ export function AdminLayoutShell({ children }: { children: React.ReactNode }) {
       <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
 
       {/* Main content */}
-      <div className="flex flex-1 flex-col lg:pl-56">
+      {/*
+       * min-w-0 is required here: without it, a flex child's implicit
+       * min-width:auto lets wide content (e.g. an inner overflow-x-auto
+       * table) force this whole column wider instead of scrolling inside
+       * its own wrapper, which pushes the ENTIRE page horizontally on
+       * mobile instead of just the table. See admin table pages.
+       */}
+      <div className="flex min-w-0 flex-1 flex-col lg:pl-56">
         {/* Top bar */}
         <header className="sticky top-0 z-40 flex h-16 items-center border-b border-neutral-200 bg-white px-4 dark:border-neutral-800 dark:bg-neutral-900 lg:px-6">
           {/* Hamburger (mobile only) */}
@@ -285,7 +292,7 @@ export function AdminLayoutShell({ children }: { children: React.ReactNode }) {
           </h1>
         </header>
 
-        <main className="flex-1 p-6">{children}</main>
+        <main className="min-w-0 flex-1 overflow-x-hidden p-6">{children}</main>
       </div>
     </div>
   );

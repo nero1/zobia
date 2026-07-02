@@ -5,12 +5,66 @@
  * Query key: ['home', 'feed']. Endpoint: GET /api/home/feed.
  */
 
-import { useInfiniteQuery } from '@tanstack/react-query';
-import { createFileRoute } from '@tanstack/react-router';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { createFileRoute, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { useRef, useCallback } from 'react';
 import { apiClient } from '@/lib/api/client';
 import type { PaginatedResponse } from '@zobia/shared/types';
+import { OnlineRing } from '@/components/ui/OnlineRing';
+
+interface OnlineFriend {
+  userId: string;
+  username: string;
+  avatarEmoji: string;
+  isOnline: boolean;
+}
+
+async function fetchOnlineFriends() {
+  const { data } = await apiClient.get<{ data?: OnlineFriend[]; friends?: OnlineFriend[] }>('/friends/online');
+  return data?.data ?? data?.friends ?? [];
+}
+
+/**
+ * Online Friends row — PRD §2.2 "Presence Layer". Mirrors the web Home
+ * page's FriendsRow (apps/web/app/(app)/home/page.tsx). Only friends who
+ * opted in to "Show online status" (Settings → Privacy, Pro/Max or
+ * Prestige 1+) ever appear here — see GET /api/friends/online.
+ */
+function OnlineFriendsRow() {
+  const { t } = useTranslation();
+  const { data: friends } = useQuery({
+    queryKey: ['friends', 'online'],
+    queryFn: fetchOnlineFriends,
+    staleTime: 60_000,
+  });
+
+  if (!friends || friends.length === 0) return null;
+
+  return (
+    <div className="bg-white border-b border-neutral-100 p-4">
+      <h2 className="mb-0.5 text-sm font-semibold text-neutral-700">{t('home.friends.title')}</h2>
+      <p className="mb-3 text-[11px] text-neutral-400">{t('home.friends.privacyHint')}</p>
+      <div className="flex gap-4 overflow-x-auto">
+        {friends.map((f) => (
+          <Link
+            key={f.userId}
+            to="/profile/$username"
+            params={{ username: f.username }}
+            className="flex flex-shrink-0 flex-col items-center gap-1"
+          >
+            <OnlineRing userId={f.userId} size="md" knownStatus={f.isOnline ? 'online' : 'recently_active'}>
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100 text-xl">
+                {f.avatarEmoji || '🙂'}
+              </div>
+            </OnlineRing>
+            <span className="max-w-[3rem] truncate text-xs text-neutral-500">@{f.username}</span>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 interface FeedPost {
   id: string;
@@ -112,6 +166,8 @@ function HomePage() {
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50">
+      <OnlineFriendsRow />
+
       {status === 'pending' && (
         <div>
           {Array.from({ length: 5 }).map((_, i) => <SkeletonCard key={i} />)}
