@@ -51,12 +51,16 @@ function GamesPage() {
         : apiClient.delete('/games/favorites', { data: { gameId } }),
     onMutate: ({ gameId, next }) => {
       qc.setQueryData<GameSummary[]>(['games', search], (prev = []) =>
-        prev.map((g) => (g.id === gameId ? { ...g, isFavorited: next } : g))
+        prev.map((g) => (g.id === gameId
+          ? { ...g, isFavorited: next, favoriteCount: Math.max(0, g.favoriteCount + (next ? 1 : -1)) }
+          : g))
       );
     },
     onError: (_err, { gameId, next }) => {
       qc.setQueryData<GameSummary[]>(['games', search], (prev = []) =>
-        prev.map((g) => (g.id === gameId ? { ...g, isFavorited: !next } : g))
+        prev.map((g) => (g.id === gameId
+          ? { ...g, isFavorited: !next, favoriteCount: Math.max(0, g.favoriteCount + (next ? -1 : 1)) }
+          : g))
       );
     },
   });

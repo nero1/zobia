@@ -433,7 +433,14 @@ export default function GameRunner({
             )}
             <button
               type="button"
-              onClick={() => (onExit ? onExit() : router.push(`/g/${slug}`))}
+              onClick={() => {
+                if (onExit) { onExit(); return; }
+                // Embed mode (WebView) has no onExit — navigating the iframe
+                // to the non-embed /g/<slug> page would break out of the
+                // embed, so signal the host app instead of routing away.
+                if (embed) { bridge("game_exit"); return; }
+                router.push(`/g/${slug}`);
+              }}
               className="flex-1 min-w-[45%] rounded-xl border border-border px-4 py-3 text-sm font-semibold text-foreground hover:bg-accent"
             >
               {t("games.quit", "Quit")}
