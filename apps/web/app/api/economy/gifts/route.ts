@@ -99,7 +99,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
        JOIN users s            ON s.id = g.sender_id
        JOIN users r            ON r.id = g.recipient_id
        JOIN gift_items gi      ON gi.id = g.gift_item_id
-       LEFT JOIN gift_types gt ON gt.id = gi.gift_type_id
+       LEFT JOIN gift_types gt ON gt.id = g.gift_type_id
        WHERE ${typeCondition}
        ${cursorCondition}
        ORDER BY g.created_at DESC, g.id DESC

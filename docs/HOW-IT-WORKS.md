@@ -152,10 +152,12 @@ Creators earn credit revenue when they receive gifts in their rooms (80% net; 85
 
 A dedicated **Gifts Hub** is accessible from the main navigation (below Friends) on both web and Expo:
 
-- **Web:** `/gifts` — tabbed view of received/sent gift history, plus a **Send a Gift** modal. The modal supports searching friends by username (debounced), browsing the catalogue by tier, and confirms the credit cost before sending. Pre-fill a recipient via `?recipientId=<id>` or `?username=<name>` query params (e.g. from a friend's profile page).
+- **Web:** `/gifts` — tabbed view of received/sent gift history, plus a **Send a Gift** modal. The modal supports searching friends by username (debounced), browsing the catalogue by tier, and confirms the credit cost before sending. Pre-fill a recipient via `?recipientId=<id>` or `?username=<name>` query params (e.g. from a friend's profile page). A prominent **🗂️ Browse gift catalog** button (styled the same as other secondary actions on the page, not a bare text link) opens the same modal without a pre-filled recipient.
 - **Expo:** `/(tabs)/gifts` — the same two-tab history view; tapping **Send a Gift** navigates to the existing `/economy/gift-send` send flow. The screen is hidden from the bottom tab bar and accessed via the swipe drawer.
 
-**Gift history API:** `GET /api/economy/gifts`
+**Gift-to-user deep link:** `/gift/:userId` (used by profile "🎁 Gift" buttons, share cards, and `zobia://gift/:userId` deep links) resolves the target user's username via `GET /api/users/:userId` and redirects to `/gifts?recipientId=<id>&username=<name>` — it hands off to the same Gifts Hub send flow above rather than re-implementing gift selection, wallet balance, and PIN verification a second time. (Previously this page called two API routes that were never implemented, `/api/users/:userId/public` and `/api/economy/gift-items`, so it always showed "User not found" regardless of whether the target user existed — fixed.)
+
+**Gift history API:** `GET /api/economy/gifts` (fixed 500 error). The query joined `gift_types gt ON gt.id = gi.gift_type_id`, but `gift_type_id` lives on `gifts` (added by migration `0010_gift_type_fk.sql`), not on `gift_items` (aliased `gi`) — every call threw `column gi.gift_type_id does not exist`, so both the `/gifts` page and the Gifts Hub history tabs always showed "An unexpected error occurred." Fixed to join on `g.gift_type_id` (the `gifts` row alias).
 
 | Query param | Default | Description |
 |---|---|---|
@@ -238,14 +240,17 @@ Tier boundaries are re-evaluated by the daily CRON (step 28). Creator Fund distr
 - **Follows**: Unilateral following. Stored in `follows`. Used for feed curation and notification preferences.
 - **Mutual follows** appear in suggestions.
 
-The Friends page (`/friends`) has three tabs:
+The Friends page (`/friends`) has four tabs:
 1. **My Friends** — accepted friendships with quick Remove action.
 2. **Requests** — split into two sub-tabs:
    - **Received** — incoming pending requests; Accept / Decline buttons.
    - **Sent** — outgoing pending requests; Withdraw button (calls `DELETE /api/friends/[id]`). Sent requests fetched from `GET /api/friends/requests/sent`.
-3. **Discover** — suggested users to add.
+3. **Recent** (🕐) — people the user has recently direct-messaged, most-recent-first. Backed by the existing `GET /api/messages/dm` conversation list (no new table — the same data already powers the Messages inbox), each row links to the sender's profile and to the conversation.
+4. **Discover** — suggested users to add.
 
-Count badges on the Received and Sent sub-tabs show pending counts at a glance.
+Count badges on the Received and Sent sub-tabs show pending counts at a glance. Every avatar/name in all four tabs links to `/profile/:userId`.
+
+**New-request blue dot:** `POST /api/friends` writes an unread `notifications` row (`type: 'friend_request'`) for the addressee. The Friends page checks `GET /api/notifications?type=friend_request&unread=true&limit=1` on load and shows a small blue dot on the Requests tab when the count is non-zero. Opening the Requests tab calls `POST /api/notifications/read-all` with `{ "type": "friend_request" }` in the body — this clears only the friend-request notifications (via a `type` filter added to the read-all route), leaving unrelated bell notifications untouched.
 
 ### Profile Privacy
 
@@ -1049,6 +1054,8 @@ Key architectural decisions:
 - **Capacitor Preferences replaces SecureStore/MMKV.** JWT and refresh tokens are stored via `@capacitor/preferences` (backed by Android SharedPreferences with encryption). The API client (`src/lib/api/client.ts`) reads and writes tokens through the same async `get/set/remove` pattern.
 - **Capacitor Network and App replace NetInfo and AppState.** `@capacitor/network` powers `useNetworkStatus` for the offline banner and query pause logic. `@capacitor/app` provides `appStateChange` events to pause Ably subscriptions and query polling when the app is backgrounded.
 - **i18next-browser-languagedetector replaces expo-localization.** Language detection reads the browser `Accept-Language` header (surfaced by Capacitor's WebView). The chosen language is persisted in `@capacitor/preferences`. All locale JSON files are sourced from `shared/i18n/locales/` — the same canonical files used by the web app.
+
+**Screen coverage.** `apps/android/src/routes/` currently ports: home, quests, games, rooms (list + detail), messages (list + conversation), profile, settings, notifications, and auth. Friends (`/friends`) and the Gifts Hub (`/gifts`) — both covered in this doc for web/PWA — are not yet ported to the Capacitor app; there is no `apps/android/src/routes/friends.tsx` or `gifts.tsx` today. When they are built, they should mirror the web/PWA tab layout and API calls described above (same `/api/friends*` and `/api/economy/gifts*` endpoints, TanStack Query instead of raw `fetch` + `useState`, per the pattern in `src/routes/messages/index.tsx`).
 
 ### Routing and Navigation
 

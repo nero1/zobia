@@ -3091,6 +3091,33 @@ Added `"home.dailyLoginXP": "Daily login: +{{xp}} XP"` to both `apps/expo/lib/i1
 
 ---
 
-*ZobiaSocial PRD v1.94*
+## Appendix: Version 1.95 Change Log
+
+### v1.95 — Changelog
+
+#### Friends Page — New Request Blue Dot, Clickable Profiles, Recent Chats Tab
+
+- **New friend request indicator.** `POST /api/friends` now writes an unread `notifications` row (`type: 'friend_request'`) to the addressee via the existing `insertNotification()` helper (`lib/notifications/insert.ts`). The Friends page (`/friends`) checks `GET /api/notifications?type=friend_request&unread=true&limit=1` on load and renders a small blue dot on the **Requests** tab when one exists. Opening the Requests tab calls `POST /api/notifications/read-all` with `{ "type": "friend_request" }`, clearing only friend-request notifications (a `type` filter was added to the read-all route, backward compatible — omitting `type` still marks everything read as before).
+- **Clickable friend rows.** Every avatar/name across My Friends, Requests (Received + Sent), Discover, and the new Recent tab now links to `/profile/:userId`, using the shared `Avatar` component (`components/ui/Avatar.tsx`) instead of a page-local emoji-circle implementation.
+- **New "Recent" tab (🕐).** Shows people the user has recently direct-messaged, most-recent-first, reusing the existing `GET /api/messages/dm` conversation list (no new table or endpoint) — the same data that already powers the Messages inbox. Each row links to the sender's profile and to the DM conversation.
+- **i18n:** the page's static strings were wired up to the `friends.*` keys already present in `apps/web/lib/i18n/locales/en.json` (they existed but the component had never been migrated off hardcoded English). New keys added: `friends.tabs.recent`, `friends.newRequestBadge`, `friends.recent.empty`, `friends.recent.emptyHint`, `friends.recent.message`.
+
+#### Gifts — Fixed 500 Error on `/gifts` and Gifts Hub History
+
+`GET /api/economy/gifts` joined `gift_types gt ON gt.id = gi.gift_type_id`, but `gift_type_id` was added to the `gifts` table by migration `0010_gift_type_fk.sql` — not to `gift_items` (aliased `gi` in this query). Every call threw `column gi.gift_type_id does not exist`, so the `/gifts` page and both Received/Sent history tabs always showed "An unexpected error occurred." Fixed the join to reference `g.gift_type_id` (the `gifts` row alias), matching the working join in `/api/economy/gifts/send`.
+
+#### Gifts — Fixed "Gift" Button Leading to "User Not Found"
+
+The profile page's 🎁 Gift button linked to `/gift/:userId`, which called two API routes that were never implemented in this codebase: `GET /api/users/:userId/public` and `GET /api/economy/gift-items`. Every visit to this page showed "User not found," regardless of whether the target user existed. Rather than re-implement a second, parallel gift-sending flow, `/gift/:userId` now resolves the target's username via the existing `GET /api/users/:userId` endpoint and redirects to `/gifts?recipientId=<id>&username=<name>` — handing off to the fully-featured Gifts Hub send flow (catalogue browsing, wallet balance, PIN verification) that already exists and is exercised from `/gifts` itself. The profile page's Gift button now links directly to `/gifts?recipientId=...&username=...`, skipping the extra redirect hop; the `/gift/:userId` route is kept (now working) for external deep links (share cards, `zobia://gift/:userId`).
+
+#### Gifts — More Prominent "Browse Gift Catalog"
+
+On `/gifts`, "Browse gift catalog" was a bare underlined text link next to the primary "🎁 Send a Gift" button. It now renders as a secondary button (same style as the page's other secondary actions, e.g. the history list's "Retry" button) so it reads as a real action rather than fine print.
+
+**Note:** none of the above are ported to the Capacitor Android app yet — `apps/android/src/routes/` has no `friends.tsx` or `gifts.tsx` today, so this release is web/PWA only. See `docs/HOW-IT-WORKS.md` § Android App for the current screen coverage list.
+
+---
+
+*ZobiaSocial PRD v1.95*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*
