@@ -21,6 +21,7 @@ import { getRankForXP } from "@/lib/xp/engine";
 import { safeAwardXPFireAndForget } from "@/lib/xp/safeAwardXP";
 import { debitCoins, creditCoins } from "@/lib/economy/coins";
 import { applyForumAutoModeration } from "@/lib/forum/moderation";
+import { generateUniqueSlug } from "@/lib/slug";
 import { ApiError, badRequest, forbidden, notFound } from "@/lib/api/errors";
 import { logger } from "@/lib/logger";
 
@@ -184,10 +185,12 @@ export interface CreateQuestionInput {
   userId: string;
   title: string;
   body: string;
+  categoryId?: string | null;
 }
 
 export interface CreateQuestionResult {
   id: string;
+  slug: string;
   status: "visible" | "needs_review";
 }
 
@@ -208,13 +211,27 @@ export async function createQuestion(input: CreateQuestionInput): Promise<Create
     throw badRequest("This question looks like a duplicate of one you posted recently.", "FORUM_CONTENT_BLOCKED");
   }
 
-  const { rows } = await db.query<{ id: string }>(
-    `INSERT INTO forum_questions (author_id, title, body, status)
-     VALUES ($1, $2, $3, 'visible')
-     RETURNING id`,
-    [input.userId, mod.filteredTitle ?? input.title, mod.filteredBody]
+  // A stable id is generated up-front (rather than relying on the DB
+  // default) so it can double as the slug's collision fallback, matching
+  // the room/game creation convention (generate id -> derive slug -> insert).
+  const questionId = randomUUID();
+  const finalTitle = mod.filteredTitle ?? input.title;
+  const slug = await generateUniqueSlug("forum_question", finalTitle, questionId);
+
+  const categoryId = input.categoryId?.trim() || null;
+  if (categoryId) {
+    const { rows: catRows } = await db.query<{ id: string }>(
+      `SELECT id FROM forum_categories WHERE id = $1 LIMIT 1`,
+      [categoryId]
+    );
+    if (!catRows[0]) throw badRequest("Unknown category.", "FORUM_UNKNOWN_CATEGORY");
+  }
+
+  await db.query(
+    `INSERT INTO forum_questions (id, author_id, category_id, title, slug, body, status)
+     VALUES ($1, $2, $3, $4, $5, $6, 'visible')`,
+    [questionId, input.userId, categoryId, finalTitle, slug, mod.filteredBody]
   );
-  const questionId = rows[0].id;
 
   awardForumRewards(
     input.userId,
@@ -227,7 +244,7 @@ export async function createQuestion(input: CreateQuestionInput): Promise<Create
     eligibility.config.dailyRewardCapCredits
   );
 
-  return { id: questionId, status: "visible" };
+  return { id: questionId, slug, status: "visible" };
 }
 
 export interface CreateAnswerInput {

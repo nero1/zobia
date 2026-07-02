@@ -5,7 +5,7 @@
  * being hard-coded to a single domain (replaces the old static public/robots.txt
  * that pointed at the retired zobia.social host). Disallows admin/api/auth and
  * the internal /rooms app surface, while allowing the public SEO routes
- * (/u, /r, /c, /g).
+ * (/u, /r, /c, /g, /a).
  */
 
 import type { MetadataRoute } from "next";
@@ -17,7 +17,7 @@ export default function robots(): MetadataRoute.Robots {
   return {
     rules: {
       userAgent: "*",
-      allow: ["/u/", "/c/", "/r/", "/g/", "/help", "/about", "/terms", "/privacy"],
+      allow: ["/u/", "/c/", "/r/", "/g/", "/a/", "/help", "/about", "/terms", "/privacy"],
       disallow: ["/admin", "/api/", "/auth/", "/pwa-start", "/onboarding"],
     },
     sitemap: `${BASE_URL}/sitemap.xml`,

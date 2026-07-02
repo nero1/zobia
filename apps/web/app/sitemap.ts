@@ -149,5 +149,31 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // Games table absent or unavailable — skip silently
   }
 
+  // Public forum questions (Zobia Answers). Served at /a/<slug>. Falls back
+  // to the UUID for any question not yet backfilled with a slug (still
+  // resolves + 301s). The table may not exist on older DBs (pre-0040
+  // migration) — the catch keeps the sitemap working regardless.
+  try {
+    const { rows: questions } = await db.query<{ id: string; slug: string | null; updated_at: string }>(
+      `SELECT id, slug, updated_at
+       FROM forum_questions
+       WHERE status = 'visible'
+         AND deleted_at IS NULL
+       ORDER BY updated_at DESC NULLS LAST
+       LIMIT 2000`
+    );
+
+    for (const q of questions) {
+      entries.push({
+        url: `${BASE_URL}/a/${encodeURIComponent(q.slug ?? q.id)}`,
+        lastModified: new Date(q.updated_at),
+        changeFrequency: "weekly",
+        priority: 0.5,
+      });
+    }
+  } catch {
+    // Forum questions unavailable — skip silently
+  }
+
   return entries;
 }

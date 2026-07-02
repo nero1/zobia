@@ -916,6 +916,7 @@ Public, shareable, crawlable surfaces use short, human-readable, SEO-friendly pa
 | Room (duplicate name) | `zobia.org/r/dorcas-cuisine2` | Numeric suffix, no separator |
 | Course / classroom | `zobia.org/c/youtube-monetization-for-beginners` | Classroom-type Rooms |
 | Game (upcoming) | `zobia.org/g/tapontap` | Backed by the `games` table |
+| Forum question (Zobia Answers) | `zobia.org/a/what-made-you-join-zobia` | Public preview; interactive experience is at `/answers/<uuid>` (§31.0) |
 
 **Identifier model — UUID is internal, slug is public.** Every Room/game keeps its immutable `uuid` primary key as the internal reference (foreign keys, realtime channels, API calls, internal app navigation `/rooms/<uuid>` all continue to use it). The **slug** is a mutable, human-facing **alias** that resolves to the UUID. Slugs are unique among live records via a partial index; duplicates of the same name get a numeric suffix (`dorcas-cuisine`, `dorcas-cuisine2`, `dorcas-cuisine3`), oldest record keeping the bare slug. Slugs are generated server-side from the display name (`slugify` in `@zobia/shared/utils` + DB dedupe in `apps/web/lib/slug.ts`).
 
@@ -2072,6 +2073,44 @@ questions can be favorited. Built to reuse the platform's existing economy,
 progression, moderation and admin infrastructure rather than introducing a
 parallel system.
 
+### 31.0 SEO — public URLs, categories, sitemap (v1.97)
+
+- **Public, crawlable question page**: `/a/<slug>` (web/PWA — see
+  `app/a/[slug]/page.tsx`), a lightweight SSR preview mirroring the
+  `/r/<slug>` room pattern (§ "Public URL Structure — SEO-Friendly Slugs"):
+  title/description/OpenGraph/Twitter metadata, a self-referential
+  canonical tag, `QAPage`/`Question`/`Answer` JSON-LD structured data, and a
+  "Join Zobia Social to answer or vote" CTA. Only `status = 'visible'`,
+  non-deleted questions resolve — removed/needs_review content never leaks
+  to crawlers. Legacy `/a/<uuid>` links and retired slugs (after a title
+  edit) 301-redirect to the canonical slug via the same `slug_redirects`
+  mechanism used for rooms/games (`forum_question` added as a valid
+  `entity_type`). This public page is distinct from the authenticated,
+  interactive experience at `/answers/<id>` (voting, answering, threading),
+  exactly as `/r/<slug>` is distinct from the in-room chat UI.
+- **Slugs**: `forum_questions.slug` is generated from the question title at
+  creation time using the same `generateUniqueSlug()` utility and
+  numeric-suffix dedupe convention as rooms/games (`lib/slug.ts`).
+- **Categories**: a lightweight `forum_categories` taxonomy (General,
+  Relationships & Dating, Money & Business, Tech & Gadgets, School & Career,
+  Entertainment & Culture, Sports, Health & Wellness) lets questions be
+  organised/browsed by topic. Optional at ask-time (`GET
+  /api/answers/categories` powers the picker on `/answers/ask`); shown as a
+  badge on the public question page, linking back to a category-filtered
+  view of `/answers`.
+- **Sitemap**: visible, non-deleted questions are listed at `/a/<slug>` in
+  `app/sitemap.ts` (capped at 2000, same convention as rooms/courses/games).
+  `/a/` is public in `middleware.ts` (`PUBLIC_PREFIXES`) and allowed in
+  `app/robots.ts`.
+- **Seed migration**: `db/migrations/0040_forum_seo.sql` adds the
+  `forum_categories` table + the `slug`/`category_id` columns on
+  `forum_questions`, backfills slugs for any pre-existing questions, and
+  seeds the 8 categories above (reference taxonomy — always present).
+  `db/seed.sql` (run once on fresh deployments, after all migrations) adds
+  one starter question per category plus a few sample answers, following
+  the exact same platform-admin-authored convention as the seed rooms/
+  guilds already in that file.
+
 ### 31.1 Overview
 
 - **Main page** (`/answers`, web/PWA; `/answers` in the Capacitor Android
@@ -2176,14 +2215,16 @@ separate report queue or AI integration was built.
 
 ### 31.7 Data model
 
-New tables: `forum_questions`, `forum_answers` (self-referencing
-`parent_answer_id` for nesting, denormalized `depth`), `forum_votes`
-(polymorphic `target_type`/`target_id`, unique per user), `forum_favorites`,
-`forum_moderation_log`. The existing `reports`/`moderation_reports` tables
-gained two new nullable FK columns (`reported_forum_question_id`,
-`reported_forum_answer_id`), following the same discrete-FK convention
-already used for `reported_message_id`/`reported_room_id`/`reported_guild_id`
-— no new moderation infrastructure was needed.
+New tables: `forum_questions` (gained `slug` and `category_id` in v1.97 —
+see § 31.0), `forum_answers` (self-referencing `parent_answer_id` for
+nesting, denormalized `depth`), `forum_votes` (polymorphic
+`target_type`/`target_id`, unique per user), `forum_favorites`,
+`forum_moderation_log`, `forum_categories` (added v1.97). The existing
+`reports`/`moderation_reports` tables gained two new nullable FK columns
+(`reported_forum_question_id`, `reported_forum_answer_id`), following the
+same discrete-FK convention already used for
+`reported_message_id`/`reported_room_id`/`reported_guild_id` — no new
+moderation infrastructure was needed.
 
 ---
 

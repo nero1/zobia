@@ -565,5 +565,70 @@ INSERT INTO platform_events (
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================
+-- 10. Zobia Answers — sample Q&A
+--
+--    One starter question per category (categories themselves are seeded
+--    by the 0040_forum_seo.sql migration, not here, since they're reference
+--    taxonomy rather than sample content). Slugs are hand-written to match
+--    exactly what generateUniqueSlug() would derive from the title, so
+--    fresh deployments get readable /a/<slug> URLs immediately instead of
+--    UUID fallbacks. Authored by the platform admin, same convention as the
+--    seed rooms/guilds above.
+-- ============================================================
+
+INSERT INTO forum_questions (id, author_id, category_id, title, slug, body, status, vote_score, answer_count) VALUES
+  ('00000000-0000-0000-0007-000000000001', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0006-000000000001',
+   'What made you join Zobia?', 'what-made-you-join-zobia',
+   'Curious what brought everyone here — a friend''s invite, a room you stumbled into, or something else? Drop your story below 👇',
+   'visible', 12, 1),
+  ('00000000-0000-0000-0007-000000000002', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0006-000000000002',
+   'How do you know when it''s time to end a friendship?', 'how-do-you-know-when-its-time-to-end-a-friendship',
+   'Not talking about anything dramatic — just a friendship that''s felt one-sided for a while. When did you know it was time to let go, and how did you handle it?',
+   'visible', 8, 1),
+  ('00000000-0000-0000-0007-000000000003', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0006-000000000003',
+   'Best side hustle to start with under 50k naira?', 'best-side-hustle-to-start-with-under-50k-naira',
+   'Looking to start something small on the side while I keep my day job. What actually worked for you with a small starting budget?',
+   'visible', 21, 1),
+  ('00000000-0000-0000-0007-000000000004', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0006-000000000004',
+   'Which budget Android phone actually lasts more than 2 years?', 'which-budget-android-phone-actually-lasts-more-than-2-years',
+   'Tired of phones that slow down after a year. Looking for something affordable that still feels fast after the warranty runs out.',
+   'visible', 6, 0),
+  ('00000000-0000-0000-0007-000000000005', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0006-000000000005',
+   'How do you stay motivated studying for finals?', 'how-do-you-stay-motivated-studying-for-finals',
+   'Exam season is here and my focus is nowhere to be found. What''s actually worked for you to stay consistent in the last stretch?',
+   'visible', 15, 1),
+  ('00000000-0000-0000-0007-000000000006', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0006-000000000006',
+   'What''s the most slept-on Afrobeats album of the last two years?', 'whats-the-most-slept-on-afrobeats-album-of-the-last-two-years',
+   'Not looking for the obvious chart-toppers — what''s an album you think deserved way more shine than it got?',
+   'visible', 9, 0),
+  ('00000000-0000-0000-0007-000000000007', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0006-000000000007',
+   'Who do you think wins the next Super Eagles AFCON campaign?', 'who-do-you-think-wins-the-next-super-eagles-afcon-campaign',
+   'Genuinely curious what the room thinks — realistic predictions only, no wishful thinking 😅',
+   'visible', 18, 1),
+  ('00000000-0000-0000-0007-000000000008', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0006-000000000008',
+   'Simple habits that actually improved your mental health?', 'simple-habits-that-actually-improved-your-mental-health',
+   'Not looking for anything extreme — just small, realistic habits that made a noticeable difference for you.',
+   'visible', 24, 1)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO forum_answers (id, question_id, author_id, body, status, vote_score) VALUES
+  ('00000000-0000-0000-0008-000000000001', '00000000-0000-0000-0007-000000000001', '00000000-0000-0000-0000-000000000001',
+   'A friend added me to a room during a Guild War and I never left 😂 the XP bar getting me is not a joke.', 'visible', 5),
+  ('00000000-0000-0000-0008-000000000002', '00000000-0000-0000-0007-000000000002', '00000000-0000-0000-0000-000000000001',
+   'When you notice you''re the only one reaching out and it''s been that way for months. It''s okay to just quietly drift — you don''t always need a big confrontation.', 'visible', 4),
+  ('00000000-0000-0000-0008-000000000003', '00000000-0000-0000-0007-000000000003', '00000000-0000-0000-0000-000000000001',
+   'Reselling phone accessories on WhatsApp status worked well for me starting out — low overhead, quick turnaround, and you can scale slowly.', 'visible', 9),
+  ('00000000-0000-0000-0008-000000000004', '00000000-0000-0000-0007-000000000005', '00000000-0000-0000-0000-000000000001',
+   'Pomodoro sessions with a friend on a video call, even silently studying together, kept me way more consistent than studying alone.', 'visible', 6),
+  ('00000000-0000-0000-0008-000000000005', '00000000-0000-0000-0007-000000000007', '00000000-0000-0000-0000-000000000001',
+   'Tough group stage but I think we make it out — the squad depth this cycle is the best it''s been in years.', 'visible', 3),
+  ('00000000-0000-0000-0008-000000000006', '00000000-0000-0000-0007-000000000008', '00000000-0000-0000-0000-000000000001',
+   'Writing down 3 things I''m grateful for before bed sounds cliché but it genuinely shifted my mood over a few weeks.', 'visible', 10)
+ON CONFLICT (id) DO NOTHING;
+
+UPDATE forum_questions SET best_answer_id = '00000000-0000-0000-0008-000000000003' WHERE id = '00000000-0000-0000-0007-000000000003';
+UPDATE forum_questions SET best_answer_id = '00000000-0000-0000-0008-000000000006' WHERE id = '00000000-0000-0000-0007-000000000008';
+
+-- ============================================================
 -- Done.  Seed complete.
 -- ============================================================
