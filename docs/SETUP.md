@@ -137,11 +137,11 @@ The Capacitor app ships with `@capacitor-community/admob` (`apps/android/src/lib
 1. Create an app in [AdMob](https://admob.google.com) and note the **App ID** (`ca-app-pub-...~...`).
 2. Create Banner, Interstitial, and Rewarded ad units and note their **Ad unit IDs**.
 3. Set them via `/admin/config` (or directly in `x_manifest`): `ad_admob_app_id`, `ad_admob_banner_unit_id`, `ad_admob_interstitial_unit_id`, `ad_admob_rewarded_unit_id`, and flip `ad_admob_test_mode` to `false`. These are read at runtime from `GET /api/manifest` — no rebuild needed.
-4. Add the AdMob **App ID** to `apps/android/android/app/src/main/AndroidManifest.xml` inside `<application>`:
+4. Replace the sample AdMob **App ID** in `apps/android/android/app/src/main/AndroidManifest.xml` (inside `<application>`) with your real one:
    ```xml
    <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="ca-app-pub-xxxxxxxxxxxxxxxx~yyyyyyyyyy"/>
    ```
-   (this one step is native-side and can't be driven from `x_manifest` — the Play Store requires it embedded in the manifest before the ad SDK will initialize with a real App ID).
+   The manifest ships with Google's official sample App ID (`ca-app-pub-3940256099942544~3347511713`) so the Mobile Ads SDK has something valid to initialize against out of the box — the SDK throws and crashes the app on startup if this meta-data is missing entirely, even in test mode. This one step is native-side and can't be driven from `x_manifest` — the Play Store requires the real App ID embedded in the manifest before the ad SDK will initialize with real ads.
 
 ### Google Play Billing (Capacitor Android)
 
