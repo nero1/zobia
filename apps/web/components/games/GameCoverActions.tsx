@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth/hooks";
 import { buildGameReferralUrl } from "@zobia/shared/utils";
+import { authFetch } from "@/lib/api/authFetch";
 
 export default function GameCoverActions({ slug, name }: { slug: string; name: string }) {
   const { user, isLoading } = useAuth();
@@ -28,7 +29,7 @@ export default function GameCoverActions({ slug, name }: { slug: string; name: s
 
   useEffect(() => {
     if (!user) return;
-    fetch("/api/referrals", { credentials: "include" })
+    authFetch("/api/referrals")
       .then((r) => r.json())
       .then((b) => setRefCode(b?.data?.referralCode ?? null))
       .catch(() => {});
@@ -36,7 +37,7 @@ export default function GameCoverActions({ slug, name }: { slug: string; name: s
 
   useEffect(() => {
     if (!user) return;
-    fetch(`/api/games/${slug}/my-rating`, { credentials: "include" })
+    authFetch(`/api/games/${slug}/my-rating`)
       .then((r) => r.json())
       .then((b) => {
         setMyRating(b?.data?.yourRating ?? null);
@@ -49,9 +50,8 @@ export default function GameCoverActions({ slug, name }: { slug: string; name: s
     setMyRating(stars);
     setRatingSaved(true);
     try {
-      await fetch(`/api/games/${slug}/rate`, {
+      await authFetch(`/api/games/${slug}/rate`, {
         method: "POST",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rating: stars }),
       });

@@ -51,6 +51,7 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
       profile_hidden_sections?: string[];
       disable_friend_requests?: boolean;
       sitemap_opt_out?: boolean;
+      show_online_status?: boolean;
     };
 
     // Fetch current user plan + prestige
@@ -62,11 +63,12 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
     const user = userRows[0];
     if (!user) throw forbidden('User not found');
 
-    const [lockAllowed, hideAllowed, noFrAllowed, hideableSectionsRaw] = await Promise.all([
+    const [lockAllowed, hideAllowed, noFrAllowed, hideableSectionsRaw, onlineStatusAllowed] = await Promise.all([
       getAllowedPlans('privacy_can_lock_profile', ['pro', 'max', 'prestige_1']),
       getAllowedPlans('privacy_can_hide_sections', ['plus', 'pro', 'max', 'prestige_1']),
       getAllowedPlans('privacy_can_disable_friend_requests', ['plus', 'pro', 'max', 'prestige_1']),
       getAllowedPlans('privacy_hideable_sections', VALID_SECTIONS),
+      getAllowedPlans('privacy_can_show_online_status', ['pro', 'max', 'prestige_1']),
     ]);
 
     const updates: Record<string, SqlParam> = {};
@@ -99,6 +101,13 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
       updates.sitemap_opt_out = Boolean(body.sitemap_opt_out);
     }
 
+    if (body.show_online_status !== undefined) {
+      if (!userEligible(user.plan, user.prestige_count, onlineStatusAllowed)) {
+        throw forbidden('Your plan does not allow showing your online status');
+      }
+      updates.show_online_status = Boolean(body.show_online_status);
+    }
+
     if (Object.keys(updates).length === 0) {
       throw badRequest('No valid fields to update');
     }
@@ -127,24 +136,27 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
       profile_hidden_sections: string[];
       disable_friend_requests: boolean;
       sitemap_opt_out: boolean;
+      show_online_status: boolean;
     }>(
       `SELECT COALESCE(plan, 'free') AS plan,
               COALESCE(prestige_count, 0) AS prestige_count,
               COALESCE(profile_private, false) AS profile_private,
               COALESCE(profile_hidden_sections, '[]'::jsonb) AS profile_hidden_sections,
               COALESCE(disable_friend_requests, false) AS disable_friend_requests,
-              COALESCE(sitemap_opt_out, false) AS sitemap_opt_out
+              COALESCE(sitemap_opt_out, false) AS sitemap_opt_out,
+              COALESCE(show_online_status, false) AS show_online_status
        FROM users WHERE id = $1 LIMIT 1`,
       [userId]
     );
     const user = rows[0];
     if (!user) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-    const [lockAllowed, hideAllowed, noFrAllowed, hideableSections] = await Promise.all([
+    const [lockAllowed, hideAllowed, noFrAllowed, hideableSections, onlineStatusAllowed] = await Promise.all([
       getAllowedPlans('privacy_can_lock_profile', ['pro', 'max', 'prestige_1']),
       getAllowedPlans('privacy_can_hide_sections', ['plus', 'pro', 'max', 'prestige_1']),
       getAllowedPlans('privacy_can_disable_friend_requests', ['plus', 'pro', 'max', 'prestige_1']),
       getAllowedPlans('privacy_hideable_sections', VALID_SECTIONS),
+      getAllowedPlans('privacy_can_show_online_status', ['pro', 'max', 'prestige_1']),
     ]);
 
     return NextResponse.json({
@@ -155,11 +167,13 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
           : [],
         disable_friend_requests: user.disable_friend_requests,
         sitemap_opt_out: user.sitemap_opt_out,
+        show_online_status: user.show_online_status,
       },
       capabilities: {
         canLockProfile: userEligible(user.plan, user.prestige_count, lockAllowed),
         canHideSections: userEligible(user.plan, user.prestige_count, hideAllowed),
         canDisableFriendRequests: userEligible(user.plan, user.prestige_count, noFrAllowed),
+        canShowOnlineStatus: userEligible(user.plan, user.prestige_count, onlineStatusAllowed),
         hideableSections,
       },
     });

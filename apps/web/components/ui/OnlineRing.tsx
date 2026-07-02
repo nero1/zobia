@@ -23,6 +23,13 @@ interface OnlineRingProps {
   userId: string;
   size?: "sm" | "md" | "lg";
   children: React.ReactNode;
+  /**
+   * Pre-known presence status. When provided, skips the GET /api/presence/[userId]
+   * fetch entirely — use this whenever the caller already has presence data from
+   * a list endpoint (e.g. GET /api/friends/online), to avoid firing one Redis-backed
+   * request per rendered avatar.
+   */
+  knownStatus?: PresenceStatus;
 }
 
 // ---------------------------------------------------------------------------
@@ -68,10 +75,11 @@ const DOT_ANIMATION: Record<PresenceStatus, string> = {
  * OnlineRing — wraps children (avatar) with a presence indicator ring.
  * Online status pings steadily; recently active pulses softly; offline is static.
  */
-export function OnlineRing({ userId, size = "md", children }: OnlineRingProps) {
-  const [status, setStatus] = useState<PresenceStatus>("offline");
+export function OnlineRing({ userId, size = "md", children, knownStatus }: OnlineRingProps) {
+  const [status, setStatus] = useState<PresenceStatus>(knownStatus ?? "offline");
 
   useEffect(() => {
+    if (knownStatus) { setStatus(knownStatus); return; }
     if (!userId || userId === "undefined") return;
     let cancelled = false;
     fetch(`/api/presence/${userId}`, { credentials: "include" })
@@ -82,7 +90,7 @@ export function OnlineRing({ userId, size = "md", children }: OnlineRingProps) {
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [userId]);
+  }, [userId, knownStatus]);
 
   return (
     <div className="relative inline-flex shrink-0">

@@ -219,7 +219,7 @@ export const POST = withAuth(
       }
 
       // Trigger daily quest progress for the contributor (fire-and-forget)
-      void triggerActivityQuestProgress(userId, "guild_quest_contribution", db);
+      void triggerActivityQuestProgress(userId, "guild_quest", db);
 
       // When the guild quest completes, notify every member of their coin share
       if (isCompleted && quest.reward_coins > 0) {

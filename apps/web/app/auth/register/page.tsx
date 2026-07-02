@@ -8,6 +8,7 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import Script from "next/script";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { useScrollToError } from "@/lib/hooks/useScrollToError";
 
 interface TelegramUser {
   id: number;
@@ -48,6 +49,7 @@ function RegisterContent() {
   const [isLoading, setIsLoading] = useState<"google" | "telegram" | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
   const [captchaManifest, setCaptchaManifest] = useState<CaptchaManifest | null>(null);
+  const errorBannerRef = useScrollToError<HTMLDivElement>(authError ?? error);
 
   const botUsername = process.env["NEXT_PUBLIC_TELEGRAM_BOT_USERNAME"] ?? "";
   const telegramContainerRef = useRef<HTMLDivElement>(null);
@@ -174,21 +176,23 @@ function RegisterContent() {
           </p>
         </div>
 
-        {authError && (
-          <div className="mb-6 rounded-lg border border-danger-200 bg-danger-50 px-4 py-3 text-center text-sm text-danger-700 dark:border-danger-800 dark:bg-danger-950 dark:text-danger-300">
-            {authError}
-          </div>
-        )}
+        <div ref={errorBannerRef}>
+          {authError && (
+            <div role="alert" className="mb-6 rounded-lg border border-danger-200 bg-danger-50 px-4 py-3 text-center text-sm text-danger-700 dark:border-danger-800 dark:bg-danger-950 dark:text-danger-300">
+              {authError}
+            </div>
+          )}
 
-        {error && (
-          <div className="mb-6 rounded-lg border border-danger-200 bg-danger-50 px-4 py-3 text-center text-sm text-danger-700 dark:border-danger-800 dark:bg-danger-950 dark:text-danger-300">
-            {error === "oauth_failed" && t("auth.error.oauthFailed")}
-            {error === "account_suspended" && t("auth.error.accountSuspended")}
-            {error === "session_expired" && t("auth.error.sessionExpired")}
-            {!["oauth_failed", "account_suspended", "session_expired"].includes(error) &&
-              t("auth.error.unexpected")}
-          </div>
-        )}
+          {error && (
+            <div role="alert" className="mb-6 rounded-lg border border-danger-200 bg-danger-50 px-4 py-3 text-center text-sm text-danger-700 dark:border-danger-800 dark:bg-danger-950 dark:text-danger-300">
+              {error === "oauth_failed" && t("auth.error.oauthFailed")}
+              {error === "account_suspended" && t("auth.error.accountSuspended")}
+              {error === "session_expired" && t("auth.error.sessionExpired")}
+              {!["oauth_failed", "account_suspended", "session_expired"].includes(error) &&
+                t("auth.error.unexpected")}
+            </div>
+          )}
+        </div>
 
         <div className="rounded-2xl border border-neutral-200 bg-white px-8 py-10 shadow-elevated dark:border-neutral-800 dark:bg-neutral-900">
           <div className="space-y-4">

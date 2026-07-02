@@ -16,12 +16,12 @@
 import { randomBytes } from "crypto";
 import type { DatabaseAdapter } from "@/lib/db/interface";
 import type { Plan } from "@zobia/types";
-import { ACTION_TRACKS } from "@/lib/xp/engine";
 import { creditCoins } from "@/lib/economy/coins";
 import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 import { publishRealtimeEvent } from "@/lib/realtime";
 import { logger } from "@/lib/logger";
 import { redis } from "@/lib/redis";
+import { db as globalDb } from "@/lib/db";
 
 // Maps a ProgressionTrack name to the corresponding users table column
 const TRACK_COLUMN: Record<string, string> = {
@@ -65,6 +65,8 @@ interface QuestTemplate {
   category: string;
   icon: string | null;
   plan_required: Plan | null;
+  /** Parallel progression track this quest's XP reward feeds (PRD §7), e.g. 'social', 'explorer'. */
+  track: string;
 }
 
 export interface QuestDeckItem extends QuestTemplate {
@@ -149,7 +151,7 @@ export async function generateDailyDeck(
       // unpredictable.
       const { rows: allTemplates } = await db.query<QuestTemplate>(
         `SELECT id, title, description, action_type, target_count,
-                xp_reward, coin_reward, category, icon, plan_required
+                xp_reward, coin_reward, category, icon, plan_required, track
          FROM quest_templates
          WHERE is_active = TRUE
            AND (valid_date IS NULL OR valid_date = $1)
@@ -202,7 +204,7 @@ export async function generateDailyDeck(
   }>(
     `SELECT
        qt.id, qt.title, qt.description, qt.action_type, qt.target_count,
-       qt.xp_reward, qt.coin_reward, qt.category, qt.icon, qt.plan_required,
+       qt.xp_reward, qt.coin_reward, qt.category, qt.icon, qt.plan_required, qt.track,
        COALESCE(uqp.progress_count, 0) AS progress_count,
        COALESCE(uqp.completed, FALSE) AS completed,
        uqp.completed_at
@@ -229,6 +231,7 @@ export async function generateDailyDeck(
     category: row.category,
     icon: row.icon,
     plan_required: row.plan_required,
+    track: row.track,
     progress_count: row.progress_count,
     completed: row.completed,
     completed_at: row.completed_at ?? null,
@@ -278,11 +281,13 @@ export async function updateQuestProgress(
   // if the transaction rolls back, there is no XP to award and no DLQ entry
   // should be written.
   let pendingXP: { amount: number; track: import("@/lib/xp/safeAwardXP").XPTrack; ref: string } | null = null;
+  // PRD §7 (Elder System): Elder earns 10% of a Mentee's quest XP as a Mentorship Bonus.
+  let pendingElderBonus: { elderId: string; amount: number; ref: string; menteeId: string } | null = null;
 
   const result = await db.transaction(async (client) => {
     const questResult = await client.query<QuestTemplate>(
       `SELECT id, target_count, xp_reward, coin_reward, action_type,
-              category, icon, plan_required
+              category, icon, plan_required, track
        FROM quest_templates
        WHERE id = $1 AND is_active = TRUE
          AND (valid_date IS NULL OR valid_date = $2)
@@ -348,12 +353,16 @@ export async function updateQuestProgress(
       xpAwarded = quest.xp_reward;
       coinsAwarded = quest.coin_reward;
 
-      const parallelTrack =
-        ACTION_TRACKS[quest.action_type as keyof typeof ACTION_TRACKS] ?? null;
-      if (parallelTrack === null && !(quest.action_type in ACTION_TRACKS)) {
-        logger.warn({ questId, actionType: quest.action_type }, "[questEngine] unknown action_type — no track mapping found, awarding main XP");
+      // Quest XP is routed by quest_templates.track (e.g. 'social', 'explorer',
+      // 'generosity') — NOT by ACTION_TRACKS, which is keyed by XPAction values
+      // from lib/xp/engine.ts and uses a different naming namespace than
+      // quest_templates.action_type (e.g. 'send_text_message' vs 'messages').
+      // Looking action_type up in ACTION_TRACKS never matched, so every quest
+      // completion silently fell back to the main track regardless of category.
+      const xpTrack = (TRACK_COLUMN[quest.track] ? quest.track : "main") as import("@/lib/xp/safeAwardXP").XPTrack;
+      if (!TRACK_COLUMN[quest.track]) {
+        logger.warn({ questId, track: quest.track }, "[questEngine] unknown quest track — awarding main XP");
       }
-      const xpTrack = (parallelTrack as import("@/lib/xp/safeAwardXP").XPTrack) ?? "main";
       const questCompletionRef = `quest:${questId}:${userId}:${today}`;
 
       // Defer XP award to post-commit; record intent here
@@ -364,6 +373,23 @@ export async function updateQuestProgress(
       // questId would collide across every user completing the same quest template.
       if (coinsAwarded > 0) {
         await creditCoins(userId, coinsAwarded, "quest_reward", questCompletionRef, "Daily quest reward", {}, client);
+      }
+
+      // PRD §7: Elder mentorship bonus — 10% of quest XP to the user's active Elder mentor.
+      const elderResult = await client.query<{ elder_id: string }>(
+        `SELECT elder_id FROM elder_mentorships
+         WHERE mentee_id = $1 AND COALESCE(status, 'active') = 'active'
+         LIMIT 1`,
+        [userId]
+      );
+      const elderBonus = Math.floor(xpAwarded * 0.1);
+      if (elderResult.rows[0] && elderBonus > 0) {
+        pendingElderBonus = {
+          elderId: elderResult.rows[0].elder_id,
+          amount: elderBonus,
+          ref: `mentorship_bonus:${questCompletionRef}`,
+          menteeId: userId,
+        };
       }
     }
 
@@ -383,6 +409,24 @@ export async function updateQuestProgress(
   const capturedXP = pendingXP as { amount: number; track: import("@/lib/xp/safeAwardXP").XPTrack; ref: string } | null;
   if (capturedXP) {
     await safeAwardXP(userId, capturedXP.amount, capturedXP.track, "quest_complete", capturedXP.ref);
+  }
+
+  const capturedElderBonus = pendingElderBonus as { elderId: string; amount: number; ref: string; menteeId: string } | null;
+  if (capturedElderBonus) {
+    await safeAwardXP(capturedElderBonus.elderId, capturedElderBonus.amount, "main", "mentorship_bonus", capturedElderBonus.ref);
+    try {
+      const { insertNotification } = await import("@/lib/notifications/insert");
+      await insertNotification(
+        globalDb,
+        capturedElderBonus.elderId,
+        "mentorship_bonus",
+        "Mentorship bonus earned!",
+        `Your mentee earned ${capturedElderBonus.amount} XP for you by completing a quest.`,
+        { menteeId: capturedElderBonus.menteeId, bonusXP: capturedElderBonus.amount }
+      );
+    } catch (err) {
+      logger.error({ err, elderId: capturedElderBonus.elderId }, "[questEngine] Failed to notify elder of mentorship bonus (non-fatal)");
+    }
   }
 
   return result;
@@ -478,13 +522,17 @@ export async function checkDeckCompletion(
  * `reward_earned` events.  Errors are swallowed — call fire-and-forget.
  *
  * @param userId     - UUID of the user performing the action
- * @param actionType - quest_templates.action_type to match (e.g. 'join_new_room')
+ * @param actionType - quest_templates.action_type to match (e.g. 'room_join')
  * @param dbAdapter  - Active database adapter
+ * @param increment  - How much to increment matching quests by (default 1).
+ *                     Used by meta-quests like 'xp_meta' where the increment
+ *                     equals the XP amount earned rather than a flat unit.
  */
 export async function triggerActivityQuestProgress(
   userId: string,
   actionType: string,
-  dbAdapter: DatabaseAdapter
+  dbAdapter: DatabaseAdapter,
+  increment: number = 1
 ): Promise<void> {
   const today = new Date().toISOString().slice(0, 10);
   try {
@@ -507,7 +555,7 @@ export async function triggerActivityQuestProgress(
 
     for (const quest of matchingQuests) {
       try {
-        const result = await updateQuestProgress(userId, quest.id, 1, dbAdapter);
+        const result = await updateQuestProgress(userId, quest.id, increment, dbAdapter);
         if (result.newly_completed) {
           anyNewlyCompleted = true;
           publishRealtimeEvent(`user:${userId}`, "reward_earned", {

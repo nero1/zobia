@@ -14,6 +14,7 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { ActivityBanner } from "@/components/ui/ActivityBanner";
 import { OnlineRing } from "@/components/ui/OnlineRing";
+import { ErrorAlert } from "@/components/ui/ErrorAlert";
 import { CreatorSpotlight } from "@/components/discovery/CreatorSpotlight";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
@@ -73,6 +74,7 @@ interface Friend {
   userId: string;
   username: string;
   avatarEmoji: string;
+  isOnline?: boolean;
 }
 
 interface LeaderboardPosition {
@@ -304,7 +306,7 @@ function FriendsRow({ friends }: FriendsRowProps) {
         <div className="flex flex-wrap gap-4">
           {friends.map((f) => (
             <Link key={f.userId} href={`/profile/${f.userId}`} className="flex flex-col items-center gap-1 hover:opacity-80">
-              <OnlineRing userId={f.userId} size="md">
+              <OnlineRing userId={f.userId} size="md" knownStatus={f.isOnline ? "online" : "recently_active"}>
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100 text-xl dark:bg-neutral-800">
                   {f.avatarEmoji}
                 </div>
@@ -493,6 +495,102 @@ function MemberQuestBanner({ quest, onDismiss }: { quest: MemberQuestState; onDi
 }
 
 // ---------------------------------------------------------------------------
+// Plan Expiry Banner — warns when a paid (or business) plan is about to lapse.
+// Dismissible with an × while >7 days remain; once ≤7 days remain the × is
+// removed and the banner becomes persistent until the user resubscribes.
+// Dismissal is persisted to localStorage, keyed by the specific expiry
+// timestamp so a renewal (which changes plan_ends_at) resets the dismissal.
+// ---------------------------------------------------------------------------
+
+interface PlanExpiryInfo {
+  /** "personal" (Plus/Pro/Max) or "business" plan */
+  kind: "personal" | "business";
+  endsAt: string;
+  daysRemaining: number;
+}
+
+const PLAN_EXPIRY_WARNING_DAYS = 14;
+const PLAN_EXPIRY_URGENT_DAYS = 7;
+const PLAN_EXPIRY_DISMISS_KEY = "zobia_plan_expiry_dismissed";
+
+function daysUntil(iso: string): number {
+  const ms = new Date(iso).getTime() - Date.now();
+  return Math.ceil(ms / (24 * 60 * 60 * 1000));
+}
+
+/** Picks whichever of the user's personal/business plans expires soonest, if within the warning window. */
+function resolvePlanExpiry(planEndsAt: string | null, businessPlanEndsAt: string | null): PlanExpiryInfo | null {
+  const candidates: PlanExpiryInfo[] = [];
+  if (planEndsAt) candidates.push({ kind: "personal", endsAt: planEndsAt, daysRemaining: daysUntil(planEndsAt) });
+  if (businessPlanEndsAt) candidates.push({ kind: "business", endsAt: businessPlanEndsAt, daysRemaining: daysUntil(businessPlanEndsAt) });
+  const withinWindow = candidates.filter((c) => c.daysRemaining <= PLAN_EXPIRY_WARNING_DAYS);
+  if (withinWindow.length === 0) return null;
+  return withinWindow.sort((a, b) => a.daysRemaining - b.daysRemaining)[0];
+}
+
+function PlanExpiryBanner({ info }: { info: PlanExpiryInfo }) {
+  const { t } = useTranslation();
+  const [dismissed, setDismissed] = useState(false);
+  const urgent = info.daysRemaining <= PLAN_EXPIRY_URGENT_DAYS;
+
+  useEffect(() => {
+    if (urgent) return; // urgent state is never dismissible
+    try {
+      const stored = JSON.parse(localStorage.getItem(PLAN_EXPIRY_DISMISS_KEY) ?? "{}") as { endsAt?: string; kind?: string };
+      setDismissed(stored.endsAt === info.endsAt && stored.kind === info.kind);
+    } catch {
+      setDismissed(false);
+    }
+  }, [info.endsAt, info.kind, urgent]);
+
+  function dismiss() {
+    try {
+      localStorage.setItem(PLAN_EXPIRY_DISMISS_KEY, JSON.stringify({ endsAt: info.endsAt, kind: info.kind }));
+    } catch { /* ignore */ }
+    setDismissed(true);
+  }
+
+  if (dismissed) return null;
+
+  const message =
+    info.daysRemaining <= 0
+      ? t(info.kind === "business" ? "home.planExpiry.businessExpired" : "home.planExpiry.personalExpired")
+      : t(info.kind === "business" ? "home.planExpiry.businessEndsIn" : "home.planExpiry.personalEndsIn", { count: info.daysRemaining });
+
+  return (
+    <div
+      role="alert"
+      className={`flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm font-medium ${
+        urgent
+          ? "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200"
+          : "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+      }`}
+    >
+      <span>
+        {message}{" "}
+        <Link
+          href={info.kind === "business" ? "/settings/business" : "/settings/subscription"}
+          className="font-semibold underline underline-offset-2"
+        >
+          {t("home.planExpiry.resubscribe")}
+        </Link>
+      </span>
+      {!urgent && (
+        <button
+          onClick={dismiss}
+          aria-label={t("home.planExpiry.dismiss")}
+          className="shrink-0 opacity-70 hover:opacity-100"
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Guild Discovery Panel (PRD §4 — shows 24h after signup, user has no guild)
 // ---------------------------------------------------------------------------
 
@@ -610,6 +708,9 @@ export default function HomePage() {
   const [memberQuest, setMemberQuest] = useState<MemberQuestState | null>(null);
   const [questBannerDismissed, setQuestBannerDismissed] = useState(false);
 
+  // Plan/business plan expiry alert
+  const [planExpiry, setPlanExpiry] = useState<PlanExpiryInfo | null>(null);
+
   const fetchQuests = useCallback(() => {
     fetch("/api/quests/daily", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
@@ -667,8 +768,11 @@ export default function HomePage() {
     // Daily quests
     fetchQuests();
 
-    // Online friends
-    fetch("/api/friends", { credentials: "include" })
+    // Online friends — GET /api/friends/online filters to friends who opted
+    // in to show_online_status AND are online/recently active (unlike plain
+    // GET /api/friends, which returns every accepted friend regardless of
+    // presence).
+    fetch("/api/friends/online", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { data?: Friend[]; friends?: Friend[] } | null) => setFriends(d?.data ?? d?.friends ?? []))
       .catch(() => setFriends([]));
@@ -685,12 +789,14 @@ export default function HomePage() {
       const ranks: Array<{ track: string; globalRank: number | null }> =
         lbData?.data?.ranks ?? [];
       const mainRank = ranks.find((r) => r.track === "main");
-      const xp = (meData?.user ?? meData)?.xp_total ?? 0;
+      const me = meData?.user ?? meData;
+      const xp = me?.xp_total ?? 0;
       if (mainRank?.globalRank != null) {
         setLeaderboard({ rank: mainRank.globalRank, rankDelta: 0, xp });
       } else {
         setLeaderboard(null);
       }
+      setPlanExpiry(resolvePlanExpiry(me?.plan_ends_at ?? null, me?.business_plan_ends_at ?? null));
     }).catch(() => setLeaderboard(null));
 
     // PRD §4: Guild Discovery — fetch 3 nearby guilds
@@ -766,11 +872,10 @@ export default function HomePage() {
         <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">Home</h1>
 
         {/* Error */}
-        {error && (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
-            {error}
-          </div>
-        )}
+        <ErrorAlert error={error} />
+
+        {/* Plan / business plan expiry alert */}
+        {planExpiry && <PlanExpiryBanner info={planExpiry} />}
 
         {/* Activity count banner */}
         <ActivityCountBanner count={activeCount} />

@@ -234,6 +234,8 @@ export const users = pgTable("users", {
   disableFriendRequests: boolean("disable_friend_requests")
     .notNull()
     .default(false),
+  // Migration 038 (db): opt-in "show my online status" toggle, Pro/Max-gated.
+  showOnlineStatus: boolean("show_online_status").notNull().default(false),
 
   // Moderation / plan / 2FA-setup state (admin + moderation tools)
   warningCount: integer("warning_count").notNull().default(0),

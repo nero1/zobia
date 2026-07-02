@@ -36,6 +36,7 @@ import type { Plan } from "@zobia/types";
 import { publishRealtimeEvent } from "@/lib/realtime";
 import { notifyRoomMentions, parseMentions } from "@/lib/notifications/chatPush";
 import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
+import { advanceNewMemberQuestStep } from "@/lib/quests/newMemberQuestEngine";
 import { logger } from "@/lib/logger";
 import { createMoment } from "@/lib/moments/service";
 
@@ -717,7 +718,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           }
         })
         .catch(() => {});
-      void triggerActivityQuestProgress(userId, "send_room_message", db);
+      void triggerActivityQuestProgress(userId, "messages", db);
+      void advanceNewMemberQuestStep(db, userId, "send_message");
     }
 
     // Publish to realtime provider (non-blocking — never delays the HTTP response)

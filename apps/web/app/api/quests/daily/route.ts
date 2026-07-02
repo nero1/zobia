@@ -20,110 +20,8 @@ import { db } from "@/lib/db";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface QuestTemplate {
-  id: string;
-  title: string;
-  description: string;
-  action_type: string;
-  target_count: number;
-  xp_reward: number;
-  coin_reward: number;
-  category: string;
-  icon: string | null;
-}
-
-interface QuestProgress {
-  quest_id: string;
-  progress_count: number;
-  completed: boolean;
-  completed_at: string | null;
-}
-
-interface QuestDeckItem extends QuestTemplate {
-  progress_count: number;
-  completed: boolean;
-  completed_at: string | null;
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Returns the quest deck size for a given user plan per PRD §7.
- * Free=3, Plus=4, Pro=5, Max=6
- */
-function questDeckSizeForPlan(plan: string | null | undefined): number {
-  switch (plan) {
-    case "max":  return 6;
-    case "pro":  return 5;
-    case "plus": return 4;
-    default:     return 3; // free tier
-  }
-}
-
-/**
- * Get or create today's quest deck assignment for the user.
- * Deck size is gated by subscription plan per PRD §3/§7.
- *
- * @param userId - Authenticated user's UUID
- * @returns Array of quests with progress
- */
-async function getDailyQuestDeck(userId: string): Promise<QuestDeckItem[]> {
-  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-
-  // Resolve user's current subscription plan for deck-size gating
-  const { rows: planRows } = await db.query<{ plan: string | null }>(
-    `SELECT plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [userId]
-  );
-  const deckLimit = questDeckSizeForPlan(planRows[0]?.plan);
-
-  // Fetch today's active quest templates, limited by plan tier
-  const { rows: templates } = await db.query<QuestTemplate>(
-    `SELECT id, title, description, action_type, target_count,
-            xp_reward, coin_reward, category, icon
-     FROM quest_templates
-     WHERE is_active = true
-       AND (valid_date IS NULL OR valid_date = $1)
-     ORDER BY category, id
-     LIMIT $2`,
-    [today, deckLimit]
-  );
-
-  if (templates.length === 0) return [];
-
-  const questIds = templates.map((t) => t.id);
-
-  // Fetch this user's progress for today's quests
-  const { rows: progresses } = await db.query<QuestProgress>(
-    `SELECT quest_id, progress_count, completed, completed_at
-     FROM user_quest_progress
-     WHERE user_id = $1
-       AND quest_date = $2
-       AND quest_id = ANY($3::uuid[])`,
-    [userId, today, questIds]
-  );
-
-  const progressMap = new Map<string, QuestProgress>(
-    progresses.map((p) => [p.quest_id, p])
-  );
-
-  return templates.map((template) => {
-    const progress = progressMap.get(template.id);
-    return {
-      ...template,
-      progress_count: progress?.progress_count ?? 0,
-      completed: progress?.completed ?? false,
-      completed_at: progress?.completed_at ?? null,
-    };
-  });
-}
+import { generateDailyDeck } from "@/lib/quests/questEngine";
+import type { Plan } from "@zobia/types";
 
 // ---------------------------------------------------------------------------
 // GET /api/quests/daily
@@ -132,13 +30,27 @@ async function getDailyQuestDeck(userId: string): Promise<QuestDeckItem[]> {
 /**
  * Return today's quest deck for the authenticated user.
  *
+ * Delegates to lib/quests/questEngine.generateDailyDeck so the deck is
+ * actually persisted to `user_quest_decks`. Without this, action routes that
+ * call triggerActivityQuestProgress() would never find the quest in the
+ * user's deck and progress would silently never advance (BUG: quests always
+ * showed 0/x because the deck the client saw here and the deck membership
+ * check in updateQuestProgress() referenced two different, disconnected
+ * quest lists).
+ *
  * @returns JSON { date: string, quests: QuestDeckItem[] }
  */
 export const GET = withAuth(async (req, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 
-    const quests = await getDailyQuestDeck(auth.user.sub);
+    const { rows: planRows } = await db.query<{ plan: Plan | null }>(
+      `SELECT plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+      [auth.user.sub]
+    );
+    const plan: Plan = planRows[0]?.plan ?? "free";
+
+    const quests = await generateDailyDeck(auth.user.sub, plan, db);
     const today = new Date().toISOString().slice(0, 10);
 
     const completedCount = quests.filter((q) => q.completed).length;

@@ -167,6 +167,10 @@ Each user is algorithmically assigned a Nemesis — another user within 10% of t
 - Admin can toggle plan availability on or off per region.
 - Admin can configure coin-based booster packs, XP boosters, and one-time packs independently of subscription plans.
 
+### Plan Expiry Reminders
+
+When a user has an active Plus/Pro/Max subscription or a Business plan that is due to expire within 14 days, the Home page shows a dismissible alert immediately on login: *"Your plan ends in N days time. [Resubscribe]"*, linking to Settings → Subscription (or Settings → Business for a business plan). The alert can be dismissed with an × while more than 7 days remain; dismissal is remembered per expiry date (a renewal resets it). Once 7 days or fewer remain, the alert reappears **without** the × and cannot be dismissed until the user resubscribes or the plan lapses. If both a personal and a business plan are expiring, whichever is soonest is shown.
+
 ### Pay-As-You-Go Booster Packs
 
 Available to all tiers regardless of subscription status:
@@ -857,6 +861,18 @@ A Zobia profile is a living record of everything the user has done, earned, and 
 
 **Followers** — one-directional. Users can follow any public creator or public profile. Followers receive Broadcast Messages from followed creators. Following does not grant DM access.
 
+### Privacy Controls (Settings → Privacy)
+
+Every user can manage the following from Settings, identically on web, PWA and the Android (Capacitor) app:
+
+- **Private profile** (Pro/Max, or Prestige 1+) — only friends can view profile details.
+- **Hidden profile sections** (Plus/Pro/Max, or Prestige 1+) — choose which profile sections (avatar, bio, rank, XP, guild, seasons, badges) are hidden from other users.
+- **Disable friend requests** (Plus/Pro/Max, or Prestige 1+) — stop receiving new friend requests.
+- **Show online status** (Pro/Max, or Prestige 1+) — opt-in toggle controlling whether the user's presence (online / recently active) is surfaced to friends in the "Online Friends" row on the Home page. **Off by default.** Friends who have not opted in never appear in another user's Online Friends row, regardless of their actual presence — this prevents the "friends always show even when offline" experience users previously had when the row simply listed every accepted friendship with no presence filter.
+- **Sitemap opt-out** (all plans) — exclude the public profile from the sitemap.
+
+All plan/prestige eligibility thresholds are admin-configurable in `x_manifest` (`privacy_can_lock_profile`, `privacy_can_hide_sections`, `privacy_can_disable_friend_requests`, `privacy_can_show_online_status`, `privacy_hideable_sections`) so they can be adjusted without a deployment.
+
 ### The Nemesis System
 
 Platform-assigned rival updated weekly. Algorithm: within 10% of user's XP on their highest active track, same city preferred, same Guild tier preferred, never a mutual friend.
@@ -1445,6 +1461,7 @@ The Vercel Hobby Plan allows a maximum of one CRON run per day. This once-daily 
 - JWT + Redis for sessions. JWTs are short-lived (configurable expiry). Refresh tokens are stored in Redis with a sliding window.
 - Session invalidation (logout, ban, suspicious activity) is propagated via Redis key deletion — no waiting for JWT expiry.
 - Admin sessions have a separate, shorter-lived JWT with stricter validation.
+- **Expired-session UX:** Every authenticated `fetch` on web/PWA goes through a shared wrapper (`lib/api/authFetch.ts` for native `fetch` calls, an axios interceptor for `apiClient` calls) that, on a 401, attempts one silent token refresh and retries once. If the retry also 401s, the session is broadcast as expired via a small pub/sub bus and a blocking "you've been signed out, please sign in again" modal is shown, mounted once in the root layout so it covers every route (including standalone surfaces like `/g/<slug>/play`) — not just the authenticated app shell. Any page or component that bypasses the shared wrapper (e.g. calling `fetch` directly with its own headers) does not get this behaviour, so new authenticated client-side calls must go through `authFetch`/`apiClient` rather than raw `fetch`.
 
 ### Connection Pooling
 

@@ -19,6 +19,7 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { getEngine } from "@/components/games/engineRegistry";
 import type { GameDifficulty } from "@/components/games/types";
+import { authFetch as sharedAuthFetch } from "@/lib/api/authFetch";
 
 type Phase = "pregame" | "starting" | "playing" | "submitting" | "result" | "error";
 
@@ -112,11 +113,13 @@ export default function GameRunner({
     [embed]
   );
 
+  // Delegates to the shared authFetch (lib/api/authFetch.ts) so a 401 here
+  // triggers the same silent-refresh-then-session-expired-modal flow used
+  // everywhere else in the app, instead of just surfacing a generic error.
   const authFetch = useCallback(
     (url: string, init?: RequestInit) =>
-      fetch(url, {
+      sharedAuthFetch(url, {
         ...init,
-        credentials: "include",
         headers: {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),

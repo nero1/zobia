@@ -26,6 +26,7 @@ import { recordWarContribution } from '@/lib/guilds/recordWarContribution';
 import { publishRealtimeEvent } from '@/lib/realtime';
 import { notifyGroupMessage } from '@/lib/notifications/chatPush';
 import { triggerActivityQuestProgress } from '@/lib/quests/questEngine';
+import { advanceNewMemberQuestStep } from '@/lib/quests/newMemberQuestEngine';
 import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
@@ -273,7 +274,8 @@ export const POST = withAuth(async (
       }
     })
     .catch(() => {});
-  void triggerActivityQuestProgress(userId, 'send_room_message', db);
+  void triggerActivityQuestProgress(userId, 'messages', db);
+  void advanceNewMemberQuestStep(db, userId, 'send_message');
 
   // Record guild war contribution (non-blocking)
   recordWarContribution(userId, 'send_message', db).catch((err) => {

@@ -223,6 +223,7 @@ export default function SettingsPage() {
     canLockProfile: boolean;
     canHideSections: boolean;
     canDisableFriendRequests: boolean;
+    canShowOnlineStatus: boolean;
     hideableSections: string[];
   }
   const [featureFlags, setFeatureFlags] = useState({ pinEnabled: true, twoFaEnabled: true });
@@ -230,12 +231,14 @@ export default function SettingsPage() {
     canLockProfile: false,
     canHideSections: false,
     canDisableFriendRequests: false,
+    canShowOnlineStatus: false,
     hideableSections: [],
   });
   const [privacySettings, setPrivacySettings] = useState({
     profile_private: false,
     profile_hidden_sections: [] as string[],
     disable_friend_requests: false,
+    show_online_status: false,
   });
   const [savingPrivacy, setSavingPrivacy] = useState(false);
 
@@ -786,6 +789,29 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between gap-3 opacity-60">
               <div>
                 <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Private profile</p>
+                <p className="text-xs text-neutral-500">Available on Pro plan and above</p>
+              </div>
+              <ToggleSwitch checked={false} onChange={() => {}} disabled />
+            </div>
+          )}
+
+          {/* Show online status */}
+          {privacyCaps.canShowOnlineStatus ? (
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Show online status</p>
+                <p className="text-xs text-neutral-500">Let friends see when you&apos;re online on the Home page</p>
+              </div>
+              <ToggleSwitch
+                checked={privacySettings.show_online_status}
+                onChange={(v) => void savePrivacy({ show_online_status: v })}
+                disabled={savingPrivacy}
+              />
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-3 opacity-60">
+              <div>
+                <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Show online status</p>
                 <p className="text-xs text-neutral-500">Available on Pro plan and above</p>
               </div>
               <ToggleSwitch checked={false} onChange={() => {}} disabled />

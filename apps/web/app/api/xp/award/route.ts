@@ -38,6 +38,7 @@ import {
   type TrackMilestone,
 } from "@/lib/xp/trackMilestones";
 import { awardMilestoneStickers } from "@/lib/stickers/milestoneStickers";
+import { advanceNewMemberQuestStep, type NewMemberQuestStepId } from "@/lib/quests/newMemberQuestEngine";
 import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
@@ -480,8 +481,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     // Check and mark New Member Quest step completions (best-effort, non-blocking).
-    // Maps XP action types to the corresponding quest step IDs.
-    const NEW_MEMBER_QUEST_STEP_MAP: Partial<Record<XPAction, string>> = {
+    // Maps XP action types to the corresponding quest step IDs. Delegates to the
+    // shared engine (lib/quests/newMemberQuestEngine.ts) used by every other
+    // action route so there is a single source of truth for this write.
+    const NEW_MEMBER_QUEST_STEP_MAP: Partial<Record<XPAction, NewMemberQuestStepId>> = {
       send_text_message:    "send_message",
       join_new_room:        "join_room",
       send_gift_message:    "gift_someone",
@@ -491,53 +494,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const questStep = NEW_MEMBER_QUEST_STEP_MAP[body.action];
     if (questStep) {
-      // Fire-and-forget — must never delay or break the XP award response
-      void (async () => {
-        try {
-          // Load current quest state
-          const { rows: questRows } = await db.query<{
-            id: string;
-            progress: string;
-            completed: boolean;
-          }>(
-            `SELECT id, progress, completed
-             FROM new_member_quests
-             WHERE user_id = $1 AND quest_type = 'new_member' AND completed = FALSE
-             LIMIT 1`,
-            [body.userId]
-          );
-
-          if (!questRows[0]) return; // quest not found or already complete
-
-          const quest = questRows[0];
-          let progress: { steps: Array<{ id: string; label: string; completed: boolean }> };
-          try {
-            progress =
-              typeof quest.progress === "string"
-                ? JSON.parse(quest.progress)
-                : quest.progress;
-          } catch {
-            return;
-          }
-
-          const step = progress.steps.find((s) => s.id === questStep);
-          if (!step || step.completed) return; // step already done
-
-          step.completed = true;
-
-          const allDone = progress.steps.every((s) => s.completed);
-
-          await db.query(
-            `UPDATE new_member_quests
-             SET progress = $1, updated_at = NOW()${allDone ? ", completed = TRUE, completed_at = NOW()" : ""}
-             WHERE id = $2`,
-            [JSON.stringify(progress), quest.id]
-          );
-        } catch (err) {
-          // Failure in quest progress tracking must never surface to the caller
-          logger.error({ err: err }, "[xp/award] New Member Quest step update failed (non-fatal):");
-        }
-      })();
+      void advanceNewMemberQuestStep(db, body.userId, questStep);
     }
 
     // Nemesis overtake check — fire notification if user just surpassed their nemesis (PRD §2.3)
