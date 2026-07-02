@@ -88,7 +88,7 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
 
     // Fetch current business account
     const { rows } = await db.query<{ id: string; tier: string; pending_tier: string | null; pending_payment_ref: string | null }>(
-      `SELECT id, tier, pending_tier, pending_payment_ref FROM business_accounts WHERE user_id = $1 AND deleted_at IS NULL LIMIT 1`,
+      `SELECT id, tier, pending_tier, pending_payment_ref FROM business_accounts WHERE user_id = $1 LIMIT 1`,
       [userId]
     );
     if (!rows[0]) throw notFound("No business account found");
