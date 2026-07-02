@@ -9,6 +9,7 @@ import { withAuth } from '@/lib/api/middleware';
 import { badRequest, notFound } from '@/lib/api/errors';
 import { db } from '@/lib/db';
 import { XP_VALUES } from '@/lib/xp/engine';
+import { insertNotification } from '@/lib/notifications/insert';
 
 /** GET /api/friends — list accepted friends */
 export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
@@ -89,6 +90,19 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
      VALUES ($1, $2, 'pending')`,
     [userId, targetId],
   );
+
+  // Notify the addressee of the new incoming friend request — powers the
+  // blue "new request" dot on the Friends page Requests tab (unread,
+  // type = 'friend_request'). Best-effort: a notification failure must not
+  // block the friend request itself.
+  insertNotification(
+    db,
+    targetId,
+    'friend_request',
+    'New friend request',
+    `@${auth.user.username} sent you a friend request`,
+    { requesterId: userId, requesterUsername: auth.user.username },
+  ).catch(() => {});
 
   // Award XP for sending a friend request (PRD §6: +10 XP social track)
   const xpAmount = XP_VALUES.add_new_friend;
