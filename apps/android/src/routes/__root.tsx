@@ -146,6 +146,11 @@ function AppShell() {
     if (pathname.startsWith('/referrals')) return t('referrals.title');
     if (pathname.startsWith('/classroom')) return t('classroom.title');
     if (pathname.startsWith('/leaderboards')) return t('leaderboards.title');
+    if (pathname === '/guild') return t('guild.title');
+    if (pathname.startsWith('/guilds')) return t('guilds.title');
+    if (pathname.startsWith('/council')) return t('council.title');
+    if (pathname.startsWith('/community-notes')) return t('communityNotes.title');
+    if (pathname.startsWith('/nemesis')) return t('nemesis.title');
     if (pathname === '/auth/login') return t('auth.login');
     if (pathname === '/auth/register') return t('auth.register');
     if (pathname === '/auth/two-factor') return t('auth.2fa.title');

@@ -27,22 +27,46 @@ interface CouncilMember {
   legacyScore: number;
 }
 
+// FIX: platform_council_ideas has a single `votes` counter (upvote-only —
+// there is no downvote tracking in the schema), not upvotes/downvotes, and
+// its status default is "open" not "pending".
 interface CouncilIdea {
   id: string;
   title: string;
   description: string;
   authorId: string;
   authorUsername: string;
-  upvotes: number;
-  downvotes: number;
-  status: "pending" | "under_review" | "accepted" | "rejected";
+  votes: number;
+  status: "open" | "under_review" | "accepted" | "rejected";
   createdAt: string;
-  userVote: "up" | "down" | null;
+  hasVoted: boolean;
 }
 
-interface CurrentUser {
+// Raw row shape returned by GET/POST /api/council/ideas (snake_case).
+interface CouncilIdeaRow {
   id: string;
-  isCouncilMember: boolean;
+  author_id: string;
+  author_username: string;
+  title: string;
+  description: string;
+  votes: number;
+  status: string;
+  created_at: string;
+  has_voted: boolean;
+}
+
+function mapIdea(row: CouncilIdeaRow): CouncilIdea {
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    authorId: row.author_id,
+    authorUsername: row.author_username,
+    votes: row.votes,
+    status: (row.status as CouncilIdea["status"]) ?? "open",
+    createdAt: row.created_at,
+    hasVoted: row.has_voted,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -89,7 +113,7 @@ function IdeaSkeleton() {
 // ---------------------------------------------------------------------------
 
 const IDEA_STATUS: Record<string, string> = {
-  pending: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400",
+  open: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400",
   under_review: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
   accepted: "bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300",
   rejected: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300",
@@ -102,7 +126,7 @@ const IDEA_STATUS: Record<string, string> = {
 interface IdeaCardProps {
   idea: CouncilIdea;
   canVote: boolean;
-  onVote: (ideaId: string, direction: "up" | "down") => void;
+  onVote: (ideaId: string) => void;
   voting: string | null;
 }
 
@@ -113,7 +137,7 @@ function IdeaCard({ idea, canVote, onVote, voting }: IdeaCardProps) {
     <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
       <div className="mb-2 flex items-start justify-between gap-3">
         <h3 className="font-semibold text-neutral-900 dark:text-neutral-100">{idea.title}</h3>
-        <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${IDEA_STATUS[idea.status] ?? IDEA_STATUS.pending}`}>
+        <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${IDEA_STATUS[idea.status] ?? IDEA_STATUS.open}`}>
           {idea.status.replace(/_/g, " ")}
         </span>
       </div>
@@ -126,32 +150,18 @@ function IdeaCard({ idea, canVote, onVote, voting }: IdeaCardProps) {
           <span>·</span>
           <span>{timeAgo(idea.createdAt)}</span>
         </div>
-        <div className="flex items-center gap-2">
-          {/* Upvote */}
-          <button
-            onClick={() => canVote && onVote(idea.id, "up")}
-            disabled={!canVote || isVoting}
-            className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors ${
-              idea.userVote === "up"
-                ? "bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300"
-                : "bg-neutral-100 text-neutral-600 hover:bg-teal-50 hover:text-teal-600 dark:bg-neutral-800 dark:text-neutral-400"
-            } disabled:cursor-not-allowed disabled:opacity-50`}
-          >
-            ▲ {idea.upvotes}
-          </button>
-          {/* Downvote */}
-          <button
-            onClick={() => canVote && onVote(idea.id, "down")}
-            disabled={!canVote || isVoting}
-            className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors ${
-              idea.userVote === "down"
-                ? "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"
-                : "bg-neutral-100 text-neutral-600 hover:bg-red-50 hover:text-red-600 dark:bg-neutral-800 dark:text-neutral-400"
-            } disabled:cursor-not-allowed disabled:opacity-50`}
-          >
-            ▼ {idea.downvotes}
-          </button>
-        </div>
+        {/* Upvote — the schema has a single vote counter, no downvotes */}
+        <button
+          onClick={() => canVote && !idea.hasVoted && onVote(idea.id)}
+          disabled={!canVote || isVoting || idea.hasVoted}
+          className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors ${
+            idea.hasVoted
+              ? "bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300"
+              : "bg-neutral-100 text-neutral-600 hover:bg-teal-50 hover:text-teal-600 dark:bg-neutral-800 dark:text-neutral-400"
+          } disabled:cursor-not-allowed disabled:opacity-50`}
+        >
+          ▲ {idea.votes}
+        </button>
       </div>
     </div>
   );
@@ -170,8 +180,9 @@ export default function CouncilPage() {
   useEffect(() => {
     tRef.current = t;
   }, [t]);
-  const [user, setUser] = useState<CurrentUser | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const [members, setMembers] = useState<CouncilMember[]>([]);
+  const isCouncilMember = userId !== null && members.some((m) => m.userId === userId);
   const [ideas, setIdeas] = useState<CouncilIdea[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(true);
   const [loadingIdeas, setLoadingIdeas] = useState(true);
@@ -188,11 +199,16 @@ export default function CouncilPage() {
     setTimeout(() => setToast(null), 3500);
   }, []);
 
+  // FIX: /api/auth/me returns { user: { id, ... } } with no isCouncilMember
+  // field at all — the page previously cast the whole response as CurrentUser
+  // directly, so `user?.isCouncilMember` was always undefined and the
+  // "Submit Idea" button / voting were permanently disabled for everyone,
+  // real council members included. isCouncilMember is derived from whether
+  // the caller's id shows up in the members list loaded below.
   useEffect(() => {
-    // Fetch current user
     fetch("/api/auth/me", { credentials: "include" })
-      .then((r) => r.ok ? r.json() : null)
-      .then((d: CurrentUser | null) => setUser(d))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { user: { id: string } } | null) => setUserId(d?.user?.id ?? null))
       .catch(() => {});
   }, []);
 
@@ -201,8 +217,16 @@ export default function CouncilPage() {
       try {
         const res = await fetch("/api/council", { credentials: "include" });
         if (!res.ok) throw new Error("Failed to load council");
-        const data = (await res.json()) as { members: CouncilMember[] };
-        setMembers(data.members);
+        const json = (await res.json()) as { data: { members: Array<{ user_id: string; username: string; avatar_emoji: string; rank: number; legacy_score: number }> } };
+        setMembers(
+          json.data.members.map((m) => ({
+            userId: m.user_id,
+            username: m.username,
+            avatarEmoji: m.avatar_emoji,
+            rank: m.rank,
+            legacyScore: m.legacy_score,
+          }))
+        );
       } catch { /* fail silently */ }
       finally { setLoadingMembers(false); }
     })();
@@ -213,36 +237,23 @@ export default function CouncilPage() {
       try {
         const res = await fetch("/api/council/ideas", { credentials: "include" });
         if (!res.ok) throw new Error("Failed to load ideas");
-        const data = (await res.json()) as { ideas: CouncilIdea[] };
-        setIdeas(data.ideas);
+        const json = (await res.json()) as { data: { ideas: CouncilIdeaRow[] } };
+        setIdeas(json.data.ideas.map(mapIdea));
       } catch { /* fail silently */ }
       finally { setLoadingIdeas(false); }
     })();
   }, []);
 
-  async function handleVote(ideaId: string, direction: "up" | "down") {
+  async function handleVote(ideaId: string) {
     setVoting(ideaId);
     try {
       const res = await fetch(`/api/council/ideas/${ideaId}/vote`, {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ direction }),
       });
       if (!res.ok) throw new Error("Vote failed");
       setIdeas((prev) =>
-        prev.map((idea) => {
-          if (idea.id !== ideaId) return idea;
-          const prev_vote = idea.userVote;
-          const upDelta = direction === "up" ? 1 : prev_vote === "up" ? -1 : 0;
-          const downDelta = direction === "down" ? 1 : prev_vote === "down" ? -1 : 0;
-          return {
-            ...idea,
-            upvotes: idea.upvotes + upDelta,
-            downvotes: idea.downvotes + downDelta,
-            userVote: prev_vote === direction ? null : direction,
-          };
-        })
+        prev.map((idea) => (idea.id === ideaId ? { ...idea, votes: idea.votes + 1, hasVoted: true } : idea))
       );
     } catch {
       showToast("Vote failed", "error");
@@ -266,8 +277,8 @@ export default function CouncilPage() {
         const body = (await res.json()) as { error?: { message?: string } };
         throw new Error(body.error?.message ?? "Failed to submit idea");
       }
-      const newIdea = (await res.json()) as CouncilIdea;
-      setIdeas((prev) => [newIdea, ...prev]);
+      const json = (await res.json()) as { data: { idea: CouncilIdeaRow } };
+      setIdeas((prev) => [mapIdea(json.data.idea), ...prev]);
       setIdeaTitle("");
       setIdeaDescription("");
       setShowIdeaForm(false);
@@ -329,7 +340,7 @@ export default function CouncilPage() {
       <section>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-500">Community Ideas</h2>
-          {user?.isCouncilMember && !showIdeaForm && (
+          {isCouncilMember && !showIdeaForm && (
             <button
               onClick={() => setShowIdeaForm(true)}
               className="flex items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700"
@@ -408,7 +419,7 @@ export default function CouncilPage() {
               <IdeaCard
                 key={idea.id}
                 idea={idea}
-                canVote={!!user?.isCouncilMember}
+                canVote={isCouncilMember}
                 onVote={handleVote}
                 voting={voting}
               />

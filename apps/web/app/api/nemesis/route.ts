@@ -113,12 +113,13 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
 
     // Fetch the calling user's own profile data (including competitor XP for level gate UI)
     const { rows: myRows } = await db.query<{
+      username: string;
       display_name: string;
       avatar_emoji: string;
       xp_total: number;
       xp_competitor: number;
     }>(
-      `SELECT display_name, avatar_emoji, COALESCE(xp_total, 0) AS xp_total,
+      `SELECT username, display_name, avatar_emoji, COALESCE(xp_total, 0) AS xp_total,
               COALESCE(xp_competitor, 0) AS xp_competitor
        FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
       [userId]
@@ -181,6 +182,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     return NextResponse.json({
       me: {
         userId,
+        username: me?.username ?? "",
         displayName: me?.display_name ?? "",
         avatarEmoji: me?.avatar_emoji ?? "😊",
         xp: comparison.userXP,
@@ -188,6 +190,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       },
       nemesis: {
         userId: nemesisRow.nemesis_id,
+        username: nemesisRow.nemesis_username,
         displayName: nemesisRow.nemesis_display_name,
         avatarEmoji: nemesisRow.nemesis_avatar_emoji,
         xp: comparison.nemesisXP,

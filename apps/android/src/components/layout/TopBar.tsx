@@ -40,6 +40,11 @@ const primaryNavItems = [
   { href: '/referrals', label: 'Referrals', icon: '🔗' },
   { href: '/classroom', label: 'Classroom', icon: '🏫' },
   { href: '/leaderboards', label: 'Leaderboards', icon: '🏆' },
+  { href: '/guild', label: 'Guild', icon: '🛡️' },
+  { href: '/guilds', label: 'Browse Guilds', icon: '🏰' },
+  { href: '/council', label: 'Council', icon: '⚖️' },
+  { href: '/community-notes', label: 'Community Notes', icon: '📝' },
+  { href: '/nemesis', label: 'Nemesis', icon: '👻' },
 ] as const;
 
 const secondaryNavItems = [

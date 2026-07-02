@@ -17,37 +17,48 @@ import { translateApiError } from "@/lib/i18n/apiErrors";
 // Types
 // ---------------------------------------------------------------------------
 
-type GuildTier = "bronze" | "silver" | "gold" | "platinum" | "diamond";
+/** Base tier name — guilds.tier is actually stored as e.g. "bronze_1"; TIER_BADGE below keys off the base name. */
+type GuildTierBase = "bronze" | "silver" | "gold" | "platinum" | "legend";
+
+function tierBase(tier: string): GuildTierBase {
+  const base = tier.split("_")[0];
+  return (["bronze", "silver", "gold", "platinum", "legend"] as const).includes(base as GuildTierBase)
+    ? (base as GuildTierBase)
+    : "bronze";
+}
 
 interface GuildSummary {
   id: string;
   name: string;
-  emblem: string;
-  tier: GuildTier;
-  warsWon: number;
+  crestEmoji: string;
+  tier: string;
+  warWins: number;
   memberCount: number;
-  city: string;
+  city: string | null;
 }
 
 interface GuildMember {
   userId: string;
   username: string;
+  displayName: string | null;
   avatarEmoji: string;
-  role: "leader" | "officer" | "member";
-  contribution: number;
+  role: "captain" | "veteran" | "recruiter" | "member";
+  contributionScore: number;
 }
 
 interface WarHistory {
   id: string;
   opponentName: string;
+  opponentCrestEmoji: string;
   result: "win" | "loss" | "draw";
-  score: string;
+  myScore: number;
+  opponentScore: number;
   endedAt: string;
 }
 
 interface ActiveWar {
   opponentName: string;
-  opponentEmblem: string;
+  opponentCrestEmoji: string;
   myScore: number;
   opponentScore: number;
   endsAt: string;
@@ -56,7 +67,7 @@ interface ActiveWar {
 interface AllianceHistory {
   id: string;
   allianceName: string;
-  role: "founder" | "member";
+  role: "initiator" | "ally";
   joinedAt: string;
   leftAt: string | null;
 }
@@ -64,11 +75,11 @@ interface AllianceHistory {
 interface MyGuild {
   id: string;
   name: string;
-  emblem: string;
-  tier: GuildTier;
-  tierXP: number;
-  tierXPRequired: number;
-  treasuryBalance: number;
+  crestEmoji: string;
+  tier: string;
+  guildXp: number;
+  tierXpRequired: number;
+  treasuryBalance: number | null;
   memberCount: number;
   maxMembers: number;
   members: GuildMember[];
@@ -81,17 +92,18 @@ interface MyGuild {
 // Constants
 // ---------------------------------------------------------------------------
 
-const TIER_BADGE: Record<GuildTier, { classes: string; label: string }> = {
+const TIER_BADGE: Record<GuildTierBase, { classes: string; label: string }> = {
   bronze: { classes: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300", label: "Bronze" },
   silver: { classes: "bg-neutral-200 text-neutral-700 dark:bg-neutral-700 dark:text-neutral-300", label: "Silver" },
   gold: { classes: "bg-amber-200 text-amber-800 dark:bg-amber-800 dark:text-amber-200", label: "Gold" },
   platinum: { classes: "bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300", label: "Platinum" },
-  diamond: { classes: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300", label: "Diamond" },
+  legend: { classes: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300", label: "Legend" },
 };
 
 const ROLE_BADGE: Record<string, string> = {
-  leader: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-200",
-  officer: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
+  captain: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-200",
+  veteran: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
+  recruiter: "bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300",
   member: "",
 };
 
@@ -148,11 +160,11 @@ function GuildDiscovery({ guilds, loading, onJoin, joiningId }: DiscoveryProps) 
         </div>
       ) : (
         guilds.map((g) => {
-          const { classes, label } = TIER_BADGE[g.tier];
+          const { classes, label } = TIER_BADGE[tierBase(g.tier)];
           return (
             <div key={g.id} className="flex flex-wrap items-center gap-4 rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
               <Link href={`/guilds/${g.id}`}>
-                <span className="flex h-14 w-14 cursor-pointer items-center justify-center rounded-full bg-neutral-100 text-3xl hover:opacity-80 dark:bg-neutral-800">{g.emblem}</span>
+                <span className="flex h-14 w-14 cursor-pointer items-center justify-center rounded-full bg-neutral-100 text-3xl hover:opacity-80 dark:bg-neutral-800">{g.crestEmoji}</span>
               </Link>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
@@ -161,7 +173,7 @@ function GuildDiscovery({ guilds, loading, onJoin, joiningId }: DiscoveryProps) 
                   </Link>
                   <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${classes}`}>{label}</span>
                 </div>
-                <p className="text-xs text-neutral-500">{g.city} · {g.memberCount} members · {g.warsWon} wars won</p>
+                <p className="text-xs text-neutral-500">{g.city} · {g.memberCount} members · {g.warWins} wars won</p>
               </div>
               <div className="flex gap-2">
                 <Link href={`/guilds/${g.id}`} className="rounded-xl border border-neutral-300 px-3 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300">
@@ -192,8 +204,8 @@ interface GuildDashboardProps {
 }
 
 function GuildDashboard({ guild }: GuildDashboardProps) {
-  const { classes, label } = TIER_BADGE[guild.tier];
-  const tierPct = Math.min(100, Math.round((guild.tierXP / guild.tierXPRequired) * 100));
+  const { classes, label } = TIER_BADGE[tierBase(guild.tier)];
+  const tierPct = Math.min(100, Math.round((guild.guildXp / guild.tierXpRequired) * 100));
   const [warSecs, setWarSecs] = useState(guild.activeWar ? secondsRemaining(guild.activeWar.endsAt) : 0);
 
   useEffect(() => {
@@ -207,7 +219,7 @@ function GuildDashboard({ guild }: GuildDashboardProps) {
       {/* Guild header */}
       <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
         <div className="flex flex-wrap items-start gap-4">
-          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-neutral-100 text-4xl dark:bg-neutral-800">{guild.emblem}</span>
+          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-neutral-100 text-4xl dark:bg-neutral-800">{guild.crestEmoji}</span>
           <div className="flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-50">{guild.name}</h1>
@@ -219,7 +231,7 @@ function GuildDashboard({ guild }: GuildDashboardProps) {
             <div className="mt-3">
               <div className="mb-1 flex items-center justify-between text-xs text-neutral-500">
                 <span>Tier XP</span>
-                <span className="tabular-nums">{guild.tierXP.toLocaleString()} / {guild.tierXPRequired.toLocaleString()}</span>
+                <span className="tabular-nums">{guild.guildXp.toLocaleString()} / {guild.tierXpRequired.toLocaleString()}</span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700">
                 <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${tierPct}%` }} />
@@ -228,7 +240,7 @@ function GuildDashboard({ guild }: GuildDashboardProps) {
           </div>
           <div className="text-right">
             <p className="text-xs text-neutral-500">Treasury</p>
-            <p className="text-lg font-bold text-amber-600">{guild.treasuryBalance.toLocaleString()} <span className="text-sm font-normal">🪙</span></p>
+            <p className="text-lg font-bold text-amber-600">{(guild.treasuryBalance ?? 0).toLocaleString()} <span className="text-sm font-normal">🪙</span></p>
           </div>
         </div>
       </div>
@@ -244,13 +256,13 @@ function GuildDashboard({ guild }: GuildDashboardProps) {
           </div>
           <div className="flex items-center justify-between">
             <div className="text-center">
-              <span className="text-3xl">{guild.emblem}</span>
+              <span className="text-3xl">{guild.crestEmoji}</span>
               <p className="mt-1 text-sm font-bold text-neutral-900 dark:text-neutral-100">{guild.name}</p>
               <p className="text-2xl font-bold text-blue-600">{guild.activeWar.myScore}</p>
             </div>
             <span className="text-xl font-bold text-neutral-400">VS</span>
             <div className="text-center">
-              <span className="text-3xl">{guild.activeWar.opponentEmblem}</span>
+              <span className="text-3xl">{guild.activeWar.opponentCrestEmoji}</span>
               <p className="mt-1 text-sm font-bold text-neutral-900 dark:text-neutral-100">{guild.activeWar.opponentName}</p>
               <p className="text-2xl font-bold text-red-600">{guild.activeWar.opponentScore}</p>
             </div>
@@ -278,7 +290,7 @@ function GuildDashboard({ guild }: GuildDashboardProps) {
                     <span className={`rounded-full px-2 py-0.5 text-xs font-semibold capitalize ${ROLE_BADGE[m.role]}`}>{m.role}</span>
                   )}
                 </div>
-                <p className="text-xs text-neutral-500">{m.contribution.toLocaleString()} XP contributed</p>
+                <p className="text-xs text-neutral-500">{m.contributionScore.toLocaleString()} XP contributed</p>
               </div>
             </Link>
           ))}
@@ -299,7 +311,7 @@ function GuildDashboard({ guild }: GuildDashboardProps) {
                 </span>
                 <div className="flex-1">
                   <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">vs {w.opponentName}</p>
-                  <p className="text-xs text-neutral-500">{w.score} · {formatDate(w.endedAt)}</p>
+                  <p className="text-xs text-neutral-500">{w.myScore.toLocaleString()} – {w.opponentScore.toLocaleString()} · {formatDate(w.endedAt)}</p>
                 </div>
               </div>
             ))}
@@ -320,7 +332,7 @@ function GuildDashboard({ guild }: GuildDashboardProps) {
                 <div className="flex-1">
                   <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{a.allianceName}</p>
                   <p className="text-xs text-neutral-500">
-                    {a.role === "founder" ? "Founded" : "Joined"} {formatDate(a.joinedAt)}
+                    {a.role === "initiator" ? "Founded" : "Joined"} {formatDate(a.joinedAt)}
                     {a.leftAt ? ` · Left ${formatDate(a.leftAt)}` : " · Active"}
                   </p>
                 </div>
@@ -355,20 +367,31 @@ export default function GuildPage() {
   const [joiningId, setJoiningId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // FIX: this used to fetch "/api/guild/mine" and "/api/guilds/nearby",
+  // neither of which exists server-side — the dashboard/discovery split
+  // never worked. Mirrors the working pattern from app/(app)/profile/page.tsx:
+  // read guild_id off /api/users/me, then load that guild's detail; when
+  // there's no guild_id, fall back to /api/guilds/discovery (same endpoint
+  // /guild-discovery uses).
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/guild/mine", { credentials: "include" });
-        if (res.status === 401) { window.location.href = "/auth/login"; return; }
-        if (res.status === 404) {
+        const meRes = await fetch("/api/users/me", { credentials: "include" });
+        if (meRes.status === 401) { window.location.href = "/auth/login"; return; }
+        if (!meRes.ok) throw new Error("Failed to load profile");
+        const me = (await meRes.json()) as { guild_id: string | null };
+
+        if (!me.guild_id) {
           setMyGuild(null);
           setLoadingNearby(true);
-          const nearbyRes = await fetch("/api/guilds/nearby?limit=3", { credentials: "include" });
-          const data = (await nearbyRes.json()) as { guilds: GuildSummary[] };
-          setNearbyGuilds(data.guilds);
+          const discRes = await fetch("/api/guilds/discovery", { credentials: "include" });
+          const discJson = (await discRes.json()) as { data: { guilds: GuildSummary[] } };
+          setNearbyGuilds(discJson.data.guilds ?? []);
           setLoadingNearby(false);
           return;
         }
+
+        const res = await fetch(`/api/guilds/${me.guild_id}`, { credentials: "include" });
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
           const errMsg = typeof body.error === "string" ? body.error : body.error?.message;
@@ -377,7 +400,8 @@ export default function GuildPage() {
           err.code = errCode;
           throw err;
         }
-        setMyGuild((await res.json()) as MyGuild);
+        const json = (await res.json()) as { guild?: MyGuild; data?: MyGuild };
+        setMyGuild(json.guild ?? json.data ?? null);
       } catch (e) {
         const err = e as Error & { code?: string | null };
         setError(e instanceof Error ? translateApiError(tRef.current, err.code, err.message || "Unknown error") : "Unknown error");
@@ -398,8 +422,9 @@ export default function GuildPage() {
         throw err;
       }
       // Reload page state after joining
-      const gRes = await fetch("/api/guild/mine", { credentials: "include" });
-      setMyGuild((await gRes.json()) as MyGuild);
+      const gRes = await fetch(`/api/guilds/${guildId}`, { credentials: "include" });
+      const gJson = (await gRes.json()) as { guild?: MyGuild; data?: MyGuild };
+      setMyGuild(gJson.guild ?? gJson.data ?? null);
     } catch (e) {
       const err = e as Error & { code?: string | null };
       setError(e instanceof Error ? translateApiError(t, err.code, err.message || "Error joining guild") : "Error joining guild");

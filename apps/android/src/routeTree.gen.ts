@@ -15,19 +15,24 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ReferralsRouteImport } from './routes/referrals'
 import { Route as QuestsRouteImport } from './routes/quests'
 import { Route as NotificationsRouteImport } from './routes/notifications'
+import { Route as NemesisRouteImport } from './routes/nemesis'
 import { Route as LeaderboardsRouteImport } from './routes/leaderboards'
 import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as HomeRouteImport } from './routes/home'
+import { Route as GuildRouteImport } from './routes/guild'
 import { Route as GiftsRouteImport } from './routes/gifts'
 import { Route as FriendsRouteImport } from './routes/friends'
 import { Route as EventsRouteImport } from './routes/events'
 import { Route as ElderRouteImport } from './routes/elder'
+import { Route as CouncilRouteImport } from './routes/council'
+import { Route as CommunityNotesRouteImport } from './routes/community-notes'
 import { Route as ClassroomRouteImport } from './routes/classroom'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as RoomsIndexRouteImport } from './routes/rooms/index'
 import { Route as ProfileIndexRouteImport } from './routes/profile/index'
 import { Route as MomentsIndexRouteImport } from './routes/moments/index'
 import { Route as MessagesIndexRouteImport } from './routes/messages/index'
+import { Route as GuildsIndexRouteImport } from './routes/guilds/index'
 import { Route as GamesIndexRouteImport } from './routes/games/index'
 import { Route as BusinessIndexRouteImport } from './routes/business/index'
 import { Route as BlogsIndexRouteImport } from './routes/blogs/index'
@@ -37,6 +42,7 @@ import { Route as RoomsRoomIdRouteImport } from './routes/rooms/$roomId'
 import { Route as ProfileUsernameRouteImport } from './routes/profile/$username'
 import { Route as MomentsCreateRouteImport } from './routes/moments/create'
 import { Route as MessagesConversationIdRouteImport } from './routes/messages/$conversationId'
+import { Route as GuildsGuildIdRouteImport } from './routes/guilds/$guildId'
 import { Route as GamesSavedRouteImport } from './routes/games/saved'
 import { Route as GamesSlugRouteImport } from './routes/games/$slug'
 import { Route as BlogsNewRouteImport } from './routes/blogs/new'
@@ -81,6 +87,11 @@ const NotificationsRoute = NotificationsRouteImport.update({
   path: '/notifications',
   getParentRoute: () => rootRouteImport,
 } as any)
+const NemesisRoute = NemesisRouteImport.update({
+  id: '/nemesis',
+  path: '/nemesis',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LeaderboardsRoute = LeaderboardsRouteImport.update({
   id: '/leaderboards',
   path: '/leaderboards',
@@ -94,6 +105,11 @@ const InboxRoute = InboxRouteImport.update({
 const HomeRoute = HomeRouteImport.update({
   id: '/home',
   path: '/home',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GuildRoute = GuildRouteImport.update({
+  id: '/guild',
+  path: '/guild',
   getParentRoute: () => rootRouteImport,
 } as any)
 const GiftsRoute = GiftsRouteImport.update({
@@ -114,6 +130,16 @@ const EventsRoute = EventsRouteImport.update({
 const ElderRoute = ElderRouteImport.update({
   id: '/elder',
   path: '/elder',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CouncilRoute = CouncilRouteImport.update({
+  id: '/council',
+  path: '/council',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CommunityNotesRoute = CommunityNotesRouteImport.update({
+  id: '/community-notes',
+  path: '/community-notes',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ClassroomRoute = ClassroomRouteImport.update({
@@ -144,6 +170,11 @@ const MomentsIndexRoute = MomentsIndexRouteImport.update({
 const MessagesIndexRoute = MessagesIndexRouteImport.update({
   id: '/messages/',
   path: '/messages/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GuildsIndexRoute = GuildsIndexRouteImport.update({
+  id: '/guilds/',
+  path: '/guilds/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const GamesIndexRoute = GamesIndexRouteImport.update({
@@ -189,6 +220,11 @@ const MomentsCreateRoute = MomentsCreateRouteImport.update({
 const MessagesConversationIdRoute = MessagesConversationIdRouteImport.update({
   id: '/messages/$conversationId',
   path: '/messages/$conversationId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GuildsGuildIdRoute = GuildsGuildIdRouteImport.update({
+  id: '/guilds/$guildId',
+  path: '/guilds/$guildId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const GamesSavedRoute = GamesSavedRouteImport.update({
@@ -260,13 +296,17 @@ const BlogsSlugPostSlugRoute = BlogsSlugPostSlugRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/classroom': typeof ClassroomRoute
+  '/community-notes': typeof CommunityNotesRoute
+  '/council': typeof CouncilRoute
   '/elder': typeof ElderRoute
   '/events': typeof EventsRoute
   '/friends': typeof FriendsRoute
   '/gifts': typeof GiftsRoute
+  '/guild': typeof GuildRoute
   '/home': typeof HomeRoute
   '/inbox': typeof InboxRoute
   '/leaderboards': typeof LeaderboardsRoute
+  '/nemesis': typeof NemesisRoute
   '/notifications': typeof NotificationsRoute
   '/quests': typeof QuestsRoute
   '/referrals': typeof ReferralsRoute
@@ -281,6 +321,7 @@ export interface FileRoutesByFullPath {
   '/blogs/new': typeof BlogsNewRoute
   '/games/$slug': typeof GamesSlugRoute
   '/games/saved': typeof GamesSavedRoute
+  '/guilds/$guildId': typeof GuildsGuildIdRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
   '/moments/create': typeof MomentsCreateRoute
   '/profile/$username': typeof ProfileUsernameRoute
@@ -290,6 +331,7 @@ export interface FileRoutesByFullPath {
   '/blogs/': typeof BlogsIndexRoute
   '/business/': typeof BusinessIndexRoute
   '/games/': typeof GamesIndexRoute
+  '/guilds/': typeof GuildsIndexRoute
   '/messages/': typeof MessagesIndexRoute
   '/moments/': typeof MomentsIndexRoute
   '/profile/': typeof ProfileIndexRoute
@@ -303,13 +345,17 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/classroom': typeof ClassroomRoute
+  '/community-notes': typeof CommunityNotesRoute
+  '/council': typeof CouncilRoute
   '/elder': typeof ElderRoute
   '/events': typeof EventsRoute
   '/friends': typeof FriendsRoute
   '/gifts': typeof GiftsRoute
+  '/guild': typeof GuildRoute
   '/home': typeof HomeRoute
   '/inbox': typeof InboxRoute
   '/leaderboards': typeof LeaderboardsRoute
+  '/nemesis': typeof NemesisRoute
   '/notifications': typeof NotificationsRoute
   '/quests': typeof QuestsRoute
   '/referrals': typeof ReferralsRoute
@@ -324,6 +370,7 @@ export interface FileRoutesByTo {
   '/blogs/new': typeof BlogsNewRoute
   '/games/$slug': typeof GamesSlugRoute
   '/games/saved': typeof GamesSavedRoute
+  '/guilds/$guildId': typeof GuildsGuildIdRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
   '/moments/create': typeof MomentsCreateRoute
   '/profile/$username': typeof ProfileUsernameRoute
@@ -333,6 +380,7 @@ export interface FileRoutesByTo {
   '/blogs': typeof BlogsIndexRoute
   '/business': typeof BusinessIndexRoute
   '/games': typeof GamesIndexRoute
+  '/guilds': typeof GuildsIndexRoute
   '/messages': typeof MessagesIndexRoute
   '/moments': typeof MomentsIndexRoute
   '/profile': typeof ProfileIndexRoute
@@ -347,13 +395,17 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/classroom': typeof ClassroomRoute
+  '/community-notes': typeof CommunityNotesRoute
+  '/council': typeof CouncilRoute
   '/elder': typeof ElderRoute
   '/events': typeof EventsRoute
   '/friends': typeof FriendsRoute
   '/gifts': typeof GiftsRoute
+  '/guild': typeof GuildRoute
   '/home': typeof HomeRoute
   '/inbox': typeof InboxRoute
   '/leaderboards': typeof LeaderboardsRoute
+  '/nemesis': typeof NemesisRoute
   '/notifications': typeof NotificationsRoute
   '/quests': typeof QuestsRoute
   '/referrals': typeof ReferralsRoute
@@ -368,6 +420,7 @@ export interface FileRoutesById {
   '/blogs/new': typeof BlogsNewRoute
   '/games/$slug': typeof GamesSlugRoute
   '/games/saved': typeof GamesSavedRoute
+  '/guilds/$guildId': typeof GuildsGuildIdRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
   '/moments/create': typeof MomentsCreateRoute
   '/profile/$username': typeof ProfileUsernameRoute
@@ -377,6 +430,7 @@ export interface FileRoutesById {
   '/blogs/': typeof BlogsIndexRoute
   '/business/': typeof BusinessIndexRoute
   '/games/': typeof GamesIndexRoute
+  '/guilds/': typeof GuildsIndexRoute
   '/messages/': typeof MessagesIndexRoute
   '/moments/': typeof MomentsIndexRoute
   '/profile/': typeof ProfileIndexRoute
@@ -392,13 +446,17 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/classroom'
+    | '/community-notes'
+    | '/council'
     | '/elder'
     | '/events'
     | '/friends'
     | '/gifts'
+    | '/guild'
     | '/home'
     | '/inbox'
     | '/leaderboards'
+    | '/nemesis'
     | '/notifications'
     | '/quests'
     | '/referrals'
@@ -413,6 +471,7 @@ export interface FileRouteTypes {
     | '/blogs/new'
     | '/games/$slug'
     | '/games/saved'
+    | '/guilds/$guildId'
     | '/messages/$conversationId'
     | '/moments/create'
     | '/profile/$username'
@@ -422,6 +481,7 @@ export interface FileRouteTypes {
     | '/blogs/'
     | '/business/'
     | '/games/'
+    | '/guilds/'
     | '/messages/'
     | '/moments/'
     | '/profile/'
@@ -435,13 +495,17 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/classroom'
+    | '/community-notes'
+    | '/council'
     | '/elder'
     | '/events'
     | '/friends'
     | '/gifts'
+    | '/guild'
     | '/home'
     | '/inbox'
     | '/leaderboards'
+    | '/nemesis'
     | '/notifications'
     | '/quests'
     | '/referrals'
@@ -456,6 +520,7 @@ export interface FileRouteTypes {
     | '/blogs/new'
     | '/games/$slug'
     | '/games/saved'
+    | '/guilds/$guildId'
     | '/messages/$conversationId'
     | '/moments/create'
     | '/profile/$username'
@@ -465,6 +530,7 @@ export interface FileRouteTypes {
     | '/blogs'
     | '/business'
     | '/games'
+    | '/guilds'
     | '/messages'
     | '/moments'
     | '/profile'
@@ -478,13 +544,17 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/classroom'
+    | '/community-notes'
+    | '/council'
     | '/elder'
     | '/events'
     | '/friends'
     | '/gifts'
+    | '/guild'
     | '/home'
     | '/inbox'
     | '/leaderboards'
+    | '/nemesis'
     | '/notifications'
     | '/quests'
     | '/referrals'
@@ -499,6 +569,7 @@ export interface FileRouteTypes {
     | '/blogs/new'
     | '/games/$slug'
     | '/games/saved'
+    | '/guilds/$guildId'
     | '/messages/$conversationId'
     | '/moments/create'
     | '/profile/$username'
@@ -508,6 +579,7 @@ export interface FileRouteTypes {
     | '/blogs/'
     | '/business/'
     | '/games/'
+    | '/guilds/'
     | '/messages/'
     | '/moments/'
     | '/profile/'
@@ -522,13 +594,17 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ClassroomRoute: typeof ClassroomRoute
+  CommunityNotesRoute: typeof CommunityNotesRoute
+  CouncilRoute: typeof CouncilRoute
   ElderRoute: typeof ElderRoute
   EventsRoute: typeof EventsRoute
   FriendsRoute: typeof FriendsRoute
   GiftsRoute: typeof GiftsRoute
+  GuildRoute: typeof GuildRoute
   HomeRoute: typeof HomeRoute
   InboxRoute: typeof InboxRoute
   LeaderboardsRoute: typeof LeaderboardsRoute
+  NemesisRoute: typeof NemesisRoute
   NotificationsRoute: typeof NotificationsRoute
   QuestsRoute: typeof QuestsRoute
   ReferralsRoute: typeof ReferralsRoute
@@ -543,6 +619,7 @@ export interface RootRouteChildren {
   BlogsNewRoute: typeof BlogsNewRoute
   GamesSlugRoute: typeof GamesSlugRoute
   GamesSavedRoute: typeof GamesSavedRoute
+  GuildsGuildIdRoute: typeof GuildsGuildIdRoute
   MessagesConversationIdRoute: typeof MessagesConversationIdRoute
   MomentsCreateRoute: typeof MomentsCreateRoute
   ProfileUsernameRoute: typeof ProfileUsernameRoute
@@ -552,6 +629,7 @@ export interface RootRouteChildren {
   BlogsIndexRoute: typeof BlogsIndexRoute
   BusinessIndexRoute: typeof BusinessIndexRoute
   GamesIndexRoute: typeof GamesIndexRoute
+  GuildsIndexRoute: typeof GuildsIndexRoute
   MessagesIndexRoute: typeof MessagesIndexRoute
   MomentsIndexRoute: typeof MomentsIndexRoute
   ProfileIndexRoute: typeof ProfileIndexRoute
@@ -607,6 +685,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof NotificationsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/nemesis': {
+      id: '/nemesis'
+      path: '/nemesis'
+      fullPath: '/nemesis'
+      preLoaderRoute: typeof NemesisRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/leaderboards': {
       id: '/leaderboards'
       path: '/leaderboards'
@@ -626,6 +711,13 @@ declare module '@tanstack/react-router' {
       path: '/home'
       fullPath: '/home'
       preLoaderRoute: typeof HomeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/guild': {
+      id: '/guild'
+      path: '/guild'
+      fullPath: '/guild'
+      preLoaderRoute: typeof GuildRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/gifts': {
@@ -654,6 +746,20 @@ declare module '@tanstack/react-router' {
       path: '/elder'
       fullPath: '/elder'
       preLoaderRoute: typeof ElderRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/council': {
+      id: '/council'
+      path: '/council'
+      fullPath: '/council'
+      preLoaderRoute: typeof CouncilRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/community-notes': {
+      id: '/community-notes'
+      path: '/community-notes'
+      fullPath: '/community-notes'
+      preLoaderRoute: typeof CommunityNotesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/classroom': {
@@ -696,6 +802,13 @@ declare module '@tanstack/react-router' {
       path: '/messages'
       fullPath: '/messages/'
       preLoaderRoute: typeof MessagesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/guilds/': {
+      id: '/guilds/'
+      path: '/guilds'
+      fullPath: '/guilds/'
+      preLoaderRoute: typeof GuildsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/games/': {
@@ -759,6 +872,13 @@ declare module '@tanstack/react-router' {
       path: '/messages/$conversationId'
       fullPath: '/messages/$conversationId'
       preLoaderRoute: typeof MessagesConversationIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/guilds/$guildId': {
+      id: '/guilds/$guildId'
+      path: '/guilds/$guildId'
+      fullPath: '/guilds/$guildId'
+      preLoaderRoute: typeof GuildsGuildIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/games/saved': {
@@ -858,13 +978,17 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ClassroomRoute: ClassroomRoute,
+  CommunityNotesRoute: CommunityNotesRoute,
+  CouncilRoute: CouncilRoute,
   ElderRoute: ElderRoute,
   EventsRoute: EventsRoute,
   FriendsRoute: FriendsRoute,
   GiftsRoute: GiftsRoute,
+  GuildRoute: GuildRoute,
   HomeRoute: HomeRoute,
   InboxRoute: InboxRoute,
   LeaderboardsRoute: LeaderboardsRoute,
+  NemesisRoute: NemesisRoute,
   NotificationsRoute: NotificationsRoute,
   QuestsRoute: QuestsRoute,
   ReferralsRoute: ReferralsRoute,
@@ -879,6 +1003,7 @@ const rootRouteChildren: RootRouteChildren = {
   BlogsNewRoute: BlogsNewRoute,
   GamesSlugRoute: GamesSlugRoute,
   GamesSavedRoute: GamesSavedRoute,
+  GuildsGuildIdRoute: GuildsGuildIdRoute,
   MessagesConversationIdRoute: MessagesConversationIdRoute,
   MomentsCreateRoute: MomentsCreateRoute,
   ProfileUsernameRoute: ProfileUsernameRoute,
@@ -888,6 +1013,7 @@ const rootRouteChildren: RootRouteChildren = {
   BlogsIndexRoute: BlogsIndexRoute,
   BusinessIndexRoute: BusinessIndexRoute,
   GamesIndexRoute: GamesIndexRoute,
+  GuildsIndexRoute: GuildsIndexRoute,
   MessagesIndexRoute: MessagesIndexRoute,
   MomentsIndexRoute: MomentsIndexRoute,
   ProfileIndexRoute: ProfileIndexRoute,
