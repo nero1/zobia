@@ -28,7 +28,8 @@ const RECENTLY_ACTIVE_WINDOW_MINUTES = 60;
 export const GET = withAuth(async (req: NextRequest, { auth }) => {
   const userId = auth.user.sub;
   const { searchParams } = new URL(req.url);
-  const limit = Math.min(Number(searchParams.get('limit') ?? 20), 50);
+  const rawLimit = Number(searchParams.get('limit'));
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 50) : 20;
 
   const { rows } = await db.query(
     `SELECT u.id AS friend_id, u.username, u.display_name, u.avatar_emoji, u.rank_name,

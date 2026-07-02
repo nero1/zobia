@@ -16,7 +16,6 @@
 import { randomBytes } from "crypto";
 import type { DatabaseAdapter } from "@/lib/db/interface";
 import type { Plan } from "@zobia/types";
-import { ACTION_TRACKS } from "@/lib/xp/engine";
 import { creditCoins } from "@/lib/economy/coins";
 import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 import { publishRealtimeEvent } from "@/lib/realtime";
@@ -66,6 +65,8 @@ interface QuestTemplate {
   category: string;
   icon: string | null;
   plan_required: Plan | null;
+  /** Parallel progression track this quest's XP reward feeds (PRD §7), e.g. 'social', 'explorer'. */
+  track: string;
 }
 
 export interface QuestDeckItem extends QuestTemplate {
@@ -150,7 +151,7 @@ export async function generateDailyDeck(
       // unpredictable.
       const { rows: allTemplates } = await db.query<QuestTemplate>(
         `SELECT id, title, description, action_type, target_count,
-                xp_reward, coin_reward, category, icon, plan_required
+                xp_reward, coin_reward, category, icon, plan_required, track
          FROM quest_templates
          WHERE is_active = TRUE
            AND (valid_date IS NULL OR valid_date = $1)
@@ -203,7 +204,7 @@ export async function generateDailyDeck(
   }>(
     `SELECT
        qt.id, qt.title, qt.description, qt.action_type, qt.target_count,
-       qt.xp_reward, qt.coin_reward, qt.category, qt.icon, qt.plan_required,
+       qt.xp_reward, qt.coin_reward, qt.category, qt.icon, qt.plan_required, qt.track,
        COALESCE(uqp.progress_count, 0) AS progress_count,
        COALESCE(uqp.completed, FALSE) AS completed,
        uqp.completed_at
@@ -230,6 +231,7 @@ export async function generateDailyDeck(
     category: row.category,
     icon: row.icon,
     plan_required: row.plan_required,
+    track: row.track,
     progress_count: row.progress_count,
     completed: row.completed,
     completed_at: row.completed_at ?? null,
@@ -285,7 +287,7 @@ export async function updateQuestProgress(
   const result = await db.transaction(async (client) => {
     const questResult = await client.query<QuestTemplate>(
       `SELECT id, target_count, xp_reward, coin_reward, action_type,
-              category, icon, plan_required
+              category, icon, plan_required, track
        FROM quest_templates
        WHERE id = $1 AND is_active = TRUE
          AND (valid_date IS NULL OR valid_date = $2)
@@ -351,12 +353,16 @@ export async function updateQuestProgress(
       xpAwarded = quest.xp_reward;
       coinsAwarded = quest.coin_reward;
 
-      const parallelTrack =
-        ACTION_TRACKS[quest.action_type as keyof typeof ACTION_TRACKS] ?? null;
-      if (parallelTrack === null && !(quest.action_type in ACTION_TRACKS)) {
-        logger.warn({ questId, actionType: quest.action_type }, "[questEngine] unknown action_type — no track mapping found, awarding main XP");
+      // Quest XP is routed by quest_templates.track (e.g. 'social', 'explorer',
+      // 'generosity') — NOT by ACTION_TRACKS, which is keyed by XPAction values
+      // from lib/xp/engine.ts and uses a different naming namespace than
+      // quest_templates.action_type (e.g. 'send_text_message' vs 'messages').
+      // Looking action_type up in ACTION_TRACKS never matched, so every quest
+      // completion silently fell back to the main track regardless of category.
+      const xpTrack = (TRACK_COLUMN[quest.track] ? quest.track : "main") as import("@/lib/xp/safeAwardXP").XPTrack;
+      if (!TRACK_COLUMN[quest.track]) {
+        logger.warn({ questId, track: quest.track }, "[questEngine] unknown quest track — awarding main XP");
       }
-      const xpTrack = (parallelTrack as import("@/lib/xp/safeAwardXP").XPTrack) ?? "main";
       const questCompletionRef = `quest:${questId}:${userId}:${today}`;
 
       // Defer XP award to post-commit; record intent here

@@ -536,16 +536,16 @@ function PlanExpiryBanner({ info }: { info: PlanExpiryInfo }) {
   useEffect(() => {
     if (urgent) return; // urgent state is never dismissible
     try {
-      const stored = JSON.parse(localStorage.getItem(PLAN_EXPIRY_DISMISS_KEY) ?? "{}") as { endsAt?: string };
-      setDismissed(stored.endsAt === info.endsAt);
+      const stored = JSON.parse(localStorage.getItem(PLAN_EXPIRY_DISMISS_KEY) ?? "{}") as { endsAt?: string; kind?: string };
+      setDismissed(stored.endsAt === info.endsAt && stored.kind === info.kind);
     } catch {
       setDismissed(false);
     }
-  }, [info.endsAt, urgent]);
+  }, [info.endsAt, info.kind, urgent]);
 
   function dismiss() {
     try {
-      localStorage.setItem(PLAN_EXPIRY_DISMISS_KEY, JSON.stringify({ endsAt: info.endsAt }));
+      localStorage.setItem(PLAN_EXPIRY_DISMISS_KEY, JSON.stringify({ endsAt: info.endsAt, kind: info.kind }));
     } catch { /* ignore */ }
     setDismissed(true);
   }

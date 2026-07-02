@@ -39,6 +39,9 @@ const TRACK_COLUMN: Record<XPTrack, string> = {
   gaming: "xp_gaming",
 };
 
+/** Sources excluded from the 'xp_meta' meta-quest trigger below — quest/deck reward payouts. */
+const XP_META_EXCLUDED_SOURCES = new Set(["quest_complete", "deck_completion", "mentorship_bonus"]);
+
 // ---------------------------------------------------------------------------
 // Core helper
 // ---------------------------------------------------------------------------
@@ -151,12 +154,6 @@ export async function safeAwardXP(
       // the XP row is durably committed at this point, and
       // triggerActivityQuestProgress opens its own transaction internally,
       // which a TransactionClient (unlike the full DatabaseAdapter) cannot do.
-      const XP_META_EXCLUDED_SOURCES = new Set([
-        "quest_complete",
-        "deck_completion",
-        "deck_bonus",
-        "mentorship_bonus",
-      ]);
       if (amount > 0 && !dbClient && !XP_META_EXCLUDED_SOURCES.has(source)) {
         import("@/lib/quests/questEngine")
           .then(({ triggerActivityQuestProgress }) =>
