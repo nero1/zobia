@@ -18,6 +18,7 @@ import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -127,23 +128,12 @@ export const POST = withAuth(
         }
         const attemptId = attemptRows[0].id;
 
-        // Award XP if passed
+        // Award XP if passed. safeAwardXP is the canonical XP-award path — it
+        // writes the xp_ledger row (with the required NOT NULL base_amount),
+        // updates the user's track XP + total XP, and upserts leaderboard
+        // snapshots, all within this transaction.
         if (passed && xpAwarded > 0) {
-          await tx.query(
-            `UPDATE users
-             SET xp_total = xp_total + $1,
-                 xp_knowledge = COALESCE(xp_knowledge, 0) + $1,
-                 updated_at = NOW()
-             WHERE id = $2`,
-            [xpAwarded, userId]
-          );
-
-          await tx.query(
-            `INSERT INTO xp_ledger
-               (user_id, amount, track, action, xp_amount, xp_net, source, reference_id, created_at)
-             VALUES ($1, $2, 'knowledge', 'quiz_pass', $2, $2, 'classroom_quiz', $3, NOW())`,
-            [userId, xpAwarded, attemptId]
-          );
+          await safeAwardXP(userId, xpAwarded, "knowledge", "classroom_quiz", attemptId, tx);
         }
 
         return {

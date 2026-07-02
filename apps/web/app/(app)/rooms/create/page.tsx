@@ -11,7 +11,7 @@
  * enrolment fee, start/end dates, graduation ceremony toggle).
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { useCurrency } from "@/lib/hooks/useCurrency";
@@ -43,6 +43,7 @@ interface CreateRoomPayload {
   classStartDate?: string;
   classEndDate?: string;
   enrolmentFeeNgn?: number;
+  guildId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -220,6 +221,35 @@ export default function CreateRoomPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Eligibility — hides room-type buttons the caller isn't allowed to create
+  // instead of letting them pick one and hit a 403 on submit (BUG-ROOMS-03).
+  // Admins are eligible for every type, including Guild Rooms for any guild.
+  const [eligibility, setEligibility] = useState<{
+    isAdmin: boolean;
+    isCreatorEligible: boolean;
+    allowedTypes: RoomType[];
+    eligibleGuilds: Array<{ id: string; name: string; tier: string }>;
+  } | null>(null);
+  const [eligibilityLoading, setEligibilityLoading] = useState(true);
+  const [guildId, setGuildId] = useState<string>("");
+
+  useEffect(() => {
+    fetch("/api/rooms/eligibility", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { data?: typeof eligibility } | null) => {
+        if (body?.data) {
+          setEligibility(body.data);
+          if (body.data.eligibleGuilds[0]) setGuildId(body.data.eligibleGuilds[0].id);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setEligibilityLoading(false));
+  }, []);
+
+  const visibleRoomTypeOptions = eligibility
+    ? ROOM_TYPE_OPTIONS.filter((opt) => eligibility.allowedTypes.includes(opt.type))
+    : ROOM_TYPE_OPTIONS;
+
   const selectedType = ROOM_TYPE_OPTIONS.find((t) => t.type === roomType)!;
 
   async function handleSubmit() {
@@ -253,6 +283,9 @@ export default function CreateRoomPage() {
       if (startDate) payload.classStartDate = startDate;
       if (endDate) payload.classEndDate = endDate;
       payload.enrolmentFeeNgn = enrolmentFee ? parseInt(enrolmentFee, 10) : 0;
+    }
+    if (roomType === "guild" && eligibility?.isAdmin && guildId) {
+      payload.guildId = guildId;
     }
 
     try {
@@ -317,37 +350,72 @@ export default function CreateRoomPage() {
       {/* Step 1: Room type */}
       {step === "type" && (
         <div className="space-y-4">
-          <p className="text-sm text-neutral-500">Choose the type of room you want to create.</p>
-          <div className="space-y-3">
-            {ROOM_TYPE_OPTIONS.map((opt) => (
-              <button
-                key={opt.type}
-                type="button"
-                onClick={() => { setRoomType(opt.type); setCoverEmoji(opt.emoji); }}
-                className={`flex w-full items-start gap-4 rounded-xl border-2 p-4 text-left transition-colors ${
-                  roomType === opt.type
-                    ? `${opt.borderColor} bg-blue-50 dark:bg-blue-950/20`
-                    : "border-neutral-200 hover:border-neutral-300 dark:border-neutral-800"
-                }`}
-              >
-                <span className="text-3xl">{opt.emoji}</span>
-                <div className="flex-1">
-                  <p className="font-semibold text-neutral-900 dark:text-neutral-100">{opt.label}</p>
-                  <p className="mt-0.5 text-xs text-neutral-500">{opt.description}</p>
+          {eligibilityLoading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="h-20 animate-pulse rounded-xl bg-neutral-100 dark:bg-neutral-800" />
+              ))}
+            </div>
+          ) : eligibility && !eligibility.isCreatorEligible ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
+              {translate("rooms.create.creatorRequired")}
+            </div>
+          ) : (
+            <>
+              <p className="text-sm text-neutral-500">Choose the type of room you want to create.</p>
+              <div className="space-y-3">
+                {visibleRoomTypeOptions.map((opt) => (
+                  <button
+                    key={opt.type}
+                    type="button"
+                    onClick={() => { setRoomType(opt.type); setCoverEmoji(opt.emoji); }}
+                    className={`flex w-full items-start gap-4 rounded-xl border-2 p-4 text-left transition-colors ${
+                      roomType === opt.type
+                        ? `${opt.borderColor} bg-blue-50 dark:bg-blue-950/20`
+                        : "border-neutral-200 hover:border-neutral-300 dark:border-neutral-800"
+                    }`}
+                  >
+                    <span className="text-3xl">{opt.emoji}</span>
+                    <div className="flex-1">
+                      <p className="font-semibold text-neutral-900 dark:text-neutral-100">{opt.label}</p>
+                      <p className="mt-0.5 text-xs text-neutral-500">{opt.description}</p>
+                    </div>
+                    {roomType === opt.type && (
+                      <span className="text-sm text-blue-600">✓</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {/* Guild picker — admins can attach a Guild Room to any guild;
+                  regular Guild owners/admins are auto-attached server-side. */}
+              {roomType === "guild" && eligibility?.isAdmin && eligibility.eligibleGuilds.length > 0 && (
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-neutral-500" htmlFor="guild-picker">
+                    {translate("rooms.create.guildLabel")}
+                  </label>
+                  <select
+                    id="guild-picker"
+                    value={guildId}
+                    onChange={(e) => setGuildId(e.target.value)}
+                    className="w-full rounded-xl border border-neutral-300 bg-white px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                  >
+                    {eligibility.eligibleGuilds.map((g) => (
+                      <option key={g.id} value={g.id}>{g.name} ({g.tier})</option>
+                    ))}
+                  </select>
                 </div>
-                {roomType === opt.type && (
-                  <span className="text-sm text-blue-600">✓</span>
-                )}
+              )}
+
+              <button
+                type="button"
+                onClick={() => setStep("details")}
+                className="w-full rounded-xl bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+              >
+                Continue →
               </button>
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={() => setStep("details")}
-            className="w-full rounded-xl bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700"
-          >
-            Continue →
-          </button>
+            </>
+          )}
         </div>
       )}
 

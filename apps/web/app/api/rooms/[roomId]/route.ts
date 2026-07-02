@@ -113,7 +113,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const { roomId } = await params as { roomId: string };
 
-    const { rows: roomRows } = await db.query<RoomDetailRow>(
+    const { rows: roomRows } = await db.query<RoomDetailRow & { is_admin: boolean }>(
       `SELECT
          r.id,
          r.name,
@@ -147,11 +147,13 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
          r.updated_at,
          rm.role            AS caller_role,
          COALESCE(r.is_suspended, FALSE) AS is_suspended,
-         COALESCE(r.is_banned, FALSE)    AS is_banned
+         COALESCE(r.is_banned, FALSE)    AS is_banned,
+         COALESCE(caller.is_admin, FALSE) AS is_admin
        FROM rooms r
        JOIN users u ON u.id = r.creator_id
        LEFT JOIN room_members rm
          ON rm.room_id = r.id AND rm.user_id = $2
+       LEFT JOIN users caller ON caller.id = $2
        WHERE r.id = $1
          AND r.is_active = TRUE`,
       [roomId, auth.user.sub]
@@ -162,8 +164,9 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     if (room.is_banned) throw forbidden("This room has been permanently banned");
     if (room.is_suspended) throw forbidden("This room is currently suspended");
 
-    // Guild rooms are restricted to Platinum-tier guilds and above
-    if (room.type === "guild") {
+    // Guild rooms are restricted to Platinum-tier guilds and above.
+    // Admins bypass this gate entirely — they can open and moderate any room.
+    if (room.type === "guild" && !room.is_admin) {
       const { rows: guildTierRows } = await db.query<{ tier: string }>(
         `SELECT g.tier FROM guilds g
          JOIN guild_rooms gr ON gr.guild_id = g.id
@@ -229,6 +232,17 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
          LIMIT 1`,
       [roomId]
     );
+
+    // Record this open for the "Recently Visited" discovery tab. Fire-and-forget
+    // — a visit-tracking failure must never break the room detail response.
+    db.query(
+      `INSERT INTO room_visits (user_id, room_id, last_visited_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (user_id, room_id) DO UPDATE SET last_visited_at = NOW()`,
+      [auth.user.sub, roomId]
+    ).catch((err) => {
+      logger.warn({ err, roomId, userId: auth.user.sub }, "[rooms] failed to record room visit");
+    });
 
     return NextResponse.json(
       {

@@ -4,15 +4,17 @@
  * app/(app)/rooms/page.tsx
  *
  * Rooms discovery page (web version).
- * Tab filters (Trending / Near Me / Friends In), room type chips,
- * search bar, RoomCard grid, cursor-based pagination, Create Room button.
+ * Tab filters (Trending / Near Me / Friends In / Recently Visited / Faves),
+ * room type chips, search bar, list/grid view toggle (list is the scalable
+ * default for a discovery feed that can grow to tens of thousands of rooms),
+ * cursor-based pagination, Create Room button.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
-import { RoomCard, type RoomCardData } from "@/components/rooms/RoomCard";
+import { RoomCard, RoomListRow, type RoomCardData } from "@/components/rooms/RoomCard";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 
@@ -20,26 +22,29 @@ import { translateApiError } from "@/lib/i18n/apiErrors";
 // Types
 // ---------------------------------------------------------------------------
 
-type Tab = "trending" | "nearby" | "friends";
+type Tab = "trending" | "nearby" | "friends" | "recent" | "faves";
 type RoomTypeFilter = "all" | "public" | "vip" | "drop" | "classroom" | "guild";
+type ViewMode = "list" | "grid";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const TABS: { key: Tab; label: string }[] = [
-  { key: "trending", label: "Trending" },
-  { key: "nearby", label: "Near Me" },
-  { key: "friends", label: "Friends In" },
+const TABS: { key: Tab; labelKey: string; icon: string }[] = [
+  { key: "trending", labelKey: "rooms.tab.trending", icon: "🔥" },
+  { key: "nearby", labelKey: "rooms.tab.nearby", icon: "📍" },
+  { key: "friends", labelKey: "rooms.tab.friends", icon: "👥" },
+  { key: "recent", labelKey: "rooms.tab.recent", icon: "🕐" },
+  { key: "faves", labelKey: "rooms.tab.faves", icon: "❤️" },
 ];
 
-const TYPE_CHIPS: { key: RoomTypeFilter; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "public", label: "Free" },
-  { key: "vip", label: "VIP" },
-  { key: "drop", label: "Drop" },
-  { key: "classroom", label: "ClassRoom" },
-  { key: "guild", label: "Guild" },
+const TYPE_CHIPS: { key: RoomTypeFilter; labelKey: string }[] = [
+  { key: "all", labelKey: "rooms.filter.all" },
+  { key: "public", labelKey: "rooms.filter.free" },
+  { key: "vip", labelKey: "rooms.filter.vip" },
+  { key: "drop", labelKey: "rooms.filter.drop" },
+  { key: "classroom", labelKey: "rooms.filter.classroom" },
+  { key: "guild", labelKey: "rooms.filter.guild" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -127,15 +132,15 @@ function DropRoomFomoStrip() {
   useEffect(() => {
     fetch("/api/rooms?type=drop&trending=1&limit=6", { credentials: "include" })
       .then((r) => r.ok ? r.json() : null)
-      .then((d: { items?: Array<RoomCardData & { dropEndsAt?: string; entryFee?: number }> } | null) => {
+      .then((d: { items?: Array<RoomCardData & { dropEndsAt?: string | null }> } | null) => {
         const drops = (d?.items ?? [])
-          .filter((r) => r.type === "drop" && r.dropEndsAt)
+          .filter((r) => r.roomType === "drop" && r.dropEndsAt)
           .map((r) => ({
             id: r.id,
             name: r.name,
             coverEmoji: r.coverEmoji ?? "🎟️",
-            dropEndsAt: (r as { dropEndsAt?: string }).dropEndsAt!,
-            entryFee: r.entryFee ?? null,
+            dropEndsAt: r.dropEndsAt!,
+            entryFee: r.entryFeeNgn ?? null,
             memberCount: r.memberCount,
           }));
         setDropRooms(drops);
@@ -197,6 +202,7 @@ export default function RoomsPage() {
   const [typeFilter, setTypeFilter] = useState<RoomTypeFilter>("all");
   const [availability, setAvailability] = useState<"all" | "available" | "full">("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [rooms, setRooms] = useState<RoomCardData[]>([]);
   const [pinnedRooms, setPinnedRooms] = useState<RoomCardData[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -206,12 +212,19 @@ export default function RoomsPage() {
   const [joiningId, setJoiningId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const refreshPinned = useCallback(() => {
     fetch("/api/rooms/pinned", { credentials: "include" })
       .then((r) => r.ok ? r.json() : { rooms: [] })
       .then((d: { rooms?: RoomCardData[] }) => setPinnedRooms(d.rooms ?? []))
       .catch(() => {});
   }, []);
+
+  useEffect(() => { refreshPinned(); }, [refreshPinned]);
+
+  // "Recent" and "Faves" are backed by dedicated endpoints (room_visits /
+  // room_pins) rather than the main discovery feed, so type/availability
+  // filters and search don't apply to them.
+  const isDedicatedTab = activeTab === "recent" || activeTab === "faves";
 
   const fetchRooms = useCallback(
     async (opts: { tab: Tab; type: RoomTypeFilter; q: string; avail?: "all" | "available" | "full"; cursor?: string; append?: boolean }) => {
@@ -221,15 +234,22 @@ export default function RoomsPage() {
 
       try {
         const params = new URLSearchParams();
-        if (tab === "trending") params.set("trending", "1");
-        if (tab === "friends") params.set("friends_in_room", "1");
-        if (type === "public") params.set("type", "free_open");
-        else if (type !== "all") params.set("type", type);
-        if (avail && avail !== "all") params.set("availability", avail);
-        if (q.trim()) params.set("q", q.trim());
+        let endpoint = "/api/rooms";
+        if (tab === "recent") {
+          endpoint = "/api/rooms/recent";
+        } else if (tab === "faves") {
+          endpoint = "/api/rooms/pinned";
+        } else {
+          if (tab === "trending") params.set("trending", "1");
+          if (tab === "friends") params.set("friends_in_room", "1");
+          if (type === "public") params.set("type", "free_open");
+          else if (type !== "all") params.set("type", type);
+          if (avail && avail !== "all") params.set("availability", avail);
+          if (q.trim()) params.set("q", q.trim());
+        }
         if (cur) params.set("cursor", cur);
 
-        const res = await fetch(`/api/rooms?${params.toString()}`, { credentials: "include" });
+        const res = await fetch(`${endpoint}?${params.toString()}`, { credentials: "include" });
         if (res.status === 401) { window.location.href = "/auth/login"; return; }
         if (!res.ok) {
           const body = await res.json().catch(() => ({})) as { error?: { code?: string; message?: string } };
@@ -237,9 +257,13 @@ export default function RoomsPage() {
           err.code = body.error?.code ?? null;
           throw err;
         }
-        const data = (await res.json()) as { items: (RoomCardData & { is_full?: boolean })[]; nextCursor?: string | null; hasMore?: boolean };
-        // API returns snake_case is_full — surface it as isFull for the card.
-        const mapped = (data.items ?? []).map((it) => ({ ...it, isFull: it.isFull ?? it.is_full }));
+        const data = (await res.json()) as {
+          items?: RoomCardData[];
+          rooms?: RoomCardData[];
+          nextCursor?: string | null;
+          hasMore?: boolean;
+        };
+        const mapped = data.items ?? data.rooms ?? [];
 
         setRooms((prev) => append ? [...prev, ...mapped] : mapped);
         setCursor(data.nextCursor ?? null);
@@ -260,6 +284,32 @@ export default function RoomsPage() {
     setError(null);
     void fetchRooms({ tab: activeTab, type: typeFilter, q: searchQuery, avail: availability });
   }, [activeTab, typeFilter, availability, searchQuery, fetchRooms]);
+
+  async function handleToggleFavorite(roomId: string, next: boolean) {
+    // Optimistic update across both the visible list and the pinned strip.
+    setRooms((prev) => prev.map((r) => (r.id === roomId ? { ...r, isFavorited: next } : r)));
+    try {
+      const res = await fetch("/api/rooms/pinned", {
+        method: next ? "POST" : "DELETE",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roomId }),
+      });
+      if (!res.ok) {
+        // Revert on failure (e.g. pin limit reached)
+        setRooms((prev) => prev.map((r) => (r.id === roomId ? { ...r, isFavorited: !next } : r)));
+        const body = await res.json().catch(() => ({})) as { error?: { message?: string } };
+        setError(body.error?.message ?? "Couldn't update favorite");
+        return;
+      }
+      refreshPinned();
+      if (activeTab === "faves" && !next) {
+        setRooms((prev) => prev.filter((r) => r.id !== roomId));
+      }
+    } catch {
+      setRooms((prev) => prev.map((r) => (r.id === roomId ? { ...r, isFavorited: !next } : r)));
+    }
+  }
 
   function handleLoadMore() {
     if (!cursor || loadingMore) return;
@@ -282,12 +332,12 @@ export default function RoomsPage() {
     <div className="mx-auto w-full max-w-4xl space-y-4 p-4 sm:p-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">Rooms</h1>
+        <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">{t("rooms.title")}</h1>
         <button
           onClick={() => router.push("/rooms/create")}
           className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
         >
-          + Create Room
+          {t("rooms.createRoom")}
         </button>
       </div>
 
@@ -298,72 +348,97 @@ export default function RoomsPage() {
       <DropRoomFomoStrip />
 
       {/* Tab filters */}
-      <div className="flex gap-1 rounded-xl border border-neutral-200 bg-neutral-100 p-1 dark:border-neutral-800 dark:bg-neutral-800">
+      <div className="flex gap-1 overflow-x-auto rounded-xl border border-neutral-200 bg-neutral-100 p-1 dark:border-neutral-800 dark:bg-neutral-800">
         {TABS.map((tab) => (
           <button
             key={tab.key}
             onClick={() => { setActiveTab(tab.key); setRooms([]); setCursor(null); }}
-            className={`flex-1 rounded-lg py-2 text-sm font-semibold transition-colors ${
+            className={`flex flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-lg py-2 px-2 text-sm font-semibold transition-colors ${
               activeTab === tab.key
                 ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-900 dark:text-neutral-50"
                 : "text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
             }`}
           >
-            {tab.label}
+            <span aria-hidden="true">{tab.icon}</span>
+            <span>{t(tab.labelKey)}</span>
           </button>
         ))}
       </div>
 
-      {/* Search bar */}
-      <div className="relative">
-        <svg className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
-        </svg>
-        <input
-          type="search"
-          value={searchQuery}
-          onChange={(e) => { setSearchQuery(e.target.value); setRooms([]); setCursor(null); }}
-          placeholder="Search rooms…"
-          className="w-full rounded-xl border border-neutral-300 bg-white py-2.5 pl-9 pr-4 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder-neutral-500"
-        />
-      </div>
+      {!isDedicatedTab && (
+        <>
+          {/* Search bar */}
+          <div className="relative">
+            <svg className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+            </svg>
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => { setSearchQuery(e.target.value); setRooms([]); setCursor(null); }}
+              placeholder={t("rooms.search.placeholder")}
+              className="w-full rounded-xl border border-neutral-300 bg-white py-2.5 pl-9 pr-4 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder-neutral-500"
+            />
+          </div>
 
-      {/* Type filter chips */}
-      <div className="flex flex-wrap gap-2">
-        {TYPE_CHIPS.map((chip) => (
+          {/* Type filter chips */}
+          <div className="flex flex-wrap gap-2">
+            {TYPE_CHIPS.map((chip) => (
+              <button
+                key={chip.key}
+                onClick={() => { setTypeFilter(chip.key); setRooms([]); setCursor(null); }}
+                className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+                  typeFilter === chip.key
+                    ? "bg-blue-600 text-white"
+                    : "border border-neutral-300 text-neutral-600 hover:border-blue-400 hover:text-blue-600 dark:border-neutral-700 dark:text-neutral-400"
+                }`}
+              >
+                {t(chip.labelKey)}
+              </button>
+            ))}
+          </div>
+
+          {/* Availability filter chips */}
+          <div className="flex flex-wrap gap-2">
+            {([
+              { key: "all", label: t("room.availabilityAll") },
+              { key: "available", label: t("room.availabilityAvailable") },
+              { key: "full", label: t("room.availabilityFull") },
+            ] as const).map((chip) => (
+              <button
+                key={chip.key}
+                onClick={() => { setAvailability(chip.key); setRooms([]); setCursor(null); }}
+                className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+                  availability === chip.key
+                    ? "bg-blue-600 text-white"
+                    : "border border-neutral-300 text-neutral-600 hover:border-blue-400 hover:text-blue-600 dark:border-neutral-700 dark:text-neutral-400"
+                }`}
+              >
+                {chip.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* View mode toggle — list is the scalable default for tens of thousands of rooms */}
+      <div className="flex justify-end">
+        <div className="flex gap-0.5 rounded-lg border border-neutral-200 bg-white p-0.5 dark:border-neutral-800 dark:bg-neutral-900">
           <button
-            key={chip.key}
-            onClick={() => { setTypeFilter(chip.key); setRooms([]); setCursor(null); }}
-            className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
-              typeFilter === chip.key
-                ? "bg-blue-600 text-white"
-                : "border border-neutral-300 text-neutral-600 hover:border-blue-400 hover:text-blue-600 dark:border-neutral-700 dark:text-neutral-400"
-            }`}
+            type="button"
+            onClick={() => setViewMode("list")}
+            className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${viewMode === "list" ? "bg-blue-600 text-white" : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"}`}
           >
-            {chip.label}
+            ☰ {t("games.view.list")}
           </button>
-        ))}
-      </div>
-
-      {/* Availability filter chips */}
-      <div className="flex flex-wrap gap-2">
-        {([
-          { key: "all", label: t("room.availabilityAll") },
-          { key: "available", label: t("room.availabilityAvailable") },
-          { key: "full", label: t("room.availabilityFull") },
-        ] as const).map((chip) => (
           <button
-            key={chip.key}
-            onClick={() => { setAvailability(chip.key); setRooms([]); setCursor(null); }}
-            className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
-              availability === chip.key
-                ? "bg-blue-600 text-white"
-                : "border border-neutral-300 text-neutral-600 hover:border-blue-400 hover:text-blue-600 dark:border-neutral-700 dark:text-neutral-400"
-            }`}
+            type="button"
+            onClick={() => setViewMode("grid")}
+            className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${viewMode === "grid" ? "bg-blue-600 text-white" : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"}`}
           >
-            {chip.label}
+            ⊞ {t("games.view.grid")}
           </button>
-        ))}
+        </div>
       </div>
 
       {/* Error */}
@@ -373,35 +448,64 @@ export default function RoomsPage() {
         </div>
       )}
 
-      {/* Room grid */}
+      {/* Room list / grid */}
       {loading ? (
         <RoomsGridSkeleton />
       ) : rooms.length === 0 ? (
         <div className="rounded-xl border border-neutral-200 bg-white px-6 py-16 text-center dark:border-neutral-800 dark:bg-neutral-900">
-          <span className="text-4xl">🏠</span>
-          <p className="mt-3 text-base font-semibold text-neutral-700 dark:text-neutral-300">No rooms found</p>
-          <p className="mt-1 text-sm text-neutral-400">
-            {searchQuery.trim() ? "Try a different search term or filter" : "Be the first to create a room!"}
+          <span className="text-4xl">{activeTab === "faves" ? "❤️" : activeTab === "recent" ? "🕐" : "🏠"}</span>
+          <p className="mt-3 text-base font-semibold text-neutral-700 dark:text-neutral-300">
+            {activeTab === "faves"
+              ? t("rooms.faves.empty", "No favorite rooms yet")
+              : activeTab === "recent"
+              ? t("rooms.recent.empty", "You haven't visited any rooms yet")
+              : t("rooms.empty.title")}
           </p>
-          <button
-            onClick={() => router.push("/rooms/create")}
-            className="mt-4 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
-          >
-            Create a Room
-          </button>
+          <p className="mt-1 text-sm text-neutral-400">
+            {activeTab === "faves"
+              ? t("rooms.faves.emptyHint", "Tap the heart icon on a room to save it here")
+              : activeTab === "recent"
+              ? t("rooms.recent.emptyHint", "Rooms you open will show up here")
+              : searchQuery.trim()
+              ? t("rooms.empty.searchHint")
+              : t("rooms.empty.createHint")}
+          </p>
+          {!isDedicatedTab && (
+            <button
+              onClick={() => router.push("/rooms/create")}
+              className="mt-4 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              {t("rooms.empty.createButton")}
+            </button>
+          )}
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {rooms.map((room) => (
-              <RoomCard
-                key={room.id}
-                room={room}
-                onJoin={handleJoin}
-                joining={joiningId === room.id}
-              />
-            ))}
-          </div>
+          {viewMode === "grid" ? (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {rooms.map((room) => (
+                <RoomCard
+                  key={room.id}
+                  room={room}
+                  onJoin={handleJoin}
+                  joining={joiningId === room.id}
+                  onToggleFavorite={handleToggleFavorite}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {rooms.map((room) => (
+                <RoomListRow
+                  key={room.id}
+                  room={room}
+                  onJoin={handleJoin}
+                  joining={joiningId === room.id}
+                  onToggleFavorite={handleToggleFavorite}
+                />
+              ))}
+            </div>
+          )}
 
           {/* Load more */}
           {hasMore && (
@@ -411,7 +515,7 @@ export default function RoomsPage() {
                 disabled={loadingMore}
                 className="rounded-xl border border-neutral-300 px-6 py-2.5 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
               >
-                {loadingMore ? "Loading…" : "Load more"}
+                {loadingMore ? t("rooms.loading") : t("rooms.loadMore")}
               </button>
             </div>
           )}
