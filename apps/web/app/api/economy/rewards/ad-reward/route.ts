@@ -23,19 +23,7 @@ import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, forbidden } from "@/lib/api/errors";
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/** Maximum rewarded-ad claims allowed per calendar day per user. */
-const DAILY_AD_REWARD_CAP = 5;
-
-/** Minimum coins awarded per rewarded ad. */
-const MIN_COINS = 10;
-
-/** Maximum coins awarded per rewarded ad. */
-const MAX_COINS = 20;
+import { loadManifest } from "@/lib/manifest";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -96,7 +84,13 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       );
     }
 
-    // 2. Atomically claim a daily slot in Redis. INCR is atomic so two concurrent
+    // 2. Admin-configurable cap/payout range (lib/manifest, cached — no extra Redis call).
+    const manifest = await loadManifest();
+    const dailyCap = manifest.ads.rewardedDailyCap;
+    const minCoins = manifest.ads.rewardedCreditsMin;
+    const maxCoins = manifest.ads.rewardedCreditsMax;
+
+    // 3. Atomically claim a daily slot in Redis. INCR is atomic so two concurrent
     // requests racing at count=4 will get distinct values (5 and 6); the one that
     // gets 6 returns the slot and is rejected. This eliminates the TOCTOU window
     // that existed when using GET then INCR as two separate operations.
@@ -107,14 +101,14 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       await redis.expire(redisKey, secondsUntilMidnightUTC());
     }
 
-    if (newCount > DAILY_AD_REWARD_CAP) {
+    if (newCount > dailyCap) {
       // Return the slot we just claimed so the counter stays accurate.
       await redis.decr(redisKey).catch(() => {});
       return NextResponse.json(
         {
           error: {
             code: "DAILY_LIMIT_REACHED",
-            message: `You've claimed ${DAILY_AD_REWARD_CAP} rewarded ads today. Come back tomorrow!`,
+            message: `You've claimed ${dailyCap} rewarded ads today. Come back tomorrow!`,
           },
           remaining: 0,
         },
@@ -122,8 +116,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       );
     }
 
-    // 3. Award random coins and write to coin_ledger atomically
-    const coinsAwarded = randomIntInclusive(MIN_COINS, MAX_COINS);
+    // 4. Award random coins and write to coin_ledger atomically
+    const coinsAwarded = randomIntInclusive(minCoins, maxCoins);
 
     try {
       await db.transaction(async (client) => {
@@ -170,7 +164,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       throw dbErr;
     }
 
-    const remainingToday = DAILY_AD_REWARD_CAP - newCount;
+    const remainingToday = dailyCap - newCount;
 
     return NextResponse.json({
       success: true,

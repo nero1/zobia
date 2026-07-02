@@ -18,6 +18,14 @@ const config: CapacitorConfig = {
     PushNotifications: {
       presentationOptions: ['badge', 'sound', 'alert'],
     },
+    AdMob: {
+      // Real ad unit IDs are read at runtime from x_manifest (ad_admob_*) via
+      // GET /api/manifest — see docs/SETUP.md "AdMob (Capacitor Android)"
+      // for the native AndroidManifest.xml App ID step required before release.
+      requestTrackingAuthorization: true,
+      testingDevices: [],
+      initializeForTesting: true,
+    },
   },
 }
 
